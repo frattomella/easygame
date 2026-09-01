@@ -1,10 +1,45 @@
 import { NextResponse } from "next/server";
-import { createClubNotifications } from "@/lib/server/club-notifications";
-import { isManagementAccessRole } from "@/lib/access-roles";
-import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
-import { getParentDashboardData } from "@/lib/server/parent-dashboard";
-import { isDateTimeWithinOpeningHours } from "@/lib/opening-hours-utils";
+import {
+  cancelFamilyAppointment,
+  listFamilyAppointments,
+  listFamilyFreeSlots,
+  requestFamilyAppointment,
+  rescheduleFamilyAppointment,
+  resolveFamilyAppointmentContext,
+} from "@/lib/server/appointments";
+
+/**
+ * **L'appuntamento visto dalla famiglia, sul dominio nuovo.**
+ *
+ * ---
+ *
+ * ## Cosa faceva questo file, e perche non poteva funzionare
+ *
+ * Leggeva `clubs.appointments`, ci aggiungeva un elemento con un
+ * identificativo costruito dall'orologio (`parent-appointment-${Date.now()}`) e
+ * riscriveva la colonna intera. La segreteria faceva la stessa cosa con una
+ * **forma diversa** dello stesso oggetto — senza stato e senza `athlete_id` —
+ * e alla prima operazione della segreteria la richiesta della famiglia
+ * spariva: era D-1, e non era un difetto di questo file ma della sua unica
+ * strada possibile.
+ *
+ * Data e ora viaggiavano come due stringhe separate, validate contro gli orari
+ * di apertura **nel fuso del server**. Non esisteva nessuna conferma, nessun
+ * rifiuto e nessun motivo: una richiesta restava in attesa per sempre.
+ *
+ * ## Cosa fa adesso
+ *
+ * Nulla, se non tradurre HTTP in chiamate al dominio. Il legame lo risolve
+ * `resolveFamilyAppointmentContext` — che ne deriva anche il club, che percio
+ * non arriva mai dal client — e la congiunzione atleta **e** autore vive in
+ * `src/lib/server/appointments.ts`, dove vale per ogni chiamante e non solo per
+ * questa rotta.
+ *
+ * I tre verbi restano quelli che l'area genitore chiama gia (`POST`, `PATCH`,
+ * `DELETE`): `PATCH` non modifica piu la data in luogo, propone una
+ * **riprogrammazione**, che crea una riga nuova e chiude la vecchia.
+ */
 
 type Context = {
   params: {
@@ -12,423 +47,213 @@ type Context = {
   };
 };
 
-const asArray = <T = any>(value: unknown): T[] =>
-  Array.isArray(value) ? (value as T[]) : [];
-
 const firstText = (...values: unknown[]) => {
   for (const value of values) {
     const text = String(value || "").trim();
     if (text) return text;
   }
-
   return "";
 };
 
-const normalizeStatus = (value: unknown) =>
-  String(value || "")
-    .trim()
-    .toLowerCase();
-
-const isParentAppointment = (
-  appointment: any,
-  athleteId: string,
-  userId: string,
-) =>
-  String(appointment?.athlete_id || appointment?.athleteId || "") === athleteId ||
-  String(appointment?.requested_by_user_id || "") === userId;
-
-const canEditAppointment = (appointment: any) =>
-  ["pending", "requested", "richiesto"].includes(normalizeStatus(appointment?.status));
-
-const createAppointmentNotification = async ({
-  organizationId,
-  title,
-  message,
-  appointment,
-}: {
-  organizationId: string;
-  title: string;
-  message: string;
-  appointment: Record<string, any>;
-}) => {
-  /*
-    **La richiesta di una famiglia non si mostra alle altre famiglie.**
-
-    Nasceva con `user_id: null`, che nel modello vuol dire «di club» e che il
-    prodotto interpreta come «di tutti»: `getParentDashboardData` legge
-    `OR: [{ user_id: userId }, { user_id: null }]` e restituisce la riga
-    **intera**, campo `data` compreso. E in `data` c'era l'appuntamento per
-    esteso — nome del genitore, indirizzo, telefono, nome del minore e il
-    motivo scritto a mano.
-
-    Bastava aprire la propria area famiglia per leggere quelle di tutti gli
-    altri, e rileggerla ogni giorno per raccogliere la rubrica del club.
-
-    La regola — un destinatario per riga, mai `user_id: null` — era gia stata
-    scritta due volte altrove; adesso ha un proprietario, e questi scrittori
-    la usano. Il perimetro qui e la gestione del club: un appuntamento lo
-    prende la segreteria — cioe l'area gestionale — non l'allenatore e non le altre famiglie.
-  */
-  await createClubNotifications({
-    clubId: organizationId,
-    title,
-    message,
-    type: "appointment_request",
-    data: appointment,
-    audience: (role) => isManagementAccessRole(role),
-  }).catch(() => undefined);
+const errorStatus = (error: any) => {
+  const messaggio = String(error?.message || "");
+  if (messaggio.includes("Accesso negato")) return 403;
+  if (messaggio.includes("aggiornato da qualcun altro")) return 409;
+  if (messaggio.includes("non trovata") || messaggio.includes("non trovato")) {
+    return 404;
+  }
+  return 400;
 };
 
-export async function POST(request: Request, context: Context) {
+const contesto = async (request: Request, athleteId: string) => {
+  const session = await requireAuthenticatedUser(request);
+  if (!session) return { session: null, ctx: null };
+  const ctx = await resolveFamilyAppointmentContext(session.db.user_id, athleteId);
+  return { session, ctx };
+};
+
+const sessioneNonValida = () =>
+  NextResponse.json(
+    { data: null, error: { message: "Sessione non valida" } },
+    { status: 401 },
+  );
+
+const legameAssente = () =>
+  NextResponse.json(
+    { data: null, error: { message: "Atleta non collegato a questo account" } },
+    { status: 403 },
+  );
+
+/**
+ * L'elenco degli appuntamenti del figlio e gli **slot liberi** su cui chiedere.
+ *
+ * La famiglia sceglie uno slot, non una data qualunque: e la differenza fra un
+ * orario che risulta libero e un orario che il club puo davvero ricevere.
+ */
+export async function GET(request: Request, context: Context) {
   try {
-    const session = await requireAuthenticatedUser(request);
-    if (!session) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Sessione non valida" },
-        },
-        { status: 401 },
-      );
-    }
+    const { session, ctx } = await contesto(request, context.params.athleteId);
+    if (!session) return sessioneNonValida();
+    if (!ctx) return legameAssente();
 
-    const dashboard = await getParentDashboardData(
-      session.db.user_id,
-      context.params.athleteId,
-    );
+    const url = new URL(request.url);
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    const inizio = from ? new Date(from) : new Date();
+    const fine = to ? new Date(to) : new Date(inizio.getTime() + 30 * 86400000);
 
-    if (!dashboard) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Atleta non collegato a questo account" },
-        },
-        { status: 403 },
-      );
-    }
+    const [items, slots] = await Promise.all([
+      listFamilyAppointments(ctx),
+      listFamilyFreeSlots(ctx, {
+        from: inizio,
+        to: fine,
+        siteId: url.searchParams.get("site_id"),
+      }),
+    ]);
 
-    const body = await request.json().catch(() => ({}));
-    const reason = firstText(body?.reason, body?.title);
-    const date = firstText(body?.date);
-    const time = firstText(body?.time);
-    const notes = firstText(body?.notes);
-
-    if (!reason || !date || !time) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Motivo, giorno e orario sono obbligatori" },
-        },
-        { status: 400 },
-      );
-    }
-
-    const validation = isDateTimeWithinOpeningHours(
-      dashboard.appointments.openingHours,
-      date,
-      time,
-    );
-    if (!validation.valid) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: {
-            message:
-              validation.reason ||
-              "L'orario selezionato e fuori dagli orari di apertura della segreteria.",
-          },
-        },
-        { status: 400 },
-      );
-    }
-
-    const club = await prisma.club.findUnique({
-      where: { id: dashboard.club.id },
-      select: { appointments: true },
-    });
-    const nowIso = new Date().toISOString();
-    const parentName =
-      [session.db.user.first_name, session.db.user.last_name]
-        .filter(Boolean)
-        .join(" ")
-        .trim() || session.db.user.email;
-    const appointment = {
-      id: `parent-appointment-${Date.now()}`,
-      title: reason,
-      reason,
-      date,
-      time,
-      notes,
-      status: "pending",
-      source: "parent_dashboard",
-      organization_id: dashboard.club.id,
-      athlete_id: dashboard.athlete.id,
-      athlete_name: dashboard.athlete.name,
-      person: parentName,
-      parent_name: parentName,
-      requested_by_user_id: session.db.user_id,
-      requested_by_email: session.db.user.email,
-      requested_by_phone: session.db.user.phone || "",
-      created_at: nowIso,
-      updated_at: nowIso,
-    };
-
-    await prisma.club.update({
-      where: { id: dashboard.club.id },
+    return NextResponse.json({
       data: {
-        appointments: [...asArray(club?.appointments), appointment],
+        items,
+        availableSlots: slots.map((slot) => ({
+          ...slot,
+          startsAt: slot.startsAt.toISOString(),
+          endsAt: slot.endsAt.toISOString(),
+        })),
       },
+      error: null,
     });
-
-    await createAppointmentNotification({
-      organizationId: dashboard.club.id,
-      title: "Nuova richiesta appuntamento",
-      message: `${parentName} ha richiesto un appuntamento per ${dashboard.athlete.name}.`,
-      appointment,
-    });
-
-    return NextResponse.json({ data: appointment, error: null });
   } catch (error: any) {
     return NextResponse.json(
       {
         data: null,
-        error: {
-          message: error?.message || "Errore prenotazione appuntamento",
-        },
+        error: { message: error?.message || "Errore lettura appuntamenti" },
       },
-      { status: 500 },
+      { status: errorStatus(error) },
     );
   }
 }
 
-export async function PATCH(request: Request, context: Context) {
+export async function POST(request: Request, context: Context) {
   try {
-    const session = await requireAuthenticatedUser(request);
-    if (!session) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Sessione non valida" },
-        },
-        { status: 401 },
-      );
-    }
-
-    const dashboard = await getParentDashboardData(
-      session.db.user_id,
-      context.params.athleteId,
-    );
-
-    if (!dashboard) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Atleta non collegato a questo account" },
-        },
-        { status: 403 },
-      );
-    }
+    const { session, ctx } = await contesto(request, context.params.athleteId);
+    if (!session) return sessioneNonValida();
+    if (!ctx) return legameAssente();
 
     const body = await request.json().catch(() => ({}));
-    const appointmentId = firstText(body?.id, body?.appointmentId);
     const reason = firstText(body?.reason, body?.title);
-    const date = firstText(body?.date);
-    const time = firstText(body?.time);
-    const notes = firstText(body?.notes);
-
-    if (!appointmentId || !reason || !date || !time) {
+    if (!reason) {
       return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Appuntamento, motivo, giorno e orario sono obbligatori" },
-        },
+        { data: null, error: { message: "Il motivo e obbligatorio" } },
         { status: 400 },
       );
     }
 
-    const validation = isDateTimeWithinOpeningHours(
-      dashboard.appointments.openingHours,
-      date,
-      time,
-    );
-    if (!validation.valid) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: {
-            message:
-              validation.reason ||
-              "L'orario selezionato e fuori dagli orari di apertura della segreteria.",
-          },
-        },
-        { status: 400 },
-      );
-    }
-
-    const club = await prisma.club.findUnique({
-      where: { id: dashboard.club.id },
-      select: { appointments: true },
-    });
-    const appointments = asArray<Record<string, any>>(club?.appointments);
-    const appointmentIndex = appointments.findIndex(
-      (appointment) =>
-        firstText(appointment?.id) === appointmentId &&
-        isParentAppointment(appointment, dashboard.athlete.id, session.db.user_id),
-    );
-
-    if (appointmentIndex < 0) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Richiesta appuntamento non trovata" },
-        },
-        { status: 404 },
-      );
-    }
-
-    const currentAppointment = appointments[appointmentIndex];
-    if (!canEditAppointment(currentAppointment)) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Questa richiesta e gia stata gestita dalla segreteria" },
-        },
-        { status: 409 },
-      );
-    }
-
-    const updatedAppointment: Record<string, any> = {
-      ...currentAppointment,
-      title: reason,
+    const appuntamento = await requestFamilyAppointment(ctx, {
       reason,
-      date,
-      time,
-      notes,
-      updated_at: new Date().toISOString(),
-    };
-    const updatedAppointments = appointments.map((appointment, index) =>
-      index === appointmentIndex ? updatedAppointment : appointment,
-    );
-
-    await prisma.club.update({
-      where: { id: dashboard.club.id },
-      data: { appointments: updatedAppointments },
+      startsAt: body?.starts_at ?? body?.startsAt ?? null,
+      date: firstText(body?.date),
+      time: firstText(body?.time),
+      timezone: firstText(body?.timezone) || null,
+      siteId: firstText(body?.site_id, body?.siteId) || null,
+      slotId: firstText(body?.slot_id, body?.slotId) || null,
+      notes: firstText(body?.notes),
+      /*
+        La chiave di idempotenza viaggia dall'intestazione quando il client la
+        manda; quando non la manda, il dominio ne deriva una dal gesto. In
+        entrambi i casi il doppio clic non produce due appuntamenti — e non e
+        piu una cosa che il browser debba ricordarsi di impedire.
+      */
+      idempotencyKey:
+        firstText(body?.idempotency_key, body?.idempotencyKey) ||
+        request.headers.get("idempotency-key"),
     });
 
-    await createAppointmentNotification({
-      organizationId: dashboard.club.id,
-      title: "Richiesta appuntamento aggiornata",
-      message: `${updatedAppointment.person || "Un genitore"} ha modificato una richiesta appuntamento per ${dashboard.athlete.name}.`,
-      appointment: updatedAppointment,
-    });
-
-    return NextResponse.json({ data: updatedAppointment, error: null });
+    return NextResponse.json({ data: appuntamento, error: null });
   } catch (error: any) {
     return NextResponse.json(
       {
         data: null,
-        error: {
-          message: error?.message || "Errore modifica appuntamento",
-        },
+        error: { message: error?.message || "Errore prenotazione appuntamento" },
       },
-      { status: 500 },
+      { status: errorStatus(error) },
+    );
+  }
+}
+
+/**
+ * La riprogrammazione proposta dalla famiglia.
+ *
+ * Ammessa **finche l'appuntamento e in richiesta**: su uno gia confermato la
+ * famiglia annulla e ne chiede un altro. Spostare un impegno che la segreteria
+ * ha gia messo in agenda senza dirlo e cio che la macchina a stati non
+ * consente, e il diniego arriva dal dominio, non da questo file.
+ */
+export async function PATCH(request: Request, context: Context) {
+  try {
+    const { session, ctx } = await contesto(request, context.params.athleteId);
+    if (!session) return sessioneNonValida();
+    if (!ctx) return legameAssente();
+
+    const body = await request.json().catch(() => ({}));
+    const appointmentId = firstText(body?.id, body?.appointmentId);
+    if (!appointmentId) {
+      return NextResponse.json(
+        { data: null, error: { message: "Appuntamento mancante" } },
+        { status: 400 },
+      );
+    }
+
+    const appuntamento = await rescheduleFamilyAppointment(ctx, appointmentId, {
+      reason: firstText(body?.reason, body?.title) || null,
+      startsAt: body?.starts_at ?? body?.startsAt ?? null,
+      date: firstText(body?.date),
+      time: firstText(body?.time),
+      timezone: firstText(body?.timezone) || null,
+      siteId: firstText(body?.site_id, body?.siteId) || null,
+      slotId: firstText(body?.slot_id, body?.slotId) || null,
+      notes: firstText(body?.notes),
+      expectedVersion: body?.version ?? null,
+    });
+
+    return NextResponse.json({ data: appuntamento, error: null });
+  } catch (error: any) {
+    return NextResponse.json(
+      {
+        data: null,
+        error: { message: error?.message || "Errore modifica appuntamento" },
+      },
+      { status: errorStatus(error) },
     );
   }
 }
 
 export async function DELETE(request: Request, context: Context) {
   try {
-    const session = await requireAuthenticatedUser(request);
-    if (!session) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Sessione non valida" },
-        },
-        { status: 401 },
-      );
-    }
-
-    const dashboard = await getParentDashboardData(
-      session.db.user_id,
-      context.params.athleteId,
-    );
-
-    if (!dashboard) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Atleta non collegato a questo account" },
-        },
-        { status: 403 },
-      );
-    }
+    const { session, ctx } = await contesto(request, context.params.athleteId);
+    if (!session) return sessioneNonValida();
+    if (!ctx) return legameAssente();
 
     const body = await request.json().catch(() => ({}));
     const appointmentId = firstText(body?.id, body?.appointmentId);
     if (!appointmentId) {
       return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Appuntamento mancante" },
-        },
+        { data: null, error: { message: "Appuntamento mancante" } },
         { status: 400 },
       );
     }
 
-    const club = await prisma.club.findUnique({
-      where: { id: dashboard.club.id },
-      select: { appointments: true },
-    });
-    const appointments = asArray<Record<string, any>>(club?.appointments);
-    const appointmentIndex = appointments.findIndex(
-      (appointment) =>
-        firstText(appointment?.id) === appointmentId &&
-        isParentAppointment(appointment, dashboard.athlete.id, session.db.user_id),
-    );
-
-    if (appointmentIndex < 0) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: { message: "Richiesta appuntamento non trovata" },
-        },
-        { status: 404 },
-      );
-    }
-
-    const cancelledAppointment: Record<string, any> = {
-      ...appointments[appointmentIndex],
-      status: "cancelled",
-      cancelled_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    const updatedAppointments = appointments.map((appointment, index) =>
-      index === appointmentIndex ? cancelledAppointment : appointment,
-    );
-
-    await prisma.club.update({
-      where: { id: dashboard.club.id },
-      data: { appointments: updatedAppointments },
+    const appuntamento = await cancelFamilyAppointment(ctx, appointmentId, {
+      expectedVersion: body?.version ?? null,
     });
 
-    await createAppointmentNotification({
-      organizationId: dashboard.club.id,
-      title: "Richiesta appuntamento cancellata",
-      message: `${cancelledAppointment.person || "Un genitore"} ha cancellato una richiesta appuntamento per ${dashboard.athlete.name}.`,
-      appointment: cancelledAppointment,
-    });
-
-    return NextResponse.json({ data: cancelledAppointment, error: null });
+    return NextResponse.json({ data: appuntamento, error: null });
   } catch (error: any) {
     return NextResponse.json(
       {
         data: null,
-        error: {
-          message: error?.message || "Errore cancellazione appuntamento",
-        },
+        error: { message: error?.message || "Errore cancellazione appuntamento" },
       },
-      { status: 500 },
+      { status: errorStatus(error) },
     );
   }
 }

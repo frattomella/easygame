@@ -450,6 +450,29 @@ const UNIQUE_CONSTRAINTS = {
         row.membership_number !== null && row.membership_number !== undefined,
     },
   ],
+  /*
+    Wave 5, appuntamenti. `appointments_organization_id_idempotency_key_key`: e
+    la difesa contro il **doppio clic**, e la difesa e l'indice — non un
+    controllo in memoria, che e proprio cio che due invii ravvicinati non
+    reggono. Un doppio che non lo facesse rispettare mostrerebbe due
+    appuntamenti come se fosse normale, e il test proverebbe il contrario di
+    cio che deve provare.
+
+    L'altro indice della tabella — `appointments_slot_vivo_unico`, parziale
+    sugli stati vivi — **non** e dichiarato qui, e la ragione e onesta: le sue
+    colonne comprendono `starts_at`, e questo doppio confronta i campi con
+    `===`, che su due `Date` distinte con lo stesso istante risponde sempre
+    «diverse». Dichiararlo darebbe un vincolo che non scatta mai, cioe una
+    promessa peggiore del non averlo. Che quell'indice regga si prova contro il
+    database vero, non qui.
+  */
+  appointment: [
+    {
+      fields: ["organization_id", "idempotency_key"],
+      quando: (row) =>
+        row.idempotency_key !== null && row.idempotency_key !== undefined,
+    },
+  ],
 };
 
 /** L'errore che Prisma lancia su una chiave duplicata. */

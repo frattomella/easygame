@@ -8,6 +8,8 @@ import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 import { getAthleteEnrollmentSummary } from "@/lib/athlete-enrollment-summary";
 import { dedupeTrainings } from "@/lib/training-utils";
 import { getSharedDocumentsFromAthlete } from "@/lib/shared-documents";
+import { computeFreeAppointmentSlots } from "@/lib/appointments/model";
+import { toFamilyAppointment } from "@/lib/appointments/projection";
 import {
   getVisibleBookableStructures,
   type ClubStructure,
@@ -770,6 +772,44 @@ export const getParentDashboardData = async (
   ]);
 
   const club = selectedAthlete.organization;
+
+  /*
+    Gli appuntamenti del figlio selezionato, la disponibilita configurata e cio
+    che risulta gia occupato nel mese entrante. Sono tre letture e non una
+    perche rispondono a tre domande diverse: cosa ho chiesto, quando si puo
+    chiedere, e cosa e gia preso. La colonna `clubs.appointments` resta, in sola
+    lettura, e non partecipa piu a nessuna di queste risposte.
+  */
+  const appointmentWindowStart = new Date();
+  const appointmentWindowEnd = new Date(
+    appointmentWindowStart.getTime() + 30 * 86400000,
+  );
+  const [appointmentRows, appointmentSlots, appointmentBusy] = await Promise.all([
+    prisma.appointment.findMany({
+      where: { organization_id: organizationId, athlete_id: selectedAthlete.id },
+      orderBy: { starts_at: "desc" },
+      take: 100,
+    }),
+    prisma.appointmentSlot.findMany({
+      where: { organization_id: organizationId },
+      orderBy: [{ weekday: "asc" }, { start_time: "asc" }],
+    }),
+    prisma.appointment.findMany({
+      where: {
+        organization_id: organizationId,
+        status: { in: ["requested", "confirmed"] },
+        starts_at: { gte: appointmentWindowStart, lte: appointmentWindowEnd },
+      },
+      select: {
+        id: true,
+        starts_at: true,
+        status: true,
+        assigned_to_user_id: true,
+        slot_id: true,
+      },
+    }),
+  ]);
+
   const categoryOptions = buildClubCategoryOptions({
     clubCategories: club.categories,
     athletes: linkedAthletes,
@@ -1020,28 +1060,46 @@ export const getParentDashboardData = async (
         ? Math.round((presentCount / attendanceTotal) * 100)
         : 0,
     },
+    /*
+      **Gli appuntamenti si leggono dalle righe, non piu dalla colonna JSON.**
+
+      Il filtro qui era un OR — l'atleta **oppure** l'utente richiedente — e
+      mostrava alla famiglia anche le richieste nate per un altro figlio, che e
+      il verso di lettura dello stesso difetto che 5E chiude in scrittura
+      (W5-54). Il legame che vale in questa pagina e uno solo: il figlio
+      selezionato.
+
+      La proiezione e quella della famiglia, e non ha `internal_notes`: le note
+      della segreteria non sono nascoste dall'interfaccia, non ci sono.
+    */
     appointments: {
-      items: asArray(club.appointments)
-        .filter(
-          (appointment) =>
-            sameId(appointment?.athlete_id, selectedAthlete.id) ||
-            sameId(appointment?.athleteId, selectedAthlete.id) ||
-            sameId(appointment?.requested_by_user_id, userId),
-        )
-        .map((appointment, index) => ({
-          id: firstText(appointment?.id) || `appointment-${index}`,
-          title: firstText(appointment?.title, appointment?.reason) || "Appuntamento",
-          reason: firstText(appointment?.reason, appointment?.title),
-          date: toIso(appointment?.date),
-          time: firstText(appointment?.time),
-          status: firstText(appointment?.status) || "pending",
-          notes: firstText(appointment?.notes),
-          person: firstText(appointment?.person, appointment?.parent_name),
-          athlete_name: firstText(appointment?.athlete_name, appointment?.athlete),
-          requested_by_user_id: firstText(appointment?.requested_by_user_id),
-          created_at: toIso(appointment?.created_at),
-          updated_at: toIso(appointment?.updated_at),
-        })),
+      items: appointmentRows.map((row) =>
+        toFamilyAppointment(row as any, {
+          athleteName: getAthleteDisplayName(selectedAthlete),
+          person:
+            `${user?.first_name || ""} ${user?.last_name || ""}`.trim() ||
+            user?.email ||
+            "",
+        }),
+      ),
+      /*
+        Gli slot liberi del mese entrante: la famiglia sceglie **uno slot**, non
+        una data qualunque. Quando il club non ne ha configurato nessuno si
+        ricade sugli orari di apertura, che restano qui accanto perche e quello
+        che le schermate leggono oggi.
+      */
+      availableSlots: computeFreeAppointmentSlots({
+        rules: appointmentSlots as any,
+        openingHours: club.opening_hours,
+        busy: appointmentBusy,
+        from: appointmentWindowStart,
+        to: appointmentWindowEnd,
+        now: appointmentWindowStart,
+      }).map((slot) => ({
+        ...slot,
+        startsAt: slot.startsAt.toISOString(),
+        endsAt: slot.endsAt.toISOString(),
+      })),
       openingHours: club.opening_hours,
     },
     structures: {
