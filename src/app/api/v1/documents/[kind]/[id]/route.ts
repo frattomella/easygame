@@ -10,6 +10,7 @@ import { prisma } from "@/lib/server/prisma";
 import { renderDocumentHtml } from "@/lib/documents/document-view";
 import { isDocumentNumberKind } from "@/lib/documents/numbering";
 import { resolveFiscalRecipient } from "@/lib/documents/fiscal-recipient";
+import { canParentAccessAthlete } from "@/lib/server/parent-dashboard";
 
 /**
  * Il documento stampabile di una ricevuta o di una fattura.
@@ -81,13 +82,30 @@ export async function GET(request: Request, context: Context) {
       una persona e l'importo che ha versato: non e una pagina che chiunque
       appartenga al club debba poter aprire conoscendone l'identificativo.
     */
-    if (
-      !canAccessClubResource(
-        scope.activeRole,
-        kind === "receipt" ? "receipts" : "invoices",
-        "read",
-      )
-    ) {
+    /*
+      **E il gate che la famiglia non poteva superare** (Wave 5, §13).
+
+      Le ricevute erano elencate nell'area genitore e **non scaricabili**: il
+      controllo qui e di ruolo, e un genitore non ha `receipts`. Una famiglia
+      vedeva l'importo che aveva versato e non poteva stampare la carta che lo
+      dimostra — cioe la sola cosa per cui una ricevuta esiste.
+
+      Il gate diventa il **legame**, e non sostituisce quello di ruolo: lo
+      affianca. Chi lavora nel club passa per il ruolo; chi e legato
+      all'atleta passa per il legame, e **solo** per i documenti di quel figlio.
+      I due permessi non sono lo stesso permesso.
+    */
+    const perRuolo = canAccessClubResource(
+      scope.activeRole,
+      kind === "receipt" ? "receipts" : "invoices",
+      "read",
+    );
+    const perLegame =
+      !perRuolo &&
+      Boolean(row.athlete_id) &&
+      (await canParentAccessAthlete(session.db.user_id, String(row.athlete_id)));
+
+    if (!perRuolo && !perLegame) {
       return denied(403, "Accesso negato per il ruolo attivo");
     }
 

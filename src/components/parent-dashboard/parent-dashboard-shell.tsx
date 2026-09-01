@@ -3,11 +3,15 @@
 import { usePathname } from "next/navigation";
 import {
   Building2,
+  Bell,
   CalendarDays,
   CreditCard,
   FileText,
   Home,
+  FileSignature,
   Mail,
+  Megaphone,
+  ShieldCheck,
   Stethoscope,
   Trophy,
   UserCircle,
@@ -22,6 +26,11 @@ import ParentSidebar from "./ParentSidebar";
 import { useParentDashboard } from "./parent-dashboard-context";
 
 const resolvePageTitle = (pathname: string) => {
+  if (pathname.includes("/calendar")) return "Calendario";
+  if (pathname.includes("/enrollment")) return "Iscrizione e rinnovo";
+  if (pathname.includes("/board")) return "Bacheca";
+  if (pathname.includes("/notifications")) return "Notifiche";
+  if (pathname.includes("/consents")) return "Consensi";
   if (pathname.includes("/athlete")) return "Atleta";
   if (pathname.includes("/trainings")) return "Allenamenti";
   if (pathname.includes("/structures")) return "Strutture";
@@ -49,6 +58,7 @@ export default function ParentDashboardShell({
       label: "AREA FAMIGLIA",
       items: [
         { href: basePath, label: "Home", icon: Home },
+        { href: `${basePath}/calendar`, label: "Calendario", icon: CalendarDays },
         { href: `${basePath}/athlete`, label: "Atleta", icon: UserCircle },
         {
           href: `${basePath}/trainings`,
@@ -64,7 +74,15 @@ export default function ParentDashboardShell({
       label: "SEGRETERIA",
       items: [
         { href: `${basePath}/payments`, label: "Pagamenti", icon: CreditCard },
+        {
+          href: `${basePath}/enrollment`,
+          label: "Iscrizione",
+          icon: FileSignature,
+        },
         { href: `${basePath}/documents`, label: "Documenti", icon: FileText },
+        { href: `${basePath}/consents`, label: "Consensi", icon: ShieldCheck },
+        { href: `${basePath}/board`, label: "Bacheca", icon: Megaphone },
+        { href: `${basePath}/notifications`, label: "Notifiche", icon: Bell },
         {
           href: `${basePath}/secretariat`,
           label: "Segreteria",

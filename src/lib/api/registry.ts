@@ -188,6 +188,62 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "family.enrollment_requests",
+    method: "GET",
+    path: "/api/v1/family/enrollment-requests?athlete_id=…",
+    description:
+      "Le pratiche di iscrizione e rinnovo di un figlio, con lo stato e cio che il club aspetta. Il gate e il legame, non il ruolo: un tutore non ha un ruolo gestionale",
+    mobile_ready: false,
+  },
+  {
+    name: "family.enrollment_renewal",
+    method: "GET|POST",
+    path: "/api/v1/family/enrollment-requests/renewal?athlete_id=…&slug=…",
+    description:
+      "La bozza di rinnovo precompilata dai dati esistenti, e il suo invio. Non e un secondo motore: e lo stesso modulo con un contesto, e la stagione la decide il server",
+    mobile_ready: false,
+  },
+  {
+    name: "public.enrollment_status",
+    method: "GET",
+    path: "/api/public/enrollment-status/:reference",
+    description:
+      "Lo stato della propria domanda, letto con il riferimento opaco che l'invio ha restituito. Senza sessione per progetto: chi ha compilato il modulo pubblico un account puo non averlo. Rate limit doppio, 404 unico per ogni esito negativo, nessun identificativo interno nella risposta",
+    mobile_ready: false,
+  },
+  {
+    name: "parent.board",
+    method: "GET|POST",
+    path: "/api/parent-dashboard/:athleteId/board",
+    description:
+      "La bacheca della famiglia: gli avvisi indirizzati a chi guarda, letti dalle consegne e non ricalcolando il pubblico. Il POST segna una consegna come letta",
+    mobile_ready: false,
+  },
+  {
+    name: "parent.consents",
+    method: "GET|POST",
+    path: "/api/parent-dashboard/:athleteId/consents",
+    description:
+      "I consensi che la famiglia puo accettare e revocare da se. La sorgente registrata e «subject»: ha un valore probatorio diverso da una decisione presa dalla segreteria",
+    mobile_ready: false,
+  },
+  {
+    name: "parent.checkout",
+    method: "POST",
+    path: "/api/parent-dashboard/:athleteId/checkout",
+    description:
+      "«Paga ora» dall'area della famiglia: emette il link di pagamento che gia si emetteva, con l'identita della sessione e solo per una rata del proprio figlio. Nessun secondo checkout",
+    mobile_ready: false,
+  },
+  {
+    name: "trainer.operational_alerts",
+    method: "GET|POST",
+    path: "/api/v1/trainer/operational-alerts",
+    description:
+      "Gli avvisi operativi dell'allenatore, adesso **calcolati** dal server e non ricevuti dal client. Il GET calcola senza scrivere; il POST allinea le notifiche persistite",
+    mobile_ready: false,
+  },
+  {
     name: "trainer.preferences",
     method: "GET",
     path: "/api/v1/trainer/preferences",

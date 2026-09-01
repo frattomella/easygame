@@ -1566,3 +1566,80 @@ stessa domanda, e la classe merita di essere registrata qui: quando due moduli
 rispondono diversamente a «chi sono i figli di questo utente», uno dei due
 autorizza e l'altro nega, e nessuno dei due e evidentemente sbagliato. Il
 proprietario e adesso uno solo.
+
+---
+
+## Wave 5 — 5I: l'anagrafica di un collega non e il dato dell'allenatore — RISOLTO (2026-09-01)
+
+Segnalato dalla lane 5I mentre lavorava su un'altra cosa, e corretto in 5H.
+
+`trainers` e `staff_members` stanno in `TRAINER_READ_RESOURCES` per una ragione
+buona: la dashboard deve sapere **chi allena cosa** — i nomi, le categorie, il
+legame con un account. Ma sono collezioni JSON del club, e uscivano **per
+intero**: `GET /api/v1/trainers` restituiva a chiunque avesse il ruolo
+allenatore in quel club il **codice fiscale, l'indirizzo e il telefono** di ogni
+collega.
+
+E la stessa forma di D-4: una schermata che mostra solo cio che serve, e una
+risposta che porta tutto. La schermata dell'allenatore mostrava soltanto il
+proprio record; il dato usciva comunque.
+
+**La difesa e un elenco di cio che puo uscire**, e non di cio che va tolto — e
+la differenza conta: un campo nuovo sulla scheda di un collaboratore nasce cosi
+**invisibile** all'allenatore, e chi lo aggiunge non deve ricordarsi di niente.
+La riduzione vive in `serializeRecord`, sul ramo delle risorse di club, e vale
+anche sul `payload`: una proiezione che guardasse solo il primo livello
+perderebbe esattamente il campo che conta.
+
+Copertura: `tests/auth/anagrafica-colleghi.test.mjs`, che comprende la prova che
+un campo inventato domani non esce.
+
+## Wave 5 — 5I: gli avvisi dell'allenatore li calcolava il client — RISOLTO
+
+`POST /api/v1/trainer/operational-alerts` riceveva gli avvisi **gia
+confezionati** e li persisteva: l'unico controllo era che il `type` fosse uno
+dei due ammessi, mentre titolo, testo, record citato e link li dettava il
+browser. Tre conseguenze, tutte vere insieme:
+
+- una notifica con il testo che si vuole, riferita a un evento qualsiasi;
+- un avviso vero **spento** semplicemente non mandandolo, perche la rotta segna
+  risolto tutto cio che non riceve;
+- l'unica copia della regola «questa presenza manca» viveva nel browser: chi non
+  apriva la dashboard non aveva notifiche, e il club non aveva modo di saperlo.
+
+Adesso il contenuto lo calcola `src/lib/server/trainer-area.ts` dai dati del
+club, con il perimetro applicato da `listClubEvents`, e il corpo della richiesta
+**non viene letto**.
+
+## Wave 5 — 5H: la famiglia decide sui propri consensi — NUOVO PERIMETRO
+
+La famiglia puo adesso accettare e revocare i consensi del proprio atleta, e il
+gate e il **legame**, verificato **dentro il dominio** e non nella rotta
+(ADR-0094): una rotta nuova non deve poterlo dimenticare.
+
+Tre restrizioni, tutte provate:
+
+1. il soggetto deve essere `athlete` e coincidere con l'atleta del contesto —
+   dal contesto del figlio A non si decide per il figlio B. E la forma dell'OR
+   permissivo che 5E ha chiuso sugli appuntamenti, e qui non nasce;
+2. lo scope della famiglia ha `activeRole: null` di proposito: senza il legame
+   dichiarato si ricade sul controllo di ruolo, che risponde sempre «no»;
+3. la sorgente registrata e `subject`, distinta da `manual`: «l'ha spuntata il
+   tutore, autenticato» ha un valore probatorio diverso da «gliel'ha spuntata la
+   segreteria», e chi legge il registro un anno dopo deve poterlo distinguere.
+
+**L'evidenza di rete e la riga di audit**, che porta indirizzo e user agent e
+cita l'identificativo della decisione. L'evidenza di un consenso e un puntatore
+e non una copia (ADR-0090): copiare l'indirizzo IP nel registro dei consensi
+vorrebbe dire tenerlo in due posti con due politiche di conservazione diverse.
+
+## Wave 5 — 5H: la ricevuta si scarica per legame, non per ruolo
+
+`GET /api/v1/documents/receipt/:id` chiedeva `canAccessClubResource(role,
+"receipts", "read")`, che un genitore non ha: le ricevute erano **elencate**
+nell'area famiglia e non scaricabili. Una famiglia vedeva l'importo versato e
+non poteva stampare la carta che lo dimostra, cioe la sola cosa per cui una
+ricevuta esiste.
+
+Il gate di legame **affianca** quello di ruolo, non lo sostituisce, e vale solo
+per i documenti del proprio figlio.

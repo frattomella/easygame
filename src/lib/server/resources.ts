@@ -1056,7 +1056,22 @@ const serializeRecord = (
   }
 
   if (RESOURCE_CONFIG[resource]?.kind === "club_resource") {
-    return serializeClubResourceItem(record);
+    const serializzato = serializeClubResourceItem(record);
+
+    /*
+      L'anagrafica di un collega non e il dato dell'allenatore: la riduzione
+      vive **qui** e non in fondo alla funzione, perche le risorse di club
+      escono per questa strada e non arrivano mai in fondo.
+    */
+    if (
+      scope &&
+      normalizeAccessRole(scope.activeRole) === "trainer" &&
+      RISORSE_CON_ANAGRAFICA_PERSONALE.has(resource)
+    ) {
+      return proiettaPersonaPerAllenatore(serializzato);
+    }
+
+    return serializzato;
   }
 
   if (resource === "clubs" || resource === "organizations") {
@@ -1101,6 +1116,90 @@ const serializeRecord = (
  * hanno gia il loro confine e che devono poter promuovere un certificato o
  * calcolare una scadenza. La guardia e per **chi chiede da fuori**.
  */
+/**
+ * **L'anagrafica di un collega non e il dato dell'allenatore.**
+ *
+ * `trainers` e `staff_members` stanno in `TRAINER_READ_RESOURCES` perche la
+ * dashboard deve sapere **chi allena cosa**: i nomi, le categorie, il legame
+ * con un account. Ma la risorsa e una collezione JSON del club, e usciva per
+ * intero — **codice fiscale, indirizzo, telefono** di ogni collega, a chiunque
+ * abbia il ruolo allenatore in quel club.
+ *
+ * Il difetto ha la stessa forma di D-4: una schermata che mostra solo cio che
+ * serve, e una risposta che porta tutto. Qui la difesa e un **elenco di cio che
+ * puo uscire**, non di cio che va tolto: un campo nuovo sulla scheda di un
+ * collaboratore nasce cosi **invisibile** all'allenatore, che e il verso giusto
+ * in cui sbagliare.
+ */
+const CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE = new Set([
+  "id",
+  "organization_id",
+  "club_id",
+  "name",
+  "first_name",
+  "last_name",
+  "firstName",
+  "lastName",
+  "fullName",
+  "email",
+  "role",
+  "status",
+  "categories",
+  "category",
+  "categoryId",
+  "category_id",
+  "categoryName",
+  "category_name",
+  "groups",
+  "groupIds",
+  "group_ids",
+  "linkedUserId",
+  "linked_user_id",
+  "userId",
+  "user_id",
+  "linkedUserIds",
+  "linked_user_ids",
+  "linkedUserEmail",
+  "linked_user_email",
+  "linkedAt",
+  "linked_at",
+  "created_at",
+  "updated_at",
+]);
+
+const RISORSE_CON_ANAGRAFICA_PERSONALE = new Set([
+  "trainers",
+  "staff_members",
+]);
+
+const proiettaPersonaPerAllenatore = (record: Record<string, any>) => {
+  const ridotto: Record<string, any> = {};
+
+  for (const [chiave, valore] of Object.entries(record)) {
+    if (CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE.has(chiave)) {
+      ridotto[chiave] = valore;
+    }
+  }
+
+  /*
+    Il payload della risorsa di club porta la scheda per intero: si riduce con
+    lo stesso elenco, invece di lasciarlo passare perche sta un livello piu
+    sotto. E il modo in cui una proiezione perde: guardando solo il primo
+    livello.
+  */
+  if (record.data && typeof record.data === "object") {
+    const dati: Record<string, any> = {};
+    for (const [chiave, valore] of Object.entries(record.data)) {
+      if (CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE.has(chiave)) {
+        dati[chiave] = valore;
+      }
+    }
+    ridotto.data = dati;
+  }
+
+  return ridotto;
+};
+
 const RISORSE_CON_DATO_CLINICO = new Set([
   "athletes",
   "simplified_athletes",
@@ -1113,6 +1212,14 @@ const proiettaSenzaDatoClinico = (
   record: Record<string, any>,
   scope?: ResourceAccessScope,
 ) => {
+  if (
+    scope &&
+    normalizeAccessRole(scope.activeRole) === "trainer" &&
+    RISORSE_CON_ANAGRAFICA_PERSONALE.has(resource)
+  ) {
+    return proiettaPersonaPerAllenatore(record);
+  }
+
   if (!scope || !RISORSE_CON_DATO_CLINICO.has(resource)) {
     return record;
   }

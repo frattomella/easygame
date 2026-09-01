@@ -1,6 +1,12 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -1052,6 +1058,63 @@ export function ParentMatchesPage() {
 
 export function ParentPaymentsPage() {
   const { data } = useParentDashboard();
+  const { showToast } = useToast();
+  const [pagamentoInCorso, setPagamentoInCorso] = useState(false);
+
+  /*
+    **«Paga ora» era disabilitato, e le ricevute non si scaricavano.**
+
+    Il checkout esisteva per intero e la famiglia non aveva una porta con la
+    propria identita; la ricevuta era elencata e il documento stampabile
+    chiedeva un permesso di **ruolo** che un genitore non ha. Due difetti
+    diversi con la stessa forma: una funzione completa a cui manca l'ultimo
+    metro (§13).
+
+    Si paga la **prima rata non saldata**: e cio che una famiglia intende
+    premendo il pulsante, e chiederle quale sarebbe una domanda a cui non ha
+    modo di rispondere meglio del prodotto.
+  */
+  const rataDaPagare = useMemo(() => {
+    const items = Array.isArray(data?.payments.items) ? data.payments.items : [];
+    return (
+      items.find((rata: any) =>
+        ["pending", "overdue", "partial", "unpaid"].includes(
+          String(rata?.status || "").toLowerCase(),
+        ),
+      ) || null
+    );
+  }, [data?.payments.items]);
+
+  const apriPagamento = useCallback(async () => {
+    if (!data?.athlete.id || !rataDaPagare?.id) return;
+    setPagamentoInCorso(true);
+    try {
+      const risposta = await fetch(
+        `/api/parent-dashboard/${data.athlete.id}/checkout`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ payment_id: rataDaPagare.id }),
+        },
+      );
+      const payload = await risposta.json().catch(() => ({}));
+      if (!risposta.ok || payload?.error) {
+        throw new Error(
+          payload?.error?.message || "Pagamento online non disponibile",
+        );
+      }
+      if (payload?.data?.url) {
+        window.location.href = payload.data.url;
+        return;
+      }
+      throw new Error("Pagamento online non disponibile");
+    } catch (errore: any) {
+      showToast("error", errore?.message || "Pagamento online non disponibile");
+    } finally {
+      setPagamentoInCorso(false);
+    }
+  }, [data?.athlete.id, rataDaPagare?.id, showToast]);
+
   if (!data) return null;
 
   return (
@@ -1060,8 +1123,16 @@ export function ParentPaymentsPage() {
         title="Pagamenti"
         subtitle="Iscrizione, scadenze e ricevute."
         actions={
-          <Button disabled title="Disponibile prossimamente">
-            Paga ora
+          <Button
+            disabled={!rataDaPagare || pagamentoInCorso}
+            onClick={apriPagamento}
+            title={
+              rataDaPagare
+                ? "Apre il pagamento sicuro del club"
+                : "Nessuna rata da saldare"
+            }
+          >
+            {pagamentoInCorso ? "Apertura…" : "Paga ora"}
           </Button>
         }
       />
@@ -1094,6 +1165,8 @@ export function ParentPaymentsPage() {
             payments={data.payments.items}
             mode="parent"
             showPayNow
+            onPayNow={rataDaPagare ? apriPagamento : undefined}
+            payNowPending={pagamentoInCorso}
           />
         </CardContent>
       </Card>
@@ -1119,9 +1192,24 @@ export function ParentPaymentsPage() {
                       {formatDate(receipt.issue_date)}
                     </p>
                   </div>
-                  <span className="font-semibold">
-                    {formatCurrency(receipt.amount)}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="font-semibold">
+                      {formatCurrency(receipt.amount)}
+                    </span>
+                    {/*
+                      La ricevuta si stampa dalla rotta che la ristampa dallo
+                      snapshot: il gate e adesso il **legame**, non il ruolo.
+                    */}
+                    <Button asChild size="sm" variant="outline">
+                      <a
+                        href={`/api/v1/documents/receipt/${receipt.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Scarica
+                      </a>
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

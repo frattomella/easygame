@@ -57,6 +57,17 @@ export const CONSENT_SOURCES = [
   "internal_form",
   "manual",
   "import",
+  /*
+    **La famiglia che decide da se** (Wave 5, 5H).
+
+    Fino alla Wave 5 la famiglia non poteva accettare ne revocare niente: ogni
+    decisione la registrava la segreteria «con un foglio in mano», e nel
+    registro tutte si assomigliavano. Ma «l'ha spuntata il tutore nella propria
+    area, autenticato, il tale giorno da tale indirizzo» ha un valore
+    probatorio diverso da «gliel'ha spuntata qualcun altro», e chi legge il
+    registro un anno dopo deve poterlo distinguere senza aprire l'evidenza.
+  */
+  "subject",
 ] as const;
 export type ConsentSource = (typeof CONSENT_SOURCES)[number];
 

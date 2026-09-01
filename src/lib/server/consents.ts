@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+import { canParentAccessAthlete } from "./parent-dashboard";
 import {
   canApplyConsentDecision,
   canTransitionConsentDefinition,
@@ -84,6 +85,45 @@ const assertCanManage = (scope: ConsentAccessScope) => {
 const assertCanDecide = (scope: ConsentAccessScope) => {
   if (!canRecordConsentDecision(scope?.activeRole)) {
     throw denied("questa decisione la registra chi lavora nella segreteria del club");
+  }
+};
+
+/**
+ * **Il legame, verificato nel dominio.**
+ *
+ * Un tutore puo non avere nessuna membership: il suo accesso nasce dal legame
+ * con l'atleta, e il legame lo risolve un solo proprietario
+ * (`getParentLinkedAthletes`, attraverso `canParentAccessAthlete`). Il
+ * controllo sta qui e non nella rotta perche una rotta nuova non deve poterlo
+ * dimenticare — e la regola che ADR-0094 ha scritto per il confine e che vale
+ * identica per il permesso.
+ *
+ * Il soggetto puo decidere **solo su se stesso**: un consenso che riguarda un
+ * altro atleta, o un socio, o un tutore, non passa di qui nemmeno se il tutore
+ * ne ha uno collegato.
+ */
+const assertSubjectMayDecide = async (
+  asSubject: { userId: string; athleteId: string },
+  input: { subjectKind: string; subjectId: string },
+) => {
+  const userId = asText(asSubject.userId);
+  const athleteId = asText(asSubject.athleteId);
+  const subjectKind = asText(input.subjectKind).toLowerCase();
+  const subjectId = asText(input.subjectId);
+
+  if (!userId || !athleteId) {
+    throw denied("manca il legame con cui questa decisione verrebbe registrata");
+  }
+
+  if (subjectKind !== "athlete" || subjectId !== athleteId) {
+    throw denied(
+      "una famiglia decide sul proprio atleta, non su un altro soggetto del club",
+    );
+  }
+
+  const legato = await canParentAccessAthlete(userId, athleteId);
+  if (!legato) {
+    throw denied("questo atleta non risulta collegato a questo account");
   }
 };
 
@@ -719,6 +759,19 @@ const loadRecordRows = async (
 export const recordConsentDecision = async (
   scope: ConsentAccessScope,
   input: {
+    /**
+     * **La famiglia decide da se** (Wave 5, 5H).
+     *
+     * Fino a questa Wave un genitore non poteva accettare ne revocare niente:
+     * ogni decisione la registrava la segreteria «con un foglio in mano», e la
+     * famiglia non aveva nessuna strada per cambiare idea su una fotografia.
+     *
+     * Il gate qui **non e il ruolo**: e il legame, e viene verificato dentro
+     * il dominio e non nella rotta (ADR-0094), perche una rotta nuova non deve
+     * poterlo dimenticare. Quando questa opzione e presente il ruolo non
+     * conta: conta che chi scrive sia davvero il tutore di quel soggetto.
+     */
+    asSubject?: { userId: string; athleteId: string } | null;
     organizationId?: string | null;
     definitionId: string;
     versionId?: string | null;
@@ -733,7 +786,11 @@ export const recordConsentDecision = async (
     decidedAt?: string | Date | null;
   },
 ): Promise<{ record: ConsentRecordSummary; state: ConsentSubjectState }> => {
-  assertCanDecide(scope);
+  if (input.asSubject) {
+    await assertSubjectMayDecide(input.asSubject, input);
+  } else {
+    assertCanDecide(scope);
+  }
   const row = await requireDefinitionRow(
     scope,
     input.definitionId,
@@ -1026,9 +1083,35 @@ export const listConsentStates = async (
     subjectKind?: string | null;
     subjectId?: string | null;
     includeRetired?: boolean;
+    /** Vedi `recordConsentDecision`: il gate e il legame, non il ruolo. */
+    asSubject?: { userId: string; athleteId: string } | null;
   } = {},
 ): Promise<ConsentSubjectState[]> => {
-  assertCanRead(scope);
+  /*
+    **Leggere i propri consensi non e leggere quelli del club.**
+
+    La famiglia deve poter vedere a cosa ha detto di si, e non passa da
+    `consents.records.read`, che e il permesso della segreteria: il suo gate e
+    il legame, gia verificato da chi chiama, e la lettura resta ristretta al
+    proprio atleta perche `subjectId` e obbligatorio in quel ramo.
+  */
+  if (options.asSubject) {
+    if (
+      asText(options.subjectKind).toLowerCase() !== "athlete" ||
+      asText(options.subjectId) !== asText(options.asSubject.athleteId)
+    ) {
+      throw denied("una famiglia legge i consensi del proprio atleta");
+    }
+    const legato = await canParentAccessAthlete(
+      asText(options.asSubject.userId),
+      asText(options.asSubject.athleteId),
+    );
+    if (!legato) {
+      throw denied("questo atleta non risulta collegato a questo account");
+    }
+  } else {
+    assertCanRead(scope);
+  }
   const organizationId = resolveOrganizationId(scope, options.organizationId);
 
   const definitionId = asText(options.definitionId);

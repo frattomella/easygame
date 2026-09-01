@@ -554,6 +554,33 @@ Le rotte `/api/v1/trainings` e `/api/v1/matches` **non esistono piu**:
 `trainings` e `matches` sono usciti da `CLUB_RESOURCE_TYPES`. Le due colonne
 del club restano come **proiezione in sola lettura**, con un solo scrittore.
 
+## Area famiglia (Wave 5)
+
+Tutte autorizzano sul **legame** con l'atleta e non sul ruolo: un tutore ha un
+accesso di ruolo genitore e nessun ruolo gestionale, e il club non arriva mai
+dal client — si legge dalla riga dell'atleta.
+
+- `GET|POST /api/parent-dashboard/:athleteId/board` — la bacheca, letta dalle
+  **consegne**; il `POST` segna una consegna come letta
+- `GET|POST /api/parent-dashboard/:athleteId/consents` — i consensi che la
+  famiglia accetta e revoca da se, con sorgente `subject`
+- `POST /api/parent-dashboard/:athleteId/checkout` — «Paga ora»: emette il link
+  di pagamento gia esistente con l'identita della sessione, solo per una rata
+  del proprio figlio
+- `GET /api/v1/family/enrollment-requests?athlete_id=…` — le pratiche di
+  iscrizione e rinnovo, con lo stato e cio che il club aspetta
+- `GET|POST /api/v1/family/enrollment-requests/renewal` — la bozza di rinnovo
+  precompilata e il suo invio
+
+`GET /api/v1/documents/receipt/:id` accetta adesso **anche** il legame: la
+ricevuta era elencata e non scaricabile perche il gate era di ruolo.
+
+## Rotte pubbliche senza sessione
+
+- `GET /api/public/enrollment-status/:reference` — lo stato della propria
+  domanda, con il riferimento opaco restituito dall'invio. Rate limit doppio,
+  404 unico per ogni esito negativo, nessun identificativo interno in risposta
+
 ## Area allenatore
 
 - `GET /api/v1/trainer/preferences` — permessi della dashboard, scadenza
@@ -561,8 +588,10 @@ del club restano come **proiezione in sola lettura**, con un solo scrittore.
   `clinical.read`), programma settimanale, strutture e orari di apertura. E la
   porta che sostituisce le otto letture di `GET /api/v1/clubs?fields=…`, che al
   ruolo allenatore rispondevano 403 (Wave 5, D-2)
-- `POST /api/v1/trainer/operational-alerts` — sincronizza le notifiche
-  operative dell'allenatore
+- `GET|POST /api/v1/trainer/operational-alerts` — gli avvisi operativi, adesso
+  **calcolati** dal server e non ricevuti dal client: prima titolo, testo,
+  record e link li dettava il browser, e un avviso vero si spegneva
+  semplicemente non mandandolo
 
 ## Risorse club aggregate
 

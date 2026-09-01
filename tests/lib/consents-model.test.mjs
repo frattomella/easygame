@@ -51,9 +51,16 @@ const record = (overrides) => ({
 
 test("il vocabolario e chiuso, e dice cose diverse con parole diverse", () => {
   assert.deepEqual([...CONSENT_STATUSES], ["accepted", "rejected", "revoked"]);
+  /*
+    `subject` e la quinta, e nasce con la Wave 5: fino a li ogni decisione la
+    registrava la segreteria, e nel registro tutte si assomigliavano. «L'ha
+    spuntata il tutore nella propria area, autenticato» ha un valore probatorio
+    diverso da «gliel'ha spuntata qualcun altro», e chi legge il registro un
+    anno dopo deve poterlo distinguere senza aprire l'evidenza.
+  */
   assert.deepEqual(
     [...CONSENT_SOURCES],
-    ["public_form", "internal_form", "manual", "import"],
+    ["public_form", "internal_form", "manual", "import", "subject"],
   );
   assert.deepEqual(
     [...CONSENT_SUBJECT_KINDS],

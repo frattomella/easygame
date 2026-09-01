@@ -78,6 +78,8 @@ export function EnrollmentPaymentBreakdown({
   payments = [],
   mode = "club",
   showPayNow = false,
+  onPayNow,
+  payNowPending = false,
   showPaymentHistory = true,
   showSettlementTotals = true,
 }: {
@@ -85,6 +87,9 @@ export function EnrollmentPaymentBreakdown({
   payments?: Array<Record<string, any>>;
   mode?: "club" | "parent";
   showPayNow?: boolean;
+  /** Quando manca, il pulsante resta disabilitato: non c'e una rata da pagare. */
+  onPayNow?: () => void;
+  payNowPending?: boolean;
   showPaymentHistory?: boolean;
   /**
    * «Totale dovuto», «Residuo» e «Pagato».
@@ -143,12 +148,29 @@ export function EnrollmentPaymentBreakdown({
         </div>
         {showPayNow ? (
           <div className="md:text-right">
-            <Button disabled className="w-full md:w-auto">
+            {/*
+              **Il pulsante era disabilitato con «presto disponibile».**
+
+              Il checkout esisteva gia per intero — dominio, entitlement, token
+              opaco, ritorno, webhook — e l'unico modo per pagare online era il
+              link che la segreteria doveva emettere e mandare a mano. Cio che
+              mancava era una porta con l'**identita della sessione**, ed e
+              `onPayNow` a fornirla: se chi usa questo componente non la
+              passa, il pulsante resta com'era, perche in quel contesto non c'e
+              nessuna rata da pagare.
+            */}
+            <Button
+              className="w-full md:w-auto"
+              disabled={!onPayNow || payNowPending}
+              onClick={onPayNow ? () => onPayNow() : undefined}
+            >
               <CreditCard className="mr-2 h-4 w-4" />
-              Paga ora
+              {payNowPending ? "Apertura…" : "Paga ora"}
             </Button>
             <p className="mt-2 text-xs text-slate-500">
-              Pagamento online presto disponibile
+              {onPayNow
+                ? "Si apre il pagamento sicuro del club"
+                : "Pagamento online presto disponibile"}
             </p>
           </div>
         ) : null}

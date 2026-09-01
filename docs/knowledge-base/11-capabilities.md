@@ -361,3 +361,54 @@ di sessione vero: 72 controlli, 72 verdi.
 | Appuntamenti: notifiche alla famiglia | COMPLETE | In-app su tutte le transizioni; email su conferma e rifiuto, i due eventi che una famiglia deve sapere senza aprire l'applicazione |
 | Appuntamenti: promemoria a 24 ore | ASSENTE | Il giro notturno non lo manda ancora: e una riga nel catalogo chiuso delle automazioni, non un motore nuovo |
 | Appuntamenti: schermate | PARTIAL | Le rotte e il dominio ci sono; la coda di lavoro della segreteria, la pagina dell'allenatore e la scelta dello slot nell'area genitore sono 5H e 5I |
+
+---
+
+## Wave 5 — 5G, 5H e 5I (2026-09-01)
+
+### Iscrizione online e rinnovo
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Motore moduli online | COMPLETE | Gia corretto prima della Wave 5: pagina pubblica, limite di frequenza, versione immutabile, anagrafica solo all'approvazione umana (ADR-0040) |
+| Riscontro alla famiglia | COMPLETE | Riferimento opaco restituito una volta sola, stato leggibile da rotta pubblica con doppio rate limit e 404 unico |
+| Domanda visibile nell'area genitore | COMPLETE | `/parent-view/[id]/enrollment` |
+| Rinnovo precompilato | COMPLETE | Stesso modulo con un contesto: dati esistenti e stagione di destinazione, decisa dal server |
+| Documento mancante all'approvazione | COMPLETE | Emette una richiesta documentale invece di respingere: e il punto in cui iscrizione e fascicolo si saldano |
+| Pagamento contestuale | ASSENTE | G-37, fuori perimetro per scelta: la domanda produce una pratica, non un movimento |
+| Sconti automatici e fratelli | ASSENTE | G-36, G-61, fuori perimetro |
+| Iscrizione senza account con seguito | ASSENTE | `W2-09`: la ricevuta e anonima e in sola lettura |
+
+### Dashboard Parent
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Selettore figli | COMPLETE | Anche in club diversi; il legame sopravvive al ricaricamento (5A) |
+| Calendario dei figli | COMPLETE | `/parent-view/[id]/calendar`, allenamenti e gare insieme |
+| Bacheca | COMPLETE | `/parent-view/[id]/board`, letta dalle consegne |
+| Notifiche | COMPLETE | `/parent-view/[id]/notifications`: prima erano nel payload e non venivano **mai disegnate** |
+| Consensi accettabili e revocabili | COMPLETE | `/parent-view/[id]/consents`, con sorgente `subject` |
+| «Paga ora» | COMPLETE | Riusa il checkout esistente con l'identita di sessione. Nessun secondo checkout |
+| Ricevute scaricabili | COMPLETE | Il gate e diventato il legame |
+| Stato della domanda | COMPLETE | `/parent-view/[id]/enrollment` |
+| Fascicolo documentale | COMPLETE | Dal dominio 5D, con l'upload multipart |
+| Appuntamenti su slot | COMPLETE | Dal dominio 5E |
+| Push mobile | ASSENTE | G-59, differito da ADR-0025 |
+
+### Dashboard Trainer
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Permessi trainer applicati alla sessione | COMPLETE | Da `GET /api/v1/trainer/preferences` (5A) |
+| Calendario dei propri gruppi | COMPLETE | Perimetro implicito sul ruolo |
+| Annulla allenamento, convocazioni | COMPLETE | Passano dalle rotte del dominio eventi |
+| Appello su allenamento **e gara** | COMPLETE | Legge le righe, non la copia nel payload |
+| Bacheca in lettura | COMPLETE | `/trainer-dashboard/board` |
+| Documenti pertinenti | COMPLETE | I propri, e i certificati del gruppo limitati allo **stato** |
+| Appuntamenti assegnati | COMPLETE | `/trainer-dashboard/appointments` |
+| Programmazione settimanale | COMPLETE | Era sempre vuota |
+| Avvisi operativi | COMPLETE | Calcolati dal **server**: prima il contenuto lo dettava il client |
+| Dato clinico | COMPLETE | `clinical.read` negato di default e applicato dal server; resta `clinical.status_read` |
+| Anagrafica dei colleghi | COMPLETE | Ridotta a cio che serve: prima usciva con codice fiscale, indirizzo e telefono |
+| Invio comunicazioni dal trainer | ASSENTE | Decisione di prodotto, non un difetto |
+| Piani di lavoro tecnici, esercizi, carichi | ASSENTE | W5-13, Wave 6 |

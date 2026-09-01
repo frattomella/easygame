@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Building2,
+  Bell,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -13,7 +14,10 @@ import {
   FileText,
   Home,
   LogOut,
+  FileSignature,
   Mail,
+  Megaphone,
+  ShieldCheck,
   Stethoscope,
   Trophy,
   UserCircle,
@@ -63,6 +67,12 @@ const ParentSidebar = memo(() => {
       label: "AREA FAMIGLIA",
       items: [
         { href: basePath, label: "Home", icon: Home },
+        /*
+          Il calendario, la bacheca, le notifiche e i consensi: quattro voci che
+          il §13 elencava come «backend pronto, nessuna pagina». Non erano
+          funzioni mancanti, erano funzioni irraggiungibili.
+        */
+        { href: `${basePath}/calendar`, label: "Calendario", icon: CalendarDays },
         { href: `${basePath}/athlete`, label: "Atleta", icon: UserCircle },
         {
           href: `${basePath}/trainings`,
@@ -77,7 +87,15 @@ const ParentSidebar = memo(() => {
       label: "SEGRETERIA",
       items: [
         { href: `${basePath}/payments`, label: "Pagamenti", icon: CreditCard },
+        {
+          href: `${basePath}/enrollment`,
+          label: "Iscrizione",
+          icon: FileSignature,
+        },
         { href: `${basePath}/documents`, label: "Documenti", icon: FileText },
+        { href: `${basePath}/consents`, label: "Consensi", icon: ShieldCheck },
+        { href: `${basePath}/board`, label: "Bacheca", icon: Megaphone },
+        { href: `${basePath}/notifications`, label: "Notifiche", icon: Bell },
         {
           href: `${basePath}/secretariat`,
           label: "Segreteria",
