@@ -1,7 +1,5 @@
-import {
-  normalizeAccessRole,
-  type CanonicalAccessRole,
-} from "@/lib/access-roles";
+import { normalizeAccessRole } from "@/lib/access-roles";
+import { roleHasPermission } from "@/lib/permissions/catalog";
 
 /**
  * **Chi vede lo stato di un certificato non vede per cio stesso il contenuto
@@ -60,12 +58,6 @@ export const HEALTH_PERMISSION_LABELS: Record<HealthPermission, string> = {
   "clinical.manage": "Registrare e modificare certificati e dati sanitari",
 };
 
-const FULL_ACCESS: readonly HealthPermission[] = [
-  "clinical.status_read",
-  "clinical.read",
-  "clinical.manage",
-];
-
 /**
  * **Perche collaborator e staff hanno il contenuto e trainer no.**
  *
@@ -79,31 +71,28 @@ const FULL_ACCESS: readonly HealthPermission[] = [
  * contenuto a un allenatore. E una scelta deliberata: **il default su un dato
  * sanitario di un minore e negato**, e un default sbagliato non si compensa
  * con una casella di spunta nel browser.
+ *
+ * **La matrice vive nel catalogo unico** (`src/lib/permissions/catalog.ts`,
+ * W5-70): una chiave che nessuna schermata puo elencare non e configurabile, e
+ * un motore di ruoli personalizzati non avrebbe niente da leggere. Questo
+ * modulo resta il proprietario del **dominio** — cosa e stato e cosa e
+ * contenuto — e non tiene una seconda copia della tabella dei ruoli.
  */
-const PERMISSIONS_BY_ROLE: Record<
-  CanonicalAccessRole,
-  readonly HealthPermission[]
-> = {
-  owner: FULL_ACCESS,
-  club_manager: FULL_ACCESS,
-  collaborator: FULL_ACCESS,
-  staff: FULL_ACCESS,
-  trainer: ["clinical.status_read"],
-  parent: [],
-  athlete: [],
-};
-
 export const listHealthPermissions = (
   role: string | null | undefined,
 ): readonly HealthPermission[] => {
   const normalized = normalizeAccessRole(role);
-  return normalized ? PERMISSIONS_BY_ROLE[normalized] : [];
+  if (!normalized) return [];
+
+  return HEALTH_PERMISSIONS.filter((permission) =>
+    roleHasPermission(normalized, permission),
+  );
 };
 
 export const hasHealthPermission = (
   role: string | null | undefined,
   permission: HealthPermission,
-) => listHealthPermissions(role).includes(permission);
+) => roleHasPermission(role, permission);
 
 /**
  * Solleva se il ruolo non ha il permesso.

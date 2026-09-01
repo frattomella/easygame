@@ -2,8 +2,16 @@ import { prisma } from "./prisma";
 import { belongsToActiveClub } from "@/lib/auth/active-club-boundary";
 import {
   canManageClubConfiguration,
+  isClubResourceDeclared,
   normalizeAccessRole,
 } from "@/lib/access-roles";
+import {
+  athleteMatchesGroup,
+  buildCategoryGroups,
+  buildSiteIndex,
+  normalizeClubSites,
+  type CategoryGroup,
+} from "@/lib/club-sites";
 import {
   hasHealthPermission,
   stripClinicalAthleteFields,
@@ -380,6 +388,33 @@ const assertOgniRisorsaDichiaraIlConfine = () => {
 };
 assertOgniRisorsaDichiaraIlConfine();
 
+/**
+ * **Nessuna risorsa senza una riga nella matrice dei permessi** (W5-71).
+ *
+ * Il gemello della guardia qui sopra, sull'altra domanda. Il confine dice *a
+ * chi appartiene* una riga; la matrice dice *chi puo toccarla*. Fino a questa
+ * Wave la seconda rispondeva `true` a segreteria e collaboratore per qualunque
+ * nome non esplicitamente riservato: una risorsa nuova nasceva **aperta**, e
+ * nessuno se ne accorgeva finche non lo trovava un audit.
+ *
+ * La guardia sta qui e non in `access-roles.ts` perche e questo modulo a
+ * conoscere l'elenco delle risorse; e non sta in un test perche un test si puo
+ * dimenticare di aggiornare.
+ */
+const assertOgniRisorsaDichiaraIPermessi = () => {
+  const senzaMatrice = Object.keys(RESOURCE_CONFIG).filter(
+    (resource) => !isClosedResource(resource) && !isClubResourceDeclared(resource),
+  );
+
+  if (senzaMatrice.length) {
+    throw new Error(
+      `Risorse senza una riga nella matrice dei permessi: ${senzaMatrice.join(", ")}. ` +
+        "Dichiararle in MANAGEMENT_OPEN_RESOURCES o in MANAGEMENT_ADMIN_ONLY_RESOURCES " +
+        "(src/lib/access-roles.ts): una risorsa su cui nessuno ha deciso nasceva aperta.",
+    );
+  }
+};
+
 /** Le risorse che il registro generico non serve affatto. */
 export const isClosedResource = (resource: string) =>
   RESOURCE_BOUNDARIES[resource] === "chiuso";
@@ -403,6 +438,8 @@ const assertResourceIsOpen = (resource: string) => {
     `Accesso negato: ${resource} non passa dal registro generico, ma dalle rotte del suo dominio`,
   );
 };
+
+assertOgniRisorsaDichiaraIPermessi();
 
 /** Le risorse in cui una riga appartiene a **chi la chiede**. */
 const isPersonalResource = (resource: string) =>
@@ -3382,6 +3419,30 @@ const extractRecordCategoryTokens = (
 ) => {
   const source = toObjectPayload(record);
 
+  /*
+    **Le appartenenze contano quanto il campo libero.** La categoria di un
+    atleta puo vivere in `category_memberships` — la tabella vera, ADR-0038 —
+    e non nel campo di comodita: leggendo solo il secondo, un atleta iscritto
+    correttamente restava invisibile al proprio allenatore.
+  */
+  const appartenenze = [
+    record.category_memberships,
+    record.categoryMemberships,
+    source.category_memberships,
+    source.categoryMemberships,
+  ]
+    .flatMap((entry) => toArrayValue(entry))
+    .flatMap((entry) => {
+      const membership =
+        entry && typeof entry === "object" ? (entry as Record<string, any>) : {};
+      return [
+        membership.category_id,
+        membership.categoryId,
+        membership.category_name,
+        membership.categoryName,
+      ];
+    });
+
   return buildCategoryTokenSet(
     [
       record.category,
@@ -3396,6 +3457,7 @@ const extractRecordCategoryTokens = (
       source.category_name,
       source.categoryName,
       source.categories,
+      ...appartenenze,
     ],
     categories,
   );
@@ -3516,6 +3578,8 @@ const resolveTrainerDashboardFilterContext = async (
       where: { id: organizationId },
       select: {
         categories: true,
+        category_groups: true,
+        club_sites: true,
         trainers: true,
         staff_members: true,
       },
@@ -3546,11 +3610,20 @@ const resolveTrainerDashboardFilterContext = async (
       isProfileLinkedToUser(profile, userId, user?.email),
     ) || null;
 
+  const siteIndex = buildSiteIndex(normalizeClubSites(club.club_sites));
+  const clubGroups = buildCategoryGroups({
+    categories: categoryOptions,
+    sites: normalizeClubSites(club.club_sites),
+    groups: club.category_groups,
+  });
+
   if (!trainerProfile) {
     return {
       categoryOptions,
       assignedCategoryTokens: new Set<string>(),
       trainerTokens: new Set<string>(),
+      assignedGroups: [] as CategoryGroup[],
+      siteIndex,
     };
   }
 
@@ -3573,10 +3646,47 @@ const resolveTrainerDashboardFilterContext = async (
     categoryOptions,
   );
 
+  /*
+    **Il gruppo operativo diventa un confine dove il dato e personale** (W5-69).
+
+    Il gruppo — categoria **piu** sede — era usato da un solo posto, l'RSVP.
+    Ovunque altro il perimetro dell'allenatore era la sola categoria, e in un
+    club multi-sede questo significa che il mister dei `Pulcini · Scauri`
+    leggeva l'anagrafica dei `Pulcini · Santi Cosma`: stessa fascia, altra
+    squadra, altre famiglie.
+
+    Resta un **filtro** dove il dato non e personale — gli allenamenti e le
+    gare sono il calendario del club — e diventa un **confine** dove lo e: gli
+    atleti. Se l'allenatore non ha nessun gruppo dichiarato si ricade sulla
+    categoria, che e cio che il prodotto faceva prima: un club che non ha
+    configurato le sedi non deve perdere l'accesso da un giorno all'altro.
+  */
+  const assignedGroupIds = new Set(
+    [
+      trainerProfile.groups,
+      trainerProfile.groupIds,
+      trainerProfile.group_ids,
+      source.groups,
+      source.groupIds,
+      source.group_ids,
+    ]
+      .flatMap((entry) => flattenTokenInput(entry))
+      .map((entry) =>
+        entry && typeof entry === "object"
+          ? String((entry as any).id || "").trim()
+          : String(entry || "").trim(),
+      )
+      .filter(Boolean),
+  );
+
   return {
     categoryOptions,
     assignedCategoryTokens,
     trainerTokens: buildTrainerTokenSet(trainerProfile),
+    assignedGroups: assignedGroupIds.size
+      ? clubGroups.filter((group) => assignedGroupIds.has(group.id))
+      : [],
+    siteIndex,
   };
 };
 
@@ -3619,7 +3729,23 @@ const filterTrainerDashboardRecords = async (
     return [];
   }
 
+  /*
+    Sugli **atleti** — il dato personale — il gruppo operativo e il confine, e
+    la categoria e solo la ricaduta di chi non ha gruppi dichiarati (W5-69).
+    Su allenamenti e gare resta la categoria, perche il calendario di una
+    squadra non e il dato di nessuno.
+  */
+  const perGruppo =
+    context.assignedGroups.length > 0 &&
+    (resource === "athletes" || resource === "simplified_athletes");
+
   return records.filter((record) => {
+    if (perGruppo) {
+      return context.assignedGroups.some((group) =>
+        athleteMatchesGroup(record, group, context.siteIndex),
+      );
+    }
+
     const matchesCategory = hasTokenIntersection(
       extractRecordCategoryTokens(record, context.categoryOptions),
       context.assignedCategoryTokens,

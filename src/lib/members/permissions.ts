@@ -19,14 +19,15 @@
  * risponde 403 e un difetto quanto una porta aperta.
  */
 
-import { canManageClubConfiguration, normalizeAccessRole } from "@/lib/access-roles";
+import { canManageClubConfiguration } from "@/lib/access-roles";
+import { roleHasPermission } from "@/lib/permissions/catalog";
 
-const MEMBERSHIP_READ_ROLES = new Set([
-  "owner",
-  "club_manager",
-  "collaborator",
-  "staff",
-]);
+/*
+  **Le chiavi, invece dei booleani senza nome** (W5-70). La matrice per ruolo e
+  la stessa di prima — questo non e un cambio di comportamento — e adesso vive
+  nel catalogo unico, dove una schermata di configurazione e, un giorno, un
+  motore di ruoli personalizzati la possono leggere.
+*/
 
 /** Registrare un'ammissione, una cessazione o una riammissione. */
 export const canManageMembershipRegister = (role?: string | null) =>
@@ -34,4 +35,4 @@ export const canManageMembershipRegister = (role?: string | null) =>
 
 /** Leggere il libro e lo storico di un socio. */
 export const canReadMembershipRegister = (role?: string | null) =>
-  MEMBERSHIP_READ_ROLES.has(normalizeAccessRole(role));
+  roleHasPermission(role, "members.register.read");

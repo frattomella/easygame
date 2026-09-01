@@ -364,3 +364,79 @@ legame **sopravvive a un ricaricamento della pagina**. La forma singolare resta
 accettata per le sessioni gia aperte.
 
 Copertura: `tests/auth/genitore-piu-figli.test.mjs`.
+
+---
+
+## Il catalogo unico delle chiavi (2026-09-01, Wave 5 — 5B, W5-70)
+
+`src/lib/permissions/catalog.ts`. EasyGame aveva **tre generazioni di
+permessi** una accanto all'altra:
+
+1. i domini nati con una matrice — `sport-work`, `communications`,
+   `accounting`, e da questa Wave `health` — con chiave, etichetta, ruolo per
+   ruolo e default negato;
+2. una quindicina di **predicati booleani senza chiave** in `documents/`,
+   `members/` e `attachment-permissions`: corretti, ma non elencabili, non
+   mostrabili in una schermata e non assegnabili;
+3. un flag di **interfaccia** che nasceva acceso e viveva solo nel browser
+   (`viewMedicalStatus`), chiuso in 5A.
+
+La differenza non e estetica. Una chiave si puo **elencare** — e quindi
+mostrare in una configurazione — e si puo **assegnare** — e quindi leggere da un
+motore di ruoli personalizzati. Un predicato booleano senza chiave esiste solo
+per chi legge il codice.
+
+**Il catalogo tiene l'elenco; le matrici restano nei domini** (CLAUDE.md §2).
+`documents/permissions.ts`, `members/permissions.ts` e `health/permissions.ts`
+leggono il catalogo invece di tenere una seconda copia della tabella dei ruoli,
+e `tests/lib/catalogo-permessi.test.mjs` prova che dominio e catalogo non
+possono divergere.
+
+**Questo non e un motore di ruoli personalizzati** e non ne e l'inizio scritto
+di sfuggita: nessuna tabella, nessuna concessione per membership, nessuna
+revoca. E la **forma** che un motore potra leggere senza essere riscritto — il
+presidio che rende la Wave 6 un'aggiunta e non un rifacimento.
+
+---
+
+## Niente piu allow-by-default (2026-09-01, Wave 5 — 5B, W5-71, chiude W2-13)
+
+Il ramo di `canAccessClubResource` per collaboratore e segreteria terminava con
+`return true`: potevano leggere e scrivere **qualunque nome** non presente
+nell'elenco riservato. Non e teorico — e lo schema che ha tenuto `sport_work`
+aperto alla segreteria: il perimetro era dichiarato nella pagina e nel dominio,
+e la matrice rispondeva `true` a una risorsa di cui non sapeva niente.
+
+Adesso c'e `MANAGEMENT_OPEN_RESOURCES`, un elenco esplicito, e
+`isClubResourceDeclared`. `resources.ts` **non si carica** se una risorsa del
+registro non compare ne fra le aperte ne fra le riservate
+(`assertOgniRisorsaDichiaraIPermessi`), esattamente come gia fa per
+`RESOURCE_BOUNDARIES` (ADR-0094).
+
+**Cosa ha scoperto subito.** `attachment-permissions.ts` mappava
+`owner_type: "staff"` sulla risorsa `"staff"`, che **non esiste**: la risorsa e
+`staff_members`. Finche il ramo permissivo rispondeva `true` a ogni nome
+sconosciuto, l'errore era invisibile. E il tipo di difetto che
+l'allow-by-default teneva nascosto per costruzione.
+
+---
+
+## Il gruppo operativo come confine (2026-09-01, Wave 5 — 5B, W5-69)
+
+Il gruppo operativo — categoria **piu** sede, ADR-0055 — era consumato da un
+solo posto: l'RSVP. Ovunque altro il perimetro dell'allenatore era la sola
+categoria, e in un club multi-sede il mister dei `Pulcini · Scauri` leggeva
+l'anagrafica completa dei `Pulcini · Santi Cosma`.
+
+La regola adesso: **confine dove il dato e personale, filtro dove non lo e.**
+Sugli atleti il gruppo e il confine; su allenamenti e gare resta la categoria,
+perche il calendario di una squadra non e il dato di nessuno. Un allenatore
+senza gruppi dichiarati ricade sulla categoria: un club che non ha configurato
+le sedi non perde l'accesso da un giorno all'altro.
+
+Corretto nello stesso passaggio un difetto che restringeva **troppo**: la
+categoria di un atleta si leggeva solo dal campo di comodita e non da
+`category_memberships`, quindi un atleta iscritto correttamente alla tabella
+vera restava invisibile al proprio allenatore.
+
+Copertura: `tests/auth/perimetro-gruppo-operativo.test.mjs`.

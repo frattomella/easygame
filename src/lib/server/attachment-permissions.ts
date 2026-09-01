@@ -57,7 +57,17 @@ const RISORSA_PER_TIPO: Record<string, string> = {
   athlete: "athletes",
   guardian: "athletes",
   member: "members",
-  staff: "staff",
+  /*
+    **`staff` non e il nome di una risorsa: la risorsa e `staff_members`.**
+
+    Finche `canAccessClubResource` rispondeva `true` a segreteria e
+    collaboratore per qualunque nome sconosciuto, la differenza non si vedeva:
+    il permesso arrivava dal ramo permissivo e non dalla riga giusta della
+    matrice. Chiuso quel ramo (W5-71), un nome sbagliato smette di essere
+    innocuo — ed e esattamente il tipo di difetto che l'allow-by-default
+    teneva nascosto.
+  */
+  staff: "staff_members",
   trainer: "trainers",
   sport_work_person: "sport_work",
   sport_work_relationship: "sport_work",

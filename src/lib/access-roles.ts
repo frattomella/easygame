@@ -217,6 +217,86 @@ const MANAGEMENT_ADMIN_ONLY_DELETE_RESOURCES = new Set([
   "simplified_payments",
 ]);
 
+/**
+ * **Le risorse che segreteria e collaboratore possono davvero toccare.**
+ *
+ * Elenco esplicito, e non «tutto cio che non e riservato»: e la differenza fra
+ * una matrice che ha deciso e una che non sa di non aver deciso (W5-71).
+ *
+ * Non coincide con `RESOURCE_CONFIG`: qui compaiono anche nomi di **dominio**
+ * che il registro generico non serve — `forms` per i moduli online — perche
+ * `canAccessClubResource` e la porta che gli allegati interrogano ereditando
+ * il permesso da cio a cui sono attaccati
+ * (`src/lib/server/attachment-permissions.ts`).
+ *
+ * Chi aggiunge una risorsa al registro e non la dichiara qui la trova
+ * **chiusa** a segreteria e collaboratore, e `resources.ts` non si carica
+ * affatto: la difesa e la stessa di `RESOURCE_BOUNDARIES`.
+ */
+const MANAGEMENT_OPEN_RESOURCES = new Set([
+  "athlete_category_memberships",
+  "athletes",
+  "categories",
+  "category_groups",
+  "clothing_inventory",
+  "clothing_kits",
+  "clothing_products",
+  "club_resource_items",
+  "club_sites",
+  "dashboards",
+  "discounts",
+  "expected_expenses",
+  "expected_income",
+  /* Dominio proprio, senza risorsa generica: i moduli online (ADR-0039). */
+  "forms",
+  "invoices",
+  "jersey_assignments",
+  "jersey_groups",
+  "kit_assignments",
+  "matches",
+  "medical_certificates",
+  "members",
+  "notifications",
+  "opening_hours",
+  "payment_plans",
+  "payments",
+  "procure",
+  "receipts",
+  "secretariat_notes",
+  "simplified_athletes",
+  "simplified_certificates",
+  "simplified_notifications",
+  "simplified_payments",
+  "sponsor_payments",
+  "sponsors",
+  "staff_members",
+  "trainer_payments",
+  "trainers",
+  "training_attendance",
+  "trainings",
+  "transactions",
+  "transfers",
+  "weekly_schedule",
+]);
+
+/**
+ * Vero se la matrice ha **deciso** su questo nome, in un verso o nell'altro.
+ *
+ * Serve alla guardia di caricamento di `resources.ts`: una risorsa che non
+ * compare ne fra le riservate ne fra le aperte e una risorsa su cui nessuno ha
+ * deciso niente, e prima di questa Wave sarebbe stata **aperta** in silenzio.
+ */
+export const isClubResourceDeclared = (resource: string) => {
+  const normalized = String(resource || "")
+    .trim()
+    .toLowerCase();
+
+  return (
+    MANAGEMENT_OPEN_RESOURCES.has(normalized) ||
+    MANAGEMENT_ADMIN_ONLY_RESOURCES.has(normalized)
+  );
+};
+
 const TRAINER_READ_RESOURCES = new Set([
   "athlete_category_memberships",
   "athletes",
@@ -449,7 +529,23 @@ export const canAccessClubResource = (
   }
 
   if (normalizedRole === "collaborator" || normalizedRole === "staff") {
+    /*
+      **Non piu «tutto cio che non e vietato»** (W5-71, chiude W2-13).
+
+      Fin qui questo ramo terminava con `return true`: segreteria e
+      collaboratore potevano leggere e scrivere **qualunque nome** che non
+      fosse nell'elenco riservato. Il difetto non e teorico — e lo stesso schema
+      che ha aperto `sport_work` alla segreteria per undici mesi: il perimetro
+      era dichiarato nella pagina e nel dominio, e non nella matrice, e la
+      matrice rispondeva `true` a una risorsa di cui non sapeva niente.
+
+      Una risorsa nuova adesso **deve dichiararsi**, come gia fa per il confine
+      multi-tenant (ADR-0094). Chi la aggiunge e non la dichiara la trova
+      chiusa, che e il verso giusto in cui sbagliare — e `resources.ts` non si
+      carica affatto se una risorsa del registro non compare qui.
+    */
     if (MANAGEMENT_ADMIN_ONLY_RESOURCES.has(normalizedResource)) return false;
+    if (!MANAGEMENT_OPEN_RESOURCES.has(normalizedResource)) return false;
     if (
       action === "delete" &&
       MANAGEMENT_ADMIN_ONLY_DELETE_RESOURCES.has(normalizedResource)

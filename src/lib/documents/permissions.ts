@@ -28,23 +28,26 @@
 
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { hasSportWorkPermission } from "@/lib/sport-work/permissions";
+import { roleHasPermission } from "@/lib/permissions/catalog";
 import type { PlaceholderSensitivity } from "./placeholders";
 
-/**
- * I ruoli che possono stare davanti a un documento.
- *
- * Genitori, atleti e allenatori non compaiono: le loro aree hanno rotte
- * dedicate e non passano di qui.
- */
-const DOCUMENT_MANAGEMENT_ROLES = new Set([
-  "owner",
-  "club_manager",
-  "collaborator",
-  "staff",
-]);
+/*
+  I ruoli che possono stare davanti a un documento. Genitori, atleti e
+  allenatori non compaiono: le loro aree hanno rotte dedicate e non passano
+  di qui.
+*/
+/*
+  **Le chiavi, invece dei booleani senza nome** (W5-70).
 
-const normalize = (role?: string | null) =>
-  String(role || "").trim().toLowerCase();
+  Questi predicati esistevano gia ed erano corretti, ma non avevano ne una
+  chiave ne un'etichetta: non si potevano elencare in una schermata di
+  configurazione, e un motore di ruoli personalizzati non avrebbe avuto niente
+  da leggere. La matrice per ruolo e la stessa di prima — questo non e un
+  cambio di comportamento — e adesso vive nel catalogo unico.
+*/
+/** Vero per i ruoli che possono stare davanti a un documento. */
+const canStandBeforeADocument = (role?: string | null) =>
+  roleHasPermission(role, "documents.templates.read");
 
 /**
  * Creare, modificare, pubblicare, ritirare un modello.
@@ -59,7 +62,7 @@ export const canManageDocumentTemplates = (role?: string | null) =>
 
 /** Vedere l'elenco dei modelli e il loro contenuto. */
 export const canReadDocumentTemplates = (role?: string | null) =>
-  DOCUMENT_MANAGEMENT_ROLES.has(normalize(role));
+  canStandBeforeADocument(role);
 
 /**
  * Puo generare un documento che porta **queste** classi sensibili?
@@ -74,7 +77,7 @@ export const canGenerateDocumentWithSensitivity = (
   role: string | null | undefined,
   sensitivity: Iterable<PlaceholderSensitivity | string>,
 ) => {
-  if (!DOCUMENT_MANAGEMENT_ROLES.has(normalize(role))) return false;
+  if (!canStandBeforeADocument(role)) return false;
 
   for (const entry of sensitivity) {
     const value = String(entry || "").trim().toLowerCase();
@@ -110,7 +113,7 @@ export const explainGenerationDenial = (
   role: string | null | undefined,
   sensitivity: Iterable<PlaceholderSensitivity | string>,
 ): string | null => {
-  if (!DOCUMENT_MANAGEMENT_ROLES.has(normalize(role))) {
+  if (!canStandBeforeADocument(role)) {
     return "Accesso negato: i documenti li genera chi lavora nella segreteria del club";
   }
 
@@ -156,7 +159,7 @@ export const canReadGeneratedDocument = (
   document: { sensitivity?: string[] | null; generated_by?: string | null },
   viewerUserId?: string | null,
 ) => {
-  if (!DOCUMENT_MANAGEMENT_ROLES.has(normalize(role))) return false;
+  if (!canStandBeforeADocument(role)) return false;
 
   const sensitivity = Array.isArray(document.sensitivity)
     ? document.sensitivity
@@ -171,7 +174,7 @@ export const canReadGeneratedDocument = (
 
 /** Caricare la copia firmata e portare avanti lo stato del documento. */
 export const canAdvanceGeneratedDocument = (role?: string | null) =>
-  DOCUMENT_MANAGEMENT_ROLES.has(normalize(role));
+  canStandBeforeADocument(role);
 
 /** Definire un consenso e pubblicarne le versioni: configurazione societaria. */
 export const canManageConsentDefinitions = (role?: string | null) =>
@@ -184,8 +187,8 @@ export const canManageConsentDefinitions = (role?: string | null) =>
  * operativo, non una configurazione.
  */
 export const canRecordConsentDecision = (role?: string | null) =>
-  DOCUMENT_MANAGEMENT_ROLES.has(normalize(role));
+  canStandBeforeADocument(role);
 
 /** Leggere lo stato dei consensi del club. */
 export const canReadConsentRecords = (role?: string | null) =>
-  DOCUMENT_MANAGEMENT_ROLES.has(normalize(role));
+  canStandBeforeADocument(role);
