@@ -152,6 +152,19 @@ di aggiornamento, e nel ramo di creazione usa il valore neutro `"pending"`, che
 nessun consumatore conta come presenza. Nessuno stato `no_response` viene
 scritto: il silenzio si **deriva** dall'assenza di risposta.
 
+### Fascicolo documentale e appuntamenti (Wave 5)
+
+| Modello | Tabella | Note |
+|---------|---------|------|
+| `DocumentRequest` | `document_requests` | La richiesta del club come **riga** ([ADR-0100](18-decision-log.md#adr-0100--il-fascicolo-documentale-e-una-riga-e-i-byte-non-generano-una-tabella-nuova)). `status` porta solo `open` e `cancelled`: `fulfilled` **non viene mai scritto**, perche lo stato del deposito si **deriva** dall'ultimo deposito (ADR-0058). `legacy_id` conserva l'identificativo che il documento aveva in `athletes.data.sharedDocuments` |
+| `DocumentSubmission` | `document_submissions` | Il deposito e la sua decisione, **append-only**. `request_id` nullo = deposito **spontaneo**. `attachment_id` punta ad Attachment Core: **i byte non generano una tabella nuova** |
+| `Appointment` | `appointments` | Otto stati, `starts_at`/`ends_at` come **istante assoluto** con `timezone` accanto, `version` per il controllo ottimistico, `idempotency_key` unica per club, `parent_appointment_id` per la riprogrammazione. **La doppia prenotazione la impedisce il database**: indice unico parziale su `(organization_id, assigned_to_user_id, starts_at)` per gli stati vivi ([ADR-0101](18-decision-log.md#adr-0101--lappuntamento-e-un-dominio-con-un-proprietario-e-la-doppia-prenotazione-la-impedisce-il-database)) |
+| `AppointmentSlot` | `appointment_slots` | La disponibilita come **dato**: sede, operatore, giorno o data specifica, orario, durata, capienza, validita. Senza slot si ricade sugli orari di apertura, e la risposta dichiara da dove viene |
+
+**`internal_notes` non esce verso la famiglia**, e non e nascosto
+dall'interfaccia: la proiezione della famiglia **non ha quel campo**. E la
+lezione di D-4 — una guardia che vive solo nel browser non e una guardia.
+
 ### Amministrazione
 
 | Modello | Tabella | Note |

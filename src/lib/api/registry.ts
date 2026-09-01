@@ -117,6 +117,77 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "document_requests.list",
+    method: "GET|POST",
+    path: "/api/v1/document-requests",
+    description:
+      "Il fascicolo documentale come righe: le richieste del club a una famiglia o a un collaboratore. Il workflow esisteva gia per intero, e viveva dentro un array JSON dell'anagrafica senza organization_id, senza scadenza sorvegliata e senza audit",
+    mobile_ready: false,
+  },
+  {
+    name: "document_requests.item",
+    method: "GET|PATCH|DELETE",
+    path: "/api/v1/document-requests/:id",
+    description:
+      "Una richiesta documentale. Il PATCH sollecita (con il throttling a sei ore che gia esisteva); il DELETE la annulla. Lo stato del deposito non si scrive: si deriva dall'ultimo deposito",
+    mobile_ready: false,
+  },
+  {
+    name: "document_submissions.list",
+    method: "GET|POST",
+    path: "/api/v1/document-submissions",
+    description:
+      "La coda «da verificare» e il deposito di un documento. L'upload e multipart: i byte passano da Attachment Core, e base64 costava il 33% in piu. Un deposito senza richiesta e spontaneo, e finisce nella stessa coda",
+    mobile_ready: false,
+  },
+  {
+    name: "document_submissions.decide",
+    method: "POST",
+    path: "/api/v1/document-submissions/:id",
+    description:
+      "La decisione su un deposito: accettato, o rifiutato con motivo. All'accettazione un certificato medico promuove una riga in medical_certificates. Lascia sempre una traccia di audit, che prima non c'era",
+    mobile_ready: false,
+  },
+  {
+    name: "appointments.list",
+    method: "GET|POST",
+    path: "/api/v1/appointments",
+    description:
+      "La coda di lavoro della segreteria, filtrabile per stato, sede e operatore, e la presa di un appuntamento. Prima nessun codice scriveva «confermato»: una richiesta restava in attesa per sempre",
+    mobile_ready: false,
+  },
+  {
+    name: "appointments.item",
+    method: "GET|POST",
+    path: "/api/v1/appointments/:id",
+    description:
+      "Le transizioni di un appuntamento: confirm, reject (con motivo), reschedule, cancel, complete, no-show. La riprogrammazione crea una riga nuova e chiude la vecchia: la data non si muta in luogo",
+    mobile_ready: false,
+  },
+  {
+    name: "appointments.availability",
+    method: "GET",
+    path: "/api/v1/appointments/availability",
+    description:
+      "Gli slot liberi in un intervallo. Quando un club non configura slot si ricade sugli orari di apertura, e la risposta dichiara da dove viene la disponibilita",
+    mobile_ready: false,
+  },
+  {
+    name: "appointment_slots.list",
+    method: "GET|POST",
+    path: "/api/v1/appointment-slots",
+    description:
+      "La disponibilita come dato: sede, operatore, giorno o data specifica, orario, durata, capienza, validita. Prima esisteva solo l'orario di apertura, uno per tutte le sedi, e due famiglie potevano chiedere lo stesso orario",
+    mobile_ready: false,
+  },
+  {
+    name: "appointment_slots.item",
+    method: "PATCH|DELETE",
+    path: "/api/v1/appointment-slots/:id",
+    description: "Modifica o rimozione di una fascia di disponibilita",
+    mobile_ready: false,
+  },
+  {
     name: "trainer.preferences",
     method: "GET",
     path: "/api/v1/trainer/preferences",

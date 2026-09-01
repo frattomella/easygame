@@ -343,3 +343,21 @@ di sessione vero: 72 controlli, 72 verdi.
 | Comunicazioni per evento | COMPLETE | Due criteri nuovi nel risolutore del pubblico: «convocati a un evento» e «senza risposta a un evento» (W5-14) |
 | Colonna «senza risposta» nel rendiconto | COMPLETE | `/reports`, contata sui soli eventi che una conferma l'hanno chiesta (W5-09) |
 | Perimetro per gruppo sulla convocazione | COMPLETE | La gara che dichiara i suoi gruppi mostra solo quegli atleti; senza gruppi ricade sulla categoria (W5-16) |
+
+---
+
+## Wave 5 — 5D e 5E: fascicolo e appuntamenti (2026-09-01)
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Workflow documenti Club ↔ Parent | COMPLETE | Richiesta e deposito sono **righe** con `organization_id`, scadenza sorvegliata e audit (ADR-0100). Il workflow esisteva gia per intero: cio che mancava era dove viveva |
+| Deposito spontaneo della famiglia | COMPLETE | `request_id` nullo, stessa coda, stessa decisione |
+| Upload della famiglia | COMPLETE | **Multipart**, dentro Attachment Core, con audit. Prima era base64 dentro `Asset`, che non ha `organization_id` |
+| Promozione del certificato medico | COMPLETE | All'accettazione nasce la riga in `medical_certificates`, e `status` non si scrive (W5-27, W5-44) |
+| Antivirus e magic byte sull'upload | ASSENTE | Wave 6 / pre-produzione |
+| Appuntamenti: ciclo di vita completo | COMPLETE | Otto stati, conferma, rifiuto con motivo, riprogrammazione, cancellazione dai due lati, concluso/assente (ADR-0101). Prima **nessun codice scriveva «confermato»** |
+| Appuntamenti: disponibilita | COMPLETE | `appointment_slots`, con ripiego dichiarato sugli orari di apertura |
+| Appuntamenti: doppia prenotazione | COMPLETE | La impedisce il **database**, con un indice unico parziale sugli stati vivi |
+| Appuntamenti: notifiche alla famiglia | COMPLETE | In-app su tutte le transizioni; email su conferma e rifiuto, i due eventi che una famiglia deve sapere senza aprire l'applicazione |
+| Appuntamenti: promemoria a 24 ore | ASSENTE | Il giro notturno non lo manda ancora: e una riga nel catalogo chiuso delle automazioni, non un motore nuovo |
+| Appuntamenti: schermate | PARTIAL | Le rotte e il dominio ci sono; la coda di lavoro della segreteria, la pagina dell'allenatore e la scelta dello slot nell'area genitore sono 5H e 5I |

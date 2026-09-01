@@ -555,3 +555,53 @@ export const normalizeConvocationStatus = (
   }
   return null;
 };
+
+/* ------------------------- i tre campi dell'RSVP, dal form alle colonne --- */
+
+/**
+ * **La forma che il form dell'evento maneggia**, e la sua traduzione.
+ *
+ * Sta qui e non accanto al componente perche e dominio puro, e perche un test
+ * non puo importare un `.tsx`: il runner del repository esegue i sorgenti con
+ * lo stripping dei tipi, che non conosce JSX. La regola generale e la stessa
+ * che vale per ogni altro dominio — la logica in un modulo, la schermata sopra.
+ */
+export type EventRsvpValue = {
+  rsvpRequired: boolean;
+  rsvpDeadline: string;
+  capacity: string;
+};
+
+export const EMPTY_EVENT_RSVP: EventRsvpValue = {
+  rsvpRequired: false,
+  rsvpDeadline: "",
+  capacity: "",
+};
+
+/**
+ * **La scadenza senza la richiesta di conferma non viene scritta.**
+ *
+ * Un evento che non chiede conferma con una scadenza dichiarata e uno stato in
+ * cui nessuno sa cosa succede al passaggio della data.
+ */
+export const toEventRsvpPayload = (value: EventRsvpValue) => ({
+  rsvpRequired: Boolean(value.rsvpRequired),
+  rsvpDeadline:
+    value.rsvpRequired && value.rsvpDeadline
+      ? new Date(value.rsvpDeadline).toISOString()
+      : null,
+  capacity: value.capacity ? Number(value.capacity) : null,
+});
+
+export const fromEventRsvpPayload = (event: any): EventRsvpValue => {
+  const deadline = event?.rsvpDeadline || event?.rsvp_deadline || "";
+  return {
+    rsvpRequired: Boolean(event?.rsvpRequired ?? event?.rsvp_required ?? false),
+    /* `datetime-local` vuole `YYYY-MM-DDTHH:MM`, senza fuso e senza secondi. */
+    rsvpDeadline: deadline ? String(deadline).slice(0, 16) : "",
+    capacity:
+      event?.capacity === null || event?.capacity === undefined
+        ? ""
+        : String(event.capacity),
+  };
+};

@@ -5303,3 +5303,149 @@ distinguere le due cose non serve a chi deve poi spiegarlo a una famiglia.
 che cambia e un modello nuovo. Ma il codice che la usa — e i tre test che la
 coprono — sopravvive quasi intatto, ed e la prova che la decisione di ADR-0086
 era gia quella giusta: mancava solo il soggetto a cui applicarla.
+
+---
+
+## ADR-0100 — Il fascicolo documentale e **una riga**, e i byte non generano una tabella nuova
+
+**Data:** 2026-09-01 · **Contesto:** Wave 5, lane 5D
+
+**La scoperta che cambia il lavoro.** Il workflow chiesto dal brief — il club
+vede che manca il certificato, chiede, la famiglia carica, il club verifica,
+accetta o rifiuta, e solo dopo il documento entra nel fascicolo — **esisteva
+gia per intero** in `src/lib/shared-documents.ts`, con gli stati giusti
+(`required → uploaded / under_review → approved / rejected`), il motivo del
+rifiuto e il throttling del sollecito a sei ore. Anche il verso spontaneo
+funzionava.
+
+Il problema non era il workflow. Era **dove viveva**:
+
+- i byte stavano nella tabella `Asset` come base64, e `Asset` **non ha**
+  `organization_id`: il confine multi-tenant era il prefisso di una stringa in
+  `path`;
+- il fatto stava in `athletes.data.sharedDocuments`, un array JSON dentro
+  l'anagrafica, scritto con `prisma.athlete.update` diretto che aggira
+  `resources.ts`;
+- **nessuna delle due rotte chiamava `recordAuditEvent`**: accettare o
+  rifiutare il documento di un minore non lasciava traccia;
+- `shared-documents.ts` non aveva **un solo test di dominio**;
+- e accanto viveva gia Attachment Core, che e il posto giusto (ADR-0034).
+
+Questo e `AU-5` / `D-H`: il prerequisito che la Wave 3 aveva dichiarato «va
+fatto per primo» come lane `3B`, e che non e mai stato eseguito. La sigla `W3-B`
+e stata riassegnata al risolutore dei segnaposto, e G-42 e stato dichiarato
+parziale sopra un prerequisito mai fatto.
+
+**La decisione.** Due tabelle per il **fatto**, zero tabelle per il **file**.
+
+`document_requests` e la richiesta; `document_submissions` e il deposito con la
+sua decisione, **append-only**. `request_id` e nullo quando il deposito e
+spontaneo: la famiglia carica senza che nessuno abbia chiesto, e finisce nella
+stessa coda con la stessa decisione.
+
+**Lo stato corrente della richiesta si deriva** dall'ultimo deposito, non si
+scrive. E la stessa regola di `ConsentRecord`, delle rate e delle scadenze del
+lavoro sportivo (ADR-0058): la colonna `status` della richiesta porta solo
+`open` e `cancelled`, e `fulfilled` non viene mai scritto da nessuno.
+
+**I byte passano da Attachment Core.** `createAttachment` esiste, con driver di
+storage, permessi ereditati, limiti, validita e scadenze;
+`document_submissions.attachment_id` fa il collegamento. Nessun `owner_type`
+nuovo, nessun secondo archivio. L'upload della famiglia diventa **multipart**:
+base64 costa il 33% in piu, e un PDF da 8 MB diventava una stringa da 11.
+
+**Il gate della lane, e come e stato misurato.** «Nessun byte perso»: gli
+`Asset` dei due bucket contati prima, gli `Attachment` con
+`category = 'shared_document'` contati dopo. Provato sul database di sviluppo
+con tre documenti storici — uno legato per `assetId`, uno per `fileUrl`, uno
+senza file — e due `Asset` con contenuto: due allegati, due blob, dimensione,
+tipo MIME e checksum esatti, e i due depositi riagganciati ai loro byte.
+
+**`Asset` sopravvive**, e non e una dimenticanza: porta ancora il logo del club
+e gli allegati dei moduli V1. Non e questa Wave a chiuderlo, ed e la ragione per
+cui W5-41 resta `EXTEND` e non `DONE`.
+
+**Il legame vale piu del ruolo, e ha uno scope suo.** Un tutore puo non avere
+nessuna membership: `resolveOrganizationScopeForUser` gli darebbe un club attivo
+nullo, e ogni `assertActiveClub` fallirebbe su righe che sono legittimamente
+sue. Lo scope della famiglia nasce dal **legame** (`canParentAccessAthlete`), il
+club arriva dalla riga dell'atleta, e `activeRole` resta `null` di proposito —
+cosi `roleHasPermission` risponde `false` e l'unica strada aperta e il legame. E
+la stessa constatazione gia scritta per l'RSVP: i due permessi non sono lo
+stesso permesso.
+
+**L'identificativo storico resta.** Le righe nate dal travaso hanno un `id`
+proprio, e le due rotte storiche confrontano ancora quello che il documento
+aveva dentro l'array JSON: guardando solo `id`, un documento **gia travasato**
+risultava «solo storico» — cioe in sola lettura — per sempre. `legacy_id` esiste
+esattamente per questo, come `club_events.legacy_id` per gli eventi.
+
+---
+
+## ADR-0101 — L'appuntamento e un dominio con un proprietario, e la doppia prenotazione la impedisce il **database**
+
+**Data:** 2026-09-01 · **Contesto:** Wave 5, lane 5E
+
+**Contesto.** Il brief diceva: «esiste gia, non va rifatto, va analizzato ed
+esteso». L'analisi ha dato un verdetto piu netto: era **mezzo prodotto**. C'era
+la domanda, mancava la risposta.
+
+C'erano: la richiesta della famiglia, con validazione server contro gli orari di
+apertura — e se gli orari non sono configurati la richiesta fallisce, che e la
+regola giusta — un calendario mensile per la segreteria, e le notifiche verso il
+club.
+
+Mancavano:
+
+- **nessun codice scriveva `confirmed`.** Ne `rejected`. Le etichette esistevano
+  solo nel formatter generico: una richiesta restava in attesa **per sempre**, e
+  l'unica risposta possibile della segreteria era cancellarla, senza avvisare
+  nessuno;
+- **le richieste si cancellavano da sole** (D-1, chiuso in 5A);
+- **nessun proprietario**: la logica stava in un route handler e in una pagina
+  client, e i due scrittori usavano due forme diverse dello stesso oggetto —
+  quello della segreteria non aveva nemmeno uno stato ne un `athlete_id`;
+- **nessuna disponibilita**: c'era l'orario di apertura, uno per tutte le sedi,
+  non lo slot. Due famiglie potevano chiedere lo stesso orario;
+- **nessuna notifica alla famiglia, zero email, nessun audit**, identificativi
+  generati dall'orologio, data e ora come due stringhe separate interpretate nel
+  fuso del server, e nessuna protezione dal doppio clic.
+
+**La decisione.** Promuovere a dominio con proprietario e tabella propria, come
+e stato fatto per gli incassi e per il lavoro sportivo. Lo stato non si legge da
+un campo libero: si deriva dalla storia delle transizioni.
+
+**I quattro presidi, e perche sono la ragione della tabella:**
+
+1. **indice unico parziale** su `(club, operatore, inizio)` per gli stati vivi:
+   la doppia prenotazione la impedisce il **database**, non il codice. E la
+   stessa forma di ADR-0095 — il vincolo vale sulle righe vive, non su quelle
+   morte: un appuntamento rifiutato o cancellato libera il posto **senza essere
+   cancellato**, cosi la storia resta leggibile;
+2. `idempotency_key` unica per club: il doppio clic non produce due
+   appuntamenti. E si guarda **prima** della disponibilita, altrimenti al
+   secondo clic lo slot risulterebbe occupato dal proprio stesso appuntamento e
+   la risposta sarebbe «orario non piu disponibile»;
+3. `version` per il controllo ottimistico: due operatori che confermano insieme
+   non si sovrascrivono;
+4. la **riprogrammazione crea una riga nuova** — con `parent_appointment_id`
+   verso quella vecchia — e chiude la vecchia con `rescheduled`. La data non si
+   muta in luogo, cosi l'audit resta leggibile.
+
+**La disponibilita e un dato, con un ripiego dichiarato.** `appointment_slots`
+porta sede, operatore, giorno o data specifica, orario, durata, capienza e
+validita. Quando un club non configura slot si ricade sugli orari di apertura —
+cioe sul comportamento di prima — e la risposta **dichiara da dove viene** la
+disponibilita (`slot` oppure `opening_hours`): un ripiego che non si vede e un
+ripiego che nessuno correggera.
+
+**Il confine era un OR permissivo.** `isParentAppointment` accettava la riga se
+l'atleta corrispondeva **oppure** se l'utente richiedente corrispondeva: dal
+contesto del figlio A si poteva toccare una richiesta nata per il figlio B.
+Diventa una congiunzione. E resta una distinzione fra **leggere** e **toccare**:
+leggere e il legame con il figlio — cosi anche un appuntamento preso dal desk si
+vede — mentre toccare richiede atleta **e** autore.
+
+**`internal_notes` non si nasconde: non esce.** La proiezione verso la famiglia
+non ha quel campo, invece di averlo e non mostrarlo. E la lezione di D-4: una
+guardia che vive solo nell'interfaccia non e una guardia.

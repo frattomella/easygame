@@ -503,6 +503,35 @@ Configurazione di club: solo `owner` e `club_manager`
 - `club_event_participants` — sola lettura: si scrive da /api/v1/events/:id/participants
 - ~~`assets`~~ — chiusa al registro generico: quattro rotte proprie
 
+## Fascicolo documentale (Club ↔ Parent)
+
+Il workflow esisteva gia per intero; cio che mancava e che richiesta e decisione
+fossero **righe**, con un `organization_id` proprio, una scadenza sorvegliata e
+un audit. I byte passano da Attachment Core: **nessun secondo archivio**.
+
+- `GET|POST /api/v1/document-requests`
+- `GET|PATCH|DELETE /api/v1/document-requests/:id` — il `PATCH` sollecita, il
+  `DELETE` annulla
+- `GET|POST /api/v1/document-submissions` — la coda «da verificare» e il
+  deposito. L'upload e **multipart**, non base64
+- `POST /api/v1/document-submissions/:id` — accettato, o rifiutato con motivo
+
+Le due rotte storiche (`/api/athletes/:id/documents`,
+`/api/parent-dashboard/:id/documents`) restano in **lettura**, unendo il
+fascicolo nuovo a quello storico; le scritture passano dal dominio nuovo.
+
+## Appuntamenti
+
+- `GET|POST /api/v1/appointments` — la coda di lavoro della segreteria
+- `GET|POST /api/v1/appointments/:id` — `action`: `confirm`, `reject`,
+  `reschedule`, `cancel`, `complete`, `no-show`
+- `GET /api/v1/appointments/availability` — gli slot liberi, con la fonte
+  dichiarata (`slot` oppure `opening_hours`)
+- `GET|POST /api/v1/appointment-slots` e `PATCH|DELETE /:id` — la disponibilita
+
+La risorsa `appointments` resta **chiusa** al registro generico (D-1): la rotta
+statica prevale su quella dinamica, e il dominio ha la sua porta.
+
 ## Eventi sportivi
 
 Allenamenti e gare non hanno piu due rotte separate su due colonne JSON: hanno

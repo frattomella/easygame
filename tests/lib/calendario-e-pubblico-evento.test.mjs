@@ -8,14 +8,12 @@ import {
   normalizeAudienceCriteria,
 } from "../../src/lib/audience/criteria.ts";
 import {
-  isWithinFieldAvailability,
-  weekdayKeyOf,
-} from "../../src/lib/events/model.ts";
-import {
   EMPTY_EVENT_RSVP,
   fromEventRsvpPayload,
+  isWithinFieldAvailability,
   toEventRsvpPayload,
-} from "../../src/components/events/event-rsvp-fields.tsx";
+  weekdayKeyOf,
+} from "../../src/lib/events/model.ts";
 import { calculateCategoryAthleteStats } from "../../src/lib/category-athlete-stats.ts";
 
 /**

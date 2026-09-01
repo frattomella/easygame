@@ -1,6 +1,7 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
+import type { EventRsvpValue } from "@/lib/events/model";
 import { Label } from "@/components/ui/label";
 
 /**
@@ -22,46 +23,12 @@ import { Label } from "@/components/ui/label";
  * (ADR-0098): due copie divergono, e una delle due sarebbe rimasta indietro
  * come e successo a ogni altra coppia in questo repository.
  */
-export type EventRsvpValue = {
-  rsvpRequired: boolean;
-  rsvpDeadline: string;
-  capacity: string;
-};
-
-export const EMPTY_EVENT_RSVP: EventRsvpValue = {
-  rsvpRequired: false,
-  rsvpDeadline: "",
-  capacity: "",
-};
-
-/**
- * Traduce i tre campi nel payload dell'evento.
- *
- * La scadenza senza la richiesta di conferma non ha senso e non viene scritta:
- * un evento che non chiede conferma con una scadenza dichiarata e uno stato in
- * cui nessuno sa cosa succede al passaggio della data.
- */
-export const toEventRsvpPayload = (value: EventRsvpValue) => ({
-  rsvpRequired: Boolean(value.rsvpRequired),
-  rsvpDeadline:
-    value.rsvpRequired && value.rsvpDeadline
-      ? new Date(value.rsvpDeadline).toISOString()
-      : null,
-  capacity: value.capacity ? Number(value.capacity) : null,
-});
-
-export const fromEventRsvpPayload = (event: any): EventRsvpValue => {
-  const deadline = event?.rsvpDeadline || event?.rsvp_deadline || "";
-  return {
-    rsvpRequired: Boolean(event?.rsvpRequired ?? event?.rsvp_required ?? false),
-    /* `datetime-local` vuole `YYYY-MM-DDTHH:MM`, senza fuso e senza secondi. */
-    rsvpDeadline: deadline ? String(deadline).slice(0, 16) : "",
-    capacity:
-      event?.capacity === null || event?.capacity === undefined
-        ? ""
-        : String(event.capacity),
-  };
-};
+export {
+  EMPTY_EVENT_RSVP,
+  fromEventRsvpPayload,
+  toEventRsvpPayload,
+  type EventRsvpValue,
+} from "@/lib/events/model";
 
 export function EventRsvpFields({
   value,

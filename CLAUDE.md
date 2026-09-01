@@ -72,6 +72,8 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 | Premi, rimborsi, fatture P.IVA, adempimenti | `src/lib/server/sport-work-agenda.ts` | Nessuno di questi e un compenso: esce dal registro ma **non** consuma le franchigie del lavoratore |
 | Eventi sportivi: allenamenti, gare, convocazioni | `src/lib/server/events.ts` (scrittura) + `src/lib/events/` (dominio puro) | **L'unica** strada per creare, modificare o annullare un evento. Nessuno scrive `clubs.trainings` o `clubs.matches`: le due colonne sono una **proiezione in sola lettura** con un solo scrittore (ADR-0098) |
 | Partecipazione a un evento | `src/lib/server/events.ts` per convocazione e presenza, `src/lib/server/rsvp.ts` per la risposta della famiglia | Tre colonne, tre scrittori distinti, **nessuna scrittura incrociata** (ADR-0086, esteso da ADR-0099). Una promessa non diventa mai una presenza |
+| Richieste e depositi documentali | `src/lib/server/document-requests.ts` (scrittura) + `src/lib/documents/request-model.ts` (dominio puro) | Lo stato di una richiesta si **deriva** dall'ultimo deposito, non si scrive. I byte passano **sempre** da `attachments.ts`: nessun altro archivio (ADR-0100) |
+| Appuntamenti e disponibilita | `src/lib/server/appointments.ts` (scrittura) + `src/lib/appointments/` (dominio puro) | Una transizione per rotta. La riprogrammazione crea una riga e chiude la vecchia: **niente mutazione della data in luogo** (ADR-0101) |
 | Dato sanitario | `src/lib/health/permissions.ts` | Chi vede lo **stato** del certificato non vede per cio stesso il **contenuto** clinico. Default negato sul contenuto |
 | Catalogo dei permessi | `src/lib/permissions/catalog.ts` | Ogni chiave ha un'etichetta e una matrice per ruolo. Le matrici restano nei domini; qui vive l'elenco |
 | Accesso dati server | `src/lib/server/resources.ts` | Nessuna query Prisma club-scoped fuori da qui senza filtro esplicito |
@@ -103,7 +105,7 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 Prima di ogni commit:
 
 ```bash
-npm test           # tutti verdi (3.705 al 2026-09-01, Wave 5 — 5C)
+npm test           # tutti verdi (3.820 al 2026-09-01, Wave 5 — 5D/5E/5F)
 npm run typecheck  # nessun output
 npm run lint       # 0 errori; i warning non devono aumentare
 npm run build      # deve completare
