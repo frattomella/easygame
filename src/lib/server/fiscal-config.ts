@@ -192,12 +192,43 @@ export const listOperationTypes = async (
     orderBy: { code: "asc" },
   });
 
-  if (rows.length || options.seed === false) {
+  if (options.seed === false) {
+    return rows.map(normalizeOperationType);
+  }
+
+  /*
+    **Il seme completa, non popola soltanto.**
+
+    Fin qui la condizione era `rows.length`: bastava una riga perche il seme
+    non girasse piu. Ha funzionato finche il catalogo di sistema non e
+    cambiato — e la Wave 6 lo cambia, aggiungendo le quattro causali in uscita
+    che chiudono W4-R7.
+
+    Con la vecchia condizione un club **gia configurato** — cioe ogni club
+    vero — non le avrebbe viste mai: avrebbe continuato a non poter
+    classificare un compenso, e il rendiconto avrebbe continuato a dire
+    «non classificato» su quasi tutte le uscite. Il difetto sarebbe stato
+    invisibile in sviluppo, dove i club nascono vuoti, e universale in
+    produzione.
+
+    Si scrivono **solo le mancanti**, per codice. Cio che il club ha
+    configurato non si tocca, e una causale di sistema disattivata resta
+    disattivata: la riga c'e, quindi `skipDuplicates` la salta e non la
+    resuscita. Una causale di sistema non si puo cancellare — si disattiva
+    (vedi `deleteOperationType`) — quindi non esiste il caso «il club l'ha
+    tolta apposta e gliela rimettiamo».
+  */
+  const presenti = new Set(rows.map((row: any) => asText(row.code)));
+  const mancanti = OPERATION_TYPE_SEEDS.filter(
+    (seed) => !presenti.has(seed.code),
+  );
+
+  if (!mancanti.length) {
     return rows.map(normalizeOperationType);
   }
 
   await operationClient().createMany({
-    data: OPERATION_TYPE_SEEDS.map((seed) => ({
+    data: mancanti.map((seed) => ({
       organization_id: id,
       code: seed.code,
       label: seed.label,
@@ -205,6 +236,7 @@ export const listOperationTypes = async (
       activity_scope: seed.activityScope,
       direction_hint: seed.directionHint ?? null,
       is_system: true,
+      reporting_bucket: seed.reportingBucket ?? null,
       notes: seed.notes || null,
       /*
         Nessuna voce del seme nasce con `deductible`, `is_membership_fee` o un
@@ -611,4 +643,97 @@ export const saveDocumentSeries = async (input: {
 
     return toSeries(row);
   });
+};
+
+/**
+ * **La classificazione contabile di un movimento in uscita** (W4-R7).
+ *
+ * Restituisce le tre colonne che le due tabelle sorgente hanno acquistato con
+ * la Wave 6: il codice, l'etichetta **congelata** e l'ambito **congelato**.
+ *
+ * ## Perche congela
+ *
+ * La causale e configurazione del club, e un club la corregge. Senza lo scatto,
+ * correggerla cambierebbe **retroattivamente** la natura di cio che e gia stato
+ * registrato: un rendiconto stampato a marzo direbbe una cosa diversa se
+ * ristampato a maggio, senza che nessun movimento sia cambiato. E la stessa
+ * ragione per cui `payment_transactions` congela le sue, e sta scritta nello
+ * schema accanto alla colonna.
+ *
+ * ## Perche deduce invece di chiedere
+ *
+ * Un campo facoltativo che nessuno compila e il buco di prima con un nome
+ * nuovo. Qui il ripiego arriva da `transaction_type`, che il dominio conosce
+ * **nel momento in cui scrive la riga**: la classificazione c'e dal primo
+ * giorno, e resta sovrascrivibile. Cio che resta non classificato e allora una
+ * scelta vera — non una dimenticanza.
+ *
+ * ## Cosa rifiuta
+ *
+ * Una causale **in entrata** su un movimento in uscita. Non e pignoleria: una
+ * quota associativa fra le uscite falsa il rendiconto in due punti — gonfia le
+ * entrate di quella voce e sposta un'uscita sotto un capitolo che non le
+ * appartiene — e il difetto sopravvivrebbe silenzioso fino al primo bilancio.
+ */
+export type OutboundClassification = {
+  operation_type_code: string | null;
+  operation_type_label_snapshot: string | null;
+  activity_scope_snapshot: string;
+};
+
+export const resolveOutboundClassification = async (input: {
+  organizationId: string;
+  /** Cio che ha scelto chi registra. Vince sul ripiego. */
+  code?: unknown;
+  /** Il ripiego dedotto dal dominio, quando chi registra non sceglie. */
+  fallbackCode?: string | null;
+}): Promise<OutboundClassification> => {
+  const organizationId = asText(input.organizationId);
+  if (!organizationId) {
+    throw new Error("Accesso negato: operazione senza club");
+  }
+
+  const scelto = asText(input.code);
+  const code = scelto || asText(input.fallbackCode);
+
+  const vuota: OutboundClassification = {
+    operation_type_code: null,
+    operation_type_label_snapshot: null,
+    activity_scope_snapshot: "unspecified",
+  };
+
+  if (!code) return vuota;
+
+  const tipo = await getOperationType({ organizationId, code });
+
+  if (!tipo) {
+    /*
+      Se manca il **ripiego** si prosegue senza classificare: un club che non ha
+      ancora il catalogo non deve vedersi rifiutare un pagamento. Se manca cio
+      che qualcuno ha **scelto**, invece, va detto: ha scelto qualcosa che non
+      esiste, e scrivere `null` gli farebbe credere di aver classificato.
+    */
+    if (!scelto) return vuota;
+    throw new Error(
+      `Causale contabile non trovata: ${code}. Configurala fra le causali del club prima di usarla.`,
+    );
+  }
+
+  if (tipo.directionHint === "IN") {
+    throw new Error(
+      `La causale «${tipo.label}» e prevista per le entrate: su un movimento in uscita falserebbe il rendiconto in due punti.`,
+    );
+  }
+
+  if (!tipo.isActive && scelto) {
+    throw new Error(
+      `La causale «${tipo.label}» e disattivata: riattivala, oppure scegline un'altra.`,
+    );
+  }
+
+  return {
+    operation_type_code: tipo.code,
+    operation_type_label_snapshot: tipo.label,
+    activity_scope_snapshot: tipo.activityScope,
+  };
 };

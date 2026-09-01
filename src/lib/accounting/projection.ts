@@ -368,6 +368,14 @@ export type SportWorkOutboundRow = {
   financial_account_id?: string | null;
   bank_account_id?: string | null;
   person_id?: string | null;
+  /** La causale contabile scelta o dedotta, e i due scatti (W4-R7). */
+  operation_type_code?: string | null;
+  operation_type_label_snapshot?: string | null;
+  activity_scope_snapshot?: string | null;
+  /** L etichetta corrente della causale, quando la lettura la unisce. */
+  _operationTypeLabel?: string | null;
+  /** L ambito corrente della causale, ripiego dello scatto. */
+  _activityScope?: string | null;
   reversal_of_id?: string | null;
   reversed_at?: Date | string | null;
   created_at?: Date | string | null;
@@ -511,6 +519,23 @@ export const projectSportWorkPayouts = (
         financialAccountId: testo(row.financial_account_id),
         financialAccountName: testo(row._accountName),
         siteId: testo(row._accountSiteId) || null,
+        /*
+          W4-R7. Le tre colonne che questa proiezione non aveva: la causale, la
+          sua etichetta **congelata** e l ambito **congelato**. Prima uscivano
+          da qui come `null` e `unspecified`, e su una stagione vera erano
+          7.000 euro su 7.210 del non classificato.
+
+          Si legge prima cio che e congelato sulla riga, come per l incasso
+          atleta: invertire l ordine farebbe cambiare natura al passato ogni
+          volta che qualcuno corregge una classificazione.
+        */
+        operationTypeCode: testo(row.operation_type_code),
+        operationTypeLabel:
+          testo(row.operation_type_label_snapshot) ??
+          testo(row._operationTypeLabel),
+        activityScope: normalizeActivityScope(
+          row.activity_scope_snapshot ?? row._activityScope,
+        ),
         counterpartyKind: "SPORT_WORK_PERSON",
         counterpartyId: testo(row.person_id),
         counterpartyLabel: persona,
@@ -535,6 +560,14 @@ export type FundingSettlementRow = {
   notes?: string | null;
   program_id?: string | null;
   financial_account_id?: string | null;
+  /** La causale contabile scelta o dedotta, e i due scatti (W4-R7). */
+  operation_type_code?: string | null;
+  operation_type_label_snapshot?: string | null;
+  activity_scope_snapshot?: string | null;
+  /** L etichetta corrente della causale, quando la lettura la unisce. */
+  _operationTypeLabel?: string | null;
+  /** L ambito corrente della causale, ripiego dello scatto. */
+  _activityScope?: string | null;
   reversal_of_id?: string | null;
   reversed_at?: Date | string | null;
   created_at?: Date | string | null;
@@ -602,6 +635,23 @@ export const projectFundingSettlements = (
         financialAccountId: testo(row.financial_account_id),
         financialAccountName: testo(row._accountName),
         siteId: testo(row._accountSiteId) || null,
+        /*
+          W4-R7. Le tre colonne che questa proiezione non aveva: la causale, la
+          sua etichetta **congelata** e l ambito **congelato**. Prima uscivano
+          da qui come `null` e `unspecified`, e su una stagione vera erano
+          7.000 euro su 7.210 del non classificato.
+
+          Si legge prima cio che e congelato sulla riga, come per l incasso
+          atleta: invertire l ordine farebbe cambiare natura al passato ogni
+          volta che qualcuno corregge una classificazione.
+        */
+        operationTypeCode: testo(row.operation_type_code),
+        operationTypeLabel:
+          testo(row.operation_type_label_snapshot) ??
+          testo(row._operationTypeLabel),
+        activityScope: normalizeActivityScope(
+          row.activity_scope_snapshot ?? row._activityScope,
+        ),
         counterpartyKind: "ENTITY",
         counterpartyId: testo(row.program_id),
         counterpartyLabel: programma,

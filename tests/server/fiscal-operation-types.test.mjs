@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test, { before, beforeEach } from "node:test";
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { createFakePrisma } from "../helpers/fake-prisma.mjs";
+import { OPERATION_TYPE_SEEDS } from "../../src/lib/fiscal/operation-types.ts";
 
 /**
  * Le **causali** e la loro classificazione (Wave 4, lane W4-A).
@@ -103,17 +107,67 @@ test("nessuna voce del seme nasce con un autore della classificazione", async ()
   }
 });
 
-test("le sette voci non classificate restano non classificate", async () => {
+test("le voci non classificate restano non classificate", async () => {
   const elenco = await service.listOperationTypes(CLUB_A);
 
-  const nonClassificate = elenco.filter(
-    (voce) => voce.activityScope === "unspecified",
-  );
-  assert.equal(nonClassificate.length, 7);
+  /*
+    Il numero non si scrive a mano: era sette, la Wave 6 ne ha aggiunte quattro
+    in uscita (W4-R7) e sarebbero undici. Fissare il conteggio faceva fallire il
+    test a ogni voce nuova **senza dire niente su cio che conta**, che e la
+    regola: una causale del seme nasce non classificata a meno che il seme non
+    dichiari il contrario.
+
+    L'ambito e una determinazione **fiscale**, e ADR-0093 la tiene distinta
+    dalla contabilita gestionale: seminare una causale gia classificata la
+    farebbe sembrare configurata, e nessuno tornerebbe a guardarla.
+  */
+  const atteseNonClassificate = OPERATION_TYPE_SEEDS.filter(
+    (seed) => seed.activityScope === "unspecified",
+  ).map((seed) => seed.code);
+
+  const nonClassificate = elenco
+    .filter((voce) => voce.activityScope === "unspecified")
+    .map((voce) => voce.code);
+
+  assert.deepEqual([...nonClassificate].sort(), [...atteseNonClassificate].sort());
 
   // Le due sole classificate lo sono per una ragione scritta nel seme.
   assert.equal(trova(elenco, "vendita_abbigliamento").activityScope, "commercial");
   assert.equal(trova(elenco, "sponsorizzazione").activityScope, "commercial");
+});
+
+test("W4-R7 · un club gia configurato riceve comunque le causali in uscita", () => {
+  /*
+    **Il difetto che questa prova impedisce di reintrodurre.**
+
+    Il seme girava solo su un club **senza righe**: bastava una riga perche non
+    girasse piu. Ha funzionato finche il catalogo di sistema non e cambiato — e
+    la Wave 6 lo cambia.
+
+    Con la vecchia condizione un club **gia configurato**, cioe ogni club vero,
+    non avrebbe visto mai le quattro causali in uscita: avrebbe continuato a non
+    poter classificare un compenso, e il rendiconto avrebbe continuato a dire
+    «non classificato» su quasi tutte le uscite. Invisibile in sviluppo, dove i
+    club nascono vuoti; universale in produzione.
+  */
+  const sorgente = readFileSync(
+    path.join(process.cwd(), "src", "lib", "server", "fiscal-config.ts"),
+    "utf8",
+  );
+
+  assert.equal(
+    sorgente.includes("if (rows.length || options.seed === false)"),
+    false,
+    "la condizione «ha gia righe, quindi non seminare» impedisce a un club esistente di ricevere una causale nuova",
+  );
+  assert.ok(
+    sorgente.includes("const mancanti = OPERATION_TYPE_SEEDS.filter("),
+    "il seme deve completare cio che manca, per codice",
+  );
+  assert.ok(
+    sorgente.includes("skipDuplicates: true"),
+    "e non deve toccare cio che il club ha configurato",
+  );
 });
 
 test("il seme suggerisce un verso, e non lo impone su «altra operazione»", async () => {

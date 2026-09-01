@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { resolveOutboundClassification } from "./fiscal-config";
 import { assertContoDelClub } from "./financial-account-guard";
 import { canAccessClubResource } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
@@ -1110,6 +1111,14 @@ export const createFundingSettlement = async (
      * perche le liquidazioni gia registrate non ce l'hanno.
      */
     financialAccountId?: unknown;
+    /**
+     * **La voce di rendiconto** (W4-R7).
+     *
+     * Facoltativa: se tace, il dominio ripiega su `liquidazione_contributo`,
+     * che e cio che una liquidazione e sempre. Serve a un club che tenga voci
+     * distinte per bando o per ente.
+     */
+    operationTypeCode?: unknown;
     lines?: Array<{ accrualId: unknown; amount: unknown }>;
   },
   scope?: FundingScope,
@@ -1213,10 +1222,24 @@ export const createFundingSettlement = async (
   return (prisma as any).$transaction(async (client: any) => {
     const accrualsById = await misuraCapienza(client);
 
+    /*
+      W4-R7. La liquidazione di un bando usciva dal registro senza causale, e
+      con i compensi faceva 7.000 euro su 7.210 del non classificato. Il
+      ripiego e `liquidazione_contributo`, perche di questo si tratta sempre:
+      qui, a differenza del lavoro sportivo, non c e un sottotipo da cui
+      dedurre altro.
+    */
+    const classificazione = await resolveOutboundClassification({
+      organizationId: program.organization_id,
+      code: (input as { operationTypeCode?: unknown }).operationTypeCode,
+      fallbackCode: "liquidazione_contributo",
+    });
+
     const settlement = await client.fundingSettlement.create({
       data: {
         organization_id: program.organization_id,
         program_id: program.id,
+        ...classificazione,
         reference: asText(input.reference) || null,
         settled_at: settledAt,
         amount: toFundingAmount(input.amount),
@@ -1354,6 +1377,15 @@ export const reverseFundingSettlement = async (
         amount: -toFundingAmount(original.amount),
         method: original.method,
         notes: reason,
+        /*
+          Lo storno eredita **lo scatto** della causale, non lo ricalcola: se
+          la causale e stata rinominata fra la liquidazione e lo storno, le
+          due righe devono continuare a dire la stessa cosa, altrimenti la
+          voce di rendiconto non torna a zero.
+        */
+        operation_type_code: original.operation_type_code,
+        operation_type_label_snapshot: original.operation_type_label_snapshot,
+        activity_scope_snapshot: original.activity_scope_snapshot,
         /* Il denaro torna indietro dal conto su cui era entrato. */
         financial_account_id: original.financial_account_id || null,
         reversal_of_id: original.id,

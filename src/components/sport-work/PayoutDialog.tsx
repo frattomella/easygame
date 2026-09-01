@@ -105,6 +105,47 @@ export function PayoutDialog({
   const [paidAt, setPaidAt] = React.useState(todayInput);
   const [paymentMethod, setPaymentMethod] = React.useState("Bonifico");
   const [reference, setReference] = React.useState("");
+  /*
+    W4-R7. La voce di rendiconto sotto cui questo compenso si somma.
+
+    Vuoto **non** significa non classificato: il dominio ripiega su
+    `compenso_sportivo`, che e cio che un pagamento di compenso e sempre. La
+    tendina serve a chi tiene voci distinte — per settore, per squadra, per
+    progetto — e a chi deve dire che quella riga e un rimborso e non un
+    compenso.
+  */
+  const [operationTypeCode, setOperationTypeCode] = React.useState("");
+  const [causali, setCausali] = React.useState<
+    { code: string; label: string }[]
+  >([]);
+
+  React.useEffect(() => {
+    let vivo = true;
+    void (async () => {
+      const { data } = await apiRequest<any>(
+        /*
+          Nessun parametro di filtro: la rotta non lo applica, e chiederglielo
+          prometterebbe un filtro che non c e. Le causali in entrata si tolgono
+          qui sotto, dove si sa cosa serve a questa schermata.
+        */
+        "/api/v1/fiscal/operation-types",
+      );
+      if (!vivo) return;
+      const elenco = Array.isArray(data?.operationTypes)
+        ? data.operationTypes
+        : Array.isArray(data)
+          ? data
+          : [];
+      setCausali(
+        elenco
+          .filter((voce: any) => voce?.directionHint !== "IN" && voce?.isActive !== false)
+          .map((voce: any) => ({ code: voce.code, label: voce.label })),
+      );
+    })();
+    return () => {
+      vivo = false;
+    };
+  }, []);
   const [notes, setNotes] = React.useState("");
   const [acknowledged, setAcknowledged] = React.useState(false);
   const [allowOverpayment, setAllowOverpayment] = React.useState(false);
@@ -192,6 +233,7 @@ export function PayoutDialog({
           paidAt,
           paymentMethod,
           reference,
+          operationTypeCode: operationTypeCode || undefined,
           notes,
           allowOverpayment,
           acknowledgeWarnings: hardWarnings.length > 0 ? acknowledged : true,
@@ -276,6 +318,26 @@ export function PayoutDialog({
               onChange={(event) => setReference(event.target.value)}
               placeholder="CRO, numero distinta…"
             />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="payout-causale">Voce di rendiconto</Label>
+            <select
+              id="payout-causale"
+              value={operationTypeCode}
+              onChange={(event) => setOperationTypeCode(event.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">Compenso sportivo (predefinita)</option>
+              {causali.map((voce) => (
+                <option key={voce.code} value={voce.code}>
+                  {voce.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Sotto quale voce questa uscita compare nel rendiconto. Non e
+              il trattamento fiscale, che resta del professionista.
+            </p>
           </div>
         </div>
 

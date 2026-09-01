@@ -122,6 +122,14 @@ export async function POST(request: Request) {
           denaro non compariva da nessuna parte.
         */
         financialAccountId: body?.financial_account_id ?? body?.financialAccountId,
+        /*
+          W4-R7. La voce di rendiconto. Se il corpo tace, il dominio ripiega su
+          `liquidazione_contributo`: e cio che una liquidazione e sempre, e un
+          campo facoltativo che nessuno compila sarebbe il buco di prima con un
+          nome nuovo.
+        */
+        operationTypeCode:
+          body?.operation_type_code ?? body?.operationTypeCode,
         lines: (Array.isArray(body?.lines) ? body.lines : []).map(
           (line: any) => ({
             accrualId: line?.accrual_id ?? line?.accrualId,

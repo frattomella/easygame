@@ -1,5 +1,7 @@
 import { prisma } from "./prisma";
 import { assertContoDelClub } from "./financial-account-guard";
+import { resolveOutboundClassification } from "./fiscal-config";
+import { OUTBOUND_OPERATION_TYPE_BY_TRANSACTION } from "@/lib/fiscal/operation-types";
 import {
   audit,
   ensureOrganizationAccess,
@@ -328,6 +330,15 @@ export type RecordPayoutInput = {
   acknowledgeWarnings?: boolean;
   /** La chiave del gesto: due invii dello stesso clic portano la stessa. */
   idempotencyKey?: unknown;
+  /**
+   * **La voce di rendiconto sotto cui questa uscita si somma** (W4-R7).
+   *
+   * Facoltativa: se chi registra tace, la causale si **deduce** da
+   * `transaction_type`, che il dominio conosce nel momento in cui scrive la
+   * riga. Un campo facoltativo che nessuno compila sarebbe il buco di prima
+   * con un nome nuovo.
+   */
+  operationTypeCode?: unknown;
 };
 
 export type RecordPayoutResult = {
@@ -524,10 +535,24 @@ export const recordCompensationPayout = async (
         new Date(),
       );
 
+      /*
+        W4-R7. La classificazione si risolve **dentro** la transazione che
+        scrive la riga: risolverla fuori vorrebbe dire poter registrare un
+        movimento con l'etichetta di una causale che nel frattempo e stata
+        rinominata.
+      */
+      const classificazione = await resolveOutboundClassification({
+        organizationId,
+        code: input.operationTypeCode,
+        fallbackCode:
+          OUTBOUND_OPERATION_TYPE_BY_TRANSACTION.COMPENSATION_PAYMENT,
+      });
+
       const row = await client.sportWorkOutboundTransaction.create({
         data: {
           organization_id: organizationId,
           transaction_type: "COMPENSATION_PAYMENT" as OutboundTransactionType,
+          ...classificazione,
           person_id: person.id,
           relationship_id: relationship.id,
           installment_id: installmentId,
@@ -757,6 +782,20 @@ export const reverseCompensationPayout = async (
         net_amount: -Math.abs(Number(locked.net_amount) || 0),
         club_cost: -Math.abs(Number(locked.club_cost) || 0),
         f24_causale: locked.f24_causale,
+        /*
+          W4-R7. Lo storno **eredita** la causale dell originale, come gia
+          eredita la causale F24 qui sopra: un movimento e il suo storno
+          devono stare sotto la stessa voce di rendiconto, altrimenti la voce
+          non torna a zero e il bilancio mostra un compenso che nessuno ha
+          pagato accanto a uno storno che non si sa cosa storni.
+
+          E si eredita **lo scatto**, non si ricalcola: se la causale e stata
+          rinominata fra l erogazione e lo storno, le due righe devono
+          continuare a dire la stessa cosa.
+        */
+        operation_type_code: locked.operation_type_code,
+        operation_type_label_snapshot: locked.operation_type_label_snapshot,
+        activity_scope_snapshot: locked.activity_scope_snapshot,
         fiscal_treatment: locked.fiscal_treatment,
         definitive: locked.definitive,
         fiscal_snapshot: locked.fiscal_snapshot,
@@ -859,6 +898,8 @@ export const recordSupportingOutbound = async (
     financialAccountId?: unknown;
     notes?: unknown;
     idempotencyKey?: unknown;
+    /** La voce di rendiconto. Se tace, si deduce dal tipo (W4-R7). */
+    operationTypeCode?: unknown;
   },
   scope?: SportWorkScope,
   client: any = prisma,
@@ -888,10 +929,24 @@ export const recordSupportingOutbound = async (
     client,
   );
 
+  /*
+    W4-R7. Premio, rimborso e fattura escono dal registro senza consumare le
+    franchigie del lavoratore, ma **il rendiconto li vede**: e sono proprio
+    loro le tre voci che il non classificato mescolava fra i compensi. Il
+    ripiego lo detta `transaction_type`, che qui e gia noto.
+  */
+  const classificazione = await resolveOutboundClassification({
+    organizationId: person.organization_id,
+    code: input.operationTypeCode,
+    fallbackCode:
+      OUTBOUND_OPERATION_TYPE_BY_TRANSACTION[input.transactionType] || null,
+  });
+
   return client.sportWorkOutboundTransaction.create({
     data: {
       organization_id: person.organization_id,
       transaction_type: input.transactionType,
+      ...classificazione,
       person_id: person.id,
       relationship_id: asText(input.relationshipId) || null,
       bonus_id: asText(input.bonusId) || null,

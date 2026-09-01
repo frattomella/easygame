@@ -1024,18 +1024,35 @@ model FundingAccrual {
 /// maturato e un credito, e il Riepilogo Incassi lo tiene separato da cio che
 /// e stato davvero incassato.
 model FundingSettlement {
-  id                   String                  @id @default(uuid()) @db.Uuid
-  organization_id      String                  @db.Uuid
-  program_id           String                  @db.Uuid
-  reference            String?
-  settled_at           DateTime
-  amount               Float
-  method               String?
-  notes                String?
+  id                            String                  @id @default(uuid()) @db.Uuid
+  organization_id               String                  @db.Uuid
+  program_id                    String                  @db.Uuid
+  reference                     String?
+  settled_at                    DateTime
+  amount                        Float
+  method                        String?
+  notes                         String?
+  /**
+   * ------------------------------------------- la classificazione contabile
+   * W4-R7. Prima della Wave 6 questa riga usciva dal registro **senza
+   * causale**: la vista proiettava `NULL` e `unspecified` scritti nel SQL,
+   * perche il percorso di scrittura un campo per dirlo non ce l'aveva. Su
+   * una stagione vera erano 7.000 euro su 7.210 del non classificato.
+   * Non e un pagamento della famiglia al contrario: il denaro qui arriva da
+   * un ente e il club lo gira. I due domini non si importano (ADR-0037), e la
+   * causale serve a dire sotto quale voce quel giro si somma nel rendiconto.
+   * **Etichetta e ambito sono congelati**, come per l'incasso atleta
+   * (`payment_transactions`): la causale e configurazione mutabile, e senza
+   * lo scatto un club che la corregge cambierebbe **retroattivamente** la
+   * natura di cio che ha gia registrato.
+   */
+  operation_type_code           String?
+  operation_type_label_snapshot String?
+  activity_scope_snapshot       String                  @default("unspecified")
   /// **Su quale conto e arrivato il bonifico dell'ente.** Senza, la
   /// liquidazione era invisibile nel saldo: il credito si chiudeva e il denaro
   /// non compariva da nessuna parte.
-  financial_account_id String?                 @db.Uuid
+  financial_account_id          String?                 @db.Uuid
   /**
    * ------------------------------------------------------------- lo storno
    * Una liquidazione registrata per errore non aveva rimedio, e l'errore
@@ -1045,19 +1062,19 @@ model FundingSettlement {
    * una riga opposta che cita l'originale, l'originale che resta e porta il
    * motivo, e un indice unico parziale che vieta il doppio storno.
    */
-  reversal_of_id       String?                 @db.Uuid
-  reversed_at          DateTime?
-  reversed_by          String?                 @db.Uuid
-  reversal_reason      String?
-  created_by           String?                 @db.Uuid
-  created_at           DateTime                @default(now())
-  updated_at           DateTime                @updatedAt
-  organization         Club                    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  program              FundingProgram          @relation(fields: [program_id], references: [id], onDelete: Cascade)
-  financial_account    FinancialAccount?       @relation(fields: [financial_account_id], references: [id], onDelete: Restrict)
-  reverses             FundingSettlement?      @relation("FundingSettlementReversal", fields: [reversal_of_id], references: [id], onDelete: SetNull)
-  reversals            FundingSettlement[]     @relation("FundingSettlementReversal")
-  lines                FundingSettlementLine[]
+  reversal_of_id                String?                 @db.Uuid
+  reversed_at                   DateTime?
+  reversed_by                   String?                 @db.Uuid
+  reversal_reason               String?
+  created_by                    String?                 @db.Uuid
+  created_at                    DateTime                @default(now())
+  updated_at                    DateTime                @updatedAt
+  organization                  Club                    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  program                       FundingProgram          @relation(fields: [program_id], references: [id], onDelete: Cascade)
+  financial_account             FinancialAccount?       @relation(fields: [financial_account_id], references: [id], onDelete: Restrict)
+  reverses                      FundingSettlement?      @relation("FundingSettlementReversal", fields: [reversal_of_id], references: [id], onDelete: SetNull)
+  reversals                     FundingSettlement[]     @relation("FundingSettlementReversal")
+  lines                         FundingSettlementLine[]
 
   @@index([organization_id])
   /// Come per gli incassi: il registro ordina e filtra per data.
@@ -2117,65 +2134,83 @@ model SportWorkInstallment {
 /// aliquota, riduzione, imponibili e quote. Una modifica normativa futura non
 /// riscrive la storia, perche la storia se la porta dietro.
 model SportWorkOutboundTransaction {
-  id                    String                 @id @default(uuid()) @db.Uuid
-  organization_id       String                 @db.Uuid
+  id                            String                 @id @default(uuid()) @db.Uuid
+  organization_id               String                 @db.Uuid
   /// COMPENSATION_PAYMENT | COMPENSATION_REVERSAL | BONUS_PAYMENT | ...
-  transaction_type      String                 @default("COMPENSATION_PAYMENT")
-  person_id             String                 @db.Uuid
-  relationship_id       String?                @db.Uuid
-  installment_id        String?                @db.Uuid
-  bonus_id              String?                @db.Uuid
-  reimbursement_id      String?                @db.Uuid
-  vat_invoice_id        String?                @db.Uuid
-  paid_at               DateTime
+  transaction_type              String                 @default("COMPENSATION_PAYMENT")
+  person_id                     String                 @db.Uuid
+  relationship_id               String?                @db.Uuid
+  installment_id                String?                @db.Uuid
+  bonus_id                      String?                @db.Uuid
+  reimbursement_id              String?                @db.Uuid
+  vat_invoice_id                String?                @db.Uuid
+  paid_at                       DateTime
   /// Anno solare della data di pagamento: le franchigie si consumano per cassa.
-  fiscal_year           Int
-  gross_amount          Float
-  currency              String                 @default("EUR")
-  payment_method        String?
-  reference             String?
+  fiscal_year                   Int
+  gross_amount                  Float
+  currency                      String                 @default("EUR")
+  payment_method                String?
+  reference                     String?
   /// L'id del conto nel vecchio blob `clubs.bank_accounts`. Resta per le righe
   /// scritte prima della Wave 4; il riferimento buono e `financial_account_id`.
-  bank_account_id       String?
+  bank_account_id               String?
   /// **Il conto da cui il denaro e uscito.** La colonna a fianco esisteva gia e
   /// il servizio la scriveva: nessuna superficie la compilava, e i tre metodi
   /// dell'agenda non l'accettavano nemmeno nella firma.
-  financial_account_id  String?                @db.Uuid
+  financial_account_id          String?                @db.Uuid
   /// L'anno del rule set che ha prodotto i numeri di questa riga.
-  rules_version         String?
-  social_rate           Float                  @default(0)
-  reduction_factor      Float                  @default(0)
-  taxable_social        Float                  @default(0)
-  social_franchise_used Float                  @default(0)
-  employee_contribution Float                  @default(0)
-  employer_contribution Float                  @default(0)
-  taxable_fiscal        Float                  @default(0)
-  fiscal_franchise_used Float                  @default(0)
+  rules_version                 String?
+  social_rate                   Float                  @default(0)
+  reduction_factor              Float                  @default(0)
+  taxable_social                Float                  @default(0)
+  social_franchise_used         Float                  @default(0)
+  employee_contribution         Float                  @default(0)
+  employer_contribution         Float                  @default(0)
+  taxable_fiscal                Float                  @default(0)
+  fiscal_franchise_used         Float                  @default(0)
   /// Sempre NULL in V1: EasyGame non determina la ritenuta IRPEF.
-  withholding_amount    Float?
-  net_amount            Float                  @default(0)
-  club_cost             Float                  @default(0)
-  f24_causale           String?
+  withholding_amount            Float?
+  net_amount                    Float                  @default(0)
+  club_cost                     Float                  @default(0)
+  f24_causale                   String?
+  /**
+   * ------------------------------------------- la classificazione contabile
+   * W4-R7. Prima della Wave 6 questa riga usciva dal registro **senza
+   * causale**: la vista proiettava `NULL` e `unspecified` scritti nel SQL,
+   * perche il percorso di scrittura un campo per dirlo non ce l'aveva. Su
+   * una stagione vera erano 7.000 euro su 7.210 del non classificato.
+   * `f24_causale` qui accanto **non e questa cosa**: quella e la causale
+   * del modello F24, cioe un adempimento; questa e la voce sotto cui il
+   * denaro si somma nel rendiconto gestionale. ADR-0093 tiene distinte le
+   * due, e questa colonna sta dalla parte gestionale.
+   * **Etichetta e ambito sono congelati**, come per l'incasso atleta
+   * (`payment_transactions`): la causale e configurazione mutabile, e senza
+   * lo scatto un club che la corregge cambierebbe **retroattivamente** la
+   * natura di cio che ha gia registrato.
+   */
+  operation_type_code           String?
+  operation_type_label_snapshot String?
+  activity_scope_snapshot       String                 @default("unspecified")
   /// NOT_APPLICABLE | TO_VERIFY | OUT_OF_SCOPE
-  fiscal_treatment      String                 @default("NOT_APPLICABLE")
+  fiscal_treatment              String                 @default("NOT_APPLICABLE")
   /// Falso se una regola usata dal calcolo non e validata.
-  definitive            Boolean                @default(true)
+  definitive                    Boolean                @default(true)
   /// Lo snapshot completo: soglie, aliquote, fonti, voci pendenti.
-  fiscal_snapshot       Json?
-  reversal_of_id        String?                @db.Uuid
-  reversed_at           DateTime?
-  reversal_reason       String?
+  fiscal_snapshot               Json?
+  reversal_of_id                String?                @db.Uuid
+  reversed_at                   DateTime?
+  reversal_reason               String?
   /// Chiave dell'operazione, per rifiutare il doppio invio dello stesso gesto.
-  idempotency_key       String?
-  notes                 String?
-  created_by            String?                @db.Uuid
-  created_at            DateTime               @default(now())
-  updated_at            DateTime               @updatedAt
-  organization          Club                   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  financial_account     FinancialAccount?      @relation(fields: [financial_account_id], references: [id], onDelete: Restrict)
-  person                SportWorkPerson        @relation(fields: [person_id], references: [id], onDelete: Cascade)
-  relationship          SportWorkRelationship? @relation(fields: [relationship_id], references: [id], onDelete: SetNull)
-  installment           SportWorkInstallment?  @relation(fields: [installment_id], references: [id], onDelete: SetNull)
+  idempotency_key               String?
+  notes                         String?
+  created_by                    String?                @db.Uuid
+  created_at                    DateTime               @default(now())
+  updated_at                    DateTime               @updatedAt
+  organization                  Club                   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  financial_account             FinancialAccount?      @relation(fields: [financial_account_id], references: [id], onDelete: Restrict)
+  person                        SportWorkPerson        @relation(fields: [person_id], references: [id], onDelete: Cascade)
+  relationship                  SportWorkRelationship? @relation(fields: [relationship_id], references: [id], onDelete: SetNull)
+  installment                   SportWorkInstallment?  @relation(fields: [installment_id], references: [id], onDelete: SetNull)
 
   @@index([organization_id])
   @@index([organization_id, paid_at])

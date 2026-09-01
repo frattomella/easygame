@@ -155,8 +155,27 @@ export type OperationTypeSeed = {
    * trattamento, e non e la stessa cosa che dichiararla istituzionale.
    */
   directionHint?: DirectionHint | null;
-  /** Dove nasce questo tipo di incasso, dentro EasyGame. */
-  origin: "athlete" | "member" | "sponsor" | "clothing" | "service" | "other";
+  /**
+   * La voce di rendiconto proposta, che il club puo riscrivere.
+   *
+   * Le nove voci del seme originario non ne portano una, e restano cosi: il
+   * `reporting_bucket` e **testo del club**, e riempirlo a posteriori su un
+   * catalogo gia configurato sarebbe scrivere una scelta al posto suo. Le
+   * quattro causali in uscita nascono invece oggi, quindi un valore di partenza
+   * non sovrascrive niente — ed e l'unico modo perche il rendiconto per voce
+   * abbia qualcosa da raggruppare il primo giorno.
+   */
+  reportingBucket?: string | null;
+  /** Dove nasce questo tipo di operazione, dentro EasyGame. */
+  origin:
+    | "athlete"
+    | "member"
+    | "sponsor"
+    | "clothing"
+    | "service"
+    | "sport_work"
+    | "funding"
+    | "other";
   notes?: string;
 };
 
@@ -256,6 +275,73 @@ export const OPERATION_TYPE_SEEDS: OperationTypeSeed[] = [
     directionHint: null,
     origin: "other",
   },
+
+  /*
+    ================================ LE QUATTRO CAUSALI IN USCITA (W4-R7) ===
+
+    Fino alla Wave 6 questo seme aveva **nove voci e otto guardavano in
+    entrata**: non esisteva una sola causale pensata per un'uscita. Le due
+    strade con cui il denaro esce — il compenso del lavoro sportivo e la
+    liquidazione di un bando — proiettavano quindi `NULL` come causale e
+    `unspecified` come ambito, scritti nel SQL della vista. Su una stagione
+    vera erano **7.000 euro su 7.210** del non classificato: il buco non era un
+    residuo di data entry, era strutturale.
+
+    Sono quattro e non sette. I sottotipi di `transaction_type` sul lavoro
+    sportivo sono sette, ma quello e un **enum tecnico** che dice come la riga
+    e nata; la causale dice sotto quale voce il denaro si somma nel rendiconto,
+    e sta un livello sopra. Rispecchiare l'enum avrebbe portato nel piano dei
+    conti una distinzione che serve al motore e non a chi legge il bilancio.
+
+    Restano `unspecified` come le altre: l'ambito e una **determinazione
+    fiscale**, e ADR-0093 tiene distinta la contabilita gestionale dal
+    trattamento. Seminarle gia classificate le farebbe sembrare configurate, e
+    nessuno tornerebbe a guardarle.
+  */
+  {
+    code: "compenso_sportivo",
+    label: "Compenso sportivo",
+    documentRoute: "none",
+    activityScope: "unspecified",
+    directionHint: "OUT",
+    reportingBucket: "Compensi sportivi",
+    origin: "sport_work",
+    notes:
+      "Il compenso di un collaboratore sportivo. EasyGame non determina la ritenuta: il trattamento resta del professionista (ADR-0073).",
+  },
+  {
+    code: "rimborso_spese",
+    label: "Rimborso spese",
+    documentRoute: "none",
+    activityScope: "unspecified",
+    directionHint: "OUT",
+    reportingBucket: "Rimborsi spese",
+    origin: "sport_work",
+    notes:
+      "Un rimborso non e un compenso e non consuma le franchigie del lavoratore: esce dal registro senza toccarle.",
+  },
+  {
+    code: "prestazione_professionale",
+    label: "Prestazione professionale",
+    documentRoute: "invoice",
+    activityScope: "unspecified",
+    directionHint: "OUT",
+    reportingBucket: "Prestazioni professionali",
+    origin: "sport_work",
+    notes:
+      "La fattura di chi ha una partita IVA. E l'unica delle quattro che nasce da un documento ricevuto.",
+  },
+  {
+    code: "liquidazione_contributo",
+    label: "Liquidazione di contributo o voucher",
+    documentRoute: "none",
+    activityScope: "unspecified",
+    directionHint: "OUT",
+    reportingBucket: "Contributi liquidati",
+    origin: "funding",
+    notes:
+      "Il denaro che l'ente eroga e il club gira alla famiglia. Non e un pagamento della famiglia al contrario: i due domini non si importano (ADR-0037).",
+  },
 ];
 
 export const getOperationTypeSeed = (code: unknown) =>
@@ -281,8 +367,62 @@ export const DEFAULT_OPERATION_TYPE_BY_ORIGIN: Record<
   sponsor: "sponsorizzazione",
   clothing: "vendita_abbigliamento",
   service: "corso_servizio",
+  /*
+    Le due origini in uscita (W4-R7). Il compenso e il ripiego del lavoro
+    sportivo perche e cio che quel dominio produce piu spesso; rimborso e
+    prestazione professionale si scelgono, perche sceglierli e proprio la
+    distinzione che il rendiconto perdeva.
+  */
+  sport_work: "compenso_sportivo",
+  funding: "liquidazione_contributo",
   other: "altra_operazione",
 };
+
+/**
+ * **La causale che il prodotto sa gia dedurre, per il denaro che esce.**
+ *
+ * W4-R7. La domanda che il §21 del piano della Wave 5 lasciava aperta era se
+ * compenso, rimborso e liquidazione condividessero una lista di causali o ne
+ * servissero tre. La risposta e nei dati: il lavoro sportivo distingue gia
+ * **otto** sottotipi di uscita in `transaction_type`, e quella distinzione la
+ * conosce il motore nel momento in cui scrive la riga.
+ *
+ * Quindi la causale non si chiede a nessuno: si **deriva** da cio che il
+ * sistema gia sa, e resta sovrascrivibile. E la differenza fra un campo
+ * facoltativo che nessuno compila — cioe il buco di prima con un nome nuovo —
+ * e una classificazione che c'e dal primo giorno.
+ *
+ * Le quattro causali non rispecchiano gli otto sottotipi uno a uno, ed e
+ * deliberato: `transaction_type` dice **come la riga e nata**, la causale dice
+ * **sotto quale voce il denaro si somma** nel rendiconto. Sono due domande, e
+ * la seconda sta un livello sopra.
+ */
+export const OUTBOUND_OPERATION_TYPE_BY_TRANSACTION: Record<string, string> = {
+  COMPENSATION_PAYMENT: "compenso_sportivo",
+  COMPENSATION_REVERSAL: "compenso_sportivo",
+  /*
+    Un premio e un compenso ai fini del rendiconto, anche se non consuma le
+    franchigie del lavoratore: le franchigie sono una regola previdenziale, la
+    voce di bilancio e un'altra cosa.
+  */
+  BONUS_PAYMENT: "compenso_sportivo",
+  EXPENSE_REIMBURSEMENT: "rimborso_spese",
+  VAT_INVOICE_PAYMENT: "prestazione_professionale",
+  EXTERNAL_PAYROLL_COST: "prestazione_professionale",
+  /*
+    Il versamento dei contributi non e ne un compenso ne una prestazione: e un
+    adempimento. Resta senza causale dedotta, e chi lo registra sceglie —
+    dedurne una sbagliata sarebbe peggio che non dedurne nessuna.
+  */
+};
+
+/** Le quattro causali che il seme dichiara in uscita. */
+export const OUTBOUND_OPERATION_TYPE_CODES = [
+  "compenso_sportivo",
+  "rimborso_spese",
+  "prestazione_professionale",
+  "liquidazione_contributo",
+] as const;
 
 export type NormalizedOperationType = {
   code: string;
