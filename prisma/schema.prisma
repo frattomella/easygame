@@ -1374,34 +1374,50 @@ model FormTemplateVersion {
 /// compilazioni non si cancella — si archivia — proprio perche quella
 /// citazione deve restare risolvibile.
 model FormSubmission {
-  id               String              @id @default(uuid()) @db.Uuid
-  organization_id  String              @db.Uuid
-  template_id      String              @db.Uuid
-  version_id       String              @db.Uuid
+  id                 String              @id @default(uuid()) @db.Uuid
+  organization_id    String              @db.Uuid
+  template_id        String              @db.Uuid
+  version_id         String              @db.Uuid
   /// `public` | `internal`
-  source           String              @default("public")
+  source             String              @default("public")
+  /// `enrollment` | `renewal`.
+  ///
+  /// Il rinnovo non e un secondo motore: e lo stesso modulo con un contesto —
+  /// i dati esistenti precompilati e la stagione di destinazione citata.
+  kind               String              @default("enrollment")
+  /// La stagione a cui la domanda si riferisce, quando la dichiara.
+  season_id          String?
+  /// **La ricevuta di invio**, come impronta e non come valore.
+  ///
+  /// La famiglia inviava e poi non sapeva piu niente: nessun riscontro, nessuno
+  /// stato, nessun modo di sapere che la domanda era stata approvata. Il
+  /// riferimento opaco che l'invio restituisce vive **solo** nelle mani di chi
+  /// lo ha ricevuto; qui resta l'impronta, come per i link di pagamento
+  /// (ADR-0085). Chi legge il database non puo aprire la pratica di nessuno.
+  receipt_token_hash String?             @unique
   /// `pending` | `approved` | `rejected`
-  status           String              @default("pending")
+  status             String              @default("pending")
   /// Quale atleta, quale genitore: `FormSubjectSelection[]`.
-  subjects         Json
-  answers          Json
+  subjects           Json
+  answers            Json
   /// Metadati degli allegati caricati: riferimenti, mai byte.
-  files            Json
-  respondent_name  String?
-  respondent_email String?
-  submitted_by     String?             @db.Uuid
-  submitted_at     DateTime            @default(now())
-  reviewed_by      String?             @db.Uuid
-  reviewed_at      DateTime?
-  review_note      String?
-  created_at       DateTime            @default(now())
-  updated_at       DateTime            @updatedAt
-  organization     Club                @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  template         FormTemplate        @relation(fields: [template_id], references: [id], onDelete: Cascade)
-  template_version FormTemplateVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
+  files              Json
+  respondent_name    String?
+  respondent_email   String?
+  submitted_by       String?             @db.Uuid
+  submitted_at       DateTime            @default(now())
+  reviewed_by        String?             @db.Uuid
+  reviewed_at        DateTime?
+  review_note        String?
+  created_at         DateTime            @default(now())
+  updated_at         DateTime            @updatedAt
+  organization       Club                @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  template           FormTemplate        @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  template_version   FormTemplateVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
 
   @@index([organization_id, status])
   @@index([organization_id, template_id, submitted_at])
+  @@index([organization_id, kind, submitted_at])
   @@map("form_submissions")
 }
 
