@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
@@ -2942,49 +2942,92 @@ export default function AthleteProfilePage() {
     }
   };
 
+  /*
+    I campi che il documento ha davvero prodotto, con l etichetta che la
+    persona legge e la nota se la scheda ha gia quel dato. E un elenco
+    **chiuso**: un campo nuovo del riconoscitore non entra nella scheda finche
+    qualcuno non decide che deve entrarci.
+  */
+  const campiDelDocumento = useMemo(() => {
+    if (!documentScanResult) return [] as Array<{
+      key: string;
+      label: string;
+      value: string;
+      giaPresente: boolean;
+    }>;
+
+    const definizioni: Array<[string, string]> = [
+      ["documentType", "Tipo documento"],
+      ["documentNumber", "Numero documento"],
+      ["name", "Nome"],
+      ["surname", "Cognome"],
+      ["birthDate", "Data di nascita"],
+      ["birthPlace", "Luogo di nascita"],
+      ["documentIssue", "Rilascio"],
+      ["documentExpiry", "Scadenza"],
+      ["fiscalCode", "Codice fiscale"],
+      ["nationality", "Nazionalita"],
+    ];
+
+    return definizioni
+      .map(([key, label]: [string, string]) => ({
+        key,
+        label,
+        value: String((documentScanResult as any)?.[key] || "").trim(),
+        giaPresente: Boolean(String((athlete as any)?.[key] || "").trim()),
+      }))
+      .filter((campo: { value: string }) => campo.value.length > 0);
+  }, [athlete, documentScanResult]);
+
+  const [documentScanAccepted, setDocumentScanAccepted] = useState<Set<string>>(
+    new Set(),
+  );
+
+  /*
+    La preselezione tocca solo cio che manca. Un dato che la segreteria ha gia
+    verificato non si sostituisce con uno letto da una fotografia senza che
+    qualcuno lo abbia chiesto.
+  */
+  useEffect(() => {
+    setDocumentScanAccepted(
+      new Set(
+        campiDelDocumento
+          .filter((campo) => !campo.giaPresente)
+          .map((campo) => campo.key),
+      ),
+    );
+  }, [campiDelDocumento]);
+
+  const toggleCampoDocumento = (key: string) =>
+    setDocumentScanAccepted((corrente) => {
+      const prossimo = new Set(corrente);
+      if (prossimo.has(key)) prossimo.delete(key);
+      else prossimo.add(key);
+      return prossimo;
+    });
+
   const applyDocumentScanResult = async () => {
     if (!documentScanResult) {
       showToast("error", "Prima analizza il documento");
       return;
     }
 
+    /*
+      W6 §16. Si applica **cio che e stato spuntato**, non tutto cio che l OCR
+      ha letto. La differenza si vede quando il riconoscimento sbaglia un
+      carattere in un codice fiscale: prima quel valore entrava in scheda
+      senza che nessuno lo avesse guardato.
+    */
     const nextFields: Record<string, any> = {};
-
-    if (documentScanResult.documentType) {
-      nextFields.documentType = documentScanResult.documentType;
+    for (const campo of campiDelDocumento) {
+      if (documentScanAccepted.has(campo.key)) {
+        nextFields[campo.key] = campo.value;
+      }
     }
-    if (documentScanResult.documentNumber) {
-      nextFields.documentNumber = documentScanResult.documentNumber;
-    }
-    if (documentScanResult.documentIssue) {
-      nextFields.documentIssue = documentScanResult.documentIssue;
-    }
-    if (documentScanResult.documentExpiry) {
-      nextFields.documentExpiry = documentScanResult.documentExpiry;
-    }
-    if (documentScanResult.name) {
-      nextFields.name = documentScanResult.name;
-    }
-    if (documentScanResult.surname) {
-      nextFields.surname = documentScanResult.surname;
-    }
-    if (documentScanResult.birthDate) {
-      nextFields.birthDate = documentScanResult.birthDate;
-    }
-    if (documentScanResult.birthPlace) {
-      nextFields.birthPlace = documentScanResult.birthPlace;
-    }
-    if (documentScanResult.fiscalCode) {
-      nextFields.fiscalCode = documentScanResult.fiscalCode;
-    }
-    if (documentScanResult.nationality) {
-      nextFields.nationality = documentScanResult.nationality;
-    }
-
     if (Object.keys(nextFields).length === 0) {
       showToast(
         "error",
-        "Nessun dato affidabile da applicare. Usa il testo OCR come riferimento e completa i campi manualmente.",
+        "Nessun campo selezionato. Spunta i dati che vuoi portare in scheda, oppure usa il testo OCR come riferimento e completa a mano.",
       );
       return;
     }
@@ -7028,101 +7071,69 @@ export default function AthleteProfilePage() {
                   <div>
                     <p className="text-sm font-semibold">Dati riconosciuti</p>
                     <p className="text-xs text-muted-foreground">
-                      Applichero solo i campi che riesco a leggere in modo affidabile.
+                      I dati vengono **proposti**, non scritti: spunta quelli
+                      da portare in scheda. Sono gia selezionati i campi che
+                      la scheda non ha ancora.
                     </p>
                   </div>
                 </div>
 
                 {documentScanResult ? (
-                  <div className="mt-4 grid grid-cols-1 gap-3 text-sm">
-                    <div className="rounded-xl bg-muted/40 p-3">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                        Tipo documento
+                  /*
+                    W6 §16, terzo attrito. **Si propone, non si scrive.**
+
+                    Questo riquadro elencava i campi letti e basta: il pulsante
+                    in fondo li scriveva **tutti** sulla scheda. Il campo
+                    condiviso — quello montato nelle altre quattro schermate —
+                    fa il contrario: propone campo per campo e lascia scegliere.
+                    Erano due esperienze diverse dietro lo stesso nome, e la
+                    regola dichiarata del dominio e una sola:
+                    «si propone, non si scrive» (src/lib/document-extraction.ts).
+
+                    Su un documento d identita la differenza non e di stile: un
+                    OCR sbaglia, e un dato plausibile e falso scritto senza che
+                    nessuno lo abbia guardato diventa un errore federale al
+                    primo tesseramento.
+
+                    Preselezionati solo i campi che la scheda **non ha gia**:
+                    sovrascrivere un dato verificato dalla segreteria con uno
+                    letto da una fotografia sarebbe un peggioramento silenzioso.
+                  */
+                  <div className="mt-4 space-y-2 text-sm">
+                    {campiDelDocumento.length === 0 ? (
+                      <p className="rounded-2xl border border-dashed p-6 text-muted-foreground">
+                        Non ho ricavato nessun campo affidabile. Il testo
+                        riconosciuto e qui accanto: puoi usarlo come
+                        riferimento e completare a mano.
                       </p>
-                      <p className="mt-1 font-medium">
-                        {documentScanResult.documentType || "-"}
-                      </p>
-                    </div>
-                    <div className="rounded-xl bg-muted/40 p-3">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                        Numero documento
-                      </p>
-                      <p className="mt-1 font-medium">
-                        {documentScanResult.documentNumber || "-"}
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="rounded-xl bg-muted/40 p-3">
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                          Nome
-                        </p>
-                        <p className="mt-1 font-medium">
-                          {documentScanResult.name || "-"}
-                        </p>
-                      </div>
-                      <div className="rounded-xl bg-muted/40 p-3">
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                          Cognome
-                        </p>
-                        <p className="mt-1 font-medium">
-                          {documentScanResult.surname || "-"}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="rounded-xl bg-muted/40 p-3">
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                          Data di nascita
-                        </p>
-                        <p className="mt-1 font-medium">
-                          {documentScanResult.birthDate || "-"}
-                        </p>
-                      </div>
-                      <div className="rounded-xl bg-muted/40 p-3">
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                          Luogo di nascita
-                        </p>
-                        <p className="mt-1 font-medium">
-                          {documentScanResult.birthPlace || "-"}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="rounded-xl bg-muted/40 p-3">
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                          Rilascio
-                        </p>
-                        <p className="mt-1 font-medium">
-                          {documentScanResult.documentIssue || "-"}
-                        </p>
-                      </div>
-                      <div className="rounded-xl bg-muted/40 p-3">
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                          Scadenza
-                        </p>
-                        <p className="mt-1 font-medium">
-                          {documentScanResult.documentExpiry || "-"}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="rounded-xl bg-muted/40 p-3">
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                          Codice fiscale
-                        </p>
-                        <p className="mt-1 font-medium">
-                          {documentScanResult.fiscalCode || "-"}
-                        </p>
-                      </div>
-                      <div className="rounded-xl bg-muted/40 p-3">
-                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                          Nazionalita
-                        </p>
-                        <p className="mt-1 font-medium">
-                          {documentScanResult.nationality || "-"}
-                        </p>
-                      </div>
-                    </div>
+                    ) : (
+                      campiDelDocumento.map((campo) => (
+                        <label
+                          key={campo.key}
+                          className="flex cursor-pointer items-start gap-3 rounded-xl bg-muted/40 p-3"
+                        >
+                          <Checkbox
+                            checked={documentScanAccepted.has(campo.key)}
+                            onCheckedChange={() => toggleCampoDocumento(campo.key)}
+                            className="mt-0.5"
+                          />
+                          <span className="min-w-0">
+                            <span className="block text-xs uppercase tracking-wide text-muted-foreground">
+                              {campo.label}
+                            </span>
+                            <span className="mt-1 block break-words font-medium">
+                              {campo.value}
+                            </span>
+                            {campo.giaPresente ? (
+                              <span className="mt-1 block text-xs text-amber-700">
+                                La scheda ha gia un valore: spuntando questo lo
+                                sostituisci.
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                      ))
+                    )}
                   </div>
                 ) : (
                   <div className="mt-4 rounded-2xl border border-dashed p-6 text-sm text-muted-foreground">
@@ -7152,10 +7163,14 @@ export default function AthleteProfilePage() {
             </Button>
             <Button
               onClick={applyDocumentScanResult}
-              disabled={!documentScanResult}
+              disabled={!documentScanResult || documentScanAccepted.size === 0}
               className="bg-blue-600 hover:bg-blue-700"
             >
-              Applica dati alla scheda atleta
+              {documentScanAccepted.size
+                ? `Applica ${documentScanAccepted.size} ${
+                    documentScanAccepted.size === 1 ? "campo" : "campi"
+                  }`
+                : "Nessun campo selezionato"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -19,6 +19,7 @@ import {
   FileSignature,
   FileCheck,
   FileText,
+  ScrollText,
   FileUp,
   GraduationCap,
   Handshake,
@@ -238,6 +239,23 @@ const sidebarGroups: SidebarGroup[] = [
       { id: "organization", label: "Club", href: "/organization", icon: Shield },
       { id: "settings", label: "Impostazioni", href: "/settings", icon: Settings },
       { id: "permissions", label: "Permessi", href: "/permissions", icon: Lock },
+      /*
+        W6-1 e W6-2. Le due schermate della lane 6G. Senza queste righe
+        nascerebbero irraggiungibili — e `/dashboard/access-management` lo era
+        gia da mock: una schermata finta su questo dominio e peggio di una
+        schermata assente, perche promette un controllo che non c e.
+
+        Il registro degli eventi era **write-only**: 108 punti di scrittura e
+        nessun lettore (WP-16). La rotta di lettura la protegge `audit.read`,
+        che e una chiave di direzione.
+      */
+      {
+        id: "access-management",
+        label: "Ruoli e accessi",
+        href: "/dashboard/access-management",
+        icon: UserCog,
+      },
+      { id: "audit", label: "Registro attivita", href: "/audit", icon: ScrollText },
     ],
   },
 ];

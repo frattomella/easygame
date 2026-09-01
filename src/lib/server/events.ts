@@ -3,6 +3,12 @@ import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { normalizeAccessRole } from "@/lib/access-roles";
 import { roleHasPermission } from "@/lib/permissions/catalog";
 import {
+  accessScopeAllows,
+  accessScopeValues,
+  normalizeAccessScopes,
+  type AccessScopeEntry,
+} from "@/lib/roles/access-scope";
+import {
   AUDIT_ACTIONS,
   recordAuditEvent,
   recordPermissionDenied,
@@ -355,6 +361,58 @@ export const eventWithinTrainerPerimeter = (
  * l'intero atto sia rifiutato — un blocco accettato a meta lascerebbe
  * l'allenatore a indovinare quali righe sono nate.
  */
+/**
+ * **Il perimetro di un ruolo personalizzato, sull evento.**
+ *
+ * Wave 6 §11.3. E l altro perimetro, e non e quello dell allenatore: quello
+ * viene dal **profilo** e vale per il ruolo `trainer`; questo viene dalla
+ * riga dell assegnazione e vale per chiunque porti un ruolo di club con una
+ * sede o una categoria dichiarata.
+ *
+ * Un perimetro vuoto — che e cio che hanno tutte le tessere di oggi — non
+ * restringe niente. Chi ne dichiara uno non compie **atti** fuori da li: la
+ * regola e la stessa che la lane 6C1 ha scritto per l allenatore, e per la
+ * stessa ragione, perche un atto fuori perimetro e un atto su persone che
+ * non sono nel proprio.
+ */
+const assertAccessScopeOnEvent = async (
+  scope: EventsScope,
+  /*
+    Le righe arrivano da Prisma con `site_id` e `category_id`, e i candidati
+    costruiti in memoria con `siteId` e `categoryId`. Si accettano entrambe
+    le grafie invece di chiedere a sette punti di chiamata di convertire: un
+    punto che si dimentica di farlo passerebbe **senza** perimetro, cioe
+    fallirebbe aperto.
+  */
+  candidati: readonly Record<string, any>[],
+  permesso: string,
+) => {
+  const perimetro = normalizeAccessScopes(
+    (scope as { accessScopes?: readonly AccessScopeEntry[] | null })
+      .accessScopes,
+  );
+  if (!perimetro.length) return;
+
+  const fuori = candidati.filter(
+    (candidato) =>
+      !accessScopeAllows(perimetro, {
+        siteId: candidato?.siteId ?? candidato?.site_id ?? null,
+        categoryId: candidato?.categoryId ?? candidato?.category_id ?? null,
+      }),
+  );
+  if (!fuori.length) return;
+
+  await recordPermissionDenied({
+    scope,
+    permission: permesso,
+    resource: "club_events",
+  });
+
+  throw new Error(
+    "Accesso negato: questo evento e fuori dal perimetro assegnato al tuo ruolo",
+  );
+};
+
 const assertTrainerEventPerimeter = async (
   scope: EventsScope,
   candidati: readonly TrainerPerimeterCandidate[],
@@ -409,6 +467,23 @@ export const listClubEvents = async (
   if (filters.seasonId) where.season_id = asText(filters.seasonId);
   if (filters.siteId) where.site_id = asText(filters.siteId);
   if (filters.categoryId) where.category_id = asText(filters.categoryId);
+
+  /*
+    Wave 6 §11.3. Il perimetro dell assegnazione si somma ai filtri, non li
+    sostituisce: chi ha una sede dichiarata vede meno, mai di piu. E si
+    applica **dentro il `where`** e non dopo, altrimenti il conteggio
+    direbbe un numero e l elenco ne mostrerebbe un altro.
+  */
+  const perimetroDelRuolo = normalizeAccessScopes(
+    (scope as { accessScopes?: readonly AccessScopeEntry[] | null })
+      .accessScopes,
+  );
+  if (perimetroDelRuolo.length) {
+    const sedi = accessScopeValues(perimetroDelRuolo, "site");
+    const categorie = accessScopeValues(perimetroDelRuolo, "category");
+    if (sedi.length) where.site_id = { in: sedi };
+    if (categorie.length) where.category_id = { in: categorie };
+  }
   if (filters.status) where.status = normalizeEventStatus(filters.status);
   else if (!filters.includeCancelled) where.status = { not: "archived" };
 
@@ -506,6 +581,7 @@ export const readClubEvent = async (
 
   assertActiveClub(scope, row.organization_id, "l'evento");
   await assertTrainerEventPerimeter(scope, [row], "events.read");
+  await assertAccessScopeOnEvent(scope, [row], "events.read");
   return row;
 };
 
@@ -659,6 +735,7 @@ export const createClubEvent = async (
     creato, lasciandolo visibile a tutti gli altri.
   */
   await assertTrainerEventPerimeter(scope, [colonne], "events.manage");
+  await assertAccessScopeOnEvent(scope, [colonne], "events.manage");
 
   await assertFieldIsOpen(organizationId, {
     structure_id: colonne.structure_id,
@@ -748,6 +825,13 @@ export const updateClubEvent = async (
     [existing, colonne],
     "events.manage",
   );
+  /*
+    Stesso doppio giudizio per il perimetro del ruolo: la riga com e e la riga
+    come diventerebbe. Era l unico atto che il presidio ha trovato scoperto,
+    perche la chiamata sta su piu righe e la sostituzione meccanica non la
+    vedeva — che e esattamente il tipo di buco per cui il presidio esiste.
+  */
+  await assertAccessScopeOnEvent(scope, [existing, colonne], "events.manage");
 
   await assertFieldIsOpen(organizationId, {
     structure_id: colonne.structure_id,
@@ -843,6 +927,7 @@ export const saveEventConvocations = async (
   if (!event) throw new Error("Evento non trovato");
   assertActiveClub(scope, event.organization_id, "l'evento");
   await assertTrainerEventPerimeter(scope, [event], "events.convoke");
+  await assertAccessScopeOnEvent(scope, [event], "events.convoke");
 
   const normalizzate = entries
     .map((entry) => ({
@@ -961,6 +1046,7 @@ export const saveEventAttendance = async (
   if (!event) throw new Error("Evento non trovato");
   assertActiveClub(scope, event.organization_id, "l'evento");
   await assertTrainerEventPerimeter(scope, [event], "events.attendance");
+  await assertAccessScopeOnEvent(scope, [event], "events.attendance");
 
   const normalizzate = entries
     .map((entry) => ({
@@ -1021,6 +1107,7 @@ export const listEventParticipants = async (
   if (!event) return [];
   assertActiveClub(scope, event.organization_id, "l'evento");
   await assertTrainerEventPerimeter(scope, [event], "events.read");
+  await assertAccessScopeOnEvent(scope, [event], "events.read");
 
   return prisma.clubEventParticipant.findMany({
     where: { organization_id: organizationId, event_id: event.id },
@@ -1052,6 +1139,7 @@ export const deleteClubEvent = async (
   if (!event) throw new Error("Evento non trovato");
   assertActiveClub(scope, event.organization_id, "l'evento");
   await assertTrainerEventPerimeter(scope, [event], "events.manage");
+  await assertAccessScopeOnEvent(scope, [event], "events.manage");
 
   const partecipanti = await prisma.clubEventParticipant.count({
     where: { organization_id: organizationId, event_id: event.id },
@@ -1118,6 +1206,7 @@ export const createClubEventsBatch = async (
     dell'allenatore.
   */
   await assertTrainerEventPerimeter(scope, righe, "events.manage");
+  await assertAccessScopeOnEvent(scope, righe, "events.manage");
 
   /*
     `skipDuplicates` sulla chiave (club, tipo, identificativo storico): la

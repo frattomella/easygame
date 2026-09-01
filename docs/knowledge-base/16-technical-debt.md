@@ -1855,3 +1855,90 @@ Il percorso famiglia non le mostra piu, ma le righe ci sono e il club le vede
 nella propria scheda. Non e stata scritta una migrazione: cancellare righe di
 prezzo di un club sulla base di un'inferenza — «zero vuol dire non compilata» —
 e una decisione che il prodotto non puo prendere da solo.
+
+---
+
+## Wave 6 — debito aperto dalle lane 6C, 6E, 6F, 6H, 6I (2026-09-01)
+
+Registrato, non corretto. Ogni voce dice **perche** non e stata chiusa qui.
+
+### W6-D05 — «Invia credenziali» su staff e socio resta rotto
+
+`src/app/staff/[id]/page.tsx:371-376` e `src/app/soci/[id]/page.tsx:378-383`
+mostrano lo stesso messaggio di errore che l'atleta aveva prima della Wave 6. Il
+dominio dell'invito ora esiste ed e generalizzabile, ma `athlete_account_invites`
+e modellata **sull'atleta** (`athlete_id NOT NULL`): estenderla a staff e soci
+richiede o una colonna soggetto polimorfa o una seconda tabella. **Va deciso,
+non improvvisato** — e la stessa scelta che ha prodotto i sei indici polimorfi
+che `data-subject.ts` deve ora attraversare.
+
+### W6-D06 — la quarta implementazione del perimetro allenatore
+
+`filterTrainerDashboardRecords` (`resources.ts:4121`) resta la quarta lettura di
+«cosa vede questo allenatore». Non diverge sul difetto chiuso — legge gia
+`trainers` **e** `staff_members`, e fallisce chiuso — ma su
+`club_events`/`club_event_participants` applica **solo la categoria**, senza la
+precedenza del gruppo. Rischio residuo: un elenco leggermente piu largo, mai un
+atto piu largo, perche gli atti sono chiusi da `events.ts`.
+
+### W6-D07 — la proiezione dell'area atleta vive nel modulo sbagliato
+
+Sta dentro `src/lib/server/athlete-accounts.ts` per rispettare il perimetro
+della lane. E un modulo puro e testabile, e il suo posto e
+`src/lib/athlete-area/projection.ts`. Dichiarato, non svista.
+
+### W6-D08 — `GET /api/v1/auth/athlete-profile/[athleteId]` non ha piu consumatori
+
+L'area atleta legge `/api/v1/athlete-accounts/me`. La rotta e stata **riparata**
+comunque (W6-34 lo chiedeva: restituiva atleta e certificati interi senza
+passare dalla proiezione clinica), ma va deciso se ritirarla.
+
+### W6-D09 — `duplicateFormTemplate` conserva la provenienza dal catalogo
+
+Un club che duplica un modulo adottato e cancella l'originale vedra la voce
+ancora marcata «gia fra i moduli del club». Caso di bordo.
+
+### W6-D10 — le tariffe a zero gia in archivio restano
+
+Il percorso famiglia non le mostra piu, ma le righe ci sono e il club le vede.
+Non e stata scritta una migrazione: cancellare righe di prezzo di un club sulla
+base di un'inferenza — «zero vuol dire non compilata» — e una decisione che il
+prodotto non puo prendere da solo.
+
+### W6-D11 — sette punti che loggano ancora l'errore intero
+
+Registro **chiuso** in `tests/server/log-senza-dati-personali.test.mjs`:
+`api/athlete-payments/[paymentId]/route.ts:294`,
+`api/v1/accounting/accounts/route-context.ts:81`,
+`api/v1/clubs/[id]/signature/route.ts:80`, `server/form-submissions.ts:609` e
+`:783`, `server/prisma.ts:51`, `server/sport-work-route.ts:87`. Fuori dal
+perimetro del presidio ma con lo stesso difetto: `src/lib/simplified-db.ts`
+(**50 occorrenze**, WP-07 «in riduzione»), `src/lib/auth.ts` (9),
+`src/lib/auth/session-sync.ts` (2), `src/lib/supabase.ts` (1).
+
+### W6-D12 — `AUDIT_LOG_RETENTION_DAYS` non e impostata
+
+Non impostata = **conserva tutto**. Va deciso prima della produzione: e la
+prima riga di `RETENTION.md` che il prodotto non puo scrivere da solo.
+
+### W6-D13 — `@radix-ui/react-tooltip` non e una dipendenza dichiarata
+
+Cinque componenti lo importano direttamente e in `package.json` non c'e: arriva
+dal meta-pacchetto `radix-ui`. Funziona per appiattimento di `node_modules`, e
+smetterebbe di funzionare il giorno in cui quel pacchetto cambiasse le proprie
+dipendenze. Toccare le dipendenze dentro una lane di correzioni e un
+cambiamento di natura diversa: va fatto con il suo commit e il suo lock.
+
+### W6-D14 — «Affittabile» resta un nome ambiguo
+
+`isRentable` e il contratto d'affitto della struttura e non ha mai avuto effetto
+sull'area famiglia. La Wave 6 gli mette accanto l'interruttore che mancava e ne
+corregge la descrizione, ma il nome continua a leggersi come «prenotabile».
+Rinominarlo tocca la colonna JSON di ogni club: e una migrazione.
+
+### W6-D15 — il ripiego di `isBookableByMembers` e `true`
+
+Chi non ha mai avuto un interruttore non puo aver espresso una scelta, quindi il
+comportamento di oggi si conserva. **Va detto ai club al rilascio**: chi credeva
+di aver chiuso le prenotazioni spegnendo «Affittabile» continua ad averle aperte
+finche non spegne il comando nuovo.

@@ -1,3 +1,4 @@
+import { dataUrlImmagineDaPdf } from "./pdf-embedded-image";
 import {
   buildExtractionFromText,
   type DocumentExtractionProvider,
@@ -34,8 +35,18 @@ export const OCR_PROVIDER_ID = "tesseract-local";
  * il contratto `DocumentExtractionProvider` esiste per questo, e un provider
  * PDF si aggiunge senza toccare nessun form. Fino ad allora un PDF viene
  * **rifiutato con una spiegazione**, non accettato per poi fallire.
+ *
+ * **Aggiornamento della Wave 6.** Il PDF resta non rasterizzato, e la
+ * decisione qui sopra resta valida. Ma il caso piu comune non richiedeva
+ * nessun rasterizzatore: un telefono che «scansiona» un documento salva
+ * **una fotografia dentro un contenitore PDF**, e quella fotografia si tira
+ * fuori con un taglio di byte. Lo fa `src/lib/pdf-embedded-image.ts`, che
+ * non legge PDF: apre un contenitore, e solo quando dentro c'e esattamente
+ * una immagine e nient'altro. Ogni altro PDF resta rifiutato con la stessa
+ * spiegazione di prima.
  */
 export const OCR_ACCEPTED_MIME_TYPES = [
+  "application/pdf",
   "image/jpeg",
   "image/jpg",
   "image/png",
@@ -49,7 +60,24 @@ export const ocrExtractionProvider: DocumentExtractionProvider = {
   label: "Lettura locale (OCR)",
   accepts: OCR_ACCEPTED_MIME_TYPES,
 
-  async extract(dataUrl: string) {
+  async extract(dataUrlInIngresso: string) {
+    /*
+      Se e un PDF che contiene una fotografia sola, si prosegue con quella.
+      Se e un PDF di altra natura, `dataUrlImmagineDaPdf` risponde `null` e
+      qui si ferma con la frase che spiega perche — la stessa di prima.
+    */
+    const eUnPdf = dataUrlInIngresso.startsWith("data:application/pdf");
+    const dataUrl = eUnPdf
+      ? dataUrlImmagineDaPdf(dataUrlInIngresso)
+      : dataUrlInIngresso;
+
+    if (!dataUrl) {
+      throw new Error(
+        "Questo PDF non contiene una fotografia leggibile: il motore legge " +
+          "immagini. Fotografa il documento, oppure compila a mano.",
+      );
+    }
+
     let worker: {
       recognize: (input: string) => Promise<any>;
       terminate: () => Promise<unknown>;

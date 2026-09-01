@@ -149,6 +149,86 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "family.children",
+    method: "GET",
+    path: "/api/v1/family/children",
+    description:
+      "I figli fra cui un genitore sceglie. Il gate e il legame, non il ruolo: un tutore puo non avere nessuna tessera. Nessun parametro, e un elenco vuoto e una risposta vera",
+    mobile_ready: false,
+  },
+  {
+    name: "athlete_accounts.state",
+    method: "GET|POST|DELETE",
+    path: "/api/v1/athlete-accounts/:athleteId",
+    description:
+      "Lo stato dell accesso EasyGame di un atleta, l invito e la revoca. In archivio resta solo l impronta del token, mai il token",
+    mobile_ready: false,
+  },
+  {
+    name: "athlete_accounts.resend",
+    method: "POST",
+    path: "/api/v1/athlete-accounts/:athleteId/resend",
+    description:
+      "Rimanda l invito. Revoca il precedente: un indice unico parziale garantisce un solo invito vivo per atleta",
+    mobile_ready: false,
+  },
+  {
+    name: "athlete_accounts.email",
+    method: "POST",
+    path: "/api/v1/athlete-accounts/:athleteId/email",
+    description:
+      "Cambia l indirizzo a cui l invito e destinato",
+    mobile_ready: false,
+  },
+  {
+    name: "athlete_accounts.accept",
+    method: "POST",
+    path: "/api/v1/athlete-accounts/accept",
+    description:
+      "Riscatta l invito. Pubblica per costruzione: ci arriva chi non ha ancora una password",
+    mobile_ready: false,
+  },
+  {
+    name: "athlete_accounts.me",
+    method: "GET|PATCH",
+    path: "/api/v1/athlete-accounts/me",
+    description:
+      "L area dell atleta e i sei campi che puo correggere. Nome, data di nascita, codice fiscale e stato restano della societa",
+    mobile_ready: false,
+  },
+  {
+    name: "sport_work.me",
+    method: "GET",
+    path: "/api/v1/sport-work/me",
+    description:
+      "I propri compensi. Chiede sport_work.read_own e non accetta nessun identificativo di persona",
+    mobile_ready: false,
+  },
+  {
+    name: "data_subject.read",
+    method: "GET|DELETE",
+    path: "/api/v1/data-subject/:subjectId",
+    description:
+      "Il riepilogo di cio che verrebbe distrutto, e la cancellazione. Per un minore serve una conferma esplicita, e il riepilogo produce un gettone che scade se l inventario cambia",
+    mobile_ready: false,
+  },
+  {
+    name: "data_subject.export",
+    method: "GET",
+    path: "/api/v1/data-subject/:subjectId/export",
+    description:
+      "I dati di una persona, attraverso i sei indici polimorfi. Nessun byte: gli allegati escono come metadati",
+    mobile_ready: false,
+  },
+  {
+    name: "audit.list",
+    method: "GET",
+    path: "/api/v1/audit",
+    description:
+      "Il registro degli eventi, con lo scope di club obbligatorio. Era write-only: 108 punti di scrittura e nessun lettore",
+    mobile_ready: false,
+  },
+  {
     name: "appointments.list",
     method: "GET|POST",
     path: "/api/v1/appointments",

@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { getRequestIp } from "./auth-rate-limit";
+import { roleHasPermission } from "@/lib/permissions/catalog";
 
 /**
  * Audit log delle operazioni sensibili (ADR-0019).
@@ -302,6 +303,25 @@ export const AUDIT_ACTIONS = {
   athleteAccountInvited: "athlete_account.invite.sent",
   athleteAccountAccepted: "athlete_account.invite.accepted",
   athleteAccountRevoked: "athlete_account.access.revoked",
+
+  /*
+    I ruoli personalizzati di club (Wave 6, lane 6G). Sono **sei** azioni e non
+    una `club_role.changed`, per la stessa ragione degli appuntamenti: sono le
+    righe che si vanno a cercare, e le domande sono diverse. «Chi ha creato
+    questo ruolo e con quali permessi», «chi gliene ha aggiunto uno», «chi lo ha
+    dato a questa persona», «chi gliel'ha tolto», «chi ha ristretto il perimetro
+    di quella segreteria alla sola sede di Scauri».
+
+    La riga porta nel metadato le chiavi **aggiunte e tolte**, non l'elenco
+    finale: l'elenco finale sta nella tabella, mentre la differenza — che e cio
+    che qualcuno ha deciso — non sta da nessun'altra parte.
+  */
+  clubRoleCreated: "club_role.created",
+  clubRoleUpdated: "club_role.updated",
+  clubRoleDeleted: "club_role.deleted",
+  clubRoleAssigned: "club_role.assigned",
+  clubRoleRevoked: "club_role.revoked",
+  clubRoleScopeChanged: "club_role.scope.changed",
 
   /**
    * **Un permesso negato.** Una sola azione per tutti i domini, con la chiave
@@ -622,6 +642,241 @@ export const recordPermissionDenied = async (input: {
     resourceId: input.resourceId || null,
     metadata: { permission: input.permission, ...(input.metadata || {}) },
   });
+};
+
+/* ===================================================================== */
+/*  Il lettore che mancava (WP-16, Wave 6 lane 6G)                        */
+/* ===================================================================== */
+
+/**
+ * **Centootto scritture, zero letture.**
+ *
+ * `recordAuditEvent` era chiamata da sessantadue file, la tabella aveva gia i
+ * quattro indici adatti alla consultazione — per club, per attore, per azione,
+ * per data — e `prisma.auditLog.findMany` non compariva in **nessuna** rotta.
+ * Un registro che nessuno puo leggere non e un registro: e una tabella che
+ * cresce.
+ *
+ * ## Il perimetro non e negoziabile
+ *
+ * Lo scope di club e **obbligatorio**: la query filtra sempre su
+ * `organization_id = <club attivo>`, che e la prima colonna dell'indice
+ * `[organization_id, created_at]`. Le righe **senza** club — il cron dei
+ * promemoria, un login fallito prima che ci sia un'organizzazione — non escono
+ * di qui: non appartengono a nessun club, e mostrarle a uno di essi
+ * significherebbe mostrargli l'attivita di tutti gli altri.
+ *
+ * ## Cosa esce, e cosa no
+ *
+ * Elenco **chiuso** di campi, non la riga intera. `user_agent` resta fuori: e
+ * lungo, e un'impronta del dispositivo di una persona, e non risponde a nessuna
+ * delle domande per cui questa schermata esiste. `metadata` esce filtrato una
+ * seconda volta — la prima e in scrittura — attraverso un elenco chiuso di
+ * chiavi che descrivono **l'atto** e mai il contenuto: nessun nome, nessun
+ * importo, nessun testo libero. E la regola del mandato: «no dettagli sensibili
+ * oltre il necessario».
+ */
+export const AUDIT_VISIBLE_METADATA_KEYS: readonly string[] = [
+  "action",
+  "base_role",
+  "count",
+  "method",
+  "operation",
+  "path",
+  "permission",
+  "permissions_added",
+  "permissions_removed",
+  "previous_role",
+  "reason",
+  "resource",
+  "role",
+  "route",
+  "scope_kind",
+  "scopes",
+  "slug",
+  "status",
+  "step",
+  "target_user_id",
+];
+
+export const AUDIT_READ_PERMISSION = "audit.read";
+
+/**
+ * **La chiave, e la riga che il suo diniego lascia.**
+ *
+ * Sta qui e non nella rotta per la regola della Wave 5: il 403 lo compone la
+ * rotta, ma il diniego lo **decide** il dominio, ed e li che si traccia. Chi
+ * domani aggiungera una seconda superficie di lettura del registro eredita la
+ * traccia senza sapere che esiste.
+ *
+ * E la chiave su cui si dimostra §10.5: tolta a un ruolo, la voce sparisce dal
+ * menu e questa funzione risponde 403; rimessa, tornano entrambe.
+ */
+export const assertAuditReadPermission = async (scope: {
+  userId?: string | null;
+  activeRole?: string | null;
+  activeOrganizationId?: string | null;
+}) => {
+  if (roleHasPermission(scope?.activeRole, AUDIT_READ_PERMISSION)) return;
+
+  await recordPermissionDenied({
+    scope,
+    permission: AUDIT_READ_PERMISSION,
+    resource: "audit_logs",
+  });
+
+  throw new Error(
+    "Accesso negato: il ruolo attivo non puo consultare il registro del club",
+  );
+};
+
+export type AuditEventView = {
+  id: string;
+  created_at: string;
+  action: string;
+  outcome: string;
+  actor_user_id: string | null;
+  actor_email: string | null;
+  actor_role: string | null;
+  resource: string | null;
+  resource_id: string | null;
+  ip: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type AuditQuery = {
+  /** Filtro per attore: identificativo utente oppure frammento di indirizzo. */
+  actorUserId?: string | null;
+  actorEmail?: string | null;
+  /** Azione esatta (`payment.transaction.recorded`). */
+  action?: string | null;
+  /** Area: il prefisso prima del primo punto (`payment`, `auth`, `document`). */
+  area?: string | null;
+  resource?: string | null;
+  resourceId?: string | null;
+  outcome?: AuditOutcome | null;
+  /** Scorciatoia della domanda che si fa piu spesso: «cosa e stato negato». */
+  deniedOnly?: boolean;
+  from?: string | Date | null;
+  to?: string | Date | null;
+  limit?: number;
+  offset?: number;
+};
+
+const AUDIT_PAGE_SIZE_DEFAULT = 50;
+const AUDIT_PAGE_SIZE_MAX = 200;
+
+/** Le aree note, per popolare un filtro senza inventarsi un elenco a mano. */
+export const listAuditAreas = () =>
+  Array.from(
+    new Set(
+      Object.values(AUDIT_ACTIONS).map((action) => String(action).split(".")[0]),
+    ),
+  ).sort();
+
+export const listAuditActions = () =>
+  Array.from(new Set(Object.values(AUDIT_ACTIONS) as string[])).sort();
+
+const asDate = (value: string | Date | null | undefined) => {
+  if (!value) return null;
+  const data = value instanceof Date ? value : new Date(String(value));
+  return Number.isFinite(data.getTime()) ? data : null;
+};
+
+const projectMetadata = (metadata: unknown): Record<string, unknown> => {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return {};
+  }
+
+  const risultato: Record<string, unknown> = {};
+  for (const chiave of AUDIT_VISIBLE_METADATA_KEYS) {
+    const valore = (metadata as Record<string, unknown>)[chiave];
+    if (valore === undefined || valore === null) continue;
+    risultato[chiave] =
+      typeof valore === "object" ? sanitizeMetadata(valore as never) : valore;
+  }
+  return risultato;
+};
+
+/**
+ * Legge il registro del club attivo.
+ *
+ * **Non verifica il permesso**, e non e una dimenticanza: lo verifica la rotta,
+ * che e anche il posto in cui il diniego lascia la propria riga. Cio che questa
+ * funzione garantisce e il **confine** — nessun club vede le righe di un altro
+ * — e la proiezione.
+ */
+export const listAuditEvents = async (
+  organizationId: string,
+  query: AuditQuery = {},
+): Promise<{ items: AuditEventView[]; total: number; hasMore: boolean }> => {
+  const club = String(organizationId || "").trim();
+  if (!club) {
+    throw new Error("Accesso negato: nessun club attivo su cui leggere l'audit");
+  }
+
+  const limit = Math.min(
+    Math.max(Number(query.limit) || AUDIT_PAGE_SIZE_DEFAULT, 1),
+    AUDIT_PAGE_SIZE_MAX,
+  );
+  const offset = Math.max(Number(query.offset) || 0, 0);
+
+  const from = asDate(query.from);
+  const to = asDate(query.to);
+  const area = String(query.area || "").trim().toLowerCase();
+  const action = String(query.action || "").trim();
+  const actorEmail = String(query.actorEmail || "").trim().toLowerCase();
+
+  const where: Record<string, unknown> = { organization_id: club };
+
+  if (action) where.action = action;
+  else if (area) where.action = { startsWith: `${area}.` };
+
+  if (query.actorUserId) where.actor_user_id = String(query.actorUserId).trim();
+  if (actorEmail) where.actor_email = { contains: actorEmail };
+  if (query.resource) where.resource = String(query.resource).trim();
+  if (query.resourceId) where.resource_id = String(query.resourceId).trim();
+
+  if (query.deniedOnly) where.outcome = "denied";
+  else if (query.outcome) where.outcome = query.outcome;
+
+  if (from || to) {
+    where.created_at = {
+      ...(from ? { gte: from } : {}),
+      ...(to ? { lte: to } : {}),
+    };
+  }
+
+  const [righe, total] = await Promise.all([
+    prisma.auditLog.findMany({
+      where: where as never,
+      orderBy: [{ created_at: "desc" }, { id: "desc" }],
+      skip: offset,
+      take: limit,
+    }),
+    prisma.auditLog.count({ where: where as never }),
+  ]);
+
+  return {
+    items: righe.map((riga) => ({
+      id: String(riga.id),
+      created_at:
+        riga.created_at instanceof Date
+          ? riga.created_at.toISOString()
+          : String(riga.created_at),
+      action: String(riga.action),
+      outcome: String(riga.outcome || "success"),
+      actor_user_id: riga.actor_user_id || null,
+      actor_email: riga.actor_email || null,
+      actor_role: riga.actor_role || null,
+      resource: riga.resource || null,
+      resource_id: riga.resource_id || null,
+      ip: riga.ip || null,
+      metadata: projectMetadata(riga.metadata),
+    })),
+    total,
+    hasMore: offset + righe.length < total,
+  };
 };
 
 /**

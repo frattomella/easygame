@@ -28,6 +28,13 @@ const PROTECTED_PREFIXES = [
   "/account",
   "/athletes",
   /*
+    Il registro delle operazioni (WP-16, lane 6G). Riga aggiunta **fuori dal
+    perimetro della lane**, e dichiarata: e la sola compagna obbligatoria di
+    un'area nuova sotto `src/app`, e il test che la pretende esiste proprio
+    perche questo elenco l'ha gia dimenticata quattro volte.
+  */
+  "/audit",
+  /*
     **La terza volta che questo elenco dimentica una pagina.** `/consensi` e
     `/sport-work` sono gia documentati qui sotto; `/calendar` — la pagina
     nuova del calendario unico (5F) — rispondeva **200 senza sessione**, mentre

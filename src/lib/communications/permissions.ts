@@ -3,6 +3,7 @@ import {
   normalizeAccessRole,
   type CanonicalAccessRole,
 } from "@/lib/access-roles";
+import { narrowDomainPermission } from "@/lib/permissions/catalog";
 
 /**
  * I permessi del dominio **comunicazioni** (Wave 2).
@@ -130,7 +131,21 @@ export const listCommunicationPermissions = (
 export const hasCommunicationPermission = (
   role: string | null | undefined,
   permission: CommunicationPermission,
-) => listCommunicationPermissions(role).includes(permission);
+) => {
+  /*
+    Wave 6, lane 6G. Matrice **privata**: le guardie di questo dominio non
+    passano da `roleHasPermission`, e l elenco qui sopra **normalizza** il
+    ruolo — cioe vede il ruolo base. Senza questa riga il restringimento di
+    un ruolo personalizzato non arriverebbe fin qui, e una casella tolta
+    nella schermata non toglierebbe niente.
+  */
+  const ristretto = narrowDomainPermission(role, permission, (base) =>
+    PERMISSIONS_BY_ROLE[base].includes(permission),
+  );
+  if (ristretto !== null) return ristretto;
+
+  return listCommunicationPermissions(role).includes(permission);
+};
 
 /**
  * Solleva se il ruolo non ha il permesso.

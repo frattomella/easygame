@@ -2059,3 +2059,41 @@ prima della produzione (W4-R18).
 Senza, il taglio della Wave 5 resta una **perdita netta** per i club che quella
 visibilità la volevano: un allenatore non vede più allergie, farmaci e gruppo
 sanguigno, e non esiste modo di restituirglielo. Dipende da W6-1.
+
+---
+
+## Wave 6 — pre-production: stato delle lane (2026-09-01)
+
+Il piano e in [41](41-wave-6-planning.md). DAG a sei onde:
+6A → 6B → {6C1 ‖ 6D ‖ 6F ‖ 6H} → {6C2 ‖ 6E ‖ 6I} → 6G → 6J.
+
+| Lane | Contenuto | Esito |
+|------|-----------|-------|
+| 6A | I difetti dimostrati: filtro stato, avatar, conferme, segreteria, strutture, sidebar | **Fatta.** Gli stati atleta erano tre e le etichette quattro |
+| 6B | Il catalogo diventa vero (W5-D01) | **Fatta.** Cinque chiavi su un interruttore, tre cablate su `owner \|\| club_manager` |
+| 6C1 | Perimetro allenatore, «I miei compensi», le tre incoerenze | **Fatta.** Il perimetro era applicato da 1 funzione su 9 |
+| 6C2 | Account atleta e Athlete Dashboard V1 | **Fatta.** Il ruolo `athlete` era modellato e irraggiungibile |
+| 6D | Area famiglia: multi-figlio, multi-categoria, stagione, pagamenti, ricevute, certificato | **Fatta.** «Paga ora» era spento sempre |
+| 6E | Le tre aree documentali e la coda del club | **Fatta.** La famiglia non riceveva le richieste della segreteria |
+| 6F | Moduli e iscrizione online | **Fatta.** Il gate della pagina era il permesso di un altro dominio |
+| 6H | Appuntamenti: UI degli slot, segreteria completa, `capacity` rimossa | **Fatta.** Ogni club era in configurazione di ripiego |
+| 6I | Consensi prima dell'invio, export e cancellazione, identificativo di richiesta, log | **Fatta.** Quindici percorsi su quindici ignoravano il registro dei consensi |
+| 6G | Ruoli personalizzati, access management, UI di audit | In corso |
+| 6J | W4-R7, OCR, registro API, KB, tre sonde di runtime | §16 OCR **fatto** |
+
+### Un difetto alla quarta ripetizione, e come e stato chiuso
+
+`src/middleware.ts` racconta nei propri commenti le prime tre volte che
+l'elenco delle aree protette ha dimenticato una pagina: `/consensi` (Wave 3),
+`/sport-work`, `/calendar` (Wave 5). Ognuna scoperta da uno smoke su staging,
+ognuna corretta aggiungendo una riga.
+
+La Wave 6 e stata la **quarta**, e tutta insieme: area atleta, coda documentale
+e configurazione appuntamenti erano fuori tutte e tre. Tre in una Wave non sono
+tre distrazioni.
+
+Adesso le aree si **enumerano dal filesystem** e cio che non e un'area sta in un
+elenco chiuso e motivato. Il presidio nuovo ha trovato subito due buchi
+preesistenti: `/calendar` e `/sport-work` non avevano **nessuna** guardia
+d'area — le API rifiutano comunque, ma la struttura di una schermata gestionale
+usciva a chiunque avesse una sessione.

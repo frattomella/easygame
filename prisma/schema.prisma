@@ -282,6 +282,7 @@ model Club {
   accounting_entries           AccountingEntry[]
   membership_events            MembershipEvent[]
   athlete_account_invites      AthleteAccountInvite[]
+  custom_roles                 ClubRole[]
 
   @@map("clubs")
 }
@@ -301,19 +302,107 @@ model Dashboard {
 }
 
 model OrganizationUser {
-  id              String   @id @default(uuid()) @db.Uuid
-  organization_id String   @db.Uuid
-  user_id         String   @db.Uuid
+  id              String            @id @default(uuid()) @db.Uuid
+  organization_id String            @db.Uuid
+  user_id         String            @db.Uuid
   role            String
-  is_primary      Boolean  @default(false)
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-  organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  user            User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  /// Il ruolo personalizzato di questa tessera (Wave 6, W6-1).
+  ///
+  /// Quando e valorizzata, `role` porta lo **slug** del ruolo
+  /// (`custom:collaborator:segreteria`) e il ruolo effettivo e quello. Le due
+  /// colonne si scrivono **insieme e da una strada sola**
+  /// (`src/lib/server/club-roles.ts`): una riga con lo slug e senza questa
+  /// colonna e incoerente, e `resolveOrganizationScopeForUser` la ignora —
+  /// altrimenti la persona otterrebbe il ruolo base **senza** il
+  /// restringimento, che e esattamente la scalata che il tetto impedisce.
+  custom_role_id  String?           @db.Uuid
+  is_primary      Boolean           @default(false)
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
+  organization    Club              @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  user            User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  custom_role     ClubRole?         @relation(fields: [custom_role_id], references: [id], onDelete: Restrict)
+  access_scopes   ClubAccessScope[]
 
   @@unique([organization_id, user_id, role])
   @@index([user_id])
+  @@index([custom_role_id])
   @@map("organization_users")
+}
+
+/// Un ruolo personalizzato di club (Wave 6, lane 6G, blocker W6-1).
+///
+/// I sette ruoli canonici dicono **chi e** una persona; un club ha bisogno di
+/// dire **cosa fa**, e senza un ottavo ruolo cablato — che CLAUDE.md vieta, e a
+/// ragione: il nono sarebbe arrivato subito dopo.
+///
+/// `slug` e **prefissato e autodescrittivo**: `custom:collaborator:segreteria`.
+/// Il prefisso rende impossibile la collisione con un canonico in una colonna
+/// di testo libero; la base dentro il nome fa si che ogni lettore gia scritto —
+/// il browser compreso — sappia rispondere «al massimo quanto il ruolo base»
+/// anche prima di aver letto una riga di questa tabella.
+///
+/// `base_role` e **immutabile** dopo la creazione: cambiarlo sposterebbe il
+/// tetto sotto i piedi delle assegnazioni gia in essere, e la stessa persona si
+/// troverebbe con permessi diversi senza che nessuno abbia toccato la sua
+/// tessera. Si crea un ruolo nuovo.
+model ClubRole {
+  id              String               @id @default(uuid()) @db.Uuid
+  organization_id String               @db.Uuid
+  slug            String
+  name            String
+  description     String?
+  /// Il canonico da cui clona: vincola il tetto. Mai `owner`.
+  base_role       String
+  is_active       Boolean              @default(true)
+  created_by      String?              @db.Uuid
+  created_at      DateTime             @default(now())
+  updated_at      DateTime             @updatedAt
+  organization    Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  permissions     ClubRolePermission[]
+  memberships     OrganizationUser[]
+
+  @@unique([organization_id, slug])
+  @@index([organization_id])
+  @@map("club_roles")
+}
+
+/// Le chiavi del catalogo concesse a un ruolo di club.
+///
+/// Una riga per chiave concessa, e **nessun diniego esplicito**: l'assenza e il
+/// diniego, come nel catalogo. Una tabella con `granted boolean` avrebbe tre
+/// stati — concesso, negato, non detto — e il terzo si sarebbe comportato come
+/// uno dei primi due a seconda di chi leggeva.
+model ClubRolePermission {
+  id             String   @id @default(uuid()) @db.Uuid
+  role_id        String   @db.Uuid
+  permission_key String
+  created_at     DateTime @default(now())
+  role           ClubRole @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@unique([role_id, permission_key])
+  @@index([role_id])
+  @@map("club_role_permissions")
+}
+
+/// Il perimetro di un'assegnazione: sede e categoria (ADR-0055 per il gruppo).
+///
+/// **Zero righe = tutto il club.** E la scelta che rende la migrazione
+/// additiva: chi non ha scope oggi continua a vedere tutto domani. Il «gruppo»
+/// non e un `scope_kind` perche non e un'entita — e la coppia (categoria, sede)
+/// — e darglielo come perimetro significherebbe crearne una.
+model ClubAccessScope {
+  id                   String           @id @default(uuid()) @db.Uuid
+  organization_user_id String           @db.Uuid
+  /// `site` | `category`
+  scope_kind           String
+  scope_value          String
+  created_at           DateTime         @default(now())
+  membership           OrganizationUser @relation(fields: [organization_user_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_user_id, scope_kind, scope_value])
+  @@index([organization_user_id])
+  @@map("club_access_scopes")
 }
 
 model Athlete {

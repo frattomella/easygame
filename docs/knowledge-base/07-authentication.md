@@ -295,3 +295,67 @@ verificato.
 
 `email_verified_at` si stampa quindi solo quando il provider ha verificato
 **l'indirizzo che l'account porta in quel momento**.
+
+---
+
+## L'accesso di un atleta si consegna con un link, mai con una password (2026-09-01, Wave 6 — 6C2)
+
+### Il difetto che chiude
+
+Il ruolo `athlete` era **modellato end-to-end**: il tipo, l'area, la guardia di
+percorso, il rinvio di atterraggio, il riconoscimento in sessione, perfino lo
+**slegamento** (`unlinkDirectAthleteProfile`). Mancava una cosa sola: **nessun
+percorso scriveva `athletes.user_id`**. Il ruolo esisteva e non era ottenibile.
+
+E il pulsante che avrebbe dovuto consegnarlo — «Invia credenziali» — mostrava un
+messaggio di errore. Prima ancora mostrava un messaggio **verde** che diceva
+«Credenziali inviate»: la segreteria chiudeva la scheda, e l'atleta restava
+senza accesso senza che nessuno lo sapesse.
+
+### Come funziona adesso
+
+Due tempi, e **in nessuno dei due esiste una password che qualcuno conosce**:
+
+1. **L'invito.** Un token opaco di 32 byte in un link. In archivio
+   (`athlete_account_invites`) resta solo la sua **impronta**, come per il link
+   di pagamento (ADR-0085). L'utenza, se va creata, nasce con la forma di
+   `createOAuthBootstrapUser`: hash di byte casuali che nessuno vede, e
+   `email_verified_at` **nullo**.
+2. **La password la sceglie la persona**, con il meccanismo che esiste gia
+   (`sendPasswordResetChallenge` / `confirmPasswordReset`, ADR-0015).
+
+`email_verified_at === null` e il **segnale** che dice se quell'utenza ha
+credenziali che qualcuno conosce: chi ha gia un account verificato non viene
+toccato, e non riceve nessun reset che non ha chiesto.
+
+### Un solo invito vivo per atleta, garantito dal database
+
+`athlete_account_invites` ha un indice unico **parziale** su
+`(organization_id, athlete_id) WHERE status = 'sent'` — la stessa forma di
+`appointments_slot_vivo_unico`. Un reinvio revoca il precedente e ne crea uno
+nuovo; due inviti vivi non sono una cosa che il codice si ricorda di impedire.
+
+### La colonna in piu rispetto al piano, e perche
+
+Il §9.4 di [41](41-wave-6-planning.md) non prevedeva `user_id` sulla riga
+dell'invito. E stata aggiunta, e il motivo va scritto: senza, l'accettazione
+dovrebbe ritrovare l'utenza **dall'indirizzo**, e fra l'invio e il clic quello
+indirizzo puo cambiare o essere rioccupato. Il token finirebbe per legare
+l'atleta a un'utenza diversa da quella invitata.
+
+### La porta che resta fuori dalla guardia
+
+`/athlete-dashboard/attiva` e in `PUBLIC_EXCEPTIONS` del middleware. Ci arriva
+chi ha appena ricevuto l'invito: senza sessione, senza ruolo e senza una
+password. Mandarlo su `/login` sarebbe mandarlo dove non puo entrare — la stessa
+forma dell'eccezione che gia esiste per `/auth/complete`.
+
+L'eccezione e **a un percorso solo**: un ramo che dicesse «tutto cio che comincia
+per attiva» aprirebbe domani una pagina che nessuno ha valutato.
+
+### Cosa resta rotto, e va detto
+
+«Invia credenziali» su **staff** e **socio** mostra ancora il messaggio di
+errore. Il dominio e generalizzabile, ma `athlete_account_invites` e modellata
+sull'atleta: estenderla richiede una decisione sul soggetto (colonna polimorfa o
+seconda tabella). Vedi `W6-D05` in [16 — Debito tecnico](16-technical-debt.md).

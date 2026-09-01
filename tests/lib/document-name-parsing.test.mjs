@@ -211,17 +211,27 @@ test("il rifiuto di un file dice cosa fare, e lo dice in modo diverso", async ()
     "../../src/lib/document-extraction-ocr.ts"
   );
 
+  /*
+    W6 §16. **Il PDF non si rifiuta piu qui**, e il motivo vale la pena
+    scriverlo: a questo punto non si sa ancora *che* PDF sia.
+
+    Il caso piu comune di rifiuto era una persona che aveva **appena
+    fotografato il documento**: i telefoni salvano lo scatto in PDF per
+    impostazione predefinita, e le si stava chiedendo di rifare una cosa gia
+    fatta. Quel contenitore si apre senza rasterizzare niente.
+
+    Il rifiuto resta, con la stessa frase, e lo pronuncia il motore — che il
+    contenitore lo ha aperto e sa cosa c'e dentro. Chi non e una fotografia
+    legge quello che leggeva prima.
+  */
   const pdf = validateDocumentForExtraction(
     { type: "application/pdf", size: 1024, name: "carta.pdf" },
     ocrExtractionProvider,
   );
-  assert.equal(pdf.ok, false);
-  assert.match(pdf.message, /Fotografa il documento/, "un PDF si risolve fotografando");
-
-  // Anche senza tipo MIME: alcuni browser lo lasciano vuoto.
   assert.equal(
-    validateDocumentForExtraction({ size: 1024, name: "carta.PDF" }, ocrExtractionProvider).ok,
-    false,
+    pdf.ok,
+    true,
+    "il contenitore si accetta: a decidere e il motore, che sa se dentro c'e una fotografia",
   );
 
   const grande = validateDocumentForExtraction(
@@ -247,15 +257,38 @@ test("il rifiuto di un file dice cosa fare, e lo dice in modo diverso", async ()
   }
 });
 
-test("il motore dichiara cosa sa leggere, e i PDF non ci sono", async () => {
+test("il motore dichiara cosa sa leggere, e il PDF che e una fotografia ci sta", async () => {
   const { ocrExtractionProvider } = await import(
     "../../src/lib/document-extraction-ocr.ts"
   );
 
   assert.ok(ocrExtractionProvider.accepts.length > 0);
+
+  /*
+    L'invariante non e cambiata — **dichiarare un formato che non si legge e
+    peggio che non dichiararlo** — e cambiato cio che il motore sa leggere.
+
+    Il PDF **non viene rasterizzato**: la decisione di non aggiungere un
+    megabyte di JavaScript su ogni sessione resta scritta nel modulo. Cio che
+    viene aperto e il contenitore, e solo quando dentro c'e esattamente una
+    fotografia e nient'altro. Ogni altro PDF riceve la stessa frase di prima,
+    dal motore invece che dalla validazione.
+
+    La prova che il confine e tenuto stretto sta in
+    `tests/lib/pdf-fotografia.test.mjs`, dove la maggioranza dei controlli
+    verifica che davanti a un PDF ambiguo ci si **fermi**.
+  */
   assert.equal(
     ocrExtractionProvider.accepts.includes("application/pdf"),
-    false,
-    "dichiarare un formato che non si legge e peggio che non dichiararlo",
+    true,
+    "il caso piu comune di rifiuto era un telefono che aveva gia fotografato il documento",
   );
+
+  for (const nonLeggibile of ["application/zip", "text/html", "video/mp4"]) {
+    assert.equal(
+      ocrExtractionProvider.accepts.includes(nonLeggibile),
+      false,
+      `${nonLeggibile} non si legge, e dichiararlo sarebbe una promessa vuota`,
+    );
+  }
 });

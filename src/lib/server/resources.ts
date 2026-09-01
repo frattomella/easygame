@@ -1,10 +1,11 @@
 import { prisma } from "./prisma";
 import { belongsToActiveClub } from "@/lib/auth/active-club-boundary";
 import {
-  canManageClubConfiguration,
   isClubResourceDeclared,
+  isCustomRoleValue,
   normalizeAccessRole,
 } from "@/lib/access-roles";
+import { assertMayGrantRole } from "@/lib/roles/custom-role";
 import {
   athleteMatchesGroup,
   buildCategoryGroups,
@@ -42,6 +43,11 @@ import {
 import { toBirthDateIso } from "../birth-date";
 import { withPlatformOwnedSettings } from "../entitlements/ownership";
 import { assertPersonalDataDisposed } from "./data-subject";
+import {
+  accessScopeValues,
+  normalizeAccessScopes,
+  type AccessScopeEntry,
+} from "@/lib/roles/access-scope";
 import {
   athleteStatusQueryValues,
   normalizeAthleteStatus,
@@ -312,6 +318,15 @@ type ResourceAccessScope = {
     obbligatori.
   */
   activeRole?: string | null;
+  /**
+   * Il perimetro dell assegnazione: sede, categoria, o niente (Wave 6 §11.3).
+   *
+   * Vuoto = tutto il club, ed e cio che hanno tutte le tessere che esistono
+   * oggi. Chi ne dichiara uno non vede fuori da li, e la differenza con il
+   * parametro `site_id` e che quello arriva **dal chiamante**: un filtro
+   * che si toglie togliendo un pezzo di indirizzo non e un confine.
+   */
+  accessScopes?: readonly AccessScopeEntry[] | null;
 };
 
 /**
@@ -1911,6 +1926,30 @@ const togliRelazioni = (resource: string, input: Record<string, any>) => {
  * parere che quella funzione non da: legge la **lunghezza** della stringa e
  * risponde `valid: true`. Non era un invito redento, era un invito
  * dichiarato dal browser; negarlo non toglie una funzione, toglie una porta.
+ *
+ * ---
+ *
+ * ## Il tetto (Wave 6, lane 6G, §10.4)
+ *
+ * Fin qui questa funzione verificava che il concedente amministrasse il club e
+ * **non confrontava il ruolo concesso con quello posseduto**: un `club_manager`
+ * poteva creare una tessera `role: "owner"`. Il commento che lo accettava
+ * diceva «piccola oggi, perche owner e club_manager hanno gli stessi diritti, e
+ * una scalata il giorno in cui non li avranno piu».
+ *
+ * **Quel giorno e questa Wave**: `isOwnerAccessRole` ha smesso di essere una
+ * funzione senza chiamanti, e sette atti sono adesso soltanto del proprietario.
+ * Il confronto lo fa `assertMayGrantRole`, che e la stessa regola usata dalla
+ * schermata degli accessi: nessuno concede un ruolo che non possiede, e `owner`
+ * lo concede solo un `owner`.
+ *
+ * ## E i ruoli personalizzati non passano di qui
+ *
+ * Una tessera personalizzata ha **due colonne** — lo slug in `role` e il
+ * riferimento in `custom_role_id` — e questa porta ne scrive una sola. Una riga
+ * con lo slug e senza il riferimento darebbe alla persona il ruolo **base senza
+ * restringimento**: cioe piu di quanto il club ha concesso. La strada e una
+ * sola, ed e `src/lib/server/club-roles.ts`.
  */
 const assertConcessioneDiAccessoLecita = async (
   organization_id: string,
@@ -1928,6 +1967,26 @@ const assertConcessioneDiAccessoLecita = async (
 
   const chiamante = String(scope.userId ?? "").trim();
   const bersaglio = String(user_id ?? "").trim();
+
+  if (isCustomRoleValue(role)) {
+    await recordPermissionDenied({
+      scope: {
+        userId: scope.userId,
+        activeRole: scope.activeRole,
+        activeOrganizationId: scope.activeOrganizationId,
+      },
+      permission: "club_roles.assign",
+      resource: "organization_users",
+      metadata: {
+        role: String(role),
+        target_user_id: bersaglio,
+        reason: "custom_role_from_generic_route",
+      },
+    });
+    throw new Error(
+      "Accesso negato: un ruolo personalizzato si assegna dalla gestione accessi, non dalla rotta generica",
+    );
+  }
 
   if (chiamante && bersaglio === chiamante) {
     const club = await prisma.club.findUnique({
@@ -1949,17 +2008,33 @@ const assertConcessioneDiAccessoLecita = async (
 
   /*
     Un amministratore del club **attivo** tessera qualcun altro. Non se stesso:
-    una tessera che ci si concede da soli non e un'amministrazione, e con
-    `role: "owner"` sarebbe una promozione — piccola oggi, perche owner e
-    club_manager hanno gli stessi diritti, e una scalata il giorno in cui non
-    li avranno piu.
+    una tessera che ci si concede da soli non e un'amministrazione.
+
+    E non tessera **oltre se stesso**: `assertMayGrantRole` confronta il ruolo
+    concesso con quello posseduto, e nega `owner` a chi owner non e. Era il buco
+    che il commento di qui sopra dichiarava accettabile, e non lo e piu.
   */
-  if (
-    belongsToActiveClub(scope, organization_id) &&
-    canManageClubConfiguration(scope.activeRole) &&
-    bersaglio !== chiamante
-  ) {
-    return;
+  if (belongsToActiveClub(scope, organization_id) && bersaglio !== chiamante) {
+    try {
+      assertMayGrantRole(scope.activeRole, { role: String(role) });
+      return;
+    } catch (errore) {
+      await recordPermissionDenied({
+        scope: {
+          userId: scope.userId,
+          activeRole: scope.activeRole,
+          activeOrganizationId: scope.activeOrganizationId,
+        },
+        permission: "club_roles.assign",
+        resource: "organization_users",
+        metadata: {
+          role: String(role),
+          target_user_id: bersaglio,
+          reason: String((errore as Error)?.message || ""),
+        },
+      });
+      throw errore;
+    }
   }
 
   throw new Error(
@@ -3196,6 +3271,55 @@ export const buildWhereFromSearchParams = (
 };
 
 /**
+ * **Il perimetro di un ruolo personalizzato, applicato all elenco.**
+ *
+ * Wave 6 §11.3. Il perimetro sede/categoria si scriveva, si leggeva e non
+ * restringeva niente: era una configurazione che non configurava. Qui
+ * diventa un `where`, e la differenza con il parametro `site_id` conta —
+ * quello arriva dal chiamante e chi non lo passa vede tutto, questo arriva
+ * dalla riga dell assegnazione e non si toglie.
+ *
+ * Un atleta **senza sede dichiarata** resta visibile a chi ha un perimetro di
+ * sede, come gia fa il filtro di comodo: «sede vuota» significa «non
+ * dichiarata», non «di un altra sede», e nasconderlo lascerebbe scoperte
+ * proprio le schede che qualcuno deve completare (ADR-0038).
+ */
+const buildAccessScopeFilter = (
+  resource: string,
+  scope?: ResourceAccessScope,
+) => {
+  const perimetro = normalizeAccessScopes(scope?.accessScopes);
+  if (!perimetro.length) return null;
+  if (resource !== "athletes" && resource !== "simplified_athletes") {
+    return null;
+  }
+
+  const condizioni: Record<string, any>[] = [];
+  const sedi = accessScopeValues(perimetro, "site");
+  const categorie = accessScopeValues(perimetro, "category");
+
+  if (sedi.length) {
+    condizioni.push({
+      OR: [
+        { category_memberships: { some: { site_id: { in: sedi } } } },
+        { category_memberships: { none: { site_id: { not: null } } } },
+      ],
+    });
+  }
+
+  if (categorie.length) {
+    condizioni.push({
+      OR: [
+        { category_id: { in: categorie } },
+        { category_memberships: { some: { category_id: { in: categorie } } } },
+      ],
+    });
+  }
+
+  return condizioni.length ? condizioni : null;
+};
+
+/**
  * Categoria e sede di un atleta, filtrate **dal database**.
  *
  * **Perche non basta `where.category_id`.** Un atleta si allena con piu
@@ -4349,6 +4473,15 @@ export const listResourcePage = async (
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
   const where = buildWhereFromSearchParams(resource, searchParams);
+
+  /*
+    Il perimetro si somma con `AND`, non sostituisce: un ruolo di sede che
+    cerca per nome deve vedere meno, non di piu.
+  */
+  const perimetro = buildAccessScopeFilter(resource, scope);
+  if (perimetro) {
+    where.AND = [...(where.AND || []), ...perimetro];
+  }
 
   const searchFilter = buildSearchFilter(
     resource,

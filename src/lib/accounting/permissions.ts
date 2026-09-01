@@ -1,4 +1,5 @@
 import { normalizeAccessRole, type CanonicalAccessRole } from "@/lib/access-roles";
+import { narrowDomainPermission } from "@/lib/permissions/catalog";
 
 /**
  * Chi puo fare cosa in contabilita. **Una volta sola.**
@@ -149,7 +150,21 @@ export const listAccountingPermissions = (
 export const hasAccountingPermission = (
   role: string | null | undefined,
   permission: AccountingPermission,
-) => listAccountingPermissions(role).includes(permission);
+) => {
+  /*
+    Wave 6, lane 6G. Matrice **privata**: le guardie di questo dominio non
+    passano da `roleHasPermission`, e l elenco qui sopra **normalizza** il
+    ruolo — cioe vede il ruolo base. Senza questa riga il restringimento di
+    un ruolo personalizzato non arriverebbe fin qui, e una casella tolta
+    nella schermata non toglierebbe niente.
+  */
+  const ristretto = narrowDomainPermission(role, permission, (base) =>
+    PERMESSI_PER_RUOLO[base].includes(permission),
+  );
+  if (ristretto !== null) return ristretto;
+
+  return listAccountingPermissions(role).includes(permission);
+};
 
 /**
  * Solleva se il ruolo non ha il permesso.

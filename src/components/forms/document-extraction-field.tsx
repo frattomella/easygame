@@ -17,7 +17,7 @@ import {
   type ExtractedPersonFields,
 } from "@/lib/document-extraction";
 import { ocrExtractionProvider } from "@/lib/document-extraction-ocr";
-import { Loader2, ScanLine, TriangleAlert, Upload } from "lucide-react";
+import { Camera, Loader2, ScanLine, TriangleAlert, Upload } from "lucide-react";
 
 /**
  * Lettura assistita di un documento durante la compilazione di un'anagrafica.
@@ -55,6 +55,13 @@ export function DocumentExtractionField({
   className,
 }: DocumentExtractionFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const [conFotocamera, setConFotocamera] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    setConFotocamera(window.matchMedia("(pointer: coarse)").matches);
+  }, []);
   /**
    * L'anteprima dei dati letti.
    *
@@ -165,8 +172,9 @@ export function DocumentExtractionField({
           */}
           <p className="mt-1 text-xs text-slate-500">
             JPG, PNG, WEBP o HEIC, fino a{" "}
-            {Math.round(MAX_DOCUMENT_SCAN_BYTES / (1024 * 1024))} MB. I PDF non
-            sono ancora leggibili: fotografa il documento.
+            {Math.round(MAX_DOCUMENT_SCAN_BYTES / (1024 * 1024))} MB. Un PDF
+            va bene se contiene la fotografia del documento — e quello che
+            salva un telefono quando «scansiona».
           </p>
         </div>
 
@@ -177,20 +185,62 @@ export function DocumentExtractionField({
           accept={acceptAttributeFor(provider)}
           onChange={(event) => handleFile(event.target.files?.[0])}
         />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={disabled || busy}
-          onClick={() => inputRef.current?.click()}
-        >
-          {busy ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Upload className="mr-2 h-4 w-4" />
-          )}
-          {busy ? "Lettura in corso…" : "Carica documento"}
-        </Button>
+        {/*
+          W6 §16, secondo attrito. **La fotocamera esisteva in un punto solo**
+          di tutta l applicazione — la scheda atleta — e le altre quattro
+          schermate che leggono un documento accettavano soltanto un file
+          gia salvato. Chi ha il documento in mano e il telefono in mano
+          doveva fotografarlo, salvarlo e poi cercarlo.
+
+          Si usa `capture` e non `getUserMedia`: apre la fotocamera di
+          sistema, che mette a fuoco e stabilizza meglio di un fotogramma
+          preso da un flusso video — e su un documento la nitidezza e
+          esattamente cio da cui dipende il riconoscimento. In piu non chiede
+          un permesso alla pagina, e funziona su iOS, dove un flusso video
+          dentro una scheda ha una storia di casi particolari.
+        */}
+        <input
+          type="file"
+          ref={cameraRef}
+          className="hidden"
+          accept="image/*"
+          capture="environment"
+          onChange={(event) => handleFile(event.target.files?.[0])}
+        />
+        <div className="flex flex-wrap gap-2">
+          {/*
+            Su un dispositivo a puntatore fine — un mouse — `capture` non
+            apre niente: il browser lo ignora e mostra lo stesso selettore di
+            file. Un pulsante «Scatta una foto» che apre un selettore di file
+            e una promessa non mantenuta, quindi li non compare.
+          */}
+          {conFotocamera ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={disabled || busy}
+              onClick={() => cameraRef.current?.click()}
+            >
+              <Camera className="mr-2 h-4 w-4" />
+              Scatta una foto
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled || busy}
+            onClick={() => inputRef.current?.click()}
+          >
+            {busy ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="mr-2 h-4 w-4" />
+            )}
+            {busy ? "Lettura in corso…" : "Carica documento"}
+          </Button>
+        </div>
       </div>
 
       {error ? (

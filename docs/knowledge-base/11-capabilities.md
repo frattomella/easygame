@@ -412,3 +412,64 @@ di sessione vero: 72 controlli, 72 verdi.
 | Anagrafica dei colleghi | COMPLETE | Ridotta a cio che serve: prima usciva con codice fiscale, indirizzo e telefono |
 | Invio comunicazioni dal trainer | ASSENTE | Decisione di prodotto, non un difetto |
 | Piani di lavoro tecnici, esercizi, carichi | ASSENTE | W5-13, Wave 6 |
+
+---
+
+## Wave 6 — cosa e diventato raggiungibile (2026-09-01)
+
+> La Wave 6 ha contato **quattordici** capability dichiarate complete e
+> irraggiungibili dalla UI, piu tre **superfici finte**. La colonna «Stato» qui
+> sotto risponde alla sola domanda che conta: *una persona ci arriva?*
+
+### Atleti e anagrafica
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Filtro per stato nell'elenco atleti | COMPLETE | Quattro stati veri — attivo, sospeso, **in prestito**, disattivato — con un vocabolario unico (`src/lib/athletes/status.ts`). Prima erano tre valori e quattro etichette, quindi due filtri mostravano lo stesso insieme |
+| Rimozione della foto profilo | COMPLETE | `??` trattava `null` come «non fornito» e riesumava la foto: si vedeva solo ricaricando. Stessa correzione su codice d'accesso e numero di maglia |
+| Cancellazione di un atleta | COMPLETE | Dialogo dell'applicazione, con le conseguenze scritte. Le tre azioni irreversibili della scheda passano da un meccanismo solo |
+| Lettura di un documento (OCR) | COMPLETE | Locale, nel browser. Accetta ora anche il **PDF che contiene una fotografia** — cioe cio che salva un telefono che «scansiona». Fotocamera in tutte e cinque le schermate. **Si propone, non si scrive**: anche nella scheda atleta, che era l'unica a scrivere tutto |
+
+### Area famiglia
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Scelta del figlio | COMPLETE | Schermata dedicata all'ingresso quando i figli sono piu d'uno; il guscio dice sempre di chi si sta parlando. Prima l'ingresso portava al **primo** e il cambio esisteva in due pagine su tredici |
+| Appartenenze multiple | COMPLETE | La relazione non veniva nemmeno caricata: un ragazzo in due squadre vedeva **meta dei propri impegni**, perche il calendario dipende da quelle |
+| Stagione attiva | COMPLETE | La risolve il server. Prima arrivava dal `localStorage` e un evento la azzerava; per un tutore senza tessera non esisteva mai |
+| Pagare una rata | COMPLETE | Il pulsante confrontava l'etichetta italiana con token inglesi: era spento **sempre**. Ora anche una rata per volta, scelta da chi paga |
+| Scaricare una ricevuta | COMPLETE | Il confine del club attivo girava prima del ramo del legame, e chi non ha una tessera ha un elenco vuoto: la ricevuta era non scaricabile proprio per i tutori piu comuni |
+| Fatture | COMPLETE | Erano nel payload e nel tipo, e non le disegnava nessuno |
+| Certificato medico | COMPLETE | Quattro stati con **«in scadenza»**, la data del certificato che governa — non del piu vecchio — in tutti gli stati, e una CTA per portarne uno nuovo. L'upload manda finalmente il **tipo**: senza, un certificato entrava come «altro» e non muoveva lo stato sanitario |
+| Notifiche | COMPLETE | Filtrate per figlio, e si possono segnare lette |
+
+### Allenatore e atleta
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Perimetro dell'allenatore sugli eventi | COMPLETE | Applicato in **tutte e nove** le funzioni. La regola: in lettura di elenco e un filtro, su ogni **atto** e un confine. Le quattro implementazioni divergenti sono diventate una |
+| «I miei compensi» dell'allenatore | COMPLETE | `sport_work.read_own` era in catalogo e non la consumava nessuna superficie: era l'ultima chiave muta |
+| Accesso EasyGame di un atleta | COMPLETE | Invito, riscatto, revoca e audit. **Mai una password in chiaro**: un link opaco, poi la persona sceglie |
+| Athlete Dashboard V1 | COMPLETE | Area propria, proiezione a elenco chiuso. Fuori per scelta: denaro, tutori, altri atleti, contenuto clinico |
+| Ruolo `athlete` | COMPLETE | Era modellato end-to-end — pagina, guardia, redirect, sessione, slegamento — e **nessun percorso scriveva `athlete.user_id`** |
+
+### Documenti e moduli
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Fascicolo documentale lato famiglia | COMPLETE | La famiglia leggeva ancora l'array JSON: una richiesta della segreteria **non le arrivava** |
+| Coda «Documenti da verificare» del club | COMPLETE | Il backend era pronto e nessun componente lo chiamava: la segreteria apriva scheda per scheda |
+| Le tre aree della famiglia | COMPLETE | Da fare / Documenti / Moduli. Prima le prime due erano la stessa lista frullata due volte |
+| Catalogo canonico dei tipi | COMPLETE | Con **tessera sanitaria** e **delega**, e fuori dal file destinato alla cancellazione |
+| Modelli consigliati dei moduli | COMPLETE | Un catalogo adottabile, distinguibile da un modulo creato dal club |
+| Salva e riprendi la compilazione | COMPLETE | Nel browser. Non salva file, firme ne consensi: sono atti, non dati |
+
+### Permessi, privacy, operativita
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Catalogo dei permessi applicato | COMPLETE | Nove chiavi non le chiedeva nessuno e cinque collassavano su un interruttore. Il presidio verifica che ogni chiave sia **interrogata** |
+| Consenso prima di un invio | PARTIAL | Il meccanismo c'e ed e configurazione. La **validazione legale** resta un blocker esterno |
+| Export e cancellazione di una persona | COMPLETE | Attraversa sei indici polimorfi. Per un minore serve un riepilogo confermato |
+| Identificativo di richiesta | COMPLETE | Due righe di log della stessa richiesta non erano correlabili |
+| Giro notturno che si lamenta | COMPLETE | Un passo fallito lascia una riga di audit: prima era invisibile fino alla telefonata di un club |

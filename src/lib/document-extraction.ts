@@ -129,13 +129,16 @@ export const validateDocumentForExtraction = (
   const type = String(file?.type || "").trim().toLowerCase();
   const name = String(file?.name || "").toLowerCase();
 
-  if (type === "application/pdf" || name.endsWith(".pdf")) {
-    return {
-      ok: false,
-      message:
-        "I PDF non sono ancora leggibili: il motore attuale legge immagini. Fotografa il documento, oppure compila a mano.",
-    };
-  }
+  /*
+    Wave 6. Il PDF non si rifiuta piu **qui**, perche a questo punto non si
+    sa ancora che PDF sia: quello prodotto da un telefono che «scansiona» e
+    una fotografia dentro un contenitore, e quella si legge. Il rifiuto —
+    con la stessa frase di prima — arriva dal motore, che il contenitore lo
+    ha aperto e sa cosa c e dentro.
+
+    Se il motore in uso i PDF non li dichiara affatto, li rifiuta il
+    controllo sui formati qui sotto.
+  */
 
   if (type && !provider.accepts.includes(type)) {
     return {

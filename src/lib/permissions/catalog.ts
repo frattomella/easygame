@@ -1,4 +1,8 @@
-import { normalizeAccessRole, type CanonicalAccessRole } from "@/lib/access-roles";
+import {
+  normalizeAccessRole,
+  parseCustomRoleValue,
+  type CanonicalAccessRole,
+} from "@/lib/access-roles";
 
 /**
  * **Il catalogo unico delle chiavi di permesso.**
@@ -50,6 +54,7 @@ export type PermissionDomain =
   | "accounting"
   | "accounts"
   | "appointments"
+  | "audit"
   | "communications"
   | "consents"
   | "documents"
@@ -381,6 +386,30 @@ const ENTRIES: readonly PermissionEntry[] = [
     roles: GESTIONE,
   },
 
+  /* -------------------------------------------- il registro di audit ----- */
+  {
+    /*
+      **Il registro esisteva e non lo leggeva nessuno** (WP-16).
+      Centootto punti di scrittura, quattro indici gia adatti alla lettura, e
+      zero rotte: `prisma.auditLog.findMany` non compariva in nessun handler.
+
+      `DIREZIONE` e non `GESTIONE`, e il motivo e nel contenuto: il registro
+      porta **tutti** gli atti del club insieme — chi ha stornato un incasso,
+      chi ha cambiato l'anagrafica di un minore, chi ha provato a fare cosa e si
+      e visto negare. E il piu trasversale dei dati societari, e il suo perimetro
+      e lo stesso che gia protegge i conti correnti.
+
+      Resta **concedibile** a un ruolo personalizzato basato su `club_manager`:
+      e la chiave con cui un club costruisce un «controllo interno» che legge il
+      registro e non tocca nient'altro. Concederla e pero un atto del
+      proprietario, perche e una chiave di direzione (§10.4 del piano).
+    */
+    key: "audit.read",
+    domain: "audit",
+    label: "Consultare il registro degli accessi e delle operazioni del club",
+    roles: DIREZIONE,
+  },
+
   /* ------------------------------------------------- lavoro sportivo ----- */
   {
     key: "sport_work.manage",
@@ -461,17 +490,52 @@ export const roleHasPermission = (
   role: string | null | undefined,
   key: string,
 ) => {
-  const normalized = normalizeAccessRole(role);
-  if (!normalized) return false;
-
   const entry = BY_KEY.get(key);
   if (!entry) return false;
+
+  /*
+    **Il ruolo personalizzato risponde due volte, e la piu stretta vince**
+    (Wave 6, lane 6G).
+
+    Le quindici guardie di dominio chiedono tutte la stessa cosa —
+    `roleHasPermission(scope.activeRole, chiave)` — e nessuna di loro sa, ne
+    deve sapere, che il ruolo attivo possa essere personalizzato. Il
+    restringimento sta quindi **qui**, nell'unico punto da cui passano tutte:
+
+      1. il **tetto**: la chiave deve appartenere al ruolo base. Un ruolo
+         personalizzato e un sottoinsieme, mai un soprainsieme (§10.1 del
+         piano), e questa riga lo rende vero anche se una riga di
+         `club_role_permissions` dicesse il contrario — un archivio si puo
+         corrompere, questa condizione no;
+      2. la **concessione**: la chiave dev'essere fra quelle assegnate.
+
+    Un gettone senza chiavi — per esempio lo slug letto dall'archivio, che le
+    chiavi non le porta — nega tutto. E il verso giusto in cui sbagliare: chi
+    non ha risolto la riga non concede niente.
+  */
+  const personalizzato = parseCustomRoleValue(role);
+  if (personalizzato) {
+    if (!entry.roles.includes(personalizzato.baseRole)) return false;
+    return personalizzato.permissions.includes(key);
+  }
+
+  const normalized = normalizeAccessRole(role);
+  if (!normalized) return false;
 
   return entry.roles.includes(normalized);
 };
 
 /** Tutte le chiavi che un ruolo porta, per una schermata di configurazione. */
 export const listPermissionsForRole = (role: string | null | undefined) => {
+  const personalizzato = parseCustomRoleValue(role);
+  if (personalizzato) {
+    return ENTRIES.filter(
+      (entry) =>
+        entry.roles.includes(personalizzato.baseRole) &&
+        personalizzato.permissions.includes(entry.key),
+    );
+  }
+
   const normalized = normalizeAccessRole(role);
   if (!normalized) return [] as PermissionEntry[];
 
@@ -481,3 +545,55 @@ export const listPermissionsForRole = (role: string | null | undefined) => {
 /** Le chiavi di un dominio, per elencarle raggruppate. */
 export const listPermissionsForDomain = (domain: PermissionDomain) =>
   ENTRIES.filter((entry) => entry.domain === domain);
+
+/**
+ * **Il restringimento applicato a una matrice privata di dominio.**
+ *
+ * ## Il difetto che chiude
+ *
+ * Il ruolo personalizzato viaggia dentro un gettone che porta le chiavi
+ * concesse, e `roleHasPermission` lo legge: le quindici guardie che passano da
+ * li ricevono la risposta ristretta senza saperlo.
+ *
+ * Ma **quattro domini non passano da li**. `sport-work`, `accounting`,
+ * `communications` e `seasons` tengono una matrice per ruolo tutta loro — la
+ * prima duplica il catalogo, la seconda ha chiavi che in catalogo **non ci sono
+ * affatto**, la terza e l'autorita vera su `rsvp.answer` — e la interrogano
+ * dopo aver **normalizzato** il ruolo, cioe dopo aver visto il ruolo **base**.
+ *
+ * Conseguenza: togliere `sport_work.pay` a un ruolo personalizzato non toglieva
+ * niente. Cinque caselle che non fanno niente sono esattamente cio che il
+ * mandato vieta — «ogni permission mostrata deve avere effetto reale» — e
+ * nasconderle sarebbe stato il rimedio sbagliato: si sarebbe smesso di
+ * mostrarle **e** di poterle togliere.
+ *
+ * ## Le tre risposte, e perche sono tre
+ *
+ * - `null` — **non e un ruolo personalizzato**. Chi chiama prosegue come prima,
+ *   e nessun comportamento esistente cambia.
+ * - `false` — il **tetto**: la chiave non appartiene al ruolo base. Un ruolo
+ *   personalizzato e un sottoinsieme, mai un soprainsieme.
+ * - la **concessione**, ma solo per le chiavi che l'editor sa davvero
+ *   concedere. Una chiave che **non e in catalogo** — le `accounting.*` lo sono
+ *   solo nel dominio — non compare in nessuna casella: restringerla su una
+ *   concessione che nessuno ha mai potuto dare toglierebbe a un ruolo basato su
+ *   `club_manager` la contabilita intera, e sarebbe una regressione muta.
+ *
+ * Quella terza riga e la parte che vale la pena rileggere: **si restringe cio
+ * che qualcuno ha potuto scegliere, non cio che nessuno ha mai visto.**
+ */
+export const narrowDomainPermission = (
+  role: string | null | undefined,
+  key: string,
+  baseHasKey: (base: CanonicalAccessRole) => boolean,
+): boolean | null => {
+  const personalizzato = parseCustomRoleValue(role);
+  if (!personalizzato) return null;
+
+  if (!baseHasKey(personalizzato.baseRole)) return false;
+
+  // Fuori catalogo = non concedibile dall'editor = vale il ruolo base.
+  if (!BY_KEY.has(key)) return true;
+
+  return personalizzato.permissions.includes(key);
+};

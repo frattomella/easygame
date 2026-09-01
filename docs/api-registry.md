@@ -769,3 +769,62 @@ ovunque — perche e l'unico che **cancella righe**.
   Le regole stanno in `src/lib/server/medical-certificate-reminders.ts`, non
   nel route handler: un club che fallisce non ferma gli altri, e i destinatari
   devono essere iscritti al club dell'atleta
+
+## Wave 6 — le rotte nuove (2026-09-01)
+
+### Area famiglia
+
+- `GET /api/v1/family/children` — i figli fra cui un genitore sceglie. Il gate e
+  il **legame**, non il ruolo: un tutore puo non avere nessuna tessera nel club,
+  e un permesso di ruolo lo terrebbe fuori dalla propria area. Nessun parametro:
+  non c'e niente da chiedere che non sia gia nella sessione. Un elenco vuoto e
+  una risposta vera, non un errore.
+- `PATCH /api/parent-dashboard/:athleteId/notifications` — segna letta una
+  notifica, o tutte. Il club si **rilegge dalla riga dell'atleta** e finisce nel
+  `where`: un genitore con figli in due societa non deve chiudere le notifiche
+  dell'altra.
+
+### Accesso EasyGame di un atleta
+
+- `GET|POST|DELETE /api/v1/athlete-accounts/:athleteId` — lo stato, l'invito, la
+  revoca. In archivio resta **solo l'impronta** del token (ADR-0085).
+- `POST /api/v1/athlete-accounts/:athleteId/resend` — rimanda l'invito e revoca
+  il precedente. Un indice unico parziale garantisce **un solo invito vivo per
+  atleta**: lo impedisce il database, non il codice.
+- `POST /api/v1/athlete-accounts/:athleteId/email` — cambia l'indirizzo a cui
+  l'invito e destinato.
+- `POST /api/v1/athlete-accounts/accept` — riscatta l'invito. **Pubblica per
+  costruzione**: ci arriva chi non ha ancora una password, e chiedergli una
+  sessione sarebbe mandarlo dove non puo entrare.
+- `GET|PATCH /api/v1/athlete-accounts/me` — l'area dell'atleta, con proiezione a
+  elenco chiuso, e i **sei** campi che puo correggere. Nome, data di nascita,
+  codice fiscale, maglia e stato restano della societa.
+
+### Lavoro sportivo
+
+- `GET /api/v1/sport-work/me` — i propri compensi. Chiede `sport_work.read_own`
+  e **non accetta nessun identificativo di persona**: il perimetro lo risolve il
+  server dalla sessione.
+
+### Documenti
+
+- `GET /api/v1/document-submissions?view=queue` — la coda operativa del club.
+  Stesso percorso di prima; senza il parametro la forma resta identica.
+
+### Diritti dell'interessato
+
+- `GET /api/v1/data-subject/:subjectId` — il **riepilogo di cio che verrebbe
+  distrutto**, con una riga per tabella e il motivo di cio che resta. Produce un
+  gettone che e l'impronta del piano: se l'inventario cambia fra il riepilogo e
+  la cancellazione, la cancellazione non parte.
+- `DELETE /api/v1/data-subject/:subjectId` — la cancellazione. Per un minore
+  serve una conferma esplicita, e **un'anagrafica senza data di nascita si
+  tratta come minore**.
+- `GET /api/v1/data-subject/:subjectId/export` — i dati di una persona,
+  attraverso i **sei** indici polimorfi. Nessun byte: gli allegati escono come
+  metadati.
+
+### Audit
+
+- `GET /api/v1/audit` — il registro degli eventi, con lo scope di club
+  obbligatorio. Era **write-only**: 108 punti di scrittura e nessun lettore.

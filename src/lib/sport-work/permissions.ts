@@ -1,4 +1,5 @@
 import { normalizeAccessRole, type CanonicalAccessRole } from "@/lib/access-roles";
+import { narrowDomainPermission } from "@/lib/permissions/catalog";
 
 /**
  * Chi puo vedere e toccare i compensi.
@@ -101,7 +102,21 @@ export const listSportWorkPermissions = (
 export const hasSportWorkPermission = (
   role: string | null | undefined,
   permission: SportWorkPermission,
-) => listSportWorkPermissions(role).includes(permission);
+) => {
+  /*
+    Wave 6, lane 6G. Questa matrice e **privata**: le guardie del lavoro
+    sportivo non passano da `roleHasPermission`, quindi il restringimento di
+    un ruolo personalizzato non le raggiungeva. `listSportWorkPermissions`
+    **normalizza** il ruolo, cioe vede il ruolo base: togliere
+    `sport_work.pay` a un ruolo di club non toglieva niente.
+  */
+  const ristretto = narrowDomainPermission(role, permission, (base) =>
+    PERMISSIONS_BY_ROLE[base].includes(permission),
+  );
+  if (ristretto !== null) return ristretto;
+
+  return listSportWorkPermissions(role).includes(permission);
+};
 
 /**
  * Solleva se il ruolo non ha il permesso.

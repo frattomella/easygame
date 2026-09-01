@@ -63,7 +63,170 @@ const MANAGEMENT_ROLES = new Set<CanonicalAccessRole>([
   "staff",
 ]);
 
+/* ===================================================================== */
+/*  I ruoli personalizzati di club (Wave 6, lane 6G, blocker W6-1)        */
+/* ===================================================================== */
+
+/**
+ * **Il prefisso, e perche il ruolo base sta dentro il nome.**
+ *
+ * `organization_users.role` e **testo libero**, e qualunque stringa che questa
+ * tabella non riconosce diventa `""` in lettura, cioe accesso negato. Un ruolo
+ * di club deve quindi (a) non poter collidere con un canonico e (b) restare
+ * leggibile in archivio: da qui il prefisso `custom:` chiesto dal piano (§9.1).
+ *
+ * A quel prefisso questa implementazione aggiunge **il ruolo base**:
+ *
+ *     custom:collaborator:segreteria
+ *
+ * Non e un vezzo. Senza la base nel nome, la stringa non e **autodescrittiva**:
+ * `normalizeAccessRole` — che e il funnel di ogni controllo di questo file, del
+ * catalogo dei permessi, delle guardie di rotta e del browser — non avrebbe modo
+ * di sapere che cosa quel ruolo sia, e risponderebbe `""`. Il giorno
+ * dell'assegnazione, la persona perderebbe **ogni** accesso: la migrazione non
+ * sarebbe additiva, sarebbe una porta che si chiude. Con la base dentro, ogni
+ * controllo gia scritto continua a funzionare e risponde **al massimo** quanto
+ * risponderebbe al ruolo base — mai di piu. Il «mai di piu» e l'invariante di
+ * sicurezza di tutto il meccanismo (§10.1 del piano).
+ *
+ * `owner` **non** e una base ammessa: la proprieta non e un modello da clonare,
+ * e la sua distinzione e strutturale (`clubs.creator_id`). `parent` e `athlete`
+ * nemmeno: i loro permessi nascono dal **legame** con un atleta, e un ruolo che
+ * li imitasse prometterebbe un accesso che nessuna rotta gli darebbe.
+ */
+export const CUSTOM_ROLE_PREFIX = "custom:";
+
+export const CUSTOM_ROLE_BASE_ROLES: readonly CanonicalAccessRole[] = [
+  "club_manager",
+  "collaborator",
+  "staff",
+  "trainer",
+];
+
+const CUSTOM_ROLE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const CUSTOM_ROLE_TOKEN_SEPARATOR = "#";
+
+export type CustomRoleReference = {
+  /** La parte stabile, quella che finisce in archivio. */
+  slug: string;
+  baseRole: CanonicalAccessRole;
+  /** L'ultimo segmento dello slug: `segreteria`. */
+  name: string;
+  /**
+   * Le chiavi di catalogo concesse, quando il gettone e stato **risolto** dal
+   * server. Un valore letto dall'archivio non le porta: l'elenco e vuoto, e
+   * l'elenco vuoto nega tutto — che e il verso giusto in cui sbagliare.
+   */
+  permissions: readonly string[];
+};
+
+/** Da «Segreteria e iscrizioni» a `segreteria-e-iscrizioni`. */
+export const slugifyCustomRoleName = (name: string) =>
+  String(name || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/g, "");
+
+export const buildCustomRoleSlug = (
+  baseRole: string | null | undefined,
+  name: string,
+) => {
+  const base = CUSTOM_ROLE_BASE_ROLES.find(
+    (ruolo) => ruolo === normalizeAccessRole(baseRole),
+  );
+  const coda = slugifyCustomRoleName(name);
+  if (!base || !coda) return "";
+  return `${CUSTOM_ROLE_PREFIX}${base}:${coda}`;
+};
+
+/**
+ * Legge uno slug — o un gettone di sessione — e ne ricava base, nome e chiavi.
+ *
+ * Torna `null` per qualunque cosa non sia un ruolo personalizzato ben formato:
+ * una base sconosciuta, una base non ammessa, uno slug con caratteri strani.
+ * Il chiamante che riceve `null` ricade sul dizionario dei canonici, e se
+ * nemmeno quello riconosce la stringa nega.
+ */
+export const parseCustomRoleValue = (
+  value: string | null | undefined,
+): CustomRoleReference | null => {
+  const testo = String(value || "").trim().toLowerCase();
+  if (!testo.startsWith(CUSTOM_ROLE_PREFIX)) return null;
+
+  const [stabile, chiaviGrezze] = testo.split(CUSTOM_ROLE_TOKEN_SEPARATOR);
+  const segmenti = stabile.slice(CUSTOM_ROLE_PREFIX.length).split(":");
+  if (segmenti.length !== 2) return null;
+
+  const [base, name] = segmenti;
+  const baseRole = CUSTOM_ROLE_BASE_ROLES.find((ruolo) => ruolo === base);
+  if (!baseRole) return null;
+  if (!CUSTOM_ROLE_SLUG_PATTERN.test(name)) return null;
+
+  return {
+    slug: stabile,
+    baseRole,
+    name,
+    permissions: String(chiaviGrezze || "")
+      .split(",")
+      .map((chiave) => chiave.trim())
+      .filter(Boolean),
+  };
+};
+
+export const isCustomRoleValue = (value: string | null | undefined) =>
+  Boolean(parseCustomRoleValue(value));
+
+/**
+ * **Il gettone di sessione: effimero, e per questo puo portare le chiavi.**
+ *
+ * Lo costruisce `resolveOrganizationScopeForUser` a ogni richiesta e vive
+ * quanto la richiesta. Non e mai una colonna: in `organization_users.role` sta
+ * lo **slug** e basta, e le chiavi stanno nelle loro righe.
+ *
+ * Portarle nel ruolo attivo e cio che rende il restringimento **vero ovunque**
+ * senza riscrivere le quindici guardie di dominio: tutte chiedono
+ * `roleHasPermission(scope.activeRole, chiave)`, e passando di qui la domanda
+ * riceve la risposta ristretta invece di quella del ruolo base.
+ *
+ * Il gettone finisce anche in `audit_logs.actor_role`, ed e un vantaggio, non
+ * un effetto collaterale: la riga dice con **quali** chiavi l'atto e stato
+ * compiuto, e non solo da quale etichetta di ruolo.
+ */
+export const encodeCustomRoleToken = (
+  slug: string,
+  permissions: readonly string[] = [],
+) => {
+  const riferimento = parseCustomRoleValue(slug);
+  if (!riferimento) return "";
+  const chiavi = Array.from(
+    new Set(permissions.map((chiave) => String(chiave || "").trim()).filter(Boolean)),
+  ).sort();
+  return `${riferimento.slug}${CUSTOM_ROLE_TOKEN_SEPARATOR}${chiavi.join(",")}`;
+};
+
+/** Lo slug stabile di un gettone, per confrontarlo con l'archivio. */
+export const stableCustomRoleSlug = (value: string | null | undefined) =>
+  parseCustomRoleValue(value)?.slug || "";
+
 const MANAGEMENT_PATH_PREFIXES = [
+  /*
+    Il registro di audit (WP-16). Sta fra i percorsi gestionali e **non** fra
+    quelli riservati alla direzione, ed e una scelta: chi decide qui e la chiave
+    `audit.read`, non il prefisso.
+
+    Metterlo fra gli amministrativi lo avrebbe chiuso a ogni ruolo diverso da
+    proprietario e gestore **prima** che la chiave potesse dire la sua, e un
+    ruolo personalizzato a cui il club concede la lettura del registro avrebbe
+    trovato una porta chiusa dal browser con la rotta che rispondeva 200. Due
+    serrature che dicono cose diverse sono gia rotte prima che qualcuno trovi
+    come aprirle.
+  */
+  "/audit",
   /* Il calendario unico: allenamenti e gare insieme (ADR-0098). */
   "/calendar",
   "/dashboard",
@@ -331,12 +494,28 @@ const TRAINER_WRITE_RESOURCES = new Set([
 const matchesPathPrefix = (pathname: string, prefix: string) =>
   pathname === prefix || pathname.startsWith(`${prefix}/`);
 
+/**
+ * **Un ruolo personalizzato si normalizza sulla propria base.**
+ *
+ * E la riga che rende additivo tutto il meccanismo: ogni controllo gia scritto
+ * — le guardie di rotta, la matrice per risorsa, il catalogo delle chiavi, il
+ * browser — riceve il ruolo **base**, quindi risponde al massimo quanto
+ * risponderebbe a quello. Il restringimento e la differenza, e la applica
+ * `roleHasPermission` leggendo le chiavi dal gettone.
+ *
+ * Uno slug malformato, con una base non ammessa o di un'altra grafia non e
+ * riconosciuto e vale `""`: default negato, come per qualunque altra stringa
+ * che questa tabella non conosce.
+ */
 export const normalizeAccessRole = (
   role?: string | null,
 ): CanonicalAccessRole | "" => {
   const value = String(role || "")
     .trim()
     .toLowerCase();
+  if (value.startsWith(CUSTOM_ROLE_PREFIX)) {
+    return parseCustomRoleValue(value)?.baseRole || "";
+  }
   return ROLE_ALIASES[value] || "";
 };
 
@@ -344,6 +523,19 @@ export const isKnownAccessRole = (role?: string | null) =>
   Boolean(normalizeAccessRole(role));
 
 export const getAccessRoleLabel = (role?: string | null) => {
+  /*
+    Un ruolo personalizzato ha il nome che il club gli ha dato, e va mostrato
+    quello: scrivere «Collaboratore» a chi il club chiama «Segreteria» vorrebbe
+    dire che la schermata e l'organigramma parlano di due persone diverse.
+    Qui si ricostruisce dallo slug, che e sempre disponibile; il nome esteso e
+    la descrizione stanno in `club_roles` e li mostra chi ha letto la riga.
+  */
+  const personalizzato = parseCustomRoleValue(role);
+  if (personalizzato) {
+    const leggibile = personalizzato.name.split("-").filter(Boolean).join(" ");
+    return leggibile.charAt(0).toUpperCase() + leggibile.slice(1);
+  }
+
   switch (normalizeAccessRole(role)) {
     case "owner":
       return "Proprietario";

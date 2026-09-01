@@ -3,7 +3,16 @@ import type { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
-import { normalizeAccessRole } from "@/lib/access-roles";
+import {
+  normalizeAccessScopes,
+  type AccessScopeEntry,
+} from "@/lib/roles/access-scope";
+import {
+  encodeCustomRoleToken,
+  isCustomRoleValue,
+  normalizeAccessRole,
+  parseCustomRoleValue,
+} from "@/lib/access-roles";
 
 export const SESSION_COOKIE_NAME = "easygame_session";
 const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 14;
@@ -33,6 +42,18 @@ export type OrganizationAccessScope = {
   activeRole: string | null;
   activeMembershipId: string | null;
   allowedOrganizationIds: string[];
+  /**
+   * **Il perimetro dell assegnazione: sede, categoria, o niente.**
+   *
+   * Wave 6, §11.3. Un elenco **vuoto significa tutto il club**, ed e cio che
+   * hanno tutte le tessere che esistono oggi: e la scelta che rende il
+   * perimetro additivo invece che una migrazione di comportamento.
+   *
+   * Prima della Wave 6 la sede era un filtro che arrivava **dal chiamante**
+   * e la documentazione lo diceva: «non e un confine di sicurezza». Qui
+   * diventa un confine, ma **solo** per chi ne ha uno dichiarato.
+   */
+  accessScopes: AccessScopeEntry[];
 };
 
 export const buildUserMetadata = (user: {
@@ -226,6 +247,133 @@ export const requirePlatformAdmin = async (request: Request | NextRequest) => {
   return session;
 };
 
+/**
+ * **I ruoli personalizzati risolti in ruolo attivo** (Wave 6, lane 6G).
+ *
+ * Una tessera con `custom_role_id` porta in `role` lo **slug**
+ * (`custom:collaborator:segreteria`). Da qui esce un *gettone* effimero che
+ * aggiunge allo slug le chiavi concesse, e che vale per la sola durata di
+ * questa richiesta: `roleHasPermission` lo legge e restringe, tutto il resto lo
+ * normalizza sul ruolo base e continua a funzionare come prima.
+ *
+ * Le due letture in piu si fanno **solo** se qualche tessera nomina un ruolo di
+ * club: chi non ne ha paga zero round trip aggiuntivi.
+ *
+ * Le tessere **incoerenti** vengono scartate, e non e pignoleria:
+ *
+ *   * slug in `role` senza `custom_role_id` — chi la legge vedrebbe il ruolo
+ *     base **senza** restringimento, cioe piu di quanto il club ha concesso;
+ *   * `custom_role_id` che punta a un ruolo di un altro club, disattivato,
+ *     scomparso, o il cui slug non corrisponde piu a `role`.
+ *
+ * In tutti questi casi la tessera non concede niente. Default negato, che e il
+ * verso giusto in cui sbagliare quando l'archivio si contraddice.
+ */
+type TesseraRisolta = {
+  id: string;
+  organization_id: string;
+  role: string;
+  is_primary: boolean;
+  /** Lo slug stabile, quando la tessera porta un ruolo di club. */
+  customSlug: string | null;
+  /** Il gettone con le chiavi, quando la tessera porta un ruolo di club. */
+  token: string | null;
+};
+
+const risolviTessere = async (
+  memberships: readonly {
+    id: string;
+    organization_id: string;
+    role: string;
+    is_primary: boolean;
+    custom_role_id: string | null;
+  }[],
+): Promise<TesseraRisolta[]> => {
+  const idRuoli = Array.from(
+    new Set(
+      memberships
+        .map((membership) => membership.custom_role_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+
+  const conSlug = memberships.filter((membership) =>
+    isCustomRoleValue(membership.role),
+  );
+
+  if (!idRuoli.length && !conSlug.length) {
+    return memberships.map((membership) => ({
+      id: membership.id,
+      organization_id: membership.organization_id,
+      role: membership.role,
+      is_primary: membership.is_primary,
+      customSlug: null,
+      token: null,
+    }));
+  }
+
+  const ruoli = idRuoli.length
+    ? await prisma.clubRole.findMany({ where: { id: { in: idRuoli } } })
+    : [];
+  const chiavi = idRuoli.length
+    ? await prisma.clubRolePermission.findMany({
+        where: { role_id: { in: idRuoli } },
+      })
+    : [];
+
+  const chiaviPerRuolo = new Map<string, string[]>();
+  for (const riga of chiavi) {
+    const elenco = chiaviPerRuolo.get(riga.role_id) || [];
+    elenco.push(riga.permission_key);
+    chiaviPerRuolo.set(riga.role_id, elenco);
+  }
+
+  const ruoloPerId = new Map(ruoli.map((ruolo) => [ruolo.id, ruolo]));
+  const risolte: TesseraRisolta[] = [];
+
+  for (const membership of memberships) {
+    const slug = parseCustomRoleValue(membership.role)?.slug || null;
+
+    if (!membership.custom_role_id) {
+      // Uno slug senza il riferimento e una riga incoerente: non concede niente.
+      if (slug) continue;
+      risolte.push({
+        id: membership.id,
+        organization_id: membership.organization_id,
+        role: membership.role,
+        is_primary: membership.is_primary,
+        customSlug: null,
+        token: null,
+      });
+      continue;
+    }
+
+    const ruolo = ruoloPerId.get(membership.custom_role_id);
+    if (
+      !ruolo ||
+      !ruolo.is_active ||
+      ruolo.organization_id !== membership.organization_id ||
+      ruolo.slug !== slug
+    ) {
+      continue;
+    }
+
+    risolte.push({
+      id: membership.id,
+      organization_id: membership.organization_id,
+      role: ruolo.slug,
+      is_primary: membership.is_primary,
+      customSlug: ruolo.slug,
+      token: encodeCustomRoleToken(
+        ruolo.slug,
+        chiaviPerRuolo.get(ruolo.id) || [],
+      ),
+    });
+  }
+
+  return risolte;
+};
+
 export const resolveOrganizationScopeForUser = async (
   userId: string,
   preferredOrganizationId?: string | null,
@@ -233,13 +381,14 @@ export const resolveOrganizationScopeForUser = async (
 ): Promise<OrganizationAccessScope> => {
   // Le due letture sono indipendenti e vengono eseguite in parallelo: in serie
   // aggiungevano due round trip a Neon a **ogni** richiesta autenticata.
-  const [memberships, ownedClubs] = await Promise.all([
+  const [tessereGrezze, ownedClubs] = await Promise.all([
     prisma.organizationUser.findMany({
       where: { user_id: userId },
       select: {
         id: true,
         organization_id: true,
         role: true,
+        custom_role_id: true,
         is_primary: true,
       },
       orderBy: [{ is_primary: "desc" }, { created_at: "asc" }],
@@ -250,6 +399,8 @@ export const resolveOrganizationScopeForUser = async (
       orderBy: { created_at: "asc" },
     }),
   ]);
+
+  const memberships = await risolviTessere(tessereGrezze);
 
   const allowedOrganizationIds = Array.from(
     new Set(
@@ -271,18 +422,29 @@ export const resolveOrganizationScopeForUser = async (
     null;
 
   const normalizedPreferredRole = normalizeAccessRole(preferredRole);
+  /*
+    Il client rimanda cio che gli e stato dato: per un ruolo di club puo essere
+    lo slug oppure il gettone intero. Le due grafie confluiscono nello slug
+    stabile, che e cio con cui la tessera si riconosce in archivio.
+  */
+  const preferredCustomSlug = parseCustomRoleValue(preferredRole)?.slug || null;
   const ownsActiveOrganization = ownedClubs.some(
     (club) => club.id === activeOrganizationId,
   );
   const membershipsForActiveOrganization = memberships.filter(
     (membership) => membership.organization_id === activeOrganizationId,
   );
-  const preferredMembership = normalizedPreferredRole
+  const preferredMembership = preferredCustomSlug
     ? membershipsForActiveOrganization.find(
-        (membership) =>
-          normalizeAccessRole(membership.role) === normalizedPreferredRole,
+        (membership) => membership.customSlug === preferredCustomSlug,
       )
-    : null;
+    : normalizedPreferredRole
+      ? membershipsForActiveOrganization.find(
+          (membership) =>
+            !membership.customSlug &&
+            normalizeAccessRole(membership.role) === normalizedPreferredRole,
+        )
+      : null;
   const primaryMembership = membershipsForActiveOrganization.find(
     (membership) => membership.is_primary,
   );
@@ -291,13 +453,43 @@ export const resolveOrganizationScopeForUser = async (
     primaryMembership ||
     membershipsForActiveOrganization[0] ||
     null;
+  /*
+    Il ruolo attivo di una tessera personalizzata e il **gettone**, non lo slug
+    nudo: lo slug nudo direbbe al catalogo «nessuna chiave», e la persona
+    avrebbe il perimetro del ruolo base sulle risorse e niente su tutto il
+    resto. Il gettone dice entrambe le cose, e le dice ristrette.
+  */
   const activeRole =
-    normalizedPreferredRole === "owner" && ownsActiveOrganization
+    normalizedPreferredRole === "owner" &&
+    ownsActiveOrganization &&
+    !preferredCustomSlug
       ? "owner"
       : preferredRole && !preferredMembership
         ? null
-        : normalizeAccessRole(selectedMembership?.role) ||
+        : selectedMembership?.token ||
+          normalizeAccessRole(selectedMembership?.role) ||
           (ownsActiveOrganization ? "owner" : null);
+
+  /*
+    Il perimetro si legge **solo** per la tessera scelta, e solo se e una
+    tessera con un ruolo di club: le altre non ne hanno, e una lettura per
+    ogni richiesta autenticata non si aggiunge per un caso che oggi non
+    esiste.
+  */
+  const accessScopes =
+    selectedMembership?.customSlug && selectedMembership.id
+      ? normalizeAccessScopes(
+          (
+            await prisma.clubAccessScope.findMany({
+              where: { organization_user_id: selectedMembership.id },
+              select: { scope_kind: true, scope_value: true },
+            })
+          ).map((riga) => ({
+            kind: riga.scope_kind,
+            value: riga.scope_value,
+          })),
+        )
+      : [];
 
   return {
     userId,
@@ -305,6 +497,7 @@ export const resolveOrganizationScopeForUser = async (
     activeRole,
     activeMembershipId: selectedMembership?.id || null,
     allowedOrganizationIds,
+    accessScopes,
   };
 };
 
