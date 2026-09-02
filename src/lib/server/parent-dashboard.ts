@@ -668,13 +668,33 @@ export const getFamilyDocumentAreas = async (
       )
     : [];
 
+  /*
+    **L'indirizzo e quello di famiglia, non quello generico degli allegati.**
+
+    `allegato.url` e l'indirizzo della rotta generica degli allegati — quello
+    che costruisce `buildAttachmentUrl` — e quella rotta chiede
+    `canAccessClubResource(role, "athletes", "read")`. Un genitore non ha quel
+    permesso, e un tutore senza riga in `organization_users` ha addirittura
+    `activeRole: null` — lo scope qui sopra lo costruisce apposta cosi: la
+    risposta e `false`, e il pulsante «Scarica» rispondeva **403** su un
+    documento che la famiglia stava guardando elencato.
+
+    La rotta di famiglia risolve i byte **per legame**
+    (`resolveLinkedFamilyScope` + `resolveDossierAttachmentId`, che accetta
+    anche l'identificativo dell'allegato) ed e la stessa che la card usava
+    prima della Wave 6.
+  */
+  const urlDiFamiglia = (attachmentId: string) =>
+    `/api/parent-dashboard/${encodeURIComponent(athlete.id)}` +
+    `/documents/${encodeURIComponent(attachmentId)}?download=1`;
+
   const perAllegato = new Map<string, FamilyDossierFile>(
     allegati.map((allegato) => [
       allegato.id,
       {
         fileName: allegato.fileName,
         mimeType: allegato.mimeType,
-        url: allegato.url,
+        url: urlDiFamiglia(allegato.id),
         validUntil: allegato.validUntil,
       },
     ]),

@@ -125,6 +125,34 @@ export function EnrollmentPaymentBreakdown({
     ? summary?.installments
     : [];
   const paymentItems = Array.isArray(payments) ? payments : [];
+  /*
+    **La didascalia sotto «Paga ora» diceva il falso.**
+
+    Diceva «Pagamento online presto disponibile» ogni volta che `onPayNow`
+    mancava — cioe ogni volta che **non c'e una rata aperta**, che e la
+    condizione di una famiglia in regola. Il checkout esiste, e cablato, e la
+    stessa schermata lo apre riga per riga con `onPayInstalment`: informare chi
+    ha pagato tutto che la funzione non c'e ancora e una bugia con il segno
+    invertito.
+
+    I casi veri sono quattro, e si distinguono qui perche qui ci sono i dati
+    per farlo: le righe di pagamento, che dicono se ne esistono e se ne resta
+    qualcuna da saldare.
+  */
+  const rateAttive = paymentItems.filter(
+    (payment) => !isCancelledPayment(payment),
+  );
+  const payNowHint = payNowPending
+    ? "Ti stiamo portando al pagamento sicuro del club."
+    : onPayNow
+      ? "Si apre il pagamento sicuro del club"
+      : rateAttive.length === 0
+        ? "Il club non ha ancora emesso rate: non c'e niente da pagare."
+        : rateAttive.some(isPayableAthletePayment)
+          ? onPayInstalment
+            ? "Il pagamento si apre dalla singola rata, qui sotto."
+            : "Il pagamento online non e attivo su questa schermata."
+          : "Nessuna rata da pagare: risulta tutto saldato.";
   const proration = summary?.prorationResult
     ? describeProrationResult(summary.prorationResult as any)
     : null;
@@ -181,11 +209,7 @@ export function EnrollmentPaymentBreakdown({
               <CreditCard className="mr-2 h-4 w-4" />
               {payNowPending ? "Apertura…" : "Paga ora"}
             </Button>
-            <p className="mt-2 text-xs text-slate-500">
-              {onPayNow
-                ? "Si apre il pagamento sicuro del club"
-                : "Pagamento online presto disponibile"}
-            </p>
+            <p className="mt-2 text-xs text-slate-500">{payNowHint}</p>
           </div>
         ) : null}
       </div>

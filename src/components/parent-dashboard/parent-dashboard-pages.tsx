@@ -36,6 +36,16 @@ import { PageHeading } from "@/components/dashboard/page-heading";
 import { ParentRsvpSection } from "@/components/parent/ParentRsvpSection";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
 import { findFirstPayableAthletePayment } from "@/lib/athlete-payment-utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1130,6 +1140,18 @@ export function ParentMatchesPage() {
   );
 }
 
+/**
+ * La rata che si sta per aprire al pagamento.
+ *
+ * **E un tipo debole di proposito.** TypeScript rifiuta di assegnare a un
+ * parametro fatto di sole proprieta opzionali un oggetto che non ne ha
+ * **nessuna** in comune — e un SyntheticEvent non ha `id`. E la regola che
+ * impedisce di ricollegare `apriPagamento` direttamente a un `onClick`: il
+ * difetto §4.4, dove il pulsante appariva abilitato e non faceva niente
+ * perche riceveva l'evento al posto della rata.
+ */
+type RataDaPagare = { id?: unknown };
+
 export function ParentPaymentsPage() {
   const { data } = useParentDashboard();
   const { showToast } = useToast();
@@ -1169,7 +1191,14 @@ export function ParentPaymentsPage() {
     chiederlo con un elenco a tendina sarebbe una domanda a cui il prodotto
     sa gia rispondere riga per riga.
   */
-  const apriPagamento = useCallback(async (rataScelta?: any) => {
+  /*
+    Il parametro e tipizzato `RataDaPagare` e non `any` **di proposito**: con
+    `any` questa funzione si poteva collegare dritta a un `onClick`, React le
+    consegnava il SyntheticEvent, `rataScelta` risultava truthy, `rata?.id` era
+    `undefined` e la funzione usciva in silenzio — pulsante abilitato e morto.
+    Adesso quel collegamento non compila.
+  */
+  const apriPagamento = useCallback(async (rataScelta?: RataDaPagare) => {
     const rata = rataScelta || rataDaPagare;
     if (!data?.athlete.id || !rata?.id) return;
     setPagamentoInCorso(true);
@@ -1210,7 +1239,13 @@ export function ParentPaymentsPage() {
         actions={
           <Button
             disabled={!rataDaPagare || pagamentoInCorso}
-            onClick={apriPagamento}
+            /*
+              **Mai `onClick={apriPagamento}`.** `Button` spande le props su un
+              `<button>` nativo, quindi il primo argomento sarebbe l'evento:
+              verrebbe scambiato per la rata scelta e il pulsante uscirebbe
+              senza aprire niente. La rata la sceglie la funzione.
+            */
+            onClick={() => void apriPagamento()}
             title={
               rataDaPagare
                 ? "Apre il pagamento sicuro del club"
@@ -1417,7 +1452,27 @@ export function ParentDocumentsPage() {
   const tipoRichiesto = String(searchParams?.get("tipo") || "").trim();
   /* La riga su cui si sta caricando. Vuoto = il caricamento spontaneo. */
   const [voceAperta, setVoceAperta] = useState("");
-  const [fileScelto, setFileScelto] = useState<File | null>(null);
+  /*
+    **Due moduli, due stati.**
+
+    Prima ce n'era uno solo, condiviso fra il modulo della riga aperta e il
+    modulo libero in fondo. Chi sceglieva il file per «Certificato medico» e
+    poi apriva il riquadro «Devi consegnare qualcosa che non e in elenco?»
+    trovava un campo **vuoto** e un pulsante **gia abilitato**, perche leggeva
+    lo stesso stato: un clic mandava quel certificato come deposito
+    **spontaneo**, la richiesta restava scoperta e il club riceveva un file
+    non classificato.
+  */
+  const [fileRichiesta, setFileRichiesta] = useState<File | null>(null);
+  const [fileSpontaneo, setFileSpontaneo] = useState<File | null>(null);
+  /*
+    Un `<input type="file">` non si controlla con `value`: azzerare lo stato
+    non svuota il campo, e resterebbe un nome di file a schermo che non
+    corrisponde a cio che si invierebbe. Il contatore rimonta l'input, cosi
+    campo e stato dicono la stessa cosa.
+  */
+  const [azzeraRichiesta, setAzzeraRichiesta] = useState(0);
+  const [azzeraSpontaneo, setAzzeraSpontaneo] = useState(0);
   const [inCaricamento, setInCaricamento] = useState(false);
   if (!data) return null;
 
@@ -1453,8 +1508,19 @@ export function ParentDocumentsPage() {
         documentType: voce?.documentKind || tipoRichiesto || undefined,
         file,
       });
-      setFileScelto(null);
-      setVoceAperta("");
+      /*
+        Si azzera **il modulo che ha inviato**, non entrambi: `voce` vuota vuol
+        dire deposito spontaneo, e un file scelto nell'altro modulo non deve
+        sparire per un invio che non lo riguardava.
+      */
+      if (voce) {
+        setFileRichiesta(null);
+        setAzzeraRichiesta((numero) => numero + 1);
+        setVoceAperta("");
+      } else {
+        setFileSpontaneo(null);
+        setAzzeraSpontaneo((numero) => numero + 1);
+      }
     } catch (error: any) {
       showToast("error", error?.message || "Errore caricamento documento");
     } finally {
@@ -1566,7 +1632,12 @@ export function ParentDocumentsPage() {
                     size="sm"
                     className="shrink-0"
                     onClick={() => {
-                      setFileScelto(null);
+                      /*
+                        Cambiando riga il file scelto per la precedente non
+                        vale piu: si azzera lo stato **e** il campo.
+                      */
+                      setFileRichiesta(null);
+                      setAzzeraRichiesta((numero) => numero + 1);
                       setVoceAperta(
                         voceAperta === document.id ? "" : String(document.id),
                       );
@@ -1582,20 +1653,21 @@ export function ParentDocumentsPage() {
                     className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center"
                     onSubmit={(event: FormEvent<HTMLFormElement>) => {
                       event.preventDefault();
-                      void carica(voceScelta || document, fileScelto);
+                      void carica(voceScelta || document, fileRichiesta);
                     }}
                   >
                     <Input
+                      key={`richiesta-${azzeraRichiesta}`}
                       type="file"
                       accept=".pdf,image/jpeg,image/png,image/heic,image/heif"
                       onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                        setFileScelto(event.target.files?.[0] || null)
+                        setFileRichiesta(event.target.files?.[0] || null)
                       }
                     />
                     <Button
                       type="submit"
                       size="sm"
-                      disabled={inCaricamento || !fileScelto}
+                      disabled={inCaricamento || !fileRichiesta}
                     >
                       {inCaricamento ? "Invio..." : "Invia al club"}
                     </Button>
@@ -1619,21 +1691,22 @@ export function ParentDocumentsPage() {
               className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center"
               onSubmit={(event: FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
-                void carica(null, fileScelto);
+                void carica(null, fileSpontaneo);
               }}
             >
               <Input
+                key={`spontaneo-${azzeraSpontaneo}`}
                 type="file"
                 accept=".pdf,image/jpeg,image/png,image/heic,image/heif"
                 onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                  setFileScelto(event.target.files?.[0] || null)
+                  setFileSpontaneo(event.target.files?.[0] || null)
                 }
               />
               <Button
                 type="submit"
                 size="sm"
                 variant="outline"
-                disabled={inCaricamento || !fileScelto}
+                disabled={inCaricamento || !fileSpontaneo}
               >
                 {inCaricamento ? "Invio..." : "Invia al club"}
               </Button>
@@ -1830,6 +1903,14 @@ export function ParentSecretariatPage() {
     null,
   );
   const [saving, setSaving] = useState(false);
+  /*
+    L'appuntamento in attesa di conferma di disdetta. La conferma passa da un
+    dialogo del prodotto e non da `window.confirm()`: e la stessa scelta,
+    motivata, di `/appuntamenti` — stesso dominio, stessa Wave — dove la
+    fascia oraria si elimina con `AlertDialog`. Due modi di chiedere «sei
+    sicuro?» dentro lo stesso dominio sono uno di troppo.
+  */
+  const [daDisdire, setDaDisdire] = useState<Record<string, any> | null>(null);
 
   const refreshSlots = useCallback(async () => {
     setSlotsState("loading");
@@ -1933,14 +2014,11 @@ export function ParentSecretariatPage() {
     setSelectedStartsAt("");
   };
 
-  const handleCancelAppointment = async (appointment: Record<string, any>) => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Vuoi cancellare questa richiesta appuntamento?")
-    ) {
-      return;
-    }
+  const handleCancelAppointment = async () => {
+    const appointment = daDisdire;
+    if (!appointment) return;
 
+    setDaDisdire(null);
     try {
       await cancelAppointment(String(appointment.id));
       if (editingAppointmentId === appointment.id) {
@@ -2199,7 +2277,7 @@ export function ParentSecretariatPage() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => void handleCancelAppointment(appointment)}
+                        onClick={() => setDaDisdire(appointment)}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
                         Elimina
@@ -2212,6 +2290,43 @@ export function ParentSecretariatPage() {
           )}
         </CardContent>
       </Card>
+
+      {/*
+        La disdetta passa da un dialogo, non da `confirm()`: e la stessa
+        lezione di W6-07 e la stessa forma gia in uso su `/appuntamenti`, dove
+        la fascia oraria si elimina cosi. Il popup del browser non si puo
+        scrivere, non dice cosa succede dopo, e su mobile arriva staccato dal
+        prodotto.
+      */}
+      <AlertDialog
+        open={Boolean(daDisdire)}
+        onOpenChange={(aperto) => {
+          if (!aperto) setDaDisdire(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disdire questo appuntamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              L&apos;orario torna libero per un&apos;altra famiglia e la
+              segreteria vede la richiesta come annullata. Per spostarlo senza
+              perderlo, usa «Modifica».
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Lascialo</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={(evento) => {
+                evento.preventDefault();
+                void handleCancelAppointment();
+              }}
+            >
+              Disdici
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

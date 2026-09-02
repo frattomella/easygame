@@ -25,6 +25,17 @@ import {
   Bell,
   BarChart3,
   FolderKanban,
+  BadgeEuro,
+  CalendarClock,
+  CalendarDays,
+  ClipboardCheck,
+  FileCheck,
+  FileSignature,
+  HardHat,
+  ScrollText,
+  Send,
+  Shirt,
+  UserCog,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -38,6 +49,7 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { ClubIdentity } from "@/components/brand/club-identity";
 import { EasyGameLogo } from "@/components/brand/easygame-logo";
 import { canAccessPath } from "@/lib/access-roles";
+import { canOpenAccounting } from "@/lib/accounting/permissions";
 
 /**
  * Le stesse azioni rapide della topbar desktop.
@@ -70,6 +82,26 @@ const quickActions = [
 
 const HELP_URL = "https://www.cedisoft.it/contatti/";
 
+/**
+ * **Le voci del menu sotto i 1024 px.**
+ *
+ * `Sidebar` e `hidden lg:flex`: sotto i 1024 px non esiste, e questo elenco e
+ * **l'unica** navigazione che un proprietario o una segretaria hanno. Una voce
+ * che sta solo nella barra laterale e quindi una pagina che dal telefono non
+ * si raggiunge — il difetto che la Wave 6 ha ripetuto con «Documenti»,
+ * «Ruoli e accessi» e «Registro attivita», e che prima di lei aveva gia
+ * lasciato fuori Calendario, Strutture, Comunicazioni, Lavoro sportivo e
+ * Abbigliamento.
+ *
+ * Adesso l'elenco e **completo rispetto alla barra desktop**, e a presidiarlo
+ * c'e `tests/ui/navigazione-sotto-1024-e-768.test.mjs`, che ricava le voci da
+ * `Sidebar.tsx` e pretende di ritrovarle qui: la prossima voce dimenticata
+ * fallisce da sola, senza chiedere a nessuno di ricordarsene.
+ *
+ * Le sezioni non ricalcano quelle della barra laterale — su un telefono si
+ * scorre, e otto gruppi da due voci costano piu di quattro da quattro — ma
+ * ogni indirizzo della barra laterale deve comparire in uno di essi.
+ */
 const navSections = [
   {
     id: "club",
@@ -99,8 +131,10 @@ const navSections = [
     id: "attivita",
     label: "ATTIVITÀ",
     items: [
+      { href: "/calendar", label: "Calendario", icon: CalendarDays },
       { href: "/training", label: "Allenamenti", icon: Dumbbell },
       { href: "/matches", label: "Gare", icon: Trophy },
+      { href: "/structures", label: "Strutture", icon: Building },
     ],
   },
   {
@@ -116,14 +150,68 @@ const navSections = [
     ],
   },
   {
+    id: "lavoro-sportivo",
+    label: "LAVORO SPORTIVO",
+    items: [
+      { href: "/sport-work", label: "Dashboard", icon: HardHat },
+      {
+        href: "/sport-work/relationships",
+        label: "Rapporti",
+        icon: FileSignature,
+      },
+      {
+        href: "/sport-work/compensations",
+        label: "Compensi",
+        icon: BadgeEuro,
+      },
+      {
+        href: "/sport-work/deadlines",
+        label: "Scadenze",
+        icon: CalendarClock,
+      },
+      {
+        href: "/sport-work/obligations",
+        label: "Adempimenti",
+        icon: ClipboardCheck,
+      },
+    ],
+  },
+  {
+    id: "magazzino",
+    label: "MAGAZZINO",
+    items: [{ href: "/clothing", label: "Abbigliamento", icon: Shirt }],
+  },
+  {
     id: "altro",
     label: "ALTRO",
     items: [
       { href: "/secretariat", label: "Segreteria", icon: ClipboardList },
+      /*
+        W6-39. La coda documentale del club, con la stessa etichetta e la
+        stessa icona della barra laterale. Sta accanto a «Segreteria» perche e
+        il suo lavoro quotidiano: si apre la mattina e si guarda cosa e
+        arrivato. Senza questa riga la pagina esisteva solo per chi aveva uno
+        schermo largo almeno 1024 px.
+      */
+      { href: "/documenti", label: "Documenti", icon: FileCheck },
       { href: "/notifications", label: "Notifiche", icon: Bell },
+      { href: "/communications", label: "Comunicazioni", icon: Send },
       { href: "/reports", label: "Report", icon: BarChart3 },
       { href: "/settings", label: "Impostazioni", icon: Settings },
       { href: "/permissions", label: "Permessi", icon: Shield },
+      /*
+        W6-1 e W6-2. Le due schermate della lane 6G, con le etichette della
+        barra laterale. Chi governa i ruoli o legge il registro degli accessi
+        lo fa spesso **mentre** succede qualcosa, e non necessariamente da una
+        scrivania: lasciarle fuori di qui le rendeva raggiungibili solo per
+        indirizzo.
+      */
+      {
+        href: "/dashboard/access-management",
+        label: "Ruoli e accessi",
+        icon: UserCog,
+      },
+      { href: "/audit", label: "Registro attivita", icon: ScrollText },
     ],
   },
 ];
@@ -214,7 +302,38 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
     [activeRole],
   );
 
-  const visibleNavSections = navSectionsOverride || navSections;
+  /*
+    **Il filtro delle voci, allineato a quello della barra laterale.**
+
+    La barra desktop non filtra per area — `canAccessPath` qui sopra governa le
+    azioni rapide, non le voci di menu, e `Sidebar.tsx` non la importa affatto —
+    ma una regola ce l'ha, ed e sulla cassa: `canOpenAccounting`, la stessa
+    matrice che difende la pagina e le rotte contabili. Questo elenco non ce
+    l'aveva, e l'effetto era una voce che rispondeva in due modi a seconda della
+    larghezza dello schermo: un collaboratore non vedeva «Movimenti» dal
+    desktop e la vedeva dal telefono, ci entrava, e trovava una prima nota
+    tutta a zero.
+
+    Le voci fornite dall'esterno — allenatore e famiglia via
+    `navSectionsOverride` — arrivano gia filtrate dai permessi del proprio
+    dominio e non passano di qui.
+  */
+  const visibleNavSections = useMemo(() => {
+    if (navSectionsOverride) {
+      return navSectionsOverride;
+    }
+
+    const accounting = canOpenAccounting(activeRole || null);
+
+    return navSections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter(
+          (item) => item.href !== "/movements" || accounting,
+        ),
+      }))
+      .filter((section) => section.items.length > 0);
+  }, [activeRole, navSectionsOverride]);
 
   return (
     <>

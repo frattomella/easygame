@@ -308,7 +308,18 @@ test("la riga in archivio porta il file, che il fascicolo da solo non conosce", 
 
   assert.equal(aree.archive[0].fileName, "certificato.pdf");
   assert.equal(aree.archive[0].mimeType, "application/pdf");
-  assert.ok(aree.archive[0].fileUrl);
+  /*
+    **Non basta che l'indirizzo esista: deve essere apribile da chi lo riceve.**
+
+    `assert.ok(fileUrl)` passava anche quando l'indirizzo era
+    `/api/v1/attachments/<id>`, cioe una rotta che risponde 403 a un genitore.
+    La famiglia legge i byte dalla propria rotta, che risolve per legame.
+    Il resto della verifica sta in `area-famiglia-rimedio-documenti.test.mjs`.
+  */
+  assert.equal(
+    aree.archive[0].fileUrl,
+    `/api/parent-dashboard/${FIGLIO}/documents/all-figlio?download=1`,
+  );
 });
 
 test("il fascicolo di un altro figlio non entra in quello del proprio", async () => {

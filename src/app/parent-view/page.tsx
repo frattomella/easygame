@@ -9,6 +9,7 @@ import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { apiRequest } from "@/lib/api/client";
 
 /**
  * **Di quale figlio parliamo.**
@@ -57,23 +58,30 @@ function ScegliFiglio() {
   const [figli, setFigli] = useState<Figlio[] | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
 
+  /*
+    Si passa da `apiRequest` e non da un `fetch` diretto: e il trasporto di
+    prodotto, e con la sessione scaduta chiama `notifyUnauthorized()` sul 401.
+    Con il `fetch` nudo questa schermata mostrava un riquadro d'errore — «Non
+    riesco a leggere i figli collegati» — a chi doveva semplicemente rifare il
+    login, e nessun pulsante lo portava li.
+  */
   const carica = useCallback(async () => {
     setErrore(null);
-    try {
-      const risposta = await fetch("/api/v1/family/children");
-      const payload = await risposta.json().catch(() => ({}));
-      if (!risposta.ok || payload?.error) {
-        throw new Error(
-          payload?.error?.message || "Non riesco a leggere i figli collegati",
-        );
-      }
-      setFigli(
-        Array.isArray(payload?.data?.children) ? payload.data.children : [],
+    const risposta = await apiRequest<{ children?: Figlio[] }>(
+      "/api/v1/family/children",
+    );
+
+    if (risposta.error) {
+      setErrore(
+        risposta.error.message || "Non riesco a leggere i figli collegati",
       );
-    } catch (problema: any) {
-      setErrore(problema?.message || "Non riesco a leggere i figli collegati");
       setFigli([]);
+      return;
     }
+
+    setFigli(
+      Array.isArray(risposta.data?.children) ? risposta.data.children : [],
+    );
   }, []);
 
   useEffect(() => {
@@ -96,7 +104,8 @@ function ScegliFiglio() {
   }
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-16">
+    // `100dvh` e non `100vh`: su mobile la barra del browser mangia l'altezza.
+    <main className="mx-auto min-h-[100dvh] w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-16">
       <div className="mb-8 space-y-2">
         <p className="text-sm font-semibold uppercase tracking-wide text-blue-600">
           Area famiglia

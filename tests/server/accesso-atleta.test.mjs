@@ -831,7 +831,27 @@ const semeArea = () => ({
   medicalCertificate: [],
   clubEventParticipant: [],
   notification: [],
-  appointment: [],
+  /*
+    W6-58. L'appuntamento non e piu una lista vuota: su una lista vuota questa
+    prova non poteva vedere ne cio che esce di troppo — le note della
+    segreteria — ne cio che non usciva affatto, cioe la data e lo stato, che
+    l'elenco chiedeva con nomi che la sorgente non ha.
+  */
+  appointment: [
+    {
+      id: "appuntamento-1",
+      organization_id: CLUB,
+      athlete_id: ATLETA,
+      starts_at: new Date("2026-09-10T15:00:00.000Z"),
+      ends_at: new Date("2026-09-10T15:30:00.000Z"),
+      status: "cancelled_by_family",
+      reason: "Colloquio con la segreteria",
+      notes: "Portare il modulo",
+      internal_notes: "NOTA-DI-SEGRETERIA",
+      decision_note: "La famiglia ha disdetto",
+      version: 1,
+    },
+  ],
   appointmentSlot: [],
 });
 
@@ -889,6 +909,23 @@ test("l'area atleta e un elenco chiuso: niente denaro, niente tutori, niente alt
   assert.equal(area.me.data, undefined);
   assert.equal(area.me.id, ATLETA);
   assert.equal(area.me.phone, "3330000000");
+
+  /*
+    W6-58. **I campi dichiarati arrivano davvero.** L'elenco chiedeva
+    `startsAt` e `decisionNote` a un oggetto che li chiama `starts_at` e
+    `decision_note`: usciva `undefined`, e la schermata scriveva «Data da
+    definire» sotto ogni appuntamento. La classe di questo difetto la presidia
+    `tests/server/area-atleta-campi-sorgente.test.mjs`, che confronta ogni
+    elenco con l'oggetto che la sorgente vera produce.
+  */
+  const appuntamento = area.appointments[0];
+  assert.ok(appuntamento, "l'appuntamento dell'atleta compare nella sua area");
+  assert.equal(appuntamento.startsAt, "2026-09-10T15:00:00.000Z");
+  assert.equal(appuntamento.statusLabel, "Annullato dalla famiglia");
+  assert.equal(appuntamento.decisionNote, "La famiglia ha disdetto");
+
+  /* E le note che restano in segreteria non sono fra i campi dichiarati. */
+  assert.equal(testo.includes("NOTA-DI-SEGRETERIA"), false);
 });
 
 /* ==================================================================== *
@@ -903,8 +940,14 @@ test("la proiezione dell'area atleta e un elenco chiuso, e il denaro non e in el
     "utf8",
   );
 
+  /*
+    La lettura parte dagli **elenchi** e non dalla funzione: da W6-58 i campi
+    ammessi sono dichiarati in `CAMPI_AREA_ATLETA`, sopra la proiezione, e
+    leggere solo la funzione lascerebbe fuori dal controllo proprio il punto in
+    cui si decide cosa esce.
+  */
   const proiezione = sorgente.slice(
-    sorgente.indexOf("const proiettaAreaAtleta"),
+    sorgente.indexOf("export const CAMPI_AREA_ATLETA"),
     sorgente.indexOf("export type AthleteAreaOverview"),
   );
   assert.ok(proiezione.length > 500, "la proiezione deve esistere");

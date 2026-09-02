@@ -976,29 +976,153 @@ export const acceptAthleteAccountInvite = async (
  * stesso taglio che `src/lib/health/permissions.ts` fa per l'allenatore.
  */
 
-const soloCampi = (righe: unknown, campi: readonly string[]) => {
+/**
+ * Un campo della proiezione: **come si chiama nella sorgente**, e come si
+ * chiama in uscita.
+ *
+ * ## Perche un nome doppio, e non un elenco di stringhe
+ *
+ * Perche i due nomi non coincidono, e dare per scontato che coincidessero e
+ * stato il difetto. `toFamilyAppointment` pubblica `starts_at`, `ends_at`,
+ * `status_label`, `decision_note`; il fascicolo di famiglia pubblica
+ * `documentKindLabel`, `state`, `stateLabel`, `submittedAt`. L'elenco chiedeva
+ * `startsAt`, `type`, `status`, `uploadedAt` — nomi che in quegli oggetti
+ * **non esistono** — e `soloCampi` copiava `undefined` senza che niente si
+ * lamentasse: ogni appuntamento diceva «Data da definire» e ogni documento
+ * «— · —».
+ *
+ * Una stringa sola vale quando i due nomi coincidono davvero. La coppia
+ * `[sorgente, uscita]` e la traduzione, ed e dichiarata invece che implicita
+ * perche cosi la si puo **verificare**: il presidio di
+ * `tests/server/area-atleta-campi-sorgente.test.mjs` chiede alle sorgenti vere
+ * un oggetto e pretende che ogni nome di sorgente sia una sua chiave. Una
+ * whitelist sbagliata non stampa piu un trattino: fa fallire un test.
+ *
+ * L'elenco resta **chiuso** — e la ragione per cui esiste — e la traduzione non
+ * lo allarga: cambia il nome di cio che gia usciva, non cio che esce.
+ */
+type CampoProiettato = string | readonly [sorgente: string, uscita: string];
+
+/** Il nome che il campo ha **nella sorgente**: e cio che il presidio verifica. */
+export const nomeSorgente = (campo: CampoProiettato) =>
+  typeof campo === "string" ? campo : campo[0];
+
+/** Il nome che il campo ha nel contratto letto dall'area atleta. */
+const nomeUscita = (campo: CampoProiettato) =>
+  typeof campo === "string" ? campo : campo[1];
+
+const soloCampi = (righe: unknown, campi: readonly CampoProiettato[]) => {
   if (!Array.isArray(righe)) return [] as Record<string, unknown>[];
   return righe.map((riga) => {
     const sorgente = (riga || {}) as Record<string, unknown>;
     const uscita: Record<string, unknown> = {};
-    for (const campo of campi) uscita[campo] = sorgente[campo];
+    for (const campo of campi) {
+      uscita[nomeUscita(campo)] = sorgente[nomeSorgente(campo)];
+    }
     return uscita;
   });
 };
 
-/** I campi di un evento che l'area atleta mostra. */
-const CAMPI_EVENTO = [
-  "id",
-  "title",
-  "startsAt",
-  "endsAt",
-  "location",
-  "status",
-  "categoryName",
-  "opponent",
-  "attendanceStatus",
-  "participationStatus",
-] as const;
+/**
+ * **Gli elenchi chiusi, con accanto la sorgente che li produce.**
+ *
+ * Stanno insieme e sono esportati per una ragione sola: il presidio li
+ * enumera. Se restassero sparsi dentro la proiezione, il controllo andrebbe
+ * riscritto a mano per ognuno — e il difetto che chiudiamo e proprio quello di
+ * un elenco che nessuno confronta con la sua sorgente.
+ */
+export const CAMPI_AREA_ATLETA = {
+  /**
+   * Un evento come lo mostra l'area atleta.
+   *
+   * Sorgente: `toEventLegacyShape` (`src/lib/events/model.ts`), che e la forma
+   * con cui `clubs.trainings` e `clubs.matches` sono proiettate, piu il campo
+   * che `getParentDashboardData` aggiunge alla riga — ed e **uno per genere**:
+   * `attendanceStatus` esiste solo sull'allenamento, perche la presenza si fa
+   * all'appello, e `participationStatus` solo sulla gara.
+   *
+   * Per questo gli elenchi sono due e non uno. Un elenco unico chiedeva a
+   * ognuno dei due il campo dell'altro, e la riga usciva con una chiave che
+   * valeva sempre `undefined`: invisibile sullo schermo, ma indistinguibile da
+   * un nome sbagliato: cioe esattamente cio che il presidio deve saper
+   * distinguere.
+   */
+  allenamento: [
+    "id",
+    "title",
+    "startsAt",
+    "endsAt",
+    "location",
+    "status",
+    "categoryName",
+    "opponent",
+    "attendanceStatus",
+  ],
+  gara: [
+    "id",
+    "title",
+    "startsAt",
+    "endsAt",
+    "location",
+    "status",
+    "categoryName",
+    "opponent",
+    "participationStatus",
+  ],
+  /** Sorgente: `serializeAthleteCard`, campo `categories`. */
+  categoria: ["id", "name", "siteId", "isPrimary"],
+  /** Sorgente: le righe di `club_event_participants`. */
+  presenza: ["event_id", "status", "notes", "updated_at"],
+  /**
+   * Sorgente: `toFamilyAppointment` (`src/lib/appointments/projection.ts`),
+   * che parla **snake_case**.
+   *
+   * `status_label` non c'era, e senza di lui l'atleta leggeva
+   * `cancelled_by_family` e `no_show`: identificativi di colonna, in inglese,
+   * su una schermata che spesso legge un ragazzino. L'etichetta italiana la
+   * possiede gia il dominio degli appuntamenti — `APPOINTMENT_STATUS_LABELS` —
+   * e qui basta chiederla. Lo stato tecnico resta accanto perche e cio su cui
+   * una schermata puo ragionare senza tradurre una frase.
+   */
+  appuntamento: [
+    "id",
+    ["starts_at", "startsAt"],
+    ["ends_at", "endsAt"],
+    "status",
+    ["status_label", "statusLabel"],
+    "reason",
+    "notes",
+    ["decision_note", "decisionNote"],
+  ],
+  /**
+   * Sorgente: `FamilyDocumentItem` (`src/lib/documents/family-dossier.ts`).
+   *
+   * `type` e l'**etichetta** del genere di documento e non la sua chiave, e
+   * `statusLabel` e «Approvato» invece di `under_review`: valgono le stesse
+   * due ragioni dell'appuntamento.
+   *
+   * **Non esce l'indirizzo del file, e non e una dimenticanza.** L'elenco
+   * chiedeva `url`, che nella sorgente si chiama `fileUrl` e punta alla
+   * rotta generica degli allegati: al ruolo `athlete` risponde 403,
+   * cioe un pulsante rotto. La rotta per legame che l'area famiglia usa —
+   * `/api/parent-dashboard/<atleta>/documents/<id>` — risponderebbe, e proprio
+   * per questo non la si mette qui: aprirebbe i **byte** dei documenti, fra i
+   * quali c'e il certificato medico, cioe il contenuto clinico che questa
+   * proiezione tiene fuori per scelta (vedi `health`). Della carta l'atleta
+   * vede che esiste, di che tipo e, e a che punto sta.
+   */
+  documento: [
+    "id",
+    "title",
+    ["documentKindLabel", "type"],
+    ["state", "status"],
+    ["stateLabel", "statusLabel"],
+    ["submittedAt", "uploadedAt"],
+    "required",
+  ],
+  /** Sorgente: le righe di `notifications`. */
+  notifica: ["id", "title", "message", "type", "read", "created_at"],
+} as const satisfies Record<string, readonly CampoProiettato[]>;
 
 const proiettaAreaAtleta = (
   dati: Record<string, any>,
@@ -1054,12 +1178,7 @@ const proiettaAreaAtleta = (
       seasonId: club.activeSeasonId ?? null,
       seasonLabel: club.activeSeasonLabel ?? null,
     },
-    categories: soloCampi(atleta.categories, [
-      "id",
-      "name",
-      "siteId",
-      "isPrimary",
-    ]),
+    categories: soloCampi(atleta.categories, CAMPI_AREA_ATLETA.categoria),
     /**
      * Lo **stato** del certificato e la sua data. Nient'altro: non i
      * certificati, non le allergie, non le note mediche.
@@ -1070,12 +1189,18 @@ const proiettaAreaAtleta = (
       expiryDate: salute.expiryDate || null,
     },
     trainings: {
-      upcoming: soloCampi(dati.trainings?.upcoming, CAMPI_EVENTO),
-      history: soloCampi(dati.trainings?.history, CAMPI_EVENTO),
+      upcoming: soloCampi(
+        dati.trainings?.upcoming,
+        CAMPI_AREA_ATLETA.allenamento,
+      ),
+      history: soloCampi(
+        dati.trainings?.history,
+        CAMPI_AREA_ATLETA.allenamento,
+      ),
     },
     matches: {
-      upcoming: soloCampi(dati.matches?.upcoming, CAMPI_EVENTO),
-      history: soloCampi(dati.matches?.history, CAMPI_EVENTO),
+      upcoming: soloCampi(dati.matches?.upcoming, CAMPI_AREA_ATLETA.gara),
+      history: soloCampi(dati.matches?.history, CAMPI_AREA_ATLETA.gara),
     },
     /** Le convocazioni ancora da rispondere: e la sola cosa che gli e chiesta. */
     rsvp: invitiRsvp,
@@ -1084,40 +1209,14 @@ const proiettaAreaAtleta = (
       absent: dati.attendance?.absent ?? 0,
       total: dati.attendance?.total ?? 0,
       rate: dati.attendance?.rate ?? 0,
-      items: soloCampi(dati.attendance?.items, [
-        "event_id",
-        "status",
-        "notes",
-        "updated_at",
-      ]),
+      items: soloCampi(dati.attendance?.items, CAMPI_AREA_ATLETA.presenza),
     },
-    appointments: soloCampi(dati.appointments?.items, [
-      "id",
-      "startsAt",
-      "endsAt",
-      "status",
-      "reason",
-      "notes",
-      "decisionNote",
-    ]),
-    documents: soloCampi(dati.documents?.uploaded, [
-      "id",
-      "name",
-      "title",
-      "type",
-      "status",
-      "uploadedAt",
-      "url",
-      "required",
-    ]),
-    notifications: soloCampi(dati.notifications, [
-      "id",
-      "title",
-      "message",
-      "type",
-      "read",
-      "created_at",
-    ]),
+    appointments: soloCampi(
+      dati.appointments?.items,
+      CAMPI_AREA_ATLETA.appuntamento,
+    ),
+    documents: soloCampi(dati.documents?.uploaded, CAMPI_AREA_ATLETA.documento),
+    notifications: soloCampi(dati.notifications, CAMPI_AREA_ATLETA.notifica),
     notificationsUnread: dati.notificationsUnread ?? 0,
     season: {
       trainingsPlayed: (dati.trainings?.history || []).length,
@@ -1126,12 +1225,12 @@ const proiettaAreaAtleta = (
       nextTraining:
         soloCampi(
           dati.analytics?.nextTraining ? [dati.analytics.nextTraining] : [],
-          CAMPI_EVENTO,
+          CAMPI_AREA_ATLETA.allenamento,
         )[0] || null,
       nextMatch:
         soloCampi(
           dati.analytics?.nextMatch ? [dati.analytics.nextMatch] : [],
-          CAMPI_EVENTO,
+          CAMPI_AREA_ATLETA.gara,
         )[0] || null,
     },
   };

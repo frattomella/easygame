@@ -9,7 +9,6 @@ import {
   dashboardMainClassName,
 } from "@/components/dashboard/dashboard-page-container";
 import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { MobileTopBar } from "@/components/layout/MobileTopBar";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { DocumentReviewInbox } from "@/components/documents/document-review-inbox";
 import { roleHasPermission } from "@/lib/permissions/catalog";
@@ -35,12 +34,11 @@ import { roleHasPermission } from "@/lib/permissions/catalog";
  *
  * ## Come ci si arriva
  *
- * Dal menu **SEGRETERIA**, dove oggi non c'e ancora una voce «Documenti»:
- * `src/components/dashboard/Sidebar.tsx` e di un'altra lane, e l'ingresso e
- * segnalato nel rapporto di questa. Finche non c'e, la pagina resta
- * raggiungibile per indirizzo — che e esattamente la forma di difetto che la
- * Wave 6 esiste per chiudere, e per questo va detto invece che lasciato
- * scoprire.
+ * Dal menu **SEGRETERIA** della barra laterale (`Sidebar.tsx`) sopra i 1024 px,
+ * e dalla sezione **ALTRO** del menu di `MobileTopBar` sotto. Le due strade
+ * servono: la barra laterale e `hidden lg:flex`, quindi da un telefono la voce
+ * del menu mobile e l'**unica**, e finche mancava questa pagina esisteva solo
+ * per chi ne conosceva l'indirizzo.
  */
 export default function DocumentiPage() {
   const { activeClub, userRole } = useAuth();
@@ -51,8 +49,12 @@ export default function DocumentiPage() {
     <div className="flex h-[100dvh] bg-slate-50">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
+        {/*
+          `Header` monta gia `MobileTopBar` sotto i 1024 px: aggiungerne una
+          seconda qui impilava **due intestazioni identiche** su un telefono.
+          Il titolo si passa a `Header`, che lo gira alla barra mobile.
+        */}
         <Header title="Documenti" />
-        <MobileTopBar title="Documenti" />
         <main className={dashboardMainClassName}>
           <DashboardPageContainer className="max-w-6xl">
             <SharedPageHeader

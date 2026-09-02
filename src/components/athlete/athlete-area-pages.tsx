@@ -669,14 +669,20 @@ export function AthleteDocuments() {
               >
                 <div className="min-w-0">
                   <p className="truncate font-medium text-slate-900">
-                    {documento.title || documento.name || "Documento"}
+                    {documento.title || "Documento"}
                   </p>
                   <p className="text-sm text-slate-500">
                     {documento.type || "—"} · {soloData(documento.uploadedAt)}
                   </p>
                 </div>
-                {documento.status ? (
-                  <Badge variant="secondary">{documento.status}</Badge>
+                {/*
+                  L'etichetta italiana, non lo stato tecnico: `under_review` e
+                  il nome di una colonna, «Da verificare» e cio che questa
+                  persona deve poter leggere. La calcola il dominio del
+                  fascicolo e la proiezione la porta come `statusLabel`.
+                */}
+                {documento.statusLabel ? (
+                  <Badge variant="secondary">{documento.statusLabel}</Badge>
                 ) : null}
               </li>
             ))}
@@ -719,8 +725,25 @@ export function AthleteAppointments() {
                   <p className="text-sm text-slate-500">
                     {dataOra(appuntamento.startsAt)}
                   </p>
+                  {/*
+                    Il motivo di un rifiuto o di una riprogrammazione: e
+                    l'unica cosa che rende utile una risposta negativa, e chi
+                    e atteso a quell'appuntamento deve poterla leggere qui
+                    invece di chiederla a casa.
+                  */}
+                  {appuntamento.decisionNote ? (
+                    <p className="mt-1 text-sm text-slate-600">
+                      {appuntamento.decisionNote}
+                    </p>
+                  ) : null}
                 </div>
-                <Badge variant="secondary">{appuntamento.status}</Badge>
+                {/*
+                  L'etichetta italiana degli otto stati la possiede il dominio
+                  degli appuntamenti: qui si mostrava `cancelled_by_family`.
+                */}
+                <Badge variant="secondary">
+                  {appuntamento.statusLabel || appuntamento.status}
+                </Badge>
               </li>
             ))}
           </ul>

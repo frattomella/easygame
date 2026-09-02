@@ -3,13 +3,16 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  Bell,
   CalendarClock,
   CalendarDays,
   FolderOpen,
   Home,
   Megaphone,
   Trophy,
+  UserCircle,
   Users,
+  Wallet,
 } from "lucide-react";
 import Header from "@/components/dashboard/Header";
 import {
@@ -30,9 +33,11 @@ const PAGE_TITLES: Record<string, string> = {
   "/trainer-dashboard/trainings": "Allenamenti",
   "/trainer-dashboard/matches": "Gare",
   "/trainer-dashboard/athletes": "Atleti",
+  "/trainer-dashboard/categories": "Squadre",
   "/trainer-dashboard/board": "Bacheca",
   "/trainer-dashboard/documents": "Documenti",
   "/trainer-dashboard/appointments": "Appuntamenti",
+  "/trainer-dashboard/compensi": "I miei compensi",
 };
 
 const resolvePageTitle = (pathname: string) => {
@@ -66,6 +71,24 @@ export default function TrainerDashboardClubShell({
   const { activeClub, loading, operationalAlerts, permissions, trainerProfile } =
     useTrainerDashboard();
 
+  /*
+    **Il menu dell'allenatore sotto i 768 px.**
+
+    `TrainerSidebar` sta dentro un `hidden md:block`: sotto i 768 px non e
+    montata, e questo elenco e **l'unica** navigazione che resta. Ogni voce
+    della barra laterale deve quindi comparire anche qui, con la **stessa**
+    chiave di permesso: una voce filtrata da un lato e libera dall'altro
+    sarebbe una porta che si apre o no a seconda della larghezza dello schermo.
+
+    Questa lista aveva gia perso «Notifiche» una volta, e con la Wave 6 aveva
+    perso anche «Squadre» e «I miei compensi»: tre voci nate nella barra
+    desktop e mai arrivate qui, cioe tre pagine che un allenatore in palestra
+    — dove il telefono e l'unico schermo — non poteva raggiungere. Adesso le
+    due liste sono complete, e a tenerle tali c'e
+    `tests/ui/navigazione-sotto-1024-e-768.test.mjs`, che ricava le chiavi da
+    `TrainerSidebar.tsx` e pretende di ritrovarle in questo file: la prossima
+    voce dimenticata fallisce da sola.
+  */
   const trainerMobileNavSections: MobileNavSection[] = [
     {
       id: "trainer",
@@ -96,15 +119,21 @@ export default function TrainerDashboardClubShell({
           ? {
               href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.athletes,
               label: "Atleti",
-              icon: Users,
+              icon: UserCircle,
             }
           : null,
         /*
-          Le tre voci della Wave 5 stanno **anche** nel menu di uno schermo
-          stretto. Una sezione raggiungibile solo dalla barra laterale, che
-          sotto i 768 px non esiste, e una sezione che su un telefono non c'e:
-          e il difetto che questa lista ha gia avuto con «Notifiche».
+          **Le proprie squadre** (W6-31). Stessa etichetta e stessa icona della
+          barra laterale: e la pagina dei gruppi del perimetro, e sul telefono
+          e quella che si guarda prima di un allenamento.
         */
+        permissions.navigation.categories
+          ? {
+              href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.categories,
+              label: "Squadre",
+              icon: Users,
+            }
+          : null,
         permissions.navigation.board
           ? {
               href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.board,
@@ -124,6 +153,29 @@ export default function TrainerDashboardClubShell({
               href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.documents,
               label: "Documenti",
               icon: FolderOpen,
+            }
+          : null,
+        /*
+          **La pagina che il menu non nominava** (W6-30). Dal telefono la
+          campanella era l'unica strada, e una notifica chiusa era una notifica
+          che non si poteva piu rileggere.
+        */
+        permissions.navigation.notifications
+          ? {
+              href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.notifications,
+              label: "Notifiche",
+              icon: Bell,
+            }
+          : null,
+        /*
+          **«I miei compensi»** (W6-32): l'unica domanda economica che
+          l'allenatore puo fare, ed e la sua.
+        */
+        permissions.navigation.compensation
+          ? {
+              href: TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.compensation,
+              label: "I miei compensi",
+              icon: Wallet,
             }
           : null,
       ].filter(Boolean) as MobileNavSection["items"],
