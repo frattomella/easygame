@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hasHealthPermission } from "@/lib/health/permissions";
 import { canAccessClubResource } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
@@ -47,6 +48,27 @@ export async function GET(request: Request, context: Context) {
     */
     if (!canAccessClubResource(scope.activeRole, "forms", "read")) {
       return jsonError("Accesso negato per il ruolo attivo", 403);
+    }
+
+    /*
+      **Lo stesso file, due porte, e una sola chiedeva il permesso clinico.**
+
+      Attachment Core pretende `clinical.read` per un allegato di categoria
+      `compilazione-modulo` — perche il modulo di iscrizione chiede il
+      certificato medico, e un allegato di modulo non dichiara che genere di
+      documento contenga. Questa rotta storica serve gli stessi byte,
+      dall archivio precedente, e chiedeva soltanto `forms.read`.
+
+      Misurato con un ruolo di club reale a cui erano state tolte tutte le
+      chiavi `clinical.*`: Attachment Core 403, questa rotta 200 con il PDF.
+
+      La regola e la stessa, e sta nel modulo che la possiede: si chiede a lui.
+    */
+    if (!hasHealthPermission(scope.activeRole, "clinical.read")) {
+      return jsonError(
+        "Accesso negato: il contenuto di un allegato di modulo lo vede chi ha il permesso sul dato clinico",
+        403,
+      );
     }
 
     const raw = String(asset.data_base64 || "");

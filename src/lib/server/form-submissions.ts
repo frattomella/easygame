@@ -1,4 +1,8 @@
 import { randomUUID } from "crypto";
+import {
+  hasHealthPermission,
+  stripClinicalAthleteFields,
+} from "@/lib/health/permissions";
 import { canAccessClubResource } from "@/lib/access-roles";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
@@ -2099,7 +2103,39 @@ export const buildCompileContext = async (
     }));
   }
 
-  const answers = buildPrefilledAnswers(compilable.schema, records);
+  /*
+    **Un modulo puo precompilare un campo clinico, e li il permesso non
+    arrivava.**
+
+    Il vocabolario dei campi dinamici dichiara `athlete.allergies`, che punta
+    a `athletes.data.allergies` — uno dei campi che `clinical.read` protegge.
+    L unico cancello di questa rotta e `forms.read`: un ruolo di club a cui il
+    club aveva tolto il permesso sanitario apriva un modulo con quel campo e se
+    lo trovava gia compilato.
+
+    E la stessa forma dei segnaposto documentali, chiusa una tornata fa: il
+    documento — o il modulo — e la porta di servizio dell anagrafica. Si toglie
+    il clinico dal **record** prima di precompilare, cosi la regola resta una e
+    sta nel modulo che la possiede.
+  */
+  const recordsPerLaPrecompilazione = hasHealthPermission(
+    scope.activeRole,
+    "clinical.read",
+  )
+    ? records
+    : Object.fromEntries(
+        Object.entries(records).map(([soggetto, riga]) => [
+          soggetto,
+          riga
+            ? { ...riga, data: stripClinicalAthleteFields((riga as any).data) }
+            : riga,
+        ]),
+      );
+
+  const answers = buildPrefilledAnswers(
+    compilable.schema,
+    recordsPerLaPrecompilazione as typeof records,
+  );
 
   return {
     templateId: compilable.row.id,

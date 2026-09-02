@@ -768,6 +768,52 @@ test("W6 · ogni chiave che un dominio dichiara sta in catalogo", () => {
       "Fuori catalogo `narrowDomainPermission` risponde «vale il ruolo base»: " +
       "il restringimento di un ruolo personalizzato non arriva, e la casella non esiste",
   );
+
+  /*
+    **E l'eccezione dichiarata deve restare vera.**
+
+    «Nessuna guardia la interroga» e la ragione per cui `board.read` puo
+    stare fuori dal catalogo. Finche e vera, il fail-open di
+    `narrowDomainPermission` su quella chiave non apre niente. Ma era una
+    frase, e una revisione l'ha giustamente contata come rischio latente: il
+    giorno in cui qualcuno scrive quella guardia, la chiave diventa un potere
+    che nessun ruolo personalizzato puo perdere.
+
+    Adesso la frase e **verificata**. Chi scrive quella guardia trova questo
+    test rosso, e la risposta e mettere la chiave in catalogo.
+  */
+  const SORGENTI_DI_GUARDIA = [
+    "src/lib/communications/permissions.ts",
+    "src/lib/accounting/permissions.ts",
+    "src/lib/seasons/permissions.ts",
+    "src/lib/sport-work/permissions.ts",
+  ];
+
+  for (const [chiave] of DICHIARATE_MA_NON_APPLICATE) {
+    const interrogata = [];
+
+    for (const percorso of SORGENTI_DI_GUARDIA) {
+      const sorgente = readFileSync(percorso, "utf8");
+      /*
+        La chiave puo comparire nel **vocabolario** e nelle etichette: e
+        cio che la dichiara. Cio che non deve comparire e una guardia che la
+        pretende — `assert*Permission(..., "<chiave>")` — o un confronto
+        diretto con il permesso richiesto.
+      */
+      const guardia = new RegExp(
+        `(assert|has)[A-Za-z]*Permission\\([^)]*["\u0027\`]${chiave.replace(/\./g, "\\.")}`,
+      );
+      if (guardia.test(sorgente)) interrogata.push(percorso);
+    }
+
+    assert.deepEqual(
+      interrogata,
+      [],
+      `«${chiave}» e dichiarata «non applicata» e invece una guardia la ` +
+        `interroga in ${interrogata.join(", ")}: mettila in catalogo, ` +
+        "altrimenti nessun ruolo personalizzato potra perderla",
+    );
+  }
 });
 
 test("W6 · e restringere davvero toglie quei poteri a un ruolo personalizzato", () => {

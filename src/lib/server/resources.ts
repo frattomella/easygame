@@ -6183,6 +6183,30 @@ const applicaGuardieDiModifica = async (
       scelta gia presa per `clubs.creator_id`, che per la stessa ragione non si
       cambia dal registro generico.
     */
+    /*
+      **Il club d'ingresso di un'altra persona non lo si sceglie per lei.**
+
+      `is_primary` decide su quale club si apre l'applicazione. Cambiarlo
+      sulla tessera di qualcun altro non concede nessun permesso — ed e per
+      questo che nessuna guardia lo guardava — ma sposta la scrivania di una
+      persona senza che lei lo sappia, e in un prodotto multi-club e un modo
+      efficace di farle credere che qualcosa sia sparito.
+
+      Il proprio si cambia dalla rotta che attiva una tessera, che verifica
+      che sia la propria.
+    */
+    if (
+      scope &&
+      resource === "organization_users" &&
+      "is_primary" in normalized &&
+      String((existing as any)?.user_id ?? "").trim() !==
+        String(scope.userId ?? "").trim()
+    ) {
+      throw new Error(
+        "Accesso negato: il club d'ingresso lo sceglie la persona a cui la tessera appartiene",
+      );
+    }
+
     if (
       scope &&
       resource === "organization_users" &&
@@ -6206,6 +6230,49 @@ const applicaGuardieDiModifica = async (
       });
       throw new Error(
         "Accesso negato: una tessera non cambia intestatario. Revocala e concedila dalla gestione accessi, che lascia le due righe di audit",
+      );
+    }
+
+    /*
+      **`custom_role_id` non si scrive affatto dal registro generico.**
+
+      ADR-0102: lo slug e il riferimento al ruolo di club si scrivono
+      **insieme e solo** da `club-roles.ts`, perche una riga con uno e senza
+      l'altro da il ruolo base **senza** restringimento. La rotta generica
+      rifiutava gia lo slug; il riferimento no.
+
+      E la guardia sotto non lo vedeva, per un motivo sottile: passa il
+      **ruolo invariato** ad `assertConcessioneDiAccessoLecita`, che esce
+      sulla scorciatoia «la tessera c'e gia con quel ruolo, riscriverla non
+      concede niente». Vera per `role`; falsa per `custom_role_id`, che da
+      solo cambia l'effetto della tessera.
+
+      Misurato: un `PATCH` con il solo `{custom_role_id}` sulla tessera di un
+      **proprietario** la rendeva incoerente, `risolviTessere` la scartava, e
+      la vittima usciva dal club. Con un 200, e senza la riga di revoca che
+      il `DELETE` accanto lascia — cioe il modo di togliere di mezzo in
+      silenzio chiunque potesse fermare l'attaccante.
+    */
+    if (
+      scope &&
+      resource === "organization_users" &&
+      "custom_role_id" in normalized
+    ) {
+      await recordPermissionDenied({
+        scope: {
+          userId: scope.userId,
+          activeRole: scope.activeRole,
+          activeOrganizationId: scope.activeOrganizationId,
+        },
+        permission: "club_roles.assign",
+        resource: "organization_users",
+        metadata: {
+          target_user_id: String((existing as any)?.user_id || ""),
+          reason: "custom_role_id_from_generic_route",
+        },
+      });
+      throw new Error(
+        "Accesso negato: il ruolo personalizzato di una tessera si scrive dalla gestione accessi, che scrive insieme lo slug e il riferimento",
       );
     }
 

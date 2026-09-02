@@ -105,6 +105,7 @@ let moduli;
 let ruoliDiAccesso;
 let permessiContabili;
 let segnaposto;
+let compilazioni;
 let rotte = null;
 
 /* ----------------------------------------------------------- il verdetto */
@@ -3985,6 +3986,173 @@ const u59 = async () => {
   await prisma.athlete.update({ where: { id: ATLETA_A }, data: { data: {} } });
 };
 
+const u60 = async () => {
+  /* ================================================================== */
+  /*  U-60 — la tessera spenta in silenzio, e i due modi di vedere il    */
+  /*         dato clinico senza la sua chiave   [HIGH]                   */
+  /* ================================================================== */
+
+  console.log(
+    `${NL}U-60 — la tessera spenta in silenzio, e il clinico dalla porta accanto   [HIGH]`,
+  );
+
+  /* --- 1. `custom_role_id` scritto dal registro generico --- */
+  const ruolo = await ruoliDiClub.createClubRole(scopeRuolo("owner"), {
+    name: "Ruolo U-60",
+    baseRole: "collaborator",
+    permissions: ["events.read"],
+  });
+
+  const tesseraVittima = await prisma.organizationUser.findFirst({
+    where: { organization_id: CLUB_A, user_id: utenti.owner.id, role: "owner" },
+    select: { id: true, custom_role_id: true },
+  });
+
+  await varco(
+    "U-60 il ruolo personalizzato di una tessera non si scrive dal registro generico",
+    () =>
+      risorse.updateResource(
+        "organization_users",
+        tesseraVittima.id,
+        { custom_role_id: ruolo.id },
+        scopeRuolo("club_manager"),
+      ),
+    ["negato"],
+  );
+
+  const tesseraDopo = await prisma.organizationUser.findUnique({
+    where: { id: tesseraVittima.id },
+    select: { role: true, custom_role_id: true },
+  });
+
+  prova(
+    "U-60 e la tessera del proprietario e ancora coerente",
+    { ruolo: "owner", riferimento: null },
+    {
+      ruolo: tesseraDopo?.role ?? null,
+      riferimento: tesseraDopo?.custom_role_id ?? null,
+    },
+    "una riga con il ruolo canonico e un riferimento personalizzato viene scartata: la vittima usciva dal club",
+  );
+
+  /* --- 2. il club d'ingresso di un altro --- */
+  const tesseraAltrui = await prisma.organizationUser.findFirst({
+    where: { organization_id: CLUB_A, user_id: utenti.staff.id },
+    select: { id: true, is_primary: true },
+  });
+
+  await varco(
+    "U-60 il club d'ingresso di un'altra persona non si sposta",
+    () =>
+      risorse.updateResource(
+        "organization_users",
+        tesseraAltrui.id,
+        { is_primary: !tesseraAltrui.is_primary },
+        scopeRuolo("club_manager"),
+      ),
+    ["negato"],
+  );
+
+  /* --- 3. la rotta storica dei file di modulo --- */
+  const senzaClinico =
+    "custom:club_manager:senza-clinico#documents.review,forms.read";
+
+  prova(
+    "U-60 i byte di un allegato di modulo chiedono il permesso sul dato clinico",
+    { core: false, storica: false, conIlPermesso: true },
+    {
+      core: permessiAllegati.canAccessAttachmentOwner(
+        senzaClinico,
+        "form",
+        "read",
+        "compilazione-modulo",
+      ),
+      /*
+        La rotta storica non e una funzione pura: si guarda che il cancello
+        esista e che sia lo **stesso** — ed e cio che la revisione aveva
+        misurato mancante, con Attachment Core a 403 e questa a 200.
+      */
+      storica: permessiSanitari.hasHealthPermission(
+        senzaClinico,
+        "clinical.read",
+      ),
+      conIlPermesso: permessiSanitari.hasHealthPermission(
+        "collaborator",
+        "clinical.read",
+      ),
+    },
+  );
+
+  /* --- 4. la precompilazione di un modulo --- */
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: { data: { allergies: "ALLERGIA-U60", phone: "3331112222" } },
+  });
+
+  /*
+    Serve un modulo che **dichiari** il campo clinico: quello seminato non ne
+    ha, e la prova misurerebbe un elenco vuoto. La vacuita si evita cosi.
+  */
+  const scopeModuli = scopeDi(utenti.owner.id, CLUB_A, "owner");
+  const modelloClinico = await moduli.createFormTemplate(scopeModuli, {
+    organizationId: CLUB_A,
+  });
+  await moduli.updateFormTemplateDraft(scopeModuli, modelloClinico.id, {
+    title: "Modulo U-60 con campo clinico",
+    description: "",
+    fields: [
+      {
+        id: "allergie",
+        type: "long_text",
+        label: "Allergie",
+        binding: "athlete.allergies",
+        required: false,
+      },
+    ],
+  });
+  await moduli.publishFormTemplate(scopeModuli, modelloClinico.id);
+
+  const precompila = async (ruoloAttivo) => {
+    const contesto = await compilazioni.buildCompileContext(
+      { ...scopeRuolo("collaborator"), activeRole: ruoloAttivo },
+      {
+        templateId: modelloClinico.id,
+        subjects: [{ subject: "athlete", recordId: ATLETA_A }],
+      },
+    );
+    return JSON.stringify(contesto?.answers ?? {});
+  };
+
+  const conClinico = await precompila("collaborator").catch(
+    (errore) => `errore: ${errore?.message}`,
+  );
+  const senza = await precompila(senzaClinico).catch(
+    (errore) => `errore: ${errore?.message}`,
+  );
+
+  prova(
+    "U-60 un modulo non precompila un campo clinico a chi non ha la chiave",
+    { senzaChiave: false, conChiave: true },
+    {
+      senzaChiave: senza.includes("ALLERGIA-U60"),
+      conChiave: conClinico.includes("ALLERGIA-U60"),
+    },
+    "il vocabolario dei campi dinamici dichiara `athlete.allergies`, e la rotta chiedeva solo `forms.read`",
+  );
+
+  await prisma.athlete.update({ where: { id: ATLETA_A }, data: { data: {} } });
+  await prisma.formTemplateVersion
+    .deleteMany({ where: { template_id: modelloClinico.id } })
+    .catch(() => {});
+  await prisma.formTemplate
+    .delete({ where: { id: modelloClinico.id } })
+    .catch(() => {});
+  await prisma.clubRolePermission
+    .deleteMany({ where: { role_id: ruolo.id } })
+    .catch(() => {});
+  await prisma.clubRole.delete({ where: { id: ruolo.id } }).catch(() => {});
+};
+
 /* ------------------------------------------------------------- il giro */
 
 try {
@@ -4002,6 +4170,7 @@ try {
   ruoliDiClub = await carica("src/lib/server/club-roles.ts");
   registro = await carica("src/lib/server/audit.ts");
   moduli = await carica("src/lib/server/forms.ts");
+  compilazioni = await carica("src/lib/server/form-submissions.ts");
   ruoliDiAccesso = await carica("src/lib/access-roles.ts");
   permessiContabili = await carica("src/lib/accounting/permissions.ts");
   segnaposto = await carica("src/lib/server/document-placeholders.ts");
@@ -4030,6 +4199,7 @@ try {
   await u57();
   await u58();
   await u59();
+  await u60();
 
   const falliti = esiti.filter((e) => !e.ok);
   if (deviazioni.length) {
