@@ -306,3 +306,39 @@ Entrambi hanno ora un test di regressione. La lezione e la stessa di
 `tests/server/checkout-session-route.test.mjs`: **cio che i test non chiamano
 come lo chiama l'interfaccia, non e provato.**
 
+
+---
+
+## Wave 6: le sonde hanno trovato quattro difetti che 4.348 test non vedevano (2026-09-02)
+
+Tre script nuovi, sul database di sviluppo vero, che chiamano le funzioni di
+dominio come le chiamerebbe una sessione:
+
+| Comando | Cosa percorre | Controlli |
+|---------|---------------|-----------|
+| `npm run wave6:uat` | I ventiquattro scenari del mandato: famiglia, atleta, allenatore, documenti, appuntamenti, denaro in uscita | 78 |
+| `npm run wave6:roles` | I ruoli personalizzati: soffitto, concessione, perimetro di sede e categoria, tentativi di scalata | 44 |
+| `npm run wave6:security` | Il confine: tenant, minori, salute, denaro, e lo scope contraffatto | 59 |
+
+Escono con codice 1 se qualcosa fallisce, e stampano il valore trovato accanto
+a quello atteso. Non sono nel `npm test` perche chiedono un database popolato:
+si lanciano a mano, e il loro esito e parte del gate della Wave.
+
+**Perche esistono, dimostrato.** Alla prima esecuzione hanno trovato quattro
+difetti veri mentre la suite era verde su 4.348 controlli, uno dei quali di
+confine multi-tenant sull'anagrafica dei minori (documentato in
+[14 — Sicurezza](14-security.md)). Non e che i test fossero scritti male: e che
+un test costruisce l'ingresso che il codice si aspetta. Tutti e quattro i
+difetti stavano in ingressi che **nessuno costruisce apposta** — uno scope
+contraffatto, una riga scritta da una versione precedente con un'altra grafia,
+un payload composto da un altro modulo, un aggiornamento parziale.
+
+La regola che se ne ricava, e che vale oltre questa Wave: quando una difesa
+viene aggiunta a un dominio, **si verifica dove altro passa la stessa domanda**.
+Tre dei quattro erano difese esistenti che non arrivavano alla superficie piu
+larga.
+
+I quattro sono poi diventati un presidio in
+`tests/server/sonde-wave6-difetti.test.mjs`, che chiude la classe e non
+l'istanza: non «questo atleta si trova», ma «ogni grafia cercata si normalizza
+sullo stato che la cerca».

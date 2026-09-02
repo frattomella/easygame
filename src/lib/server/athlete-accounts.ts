@@ -1038,8 +1038,21 @@ const proiettaAreaAtleta = (
       city: club.city || null,
       province: club.province || null,
       website: club.website || null,
-      seasonId: club.seasonId ?? null,
-      seasonLabel: club.seasonLabel ?? null,
+      /*
+        **La stagione si chiama `activeSeason*` da chi la calcola.**
+
+        `normalizeActiveClubSeason` — l'unico che sa quale delle stagioni
+        configurate e quella attiva — pubblica `activeSeasonId` e
+        `activeSeasonLabel`. Chiedere `club.seasonId` a quel payload non
+        solleva niente: risponde `undefined`, che qui diventava `null`, e
+        l'area atleta mostrava un club senza stagione anche quando la stagione
+        c'era. E lo stesso difetto di W6-09, su una superficie nuova.
+
+        I nomi in uscita restano `seasonId` / `seasonLabel` perche sono il
+        contratto che l'area atleta gia legge: a cambiare e la **fonte**.
+      */
+      seasonId: club.activeSeasonId ?? null,
+      seasonLabel: club.activeSeasonLabel ?? null,
     },
     categories: soloCampi(atleta.categories, [
       "id",

@@ -1875,3 +1875,51 @@ ADR-0094; la superficie pubblica della ricevuta di iscrizione, senza niente da
 segnalare; i byte dei documenti verso genitore e atleta, tre porte tutte
 pinnate; le migrazioni, senza perdita di dati e con il travaso che ricostruisce
 invece di scartare.
+
+## Wave 6 — la guardia della Wave 5 non arrivava al registro generico (2026-09-02)
+
+Trovato da `scripts/wave-6-security-probe.mjs`, non da un test. La differenza
+conta e vale la pena scriverla: un test unitario costruisce lo scope che il
+codice si aspetta, e uno scope contraffatto nessuno lo costruisce per sbaglio.
+La sonda lo costruisce apposta.
+
+**Il difetto.** `assertScopeIsCoherent` — la difesa scritta dalla Wave 5 contro
+lo scope con `activeOrganizationId` di un club e `allowedOrganizationIds` di un
+altro — vive **dentro** `assertActiveClub`. Ma `resources.ts` non chiamava
+`assertActiveClub`: chiamava `belongsToActiveClub` da sola, che di proposito
+guarda solo il club attivo e **non** l'elenco dei club consentiti.
+
+Conseguenza misurata: con lo stesso scope contraffatto, eventi e appuntamenti
+rifiutavano — e `listResourcePage("athletes")` restituiva gli atleti del club A.
+La difesa copriva i due domini che erano stati corretti a mano e lasciava
+scoperta la superficie **piu ampia**: il registro generico, una cinquantina di
+risorse, fra cui l'anagrafica dei minori.
+
+C'era un secondo strato allo stesso difetto, e senza il primo non si vedeva:
+anche passando da `assertActiveClub`, la guardia girava solo nel ramo in cui il
+client **dichiara** un club. Il ramo che percorre la quasi totalita delle
+chiamate — nessun club dichiarato, si prende `scope.activeOrganizationId` —
+restituiva quel valore senza guardarlo. I due rami adesso si ricongiungono
+prima della guardia, che quindi gira sempre.
+
+Come per la Wave 5: **non era sfruttabile via HTTP**, perche
+`resolveOrganizationScopeForUser` resta l'unico costruttore di scope e non
+fabbrica scope incoerenti. E come per la Wave 5, «non c'e oggi una seconda
+strada» e una proprieta che vale finche qualcuno non ne scrive una — e qui la
+strada da scrivere era una chiamata in piu a `listResourcePage`.
+
+**Le prove.** `tests/server/sonde-wave6-difetti.test.mjs` (lo scope contraffatto
+su elenco e riga singola, e che uno scope coerente continua a leggere);
+`scripts/wave-6-security-probe.mjs` U-38 sul database vero.
+
+### Gli altri tre della stessa tornata
+
+Nessuno dei tre e un difetto di confine, ma condividono il profilo — una difesa
+che esiste e non arriva fino in fondo — e stanno qui perche li ha trovati la
+stessa tornata di sonde.
+
+| Difetto | Cosa succedeva | Correzione |
+|---------|----------------|------------|
+| Il filtro di stato era sensibile alle maiuscole | `athleteStatusQueryValues` elenca le grafie in minuscolo e `text IN (...)` su Postgres confronta lettera per lettera: un atleta scritto `Attivo` non compariva in **nessun** filtro. Misurato: 0 righe contro 224 | `mode: "insensitive"` sull'`IN`, cioe la correzione W6-03 completata dentro se stessa |
+| Salvare un campo qualunque cancellava le appartenenze | `updateClubAthlete` chiudeva sempre con `replaceAthleteMemberships`, ricostruendo le appartenenze da una proiezione che **non le contiene**. Salvando la sola foto restavano una categoria su due, nessuna sede, e un'etichetta al posto di un id | Le appartenenze si leggono dalla loro tabella; e se l'aggiornamento non ne parla, la tabella non si tocca |
+| La stagione attiva non arrivava all'area atleta | Il payload la pubblica come `activeSeasonId`/`activeSeasonLabel`, l'area atleta chiedeva `seasonId`/`seasonLabel`: `undefined`, quindi `null`, quindi un club senza stagione. Stessa forma di W6-09, superficie nuova | Si chiede il nome che il dominio pubblica |

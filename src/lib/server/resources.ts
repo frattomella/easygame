@@ -1,5 +1,8 @@
 import { prisma } from "./prisma";
-import { belongsToActiveClub } from "@/lib/auth/active-club-boundary";
+import {
+  assertActiveClub,
+  belongsToActiveClub,
+} from "@/lib/auth/active-club-boundary";
 import {
   isClubResourceDeclared,
   isCustomRoleValue,
@@ -650,9 +653,26 @@ const ensureOrganizationAccess = (
     return;
   }
 
-  if (!belongsToActiveClub(scope, organizationId)) {
-    throw new Error("Accesso negato alla risorsa del club");
-  }
+  /*
+    **Lo scope contraffatto passava proprio di qui.**
+
+    La Wave 5 ha scoperto che uno scope con `activeOrganizationId` di un club e
+    `allowedOrganizationIds` di un altro superava ogni controllo, e ha scritto
+    `assertScopeIsCoherent` per fermarlo. Quella guardia vive **dentro**
+    `assertActiveClub`, e questa funzione chiamava invece `belongsToActiveClub`
+    da sola — che di proposito **non** guarda l'elenco dei club consentiti.
+
+    Conseguenza: la difesa copriva i domini che chiamano `assertActiveClub` —
+    eventi, appuntamenti, documenti — e lasciava scoperto il registro generico,
+    cioe la superficie **piu ampia** dell'intera classe: una cinquantina di
+    risorse. Un elenco di atleti usciva con lo scope contraffatto mentre gli
+    eventi lo respingevano.
+
+    Lo ha trovato `scripts/wave-6-security-probe.mjs`, non un test: la sonda
+    costruisce lo scope a mano, che e esattamente cio che un test unitario
+    passandogli uno scope coerente non fa mai.
+  */
+  assertActiveClub(scope, organizationId, "la risorsa del club");
 };
 
 const resolveScopedOrganizationId = (
@@ -663,16 +683,27 @@ const resolveScopedOrganizationId = (
     return requestedOrganizationId || null;
   }
 
-  if (requestedOrganizationId) {
-    ensureOrganizationAccess(scope, requestedOrganizationId);
-    return requestedOrganizationId;
+  /*
+    **Il club attivo va verificato quanto quello chiesto.**
+
+    Prima si controllava soltanto il ramo in cui il client dichiara un club, e
+    l'altro — quello che percorre la quasi totalita delle chiamate — restituiva
+    `scope.activeOrganizationId` cosi com'era. Ma un club attivo che **non e
+    fra quelli dell'account** e la contraffazione stessa: e il caso che la
+    Wave 5 ha chiuso nei domini con `assertScopeIsCoherent` e che qui, sul
+    registro che serve una cinquantina di risorse, non veniva guardato.
+
+    Adesso i due rami si ricongiungono prima della guardia, che quindi gira
+    sempre.
+  */
+  const risolto = requestedOrganizationId || scope.activeOrganizationId;
+
+  if (!risolto) {
+    throw new Error("Nessun club attivo selezionato");
   }
 
-  if (scope.activeOrganizationId) {
-    return scope.activeOrganizationId;
-  }
-
-  throw new Error("Nessun club attivo selezionato");
+  ensureOrganizationAccess(scope, risolto);
+  return risolto;
 };
 
 const resolveRecordOrganizationId = (
@@ -3211,7 +3242,20 @@ export const buildWhereFromSearchParams = (
   if (resource === "simplified_athletes" || resource === "athletes") {
     const statoChiesto = parseAthleteStatus(where.status);
     if (statoChiesto) {
-      where.status = { in: [...athleteStatusQueryValues(statoChiesto)] };
+      /*
+        `mode: "insensitive"` non e un di piu: senza, l'elenco delle grafie
+        resta un elenco di **minuscole**, e Postgres confronta `text` lettera
+        per lettera. Un atleta scritto `Attivo` o `ATTIVO` non compariva in
+        nessun filtro — cioe esattamente il difetto che questo `IN` doveva
+        chiudere, sopravvissuto dentro la propria correzione.
+
+        Misurato sul database di sviluppo: le stesse due grafie danno 0 righe
+        con il confronto sensibile e 224 con quello insensibile.
+      */
+      where.status = {
+        in: [...athleteStatusQueryValues(statoChiesto)],
+        mode: "insensitive",
+      };
     } else if (typeof where.status === "string") {
       delete where.status;
     }

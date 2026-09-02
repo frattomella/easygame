@@ -598,6 +598,26 @@ const replaceAthleteMemberships = async (
   return serializedMemberships;
 };
 
+/**
+ * Vero se l'aggiornamento **dice qualcosa** sulle appartenenze.
+ *
+ * E l'elenco esatto dei campi che `resolveRequestedAthleteMemberships` legge:
+ * se qui manca un campo che li sotto conta, un aggiornamento che dichiara una
+ * categoria non la scriverebbe. I due elenchi vanno letti insieme.
+ */
+const updatesDeclareAthleteMemberships = (updates: any) =>
+  Array.isArray(
+    updates?.categoryMemberships ??
+      updates?.category_memberships ??
+      updates?.memberships,
+  ) ||
+  [
+    updates?.category,
+    updates?.category_id,
+    updates?.categoryName,
+    updates?.category_name,
+  ].some((value) => value !== undefined);
+
 const resolveRequestedAthleteMemberships = (
   currentAthlete: any,
   updates: any,
@@ -1111,8 +1131,37 @@ export async function updateClubAthlete(
 
     // Merge updates with existing data
     const currentData = isRecord(currentAthlete.data) ? currentAthlete.data : {};
+
+    /*
+      **Salvare la foto cancellava le appartenenze.**
+
+      La riga riletta da `simplified_athletes` non porta con se le righe di
+      `athlete_category_memberships`: le appartenenze vivono in una tabella
+      loro. Ricostruirle da quella riga vuol dire ricostruirle dai campi piatti
+      `category_id` / `category_name`, che sono **una sola** categoria e
+      nessuna sede — e poi `replaceAthleteMemberships` cancella e riscrive.
+
+      Il risultato lo ha misurato `scripts/wave-6-uat.mjs`: un atleta con due
+      categorie e due sedi, salvato **cambiando soltanto l'avatar**, restava con
+      una riga sola, senza sede, e con un'etichetta al posto di un id.
+
+      Due correzioni, e servono entrambe:
+
+      1. le appartenenze si leggono da **dove stanno**, non dalla proiezione
+         piatta dell'anagrafica. Cosi anche un cambio di categoria conserva le
+         secondarie, che prima perdeva per la stessa ragione;
+      2. se l'aggiornamento **non dice niente** sulle appartenenze, la tabella
+         non si tocca. Riscrivere cio che non ci e stato dato e il difetto, non
+         la sua conseguenza.
+    */
+    const membershipRows = await loadClubAthleteMemberships(clubId, [athleteId]);
+    const athleteWithMemberships = {
+      ...currentAthlete,
+      category_memberships: membershipRows,
+    };
+    const membershipsDeclared = updatesDeclareAthleteMemberships(updates);
     const normalizedMemberships = resolveRequestedAthleteMemberships(
-      currentAthlete,
+      athleteWithMemberships,
       updates,
     );
     const primaryMembership = getPrimaryAthleteCategoryMembership(
@@ -1244,11 +1293,9 @@ export async function updateClubAthlete(
       throw error;
     }
 
-    const savedMemberships = await replaceAthleteMemberships(
-      clubId,
-      athleteId,
-      normalizedMemberships,
-    );
+    const savedMemberships = membershipsDeclared
+      ? await replaceAthleteMemberships(clubId, athleteId, normalizedMemberships)
+      : membershipRows;
 
     return hydrateAthleteWithMemberships(data, savedMemberships);
   } catch (error) {
