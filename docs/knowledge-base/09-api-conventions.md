@@ -994,3 +994,145 @@ o un crawler non portano il segreto. Il suo `POST` con
 La logica di ognuno dei quattro giri sta in un modulo sotto
 `src/lib/server/`, non nel route handler: il route handler autentica e
 riporta.
+
+---
+
+# Le convenzioni della Wave 6 (2026-09-01)
+
+L'elenco delle rotte nuove sta in [`docs/api-registry.md`](../api-registry.md).
+Qui ci sono le **regole** che quelle rotte hanno introdotto o consolidato, cioe
+le cose che chi ne scrive una nuova deve sapere.
+
+## Ogni risposta porta un identificativo di richiesta
+
+`x-request-id` viaggia in **due** direzioni, e servono entrambe: in avanti verso
+il route handler, che lo mette nelle righe di log; indietro verso il chiamante,
+perche un messaggio d'errore possa citarlo e l'assistenza trovare la riga senza
+chiedere di riprodurre il problema.
+
+Lo genera `src/middleware.ts`, che sta davanti a tutto ed e quindi l'unico punto
+in cui il valore puo essere lo stesso per **tutte** le righe della stessa
+richiesta. Una seconda generazione dentro un handler produrrebbe un
+identificativo per riga, cioe il contrario di un identificativo.
+
+Due conseguenze pratiche:
+
+- **le API entrano nel middleware**, cosa che prima non facevano. Il matcher le
+  escludeva del tutto, e quindi le rotte — il posto dove gli errori nascono
+  davvero — erano l'unica parte dell'applicazione senza modo di correlare due
+  righe. Il cancello di autenticazione **non le tocca**: il ramo `/api` prosegue
+  prima di ogni controllo, perche devono continuare a rispondere **401 JSON** e
+  mai con un rinvio a `/login`;
+- **il valore puo arrivare dal client**, ed e voluto: un identificativo generato
+  dal browser lega la riga del server alla richiesta che si sta guardando in
+  rete. Ma cio che arriva da fuori non si rimette in un'intestazione senza
+  guardarlo — un valore con dentro un a capo spezzerebbe l'intestazione in due,
+  e uno lunghissimo finirebbe in ogni riga di log della richiesta. Passa solo
+  `^[A-Za-z0-9._-]{8,64}$`; qualunque altra cosa viene sostituita.
+
+Un errore del server si racconta da **un punto solo**,
+`src/lib/server/observability.ts`, che riduce l'errore a tre campi — nome, prima
+riga utile del messaggio, codice — e non passa mai l'oggetto intero. Il motivo
+non e l'eleganza: il messaggio di un errore di validazione Prisma **contiene
+l'oggetto che si stava scrivendo**, cioe su `user.create` la `password_hash` e
+sulla rotta pubblica dei moduli il modulo compilato da un minore.
+
+## `/me`: le rotte che non accettano un identificativo
+
+`GET|PATCH /api/v1/athlete-accounts/me` e `GET /api/v1/sport-work/me` non
+prendono nessun parametro che dica **di chi** si stia parlando. Non e una
+semplificazione: e il confine.
+
+Una rotta «i miei compensi» che accettasse un `person_id` avrebbe due
+autorizzazioni da tenere allineate — il permesso e la coincidenza fra il
+parametro e la sessione — e la seconda e proprio quella che si dimentica.
+Togliendo il parametro resta una domanda sola. Vale anche per l'area atleta, che
+non ha un identificativo nemmeno nel percorso del browser: l'atleta e se stesso,
+e non esiste un valore da cambiare per farla diventare l'area di un altro.
+
+`GET /api/v1/sport-work/me` chiede `sport_work.read_own`, che e una chiave
+**diversa** da `sport_work.read`: quest'ultima vede i compensi di tutto il club,
+e usarla qui avrebbe reso «i miei compensi» una funzione della direzione.
+
+## Un parametro di vista invece di una rotta nuova
+
+`GET /api/v1/document-submissions?view=queue` restituisce la coda operativa del
+club. E la stessa rotta, lo stesso permesso, lo stesso confine: senza il
+parametro la forma della risposta resta identica a prima.
+
+E la stessa convenzione di `view=summary` e `view=detail` gia in uso. La regola
+sottintesa vale la pena scriverla: **un parametro di vista si aggiunge quando
+cambia la proiezione, non quando cambia l'autorizzazione.** Il giorno in cui una
+vista avesse bisogno di un permesso diverso, quella e una rotta diversa.
+
+## Il gate puo essere il legame invece del ruolo
+
+`GET /api/v1/family/children` non chiede nessun permesso di ruolo, e nessun
+parametro. Un tutore puo non avere **nessuna tessera** nel club — la sua
+posizione e un legame con un atleta, non una membership — e un permesso di ruolo
+lo terrebbe fuori dalla propria area.
+
+Un elenco vuoto e quindi una **risposta vera**, non un errore: significa che
+quella persona non e legata a nessun atleta.
+
+E il simbolo `⛓` della matrice dei permessi in
+[08](08-roles-and-permissions.md), e vale la pena rileggerlo come un avviso: una
+rotta `⛓` che qualcuno «sistemasse» aggiungendole un permesso di ruolo
+diventerebbe piu larga di quanto sembra.
+
+## Una rotta pubblica per costruzione
+
+`POST /api/v1/athlete-accounts/accept` non chiede una sessione, e non e una
+dimenticanza: ci arriva chi ha appena ricevuto l'invito, quindi **senza sessione
+e senza una password**. Chiedergliela sarebbe mandarlo dove non puo entrare.
+
+Il suo gate e il **token**, cercato per impronta SHA-256: in archivio del valore
+in chiaro non resta niente ([ADR-0085](18-decision-log.md#adr-0085--il-link-di-pagamento-e-un-token-opaco-in-archivio-non-un-token-firmato-senza-stato)),
+e la ricerca avviene **per hash e non per atleta** — chi ha il token non deve
+poter dire di quale atleta sia. Sul lato browser, `/athlete-dashboard/attiva` e
+per la stessa ragione l'unica eccezione pubblica dentro un'area protetta.
+
+## Dove si verifica il permesso: nel dominio, non nel preambolo
+
+Le quattro rotte di `/api/v1/club-roles/**` condividono un preambolo
+(`src/app/api/v1/club-roles/shared.ts`) che legge la sessione e risolve il club
+attivo, e **non verifica nessun permesso**. Lo verifica il dominio.
+
+La ragione e che il dominio e anche l'unico posto in cui il diniego lascia la
+propria riga di audit: una guardia in due punti e una guardia che prima o poi
+dice due cose diverse. Il file sta colocato dentro `src/app/api` di proposito, e
+non sotto `src/lib`: e il modo in cui `tests/auth/api-authorization.test.mjs`
+continua a **vedere** la guardia seguendo l'import relativo della rotta.
+
+Sul rifiuto vale la convenzione di sempre — il messaggio contiene `Accesso
+negato` e il route handler lo mappa su 403 — con una distinzione che conviene
+tenere: **un ruolo scritto male e una richiesta sbagliata, non un rifiuto di
+autorizzazione**, e resta un 400. Chi spunta una casella impossibile non sta
+tentando una scalata: sta sbagliando a compilare.
+
+## Il riepilogo che precede la cancellazione, e il gettone che li lega
+
+`GET /api/v1/data-subject/:subjectId` restituisce il **riepilogo di cio che
+verrebbe distrutto** — una riga per tabella, e per cio che resta il motivo per
+cui resta — insieme a un gettone che e l'**impronta del piano**.
+`DELETE` senza quel gettone rifiuta, e lo rifiuta anche se l'inventario e
+cambiato nel frattempo.
+
+Non e un meccanismo di sicurezza: chi puo cancellare puo comunque chiedere prima
+il riepilogo. E un meccanismo che rende **impossibile cancellare senza aver
+visto**, che e la cosa che serviva. Per un minore la conferma esplicita e
+obbligatoria, e **un'anagrafica senza data di nascita si tratta come minore**:
+sull'eta ignota si sbaglia verso la cautela.
+
+`GET /api/v1/data-subject/:subjectId/export` restituisce i dati di una persona e
+**nessun byte**: gli allegati escono come metadati. Un export che trascinasse i
+file sarebbe una risposta di dimensione non dichiarabile in anticipo, e i byte
+hanno gia la loro rotta.
+
+## Il registro smette di essere in sola scrittura
+
+`GET /api/v1/audit` e la prima rotta che **legge** `audit_logs`. Erano 108 punti
+di scrittura, quattro indici gia adatti alla lettura, e zero lettori:
+`prisma.auditLog.findMany` non compariva in nessun handler.
+
+Lo scope di club e **obbligatorio**, e la chiave e `audit.read`, di direzione.

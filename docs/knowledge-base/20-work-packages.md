@@ -1575,7 +1575,7 @@ migrare gli asset esistenti; mantenere `Asset` come indice con `public_url`.
 
 ---
 
-### WP-16 · Audit log — `PARZIALE` (2026-08-22)
+### WP-16 · Audit log — `PARZIALE` (2026-08-22, aggiornato 2026-09-01)
 
 **Obiettivo.** Tracciare chi ha fatto cosa sulle operazioni sensibili.
 
@@ -1600,7 +1600,15 @@ punti aperti qui sotto, che non sono copertura ma **strumenti**.
 - [x] Migrazione applicata prima allo sviluppo, poi a staging con il deploy
 - [x] Retention configurabile con `AUDIT_LOG_RETENTION_DAYS`
 - [x] **Punto di ingresso** per la purge: `POST /api/v1/maintenance` la chiama insieme alle altre pulizie. Il *trigger* sta fuori dall'applicazione (cron, azione GitHub, Vercel Cron) per non legarsi a un servizio dell'hosting (ADR-0007), e va configurato sull'ambiente
-- [ ] **UI di consultazione** per il platform admin
+- [x] **UI di consultazione per il club** (Wave 6, lane 6G): `/audit`, protetta
+      dalla chiave `audit.read`, che e di direzione. Il registro era
+      **write-only** da tre Wave — 108 punti di scrittura, quattro indici gia
+      adatti alla lettura, e `prisma.auditLog.findMany` in nessun handler
+- [ ] **UI di consultazione per il platform admin.** La schermata della Wave 6 e
+      di club: filtra sempre su `organization_id`, e le righe **senza** club —
+      il cron, un login fallito prima che esista un'organizzazione — da li non
+      escono. Sono proprio quelle che interessano alla console di piattaforma,
+      e non le vede ancora nessuno
 - [ ] Decisione di prodotto sul periodo di retention
 
 **File.** `prisma/schema.prisma`, `src/lib/server/audit.ts`,
@@ -2078,8 +2086,8 @@ Il piano e in [41](41-wave-6-planning.md). DAG a sei onde:
 | 6F | Moduli e iscrizione online | **Fatta.** Il gate della pagina era il permesso di un altro dominio |
 | 6H | Appuntamenti: UI degli slot, segreteria completa, `capacity` rimossa | **Fatta.** Ogni club era in configurazione di ripiego |
 | 6I | Consensi prima dell'invio, export e cancellazione, identificativo di richiesta, log | **Fatta.** Quindici percorsi su quindici ignoravano il registro dei consensi |
-| 6G | Ruoli personalizzati, access management, UI di audit | In corso |
-| 6J | W4-R7, OCR, registro API, KB, tre sonde di runtime | §16 OCR **fatto** |
+| 6G | Ruoli personalizzati, access management, UI di audit | **Fatta.** La schermata degli accessi esisteva **ed era finta**: tre nomi con indirizzi `@example.com` e un token generato con `Math.random()` nel browser |
+| 6J | W4-R7, OCR, registro API, KB, tre sonde di runtime | **Fatta.** Il denaro in uscita usciva dal registro senza causale: 7.000 euro su 7.210 del non classificato |
 
 ### Un difetto alla quarta ripetizione, e come e stato chiuso
 
@@ -2097,3 +2105,49 @@ elenco chiuso e motivato. Il presidio nuovo ha trovato subito due buchi
 preesistenti: `/calendar` e `/sport-work` non avevano **nessuna** guardia
 d'area — le API rifiutano comunque, ma la struttura di una schermata gestionale
 usciva a chiunque avesse una sessione.
+### Lo stato dei cinque blocker a fine Wave 6 (2026-09-01)
+
+| Blocker | Esito |
+|---------|-------|
+| **W6-1** · Ruoli personalizzati | **Chiuso.** Slug autodescrittivo, gettone effimero, soffitto ∧ concessione, perimetro di sede e categoria, sette atti riservati al proprietario ([ADR-0102](18-decision-log.md#adr-0102--un-ruolo-di-club-e-uno-slug-autodescrittivo-piu-un-gettone-effimero-non-una-seconda-tabella-di-verita), [ADR-0103](18-decision-log.md#adr-0103--il-perimetro-e-dellassegnazione-e-zero-righe-significano-tutto-il-club)). La trappola nominata nel blocker — le tre chiavi `⛓` — e chiusa da un elenco esplicito: `validateCustomRoleDraft` le rifiuta, e non le deduce da `byLink`, che significa un'altra cosa |
+| **W6-2** · `/dashboard/access-management` | **Chiuso.** La schermata era peggio di assente: tre nomi inventati con indirizzi `@example.com` e un token generato con `Math.random()` **nel browser** e mai salvato |
+| **W6-3** · W4-R7 | **Chiuso** ([ADR-0106](18-decision-log.md#adr-0106--la-causale-di-unuscita-si-deduce-e-si-congela-sulla-riga)). Resta un pezzo di superficie: la scelta esplicita della causale ha una sola schermata, l'erogazione di un compenso |
+| **W6-4** · Policy completa dei consensi | **Aperto.** Il meccanismo c'e ed e configurazione — quindici percorsi su quindici ignoravano il registro dei consensi, e adesso lo interrogano — ma la **validazione legale** della policy resta un blocker esterno, che nessuna lane puo chiudere |
+| **W6-5** · Dato clinico per singolo operatore | **Aperto, e la dipendenza dichiarata non lo chiude.** Il blocker dice «dipende da W6-1», e W6-1 e fatto: ma un ruolo personalizzato e un **sottoinsieme** del suo ruolo base, e `clinical.read` appartiene a `GESTIONE` — `trainer` non c'e dentro. Percio un ruolo basato su `trainer` non puo ricevere quella chiave: `listGrantablePermissions("trainer")` non la offre, e `validateCustomRoleDraft` la rifiuterebbe. Restituire il dato clinico a un allenatore richiede una decisione **diversa**: allargare `clinical.read` a `trainer` nel catalogo (e allora vale per tutti gli allenatori, che e il taglio che la Wave 5 ha rimosso apposta), oppure una concessione per persona che oggi non ha modello |
+
+Sul quinto vale la pena essere espliciti, perche la KB diceva il contrario: la
+frase «dipende da W6-1» era una previsione, e i fatti la correggono.
+L'invariante «mai un soprainsieme» e proprio cio che rende sicuro il motore dei
+ruoli, e proprio cio che gli impedisce di restituire un permesso che il ruolo
+base non ha. Le due cose non si possono avere insieme.
+
+### Le tre sonde di runtime, e i quattro difetti che hanno trovato
+
+La Wave 6 chiude con tre sonde di correttezza che girano su un database di
+sviluppo popolato e che **non stanno in `npm test`**, perche un database vuoto
+non le puo eseguire: `npm run wave6:uat`, `wave6:roles`, `wave6:security` — 181
+controlli in tutto. Accanto vive `npm run wave6:perf`, che misura invece di
+verificare, e il suo esito non e un gate.
+
+Hanno trovato quattro difetti mentre la suite era verde su 4.348 test, e il
+motivo e lo stesso per tutti e quattro: **un test costruisce l'ingresso che il
+codice si aspetta**, e nessuno costruisce per sbaglio uno scope contraffatto,
+una riga scritta con un'altra grafia da una versione precedente, o un payload
+composto da un altro modulo.
+
+Tre dei quattro hanno lo stesso profilo, ed e quello che conviene ricordare: **la
+difesa esisteva e non arrivava fino alla superficie piu larga.**
+
+- il confine multi-tenant sul **registro generico**: la guardia contro lo scope
+  contraffatto viveva in `assertActiveClub`, e `resources.ts` chiamava invece
+  `belongsToActiveClub` da sola. Eventi e appuntamenti rifiutavano; l'elenco
+  degli atleti no — una cinquantina di risorse, fra cui l'anagrafica dei minori;
+- il **filtro di stato** era sensibile alle maiuscole, cioe la classe che W6-03
+  doveva chiudere, sopravvissuta dentro la propria correzione;
+- **salvare un campo qualunque cancellava le appartenenze**: l'aggiornamento
+  chiudeva sempre ricostruendole da una proiezione che non le contiene;
+- la **stagione attiva** non arrivava all'area atleta, perche il payload la
+  pubblica come `activeSeason*` e l'area chiedeva `season*` — stessa forma di
+  W6-09, superficie nuova.
+
+Il dettaglio del primo sta in [14](14-security.md).

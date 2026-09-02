@@ -5449,3 +5449,374 @@ vede — mentre toccare richiede atleta **e** autore.
 **`internal_notes` non si nasconde: non esce.** La proiezione verso la famiglia
 non ha quel campo, invece di averlo e non mostrarlo. E la lezione di D-4: una
 guardia che vive solo nell'interfaccia non e una guardia.
+
+---
+
+## ADR-0102 — Un ruolo di club e uno **slug autodescrittivo** piu un gettone effimero, non una seconda tabella di verita
+
+**Data:** 2026-09-01 · **Contesto:** Wave 6, lane 6G (blocker W6-1)
+
+**Contesto.** I sette ruoli canonici dicono **chi e** una persona; un club ha
+bisogno di dire **cosa fa**. La Wave 5 aveva concluso la sua analisi con una
+frase secca — «la verita sui ruoli personalizzati: non esistono» — e le due sole
+strade note erano entrambe cattive: un ottavo ruolo cablato, che CLAUDE.md vieta
+e a cui sarebbe seguito il nono; oppure una tabella di permessi consultata da
+ogni guardia, cioe una seconda fonte di verita accanto al catalogo.
+
+C'era anche un vincolo che non si poteva ignorare: `organization_users.role` e
+**testo libero**, e `normalizeAccessRole` risponde `""` — accesso negato — a
+qualunque stringa che non riconosce. Una migrazione che scrivesse un valore
+nuovo in quella colonna spegnerebbe l'accesso alla persona il giorno stesso.
+
+**La decisione.** Il ruolo di club vive in tre pezzi:
+
+1. **lo slug in archivio**, prefissato e **autodescrittivo**:
+   `custom:collaborator:segreteria`. Il prefisso rende impossibile la collisione
+   con un canonico; la base **dentro il nome** fa si che ogni lettore gia
+   scritto — le guardie di rotta, la matrice per risorsa, il catalogo, il
+   browser — sappia rispondere «al massimo quanto il ruolo base», anche prima di
+   aver letto una riga della tabella nuova. `normalizeAccessRole` normalizza un
+   ruolo personalizzato **sulla propria base**, ed e la riga che rende additivo
+   tutto il resto;
+2. **le chiavi in righe proprie** (`club_role_permissions`), una per chiave
+   concessa e nessun diniego esplicito: l'assenza e il diniego, come nel
+   catalogo;
+3. **un gettone effimero**, costruito per richiesta da
+   `resolveOrganizationScopeForUser` e mai persistito:
+   `custom:collaborator:segreteria#documents.request,documents.review`.
+   `roleHasPermission` lo legge e restringe, e le quindici guardie di dominio
+   ricevono la risposta ristretta **senza sapere che esistano ruoli di club**.
+
+Il permesso e quindi il **soffitto** (la chiave appartiene al ruolo base) ∧ la
+**concessione** (la chiave e fra quelle assegnate). Il soffitto e in codice e
+resta vero anche se una riga in archivio dicesse il contrario.
+
+**Le conseguenze accettate.**
+
+- **Il gettone finisce in `audit_logs.actor_role`.** Le righe sono piu lunghe e
+  meno leggibili a occhio. Si accetta perche in cambio la riga dice con **quali
+  chiavi** l'atto e stato compiuto, e non solo sotto quale etichetta di ruolo.
+- **Un ruolo personalizzato non puo mai essere piu largo del suo base.** Un club
+  che voglia una segreteria con un permesso che `collaborator` non ha non lo
+  ottiene: deve partire da `club_manager` e togliere. E una limitazione vera, ed
+  e il prezzo dell'invariante.
+- **Due colonne da scrivere insieme.** `role` e `custom_role_id` sono coerenti
+  solo se scritte dalla stessa strada, e una riga con lo slug e senza il
+  riferimento sarebbe la scalata piu economica del meccanismo. Si accetta
+  chiudendo la porta generica — `POST /api/v1/organization_users` rifiuta i
+  ruoli personalizzati — e **scartando** in sessione ogni tessera incoerente.
+  Il costo e che una riga scritta a mano nel database non concede niente e non
+  spiega perche: default negato, che e il verso giusto in cui sbagliare.
+- **`base_role` e immutabile.** Cambiarlo sposterebbe il soffitto sotto i piedi
+  delle assegnazioni in essere. Chi vuole un'altra base crea un ruolo nuovo e
+  riassegna, con una riga di audit per persona.
+- **Un dominio con matrice privata deve ricordarsi di chiamare
+  `narrowDomainPermission`.** Tre lo fanno; `src/lib/seasons/permissions.ts`
+  no, e oggi e innocuo solo perche `seasons.change` non e in catalogo. E un
+  debito di forma noto: il giorno in cui quella chiave entrasse in catalogo
+  senza adeguare quella funzione, la casella smetterebbe di avere effetto e
+  nessun test lo direbbe.
+- **`owner` smette di essere indistinguibile da `club_manager`.** Sette atti
+  diventano suoi soli, elencati in un insieme **chiuso**. Chi aggiunge un atto
+  di direzione e non lo nomina li scopre che l'atto non e riservato — ed e
+  esattamente cio che si voleva vedere.
+
+---
+
+## ADR-0103 — Il perimetro e **dell'assegnazione**, e zero righe significano tutto il club
+
+**Data:** 2026-09-01 · **Contesto:** Wave 6, lane 6G
+
+**Contesto.** «Questa persona vede solo la sede di Scauri» era, fino alla Wave
+6, una frase che il prodotto non sapeva dire. Esisteva un parametro `site_id`
+che arrivava **dal chiamante**, e la documentazione lo dichiarava per quello che
+era: «non e un confine di sicurezza». Chi non lo passava vedeva tutto.
+
+**La decisione.** Il perimetro sta su `club_access_scopes`, una riga per voce,
+legata alla **tessera** (`organization_user_id`) e non al ruolo: due persone con
+lo stesso ruolo possono avere perimetri diversi, ed e il caso comune — la
+segreteria di una sede e la segreteria di un'altra portano lo stesso ruolo.
+
+Due assi, `site` e `category`, in **AND** fra loro e in **OR** dentro se stessi.
+
+**Zero righe significano tutto il club**, mai «nessun accesso».
+
+**Le conseguenze accettate.**
+
+- **La forma opposta era impossibile.** Se un perimetro vuoto avesse significato
+  «nessun accesso», la migrazione avrebbe dovuto elencare le sedi di ogni
+  tessera esistente, e avrebbe spento l'accesso a tutti la notte del rilascio.
+  Il prezzo del verso scelto e che **dimenticare** di dare un perimetro non e
+  distinguibile dal **decidere** di non darne uno: il default e permissivo, e
+  chi legge la schermata non trova un avviso che glielo ricordi.
+- **Una riga senza il valore dell'asse ristretto non passa.** Se qualcuno ha
+  dichiarato che quella persona vede solo una sede, un dato senza sede non e «di
+  tutte le sedi»: e un dato di cui non si sa dire dove sia. L'eccezione e
+  l'elenco degli atleti, dove una scheda **senza sede dichiarata** resta
+  visibile, per ADR-0038: nasconderla lascerebbe scoperte proprio le schede che
+  qualcuno deve completare. Le due regole vanno in direzioni opposte, e la
+  seconda e un'eccezione motivata, non la regola.
+- **Il «gruppo» non e un `scope_kind`.** Il gruppo operativo e la **coppia**
+  (categoria, sede) — ADR-0055 — e non e un'entita: darglielo come perimetro
+  significherebbe crearne una. L'intersezione la calcola chi legge. Il costo e
+  che un club che ragiona per gruppi deve esprimersi con due assi.
+- **Il perimetro oggi restringe due cose, non tutte.** Gli elenchi degli atleti
+  e gli eventi. Le altre risorse del registro generico lo ignorano, ed e un
+  debito dichiarato: chiamarlo «perimetro» senza dire dove arriva sarebbe la
+  stessa promessa vuota che questa Wave e stata chiamata a smontare.
+
+---
+
+## ADR-0104 — L'accesso di un atleta si consegna con un **invito**, e nessun ramo compone una password
+
+**Data:** 2026-09-01 · **Contesto:** Wave 6, lane 6C2 (W6-25/26/27)
+
+**Contesto.** Il ruolo `athlete` era modellato da capo a fondo: un ruolo
+canonico, un'area, una guardia di percorso, un redirect, una sessione che lo
+riconosce leggendo `athletes.user_id`, e perfino una funzione che quel legame lo
+**slega**. E nessun percorso lo **legava**. Il pulsante «Invia credenziali»
+c'era, in tre schede, e mostrava un errore.
+
+E la forma di difetto che CLAUDE.md §11.8 chiama «codice irraggiungibile», ed e
+la stessa dell'RSVP e di `board.read`.
+
+**La decisione.** La consegna e in due tempi, e ognuno prova una cosa diversa:
+
+1. l'**invito** porta un token opaco di 32 byte dentro un link. In archivio ne
+   resta solo lo SHA-256 (ADR-0085): il database, se finisse nelle mani
+   sbagliate, non riaprirebbe nessuna porta. Chi apre il link dimostra di
+   leggere quella casella;
+2. la **password** non la sceglie il club: la sceglie la persona, con il
+   meccanismo che il prodotto ha gia (ADR-0015). Qui non ne nasce un secondo.
+
+`src/lib/server/athlete-accounts.ts` e l'unico scrittore di `athletes.user_id`.
+Un'utenza nuova nasce con la forma di `createOAuthBootstrapUser` —
+`password_hash` di una password casuale che nessuno conosce e nessuno riceve,
+perche la colonna e non-nullable — e `email_verified_at` **nullo**, perche a
+quel punto nessuno ha ancora dimostrato niente.
+
+**Le conseguenze accettate.**
+
+- **Nessuno puo «vedere» le credenziali di un atleta**, nemmeno il proprietario
+  del club. Chi chiede aiuto a una segretaria ottiene un reinvio, non una
+  password letta al telefono. E il comportamento giusto e sara comunque una
+  domanda di supporto ricorrente.
+- **Un solo invito vivo per atleta, e lo garantisce il database** — indice unico
+  **parziale** sul solo stato `sent`. Un reinvio revoca il precedente e ne crea
+  uno nuovo, quindi la storia resta leggibile; ma due segretarie che premono
+  insieme ricevono una, e una sola, riga scritta, e la seconda vede un errore
+  di conflitto invece di un successo silenzioso.
+- **`user_id` sull'invito, che il piano non prevedeva.** Senza, l'accettazione
+  dovrebbe ritrovare l'utenza dall'indirizzo, e fra l'invio e il clic
+  quell'indirizzo puo essere cambiato o rioccupato: il token finirebbe per
+  legare l'atleta a un'utenza diversa da quella invitata. Il prezzo e una
+  colonna in piu e un'utenza creata **prima** che qualcuno abbia accettato.
+- **Un'utenza gia verificata non viene toccata** — l'atleta che e anche
+  genitore, o che ha gia un account. Nessun reset non richiesto, nessuna
+  sessione invalidata. Il costo e che il segnale su cui si decide e
+  `email_verified_at`, cioe un campo che serve gia a un'altra cosa.
+- **La rotta di riscatto e pubblica per costruzione**, e cosi la pagina
+  `/athlete-dashboard/attiva`. Ci arriva chi non ha ancora una password, e
+  chiedergli una sessione sarebbe mandarlo dove non puo entrare.
+
+---
+
+## ADR-0105 — Una persona **non e una tabella**: la cancellazione attraversa sei indici polimorfi e dichiara cosa resta
+
+**Data:** 2026-09-01 · **Contesto:** Wave 6, lane 6I
+
+**Contesto.** I dati di un atleta vivono su tabelle con una chiave esterna —
+dove il database sa dove sono — e su **sei indici polimorfi**, dove non lo sa:
+`attachments` (`owner_type`/`owner_id`), e `consent_records`,
+`document_requests`, `document_submissions`, `generated_documents`
+(`subject_kind`/`subject_id`), piu `form_submissions.subjects`, che e JSON.
+
+Nessuna delle sei ha una chiave esterna verso `athletes`. Cancellare un atleta
+le lasciava **tutte** in piedi: dopo la cancellazione i dati del minore
+restavano in archivio senza piu niente che li legasse a niente — cioe il caso
+peggiore, perche il dato resta e la possibilita di trovarlo no. Si aggiungono due
+colonne che citano un atleta senza vincolo — `club_event_participants.athlete_id`
+e `payment_links.athlete_id` — e una lista, `communication_deliveries.athlete_ids`.
+
+**La decisione.** Un modulo nuovo, `src/lib/server/data-subject.ts`, che non
+appartiene a nessun dominio perche li **attraversa**, ed e l'unico posto in cui
+si scrive «tutti i posti in cui vive una persona». Tre classi:
+
+- **`delete`** — dati che esistono solo per il servizio erogato a quella
+  persona;
+- **`anonymize`** — righe che devono restare perche qualcun altro le consulta
+  (un documento emesso, una consegna gia partita) ma che non devono piu
+  **nominare** nessuno;
+- **`retain`** — righe che una societa e **tenuta** a conservare: incassi,
+  fatture, ricevute, contributi liquidati. Compaiono nel riepilogo **con il
+  motivo**: chi chiede la cancellazione ha diritto di sapere cosa non viene
+  cancellato, e perche.
+
+**Le conseguenze accettate.**
+
+- **Il riepilogo precede la cancellazione, e produce un gettone che ne e
+  l'impronta.** `DELETE` senza quel gettone rifiuta, e rifiuta anche se
+  l'inventario e cambiato nel frattempo. Non e un meccanismo di sicurezza — chi
+  puo cancellare puo comunque chiedere prima il riepilogo — e un meccanismo che
+  rende **impossibile cancellare senza aver visto**. Il costo e una chiamata in
+  piu e un'operazione che puo fallire per una ragione che sembra arbitraria.
+- **Un'anagrafica senza data di nascita si tratta come minore.** Sull'eta ignota
+  si sbaglia verso la cautela, e il prezzo e una conferma esplicita chiesta
+  anche dove non servirebbe.
+- **L'elenco delle sei e scritto a mano e va tenuto aggiornato.** Un indice
+  polimorfo nuovo che nessuno aggiunge qui rimette in piedi esattamente il
+  difetto di partenza — e nessun vincolo del database lo segnalera, perche il
+  problema e proprio che quei vincoli non ci sono.
+- **Solo l'atleta, in V1.** `person`, `member` e `guardian` restano fuori.
+- **L'export non porta byte.** Gli allegati escono come metadati: un export che
+  li trascinasse avrebbe una dimensione non dichiarabile in anticipo, e i byte
+  hanno gia la loro rotta.
+
+---
+
+## ADR-0106 — La causale di un'uscita si **deduce**, e si **congela** sulla riga
+
+**Data:** 2026-09-01 · **Contesto:** Wave 6, lane 6J (W4-R7, blocker W6-3)
+
+**Contesto.** Le due strade con cui il denaro esce da un club — il compenso del
+lavoro sportivo e la liquidazione di un bando — uscivano dal registro **senza
+causale**: la vista della prima nota proiettava `NULL` e `'unspecified'`
+**scritti nel SQL**, perche il percorso di scrittura un campo per dirlo non ce
+l'aveva. Su una stagione vera erano 7.000 euro su 7.210 del non classificato: il
+buco non era un residuo di data entry, era strutturale. La Wave 4 lo ha reso
+**misurabile** senza chiuderlo.
+
+Il catalogo di sistema, per parte sua, aveva **nove voci e otto guardavano in
+entrata**: non esisteva una sola causale pensata per un'uscita, e un club si
+sarebbe trovato davanti a una lista vuota.
+
+**La decisione.** Tre colonne su ciascuna delle due tabelle — la stessa forma
+che l'incasso atleta ha gia su `payment_transactions` — piu quattro causali in
+uscita nel seme. E due regole:
+
+1. **si deduce, non si chiede.** Un campo facoltativo che nessuno compila
+   sarebbe il buco di prima con un nome nuovo. La causale si ricava da
+   `transaction_type`, che il dominio conosce **nel momento in cui scrive la
+   riga**, e resta sovrascrivibile: la classificazione c'e dal primo giorno, e
+   cio che resta non classificato e allora una scelta vera;
+2. **si congela.** `operation_type_label_snapshot` e `activity_scope_snapshot`
+   fotografano la causale al momento del movimento, perche la causale e
+   configurazione mutabile: senza lo scatto, un club che la corregge
+   cambierebbe **retroattivamente** la natura di cio che ha gia registrato, e un
+   rendiconto stampato a marzo direbbe una cosa diversa ristampato a maggio.
+
+**Le conseguenze accettate.**
+
+- **Le quattro causali non rispecchiano i sette sottotipi di
+  `transaction_type`**, ed e deliberato: quello e un enum tecnico che dice
+  **come la riga e nata**, la causale dice **sotto quale voce il denaro si
+  somma**. Rispecchiarlo avrebbe portato nel piano dei conti una distinzione che
+  serve al motore e non a chi legge il bilancio. Il prezzo e che due tipi
+  tecnici diversi possono finire sotto la stessa voce.
+- **`CONTRIBUTION_PAYMENT` resta senza deduzione.** Il versamento dei contributi
+  non e ne un compenso ne una prestazione: e un adempimento, e dedurne una
+  sbagliata sarebbe peggio che non dedurne nessuna. Quelle righe restano non
+  classificate finche qualcuno non sceglie.
+- **Le righe gia in archivio restano non classificate.** Inventare una causale
+  per un movimento che nessuno ha classificato vorrebbe dire scrivere una scelta
+  contabile al posto del club.
+- **Le quattro causali nascono con `activity_scope: unspecified`.** L'ambito e
+  una determinazione **fiscale**, e ADR-0093 la tiene distinta dalla contabilita
+  gestionale: seminarle gia classificate le farebbe sembrare configurate, e
+  nessuno tornerebbe a guardarle.
+- **Uno storno eredita lo scatto, non lo ricalcola.** Se la causale e stata
+  rinominata fra il movimento e il suo storno, le due righe devono continuare a
+  dire la stessa cosa, altrimenti la voce di rendiconto non torna a zero.
+- **Il seme deve completare, non solo popolare.** La condizione era «il club non
+  ha nessuna riga», e ha funzionato finche il catalogo di sistema non e
+  cambiato: un club gia configurato — cioe ogni club vero — non avrebbe visto
+  mai le quattro voci nuove. Invisibile in sviluppo, dove i club nascono vuoti;
+  universale in produzione. E una classe, non un caso: **un seme condizionato
+  alla tabella vuota smette di funzionare al primo dato**.
+- **La scelta esplicita ha una sola schermata.** Solo l'erogazione di un
+  compenso offre la tendina. Premi, rimborsi, fatture e liquidazioni si
+  classificano con la sola deduzione: il rendiconto non ha piu buchi, la
+  correzione di una singola riga non ha ancora una porta.
+
+---
+
+## ADR-0107 — Il PDF non si rasterizza; il **contenitore** si apre solo quando dentro c'e una fotografia sola
+
+**Data:** 2026-09-01 · **Contesto:** Wave 6, lane 6J (§16 del mandato)
+
+**Contesto.** Il mandato chiedeva di «sviluppare l'OCR». La verifica ha detto
+un'altra cosa: l'OCR **c'era gia**, locale, nel browser, e funzionava. Cio che
+non funzionava era l'ingresso: i PDF venivano rifiutati con una frase onesta —
+«il motore attuale legge immagini, fotografa il documento» — detta a una persona
+che quasi sempre **aveva appena fotografato il documento**, perche i telefoni
+recenti e ogni app di scansione salvano lo scatto in PDF per impostazione
+predefinita. Le si stava chiedendo di rifare una cosa gia fatta.
+
+**La decisione.** Non aggiungere un rasterizzatore. `src/lib/pdf-embedded-image.ts`
+**non legge i PDF**: non e un motore di rendering, non interpreta pagine, non
+compone testo, non conosce font, trasformazioni o livelli. Fa una cosa sola —
+quando un PDF contiene **una sola immagine JPEG e nient'altro di disegnabile**,
+ne restituisce i byte, che e la forma esatta prodotta da uno scatto salvato in
+PDF. L'OCR continua a girare sull'immagine, nel browser, come prima.
+
+**Le conseguenze accettate.**
+
+- **`pdf.js` resta fuori.** Sarebbero alcuni megabyte di dipendenza per un solo
+  caso d'uso, su un percorso che ADR-0007 chiede di tenere leggero, e
+  porterebbero un motore completo di rendering dove serve un taglio di byte. Il
+  costo e che i PDF veri — quelli con testo, o con piu immagini — restano
+  illeggibili, e il prodotto continua a chiedere una fotografia.
+- **La severita e la funzione, non un limite.** Se dentro non c'e esattamente
+  una immagine, il modulo **non prova a indovinare**: risponde `null` e il
+  rifiuto di prima resta con la sua spiegazione. Su un documento d'identita un
+  ritaglio sbagliato produce un dato **plausibile e falso**, e un dato
+  plausibile e falso su un tesseramento diventa un errore federale.
+- **Il vincolo del mandato — «non sviluppare OCR artigianale» — non e toccato**:
+  qui non si riconosce niente. Si apre un contenitore.
+- **Il rifiuto si sposta dal controllo dei formati al motore.** A monte non si
+  sa ancora che PDF sia; solo il motore, che il contenitore l'ha aperto, sa cosa
+  c'e dentro. Il prezzo e che l'utente scopre il rifiuto piu tardi, dopo aver
+  caricato il file.
+
+---
+
+## ADR-0108 — Una colonna che promette una funzione **che nessun presidio sostiene** si toglie
+
+**Data:** 2026-09-01 · **Contesto:** Wave 6, lane 6H — emenda ADR-0101
+
+**Contesto.** `appointment_slots.capacity` prometteva di poter ricevere piu
+persone nello stesso istante, e il calcolo della disponibilita ci credeva:
+proponeva `capacity - presi` posti. Ma il presidio che impedisce **davvero** la
+doppia prenotazione e l'indice unico parziale `appointments_slot_vivo_unico`, che
+sta su `(organization_id, assigned_to_user_id, starts_at)` per i soli stati vivi
+e **non conosce la capienza**.
+
+Con `capacity = 2` il prodotto offriva due prenotazioni sullo stesso orario e la
+seconda, legittima, riceveva un P2002 tradotto in «quell'orario e appena stato
+preso»: una frase **falsa**, detta a chi aveva appena visto il posto libero.
+
+**La decisione.** Togliere la colonna, invece di rendere vera la promessa.
+
+Rendere vera la capienza avrebbe richiesto di toccare il presidio piu delicato
+del dominio — ADR-0101: la doppia prenotazione la impedisce il database, non il
+codice — per abilitare una funzione che **nessuna schermata sapeva chiedere**:
+nessuna UI ha mai scritto quella colonna, quindi in archivio ogni riga porta il
+default `1`. Con 1 i due comportamenti coincidono, e **la rimozione non cambia
+nessun risultato osservabile**: e la ragione per cui e sicura, ed e anche la
+ragione per cui la colonna non serviva.
+
+**Le conseguenze accettate.**
+
+- **Non e reversibile**, ed e dichiarato: ripristinarla significherebbe
+  ripristinare il default, cioe l'unico valore che ha mai avuto.
+- **Un club che un giorno vuole slot collettivi** — una visita medica di gruppo,
+  uno sportello con due operatori — non ha piu nemmeno la colonna. E corretto:
+  quel giorno servira una decisione sul presidio, non una colonna che c'era gia
+  e non funzionava.
+- **La riga di ADR-0101 che elenca la «capienza» fra i campi di
+  `AppointmentSlot` descrive lo schema fino al 2026-09-01.** Un ADR non si
+  riscrive: si emenda, e questo lo fa.
+- **La regola generale, che vale oltre il caso.** Una colonna che descrive una
+  funzione che nessun vincolo sostiene e peggio di una colonna assente: chi la
+  legge le crede, e il codice di lettura le si costruisce sopra. La domanda da
+  farsi non e «serve?», e «**chi la fa rispettare?**».

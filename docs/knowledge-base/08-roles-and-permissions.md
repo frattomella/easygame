@@ -28,8 +28,8 @@ protette.
 |------|-------|-----------------------------------------------|
 | `management` | owner, club_manager, collaborator, staff | `/dashboard?clubId=<id>` |
 | `trainer` | trainer | `/trainer-dashboard` |
-| `parent` | parent | `/parent-view/<athleteId>` |
-| `athlete` | athlete | `/athletes/<athleteId>/profile` |
+| `parent` | parent | `/parent-view/<athleteId>` con **un** figlio; `/parent-view` — la schermata di scelta — con piu d'uno (Wave 6) |
+| `athlete` | athlete | `/athlete-dashboard`, senza identificativo nel percorso (Wave 6) |
 | `account` | qualsiasi utente autenticato | `/account` |
 
 ## Permessi di navigazione — `canAccessPath`
@@ -43,15 +43,36 @@ protette.
   `/permissions`, `/settings`;
 - `trainer` → solo `trainer`;
 - `parent` → solo `parent`, **e** il path deve essere
-  `/parent-view/<linkedAthleteId>` dell'atleta effettivamente collegato;
-- `athlete` → i ruoli management passano; l'atleta passa solo sul proprio
-  `/athletes/<linkedAthleteId>/profile`.
+  `/parent-view/<linkedAthleteId>` dell'atleta effettivamente collegato. Fa
+  eccezione `/parent-view` nudo, che e la schermata di **scelta del figlio** e
+  non parla di nessun figlio in particolare (Wave 6);
+- `athlete` → sul proprio `/athletes/<linkedAthleteId>/profile` passano anche i
+  ruoli management, perche e la scheda di un atleta del loro club; su
+  `/athlete-dashboard` passa **solo** `athlete`, perche li non c'e nessun atleta
+  da guardare — c'e la propria area, e per un dirigente sarebbe vuota.
 
-Prefissi management riconosciuti: `/dashboard`, `/athletes`, `/categories`,
-`/clothing`, `/hub`, `/matches`, `/medical`, `/modulistica`, `/movements`,
-`/notifications`, `/organization`, `/payments`, `/permissions`, `/procura`,
-`/registration-management`, `/reports`, `/secretariat`, `/settings`, `/soci`,
-`/sponsors`, `/staff`, `/structures`, `/trainers`, `/training`.
+Prefissi management riconosciuti (`MANAGEMENT_PATH_PREFIXES`): `/audit`,
+`/calendar`, `/dashboard`, `/athletes`, `/categories`, `/clothing`,
+`/communications`, `/consensi`, `/hub`, `/matches`, `/medical`, `/modulistica`,
+`/movements`, `/notifications`, `/onboarding`, `/organization`, `/payments`,
+`/permissions`, `/procura`, `/registration-management`, `/reports`,
+`/secretariat`, `/settings`, `/soci`, `/sponsors`, `/sport-work`, `/staff`,
+`/structures`, `/trainers`, `/training`.
+
+> **Due aree della Wave 6 non sono in quell'elenco: `/appuntamenti` e
+> `/documenti`.** Montano il guscio con `AccessAreaGuard`, e il middleware
+> chiede la sessione; ma `getPathAccessArea` non le riconosce come gestionali e
+> risponde `public`, e per `public` il guard **consente sempre**. Il risultato e
+> che un genitore o un allenatore con una sessione valida vede la *struttura* di
+> due schermate di segreteria — i dati no, perche le API rifiutano comunque.
+>
+> E la stessa classe che il commento in testa a `src/middleware.ts` racconta per
+> `/consensi`, `/sport-work` e `/calendar`, e che il presidio nuovo di
+> `tests/auth/route-guards.test.mjs` dovrebbe chiudere. Non la chiude: quel test
+> verifica che ogni area abbia **un guscio con una guardia e un prefisso nel
+> middleware**, non che il guard la **classifichi**. Un guard montato su un
+> percorso che il classificatore chiama `public` e un guard che non guarda
+> niente.
 
 > Dal 2026-08-22 `canAccessPath` e applicato da `AccessAreaGuard` su **tutte**
 > le aree, tramite `src/components/auth/management-area-layout.tsx` montato in
@@ -584,9 +605,265 @@ Adesso lo verifica, con la definizione operativa del debito:
 > di una chiamata a un verificatore.
 
 Le chiavi non ancora chieste vivono in un elenco **con il motivo scritto**.
-Oggi ne contiene una: `sport_work.read_own`, che aspetta la schermata «i miei
-compensi» dell'allenatore (lane 6C). Quando quella nasce, la riga sparisce.
+
+> **Aggiornamento a fine Wave 6: l'elenco e vuoto.** `sport_work.read_own` era
+> l'ultima voce, e la lane 6C ha costruito la superficie che la consuma —
+> `/trainer-dashboard/compensi` e `GET /api/v1/sport-work/me`, che chiede quella
+> chiave e non `sport_work.read`. Chi aggiunge oggi una chiave al catalogo senza
+> innestarla in una guardia trova un test rosso e **nessuna eccezione da
+> imitare**: se gli serve una deroga deve scriverla, e dichiararne il motivo.
 
 > **La regola.** Una chiave in un catalogo non e un permesso finche una strada
 > non la chiede. Un catalogo che elenca chiavi non applicate e **peggio di un
 > catalogo assente**.
+
+---
+
+## I ruoli personalizzati di club (2026-09-01, Wave 6 — 6G, chiude W6-1)
+
+I sette ruoli canonici dicono **chi e** una persona. Un club ha bisogno di dire
+**cosa fa**, e fin qui l'unica risposta possibile sarebbe stata un ottavo ruolo
+cablato — che CLAUDE.md vieta, e a ragione: il nono sarebbe arrivato subito
+dopo. La Wave 5 lo aveva gia constatato e scritto per esteso: «la verita sui
+ruoli personalizzati: non esistono».
+
+Adesso esistono, e la parte che vale la pena capire non e che esistono: e
+**perche non allargano niente**.
+
+### Lo slug, e perche porta dentro il proprio ruolo base
+
+`organization_users.role` e testo libero, e qualunque stringa che
+`normalizeAccessRole` non riconosce vale `""`, cioe accesso negato. Un ruolo di
+club deve quindi non poter collidere con un canonico e restare leggibile in
+archivio. Da qui il prefisso:
+
+    custom:collaborator:segreteria
+
+La base **dentro** il nome non e un vezzo. Senza, la stringa non e
+autodescrittiva: `normalizeAccessRole` — il funnel di ogni controllo, del
+catalogo delle chiavi, delle guardie di rotta e della navigazione del browser —
+non avrebbe modo di sapere cosa quel ruolo sia, e risponderebbe `""`. Il giorno
+dell'assegnazione la persona perderebbe **ogni** accesso: la migrazione non
+sarebbe additiva, sarebbe una porta che si chiude.
+
+Con la base dentro, ogni controllo gia scritto continua a funzionare e risponde
+**al massimo** quanto risponderebbe al ruolo base — mai di piu. Il «mai di piu»
+e l'invariante di sicurezza dell'intero meccanismo.
+
+Le basi ammesse sono quattro: `club_manager`, `collaborator`, `staff`,
+`trainer`. Fuori restano:
+
+- **`owner`**, perche la proprieta non e un modello da clonare e la sua
+  distinzione e strutturale (`clubs.creator_id`);
+- **`parent` e `athlete`**, perche i loro permessi nascono dal **legame** con un
+  atleta: un ruolo che li imitasse prometterebbe un accesso che nessuna rotta
+  gli darebbe.
+
+### Il gettone di sessione: effimero, e per questo puo portare le chiavi
+
+In archivio sta lo **slug** e basta; le chiavi stanno nelle loro righe. A ogni
+richiesta `resolveOrganizationScopeForUser` costruisce un *gettone* che aggiunge
+allo slug le chiavi concesse e che vive quanto la richiesta:
+
+    custom:collaborator:segreteria#documents.request,documents.review
+
+**Non e mai una colonna.** Portare le chiavi nel ruolo attivo e cio che rende il
+restringimento vero ovunque senza riscrivere le quindici guardie di dominio:
+tutte chiedono `roleHasPermission(scope.activeRole, chiave)`, e passando di li la
+domanda riceve la risposta ristretta invece di quella del ruolo base.
+
+Il gettone finisce anche in `audit_logs.actor_role`, ed e un vantaggio e non un
+effetto collaterale: la riga dice con **quali** chiavi l'atto e stato compiuto,
+e non solo sotto quale etichetta di ruolo.
+
+Le due letture in piu si fanno solo se qualche tessera nomina un ruolo di club:
+chi non ne ha paga zero round trip aggiuntivi.
+
+### Il soffitto e la concessione: due condizioni, e la piu stretta vince
+
+`roleHasPermission` risponde a un ruolo personalizzato in due passi:
+
+1. **il soffitto** — la chiave deve appartenere al **ruolo base**. Un ruolo
+   personalizzato e un sottoinsieme, mai un soprainsieme, e questa condizione
+   resta vera anche se una riga di `club_role_permissions` dicesse il contrario:
+   un archivio si puo corrompere, questa riga di codice no;
+2. **la concessione** — la chiave dev'essere fra quelle assegnate.
+
+Un gettone **senza chiavi** — per esempio lo slug letto dall'archivio, che le
+chiavi non le porta — nega tutto. E il verso giusto in cui sbagliare: chi non ha
+risolto la riga non concede niente.
+
+### Le quattro caselle che non facevano niente, e `narrowDomainPermission`
+
+Il gettone funziona per le guardie che passano dal catalogo. **Non tutti i
+domini ci passano.** `sport-work`, `accounting` e `communications` tengono una
+matrice per ruolo tutta loro — la prima duplica il catalogo, la seconda ha
+chiavi che in catalogo **non ci sono affatto**, la terza e l'autorita vera su
+`rsvp.answer` — e la interrogano dopo aver **normalizzato** il ruolo, cioe dopo
+aver visto il ruolo base.
+
+Conseguenza, prima della correzione: togliere `sport_work.pay` a un ruolo
+personalizzato non toglieva niente. Cinque caselle che non fanno niente sono
+esattamente cio che il mandato vieta — «ogni permesso mostrato deve avere
+effetto reale» — e nasconderle sarebbe stato il rimedio sbagliato: si sarebbe
+smesso di mostrarle **e** di poterle togliere.
+
+`narrowDomainPermission` (in `src/lib/permissions/catalog.ts`) e il ponte, e
+risponde tre cose:
+
+| Risposta | Quando | Effetto |
+|----------|--------|---------|
+| `null` | il ruolo **non** e personalizzato | chi chiama prosegue come prima: nessun comportamento esistente cambia |
+| `false` | la chiave non appartiene al ruolo **base** | il soffitto, di nuovo |
+| la concessione | la chiave e **in catalogo** | si restringe |
+| `true` | la chiave **non** e in catalogo | vale il ruolo base |
+
+L'ultima riga e la parte che vale rileggere: **si restringe cio che qualcuno ha
+potuto scegliere, non cio che nessuno ha mai visto.** Le chiavi `accounting.*`
+non compaiono in nessuna casella dell'editor, e restringerle su una concessione
+che nessuno ha mai potuto dare toglierebbe a un ruolo basato su `club_manager`
+la contabilita intera: sarebbe una regressione muta.
+
+> **Un quarto dominio con matrice privata resta fuori, e va saputo.**
+> `src/lib/seasons/permissions.ts` decide `seasons.change` delegando a
+> `canManageClubConfiguration(normalizeAccessRole(role))`, quindi risponde al
+> ruolo **base** e non chiama `narrowDomainPermission`. Oggi e innocuo per la
+> stessa ragione dell'ultima riga della tabella: `seasons.change` **non e nel
+> catalogo delle chiavi**, quindi non e una casella che qualcuno abbia potuto
+> togliere. Diventerebbe un difetto il giorno in cui entrasse in catalogo senza
+> che quella funzione venga adeguata. (Il commento di `narrowDomainPermission`
+> nomina quattro domini: i chiamanti sono tre.)
+
+### Cosa un ruolo non puo contenere
+
+**Le tre chiavi di legame**, elencate a mano e non dedotte:
+`consents.decide_own`, `documents.submit_own`, `rsvp.answer`.
+
+La tentazione sarebbe dedurle dal campo `byLink` del catalogo, e sarebbe
+sbagliato — l'errore e credibile, per questo e scritto nel codice: `byLink`
+significa «questa chiave si ottiene **anche** dal legame», ed e vero per
+`documents.read_dossier`, `clinical.status_read`, `events.read`,
+`appointments.read_own`, che restano perfettamente di ruolo e che una segreteria
+deve poter avere. Per le tre di sopra il legame non e una strada in piu, e
+**l'unica**: concederle a un ruolo direbbe che chiunque lo porti puo decidere
+per **chiunque**, mentre la verita e che puo decidere per chi e legato a
+**quell'** atleta. Sarebbero permessi piu larghi di quello che sembrano.
+
+**Le chiavi di direzione** — quelle che nessun ruolo diverso da proprietario e
+gestore porta — non sono vietate: un club puo volere un «controllo interno» che
+legge il registro e non tocca nient'altro. Ma **assegnarlo e un atto del
+proprietario**. Si ricavano dal catalogo invece di elencarle, cosi una chiave
+nuova riservata alla direzione entra nell'insieme il giorno in cui nasce.
+
+### `owner` smette di essere indistinguibile da `club_manager`
+
+`isOwnerAccessRole` aveva **zero chiamanti**: le sole differenze fra i due ruoli
+erano strutturali, via `clubs.creator_id`. Da qui un elenco **chiuso** di sette
+atti che soltanto il proprietario compie — `OWNER_ONLY_ACTIONS` in
+`src/lib/roles/custom-role.ts`:
+
+creare, modificare e cancellare un ruolo personalizzato; assegnare o revocare il
+ruolo di proprietario; assegnare un ruolo personalizzato che contiene permessi
+di direzione; cancellare l'organizzazione; cambiare le configurazioni di
+piattaforma e di fatturazione.
+
+Chiuso vuol dire che si allunga con una riga li e non con un `if` sparso: il
+giorno in cui qualcuno aggiunge un atto di direzione e l'elenco non lo nomina,
+l'atto **non** e riservato, e si vede.
+
+### Nessuno concede un ruolo che non possiede
+
+`assertConcessioneDiAccessoLecita` verificava che il concedente fosse
+`owner || club_manager` e **non confrontava il ruolo concesso con quello
+posseduto**: un `club_manager` poteva fabbricare una tessera `role: "owner"` per
+chiunque. Il codice lo sapeva e lo accettava con una motivazione datata —
+«piccola oggi, perche owner e club_manager hanno gli stessi diritti, e una
+scalata il giorno in cui non li avranno piu». Con i sette atti riservati, quel
+giorno e arrivato.
+
+`assertMayGrantRole` pone quattro condizioni:
+
+1. si concede solo amministrando il club attivo;
+2. `owner` lo concede **solo** un `owner`;
+3. un ruolo personalizzato che contiene chiavi di **direzione** lo assegna solo
+   un `owner`;
+4. **nessuna chiave che il concedente non abbia** — altrimenti basterebbe
+   assegnarla a un complice, o a se stessi il giorno dopo, per ottenerla.
+
+La quarta condizione interroga il ruolo **attivo** passando dal catalogo, quindi
+un gestore che porta a sua volta un ruolo personalizzato non puo concedere le
+chiavi del proprio ruolo base che a lui sono state tolte. L'auto-promozione
+resta impedita a monte, dal chiamante: una tessera non si firma da soli.
+
+**E la rotta generica non serve piu a questo.** `assertConcessioneDiAccessoLecita`
+in `resources.ts` rifiuta oggi qualunque ruolo personalizzato con una riga di
+audit del diniego, perche una tessera con lo slug e senza `custom_role_id`
+darebbe il ruolo base **senza** restringimento. L'unica strada e
+`src/lib/server/club-roles.ts`.
+
+### Il perimetro: sede e categoria, e zero righe che significano tutto
+
+`club_access_scopes` porta il perimetro di **un'assegnazione**, non di un ruolo.
+Due assi, `site` e `category`, in **AND** fra loro e in **OR** dentro se stessi:
+«le sedi di Scauri e Santi Cosma, categoria Pulcini» significa Pulcini in una di
+quelle due sedi.
+
+Due regole che conviene non scoprire per tentativi:
+
+- **zero righe non sono zero accessi, sono nessuna restrizione.** E cio che
+  hanno tutte le tessere esistenti, ed e la scelta che rende il perimetro
+  additivo invece che una migrazione di comportamento;
+- **una riga che non porta il valore dell'asse ristretto non passa.** Se qualcuno
+  ha dichiarato che quella persona vede solo una sede, un dato senza sede non e
+  «di tutte le sedi»: e un dato di cui non si sa dire dove sia.
+
+Prima della Wave 6 la sede era un filtro che arrivava **dal chiamante**, e la
+documentazione lo diceva a chiare lettere: «non e un confine di sicurezza».
+Adesso lo e — ma solo per chi ne ha uno dichiarato.
+
+Il «gruppo» non e un `scope_kind`: e la coppia (categoria, sede)
+([ADR-0055](18-decision-log.md)), non un'entita, e darglielo come perimetro
+significherebbe crearne una.
+
+### Le due chiavi nuove
+
+Il catalogo passa da trentatre a **trentacinque** voci.
+
+| Chiave | Ruoli | Perche li |
+|--------|-------|-----------|
+| `accounts.athlete.manage` | gestione | Consegnare un accesso non e leggere una scheda, ma **non concede niente che chi lo compie non abbia gia**: il ruolo dell'invito e fisso (`athlete`) e il perimetro e la scheda di quell'atleta, che segreteria e collaboratore leggono tutti i giorni. Chiuderla alla direzione avrebbe messo la consegna dell'accesso in un ufficio diverso da quello che tiene l'anagrafica, cioe l'avrebbe resa una cosa che non si fa |
+| `audit.read` | direzione | Il registro porta **tutti** gli atti del club insieme — chi ha stornato un incasso, chi ha cambiato l'anagrafica di un minore, chi ha provato a fare cosa e si e visto negare. E il piu trasversale dei dati societari, e il suo perimetro e lo stesso che gia protegge i conti correnti. Resta **concedibile** a un ruolo personalizzato basato su `club_manager`, ed e la chiave con cui un club costruisce un controllo interno — ma concederla e un atto del proprietario, perche e una chiave di direzione |
+
+`/audit` sta fra i percorsi **gestionali** e non fra quelli amministrativi, ed e
+deliberato: a decidere e la chiave, non il prefisso. Metterlo fra gli
+amministrativi lo avrebbe chiuso a ogni ruolo diverso da proprietario e gestore
+**prima** che la chiave potesse dire la sua, e un ruolo personalizzato a cui il
+club concede la lettura del registro avrebbe trovato una porta chiusa dal
+browser con la rotta che rispondeva 200. Due serrature che dicono cose diverse
+sono gia rotte prima che qualcuno trovi come aprirle.
+
+### Cosa cambia per l'area atleta
+
+`/athlete-dashboard` e l'unica area che **non prende un identificativo nel
+percorso**, e non e una dimenticanza: l'atleta e se stesso, la scheda si risolve
+dal legame `athletes.user_id`, e non esiste un parametro da cambiare per farla
+diventare la scheda di un altro. Il genitore ha `/parent-view/<figlio>` perche di
+figli puo averne piu d'uno; l'atleta no.
+
+E in quell'area **non entra la gestione**. Sulla scheda `/athletes/<id>/profile`
+un ruolo gestionale passa — e la scheda di un atleta del suo club, che gia legge
+— ma su `/athlete-dashboard` non c'e nessun atleta da guardare: c'e la propria
+area, e per un dirigente sarebbe vuota. Aprirgliela vorrebbe dire prometterle un
+contenuto che non puo avere.
+
+Sul redirect d'ingresso cambiano due cose:
+
+- un **genitore con piu figli** entra da `/parent-view`, la schermata da cui si
+  sceglie di quale figlio parlare, e non piu sul **primo** figlio. La pagina e
+  raggiungibile anche da chi di figli ne ha uno, altrimenti «cambia figlio»
+  rimanderebbe su una porta chiusa;
+- un **atleta** entra su `/athlete-dashboard` e non piu su
+  `/athletes/<id>/profile`, che monta la sidebar del club: vedeva cliccabili
+  Pagamenti, Movimenti, Impostazioni e altre trenta voci, ci cliccava, e
+  rimbalzava sulla guardia senza una parola. Un menu che elenca cio che non si
+  puo fare non e un menu.

@@ -473,3 +473,60 @@ di sessione vero: 72 controlli, 72 verdi.
 | Export e cancellazione di una persona | COMPLETE | Attraversa sei indici polimorfi. Per un minore serve un riepilogo confermato |
 | Identificativo di richiesta | COMPLETE | Due righe di log della stessa richiesta non erano correlabili |
 | Giro notturno che si lamenta | COMPLETE | Un passo fallito lascia una riga di audit: prima era invisibile fino alla telefonata di un club |
+
+### Ruoli, perimetro e registro (lane 6G)
+
+Ogni riga qui sotto e stata percorsa dal clic del ruolo interessato fino alla
+riga scritta, come chiede CLAUDE.md §11.8. Dove il percorso si interrompe, la
+colonna «Stato» lo dice.
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Ruoli personalizzati di club | COMPLETE | Sidebar → *Configurazione · Ruoli e accessi* → `/dashboard/access-management` → `POST /api/v1/club-roles` → `club-roles.ts` → righe in `club_roles` e `club_role_permissions`. Creare, modificare e cancellare sono **del solo proprietario**, e la schermata lo dichiara invece di offrire un pulsante che rimbalza |
+| Il restringimento ha effetto reale | COMPLETE | Il ruolo viaggia in un gettone effimero che porta le chiavi; `roleHasPermission` applica soffitto **e** concessione, e i tre domini con matrice privata — sport-work, contabilita, comunicazioni — passano da `narrowDomainPermission`. Prima togliere `sport_work.pay` a un ruolo personalizzato non toglieva niente |
+| Anti-scalata sulla concessione | COMPLETE | `assertMayGrantRole`: `owner` lo concede solo un `owner`, un ruolo con chiavi di direzione lo assegna solo un `owner`, e **nessuno concede una chiave che non ha**. La rotta generica rifiuta i ruoli personalizzati con una riga di audit del diniego |
+| Gestione accessi | COMPLETE | La schermata **esisteva ed era finta**: tre nomi inventati con indirizzi `@example.com` e un token generato con `Math.random()` nel browser, mai salvato. Una superficie finta su questo dominio e peggio di una assente, perche promette un controllo che non c'e |
+| Perimetro di sede e categoria | **PARTIAL** | Si configura, si legge nella sessione, e restringe **gli elenchi degli atleti** (`athletes`, `simplified_athletes`) e gli **eventi**. Le altre risorse del registro generico non lo applicano: un ruolo con perimetro «sede di Scauri» vede ancora, per esempio, i pagamenti e i documenti di tutto il club. Prima della Wave 6 non restringeva niente, quindi il passo e reale — ma «perimetro» oggi significa atleti ed eventi, e va detto |
+| Registro delle operazioni, in lettura | COMPLETE | Sidebar → *Configurazione · Registro attivita* → `/audit` → `GET /api/v1/audit`. Era **write-only** da tre Wave: 108 punti di scrittura, quattro indici gia adatti alla lettura, e `prisma.auditLog.findMany` in nessun handler. Le righe senza club — il cron, un login fallito prima che esista un'organizzazione — non escono di qui |
+
+> **Due voci di menu che non filtrano per permesso.** La sidebar mostra «Ruoli e
+> accessi» e «Registro attivita» a ogni ruolo gestionale: solo la voce
+> *Movimenti* e filtrata. Un `collaborator` che apre la prima viene fermato dal
+> guard di area (e un percorso admin-only); sulla seconda apre la pagina e
+> riceve un 403, che la pagina **spiega** invece di lasciare una schermata
+> vuota. E accettabile, ma resta una voce di menu che porta a una porta chiusa,
+> ed e la forma di difetto che questo repository ha gia commesso altrove.
+
+### Il denaro in uscita acquista una causale (W4-R7, blocker W6-3)
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Causale sul compenso e sulla liquidazione | COMPLETE | Le due strade con cui il denaro esce uscivano dal registro **senza causale**: la vista proiettava `NULL` e `unspecified` scritti nel SQL. Su una stagione vera erano 7.000 euro su 7.210 del non classificato. Ora le tre colonne stanno sulla riga, e la prima nota le legge |
+| La classificazione si deduce | COMPLETE | Dal `transaction_type`, che il dominio conosce **nel momento in cui scrive la riga**, e resta sovrascrivibile. Un campo facoltativo che nessuno compila sarebbe stato il buco di prima con un nome nuovo. `CONTRIBUTION_PAYMENT` resta senza deduzione di proposito: il versamento dei contributi non e ne un compenso ne una prestazione |
+| Scelta esplicita della causale | **PARTIAL** | La tendina «Voce di rendiconto» esiste in **una** schermata, `PayoutDialog` — l'erogazione di un compenso. Premi, rimborsi, fatture di professionisti e liquidazioni di bandi si classificano con la sola **deduzione**: nessuna superficie permette di scegliere, benche `recordAgendaPayout` e `createFundingSettlement` accettino il codice. Il rendiconto non ha piu buchi; la correzione di una singola riga non ha ancora una schermata |
+| Le due letture concordano | COMPLETE | La vista SQL e `src/lib/accounting/projection.ts` sono state cambiate insieme. Due letture dello stesso denaro che non concordano sono il difetto peggiore di questo dominio, e la vista rifatta ne ha chiusi altri tre — il numero di un documento annullato, il verso dello storno di un rimborso, la sponsorizzazione contata come quota di una famiglia |
+| Le causali in uscita esistono nel catalogo | COMPLETE | Ne mancavano del tutto: nove voci di sistema e **otto guardavano in entrata**. Sono quattro e non sette, perche `transaction_type` dice **come la riga e nata** e la causale dice **sotto quale voce il denaro si somma**: rispecchiare l'enum avrebbe portato nel piano dei conti una distinzione che serve al motore e non a chi legge il bilancio |
+| Un club gia configurato le vede | COMPLETE | Il seme girava **solo su un club senza righe**, quindi ogni club vero non avrebbe visto mai le quattro voci nuove. Adesso completa cio che manca, per codice, senza toccare cio che il club ha configurato |
+
+### Lettura di un documento: il PDF che e una fotografia (§16 del mandato)
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| OCR locale | COMPLETE | Gira nel browser, con Tesseract. La premessa del mandato — «l'OCR va sviluppato» — era **sbagliata**: esisteva gia, e la Wave 6 lo ha verificato invece di rifarlo |
+| PDF che contiene una fotografia | COMPLETE | Un telefono che «scansiona» salva **una fotografia dentro un contenitore PDF**, e il prodotto la rifiutava dicendo «fotografa il documento» a chi lo aveva appena fotografato. `src/lib/pdf-embedded-image.ts` apre il contenitore quando dentro c'e **esattamente una immagine JPEG e nient'altro di disegnabile**, e passa quei byte al motore di sempre |
+| PDF di altra natura | ASSENTE, **per decisione** | Niente rasterizzatore, niente `pdf.js`: alcuni megabyte di dipendenza e un motore di rendering completo dove serve un taglio di byte, su un percorso che [ADR-0007](18-decision-log.md) chiede di tenere leggero. Ogni altro PDF resta rifiutato **con la spiegazione di prima**, non accettato per poi fallire |
+
+Il modulo e severo di proposito, e la severita e la parte che conta: se dentro
+non c'e esattamente una immagine, **non prova a indovinare**. Su un documento
+d'identita un ritaglio sbagliato produce un dato **plausibile e falso**, e un
+dato plausibile e falso su un tesseramento diventa un errore federale. Meglio
+dire «non ci riesco» che leggere la pagina sbagliata.
+
+### Cosa la Wave 6 **non** ha reso raggiungibile
+
+| Cosa | Stato | Perche |
+|------|-------|--------|
+| Capienza di uno slot di appuntamento | RIMOSSA | La colonna prometteva piu prenotazioni nello stesso istante e il presidio del database non la conosceva: la seconda famiglia, legittima, riceveva «quell'orario e appena stato preso». Nessuna schermata l'ha mai scritta, quindi in archivio ogni riga aveva il default `1`, e con 1 i due comportamenti coincidono |
+| Guard di area su `/appuntamenti` e `/documenti` | **PARTIAL** | Le due schermate hanno il guscio e il prefisso nel middleware, ma `getPathAccessArea` non le riconosce come gestionali: risponde `public`, e per `public` il guard consente sempre. Un genitore con una sessione valida ne vede la **struttura**; i dati no, perche le API rifiutano. Vedi [08](08-roles-and-permissions.md) |
+| Export e cancellazione oltre l'atleta | PARZIALE, per scelta | Gli altri soggetti dei consensi — `person`, `member`, `guardian` — restano fuori dalla V1 |
+| Provider di error tracking | ASSENTE, **per decisione** | `src/lib/server/observability.ts` costruisce il punto d'innesto e non sceglie il provider: dove finiscono i dati, per quanto e sotto quale responsabile e una decisione di prodotto e di contratto, e [ADR-0007](18-decision-log.md) vieta di legarsi a un servizio proprietario senza prenderla |

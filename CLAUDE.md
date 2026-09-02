@@ -63,6 +63,11 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 | Dominio | File proprietario | Regola |
 |---------|-------------------|--------|
 | Ruoli e permessi | `src/lib/access-roles.ts` | Nessuna logica di ruolo altrove |
+| Ruoli personalizzati di club | `src/lib/server/club-roles.ts` (scrittura) + `src/lib/roles/` (dominio puro) | Un ruolo di club e un **sottoinsieme** delle chiavi del suo ruolo base, mai un soprainsieme. `organization_users.role` (lo slug) e `custom_role_id` si scrivono **insieme e solo da qui**: la rotta generica li rifiuta, perche una riga con lo slug e senza il riferimento darebbe il ruolo base **senza** restringimento (ADR-0102) |
+| Perimetro di sede e categoria | `src/lib/roles/access-scope.ts` (modello) + `src/lib/server/club-roles.ts` (scrittura) | **Zero righe = tutto il club**, mai «nessun accesso». Due assi in AND fra loro e in OR dentro se stessi; una riga che non porta il valore dell'asse ristretto **non passa** (ADR-0103) |
+| Accesso EasyGame di un atleta | `src/lib/server/athlete-accounts.ts` | **L'unica** strada che scrive `athletes.user_id`. Nessun ramo compone, salva o manda una password: in archivio vive solo l'impronta del token, e la password la sceglie la persona con il meccanismo che esiste gia (ADR-0104) |
+| Diritti dell'interessato: export e cancellazione | `src/lib/server/data-subject.ts` | **L'unico** posto in cui si dichiara dove vive una persona — sei indici polimorfi che nessuna chiave esterna copre. Tre classi: si cancella, si anonimizza, si conserva **con il motivo scritto**. Per un minore la cancellazione senza riepilogo confermato fallisce (ADR-0105) |
+| Errori del server e identificativo di richiesta | `src/lib/server/observability.ts` | Un punto solo: `console.error(msg, error)` non si scrive altrove. L'errore si riduce a nome, prima riga del messaggio e codice — mai l'oggetto intero, che sull'ORM contiene il record che si stava scrivendo |
 | Sessioni e scope | `src/lib/server/auth.ts` | Ogni endpoint passa da `requireAuthenticatedUser` + `resolveOrganizationScopeForUser` |
 | Stagioni sportive | `src/lib/club-seasons.ts` (modello) + `src/lib/server/seasons.ts` (scrittura) | Una sola stagione attiva; nessuna scrittura di `settings.seasons` altrove |
 | Incassi (movimenti di denaro) | `src/lib/server/payment-transactions.ts` (scrittura) + `src/lib/payments/installment-ledger.ts` (calcolo) | Nessuno scrive `payment_transactions` altrove; lo stato di una rata **non si imposta**, si ricava |
@@ -75,7 +80,9 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 | Richieste e depositi documentali | `src/lib/server/document-requests.ts` (scrittura) + `src/lib/documents/request-model.ts` (dominio puro) | Lo stato di una richiesta si **deriva** dall'ultimo deposito, non si scrive. I byte passano **sempre** da `attachments.ts`: nessun altro archivio (ADR-0100) |
 | Appuntamenti e disponibilita | `src/lib/server/appointments.ts` (scrittura) + `src/lib/appointments/` (dominio puro) | Una transizione per rotta. La riprogrammazione crea una riga e chiude la vecchia: **niente mutazione della data in luogo** (ADR-0101) |
 | Dato sanitario | `src/lib/health/permissions.ts` | Chi vede lo **stato** del certificato non vede per cio stesso il **contenuto** clinico. Default negato sul contenuto |
-| Catalogo dei permessi | `src/lib/permissions/catalog.ts` | Ogni chiave ha un'etichetta e una matrice per ruolo. Le matrici restano nei domini; qui vive l'elenco |
+| Catalogo dei permessi | `src/lib/permissions/catalog.ts` | Ogni chiave ha un'etichetta e una matrice per ruolo. Le matrici restano nei domini; qui vive l'elenco. Un dominio che tiene una **matrice propria** (sport-work, accounting, communications, seasons) deve passare da `narrowDomainPermission`, altrimenti risponde al ruolo **base** e le caselle di un ruolo personalizzato non fanno niente |
+| Causale contabile di un movimento | `src/lib/fiscal/operation-types.ts` (vocabolario) + `resolveOutboundClassification` in `src/lib/server/fiscal-config.ts` (risoluzione) | La causale di un'uscita si **deduce** da cio che il dominio gia sa, non si chiede. Etichetta e ambito si **congelano** sulla riga; una causale in entrata su un movimento in uscita e un errore, non un avviso (ADR-0106) |
+| Catalogo dei moduli adottabili | `src/lib/forms/catalog.ts` | Una voce di catalogo non e un modulo del club: adottarla ne crea una **copia**, e la chiave resta sulla copia solo per dire da dove viene. Stessa forma del catalogo dei documenti (ADR-0092), non una seconda |
 | Accesso dati server | `src/lib/server/resources.ts` | Nessuna query Prisma club-scoped fuori da qui senza filtro esplicito |
 | Client Prisma | `src/lib/server/prisma.ts` | Mai istanziare un secondo `PrismaClient` |
 | Email | `src/lib/server/email/` | Unico punto di invio |
@@ -105,7 +112,7 @@ Un dominio ha un punto di ingresso unico. Non crearne un secondo.
 Prima di ogni commit:
 
 ```bash
-npm test           # tutti verdi (3.966 al 2026-09-01, fine Wave 5)
+npm test           # tutti verdi (4.393 al 2026-09-02, fine Wave 6)
 npm run typecheck  # nessun output
 npm run lint       # 0 errori; i warning non devono aumentare
 npm run build      # deve completare

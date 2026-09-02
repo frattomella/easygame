@@ -828,3 +828,66 @@ ovunque — perche e l'unico che **cancella righe**.
 
 - `GET /api/v1/audit` — il registro degli eventi, con lo scope di club
   obbligatorio. Era **write-only**: 108 punti di scrittura e nessun lettore.
+
+### Ruoli personalizzati e accessi di club (lane 6G)
+
+Quattro rotte, e nessuna di loro verifica il permesso: lo verifica il dominio
+(`src/lib/server/club-roles.ts`), che e anche l'unico posto in cui il diniego
+lascia la propria riga di audit. Il preambolo comune legge la sessione, risolve
+il club attivo e basta.
+
+- `GET|POST /api/v1/club-roles` — l'elenco dei ruoli che il club si e scritto,
+  con le chiavi e quante persone lo portano; e la creazione, che e **solo del
+  proprietario**. Clonare un preset non e un'operazione diversa dal creare, e
+  non ha una rotta propria: darle una vorrebbe dire avere due strade per la
+  stessa scrittura.
+- `PATCH|DELETE /api/v1/club-roles/:id` — nome, descrizione, chiavi, attivo; e
+  la cancellazione, che riesce **solo se non lo porta nessuno**. Entrambe del
+  solo proprietario. Il **ruolo base** non e fra i campi modificabili, e non e
+  una svista: e lo slug, ed e il tetto — cambiarlo cambierebbe i permessi di chi
+  lo porta senza che nessuno abbia toccato la sua tessera.
+- `GET|POST /api/v1/club-roles/assignments` — chi ha accesso al club, con che
+  ruolo e con quale perimetro; e l'assegnazione. E la rotta che sostituisce i
+  tre nomi inventati con indirizzi `@example.com` della vecchia schermata, e il
+  token generato con `Math.random()` **nel browser** e mai salvato. L'invito
+  vero resta quello che esisteva gia: `POST /api/v1/auth/access/redeem` per il
+  riscatto, e la scheda della persona per la consegna.
+- `PATCH|DELETE /api/v1/club-roles/assignments/:id` — il perimetro e la revoca.
+  Il perimetro si scrive per **sostituzione**, e un elenco vuoto significa
+  «tutto il club»: la stessa convenzione della tabella, dove zero righe non sono
+  zero accessi ma nessuna restrizione.
+
+Un ruolo personalizzato **non si assegna dalla rotta generica**: `POST
+/api/v1/organization_users` lo rifiuta con una riga di audit del diniego, perche
+una tessera con lo slug in `role` e senza `custom_role_id` darebbe il ruolo base
+**senza** restringimento.
+
+---
+
+## Cosa questo file elenca e `src/lib/api/registry.ts` no (2026-09-02)
+
+`GET /api/v1/registry` serve il registro che vive nel **codice**, e le due
+fonti sono compilate a mano: divergono, e conviene sapere dove.
+
+Rotte servite dall'applicazione e **assenti dal registro del codice**:
+
+| Rotta | Nota |
+|-------|------|
+| `GET\|POST /api/v1/club-roles` | Wave 6, lane 6G |
+| `PATCH\|DELETE /api/v1/club-roles/:id` | Wave 6, lane 6G |
+| `GET\|POST /api/v1/club-roles/assignments` | Wave 6, lane 6G |
+| `PATCH\|DELETE /api/v1/club-roles/assignments/:id` | Wave 6, lane 6G |
+| `PATCH /api/parent-dashboard/:athleteId/notifications` | Wave 6, lane 6D — documentata qui sopra, non nel codice |
+| `GET /api/v1/auth/athlete-profile/:athleteId` | preesistente |
+| `POST /api/v1/auth/memberships/delete` | preesistente |
+| `GET\|PATCH\|DELETE /api/v1/admin/clubs/:id`, `/api/v1/admin/users/:id` | preesistenti, console di piattaforma |
+| `/api/v1/payments/account` | preesistente |
+| `/api/v1/seasons/:seasonId/roster` | preesistente |
+| `/api/v1/forms/:id/compile` | preesistente |
+| `/api/v1/funding/settlements/:id/reverse` | preesistente |
+
+Il registro del codice e **codice** e non si corregge da un commit di
+documentazione: l'allineamento e un intervento a se, e va fatto verificando che
+`docs/api-registry.md`, `src/lib/api/registry.ts` e `src/app/api/**` dicano la
+stessa cosa. Finche non e fatto, **la fonte piu vicina alla verita e il
+filesystem**, non nessuno dei due elenchi.

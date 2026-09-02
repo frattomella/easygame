@@ -1103,3 +1103,216 @@ primo invio non e piu leggibile da nessuno — nemmeno da li. Fabbricarne un
 secondo darebbe due credenziali a una pratica sola; derivarlo dalla chiave lo
 renderebbe ricalcolabile da chiunque conosca le risposte. Il riferimento vuoto e
 gia una forma prevista dal tipo: escono cosi le compilazioni della segreteria.
+
+---
+
+# Wave 6 — quattro migrazioni, e una colonna in meno (2026-09-01)
+
+Cinque file sotto `prisma/migrations/20260901*` portano la sesta wave. Tre
+aggiungono, una toglie, una non tocca lo schema affatto: corregge dei dati.
+Vale la pena leggerle in quest'ordine, perche l'ordine dice cosa dipende da
+cosa.
+
+## `20260901160000_wave6_stato_atleta` — una migrazione che non cambia lo schema
+
+`athletes.status` e una colonna `text` senza vincolo, e un'azione di massa della
+pagina Atleti ci scriveva il nome dell'**azione** (`activate`) invece del nome
+dello **stato** (`active`). Da quel momento l'atleta spariva da ogni filtro,
+«Attivi» compreso: nessun confronto poteva riconoscere quel valore.
+
+La migrazione riporta le grafie note ai quattro stati canonici — `active`,
+`suspended`, `loan`, `inactive` — e **cio che resta fuori dai quattro insiemi
+torna ad `active`**, che e la scelta piu discutibile del file ed e dichiarata
+nel suo commento: un atleta invisibile nel proprio club per colpa di una stringa
+che nessuno riconosce e il difetto, non la protezione. La stessa correzione
+tocca la copia dentro `athletes.data.status`, che alcune schermate leggono come
+ripiego: due copie che dicono cose diverse sono la premessa del prossimo
+difetto.
+
+Non e reversibile, e va bene: si sta annullando un valore che non e mai stato
+uno stato valido, e la sua forma originale non porta informazione.
+
+**Il difetto e sopravvissuto dentro la propria correzione.** L'elenco delle
+grafie che il filtro cerca e scritto in minuscolo, e `text IN (...)` su
+PostgreSQL confronta lettera per lettera: un atleta scritto `Attivo` continuava
+a non comparire in nessun filtro. Lo ha trovato una sonda di runtime, non un
+test — misurato sul database di sviluppo, le stesse due grafie danno 0 righe con
+il confronto sensibile e 224 con quello insensibile — ed e chiuso in
+`buildWhereFromSearchParams` con `mode: "insensitive"`. Chi scrive una query su
+una colonna di testo popolata da versioni diverse del prodotto dovrebbe
+assumere che le grafie siano miste, perche lo sono.
+
+## `20260901170000_wave6_slot_senza_capienza` — la colonna che si toglie
+
+`appointment_slots.capacity` prometteva di poter ricevere piu persone nello
+stesso istante, e il calcolo della disponibilita ci credeva: proponeva
+`capacity - presi` posti. Ma il presidio che impedisce davvero la doppia
+prenotazione e l'indice unico parziale `appointments_slot_vivo_unico`
+([ADR-0101](18-decision-log.md#adr-0101--lappuntamento-e-un-dominio-con-un-proprietario-e-la-doppia-prenotazione-la-impedisce-il-database)),
+che sta su `(organization_id, assigned_to_user_id, starts_at)` per i soli stati
+vivi e **non conosce la capienza**. Con `capacity = 2` il prodotto offriva due
+prenotazioni sullo stesso orario e la seconda, legittima, riceveva un P2002
+tradotto in «quell'orario e appena stato preso»: una frase falsa, detta a chi
+aveva appena visto il posto libero.
+
+Delle due strade si e presa quella che toglie. Rendere vera la capienza avrebbe
+richiesto di toccare il presidio piu delicato del dominio per abilitare una
+funzione che **nessuna schermata sapeva chiedere**: nessuna UI ha mai scritto
+quella colonna, quindi in archivio ogni riga porta il default `1`. Con 1 i due
+comportamenti coincidono, e la rimozione non cambia nessun risultato
+osservabile. E la ragione per cui e sicura, ed e anche la ragione per cui la
+colonna non serviva.
+
+Non e reversibile, ed e dichiarato: ripristinarla significherebbe ripristinare
+il default, cioe l'unico valore che ha mai avuto.
+
+> La riga di ADR-0101 che elenca fra i campi di `AppointmentSlot` anche la
+> «capienza» descrive lo schema fino al 1 settembre 2026. Da questa migrazione
+> in poi quel campo non esiste, e la stessa correzione vale per la tabella dei
+> modelli del §«Fascicolo documentale e appuntamenti (Wave 5)» qui sopra.
+
+## `20260901180000_wave6_accesso_atleta` — `athlete_account_invites`
+
+Il ruolo `athlete` era modellato da capo a fondo — un ruolo canonico, un'area,
+una guardia di percorso, un redirect, una sessione che lo riconosce leggendo
+`athletes.user_id` — e **nessun percorso scriveva quella colonna**.
+`unlinkDirectAthleteProfile` la slegava; niente la legava mai. La colonna
+esiste dal principio: questa migrazione non aggiunge il legame, aggiunge il
+**ciclo di vita** che lo produce e che lo toglie lasciando traccia.
+
+| Colonna | Perche c'e |
+|---------|-----------|
+| `token_hash` | Lo SHA-256 del token consegnato via email, **mai** il token ([ADR-0085](18-decision-log.md#adr-0085--il-link-di-pagamento-e-un-token-opaco-in-archivio-non-un-token-firmato-senza-stato)). Il valore in chiaro vive il tempo di comporre il messaggio e poi non esiste piu, ne in archivio ne nei log. Unico: un token individua **un** invito, e il riscatto cerca per impronta e non per atleta — chi ha il token non deve poter dire di quale atleta sia |
+| `user_id` | L'utenza destinataria, risolta o creata al momento dell'invito. **Non era nel piano**, ed e stata aggiunta: senza, l'accettazione dovrebbe ritrovare l'utenza dall'indirizzo, e fra l'invio e il clic quell'indirizzo puo essere cambiato o rioccupato. Il token finirebbe per legare l'atleta a un'utenza diversa da quella invitata. `ON DELETE SET NULL`, non `CASCADE`: cancellare un'utenza non deve far sparire la traccia di un invito che e stato mandato |
+| `status` | `sent`, `accepted`, `revoked`, `expired` |
+| `expires_at`, `sent_at`, `accepted_at`, `revoked_at` | La storia di chi ha invitato chi, e quando: e cio che la scheda atleta deve saper mostrare |
+
+**Un solo invito vivo per atleta, e lo garantisce il database.**
+`athlete_account_invites_vivo_unico` e unico e **parziale** su
+`(organization_id, athlete_id)` per il solo stato `sent`. E la stessa forma di
+`appointments_slot_vivo_unico` e la stessa regola di
+[ADR-0095](18-decision-log.md#adr-0095--lidempotenza-vale-sulle-righe-vive-non-su-quelle-stornate):
+il vincolo vale sulle righe vive, non su quelle morte. Un invito revocato,
+scaduto o accettato libera il posto **senza essere cancellato**, cosi la storia
+resta leggibile. Un reinvio revoca il precedente e ne crea uno nuovo: se lo
+facesse solo il codice, due segretarie che premono insieme produrrebbero due
+token validi per la stessa persona, e revocarne uno lascerebbe l'altro in giro.
+
+## `20260901190000_wave6_ruoli_personalizzati` — tre tabelle e una colonna
+
+Migrazione **additiva**: zero righe in queste tabelle e una colonna nulla
+riproducono esattamente il comportamento precedente. Nessun backfill, nessuna
+riscrittura di `organization_users.role`.
+
+| Modello | Tabella | Note |
+|---------|---------|------|
+| `ClubRole` | `club_roles` | Il ruolo che un club si scrive da solo. `slug` e **prefissato e autodescrittivo** — `custom:collaborator:segreteria` — perche `organization_users.role` e testo libero: il prefisso rende impossibile la collisione con un canonico, e la base dentro il nome fa si che ogni lettore gia scritto sappia rispondere «al massimo quanto il ruolo base» anche prima di aver letto una riga di questa tabella. Unique `(organization_id, slug)`. `base_role` e **immutabile** dopo la creazione: cambiarlo sposterebbe il tetto sotto i piedi delle assegnazioni gia in essere, e la stessa persona si troverebbe con permessi diversi senza che nessuno abbia toccato la sua tessera |
+| `ClubRolePermission` | `club_role_permissions` | Una riga per chiave concessa, e **nessun diniego esplicito**: l'assenza e il diniego, come nel catalogo. Una colonna `granted boolean` avrebbe prodotto tre stati — concesso, negato, non detto — e il terzo si sarebbe comportato come uno dei primi due a seconda di chi leggeva. Unique `(role_id, permission_key)` |
+| `ClubAccessScope` | `club_access_scopes` | Il perimetro di **un'assegnazione**, non di un ruolo: `scope_kind` vale `site` o `category`. **Zero righe significano tutto il club**, ed e la scelta che rende additiva anche questa meta — la forma opposta, dover elencare le sedi di ogni tessera esistente, avrebbe spento l'accesso a tutti la notte del rilascio. Il «gruppo» non e un `scope_kind` perche non e un'entita: e la coppia (categoria, sede), e darglielo come perimetro significherebbe crearne una ([ADR-0055](18-decision-log.md)) |
+
+`organization_users` acquista `custom_role_id`. Quando e valorizzata, `role`
+porta lo **slug**, e le due colonne si scrivono **insieme e da una strada sola**
+(`src/lib/server/club-roles.ts`): una riga con lo slug e senza il riferimento e
+incoerente, e la sessione la **scarta** — altrimenti la persona otterrebbe il
+ruolo base senza il restringimento, che e la scalata piu economica che questo
+meccanismo permetterebbe. Scarta anche una riga il cui `custom_role_id` punta a
+un ruolo di un altro club, disattivato, scomparso, o il cui slug non corrisponde
+piu a `role`.
+
+**Il vincolo e `ON DELETE RESTRICT`, e non e una svista.** Cancellare un ruolo
+mentre qualcuno lo porta non deve cancellargli la tessera, cioe toglierlo dal
+club in silenzio: il dominio revoca prima le assegnazioni, con una riga di audit
+per ciascuna, e solo allora il ruolo si puo eliminare. E la stessa scelta della
+Wave 4 sulle cancellazioni che distruggevano.
+
+## `20260901200000_wave6_causale_in_uscita` — le tre colonne, e la vista rifatta
+
+Prima di questa migrazione le due strade con cui il denaro esce da un club — il
+compenso del lavoro sportivo e la liquidazione di un bando — uscivano dal
+registro **senza causale**: la vista proiettava `NULL` e `'unspecified'`
+**scritti nel SQL**, perche il percorso di scrittura un campo per dirlo non ce
+l'aveva. Su una stagione vera erano 7.000 euro su 7.210 del non classificato: il
+buco non era un residuo di data entry, era strutturale. La Wave 4 lo ha reso
+**misurabile** — il rendiconto dichiara la quota in denaro invece che in righe —
+senza chiuderlo.
+
+`sport_work_outbound_transactions` e `funding_settlements` acquistano le stesse
+tre colonne che `payment_transactions` ha gia:
+
+- `operation_type_code` — la causale;
+- `operation_type_label_snapshot` — la sua etichetta **congelata**;
+- `activity_scope_snapshot` — l'ambito **congelato**, default `unspecified`.
+
+Lo scatto serve perche la causale e configurazione mutabile: senza congelarla,
+un club che la corregge cambierebbe **retroattivamente** la natura di cio che ha
+gia registrato, e un rendiconto stampato a marzo direbbe una cosa diversa
+ristampato a maggio. Su `sport_work_outbound_transactions` la colonna
+`f24_causale` sta gia accanto e **non e questa cosa**: quella e la causale del
+modello F24, cioe un adempimento;
+[ADR-0093](18-decision-log.md#adr-0093--la-prima-nota-e-una-vista-non-una-tabella)
+tiene distinte le due, e la colonna nuova sta dalla parte gestionale.
+
+Due indici `(organization_id, operation_type_code)` servono al rendiconto, che
+raggruppa per causale su un intervallo di date: senza, la lettura per voce
+diventa una scansione su tutto lo storico delle uscite.
+
+La migrazione e additiva, e **le righe esistenti restano non classificate**. E
+corretto che sia cosi: inventare una causale per un movimento che nessuno ha
+classificato vorrebbe dire scrivere una scelta contabile al posto del club.
+
+### Cosa e cambiato dentro `accounting_ledger_lines`
+
+Un `CREATE OR REPLACE VIEW` conserva nome, colonne, tipi e ordine: cambiano le
+espressioni di tre colonne su due rami. Ma la ricreazione ha portato con se
+altre tre correzioni, e conviene conoscerle perche toccano numeri gia stampati:
+
+1. **un documento annullato non presta il suo numero.** Il ramo dei movimenti
+   propri univa `invoices` e `receipts` senza filtrare `cancelled_at`, a
+   differenza del ramo degli incassi che lo filtra da sempre: un movimento
+   manuale che citava una ricevuta annullata ne stampava il numero in prima
+   nota, come se il documento fosse ancora valido;
+2. **il verso di uno storno lo dice il suo importo**, non il fatto di essere uno
+   storno. Il `CASE` guardava solo `reverses_transaction_id`, e lo storno di un
+   **rimborso** — che e una riga positiva — usciva come uscita: il registro
+   raccontava sessanta euro usciti per trenta rientrati;
+3. **un incasso di sponsorizzazione non e la quota di una famiglia.** Tutti gli
+   incassi uscivano come `ATHLETE_PAYMENT`, quindi le sponsorizzazioni
+   comparivano come «Incasso quota» con controparte «Sponsor», e il filtro
+   «Incasso sponsor» che l'interfaccia offriva non poteva **mai** restituire
+   niente: quel valore non era prodotto da nessuna riga. L'origine la dice
+   adesso la controparte congelata sulla riga.
+
+Sul ramo del lavoro sportivo resta la regola gia scritta in Wave 4: il verso lo
+decide il **segno** del netto, non un valore assoluto con `OUT` forzato — il
+saldo del conto somma `net_amount` con il suo segno, e le due letture
+divergerebbero del doppio dell'importo su ogni riga con netto negativo.
+
+L'ordine dei `COALESCE` non e cosmetico: **prima lo scatto sulla riga**, poi cio
+che la causale dice adesso. Invertirlo farebbe cambiare natura al passato ogni
+volta che un club rinomina una classificazione.
+
+> **La vista e il gemello SQL della proiezione TypeScript**
+> (`src/lib/accounting/projection.ts`), e le due devono dire la stessa cosa. Due
+> letture dello stesso denaro che non concordano sono il difetto peggiore che
+> questo dominio possa avere: il registro mostrerebbe un totale e l'elenco un
+> altro, senza che nessuno sappia quale credere. Chi tocca una delle due tocca
+> l'altra nello stesso commit — e la Wave 6 lo ha fatto, aggiungendo le tre
+> colonne a `projectSportWorkPayouts` e `projectFundingSettlements`.
+
+## Il seme delle causali completa, non popola soltanto
+
+Fuori dalle migrazioni ma della stessa lane, perche senza questo la migrazione
+sopra non si vedrebbe: `listOperationTypes` seminava il catalogo di sistema solo
+quando il club **non aveva nessuna riga**. Bastava una riga perche il seme non
+girasse piu, e ha funzionato finche il catalogo di sistema non e cambiato.
+
+Con quella condizione un club gia configurato — cioe ogni club vero — non
+avrebbe visto mai le quattro causali in uscita, e avrebbe continuato a non poter
+classificare un compenso. Invisibile in sviluppo, dove i club nascono vuoti;
+universale in produzione. Adesso si scrivono **solo le mancanti**, per codice:
+cio che il club ha configurato non si tocca, e una causale di sistema
+disattivata resta disattivata, perche la riga c'e e `skipDuplicates` la salta.
+
+E una classe di difetto che vale oltre questo caso: **un seme condizionato alla
+tabella vuota e un seme che smette di funzionare al primo dato**, e il giorno in
+cui il vocabolario di sistema si allunga nessuno se ne accorge.
