@@ -827,11 +827,27 @@ staff, collaboratore e atleta non leggono i compensi altrui
 ([ADR-0077](18-decision-log.md#adr-0077--i-compensi-hanno-permessi-propri-e-il-default-e-negato)).
 Ogni diniego viene tracciato con il permesso mancante.
 
-**2. L'IBAN non viaggia in un elenco.** La proiezione di lista di una persona
-risponde `has_iban: true/false`; le coordinate bancarie si leggono aprendo la
-scheda, una alla volta. Un elenco si carica per mostrare venti righe, e ogni
-campo che ci sta dentro finisce nella cache del browser. L'audit gia rimuove
-`iban` dai metadati per nome di chiave.
+**2. L'IBAN non viaggia in un elenco, e non esce da chi non amministra.** La
+proiezione di lista di una persona risponde `has_iban: true/false`; un elenco
+si carica per mostrare venti righe, e ogni campo che ci sta dentro finisce
+nella cache del browser. L'audit gia rimuove `iban` dai metadati per nome di
+chiave.
+
+Il commento accanto a quella proiezione diceva che «le coordinate si leggono
+aprendo la scheda, e chi lo fa ha `sport_work.manage`». Non era vero: la
+scheda (`GET /api/v1/sport-work/people/:id`) chiede `sport_work.read` e
+restituiva la **riga intera**. La difesa non stava dove il commento la
+collocava, ed e la forma di difetto che questa Wave ha incontrato piu spesso.
+
+Adesso la redazione sta sull'**involucro** `sportWorkRoute`, sulla risposta e
+non nelle due rotte che oggi montano una persona: la proprieta da tenere non
+e «questa funzione proietta», e **«nessuna risposta di questo dominio porta
+un IBAN a chi non amministra»**. Il campo non sparisce: al suo posto resta
+`has_iban`, cosi chi prepara un bonifico senza poterlo disporre sa che le
+coordinate ci sono. Prova: `U-66` nella sonda di sicurezza, misurata dalla
+rotta con un ruolo di club vero — creato in archivio e assegnato a una
+tessera, perche il gettone `custom:...#chiavi` lo compone lo scope dalla riga
+e non l'intestazione della richiesta.
 
 **3. Il confine di club regge anche sul denaro.** Provato a runtime dal club
 sbagliato su rapporti, scadenze, erogazioni, storni, posizioni annue,

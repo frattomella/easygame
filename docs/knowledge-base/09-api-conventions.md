@@ -33,6 +33,7 @@ Regole:
 | 401 | Sessione assente o non valida → `"Sessione non valida"` |
 | 403 | Ruolo non autorizzato (`"Accesso negato..."`), verifica account mancante |
 | 404 | Entita non trovata |
+| 409 | Corsa persa o domanda ambigua: due riporti sulla stessa stagione, e un codice di accesso che risponde per piu di un club |
 | 429 | Rate limit, con header `Retry-After` / `X-RateLimit-*` |
 | 500 | Errore inatteso |
 | 501 | Funzione non implementata (checkout pagamenti) |
