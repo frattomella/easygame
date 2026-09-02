@@ -5,7 +5,11 @@ import {
   stripClinicalAthleteFields,
   stripClinicalCertificateFields,
 } from "@/lib/health/permissions";
-import { requireAuthenticatedUser } from "@/lib/server/auth";
+import {
+  requireAuthenticatedUser,
+  resolveOrganizationScopeForUser,
+} from "@/lib/server/auth";
+import { athleteWithinAccessScope } from "@/lib/server/access-scope-query";
 import { prisma } from "@/lib/server/prisma";
 
 type Context = {
@@ -56,23 +60,41 @@ export async function GET(request: Request, context: Context) {
   }
 
   const directAthleteAccess = athlete.user_id === session.db.user_id;
-  const ownsClub = await prisma.club.findFirst({
-    where: {
-      id: athlete.organization_id,
-      creator_id: session.db.user_id,
-    },
-    select: { id: true },
-  });
-  const memberships = await prisma.organizationUser.findMany({
-    where: {
-      organization_id: athlete.organization_id,
-      user_id: session.db.user_id,
-    },
-    select: { role: true },
-  });
+
+  /*
+    **L'autorizzazione si chiede al risolutore, non si ricostruisce a mano.**
+
+    Qui c'erano tre letture grezze — il club posseduto, le tessere, il primo
+    ruolo gestionale trovato — e da quelle si ricavava un «ruolo effettivo». Due
+    revisioni ostili hanno mostrato cosa costa avere una seconda risposta alla
+    stessa domanda:
+
+    1. **nessun perimetro.** Il perimetro di sede e categoria vive sulla
+       **tessera**, e questa rotta la tessera non la risolveva: una segreteria
+       perimetrata su una sede leggeva per identificativo qualunque atleta del
+       club, con tutto il payload. E la stessa forma che il registro generico ha
+       appena chiuso — «un filtro di elenco si aggira passando l'id» — su una
+       porta che il registro non attraversa;
+    2. **nessuna chiave.** `ruoloEffettivo` era lo **slug** letto
+       dall'archivio, che non porta le chiavi di un ruolo personalizzato:
+       `hasHealthPermission` rispondeva percio sempre `false`, e un club che
+       avesse concesso `clinical.read` a un ruolo personalizzato se lo vedeva
+       negare solo qui. Sbagliava nel verso prudente, ma nell'altro verso la
+       stessa confusione sarebbe stata un buco.
+
+    `resolveOrganizationScopeForUser` risponde a entrambe: risolve il ruolo
+    **con** le sue chiavi, riconosce il proprietario anche senza tessera — che
+    e la ragione per cui il blocco precedente esisteva — e porta il perimetro.
+  */
+  const scope = await resolveOrganizationScopeForUser(
+    session.db.user_id,
+    athlete.organization_id,
+    request.headers.get("x-active-access-role"),
+  );
+
   const managementAccess =
-    Boolean(ownsClub) ||
-    memberships.some((membership) => isManagementAccessRole(membership.role));
+    scope.activeOrganizationId === athlete.organization_id &&
+    isManagementAccessRole(scope.activeRole);
 
   if (!directAthleteAccess && !managementAccess) {
     return NextResponse.json(
@@ -82,16 +104,32 @@ export async function GET(request: Request, context: Context) {
   }
 
   /*
-    Il proprietario del club non ha sempre una riga di membership — puo averne
-    zero — e in quel caso il ruolo effettivo su questa lettura e `owner`.
-    Risolverlo qui e non fidarsi della prima membership trovata evita che un
-    proprietario senza tessera perda il contenuto del proprio fascicolo.
+    **E il perimetro vale anche qui**, perche questa e una lettura per
+    identificativo: chi ha un perimetro di sede o categoria non deve leggere di
+    qui l'atleta che l'elenco gli nasconde. Chi entra per **legame** — l'atleta
+    sul proprio fascicolo — non ha perimetro e non ci passa.
   */
-  const ruoloEffettivo = ownsClub
-    ? "owner"
-    : memberships.find((membership) =>
-        isManagementAccessRole(membership.role),
-      )?.role || null;
+  if (!directAthleteAccess) {
+    const dentro = await athleteWithinAccessScope(
+      athlete.organization_id,
+      athlete.id,
+      scope,
+    );
+    if (!dentro) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Accesso negato: questa persona e fuori dal perimetro di sede o categoria dell'accesso",
+          },
+        },
+        { status: 403 },
+      );
+    }
+  }
+
+  const ruoloEffettivo = scope.activeRole;
 
   const contenutoClinicoConsentito =
     directAthleteAccess || hasHealthPermission(ruoloEffettivo, "clinical.read");

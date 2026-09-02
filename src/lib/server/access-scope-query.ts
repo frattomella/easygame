@@ -111,3 +111,31 @@ export const athleteIdsWithinAccessScope = async (
 
   return righe.map((riga) => riga.id);
 };
+
+/**
+ * Vero se **quella** riga sta dentro il perimetro, o se perimetro non ce n'e.
+ *
+ * Esiste accanto a `athleteIdsWithinAccessScope` per una ragione di costo: quando
+ * la domanda riguarda un atleta solo — una lettura per identificativo — caricare
+ * tutti gli identificativi del perimetro per poi cercarci dentro e leggere un
+ * club intero per rispondere su una riga.
+ *
+ * La domanda si stringe quindi all'unica riga in questione, con le **stesse**
+ * condizioni dell'elenco: un secondo giudizio scritto in TypeScript sarebbe la
+ * terza risposta alla stessa domanda, e le prime due sono gia divergite una
+ * volta.
+ */
+export const athleteWithinAccessScope = async (
+  organizationId: string,
+  athleteId: string,
+  scope: ScopeConPerimetro | undefined | null,
+): Promise<boolean> => {
+  const condizioni = buildAthleteAccessScopeConditions(scope);
+  if (!condizioni) return true;
+
+  const dentro = await prisma.athlete.count({
+    where: { id: athleteId, organization_id: organizationId, AND: condizioni },
+  });
+
+  return dentro > 0;
+};
