@@ -312,3 +312,155 @@ test("W6-32 · senza club attivo non si legge niente", async () => {
     /Accesso negato/,
   );
 });
+
+/* ============ l'ambiguita non si scioglie tirando a sorte (difetto HIGH) === */
+
+/**
+ * **Il caso vuoto era protetto; quello ambiguo no.**
+ *
+ * La prima scrittura chiedeva le persone con un `OR` fra il legame di origine
+ * e l'email, e prendeva `persone[0]`. `sport_work_people` non ha nessun
+ * `@@unique` ne su `email` ne su `origin_id`, e non c'era `orderBy`: quale
+ * riga fosse la prima lo decideva Postgres.
+ *
+ * Bastava percio un duplicato da re-import, o due persone che condividono una
+ * casella — due coniugi, un indirizzo `segreteria@` — perche «I miei compensi»
+ * consegnasse nome, importo del rapporto, rate, dichiarazioni e **posizione
+ * annuale** di un'altra persona, senza che nessuno se ne accorgesse.
+ *
+ * La regola scelta ha due parti, e le due prove che seguono le fissano:
+ *
+ * 1. **il legame esplicito batte l'email**, perche e scritto da qualcuno
+ *    mentre una casella si condivide;
+ * 2. **un'ambiguita irrisolvibile nega**, e non indovina: due righe che
+ *    rispondono alla stessa utenza sono un dato da correggere, e finche non e
+ *    corretto la risposta giusta e nessuna.
+ */
+
+const persona = (id, overrides = {}) => ({
+  id,
+  organization_id: CLUB,
+  origin_type: "trainer",
+  origin_id: "t-mister",
+  first_name: "Uno",
+  last_name: "Mister",
+  email: "mister@club.it",
+  ...overrides,
+});
+
+test("W6-32 · due righe collegate alla stessa scheda: si nega, non si sceglie", async () => {
+  const dati = seed();
+  /* Il duplicato da re-import: stessa scheda di origine, riga nuova. */
+  dati.sportWorkPerson.push(
+    persona("99999999-6c32-4000-8000-00000000dupe", {
+      first_name: "Uno (duplicato)",
+    }),
+  );
+  fake = createFakePrisma(dati);
+  setPrismaClientForTests(fake.client);
+
+  await assert.rejects(
+    () => area.readOwnCompensationStatement(scope("trainer", MISTER), { year: 2026 }),
+    /Accesso negato/,
+  );
+});
+
+test("W6-32 · una casella condivisa non identifica nessuno: si nega", async () => {
+  const dati = seed();
+  /*
+    Nessuna delle due porta il legame alla scheda: restano due anagrafiche
+    inserite a mano che dichiarano lo stesso indirizzo. E il caso dei coniugi,
+    o della casella `segreteria@`.
+  */
+  dati.sportWorkPerson = [
+    persona("99999999-6c32-4000-8000-0000000email1", {
+      origin_type: "external",
+      origin_id: null,
+    }),
+    persona("99999999-6c32-4000-8000-0000000email2", {
+      origin_type: "external",
+      origin_id: null,
+      first_name: "Coniuge",
+    }),
+  ];
+  fake = createFakePrisma(dati);
+  setPrismaClientForTests(fake.client);
+
+  await assert.rejects(
+    () => area.readOwnCompensationStatement(scope("trainer", MISTER), { year: 2026 }),
+    /Accesso negato/,
+  );
+});
+
+test("W6-32 · il legame esplicito vince, e l'omonimo per email non si guarda", async () => {
+  const dati = seed();
+  /*
+    Un collega registrato con la stessa casella del mister. Con l'`OR` di
+    prima erano due candidati indistinguibili; con le due strade in ordine, il
+    legame scritto sulla scheda risponde da solo e l'email non si consulta
+    nemmeno — non c'e ambiguita da dichiarare.
+  */
+  dati.sportWorkPerson.push(
+    persona("99999999-6c32-4000-8000-0000000shared", {
+      origin_type: "external",
+      origin_id: null,
+      first_name: "Casella",
+      last_name: "Condivisa",
+    }),
+  );
+  fake = createFakePrisma(dati);
+  setPrismaClientForTests(fake.client);
+
+  const statement = await area.readOwnCompensationStatement(
+    scope("trainer", MISTER),
+    { year: 2026 },
+  );
+
+  assert.equal(statement.personId, PERSONA_MISTER);
+});
+
+test("W6-32 · un identificativo che coincide con quello di un'altra origine non e un legame", async () => {
+  const dati = seed();
+  /*
+    `origin_id` e testo libero — «gli allenatori JSON non hanno UUID», dice lo
+    schema — quindi lo stesso valore puo comparire come identificativo di un
+    atleta. Cercare per solo `origin_id` avrebbe reso quella collisione un
+    candidato, e con il duplicato un rifiuto al posto di una risposta.
+  */
+  dati.sportWorkPerson.push(
+    persona("99999999-6c32-4000-8000-0000000athlet", {
+      origin_type: "athlete",
+      email: null,
+      first_name: "Atleta",
+      last_name: "Omonimo",
+    }),
+  );
+  fake = createFakePrisma(dati);
+  setPrismaClientForTests(fake.client);
+
+  const statement = await area.readOwnCompensationStatement(
+    scope("trainer", MISTER),
+    { year: 2026 },
+  );
+
+  assert.equal(statement.personId, PERSONA_MISTER);
+});
+
+/* ================================ la lettura non cresce con il club ======= */
+
+/**
+ * Le rate si chiedevano **per club** e si filtravano in memoria: corretto nel
+ * risultato — la prova sopra lo verifica — ma una lettura che cresce con il
+ * club, e che fa passare dalla rete il piano di pagamento di tutti per
+ * mostrarne uno.
+ */
+test("W6-32 · le rate si chiedono sui rapporti della persona, non su tutto il club", async () => {
+  await area.readOwnCompensationStatement(scope("trainer", MISTER), {
+    year: 2026,
+  });
+
+  const where = fake.lastCall("sportWorkInstallment", "findMany").args.where;
+
+  assert.equal(where.organization_id, CLUB);
+  assert.deepEqual(where.relationship_id, { in: [RAPPORTO_MISTER] });
+});

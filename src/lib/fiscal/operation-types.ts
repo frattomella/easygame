@@ -161,7 +161,7 @@ export type OperationTypeSeed = {
    * Le nove voci del seme originario non ne portano una, e restano cosi: il
    * `reporting_bucket` e **testo del club**, e riempirlo a posteriori su un
    * catalogo gia configurato sarebbe scrivere una scelta al posto suo. Le
-   * quattro causali in uscita nascono invece oggi, quindi un valore di partenza
+   * quattro causali della Wave 6 nascono invece oggi, quindi un valore di partenza
    * non sovrascrive niente — ed e l'unico modo perche il rendiconto per voce
    * abbia qualcosa da raggruppare il primo giorno.
    */
@@ -277,21 +277,25 @@ export const OPERATION_TYPE_SEEDS: OperationTypeSeed[] = [
   },
 
   /*
-    ================================ LE QUATTRO CAUSALI IN USCITA (W4-R7) ===
+    ================================== LE TRE CAUSALI IN USCITA (W4-R7) ===
 
     Fino alla Wave 6 questo seme aveva **nove voci e otto guardavano in
     entrata**: non esisteva una sola causale pensata per un'uscita. Le due
-    strade con cui il denaro esce — il compenso del lavoro sportivo e la
-    liquidazione di un bando — proiettavano quindi `NULL` come causale e
-    `unspecified` come ambito, scritti nel SQL della vista. Su una stagione
-    vera erano **7.000 euro su 7.210** del non classificato: il buco non era un
-    residuo di data entry, era strutturale.
+    strade con cui il denaro si muove fuori dagli incassi delle famiglie — il
+    compenso del lavoro sportivo e la liquidazione di un bando — proiettavano
+    quindi `NULL` come causale e `unspecified` come ambito, scritti nel SQL
+    della vista. Su una stagione vera erano **7.000 euro su 7.210** del non
+    classificato: il buco non era un residuo di data entry, era strutturale.
 
-    Sono quattro e non sette. I sottotipi di `transaction_type` sul lavoro
+    Sono tre e non sette. I sottotipi di `transaction_type` sul lavoro
     sportivo sono sette, ma quello e un **enum tecnico** che dice come la riga
     e nata; la causale dice sotto quale voce il denaro si somma nel rendiconto,
     e sta un livello sopra. Rispecchiare l'enum avrebbe portato nel piano dei
     conti una distinzione che serve al motore e non a chi legge il bilancio.
+
+    La quarta voce nata con loro — `liquidazione_contributo` — e in questo
+    elenco per **provenienza**, non per verso: e un'entrata, e il commento
+    accanto alla sua definizione spiega perche.
 
     Restano `unspecified` come le altre: l'ambito e una **determinazione
     fiscale**, e ADR-0093 tiene distinta la contabilita gestionale dal
@@ -331,16 +335,56 @@ export const OPERATION_TYPE_SEEDS: OperationTypeSeed[] = [
     notes:
       "La fattura di chi ha una partita IVA. E l'unica delle quattro che nasce da un documento ricevuto.",
   },
+  /*
+    ------------- e la quarta nata con loro, che e invece un'ENTRATA (W6-R1)
+
+    Questa causale e nata nel blocco delle quattro «in uscita» e ne ha
+    ereditato il verso per contiguita, non per un fatto. Il fatto e l'opposto,
+    e lo dicono tre punti indipendenti del prodotto:
+
+    - lo schema, sulla colonna che la liquidazione ha accanto: «su quale conto
+      e **arrivato** il bonifico dell'ente»;
+    - la proiezione del registro, che sul verso legge il segno
+      (`firmato < 0 ? "OUT" : "IN"`), e una liquidazione ha importo positivo
+      per vincolo di database;
+    - la vista SQL gemella, che dice la stessa cosa con
+      `CASE WHEN fs.amount < 0 THEN 'OUT' ELSE 'IN' END`.
+
+    Il denaro **arriva** dall'ente al club. Che poi il club lo giri alla
+    famiglia e un secondo fatto, che vive nel dominio dei pagamenti e che qui
+    non si registra: `funding_settlements` non e la riga con cui il club paga
+    qualcuno, e la riga con cui incassa il bando.
+
+    Il verso sbagliato non era cosmetico. Faceva due danni: sommava un incasso
+    dentro un capitolo di uscita del rendiconto per voce, e — attraverso la
+    guardia di `resolveOutboundClassification`, che rifiuta ogni causale in
+    entrata — **rendeva la classificazione corretta un errore 400**. L'unica
+    strada aperta era quella sbagliata.
+
+    **E lo storno?** Ha importo negativo, quindi verso `OUT`, e sta nella
+    stessa tabella con la stessa causale. Non e una contraddizione: il verso
+    suggerito appartiene al **fatto di dominio** — «l'ente ha liquidato» — non
+    alla singola riga. Lo storno e quel fatto annullato, e infatti non
+    ricalcola niente: eredita la fotografia (codice, etichetta e ambito
+    congelati) della riga che sta annullando, cosi le due righe si elidono
+    esattamente sotto la stessa voce. La guardia percio si applica dove la
+    causale viene **risolta** — una sola volta, sulla liquidazione — e non dove
+    viene copiata.
+
+    La voce di rendiconto cambia con il verso: «Contributi liquidati» leggeva
+    come un capitolo di spesa. Il capitolo giusto e quello dei contributi
+    ricevuti dagli enti.
+  */
   {
     code: "liquidazione_contributo",
     label: "Liquidazione di contributo o voucher",
     documentRoute: "none",
     activityScope: "unspecified",
-    directionHint: "OUT",
-    reportingBucket: "Contributi liquidati",
+    directionHint: "IN",
+    reportingBucket: "Contributi da enti",
     origin: "funding",
     notes:
-      "Il denaro che l'ente eroga e il club gira alla famiglia. Non e un pagamento della famiglia al contrario: i due domini non si importano (ADR-0037).",
+      "Il bonifico con cui l'ente liquida al club i voucher maturati: e denaro che entra. Non e un pagamento della famiglia al contrario: i due domini non si importano (ADR-0037).",
   },
 ];
 
@@ -368,10 +412,13 @@ export const DEFAULT_OPERATION_TYPE_BY_ORIGIN: Record<
   clothing: "vendita_abbigliamento",
   service: "corso_servizio",
   /*
-    Le due origini in uscita (W4-R7). Il compenso e il ripiego del lavoro
+    Le due origini nate con W4-R7. Il compenso e il ripiego del lavoro
     sportivo perche e cio che quel dominio produce piu spesso; rimborso e
     prestazione professionale si scelgono, perche sceglierli e proprio la
     distinzione che il rendiconto perdeva.
+
+    `funding` ripiega su una causale **in entrata**: il bando liquida al club,
+    non il contrario.
   */
   sport_work: "compenso_sportivo",
   funding: "liquidazione_contributo",
@@ -416,12 +463,18 @@ export const OUTBOUND_OPERATION_TYPE_BY_TRANSACTION: Record<string, string> = {
   */
 };
 
-/** Le quattro causali che il seme dichiara in uscita. */
+/**
+ * Le causali che il seme dichiara **in uscita**.
+ *
+ * `liquidazione_contributo` non e piu qui: il bonifico dell'ente e un'entrata,
+ * e tenerlo in questo elenco significava dichiarare un verso che i tre punti
+ * del prodotto che lo calcolano — schema, proiezione e vista SQL — smentiscono
+ * tutti e tre.
+ */
 export const OUTBOUND_OPERATION_TYPE_CODES = [
   "compenso_sportivo",
   "rimborso_spese",
   "prestazione_professionale",
-  "liquidazione_contributo",
 ] as const;
 
 export type NormalizedOperationType = {

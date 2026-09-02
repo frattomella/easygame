@@ -1,5 +1,5 @@
 import { prisma } from "./prisma";
-import { resolveOutboundClassification } from "./fiscal-config";
+import { resolveInboundClassification } from "./fiscal-config";
 import { assertContoDelClub } from "./financial-account-guard";
 import { canAccessClubResource } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
@@ -1228,8 +1228,23 @@ export const createFundingSettlement = async (
       ripiego e `liquidazione_contributo`, perche di questo si tratta sempre:
       qui, a differenza del lavoro sportivo, non c e un sottotipo da cui
       dedurre altro.
+
+      **E una classificazione in ENTRATA, e prima chiedeva quella in uscita.**
+      Questa riga registra il bonifico con cui l ente liquida al club i voucher
+      maturati: il denaro arriva, e lo dicono lo schema (`financial_account_id`
+      e «su quale conto e arrivato il bonifico»), la proiezione del registro e
+      la vista SQL, che sul verso leggono entrambe il segno dell importo. Il
+      giro alla famiglia e un secondo fatto, che non si registra qui.
+
+      Passando dalla guardia in uscita la causale corretta veniva **rifiutata**
+      con un 400, e l unica ammessa era quella che sommava un incasso dentro un
+      capitolo di spesa.
+
+      Lo **storno** ha segno opposto — quindi verso `OUT` — ma non ripassa di
+      qui: eredita la fotografia della riga che annulla. Il verso da dichiarare
+      e percio quello del fatto, non quello della singola riga.
     */
-    const classificazione = await resolveOutboundClassification({
+    const classificazione = await resolveInboundClassification({
       organizationId: program.organization_id,
       code: (input as { operationTypeCode?: unknown }).operationTypeCode,
       fallbackCode: "liquidazione_contributo",

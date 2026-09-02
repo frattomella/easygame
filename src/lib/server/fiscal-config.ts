@@ -201,8 +201,9 @@ export const listOperationTypes = async (
 
     Fin qui la condizione era `rows.length`: bastava una riga perche il seme
     non girasse piu. Ha funzionato finche il catalogo di sistema non e
-    cambiato — e la Wave 6 lo cambia, aggiungendo le quattro causali in uscita
-    che chiudono W4-R7.
+    cambiato — e la Wave 6 lo cambia, aggiungendo le quattro causali che
+    chiudono W4-R7: tre in uscita e la liquidazione di un contributo, che e
+    invece un'entrata.
 
     Con la vecchia condizione un club **gia configurato** — cioe ogni club
     vero — non le avrebbe viste mai: avrebbe continuato a non poter
@@ -646,7 +647,7 @@ export const saveDocumentSeries = async (input: {
 };
 
 /**
- * **La classificazione contabile di un movimento in uscita** (W4-R7).
+ * **La classificazione contabile di un movimento** (W4-R7).
  *
  * Restituisce le tre colonne che le due tabelle sorgente hanno acquistato con
  * la Wave 6: il codice, l'etichetta **congelata** e l'ambito **congelato**.
@@ -670,24 +671,47 @@ export const saveDocumentSeries = async (input: {
  *
  * ## Cosa rifiuta
  *
- * Una causale **in entrata** su un movimento in uscita. Non e pignoleria: una
- * quota associativa fra le uscite falsa il rendiconto in due punti — gonfia le
- * entrate di quella voce e sposta un'uscita sotto un capitolo che non le
+ * Una causale il cui verso suggerito **contraddice il verso del fatto**: una
+ * quota associativa su un compenso, o un compenso sportivo sul bonifico di un
+ * ente. Non e pignoleria: falsa il rendiconto in due punti — gonfia una voce
+ * dal lato sbagliato e sposta il movimento sotto un capitolo che non gli
  * appartiene — e il difetto sopravvivrebbe silenzioso fino al primo bilancio.
+ *
+ * Una causale **senza verso** (`directionHint: null`) passa in entrambi i
+ * casi, ed e voluto: «altra operazione», una rettifica, una nota di credito
+ * servono da tutt'e due le parti. Il verso lo decide il movimento.
+ *
+ * ## Perche il verso e quello del FATTO, non quello della riga
+ *
+ * Un fatto di dominio puo produrre righe di segno opposto sulla stessa
+ * tabella: la liquidazione di un bando e un'entrata, e il suo **storno** e
+ * un'uscita. Applicare la guardia al segno della singola riga imporrebbe due
+ * causali diverse per lo stesso fatto, e le due righe non si eliderebbero piu
+ * sotto la stessa voce di rendiconto.
+ *
+ * Non serve, perche uno storno non risolve niente: **eredita la fotografia**
+ * — codice, etichetta e ambito congelati — della riga che annulla. Questa
+ * funzione viene percio chiamata una volta sola, quando il fatto nasce, e il
+ * verso da dichiararle e quello del fatto.
  */
-export type OutboundClassification = {
+export type ResolvedClassification = {
   operation_type_code: string | null;
   operation_type_label_snapshot: string | null;
   activity_scope_snapshot: string;
 };
 
-export const resolveOutboundClassification = async (input: {
+/** Il nome storico, tenuto per i chiamanti del lavoro sportivo. */
+export type OutboundClassification = ResolvedClassification;
+
+const resolveClassification = async (input: {
   organizationId: string;
   /** Cio che ha scelto chi registra. Vince sul ripiego. */
   code?: unknown;
   /** Il ripiego dedotto dal dominio, quando chi registra non sceglie. */
   fallbackCode?: string | null;
-}): Promise<OutboundClassification> => {
+  /** Il verso del **fatto** che si sta registrando. */
+  direction: DirectionHint;
+}): Promise<ResolvedClassification> => {
   const organizationId = asText(input.organizationId);
   if (!organizationId) {
     throw new Error("Accesso negato: operazione senza club");
@@ -696,7 +720,7 @@ export const resolveOutboundClassification = async (input: {
   const scelto = asText(input.code);
   const code = scelto || asText(input.fallbackCode);
 
-  const vuota: OutboundClassification = {
+  const vuota: ResolvedClassification = {
     operation_type_code: null,
     operation_type_label_snapshot: null,
     activity_scope_snapshot: "unspecified",
@@ -719,9 +743,12 @@ export const resolveOutboundClassification = async (input: {
     );
   }
 
-  if (tipo.directionHint === "IN") {
+  if (tipo.directionHint && tipo.directionHint !== input.direction) {
+    const atteso = input.direction === "IN" ? "entrata" : "uscita";
+    const dichiarato =
+      tipo.directionHint === "IN" ? "le entrate" : "le uscite";
     throw new Error(
-      `La causale «${tipo.label}» e prevista per le entrate: su un movimento in uscita falserebbe il rendiconto in due punti.`,
+      `La causale «${tipo.label}» e prevista per ${dichiarato}: su un movimento in ${atteso} falserebbe il rendiconto in due punti.`,
     );
   }
 
@@ -737,3 +764,26 @@ export const resolveOutboundClassification = async (input: {
     activity_scope_snapshot: tipo.activityScope,
   };
 };
+
+/** La classificazione del denaro che **esce**: compensi, rimborsi, fatture. */
+export const resolveOutboundClassification = (input: {
+  organizationId: string;
+  code?: unknown;
+  fallbackCode?: string | null;
+}): Promise<ResolvedClassification> =>
+  resolveClassification({ ...input, direction: "OUT" });
+
+/**
+ * La classificazione del denaro che **entra** da un ente.
+ *
+ * Esiste perche `funding_settlements` registra un incasso — il bonifico con
+ * cui il bando liquida al club i voucher maturati — e passava per la guardia
+ * in uscita: la causale corretta veniva **rifiutata**, e l'unica ammessa era
+ * quella che sommava un incasso dentro un capitolo di spesa.
+ */
+export const resolveInboundClassification = (input: {
+  organizationId: string;
+  code?: unknown;
+  fallbackCode?: string | null;
+}): Promise<ResolvedClassification> =>
+  resolveClassification({ ...input, direction: "IN" });

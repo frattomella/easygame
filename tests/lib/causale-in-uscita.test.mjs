@@ -39,7 +39,30 @@ import {
 
 /* ------------------------------------------------- le quattro causali nuove */
 
-test("il seme dichiara quattro causali in uscita, dove prima non ce n'era nessuna", () => {
+/**
+ * **Perche questa prova diceva «quattro» e adesso dice «tre».**
+ *
+ * L'aspettativa precedente era che le quattro causali nate con W4-R7 fossero
+ * tutte in uscita. Tre lo sono. La quarta — `liquidazione_contributo` — e
+ * un'**entrata**, e ne aveva ereditato il verso per contiguita nel seme, non
+ * per un fatto: il fatto e che il bonifico di un ente **arriva** al club.
+ *
+ * Lo dicono tre punti indipendenti del prodotto, e nessuno dei tre era stato
+ * consultato quando il verso e stato scritto:
+ *
+ * - lo schema, sulla colonna che la liquidazione porta accanto:
+ *   `funding_settlements.financial_account_id` e «su quale conto e ARRIVATO il
+ *   bonifico dell'ente»;
+ * - `projectFundingSettlements`, che sul verso legge il segno dell'importo;
+ * - la vista SQL gemella, con `CASE WHEN fs.amount < 0 THEN 'OUT' ELSE 'IN'`.
+ *
+ * La prova vecchia non coglieva il difetto: lo **codificava**. Chiedeva che il
+ * seme e la costante dicessero la stessa cosa, e le due dicevano insieme la
+ * cosa sbagliata — un test che verifica la coerenza di due copie non verifica
+ * che siano vere. Adesso il verso del seme si confronta con il verso che il
+ * registro **calcola** su una riga vera.
+ */
+test("il seme dichiara tre causali in uscita, dove prima non ce n'era nessuna", () => {
   const inUscita = OPERATION_TYPE_SEEDS.filter(
     (seed) => seed.directionHint === "OUT",
   );
@@ -47,6 +70,11 @@ test("il seme dichiara quattro causali in uscita, dove prima non ce n'era nessun
   assert.deepEqual(
     inUscita.map((seed) => seed.code).sort(),
     [...OUTBOUND_OPERATION_TYPE_CODES].sort(),
+  );
+  assert.equal(
+    inUscita.some((seed) => seed.code === "liquidazione_contributo"),
+    false,
+    "il bonifico dell'ente e un incasso: fra le uscite somma un'entrata dentro un capitolo di spesa",
   );
 
   for (const seed of inUscita) {
@@ -65,22 +93,38 @@ test("il seme dichiara quattro causali in uscita, dove prima non ce n'era nessun
   }
 });
 
-test("le nove causali in entrata restano come sono", () => {
+/** Le nove del seme originario, quelle che questa lane non deve toccare. */
+const SEME_ORIGINARIO = [
+  "quota_associativa",
+  "quota_iscrizione",
+  "quota_attivita",
+  "tesseramento",
+  "corso_servizio",
+  "vendita_abbigliamento",
+  "sponsorizzazione",
+  "contributo",
+  "altra_operazione",
+];
+
+test("le nove causali del seme originario restano come sono", () => {
   /*
     Il presidio contro la modifica opportunistica: questa lane aggiunge, non
     riscrive. Una voce di rendiconto messa a posteriori su un catalogo gia
     configurato sarebbe scrivere una scelta al posto del club.
-  */
-  const inEntrata = OPERATION_TYPE_SEEDS.filter(
-    (seed) => seed.directionHint === "IN",
-  );
-  assert.equal(inEntrata.length, 8);
 
-  for (const seed of inEntrata) {
+    **Il criterio e la provenienza, non il verso**, ed e la correzione: prima
+    questo elenco si costruiva filtrando `directionHint === "IN"`, e quel
+    filtro dava per scontato che nessuna causale nata nella Wave 6 potesse
+    essere un'entrata. `liquidazione_contributo` lo e, e nasce oggi: un valore
+    di partenza per la sua voce di rendiconto non sovrascrive niente.
+  */
+  for (const code of SEME_ORIGINARIO) {
+    const seed = getOperationTypeSeed(code);
+    assert.ok(seed, `${code} sparito dal seme`);
     assert.equal(
       seed.reportingBucket ?? null,
       null,
-      `${seed.code}: la voce di rendiconto e testo del club, e non si riempie a posteriori`,
+      `${code}: la voce di rendiconto e testo del club, e non si riempie a posteriori`,
     );
   }
 
@@ -91,6 +135,22 @@ test("le nove causali in entrata restano come sono", () => {
     neutre.map((seed) => seed.code),
     ["altra_operazione"],
     "«altra operazione» e l'unica che calza in entrambi i versi",
+  );
+});
+
+test("la liquidazione di un contributo e dichiarata in ENTRATA, con la sua voce", () => {
+  const seme = getOperationTypeSeed("liquidazione_contributo");
+
+  assert.equal(seme.directionHint, "IN");
+  assert.equal(seme.activityScope, "unspecified");
+  assert.ok(
+    seme.reportingBucket,
+    "nasce oggi: un valore di partenza non sovrascrive una scelta del club",
+  );
+  assert.equal(
+    /liquidat/i.test(seme.reportingBucket),
+    false,
+    "la voce di rendiconto leggeva come un capitolo di spesa: il denaro qui entra",
   );
 });
 
@@ -162,17 +222,34 @@ const rigaCompenso = (extra = {}) => ({
   ...extra,
 });
 
+/**
+ * Una liquidazione vera ha **importo positivo**: il vincolo di database lo
+ * impone, e il registro ne ricava il verso. La fixture portava un importo
+ * negativo — cioe la forma di uno storno — ed e uno dei modi in cui il verso
+ * sbagliato del seme era passato inosservato.
+ */
 const rigaLiquidazione = (extra = {}) => ({
   id: "fs-1",
   organization_id: "club-1",
   settled_at: "2026-03-11T00:00:00.000Z",
-  amount: -800,
+  amount: 800,
   program_id: "bando-1",
   _programName: "Bando sport e periferie",
   financial_account_id: "conto-1",
   created_at: "2026-03-11T00:00:00.000Z",
   ...extra,
 });
+
+/** Lo storno: importo opposto, e la fotografia della riga che annulla. */
+const rigaStorno = (extra = {}) =>
+  rigaLiquidazione({
+    id: "fs-1-storno",
+    amount: -800,
+    reversal_of_id: "fs-1",
+    settled_at: "2026-04-02T00:00:00.000Z",
+    created_at: "2026-04-02T00:00:00.000Z",
+    ...extra,
+  });
 
 test("un compenso classificato esce dal registro con la sua causale", () => {
   const [riga] = projectSportWorkPayouts([
@@ -252,6 +329,67 @@ test("anche la liquidazione di un bando porta la sua causale", () => {
   assert.equal(riga.activityScope, "institutional");
 });
 
+/* ------------------- il verso del seme contro il verso che il registro calcola */
+
+/**
+ * **La prova che mancava.** Il seme dichiara un verso; il registro ne calcola
+ * uno. Finche nessuno li ha messi a confronto, il seme ha potuto dire «uscita»
+ * su una riga che il registro contava fra le entrate — e la guardia costruita
+ * su quel verso rifiutava la classificazione corretta.
+ */
+test("una liquidazione entra in cassa, e il seme dice lo stesso", () => {
+  const [riga] = projectFundingSettlements([rigaLiquidazione()]);
+
+  assert.equal(riga.direction, "IN");
+  assert.equal(
+    getOperationTypeSeed("liquidazione_contributo").directionHint,
+    riga.direction,
+    "il verso del seme e quello che il registro calcola sulla stessa riga",
+  );
+});
+
+/**
+ * **Lo storno regge il verso opposto sulla stessa causale.**
+ *
+ * Un fatto di dominio puo produrre righe di segno opposto sulla stessa
+ * tabella: la liquidazione entra, il suo storno esce. Non e una contraddizione
+ * del verso suggerito, perche il verso appartiene al **fatto** e non alla
+ * singola riga — e infatti lo storno non risolve niente: eredita la
+ * fotografia, codice, etichetta e ambito congelati, della riga che annulla.
+ *
+ * E cio che permette alle due righe di elidersi sotto la **stessa** voce di
+ * rendiconto. Una guardia agganciata al segno della riga avrebbe imposto due
+ * causali diverse, e la voce non sarebbe piu tornata a zero.
+ */
+test("lo storno esce, con la stessa causale e la stessa fotografia", () => {
+  const [liquidazione] = projectFundingSettlements([
+    rigaLiquidazione({
+      operation_type_code: "liquidazione_contributo",
+      operation_type_label_snapshot: "Liquidazione di contributo o voucher",
+      activity_scope_snapshot: "institutional",
+    }),
+  ]);
+
+  const [storno] = projectFundingSettlements([
+    rigaStorno({
+      operation_type_code: "liquidazione_contributo",
+      operation_type_label_snapshot: "Liquidazione di contributo o voucher",
+      activity_scope_snapshot: "institutional",
+      /* La causale rinominata dopo: lo storno non deve accorgersene. */
+      _operationTypeLabel: "Contributi da enti pubblici",
+      _activityScope: "commercial",
+    }),
+  ]);
+
+  assert.equal(liquidazione.direction, "IN");
+  assert.equal(storno.direction, "OUT");
+
+  assert.equal(storno.operationTypeCode, liquidazione.operationTypeCode);
+  assert.equal(storno.operationTypeLabel, liquidazione.operationTypeLabel);
+  assert.equal(storno.activityScope, liquidazione.activityScope);
+  assert.equal(storno.amountCents, liquidazione.amountCents);
+});
+
 /* ------------------------------------ il gemello SQL dice la stessa cosa */
 
 test("la vista SQL legge le stesse colonne, nello stesso ordine di precedenza", () => {
@@ -300,6 +438,49 @@ test("la vista SQL legge le stesse colonne, nello stesso ordine di precedenza", 
     ramoSportWork.includes("'unspecified'::text"),
     false,
     "il ramo del lavoro sportivo scriveva l'ambito nel SQL: era li il buco strutturale",
+  );
+});
+
+test("la vista SQL ricava il verso della liquidazione dal segno, come la proiezione", () => {
+  /*
+    E il terzo dei tre punti che smentivano il verso del seme, ed e qui che si
+    vede quanto fosse indipendente: la vista lo scrive in SQL, la proiezione in
+    TypeScript, e nessuna delle due ha mai letto `direction_hint`.
+  */
+  const migrazione = readFileSync(
+    "prisma/migrations/20260901200000_wave6_causale_in_uscita/migration.sql",
+    "utf8",
+  );
+
+  assert.ok(
+    migrazione.includes("CASE WHEN fs.amount < 0 THEN 'OUT' ELSE 'IN' END"),
+    "il ramo delle liquidazioni non ricava piu il verso dal segno",
+  );
+});
+
+test("la correzione del verso non riscrive cio che un club ha configurato", () => {
+  /*
+    `direction_hint` e `reporting_bucket` sono configurazione del club. La
+    migrazione che corregge il seme sbagliato deve toccare **solo** la riga di
+    sistema rimasta identica a quel seme: un club che l'avesse gia corretta, o
+    che avesse dato alla voce un nome proprio, non deve vederselo riscrivere.
+  */
+  const correzione = readFileSync(
+    "prisma/migrations/20260901210000_wave6_liquidazione_e_una_entrata/migration.sql",
+    "utf8",
+  );
+
+  assert.ok(correzione.includes("'liquidazione_contributo'"));
+  assert.ok(correzione.includes(`"is_system" = true`));
+  assert.ok(correzione.includes(`"direction_hint" = 'OUT'`));
+  assert.ok(
+    correzione.includes("'Contributi liquidati'"),
+    "senza il vincolo sulla voce vecchia la migrazione riscrive anche un nome scelto dal club",
+  );
+  assert.equal(
+    /UPDATE\s+"?funding_settlements/i.test(correzione),
+    false,
+    "le fotografie gia scritte non si toccano: il verso lo ricava il registro dal segno",
   );
 });
 

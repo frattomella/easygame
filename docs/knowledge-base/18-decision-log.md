@@ -5738,6 +5738,49 @@ uscita nel seme. E due regole:
   classificano con la sola deduzione: il rendiconto non ha piu buchi, la
   correzione di una singola riga non ha ancora una porta.
 
+### Emendamento (2026-09-02): le causali seminate erano quattro, e una guardava dalla parte sbagliata
+
+L'audit ostile di fine Wave ha misurato che **`liquidazione_contributo` non e
+un'uscita**. Tre punti indipendenti del prodotto lo dicevano gia, e nessuno dei
+tre passa dalla causale: il commento della colonna che la liquidazione ha
+accanto («su quale conto e **arrivato** il bonifico dell'ente»), la proiezione
+del registro (`firmato < 0 ? "OUT" : "IN"`, e una liquidazione ha importo
+positivo per vincolo di database) e la vista SQL, che ricava il verso dallo
+stesso segno.
+
+Il danno era doppio, e il secondo peggiore del primo. Il rendiconto per voce
+sommava un incasso dentro un capitolo di uscita — i totali per verso restavano
+giusti, la **voce** no. E la guardia era invertita: rifiutando ogni causale in
+entrata su cio che credeva un'uscita, rendeva un errore 400 l'unica
+classificazione corretta. Al club restava aperta soltanto quella sbagliata.
+
+**La decisione resta**, e cambia la sua formulazione: la regola non e «una
+causale in entrata su un movimento in uscita e un errore», e **«una causale che
+contraddice il verso del fatto e un errore»**, simmetrica nei due sensi.
+`resolveOutboundClassification` diventa un caso di `resolveClassification`, con
+una gemella in entrata.
+
+**Il verso appartiene al fatto, non alla riga.** Lo storno di una liquidazione
+ha importo negativo, quindi verso `OUT`, e resta sulla **stessa** causale della
+liquidazione che annulla: agganciare la guardia al segno della singola riga
+avrebbe separato le due, e due righe che non portano la stessa voce non si
+elidono nel rendiconto. E la stessa ragione per cui lo storno eredita la
+fotografia invece di ricalcolarla.
+
+Il seme in uscita e quindi di **tre** causali, non quattro. La migrazione di
+correzione (`20260901210000_wave6_liquidazione_e_una_entrata`) tocca solo la
+riga di sistema rimasta identica al seme sbagliato: verso e voce sono
+configurazione del club, e un club che li avesse gia corretti non deve
+vederseli riscrivere.
+
+**Cosa insegna, oltre al caso.** Il difetto e sopravvissuto ai gate perche il
+**test lo codificava**: verificava che seme e costante concordassero, e le due
+dicevano insieme la cosa sbagliata. Anche la sonda di collaudo lo faceva —
+chiedeva che una causale in entrata su una liquidazione fosse rifiutata, e
+passava. Due misure d'accordo fra loro non sono una verifica se misurano la
+stessa assunzione: il verso andava confrontato con **chi lo calcola**, cioe la
+proiezione e la vista, ed e cosi che le prove lo confrontano adesso.
+
 ---
 
 ## ADR-0107 — Il PDF non si rasterizza; il **contenitore** si apre solo quando dentro c'e una fotografia sola

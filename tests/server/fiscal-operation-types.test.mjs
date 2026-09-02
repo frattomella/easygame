@@ -535,3 +535,98 @@ test("nessuna operazione sulle causali passa senza un club", async () => {
     /Accesso negato/,
   );
 });
+
+/* ============================= il verso del FATTO, non quello della riga ==== */
+
+/**
+ * **La guardia sulla causale era invertita per le liquidazioni.**
+ *
+ * `resolveOutboundClassification` rifiuta ogni causale dichiarata in entrata,
+ * ed e giusto su un compenso. Ma la liquidazione di un bando passava di li, e
+ * la liquidazione e un **incasso**: il bonifico arriva dall'ente. Il risultato
+ * era che l'unica classificazione ammessa era quella sbagliata — una causale
+ * in entrata, cioe quella corretta, riceveva un 400.
+ *
+ * Le due funzioni sono la stessa regola letta nei due versi, e il verso da
+ * dichiarare e quello del **fatto di dominio**: uno storno ha segno opposto e
+ * resta sulla stessa causale, perche non risolve niente — eredita la
+ * fotografia della riga che annulla.
+ */
+test("una causale in entrata non classifica un compenso, e viceversa", async () => {
+  await service.listOperationTypes(CLUB_A);
+
+  await rejects(
+    service.resolveOutboundClassification({
+      organizationId: CLUB_A,
+      code: "quota_associativa",
+    }),
+    /prevista per le entrate/,
+  );
+
+  await rejects(
+    service.resolveInboundClassification({
+      organizationId: CLUB_A,
+      code: "compenso_sportivo",
+    }),
+    /prevista per le uscite/,
+  );
+});
+
+test("la liquidazione di un contributo si classifica, e prima non poteva", async () => {
+  await service.listOperationTypes(CLUB_A);
+
+  const scelta = await service.resolveInboundClassification({
+    organizationId: CLUB_A,
+    code: "liquidazione_contributo",
+  });
+
+  assert.equal(scelta.operation_type_code, "liquidazione_contributo");
+  assert.equal(
+    scelta.operation_type_label_snapshot,
+    "Liquidazione di contributo o voucher",
+  );
+  assert.equal(scelta.activity_scope_snapshot, "unspecified");
+
+  /*
+    E la stessa causale, passata dalla guardia in uscita, era un errore: e la
+    forma esatta del difetto, ed e la ragione per cui la funzione nuova esiste.
+  */
+  await rejects(
+    service.resolveOutboundClassification({
+      organizationId: CLUB_A,
+      code: "liquidazione_contributo",
+    }),
+    /prevista per le entrate/,
+  );
+});
+
+test("una causale senza verso serve in entrambi i versi", async () => {
+  await service.listOperationTypes(CLUB_A);
+
+  const uscita = await service.resolveOutboundClassification({
+    organizationId: CLUB_A,
+    code: "altra_operazione",
+  });
+  const entrata = await service.resolveInboundClassification({
+    organizationId: CLUB_A,
+    code: "altra_operazione",
+  });
+
+  assert.equal(uscita.operation_type_code, "altra_operazione");
+  assert.equal(entrata.operation_type_code, "altra_operazione");
+});
+
+test("un ripiego che nel catalogo non c'e non classifica, e non rifiuta", async () => {
+  /*
+    Il club non ha ancora aperto il catalogo: `fiscal_operation_types` e vuota.
+    Un ripiego dedotto dal dominio non deve far fallire l'incasso di un bando —
+    resta non classificato, e si vede che lo e.
+  */
+  const esito = await service.resolveInboundClassification({
+    organizationId: CLUB_A,
+    fallbackCode: "liquidazione_contributo",
+  });
+
+  assert.equal(esito.operation_type_code, null);
+  assert.equal(esito.activity_scope_snapshot, "unspecified");
+});

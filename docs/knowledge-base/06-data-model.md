@@ -1307,7 +1307,7 @@ quando il club **non aveva nessuna riga**. Bastava una riga perche il seme non
 girasse piu, e ha funzionato finche il catalogo di sistema non e cambiato.
 
 Con quella condizione un club gia configurato — cioe ogni club vero — non
-avrebbe visto mai le quattro causali in uscita, e avrebbe continuato a non poter
+avrebbe visto mai le causali nuove, e avrebbe continuato a non poter
 classificare un compenso. Invisibile in sviluppo, dove i club nascono vuoti;
 universale in produzione. Adesso si scrivono **solo le mancanti**, per codice:
 cio che il club ha configurato non si tocca, e una causale di sistema

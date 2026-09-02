@@ -411,6 +411,31 @@ export const isTrainerArea = (role?: string | null) =>
  * origine. L'email dell'account e la seconda strada, per le anagrafiche
  * inserite a mano prima che esistesse la scheda.
  *
+ * ## Le due strade non sono alternative: sono in ordine, e non si indovina
+ *
+ * La prima scrittura le metteva in `OR` e prendeva `persone[0]`. Il caso vuoto
+ * era protetto; quello **ambiguo** no, e `sport_work_people` non ha nessun
+ * `@@unique` ne su `email` ne su `origin_id`. Bastava un duplicato da
+ * re-import, o due persone che condividono una casella — due coniugi, un
+ * indirizzo `segreteria@` — perche l'ordine deciso da Postgres consegnasse
+ * nome, importo del rapporto, rate, dichiarazioni e posizione annuale di
+ * **un'altra persona**.
+ *
+ * Da qui due regole:
+ *
+ * 1. **il legame esplicito batte l'email.** `origin_type` + `origin_id` e la
+ *    coppia che il club stesso usa per riconoscere la persona nella scheda
+ *    dell'allenatore (`PersonCompensationTab`): e un collegamento scritto da
+ *    qualcuno. L'email e una coincidenza di stringa, e una casella si
+ *    condivide. Se il legame esiste, l'email non si guarda affatto — non e un
+ *    ripiego che allarga, e una strada che si apre solo quando la prima e
+ *    chiusa;
+ * 2. **un'ambiguita non si scioglie tirando a sorte.** Due righe che
+ *    rispondono alla stessa utenza sono un dato da correggere, e finche non e
+ *    corretto la risposta giusta e nessuna: si nega, con un messaggio che dice
+ *    cosa e successo. Restituire la prima sarebbe consegnare il compenso di un
+ *    collega senza che nessuno se ne accorga.
+ *
  * ## La risposta e un elenco chiuso, non un oggetto ripulito
  *
  * Ogni campo che esce e nominato qui. Non si parte dalla riga togliendo cio
@@ -508,29 +533,84 @@ export const readOwnCompensationStatement = async (
   */
   if (!origini.length && !email) return null;
 
-  const persone = await prisma.sportWorkPerson.findMany({
-    where: {
-      organization_id: organizationId,
-      OR: [
-        ...(origini.length ? [{ origin_id: { in: origini } }] : []),
-        ...(email ? [{ email }] : []),
-      ],
-    },
-  });
+  /*
+    `take: 2` e la forma della domanda: non serve sapere **quante** righe
+    rispondono, serve sapere se sono piu di una. Due bastano a negare.
+  */
+  const candidate = async (where: Record<string, unknown>) =>
+    prisma.sportWorkPerson.findMany({
+      where: { organization_id: organizationId, ...where },
+      orderBy: { created_at: "asc" },
+      take: 2,
+    });
 
-  const persona = persone[0];
+  const unaSola = <T,>(righe: T[], motivo: string): T | null => {
+    if (righe.length > 1) throw negato(motivo);
+    return righe[0] ?? null;
+  };
+
+  /*
+    **Prima strada: il legame scritto da qualcuno.**
+
+    `origin_type` si filtra insieme a `origin_id` e non e ridondante:
+    `origin_id` e testo libero — gli allenatori della scheda JSON non hanno
+    UUID — e lo stesso valore puo comparire come identificativo di un atleta o
+    di un socio. La coppia e quella che il club usa gia per riconoscere la
+    persona dalla scheda dell'allenatore (`PersonCompensationTab`), e le due
+    origini sono le due raccolte in cui `findClubTrainerProfile` ha cercato.
+  */
+  const perLegame = origini.length
+    ? await candidate({
+        origin_type: { in: ["trainer", "staff_member"] },
+        origin_id: { in: origini },
+      })
+    : [];
+
+  const persona =
+    unaSola(
+      perLegame,
+      "piu di una persona del registro compensi risulta collegata alla tua scheda: finche il duplicato non e risolto non si puo dire quale sia la tua",
+    ) ||
+    /*
+      **Seconda strada, e solo se la prima e vuota**: l'email dell'account,
+      per le anagrafiche inserite a mano prima che esistesse la scheda. Non si
+      somma alla prima, perche un legame esplicito che convive con un omonimo
+      per email non e un'ambiguita: e una risposta gia data.
+    */
+    (email
+      ? unaSola(
+          await candidate({ email }),
+          "piu di una persona del registro compensi porta questo indirizzo email: il legame va scritto sulla scheda, perche una casella condivisa non identifica nessuno",
+        )
+      : null);
+
   if (!persona) return null;
 
-  const [rapporti, rate, dichiarazioni, posizioni] = await Promise.all([
-    prisma.sportWorkRelationship.findMany({
-      where: { organization_id: organizationId, person_id: persona.id },
-      include: { plan: true },
-      orderBy: { start_date: "desc" },
-    }),
-    prisma.sportWorkInstallment.findMany({
-      where: { organization_id: organizationId },
-      orderBy: { due_date: "asc" },
-    }),
+  const rapporti = await prisma.sportWorkRelationship.findMany({
+    where: { organization_id: organizationId, person_id: persona.id },
+    include: { plan: true },
+    orderBy: { start_date: "desc" },
+  });
+
+  /*
+    Le rate non hanno `person_id`: appartengono al **rapporto**. Si chiedono
+    quindi sui rapporti gia ristretti alla persona, e non su tutto il club —
+    una lettura per club era il piano di pagamento di tutti, filtrato in
+    memoria: corretto nel risultato, ma cresce con il club e fa passare dalla
+    rete dati che a questa pagina non servono mai.
+  */
+  const suoi = rapporti.map((riga) => riga.id);
+
+  const [rate, dichiarazioni, posizioni] = await Promise.all([
+    suoi.length
+      ? prisma.sportWorkInstallment.findMany({
+          where: {
+            organization_id: organizationId,
+            relationship_id: { in: suoi },
+          },
+          orderBy: { due_date: "asc" },
+        })
+      : Promise.resolve([]),
     prisma.sportWorkExternalDeclaration.findMany({
       where: { organization_id: organizationId, person_id: persona.id },
       orderBy: { declaration_date: "desc" },
@@ -541,13 +621,6 @@ export const readOwnCompensationStatement = async (
     }),
   ]);
 
-  /*
-    Le rate non hanno `person_id`: appartengono al **rapporto**. Si filtrano
-    quindi sui rapporti gia ristretti alla persona, e non sul club — una
-    lettura per club consegnata cosi com'e sarebbe il piano di pagamento di
-    tutti.
-  */
-  const suoi = new Set(rapporti.map((riga) => riga.id));
   const anno = options.year ?? new Date().getFullYear();
   const posizione =
     posizioni.find((riga) => riga.year === anno) || posizioni[0] || null;
@@ -575,20 +648,18 @@ export const readOwnCompensationStatement = async (
           }
         : null,
     })),
-    installments: rate
-      .filter((riga) => suoi.has(riga.relationship_id))
-      .map((riga) => ({
-        id: riga.id,
-        relationshipId: riga.relationship_id,
-        sequence: riga.sequence,
-        label: riga.label,
-        dueDate: iso(riga.due_date) ?? "",
-        grossAmount: riga.gross_amount,
-        accruedAmount: riga.accrued_amount,
-        paidAmount: riga.paid_amount,
-        remainingAmount: riga.remaining_amount,
-        status: riga.status,
-      })),
+    installments: rate.map((riga) => ({
+      id: riga.id,
+      relationshipId: riga.relationship_id,
+      sequence: riga.sequence,
+      label: riga.label,
+      dueDate: iso(riga.due_date) ?? "",
+      grossAmount: riga.gross_amount,
+      accruedAmount: riga.accrued_amount,
+      paidAmount: riga.paid_amount,
+      remainingAmount: riga.remaining_amount,
+      status: riga.status,
+    })),
     declarations: dichiarazioni.map((riga) => ({
       id: riga.id,
       fiscalYear: riga.fiscal_year,

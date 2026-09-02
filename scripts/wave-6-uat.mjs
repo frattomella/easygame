@@ -1958,20 +1958,32 @@ const u24 = async () => {
     },
   });
 
+  /*
+    **Questo controllo aspettava il difetto, e va detto.**
+
+    Chiedeva che una causale **in entrata** su una liquidazione fosse
+    rifiutata, e passava — perche la liquidazione era classificata come
+    un'uscita. Ma una liquidazione e denaro che **arriva** dall'ente: lo dicono
+    lo schema, la proiezione del registro e la vista SQL, tutti e tre leggendo
+    il segno dell'importo. La sonda misurava quindi la coerenza fra due errori.
+
+    L'invariante vera e simmetrica: **una causale che contraddice il verso del
+    fatto viene rifiutata**, nei due sensi. Si prova cosi.
+  */
   await respinta(
-    "U-24 una causale in entrata su un'uscita viene rifiutata",
+    "U-24 una causale in uscita su una liquidazione viene rifiutata",
     () =>
       bandi.createFundingSettlement(
         {
           programId: programma.id,
           amount: 10,
           settledAt: new Date("2026-09-01"),
-          operationTypeCode: "quota_associativa",
+          operationTypeCode: "compenso_sportivo",
           lines: [{ accrualId: secondoMaturato.id, amount: 10 }],
         },
         scopeLavoro,
       ),
-    /prevista per le entrate/i,
+    /uscite|in uscita/i,
   );
 };
 
