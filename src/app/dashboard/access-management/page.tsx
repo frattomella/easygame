@@ -86,10 +86,12 @@ const ETICHETTE_DOMINIO: Record<PermissionDomain, string> = {
   audit: "Registro delle operazioni",
   communications: "Comunicazioni",
   consents: "Consensi",
+  data_subject: "Dati personali di una persona",
   documents: "Documenti e modelli",
   events: "Allenamenti e gare",
   health: "Dato sanitario",
   members: "Libro soci",
+  seasons: "Stagioni sportive",
   sport_work: "Lavoro sportivo",
 };
 
@@ -100,9 +102,26 @@ const ETICHETTE_DOMINIO: Record<PermissionDomain, string> = {
  * `src/lib/access-roles.ts`, che le caselle qui sotto non governano. Scriverlo
  * e l'unica alternativa onesta a mostrare caselle che non lo governerebbero.
  */
+/**
+ * **Cosa il ruolo base porta oltre le caselle, detto per intero.**
+ *
+ * Le caselle governano le chiavi del catalogo. Tutto cio che passa da
+ * `normalizeAccessRole` — la matrice per risorsa, i percorsi riservati alla
+ * direzione, la configurazione societaria — risponde invece al **ruolo base**:
+ * l'invariante «mai piu del ruolo base» regge, ma per una base ampia come
+ * `club_manager` la personalizzazione tocca una parte sola del potere.
+ *
+ * Questo testo esiste perche chi crea un ruolo lo sappia **prima**, e va tenuto
+ * vero. Un audit ostile ha misurato che diceva la verita sulla parte larga —
+ * le risorse — e taceva quella affilata: la cancellazione irreversibile del
+ * fascicolo di una persona. Quella adesso e una **casella**
+ * (`data_subject.erase`), quindi non e piu una cosa che il testo deve
+ * confessare: e una cosa che il club puo togliere. Restano le altre, e sono
+ * scritte.
+ */
 const PERIMETRO_DEL_RUOLO_BASE: Record<string, string> = {
   club_manager:
-    "Tutte le risorse del club, comprese quelle riservate: conti correnti, metodi di pagamento, anagrafica societaria, lavoro sportivo.",
+    "Tutte le risorse del club, comprese quelle riservate: conti correnti, metodi di pagamento, anagrafica societaria, lavoro sportivo. E i percorsi riservati alla direzione: configurazione, stagioni, comunicazioni, onboarding. Non si tolgono con una casella: per restringere davvero, parti da un ruolo base piu stretto.",
   collaborator:
     "Atleti, categorie, iscrizioni, pagamenti, magazzino e anagrafiche. Restano fuori conti correnti, metodi di pagamento, anagrafica societaria e lavoro sportivo; la cancellazione di rate e documenti fiscali e riservata alla direzione.",
   staff:
@@ -921,8 +940,20 @@ function EditorAssegnazione({
         </div>
       ) : null}
 
+      {/*
+        **La promessa era senza riserve, e il perimetro non lo e ancora.**
+
+        Il perimetro restringe atleti, allenamenti e gare, e i documenti. Su
+        pagamenti, appuntamenti, comunicazioni, consensi, libro soci e lavoro
+        sportivo non e ancora applicato (W6-D18). Chi assegna un perimetro
+        deve saperlo **qui**, non scoprirlo dopo: una recinzione descritta come
+        completa e piu pericolosa di una descritta per quello che e.
+      */}
       <p className="text-xs text-muted-foreground">
-        Nessuna casella spuntata significa <strong>tutto il club</strong>.
+        Nessuna casella spuntata significa <strong>tutto il club</strong>. Con
+        una o piu caselle il perimetro vale su <strong>atleti</strong>,{" "}
+        <strong>allenamenti e gare</strong> e <strong>documenti</strong>: gli
+        altri elenchi del club restano completi.
       </p>
 
       <Button size="sm" onClick={() => onSalva(ruolo, scopes)}>

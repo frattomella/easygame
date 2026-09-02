@@ -1985,3 +1985,87 @@ all'utenza (`linked_user_id` lo scrive solo il riscatto di un token, che per
 loro non parte). «Accesso EasyGame» confronta quindi le **email**, e lo scrive a
 schermo: e un'indicazione, non un legame. Chiudere W6-D05 dara anche il legame
 vero.
+
+---
+
+## W6-D17 — Il soffitto dei ruoli personalizzati copre il catalogo, non la matrice per risorsa
+
+**Aperto il 2026-09-02, dall'audit ostile di fine Wave 6. Gravita: media.**
+
+`roleHasPermission` restringe cio che ha una **chiave di catalogo**. Tutto il
+resto passa da `normalizeAccessRole`, che di un gettone
+`custom:club_manager:<slug>` restituisce `club_manager`, e risponde quindi al
+**ruolo base**. Misurato in sonda con un gettone che porta tre chiavi:
+
+```
+canAccessClubResource(clubs, update)       -> true
+canAccessClubResource(bank_accounts, read) -> true
+canAccessClubResource(athletes, delete)    -> true
+canAccessPath(/settings) /sport-work /communications -> true
+roleHasPermission(audit.read)              -> false   (il soffitto funziona, qui)
+```
+
+**L'invariante regge**: nessun ruolo personalizzato eccede il proprio ruolo
+base, e `assertMayGrantRole` impedisce di concedere il base intero. Cio che non
+regge e l'**aspettativa** che chi spunta tre caselle su una base `club_manager`
+stia creando un ruolo ristretto: le caselle governano 37 chiavi, mentre restano
+al ruolo base una quarantina di risorse aperte, otto risorse riservate, otto
+prefissi di percorso e ogni atto protetto da `canManageClubConfiguration`.
+
+**Cosa e stato chiuso subito**, perche erano le due punte affilate:
+
+- `data_subject.erase` e `data_subject.export` sono ora chiavi di catalogo, di
+  **direzione**: la cancellazione irreversibile del fascicolo di una persona —
+  spesso di un minore — era protetta da una guardia che nominava quella stringa
+  e da nessuna voce di catalogo, quindi non c'era una casella da togliere;
+- `seasons.change` era irrestringibile per la stessa ragione, e ora passa da
+  `narrowDomainPermission` come gli altri tre domini con matrice privata.
+
+E stato aggiunto il presidio della **domanda inversa** — nessuna guardia puo
+chiedere una chiave che il catalogo non conosce — che e cio che chiude la
+classe: la prima stesura di quel presidio non avrebbe visto il difetto, perche
+cercava solo `permission: "..."` mentre la chiave arriva come argomento
+posizionale. Un presidio che non trova il caso da cui nasce non e un presidio.
+
+**Cosa resta.** Rendere restringibile la matrice per risorsa vorrebbe dire una
+chiave di catalogo per risorsa e un'altra passata su `canAccessClubResource`: e
+un lavoro di ampiezza pari a una lane, non una correzione. Nel frattempo la
+scheda del ruolo **dichiara a schermo** cosa il ruolo base porta comunque, e
+il consiglio operativo e nel testo: per restringere davvero si parte da una base
+piu stretta.
+
+## W6-D18 — Il perimetro di sede e categoria vale su tre domini, non su quindici
+
+**Aperto il 2026-09-02, dall'audit ostile di fine Wave 6. Gravita: media.**
+
+`accessScopes` e letto da: `resources.ts` (atleti: elenco, lettura per id,
+modifica, cancellazione), `events.ts` (tutti e otto gli atti) e — da questa
+correzione — `document-requests.ts` (fascicolo e coda documentale).
+
+Restano **fuori**: pagamenti, certificati medici, appuntamenti, comunicazioni,
+consensi, segreteria, moduli, libro soci, lavoro sportivo, bandi.
+
+**Perche il documentale e stato chiuso subito e gli altri no.** Perche era il
+solo dove il perimetro non era incompleto ma **sconfitto**: la coda porta
+`subjectName`, cioe nome e cognome di un minore, per ogni riga di tutto il club.
+Una segreteria perimetrata su una sede non poteva risolvere `athlete_id` → nome
+sull'elenco atleti — li il perimetro funziona — e lo otteneva dalla coda. Il
+recinto stava in piedi e la porta di servizio era aperta proprio sul dato per
+cui era stato costruito.
+
+Nella stessa correzione la forma Prisma del perimetro ha preso un **proprietario
+unico** (`src/lib/server/access-scope-query.ts`): era scritta dentro
+`resources.ts`, e quando e servita altrove le strade erano importare seimila
+righe o riscriverla. Riscriverla era gia costato una divergenza — la copia nel
+registro lasciava passare gli atleti **senza sede**, contro la regola pura — e a
+decidere era sempre la copia piu larga.
+
+**Cosa serve per chiudere.** Ogni dominio ha una chiave diversa verso l'atleta
+(`athlete_id`, `subject_id`, il destinatario di una comunicazione), quindi non
+c'e un innesto unico: e un passaggio per dominio. `athleteIdsWithinAccessScope`
+esiste apposta ed e la strada per quelli che non interrogano `athletes`.
+
+**Nel frattempo va detto.** La pagina della gestione accessi promette il
+perimetro **senza riserve** («Nessuna casella spuntata significa tutto il
+club»), e ADR-0103 lo chiama confine di sicurezza. Per dodici domini non lo e
+ancora: chi assegna un perimetro deve saperlo.

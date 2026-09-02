@@ -263,14 +263,40 @@ test("il SQL del perimetro dice quello che dice la regola pura", () => {
     confine: due proprietari, due risposte opposte, e a decidere era la piu
     larga.
   */
-  const sorgente = leggi("lib/server/resources.ts");
-  const inizio = sorgente.indexOf("const buildAccessScopeFilter");
-  const corpo = sorgente.slice(inizio, inizio + 2600);
+  /*
+    La forma Prisma del perimetro ha adesso **un proprietario solo**. Averla in
+    due file e gia costato una divergenza — la copia dentro il registro
+    generico lasciava passare gli atleti senza sede — e la seconda copia stava
+    per nascere quando il fascicolo documentale ne ha avuto bisogno.
+  */
+  const proprietario = leggi("lib/server/access-scope-query.ts");
+  const registro = leggi("lib/server/resources.ts");
 
   assert.equal(
-    corpo.includes("none: { site_id: { not: null } }"),
+    proprietario.includes("none: { site_id: { not: null } }"),
     false,
     "il ramo che faceva passare gli atleti senza sede contraddiceva access-scope.ts",
+  );
+  assert.match(
+    registro,
+    /buildAthleteAccessScopeConditions/,
+    "il registro generico deve chiedere il perimetro al modulo che lo possiede, non riscriverlo",
+  );
+  /*
+    Il registro generico ha ancora un filtro di **visualizzazione** per
+    `?site_id=`, che e un'altra cosa e resta permissivo per ADR-0038: cercare
+    la forma Prisma in generale prenderebbe anche quello. Cio che non deve
+    esistere due volte e il **vocabolario del perimetro**: chi lo costruisce
+    chiama `accessScopeValues`, e nel registro non deve piu comparire.
+  */
+  assert.equal(
+    registro.includes("accessScopeValues("),
+    false,
+    "il perimetro non si ricostruisce nel registro: si chiede al modulo che lo possiede",
+  );
+  assert.ok(
+    proprietario.includes("accessScopeValues("),
+    "e il modulo che lo possiede deve essere quello che lo costruisce",
   );
 
   // e la regola pura resta quella che il SQL imita
@@ -300,5 +326,65 @@ test("il diniego di perimetro parla la lingua che il route handler mappa su 403"
     corpo,
     /count\(/,
     "la verifica deve rifare la stessa interrogazione dell'elenco, non giudicare con una seconda regola in TypeScript",
+  );
+});
+
+test("il perimetro arriva al fascicolo documentale, dove c'e il nome di un minore", () => {
+  /*
+    **Dove il perimetro era sconfitto proprio sul dato che recintava.**
+
+    `accessScopes` compariva in tre file su tutto il repository: chi lo produce,
+    il registro generico e gli eventi. La coda documentale del club non lo
+    guardava, e una revisione ostile ha misurato la conseguenza: una segreteria
+    perimetrata su **una sede** leggeva la coda di **tutto** il club, e ogni
+    riga porta `subjectName`, cioe nome e cognome di un minore.
+
+    Il perimetro non era quindi soltanto incompleto — era **sconfitto** per il
+    dato che era stato configurato per recintare, e la pagina della gestione
+    accessi lo prometteva senza riserve.
+
+    Il fascicolo non conosce sedi ne categorie: conosce un `subject_id`. Per
+    questo il perimetro ci arriva come **elenco di atleti**, chiesto al modulo
+    che lo possiede.
+  */
+  const fascicolo = leggi("lib/server/document-requests.ts");
+
+  assert.match(
+    fascicolo,
+    /accessScopes\?: readonly AccessScopeEntry\[\] \| null;/,
+    "lo scope del fascicolo deve poter portare il perimetro",
+  );
+  assert.match(
+    fascicolo,
+    /athleteIdsWithinAccessScope\(/,
+    "il fascicolo deve chiedere il perimetro al modulo che lo possiede",
+  );
+
+  /*
+    La distinzione che conta: `null` significa «nessun perimetro», elenco vuoto
+    significa «nessun atleta». Confonderli farebbe vedere tutto il club a chi
+    non deve vedere niente, ed e l'errore piu facile da commettere qui.
+  */
+  assert.match(
+    fascicolo,
+    /if \(dentroIlPerimetro\) \{/,
+    "il controllo deve distinguere «nessun perimetro» da «perimetro vuoto»",
+  );
+});
+
+test("chiedere un fascicolo fuori perimetro e un diniego, non un elenco vuoto", () => {
+  /*
+    Un elenco piu corto non e un rifiuto. Chiedere **quel** fascicolo, con il
+    suo identificativo, e un atto: e la stessa regola che la lane 6C1 ha
+    scritto per l'allenatore.
+  */
+  const fascicolo = leggi("lib/server/document-requests.ts");
+  const inizio = fascicolo.indexOf("export const getDocumentDossier");
+  const corpo = fascicolo.slice(inizio, inizio + 3200);
+
+  assert.match(
+    corpo,
+    /fuori dal perimetro di sede o categoria/,
+    "il diniego deve dire perche, e passare da `denied`, che antepone «Accesso negato»",
   );
 });

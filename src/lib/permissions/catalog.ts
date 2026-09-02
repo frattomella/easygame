@@ -57,10 +57,12 @@ export type PermissionDomain =
   | "audit"
   | "communications"
   | "consents"
+  | "data_subject"
   | "documents"
   | "events"
   | "health"
   | "members"
+  | "seasons"
   | "sport_work";
 
 export type PermissionEntry = {
@@ -319,6 +321,60 @@ const ENTRIES: readonly PermissionEntry[] = [
     domain: "consents",
     label: "Leggere lo stato dei consensi del club",
     roles: GESTIONE,
+  },
+
+  /* ---------------------------------------------------- stagioni sportive --- */
+  /*
+    La chiave esisteva gia in `src/lib/seasons/permissions.ts` e non era in
+    catalogo: era quindi **fuori dall'editor**, e per `narrowDomainPermission`
+    valeva la regola «fuori catalogo = vale il ruolo base». Un ruolo
+    personalizzato non poteva vedersela togliere.
+
+    Sta con `DIREZIONE` perche il modulo la fa gia dipendere da
+    `canManageClubConfiguration`: entrare in catalogo non allarga il perimetro,
+    lo rende **governabile**.
+  */
+  {
+    key: "seasons.change",
+    domain: "seasons",
+    label: "Creare, attivare e archiviare una stagione sportiva",
+    roles: DIREZIONE,
+  },
+
+  /* ------------------------------------------- dati personali di una persona --- */
+  /*
+    **Perche queste due chiavi nascono adesso, e non con il dominio.**
+
+    L'export e la cancellazione del fascicolo di una persona erano protetti da
+    `canManageClubConfiguration`, cioe dal **ruolo**. Con i ruoli
+    personalizzati quella difesa e diventata insufficiente in un modo preciso:
+    `normalizeAccessRole` di un gettone `custom:club_manager:...` risponde
+    `club_manager`, quindi **ogni** ruolo personalizzato costruito su quella
+    base portava la cancellazione irreversibile dei dati di una persona —
+    spesso di un minore — e nessuna casella dell'editor poteva toglierla,
+    perche la chiave non esisteva.
+
+    Una revisione ostile lo ha detto meglio di come lo scriverei: era «l'unico
+    atto che il testo dell'editor non nomina», e «non si puo togliere la
+    spunta, perche non c'e una spunta».
+
+    Sono chiavi di **direzione** (`DIREZIONE`), quindi `isDirectionPermission`
+    e vera e un ruolo personalizzato che le porta lo puo assegnare **solo il
+    proprietario**: la cancellazione dei dati di una persona non si delega di
+    rimbalzo.
+  */
+  {
+    key: "data_subject.export",
+    domain: "data_subject",
+    label: "Esportare tutti i dati di una persona",
+    roles: DIREZIONE,
+  },
+  {
+    key: "data_subject.erase",
+    domain: "data_subject",
+    label:
+      "Cancellare o anonimizzare in modo irreversibile i dati di una persona",
+    roles: DIREZIONE,
   },
 
   /* -------------------------------------------------------- libro soci --- */

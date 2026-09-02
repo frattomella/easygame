@@ -2,7 +2,9 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { clearClientAuthCache } from "@/lib/auth/session-sync";
+import { clearClientAuthCache ,
+  sessionSenzaCredenziali,
+} from "@/lib/auth/session-sync";
 import { fetchMemberships } from "@/lib/auth/memberships-client";
 import { findStoredAccessMembership } from "@/lib/auth/active-club-access";
 import {
@@ -404,7 +406,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           applySessionUser(session.user);
           // Cache session for faster subsequent loads
-          sessionStorage.setItem("supabase_session", JSON.stringify(session));
+          /*
+            **La cache dipinge l'interfaccia, non conserva credenziali.**
+
+            Qui si scriveva la sessione **intera**, gettone compreso, in
+            `sessionStorage`. Il cookie e `httpOnly` proprio perche uno script
+            della pagina non lo legga: questa copia annullava la difesa, e un
+            `getItem` bastava a portarsi via una credenziale valida quattordici
+            giorni.
+
+            Di questa cache si usa **solo** `session.user`, poche righe piu
+            sopra. La funzione che toglie i due campi sta in `session-sync.ts`,
+            che possiede gia le chiavi delle cache: era scritta a mano in un
+            altro file, e proprio per questo qui era stata dimenticata.
+          */
+          sessionStorage.setItem(
+            "supabase_session",
+            JSON.stringify(sessionSenzaCredenziali(session)),
+          );
           sessionStorage.setItem(
             "supabase_session_timestamp",
             Date.now().toString(),

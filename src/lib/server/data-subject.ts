@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { prisma } from "./prisma";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { canManageClubConfiguration } from "@/lib/access-roles";
+import { roleHasPermission } from "@/lib/permissions/catalog";
 import { AUDIT_ACTIONS, recordAuditEvent, recordPermissionDenied } from "./audit";
 import { deleteAttachment, listAttachments } from "./attachments";
 import { anonymizeDeliveriesForSubject } from "./communication-deliveries";
@@ -129,7 +130,18 @@ const resolveOrganizationId = (
 const assertCanDispose = async (
   scope: DataSubjectScope | undefined,
   organizationId: string,
-  permission: string,
+  /*
+    Una o **piu** chiavi, e basta averne una.
+
+    L'inventario non ha una chiave propria: e la meta in lettura dello stesso
+    diritto, e chi puo esportare o cancellare deve poter vedere cosa. Dargliene
+    una terza avrebbe significato che un club che concede l'export senza
+    l'inventario rompe l'export, perche l'export legge l'inventario per primo:
+    tre caselle per due diritti, e una combinazione che non funziona.
+
+    L'audit registra la **prima**, che e quella che nomina l'atto.
+  */
+  permission: string | readonly string[],
   subjectId: string,
 ) => {
   /*
@@ -147,7 +159,36 @@ const assertCanDispose = async (
       "Accesso negato: questa operazione richiede una sessione con un club attivo",
     );
   }
-  if (canManageClubConfiguration(scope.activeRole)) return;
+  /*
+    **Il ruolo non basta piu, e serve anche la chiave.**
+
+    Qui c'era solo `canManageClubConfiguration`, che guarda il **ruolo base**:
+    `normalizeAccessRole` di un gettone `custom:club_manager:...` risponde
+    `club_manager`, quindi ogni ruolo personalizzato costruito su quella base
+    portava con se l'export e la **cancellazione irreversibile** del fascicolo
+    di una persona, spesso di un minore. E non era togliibile: la chiave non
+    esisteva, quindi nell'editor non c'era una casella da spegnere.
+
+    Le due condizioni sono in **AND**, e la seconda non sostituisce la prima:
+    il ruolo base dice chi puo *in astratto* trattare il fascicolo di una
+    persona — la direzione — e la chiave dice se **questo** ruolo lo puo
+    ancora. Un ruolo personalizzato a cui il club l'ha tolta riceve
+    «Accesso negato», e il diniego lascia la sua riga.
+
+    Le due chiavi sono di direzione, quindi un ruolo che le porta lo puo
+    assegnare **solo il proprietario**: la cancellazione dei dati di una
+    persona non si delega di rimbalzo.
+  */
+  const chiavi = Array.isArray(permission)
+    ? (permission as readonly string[])
+    : [permission as string];
+
+  if (
+    canManageClubConfiguration(scope.activeRole) &&
+    chiavi.some((chiave) => roleHasPermission(scope.activeRole, chiave))
+  ) {
+    return;
+  }
 
   await recordPermissionDenied({
     scope: {
@@ -155,7 +196,7 @@ const assertCanDispose = async (
       activeRole: scope.activeRole || null,
       activeOrganizationId: organizationId,
     },
-    permission,
+    permission: chiavi[0],
     resource: "data_subject",
     resourceId: subjectId,
   });
@@ -308,7 +349,7 @@ export const previewDataSubjectErasure = async (
   await assertCanDispose(
     scope,
     organizationId,
-    "data_subject.inventory",
+    ["data_subject.export", "data_subject.erase"],
     subjectId,
   );
 

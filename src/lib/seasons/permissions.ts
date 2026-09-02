@@ -2,6 +2,7 @@ import {
   canManageClubConfiguration,
   normalizeAccessRole,
 } from "@/lib/access-roles";
+import { narrowDomainPermission } from "@/lib/permissions/catalog";
 
 /**
  * Chi puo cambiare la stagione attiva di un club (AU-7).
@@ -78,7 +79,29 @@ export const listSeasonPermissions = (
 export const hasSeasonPermission = (
   role: string | null | undefined,
   permission: SeasonPermission,
-) => listSeasonPermissions(role).includes(permission);
+) => {
+  /*
+    **Un ruolo personalizzato si vede restringere anche qui.**
+
+    Questo modulo delegava a `canManageClubConfiguration`, che normalizza il
+    gettone e risponde al **ruolo base**: la chiave era percio irrestringibile,
+    e l'editor non poteva mostrarne la casella perche non era in catalogo — e
+    per `narrowDomainPermission` «fuori catalogo» vuol dire proprio «vale il
+    ruolo base». Due assenze che si tenevano in piedi a vicenda.
+
+    Il commento di `narrowDomainPermission` nominava quattro domini e i
+    chiamanti erano tre: questo era il quarto, ed era rimasto indietro.
+
+    L'ordine conta: prima la restrizione — che risponde `null` per un ruolo
+    canonico, e allora vale la delega di sempre — poi la delega.
+  */
+  const ristretto = narrowDomainPermission(role, permission, (base) =>
+    canManageClubConfiguration(base),
+  );
+  if (ristretto !== null) return ristretto;
+
+  return listSeasonPermissions(role).includes(permission);
+};
 
 /**
  * Solleva se il ruolo non ha il permesso. Il messaggio contiene «Accesso

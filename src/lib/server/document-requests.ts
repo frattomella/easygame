@@ -1,4 +1,6 @@
 import { prisma } from "./prisma";
+import { athleteIdsWithinAccessScope } from "./access-scope-query";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import {
   assertActiveClub,
   resolveActiveClubId,
@@ -89,6 +91,16 @@ export type DocumentDossierScope = {
   /** Il ruolo con cui si sta operando: da `resolveOrganizationScopeForUser`. */
   activeRole?: string | null;
   allowedOrganizationIds: string[];
+  /**
+   * Il perimetro di sede e categoria dell'assegnazione, quando c'e.
+   *
+   * Non c'era, e il fascicolo non lo guardava: un audit ostile ha misurato che
+   * una segreteria perimetrata su **una sede** leggeva la coda documentale di
+   * **tutto** il club, e con essa il nome e cognome di ogni minore. Il
+   * perimetro era percio sconfitto proprio sul dato che era stato configurato
+   * per recintare.
+   */
+  accessScopes?: readonly AccessScopeEntry[] | null;
 };
 
 const denied = (message: string) => new Error(`Accesso negato: ${message}`);
@@ -1218,6 +1230,42 @@ export const getDocumentDossier = async (
   const where: Record<string, any> = { organization_id: organizationId };
   if (subjectKind) where.subject_kind = subjectKind;
   if (subjectId) where.subject_id = subjectId;
+
+  /*
+    **Il perimetro dell'assegnazione vale anche qui.**
+
+    Il fascicolo non conosce sedi ne categorie: conosce un `subject_id`. Il
+    perimetro si traduce quindi in un **elenco di atleti**, chiesto al modulo
+    che lo possiede — la forma Prisma sta in un posto solo, perche averla in
+    due e gia costato una divergenza in cui la copia piu larga decideva.
+
+    `null` vuol dire «nessun perimetro», ed e diverso da elenco vuoto: la
+    seconda e una persona che non deve vedere nessun atleta, e va rispettata.
+    Confondere i due farebbe vedere tutto il club a chi non deve vedere niente.
+
+    Chi chiede **un soggetto preciso** e gia passato da `assertSubjectAccess`,
+    ma quella guardia risponde alla domanda «puoi stare davanti a un
+    fascicolo», non «questo fascicolo e nel tuo perimetro»: sono due domande, e
+    servono entrambe.
+  */
+  if (subjectKind === "athlete" || !subjectKind) {
+    const dentroIlPerimetro = await athleteIdsWithinAccessScope(
+      organizationId,
+      scope,
+    );
+
+    if (dentroIlPerimetro) {
+      if (subjectId) {
+        if (!dentroIlPerimetro.includes(subjectId)) {
+          throw denied(
+            "questa persona e fuori dal perimetro di sede o categoria dell'accesso",
+          );
+        }
+      } else {
+        where.subject_id = { in: dentroIlPerimetro };
+      }
+    }
+  }
   if (filter.documentKind) {
     /* Si filtra con la stessa chiave con cui si scrive, o non si trova niente. */
     where.document_kind = resolveDocumentKind(filter.documentKind);

@@ -493,3 +493,182 @@ test("W5-D01 · il comportamento non cambia: gli stessi ruoli di prima", () => {
     assert.equal(canManageMembershipRegister(ruolo), false);
   }
 });
+
+/* ==========================================================================
+   L'audit ostile della Wave 6: la domanda inversa
+   ========================================================================== */
+
+/**
+ * Le chiavi che una guardia nomina **senza** essere in catalogo, con il motivo.
+ *
+ * Sono etichette di **audit**, non controlli: nominano l'atto nella riga di
+ * diniego (`recordPermissionDenied`), mentre la decisione la prende un'altra
+ * funzione. Metterle in catalogo darebbe all'editor una casella che non
+ * governa niente, cioe l'esatto contrario di cio che il catalogo promette.
+ */
+const NON_SONO_CHIAVI = new Map([
+  [
+    "club_roles.assign",
+    "etichetta di audit: a decidere e `assertMayGrantRole`, che confronta le chiavi del concedente con quelle del ruolo concesso",
+  ],
+  [
+    "club_roles.manage",
+    "etichetta di audit: a decidere e `assertPuoAmministrareAccessi`",
+  ],
+  [
+    "club_roles.owner_only",
+    "etichetta di audit: a decidere e `assertOwnerOnlyAction`, e gli atti riservati al proprietario non sono delegabili per definizione",
+  ],
+]);
+
+/*
+  **I due file che elencano i nomi delle azioni di audit, non dei permessi.**
+
+  Sono cataloghi di **atti registrati**, con la stessa forma `dominio.cosa` dei
+  permessi e un significato diverso: `sport_work.compensation.paid` e cio che e
+  successo, non cio che qualcuno puo fare. Cercare li produrrebbe ventitre falsi
+  positivi e nessun difetto.
+*/
+const CATALOGHI_DI_AUDIT = [
+  path.join("lib", "server", "audit.ts"),
+  path.join("lib", "sport-work", "audit-actions.ts"),
+];
+
+/*
+  I domini che il catalogo conosce. Una stringa `dominio.qualcosa` in un file di
+  guardia, con un dominio fra questi, e quasi certamente una chiave: e il
+  criterio piu largo che non annega nei falsi positivi.
+*/
+const dominiNoti = () =>
+  new Set(listPermissionKeys().map((chiave) => chiave.split(".")[0]));
+
+const CHIAVE_CITATA = new RegExp(
+  String.raw`"([a-z][a-z_]*\.[a-z][a-z_.]*)"`,
+  "g",
+);
+
+const chiaviChiesteDalleGuardie = () => {
+  const domini = dominiNoti();
+  const trovate = new Map();
+
+  for (const file of SORGENTI) {
+    const relativo = path.relative(RADICE, file);
+    if (CATALOGHI_DI_AUDIT.includes(relativo)) continue;
+    if (!eUnaGuardia(file) && !relativo.startsWith(path.join("lib", "roles")))
+      continue;
+
+    const testo = readFileSync(file, "utf8");
+    CHIAVE_CITATA.lastIndex = 0;
+    let match;
+    while ((match = CHIAVE_CITATA.exec(testo))) {
+      const chiave = match[1];
+      if (!domini.has(chiave.split(".")[0])) continue;
+      if (!trovate.has(chiave)) trovate.set(chiave, relativo);
+    }
+  }
+
+  return trovate;
+};
+
+test("W6 · nessuna guardia chiede una chiave che il catalogo non conosce", () => {
+  /*
+    **La domanda inversa, e perche mancava.**
+
+    Il presidio W5-D01 qui sopra dimostra che ogni chiave del catalogo e chiesta
+    da qualcuno: catalogo → guardia. Nessuno dimostrava il verso opposto, e
+    l'audit ostile della Wave 6 ha trovato li il difetto piu grave dei ruoli
+    personalizzati.
+
+    `data_subject.erase` — la cancellazione **irreversibile** del fascicolo di
+    una persona, spesso di un minore — era protetta da una guardia che nominava
+    quella stringa e da nessuna voce di catalogo. Conseguenza: la chiave non
+    compariva nell'editor, quindi **non si poteva togliere**, e
+    `narrowDomainPermission` la trattava con la regola «fuori catalogo = vale il
+    ruolo base». Ogni ruolo personalizzato costruito su `club_manager` la
+    portava con se. Le parole del revisore: «non si puo togliere la spunta,
+    perche non c'e una spunta». Stessa forma per `seasons.change`.
+
+    **Perche la ricerca e larga, e non elegante.** La prima stesura cercava solo
+    `permission: "..."` e le chiamate ai verificatori — e **non avrebbe visto il
+    difetto**, perche quella chiave arriva come argomento posizionale a una
+    funzione di dominio. Un presidio che non trova il caso da cui nasce non e un
+    presidio. Adesso guarda ogni stringa a forma di chiave in un dominio noto,
+    e i due cataloghi di audit sono esclusi per nome.
+  */
+  const chieste = chiaviChiesteDalleGuardie();
+  const conosciute = new Set(listPermissionKeys());
+  const orfane = [];
+
+  for (const [chiave, file] of chieste) {
+    if (conosciute.has(chiave)) {
+      assert.equal(
+        NON_SONO_CHIAVI.has(chiave),
+        false,
+        `${chiave} e dichiarata «non e una chiave» ma sta in catalogo: togli la riga da NON_SONO_CHIAVI`,
+      );
+      continue;
+    }
+    if (NON_SONO_CHIAVI.has(chiave)) continue;
+    orfane.push(`${chiave} (${file})`);
+  }
+
+  assert.deepEqual(
+    orfane,
+    [],
+    `guardie che chiedono una chiave fuori catalogo: ${orfane.join(", ")}. ` +
+      "Un potere che nessuna casella governa e un potere che il club non puo togliere: " +
+      "mettila in catalogo, oppure dichiarala in NON_SONO_CHIAVI spiegando perche non e una chiave",
+  );
+});
+
+test("W6 · la ricerca larga vede una chiave passata come argomento posizionale", () => {
+  /*
+    La prova che il presidio sopra non e vacuo, sul caso che lo ha generato:
+    `data_subject.erase` non compare in nessuna forma `permission: "..."` — la
+    guardia la riceve come terzo argomento — e deve comparire lo stesso fra le
+    chiavi trovate.
+  */
+  const chieste = chiaviChiesteDalleGuardie();
+
+  assert.ok(
+    chieste.has("data_subject.erase"),
+    "il presidio non vede la chiave che lo ha fatto nascere: e vacuo",
+  );
+  assert.ok(chieste.has("seasons.change"));
+});
+
+test("W6 · le due chiavi che governano il fascicolo di una persona sono di direzione", () => {
+  /*
+    Non basta che esistano: devono essere **riservate**. `isDirectionPermission`
+    e vera solo se la chiave appartiene al solo `owner` piu `club_manager`, e
+    da li discende che un ruolo personalizzato che la porta lo puo assegnare
+    soltanto il proprietario. Cancellare i dati di una persona non si delega di
+    rimbalzo.
+  */
+  for (const chiave of ["data_subject.export", "data_subject.erase"]) {
+    const entry = getPermissionEntry(chiave);
+    assert.ok(entry, `${chiave} deve stare in catalogo`);
+    assert.deepEqual(
+      [...entry.roles].sort(),
+      ["club_manager", "owner"],
+      `${chiave} deve essere una chiave di direzione`,
+    );
+  }
+});
+
+test("W6 · togliere la chiave toglie davvero il potere, e rimetterla lo ridà", () => {
+  /*
+    Il test che il §11.5 del mandato pretende, sulla chiave piu pericolosa del
+    catalogo: «togli la permission → la feature sparisce; rimettila → la
+    feature funziona».
+  */
+  const senza = "custom:club_manager:segreteria#members.register.read";
+  const con = "custom:club_manager:segreteria#data_subject.erase";
+
+  assert.equal(roleHasPermission(senza, "data_subject.erase"), false);
+  assert.equal(roleHasPermission(con, "data_subject.erase"), true);
+
+  // e il ruolo canonico non cambia comportamento
+  assert.equal(roleHasPermission("club_manager", "data_subject.erase"), true);
+  assert.equal(roleHasPermission("secretary", "data_subject.erase"), false);
+});

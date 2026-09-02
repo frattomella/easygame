@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { buildAthleteAccessScopeConditions } from "./access-scope-query";
 import {
   assertActiveClub,
   belongsToActiveClub,
@@ -46,11 +47,7 @@ import {
 import { toBirthDateIso } from "../birth-date";
 import { withPlatformOwnedSettings } from "../entitlements/ownership";
 import { assertPersonalDataDisposed } from "./data-subject";
-import {
-  accessScopeValues,
-  normalizeAccessScopes,
-  type AccessScopeEntry,
-} from "@/lib/roles/access-scope";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import {
   athleteStatusQueryValues,
   normalizeAthleteStatus,
@@ -3349,57 +3346,30 @@ export const buildWhereFromSearchParams = (
  * dichiarata», non «di un altra sede», e nasconderlo lascerebbe scoperte
  * proprio le schede che qualcuno deve completare (ADR-0038).
  */
+/**
+ * Il perimetro, chiesto al modulo che lo possiede.
+ *
+ * La forma Prisma stava qui, ed era l'unica copia finche non e servita anche
+ * alla coda documentale. Un audit ostile aveva appena misurato cosa costa
+ * averne due: questa lasciava passare gli atleti **senza sede**, contro la
+ * regola pura, e a decidere era la piu larga. Adesso c'e un proprietario
+ * solo — `access-scope-query.ts` — e questa funzione e il suo innesto sul
+ * registro generico.
+ *
+ * Resta la restrizione alle sole risorse **atleta**: il registro serve una
+ * cinquantina di risorse e il perimetro sa parlare di sedi e categorie, che
+ * appartengono a una persona. Le altre risorse non sono «senza perimetro per
+ * dimenticanza»: sono fuori da cio che questi due assi sanno dire, ed e
+ * scritto in [16] con il conto dei domini scoperti.
+ */
 const buildAccessScopeFilter = (
   resource: string,
   scope?: ResourceAccessScope,
 ) => {
-  const perimetro = normalizeAccessScopes(scope?.accessScopes);
-  if (!perimetro.length) return null;
   if (resource !== "athletes" && resource !== "simplified_athletes") {
     return null;
   }
-
-  const condizioni: Record<string, any>[] = [];
-  const sedi = accessScopeValues(perimetro, "site");
-  const categorie = accessScopeValues(perimetro, "category");
-
-  if (sedi.length) {
-    /*
-      **Un atleta senza sede non passa piu, e non e una svista corretta: e una
-      contraddizione risolta.**
-
-      Qui c'era un secondo ramo — «nessuna appartenenza dichiara una sede» —
-      che faceva passare gli atleti senza sede. Veniva da ADR-0038, dove la
-      sede vuota vuol dire «non dichiarata» e non «nessuna»: giusto per un
-      **filtro di visualizzazione**, dove nascondere quelle righe farebbe
-      sparire dagli elenchi gli atleti iscritti prima che il club attivasse le
-      sedi.
-
-      Ma questo non e un filtro: e un **perimetro**, cioe un confine di
-      sicurezza. E il modulo che possiede la regola lo dice gia, per esteso:
-      «una riga che non porta il valore dell'asse ristretto **non passa**: un
-      dato senza sede non e "di tutte le sedi", e un dato di cui non si sa dire
-      dove sia» (`src/lib/roles/access-scope.ts`).
-
-      Due proprietari, due risposte opposte alla stessa domanda, e la piu larga
-      era quella che decideva davvero. Adesso il SQL dice quello che dice la
-      regola pura, e un perimetro fallisce chiuso.
-    */
-    condizioni.push({
-      category_memberships: { some: { site_id: { in: sedi } } },
-    });
-  }
-
-  if (categorie.length) {
-    condizioni.push({
-      OR: [
-        { category_id: { in: categorie } },
-        { category_memberships: { some: { category_id: { in: categorie } } } },
-      ],
-    });
-  }
-
-  return condizioni.length ? condizioni : null;
+  return buildAthleteAccessScopeConditions(scope);
 };
 
 /**
