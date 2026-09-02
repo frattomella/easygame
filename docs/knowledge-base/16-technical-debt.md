@@ -2069,3 +2069,97 @@ esiste apposta ed e la strada per quelli che non interrogano `athletes`.
 perimetro **senza riserve** («Nessuna casella spuntata significa tutto il
 club»), e ADR-0103 lo chiama confine di sicurezza. Per dodici domini non lo e
 ancora: chi assegna un perimetro deve saperlo.
+
+## Wave 6 — closeout: cosa la sesta revisione ha lasciato aperto (2026-09-02)
+
+Sei revisori indipendenti, **8 Critical e 24 High**, tutti chiusi in cinque
+tornate. Qui restano le voci che **non** sono state chiuse, ognuna con il motivo
+per cui non compromette sicurezza, privacy, isolamento tenant o integrita — che
+e la sola condizione a cui una voce puo diventare debito.
+
+### W6-D20 — La provenienza dei depositi travasati dice `parent` per tutti
+
+`prisma/migrations/20260901100000_wave5_fascicolo_unico/migration.sql:171-181`
+scrive `'parent'` come **costante** per ogni riga travasata, mentre il JSON di
+origine porta `uploadedByRole`. Per l'archivio precedente `source` dice quindi
+il falso al contrario del difetto chiuso in questa Wave: un documento
+**condiviso dal club** risulta consegnato dalla famiglia.
+
+**Perche non e un blocco.** `source` decide due cose operative — se il deposito
+apre un lavoro nella coda della segreteria, e cosa la famiglia legge nel proprio
+fascicolo — e nessuna delle due e un confine di accesso: chi vede quel documento
+lo vede comunque, e il perimetro e i permessi non ci passano.
+
+**Perche resta aperta.** Correggerla e una **migrazione di dati** su righe di
+produzione: va decisa e autorizzata, non infilata in un closeout. Il dato di
+origine e ancora nel JSON, quindi la correzione e possibile quando si vuole.
+
+### W6-D21 — L'export di una consegna porta anche il testo del messaggio
+
+`data-subject.ts` filtra `communication_deliveries.athlete_ids` sulla sola
+persona che chiede, ma restituisce `subject`, `recipient_key`, `recipient_email`
+e `recipient_name` interi — mentre `communication-deliveries.ts` li azzera tutti
+in cancellazione, e commenta che il testo «puo contenere il nome di chiunque».
+
+**Perche non e un blocco.** Ogni riga di consegna nasce per un destinatario che
+ha una posizione sull'interessato: non e stata misurata nessuna fuga verso una
+famiglia estranea, e i `recipient_*` sono i dati **del destinatario stesso**.
+Resta che i due proprietari della stessa riga danno due risposte diverse su cosa
+sia un dato personale, ed e la premessa dei difetti gia trovati: va riconciliata.
+
+### W6-D22 — Un gettone `one_time: false` e una credenziale permanente e multiutente
+
+`payload.one_time === false` rende un gettone riscattabile da **piu** utenze e
+per sempre. Il valore vive in chiaro in `club_resource_items.name`.
+
+**Perche non e un blocco.** Dopo questa Wave un gettone non puo piu concedere
+piu di quanto il suo coniatore potesse concedere, non raggiunge un altro club,
+e ogni riscatto lascia una riga di audit con il ruolo concesso. Restano dieci
+tentativi all'ora per utenza. La forma «permanente e condivisibile» resta pero
+una scelta di prodotto che nessuno ha mai dichiarato: va decisa.
+
+### W6-D23 — Il contatore per indirizzo si aggira, quello per utenza no
+
+Ruotando `x-forwarded-for` si creano secchielli distinti quando davanti non c'e
+il proxy che `AUTH_RATE_LIMIT_TRUSTED_PROXIES` dichiara. Misurato: il 429 arriva
+comunque, per il contatore **per utenza**. Con nove caratteri su un alfabeto di
+trentadue la forza bruta resta infattibile.
+
+### W6-D24 — `/api/v1/registry` e pubblica
+
+Pubblica la mappa completa dell'API prima del login. Non espone dati e non apre
+nessuna rotta — le guardie restano dove sono — ma e ricognizione gratuita.
+
+### W6-D25 — Il perimetro conferma l'esistenza di una riga: 403 contro 404
+
+`active-club-boundary.ts` sceglie deliberatamente la formula ambigua «non
+appartiene al club attivo, **o non esiste**» per non confermare un
+identificativo indovinato. Il messaggio del perimetro non ha quell'ambiguita:
+dice che la riga esiste, che e di questo club, e che e di un'altra sede. E una
+coerenza mancata con una regola dichiarata, dentro il **proprio** club.
+
+### W6-D26 — `accessScopes` e un campo opzionale, e l'assenza e il valore piu permissivo
+
+Il perimetro e dichiarato `accessScopes?: … | null` in ogni scope, e
+`normalizeAccessScopes(undefined)` risponde «tutto il club». Verificato che ogni
+chiamante odierno passa lo scope reale, e che gli scope sintetici (famiglia,
+modelli) sono quelli in cui il perimetro non si applica per disegno. Ma il
+valore assente e il **piu permissivo**: e un fail-open in attesa del prossimo
+chiamante, e la stessa forma di `if (!scope) return` che `data-subject.ts` ha
+dovuto chiudere in questa Wave.
+
+### W6-D27 — Il registro generico non e governato da chiavi dove una chiave non esiste
+
+`RESOURCE_PERMISSION_KEYS` dichiara, per ognuna delle quarantatre risorse aperte
+alla gestione, quale chiave di catalogo la governa. Per undici di esse la
+risposta e «nessuna», con il motivo scritto — fra cui `athletes`, il cui elenco
+e governato dal **ruolo** e dal **perimetro**.
+
+**Perche non e un blocco.** Non e una promessa tradita: l'editor dei ruoli mostra
+le sole chiavi di catalogo, quindi un club non ha mai visto una casella
+«anagrafica» da togliere. Un ruolo personalizzato su quelle risorse fa cio che
+fa la sua base — che e il ruolo che il club ha scelto.
+
+**Perche resta aperta.** Dare una chiave all'elenco atleti vorrebbe dire
+**aprire una capability nuova**, che questo closeout non fa. E la prima cosa da
+decidere quando la Wave 7 aprira il capitolo dei permessi.

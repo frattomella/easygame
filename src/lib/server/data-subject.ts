@@ -8,7 +8,11 @@ import { athleteWithinAccessScope } from "./access-scope-query";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { roleHasPermission } from "@/lib/permissions/catalog";
 import { AUDIT_ACTIONS, recordAuditEvent, recordPermissionDenied } from "./audit";
-import { deleteAttachment, listAttachments } from "./attachments";
+import {
+  deleteAttachment,
+  getAttachmentMetadata,
+  listAttachments,
+} from "./attachments";
 import { anonymizeDeliveriesForSubject } from "./communication-deliveries";
 import {
   hasHealthPermission,
@@ -776,6 +780,30 @@ export const exportDataSubject = async (
 
   const moduli = await readFormSubmissionsForSubject(organizationId, subjectId);
 
+  /*
+    I riferimenti agli allegati che vivono dentro le **proprie**
+    compilazioni. Quelle condivise no: il file puo essere di un'altra
+    persona, ed e la stessa ragione per cui le risposte non escono.
+  */
+  const riferimentiDeiModuli = moduli.mie.flatMap((submission: any) =>
+    (Array.isArray(submission?.files) ? submission.files : [])
+      .map((file: any) => parseAttachmentReference(asText(file?.reference)))
+      .filter(Boolean),
+  );
+
+  const allegatiDaiModuli = (
+    await Promise.all(
+      riferimentiDeiModuli.map((id: string) =>
+        getAttachmentMetadata(id, {
+          userId: scope?.userId || "",
+          activeOrganizationId: scope?.activeOrganizationId ?? null,
+          allowedOrganizationIds: scope?.allowedOrganizationIds || [],
+          accessScopes: scope?.accessScopes,
+        }).catch(() => null),
+      ),
+    )
+  ).filter(Boolean);
+
   const [
     athlete,
     certificati,
@@ -937,7 +965,19 @@ export const exportDataSubject = async (
     sections: {
       athletes: [atletaProiettato],
       medical_certificates: certificatiProiettati,
-      attachments: allegati,
+      /*
+        **Anche i file che la persona ha caricato da un modulo.**
+
+        L'elenco chiedeva `ownerType: "athlete"`, e i caricamenti dei moduli
+        online sono intestati al **modello**: l'export ne restituiva zero
+        mentre un file suo esisteva. Non e una fuga, e il difetto opposto —
+        un diritto di accesso incompleto, e senza dichiararlo, mentre
+        l'omissione clinica e dichiarata.
+
+        Si raggiungono dallo stesso indice che li lega alla persona: i
+        riferimenti dentro le sue compilazioni.
+      */
+      attachments: [...allegati, ...allegatiDaiModuli],
       consent_records: consensi,
       document_requests: richieste,
       document_submissions: depositi,
@@ -1085,8 +1125,15 @@ export const eraseDataSubject = async (
     conta(deleted, table, result?.count || 0);
   };
 
+  /*
+    Il club nel `where` anche qui. Non e sfruttabile — un atleta appartiene
+    a un club solo — ma CLAUDE.md §8 non ammette eccezioni annotate, e questa
+    e un'operazione irreversibile: e il posto in cui una regola generale va
+    seguita anche quando sembra ridondante.
+  */
   await cancella("medical_certificates", "medicalCertificate", {
     athlete_id: subjectId,
+    athlete: { organization_id: organizationId },
   });
   await cancella("consent_records", "consentRecord", {
     organization_id: organizationId,
@@ -1113,6 +1160,7 @@ export const eraseDataSubject = async (
   });
   await cancella("athlete_category_memberships", "athleteCategoryMembership", {
     athlete_id: subjectId,
+    athlete: { organization_id: organizationId },
   });
   await cancella("appointments", "appointment", {
     organization_id: organizationId,
