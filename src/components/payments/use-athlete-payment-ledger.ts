@@ -2,7 +2,7 @@
 
 import React from "react";
 import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { useToast } from "@/components/ui/toast-notification";
 import { openExternalUrl } from "@/lib/navigation/external-link";
 import {
@@ -145,7 +145,7 @@ export function useAthletePaymentLedger({
   React.useEffect(() => {
     if (canManage !== undefined) return;
     setDerivedCanManage(
-      canManageClubConfiguration(readStoredActiveClub()?.role),
+      canManageClubConfigurationAsActor(readStoredActiveClub()?.role),
     );
   }, [canManage]);
 

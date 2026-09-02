@@ -5,7 +5,7 @@ import { Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast-notification";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { readStoredActiveClub } from "@/lib/api/client";
 import {
   loadClubSignatures,
@@ -82,7 +82,7 @@ export function ClubSignaturePanel({ clubId }: ClubSignaturePanelProps) {
     ogni altro pannello di configurazione.
   */
   React.useEffect(() => {
-    setCanManage(canManageClubConfiguration(readStoredActiveClub()?.role));
+    setCanManage(canManageClubConfigurationAsActor(readStoredActiveClub()?.role));
   }, []);
 
   const load = React.useCallback(async () => {

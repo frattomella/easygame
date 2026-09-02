@@ -8,7 +8,7 @@ import {
   createFundingSettlement,
   listFundingSettlements,
 } from "@/lib/server/funding";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 /**
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
       request.headers.get("x-active-access-role"),
     );
 
-    if (!canManageClubConfiguration(scope.activeRole)) {
+    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
       return NextResponse.json(
         {
           data: null,

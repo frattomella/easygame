@@ -9,7 +9,7 @@ import {
 } from "@/lib/server/attachments";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { MAX_ATTACHMENT_BYTES } from "@/lib/attachments";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import {
   attachmentDenied,
   canAccessAttachmentOwner,
@@ -114,7 +114,7 @@ export async function GET(request: Request) {
       if (!canAccessAttachmentOwner(scope.activeRole, ownerType, "read")) {
         return failure(attachmentDenied(ownerType), "Accesso negato");
       }
-    } else if (!canManageClubConfiguration(scope.activeRole)) {
+    } else if (!canManageClubConfigurationAsActor(scope.activeRole)) {
       return failure(
         new Error(
           "Accesso negato: l'elenco di tutti gli allegati del club lo vede chi lo amministra; " +
@@ -213,7 +213,7 @@ export async function POST(request: Request) {
 
     if (
       (ownerTypeCaricato === "club" || ownerTypeCaricato === "announcement") &&
-      !canManageClubConfiguration(scope.activeRole)
+      !canManageClubConfigurationAsActor(scope.activeRole)
     ) {
       return NextResponse.json(
         {

@@ -386,14 +386,35 @@ test("il divieto copre le colonne che cambiano il potere, tutte", () => {
     personalizzato e il club. Ognuna deve essere nominata da una guardia in
     `updateResource`, o la prossima dimenticanza sara la quarta.
   */
+  /*
+    **E le colonne vanno guardate su tutte le porte che modificano.**
+
+    La prima stesura leggeva il corpo di `updateResource`. Una revisione ha
+    misurato che `createResource` in modo `upsert` **modifica** — aggiorna per
+    chiave — e non incontrava nessuna di queste guardie: il legame fra un
+    minore e un'utenza si scriveva di li, con un 200.
+
+    Adesso le guardie stanno in una funzione sola, e si pretendono due cose:
+    che nomini ogni colonna del potere, e che **entrambe** le porte la
+    chiamino. Due copie divergono, e la seconda diverge in silenzio.
+  */
   const sorgente = readFileSync("src/lib/server/resources.ts", "utf8");
-  const inizio = sorgente.indexOf("export const updateResource");
+  const inizio = sorgente.indexOf("const applicaGuardieDiModifica");
+  assert.ok(inizio > 0, "la funzione unica delle guardie di modifica non esiste piu");
   const corpo = sorgente.slice(inizio, sorgente.indexOf("\nexport const ", inizio + 30));
 
   for (const colonna of ["user_id", "role", "custom_role_id"]) {
     assert.ok(
       new RegExp(`"${colonna}" in normalized`).test(corpo),
-      `updateResource non guarda «${colonna}» su organization_users: e una colonna che cambia il potere`,
+      `le guardie di modifica non guardano «${colonna}»: e una colonna che cambia il potere`,
     );
   }
+
+  const chiamate = (
+    sorgente.match(/await applicaGuardieDiModifica\(/g) || []
+  ).length;
+  assert.ok(
+    chiamate >= 2,
+    `le guardie di modifica sono chiamate ${chiamate} volta/e: servono almeno la modifica e l'upsert`,
+  );
 });

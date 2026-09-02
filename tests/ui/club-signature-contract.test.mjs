@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
-import { canManageClubConfiguration } from "../../src/lib/access-roles.ts";
+import { canManageClubConfigurationAsActor } from "../../src/lib/access-roles.ts";
 import {
   CLUB_SIGNATURE_SETTINGS_KEYS,
   MAX_CLUB_SIGNATURE_BYTES,
@@ -23,7 +23,7 @@ import {
  *    `attachment:`, e il modulo server non deve avere un secondo padrone;
  * 2. **il permesso e quello del club, non uno nuovo.** Il rischio qui non e
  *    che manchi il controllo: e che qualcuno ne inventi un secondo, e che i
- *    due divergano. La rotta deve usare `canManageClubConfiguration`, e
+ *    due divergano. La rotta deve usare `canManageClubConfigurationAsActor`, e
  *    `access-roles.ts` non deve avere acquisito una funzione dedicata alla
  *    firma.
  *
@@ -140,10 +140,10 @@ test("l'anteprima passa dal trasporto, non da un fetch nel componente", () => {
 
 /* ------------------------------------------------------------- il permesso */
 
-test("la rotta gira il permesso a canManageClubConfiguration", () => {
+test("la rotta gira il permesso a canManageClubConfigurationAsActor", () => {
   const source = read(ROUTE);
 
-  assert.match(source, /canManageClubConfiguration/);
+  assert.match(source, /canManageClubConfigurationAsActor/);
   assert.match(source, /@\/lib\/access-roles/);
   assert.match(source, /Accesso negato/);
 });
@@ -172,14 +172,14 @@ test("scrittura e cancellazione passano dal gate, la lettura no", () => {
 test("i ruoli operativi non possono scrivere la firma", () => {
   for (const role of ["collaborator", "staff", "trainer", "member", "parent"]) {
     assert.equal(
-      canManageClubConfiguration(role),
+      canManageClubConfigurationAsActor(role),
       false,
       `${role} non deve poter caricare la firma del presidente`,
     );
   }
 
   for (const role of ["owner", "club_manager"]) {
-    assert.equal(canManageClubConfiguration(role), true);
+    assert.equal(canManageClubConfigurationAsActor(role), true);
   }
 });
 
@@ -262,14 +262,14 @@ test("le rotte allegati proteggono cio che appartiene al club", () => {
   */
   assert.match(
     collezione,
-    /canManageClubConfiguration\(/,
+    /canManageClubConfigurationAsActor\(/,
     "la creazione deve consultare il permesso di configurazione",
   );
 
   for (const proprietario of ["club", "announcement"]) {
     assert.match(
       collezione,
-      new RegExp(`"${proprietario}"[\\s\\S]{0,200}canManageClubConfiguration`),
+      new RegExp(`"${proprietario}"[\\s\\S]{0,200}canManageClubConfigurationAsActor`),
       `creare un allegato con owner_type "${proprietario}" deve passare dal permesso di configurazione`,
     );
   }

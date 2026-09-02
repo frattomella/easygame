@@ -2015,3 +2015,79 @@ presidio: dice verde.
   messaggio contiene la query e i suoi parametri. Il messaggio di aiuto,
   inoltre, **consigliava la fuga**: `{ message: error?.message }`. Adesso
   rileva le tre forme e indirizza al solo punto che redige.
+
+## Wave 6 — closeout: la sesta revisione, e le tre porte che consegnavano il club (2026-09-02)
+
+Sei revisori indipendenti, sei lane. Il conto e stato **8 Critical e 24 High**,
+e la lezione non e cambiata: **una regola scritta bene, in un posto solo, e un
+secondo ingresso che non ci passa**. Questa e la prima tornata di rimedi, quella
+che chiude le scalate.
+
+### Il riscatto di un gettone era il quinto scrittore di `organization_users`
+
+La Wave 5 ha messo `assertConcessioneDiAccessoLecita` su quattro strade che
+tesserano una persona. `POST /api/v1/auth/access/redeem` e la quinta, e non
+conosceva nessuna guardia. Tre scalate misurate:
+
+| Misurato | Adesso |
+|---|---|
+| `POST /api/v1/organization_users {role:"owner"}` risponde «l'accesso a un club non si concede da soli» — e lo stesso gestore coniava un gettone `payload.role: "owner"`, lo riscattava da una seconda utenza, e diventava **proprietario del club** | Un gettone e una **concessione differita**: vale il soffitto di chi lo conia. `assertMayGrantRole` gira al conio, e la firma del coniatore resta sulla riga (il client non la scrive: se ci prova viene tolta). Al riscatto si riapplica — e per i gettoni **storici**, senza firma, si giudica con il concedente piu stretto possibile |
+| `trainer_id` viene dal gettone e la scheda si caricava **senza scope**: si scriveva nella scheda di un **altro club**. Da quel momento il vero allenatore riceveva 409 per sempre, e il suo codice era stato sovrascritto con quello dell'attaccante — che la sua segreteria gli avrebbe consegnato | La scheda si cerca **dentro il club che ha coniato il gettone**. Il ramo genitore era gia cosi: era l'asimmetria a fare il difetto |
+| Lo stato guardato era solo `redeemed`. «Scollega account» scrive `revoked`, «Rigenera token» scrive `expired`, e nessuna delle due tocca `payload.expires_at` — l'unica altra cosa guardata. **Scollegare un genitore non scollegava niente** | Vale lo stato della **riga**, con un elenco chiuso di cio che e ancora riscattabile |
+
+Piu due difetti minori dello stesso atto: un gettone con uno slug personalizzato
+scriveva la riga incoerente che ADR-0102 vieta (ruolo base, `custom_role_id`
+nullo, cioe il ruolo base **senza** il restringimento), e quattro dinieghi su
+otto non lasciavano nessuna riga — fra cui il 409, che e il segnale del
+tentativo di scavalcare il confine. Il registro, inoltre, scriveva in
+`actor_role` il ruolo **concesso**: la riga di un gestore che si promuoveva
+diceva `owner`, cioe nascondeva il fatto per cui la riga esiste.
+
+### `mode: "upsert"` non e una creazione: e una modifica
+
+`updateResource` sapeva che `athletes.user_id` non si scrive dal registro
+generico (ADR-0104) e che un contenitore clinico assente non e una
+cancellazione. Il ramo `upsert` di `createResource` **aggiorna per chiave** — e
+la chiave la sceglie chi chiama — e non incontrava nessuna delle due:
+
+```
+PATCH  /api/v1/athletes/<id> {user_id}      -> 403
+upsert /api/v1/athletes      {id, user_id}  -> 200, legame scritto
+```
+
+e da li `GET /api/v1/athlete-accounts/me`, che non chiede ne ruolo ne tessera
+perche risolve la scheda **da quel campo**, consegnava a un'utenza senza alcuna
+tessera nel club l'area completa di un minore, dato sanitario compreso, senza
+invito e senza audit. Lo stesso ramo cancellava i contenitori clinici.
+
+Non era la prima volta che questa coppia si divideva: il perimetro di sede era
+gia stato aggiunto all'`upsert` una revisione fa. Le guardie ora stanno in
+**una funzione sola** che entrambi i rami chiamano, e il presidio pretende le
+due chiamate: due copie divergono, e la seconda diverge in silenzio.
+
+### Un ruolo personalizzato non e la direzione
+
+`normalizeAccessRole` di `custom:club_manager:<slug>` risponde `club_manager`, e
+due predicati ci costruivano sopra una risposta secca.
+
+- **`canAccessClubResource`** usciva `true` **prima** di guardare l'elenco delle
+  risorse riservate. Misurato: un ruolo di club con **una chiave** leggeva
+  `access_tokens` — il codice d'accesso delle famiglie in chiaro — e
+  `bank_accounts`, `document_templates`, `payment_methods`, e ne coniava di
+  nuovi. E la prima meta della scalata qui sopra.
+- **`canManageClubConfiguration`** autorizzava l'attore in **ventuno** rotte. Lo
+  stesso ruolo a cui il club aveva tolto la contabilita non poteva **leggere**
+  la prima nota — quella chiede `accounting.read` — e poteva **scrivere un
+  incasso**. La casella `accounting.manage` non faceva niente, nel verso
+  peggiore.
+
+La distinzione che mancava e fra **soffitto** e **attore**. Le matrici di
+dominio chiedono «questo ruolo base arriva fin qui?», e le chiavi concesse
+restringono dopo: li la normalizzazione e giusta. Le rotte chiedono «questa
+persona puo?», e li il gettone va guardato. Da qui
+`canManageClubConfigurationAsActor`, e le tre rotte di contabilita che
+accettano in alternativa la **chiave** — cosi un club che ha voluto delegare
+continua a poterlo fare, e la casella spuntata fa finalmente qualcosa.
+
+Prove: `U-53`, `U-54`, `U-55` in `wave-6-security-probe.mjs`, ognuna verificata
+non vacua reintroducendo il difetto.

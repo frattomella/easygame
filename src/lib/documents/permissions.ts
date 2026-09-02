@@ -26,7 +26,7 @@
  * risponde 403 e un difetto quanto una porta aperta.
  */
 
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { hasSportWorkPermission } from "@/lib/sport-work/permissions";
 import { roleHasPermission } from "@/lib/permissions/catalog";
 import type { PlaceholderSensitivity } from "./placeholders";
@@ -81,8 +81,8 @@ export const canGenerateDocumentWithSensitivity = (
 
   for (const entry of sensitivity) {
     const value = String(entry || "").trim().toLowerCase();
-    if (value === "economic" && !canManageClubConfiguration(role)) return false;
-    if (value === "health" && !canManageClubConfiguration(role)) return false;
+    if (value === "economic" && !canManageClubConfigurationAsActor(role)) return false;
+    if (value === "health" && !canManageClubConfigurationAsActor(role)) return false;
     /*
       Il compenso e l'unica classe che non basta essere della direzione per
       vedere: e il dominio del lavoro sportivo a decidere, e lo decide gia.
@@ -123,7 +123,7 @@ export const explainGenerationDenial = (
 
   if (
     (classes.includes("economic") || classes.includes("health")) &&
-    !canManageClubConfiguration(role)
+    !canManageClubConfigurationAsActor(role)
   ) {
     const what = classes.includes("economic")
       ? "importi"

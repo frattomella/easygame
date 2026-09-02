@@ -7,7 +7,8 @@ import {
 } from "@/lib/server/auth-rate-limit";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { publicErrorMessage } from "@/lib/server/api-errors";
-import { normalizeAccessRole } from "@/lib/access-roles";
+import { isCustomRoleValue, normalizeAccessRole } from "@/lib/access-roles";
+import { assertMayGrantRole } from "@/lib/roles/custom-role";
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getResourceById, updateResource } from "@/lib/server/resources";
@@ -50,7 +51,34 @@ const isOrganizationUserUniqueError = (error: any) => {
   );
 };
 
-const loadTrainerAccessTarget = async (trainerId: string) => {
+/**
+ * **La scheda che il gettone nomina deve essere del club che l'ha coniato.**
+ *
+ * `trainer_id` viene dal payload del gettone, e `getResourceById` senza scope
+ * non filtra per club: chi coniava un gettone nel proprio club potendo
+ * scrivere l'identificativo di una scheda **altrui** collegava se stesso a
+ * quella scheda. Effetti misurati: il vero allenatore di quel club non
+ * riusciva piu a collegarsi (409 permanente), e il suo codice d'accesso
+ * veniva sovrascritto con quello dell'attaccante — che la sua segreteria gli
+ * avrebbe poi consegnato in buona fede.
+ *
+ * Il ramo genitore era gia scoped. Era l'asimmetria a fare il difetto.
+ */
+const loadTrainerAccessTarget = async (
+  trainerId: string,
+  organizationId: string,
+) => {
+  const riga = await prisma.clubResourceItem.findFirst({
+    where: {
+      id: trainerId,
+      organization_id: organizationId,
+      resource_type: { in: ["trainers", "staff_members"] },
+    },
+    select: { id: true },
+  });
+
+  if (!riga) return null;
+
   try {
     return {
       resource: "trainers",
@@ -130,7 +158,8 @@ const tracciaRiscatto = async (dati: {
   email?: string | null;
   organizationId?: string | null;
   tokenRecordId?: string | null;
-  ruolo?: string | null;
+  /** Il ruolo **concesso** dal gettone. Non e quello dell'attore. */
+  ruoloConcesso?: string | null;
   motivo?: string | null;
 }) => {
   await recordAuditEvent({
@@ -138,11 +167,23 @@ const tracciaRiscatto = async (dati: {
     outcome: dati.esito,
     actorUserId: dati.userId || null,
     actorEmail: dati.email || null,
-    actorRole: dati.ruolo || null,
+    /*
+      **Il registro raccontava un proprietario che riscatta un gettone.**
+      `actorRole` portava il ruolo *concesso*, non quello di chi agiva: la
+      riga di un gestore che si promuoveva diceva `owner`, cioe nascondeva
+      esattamente il fatto per cui la riga esiste. Il ruolo dell'attore non
+      c'e — chi riscatta puo non avere ancora nessuna tessera qui — e
+      `null` lo dice; il ruolo concesso va nei metadati, dove e un dato
+      dell'atto e non un'identita.
+    */
+    actorRole: null,
     organizationId: dati.organizationId || null,
     resource: "access_tokens",
     resourceId: dati.tokenRecordId || null,
-    metadata: dati.motivo ? { motivo: dati.motivo } : null,
+    metadata: {
+      ...(dati.motivo ? { motivo: dati.motivo } : {}),
+      ...(dati.ruoloConcesso ? { ruolo_concesso: dati.ruoloConcesso } : {}),
+    },
   });
 };
 
@@ -201,6 +242,12 @@ export async function POST(request: Request) {
     const token = normalizeToken(String(body?.token || ""));
 
     if (!token) {
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        motivo: "token vuoto",
+      });
       return NextResponse.json(
         {
           data: null,
@@ -287,6 +334,38 @@ export async function POST(request: Request) {
       );
     }
 
+    /*
+      **Un gettone revocato era ancora riscattabile.**
+
+      L'unico controllo di stato era `status === "redeemed"`. La schermata
+      «Scollega account» scrive `revoked`, «Rigenera token» scrive `expired`,
+      e nessuna delle due tocca `payload.expires_at` — che era l'unica altra
+      cosa guardata. Scollegare un genitore non scollegava niente: chi aveva
+      il codice in tasca rientrava, e da genitore rivedeva il fascicolo
+      sanitario di un minore.
+
+      Lo stato che vale e quello della **riga**, non quello che il payload
+      racconta di se stesso. Elenco chiuso: si riscatta cio che e attivo.
+    */
+    const statoRiga = String(accessToken.status || "active").trim().toLowerCase();
+    if (statoRiga && !["active", "pending", "sent"].includes(statoRiga) && statoRiga !== "redeemed") {
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        organizationId: accessToken.organization_id,
+        tokenRecordId: accessToken.id,
+        motivo: `gettone in stato «${statoRiga}»`,
+      });
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Questo token non e piu valido" },
+        },
+        { status: 410 },
+      );
+    }
+
     if (accessToken.status === "redeemed" && payload.one_time !== false) {
       await tracciaRiscatto({
         esito: "denied",
@@ -318,7 +397,82 @@ export async function POST(request: Request) {
       role = "parent";
     }
 
-    const trainerTarget = trainerId ? await loadTrainerAccessTarget(trainerId) : null;
+    /*
+      **Il quinto scrittore di `organization_users`, e l'unico senza soffitto.**
+
+      La Wave 5 ha messo `assertConcessioneDiAccessoLecita` su quattro strade
+      che tesserano qualcuno; questa e la quinta e non la conosceva. Misurato:
+      `POST /api/v1/organization_users {role:"owner"}` risponde «l'accesso a un
+      club non si concede da soli», e poi lo stesso gestore coniava un gettone
+      con `payload.role: "owner"`, lo riscattava, e diventava proprietario.
+
+      Qui il concedente non e chi riscatta: e chi ha **coniato** il gettone. Il
+      soffitto e quindi il suo, e viene applicato in due tempi — al conio, in
+      `resources.ts`, dove il ruolo attivo si conosce; e qui, che e la difesa
+      che vale anche per i gettoni coniati prima di questa correzione, quando
+      la firma non c'era.
+    */
+    const coniatoDa = String(payload.minted_by_role || "").trim();
+
+    if (isCustomRoleValue(payload.role) || isCustomRoleValue(role)) {
+      /*
+        Un gettone che dichiara uno slug personalizzato scriveva la tessera con
+        il ruolo **base** e `custom_role_id: null` — la riga incoerente che
+        ADR-0102 vieta, che da il ruolo base **senza** il restringimento. La
+        rotta generica la rifiuta gia; questa la scriveva.
+      */
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        organizationId: accessToken.organization_id,
+        tokenRecordId: accessToken.id,
+        motivo: "un ruolo personalizzato non si concede con un gettone",
+      });
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Un ruolo personalizzato si assegna dalla gestione accessi, non con un token",
+          },
+        },
+        { status: 403 },
+      );
+    }
+
+    try {
+      /*
+        Senza firma — i gettoni coniati prima di questa correzione — si giudica
+        con il piu stretto dei concedenti possibili: `club_manager`. Cosi un
+        gettone storico continua a valere per allenatori, famiglie e soci, e
+        **non** puo piu consegnare il club.
+      */
+      assertMayGrantRole(coniatoDa || "club_manager", { role });
+    } catch (errore: any) {
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        organizationId: accessToken.organization_id,
+        tokenRecordId: accessToken.id,
+        motivo: String(errore?.message || "concessione oltre il soffitto"),
+      });
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Questo token concede un ruolo che chi lo ha emesso non poteva concedere",
+          },
+        },
+        { status: 403 },
+      );
+    }
+
+    const trainerTarget = trainerId
+      ? await loadTrainerAccessTarget(trainerId, accessToken.organization_id)
+      : null;
     const parentTarget =
       athleteId && guardianId
         ? await loadParentAccessTarget(
@@ -329,6 +483,18 @@ export async function POST(request: Request) {
         : null;
 
     if (trainerId && !trainerTarget?.record) {
+      /*
+        Comprende il caso in cui la scheda **esiste ma e di un altro club**:
+        e il segnale del tentativo di scavalcare il confine, e taceva.
+      */
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        organizationId: accessToken.organization_id,
+        tokenRecordId: accessToken.id,
+        motivo: "scheda allenatore assente o di un altro club",
+      });
       return NextResponse.json(
         {
           data: null,
@@ -342,6 +508,14 @@ export async function POST(request: Request) {
     }
 
     if ((athleteId || guardianId) && (!parentTarget || !parentTarget.guardian)) {
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        organizationId: accessToken.organization_id,
+        tokenRecordId: accessToken.id,
+        motivo: "genitore assente dalla scheda atleta",
+      });
       return NextResponse.json(
         {
           data: null,
@@ -363,6 +537,14 @@ export async function POST(request: Request) {
     ).trim();
 
     if (alreadyLinkedUserId && alreadyLinkedUserId !== session.db.user_id) {
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        organizationId: accessToken.organization_id,
+        tokenRecordId: accessToken.id,
+        motivo: "la scheda e gia collegata a un altro account",
+      });
       return NextResponse.json(
         {
           data: null,
@@ -567,7 +749,7 @@ export async function POST(request: Request) {
       email: session.db.user?.email,
       organizationId: accessToken.organization_id,
       tokenRecordId: accessToken.id,
-      ruolo: role,
+      ruoloConcesso: role,
     });
 
     return NextResponse.json({

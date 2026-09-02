@@ -5,7 +5,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import {
   isPaymentExcludedFromTotals,
   isPaymentPaidLike,
@@ -104,7 +104,7 @@ export async function PATCH(request: Request, context: Context) {
     */
     assertActiveClub(scope, payment.organization_id, "il pagamento");
 
-    if (!canManageClubConfiguration(scope.activeRole)) {
+    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
       return jsonError(
         "Accesso negato: solo il proprietario o un gestore del club puo modificare un pagamento",
         403,

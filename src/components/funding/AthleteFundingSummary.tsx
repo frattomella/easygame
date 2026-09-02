@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { useToast } from "@/components/ui/toast-notification";
 import { EnrollAthletesDialog } from "./EnrollAthletesDialog";
 import { FundingPeriodsTable } from "./FundingPeriodsTable";
@@ -134,7 +134,7 @@ export function AthleteFundingSummary({
   React.useEffect(() => {
     if (canManage !== undefined) return;
     setDerivedCanManage(
-      canManageClubConfiguration(readStoredActiveClub()?.role),
+      canManageClubConfigurationAsActor(readStoredActiveClub()?.role),
     );
   }, [canManage]);
 

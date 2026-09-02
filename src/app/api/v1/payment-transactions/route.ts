@@ -8,7 +8,8 @@ import {
   createPaymentTransaction,
   listPaymentTransactions,
 } from "@/lib/server/payment-transactions";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { hasAccountingPermission } from "@/lib/accounting/permissions";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import {
   isValidationError,
@@ -86,7 +87,7 @@ export async function GET(request: Request) {
       **Il permesso, che qui non c'era.**
 
       La `POST` di questo stesso file verifica
-      `canManageClubConfiguration(scope.activeRole)`; la `GET` non verificava
+      `canManageClubConfigurationAsActor(scope.activeRole)`; la `GET` non verificava
       niente, e restituisce il **libro cassa del club**: ogni incasso di ogni
       famiglia, con importi, date, metodi, controparti e storni. Un genitore,
       un atleta o un allenatore lo leggevano per intero.
@@ -121,7 +122,22 @@ export async function POST(request: Request) {
       request.headers.get("x-active-access-role"),
     );
 
-    if (!canManageClubConfiguration(scope.activeRole)) {
+    /*
+      **registrare un incasso: la chiave che il club ha spuntato deve contare.**
+
+      La lettura della prima nota chiedeva gia `accounting.read`; la
+      scrittura chiedeva soltanto il ruolo, che di un gettone personalizzato
+      e la **base**. Misurato: lo stesso ruolo a cui il club aveva tolto la
+      contabilita non poteva vedere il libro cassa e poteva scriverci dentro.
+
+      Adesso passa la direzione canonica **oppure** chi porta la chiave. Le
+      due condizioni non si sommano per comodita: la prima e il perimetro di
+      chi amministra il club, la seconda e la delega che il club ha deciso.
+    */
+    if (
+      !canManageClubConfigurationAsActor(scope.activeRole) &&
+      !hasAccountingPermission(scope.activeRole, "accounting.manage")
+    ) {
       return NextResponse.json(
         {
           data: null,

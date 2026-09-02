@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -74,7 +74,7 @@ const buildScope = async (request: Request, userId: string) => {
     ruolo entra nello scope perche il confine possa verificarlo, e il permesso
     si chiede qui sotto.
   */
-  if (!canManageClubConfiguration(scope.activeRole)) {
+  if (!canManageClubConfigurationAsActor(scope.activeRole)) {
     throw new Error("Accesso negato per il ruolo attivo");
   }
 

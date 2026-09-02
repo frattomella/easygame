@@ -7,6 +7,7 @@ import {
   canAccessClubResource,
   canAccessPath,
   canManageClubConfiguration,
+  canManageClubConfigurationAsActor,
   encodeCustomRoleToken,
   getAccessRoleLabel,
   isCustomRoleValue,
@@ -165,9 +166,39 @@ test("la matrice per risorsa risponde come il ruolo base, mai di piu", () => {
     "custom:club_manager:controllo",
     ["audit.read"],
   );
-  assert.equal(canAccessClubResource(daGestore, "bank_accounts", "read"), true);
+
+  /*
+    **«Come il ruolo base, mai di piu» non basta quando la base e la
+    direzione.**
+
+    Questa riga pretendeva `true` su `bank_accounts`, cioe registrava come
+    corretto il comportamento che una revisione ha poi misurato come
+    scalata: un ruolo di club con **una chiave** leggeva i conti correnti,
+    i modelli di documento e `access_tokens` — il codice d'accesso delle
+    famiglie in chiaro — e ne coniava di nuovi.
+
+    Le risorse riservate alla direzione non hanno una chiave di catalogo con
+    cui concederle: sono il perimetro del proprietario e del gestore
+    **canonici**. Un ruolo ristretto non le riceve per il fatto di essere
+    basato su uno di loro, come gia non riceve l'amministrazione degli
+    accessi.
+  */
+  assert.equal(canAccessClubResource(daGestore, "bank_accounts", "read"), false);
+  assert.equal(canAccessClubResource(daGestore, "access_tokens", "read"), false);
+
+  /* e cio che e aperto alla gestione resta aperto */
+  assert.equal(canAccessClubResource(daGestore, "categories", "read"), true);
+  assert.equal(canAccessClubResource("club_manager", "bank_accounts", "read"), true);
+
+  /*
+    Il predicato del **soffitto** continua a rispondere sulla base — le
+    matrici di dominio lo chiamano cosi, e le chiavi concesse restringono
+    dopo. Quello che autorizza **l'attore** no.
+  */
   assert.equal(canManageClubConfiguration(daGestore), true);
   assert.equal(canManageClubConfiguration(gettone), false);
+  assert.equal(canManageClubConfigurationAsActor(daGestore), false);
+  assert.equal(canManageClubConfigurationAsActor("club_manager"), true);
 });
 
 test("le guardie di percorso vedono il ruolo base", () => {

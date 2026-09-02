@@ -99,7 +99,7 @@ test("un incasso manuale non offre il rimborso dal provider", () => {
 test("solo proprietario e gestore del club possono rimborsare", () => {
   const rotta = read(ROUTE);
 
-  assert.match(rotta, /canManageClubConfiguration\(scope\.activeRole\)/);
+  assert.match(rotta, /canManageClubConfigurationAsActor\(scope\.activeRole\)/);
   assert.match(rotta, /rimborsare un incasso/);
 
   /*

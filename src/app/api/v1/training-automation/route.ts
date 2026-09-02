@@ -3,7 +3,7 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { authorizeCronRequest } from "@/lib/server/cron-auth";
 import {
   runDueTrainingAutomationForAllClubs,
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!canManageClubConfiguration(scope.activeRole)) {
+    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
       return NextResponse.json(
         {
           data: null,

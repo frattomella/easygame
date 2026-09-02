@@ -5,7 +5,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { reverseFundingSettlement } from "@/lib/server/funding";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 
 /**
  * Lo **storno** di una liquidazione dell'ente.
@@ -50,7 +50,7 @@ export async function POST(request: Request, context: Context) {
       request.headers.get("x-active-access-role"),
     );
 
-    if (!canManageClubConfiguration(scope.activeRole)) {
+    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
       return NextResponse.json(
         {
           data: null,

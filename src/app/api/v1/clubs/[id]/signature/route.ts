@@ -3,7 +3,7 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { publicErrorMessage } from "@/lib/server/api-errors";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { buildStoredFileResponse } from "@/lib/server/stored-file-response";
@@ -135,7 +135,7 @@ const assertCanManage = async (
   actor: { userId: string; email: string; role: string | null },
   organizationId: string,
 ) => {
-  if (canManageClubConfiguration(actor.role)) return;
+  if (canManageClubConfigurationAsActor(actor.role)) return;
 
   await recordAuditEvent({
     action: AUDIT_ACTIONS.resourceAccessDenied,
@@ -184,7 +184,7 @@ export async function GET(request: Request, context: Context) {
         data: {
           organizationId,
           signatures: Object.fromEntries(entries),
-          canManage: canManageClubConfiguration(resolved.scope.activeRole),
+          canManage: canManageClubConfigurationAsActor(resolved.scope.activeRole),
         },
         error: null,
       });

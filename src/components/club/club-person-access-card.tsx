@@ -14,7 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 
 /**
  * **«Accesso EasyGame» al posto del pulsante che non chiamava niente** (W6-D05).
@@ -107,7 +107,7 @@ export function ClubPersonAccessCard({
 
   useEffect(() => {
     if (ruoloAttivo === null) return;
-    if (!canManageClubConfiguration(ruoloAttivo)) {
+    if (!canManageClubConfigurationAsActor(ruoloAttivo)) {
       setCaricamento(false);
       return;
     }
@@ -147,7 +147,7 @@ export function ClubPersonAccessCard({
     };
   }, [ruoloAttivo, email]);
 
-  if (ruoloAttivo === null || !canManageClubConfiguration(ruoloAttivo)) {
+  if (ruoloAttivo === null || !canManageClubConfigurationAsActor(ruoloAttivo)) {
     return null;
   }
 

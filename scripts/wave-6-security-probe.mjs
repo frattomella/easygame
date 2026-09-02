@@ -102,6 +102,8 @@ let permessiAllegati;
 let ruoliDiClub;
 let registro;
 let moduli;
+let ruoliDiAccesso;
+let permessiContabili;
 let rotte = null;
 
 /* ----------------------------------------------------------- il verdetto */
@@ -2655,18 +2657,25 @@ const u52 = async () => {
   });
 
   prova(
-    "U-52 il riscatto riuscito lascia la riga, con il club e il ruolo",
+    "U-52 il riscatto riuscito lascia la riga, con il club e il ruolo concesso",
     {
       stato: 200,
       contate: true,
       club: CLUB_A,
-      ruolo: "collaborator",
+      ruoloConcesso: "collaborator",
+      attore: null,
     },
     {
       stato: riuscito.status,
       contate: (await righeRiscatto("success")) > primaRiusciti,
       club: rigaRiuscita?.organization_id ?? null,
-      ruolo: rigaRiuscita?.actor_role ?? null,
+      ruoloConcesso: rigaRiuscita?.metadata?.ruolo_concesso ?? null,
+      /*
+        Il ruolo **concesso** non e l identita di chi agisce: scriverlo in
+        `actor_role` faceva dire alla riga di un gestore che si promuoveva
+        «owner», cioe nascondeva il fatto per cui la riga esiste.
+      */
+      attore: rigaRiuscita?.actor_role ?? null,
     },
   );
 
@@ -2715,6 +2724,430 @@ const u52 = async () => {
   CLUB_ATTIVO = null;
 };
 
+const u53 = async () => {
+  /* ================================================================== */
+  /*  U-53 — il gettone d'accesso: soffitto, confine, stato              */
+  /*         [CRITICAL: consegna del club]                               */
+  /* ================================================================== */
+
+  /*
+    Il riscatto e il **quinto** scrittore di `organization_users`, e l'unico
+    che non conosceva nessuna delle guardie messe sugli altri quattro. Tre
+    scalate misurate su di lui:
+
+      * un gestore a cui `POST /api/v1/organization_users {role:"owner"}`
+        risponde «l'accesso a un club non si concede da soli» coniava un
+        gettone `payload.role: "owner"`, lo riscattava, e diventava
+        proprietario;
+      * `trainer_id` viene dal gettone e la scheda si caricava **senza scope**:
+        si scriveva nella scheda di un **altro club**, negando per sempre
+        l'onboarding del suo allenatore e sovrascrivendone il codice;
+      * lo stato guardato era solo `redeemed`: un gettone **revocato** —
+        cioe «Scollega account» — restava riscattabile.
+  */
+  console.log(
+    `${NL}U-53 — il gettone d'accesso: soffitto, confine, stato   [CRITICAL]`,
+  );
+
+  const conia = async (dati, ruoloAttore = "club_manager") =>
+    risorse.createResource(
+      "access_tokens",
+      { organization_id: CLUB_A, ...dati },
+      "create",
+      scopeRuolo(ruoloAttore),
+    );
+
+  /* --- il soffitto al conio --- */
+  await varco(
+    "U-53 un gestore non conia un gettone che consegna il club",
+    () =>
+      conia({
+        name: "U53-OWNER",
+        status: "active",
+        role: "owner",
+        one_time: false,
+      }),
+    ["negato"],
+  );
+
+  const gettoneLecito = await conia({
+    name: "U53-COLLABORATORE",
+    status: "active",
+    role: "collaborator",
+  });
+
+  prova(
+    "U-53 e un gettone lecito si conia, con la firma di chi lo ha coniato",
+    { coniato: true, firma: "club_manager", firmaDelClient: undefined },
+    {
+      coniato: Boolean(gettoneLecito?.id),
+      firma: gettoneLecito?.minted_by_role ?? null,
+      /* la firma non la scrive il client: se ci prova, viene tolta */
+      firmaDelClient: (
+        await conia({
+          name: "U53-FIRMA-FALSA",
+          status: "active",
+          role: "collaborator",
+          minted_by_role: "owner",
+        })
+      )?.minted_by_role === "owner"
+        ? "accettata dal client"
+        : undefined,
+    },
+  );
+
+  /* --- il soffitto al riscatto, per i gettoni storici senza firma --- */
+  const storicoOwner = await prisma.clubResourceItem.create({
+    data: {
+      organization_id: CLUB_A,
+      resource_type: "access_tokens",
+      name: "U53STORICOOWNER",
+      status: "active",
+      /* nessuna firma: e la forma di ogni gettone coniato prima di oggi */
+      payload: { role: "owner", one_time: false },
+    },
+  });
+
+  await comeUtente(utenti.athlete, CLUB_A);
+
+  const riscatta = (token) =>
+    rotte.riscatto.POST(
+      richiesta("/api/v1/auth/access/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token }),
+      }),
+    );
+
+  const suOwner = await riscatta("U53STORICOOWNER");
+  prova(
+    "U-53 un gettone storico che consegna il club non si riscatta",
+    { stato: 403, tesseraOwner: 0 },
+    {
+      stato: suOwner.status,
+      tesseraOwner: await prisma.organizationUser.count({
+        where: {
+          organization_id: CLUB_A,
+          user_id: utenti.athlete.id,
+          role: "owner",
+        },
+      }),
+    },
+  );
+
+  /* --- lo stato della riga --- */
+  const revocato = await prisma.clubResourceItem.create({
+    data: {
+      organization_id: CLUB_A,
+      resource_type: "access_tokens",
+      name: "U53REVOCATO",
+      status: "revoked",
+      payload: {
+        role: "member",
+        /* la scadenza dice ancora che e valido: e cio che guardava prima */
+        expires_at: new Date(Date.now() + 72 * 3600_000).toISOString(),
+      },
+    },
+  });
+
+  const suRevocato = await riscatta("U53REVOCATO");
+  prova(
+    "U-53 un gettone revocato non si riscatta, anche se non e scaduto",
+    { stato: 410, tessera: 0 },
+    {
+      stato: suRevocato.status,
+      tessera: await prisma.organizationUser.count({
+        where: {
+          organization_id: CLUB_A,
+          user_id: utenti.athlete.id,
+          role: "member",
+        },
+      }),
+    },
+    "«Scollega account» scrive `revoked` e non tocca la scadenza: senza questo, scollegare non scollegava",
+  );
+
+  /* --- il confine di club sulla scheda che il gettone nomina --- */
+  const schedaAltrui = await prisma.clubResourceItem.create({
+    data: {
+      organization_id: CLUB_B,
+      resource_type: "trainers",
+      name: "Allenatore del club B",
+      status: "active",
+      payload: { first_name: "Bruno", last_name: "Altrui" },
+    },
+  });
+
+  const gettoneOltreConfine = await prisma.clubResourceItem.create({
+    data: {
+      organization_id: CLUB_A,
+      resource_type: "access_tokens",
+      name: "U53OLTRECONFINE",
+      status: "active",
+      payload: { role: "trainer", trainer_id: schedaAltrui.id },
+    },
+  });
+
+  const suAltrui = await riscatta("U53OLTRECONFINE");
+  const schedaDopo = await prisma.clubResourceItem.findUnique({
+    where: { id: schedaAltrui.id },
+    select: { payload: true },
+  });
+
+  prova(
+    "U-53 il gettone non raggiunge la scheda di un altro club",
+    { stato: 404, scritta: false },
+    {
+      stato: suAltrui.status,
+      scritta: JSON.stringify(schedaDopo?.payload ?? {}).includes(
+        utenti.athlete.id,
+      ),
+    },
+    "prima: 200, e da quel momento il vero allenatore del club B non poteva piu collegarsi",
+  );
+
+  /* --- lo slug personalizzato, che scriveva una riga incoerente --- */
+  const gettoneSlug = await prisma.clubResourceItem.create({
+    data: {
+      organization_id: CLUB_A,
+      resource_type: "access_tokens",
+      name: "U53SLUG",
+      status: "active",
+      payload: { role: "custom:club_manager:ristretto" },
+    },
+  });
+
+  const suSlug = await riscatta("U53SLUG");
+  prova(
+    "U-53 un ruolo personalizzato non si concede con un gettone",
+    { stato: 403, righeIncoerenti: 0 },
+    {
+      stato: suSlug.status,
+      righeIncoerenti: await prisma.organizationUser.count({
+        where: {
+          organization_id: CLUB_A,
+          user_id: utenti.athlete.id,
+          role: "club_manager",
+          custom_role_id: null,
+        },
+      }),
+    },
+    "scriveva il ruolo base con `custom_role_id: null`: la riga che ADR-0102 vieta",
+  );
+
+  /* --- e i dinieghi che tacevano --- */
+  const dinieghiRiscatto = await prisma.auditLog.count({
+    where: { action: "membership.access_token.redeemed", outcome: "denied" },
+  });
+  prova(
+    "U-53 ognuno di questi tentativi ha lasciato la sua riga",
+    true,
+    dinieghiRiscatto >= 4,
+    `righe di diniego sul riscatto: ${dinieghiRiscatto}`,
+  );
+
+  for (const riga of [storicoOwner, revocato, gettoneOltreConfine, gettoneSlug]) {
+    await prisma.clubResourceItem.delete({ where: { id: riga.id } }).catch(() => {});
+  }
+  await prisma.clubResourceItem
+    .deleteMany({ where: { organization_id: CLUB_B, resource_type: "trainers" } })
+    .catch(() => {});
+  await prisma.clubResourceItem
+    .deleteMany({
+      where: { organization_id: CLUB_A, resource_type: "access_tokens" },
+    })
+    .catch(() => {});
+  SESSIONE = null;
+  CLUB_ATTIVO = null;
+};
+
+const u54 = async () => {
+  /* ================================================================== */
+  /*  U-54 — l'upsert e una modifica   [CRITICAL: minori, salute]        */
+  /* ================================================================== */
+
+  /*
+    `updateResource` sa che `athletes.user_id` non si scrive dal registro
+    generico (ADR-0104) e che un contenitore clinico assente non e una
+    cancellazione. `createResource` in modo `upsert` **aggiorna per chiave** —
+    quindi modifica — e non incontrava nessuna delle due.
+
+    Misurato: `PATCH` con `user_id` -> 403; lo stesso campo per `upsert` ->
+    200, e `GET /api/v1/athlete-accounts/me`, che risolve la scheda **da quel
+    campo** e non chiede ne ruolo ne tessera, consegnava a un estraneo l'area
+    completa di un minore.
+  */
+  console.log(`${NL}U-54 — l'upsert e una modifica   [CRITICAL: minori, salute]`);
+
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: {
+      user_id: null,
+      data: { allergies: "ALLERGIA-U54", medicalNotes: "NOTA-U54" },
+    },
+  });
+
+  const perUpsert = {
+    id: ATLETA_A,
+    organization_id: CLUB_A,
+    first_name: "Minore",
+    last_name: "Uno",
+  };
+
+  await varco(
+    "U-54 l'upsert non collega la scheda di un minore a un'utenza",
+    () =>
+      risorse.createResource(
+        "athletes",
+        { ...perUpsert, user_id: utenti.staff.id },
+        "upsert",
+        scopeRuolo("staff"),
+      ),
+    ["negato"],
+  );
+
+  const dopoIlLegame = await prisma.athlete.findUnique({
+    where: { id: ATLETA_A },
+    select: { user_id: true, data: true },
+  });
+
+  prova(
+    "U-54 e nessun legame e stato scritto",
+    null,
+    dopoIlLegame?.user_id ?? null,
+  );
+
+  await risorse.createResource(
+    "athletes",
+    { ...perUpsert, data: { note: "solo questa" } },
+    "upsert",
+    scopeRuolo("staff"),
+  );
+
+  const dopoIlClinico = await prisma.athlete.findUnique({
+    where: { id: ATLETA_A },
+    select: { data: true },
+  });
+  const testoClinico = JSON.stringify(dopoIlClinico?.data ?? {});
+
+  prova(
+    "U-54 e un upsert parziale non cancella il contenuto clinico",
+    { allergia: true, nota: true, nuovoCampo: true },
+    {
+      allergia: testoClinico.includes("ALLERGIA-U54"),
+      nota: testoClinico.includes("NOTA-U54"),
+      nuovoCampo: testoClinico.includes("solo questa"),
+    },
+    "il PATCH lo conservava gia: era l'altra porta a cancellarlo in silenzio",
+  );
+
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: { data: {} },
+  });
+};
+
+const u55 = async () => {
+  /* ================================================================== */
+  /*  U-55 — un ruolo personalizzato non e la direzione                  */
+  /*         [CRITICAL: credenziali, denaro]                             */
+  /* ================================================================== */
+
+  /*
+    `normalizeAccessRole` di `custom:club_manager:<slug>` risponde
+    `club_manager`, e due predicati ci costruivano sopra una risposta secca:
+
+      * `canAccessClubResource` usciva `true` **prima** di guardare l'elenco
+        delle risorse riservate: un ruolo con una chiave sola leggeva
+        `access_tokens` — il codice d'accesso delle famiglie in chiaro — e
+        `bank_accounts`, e ne coniava di nuovi;
+      * `canManageClubConfiguration` autorizzava l'attore in ventuno rotte: lo
+        stesso ruolo a cui il club aveva **tolto** la contabilita non poteva
+        leggere la prima nota e poteva scriverci un incasso.
+  */
+  console.log(
+    `${NL}U-55 — un ruolo personalizzato non e la direzione   [CRITICAL]`,
+  );
+
+  const unaChiaveSola = "custom:club_manager:segreteria#events.read";
+  const conLaContabilita =
+    "custom:club_manager:amministrazione#accounting.manage,accounting.read";
+
+  prova(
+    "U-55 le risorse riservate alla direzione non si aprono a un ruolo ristretto",
+    {
+      gettoni: false,
+      conti: false,
+      modelli: false,
+      /* e restano aperte a chi le ha davvero */
+      direzione: true,
+    },
+    {
+      gettoni: ruoliDiAccesso.canAccessClubResource(
+        unaChiaveSola,
+        "access_tokens",
+        "read",
+      ),
+      conti: ruoliDiAccesso.canAccessClubResource(
+        unaChiaveSola,
+        "bank_accounts",
+        "read",
+      ),
+      modelli: ruoliDiAccesso.canAccessClubResource(
+        unaChiaveSola,
+        "document_templates",
+        "update",
+      ),
+      direzione: ruoliDiAccesso.canAccessClubResource(
+        "club_manager",
+        "access_tokens",
+        "read",
+      ),
+    },
+  );
+
+  prova(
+    "U-55 e le risorse aperte restano aperte: il taglio riguarda le riservate",
+    true,
+    ruoliDiAccesso.canAccessClubResource(unaChiaveSola, "categories", "read"),
+    "controspecchio: una regola che negasse tutto passerebbe per una difesa",
+  );
+
+  prova(
+    "U-55 l'atto della direzione non lo compie un ruolo ristretto",
+    { ristretto: false, canonico: true },
+    {
+      ristretto:
+        ruoliDiAccesso.canManageClubConfigurationAsActor(unaChiaveSola),
+      canonico: ruoliDiAccesso.canManageClubConfigurationAsActor("club_manager"),
+    },
+  );
+
+  prova(
+    "U-55 ma la chiave che il club ha spuntato conta davvero",
+    { legge: true, scrive: true, senzaChiaveLegge: false, senzaChiaveScrive: false },
+    {
+      legge: permessiContabili.hasAccountingPermission(
+        conLaContabilita,
+        "accounting.read",
+      ),
+      scrive: permessiContabili.hasAccountingPermission(
+        conLaContabilita,
+        "accounting.manage",
+      ),
+      senzaChiaveLegge: permessiContabili.hasAccountingPermission(
+        unaChiaveSola,
+        "accounting.read",
+      ),
+      senzaChiaveScrive: permessiContabili.hasAccountingPermission(
+        unaChiaveSola,
+        "accounting.manage",
+      ),
+    },
+    "prima: non poteva leggere e poteva scrivere. Il verso peggiore in cui sbagliare",
+  );
+};
+
 /* ------------------------------------------------------------- il giro */
 
 try {
@@ -2732,6 +3165,8 @@ try {
   ruoliDiClub = await carica("src/lib/server/club-roles.ts");
   registro = await carica("src/lib/server/audit.ts");
   moduli = await carica("src/lib/server/forms.ts");
+  ruoliDiAccesso = await carica("src/lib/access-roles.ts");
+  permessiContabili = await carica("src/lib/accounting/permissions.ts");
 
   await preparaTrasporto();
 
@@ -2750,6 +3185,9 @@ try {
   await u50();
   await u51();
   await u52();
+  await u53();
+  await u54();
+  await u55();
 
   const falliti = esiti.filter((e) => !e.ok);
   if (deviazioni.length) {

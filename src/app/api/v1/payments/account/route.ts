@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -104,7 +104,7 @@ const resolveOrganization = async (
   */
   if (
     !isPlatformAdminUser(session.db.user) &&
-    !canManageClubConfiguration(scope.activeRole)
+    !canManageClubConfigurationAsActor(scope.activeRole)
   ) {
     throw new Error("Accesso negato per il ruolo attivo");
   }

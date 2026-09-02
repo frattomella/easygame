@@ -9,7 +9,7 @@ import {
   removeFundingEnrollment,
   updateFundingEnrollment,
 } from "@/lib/server/funding";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 /**
@@ -93,7 +93,7 @@ export async function PATCH(request: Request, context: Context) {
     if (!session) return unauthorized();
 
     const scope = await resolveScope(request, session.db.user_id);
-    if (!canManageClubConfiguration(scope.activeRole)) return forbidden();
+    if (!canManageClubConfigurationAsActor(scope.activeRole)) return forbidden();
 
     const body = (await request.json().catch(() => ({}))) as Record<string, any>;
 
@@ -137,7 +137,7 @@ export async function DELETE(request: Request, context: Context) {
     if (!session) return unauthorized();
 
     const scope = await resolveScope(request, session.db.user_id);
-    if (!canManageClubConfiguration(scope.activeRole)) return forbidden();
+    if (!canManageClubConfigurationAsActor(scope.activeRole)) return forbidden();
 
     const url = new URL(request.url);
 

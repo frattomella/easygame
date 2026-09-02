@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -103,7 +103,7 @@ const resolveOrganization = async (
     fatture emesse: partita IVA, forma giuridica, regime. Un genitore poteva
     riscriverlo.
   */
-  if (!isPlatformAdmin && !canManageClubConfiguration(scope.activeRole)) {
+  if (!isPlatformAdmin && !canManageClubConfigurationAsActor(scope.activeRole)) {
     throw new Error("Accesso negato per il ruolo attivo");
   }
 

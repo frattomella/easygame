@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { FundingProgramDetail } from "./FundingProgramDetail";
 import { useToast } from "@/components/ui/toast-notification";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -119,7 +119,7 @@ export function FundingProgramsPanel() {
   const [canManage, setCanManage] = React.useState(false);
 
   React.useEffect(() => {
-    setCanManage(canManageClubConfiguration(readStoredActiveClub()?.role));
+    setCanManage(canManageClubConfigurationAsActor(readStoredActiveClub()?.role));
   }, []);
 
   const load = React.useCallback(async () => {

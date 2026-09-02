@@ -8,7 +8,7 @@ import {
   createFundingProgram,
   listFundingPrograms,
 } from "@/lib/server/funding";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { requireClubEntitlement } from "@/lib/server/entitlements";
 import {
   isValidationError,
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       request.headers.get("x-active-access-role"),
     );
 
-    if (!canManageClubConfiguration(scope.activeRole)) {
+    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
       return forbidden(
         "Accesso negato: solo il proprietario o un gestore del club puo configurare un programma di contributo",
       );

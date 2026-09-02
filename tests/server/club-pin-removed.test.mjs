@@ -226,7 +226,7 @@ test("la rotta dei pagamenti atleta controlla il ruolo", () => {
     path.join(SRC, "app/api/athlete-payments/[paymentId]/route.ts"),
   );
 
-  assert.match(route, /canManageClubConfiguration\(scope\.activeRole\)/);
+  assert.match(route, /canManageClubConfigurationAsActor\(scope\.activeRole\)/);
   assert.equal(/verifyClubPin/.test(route), false);
   assert.match(
     route,

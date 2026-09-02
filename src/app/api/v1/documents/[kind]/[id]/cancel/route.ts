@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -83,7 +83,7 @@ export async function POST(request: Request, context: Context) {
       un genitore compreso, poteva ritirare una fattura emessa. Il permesso e
       lo stesso che governa l'emissione.
     */
-    if (!canManageClubConfiguration(scope.activeRole)) {
+    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
       throw new Error("Accesso negato per il ruolo attivo");
     }
 

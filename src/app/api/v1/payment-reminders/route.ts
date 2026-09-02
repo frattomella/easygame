@@ -7,7 +7,7 @@ import {
   buildPaymentReminderPreview,
   sendPaymentReminders,
 } from "@/lib/server/payment-reminders";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { publicErrorMessage } from "@/lib/server/api-errors";
 
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       request.headers.get("x-active-access-role"),
     );
 
-    if (!canManageClubConfiguration(scope.activeRole)) {
+    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
       return NextResponse.json(
         {
           data: null,

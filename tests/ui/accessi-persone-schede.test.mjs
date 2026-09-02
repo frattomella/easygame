@@ -101,12 +101,12 @@ test("la sezione dice se la persona ha gia un accesso, e con che ruolo", () => {
 test("la sezione non compare a chi non amministra il club", () => {
   assert.match(
     card,
-    /canManageClubConfiguration/,
+    /canManageClubConfigurationAsActor/,
     "lo stesso perimetro che `listClubAccessAssignments` impone sul server",
   );
   assert.match(
     card,
-    /if \(ruoloAttivo === null \|\| !canManageClubConfiguration\(ruoloAttivo\)\) \{\s*return null;/,
+    /if \(ruoloAttivo === null \|\| !canManageClubConfigurationAsActor\(ruoloAttivo\)\) \{\s*return null;/,
     "a chi non puo amministrare non si mostra una scorciatoia che la guardia di percorso chiuderebbe",
   );
 });

@@ -822,6 +822,28 @@ export const canAccessClubResource = (
     .toLowerCase();
 
   if (normalizedRole === "owner" || normalizedRole === "club_manager") {
+    /*
+      **La direzione personalizzata non e la direzione.**
+
+      `normalizeAccessRole` di `custom:club_manager:<slug>` risponde
+      `club_manager`, e questo ramo usciva `true` **prima** di guardare
+      l elenco delle risorse riservate. Misurato: un ruolo di club con una
+      chiave sola leggeva `access_tokens` — cioe il codice di accesso delle
+      famiglie in chiaro — `bank_accounts`, `document_templates` e
+      `payment_methods`, e ne coniava di nuovi.
+
+      Le riservate alla direzione non hanno una chiave di catalogo con cui
+      concederle: sono il perimetro del proprietario e del gestore canonici, e
+      un ruolo **ristretto** non puo riceverle per il fatto di essere basato su
+      uno di loro. Vale la stessa ragione gia scritta per l amministrazione
+      degli accessi: delegare le deleghe e un atto del proprietario.
+    */
+    if (
+      isCustomRoleValue(role) &&
+      MANAGEMENT_ADMIN_ONLY_RESOURCES.has(normalizedResource)
+    ) {
+      return false;
+    }
     return true;
   }
 
@@ -870,6 +892,29 @@ export const assertClubResourceAccess = (
     throw new Error("Accesso negato per il ruolo attivo");
   }
 };
+
+/**
+ * **Chi amministra il club adesso, guardando il gettone e non la base.**
+ *
+ * `canManageClubConfiguration` risponde alla domanda «questo **ruolo base**
+ * arriva fin qui?», e va benissimo dove serve un **soffitto** — le matrici di
+ * dominio la chiamano cosi, e le chiavi concesse restringono poi il risultato.
+ *
+ * Ventuno rotte pero la usavano per autorizzare **l'attore**, e li la domanda
+ * e un'altra. `normalizeAccessRole` di `custom:club_manager:<slug>` risponde
+ * `club_manager`: misurato, un ruolo di club con due caselle spuntate non
+ * poteva **leggere** la prima nota — quella chiede `accounting.read` — e
+ * poteva **scrivere un incasso**, perche la scrittura chiedeva solo questa
+ * funzione. La casella `accounting.manage` non faceva niente, nel verso
+ * peggiore.
+ *
+ * Questi atti non hanno una chiave di catalogo con cui concederli: sono il
+ * perimetro della direzione canonica. Dove una chiave **esiste** — la
+ * contabilita — la rotta la chiede in alternativa, cosi un club che ha voluto
+ * delegare continua a poterlo fare.
+ */
+export const canManageClubConfigurationAsActor = (role?: string | null) =>
+  !isCustomRoleValue(role) && canManageClubConfiguration(role);
 
 export const canManageClubConfiguration = (role?: string | null) => {
   const normalizedRole = normalizeAccessRole(role);

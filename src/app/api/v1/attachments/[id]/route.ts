@@ -9,7 +9,7 @@ import {
   readAttachment,
   replaceAttachmentContent,
 } from "@/lib/server/attachments";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import {
   attachmentDenied,
   canAccessAttachmentOwner,
@@ -195,7 +195,7 @@ const assertClubAttachmentWritable = (metadata: any, scope: any) => {
     );
   }
 
-  if (!canManageClubConfiguration(scope?.activeRole)) {
+  if (!canManageClubConfigurationAsActor(scope?.activeRole)) {
     throw new Error(
       "Accesso negato: gli allegati del club li gestisce chi ne gestisce la configurazione",
     );

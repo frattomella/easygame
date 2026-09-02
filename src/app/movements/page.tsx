@@ -32,7 +32,7 @@ import { PaymentReminderDialog } from "@/components/payments/PaymentReminderDial
 import { apiRequest } from "@/lib/api/client";
 import { supabase } from "@/lib/supabase";
 import { getClub, getClubAthletes, getClubData } from "@/lib/simplified-db";
-import { canManageClubConfiguration } from "@/lib/access-roles";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
 import {
   buildStatusLabels,
@@ -219,7 +219,7 @@ export default function MovementsPage() {
     rotta risponde 403 a chi non ce l'ha. Mostrare un pulsante che apre un
     dialogo e poi fallisce e una promessa non mantenuta.
   */
-  const canSendReminders = canManageClubConfiguration(activeClub?.role);
+  const canSendReminders = canManageClubConfigurationAsActor(activeClub?.role);
 
   /* ---------------------------------------------------------------------- */
   /* Letture                                                                 */

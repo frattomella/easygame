@@ -2952,6 +2952,67 @@ const normalizeClubResourceInput = (
   });
 };
 
+/**
+ * **Un gettone d'accesso e una concessione differita, e vale il soffitto di chi
+ * lo conia.**
+ *
+ * Misurato: `POST /api/v1/organization_users {role:"owner"}` nega con «l'accesso
+ * a un club non si concede da soli», e poi lo stesso gestore coniava un gettone
+ * con `payload.role: "owner"`, lo riscattava da una seconda utenza, e otteneva
+ * il ruolo di vertice del club. Il divieto che conta non e «chi conia»: e «chi si
+ * concede cosa», e sul conio non c'era.
+ *
+ * La firma del coniatore resta sulla riga perche il riscatto avviene **dopo**,
+ * quando quella sessione non c'e piu: e la stessa forma con cui si congelano
+ * etichetta e ambito di una causale contabile (ADR-0106). Il client non la
+ * scrive — se ci prova viene tolta — altrimenti la firma direbbe solo cio che
+ * chi la usa vuole che dica.
+ */
+const guardaIlConioDiUnGettone = async (
+  resource: string,
+  data: Record<string, any>,
+  scope?: ResourceAccessScope,
+) => {
+  if (resource !== "access_tokens") return;
+
+  const payload =
+    data.payload && typeof data.payload === "object" ? data.payload : null;
+  if (!payload) return;
+
+  delete payload.minted_by_role;
+  delete payload.minted_by_user_id;
+  delete payload.mintedByRole;
+  delete payload.mintedByUserId;
+
+  if (!scope) return;
+
+  const concesso = String(payload.role || "").trim();
+
+  if (concesso) {
+    try {
+      assertMayGrantRole(scope.activeRole, { role: concesso });
+    } catch (errore) {
+      await recordPermissionDenied({
+        scope: {
+          userId: scope.userId,
+          activeRole: scope.activeRole,
+          activeOrganizationId: scope.activeOrganizationId,
+        },
+        permission: "club_roles.assign",
+        resource: "access_tokens",
+        metadata: {
+          role: concesso,
+          reason: String((errore as Error)?.message || ""),
+        },
+      });
+      throw errore;
+    }
+  }
+
+  payload.minted_by_role = scope.activeRole || null;
+  payload.minted_by_user_id = scope.userId || null;
+};
+
 const findClubResourceRecord = async (
   resource: string,
   identifier: string,
@@ -5059,6 +5120,7 @@ export const createResource = async (
 
   if (config.kind === "club_resource") {
     const data = normalizeClubResourceInput(resource, input);
+    await guardaIlConioDiUnGettone(resource, data, scope);
     data.organization_id = resolveScopedOrganizationId(
       scope,
       data.organization_id || data.club_id,
@@ -5388,6 +5450,15 @@ export const createResource = async (
             visitato. Anche la sonda U-39 esercitava tre porte su quattro.
           */
           await assertRecordWithinAccessScope(resource, esistente, scope);
+          /*
+            **E le stesse guardie della modifica**, perche questo ramo modifica.
+          */
+          await applicaGuardieDiModifica(
+            resource,
+            normalized,
+            esistente,
+            scope,
+          );
         } else if (isPersonalResource(resource)) {
           /*
             Una risorsa personale che **non** esiste ancora: crearla per conto
@@ -5869,6 +5940,243 @@ const guardFiscalDocumentIntegrity = (
   assertDocumentMutable(existing, normalized);
 };
 
+/**
+ * **Le guardie di una modifica, in un posto solo.**
+ *
+ * Vivevano dentro `updateResource`, e `createResource` in modo `upsert` non le
+ * incontrava mai — pur essendo, quel ramo, una **modifica**: aggiorna per
+ * chiave, e la chiave la sceglie chi chiama. Misurato su `ab68e98`:
+ *
+ *     PATCH  /api/v1/athletes/<id> {user_id}   -> 403
+ *     upsert /api/v1/athletes      {id, user_id} -> 200, legame scritto
+ *
+ * e da li `GET /api/v1/athlete-accounts/me` consegnava a un'utenza **senza
+ * nessuna tessera nel club** l'area completa di un minore, dato sanitario
+ * compreso, senza invito e senza una riga di audit. Lo stesso ramo cancellava
+ * i contenitori clinici che il `PATCH` conserva.
+ *
+ * Non e la prima volta che questa coppia si divide — il perimetro di sede era
+ * gia stato aggiunto qui una revisione fa. La lezione e che i due rami devono
+ * chiamare **la stessa funzione**, non avere ciascuno la propria copia: due
+ * copie divergono, e la seconda diverge in silenzio.
+ *
+ * Modifica `normalized` in luogo dove la regola e una **conservazione**.
+ */
+const applicaGuardieDiModifica = async (
+  resource: string,
+  normalized: Record<string, any>,
+  existing: Record<string, any> | null | undefined,
+  scope?: ResourceAccessScope,
+) => {
+    /*
+      **`athletes.user_id` non si scrive dal registro generico.**
+
+      CLAUDE.md §2 e ADR-0104 dichiarano `athlete-accounts.ts` «l'unica strada
+      che scrive `athletes.user_id`», e la chiave `accounts.athlete.manage`
+      esiste per governarla. Ma `athletes` e aperta in scrittura alla gestione e
+      nessuna proiezione toglieva quel campo dall'ingresso.
+
+      Misurato con uno `staff` canonico: un `PATCH` che porta `user_id` collega
+      la scheda di un minore a un'utenza qualunque, e
+      `GET /api/v1/athlete-accounts/me` — che non chiede ne ruolo ne tessera,
+      perche risolve la scheda **da quel campo** — consegna a quell'utenza l'area
+      atleta completa. Serve anche a **staccare** un atleta legittimo dal proprio
+      account, senza audit e senza revoca.
+    */
+    if (
+      scope &&
+      (resource === "athletes" || resource === "simplified_athletes") &&
+      "user_id" in normalized &&
+      String(normalized.user_id ?? "").trim() !==
+        String((existing as any)?.user_id ?? "").trim()
+    ) {
+      await recordPermissionDenied({
+        scope: {
+          userId: scope.userId,
+          activeRole: scope.activeRole,
+          activeOrganizationId: scope.activeOrganizationId,
+        },
+        permission: "accounts.athlete.manage",
+        resource: "athletes",
+        metadata: {
+          athlete_id: String((existing as any)?.id || ""),
+          reason: "athlete_user_link_from_generic_route",
+        },
+      });
+      throw new Error(
+        "Accesso negato: il legame fra un atleta e un'utenza si crea e si revoca dalla gestione dell'accesso EasyGame, non dal registro generico",
+      );
+    }
+
+    /*
+      **La tessera non cambia intestatario da qui, ed e il buco che la prima
+      correzione ha lasciato aperto.**
+
+      La guardia di sotto controlla `role` e `custom_role_id`, cioe le due
+      colonne che nominano un **ruolo**. Ma la colonna che nomina la **persona**
+      non era controllata da niente, ed e scalare: sopravviveva alla rimozione
+      delle relazioni e arrivava intatta alla `update`.
+
+      Una revisione ostile lo ha eseguito: una «Segreteria» basata su
+      `club_manager` con una chiave sola manda un `PATCH` sulla tessera del
+      **proprietario** con il solo campo `{"user_id": "<se stessa>"}`, e da quel
+      momento e lei a portare la tessera `owner`. Nessuna delle guardie esistenti
+      la vedeva: la riga e del suo club, la risorsa non e `athletes`, il ruolo
+      non e nominato.
+
+      Spostare una tessera da una persona a un'altra non e una modifica: e una
+      **revoca piu una concessione**, e le fa `club-roles.ts`, che sa negarle su
+      se stessi e lascia le due righe di audit. Qui si nega e basta — la stessa
+      scelta gia presa per `clubs.creator_id`, che per la stessa ragione non si
+      cambia dal registro generico.
+    */
+    if (
+      scope &&
+      resource === "organization_users" &&
+      "user_id" in normalized &&
+      String(normalized.user_id ?? "").trim() !==
+        String((existing as any)?.user_id ?? "").trim()
+    ) {
+      await recordPermissionDenied({
+        scope: {
+          userId: scope.userId,
+          activeRole: scope.activeRole,
+          activeOrganizationId: scope.activeOrganizationId,
+        },
+        permission: "club_roles.assign",
+        resource: "organization_users",
+        metadata: {
+          target_user_id: String((existing as any)?.user_id || ""),
+          requested_user_id: String(normalized.user_id || ""),
+          reason: "membership_transfer_from_generic_route",
+        },
+      });
+      throw new Error(
+        "Accesso negato: una tessera non cambia intestatario. Revocala e concedila dalla gestione accessi, che lascia le due righe di audit",
+      );
+    }
+
+    if (
+      resource === "organization_users" &&
+      ("role" in normalized || "custom_role_id" in normalized)
+    ) {
+      await assertConcessioneDiAccessoLecita(
+        String(
+          normalized.organization_id || existing?.organization_id || "",
+        ).trim(),
+        String(normalized.user_id || existing?.user_id || "").trim(),
+        String(normalized.role ?? existing?.role ?? "").trim(),
+        scope,
+      );
+    }
+
+    /*
+      **Un campo clinico non si cancella scrivendo senza averlo letto.**
+
+      La colonna `data` si scrive intera, quindi il salvataggio della scheda
+      atleta e sempre una **sostituzione**. Chi non ha `clinical.read` riceve
+      l'anagrafica **senza** i campi clinici — e la difesa che questa Wave ha
+      appena rafforzato — e la rimanda cosi: il primo salvataggio azzerava visite
+      mediche, documenti d'identita e i file degli attestati.
+
+      Il difetto non nasce dalla schermata: nasce dall'aver reso una lettura
+      parziale indistinguibile da una cancellazione. La regola giusta e che
+      **un'assenza non e una cancellazione**: cio che non e stato ricevuto resta
+      com'era.
+
+      C'e un secondo effetto, e va detto perche e quello che rende la regola
+      necessaria e non solo prudente: senza, ogni salvataggio della scheda
+      porterebbe con se le chiavi dei contenitori clinici, e
+      `toccaCampiClinici` chiederebbe il permesso sanitario **a ogni correzione
+      di un cognome** — cioe esattamente cio che il commento di
+      `RISORSE_CON_SCHEDA_ATLETA` dichiara di voler evitare.
+    */
+    if (RISORSE_CON_SCHEDA_ATLETA.has(resource) && normalized.data && existing?.data) {
+      const precedente = existing.data as Record<string, any>;
+      const nuovo = normalized.data as Record<string, any>;
+      const conservati: Record<string, any> = {};
+
+      /*
+        **Chi non puo leggere un contenuto clinico non lo puo nemmeno svuotare.**
+
+        La prima stesura conservava solo le chiavi **assenti**, e non e bastato:
+        la schermata normalizza cio che manca in `[]` e `{}`, quindi il vuoto
+        arriva al posto dell'assenza e la fusione non scattava. Misurato
+        end-to-end con un ruolo che ha `clinical.manage` e non `clinical.read`:
+        visite mediche, documenti d'identita, file dei certificati e contenitore
+        libero di un minore **azzerati da un salvataggio ordinario**.
+
+        La regola completa distingue le due cose che sembrano uguali: un vuoto da
+        chi **puo** vedere quel contenuto e una cancellazione, e si rispetta; un
+        vuoto da chi **non puo** vederlo e il segno di una lettura parziale, e non
+        cancella niente.
+      */
+      const puoVedereIlClinico = hasHealthPermission(
+        scope?.activeRole,
+        "clinical.read",
+      );
+
+      for (const campo of CLINICAL_ATHLETE_FIELDS) {
+        const eraPieno =
+          Object.prototype.hasOwnProperty.call(precedente, campo) &&
+          !eVuoto(precedente[campo]);
+        const arrivaVuoto =
+          !Object.prototype.hasOwnProperty.call(nuovo, campo) ||
+          eVuoto(nuovo[campo]);
+
+        if (eraPieno && arrivaVuoto && !puoVedereIlClinico) {
+          conservati[campo] = precedente[campo];
+          continue;
+        }
+
+        if (
+          Object.prototype.hasOwnProperty.call(precedente, campo) &&
+          !Object.prototype.hasOwnProperty.call(nuovo, campo)
+        ) {
+          conservati[campo] = precedente[campo];
+        }
+      }
+
+      /*
+        **L'ordine dello spread e la meta della regola, e la prima stesura lo
+        aveva al contrario.**
+
+        Con `{ ...conservati, ...nuovo }` cio che arriva vince sempre — ed e
+        giusto per una chiave **assente**, che in `nuovo` non c'e, e sbagliato
+        per una chiave **vuota**, che c'e e sovrascrive proprio il valore appena
+        conservato. La sonda lo ha misurato: visite e certificati tornavano a
+        zero con la regola in funzione.
+
+        Cio che entra in `conservati` ci entra **solo** se chi scrive non poteva
+        vedere quel campo: farlo vincere non calpesta nessuna modifica
+        volontaria, perche una modifica volontaria di chi vede il campo non passa
+        mai di qui.
+      */
+      if (Object.keys(conservati).length) {
+        normalized.data = { ...nuovo, ...conservati };
+      }
+
+      /*
+        **La stessa regola vale per il codice con cui entra la famiglia.**
+
+        `data.guardians[].parentAccessTokenValue` viene tolto in lettura a
+        chiunque non abbia una direzione canonica. La scheda letta cosi e
+        rimandata indietro cancellava il codice: la famiglia non entrava piu, e
+        nessuno aveva chiesto di revocarlo.
+
+        Il difetto e identico a quello clinico qui sopra — un'assenza scambiata
+        per una cancellazione — ma non poteva essere risolto dallo stesso ciclo,
+        perche quello guarda le chiavi di primo livello e il gettone e dentro un
+        elemento di un elenco.
+      */
+      if (!vedeICredenzialiDiAccesso(scope?.activeRole)) {
+        normalized.data = restoreGuardianAccessTokens(
+          existing.data,
+          normalized.data,
+        );
+      }
+    }
+};
 export const updateResource = async (
   resource: string,
   id: string,
@@ -5895,6 +6203,7 @@ export const updateResource = async (
       ...input,
       id: existing.id,
     });
+    await guardaIlConioDiUnGettone(resource, normalized, scope);
     const inputLogicalId =
       !isUuid(input?.id) && typeof input?.id === "string" && input.id.trim()
         ? input.id.trim()
@@ -6077,108 +6386,6 @@ export const updateResource = async (
     niente.
   */
   /*
-    **`athletes.user_id` non si scrive dal registro generico.**
-
-    CLAUDE.md §2 e ADR-0104 dichiarano `athlete-accounts.ts` «l'unica strada
-    che scrive `athletes.user_id`», e la chiave `accounts.athlete.manage`
-    esiste per governarla. Ma `athletes` e aperta in scrittura alla gestione e
-    nessuna proiezione toglieva quel campo dall'ingresso.
-
-    Misurato con uno `staff` canonico: un `PATCH` che porta `user_id` collega
-    la scheda di un minore a un'utenza qualunque, e
-    `GET /api/v1/athlete-accounts/me` — che non chiede ne ruolo ne tessera,
-    perche risolve la scheda **da quel campo** — consegna a quell'utenza l'area
-    atleta completa. Serve anche a **staccare** un atleta legittimo dal proprio
-    account, senza audit e senza revoca.
-  */
-  if (
-    scope &&
-    (resource === "athletes" || resource === "simplified_athletes") &&
-    "user_id" in normalized &&
-    String(normalized.user_id ?? "").trim() !==
-      String((existing as any)?.user_id ?? "").trim()
-  ) {
-    await recordPermissionDenied({
-      scope: {
-        userId: scope.userId,
-        activeRole: scope.activeRole,
-        activeOrganizationId: scope.activeOrganizationId,
-      },
-      permission: "accounts.athlete.manage",
-      resource: "athletes",
-      metadata: {
-        athlete_id: String((existing as any)?.id || ""),
-        reason: "athlete_user_link_from_generic_route",
-      },
-    });
-    throw new Error(
-      "Accesso negato: il legame fra un atleta e un'utenza si crea e si revoca dalla gestione dell'accesso EasyGame, non dal registro generico",
-    );
-  }
-
-  /*
-    **La tessera non cambia intestatario da qui, ed e il buco che la prima
-    correzione ha lasciato aperto.**
-
-    La guardia di sotto controlla `role` e `custom_role_id`, cioe le due
-    colonne che nominano un **ruolo**. Ma la colonna che nomina la **persona**
-    non era controllata da niente, ed e scalare: sopravviveva alla rimozione
-    delle relazioni e arrivava intatta alla `update`.
-
-    Una revisione ostile lo ha eseguito: una «Segreteria» basata su
-    `club_manager` con una chiave sola manda un `PATCH` sulla tessera del
-    **proprietario** con il solo campo `{"user_id": "<se stessa>"}`, e da quel
-    momento e lei a portare la tessera `owner`. Nessuna delle guardie esistenti
-    la vedeva: la riga e del suo club, la risorsa non e `athletes`, il ruolo
-    non e nominato.
-
-    Spostare una tessera da una persona a un'altra non e una modifica: e una
-    **revoca piu una concessione**, e le fa `club-roles.ts`, che sa negarle su
-    se stessi e lascia le due righe di audit. Qui si nega e basta — la stessa
-    scelta gia presa per `clubs.creator_id`, che per la stessa ragione non si
-    cambia dal registro generico.
-  */
-  if (
-    scope &&
-    resource === "organization_users" &&
-    "user_id" in normalized &&
-    String(normalized.user_id ?? "").trim() !==
-      String((existing as any)?.user_id ?? "").trim()
-  ) {
-    await recordPermissionDenied({
-      scope: {
-        userId: scope.userId,
-        activeRole: scope.activeRole,
-        activeOrganizationId: scope.activeOrganizationId,
-      },
-      permission: "club_roles.assign",
-      resource: "organization_users",
-      metadata: {
-        target_user_id: String((existing as any)?.user_id || ""),
-        requested_user_id: String(normalized.user_id || ""),
-        reason: "membership_transfer_from_generic_route",
-      },
-    });
-    throw new Error(
-      "Accesso negato: una tessera non cambia intestatario. Revocala e concedila dalla gestione accessi, che lascia le due righe di audit",
-    );
-  }
-
-  if (
-    resource === "organization_users" &&
-    ("role" in normalized || "custom_role_id" in normalized)
-  ) {
-    await assertConcessioneDiAccessoLecita(
-      String(
-        normalized.organization_id || existing?.organization_id || "",
-      ).trim(),
-      String(normalized.user_id || existing?.user_id || "").trim(),
-      String(normalized.role ?? existing?.role ?? "").trim(),
-      scope,
-    );
-  }
-
-  /*
     Il tipo lo dice la **riga**, non chi chiede: `club_resource_items` e una
     risorsa di **modello**, quindi passa di qui e non dal ramo delle risorse di
     club, e un `PATCH` che cambia solo il payload non porterebbe nessun
@@ -6223,112 +6430,7 @@ export const updateResource = async (
     );
   }
 
-  /*
-    **Un campo clinico non si cancella scrivendo senza averlo letto.**
-
-    La colonna `data` si scrive intera, quindi il salvataggio della scheda
-    atleta e sempre una **sostituzione**. Chi non ha `clinical.read` riceve
-    l'anagrafica **senza** i campi clinici — e la difesa che questa Wave ha
-    appena rafforzato — e la rimanda cosi: il primo salvataggio azzerava visite
-    mediche, documenti d'identita e i file degli attestati.
-
-    Il difetto non nasce dalla schermata: nasce dall'aver reso una lettura
-    parziale indistinguibile da una cancellazione. La regola giusta e che
-    **un'assenza non e una cancellazione**: cio che non e stato ricevuto resta
-    com'era.
-
-    C'e un secondo effetto, e va detto perche e quello che rende la regola
-    necessaria e non solo prudente: senza, ogni salvataggio della scheda
-    porterebbe con se le chiavi dei contenitori clinici, e
-    `toccaCampiClinici` chiederebbe il permesso sanitario **a ogni correzione
-    di un cognome** — cioe esattamente cio che il commento di
-    `RISORSE_CON_SCHEDA_ATLETA` dichiara di voler evitare.
-  */
-  if (RISORSE_CON_SCHEDA_ATLETA.has(resource) && normalized.data && existing?.data) {
-    const precedente = existing.data as Record<string, any>;
-    const nuovo = normalized.data as Record<string, any>;
-    const conservati: Record<string, any> = {};
-
-    /*
-      **Chi non puo leggere un contenuto clinico non lo puo nemmeno svuotare.**
-
-      La prima stesura conservava solo le chiavi **assenti**, e non e bastato:
-      la schermata normalizza cio che manca in `[]` e `{}`, quindi il vuoto
-      arriva al posto dell'assenza e la fusione non scattava. Misurato
-      end-to-end con un ruolo che ha `clinical.manage` e non `clinical.read`:
-      visite mediche, documenti d'identita, file dei certificati e contenitore
-      libero di un minore **azzerati da un salvataggio ordinario**.
-
-      La regola completa distingue le due cose che sembrano uguali: un vuoto da
-      chi **puo** vedere quel contenuto e una cancellazione, e si rispetta; un
-      vuoto da chi **non puo** vederlo e il segno di una lettura parziale, e non
-      cancella niente.
-    */
-    const puoVedereIlClinico = hasHealthPermission(
-      scope?.activeRole,
-      "clinical.read",
-    );
-
-    for (const campo of CLINICAL_ATHLETE_FIELDS) {
-      const eraPieno =
-        Object.prototype.hasOwnProperty.call(precedente, campo) &&
-        !eVuoto(precedente[campo]);
-      const arrivaVuoto =
-        !Object.prototype.hasOwnProperty.call(nuovo, campo) ||
-        eVuoto(nuovo[campo]);
-
-      if (eraPieno && arrivaVuoto && !puoVedereIlClinico) {
-        conservati[campo] = precedente[campo];
-        continue;
-      }
-
-      if (
-        Object.prototype.hasOwnProperty.call(precedente, campo) &&
-        !Object.prototype.hasOwnProperty.call(nuovo, campo)
-      ) {
-        conservati[campo] = precedente[campo];
-      }
-    }
-
-    /*
-      **L'ordine dello spread e la meta della regola, e la prima stesura lo
-      aveva al contrario.**
-
-      Con `{ ...conservati, ...nuovo }` cio che arriva vince sempre — ed e
-      giusto per una chiave **assente**, che in `nuovo` non c'e, e sbagliato
-      per una chiave **vuota**, che c'e e sovrascrive proprio il valore appena
-      conservato. La sonda lo ha misurato: visite e certificati tornavano a
-      zero con la regola in funzione.
-
-      Cio che entra in `conservati` ci entra **solo** se chi scrive non poteva
-      vedere quel campo: farlo vincere non calpesta nessuna modifica
-      volontaria, perche una modifica volontaria di chi vede il campo non passa
-      mai di qui.
-    */
-    if (Object.keys(conservati).length) {
-      normalized.data = { ...nuovo, ...conservati };
-    }
-
-    /*
-      **La stessa regola vale per il codice con cui entra la famiglia.**
-
-      `data.guardians[].parentAccessTokenValue` viene tolto in lettura a
-      chiunque non abbia una direzione canonica. La scheda letta cosi e
-      rimandata indietro cancellava il codice: la famiglia non entrava piu, e
-      nessuno aveva chiesto di revocarlo.
-
-      Il difetto e identico a quello clinico qui sopra — un'assenza scambiata
-      per una cancellazione — ma non poteva essere risolto dallo stesso ciclo,
-      perche quello guarda le chiavi di primo livello e il gettone e dentro un
-      elemento di un elenco.
-    */
-    if (!vedeICredenzialiDiAccesso(scope?.activeRole)) {
-      normalized.data = restoreGuardianAccessTokens(
-        existing.data,
-        normalized.data,
-      );
-    }
-  }
+  await applicaGuardieDiModifica(resource, normalized, existing, scope);
 
   const record = await delegate.update({
     where: { id },
