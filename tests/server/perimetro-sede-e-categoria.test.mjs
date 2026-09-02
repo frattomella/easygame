@@ -202,3 +202,103 @@ test("§11.3 · il diniego lo dice, e lascia traccia", () => {
     "la stringa e la convenzione con cui il route handler mappa il 403",
   );
 });
+
+/* ============================================================================
+   L'audit ostile: il perimetro era un filtro di elenco, e si aggirava con l'id
+   ========================================================================== */
+
+test("il perimetro gira su tutti gli atti, non solo sull'elenco", () => {
+  /*
+    Due revisioni indipendenti hanno trovato la stessa cosa: `buildAccessScopeFilter`
+    aveva **un solo** chiamante, dentro `listResourcePage`. La lettura per
+    identificativo, la modifica e la cancellazione non lo vedevano mai.
+
+    Un filtro di elenco si aggira chiedendo la riga per id — che e proprio come
+    si aggira un filtro di elenco — e con un ruolo base di gestione non si
+    trattava solo di leggere: `athletes` e in scrittura per collaboratore e
+    staff, quindi un ruolo perimetrato su una sede **modificava e cancellava**
+    qualunque atleta del club.
+
+    La prova non conta le chiamate a caso: enumera gli **atti** del registro e
+    pretende che ognuno passi dalla verifica. Un atto nuovo che dimentichi la
+    riga fallisce qui.
+  */
+  const sorgente = leggi("lib/server/resources.ts");
+
+  const atti = [
+    "export const listResourcePage",
+    "export const getResourceById",
+    "export const updateResource",
+    "export const deleteResource",
+  ];
+
+  const scoperti = [];
+  for (const atto of atti) {
+    const inizio = sorgente.indexOf(atto);
+    assert.ok(inizio > 0, `${atto} non trovato`);
+    const fine = sorgente.indexOf("\nexport const ", inizio + atto.length);
+    const corpo = sorgente.slice(inizio, fine > 0 ? fine : sorgente.length);
+    const guarda =
+      corpo.includes("buildAccessScopeFilter(") ||
+      corpo.includes("assertRecordWithinAccessScope(");
+    if (!guarda) scoperti.push(atto);
+  }
+
+  assert.deepEqual(
+    scoperti,
+    [],
+    `atti senza verifica di perimetro: ${scoperti.join(", ")}. Un perimetro che vale solo sull'elenco si aggira passando l'identificativo`,
+  );
+});
+
+test("il SQL del perimetro dice quello che dice la regola pura", () => {
+  /*
+    La regola pura e fail-closed e lo scrive: «una riga che non porta il valore
+    dell'asse ristretto **non passa**: un dato senza sede non e "di tutte le
+    sedi", e un dato di cui non si sa dire dove sia».
+
+    Il filtro SQL aveva un secondo ramo che faceva passare gli atleti **senza
+    sede**, ereditato da ADR-0038 — dove la sede vuota vuol dire «non
+    dichiarata». Giusto per un filtro di visualizzazione, sbagliato per un
+    confine: due proprietari, due risposte opposte, e a decidere era la piu
+    larga.
+  */
+  const sorgente = leggi("lib/server/resources.ts");
+  const inizio = sorgente.indexOf("const buildAccessScopeFilter");
+  const corpo = sorgente.slice(inizio, inizio + 2600);
+
+  assert.equal(
+    corpo.includes("none: { site_id: { not: null } }"),
+    false,
+    "il ramo che faceva passare gli atleti senza sede contraddiceva access-scope.ts",
+  );
+
+  // e la regola pura resta quella che il SQL imita
+  assert.equal(
+    accessScopeAllows([sede("nord")], { siteId: null }),
+    false,
+    "una riga senza sede non sta dentro un perimetro di sede",
+  );
+  assert.equal(
+    accessScopeAllows([sede("nord")], { siteId: "nord" }),
+    true,
+  );
+});
+
+test("il diniego di perimetro parla la lingua che il route handler mappa su 403", () => {
+  const sorgente = leggi("lib/server/resources.ts");
+  const inizio = sorgente.indexOf("const assertRecordWithinAccessScope");
+  assert.ok(inizio > 0, "la verifica sulla riga singola non esiste");
+  const corpo = sorgente.slice(inizio, inizio + 1400);
+
+  assert.match(
+    corpo,
+    /Accesso negato/,
+    "senza quella stringa il route handler generico risponde 500 invece di 403",
+  );
+  assert.match(
+    corpo,
+    /count\(/,
+    "la verifica deve rifare la stessa interrogazione dell'elenco, non giudicare con una seconda regola in TypeScript",
+  );
+});

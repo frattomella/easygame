@@ -119,6 +119,35 @@ export async function GET(request: Request, context: Context) {
       return jsonError("Documento non trovato", 404);
     }
 
+    /*
+      **La stessa porta, sull'altro ramo.**
+
+      Il ramo qui sopra — il fascicolo — chiede `clinical.read` prima di
+      consegnare i byte di un certificato medico. Questo ramo, l'archivio
+      storico, non lo chiedeva: due porte sullo stesso certificato di un
+      minore, una chiusa e una aperta.
+
+      Non era teorico. `stripClinicalAthleteFields` lasciava passare
+      `data.sharedDocuments`, quindi l'elenco degli atleti serviva
+      all'allenatore `assetId` e `documentType: "medical_certificate"` per
+      **ogni** atleta del club: gli identificativi da mettere in questa rotta
+      arrivavano da un'altra rotta. Quella meta e chiusa nella stessa
+      correzione; questa e la seconda, e serve entrambe — chiuderne una sola
+      lascia la difesa appesa a cio che un'altra funzione decide di proiettare.
+
+      Il tipo lo dichiara la riga storica (`documentType`), e il predicato e lo
+      stesso del fascicolo: un vocabolario solo per la stessa domanda.
+    */
+    if (
+      isMedicalCertificateDocumentKind(document.documentType) &&
+      !hasHealthPermission(scope.activeRole, "clinical.read")
+    ) {
+      return jsonError(
+        "Accesso negato: il contenuto di un documento sanitario lo vede chi ha il permesso sul dato clinico",
+        403,
+      );
+    }
+
     const asset = await prisma.asset.findFirst({
       where: {
         id: document.assetId,

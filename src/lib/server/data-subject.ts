@@ -6,6 +6,11 @@ import { canManageClubConfiguration } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent, recordPermissionDenied } from "./audit";
 import { deleteAttachment, listAttachments } from "./attachments";
 import { anonymizeDeliveriesForSubject } from "./communication-deliveries";
+import {
+  hasHealthPermission,
+  stripClinicalAthleteFields,
+  stripClinicalCertificateFields,
+} from "@/lib/health/permissions";
 
 /**
  * **I diritti dell'interessato: portare via i propri dati, e farli sparire.**
@@ -127,7 +132,21 @@ const assertCanDispose = async (
   permission: string,
   subjectId: string,
 ) => {
-  if (!scope) return;
+  /*
+    **Uno scope assente nega.**
+
+    Qui c'era `if (!scope) return`, cioe: senza scope si passa. E la stessa
+    forma che `14-security.md` §6-octies classifica come difetto di classe 1 —
+    una guardia che, non sapendo, lascia fare — e questa protegge l'export **e**
+    la cancellazione di una persona. Oggi l'unico chiamante lo passa sempre, ma
+    «oggi c'e un solo chiamante» e la premessa che ogni difetto di questa
+    famiglia ha avuto prima di diventare raggiungibile.
+  */
+  if (!scope) {
+    throw new Error(
+      "Accesso negato: questa operazione richiede una sessione con un club attivo",
+    );
+  }
   if (canManageClubConfiguration(scope.activeRole)) return;
 
   await recordPermissionDenied({
@@ -569,6 +588,12 @@ export const previewDataSubjectErasure = async (
 export type DataSubjectExport = {
   generatedAt: string;
   organizationId: string;
+  /**
+   * Vero quando chi ha esportato non ha `clinical.read`: il contenuto clinico
+   * e stato tolto. **Si dichiara**, non si tace: un export che non dice cosa
+   * non contiene viene creduto completo da chi lo riceve.
+   */
+  clinicalContentOmitted: boolean;
   subject: { kind: DataSubjectKind; id: string; label: string };
   inventory: DataSubjectInventory;
   sections: Record<string, unknown[]>;
@@ -700,9 +725,47 @@ export const exportDataSubject = async (
     metadata: { rows: inventory.totals.rows, minor: inventory.isMinor },
   });
 
+  /*
+    **Il contenuto clinico non esce da qui a chi non ha la chiave.**
+
+    L'export usciva con le righe intere di `medical_certificates` — che
+    portano `notes` e `data`, cioe allergie, patologie, farmaci, gruppo
+    sanguigno — e con la riga intera dell'atleta. L'unico controllo era
+    `canManageClubConfiguration`, che guarda il **ruolo** e non consulta
+    nessuna chiave.
+
+    Con i ruoli personalizzati della Wave 6 la conseguenza si vede: uno slug
+    `custom:club_manager:...` si normalizza su `club_manager`, quindi un ruolo
+    a cui il club ha **tolto** `clinical.read` esportava comunque il fascicolo
+    clinico completo. La regola del dominio (`src/lib/health/permissions.ts`)
+    e che lo **stato** del certificato e operativo e il **contenuto** e a
+    default negato: qui valeva solo la prima meta.
+
+    L'omissione viene **dichiarata** invece che taciuta: un export che tace cosa
+    non contiene e peggio di uno che lo dice, perche chi lo riceve lo crede
+    completo. E la stessa ragione per cui gli allegati escono come metadato con
+    scritto che i byte stanno altrove.
+  */
+  const puoLeggereIlClinico = hasHealthPermission(
+    scope?.activeRole,
+    "clinical.read",
+  );
+
+  const atletaProiettato = puoLeggereIlClinico
+    ? athlete
+    : { ...athlete, data: stripClinicalAthleteFields(athlete?.data) };
+
+  const certificatiProiettati = puoLeggereIlClinico
+    ? certificati
+    : (certificati as Record<string, any>[]).map((riga) =>
+        stripClinicalCertificateFields(riga),
+      );
+
   return {
     generatedAt: now.toISOString(),
     organizationId,
+    /** Vero quando chi esporta non ha `clinical.read`: l'export lo dichiara. */
+    clinicalContentOmitted: !puoLeggereIlClinico,
     subject: {
       kind: "athlete",
       id: subjectId,
@@ -710,8 +773,8 @@ export const exportDataSubject = async (
     },
     inventory,
     sections: {
-      athletes: [athlete],
-      medical_certificates: certificati,
+      athletes: [atletaProiettato],
+      medical_certificates: certificatiProiettati,
       attachments: allegati,
       consent_records: consensi,
       document_requests: richieste,

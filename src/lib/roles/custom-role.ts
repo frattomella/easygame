@@ -359,7 +359,45 @@ export const assertMayGrantRole = (
   }
 
   const personalizzato = parseCustomRoleValue(concesso);
-  if (!personalizzato) return;
+
+  if (!personalizzato) {
+    /*
+      **Il ramo canonico usciva senza controlli, e li stava la scalata.**
+
+      Le due condizioni qui sotto — niente chiavi di direzione, e nessuna
+      chiave che il concedente non abbia — giravano **solo** se il ruolo
+      concesso era personalizzato. Un ruolo canonico usciva dopo il solo
+      «sono owner o club_manager» — e `normalizeAccessRole` di un gettone
+      `custom:club_manager:segreteria#...` risponde `club_manager`.
+
+      Conseguenza, trovata da due revisioni indipendenti: il titolare di una
+      «Segreteria» basata su `club_manager` **con zero chiavi** poteva
+      concedere `club_manager` **canonico e pieno** a una seconda utenza
+      propria. L'auto-assegnazione era vietata; concederlo a un complice no. Da
+      li: dato clinico dei minori, incassi, storni, e la cancellazione
+      irreversibile del fascicolo di una persona.
+
+      La regola che chiude la classe e la stessa gia scritta per i ruoli
+      personalizzati, detta per intero: **chi concede un ruolo deve portare
+      tutto quello che quel ruolo porta**. Un concedente canonico non cambia
+      comportamento — `club_manager` porta un soprainsieme delle chiavi di ogni
+      altro ruolo canonico, verificato sul catalogo — mentre un ruolo
+      personalizzato **ristretto** non puo piu concedere il proprio ruolo base
+      intero, che e esattamente cio che significa «ristretto».
+    */
+    const attorePersonalizzato = parseCustomRoleValue(actorRole);
+    if (!attorePersonalizzato) return;
+
+    for (const entry of PERMISSION_CATALOG) {
+      if (!entry.roles.includes(concessoNormalizzato)) continue;
+      if (!roleCarriesPermission(actorRole, entry.key)) {
+        throw roleDenied(
+          `non si concede il ruolo «${concessoNormalizzato}», che porta il permesso «${entry.key}» che il ruolo attivo non ha`,
+        );
+      }
+    }
+    return;
+  }
 
   const chiavi = Array.from(
     new Set(

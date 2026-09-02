@@ -104,7 +104,41 @@ const saveSessionCache = (session: MockSession | null) => {
     return;
   }
 
-  window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  /*
+    **Il gettone di sessione non si scrive in `localStorage`.**
+
+    Il cookie di sessione e `httpOnly` e `sameSite=lax`: uno script della
+    pagina non lo legge. Questa cache ne teneva una **copia in chiaro**, e
+    quella copia annullava entrambe le difese — a un XSS non serviva rubare un
+    cookie, bastava `localStorage.getItem` e poi `Authorization: Bearer`,
+    perche il gettone e una credenziale viva per quattordici giorni.
+
+    La regola del repository lo dice gia («mai restituire token di sessione»);
+    quello che mancava era applicarla a cio che il **browser** conserva.
+
+    Togliere i due campi non costa niente, ed e il motivo per cui si puo fare
+    adesso: di questa cache il client web usa **solo** `session.user.id`
+    (`src/lib/api/client.ts`), e ogni chiamata autentica con `credentials:
+    "include"`, cioe con il cookie. Nessun percorso web legge
+    `session.access_token`.
+
+    **Cosa resta aperto, e perche non e stato chiuso qui.** Il gettone continua
+    a uscire nel **corpo** della risposta di login: e l'unica credenziale della
+    app mobile, che lo rilegge e lo manda come `Bearer`
+    (`easygamemobile/client/services/api.ts`). Toglierlo dalla risposta e un
+    cambio di contratto che riguarda i due alberi insieme, e va fatto con la
+    sua migrazione, non di sfuggita a fine Wave. La differenza che questa riga
+    ottiene comunque e quella che conta: senza copia persistente, uno script
+    ostile su una pagina autenticata puo **agire** come l'utente finche la
+    pagina e aperta, ma non puo **portarsi via** una credenziale da usare
+    altrove.
+  */
+  const {
+    access_token: _gettoneNonPersistito,
+    refresh_token: _rinnovoNonPersistito,
+    ...senzaGettoni
+  } = session;
+  window.localStorage.setItem(SESSION_KEY, JSON.stringify(senzaGettoni));
 };
 
 const emitAuthState = (event: string, session: MockSession | null) => {

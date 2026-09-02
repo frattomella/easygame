@@ -1,5 +1,8 @@
 import { prisma } from "./prisma";
-import { belongsToActiveClub } from "@/lib/auth/active-club-boundary";
+import {
+  assertActiveClub,
+  belongsToActiveClub,
+} from "@/lib/auth/active-club-boundary";
 import { formatAthleteNameLastFirst } from "@/lib/athlete-name-utils";
 import { lockInstallmentAndTransaction } from "./payment-transactions";
 import {
@@ -254,9 +257,13 @@ const ensureOrganizationAccess = (
 ) => {
   if (!scope) return;
   if (!organizationId) throw denied("sollecito senza club");
-  if (!belongsToActiveClub(scope, organizationId)) {
-    throw denied("il club indicato non e quello attivo");
-  }
+  /*
+    Uno scope il cui club attivo non e fra quelli dell'account non e uno scope:
+    `belongsToActiveClub` da sola non lo guarda, `assertActiveClub` si. Un
+    invio massivo di solleciti e l'ultimo posto in cui accettare uno scope di
+    cui non ci si fida.
+  */
+  assertActiveClub(scope, organizationId, "il club del sollecito");
 };
 
 /**

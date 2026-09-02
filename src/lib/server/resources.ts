@@ -2045,7 +2045,28 @@ const assertConcessioneDiAccessoLecita = async (
     concesso con quello posseduto, e nega `owner` a chi owner non e. Era il buco
     che il commento di qui sopra dichiarava accettabile, e non lo e piu.
   */
-  if (belongsToActiveClub(scope, organization_id) && bersaglio !== chiamante) {
+  /*
+    **La coerenza dello scope si guarda anche qui.**
+
+    `belongsToActiveClub` di proposito **non** guarda l'elenco dei club
+    consentiti: e `assertActiveClub` a farlo, e questa condizione chiamava la
+    prima da sola. Restava scoperta proprio la concessione di una tessera di
+    club, cioe l'atto che decide chi entra — nello stesso file in cui il
+    difetto gemello e stato appena chiuso sul registro generico.
+
+    Si tiene la forma a **ricaduta** invece di sollevare: uno scope incoerente
+    non prende questo ramo e finisce sul rifiuto in fondo alla funzione, che e
+    il comportamento gia previsto per chi non amministra il club attivo.
+  */
+  let nelClubAttivo = false;
+  try {
+    assertActiveClub(scope, organization_id, "la tessera di club");
+    nelClubAttivo = true;
+  } catch {
+    nelClubAttivo = false;
+  }
+
+  if (nelClubAttivo && bersaglio !== chiamante) {
     try {
       assertMayGrantRole(scope.activeRole, { role: String(role) });
       return;
@@ -3343,11 +3364,29 @@ const buildAccessScopeFilter = (
   const categorie = accessScopeValues(perimetro, "category");
 
   if (sedi.length) {
+    /*
+      **Un atleta senza sede non passa piu, e non e una svista corretta: e una
+      contraddizione risolta.**
+
+      Qui c'era un secondo ramo — «nessuna appartenenza dichiara una sede» —
+      che faceva passare gli atleti senza sede. Veniva da ADR-0038, dove la
+      sede vuota vuol dire «non dichiarata» e non «nessuna»: giusto per un
+      **filtro di visualizzazione**, dove nascondere quelle righe farebbe
+      sparire dagli elenchi gli atleti iscritti prima che il club attivasse le
+      sedi.
+
+      Ma questo non e un filtro: e un **perimetro**, cioe un confine di
+      sicurezza. E il modulo che possiede la regola lo dice gia, per esteso:
+      «una riga che non porta il valore dell'asse ristretto **non passa**: un
+      dato senza sede non e "di tutte le sedi", e un dato di cui non si sa dire
+      dove sia» (`src/lib/roles/access-scope.ts`).
+
+      Due proprietari, due risposte opposte alla stessa domanda, e la piu larga
+      era quella che decideva davvero. Adesso il SQL dice quello che dice la
+      regola pura, e un perimetro fallisce chiuso.
+    */
     condizioni.push({
-      OR: [
-        { category_memberships: { some: { site_id: { in: sedi } } } },
-        { category_memberships: { none: { site_id: { not: null } } } },
-      ],
+      category_memberships: { some: { site_id: { in: sedi } } },
     });
   }
 
@@ -3361,6 +3400,45 @@ const buildAccessScopeFilter = (
   }
 
   return condizioni.length ? condizioni : null;
+};
+
+/**
+ * **Il perimetro vale anche quando si passa l'identificativo.**
+ *
+ * `buildAccessScopeFilter` girava solo dentro `listResourcePage`: era un
+ * filtro di elenco, e un filtro di elenco si aggira chiedendo la riga per id —
+ * che e esattamente il modo in cui si aggira un filtro di elenco. Un ruolo
+ * perimetrato sulla sede Nord leggeva, e con un ruolo base di gestione anche
+ * **modificava e cancellava**, qualunque atleta del club.
+ *
+ * La verifica non riscrive la regola: rifa **la stessa interrogazione**
+ * dell'elenco stringendola all'unica riga in questione. Un secondo giudizio in
+ * TypeScript avrebbe avuto la sorte del ramo qui sopra — due proprietari che
+ * divergono — e in piu la riga letta per id non porta con se le appartenenze,
+ * quindi non ci sarebbe niente su cui giudicare.
+ *
+ * Costa una interrogazione in piu **solo** a chi ha un perimetro dichiarato,
+ * che oggi e una minoranza delle sessioni.
+ */
+const assertRecordWithinAccessScope = async (
+  resource: string,
+  record: Record<string, any> | null | undefined,
+  scope?: ResourceAccessScope,
+) => {
+  if (!record?.id) return;
+
+  const perimetro = buildAccessScopeFilter(resource, scope);
+  if (!perimetro) return;
+
+  const dentro = await getDelegate(resource).count({
+    where: { id: record.id, AND: perimetro },
+  });
+
+  if (dentro === 0) {
+    throw new Error(
+      "Accesso negato: questa riga e fuori dal perimetro di sede o categoria dell'accesso",
+    );
+  }
 };
 
 /**
@@ -4742,6 +4820,7 @@ export const getResourceById = async (
   }
 
   assertRecordAccess(resource, record || null, scope);
+  await assertRecordWithinAccessScope(resource, record, scope);
 
   /*
     Anche la lettura per identificativo: senza questa riga il filtro
@@ -5659,6 +5738,7 @@ export const updateResource = async (
     include: getModelInclude(resource),
   });
   assertRecordAccess(resource, existing, scope);
+  await assertRecordWithinAccessScope(resource, existing, scope);
 
   /*
     Anche la modifica: spostare una notifica gia scritta su un altro
@@ -5691,6 +5771,41 @@ export const updateResource = async (
         organization_id:
           normalized.organization_id || existing?.organization_id || null,
       },
+      scope,
+    );
+  }
+
+  /*
+    **La quarta porta era questa, ed era quella che serviva per farlo su se
+    stessi.**
+
+    La Wave 5 ha messo `assertConcessioneDiAccessoLecita` su tre scrittori di
+    `organization_users`: il ramo `upsert`, la creazione semplice e la
+    sincronizzazione. Non sulla **modifica** — e `role` e `custom_role_id` sono
+    colonne scalari, quindi sopravvivevano a `togliRelazioni` e arrivavano
+    intatte a `delegate.update`.
+
+    `PATCH /api/v1/organization_users/<la propria tessera>` con
+    `{"role":"owner","custom_role_id":null}` promuoveva chi lo chiedeva a
+    proprietario pieno. `assignClubRole` vieta esplicitamente di assegnarsi un
+    ruolo da soli: questa rotta lo permetteva, ed e proprio il caso che l'altra
+    vieta.
+
+    La guardia e la stessa delle altre tre porte — una regola, quattro
+    ingressi — e gira **solo** quando il `PATCH` tocca davvero il ruolo o il
+    ruolo personalizzato: cambiare `is_primary` non deve dover ridichiarare
+    niente.
+  */
+  if (
+    resource === "organization_users" &&
+    ("role" in normalized || "custom_role_id" in normalized)
+  ) {
+    await assertConcessioneDiAccessoLecita(
+      String(
+        normalized.organization_id || existing?.organization_id || "",
+      ).trim(),
+      String(normalized.user_id || existing?.user_id || "").trim(),
+      String(normalized.role ?? existing?.role ?? "").trim(),
       scope,
     );
   }
@@ -5998,6 +6113,44 @@ export const deleteResource = async (
     include: getModelInclude(resource),
   });
   assertRecordAccess(resource, existing, scope);
+  await assertRecordWithinAccessScope(resource, existing, scope);
+
+  /*
+    **Due porte sulla stessa revoca, e questa non aveva la serratura.**
+
+    `revokeClubAccess` riserva al proprietario la revoca di una tessera
+    `owner` e protegge il fondatore. La cancellazione dal registro generico
+    non aveva ne l'una ne l'altra: un gestore — canonico o personalizzato —
+    cancellava la tessera di un proprietario con
+    `DELETE /api/v1/organization_users/<id>`.
+
+    Qui si nega e basta, senza duplicare le regole dell'altra porta: le
+    tessere di club si tolgono da dove le si concede, che e anche l'unico
+    posto che lascia la riga di audit giusta.
+  */
+  if (
+    scope &&
+    resource === "organization_users" &&
+    normalizeAccessRole((existing as any)?.role) === "owner"
+  ) {
+    await recordPermissionDenied({
+      scope: {
+        userId: scope.userId,
+        activeRole: scope.activeRole,
+        activeOrganizationId: scope.activeOrganizationId,
+      },
+      permission: "club_roles.assign",
+      resource: "organization_users",
+      metadata: {
+        target_user_id: String((existing as any)?.user_id || ""),
+        reason: "owner_membership_from_generic_route",
+      },
+    });
+    throw new Error(
+      "Accesso negato: la tessera di un proprietario si revoca dalla gestione accessi, non dalla rotta generica",
+    );
+  }
+
   /*
     Il tipo lo dice la **riga**, non chi chiede: `club_resource_items` e una
     risorsa di **modello**, quindi passa di qui e non dal ramo delle risorse di

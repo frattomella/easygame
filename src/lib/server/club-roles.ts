@@ -795,6 +795,24 @@ export const updateAssignmentScopes = async (
   if (!tessera) throw new Error("Accesso non trovato");
   assertActiveClub(scope, tessera.organization_id, "l'accesso");
 
+  /*
+    **Il proprio perimetro non si tocca da qui, ed e la terza volta che questa
+    riga serve.**
+
+    `assignClubRole` e `revokeClubAccess` hanno entrambe il divieto «su se
+    stessi»; questa non l'aveva. E il proprio `membership_id` sta nella
+    risposta di `GET /api/v1/club-roles/assignments`, che la stessa persona
+    puo leggere.
+
+    La convenzione dichiarata e che **zero righe di perimetro valgono tutto il
+    club**: un ruolo perimetrato su una sede chiamava questa rotta sulla propria
+    tessera con `{"scopes": []}` e alla richiesta successiva vedeva l'intero
+    club. Il perimetro che il club aveva concesso se lo toglieva chi lo portava.
+  */
+  if (testo(tessera.user_id) === testo(scope.userId)) {
+    throw roleDenied("il proprio perimetro non si cambia da questa schermata");
+  }
+
   const perimetri = normalizeAccessScopes(scopes);
   if ((scopes?.length || 0) !== perimetri.length) {
     throw new Error(

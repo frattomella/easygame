@@ -146,6 +146,46 @@ export const CLINICAL_ATHLETE_FIELDS: readonly string[] = [
   "fire_safety",
   "dietaryRestrictions",
   "dietary_restrictions",
+  /*
+    **I contenitori di file, e perche non erano qui.**
+
+    L'elenco sopra era fatto di **campi**: allergie, patologie, farmaci. E una
+    revisione ostile ha misurato che i **contenitori** passavano interi. Con un
+    atleta seminato e uno scope da allenatore, la risposta di
+    `GET /api/v1/athletes` conteneva:
+
+        blsd:             (tolto)
+        certificateFiles: { "blsd": "data:application/pdf;base64,..." }
+        medicalVisits:    [{ "outcome": "soffio sistolico, da rivalutare", ... }]
+
+    Il **flag** del BLSD veniva tolto e **il PDF del BLSD restava**. L'esito di
+    una visita cardiologica di un minore usciva per intero, e con lui i
+    documenti d'identita e i documenti condivisi con la famiglia — allegati in
+    base64 dentro il JSON dell'anagrafica.
+
+    La schermata dell'allenatore nascondeva «Visite Mediche» dietro
+    `canSeeClinicalContent`, quindi a schermo non si vedeva: lo distingueva il
+    **browser**, che e esattamente il difetto che l'intestazione di questo
+    modulo dichiara chiuso.
+
+    Le quattro raccolte le legge una sola schermata, la scheda atleta
+    gestionale, e chi la apre ha `clinical.read`: toglierle qui non toglie
+    niente a nessuno che ne avesse titolo.
+  */
+  "medicalVisits",
+  "medical_visits",
+  "visiteMediche",
+  "visite_mediche",
+  "certificateFiles",
+  "certificate_files",
+  "identityDocuments",
+  "identity_documents",
+  "documentiIdentita",
+  "documenti_identita",
+  "sharedDocuments",
+  "shared_documents",
+  "parentDocuments",
+  "parent_documents",
 ] as const;
 
 const CLINICAL_ATHLETE_FIELD_SET = new Set(CLINICAL_ATHLETE_FIELDS);
