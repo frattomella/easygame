@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ClubPersonDetailHeader } from "@/components/club/ClubPersonDetailHeader";
+import { ClubPersonAccessCard } from "@/components/club/club-person-access-card";
 import {
   Calendar,
   Mail,
@@ -23,7 +24,6 @@ import {
   MapPin,
   Edit,
   Trash2,
-  Share2,
   Briefcase,
   IdCard,
   CalendarDays,
@@ -360,25 +360,6 @@ export default function MemberDetailsPage() {
     }
   };
 
-  /**
-   * **Diceva «inviate» e non inviava niente.**
-   *
-   * Il pulsante mostrava un messaggio di successo e non chiamava nessuna rotta:
-   * una segreteria che ci contava aspettava una mail che non sarebbe mai
-   * partita, e la persona dall'altra parte non riceveva nulla senza che
-   * nessuno lo sapesse.
-   *
-   * Un invito a un socio non esiste ancora come funzione del prodotto. Finche
-   * non esiste, il pulsante lo dice: e un'assenza dichiarata, che si puo
-   * pianificare, invece di una promessa falsa.
-   */
-  const handleShareCredentials = () => {
-    showToast(
-      "error",
-      "L'invito a un socio non e ancora disponibile: le credenziali si consegnano dalla scheda della persona in area riservata.",
-    );
-  };
-
   const formatDate = (dateString: string) => {
     if (!dateString) return "";
     const date = new Date(dateString);
@@ -446,25 +427,23 @@ export default function MemberDetailsPage() {
                     member.status === "active" ? "bg-green-500" : "bg-gray-500",
                 },
               ]}
+              /*
+                **«Invia Credenziali» non c'e piu** (W6-D05). Non chiamava
+                nessuna rotta: mostrava un toast e basta. Al suo posto, nella
+                scheda «Dati Associativi», la sezione «Accesso EasyGame» dice se
+                questo socio ha davvero un'utenza del club e con che ruolo, e
+                rimanda a «Ruoli e accessi», che e la schermata che quel ruolo
+                lo assegna sul serio.
+              */
               actions={
-                <>
-                  <Button
-                    variant="outline"
-                    className="flex-1 md:flex-none"
-                    onClick={handleShareCredentials}
-                  >
-                    <Share2 className="h-4 w-4 mr-2" />
-                    Invia Credenziali
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    className="flex-1 md:flex-none"
-                    onClick={handleDeleteMember}
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Elimina
-                  </Button>
-                </>
+                <Button
+                  variant="destructive"
+                  className="flex-1 md:flex-none"
+                  onClick={handleDeleteMember}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Elimina
+                </Button>
               }
             />
 
@@ -691,6 +670,11 @@ export default function MemberDetailsPage() {
                     </div>
                   </CardContent>
                 </Card>
+
+                <ClubPersonAccessCard
+                  email={member.email}
+                  personaLabel="socio"
+                />
               </TabsContent>
 
               {/* LIBRO SOCI TAB */}

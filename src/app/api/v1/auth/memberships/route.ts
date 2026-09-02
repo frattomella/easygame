@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/server/prisma";
-import { requireAuthenticatedUser } from "@/lib/server/auth";
+import { requireAuthenticatedUser, risolviTessere } from "@/lib/server/auth";
 import { normalizeAccessRole } from "@/lib/access-roles";
 import { getParentLinkedAthletes } from "@/lib/server/parent-dashboard";
 
@@ -51,7 +51,7 @@ export async function GET(request: Request) {
 
     // Letture indipendenti, eseguite in parallelo: questa rotta e sul percorso
     // critico di ogni caricamento di pagina (AuthProvider).
-    const [memberships, ownedClubs] = await Promise.all([
+    const [tessereGrezze, ownedClubs] = await Promise.all([
       prisma.organizationUser.findMany({
         where: {
           user_id: session.db.user_id,
@@ -71,6 +71,38 @@ export async function GET(request: Request) {
         orderBy: { created_at: "asc" },
       }),
     ]);
+
+    /**
+     * **Una tessera che non si puo risolvere non si elenca.**
+     *
+     * Questa rotta e cio che il browser usa per **disegnare il selettore dei
+     * club**: `AuthProvider` ne costruisce `activeClub`, e il ruolo che ne
+     * legge lo rimanda poi come `x-active-access-role`. Elencava le tessere
+     * grezze, quindi elencava anche quelle che `resolveOrganizationScopeForUser`
+     * scarta:
+     *
+     *   * `role` con uno slug `custom:<base>:<slug>` e `custom_role_id` nullo;
+     *   * `custom_role_id` che punta a un ruolo cancellato, disattivato, di un
+     *     altro club, o il cui slug non corrisponde piu a `role`.
+     *
+     * L'effetto non era estetico. Il club compariva nell'elenco con
+     * un'etichetta di ruolo ricavata dallo slug; chi lo sceglieva otteneva dal
+     * risolutore di scope `activeRole: null` e trovava ogni schermata vuota o
+     * negata, senza che niente dicesse perche. Peggio: se quella era l'unica
+     * tessera del club, il club stesso non e nemmeno in
+     * `allowedOrganizationIds`, e l'intera sessione lavorava su un club a cui
+     * non aveva accesso.
+     *
+     * La regola non si riscrive qui: la **si chiama**, ed e la stessa funzione
+     * che decide il ruolo attivo. Due copie divergerebbero, e la copia che
+     * mente sarebbe proprio quella che disegna il menu.
+     */
+    const idCoerenti = new Set(
+      (await risolviTessere(tessereGrezze)).map((tessera) => tessera.id),
+    );
+    const memberships = tessereGrezze.filter((tessera) =>
+      idCoerenti.has(tessera.id),
+    );
 
     const ridotto = (club: any) =>
       club ? { ...club, settings: soloStagioni(club.settings) } : club;

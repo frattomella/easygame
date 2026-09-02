@@ -270,6 +270,26 @@ const MANAGEMENT_PATH_PREFIXES = [
     permesso che il server concede e che nessuna schermata sa esercitare non e
     un permesso: e una riga di documentazione.
   */
+  /*
+    **Due schermate di segreteria che si classificavano `public`.**
+
+    `/appuntamenti` e `/documenti` nascono nella Wave 6, montano
+    `AccessAreaGuard` e sono nei percorsi protetti del middleware: sembravano
+    a posto da ogni lato che qualcuno guardasse. Ma la guardia chiede l'area a
+    `getPathAccessArea`, che le trovava fuori da questo elenco e rispondeva
+    `public` — e per `public` `canAccessPath` **ritorna sempre `true`**.
+
+    Il risultato: un genitore o un atleta con una sessione valida apriva la
+    struttura di due schermate della segreteria. I dati non uscivano — le rotte
+    hanno le loro guardie — ma una guardia che dice sempre di si non e una
+    guardia, ed e la meta del percorso in cui nessuno stava guardando.
+
+    Il presidio che le sorvegliava verificava guscio e prefisso del middleware,
+    non la **classificazione**: e per questo non lo ha visto. Adesso verifica
+    anche quella.
+  */
+  "/appuntamenti",
+  "/documenti",
   "/modulistica",
   "/movements",
   "/notifications",

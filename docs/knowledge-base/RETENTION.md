@@ -128,6 +128,43 @@ riepilogo, con il motivo: chi chiede la cancellazione ha diritto di sapere cosa
 | `notifications` | Avvisi in applicazione | 12 mesi (proposto) | segue l'account (`Cascade` su `users`) |
 | `announcements` / bacheca | Comunicazione societaria | Durata della stagione + archivio | non è un dato personale |
 
+**Una consegna è anche una prova di adempimento**, ed è la ragione per cui è
+`anonymize` e non `delete`: che una comunicazione dovuta sia partita, e quando,
+è un fatto della società — non un dato della persona. Anonimizzare il
+destinatario non deve cancellare il fatto.
+
+`anonymizeDeliveriesForSubject`
+([`src/lib/server/communication-deliveries.ts`](../../src/lib/server/communication-deliveries.ts))
+è l'unica funzione che lo fa, e la riga si divide così:
+
+| Colonna | Alla cancellazione | Perché |
+|---|---|---|
+| `recipient_key` | pseudonimo per riga, `anon:<id>` | **Porta l'indirizzo email normalizzato**, non un identificativo interno. È dentro la chiave unica `(club, dedup_key, recipient_key, channel)`: un'etichetta costante farebbe collidere due destinatari della stessa comunicazione massiva, e la cancellazione fallirebbe a metà. Lo pseudonimo non è un'impronta dell'indirizzo — l'insieme delle email è piccolo abbastanza perché un hash sia verificabile per tentativi |
+| `recipient_email`, `recipient_user_id` | `NULL` | Il recapito e l'account di chi ha chiesto di sparire |
+| `recipient_name` | `[dato cancellato]` | |
+| `subject` | `[dato cancellato]` | È testo composto da un modello e può interpolare il nome di chiunque. *Quale* comunicazione fosse resta leggibile da `source_kind` + `source_id`, che puntano alla riga che l'ha prodotta |
+| `source_kind`, `source_id`, `dedup_key`, `channel`, `status`, `reason` | restano | Sono il fatto e il suo esito |
+| `created_at`, `updated_at`, `read_at` | restano | Il momento è metà della prova. `updated_at` è `@updatedAt` e viene **riscritta con il suo stesso valore**: senza, la riga direbbe che la comunicazione si è chiusa il giorno della cancellazione |
+| `athlete_ids` | restano | Identificativi interni, che puntano a un'anagrafica ormai anonima. Toglierli staccherebbe la prova dalla posizione che riguardava, e renderebbe l'operazione non ripetibile |
+
+**La riga che nomina anche altri finisce in `manualReview`.** Un solo messaggio
+raggiunge un tutore per tutti i suoi figli: si anonimizza lo stesso — lasciarla
+intera conserverebbe il recapito di chi ha chiesto la cancellazione — e l'altra
+posizione perde il destinatario su quella riga. Chi ha gestito la richiesta lo
+deve sapere invece di scoprirlo, come per le compilazioni condivise.
+
+> **Due domande legali, dichiarate e non decise dal codice** (§0: questo
+> documento non è una policy legale, e la validazione resta un blocker esterno —
+> [W6-4](41-wave-6-planning.md#20--blocker-pre-production)):
+>
+> 1. se il fatto della consegna possa essere conservato **dopo** una richiesta
+>    di cancellazione, e su quale base;
+> 2. per quanto una consegna già anonima si conservi — i 24 mesi in tabella
+>    sono una proposta di prodotto, non una determinazione.
+>
+> Fino a quella validazione il prodotto applica la regola scritta qui sopra: il
+> destinatario se ne va, il fatto resta.
+
 ### 2.7 Eventi, presenze, appuntamenti
 
 | Tabella | Finalità | Durata | Classe |

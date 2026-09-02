@@ -26,8 +26,21 @@ export default function TrainerNotificationsPage() {
   const router = useRouter();
   const { operationalAlerts, permissions } = useTrainerDashboard();
 
-  if (!permissions.navigation.home) {
-    return <SectionBlockedState section="home" />;
+  /*
+    **La pagina si difendeva con la chiave sbagliata.**
+
+    Guardava `navigation.home`, non `navigation.notifications`. Il club che
+    spegneva le notifiche all'allenatore toglieva la voce dal menu e lasciava
+    la pagina raggiungibile dall'indirizzo e dalla campanella: un interruttore
+    che mantiene meta della promessa.
+
+    Per questo la chiave non era esponibile in Gestione Accessi — esporla
+    prima di correggere qui avrebbe messo in pagina una casella che non fa cio
+    che dice, che e il difetto vietato dal §11.5. Adesso la leva e intera e la
+    chiave e governabile.
+  */
+  if (!permissions.navigation.notifications) {
+    return <SectionBlockedState section="notifications" />;
   }
 
   return (

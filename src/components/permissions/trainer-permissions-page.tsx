@@ -52,6 +52,55 @@ const NAV_OPTIONS: Array<{
     label: "Pagina categorie",
     description: "Mostra l’overview delle categorie assegnate al trainer.",
   },
+  /*
+    **Le quattro leve nascoste** (Wave 6).
+
+    `board`, `documents`, `appointments` e `compensation` esistono in
+    `trainer-dashboard-permissions.ts`, la barra laterale ci appende la voce di
+    menu e la schermata corrispondente risponde con `SectionBlockedState`
+    quando valgono `false`: hanno quindi **effetto reale**, ed erano governabili
+    solo scrivendo a mano `settings.trainerDashboardPermissions`. Una leva che
+    agisce e che il club non puo muovere e una leva nascosta, cioe l'esatto
+    contrario di cio che questa pagina promette.
+
+    `notifications` era la quinta, e non era esponibile: la sua schermata si
+    difendeva con `permissions.navigation.home` invece che con la propria
+    chiave, quindi spegnerla avrebbe tolto la voce dal menu lasciando la pagina
+    raggiungibile dall'indirizzo. Un interruttore che mantiene meta della
+    promessa e peggio di uno assente, ed e cio che il §11.5 vieta. La
+    schermata adesso legge la propria chiave, e la leva e intera: la riga sta
+    qui sotto con le altre.
+  */
+  {
+    key: "board",
+    label: "Pagina bacheca",
+    description:
+      "Mostra gli avvisi del club e le note della segreteria indirizzati al trainer.",
+  },
+  {
+    key: "appointments",
+    label: "Pagina appuntamenti",
+    description:
+      "Mostra gli appuntamenti assegnati al trainer e le azioni per confermarli o riprogrammarli.",
+  },
+  {
+    key: "documents",
+    label: "Pagina documenti",
+    description:
+      "Mostra i documenti del trainer e le scadenze dei certificati del suo gruppo.",
+  },
+  {
+    key: "compensation",
+    label: "Pagina «I miei compensi»",
+    description:
+      "Mostra al trainer il proprio rapporto, il piano concordato e le rate. Solo i suoi.",
+  },
+  {
+    key: "notifications",
+    label: "Pagina notifiche",
+    description:
+      "Mostra al trainer gli avvisi operativi: presenze da registrare e convocazioni da chiudere.",
+  },
 ];
 
 const WIDGET_OPTIONS: Array<{

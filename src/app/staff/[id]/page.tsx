@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ClubPersonDetailHeader } from "@/components/club/ClubPersonDetailHeader";
+import { ClubPersonAccessCard } from "@/components/club/club-person-access-card";
 import {
   Calendar,
   Mail,
@@ -31,7 +32,6 @@ import {
   MapPin,
   Edit,
   Trash2,
-  Share2,
   ArrowLeft,
   Briefcase,
   GraduationCap,
@@ -353,24 +353,6 @@ export default function StaffMemberDetailsPage() {
     }
   };
 
-  /**
-   * **Un messaggio verde che dice una cosa che non e successa.**
-   *
-   * Questo gestore non chiama niente: nessuna email parte, nessuna credenziale
-   * viene generata. La segreteria leggeva «Credenziali inviate», chiudeva la
-   * scheda, e il membro dello staff restava senza accesso senza che nessuno lo sapesse.
-   *
-   * La stessa correzione e gia stata fatta sulla scheda di un socio. Finche
-   * l'invito non esiste come funzione del prodotto, il pulsante lo dichiara:
-   * un'assenza dichiarata si puo pianificare, una promessa falsa no.
-   */
-  const handleShareCredentials = () => {
-    showToast(
-      "error",
-      "L'invio delle credenziali non e ancora disponibile: si consegnano dall'area riservata della persona, dove l'accesso viene creato davvero.",
-    );
-  };
-
   const formatDate = (dateString: string) => {
     if (!dateString) return "";
     const date = new Date(dateString);
@@ -459,25 +441,23 @@ export default function StaffMemberDetailsPage() {
                   ? [{ label: staffMember.department, variant: "outline" as const }]
                   : []),
               ]}
+              /*
+                **«Invia Credenziali» non c'e piu** (W6-D05). Non chiamava
+                nessuna rotta: mostrava un toast e basta. Al suo posto, nella
+                scheda «Dati Societari», la sezione «Accesso EasyGame» dice se
+                questa persona ha davvero un'utenza del club e con che ruolo, e
+                rimanda a «Ruoli e accessi», che e la schermata che quel ruolo
+                lo assegna sul serio.
+              */
               actions={
-                <>
-                  <Button
-                    variant="outline"
-                    className="flex-1 md:flex-none"
-                    onClick={handleShareCredentials}
-                  >
-                    <Share2 className="h-4 w-4 mr-2" />
-                    Invia Credenziali
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    className="flex-1 md:flex-none"
-                    onClick={handleDeleteStaffMember}
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Elimina
-                  </Button>
-                </>
+                <Button
+                  variant="destructive"
+                  className="flex-1 md:flex-none"
+                  onClick={handleDeleteStaffMember}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Elimina
+                </Button>
               }
             />
 
@@ -732,6 +712,11 @@ export default function StaffMemberDetailsPage() {
                     />
                   </CardContent>
                 </Card>
+
+                <ClubPersonAccessCard
+                  email={staffMember.email}
+                  personaLabel="membro dello staff"
+                />
               </TabsContent>
 
               {/* DOCUMENTI TAB */}

@@ -352,3 +352,63 @@ test("Wave 6 · la porta dell'area atleta resta aperta a chi non ha ancora una p
     "e il resto dell'area deve restare protetto",
   );
 });
+
+test("Wave 6 · nessuna area di src/app si classifica «public»", () => {
+  /*
+    **La terza domanda, e quella che mancava.**
+
+    Le due prove qui sopra chiedono se l'area ha un guscio con la guardia e un
+    prefisso nel middleware. `/appuntamenti` e `/documenti` rispondevano di si
+    a entrambe — e restavano aperte a chiunque avesse una sessione.
+
+    Il motivo e che la guardia non decide da sola: chiede l'area a
+    `getPathAccessArea`, e per un percorso che non compare in nessuno dei suoi
+    elenchi la risposta e `public`. Per `public`, `canAccessPath` **ritorna
+    sempre `true`**. Guscio montato, prefisso presente, guardia che dice sempre
+    di si: tre pezzi giusti e un varco.
+
+    Non e un difetto di due pagine, e la forma che prende ogni pagina nuova:
+    chi la scrive aggiunge il guscio e il prefisso, e l'elenco dentro
+    `access-roles.ts` resta indietro. Per questo la prova non nomina le due
+    pagine — le ricava dal filesystem, come le altre due, e vale per la
+    prossima.
+
+    Un'area davvero pubblica si dichiara in `NON_SONO_AREE` con il suo motivo,
+    dove il lettore trova gia le altre.
+  */
+  const pubbliche = AREE_DAL_FILESYSTEM.filter(
+    (area) => getPathAccessArea(`/${area}`) === "public",
+  );
+
+  assert.deepEqual(
+    pubbliche,
+    [],
+    `aree che si classificano «public», quindi aperte a ogni sessione: ${pubbliche.join(", ")}. ` +
+      "Aggiungi il prefisso a MANAGEMENT_PATH_PREFIXES (o all'area di ruolo che le compete), " +
+      "oppure dichiarale pubbliche in NON_SONO_AREE con il motivo",
+  );
+});
+
+test("Wave 6 · le due schermate di segreteria non sono aperte a famiglia e atleta", () => {
+  /*
+    La prova sopra chiude la classe; questa fissa il caso che l'ha aperta, con
+    i ruoli veri, perche una regressione qui non e una svista di elenco: e un
+    genitore che vede la coda documentale del club.
+  */
+  for (const percorso of ["/appuntamenti", "/documenti"]) {
+    assert.equal(getPathAccessArea(percorso), "management", percorso);
+    for (const ruolo of ["parent", "athlete", "trainer"]) {
+      assert.equal(
+        canAccessPath(ruolo, percorso),
+        false,
+        `${ruolo} non deve entrare in ${percorso}`,
+      );
+    }
+    assert.equal(canAccessPath("owner", percorso), true, percorso);
+    assert.equal(
+      canAccessPath("secretary", percorso),
+      true,
+      `${percorso} e una schermata di segreteria: la segreteria ci entra`,
+    );
+  }
+});

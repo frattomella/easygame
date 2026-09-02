@@ -5,6 +5,7 @@ import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { AUDIT_ACTIONS, recordAuditEvent, recordPermissionDenied } from "./audit";
 import { deleteAttachment, listAttachments } from "./attachments";
+import { anonymizeDeliveriesForSubject } from "./communication-deliveries";
 
 /**
  * **I diritti dell'interessato: portare via i propri dati, e farli sparire.**
@@ -926,18 +927,34 @@ export const eraseDataSubject = async (
   });
   conta(anonymized, "generated_documents", documenti?.count || 0);
 
-  const consegne = await (prisma as any).communicationDelivery.updateMany({
-    where: {
-      organization_id: organizationId,
-      athlete_ids: { has: subjectId },
-    },
-    data: {
-      recipient_name: ANONYMIZED_LABEL,
-      recipient_email: null,
-      recipient_user_id: null,
-    },
+  /*
+    **Il registro delle consegne lo tocca il suo proprietario.**
+
+    L'anonimizzazione scritta qui dentro lasciava in chiaro `recipient_key` —
+    che porta l'indirizzo email normalizzato, non un identificativo — e
+    `subject`, che e testo composto da un modello e puo nominare chiunque.
+    Sono le due colonne che questo modulo non sapeva di dover trattare, ed e
+    esattamente cio che l'ownership esiste per evitare: chi conosce la forma di
+    una riga e chi la scrive tutti i giorni.
+
+    `anonymizeDeliveriesForSubject` dichiara cosa resta e perche: la consegna
+    e una prova di adempimento, e il fatto — quando e partita, su quale canale,
+    con quale esito — non e un dato di nessuno.
+  */
+  const consegne = await anonymizeDeliveriesForSubject({
+    organizationId,
+    athleteId: subjectId,
+    label: ANONYMIZED_LABEL,
   });
-  conta(anonymized, "communication_deliveries", consegne?.count || 0);
+  conta(anonymized, "communication_deliveries", consegne.anonymized);
+
+  for (const riga of consegne.manualReview) {
+    manualReview.push({
+      table: "communication_deliveries",
+      id: riga.id,
+      why: riga.why,
+    });
+  }
 
   /*
     **L'anagrafica resta come segnaposto.** Cancellare la riga la porterebbe

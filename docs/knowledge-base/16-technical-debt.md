@@ -1862,15 +1862,22 @@ e una decisione che il prodotto non puo prendere da solo.
 
 Registrato, non corretto. Ogni voce dice **perche** non e stata chiusa qui.
 
-### W6-D05 — «Invia credenziali» su staff e socio resta rotto
+### W6-D05 — «Invia credenziali» su staff e socio — CHIUSO IN PARTE (2026-09-02)
 
-`src/app/staff/[id]/page.tsx:371-376` e `src/app/soci/[id]/page.tsx:378-383`
-mostrano lo stesso messaggio di errore che l'atleta aveva prima della Wave 6. Il
-dominio dell'invito ora esiste ed e generalizzabile, ma `athlete_account_invites`
-e modellata **sull'atleta** (`athlete_id NOT NULL`): estenderla a staff e soci
-richiede o una colonna soggetto polimorfa o una seconda tabella. **Va deciso,
-non improvvisato** — e la stessa scelta che ha prodotto i sei indici polimorfi
-che `data-subject.ts` deve ora attraversare.
+**Il pulsante finto non c'e piu.** `handleShareCredentials` e sparito da
+`src/app/staff/[id]/page.tsx` e da `src/app/soci/[id]/page.tsx`: mostrava un
+toast e non chiamava nessuna rotta. Al suo posto le due schede montano
+`src/components/club/club-person-access-card.tsx` — «Accesso EasyGame» — che
+dice se quella persona ha gia un'utenza del club e con quale ruolo, e rimanda a
+`/dashboard/access-management`, la schermata che il ruolo lo assegna sul serio
+via `/api/v1/club-roles/assignments`.
+
+**Cosa resta aperto**: l'invito vero. `athlete_account_invites` e modellata
+**sull'atleta** (`athlete_id NOT NULL`), e `athlete-accounts.ts` dichiara di non
+essere «la porta dei tutori»: estenderla a staff e soci richiede o una colonna
+soggetto polimorfa o una seconda tabella. **Va deciso, non improvvisato** — e la
+stessa scelta che ha prodotto i sei indici polimorfi che `data-subject.ts` deve
+ora attraversare. Il vuoto che ne resta e registrato come W6-D16.
 
 ### W6-D06 — la quarta implementazione del perimetro allenatore
 
@@ -1942,3 +1949,39 @@ Chi non ha mai avuto un interruttore non puo aver espresso una scelta, quindi il
 comportamento di oggi si conserva. **Va detto ai club al rilascio**: chi credeva
 di aver chiuso le prenotazioni spegnendo «Affittabile» continua ad averle aperte
 finche non spegne il comando nuovo.
+
+### W6-D16 — una persona di staff e un socio senza utenza non hanno nessuna strada
+
+Registrato mentre si chiudeva W6-D05, dopo aver percorso il flusso invece di
+supporlo.
+
+**Cosa esiste davvero oggi**, per una persona di staff o per un socio:
+
+* se ha **gia** un'utenza EasyGame **e** una tessera in questo club,
+  `/dashboard/access-management` («Ruoli e accessi», barra laterale, gruppo
+  CONFIGURAZIONE) le assegna o le cambia il ruolo, canonico o personalizzato.
+  E reale, e raggiungibile, ed e la strada a cui la scheda della persona ora
+  rimanda;
+* `POST /api/v1/club-roles/assignments` sa **creare** una tessera per una
+  qualunque utenza esistente, ma la schermata non lo offre: disegna le righe che
+  `listClubAccessAssignments` restituisce, cioe le tessere che il club ha gia.
+  Non c'e nessun campo «aggiungi per email»;
+* se **non** ha un'utenza, non c'e niente. L'unico invito del prodotto e
+  `athlete-accounts` ed e dell'atleta (W6-D05). Il token `trainer_access` lo
+  genera **solo** `/trainers/[id]`; il riscatto
+  (`POST /api/v1/auth/access/redeem`, `loadTrainerAccessTarget`) accetterebbe
+  anche una scheda `staff_members`, ma **nessuna schermata genera quel token
+  per un membro dello staff**, e per un socio non esiste nemmeno l'aggancio. Il
+  codice del riscatto per lo staff e quindi irraggiungibile: CLAUDE.md §11.8, la
+  forma piu comune di difetto in questo repository.
+
+**Effetto residuo**: la segreteria non ha, da nessuna schermata, un modo di
+consegnare un accesso a una persona di staff o a un socio che non si sia
+registrata da se. La scheda della persona ora lo **dichiara** invece di
+prometterlo, che e il minimo onesto, non la soluzione.
+
+**Nota di modello**: staff e soci non hanno una colonna che leghi l'anagrafica
+all'utenza (`linked_user_id` lo scrive solo il riscatto di un token, che per
+loro non parte). «Accesso EasyGame» confronta quindi le **email**, e lo scrive a
+schermo: e un'indicazione, non un legame. Chiudere W6-D05 dara anche il legame
+vero.

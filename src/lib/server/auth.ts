@@ -268,8 +268,16 @@ export const requirePlatformAdmin = async (request: Request | NextRequest) => {
  *
  * In tutti questi casi la tessera non concede niente. Default negato, che e il
  * verso giusto in cui sbagliare quando l'archivio si contraddice.
+ *
+ * **Esportata perche la stessa domanda la fa anche l'elenco delle membership**
+ * (`GET /api/v1/auth/memberships`). Quella rotta
+ * elencava le tessere grezze: un club con una tessera incoerente compariva nel
+ * selettore, e chi lo sceglieva otteneva da qui `activeRole: null`. Due
+ * risposte diverse alla stessa domanda sono gia rotte prima che qualcuno noti
+ * quale delle due mente; la seconda copia di questa regola sarebbe divergita
+ * alla prima modifica.
  */
-type TesseraRisolta = {
+export type TesseraRisolta = {
   id: string;
   organization_id: string;
   role: string;
@@ -280,7 +288,7 @@ type TesseraRisolta = {
   token: string | null;
 };
 
-const risolviTessere = async (
+export const risolviTessere = async (
   memberships: readonly {
     id: string;
     organization_id: string;

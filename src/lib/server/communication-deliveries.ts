@@ -506,3 +506,170 @@ export const markDeliveryRead = async ({
 
   return Number(updated?.count || 0) > 0;
 };
+
+/* ------------------------------------- i diritti dell'interessato (§13) */
+
+/**
+ * Il prefisso del destinatario che non nomina piu nessuno.
+ *
+ * `recipient_key` porta l'email normalizzata oppure `user:<id>`: un terzo
+ * prefisso, che nessun indirizzo puo assumere e che nessuna delle due forme
+ * vive puo produrre, rende la riga anonima **riconoscibile** senza doverla
+ * incrociare con altro.
+ */
+export const ANONYMOUS_RECIPIENT_PREFIX = "anon:";
+
+export type DeliveryAnonymizationReport = {
+  /** Quante righe hanno smesso di nominare qualcuno. */
+  anonymized: number;
+  /** Righe che una persona deve guardare. Puo essere vuoto. */
+  manualReview: Array<{ id: string; why: string }>;
+};
+
+/**
+ * **Una consegna smette di nominare il destinatario, e resta una prova.**
+ *
+ * Chiamata da `data-subject.ts` quando una persona esercita il diritto alla
+ * cancellazione (ADR-0019, §13 del piano della Wave 6). Vive **qui** perche il
+ * registro ha un proprietario solo: chi ha bisogno di toccarlo chiede a questo
+ * modulo, e un test strutturale
+ * (`tests/ui/communications-ownership.test.mjs`) lo fa rispettare.
+ *
+ * ## Cosa sparisce, e cosa no
+ *
+ * Una riga di consegna risponde a due domande diverse, e solo la prima e un
+ * dato della persona:
+ *
+ * - **«a chi»** — `recipient_key` (l'email normalizzata, oppure `user:<id>`),
+ *   `recipient_email`, `recipient_name`, `recipient_user_id`, e l'oggetto del
+ *   messaggio `subject`, che e testo composto da un modello e puo contenere il
+ *   nome di chiunque. Tutto questo se ne va.
+ * - **«che una comunicazione e partita, quando, per quale occorrenza e con
+ *   quale esito»** — `source_kind`, `source_id`, `dedup_key`, `channel`,
+ *   `status`, `reason`, `created_at`, `updated_at`, `read_at`. Questo **resta**:
+ *   e la prova di adempimento, cioe la ragione per cui la riga non si cancella.
+ *   Anonimizzare il destinatario non deve cancellare il fatto.
+ *
+ * **`updated_at` si riscrive con il suo stesso valore, e non e inutile.** La
+ * colonna e `@updatedAt`: senza passarla, Prisma la timbrerebbe con l'istante
+ * dell'anonimizzazione e la riga direbbe che la comunicazione si e chiusa il
+ * giorno della cancellazione. Il momento e meta della prova, e non e un dato
+ * personale: si conserva.
+ *
+ * **`athlete_ids` resta.** Sono identificativi interni, e puntano a
+ * un'anagrafica che dopo la cancellazione e a sua volta un segnaposto anonimo.
+ * Toglierli staccherebbe la prova dalla posizione che riguardava — e
+ * renderebbe l'operazione non ripetibile, perche un secondo passaggio non
+ * ritroverebbe piu la riga.
+ *
+ * **`dedup_key` resta**, per la stessa ragione e per una in piu: e parte della
+ * chiave unica `(club, dedup_key, recipient_key, channel)`, e riscriverla
+ * significherebbe rendere due occorrenze distinte indistinguibili.
+ *
+ * ## Perche lo pseudonimo e per riga e non un'etichetta costante
+ *
+ * `recipient_key` e dentro quella chiave unica. Scriverci un testo fisso
+ * — «[dato cancellato]» — farebbe collidere due destinatari diversi della
+ * **stessa** occorrenza sullo **stesso** canale: la seconda riga verrebbe
+ * rifiutata dal database, e la cancellazione fallirebbe a meta proprio nel
+ * caso piu comune, la comunicazione massiva. L'identificativo della riga e gia
+ * unico per costruzione, non e ricavabile da un indirizzo e non lega fra loro
+ * due consegne della stessa persona: e lo pseudonimo giusto.
+ *
+ * Non e un'impronta dell'indirizzo, e deliberatamente: l'insieme degli indirizzi
+ * email e piccolo abbastanza perche un hash sia verificabile per tentativi.
+ *
+ * ## La riga che nomina anche altri
+ *
+ * Un solo messaggio raggiunge un tutore per **tutti** i suoi figli: la riga
+ * cita piu atleti, e uno solo di loro ha chiesto di sparire. Si anonimizza lo
+ * stesso — lasciarla intera conserverebbe il recapito di chi ha chiesto la
+ * cancellazione, che e cio che qui si deve togliere — e finisce in
+ * `manualReview`, come le compilazioni condivise: l'altra posizione perde il
+ * recapito su quella riga, e chi ha gestito la richiesta deve saperlo invece
+ * di scoprirlo.
+ *
+ * ## Cosa questa funzione **non** decide
+ *
+ * Non decide **per quanto** una consegna anonima si conserva, ne se il fatto
+ * possa essere conservato oltre la richiesta di cancellazione: sono
+ * determinazioni legali, e stanno in `docs/knowledge-base/RETENTION.md` §2.6
+ * come domande aperte, dichiarate e non risolte dal codice. Qui c'e la regola
+ * di **prodotto**: il destinatario se ne va, il fatto resta.
+ */
+export const anonymizeDeliveriesForSubject = async ({
+  organizationId,
+  athleteId,
+  label,
+}: {
+  organizationId: string;
+  athleteId: string;
+  /** Il testo con cui la riga smette di nominare qualcuno. */
+  label: string;
+}): Promise<DeliveryAnonymizationReport> => {
+  const clubId = asText(organizationId);
+
+  /*
+    Senza club non si tocca il registro. Non e una convalida di forma: un
+    aggiornamento del registro senza perimetro riscriverebbe le consegne di
+    **tutti** i club, ed e la riga che CLAUDE.md §8 vieta senza eccezioni.
+  */
+  if (!clubId) {
+    throw new Error(
+      "Accesso negato: il registro delle consegne si tocca sempre dentro un club",
+    );
+  }
+
+  const subjectId = asText(athleteId);
+  if (!subjectId) return { anonymized: 0, manualReview: [] };
+
+  const rows = await deliveryClient().findMany({
+    where: { organization_id: clubId, athlete_ids: { has: subjectId } },
+    select: { id: true, athlete_ids: true, updated_at: true },
+  });
+
+  const manualReview: DeliveryAnonymizationReport["manualReview"] = [];
+  let anonymized = 0;
+
+  /*
+    Una riga per volta, e non un `updateMany` solo: lo pseudonimo del
+    destinatario dipende dalla riga, e Prisma non sa scrivere un valore diverso
+    per riga in una scrittura sola. E un'operazione rara — qualche volta
+    l'anno, quando qualcuno esercita un diritto — e il costo non e un
+    argomento contro la correttezza della chiave.
+  */
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const id = asText(row?.id);
+    if (!id) continue;
+
+    const updated = await deliveryClient().updateMany({
+      where: { id, organization_id: clubId },
+      data: {
+        recipient_key: `${ANONYMOUS_RECIPIENT_PREFIX}${id}`,
+        recipient_name: label,
+        recipient_email: null,
+        recipient_user_id: null,
+        subject: label,
+        updated_at: row?.updated_at,
+      },
+    });
+
+    if (Number(updated?.count || 0) === 0) continue;
+    anonymized += 1;
+
+    const altri = (Array.isArray(row?.athlete_ids) ? row.athlete_ids : []).filter(
+      (value: unknown) => asText(value) && asText(value) !== subjectId,
+    );
+
+    if (altri.length > 0) {
+      manualReview.push({
+        id,
+        why:
+          "La consegna riguardava anche altre persone: la loro copia della " +
+          "comunicazione resta, ma senza il recapito a cui e stata mandata",
+      });
+    }
+  }
+
+  return { anonymized, manualReview };
+};
