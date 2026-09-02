@@ -226,7 +226,22 @@ test("la rotta dei pagamenti atleta controlla il ruolo", () => {
     path.join(SRC, "app/api/athlete-payments/[paymentId]/route.ts"),
   );
 
-  assert.match(route, /canManageClubConfigurationAsActor\(scope\.activeRole\)/);
+  /*
+    **Il controllo c'e ancora, e adesso chiede al proprietario della decisione.**
+
+    Pretendeva il nome di un predicato. Una revisione ha misurato che questa
+    rotta e `PATCH /api/v1/payments/:id` scrivono la **stessa riga** con due
+    regole diverse: qui la direzione, li la segreteria — e l'importo di una
+    rata passava dalla seconda porta mentre la prima rispondeva 403.
+
+    Chi decide «chi puo toccare una rata» e la matrice per risorsa, dove la
+    scelta e esplicita e provata in `payment-delete-guard.test.mjs`. La rotta
+    la **chiede**, e le due porte non possono piu divergere.
+  */
+  assert.match(
+    route,
+    /canAccessClubResource\(scope\.activeRole, "payments", verbo\)/,
+  );
   assert.equal(/verifyClubPin/.test(route), false);
   assert.match(
     route,

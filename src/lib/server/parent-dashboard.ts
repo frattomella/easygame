@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/server/prisma";
+import { stripGuardianAccessTokens } from "@/lib/health/permissions";
 import {
   buildClubCategoryOptions,
   resolveCategoryLabel,
@@ -1358,7 +1359,20 @@ export const getParentDashboardData = async (
     athlete: {
       ...serializeAthleteCard(selectedAthlete),
       user_id: selectedAthlete.user_id,
-      data: selectedAthlete.data,
+      /*
+        **`data` usciva grezza, accanto ai tutori gia sanificati.**
+
+        `getGuardianRows` e una proiezione chiusa e non porta credenziali; una
+        riga sotto, `data` le portava tutte. Misurato: una madre che apriva il
+        cruscotto riceveva nel proprio browser il **codice d'accesso vivo del
+        padre** — e con esso quello di ogni altro tutore: un nonno, un ex
+        coniuge, un assistente sociale.
+
+        Il dato clinico del **proprio** figlio resta: e suo, ed e il motivo
+        per cui questa schermata esiste. Le credenziali no: chi ne ha una la
+        ha gia in mano, e le altre non sono sue.
+      */
+      data: stripGuardianAccessTokens(selectedAthlete.data),
       guardians: getGuardianRows(selectedAthlete),
       linkedAthletes: linkedAthletes.map(serializeAthleteCard),
     },

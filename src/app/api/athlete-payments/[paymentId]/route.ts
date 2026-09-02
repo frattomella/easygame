@@ -5,7 +5,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
-import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { canAccessClubResource } from "@/lib/access-roles";
 import {
   isPaymentExcludedFromTotals,
   isPaymentPaidLike,
@@ -104,7 +104,27 @@ export async function PATCH(request: Request, context: Context) {
     */
     assertActiveClub(scope, payment.organization_id, "il pagamento");
 
-    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
+    /*
+      **Due porte sulla stessa riga, e una sola diceva di no.**
+
+      Questa rotta pretendeva la direzione; `PATCH /api/v1/payments/:id`, che
+      scrive la **stessa riga**, diceva si alla segreteria. Misurato:
+      l'importo di una rata passava da 100 a 999 dalla seconda porta mentre
+      la prima rispondeva 403. Una regola che un'altra porta non applica non
+      e una regola: e una dimenticanza scritta due volte al contrario.
+
+      Il proprietario della decisione «chi puo toccare una rata» e la
+      **matrice per risorsa**, e li la scelta e esplicita e provata da
+      `tests/server/payment-delete-guard.test.mjs`: la segreteria legge,
+      registra e modifica una rata, e **non** la cancella. Questa rotta la
+      chiede invece di riscriverla, e cosi le due porte non possono piu
+      divergere.
+
+      Nessun permesso nuovo: e cio che il registro generico gia concedeva.
+      Cambia che adesso lo concedono **entrambe**, o nessuna.
+    */
+    const verbo = request.method === "DELETE" ? "delete" : "update";
+    if (!canAccessClubResource(scope.activeRole, "payments", verbo)) {
       return jsonError(
         "Accesso negato: solo il proprietario o un gestore del club puo modificare un pagamento",
         403,

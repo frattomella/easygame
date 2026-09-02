@@ -751,6 +751,134 @@ export const listPermissionsForDomain = (domain: PermissionDomain) =>
  * Quella terza riga e la parte che vale la pena rileggere: **si restringe cio
  * che qualcuno ha potuto scegliere, non cio che nessuno ha mai visto.**
  */
+/**
+ * **Le chiavi che governano una risorsa del registro generico.**
+ *
+ * ADR-0102 dice che un ruolo di club e un **sottoinsieme** delle chiavi del
+ * suo ruolo base. Il registro generico pero non era governato da chiavi:
+ * `canAccessClubResource` passa da `normalizeAccessRole`, che di un gettone
+ * `custom:collaborator:<slug>` risponde `collaborator`. Misurato: un ruolo di
+ * club con **zero chiavi** — il piu ristretto che un proprietario possa
+ * creare — leggeva l'anagrafica dei minori, le note di segreteria e i compensi
+ * degli allenatori, e scriveva sconti. Le rotte di dominio lo restringevano,
+ * il registro no: la stessa capability, due porte, e quella aperta piu larga.
+ *
+ * Questa mappa e **completa per costruzione**: un test pretende che ogni
+ * risorsa aperta alla gestione compaia qui, con una chiave o con `null` e il
+ * motivo scritto. Una risorsa nuova che nessuno dichiara fa fallire il gate,
+ * che e il verso giusto in cui sbagliare — la stessa scelta gia presa per
+ * `MANAGEMENT_OPEN_RESOURCES` e per i confini multi-tenant (ADR-0094).
+ *
+ * `null` significa «nessuna chiave di catalogo la governa»: quella risorsa
+ * risponde al **ruolo base**, come prima. Non e una scorciatoia — e un fatto
+ * sul catalogo, e ogni riga dice quale.
+ */
+export const RESOURCE_PERMISSION_KEYS: Record<
+  string,
+  { keys: readonly string[]; reason?: string }
+> = {
+  /* --- anagrafica delle persone --- */
+  /*
+    **`athletes` non ha una chiave, e dirlo e la parte onesta.**
+
+    La prima stesura di questa mappa gli aveva messo `members.register.read`,
+    e sarebbe stato un difetto: quella chiave e il **libro soci**, che e un
+    registro diverso, e non appartiene al ruolo `trainer`. Un ruolo di club
+    costruito su `trainer` non avrebbe piu potuto vedere i propri atleti —
+    cioe l'unica cosa che fa.
+
+    L'elenco degli atleti oggi e governato dal **ruolo** e dal **perimetro**
+    di sede e categoria, non da una chiave. Inventarne una qui vorrebbe dire
+    aprire una capability nuova, che non e cio che questo closeout fa: resta
+    dichiarato, e il debito e scritto in `16-technical-debt.md`.
+  */
+  athletes: { keys: [], reason: "nessuna chiave di catalogo governa l'elenco atleti: lo governano il ruolo e il perimetro" },
+  simplified_athletes: { keys: [], reason: "come `athletes`" },
+  athlete_category_memberships: { keys: [], reason: "e il perimetro stesso: lo governa `buildMembershipAccessScopeConditions`" },
+  /* Il libro soci invece la chiave ce l'ha, ed e sua. */
+  members: { keys: ["members.register.read"] },
+
+  /* --- dato sanitario --- */
+  medical_certificates: { keys: ["clinical.status_read", "clinical.read"] },
+  simplified_certificates: { keys: ["clinical.status_read", "clinical.read"] },
+
+  /* --- eventi e presenze --- */
+  club_events: { keys: ["events.read"] },
+  club_event_participants: { keys: ["events.read"] },
+  training_attendance: { keys: ["events.attendance", "events.read"] },
+
+  /* --- denaro --- */
+  payments: { keys: ["accounting.read"] },
+  simplified_payments: { keys: ["accounting.read"] },
+  payment_plans: { keys: ["accounting.read"] },
+  transactions: { keys: ["accounting.read"] },
+  transfers: { keys: ["accounting.read"] },
+  invoices: { keys: ["accounting.read"] },
+  receipts: { keys: ["accounting.read"] },
+  expected_income: { keys: ["accounting.read"] },
+  expected_expenses: { keys: ["accounting.read"] },
+  discounts: { keys: ["accounting.read"] },
+  sponsor_payments: { keys: ["accounting.read"] },
+  /*
+    `trainer_payments` non e piu qui: e passata fra le **riservate alla
+    direzione**, insieme a `sport_work` che l ha sostituita e che dice la stessa
+    cosa — quanto guadagna una persona. Le riservate non si delegano con una
+    chiave, quindi dichiararne una direbbe il falso.
+  */
+
+  /* --- moduli e documenti --- */
+  forms: { keys: [], reason: "i moduli online hanno le proprie rotte di dominio; nel registro generico nessuna chiave li governa" },
+
+  /* --- il contenitore generico: il tipo decide, e lo giudica la sua guardia --- */
+  club_resource_items: {
+    keys: [],
+    reason:
+      "e il contenitore di tutti i tipi: la riservatezza la decide `isManagementAdminOnlyResource` sul tipo, riga per riga",
+  },
+
+  /* --- configurazione del club: nessuna chiave di catalogo la governa --- */
+  categories: { keys: [], reason: "configurazione sportiva del club" },
+  category_groups: { keys: [], reason: "configurazione sportiva del club" },
+  club_sites: { keys: [], reason: "configurazione sportiva del club" },
+  weekly_schedule: { keys: [], reason: "configurazione sportiva del club" },
+  opening_hours: { keys: [], reason: "configurazione sportiva del club" },
+  dashboards: { keys: [], reason: "preferenze di vista, non un dato" },
+
+  /* --- magazzino e materiale --- */
+  clothing_inventory: { keys: [], reason: "materiale sportivo, nessun dato personale" },
+  clothing_kits: { keys: [], reason: "materiale sportivo, nessun dato personale" },
+  clothing_products: { keys: [], reason: "materiale sportivo, nessun dato personale" },
+  jersey_assignments: { keys: [], reason: "materiale sportivo assegnato" },
+  jersey_groups: { keys: [], reason: "materiale sportivo, nessun dato personale" },
+  kit_assignments: { keys: [], reason: "materiale sportivo assegnato" },
+
+  /* --- persone del club e terzi --- */
+  trainers: { keys: [], reason: "scheda di un collaboratore: il perimetro e la proiezione, non una chiave" },
+  staff_members: { keys: [], reason: "scheda di un collaboratore: il perimetro e la proiezione, non una chiave" },
+  sponsors: { keys: [], reason: "anagrafica di un'azienda, non di una persona" },
+  procure: { keys: [], reason: "deleghe societarie, governate dal proprio dominio" },
+
+  /* --- comunicazione e note --- */
+  notifications: { keys: [], reason: "le proprie notifiche" },
+  simplified_notifications: { keys: [], reason: "le proprie notifiche" },
+  secretariat_notes: { keys: [], reason: "appunti della segreteria, senza una chiave propria" },
+};
+
+/**
+ * Vero se **questo** ruolo puo toccare la risorsa nel registro generico.
+ *
+ * Per un ruolo canonico e sempre vero: la matrice per ruolo ha gia deciso.
+ * Per un ruolo personalizzato si chiede la chiave dichiarata, se ce n'e una.
+ */
+export const customRoleReachesResource = (
+  role: string | null | undefined,
+  resource: string,
+) => {
+  const voce = RESOURCE_PERMISSION_KEYS[String(resource || "").trim()];
+  if (!voce || !voce.keys.length) return true;
+  return voce.keys.some((chiave) => roleHasPermission(role, chiave));
+};
+
 export const narrowDomainPermission = (
   role: string | null | undefined,
   key: string,

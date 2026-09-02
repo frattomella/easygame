@@ -333,6 +333,16 @@ const MANAGEMENT_ADMIN_ONLY_PATH_PREFIXES = [
 
 const MANAGEMENT_ADMIN_ONLY_RESOURCES = new Set([
   "access_tokens",
+  /*
+    **La tabella storica dei compensi, riservata come quella nuova.**
+
+    `sport_work` e qui con la motivazione «dice quanto guadagna una
+    persona». `trainer_payments` e la tabella che il lavoro sportivo ha
+    sostituito, dice la stessa cosa, ed era rimasta fra le aperte: misurato,
+    uno `staff` leggeva e **cancellava** i compensi degli allenatori mentre
+    la rotta nuova gli rispondeva 403.
+  */
+  "trainer_payments",
   "bank_accounts",
   "clubs",
   /*
@@ -393,6 +403,7 @@ const MANAGEMENT_ADMIN_ONLY_RESOURCES = new Set([
  * questa dice **chi**, quella dice **cosa** — una rata con storia economica
  * non si cancella nemmeno per il proprietario.
  */
+
 const MANAGEMENT_ADMIN_ONLY_DELETE_RESOURCES = new Set([
   "athlete_payments",
   "invoices",
@@ -418,7 +429,7 @@ const MANAGEMENT_ADMIN_ONLY_DELETE_RESOURCES = new Set([
  * **chiusa** a segreteria e collaboratore, e `resources.ts` non si carica
  * affatto: la difesa e la stessa di `RESOURCE_BOUNDARIES`.
  */
-const MANAGEMENT_OPEN_RESOURCES = new Set([
+export const MANAGEMENT_OPEN_RESOURCES = new Set([
   "athlete_category_memberships",
   "athletes",
   "categories",
@@ -456,7 +467,12 @@ const MANAGEMENT_OPEN_RESOURCES = new Set([
   "sponsor_payments",
   "sponsors",
   "staff_members",
-  "trainer_payments",
+  /*
+    `trainer_payments` e passata fra le riservate alla direzione: dice quanto
+    guadagna una persona, come `sport_work` che l ha sostituita. Resta
+    dichiarata — `isClubResourceDeclared` guarda entrambi gli elenchi — ma non
+    e piu aperta alla gestione.
+  */
   "trainers",
   "training_attendance",
   "transactions",

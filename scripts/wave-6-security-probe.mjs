@@ -3581,6 +3581,410 @@ const u57 = async () => {
   });
 };
 
+const u58 = async () => {
+  /* ================================================================== */
+  /*  U-58 — il ripristino delle credenziali, e i tre difetti che aveva  */
+  /*         introdotto                    [HIGH: accesso della famiglia]*/
+  /* ================================================================== */
+
+  /*
+    `restoreGuardianAccessTokens` e nato per chiudere un difetto vero — la
+    scheda riletta senza il gettone e rimandata indietro lo cancellava — e ne
+    ha introdotti tre, che una revisione ostile ha misurato:
+
+      * una **revoca** veniva annullata: si revoca scrivendo il valore vuoto,
+        e il ripristino considerava «assente» anche quello. Lo stato diceva
+        `revoked` e il gettone era tornato;
+      * accoppiando gli elementi **per email** e **per posizione**, chi scrive
+        l'anagrafica sceglieva su quale persona atterrasse la credenziale di
+        un'altra: bastava una riga nuova con l'email giusta, o un elenco
+        riordinato;
+      * cambiando la **forma** del contenitore il ripristino non scattava, e il
+        gettone spariva in silenzio — cioe il danno che doveva impedire.
+
+    E la prova che lo copriva era vacua sul punto: verificava la revoca **solo
+    da `owner`**, l'unico ruolo per cui il ripristino non si attiva.
+  */
+  console.log(
+    `${NL}U-58 — il ripristino delle credenziali, e i suoi tre difetti   [HIGH]`,
+  );
+
+  const scriviTutori = async (tutori) =>
+    prisma.athlete.update({
+      where: { id: ATLETA_A },
+      data: { data: { guardians: tutori } },
+    });
+
+  const leggiArchivio = async () =>
+    JSON.stringify(
+      (
+        await prisma.athlete.findUnique({
+          where: { id: ATLETA_A },
+          select: { data: true },
+        })
+      )?.data ?? {},
+    );
+
+  const DUE_TUTORI = [
+    { id: "g-madre", firstName: "Anna", parentAccessTokenValue: "U58-MADRE" },
+    { id: "g-padre", firstName: "Bruno", parentAccessTokenValue: "U58-PADRE" },
+  ];
+
+  /* --- 1. la revoca, da un ruolo che il gettone NON lo vede --- */
+  await scriviTutori(DUE_TUTORI);
+
+  await risorse.updateResource(
+    "athletes",
+    ATLETA_A,
+    {
+      data: {
+        guardians: [
+          {
+            id: "g-madre",
+            firstName: "Anna",
+            /* il vuoto **esplicito**: e cosi che si revoca */
+            parentAccessTokenValue: "",
+            parentAccessTokenStatus: "revoked",
+          },
+          { id: "g-padre", firstName: "Bruno" },
+        ],
+      },
+    },
+    scopeRuolo("collaborator"),
+  );
+
+  const dopoLaRevoca = await leggiArchivio();
+  prova(
+    "U-58 una revoca esplicita non viene annullata dal ripristino",
+    { madreRevocata: false, padreConservato: true },
+    {
+      madreRevocata: dopoLaRevoca.includes("U58-MADRE"),
+      /* e l'altro tutore, di cui non si e detto niente, resta intatto */
+      padreConservato: dopoLaRevoca.includes("U58-PADRE"),
+    },
+    "prima: lo stato diceva `revoked` e il valore era tornato",
+  );
+
+  /* --- 2. la credenziale non si sposta su un'altra persona --- */
+  await scriviTutori(DUE_TUTORI);
+
+  await varco(
+    "U-58 una riga nuova con l'email di un altro non ne eredita il gettone",
+    () =>
+      risorse.updateResource(
+        "athletes",
+        ATLETA_A,
+        {
+          data: {
+            guardians: [
+              { id: "g-intruso", firstName: "Mallory", email: "anna@example.invalid" },
+              { id: "g-padre", firstName: "Bruno" },
+            ],
+          },
+        },
+        scopeRuolo("collaborator"),
+      ),
+    ["negato"],
+    "la madre sparirebbe dall'elenco: e una perdita, e chi non vede il gettone non la puo causare",
+  );
+
+  await scriviTutori(DUE_TUTORI);
+
+  await risorse.updateResource(
+    "athletes",
+    ATLETA_A,
+    {
+      data: {
+        guardians: [
+          { id: "g-padre", firstName: "Bruno" },
+          { id: "g-madre", firstName: "Anna" },
+        ],
+      },
+    },
+    scopeRuolo("collaborator"),
+  );
+
+  const dopoIlRiordino = JSON.parse(await leggiArchivio());
+  /*
+    Si confrontano coppie **ordinate**: `prova` compara le stringhe JSON, e un
+    oggetto che riordina le chiavi darebbe rosso su un comportamento giusto.
+  */
+  const perNome = (dopoIlRiordino.guardians || [])
+    .map((t) => [t.firstName, t.parentAccessTokenValue])
+    .sort((uno, due) => String(uno[0]).localeCompare(String(due[0])));
+
+  prova(
+    "U-58 e riordinare l'elenco non incrocia i gettoni di due tutori",
+    [
+      ["Anna", "U58-MADRE"],
+      ["Bruno", "U58-PADRE"],
+    ],
+    perNome,
+    "prima l'accoppiamento era posizionale: Bruno riceveva il gettone di Anna e viceversa",
+  );
+
+  /* --- 3. nessuna perdita silenziosa --- */
+  await scriviTutori(DUE_TUTORI);
+
+  await varco(
+    "U-58 cambiare la forma del contenitore non fa sparire il gettone in silenzio",
+    () =>
+      risorse.updateResource(
+        "athletes",
+        ATLETA_A,
+        { data: { guardians: { 0: { id: "g-madre", firstName: "Anna" } } } },
+        scopeRuolo("collaborator"),
+      ),
+    ["negato"],
+  );
+
+  prova(
+    "U-58 e i due gettoni sono ancora in archivio",
+    { madre: true, padre: true },
+    {
+      madre: (await leggiArchivio()).includes("U58-MADRE"),
+      padre: (await leggiArchivio()).includes("U58-PADRE"),
+    },
+  );
+
+  /* --- 4. il controspecchio: chi lo vede lo revoca ancora, e senza attriti --- */
+  await scriviTutori(DUE_TUTORI);
+
+  await risorse.updateResource(
+    "athletes",
+    ATLETA_A,
+    {
+      data: {
+        guardians: [{ id: "g-madre", firstName: "Anna" }],
+      },
+    },
+    scopeRuolo("owner"),
+  );
+
+  prova(
+    "U-58 la direzione toglie ancora un tutore e la sua credenziale",
+    { madre: false, padre: false },
+    {
+      madre: (await leggiArchivio()).includes("U58-MADRE"),
+      padre: (await leggiArchivio()).includes("U58-PADRE"),
+    },
+    "controspecchio: una regola che vietasse ogni perdita renderebbe un gettone non piu revocabile",
+  );
+
+  await prisma.athlete.update({ where: { id: ATLETA_A }, data: { data: {} } });
+};
+
+const u59 = async () => {
+  /* ================================================================== */
+  /*  U-59 — l'elenco senza filtro, il cruscotto grezzo, e il tutore     */
+  /*         che si nominava da solo   [CRITICAL: credenziali, salute]   */
+  /* ================================================================== */
+
+  /*
+    Tre porte diverse sullo stesso valore — il codice con cui una famiglia
+    entra — piu la strada che permetteva di **diventare** famiglia.
+  */
+  console.log(
+    `${NL}U-59 — l'elenco senza filtro, il cruscotto grezzo, e il tutore che si nominava da solo   [CRITICAL]`,
+  );
+
+  const gettoneFamiglia = await prisma.clubResourceItem.create({
+    data: {
+      organization_id: CLUB_A,
+      resource_type: "access_tokens",
+      name: "U59CODICEFAMIGLIA",
+      status: "active",
+      payload: {
+        role: "parent",
+        athlete_id: ATLETA_A,
+        guardian_id: "g-madre",
+        minted_by_role: "owner",
+      },
+    },
+  });
+
+  /* --- 1. l'elenco senza filtro --- */
+  const senzaFiltro = async (ruolo) =>
+    JSON.stringify(
+      await risorse.listResource(
+        "club_resource_items",
+        new URLSearchParams({ organization_id: CLUB_A }),
+        scopeRuolo(ruolo),
+      ),
+    ).includes("U59CODICEFAMIGLIA");
+
+  prova(
+    "U-59 chiedendo l'elenco senza nominare il tipo, i gettoni non escono",
+    { trainer: false, staff: false, collaborator: false, direzione: true },
+    {
+      trainer: await senzaFiltro("trainer"),
+      staff: await senzaFiltro("staff"),
+      collaborator: await senzaFiltro("collaborator"),
+      direzione: await senzaFiltro("owner"),
+    },
+    "la guardia giudicava la domanda: chiedere `?resource_type=access_tokens` era negato, chiedere niente restituiva tutto",
+  );
+
+  /* --- 2. il cruscotto della famiglia --- */
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: {
+      data: {
+        guardians: [
+          {
+            id: "g-madre",
+            firstName: "Anna",
+            linkedUserId: utenti.parent.id,
+            parentAccessTokenValue: "U59-GETTONE-MADRE",
+          },
+          {
+            id: "g-padre",
+            firstName: "Bruno",
+            parentAccessTokenValue: "U59-GETTONE-PADRE",
+          },
+        ],
+        allergies: "ALLERGIA-U59",
+      },
+    },
+  });
+
+  const cruscotto = JSON.stringify(
+    await cruscottoFamiglia.getParentDashboardData(utenti.parent.id, ATLETA_A),
+  );
+
+  prova(
+    "U-59 la madre non riceve il codice d'accesso del padre",
+    { padre: false, proprio: false, clinicoDelFiglio: true },
+    {
+      padre: cruscotto.includes("U59-GETTONE-PADRE"),
+      proprio: cruscotto.includes("U59-GETTONE-MADRE"),
+      /* il dato clinico del proprio figlio resta: e il motivo per cui la schermata esiste */
+      clinicoDelFiglio: cruscotto.includes("ALLERGIA-U59"),
+    },
+    "usciva `athletes.data` grezza accanto ai tutori gia sanificati",
+  );
+
+  /* --- 3. l'auto-nomina a tutore --- */
+  await varco(
+    "U-59 non ci si nomina tutori scrivendo l'anagrafica",
+    () =>
+      risorse.updateResource(
+        "athletes",
+        ATLETA_A,
+        {
+          data: {
+            guardians: [
+              { id: "g-madre", firstName: "Anna", linkedUserId: utenti.parent.id },
+              { id: "g-padre", firstName: "Bruno" },
+              {
+                id: "g-intruso",
+                firstName: "Mallory",
+                linkedUserId: utenti.staff.id,
+              },
+            ],
+          },
+        },
+        scopeRuolo("staff"),
+      ),
+    ["negato"],
+  );
+
+  prova(
+    "U-59 e l'intruso non e famiglia di quel minore",
+    false,
+    await cruscottoFamiglia.canParentAccessAthlete(utenti.staff.id, ATLETA_A),
+    "da li si leggeva il fascicolo clinico che `clinical.read` gli nega",
+  );
+
+  prova(
+    "U-59 ma la madre lo e ancora: il divieto e sulla crescita, non sul legame",
+    true,
+    await cruscottoFamiglia.canParentAccessAthlete(utenti.parent.id, ATLETA_A),
+    "controspecchio: una regola che negasse ogni legame romperebbe l'area famiglia",
+  );
+
+  /* --- 4. le due porte sulla stessa rata, e i compensi storici --- */
+  prova(
+    "U-59 le due porte sulla rata dicono la stessa cosa",
+    { segreteriaModifica: true, segreteriaCancella: false, direzioneCancella: true },
+    {
+      segreteriaModifica: ruoliDiAccesso.canAccessClubResource(
+        "staff",
+        "payments",
+        "update",
+      ),
+      segreteriaCancella: ruoliDiAccesso.canAccessClubResource(
+        "staff",
+        "payments",
+        "delete",
+      ),
+      direzioneCancella: ruoliDiAccesso.canAccessClubResource(
+        "club_manager",
+        "payments",
+        "delete",
+      ),
+    },
+    "la rotta dedicata ora chiede a questa matrice invece di riscriverne una propria",
+  );
+
+  prova(
+    "U-59 i compensi storici sono riservati come quelli nuovi",
+    { staff: false, direzione: true },
+    {
+      staff: ruoliDiAccesso.canAccessClubResource(
+        "staff",
+        "trainer_payments",
+        "read",
+      ),
+      direzione: ruoliDiAccesso.canAccessClubResource(
+        "club_manager",
+        "trainer_payments",
+        "read",
+      ),
+    },
+    "`sport_work` era riservata «perche dice quanto guadagna una persona»; la tabella che ha sostituito no",
+  );
+
+  /* --- 5. il ruolo ristretto sul registro generico --- */
+  const senzaChiavi = "custom:collaborator:vuoto#";
+  const conLaChiave = "custom:collaborator:segreteria#members.register.read";
+
+  /*
+    La guardia vive nel **registro**, non nel predicato: `access-roles.ts` e un
+    modulo puro e importare il catalogo da li creerebbe un ciclo. Si prova
+    quindi dove la guardia sta davvero, chiamando l'elenco.
+  */
+  const elenca = (ruolo, risorsa) =>
+    risorse
+      .listResource(
+        risorsa,
+        new URLSearchParams({ organization_id: CLUB_A }),
+        scopeDi(utenti.collaborator.id, CLUB_A, ruolo),
+      )
+      .then(() => "riuscita")
+      .catch((errore) =>
+        String(errore?.message || "").includes("Accesso negato")
+          ? "negato"
+          : `errore: ${errore?.message}`,
+      );
+
+  prova(
+    "U-59 un ruolo con zero chiavi non legge cio che una chiave governa",
+    { senza: "negato", con: "riuscita", senzaChiaveGovernata: "riuscita" },
+    {
+      senza: await elenca(senzaChiavi, "members"),
+      con: await elenca(conLaChiave, "members"),
+      /* e cio che nessuna chiave governa resta al ruolo base, come dichiarato */
+      senzaChiaveGovernata: await elenca(senzaChiavi, "categories"),
+    },
+  );
+
+  await prisma.clubResourceItem
+    .delete({ where: { id: gettoneFamiglia.id } })
+    .catch(() => {});
+  await prisma.athlete.update({ where: { id: ATLETA_A }, data: { data: {} } });
+};
+
 /* ------------------------------------------------------------- il giro */
 
 try {
@@ -3624,6 +4028,8 @@ try {
   await u55();
   await u56();
   await u57();
+  await u58();
+  await u59();
 
   const falliti = esiti.filter((e) => !e.ok);
   if (deviazioni.length) {

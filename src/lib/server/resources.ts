@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { customRoleReachesResource } from "@/lib/permissions/catalog";
 import {
   assertMembershipWithinAccessScope,
   athleteWithinAccessScope,
@@ -30,6 +31,7 @@ import {
   hasHealthPermission,
   stripClinicalAthleteFields,
   stripClinicalCertificateFields,
+  collectGuardianCredentialValues,
   restoreGuardianAccessTokens,
   stripGuardianAccessTokens,
   stripPersonCredentials,
@@ -3372,6 +3374,36 @@ const applyRecipientScope = (
  * nessuno debba ricordarsene — che e la ragione per cui l'elenco scritto a mano
  * di sopra ha dovuto essere corretto quattro volte.
  */
+/**
+ * **Un ruolo ristretto e ristretto anche sul registro generico.**
+ *
+ * Le rotte di dominio chiedono `roleHasPermission`, che applica soffitto e
+ * concessione. Il registro generico chiedeva solo il **ruolo base**, perche
+ * `canAccessClubResource` passa da `normalizeAccessRole`. Misurato: un ruolo
+ * di club con **zero chiavi** — il piu ristretto che un proprietario possa
+ * creare — leggeva l'anagrafica di un minore, le note di segreteria e i
+ * compensi degli allenatori, e scriveva sconti. Su quarantatre risorse la
+ * restrizione che il club credeva di aver messo non esisteva.
+ *
+ * `RESOURCE_PERMISSION_KEYS` dichiara, risorsa per risorsa, quale chiave la
+ * governa — o che nessuna lo fa, con il motivo scritto. La guardia sta qui e
+ * non in `access-roles.ts` perche quel modulo e puro e non conosce il
+ * catalogo: importarlo creerebbe un ciclo, e il registro generico e comunque
+ * l'unica superficie che ha questo problema.
+ */
+const assertRuoloRistrettoRaggiungeLaRisorsa = (
+  resource: string,
+  scope?: ResourceAccessScope,
+) => {
+  if (!scope) return;
+  if (!isCustomRoleValue(scope.activeRole)) return;
+  if (customRoleReachesResource(scope.activeRole, resource)) return;
+
+  throw new Error(
+    `Accesso negato: al ruolo attivo non e stata concessa la chiave che governa «${resource}»`,
+  );
+};
+
 const assertNotAdminOnlyFromGenericRoute = (
   resource: string,
   value: unknown,
@@ -3443,6 +3475,13 @@ const isDomainOwnedResourceItemType = (value: unknown) =>
 export const buildWhereFromSearchParams = (
   resource: string,
   searchParams: URLSearchParams,
+  /**
+   * Serve per togliere dal risultato le risorse riservate alla direzione:
+   * la guardia giudicava la **domanda**, e chi non chiedeva niente le riceveva
+   * tutte. Facoltativo perche gli altri chiamanti non ne hanno bisogno, e in
+   * quel caso non si toglie niente: la guardia esplicita resta.
+   */
+  scope?: ResourceAccessScope,
 ) => {
   /*
     Chi filtra ancora per `training_id` cerca l'identificativo **storico**
@@ -3537,9 +3576,30 @@ export const buildWhereFromSearchParams = (
         `Accesso negato: ${where.resource_type} si legge dalla sua rotta, non dal registro generico`,
       );
     }
+    /*
+      **La guardia scattava solo se il client nominava il tipo.**
+
+      `assertNotAdminOnlyFromGenericRoute` giudica `where.resource_type`:
+      chiedere `?resource_type=access_tokens` e «Accesso negato», e chiedere
+      **niente** restituiva tutto — gettoni d'accesso delle famiglie in
+      chiaro, conti correnti, modelli di documento. Misurato: sei ruoli su
+      otto, allenatore compreso, ricevevano il codice con cui una famiglia
+      entra, e da li la tessera `parent` e il fascicolo clinico del minore.
+
+      La difesa era sulla **domanda** invece che sulla **risposta**. Adesso i
+      tipi riservati escono dal `where` sempre, per chi non li puo vedere: chi
+      li chiede per nome trova il diniego di prima, chi non li chiede non li
+      trova nel mazzo.
+    */
+    const riservate = CLUB_RESOURCE_TYPES.filter((tipo) =>
+      isManagementAdminOnlyResource(tipo),
+    ).filter(
+      (tipo) => !canAccessClubResource(scope?.activeRole, tipo, "read"),
+    );
+
     where.resource_type = {
       ...(where.resource_type ? { equals: where.resource_type } : {}),
-      notIn: [...DOMAIN_OWNED_RESOURCE_ITEM_TYPES],
+      notIn: [...DOMAIN_OWNED_RESOURCE_ITEM_TYPES, ...riservate],
     };
   }
 
@@ -4821,10 +4881,11 @@ export const listResourcePage = async (
   options?: ResourceRequestOptions,
 ): Promise<ListResourceResult> => {
   assertResourceIsOpen(resource);
+  assertRuoloRistrettoRaggiungeLaRisorsa(resource, scope);
   await assertClinicalRead(resource, scope);
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
-  const where = buildWhereFromSearchParams(resource, searchParams);
+  const where = buildWhereFromSearchParams(resource, searchParams, scope);
 
   /*
     Il perimetro si somma con `AND`, non sostituisce: un ruolo di sede che
@@ -5034,6 +5095,7 @@ export const getResourceById = async (
   scope?: ResourceAccessScope,
 ) => {
   assertResourceIsOpen(resource);
+  assertRuoloRistrettoRaggiungeLaRisorsa(resource, scope);
   await assertClinicalRead(resource, scope);
   const delegate = getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
@@ -5134,6 +5196,7 @@ export const createResource = async (
   const config = RESOURCE_CONFIG[resource];
 
   assertResourceIsOpen(resource);
+  assertRuoloRistrettoRaggiungeLaRisorsa(resource, scope);
   assertNotDomainOwnedModel(resource);
   assertNotDomainOwnedResourceItem(resource, input?.resource_type);
   await assertClinicalWrite(resource, scope, input);
@@ -6003,6 +6066,76 @@ const applicaGuardieDiModifica = async (
       atleta completa. Serve anche a **staccare** un atleta legittimo dal proprio
       account, senza audit e senza revoca.
     */
+    /*
+      **Un legame con una famiglia non si crea scrivendo l'anagrafica.**
+
+      `guardians[].linkedUserId` decide chi e famiglia di quel minore, e
+      `canParentAccessAthlete` lo legge per aprire il cruscotto: nome,
+      recapiti, **allergie, visite mediche, farmaci**. Chiunque potesse
+      scrivere l'anagrafica se lo scriveva addosso — misurato con un ruolo
+      personalizzato **senza** `clinical.read` — e leggeva dalla porta accanto
+      cio che la chiave gli negava. Nell'audit restava un `anagrafica.updated`:
+      la famiglia vera non aveva modo di vederlo ne di toglierlo.
+
+      Il legame nasce **riscattando un gettone**, che e un atto tracciato e
+      revocabile. Qui si nega che l'insieme dei legami **cresca**: toglierne
+      uno resta possibile — e cosi si scollega — e un salvataggio ordinario
+      che rimanda indietro gli stessi legami non cambia niente e passa.
+    */
+    if (
+      scope &&
+      (resource === "athletes" || resource === "simplified_athletes") &&
+      normalized.data &&
+      existing?.data
+    ) {
+      const legami = (dato: unknown): Set<string> => {
+        const trovati = new Set<string>();
+        const scendi = (nodo: unknown) => {
+          if (Array.isArray(nodo)) {
+            for (const voce of nodo) scendi(voce);
+            return;
+          }
+          if (!nodo || typeof nodo !== "object") return;
+          for (const [chiave, valore] of Object.entries(
+            nodo as Record<string, unknown>,
+          )) {
+            if (chiave === "linkedUserId" || chiave === "linked_user_id") {
+              const testo = typeof valore === "string" ? valore.trim() : "";
+              if (testo) trovati.add(testo);
+              continue;
+            }
+            scendi(valore);
+          }
+        };
+        scendi(dato);
+        return trovati;
+      };
+
+      const prima = legami(existing.data);
+      const dopo = legami(normalized.data);
+      const nuovi = [...dopo].filter((id) => !prima.has(id));
+
+      if (nuovi.length) {
+        await recordPermissionDenied({
+          scope: {
+            userId: scope.userId,
+            activeRole: scope.activeRole,
+            activeOrganizationId: scope.activeOrganizationId,
+          },
+          permission: "accounts.athlete.manage",
+          resource: "athletes",
+          resourceId: String((existing as any)?.id || ""),
+          metadata: {
+            nuovi_legami: nuovi.length,
+            reason: "guardian_link_from_generic_route",
+          },
+        });
+        throw new Error(
+          "Accesso negato: il legame fra un tutore e un'utenza nasce dal riscatto del suo codice di accesso, non scrivendo l'anagrafica",
+        );
+      }
+    }
+
     if (
       scope &&
       (resource === "athletes" || resource === "simplified_athletes") &&
@@ -6190,10 +6323,39 @@ const applicaGuardieDiModifica = async (
         elemento di un elenco.
       */
       if (!vedeICredenzialiDiAccesso(scope?.activeRole)) {
+        const revocate = new Set<string>();
         normalized.data = restoreGuardianAccessTokens(
           existing.data,
           normalized.data,
+          revocate,
         );
+
+        /*
+          **E cio che il ripristino non ha saputo riagganciare non si perde in
+          silenzio.**
+
+          Il ripristino accoppia i tutori per identita stabile — `id` o `uuid`.
+          Una scrittura che riordina un elenco senza id, o che ne cambia la
+          forma, gli passa accanto: il gettone sparirebbe senza un errore, che
+          e esattamente il danno che questa regola esiste per impedire, ed e
+          stato misurato da una revisione.
+
+          Si confrontano gli **insiemi di valori**, che e una proprieta e non
+          dipende da come il contenitore e fatto: se chi non puo vedere una
+          credenziale ne fa sparire una, la scrittura fallisce e dice perche.
+          Chi la vede continua a revocarla: quel ramo non passa di qui.
+        */
+        const prima = collectGuardianCredentialValues(existing.data);
+        const dopo = collectGuardianCredentialValues(normalized.data);
+        const perse = [...prima].filter(
+          (valore) => !dopo.has(valore) && !revocate.has(valore),
+        );
+
+        if (perse.length) {
+          throw new Error(
+            "Accesso negato: questo salvataggio farebbe sparire il codice di accesso di una famiglia, e il ruolo attivo non puo vederlo. Si revoca dalla scheda di chi lo possiede",
+          );
+        }
       }
     }
 };
@@ -6208,6 +6370,7 @@ export const updateResource = async (
   const config = RESOURCE_CONFIG[resource];
 
   assertResourceIsOpen(resource);
+  assertRuoloRistrettoRaggiungeLaRisorsa(resource, scope);
   assertNotDomainOwnedModel(resource);
   assertNotDomainOwnedResourceItem(resource, input?.resource_type);
   await assertClinicalWrite(resource, scope, input);
@@ -6683,6 +6846,7 @@ export const deleteResource = async (
   scope?: ResourceAccessScope,
 ) => {
   assertResourceIsOpen(resource);
+  assertRuoloRistrettoRaggiungeLaRisorsa(resource, scope);
   assertNotDomainOwnedModel(resource);
   await assertClinicalWrite(resource, scope);
   const delegate = getDelegate(resource);

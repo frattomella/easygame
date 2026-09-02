@@ -450,39 +450,84 @@ export const stripGuardianAccessTokens = (data: unknown) => {
  *
  * Restituisce **lo stesso oggetto** quando non c'e niente da ripristinare.
  */
+/**
+ * **Il gemello del taglio, rifatto: la prima stesura faceva piu danno del
+ * difetto che chiudeva.**
+ *
+ * Il problema resta quello: `data` si salva **intera**, quindi la scheda
+ * riletta senza il gettone e rimandata indietro cancellava il codice con cui
+ * la famiglia entra. Un'assenza non e una cancellazione.
+ *
+ * La prima stesura pero accoppiava gli elementi dell'elenco **per posizione**
+ * e **per email**, e considerava «assente» anche un valore vuoto. Una
+ * revisione ostile ne ha ricavato tre difetti nuovi, tutti misurati:
+ *
+ *   * una **revoca** — che si scrive proprio con il valore vuoto — veniva
+ *     annullata: lo stato diceva `revoked` e il gettone era tornato;
+ *   * scrivendo un tutore con l'email di un altro se ne **ereditava** la
+ *     credenziale; riordinando l'elenco, due tutori se le scambiavano;
+ *   * duplicando l'`id`, entrambe le righe ricevevano lo stesso gettone.
+ *
+ * Le due regole nuove sono strette e dicono perche:
+ *
+ *   1. si ripristina **solo** una chiave **assente**, mai una vuota. Chi non
+ *      vede la credenziale non la riceve affatto — il taglio toglie la
+ *      chiave — quindi l'assenza e esattamente il caso del giro di andata e
+ *      ritorno. Un valore vuoto e invece una scrittura deliberata, ed e il
+ *      modo in cui si revoca;
+ *   2. gli elementi di un elenco si accoppiano **solo per identita stabile**
+ *      — `id` o `uuid` — e mai per posizione o per email. Chi scrive
+ *      l'anagrafica sceglie quei campi: usarli per decidere dove atterra la
+ *      credenziale di un altro e dare a chi scrive il potere di spostarla.
+ *
+ * Restituisce **lo stesso oggetto** quando non c'e niente da ripristinare.
+ */
 export const restoreGuardianAccessTokens = (
   previous: unknown,
   next: unknown,
+  /**
+   * Si riempie con i valori che chi scrive ha **deliberatamente** svuotato,
+   * cioe le revoche.
+   *
+   * Serve al chiamante per distinguerle da una perdita: senza, la guardia
+   * contro la sparizione silenziosa rifiuterebbe anche una revoca voluta, e
+   * un codice di accesso diventerebbe non piu revocabile.
+   */
+  revocate?: Set<string>,
 ): unknown => {
   const identita = (voce: unknown) => {
     if (!voce || typeof voce !== "object" || Array.isArray(voce)) return null;
     const oggetto = voce as Record<string, unknown>;
-    for (const chiave of ["id", "uuid", "fiscalCode", "fiscal_code", "email"]) {
+    for (const chiave of ["id", "uuid"]) {
       const valore = oggetto[chiave];
-      if (typeof valore === "string" && valore.trim()) return `${chiave}:${valore.trim().toLowerCase()}`;
+      if (typeof valore === "string" && valore.trim()) {
+        return `${chiave}:${valore.trim().toLowerCase()}`;
+      }
     }
     return null;
   };
 
-  const vuoto = (valore: unknown) =>
-    valore === undefined ||
-    valore === null ||
-    (typeof valore === "string" && !valore.trim());
-
   const cammina = (vecchio: unknown, nuovo: unknown): unknown => {
     if (Array.isArray(vecchio) && Array.isArray(nuovo)) {
+      /*
+        Solo identita stabili, e **una sola volta**: un id duplicato nel nuovo
+        elenco non deve ricevere due volte la stessa credenziale.
+      */
       const perIdentita = new Map<string, unknown>();
-      vecchio.forEach((voce) => {
+      for (const voce of vecchio) {
         const chiave = identita(voce);
         if (chiave && !perIdentita.has(chiave)) perIdentita.set(chiave, voce);
-      });
+      }
 
+      const usate = new Set<string>();
       let cambiato = false;
-      const mappato = nuovo.map((voce, indice) => {
+      const mappato = nuovo.map((voce) => {
         const chiave = identita(voce);
-        const controparte =
-          chiave && perIdentita.has(chiave) ? perIdentita.get(chiave) : vecchio[indice];
-        const risultato = cammina(controparte, voce);
+        if (!chiave || usate.has(chiave) || !perIdentita.has(chiave)) {
+          return voce;
+        }
+        usate.add(chiave);
+        const risultato = cammina(perIdentita.get(chiave), voce);
         if (risultato !== voce) cambiato = true;
         return risultato;
       });
@@ -494,7 +539,8 @@ export const restoreGuardianAccessTokens = (
       !nuovo ||
       typeof vecchio !== "object" ||
       typeof nuovo !== "object" ||
-      Array.isArray(vecchio) !== Array.isArray(nuovo)
+      Array.isArray(vecchio) ||
+      Array.isArray(nuovo)
     ) {
       return nuovo;
     }
@@ -506,8 +552,20 @@ export const restoreGuardianAccessTokens = (
 
     for (const campo of GUARDIAN_CREDENTIAL_FIELDS) {
       if (!Object.prototype.hasOwnProperty.call(daVecchio, campo)) continue;
-      if (vuoto(daVecchio[campo])) continue;
-      if (!vuoto(daNuovo[campo])) continue;
+      /* **assente**, non vuota: un vuoto e una revoca, e si rispetta. */
+      if (Object.prototype.hasOwnProperty.call(daNuovo, campo)) {
+        const prima = daVecchio[campo];
+        const dopo = daNuovo[campo];
+        if (
+          revocate &&
+          typeof prima === "string" &&
+          prima.trim() &&
+          prima !== dopo
+        ) {
+          revocate.add(prima.trim());
+        }
+        continue;
+      }
       risultato[campo] = daVecchio[campo];
       cambiato = true;
     }
@@ -528,6 +586,44 @@ export const restoreGuardianAccessTokens = (
   return cammina(previous, next);
 };
 
+/**
+ * Tutti i valori di credenziale presenti in un albero, per confrontarli.
+ *
+ * Serve a una domanda sola, e vale la pena scriverla per esteso: **chi non
+ * vede una credenziale non la puo distruggere**, ne per omissione ne
+ * cambiando la forma del contenitore. Il ripristino copre il caso normale —
+ * stesso elenco, stessa identita — ma una scrittura che riordina, rinomina o
+ * trasforma l'elenco in un oggetto gli passerebbe accanto, e il gettone
+ * sparirebbe in silenzio: cioe esattamente il danno che si voleva impedire.
+ *
+ * Confrontare gli **insiemi di valori** e la proprieta, e non dipende da come
+ * il contenitore e fatto.
+ */
+export const collectGuardianCredentialValues = (dato: unknown): Set<string> => {
+  const trovati = new Set<string>();
+
+  const scendi = (nodo: unknown) => {
+    if (Array.isArray(nodo)) {
+      for (const voce of nodo) scendi(voce);
+      return;
+    }
+    if (!nodo || typeof nodo !== "object") return;
+
+    for (const [chiave, valore] of Object.entries(
+      nodo as Record<string, unknown>,
+    )) {
+      if (GUARDIAN_CREDENTIAL_FIELD_SET.has(chiave)) {
+        const testo = typeof valore === "string" ? valore.trim() : "";
+        if (testo) trovati.add(testo);
+        continue;
+      }
+      scendi(valore);
+    }
+  };
+
+  scendi(dato);
+  return trovati;
+};
 /**
  * I campi di una **persona del club** che sono credenziali o coordinate bancarie.
  *
