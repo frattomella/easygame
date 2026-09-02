@@ -5718,6 +5718,330 @@ const u67 = async () => {
     .catch(() => {});
 };
 
+const u68 = async () => {
+  /* ================================================================== */
+  /*  U-68 — i nomi che portano alla stessa riga, e la porta contenitore */
+  /*         [CRITICAL: minori, denaro pubblico]                         */
+  /* ================================================================== */
+
+  console.log(
+    `${NL}U-68 — i due nomi della stessa tabella, e la porta contenitore   [CRITICAL]`,
+  );
+
+  const perimetroSedeA = [{ kind: "site", value: SEDE_A }];
+
+  /* ---------------------------------------------------------------- */
+  /*  1. `training_attendance` e `club_event_participants`             */
+  /* ---------------------------------------------------------------- */
+
+  const scrivePartecipazione = (risorsa) =>
+    risorse
+      .createResource(
+        risorsa,
+        {
+          organization_id: CLUB_A,
+          event_id: EVENTO_A,
+          athlete_id: ATLETA_ALTRUI,
+          status: "present",
+          rsvp_status: "yes",
+          convocation_status: "convocated",
+        },
+        "create",
+        scopeRuolo("trainer"),
+      )
+      .then(() => "riuscita")
+      .catch((errore) =>
+        String(errore?.message || "").includes("Accesso negato")
+          ? "negato"
+          : `errore: ${errore?.message}`,
+      );
+
+  prova(
+    "U-68 i due nomi della stessa tabella rispondono uguale in scrittura",
+    { canonico: "negato", storico: "negato" },
+    {
+      canonico: await scrivePartecipazione("club_event_participants"),
+      storico: await scrivePartecipazione("training_attendance"),
+    },
+    "una sola chiamata sull'alias scriveva presenza, risposta della famiglia e convocazione — tre colonne, tre scrittori distinti (ADR-0086, ADR-0099) — senza attribuzione, e la presenza e la colonna su cui si rendicontano i contributi pubblici",
+  );
+
+  /*
+    Una riga di partecipazione dell'atleta dell'altra sede, scritta come fixture:
+    la porta di dominio la nega a chi non e allenatore di quel gruppo, ed e
+    proprio il dato che il perimetro deve nascondere in lettura.
+  */
+  const partecipazioneAltrove = await prisma.clubEventParticipant.create({
+    data: {
+      organization_id: CLUB_A,
+      event_id: EVENTO_A,
+      athlete_id: ATLETA_ALTRUI,
+      status: "present",
+      notes: "nota in chiaro su un ragazzo",
+    },
+  });
+
+  const partecipazioniViste = async (risorsa) => {
+    const pagina = await risorse.listResourcePage(
+      risorsa,
+      new URLSearchParams({ organization_id: CLUB_A }),
+      { ...scopeRuolo("staff"), accessScopes: perimetroSedeA },
+    );
+    return pagina.records.map((riga) => riga.athlete_id);
+  };
+
+  prova(
+    "U-68 e in lettura il perimetro vale su tutti e due",
+    { canonico: false, storico: false },
+    {
+      canonico: (await partecipazioniViste("club_event_participants")).includes(
+        ATLETA_ALTRUI,
+      ),
+      storico: (await partecipazioniViste("training_attendance")).includes(
+        ATLETA_ALTRUI,
+      ),
+    },
+    "uscivano `status`, la convocazione e le note in testo libero su un ragazzo di un'altra sede: la rotta di dominio sullo stesso dato negava, il registro no, e fra due porte decide la piu larga",
+  );
+
+  prova(
+    "U-68 ma senza perimetro le partecipazioni si vedono tutte",
+    true,
+    (
+      await risorse.listResourcePage(
+        "training_attendance",
+        new URLSearchParams({ organization_id: CLUB_A }),
+        scopeRuolo("staff"),
+      )
+    ).records.some((riga) => riga.athlete_id === ATLETA_ALTRUI),
+    "controspecchio: un filtro sempre chiuso spegnerebbe l'appello, e nessuna prova di diniego lo direbbe",
+  );
+
+  await prisma.clubEventParticipant
+    .delete({ where: { id: partecipazioneAltrove.id } })
+    .catch(() => {});
+
+  /* ---------------------------------------------------------------- */
+  /*  2. il gruppo dell'allenatore vale anche per identificativo       */
+  /* ---------------------------------------------------------------- */
+
+  const lettoDa = (ruolo, risorsa, id) =>
+    risorse
+      .getResourceById(risorsa, id, scopeRuolo(ruolo))
+      .then((riga) => (riga ? "letto" : "vuoto"))
+      .catch((errore) =>
+        String(errore?.message || "").includes("Accesso negato")
+          ? "negato"
+          : `errore: ${errore?.message}`,
+      );
+
+  const elencoAllenatore = await risorse.listResourcePage(
+    "athletes",
+    new URLSearchParams({ organization_id: CLUB_A }),
+    scopeRuolo("trainer"),
+  );
+  const idVisti = elencoAllenatore.records.map((riga) => riga.id);
+
+  prova(
+    "U-68 premessa: l'elenco dell'allenatore non contiene questo minore",
+    false,
+    idVisti.includes(ATLETA_ALTRUI),
+    "senza questa premessa la prova qui sotto misurerebbe il vuoto",
+  );
+
+  prova(
+    "U-68 cio che l'elenco toglie all'allenatore non torna per identificativo",
+    "negato",
+    await lettoDa("trainer", "athletes", ATLETA_ALTRUI),
+    "misurati 613 byte con tutori, codice fiscale, data di nascita e codice di accesso di un minore fuori dal gruppo: `filterTrainerDashboardRecords` girava solo dentro `listResourcePage`, e un filtro di elenco si aggira chiedendo l'id",
+  );
+
+  /*
+    Due controspecchi, perche una guardia nuova sbaglia in due modi: negando
+    a chi non riguarda, e negando all'allenatore tutto.
+  */
+  prova(
+    "U-68 e la stessa riga la legge chi non e allenatore",
+    "letto",
+    await lettoDa("staff", "athletes", ATLETA_ALTRUI),
+    "il filtro e del gruppo operativo dell'allenatore: applicarlo a tutti sarebbe una seconda regola, non questa",
+  );
+
+  const categoriaSeminata = await risorse.createResource(
+    "categories",
+    { organization_id: CLUB_A, id: CATEGORIA, name: "Under 15" },
+    "upsert",
+    scopeRuolo("owner"),
+  );
+
+  prova(
+    "U-68 e l'allenatore legge ancora cio che non e nel filtro",
+    "letto",
+    await lettoDa("trainer", "categories", categoriaSeminata.id || CATEGORIA),
+    "il filtro nomina quattro risorse: se negasse in blocco, il cruscotto dell'allenatore resterebbe vuoto e la prova qui sopra passerebbe lo stesso",
+  );
+
+  prova(
+    "U-68 la mappa atleta -> sede/categoria non e servita all'allenatore intera",
+    true,
+    (
+      await risorse.listResourcePage(
+        "athlete_category_memberships",
+        new URLSearchParams({ organization_id: CLUB_A }),
+        scopeRuolo("trainer"),
+      )
+    ).records.every((riga) => idVisti.includes(riga.athlete_id)),
+    "era servita per prima, ed e l'elenco esatto degli identificativi che ogni altra porta accetta",
+  );
+  /* ---------------------------------------------------------------- */
+  /*  3. `club_resource_items`: la porta contenitore                   */
+  /* ---------------------------------------------------------------- */
+
+  const schedaAllenatore = await prisma.clubResourceItem.create({
+    data: {
+      organization_id: CLUB_A,
+      resource_type: "trainers",
+      name: "Allenatore U-68",
+      payload: {
+        id: "trainer-u68",
+        firstName: "Ugo",
+        lastName: "Sessantotto",
+        iban: "IT60X0542811101000000999999",
+        fiscalCode: "SSSGUO80A01H501U",
+        accessTokenValue: "PARU68SEGRETO",
+      },
+      updated_at: new Date(),
+    },
+  });
+
+  const leggiScheda = async (nomeRisorsa, ruolo) => {
+    const pagina = await risorse.listResourcePage(
+      nomeRisorsa,
+      new URLSearchParams({ organization_id: CLUB_A }),
+      { ...scopeRuolo("trainer"), activeRole: ruolo },
+    );
+    const riga = pagina.records.find(
+      (r) => (r.payload?.id || r.id) === "trainer-u68" || r.name === "Allenatore U-68",
+    );
+    const testo = JSON.stringify(riga || {});
+    return {
+      iban: testo.includes("IT60X0542811101000000999999"),
+      gettone: testo.includes("PARU68SEGRETO"),
+    };
+  };
+
+  prova(
+    "U-68 il contenitore non e la porta di servizio sulle stesse schede",
+    { perNome: { iban: false, gettone: false }, contenitore: { iban: false, gettone: false } },
+    {
+      perNome: await leggiScheda("trainers", "trainer"),
+      contenitore: await leggiScheda("club_resource_items", "trainer"),
+    },
+    "`GET /api/v1/trainers` toglieva IBAN, codice fiscale e gettone; `GET /api/v1/club_resource_items` li dava in chiaro alle stesse sessioni, e il gettone in chiaro si riscatta",
+  );
+
+  prova(
+    "U-68 ma chi le amministra le legge ancora",
+    true,
+    JSON.stringify(
+      (
+        await risorse.listResourcePage(
+          "trainers",
+          new URLSearchParams({ organization_id: CLUB_A }),
+          scopeRuolo("owner"),
+        )
+      ).records,
+    ).includes("IT60X0542811101000000999999"),
+    "controspecchio: una proiezione che tagliasse sempre renderebbe impossibile pagare un allenatore",
+  );
+
+  /* --- 4. e il tipo della riga decide anche in scrittura --- */
+
+  const sconto = await prisma.clubResourceItem.create({
+    data: {
+      organization_id: CLUB_A,
+      resource_type: "discounts",
+      name: "Sconto U-68",
+      payload: { id: "discount-u68", label: "Sconto famiglia" },
+      updated_at: new Date(),
+    },
+  });
+
+  const scriveContenitore = (azione) => {
+    const scope = scopeRuolo("trainer");
+    const atto =
+      azione === "create"
+        ? risorse.createResource(
+            "club_resource_items",
+            {
+              organization_id: CLUB_A,
+              resource_type: "discounts",
+              name: "Sconto forgiato",
+              payload: { id: "discount-u68-bis" },
+            },
+            "create",
+            scope,
+          )
+        : azione === "update"
+          ? risorse.updateResource(
+              "club_resource_items",
+              sconto.id,
+              { name: "Sconto riscritto" },
+              scope,
+            )
+          : risorse.deleteResource("club_resource_items", sconto.id, scope);
+
+    return atto
+      .then(() => "riuscita")
+      .catch((errore) =>
+        String(errore?.message || "").includes("Accesso negato")
+          ? "negato"
+          : `errore: ${errore?.message}`,
+      );
+  };
+
+  prova(
+    "U-68 e non si scrive dal contenitore cio che la porta per nome nega",
+    { creazione: "negato", modifica: "negato", cancellazione: "negato" },
+    {
+      creazione: await scriveContenitore("create"),
+      modifica: await scriveContenitore("update"),
+      cancellazione: await scriveContenitore("delete"),
+    },
+    "`POST /api/v1/discounts` risponde 403; `POST /api/v1/club_resource_items` con `resource_type: \"discounts\"` scriveva la stessa riga senza chiedere niente",
+  );
+
+  prova(
+    "U-68 ma chi puo scrivere quel tipo scrive anche dal contenitore",
+    "riuscita",
+    await (async () => {
+      const scope = scopeRuolo("owner");
+      return risorse
+        .updateResource(
+          "club_resource_items",
+          sconto.id,
+          { name: "Sconto rivisto dalla direzione" },
+          scope,
+        )
+        .then(() => "riuscita")
+        .catch((errore) => `errore: ${errore?.message}`);
+    })(),
+    "controspecchio: una guardia che negasse sempre chiuderebbe la porta contenitore a tutti, e le prove di diniego passerebbero lo stesso",
+  );
+
+  await prisma.clubResourceItem
+    .deleteMany({
+      where: { organization_id: CLUB_A, name: { startsWith: "Sconto" } },
+    })
+    .catch(() => {});
+  await prisma.clubResourceItem
+    .deleteMany({ where: { id: schedaAllenatore.id } })
+    .catch(() => {});
+  await prisma.clubEventParticipant
+    .deleteMany({ where: { organization_id: CLUB_A, athlete_id: ATLETA_ALTRUI } })
+    .catch(() => {});
+};
+
 /* ------------------------------------------------------------- il giro */
 
 try {
@@ -5776,6 +6100,7 @@ try {
   await u65();
   await u66();
   await u67();
+  await u68();
 
   const falliti = esiti.filter((e) => !e.ok);
   if (deviazioni.length) {

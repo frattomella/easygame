@@ -2308,3 +2308,89 @@ Resta dichiarato un limite: il cancello sui byte del certificato vincola cio che
 sta **prima** del primo controllo, e una terza uscita inserita dopo, su un ramo
 che il secondo non attraversa, gli passerebbe accanto. E l'unica delle cinque
 per cui non ho trovato una forma che non sia di nuovo un'enumerazione.
+
+## Closeout Wave 6 — i nomi diversi che portano alla stessa riga (2026-09-02)
+
+Due revisioni ostili indipendenti, lanciate in parallelo su corsie diverse,
+hanno riportato **lo stesso** difetto come piu grave, ognuna per conto suo.
+Vale la pena scriverlo, perche e la classe che questo repository ha gia
+chiuso tre volte e che continua a tornare da una porta nuova.
+
+`training_attendance` e `club_event_participants` non sono due tabelle: sono
+**due nomi di risorsa sullo stesso delegato Prisma**. La guardia che riserva
+quella tabella al suo dominio ne nominava uno solo.
+
+```
+PATCH /api/v1/club_event_participants/<id>  ->  403  «si scrive dal suo dominio»
+PATCH /api/v1/training_attendance/<id>      ->  200
+```
+
+Con una sola chiamata si scrivevano le tre colonne che
+[ADR-0086](18-decision-log.md) e [ADR-0099](18-decision-log.md) assegnano a
+**tre scrittori distinti**: la presenza, la risposta della famiglia — senza
+`rsvp_by_user_id`, quindi non attribuibile — e la convocazione. E la presenza
+e la colonna su cui `funding/attendance-measure.ts` rendiconta i contributi
+pubblici: una presenza forgiata e denaro pubblico su un minore.
+
+### La forma della difesa
+
+Non un settimo elenco. `src/lib/resource-aliases.ts` dichiara i sei alias e
+il loro nome canonico, e le guardie del registro confrontano **quello**:
+
+| Guardia | Cosa proteggeva su un nome solo |
+|---------|--------------------------------|
+| `assertNotDomainOwnedModel` | La scrittura riservata al dominio |
+| `TRAINER_DASHBOARD_FILTERED_RESOURCES` | Il gruppo operativo dell'allenatore |
+| `buildAccessScopeFilter` | Il perimetro di sede e categoria |
+
+`tests/lib/alias-di-risorsa.test.mjs` verifica che la mappa copra **tutti** i
+delegati condivisi di `RESOURCE_CONFIG`: un settimo alias non dichiarato fa
+fallire la prova invece di aprire una porta.
+
+### Le altre tre porte, tutte della stessa famiglia
+
+**Il perimetro non copriva le partecipazioni.** Un ruolo recintato sulla sede
+Nord leggeva le righe dell'atleta della sede Sud — stato, convocazione e note
+in testo libero su un ragazzo — mentre la rotta di dominio sullo stesso dato
+negava. Fra due porte decide sempre la piu larga. `athlete_id` non ha una
+relazione: il filtro passa per l'insieme degli identificativi dentro il
+perimetro.
+
+**Il gruppo dell'allenatore era un filtro di elenco.**
+`filterTrainerDashboardRecords` girava solo dentro `listResourcePage`, e un
+filtro di elenco si aggira chiedendo la riga per identificativo — che e
+esattamente cio che `assertRecordWithinAccessScope` era stata scritta per
+chiudere sull'**altra meta** della stessa regola. Misurati 613 byte con
+tutori, codice fiscale, data di nascita e codice di accesso di un minore di
+un'altra squadra. E l'identificativo non era un segreto:
+`athlete_category_memberships` serviva per prima la mappa completa
+`atleta -> sede/categoria`, e ora e nel filtro.
+
+**`club_resource_items` e la seconda porta su ogni risorsa di club.** Le
+schede di allenatori, staff, sconti e procure vivono tutte in quella tabella,
+e il registro le serve in due modi: per nome (`/api/v1/trainers`) e per
+contenitore (`/api/v1/club_resource_items`). Misurato:
+
+| Attore | `GET /api/v1/trainers` | `GET /api/v1/club_resource_items` |
+|--------|------------------------|-----------------------------------|
+| allenatore | senza IBAN, CF, gettone | **IBAN, CF e gettone in chiaro** |
+| ruolo di club a **zero chiavi** | senza IBAN, CF, gettone | **IBAN, CF e gettone in chiaro** |
+
+Il gettone in chiaro si riscatta. E in scrittura era peggio:
+`POST /api/v1/discounts` risponde 403 a quel ruolo, e
+`POST /api/v1/club_resource_items` con `resource_type: "discounts"` scriveva
+la stessa riga senza chiedere niente — creazione, modifica e cancellazione.
+
+Adesso la proiezione risolve il **tipo della riga** e taglia come se fosse
+stata chiesta per nome; il mazzo si restringe a cio che il ruolo puo davvero
+leggere (non ai soli tipi riservati alla direzione); e ogni scrittura chiede
+`canAccessClubResource` sul tipo che la riga porta.
+
+### La lezione, di nuovo
+
+Nessuna delle quattro era una regola sbagliata. Erano **una regola giusta
+applicata a un nome solo**, quando i nomi che raggiungono la stessa riga sono
+due. Prova: `U-68` nella sonda di sicurezza, con la controprova positiva
+accanto a ognuna — senza perimetro le partecipazioni si vedono tutte, chi non
+e allenatore legge la riga, chi amministra vede l'IBAN, e chi puo scrivere
+quel tipo scrive anche dal contenitore.

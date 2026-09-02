@@ -110,9 +110,19 @@ test("applica i permessi API in base al ruolo attivo", () => {
   assert.equal(canAccessClubResource("staff", "athletes", "update"), true);
   assert.equal(canAccessClubResource("trainer", "athletes", "read"), true);
   assert.equal(canAccessClubResource("trainer", "athletes", "delete"), false);
+  /*
+    `training_attendance` e il **nome storico** di `club_event_participants`,
+    e quella tabella si scrive dal suo dominio: `events.ts` per convocazione e
+    presenza, `rsvp.ts` per la risposta della famiglia (ADR-0086, ADR-0099).
+
+    Finche il registro generico la dichiarava scrivibile, l'alias era una
+    porta di servizio: una sola `PATCH` scriveva tutte e tre le colonne, senza
+    attribuzione e senza perimetro. Due revisioni indipendenti l'hanno
+    misurata. L'allenatore prende l'appello dalla sua rotta, e qui **legge**.
+  */
   assert.equal(
     canAccessClubResource("trainer", "training_attendance", "update"),
-    true,
+    false,
   );
   assert.equal(canAccessClubResource("parent", "athletes", "read"), false);
   assert.equal(canAccessClubResource("athlete", "athletes", "read"), false);

@@ -154,8 +154,14 @@ test("§11.3 · il perimetro arriva fino allo scope della richiesta", () => {
 test("§11.3 · l'elenco degli atleti lo applica dentro il `where`", () => {
   const resources = leggi("lib/server/resources.ts");
 
+  /*
+    Asincrono da quando il perimetro copre anche le **partecipazioni**: quelle
+    non hanno una relazione verso l'atleta, quindi il filtro chiede al
+    proprietario del perimetro l'insieme degli identificativi, e chiederlo e
+    una lettura.
+  */
   assert.ok(
-    resources.includes("const buildAccessScopeFilter = ("),
+    resources.includes("const buildAccessScopeFilter = async ("),
     "il perimetro deve diventare una condizione della query",
   );
   assert.ok(
@@ -168,7 +174,9 @@ test("§11.3 · l'elenco degli atleti lo applica dentro il `where`", () => {
     conteggio che non corrisponde all'elenco, e la pagina direbbe «212 atleti»
     mostrandone trenta.
   */
-  const posizioneFiltro = resources.indexOf("const perimetro = buildAccessScopeFilter");
+  const posizioneFiltro = resources.indexOf(
+    "const perimetro = await buildAccessScopeFilter",
+  );
   const posizioneCount = resources.indexOf("delegate.count(", posizioneFiltro);
   assert.ok(
     posizioneFiltro > 0 && posizioneCount > posizioneFiltro,

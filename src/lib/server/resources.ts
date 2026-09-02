@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { canonicalResourceName } from "@/lib/resource-aliases";
 import { guardianAccessIdentities } from "./parent-dashboard";
 import {
   customRoleReachesResource,
@@ -6,6 +7,7 @@ import {
 } from "@/lib/permissions/catalog";
 import {
   assertMembershipWithinAccessScope,
+  athleteIdsWithinAccessScope,
   athleteWithinAccessScope,
   buildAthleteAccessScopeConditions,
   buildMembershipAccessScopeConditions,
@@ -20,6 +22,7 @@ import {
   canAccessClubResource,
   isManagementAdminOnlyResource,
   normalizeAccessRole,
+  type ResourceAction,
 } from "@/lib/access-roles";
 import { assertMayGrantRole } from "@/lib/roles/custom-role";
 import {
@@ -1247,13 +1250,40 @@ const CLUB_CAMPI_DI_IDENTITA = new Set([
 ]);
 
 const serializeRecord = (
-  resource: string,
+  nomeRichiesto: string,
   record: Record<string, any>,
   scope?: ResourceAccessScope,
 ) => {
   if (!record) {
     return null;
   }
+
+  /*
+    **`club_resource_items` e la seconda porta sulle stesse righe.**
+
+    Le risorse di club — allenatori, staff, sconti, procure — vivono tutte
+    in `club_resource_items`, e il registro le serve in due modi: per nome
+    (`/api/v1/trainers`, `kind: "club_resource"`) e per contenitore
+    (`/api/v1/club_resource_items`, `kind: "model"`). Il commento qui sotto
+    diceva che «le risorse di club escono per questa strada»: vero per il
+    primo modo, falso per il secondo.
+
+    Una revisione l'ha misurato: `GET /api/v1/trainers` toglie IBAN, codice
+    fiscale e gettone di accesso a un allenatore, a uno staff e a un ruolo
+    di club a **zero chiavi**; `GET /api/v1/club_resource_items` li dava
+    tutti e tre in chiaro alle stesse sessioni. Il gettone in chiaro si
+    riscatta.
+
+    La riga sotto risolve il **tipo della riga** e proietta come se fosse
+    stata chiesta per nome. Non e un secondo taglio: e lo stesso, raggiunto
+    dal nome che la riga porta con se invece che da quello nel percorso.
+  */
+  const resource =
+    nomeRichiesto === "club_resource_items" &&
+    RESOURCE_CONFIG[String(record.resource_type || "")]?.kind ===
+      "club_resource"
+      ? String(record.resource_type)
+      : nomeRichiesto;
 
   if (resource === "users") {
     return serializeUser(record);
@@ -3603,8 +3633,22 @@ const DOMAIN_OWNED_MODEL_RESOURCES = new Set([
   "club_event_participants",
 ]);
 
+/**
+ * **Il nome canonico, non l'alias.**
+ *
+ * `training_attendance` e `club_event_participants` sono la stessa tabella
+ * con due nomi. Questa guardia ne nominava uno solo, e l'altro era una
+ * porta di servizio: due revisioni indipendenti hanno misurato una `PATCH`
+ * sull'alias che scriveva **in una chiamata** presenza, risposta della
+ * famiglia e convocazione — le tre colonne che ADR-0086 e ADR-0099
+ * assegnano a tre scrittori distinti, e senza attribuzione.
+ *
+ * Vedi `src/lib/resource-aliases.ts`: la mappa e li, e un test strutturale
+ * impedisce che ne nasca un settimo senza dichiararlo.
+ */
 const assertNotDomainOwnedModel = (resource: string) => {
-  if (!DOMAIN_OWNED_MODEL_RESOURCES.has(resource)) return;
+  if (!DOMAIN_OWNED_MODEL_RESOURCES.has(canonicalResourceName(resource)))
+    return;
 
   throw new Error(
     `Accesso negato: ${resource} si scrive dal suo dominio (src/lib/server/events.ts), non dal registro generico`,
@@ -3615,6 +3659,37 @@ const isDomainOwnedResourceItemType = (value: unknown) =>
   (DOMAIN_OWNED_RESOURCE_ITEM_TYPES as readonly string[]).includes(
     String(value || "").trim(),
   );
+
+/**
+ * **Il tipo della riga decide, non il nome nel percorso.**
+ *
+ * `POST /api/v1/discounts` chiede `accounting.read` e nega a un ruolo che
+ * non ce l'ha. `POST /api/v1/club_resource_items` con
+ * `{resource_type: "discounts"}` scriveva **la stessa riga** senza chiedere
+ * niente: una revisione ha misurato creazione, modifica e cancellazione di
+ * uno sconto da un ruolo di club a zero chiavi.
+ *
+ * E la stessa forma gia chiusa per i tipi riservati alla direzione — «la
+ * protezione era sul cartello, non sulla porta» — chiusa a meta: il cartello
+ * copriva la lettura di alcuni tipi e nessuna scrittura.
+ */
+const assertPuoScrivereIlTipoDellaRiga = (
+  resource: string,
+  resourceType: unknown,
+  azione: ResourceAction,
+  scope?: ResourceAccessScope,
+) => {
+  if (resource !== "club_resource_items") return;
+
+  const tipo = String(resourceType || "").trim();
+  if (!tipo) return;
+
+  if (!canAccessClubResource(scope?.activeRole, tipo, azione)) {
+    throw new Error(
+      `Accesso negato: il ruolo attivo non puo scrivere ${tipo}`,
+    );
+  }
+};
 
 export const buildWhereFromSearchParams = (
   resource: string,
@@ -3735,9 +3810,23 @@ export const buildWhereFromSearchParams = (
       li chiede per nome trova il diniego di prima, chi non li chiede non li
       trova nel mazzo.
     */
-    const riservate = CLUB_RESOURCE_TYPES.filter((tipo) =>
-      isManagementAdminOnlyResource(tipo),
-    ).filter(
+    /*
+      **E si restringeva ai soli tipi riservati alla direzione.**
+
+      La motivazione scritta in catalogo — «la riservatezza la decide
+      `isManagementAdminOnlyResource` sul tipo, riga per riga» — copriva meta
+      dei casi. Fuori restavano i tipi governati da una **chiave**
+      (`discounts` e `sponsor_payments` chiedono `accounting.read`) e quelli
+      che un ruolo non ha comunque: una revisione ha misurato un allenatore
+      canonico e un ruolo di club a **zero chiavi** che ricevevano da qui
+      sconti, pagamenti sponsor, procure e piani di pagamento — le stesse
+      cose che la rotta per nome nega con 403.
+
+      La domanda giusta non e «questo tipo e riservato alla direzione», e
+      **«questo ruolo lo puo leggere»**, che e la stessa domanda che si fa
+      la porta per nome. Una sola nozione, due porte.
+    */
+    const riservate = CLUB_RESOURCE_TYPES.filter(
       (tipo) => !canAccessClubResource(scope?.activeRole, tipo, "read"),
     );
 
@@ -3821,16 +3910,50 @@ export const buildWhereFromSearchParams = (
  * sue colonne — e non passando dall'atleta: e la stessa regola che
  * `assertMembershipWithinAccessScope` applica gia in scrittura.
  */
-const buildAccessScopeFilter = (
-  resource: string,
+const buildAccessScopeFilter = async (
+  nomeRichiesto: string,
   scope?: ResourceAccessScope,
-) => {
-  if (resource === "athletes" || resource === "simplified_athletes") {
+): Promise<Record<string, any>[] | null> => {
+  /*
+    Il perimetro si decide sul **nome canonico**: due nomi che portano alla
+    stessa tabella devono avere lo stesso recinto, altrimenti quello senza
+    e la porta che si apre. Vedi `src/lib/resource-aliases.ts`.
+  */
+  const resource = canonicalResourceName(nomeRichiesto);
+
+  if (resource === "athletes") {
     return buildAthleteAccessScopeConditions(scope);
   }
 
   if (resource === "athlete_category_memberships") {
     return buildMembershipAccessScopeConditions(scope);
+  }
+
+  /*
+    **La partecipazione a un evento e il dato di un atleta.**
+
+    Una revisione l'ha misurata: un ruolo recintato sulla sede Nord leggeva
+    le righe dell'atleta della sede Sud — `status`, la convocazione, e le
+    note in testo libero su un ragazzo. La rotta di dominio sullo stesso
+    dato nega («questo evento e fuori dal perimetro assegnato»); il registro
+    generico no, e fra due porte decide la piu larga.
+
+    Il legame passa per `athlete_id`, che qui **non ha una relazione**: si
+    filtra per identificativo, chiedendo l'insieme al proprietario del
+    perimetro.
+  */
+  if (resource === "club_event_participants") {
+    const dentro = await athleteIdsWithinAccessScope(
+      scope?.activeOrganizationId || "",
+      scope,
+    );
+
+    /*
+      `null` vuol dire «nessun perimetro»; un elenco vuoto vuol dire
+      «nessun atleta passa», e i due non si confondono: confonderli
+      farebbe vedere tutto il club a chi non deve vedere niente.
+    */
+    return dentro === null ? null : [{ athlete_id: { in: dentro } }];
   }
 
   /*
@@ -3847,9 +3970,7 @@ const buildAccessScopeFilter = (
   */
   const PER_ATLETA = new Set([
     "medical_certificates",
-    "simplified_certificates",
     "payments",
-    "simplified_payments",
     /*
       Fattura e ricevuta arrivano dopo, e da una revisione successiva. Il
       documento fiscale di un minore porta il suo nome, il suo indirizzo, il
@@ -3902,7 +4023,7 @@ const assertRecordWithinAccessScope = async (
 ) => {
   if (!record?.id) return;
 
-  const perimetro = buildAccessScopeFilter(resource, scope);
+  const perimetro = await buildAccessScopeFilter(resource, scope);
   if (!perimetro) return;
 
   const dentro = await getDelegate(resource).count({
@@ -4521,6 +4642,15 @@ const TRAINER_DASHBOARD_FILTERED_RESOURCES = new Set([
   "simplified_athletes",
   "club_events",
   "club_event_participants",
+  /*
+    `athlete_category_memberships` e la tabella che **definisce** il gruppo:
+    servirla intera dava a chi e recintato la mappa completa
+    `atleta -> sede/categoria` del club, cioe l'elenco esatto degli
+    identificativi che ogni altra porta accetta. E la stessa lezione gia
+    scritta per il perimetro di sede in `access-scope-query.ts`, dalla parte
+    del gruppo operativo.
+  */
+  "athlete_category_memberships",
 ]);
 
 const toArrayValue = (value: unknown): any[] =>
@@ -4894,7 +5024,7 @@ const filterTrainerDashboardRecords = async (
     normalizeAccessRole(scope?.activeRole) !== "trainer" ||
     !scope?.userId ||
     !scope.activeOrganizationId ||
-    !TRAINER_DASHBOARD_FILTERED_RESOURCES.has(resource)
+    !TRAINER_DASHBOARD_FILTERED_RESOURCES.has(canonicalResourceName(resource))
   ) {
     return records;
   }
@@ -5076,7 +5206,7 @@ export const listResourcePage = async (
     Il perimetro si somma con `AND`, non sostituisce: un ruolo di sede che
     cerca per nome deve vedere meno, non di piu.
   */
-  const perimetro = buildAccessScopeFilter(resource, scope);
+  const perimetro = await buildAccessScopeFilter(resource, scope);
   if (perimetro) {
     where.AND = [...(where.AND || []), ...perimetro];
   }
@@ -5315,6 +5445,38 @@ export const getResourceById = async (
     );
   }
 
+  /*
+    **Il gruppo operativo dell'allenatore vale anche per identificativo.**
+
+    `filterTrainerDashboardRecords` girava solo dentro `listResourcePage`:
+    era un filtro di elenco, e un filtro di elenco si aggira chiedendo la
+    riga per id. E la stessa correzione gia fatta per il perimetro di sede
+    qui sopra — `assertRecordWithinAccessScope` — applicata all'altra meta
+    della stessa regola, che era rimasta indietro.
+
+    Una revisione l'ha misurata: 613 byte con tutori, codice fiscale, data
+    di nascita e codice di accesso di un minore di un'altra squadra. E
+    l'identificativo non era un segreto: la mappa delle appartenenze usciva
+    per prima.
+
+    Si rifa **lo stesso filtro**, non un secondo giudizio: due proprietari
+    della stessa domanda divergono, e a decidere finisce il piu largo.
+  */
+  if (record) {
+    const dentroIlGruppo = await filterTrainerDashboardRecords(
+      resource,
+      [record],
+      new URLSearchParams(),
+      scope,
+    );
+
+    if (!dentroIlGruppo.length) {
+      throw new Error(
+        "Accesso negato: questa riga e fuori dal gruppo assegnato al tuo ruolo",
+      );
+    }
+  }
+
   return record ? serializeRecord(resource, record, scope) : null;
 };
 
@@ -5384,6 +5546,7 @@ export const createResource = async (
   assertRuoloRistrettoRaggiungeLaRisorsa(resource, scope);
   assertNotDomainOwnedModel(resource);
   assertNotDomainOwnedResourceItem(resource, input?.resource_type);
+  assertPuoScrivereIlTipoDellaRiga(resource, input?.resource_type, "create", scope);
   await assertClinicalWrite(resource, scope, input);
 
   if (config.kind === "club_resource") {
@@ -6689,6 +6852,7 @@ export const updateResource = async (
   assertRuoloRistrettoRaggiungeLaRisorsa(resource, scope);
   assertNotDomainOwnedModel(resource);
   assertNotDomainOwnedResourceItem(resource, input?.resource_type);
+  assertPuoScrivereIlTipoDellaRiga(resource, input?.resource_type, "update", scope);
   await assertClinicalWrite(resource, scope, input);
 
   if (config.kind === "club_resource") {
@@ -6891,6 +7055,7 @@ export const updateResource = async (
     `resource_type` da controllare.
   */
   assertNotDomainOwnedResourceItem(resource, existing?.resource_type);
+  assertPuoScrivereIlTipoDellaRiga(resource, existing?.resource_type, "update", scope);
 
   /*
     La modifica parziale delle impostazioni si applica per conto suo, con il
@@ -7192,6 +7357,7 @@ export const deleteResource = async (
       cancellare.
     */
     assertNotDomainOwnedResourceItem(resource, existing?.resource_type);
+    assertPuoScrivereIlTipoDellaRiga(resource, existing?.resource_type, "delete", scope);
     const record = await delegate.delete({
       where: { id: existing.id },
     });
@@ -7257,6 +7423,7 @@ export const deleteResource = async (
     `resource_type` da controllare.
   */
   assertNotDomainOwnedResourceItem(resource, existing?.resource_type);
+  assertPuoScrivereIlTipoDellaRiga(resource, existing?.resource_type, "delete", scope);
   /*
     Prima il confine del club, poi la regola del denaro: chiedere «questa rata
     ha incassi?» su una riga di un altro club sarebbe gia una risposta di

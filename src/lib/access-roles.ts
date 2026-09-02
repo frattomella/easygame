@@ -526,7 +526,15 @@ const TRAINER_WRITE_RESOURCES = new Set([
   */
   "notifications",
   "simplified_notifications",
-  "training_attendance",
+  /*
+    `training_attendance` non compare piu, per la stessa ragione per cui non
+    compare `club_events`: e il **nome storico della stessa tabella**
+    (`club_event_participants`), e quella si scrive dal suo dominio —
+    `events.ts` per convocazione e presenza, `rsvp.ts` per la risposta della
+    famiglia. Dichiararla scrivibile qui rendeva l'alias una porta di
+    servizio: una sola `PATCH` scriveva tutte e tre le colonne, senza
+    attribuzione e senza perimetro. Resta in lettura.
+  */
 ]);
 
 const matchesPathPrefix = (pathname: string, prefix: string) =>

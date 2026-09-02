@@ -834,6 +834,9 @@ ignoravano, e nessuna delle quattro era un elenco di atleti — erano gli
 | Roster della riconferma (`GET /api/v1/seasons/:id/roster`) | La corrispondenza completa **atleta → sede/categoria** del club | `readMembershipsForCategories` in `season-memberships.ts` |
 | Risolutore del pubblico (`resolveAudience`) | I recapiti di tutte le famiglie del club a chi puo comunicare solo con la propria sede | La query degli atleti in `audience.ts` |
 | Dettaglio persona del lavoro sportivo | Non il perimetro ma l'**IBAN**, a chi ha `sport_work.read` e non `manage` | L'involucro `sportWorkRoute`, sulla **risposta** |
+| Partecipazione a un evento (`club_event_participants`, alias `training_attendance`) | Stato, convocazione e note in testo libero su un minore fuori perimetro | `buildAccessScopeFilter`, per insieme di identificativi |
+| Lettura per identificativo di un atleta fuori dal **gruppo** dell'allenatore | Tutori, codice fiscale, data di nascita, codice di accesso | `getResourceById`, con lo stesso filtro dell'elenco |
+| `club_resource_items` | IBAN, codice fiscale e gettone di accesso delle schede di club; e la scrittura di tipi che la porta per nome nega | Proiezione e permesso sul **tipo della riga** |
 
 Le prime tre sono la stessa lezione gia scritta per la lettura per
 identificativo: **un filtro di elenco si aggira chiedendo altro**. La quarta
