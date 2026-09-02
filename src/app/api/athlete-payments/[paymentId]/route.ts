@@ -104,32 +104,6 @@ export async function PATCH(request: Request, context: Context) {
     */
     assertActiveClub(scope, payment.organization_id, "il pagamento");
 
-    /*
-      **Due porte sulla stessa riga, e una sola diceva di no.**
-
-      Questa rotta pretendeva la direzione; `PATCH /api/v1/payments/:id`, che
-      scrive la **stessa riga**, diceva si alla segreteria. Misurato:
-      l'importo di una rata passava da 100 a 999 dalla seconda porta mentre
-      la prima rispondeva 403. Una regola che un'altra porta non applica non
-      e una regola: e una dimenticanza scritta due volte al contrario.
-
-      Il proprietario della decisione «chi puo toccare una rata» e la
-      **matrice per risorsa**, e li la scelta e esplicita e provata da
-      `tests/server/payment-delete-guard.test.mjs`: la segreteria legge,
-      registra e modifica una rata, e **non** la cancella. Questa rotta la
-      chiede invece di riscriverla, e cosi le due porte non possono piu
-      divergere.
-
-      Nessun permesso nuovo: e cio che il registro generico gia concedeva.
-      Cambia che adesso lo concedono **entrambe**, o nessuna.
-    */
-    const verbo = request.method === "DELETE" ? "delete" : "update";
-    if (!canAccessClubResource(scope.activeRole, "payments", verbo)) {
-      return jsonError(
-        "Accesso negato: solo il proprietario o un gestore del club puo modificare un pagamento",
-        403,
-      );
-    }
 
     const body = await request.json().catch(() => ({}));
 
@@ -143,6 +117,42 @@ export async function PATCH(request: Request, context: Context) {
 
     if (!KNOWN_ACTIONS.has(action)) {
       return jsonError("Azione pagamento non supportata");
+    }
+
+    /*
+      **Due porte sulla stessa riga, e il verbo lo dice l'azione.**
+
+      Questa rotta pretendeva la direzione mentre
+      `PATCH /api/v1/payments/:id`, che scrive la **stessa riga**, diceva si
+      alla segreteria: l'importo di una rata passava da 100 a 999 dalla
+      seconda porta mentre la prima rispondeva 403. Il proprietario della
+      decisione «chi puo toccare una rata» e la matrice per risorsa, dove la
+      scelta e esplicita e provata da `payment-delete-guard.test.mjs`, e
+      questa rotta la **chiede** invece di riscriverne una propria.
+
+      La prima stesura pero ricavava il verbo da `request.method`, e questo
+      file esporta **solo `PATCH`**: l'azione viaggia nel corpo. Il verbo
+      valeva percio sempre `update`, il ramo `delete` della matrice non
+      veniva interrogato mai, e la correzione aveva **allentato** una rotta
+      che prima era chiusa — misurato: la segreteria annullava una rata con
+      un 200.
+
+      Adesso il verbo viene da cio che l'azione **fa**: `delete` e `cancel`
+      tolgono una rata dai totali e dallo storico, e sono la cancellazione
+      che la matrice riserva alla direzione.
+    */
+    const verbo = action === "update" ? "update" : "delete";
+    if (!canAccessClubResource(scope.activeRole, "payments", verbo)) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Accesso negato: il ruolo attivo non puo compiere questa azione su una rata",
+          },
+        },
+        { status: 403 },
+      );
     }
 
     /*

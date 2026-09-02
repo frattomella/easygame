@@ -81,53 +81,34 @@ const elencaFile = (radice) => {
  * bene.
  */
 /**
- * Le tre forme che portano l'errore **intero** dentro un log.
+ * **La variabile catturata da un `catch` non arriva a un log.**
  *
- * La prima stesura ne vedeva una sola — la variabile nuda passata come ultimo
- * argomento. Una revisione ostile ha rimesso il messaggio di Prisma con
- * `String(error)` e con l'interpolazione, e il presidio e rimasto verde.
+ * Le stesure precedenti enumeravano: prima la variabile nuda, poi
+ * `String(error)` e l'interpolazione, poi `error.message`. Tutte e tre erano
+ * ancorate a un elenco di **nomi inglesi** — `error|err|e|ex|exception` — e
+ * una revisione ha scritto `catch (problema) { console.error("…" +
+ * problema?.message) }` dentro il perimetro a tolleranza zero, con sei gate
+ * verdi. In un repository che scrive `colpevoli` e `perimetri`, un nome
+ * italiano non e un artificio: e lo stile della casa.
  *
- * Non e la variabile a fare il danno: e il **messaggio**. In un errore Prisma
- * quel messaggio contiene la query e i suoi parametri.
+ * La proprieta si dice senza elenchi: **il nome che un `catch` lega non deve
+ * comparire in un log**, qualunque sia. Lo si legge dal `catch` stesso.
  */
-/**
- * Le forme che portano il **messaggio** di un errore dentro un log.
- *
- * La seconda stesura ne vedeva tre, e una revisione ne ha trovate altre due:
- *
- *   * una `console.error(` spezzata su piu righe non corrispondeva a niente,
- *     perche l'analisi era **riga per riga** — e la forma multi-riga e quella
- *     che scrive chiunque passi tre argomenti;
- *   * `"…" + error.message` porta nel log esattamente il payload che questo
- *     presidio esiste per fermare, ed era **la forma che il messaggio
- *     d'errore del test consigliava**.
- *
- * Adesso la sorgente si normalizza su una riga sola prima di cercare, e le
- * forme sono cinque. Cambia anche la domanda: non «quale variabile passi»,
- * ma «il **messaggio** finisce nel registro?».
- */
-const NOME_ERRORE = String.raw`(error|err|e|ex|exception)`;
 const APERTURA = String.raw`console\.(log|info|warn|error|debug|trace)\(`;
 
-const PASSA_ERRORE_INTERO = [
-  /* la variabile nuda come ultimo argomento */
-  new RegExp(APERTURA + String.raw`(?:[^()]*,)?\s*` + NOME_ERRORE + String.raw`\s*\)`),
-  /* String(error) */
-  new RegExp(APERTURA + String.raw`[^;]*String\(\s*` + NOME_ERRORE + String.raw`\s*\)`),
-  /* `${error}` */
-  new RegExp(APERTURA + String.raw`[^;]*\$\{\s*` + NOME_ERRORE + String.raw`\s*\}`),
-  /* `${error.message}` e `${error?.message}` */
-  new RegExp(
-    APERTURA +
-      String.raw`[^;]*\$\{[^}]*` +
-      NOME_ERRORE +
-      String.raw`\??\.\s*(message|stack)`,
-  ),
-  /* "…" + error.message, e ogni altra concatenazione del messaggio */
-  new RegExp(
-    APERTURA + String.raw`[^;]*` + NOME_ERRORE + String.raw`\??\.\s*(message|stack)`,
-  ),
-];
+/**
+ * I nomi legati da un `catch` in questo file, con la riga in cui comincia il
+ * blocco: fuori da li quel nome non esiste, e cercarlo ovunque darebbe falsi
+ * positivi su una variabile omonima.
+ */
+const nomiCatturati = (righe) => {
+  const trovati = [];
+  righe.forEach((riga, indice) => {
+    const trovato = riga.match(/catch\s*\(\s*([A-Za-z_$][\w$]*)/);
+    if (trovato) trovati.push({ nome: trovato[1], da: indice });
+  });
+  return trovati;
+};
 
 /**
  * I commenti non sono codice.
@@ -173,37 +154,87 @@ const violazioni = () => {
     for (const file of elencaFile(radice)) {
       const originali = fs.readFileSync(file, "utf8").split(/\r?\n/);
       const pulite = senzaCommenti(originali);
-      /*
-        **Una chiamata spezzata su piu righe e una chiamata.**
+      const catturati = nomiCatturati(pulite);
 
-        L'analisi riga per riga non vedeva `console.error(\n  "…",\n
-        error,\n);` — cioe la forma che scrive chiunque passi piu di due
-        argomenti, ed e proprio quella che una revisione ha usato per
-        rimettere il messaggio di Prisma dentro il perimetro a tolleranza
-        zero.
-
-        Si guarda quindi una **finestra** di righe, che e la chiamata
-        ricomposta. La riga segnalata resta la prima, che e quella su cui
-        si va a guardare.
-      */
       pulite.forEach((riga, indice) => {
         /*
-          La finestra parte **dove la chiamata comincia**: senza, le cinque
-          righe successive verrebbero segnalate tutte per lo stesso log, e
-          l elenco direbbe cinque difetti dove ce n e uno.
+          La finestra comincia dove comincia la chiamata: una `console.error`
+          spezzata su piu righe e **una** chiamata, e segnalarne cinque
+          direbbe cinque difetti dove ce n'e uno.
         */
         if (!new RegExp(APERTURA).test(riga.replace(/\s+/g, ""))) return;
 
+        /*
+          Le stringhe si tolgono prima di cercare: «Email verification resend
+          error» contiene la parola `error`, e non e un riferimento alla
+          variabile. E il primo falso positivo che questa regola ha prodotto,
+          ed e giusto toglierlo: un presidio che insegna a rinominare i
+          messaggi non presidia, disturba.
+        */
         const finestra = pulite
-          .slice(indice, indice + 6)
+          .slice(indice, indice + 8)
           .join(" ")
-          .replace(/\s+/g, " ");
-        if (PASSA_ERRORE_INTERO.some((forma) => forma.test(finestra))) {
+          .replace(/\s+/g, " ")
+          .replace(/"[^"]*"|'[^']*'|`[^`]*`/g, '""');
+
+        /*
+          I nomi che a questa riga sono **in ambito**: quelli legati da un
+          `catch` piu sopra. Si guardano gli ultimi cinquanta righe, che e
+          largamente piu di qualunque blocco `catch` sensato.
+        */
+        const inAmbito = catturati.filter(
+          (voce) => voce.da <= indice && indice - voce.da < 50,
+        );
+
+        /*
+          Ai nomi legati da un `catch` si uniscono quelli **classici**, che una
+          callback riceve senza passare da un `catch`: `pool.on("error", (error)
+          => …)` non e un blocco catturato, e la regola sul `catch` da sola non
+          lo vedrebbe. I due elenchi si sommano — uno generalizza i nomi, l altro
+          copre le forme che un `catch` non produce.
+        */
+        const nomi = new Set([
+          ...inAmbito.map((voce) => voce.nome),
+          "error",
+          "err",
+          "e",
+          "ex",
+          "exception",
+        ]);
+
+        for (const nome of nomi) {
+          /*
+            **Cio che non deve uscire e il messaggio, non l'errore.**
+
+            Leggere `error.code` — o confrontare con `instanceof` — porta nel
+            log un valore di dominio, che e esattamente l'informazione per cui
+            un log esiste. Vietarlo insegnerebbe a non scrivere log utili, e
+            un presidio che disturba viene aggirato.
+
+            Restano vietate le tre forme che portano il **testo**: la
+            variabile nuda, `String(...)` e l'interpolazione, e
+            `.message`/`.stack`.
+          */
+          const N = nome.replace(/\$/g, "\\$");
+          const FORME = [
+            /* .message e .stack */
+            new RegExp(APERTURA + String.raw`[^;]*\b` + N + String.raw`\s*\??\s*\.\s*(message|stack)\b`),
+            /* String(nome) */
+            new RegExp(APERTURA + String.raw`[^;]*String\(\s*` + N + String.raw`\s*\)`),
+            /* `${nome}` */
+            new RegExp(APERTURA + String.raw`[^;]*\$\{\s*` + N + String.raw`\s*\}`),
+            /* la variabile nuda come argomento */
+            new RegExp(APERTURA + String.raw`(?:[^();]*,)?\s*` + N + String.raw`\s*[,)]`),
+          ];
+
+          if (!FORME.some((forma) => forma.test(finestra))) continue;
+
           trovate.push({
             file,
             riga: indice + 1,
             testo: originali[indice].trim(),
           });
+          return;
         }
       });
     }

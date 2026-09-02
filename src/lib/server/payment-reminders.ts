@@ -12,10 +12,7 @@ import {
 } from "./email/email-service";
 import { readAthleteGuardianContacts } from "@/lib/athlete-guardians";
 import { resolveAbsolutePaymentLink } from "./payment-links";
-import {
-  buildAudienceContacts,
-  resolveGuardianAccounts,
-} from "./audience";
+import { buildAudienceContacts, resolveGuardianAccounts } from "./audience";
 import {
   buildDedupKey,
   claimDelivery,
@@ -463,7 +460,10 @@ const collect = async ({
   for (const charge of charges) {
     const athleteId = asText(charge.athlete_id);
     if (!athleteId) {
-      excludedCharges.push({ chargeId: asText(charge.id), reason: "no_athlete" });
+      excludedCharges.push({
+        chargeId: asText(charge.id),
+        reason: "no_athlete",
+      });
       continue;
     }
     const bucket = byAthlete.get(athleteId);
@@ -649,7 +649,15 @@ const collect = async ({
         email: null,
         reason: "no_guardian",
       });
-      work.push({ athlete, athleteId, athleteName, ledgers: open, position, reachable, unreachable });
+      work.push({
+        athlete,
+        athleteId,
+        athleteName,
+        ledgers: open,
+        position,
+        reachable,
+        unreachable,
+      });
       continue;
     }
 
@@ -706,7 +714,15 @@ const collect = async ({
       });
     }
 
-    work.push({ athlete, athleteId, athleteName, ledgers: open, position, reachable, unreachable });
+    work.push({
+      athlete,
+      athleteId,
+      athleteName,
+      ledgers: open,
+      position,
+      reachable,
+      unreachable,
+    });
   }
 
   return {
@@ -1177,29 +1193,31 @@ export const sendPaymentReminders = async ({
         scrittura deve farlo uguale — anche se tocca due chiavi che al registro
         non interessano.
       */
-      const written = await (prisma as any).$transaction(async (client: any) => {
-        // Il blocco lo prende la funzione del proprietario del dominio: una
-        // seconda copia della stessa `SELECT ... FOR UPDATE` e una seconda
-        // occasione di scriverla diversa.
-        await lockInstallmentAndTransaction(client, chargeId);
+      const written = await (prisma as any).$transaction(
+        async (client: any) => {
+          // Il blocco lo prende la funzione del proprietario del dominio: una
+          // seconda copia della stessa `SELECT ... FOR UPDATE` e una seconda
+          // occasione di scriverla diversa.
+          await lockInstallmentAndTransaction(client, chargeId);
 
-        const charge = await client.athletePayment.findFirst({
-          where: { id: chargeId, organization_id: clubId },
-        });
-        if (!charge) return false;
+          const charge = await client.athletePayment.findFirst({
+            where: { id: chargeId, organization_id: clubId },
+          });
+          if (!charge) return false;
 
-        await client.athletePayment.update({
-          where: { id: chargeId },
-          data: {
+          await client.athletePayment.update({
+            where: { id: chargeId },
             data: {
-              ...asRecord(charge.data),
-              lastReminderAt: nowIso,
-              lastReminderBy: scope?.userId || null,
+              data: {
+                ...asRecord(charge.data),
+                lastReminderAt: nowIso,
+                lastReminderBy: scope?.userId || null,
+              },
             },
-          },
-        });
-        return true;
-      });
+          });
+          return true;
+        },
+      );
 
       if (written) {
         remindedChargeIds.push(chargeId);

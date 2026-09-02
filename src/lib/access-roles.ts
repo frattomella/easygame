@@ -1,3 +1,5 @@
+import { customRoleReachesResource } from "@/lib/permissions/catalog";
+
 export type CanonicalAccessRole =
   | "owner"
   | "club_manager"
@@ -861,6 +863,29 @@ export const canAccessClubResource = (
       return false;
     }
     return true;
+  }
+
+  /*
+    **Un ruolo ristretto e ristretto per ogni chiamante, non solo per il
+    registro generico.**
+
+    Questa regola viveva in `resources.ts`, per non creare un ciclo di import
+    fra questo modulo e il catalogo. Una revisione ha misurato il prezzo di
+    quella scelta: `funding.ts` e `attachment-permissions.ts` chiamano
+    **questo** predicato e non il registro, e l'elenco dei beneficiari di un
+    contributo pubblico — quali famiglie lo ricevono e per quanto —
+    rispondeva al ruolo **base**. Lo stesso ruolo di club: 403 dal registro
+    generico, 200 dalle rotte dei bandi.
+
+    Il ciclo non si forma: il catalogo usa questo modulo dentro le funzioni e
+    non a tempo di inizializzazione, e cosi fa questa riga. La regola sta
+    dove sta la domanda, e vale per tutti invece che per uno.
+  */
+  if (
+    isCustomRoleValue(role) &&
+    !customRoleReachesResource(role, normalizedResource)
+  ) {
+    return false;
   }
 
   if (normalizedRole === "collaborator" || normalizedRole === "staff") {

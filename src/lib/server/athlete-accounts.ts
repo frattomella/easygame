@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "crypto";
+import { reportServerError } from "./observability";
 import { athleteWithinAccessScope } from "./access-scope-query";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
@@ -322,8 +323,7 @@ export const readAthleteAccountState = async (
   const adesso = new Date();
   const vivo =
     inviti.find(
-      (riga) =>
-        riga.status === "sent" && new Date(riga.expires_at) > adesso,
+      (riga) => riga.status === "sent" && new Date(riga.expires_at) > adesso,
     ) || null;
 
   return {
@@ -372,10 +372,13 @@ export const readAthleteAccountState = async (
  * cui il prodotto scrive «nessuna password» — e nessuna verifica dichiarata,
  * perche a questo punto nessuno ha dimostrato di leggere quella casella.
  */
-const risolviUtenza = async (email: string, athleteNome: {
-  first_name?: string | null;
-  last_name?: string | null;
-}) => {
+const risolviUtenza = async (
+  email: string,
+  athleteNome: {
+    first_name?: string | null;
+    last_name?: string | null;
+  },
+) => {
   const esistente = await prisma.user.findUnique({ where: { email } });
   if (esistente) return { user: esistente, creata: false as const };
 
@@ -555,9 +558,11 @@ export const sendAthleteAccountInvite = async (
       la consegna e un fatto separato dall'invito, la scheda lo dice, e il
       reinvio esiste apposta.
     */
-    console.error("[athlete-accounts] invio invito non riuscito", {
-      inviteId: invito.id,
-      message: (error as Error)?.message,
+    reportServerError(error, {
+      metadata: {
+        inviteId: invito.id,
+        esito: "[athlete-accounts] invio invito non riuscito",
+      },
     });
   }
 
@@ -808,8 +813,7 @@ export const acceptAthleteAccountInvite = async (
     scaduto, revocato, gia usato — perche distinguerli direbbe a chi prova
     quale forma di token esiste. E la stessa scelta di `confirmPasswordReset`.
   */
-  const nonValido = () =>
-    new Error("Invito non valido, gia usato o scaduto");
+  const nonValido = () => new Error("Invito non valido, gia usato o scaduto");
 
   if (!normalizzato) throw nonValido();
 
@@ -938,9 +942,11 @@ export const acceptAthleteAccountInvite = async (
       });
       passwordSetupSent = esito.sent;
     } catch (error) {
-      console.error("[athlete-accounts] invio scelta password non riuscito", {
-        userId: utente.id,
-        message: (error as Error)?.message,
+      reportServerError(error, {
+        metadata: {
+          userId: utente.id,
+          esito: "[athlete-accounts] invio scelta password non riuscito",
+        },
       });
     }
   }
@@ -1363,7 +1369,9 @@ export const updateOwnAthleteContacts = async (
   if (!atleta) throw new Error("Atleta non trovato");
 
   const precedente =
-    atleta.data && typeof atleta.data === "object" && !Array.isArray(atleta.data)
+    atleta.data &&
+    typeof atleta.data === "object" &&
+    !Array.isArray(atleta.data)
       ? (atleta.data as Record<string, unknown>)
       : {};
 

@@ -308,6 +308,19 @@ export const createAttachment = async (
     throw new Error("Allegato senza proprietario");
   }
 
+  /*
+    **La sesta porta di Attachment Core, e l'unica senza perimetro.**
+
+    Lettura, elenco, metadati, sostituzione e cancellazione lo verificano.
+    Il **deposito** no: si metteva un file nel fascicolo di un minore fuori
+    perimetro — e poi non lo si poteva piu rileggere, il che rende il difetto
+    silenzioso invece che innocuo.
+  */
+  await assertAttachmentWithinAccessScope(scope, {
+    owner_type: ownerType,
+    owner_id: ownerId,
+    organization_id: organizationId,
+  });
   const content = input.content;
   if (!Buffer.isBuffer(content) || content.length === 0) {
     throw new Error("Il file e vuoto.");

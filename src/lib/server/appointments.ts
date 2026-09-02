@@ -828,6 +828,34 @@ const caricaPerScrittura = async (scope: AppointmentsScope, id: string) => {
 
   assertActiveClub(scope, row.organization_id, "l'appuntamento");
   assertPerimetro(scope, row);
+
+  /*
+    **E il perimetro di sede e categoria, che qui non arrivava.**
+
+    `createAppointment` lo verifica, e la sua motivazione vale identica per le
+    cinque transizioni che passano di qui — conferma, rifiuto, annullamento,
+    chiusura, riprogrammazione: la lettura fuori perimetro e debito dichiarato
+    (W6-D18), la **scrittura** no. Confermare e annullare mandano una notifica
+    ai tutori del minore.
+
+    `assertPerimetro` qui sopra e un'altra cosa: dice «questo appuntamento e
+    assegnato a te», e solo per il ruolo `trainer`. Due nomi simili per due
+    regole diverse: era la distanza da cui si passava.
+  */
+  const suAtleta = asText((row as any).athlete_id);
+  if (suAtleta) {
+    const dentro = await athleteWithinAccessScope(
+      row.organization_id,
+      suAtleta,
+      scope,
+    );
+    if (!dentro) {
+      throw negato(
+        "questo atleta e fuori dal perimetro di sede o categoria del ruolo attivo",
+      );
+    }
+  }
+
   return row;
 };
 

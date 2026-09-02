@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { reportServerError } from "./observability";
 import { getRequestIp } from "./auth-rate-limit";
 import { roleHasPermission } from "@/lib/permissions/catalog";
 
@@ -589,9 +590,11 @@ export const recordAuditEvent = async (
     return true;
   } catch (error) {
     // Un audit che fallisce non deve rompere l'operazione tracciata.
-    console.error("[audit] scrittura non riuscita", {
-      action: event.action,
-      message: (error as Error)?.message,
+    reportServerError(error, {
+      metadata: {
+        action: event.action,
+        esito: "[audit] scrittura non riuscita",
+      },
     });
     return false;
   }
@@ -622,11 +625,14 @@ export const recordAuditEvent = async (
  * per essere rifiutata.
  */
 export const recordPermissionDenied = async (input: {
-  scope: {
-    userId?: string | null;
-    activeRole?: string | null;
-    activeOrganizationId?: string | null;
-  } | null | undefined;
+  scope:
+    | {
+        userId?: string | null;
+        activeRole?: string | null;
+        activeOrganizationId?: string | null;
+      }
+    | null
+    | undefined;
   permission: string;
   resource: string;
   resourceId?: string | null;
@@ -770,7 +776,9 @@ const AUDIT_PAGE_SIZE_MAX = 200;
 export const listAuditAreas = () =>
   Array.from(
     new Set(
-      Object.values(AUDIT_ACTIONS).map((action) => String(action).split(".")[0]),
+      Object.values(AUDIT_ACTIONS).map(
+        (action) => String(action).split(".")[0],
+      ),
     ),
   ).sort();
 
@@ -812,7 +820,9 @@ export const listAuditEvents = async (
 ): Promise<{ items: AuditEventView[]; total: number; hasMore: boolean }> => {
   const club = String(organizationId || "").trim();
   if (!club) {
-    throw new Error("Accesso negato: nessun club attivo su cui leggere l'audit");
+    throw new Error(
+      "Accesso negato: nessun club attivo su cui leggere l'audit",
+    );
   }
 
   const limit = Math.min(
@@ -823,9 +833,13 @@ export const listAuditEvents = async (
 
   const from = asDate(query.from);
   const to = asDate(query.to);
-  const area = String(query.area || "").trim().toLowerCase();
+  const area = String(query.area || "")
+    .trim()
+    .toLowerCase();
   const action = String(query.action || "").trim();
-  const actorEmail = String(query.actorEmail || "").trim().toLowerCase();
+  const actorEmail = String(query.actorEmail || "")
+    .trim()
+    .toLowerCase();
 
   const where: Record<string, unknown> = { organization_id: club };
 

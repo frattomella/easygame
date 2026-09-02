@@ -117,23 +117,12 @@ const sorgenti = async (cartella) => {
   return file;
 };
 
-/*
-  **Le chiavi sotto cui vive una sessione.**
-
-  Il presidio guarda **queste**, non il nome della variabile che viene
-  serializzata: una revisione ostile ha rimesso il difetto rinominando
-  `session` in `dati`, e la prima stesura — che cercava la parola «session»
-  dentro lo `setItem` — dava cinque verdi con il gettone di nuovo in chiaro.
-
-  Il nome di una variabile e di chi scrive; la chiave dell'archivio e il
-  contratto.
 /**
  * I soli file lato client che possono **nominare** una credenziale di sessione.
  *
  * E la piu forte delle tre difese, e la ragione e questa: per far uscire il
  * gettone dal browser bisogna o **nominarlo** — e allora si finisce qui — o
- * serializzare l'oggetto sessione intero, che e cio che il controllo successivo
- * copre.
+ * scriverlo in un archivio, che e cio che le regole successive coprono.
  */
 const PUO_NOMINARE_LA_CREDENZIALE = new Map([
   [
@@ -150,10 +139,10 @@ test("nessun file del browser nomina una credenziale di sessione", async () => {
   /*
     **La prima delle tre difese, e quella che chiude l'aliasing.**
 
-    Una revisione ostile ha rimesso il gettone in `localStorage` in tre modi
-    diversi: rinominando la variabile serializzata, usando una **chiave nuova**,
-    e passando da `document.cookie`. Il presidio precedente cercava la chiave
-    dell'archivio fra cinque nomi cablati, e tutti e tre gli passavano davanti.
+    Una revisione ostile ha rimesso il gettone in `localStorage` in tre modi:
+    rinominando la variabile serializzata, usando una **chiave nuova**, e
+    passando da `document.cookie`. Una revisione successiva ne ha trovato un
+    quarto: **comporre il nome a pezzi**, `"access" + "_token"`.
 
     Il codice server e escluso: li il gettone si crea, ed e il suo posto.
   */
@@ -169,22 +158,11 @@ test("nessun file del browser nomina una credenziale di sessione", async () => {
       .replace(/parent_access_token\w*/g, "")
       .replace(/access_tokens/g, "");
 
-    /*
-      **E il nome non si compone a pezzi.**
-
-      `"access" + "_token"` non contiene `access_token`, e una revisione lo
-      ha usato per rimettere il gettone in `localStorage` lasciando il
-      presidio verde. Si toglie quindi cio che separa i pezzi — virgolette,
-      piu, spazi — prima di cercare: un nome ricomposto e lo stesso nome.
-    */
+    /* Un nome ricomposto e lo stesso nome: si toglie cio che separa i pezzi. */
     const ricomposto = testo.replace(/["'`]\s*\+\s*["'`]/g, "");
 
-    if (
-      !/\baccess_token\b|\brefresh_token\b/.test(testo) &&
-      !/\baccess_token\b|\brefresh_token\b/.test(ricomposto)
-    ) {
-      continue;
-    }
+    const nomina = (t) => /\baccess_token\b|\brefresh_token\b/.test(t);
+    if (!nomina(testo) && !nomina(ricomposto)) continue;
     if (PUO_NOMINARE_LA_CREDENZIALE.has(relativo)) continue;
     colpevoli.push(relativo);
   }
@@ -199,153 +177,215 @@ test("nessun file del browser nomina una credenziale di sessione", async () => {
 });
 
 /**
- * Le scritture di un **oggetto** in un archivio del browser, dichiarate una per
- * una con il motivo.
+ * **Le chiavi che il prodotto puo scrivere in un archivio del browser.**
  *
- * Cercare la **chiave** fra cinque nomi noti non poteva vedere una cache
- * battezzata `easygame.session.v2`: una revisione ostile ne ha aggiunta una e
- * ha ottenuto sei verdi. Qui si prende la direzione opposta — si dichiara cosa
- * puo essere scritto — che e la stessa forma usata altrove nel repository per
- * le aree, le risorse e i confini.
+ * La stesura precedente dichiarava i **file**, e una revisione ha misurato il
+ * prezzo di quella scelta: `AuthProvider.tsx` era dichiarato — per il club
+ * attivo — ed e esattamente il file che ha in mano l'oggetto sessione. Da li
+ * si scriveva `sessionStorage.setItem("easygame.sync.v2",
+ * JSON.stringify(session))` con sei gate verdi.
  *
- * Sono poche e stabili. Una in piu si nota, ed e il punto.
+ * Si dichiara quindi la **chiave**, che e cio che finisce nel browser: una
+ * chiave nuova si nota anche dentro un file gia dichiarato, ed e il punto.
+ *
+ * Le chiavi composte a runtime si dichiarano con la loro **forma**:
+ * l'interpolazione e sempre un identificativo, mai un contenuto.
  */
-const SCRITTURE_DICHIARATE = new Map([
-  ["components/dashboard/Sidebar.tsx", "preferenze di larghezza della barra"],
-  ["components/layout/MobileTopBar.tsx", "sezioni aperte del menu"],
-  ["app/communications/page.tsx", "bozza della comunicazione in corso"],
-  ["components/documents/bulk-generation.ts", "lotto di generazione in corso"],
-  [
-    "components/parent-dashboard/parent-dashboard-context.tsx",
-    "figlio selezionato e preferenze di vista",
-  ],
-  [
-    "components/payments/use-athlete-payment-ledger.ts",
-    "filtri della vista pagamenti",
-  ],
-  ["lib/forms/draft-storage.ts", "bozza di una compilazione, senza allegati"],
+const CHIAVI_DICHIARATE = new Map([
+  ["activeClub", "il club attivo"],
+  ["activeClub_${}", "il club attivo, per utente"],
+  ["userClubs", "l'elenco dei club dell'utente"],
+  ["userClubs_${}", "l'elenco dei club, per utente"],
+  ["supabase_session_timestamp", "l'istante dell'ultima sincronizzazione"],
+  ["app-language", "la lingua scelta"],
+  ["organization-name", "il nome del club, per dipingere subito l'intestazione"],
+  ["organization-logo", "il logo del club, per la stessa ragione"],
+  ["sidebar-collapsed", "barra laterale aperta o chiusa"],
+  ["athlete-sidebar-collapsed", "barra laterale aperta o chiusa"],
+  ["parent-sidebar-collapsed", "barra laterale aperta o chiusa"],
+  ["trainer-sidebar-collapsed", "barra laterale aperta o chiusa"],
+  ["profileImage_${}", "immagine del profilo, durante la verifica"],
+  ["userName_${}", "nome mostrato, durante la verifica"],
+  ["athleteColumns_${}", "colonne scelte nella tabella atleti"],
+  ["matchSettings_scheduleConflicts", "preferenza di vista sulle gare"],
+  ["matchSettings_athleteStatusFilter", "preferenza di vista sulle gare"],
+  ["userProfile_${}", "nome e immagine, per dipingere subito l'intestazione"],
   /*
-    Le otto qui sotto le ha scoperte la regola piu forte — «ogni `setItem` va
-    dichiarato», invece di «ogni `setItem` che serializza un oggetto». Nessuna
-    porta una credenziale, e si vede dal valore: sono preferenze di vista,
-    il club attivo, e due campi di profilo. Restano scritte qui perche la
-    nona si deve notare.
-  */
-  ["app/settings/page.tsx", "lingua scelta dall'utente"],
-  [
-    "app/token-verification/[userId]/profile-modal.tsx",
-    "nome e immagine del profilo, mostrati mentre si completa la verifica",
-  ],
-  ["components/athlete/athlete-sidebar.tsx", "barra laterale aperta o chiusa"],
-  [
-    "components/parent-dashboard/ParentSidebar.tsx",
-    "barra laterale aperta o chiusa",
-  ],
-  ["components/trainer/TrainerSidebar.tsx", "barra laterale aperta o chiusa"],
-  [
-    "components/providers/AuthProvider.tsx",
-    "club attivo e istante dell'ultima sincronizzazione: la sessione passa da sessionSenzaCredenziali",
-  ],
+    **La cache della sessione, ed e la sola chiave che ne contiene una.**
 
-  /*
-    Il club attivo e le sue liste. Portano nome, identificativo e stagione — non
-    credenziali — e servono a dipingere l'interfaccia prima che il server
-    risponda. Sono molte perche il valore e scritto da ogni schermata che puo
-    cambiare club: e un debito di forma, non di sicurezza, e sta in [16].
+    Ci finisce cio che `sessionSenzaCredenziali` restituisce, non la sessione
+    intera. La regola che segue lo pretende: dichiarare la chiave non basta,
+    perche una dichiarazione e un permesso e non una garanzia.
   */
-  ["app/dashboard/page.tsx", "club attivo dopo la scelta"],
-  ["app/dashboard/[dashboardId]/page.tsx", "club attivo dopo la scelta"],
-  ["app/organization/page.tsx", "club attivo dopo il salvataggio dei dati societari"],
-  ["app/token-verification/[userId]/page.tsx", "club attivo e elenco club dopo la verifica"],
-  ["components/account/account-home-screen.tsx", "club attivo scelto dalla schermata account"],
-  ["lib/api/client.ts", "stagione attiva dentro il club gia in cache"],
-  ["lib/simplified-db.ts", "club attivo e elenco club"],
-
-  /* Preferenze di vista: colonne, filtri, impostazioni di una schermata. */
-  ["app/athletes/page.tsx", "colonne visibili dell'elenco atleti"],
-  ["app/matches/page.tsx", "impostazioni della schermata gare"],
-  ["app/profile/[userId]/page.tsx", "cache del proprio profilo, per dipingere subito"],
+  ["supabase_session", "la sessione senza credenziali, per dipingere subito l'interfaccia"],
 ]);
 
-test("nessun percorso scrive un oggetto nel browser senza dichiararlo", async () => {
+/**
+ * I prefissi delle chiavi che una schermata compone per se — bozze, filtri,
+ * lotti — e che non si possono elencare una per una perche ne esiste una per
+ * documento aperto. Ognuno dice **che cosa** ci finisce dentro.
+ */
+const PREFISSI_DICHIARATI = new Map([
+  ["easygame-comm-draft", "bozza della comunicazione in corso"],
+  ["easygame-bulk", "lotto di generazione documenti in corso"],
+  ["easygame:form-draft", "bozza di una compilazione, senza allegati"],
+  ["easygame-parent", "figlio selezionato e preferenze di vista"],
+  ["easygame.parent", "figlio selezionato e preferenze di vista"],
+  ["easygame-payments", "filtri della vista pagamenti"],
+  ["easygame.payments", "filtri della vista pagamenti"],
+]);
+
+const PREFISSI = [...PREFISSI_DICHIARATI.keys()];
+
+const chiaveDichiarata = (chiave) =>
+  CHIAVI_DICHIARATE.has(chiave) ||
+  PREFISSI.some((prefisso) => chiave.startsWith(prefisso));
+
+test("ogni chiave scritta in un archivio del browser e dichiarata", async () => {
+  /*
+    **Si guarda la chiave, non la forma del valore ne il file.**
+
+    Due evasioni misurate hanno portato qui. La prima: il presidio si accendeva
+    solo su `JSON.stringify(`, e `String(session[campo])` gli passava davanti.
+    La seconda: l'eccezione era per file, e il file che ha in mano la sessione
+    era fra le eccezioni.
+
+    Si cerca anche la scrittura **per proprieta** — `localStorage["x"] = y` —
+    che scrive un item esattamente come `setItem` e che nessuna regola
+    guardava.
+  */
   const file = await sorgenti(SRC);
   const colpevoli = [];
+
+  const FORME = [
+    /(?:localStorage|sessionStorage)\s*\.\s*setItem\s*\(\s*(?:["'`][^"'`]*["'`]|`[^`]*`)/g,
+    /(?:localStorage|sessionStorage)\s*\[\s*(?:["'`][^"'`]*["'`]|`[^`]*`)\s*\]\s*=/g,
+  ];
 
   for (const percorso of file) {
     const relativo = path.relative(SRC, percorso).split(path.sep).join("/");
     const testo = await readFile(percorso, "utf8");
-    if (!testo.includes("setItem(")) continue;
 
-    const scritture =
-      testo.match(new RegExp(String.raw`setItem\([\s\S]{0,400}?\)\s*;`, "g")) ||
-      [];
+    for (const forma of FORME) {
+      for (const trovato of testo.match(forma) || []) {
+        const conApici = trovato.match(/["'](.*)["']$/);
+        const conTemplate = trovato.match(/`([^`]*)`/);
+        const chiave = conTemplate
+          ? conTemplate[1].replace(/\$\{[^}]*\}/g, "${}")
+          : conApici
+            ? conApici[1]
+            : null;
 
-    for (const scrittura of scritture) {
-      /*
-        **Si guarda la scrittura, non la sua forma.**
-
-        La prima stesura si accendeva solo su `JSON.stringify(`. Una
-        revisione ostile ha rimesso il gettone nel browser con
-        `String(session[campo])` sotto una chiave nuova, e il presidio e
-        rimasto verde: la forma del valore non e la proprieta, e la
-        **scrittura** a esserlo.
-
-        Adesso ogni `setItem` di un file del browser deve essere dichiarato.
-        Sono poche e stabili — una in piu si nota, ed e il punto.
-      */
-      if (scrittura.includes("sessionSenzaCredenziali")) continue;
-      if (SCRITTURE_DICHIARATE.has(relativo)) continue;
-      colpevoli.push(
-        relativo + ": " + scrittura.replace(/\s+/g, " ").slice(0, 80),
-      );
+        if (chiave !== null && chiaveDichiarata(chiave)) continue;
+        colpevoli.push(`${relativo}: ${chiave ?? trovato.trim()}`);
+      }
     }
   }
 
   assert.deepEqual(
     colpevoli,
     [],
-    "scritture di oggetti nel browser non dichiarate: " +
+    "chiavi scritte in un archivio del browser e non dichiarate: " +
       colpevoli.join(" | ") +
-      ". Dichiarala in SCRITTURE_DICHIARATE con il motivo, oppure passa dalla funzione che toglie le credenziali",
+      ". Dichiarala in CHIAVI_DICHIARATE con il motivo",
   );
 });
 
-test("le scritture dichiarate esistono ancora", async () => {
+/**
+ * Le chiavi sotto cui vive una **sessione**, e che percio non possono essere
+ * scritte con l'oggetto intero.
+ */
+const CHIAVI_DI_SESSIONE = ["supabase_session", "easygame.session"];
+
+test("cio che si scrive sotto una chiave di sessione passa dalla funzione che toglie le credenziali", async () => {
   /*
-    Un elenco di eccezioni invecchia: una voce che non corrisponde piu a niente
-    fa credere coperto un file che non c'e piu, e nasconde il posto in cui la
-    prossima nascera.
+    **Dichiarare una chiave e un permesso, non una garanzia.**
+
+    `supabase_session` e dichiarata, e deve esserlo: la cache serve a dipingere
+    subito l'interfaccia. Ma chiunque potrebbe scriverci `JSON.stringify(session)`
+    — l'oggetto intero, gettone compreso — e nessuna delle altre regole se ne
+    accorgerebbe, perche quella riga non **nomina** nessuna credenziale e la
+    chiave e in elenco.
+
+    Questa regola guarda **cosa** ci si scrive: sotto una chiave di sessione
+    puo finire solo cio che passa da `sessionSenzaCredenziali`.
   */
   const file = await sorgenti(SRC);
-  const conosciuti = new Set(
-    file.map((percorso) =>
-      path.relative(SRC, percorso).split(path.sep).join("/"),
-    ),
-  );
+  const colpevoli = [];
 
-  const scomparse = [...SCRITTURE_DICHIARATE.keys()].filter(
-    (relativo) => !conosciuti.has(relativo),
+  for (const percorso of file) {
+    const relativo = path.relative(SRC, percorso).split(path.sep).join("/");
+    const testo = await readFile(percorso, "utf8");
+
+    for (const chiave of CHIAVI_DI_SESSIONE) {
+      const scritture =
+        testo.match(
+          new RegExp(
+            String.raw`(?:localStorage|sessionStorage)\s*(?:\.\s*setItem\s*\(|\[)\s*["'\`]` +
+              chiave.replace(/\./g, "\\.") +
+              String.raw`["'\`][\s\S]{0,200}?\)`,
+              "g",
+          ),
+        ) || [];
+
+      for (const scrittura of scritture) {
+        if (scrittura.includes("sessionSenzaCredenziali")) continue;
+        colpevoli.push(
+          relativo + ": " + scrittura.replace(/\s+/g, " ").slice(0, 90),
+        );
+      }
+    }
+  }
+
+  assert.deepEqual(
+    colpevoli,
+    [],
+    "sotto una chiave di sessione si scrive qualcosa che non passa da " +
+      "sessionSenzaCredenziali: " + colpevoli.join(" | "),
+  );
+});
+
+test("le chiavi dichiarate esistono ancora", async () => {
+  /*
+    Un elenco di eccezioni invecchia: una voce che non corrisponde piu a
+    niente fa credere coperto un posto che non c'e piu.
+  */
+  const file = await sorgenti(SRC);
+  const scritte = new Set();
+
+  for (const percorso of file) {
+    const testo = await readFile(percorso, "utf8");
+    for (const trovato of testo.match(
+      /(?:localStorage|sessionStorage)\s*\.\s*(?:setItem|getItem|removeItem)\s*\(\s*(?:["'`][^"'`]*["'`]|`[^`]*`)/g,
+    ) || []) {
+      const conApici = trovato.match(/["'](.*)["']$/);
+      const conTemplate = trovato.match(/`([^`]*)`/);
+      const chiave = conTemplate
+        ? conTemplate[1].replace(/\$\{[^}]*\}/g, "${}")
+        : conApici
+          ? conApici[1]
+          : null;
+      if (chiave !== null) scritte.add(chiave);
+    }
+  }
+
+  const scomparse = [...CHIAVI_DICHIARATE.keys()].filter(
+    (chiave) => !scritte.has(chiave),
   );
 
   assert.deepEqual(
     scomparse,
     [],
-    "scritture dichiarate che non esistono piu: " + scomparse.join(", "),
+    "chiavi dichiarate che nessuno scrive o legge piu: " + scomparse.join(", "),
   );
 });
 
 test("nessun percorso del browser usa un archivio non dichiarato", async () => {
   /*
-    **La quarta difesa, e chiude gli archivi che nessuno aveva guardato.**
-
-    Le prime tre parlano di `localStorage`, `sessionStorage` e dei cookie.
-    Un browser ne ha altri, e una revisione li ha elencati: `window.name`
-    sopravvive alla navigazione, IndexedDB e uno spazio intero, e
-    `history.replaceState` porta il suo stato nella cronologia.
-
-    Nessuno di questi e usato dal prodotto, ed e proprio per questo che vale
-    la pena dirlo adesso: la regola costa niente finche resta vera, e la
-    prima volta che smette di esserlo qualcuno deve fermarsi a spiegarlo.
+    Gli altri archivi che un browser offre: `window.name` sopravvive alla
+    navigazione, IndexedDB e uno spazio intero, e lo stato della cronologia
+    viaggia con la pagina. Nessuno dei tre e usato dal prodotto, ed e per
+    questo che vale la pena dirlo adesso.
   */
   const file = await sorgenti(SRC);
   const colpevoli = [];
@@ -353,13 +393,6 @@ test("nessun percorso del browser usa un archivio non dichiarato", async () => {
   const ARCHIVI = [
     [/\bwindow\.name\s*=/, "window.name"],
     [/\bindexedDB\b/, "IndexedDB"],
-    /*
-      `history.replaceState` con uno stato **vuoto** o con quello che c'era
-      gia serve a riscrivere l'indirizzo, e il prodotto lo usa in cinque
-      punti per togliere un parametro dalla barra. Cio che va vietato e
-      **metterci dentro qualcosa**: la cronologia sopravvive alla
-      navigazione e non e un archivio di cui qualcuno si ricordi.
-    */
     [
       /history\.(replace|push)State\s*\(\s*(?!\{\s*\}|null|undefined|window\.history\.state|history\.state)[^)\s]/,
       "history.state",
@@ -387,11 +420,8 @@ test("nessun percorso del browser usa un archivio non dichiarato", async () => {
 
 test("nessun percorso del browser scrive un cookie a mano", async () => {
   /*
-    **La terza difesa, e chiude la strada che nessuno aveva guardato.**
-
-    La revisione ha rimesso il gettone anche con `document.cookie = "…"`. I
-    cookie di sessione li scrive il **server**, con `httpOnly`: uno scritto dal
-    browser e per definizione leggibile da ogni script della pagina, ed e
+    I cookie di sessione li scrive il **server**, con `httpOnly`: uno scritto
+    dal browser e per definizione leggibile da ogni script della pagina, ed e
     esattamente cio che quella scelta serve a impedire.
   */
   const file = await sorgenti(SRC);
@@ -411,32 +441,4 @@ test("nessun percorso del browser scrive un cookie a mano", async () => {
     [],
     "file del browser che scrivono un cookie a mano: " + colpevoli.join(", "),
   );
-});
-
-test("la regola vive in un posto solo, insieme alle chiavi delle cache", async () => {
-  /*
-    Le due copie erano nate perche la regola era scritta a mano, e una delle due
-    scritture se ne era dimenticata. Il proprietario e `session-sync.ts`, che
-    possiede gia i nomi delle chiavi: chi tocca una cache trova li anche la
-    regola.
-  */
-  const modulo = await readFile("src/lib/auth/session-sync.ts", "utf8");
-  assert.match(
-    modulo,
-    /export const sessionSenzaCredenziali/,
-    "la funzione deve stare nel modulo che possiede le chiavi delle cache",
-  );
-
-  const consumatori = [
-    "src/lib/supabase.ts",
-    "src/components/providers/AuthProvider.tsx",
-  ];
-  for (const percorso of consumatori) {
-    const testo = await readFile(percorso, "utf8");
-    assert.match(
-      testo,
-      /sessionSenzaCredenziali/,
-      `${percorso} scrive una cache di sessione e deve passare dalla regola condivisa`,
-    );
-  }
 });

@@ -225,6 +225,9 @@ const preparaTrasporto = async () => {
     risorsa: await carica("src/app/api/v1/[resource]/route.ts"),
     riscatto: await carica("src/app/api/v1/auth/access/redeem/route.ts"),
     avatar: await carica("src/app/api/v1/athletes/[id]/avatar/route.ts"),
+    profiloAtleta: await carica(
+      "src/app/api/v1/auth/athlete-profile/[athleteId]/route.ts",
+    ),
   };
 };
 
@@ -2630,14 +2633,22 @@ const u52 = async () => {
     "senza la riga, mille tentativi a vuoto sono indistinguibili da zero",
   );
 
-  /* Un gettone vero, con dentro un ruolo che vale qualcosa. */
+  /*
+    Un gettone vero. La **firma** del coniatore c e, ed e la forma che il conio
+    di oggi produce: senza, un ruolo che amministra il club non si concede piu —
+    lo prova `U-53`, e qui si misura il riscatto riuscito, non il soffitto.
+  */
   const gettone = await prisma.clubResourceItem.create({
     data: {
       organization_id: CLUB_A,
       resource_type: "access_tokens",
       name: "SONDAU52RISCATTO",
       status: "active",
-      payload: { role: "collaborator", one_time: true },
+      payload: {
+        role: "collaborator",
+        one_time: true,
+        minted_by_role: "owner",
+      },
     },
   });
 
@@ -3631,22 +3642,73 @@ const u58 = async () => {
     { id: "g-padre", firstName: "Bruno", parentAccessTokenValue: "U58-PADRE" },
   ];
 
-  /* --- 1. la revoca, da un ruolo che il gettone NON lo vede --- */
+  /* --- 1. chi non vede la credenziale non la revoca ne la sostituisce --- */
+  /*
+    **La prima stesura di questa prova pretendeva la cosa sbagliata.**
+
+    Chiedeva che una «revoca esplicita» — il valore vuoto — fosse rispettata
+    anche da un ruolo che il gettone non lo vede. Una revisione ha mostrato
+    che quella non e una revoca: chi non ha mai letto il valore non puo aver
+    deciso di toglierlo, e da quella porta si azzeravano due codici di
+    accesso e se ne sostituiva uno con un valore scelto.
+
+    La regola giusta e piu semplice, e non ha rami: per chi non vede la
+    credenziale, **ogni** sparizione e una perdita. La revoca resta di chi la
+    vede, e il controspecchio in fondo la prova.
+  */
   await scriviTutori(DUE_TUTORI);
 
+  for (const [titolo, valore] of [
+    ["U-58 chi non vede la credenziale non la azzera", ""],
+    ["U-58 ne la sostituisce con un valore scelto", "SCELTO-DA-ME"],
+  ]) {
+    await varco(
+      titolo,
+      () =>
+        risorse.updateResource(
+          "athletes",
+          ATLETA_A,
+          {
+            data: {
+              guardians: [
+                {
+                  id: "g-madre",
+                  firstName: "Anna",
+                  parentAccessTokenValue: valore,
+                  parentAccessTokenStatus: "revoked",
+                },
+                { id: "g-padre", firstName: "Bruno" },
+              ],
+            },
+          },
+          scopeRuolo("collaborator"),
+        ),
+      ["negato"],
+    );
+  }
+
+  prova(
+    "U-58 e i due codici sono ancora quelli veri",
+    { madre: true, padre: true, scelto: false },
+    {
+      madre: (await leggiArchivio()).includes("U58-MADRE"),
+      padre: (await leggiArchivio()).includes("U58-PADRE"),
+      scelto: (await leggiArchivio()).includes("SCELTO-DA-ME"),
+    },
+  );
+
+  /*
+    E il salvataggio ordinario — quello che rimanda indietro cio che ha letto,
+    cioe **senza** la chiave, perche il taglio l'ha tolta — deve passare.
+    Senza questa riga la regola sarebbe «non si salva piu l'anagrafica».
+  */
   await risorse.updateResource(
     "athletes",
     ATLETA_A,
     {
       data: {
         guardians: [
-          {
-            id: "g-madre",
-            firstName: "Anna",
-            /* il vuoto **esplicito**: e cosi che si revoca */
-            parentAccessTokenValue: "",
-            parentAccessTokenStatus: "revoked",
-          },
+          { id: "g-madre", firstName: "Anna", phone: "3330000001" },
           { id: "g-padre", firstName: "Bruno" },
         ],
       },
@@ -3654,18 +3716,15 @@ const u58 = async () => {
     scopeRuolo("collaborator"),
   );
 
-  const dopoLaRevoca = await leggiArchivio();
   prova(
-    "U-58 una revoca esplicita non viene annullata dal ripristino",
-    { madreRevocata: false, padreConservato: true },
+    "U-58 e un salvataggio ordinario passa, e conserva i codici",
+    { madre: true, padre: true, telefono: true },
     {
-      madreRevocata: dopoLaRevoca.includes("U58-MADRE"),
-      /* e l'altro tutore, di cui non si e detto niente, resta intatto */
-      padreConservato: dopoLaRevoca.includes("U58-PADRE"),
+      madre: (await leggiArchivio()).includes("U58-MADRE"),
+      padre: (await leggiArchivio()).includes("U58-PADRE"),
+      telefono: (await leggiArchivio()).includes("3330000001"),
     },
-    "prima: lo stato diceva `revoked` e il valore era tornato",
   );
-
   /* --- 2. la credenziale non si sposta su un'altra persona --- */
   await scriviTutori(DUE_TUTORI);
 
@@ -3866,29 +3925,56 @@ const u59 = async () => {
   );
 
   /* --- 3. l'auto-nomina a tutore --- */
-  await varco(
-    "U-59 non ci si nomina tutori scrivendo l'anagrafica",
-    () =>
-      risorse.updateResource(
-        "athletes",
-        ATLETA_A,
-        {
-          data: {
-            guardians: [
-              { id: "g-madre", firstName: "Anna", linkedUserId: utenti.parent.id },
-              { id: "g-padre", firstName: "Bruno" },
-              {
-                id: "g-intruso",
-                firstName: "Mallory",
-                linkedUserId: utenti.staff.id,
-              },
-            ],
+  /*
+    **La prima stesura provava la cosa con il ruolo sbagliato.**
+
+    Vietava di far crescere l'insieme dei legami a chiunque, e lo misurava con
+    `staff`. Una revisione ha mostrato due cose: che la guardia sorvegliava
+    due campi mentre il predicato ne legge sette — bastava l'**email di
+    contatto** — e che vietarlo del tutto avrebbe rotto la strada con cui una
+    famiglia entra senza codice, che `U-06` verifica per nome.
+
+    La regola giusta e che scrivere un legame **concede la vista clinica**,
+    quindi la puo scrivere chi quella vista ce l'ha. Si prova percio con un
+    ruolo a cui il club l'ha tolta, e si controspecchia con la segreteria, che
+    ce l'ha per matrice e deve continuare a lavorare.
+  */
+  const senzaClinicoU59 =
+    "custom:staff:segreteria-u59#members.register.read,documents.review";
+
+  for (const [titolo, campo] of [
+    ["U-59 non ci si nomina tutori scrivendo `linkedUserId`", "linkedUserId"],
+    ["U-59 ne scrivendo l'email di contatto, che vale come legame", "email"],
+  ]) {
+    await varco(
+      titolo,
+      () =>
+        risorse.updateResource(
+          "athletes",
+          ATLETA_A,
+          {
+            data: {
+              guardians: [
+                {
+                  id: "g-madre",
+                  firstName: "Anna",
+                  linkedUserId: utenti.parent.id,
+                },
+                { id: "g-padre", firstName: "Bruno" },
+                {
+                  id: "g-intruso",
+                  firstName: "Mallory",
+                  [campo]:
+                    campo === "email" ? utenti.staff.email : utenti.staff.id,
+                },
+              ],
+            },
           },
-        },
-        scopeRuolo("staff"),
-      ),
-    ["negato"],
-  );
+          { ...scopeRuolo("staff"), activeRole: senzaClinicoU59 },
+        ),
+      ["negato"],
+    );
+  }
 
   prova(
     "U-59 e l'intruso non e famiglia di quel minore",
@@ -3898,12 +3984,45 @@ const u59 = async () => {
   );
 
   prova(
-    "U-59 ma la madre lo e ancora: il divieto e sulla crescita, non sul legame",
+    "U-59 ma la madre lo e ancora: il divieto e su chi scrive, non sul legame",
     true,
     await cruscottoFamiglia.canParentAccessAthlete(utenti.parent.id, ATLETA_A),
     "controspecchio: una regola che negasse ogni legame romperebbe l'area famiglia",
   );
 
+  /*
+    E il controspecchio che conta di piu: la segreteria, che `clinical.read`
+    ce l'ha per matrice, deve poter aggiungere un tutore con la sua email —
+    perche e cosi che una famiglia entra.
+  */
+  const conIlClinico = await risorse
+    .updateResource(
+      "athletes",
+      ATLETA_A,
+      {
+        data: {
+          guardians: [
+            { id: "g-madre", firstName: "Anna", linkedUserId: utenti.parent.id },
+            { id: "g-padre", firstName: "Bruno" },
+            {
+              id: "g-nuovo",
+              firstName: "Carla",
+              email: "carla-u59@example.invalid",
+            },
+          ],
+        },
+      },
+      scopeRuolo("staff"),
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "U-59 e la segreteria aggiunge ancora un tutore con la sua email",
+    "riuscita",
+    conIlClinico,
+    "e la strada con cui una famiglia entra senza riscattare un codice",
+  );
   /* --- 4. le due porte sulla stessa rata, e i compensi storici --- */
   prova(
     "U-59 le due porte sulla rata dicono la stessa cosa",
@@ -4153,6 +4272,379 @@ const u60 = async () => {
   await prisma.clubRole.delete({ where: { id: ruolo.id } }).catch(() => {});
 };
 
+const u61 = async () => {
+  /* ================================================================== */
+  /*  U-61 — la settima revisione: il campo aggregato, il `data` nullo,  */
+  /*         e le tre porte rimaste          [CRITICAL: consegna, salute]*/
+  /* ================================================================== */
+
+  console.log(
+    `${NL}U-61 — il campo aggregato, il \`data\` nullo, e le tre porte rimaste   [CRITICAL]`,
+  );
+
+  /* --- 1. il campo JSON aggregato del club, terza porta sul conio --- */
+  await varco(
+    "U-61 un gettone non si conia dal campo aggregato del club",
+    () =>
+      risorse.updateResource(
+        "clubs",
+        CLUB_A,
+        {
+          access_tokens: [
+            {
+              id: "u61-forgiato",
+              name: "U61FORGIATO",
+              status: "active",
+              role: "owner",
+              minted_by_role: "owner",
+              one_time: false,
+            },
+          ],
+        },
+        scopeRuolo("club_manager"),
+      ),
+    ["negato"],
+  );
+
+  prova(
+    "U-61 e nessun gettone e stato scritto",
+    0,
+    await prisma.clubResourceItem.count({
+      where: { organization_id: CLUB_A, name: "U61FORGIATO" },
+    }),
+    "la stessa chiamata cancellava anche tutti i gettoni legittimi del club, perche riscrive la collezione intera",
+  );
+
+  for (const riservata of ["bank_accounts", "document_templates"]) {
+    await varco(
+      `U-61 ne si scrive «${riservata}» da quella porta`,
+      () =>
+        risorse.updateResource(
+          "clubs",
+          CLUB_A,
+          { [riservata]: [{ id: `u61-${riservata}`, name: "Forgiata" }] },
+          scopeRuolo("club_manager"),
+        ),
+      ["negato"],
+    );
+  }
+
+  /* --- 2. `data` nullo spegneva tutte e tre le guardie dell'anagrafica --- */
+  const senzaClinicoU61 =
+    "custom:staff:segreteria-u61#members.register.read,documents.review";
+  const scopeSenzaClinico = {
+    ...scopeRuolo("staff"),
+    activeRole: senzaClinicoU61,
+  };
+
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: {
+      data: {
+        allergies: "ALLERGIA-U61",
+        guardians: [
+          { id: "g-madre", firstName: "Anna", parentAccessTokenValue: "U61-GETTONE" },
+        ],
+      },
+    },
+  });
+
+  for (const vuoto of [null, "", 0]) {
+    await risorse
+      .updateResource("athletes", ATLETA_A, { data: vuoto }, scopeSenzaClinico)
+      .catch(() => {});
+  }
+
+  const dopoIlVuoto = JSON.stringify(
+    (
+      await prisma.athlete.findUnique({
+        where: { id: ATLETA_A },
+        select: { data: true },
+      })
+    )?.data ?? {},
+  );
+
+  prova(
+    "U-61 un `data` nullo non cancella il clinico ne le credenziali",
+    { allergia: true, gettone: true },
+    {
+      allergia: dopoIlVuoto.includes("ALLERGIA-U61"),
+      gettone: dopoIlVuoto.includes("U61-GETTONE"),
+    },
+    "le tre guardie erano condizionate a due valori **veri**: un nullo le attraversava tutte",
+  );
+
+  await varco(
+    "U-61 e il secondo passo non aggiunge un legame di famiglia",
+    () =>
+      risorse.updateResource(
+        "athletes",
+        ATLETA_A,
+        {
+          data: {
+            guardians: [
+              { id: "g-madre", firstName: "Anna" },
+              { id: "g-io", firstName: "Mallory", linkedUserId: utenti.staff.id },
+            ],
+          },
+        },
+        scopeSenzaClinico,
+      ),
+    ["negato"],
+  );
+
+  prova(
+    "U-61 e chi ci ha provato non e famiglia di quel minore",
+    false,
+    await cruscottoFamiglia.canParentAccessAthlete(utenti.staff.id, ATLETA_A),
+  );
+
+  /* --- 3. le tre porte del perimetro rimaste --- */
+  const perimetrato = {
+    ...scopeDi(utenti.club_manager.id, CLUB_A, "club_manager"),
+    accessScopes: [{ kind: "site", value: SEDE_A }],
+  };
+
+  const appuntamentoFuori = await appuntamenti.createAppointment(
+    scopeRuolo("club_manager"),
+    {
+      athleteId: ATLETA_ALTRUI,
+      reason: "Colloquio U-61",
+      startsAt: new Date(Date.now() + 259200_000).toISOString(),
+      outsideAvailability: true,
+      confirmed: false,
+    },
+  );
+  const idAppuntamento = appuntamentoFuori?.id || appuntamentoFuori?.appointment?.id;
+
+  await varco(
+    "U-61 un appuntamento fuori perimetro non si conferma",
+    () => appuntamenti.confirmAppointment(perimetrato, idAppuntamento),
+    ["negato"],
+    "confermare manda una notifica ai tutori del minore: la creazione lo verificava, le cinque transizioni no",
+  );
+
+  await varco(
+    "U-61 ne si annulla",
+    () => appuntamenti.cancelAppointment(perimetrato, idAppuntamento),
+    ["negato"],
+  );
+
+  await varco(
+    "U-61 e un allegato non si deposita nel fascicolo di chi e fuori",
+    () =>
+      allegati.createAttachment(
+        {
+          organizationId: CLUB_A,
+          ownerType: "athlete",
+          ownerId: ATLETA_ALTRUI,
+          category: "other",
+          fileName: "u61.pdf",
+          mimeType: "application/pdf",
+          content: Buffer.from("%PDF-1.4 U61"),
+        },
+        perimetrato,
+      ),
+    ["negato"],
+    "era la sesta porta di Attachment Core, e l'unica senza perimetro",
+  );
+
+  /* --- 4. il riscatto: l'id logico, e il gettone senza firma --- */
+  const schedaLogica = await risorse.createResource(
+    "trainers",
+    {
+      organization_id: CLUB_A,
+      id: "trainer-u61-logico",
+      first_name: "Ugo",
+      last_name: "Sessantuno",
+    },
+    "create",
+    scopeRuolo("club_manager"),
+  );
+
+  const gettoneAllenatore = await prisma.clubResourceItem.create({
+    data: {
+      organization_id: CLUB_A,
+      resource_type: "access_tokens",
+      name: "U61ALLENATORE",
+      status: "active",
+      payload: {
+        role: "trainer",
+        token_type: "trainer_access",
+        trainer_id: "trainer-u61-logico",
+        minted_by_role: "club_manager",
+      },
+    },
+  });
+
+  await comeUtente(utenti.athlete, CLUB_A);
+  const riscattoAllenatore = await rotte.riscatto.POST(
+    richiesta("/api/v1/auth/access/redeem", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "U61ALLENATORE" }),
+    }),
+  );
+
+  prova(
+    "U-61 il gettone di un allenatore vero si riscatta ancora",
+    200,
+    riscattoAllenatore.status,
+    "`club_resource_items.id` e `uuid` e `trainer_id` porta l'id logico: il confronto faceva fallire la query, e ogni allenatore riceveva 500",
+  );
+
+  const senzaFirma = await prisma.clubResourceItem.create({
+    data: {
+      organization_id: CLUB_A,
+      resource_type: "access_tokens",
+      name: "U61SENZAFIRMA",
+      status: "active",
+      payload: { role: "club_manager" },
+    },
+  });
+
+  const riscattoSenzaFirma = await rotte.riscatto.POST(
+    richiesta("/api/v1/auth/access/redeem", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "U61SENZAFIRMA" }),
+    }),
+  );
+  SESSIONE = null;
+  CLUB_ATTIVO = null;
+
+  prova(
+    "U-61 e un gettone storico senza firma non concede chi amministra il club",
+    { stato: 403, tessera: 0 },
+    {
+      stato: riscattoSenzaFirma.status,
+      tessera: await prisma.organizationUser.count({
+        where: {
+          organization_id: CLUB_A,
+          user_id: utenti.athlete.id,
+          role: "club_manager",
+        },
+      }),
+    },
+    "prima di questa Wave un collaboratore poteva forgiarne uno: fidarsi che lo abbia coniato la direzione e cio che non si puo sapere",
+  );
+
+  /* --- 5. le due porte rimaste sulla tessera --- */
+  const tesseraStaff = await prisma.organizationUser.findFirst({
+    where: { organization_id: CLUB_A, user_id: utenti.staff.id },
+    select: { id: true },
+  });
+
+  await varco(
+    "U-61 `custom_role_id` non si scrive nemmeno in creazione",
+    () =>
+      risorse.createResource(
+        "organization_users",
+        {
+          organization_id: CLUB_A,
+          user_id: utenti.athlete.id,
+          role: "collaborator",
+          custom_role_id: RUOLO_A?.id || null,
+        },
+        "create",
+        scopeRuolo("club_manager"),
+      ),
+    ["negato"],
+  );
+
+  await varco(
+    "U-61 ne `is_primary` altrui passa dall'upsert",
+    () =>
+      risorse.createResource(
+        "organization_users",
+        {
+          organization_id: CLUB_A,
+          user_id: utenti.staff.id,
+          role: "staff",
+          is_primary: false,
+        },
+        "upsert",
+        scopeRuolo("club_manager"),
+      ),
+    ["negato"],
+  );
+
+  /* pulizia */
+  await prisma.appointment
+    .deleteMany({ where: { athlete_id: ATLETA_ALTRUI } })
+    .catch(() => {});
+  for (const riga of [gettoneAllenatore, senzaFirma]) {
+    await prisma.clubResourceItem.delete({ where: { id: riga.id } }).catch(() => {});
+  }
+  await prisma.clubResourceItem
+    .deleteMany({ where: { organization_id: CLUB_A, resource_type: "trainers" } })
+    .catch(() => {});
+  await prisma.organizationUser
+    .deleteMany({
+      where: {
+        organization_id: CLUB_A,
+        user_id: utenti.athlete.id,
+        role: { in: ["trainer", "club_manager", "collaborator"] },
+      },
+    })
+    .catch(() => {});
+  await prisma.athlete.update({ where: { id: ATLETA_A }, data: { data: {} } });
+  void tesseraStaff;
+  void schedaLogica;
+};
+
+const u62 = async () => {
+  /* ================================================================== */
+  /*  U-62 — le difese che nessun gate esercitava   [HIGH]               */
+  /* ================================================================== */
+
+  /*
+    Una revisione ha fatto mutation testing su ventotto difese e ha misurato
+    che **sette** non erano viste da nessun gate. Le tre qui sotto sono quelle
+    che si misurano a runtime; le altre quattro sono difetti dei presidi, e si
+    correggono nei presidi.
+  */
+  console.log(`${NL}U-62 — le difese che nessun gate esercitava   [HIGH]`);
+
+  /* --- 1. il profilo atleta e la sua proiezione --- */
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: {
+      user_id: utenti.athlete.id,
+      data: {
+        guardians: [
+          {
+            id: "g-madre",
+            firstName: "Anna",
+            parentAccessTokenValue: "U62-CODICE-FAMIGLIA",
+          },
+        ],
+      },
+    },
+  });
+
+  await comeUtente(utenti.athlete, CLUB_A);
+  const profilo = await rotte.profiloAtleta.GET(
+    richiesta(`/api/v1/auth/athlete-profile/${ATLETA_A}`),
+    { params: { athleteId: ATLETA_A } },
+  );
+  const corpoProfilo = JSON.stringify(await profilo.json());
+  SESSIONE = null;
+  CLUB_ATTIVO = null;
+
+  prova(
+    "U-62 il profilo di un atleta non porta il codice d'accesso della sua famiglia",
+    { stato: 200, codice: false },
+    { stato: profilo.status, codice: corpoProfilo.includes("U62-CODICE-FAMIGLIA") },
+    "la riga che lo toglie esiste dalla Wave 6 e nessun gate la esercitava: toglierla dava sei verdi",
+  );
+
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: { user_id: null, data: {} },
+  });
+};
+
 /* ------------------------------------------------------------- il giro */
 
 try {
@@ -4200,6 +4692,8 @@ try {
   await u58();
   await u59();
   await u60();
+  await u61();
+  await u62();
 
   const falliti = esiti.filter((e) => !e.ok);
   if (deviazioni.length) {

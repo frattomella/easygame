@@ -225,53 +225,63 @@ test("il ramo storico della rotta dei byte chiede il permesso come il ramo nuovo
   );
 
   /*
-    **Contare non basta, in nessuna delle due forme provate finora.**
+    **Contare non basta, e nemmeno contare le posizioni di forme note.**
 
-    La prima stesura contava le **condizioni**: una revisione ha svuotato il
-    corpo lasciando l'`if`, e il conteggio restava due. La seconda ha
-    preteso che ogni condizione fosse seguita da un **rifiuto**: la stessa
-    revisione ha aggiunto una **terza** uscita di byte, senza condizione e
-    senza rifiuto, e il conteggio e rimasto due.
+    Tre stesure, tre evasioni. La prima contava le **condizioni**: una
+    revisione ha svuotato il corpo lasciando l'`if`. La seconda pretendeva un
+    **rifiuto** dopo ogni condizione: una revisione ha aperto una **terza**
+    uscita, e il conteggio e rimasto due. La terza misurava le **posizioni**
+    di due forme di uscita note — `buildStoredFileResponse` e
+    `new NextResponse` — e una revisione ne ha usata una terza:
+    `NextResponse.json({ data: { content: …toString("base64") } })`.
 
-    Il difetto non era il numero: era che si contava. La proprieta da tenere
-    e «**ogni** uscita di byte e preceduta dal cancello», e si misura sulle
-    posizioni nel file, non sulle occorrenze.
+    Ogni volta l'errore era lo stesso: **enumerare le uscite**. La proprieta
+    che serve si dice al contrario, e non ha bisogno di conoscerle: *prima*
+    del primo cancello, questa rotta puo restituire **solo un rifiuto**.
+
+    Cosi una porta nuova non e piu una forma da aggiungere all'elenco: e una
+    riga che compare dove non puo stare.
   */
-  const uscitaDiByte =
-    /return\s+buildStoredFileResponse\(|return\s+new\s+NextResponse\(\s*[^)\s]/g;
-  const cancello =
-    /isMedicalCertificateDocumentKind\([\s\S]{0,80}?\)\s*&&\s*!hasHealthPermission\(\s*scope\.activeRole,\s*"clinical\.read"[\s\S]{0,240}?403/g;
-
-  const posizioni = (espressione) =>
-    [...sorgente.matchAll(espressione)].map((trovato) => trovato.index ?? -1);
-
-  const uscite = posizioni(uscitaDiByte);
-  const cancelli = posizioni(cancello);
+  const primoCancello = sorgente.search(
+    /isMedicalCertificateDocumentKind\([\s\S]{0,80}?\)\s*&&\s*!hasHealthPermission\(\s*scope\.activeRole,\s*"clinical\.read"/,
+  );
 
   assert.ok(
-    uscite.length >= 2,
-    `le uscite di byte trovate sono ${uscite.length}: se la rotta e cambiata, questa prova va riscritta invece che tolta`,
-  );
-
-  const scoperte = uscite.filter(
-    (uscita) => !cancelli.some((varco) => varco < uscita),
-  );
-
-  assert.deepEqual(
-    scoperte,
-    [],
-    `${scoperte.length} uscite di byte non hanno nessun cancello sul dato clinico prima di se: ` +
-      "una porta nuova non deve poter nascere senza la sua guardia",
+    primoCancello > 0,
+    "il cancello sul dato clinico non esiste piu in questa rotta",
   );
 
   /*
-    E ogni cancello deve **servire** a qualcosa: uno che non precede nessuna
-    uscita e codice morto che fa sembrare coperta una rotta che non lo e.
+    I `return` che stanno prima del cancello. Sono ammessi solo i rifiuti:
+    `jsonError(...)`, che e la funzione con cui questa rotta dice di no.
   */
-  const inutili = cancelli.filter(
-    (varco) => !uscite.some((uscita) => uscita > varco),
+  const prima = sorgente.slice(0, primoCancello);
+  const uscitePrimaDelCancello = (prima.match(/\breturn\b[^;]*/g) || [])
+    .map((riga) => riga.replace(/\s+/g, " ").trim())
+    .filter((riga) => riga !== "return")
+    .filter((riga) => !/^return\s+jsonError\(/.test(riga));
+
+  assert.deepEqual(
+    uscitePrimaDelCancello,
+    [],
+    "prima del cancello sul dato clinico questa rotta puo restituire solo un " +
+      "rifiuto, e invece restituisce: " + uscitePrimaDelCancello.join(" | ") +
+      ". Una porta nuova non deve poter nascere prima della sua guardia",
   );
-  assert.deepEqual(inutili, [], "cancelli che non precedono nessuna uscita di byte");
+
+  /*
+    E i due rami che consegnano byte hanno ciascuno il suo, con il rifiuto
+    attaccato: la regola sopra dice «non prima», questa dice «in tutti e due».
+  */
+  const cancelloConRifiuto =
+    /isMedicalCertificateDocumentKind\([\s\S]{0,80}?\)\s*&&\s*!hasHealthPermission\(\s*scope\.activeRole,\s*"clinical\.read"[\s\S]{0,240}?403/g;
+  const quanti = (sorgente.match(cancelloConRifiuto) || []).length;
+
+  assert.equal(
+    quanti,
+    2,
+    `i rami che consegnano byte sono due e i cancelli che davvero rifiutano sono ${quanti}`,
+  );
 });
 
 /* -------------------------------------------- l'elenco resta leggibile a un umano */

@@ -131,6 +131,30 @@ const getGuardianRows = (athlete: any) => {
   return guardians.length > 0 ? guardians : legacyParents;
 };
 
+/**
+ * **I campi che dimostrano un legame fra un tutore e un'utenza.**
+ *
+ * Vive qui, esportato, perche due posti devono guardare la **stessa** lista:
+ * questo predicato, che apre il cruscotto della famiglia, e la guardia di
+ * `resources.ts` che impedisce di scriversi un legame addosso. Una revisione
+ * ha misurato la divergenza — la guardia sorvegliava due campi, il predicato
+ * ne leggeva cinque — e da quella distanza si passava.
+ */
+export const GUARDIAN_LINK_FIELDS: readonly string[] = [
+  "linkedUserId",
+  "linked_user_id",
+  "userId",
+  "user_id",
+  "linkedUserEmail",
+  "linked_user_email",
+  /*
+    L'email di **contatto** e la settima, e non e un errore: e il campo con
+    cui una famiglia entra senza riscattare un codice, e `U-06` lo verifica
+    per nome. Sta in questa lista proprio perche scriverla concede accesso.
+  */
+  "email",
+] as const;
+
 const isGuardianLinkedToUser = (
   guardian: Record<string, any>,
   userId: string,
@@ -142,6 +166,21 @@ const isGuardianLinkedToUser = (
     guardian.userId,
     guardian.user_id,
   );
+  /*
+    **L'email di contatto vale come legame, ed e voluto.**
+
+    E il modo in cui una famiglia entra senza riscattare un codice: la
+    segreteria scrive l'indirizzo del genitore, e quel genitore — che a quel
+    punto ha un'utenza con la **stessa email verificata** — trova il figlio.
+    Una sonda lo verifica per nome (`U-06`), quindi non e un residuo: e una
+    capability.
+
+    Ma allora **scrivere quell'indirizzo e un atto che concede l'accesso
+    clinico**, perche il cruscotto di famiglia mostra allergie, farmaci e
+    visite. Il permesso che serve non e quello sull'anagrafica: e
+    `clinical.read`, e la guardia sta in `resources.ts`, dove la scrittura
+    passa. Qui si dice solo che il legame e questo.
+  */
   const linkedUserEmail = firstText(
     guardian.linkedUserEmail,
     guardian.linked_user_email,

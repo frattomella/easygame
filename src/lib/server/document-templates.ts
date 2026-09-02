@@ -1,4 +1,10 @@
 import { randomUUID } from "node:crypto";
+import {
+  athleteIdsWithinAccessScope,
+  athleteWithinAccessScope,
+  buildAthleteAccessScopeConditions,
+} from "./access-scope-query";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
 import { prisma } from "./prisma";
 import {
@@ -68,6 +74,17 @@ import {
 export type DocumentTemplateScope = {
   userId: string;
   activeOrganizationId: string | null;
+  /**
+   * Il perimetro di sede e categoria.
+   *
+   * `resolveDocumentPlaceholders` nega di **generare** un documento su un
+   * atleta fuori perimetro, con la motivazione «il documento e la porta di
+   * servizio dell'anagrafica». La riga gia prodotta contiene gli stessi
+   * campi in `content_html` e in `values_snapshot`, e si rileggeva senza
+   * quel controllo: misurato, nome, indirizzo e codice fiscale di un minore
+   * di un'altra sede.
+   */
+  accessScopes?: readonly AccessScopeEntry[] | null;
   /**
    * I club a cui l'utente appartiene.
    *
@@ -868,6 +885,19 @@ export const listGeneratedDocuments = async (
   if (asText(options.subjectId)) where.subject_id = asText(options.subjectId);
   if (asText(options.batchId)) where.batch_id = asText(options.batchId);
 
+  /*
+    Il perimetro sull'elenco: si chiede al proprietario l'insieme degli
+    atleti ammessi e si stringe il `where`. Chi non ha un perimetro non e
+    toccato, ed e la regola dichiarata — zero righe vuol dire tutto il club.
+  */
+  if (buildAthleteAccessScopeConditions(scope)) {
+    const ammessi = await athleteIdsWithinAccessScope(organizationId, scope);
+    where.OR = [
+      { subject_kind: { not: "athlete" } },
+      { subject_id: { in: ammessi } },
+    ];
+  }
+
   const rows = await (prisma as any).generatedDocument.findMany({
     where,
     orderBy: { generated_at: "desc" },
@@ -947,6 +977,20 @@ export const getGeneratedDocument = async (
 
   if (!row) throw notFound();
   ensureOrganizationAccess(scope, row.organization_id);
+
+  /* Stessa ragione dell'elenco: e la porta per identificativo. */
+  if (String(row.subject_kind || "").trim().toLowerCase() === "athlete") {
+    const dentro = await athleteWithinAccessScope(
+      row.organization_id,
+      String(row.subject_id || "").trim(),
+      scope,
+    );
+    if (!dentro) {
+      throw denied(
+        "questo documento riguarda una persona fuori dal perimetro di sede o categoria del ruolo attivo",
+      );
+    }
+  }
 
   if (
     !canReadGeneratedDocument(

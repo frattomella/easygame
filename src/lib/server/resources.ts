@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { GUARDIAN_LINK_FIELDS } from "./parent-dashboard";
 import { customRoleReachesResource } from "@/lib/permissions/catalog";
 import {
   assertMembershipWithinAccessScope,
@@ -2121,6 +2122,47 @@ const togliRelazioni = (resource: string, input: Record<string, any>) => {
  * restringimento**: cioe piu di quanto il club ha concesso. La strada e una
  * sola, ed e `src/lib/server/club-roles.ts`.
  */
+/**
+ * **Le due colonne che una tessera non riceve dal registro generico.**
+ *
+ * `custom_role_id` e il riferimento al ruolo di club: ADR-0102 dice che si
+ * scrive **insieme** allo slug, e solo da `club-roles.ts`, perche una riga
+ * con l'uno e senza l'altro da il ruolo base **senza** restringimento.
+ *
+ * `is_primary` decide su quale club si apre l'applicazione: cambiarlo sulla
+ * tessera di un altro non concede permessi, ma sposta la sua scrivania senza
+ * che lo sappia.
+ *
+ * La prima stesura di entrambe viveva dentro `applicaGuardieDiModifica`, e
+ * una revisione ha misurato che copriva **una porta su tre**: il ramo
+ * `upsert` dedicato a `organization_users` esce prima delle guardie di
+ * modifica, e `syncClubMembers` non ci passa affatto. Stanno qui, accanto
+ * alla guardia che tutte e tre chiamano gia.
+ */
+const assertColonneDiTesseraNonScrivibili = (
+  input: Record<string, any>,
+  esistente: { user_id?: unknown } | null | undefined,
+  scope?: ResourceAccessScope,
+) => {
+  if (!scope) return;
+
+  if ("custom_role_id" in input) {
+    throw new Error(
+      "Accesso negato: il ruolo personalizzato di una tessera si scrive dalla gestione accessi, che scrive insieme lo slug e il riferimento",
+    );
+  }
+
+  if (
+    "is_primary" in input &&
+    String(esistente?.user_id ?? input.user_id ?? "").trim() !==
+      String(scope.userId ?? "").trim()
+  ) {
+    throw new Error(
+      "Accesso negato: il club d'ingresso lo sceglie la persona a cui la tessera appartiene",
+    );
+  }
+};
+
 const assertConcessioneDiAccessoLecita = async (
   organization_id: string,
   user_id: string,
@@ -2322,6 +2364,31 @@ const syncClubMembers = async (
     }
 
     const role = member?.role || "member";
+    /*
+      La terza porta su una tessera: il campo `memberships` del club. Le due
+      colonne che non si scrivono da qui sono le stesse, e la regola e una sola.
+    */
+    const dichiaraIlClubDiIngresso =
+      member &&
+      typeof member === "object" &&
+      ("is_primary" in member || "isPrimary" in member);
+
+    assertColonneDiTesseraNonScrivibili(
+      {
+        ...member,
+        /*
+          La chiave si mette **solo se il chiamante l ha davvero mandata**:
+          normalizzarla a `undefined` la farebbe comunque risultare presente,
+          e la guardia negherebbe ogni salvataggio del libro soci.
+        */
+        ...(dichiaraIlClubDiIngresso
+          ? { is_primary: member?.is_primary ?? member?.isPrimary }
+          : {}),
+        user_id: member.user_id,
+      },
+      null,
+      scope,
+    );
     await assertConcessioneDiAccessoLecita(
       organization_id,
       String(member.user_id),
@@ -3399,6 +3466,12 @@ const assertRuoloRistrettoRaggiungeLaRisorsa = (
   if (!isCustomRoleValue(scope.activeRole)) return;
   if (customRoleReachesResource(scope.activeRole, resource)) return;
 
+  /*
+    La regola vive adesso dentro `canAccessClubResource`, quindi vale per
+    ogni chiamante. Questa resta perche dice **perche**: la rotta generica
+    risponderebbe altrimenti «Accesso negato per il ruolo attivo», che manda
+    a cercare il difetto nel ruolo invece che nella casella non spuntata.
+  */
   throw new Error(
     `Accesso negato: al ruolo attivo non e stata concessa la chiave che governa «${resource}»`,
   );
@@ -3415,6 +3488,37 @@ const assertNotAdminOnlyFromGenericRoute = (
 
   throw new Error(
     `Accesso negato: ${tipo} e riservata alla direzione e si legge e si scrive dalla sua rotta, non dal registro generico`,
+  );
+};
+
+/**
+ * **La quarta porta su una collezione del club: il campo JSON aggregato.**
+ *
+ * `PUT/PATCH /api/v1/clubs/:id` accetta un campo per ogni voce di
+ * `CLUB_RESOURCE_TYPES` e riscrive la collezione **intera** via
+ * `applyClubResourceSync` -> `createMany`. Quel percorso non incontra ne il
+ * soffitto sul conio di un gettone, ne la guardia sulle risorse riservate:
+ * `assertNotAdminOnlyFromGenericRoute` esce subito, perche giudica
+ * `where.resource_type` e li il tipo **e** il nome del campo.
+ *
+ * Misurato: un `club_manager` a cui `POST /api/v1/access_tokens {role:"owner"}`
+ * risponde 403 scriveva lo stesso gettone da questa porta con un 200 — firma
+ * del coniatore compresa, che il riscatto poi si fida — e lo riscattava da una
+ * seconda utenza **diventando proprietario del club**. E la stessa chiamata,
+ * che cancella e ricrea, spazzava via tutti i gettoni legittimi di allenatori
+ * e famiglie.
+ *
+ * L'asimmetria era gia visibile e nessuno l'aveva letta: `CLUB_JSON_FIELDS`
+ * **esclude** `access_tokens` dalla lettura per campo, e il ciclo di scrittura
+ * lo includeva. Un tipo riservato alla direzione non passa da questa porta: ha
+ * la sua rotta, che sa dire di no.
+ */
+const assertNotAdminOnlyFromClubAggregate = (field: string) => {
+  const tipo = String(field || "").trim();
+  if (!isManagementAdminOnlyResource(tipo)) return;
+
+  throw new Error(
+    `Accesso negato: ${tipo} e riservata alla direzione e si scrive dalla sua rotta, non dal campo aggregato del club`,
   );
 };
 
@@ -5460,6 +5564,7 @@ export const createResource = async (
       /api/v1/organization_users` in `upsert` scriveva la tessera senza che
       `assertRecordAccess` la vedesse mai, perche il ramo esce prima.
     */
+    assertColonneDiTesseraNonScrivibili(normalized, null, scope);
     await assertConcessioneDiAccessoLecita(
       String(normalized.organization_id),
       String(normalized.user_id),
@@ -5620,6 +5725,8 @@ export const createResource = async (
               libro restava a citare una persona che l anagrafica non conosceva piu.
             */
             assertNotDomainOwnedResourceItem(field, field);
+        assertNotAdminOnlyFromClubAggregate(field);
+            assertNotAdminOnlyFromClubAggregate(field);
             await syncClubResourceItemsFromField(
               record.id,
               field,
@@ -5642,6 +5749,7 @@ export const createResource = async (
     controllo, e la sua documentazione diceva che non ne aveva.
   */
   if (resource === "organization_users" && normalized.organization_id && normalized.user_id) {
+    assertColonneDiTesseraNonScrivibili(normalized, null, scope);
     await assertConcessioneDiAccessoLecita(
       String(normalized.organization_id),
       String(normalized.user_id),
@@ -5694,6 +5802,7 @@ export const createResource = async (
           libro restava a citare una persona che l anagrafica non conosceva piu.
         */
         assertNotDomainOwnedResourceItem(field, field);
+        assertNotAdminOnlyFromClubAggregate(field);
         await syncClubResourceItemsFromField(record.id, field, input[field]);
       }
     }
@@ -6082,11 +6191,28 @@ const applicaGuardieDiModifica = async (
       uno resta possibile — e cosi si scollega — e un salvataggio ordinario
       che rimanda indietro gli stessi legami non cambia niente e passa.
     */
+    /*
+      **`data` nullo spegneva tutte e tre le guardie dell'anagrafica.**
+
+      Le condizioni erano `normalized.data && existing?.data`, cioe due
+      valori **veri**. Un salvataggio con `data: null` — o `""`, o `0` —
+      le attraversava tutte, e al salvataggio successivo anche `existing.data`
+      era falso: la seconda scrittura poteva aggiungere il legame che la
+      guardia sorveglia, senza incontrarla.
+
+      Misurato in due passi, da un ruolo personalizzato senza `clinical.read`:
+      il primo cancellava allergie, farmaci, certificati e i codici di accesso
+      della famiglia; il secondo lo rendeva tutore di quel minore.
+
+      La domanda giusta non e «c'e un `data` valorizzato?» ma «questa
+      scrittura tocca `data`?». Cio che manca dal lato precedente vale come
+      oggetto vuoto: non c'era niente da conservare, ed e diverso da «non
+      guardo».
+    */
     if (
       scope &&
       (resource === "athletes" || resource === "simplified_athletes") &&
-      normalized.data &&
-      existing?.data
+      "data" in normalized
     ) {
       const legami = (dato: unknown): Set<string> => {
         const trovati = new Set<string>();
@@ -6099,8 +6225,9 @@ const applicaGuardieDiModifica = async (
           for (const [chiave, valore] of Object.entries(
             nodo as Record<string, unknown>,
           )) {
-            if (chiave === "linkedUserId" || chiave === "linked_user_id") {
-              const testo = typeof valore === "string" ? valore.trim() : "";
+            if (GUARDIAN_LINK_FIELDS.includes(chiave)) {
+              const testo =
+                typeof valore === "string" ? valore.trim().toLowerCase() : "";
               if (testo) trovati.add(testo);
               continue;
             }
@@ -6111,11 +6238,34 @@ const applicaGuardieDiModifica = async (
         return trovati;
       };
 
-      const prima = legami(existing.data);
-      const dopo = legami(normalized.data);
+      const prima = legami(existing?.data ?? {});
+      const dopo = legami(normalized.data ?? {});
       const nuovi = [...dopo].filter((id) => !prima.has(id));
 
-      if (nuovi.length) {
+      /*
+        **Scrivere un legame di famiglia e un atto sul dato clinico.**
+
+        La prima stesura vietava di far crescere l'insieme dei legami, e
+        sorvegliava due campi mentre il predicato che apre il cruscotto ne
+        legge sette: bastava scrivere l'**email di contatto** del tutore —
+        il campo che una segreteria modifica ogni giorno — per diventare
+        famiglia di quel minore e leggerne allergie, farmaci e visite.
+
+        Vietarlo del tutto sarebbe stato peggio: quella e la strada con cui
+        una famiglia entra senza riscattare un codice, e una sonda la
+        verifica per nome (`U-06`). La domanda giusta non e «si puo
+        scrivere?» ma «**chi** puo scrivere una cosa che concede la vista
+        clinica?». La risposta e: chi quella vista ce l'ha gia.
+
+        Segreteria e collaboratore la hanno per matrice, quindi il flusso di
+        tutti i giorni non cambia. La perde il ruolo personalizzato a cui il
+        club ha tolto `clinical.read` — che e esattamente cio che il club
+        intendeva togliendola.
+      */
+      if (
+        nuovi.length &&
+        !hasHealthPermission(scope.activeRole, "clinical.read")
+      ) {
         await recordPermissionDenied({
           scope: {
             userId: scope.userId,
@@ -6131,7 +6281,7 @@ const applicaGuardieDiModifica = async (
           },
         });
         throw new Error(
-          "Accesso negato: il legame fra un tutore e un'utenza nasce dal riscatto del suo codice di accesso, non scrivendo l'anagrafica",
+          "Accesso negato: scrivere il legame di un tutore concede la vista sul dato clinico del minore, e il ruolo attivo non ce l'ha",
         );
       }
     }
@@ -6184,28 +6334,11 @@ const applicaGuardieDiModifica = async (
       cambia dal registro generico.
     */
     /*
-      **Il club d'ingresso di un'altra persona non lo si sceglie per lei.**
-
-      `is_primary` decide su quale club si apre l'applicazione. Cambiarlo
-      sulla tessera di qualcun altro non concede nessun permesso — ed e per
-      questo che nessuna guardia lo guardava — ma sposta la scrivania di una
-      persona senza che lei lo sappia, e in un prodotto multi-club e un modo
-      efficace di farle credere che qualcosa sia sparito.
-
-      Il proprio si cambia dalla rotta che attiva una tessera, che verifica
-      che sia la propria.
+      Le due colonne che una tessera non riceve da qui: la regola sta accanto
+      alla guardia che tutte e tre le porte chiamano, perche una revisione ha
+      misurato che scritta qui ne copriva una sola.
     */
-    if (
-      scope &&
-      resource === "organization_users" &&
-      "is_primary" in normalized &&
-      String((existing as any)?.user_id ?? "").trim() !==
-        String(scope.userId ?? "").trim()
-    ) {
-      throw new Error(
-        "Accesso negato: il club d'ingresso lo sceglie la persona a cui la tessera appartiene",
-      );
-    }
+    assertColonneDiTesseraNonScrivibili(normalized, existing, scope);
 
     if (
       scope &&
@@ -6233,48 +6366,6 @@ const applicaGuardieDiModifica = async (
       );
     }
 
-    /*
-      **`custom_role_id` non si scrive affatto dal registro generico.**
-
-      ADR-0102: lo slug e il riferimento al ruolo di club si scrivono
-      **insieme e solo** da `club-roles.ts`, perche una riga con uno e senza
-      l'altro da il ruolo base **senza** restringimento. La rotta generica
-      rifiutava gia lo slug; il riferimento no.
-
-      E la guardia sotto non lo vedeva, per un motivo sottile: passa il
-      **ruolo invariato** ad `assertConcessioneDiAccessoLecita`, che esce
-      sulla scorciatoia «la tessera c'e gia con quel ruolo, riscriverla non
-      concede niente». Vera per `role`; falsa per `custom_role_id`, che da
-      solo cambia l'effetto della tessera.
-
-      Misurato: un `PATCH` con il solo `{custom_role_id}` sulla tessera di un
-      **proprietario** la rendeva incoerente, `risolviTessere` la scartava, e
-      la vittima usciva dal club. Con un 200, e senza la riga di revoca che
-      il `DELETE` accanto lascia — cioe il modo di togliere di mezzo in
-      silenzio chiunque potesse fermare l'attaccante.
-    */
-    if (
-      scope &&
-      resource === "organization_users" &&
-      "custom_role_id" in normalized
-    ) {
-      await recordPermissionDenied({
-        scope: {
-          userId: scope.userId,
-          activeRole: scope.activeRole,
-          activeOrganizationId: scope.activeOrganizationId,
-        },
-        permission: "club_roles.assign",
-        resource: "organization_users",
-        metadata: {
-          target_user_id: String((existing as any)?.user_id || ""),
-          reason: "custom_role_id_from_generic_route",
-        },
-      });
-      throw new Error(
-        "Accesso negato: il ruolo personalizzato di una tessera si scrive dalla gestione accessi, che scrive insieme lo slug e il riferimento",
-      );
-    }
 
     if (
       resource === "organization_users" &&
@@ -6311,9 +6402,20 @@ const applicaGuardieDiModifica = async (
       di un cognome** — cioe esattamente cio che il commento di
       `RISORSE_CON_SCHEDA_ATLETA` dichiara di voler evitare.
     */
-    if (RISORSE_CON_SCHEDA_ATLETA.has(resource) && normalized.data && existing?.data) {
-      const precedente = existing.data as Record<string, any>;
-      const nuovo = normalized.data as Record<string, any>;
+    /* Stessa ragione del blocco qui sopra: si guarda se la scrittura tocca `data`. */
+    if (RISORSE_CON_SCHEDA_ATLETA.has(resource) && "data" in normalized) {
+      /*
+      Un `data` che non e un oggetto — `null`, una stringa, un numero — non
+      porta nessun campo da confrontare: si trattano come vuoti, e le regole
+      di conservazione girano lo stesso invece di essere saltate.
+    */
+      const comeOggetto = (valore: unknown): Record<string, any> =>
+        valore && typeof valore === "object" && !Array.isArray(valore)
+          ? (valore as Record<string, any>)
+          : {};
+
+      const precedente = comeOggetto(existing?.data);
+      const nuovo = comeOggetto(normalized.data);
       const conservati: Record<string, any> = {};
 
       /*
@@ -6390,11 +6492,31 @@ const applicaGuardieDiModifica = async (
         elemento di un elenco.
       */
       if (!vedeICredenzialiDiAccesso(scope?.activeRole)) {
-        const revocate = new Set<string>();
+        /*
+          **Il `Set` delle revoche era vuoto di senso, e apriva la porta.**
+
+          Serviva a distinguere una revoca deliberata da una perdita. Ma questo
+          ramo gira **solo per chi la credenziale non la vede**: chi arriva qui
+          non puo aver deciso di revocare niente, perche non ha mai letto il
+          valore. Raccogliere «ogni valore diverso da quello di prima» come
+          revoca voleva dire lasciar passare qualunque scrittura sul campo.
+
+          Misurato: due codici di accesso di famiglia azzerati, e uno sostituito
+          con un valore scelto dall attaccante, senza errore e senza traccia.
+
+          Il `Set` resta vuoto: per chi non vede, **ogni** sparizione e una
+          perdita. Chi vede la credenziale non passa di qui — la revoca e la
+          modifica restano sue.
+        */
+        /*
+          Il **secondo** argomento e `normalized.data`, non `nuovo`: la fusione
+          che conserva il clinico e gia avvenuta, e ripartire da `nuovo` la
+          butterebbe via. E il genere di errore che si vede solo a runtime, e la
+          sonda lo ha visto.
+        */
         normalized.data = restoreGuardianAccessTokens(
-          existing.data,
+          precedente,
           normalized.data,
-          revocate,
         );
 
         /*
@@ -6412,10 +6534,10 @@ const applicaGuardieDiModifica = async (
           credenziale ne fa sparire una, la scrittura fallisce e dice perche.
           Chi la vede continua a revocarla: quel ramo non passa di qui.
         */
-        const prima = collectGuardianCredentialValues(existing.data);
+        const prima = collectGuardianCredentialValues(precedente);
         const dopo = collectGuardianCredentialValues(normalized.data);
         const perse = [...prima].filter(
-          (valore) => !dopo.has(valore) && !revocate.has(valore),
+          (valore) => !dopo.has(valore),
         );
 
         if (perse.length) {
@@ -6717,6 +6839,7 @@ export const updateResource = async (
           libro restava a citare una persona che l anagrafica non conosceva piu.
         */
         assertNotDomainOwnedResourceItem(field, field);
+        assertNotAdminOnlyFromClubAggregate(field);
         await syncClubResourceItemsFromField(record.id, field, input[field]);
       }
     }

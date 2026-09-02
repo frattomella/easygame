@@ -485,15 +485,19 @@ export const stripGuardianAccessTokens = (data: unknown) => {
 export const restoreGuardianAccessTokens = (
   previous: unknown,
   next: unknown,
-  /**
-   * Si riempie con i valori che chi scrive ha **deliberatamente** svuotato,
-   * cioe le revoche.
-   *
-   * Serve al chiamante per distinguerle da una perdita: senza, la guardia
-   * contro la sparizione silenziosa rifiuterebbe anche una revoca voluta, e
-   * un codice di accesso diventerebbe non piu revocabile.
-   */
-  revocate?: Set<string>,
+  /*
+    **Qui c'era un terzo parametro, e va detto perche non c'e piu.**
+
+    Raccoglieva i valori che chi scrive aveva svuotato, per distinguere una
+    revoca da una perdita. Ma questa funzione gira **solo per chi la
+    credenziale non la vede**: chi arriva qui non ha mai letto il valore, e
+    quindi non puo aver deciso di revocarlo. Quel `Set` classificava come
+    revoca deliberata qualunque scrittura sul campo, e la guardia del
+    chiamante la escludeva dal confronto: due codici azzerati e uno
+    sostituito con un valore scelto, misurati, senza errore e senza traccia.
+
+    Chi la credenziale la vede non passa di qui: la revoca resta sua.
+  */
 ): unknown => {
   const identita = (voce: unknown) => {
     if (!voce || typeof voce !== "object" || Array.isArray(voce)) return null;
@@ -552,20 +556,14 @@ export const restoreGuardianAccessTokens = (
 
     for (const campo of GUARDIAN_CREDENTIAL_FIELDS) {
       if (!Object.prototype.hasOwnProperty.call(daVecchio, campo)) continue;
-      /* **assente**, non vuota: un vuoto e una revoca, e si rispetta. */
-      if (Object.prototype.hasOwnProperty.call(daNuovo, campo)) {
-        const prima = daVecchio[campo];
-        const dopo = daNuovo[campo];
-        if (
-          revocate &&
-          typeof prima === "string" &&
-          prima.trim() &&
-          prima !== dopo
-        ) {
-          revocate.add(prima.trim());
-        }
-        continue;
-      }
+      /*
+        Si ripristina una chiave **assente**, e si lascia stare una presente.
+        Chi non vede la credenziale non riceve la chiave — il taglio la
+        toglie — quindi l'assenza e il giro di andata e ritorno. Una chiave
+        presente e una scrittura deliberata su un valore che non si conosce:
+        non la si ripristina, e il chiamante la conta come **perdita**.
+      */
+      if (Object.prototype.hasOwnProperty.call(daNuovo, campo)) continue;
       risultato[campo] = daVecchio[campo];
       cambiato = true;
     }

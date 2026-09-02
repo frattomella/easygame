@@ -91,6 +91,85 @@ test("nessuna risorsa riservata alla direzione compare nella mappa", () => {
   );
 });
 
+/**
+ * **Le risorse che una chiave la governano davvero.**
+ *
+ * Il resto di questo file verifica che l elenco sia **ben formato**: completo,
+ * con i motivi scritti, senza chiavi inventate. Una revisione ha misurato cosa
+ * manca a quella verifica: degradare una voce a `keys: []` con un motivo
+ * qualunque la soddisfa — provato su `discounts`, la risorsa che il commit di
+ * quella correzione cita per nome — e un ruolo con zero chiavi torna a
+ * scrivere sconti, con sei gate verdi.
+ *
+ * Un elenco che si autodichiara non e un presidio. Questo e il **pin**: sono
+ * fatti sul prodotto, e cambiarli deve costare una discussione.
+ */
+const GOVERNATE_DA_UNA_CHIAVE = new Map([
+  ["members", "il libro soci"],
+  ["medical_certificates", "il certificato medico"],
+  ["simplified_certificates", "il certificato medico"],
+  ["club_events", "gli eventi del club"],
+  ["club_event_participants", "chi partecipa a un evento"],
+  ["training_attendance", "le presenze"],
+  ["payments", "le rate di una famiglia"],
+  ["simplified_payments", "le rate di una famiglia"],
+  ["payment_plans", "i piani di pagamento"],
+  ["transactions", "i movimenti"],
+  ["transfers", "i giroconti"],
+  ["invoices", "le fatture"],
+  ["receipts", "le ricevute"],
+  ["expected_income", "le entrate previste"],
+  ["expected_expenses", "le uscite previste"],
+  ["discounts", "gli sconti applicati a una famiglia"],
+  ["sponsor_payments", "gli incassi da sponsor"],
+]);
+
+test("le risorse governate da una chiave non si degradano a «nessuna chiave»", () => {
+  const senzaChiave = [...GOVERNATE_DA_UNA_CHIAVE.keys()].filter((risorsa) => {
+    const voce = RESOURCE_PERMISSION_KEYS[risorsa];
+    return !voce || !voce.keys.length;
+  });
+
+  assert.deepEqual(
+    senzaChiave,
+    [],
+    "queste risorse sono governate da una chiave e adesso dichiarano di non esserlo: " +
+      senzaChiave.join(", ") +
+      ". Se la decisione e cambiata davvero, cambiala **qui** dicendo perche: " +
+      "l elenco di sopra si autodichiara, questo no",
+  );
+});
+
+test("e chi non ha quella chiave non le raggiunge, una per una", () => {
+  /*
+    La prova **comportamentale**, su tutte e diciassette invece che su una. Era
+    cablata su `members`, e per le altre sedici la dichiarazione era anche la
+    prova: circolare.
+  */
+  const senzaChiavi = "custom:collaborator:vuoto#";
+  const raggiunte = [...GOVERNATE_DA_UNA_CHIAVE.keys()].filter((risorsa) =>
+    customRoleReachesResource(senzaChiavi, risorsa),
+  );
+
+  assert.deepEqual(
+    raggiunte,
+    [],
+    "un ruolo con zero chiavi raggiunge risorse che una chiave governa: " +
+      raggiunte.join(", "),
+  );
+
+  /* E con la chiave giusta le raggiunge, altrimenti la regola nega e basta. */
+  for (const [risorsa] of GOVERNATE_DA_UNA_CHIAVE) {
+    const chiavi = RESOURCE_PERMISSION_KEYS[risorsa].keys;
+    const conLaChiave = `custom:club_manager:pieno#${chiavi.join(",")}`;
+    assert.equal(
+      customRoleReachesResource(conLaChiave, risorsa),
+      true,
+      `chi porta ${chiavi.join(" o ")} deve raggiungere «${risorsa}»`,
+    );
+  }
+});
+
 test("un ruolo personalizzato senza la chiave non raggiunge la risorsa che la richiede", () => {
   /*
     La prova comportamentale della mappa, sulla funzione che le rotte usano.

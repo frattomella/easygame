@@ -2091,3 +2091,116 @@ continua a poterlo fare, e la casella spuntata fa finalmente qualcosa.
 
 Prove: `U-53`, `U-54`, `U-55` in `wave-6-security-probe.mjs`, ognuna verificata
 non vacua reintroducendo il difetto.
+
+## Wave 6 — closeout: la settima revisione, e le due regressioni che avevo introdotto (2026-09-02)
+
+Quattro revisori: conferma su ruoli e riscatto, conferma su perimetro e
+famiglia, vacuita dei presidi **nuovi**, e — la lane che questa Wave si e
+guadagnata — **regressioni funzionali**. Il conto: **3 Critical, 12 High**.
+
+Cinque dei quindici erano difetti **introdotti dalle correzioni precedenti**.
+Vale la pena scriverlo per intero, perche e il fatto piu utile di tutta la Wave:
+una correzione stretta e una modifica come le altre, e va rivista come le altre.
+
+### La terza porta sul conio di un gettone (Critical)
+
+`PATCH /api/v1/clubs/:id` accetta un campo JSON per ogni voce di
+`CLUB_RESOURCE_TYPES` e riscrive la collezione intera via `createMany`. Quel
+percorso non incontrava ne il soffitto sul conio ne la guardia sulle riservate:
+`assertNotAdminOnlyFromGenericRoute` giudica `where.resource_type`, e li il tipo
+**e** il nome del campo, quindi usciva subito.
+
+Misurato: un `club_manager` a cui `POST /api/v1/access_tokens {role:"owner"}`
+risponde 403 scriveva lo stesso gettone da questa porta con un 200 — **firma del
+coniatore compresa**, che il riscatto poi legge — e lo riscattava da una seconda
+utenza diventando proprietario. E la stessa chiamata, che cancella e ricrea,
+spazzava via tutti i gettoni legittimi del club.
+
+L'asimmetria era visibile e nessuno l'aveva letta: `CLUB_JSON_FIELDS` **esclude**
+`access_tokens` dalla lettura per campo, e il ciclo di scrittura lo includeva.
+
+### Il legame di famiglia si scriveva con l'email di contatto (Critical)
+
+La guardia contro l'auto-nomina a tutore sorvegliava due campi —
+`linkedUserId`, `linked_user_id` — mentre `isGuardianLinkedToUser` ne legge
+**sette**, fra cui `guardian.email`, l'indirizzo che una segreteria modifica
+ogni giorno. Un ruolo personalizzato **senza** `clinical.read` ci scriveva la
+propria email verificata e apriva il cruscotto della famiglia: allergie,
+farmaci, visite mediche, e i byte dei documenti del minore.
+
+**La prima correzione era sbagliata**, e va detta: avevo tolto l'email di
+contatto dal predicato. L'UAT lo ha smentito in un minuto — `U-06` verifica per
+nome che «il figlio legato solo per email verificata resta raggiungibile» — ed e
+la strada con cui una famiglia entra senza riscattare un codice. Non era un
+residuo: era una capability.
+
+La regola giusta e un'altra, e piu utile: **scrivere un legame di famiglia e un
+atto sul dato clinico**, perche e quello che concede. Lo puo fare chi quella
+vista ce l'ha gia. Segreteria e collaboratore la hanno per matrice, quindi il
+flusso di tutti i giorni non cambia; la perde il ruolo a cui il club ha tolto
+`clinical.read`, che e esattamente cio che il club intendeva togliendola.
+
+E i due elenchi non possono piu divergere: `GUARDIAN_LINK_FIELDS` sta in
+`parent-dashboard.ts`, e la guardia lo importa.
+
+### Un `data` nullo spegneva tutte e tre le guardie dell'anagrafica (Critical)
+
+Erano condizionate a `normalized.data && existing?.data`, cioe a due valori
+**veri**. Un salvataggio con `data: null` — o `""`, o `0` — le attraversava
+tutte, e al salvataggio successivo anche `existing.data` era falso: la seconda
+scrittura aggiungeva il legame che la guardia sorveglia senza incontrarla.
+
+La domanda giusta non e «c'e un `data` valorizzato?» ma «questa scrittura tocca
+`data`?». Cio che manca dall'altro lato vale come oggetto vuoto: non c'era
+niente da conservare, ed e diverso da «non guardo».
+
+### Le due regressioni che avevo introdotto (High)
+
+| Cosa avevo rotto | Come |
+|---|---|
+| **L'onboarding di ogni allenatore** | La guardia di confine sul riscatto confronta `club_resource_items.id`, che e `uuid`, con `trainer_id`, che porta l'**id logico** che il prodotto genera (`trainer-<istante>-<casuale>`). Non «non trova»: fa fallire la query con `22P02`, che risale al catch generico come un **500**. Il repository documenta gia questo errore in `resources.ts`; l'avevo reintrodotto in una porta nuova, e la sonda non lo vedeva perche conia i suoi gettoni con l'id di riga |
+| **Una rotta che prima era chiusa** | Nella rotta della rata avevo ricavato il verbo da `request.method`, ma quel file esporta **solo `PATCH`** e l'azione viaggia nel corpo. Il verbo valeva sempre `update`, il ramo `delete` della matrice non veniva interrogato mai, e la segreteria annullava una rata con un 200 |
+
+Piu una terza, sulla stessa funzione gia rifatta una volta: chi non vede una
+credenziale poteva comunque **distruggerla** mandando `""`. Il `Set` delle
+revoche girava nel ramo di chi *non* ha letto il valore — e chi non l'ha letto
+non puo aver deciso di toglierlo. Non c'e piu: per chi non vede, ogni sparizione
+e una perdita.
+
+### Le altre porte del perimetro, e i due predicati
+
+- Gli appuntamenti: il perimetro era in **creazione** e non nelle cinque
+  transizioni, che confermano e annullano — e mandano una notifica ai tutori.
+- I documenti **gia generati** si rileggevano fuori dal perimetro che ne governa
+  la generazione: stesso contenuto, altra porta.
+- `createAttachment` era la sesta porta di Attachment Core, e l'unica senza
+  perimetro: si depositava un file nel fascicolo di un minore di un'altra sede.
+- `canAccessClubResource` normalizzava il gettone sulla base per **ogni**
+  chiamante che non fosse il registro generico: l'elenco dei beneficiari di un
+  contributo pubblico rispondeva al ruolo base. La regola e salita dentro il
+  predicato, dove sta la domanda.
+- `custom_role_id` e `is_primary` erano chiusi su **una porta su tre**: il ramo
+  `upsert` dedicato esce prima delle guardie di modifica, e `syncClubMembers`
+  non ci passa. La regola sta ora accanto alla guardia che tutte e tre chiamano.
+- Un gettone **senza firma** — coniato prima di questa Wave, quando un
+  collaboratore poteva forgiarne uno — non concede piu un ruolo che amministra
+  il club.
+
+### I sette presidi che dicevano verde
+
+La lane sulla vacuita ha misurato **28 mutazioni**: 22 passavano `npm test` e
+**7** non erano viste da nessun gate. Cinque su sette erano lo stesso errore di
+forma, e non un difetto dentro un presidio: **enumerare dove si crede di
+misurare una proprieta**.
+
+| Presidio | Enumerava | Adesso |
+|---|---|---|
+| Credenziali nel browser | i **file** dichiarati, e `setItem(` | le **chiavi**, la scrittura per proprieta (`storage["x"] = y`), e una regola in piu: sotto una chiave di sessione puo finire solo cio che passa da `sessionSenzaCredenziali` |
+| Cancello sui byte | due **forme di uscita** note | prima del cancello questa rotta puo restituire **solo un rifiuto** |
+| Log senza dati personali | cinque **nomi di variabile inglesi** | il nome che un `catch` **lega**, qualunque sia — piu i nomi classici per le callback. E leggere `error.code` resta lecito: un presidio che vieta i log utili viene aggirato |
+| `await` sulle guardie | otto **file** cablati, tre **prefissi**, e un insieme per file | tutti i sorgenti del server, quattro prefissi, e un nome vale se il file lo dichiara **o lo importa** da chi lo dichiara |
+| Mappa risorsa → chiave | la mappa **verificava se stessa** | diciassette risorse **pinnate** con il motivo, e la prova comportamentale su tutte invece che su una |
+
+E la proiezione sul profilo atleta — la riga che tiene i codici d'accesso delle
+famiglie fuori da una risposta — non era esercitata da nessun gate: toglierla
+dava sei verdi. Adesso c'e `U-62`.

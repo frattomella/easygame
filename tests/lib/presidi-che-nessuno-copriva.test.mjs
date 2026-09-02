@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
 
 import {
   canAccessPath,
@@ -115,64 +116,134 @@ test("e i quattro domini con matrice propria applicano lo stesso soffitto", () =
 
 test("nessuna guardia asincrona viene invocata senza `await`", () => {
   /*
-    **Togliere una parola disinnescava una guardia in silenzio.**
+    **Togliere una parola disinnesca una guardia in silenzio.**
 
     `guardPlatformOwnedClubSettings` e `async` e comunica il rifiuto con un
-    `throw`. Chiamata senza `await`, continua a girare — e a scrivere l'audit —
-    ma il `throw` diventa una promise rifiutata che nessuno guarda, e la
-    scrittura prosegue. Una revisione lo ha misurato: **nessun gate** se ne
-    accorgeva, mentre svuotare la stessa guardia in modo esplicito faceva
+    `throw`. Chiamata senza `await`, continua a girare — e a scrivere
+    l'audit — ma il `throw` diventa una promise rifiutata che nessuno guarda,
+    e la scrittura prosegue. Una revisione lo ha misurato: **nessun gate** se
+    ne accorgeva, mentre svuotare la stessa guardia in modo esplicito faceva
     cadere cinque test.
 
-    I presidi guardavano *cosa* fa la guardia, non *se il chiamante la aspetta*.
-    Questo guarda la seconda cosa, ed e una proprieta: vale per ogni guardia
-    che esiste oggi e per ogni guardia che nascera.
+    **La prima stesura di questa regola aveva tre confini, e li ha trovati la
+    revisione successiva.** Costruiva l'insieme delle guardie **file per
+    file**, quindi una dichiarata in A e chiamata in B non era guardata da
+    nessuno — misurato su `assertPersonalDataDisposed`, dichiarata in
+    `data-subject.ts` e chiamata in `resources.ts`. Leggeva otto file
+    **cablati**, e ne restavano fuori quattro che dichiarano guardie. E
+    accettava tre **prefissi**, quindi rinominare in `ensure…` la rendeva
+    cieca — e `ensureAccountBelongsToClub` esiste davvero.
+
+    Adesso: si leggono **tutti** i sorgenti del server, l'insieme delle
+    guardie e l'**unione** di quanto ognuno dichiara, e i prefissi sono
+    quattro perche `ensure` e uno di essi. Nessuno dei tre confini resta.
   */
-  const FILE = [
-    "lib/server/resources.ts",
-    "lib/server/document-requests.ts",
-    "lib/server/events.ts",
-    "lib/server/club-roles.ts",
-    "lib/server/data-subject.ts",
-    "lib/server/attachments.ts",
-    "lib/server/athlete-accounts.ts",
-    "lib/server/appointments.ts",
+  const PREFISSI = String.raw`(?:assert|guard|applica|ensure)`;
+
+  const sorgenti = (cartella) => {
+    const trovati = [];
+    for (const voce of readdirSync(cartella, { withFileTypes: true })) {
+      const completo = path.join(cartella, voce.name);
+      if (voce.isDirectory()) trovati.push(...sorgenti(completo));
+      else if (/\.tsx?$/.test(voce.name)) trovati.push(completo);
+    }
+    return trovati;
+  };
+
+  const file = [
+    ...sorgenti(path.resolve("src/lib/server")),
+    ...sorgenti(path.resolve("src/app/api")),
   ];
+
+  const testi = new Map(
+    file.map((percorso) => [percorso, readFileSync(percorso, "utf8")]),
+  );
+
+  /*
+    **Chi dichiara una guardia asincrona, e chi la importa.**
+
+    Un insieme unico per tutti i file sarebbe troppo largo: `assertCanManage`
+    esiste in tre moduli come funzione **sincrona**, e in un quarto no. Un
+    insieme per file sarebbe troppo stretto, ed e il difetto che questa
+    stesura corregge.
+
+    La risposta e la terza: un nome vale come guardia asincrona in un file se
+    quel file la **dichiara** cosi, oppure se la **importa** da un modulo che
+    la dichiara cosi. E lo stesso criterio che usa il compilatore.
+  */
+  const dichiarateAsincrone = new Set();
+  for (const testo of testi.values()) {
+    for (const trovato of testo.matchAll(
+      new RegExp(
+        String.raw`(?:const|function)\s+(` + PREFISSI + String.raw`[A-Za-z0-9_]*)\s*(?::[^=]*)?=?\s*async\b`,
+        "g",
+      ),
+    )) {
+      dichiarateAsincrone.add(trovato[1]);
+    }
+  }
+
+  const asincroneDi = (testo) => {
+    const locali = new Set();
+
+    for (const trovato of testo.matchAll(
+      new RegExp(
+        String.raw`(?:const|function)\s+(` + PREFISSI + String.raw`[A-Za-z0-9_]*)\s*(?::[^=]*)?=?\s*async\b`,
+        "g",
+      ),
+    )) {
+      locali.add(trovato[1]);
+    }
+
+    /* i nomi importati, che valgono se qualcuno li dichiara asincroni */
+    for (const blocco of testo.matchAll(/import\s*\{([^}]*)\}\s*from/g)) {
+      for (const pezzo of blocco[1].split(",")) {
+        const nome = pezzo.replace(/\btype\b/, "").trim().split(/\s+as\s+/)[0].trim();
+        if (nome && dichiarateAsincrone.has(nome)) locali.add(nome);
+      }
+    }
+
+    return locali;
+  };
+
+  assert.ok(
+    dichiarateAsincrone.size >= 10,
+    `guardie asincrone trovate: ${dichiarateAsincrone.size}. Se sono cosi poche, la ricerca non sta piu funzionando`,
+  );
 
   const colpevoli = [];
 
-  for (const percorso of FILE) {
-    const sorgente = leggi(percorso);
-
-    /* Le guardie asincrone dichiarate in questo file. */
-    const asincrone = new Set(
-      [
-        ...sorgente.matchAll(
-          /(?:const|function)\s+((?:assert|guard|applica)[A-Za-z0-9_]*)\s*(?::[^=]*)?=?\s*async\b/g,
-        ),
-      ].map((m) => m[1]),
-    );
-
+  for (const [percorso, testo] of testi) {
+    const relativo = path.relative(path.resolve("src"), percorso).split(path.sep).join("/");
+    const asincrone = asincroneDi(testo);
     if (!asincrone.size) continue;
 
-    const righe = sorgente.split("\n");
-    righe.forEach((riga, indice) => {
+    /*
+      I commenti non sono codice, e questo file ne e pieno: un commento che
+      **cita** una guardia — `(\`ensureAccountBelongsToClub(client, …)\`)` —
+      non e una chiamata senza `await`.
+    */
+    const senzaCommenti = testo
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+
+    senzaCommenti.split("\n").forEach((riga, indice) => {
       const chiamata = riga.match(
-        /(^|[^.\w])((?:assert|guard|applica)[A-Za-z0-9_]*)\s*\(/,
+        new RegExp(String.raw`(^|[^.\w])(` + PREFISSI + String.raw`[A-Za-z0-9_]*)\s*\(`),
       );
       if (!chiamata) return;
 
       const nome = chiamata[2];
       if (!asincrone.has(nome)) return;
-
-      /* La dichiarazione non e una chiamata. */
       if (new RegExp(`(const|function)\\s+${nome}\\b`).test(riga)) return;
 
       const prefisso = riga.slice(0, chiamata.index + chiamata[1].length);
       if (/\bawait\s*$/.test(prefisso)) return;
       if (/\breturn\s*$/.test(prefisso)) return;
+      /* dentro un `Promise.all([...])` l'attesa e sull'insieme */
+      if (/\b(Promise\.(all|allSettled|race)\s*\(\s*\[?|=>)\s*$/.test(prefisso)) return;
 
-      colpevoli.push(`${percorso}:${indice + 1}: ${riga.trim().slice(0, 90)}`);
+      colpevoli.push(`${relativo}:${indice + 1}: ${riga.trim().slice(0, 90)}`);
     });
   }
 

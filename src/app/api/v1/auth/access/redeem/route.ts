@@ -7,7 +7,11 @@ import {
 } from "@/lib/server/auth-rate-limit";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { publicErrorMessage } from "@/lib/server/api-errors";
-import { isCustomRoleValue, normalizeAccessRole } from "@/lib/access-roles";
+import {
+  isCustomRoleValue,
+  isManagementAccessRole,
+  normalizeAccessRole,
+} from "@/lib/access-roles";
 import { assertMayGrantRole } from "@/lib/roles/custom-role";
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
@@ -51,6 +55,11 @@ const isOrganizationUserUniqueError = (error: any) => {
   );
 };
 
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    String(value || "").trim(),
+  );
+
 /**
  * **La scheda che il gettone nomina deve essere del club che l'ha coniato.**
  *
@@ -68,16 +77,45 @@ const loadTrainerAccessTarget = async (
   trainerId: string,
   organizationId: string,
 ) => {
-  const riga = await prisma.clubResourceItem.findFirst({
-    where: {
-      id: trainerId,
-      organization_id: organizationId,
-      resource_type: { in: ["trainers", "staff_members"] },
-    },
-    select: { id: true },
-  });
+  /*
+    **`club_resource_items.id` e una colonna `uuid`, e `trainer_id` non lo e.**
 
-  if (!riga) return null;
+    La prima stesura di questa guardia confrontava le due cose. Non «non
+    trovava»: faceva **fallire la query** con `22P02`, e l'errore risaliva al
+    catch generico come un 500. Il gettone di ogni allenatore reale ne porta
+    l'**identificativo logico** — `trainer-<istante>-<casuale>`, generato in
+    `trainers/new/page.tsx` e ricopiato nel gettone — quindi l'onboarding degli
+    allenatori era rotto per tutti.
+
+    Il repository conosce gia questo errore e lo scrive in `resources.ts`; la
+    correzione lo aveva reintrodotto in una porta nuova. Si cercano quindi
+    **entrambe** le forme, e il confine di club resta quello che serviva:
+    l'identificativo logico vive dentro il payload, e la ricerca e comunque
+    ristretta al club che ha coniato il gettone.
+  */
+  const perUuid = isUuid(trainerId)
+    ? await prisma.clubResourceItem.findFirst({
+        where: {
+          id: trainerId,
+          organization_id: organizationId,
+          resource_type: { in: ["trainers", "staff_members"] },
+        },
+        select: { id: true },
+      })
+    : null;
+
+  const perIdLogico = perUuid
+    ? null
+    : await prisma.clubResourceItem.findFirst({
+        where: {
+          organization_id: organizationId,
+          resource_type: { in: ["trainers", "staff_members"] },
+          payload: { path: ["id"], equals: trainerId },
+        },
+        select: { id: true },
+      });
+
+  if (!perUuid && !perIdLogico) return null;
 
   try {
     return {
@@ -448,6 +486,25 @@ export async function POST(request: Request) {
         gettone storico continua a valere per allenatori, famiglie e soci, e
         **non** puo piu consegnare il club.
       */
+      /*
+        **Senza firma si giudica con il concedente piu stretto possibile.**
+
+        Il ripiego era `club_manager`, che chiude `owner` e lascia
+        `club_manager`. Ma un gettone senza firma e per definizione **anteriore**
+        alle guardie di questa Wave, cioe di quando un collaboratore poteva
+        forgiarne uno da `club_resource_items`: fidarsi che lo abbia coniato la
+        direzione e la cosa che non si puo sapere.
+
+        Un gettone storico continua percio a valere per cio per cui i gettoni
+        esistono — allenatori, famiglie, soci, atleti — e non concede piu un
+        ruolo che **amministra** il club. Chi ne avesse bisogno lo riconia: il
+        conio di oggi la firma ce l'ha.
+      */
+      if (!coniatoDa && isManagementAccessRole(role)) {
+        throw new Error(
+          "Accesso negato: un gettone senza firma non concede un ruolo che amministra il club",
+        );
+      }
       assertMayGrantRole(coniatoDa || "club_manager", { role });
     } catch (errore: any) {
       await tracciaRiscatto({

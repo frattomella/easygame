@@ -303,9 +303,7 @@ export const sendPaymentReminderEmail = async (
     esattamente il messaggio di prima, senza righe vuote.
   */
   const paymentLink = String(content.paymentLink || "").trim();
-  const linkLines = paymentLink
-    ? ["", "Puoi pagare da qui:", paymentLink]
-    : [];
+  const linkLines = paymentLink ? ["", "Puoi pagare da qui:", paymentLink] : [];
 
   return sendTransactionalEmail({
     to: content.to,
