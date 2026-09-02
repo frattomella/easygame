@@ -105,6 +105,8 @@ let moduli;
 let ruoliDiAccesso;
 let permessiContabili;
 let agenda;
+let pubblico;
+let appartenenzeStagione;
 let segnaposto;
 let compilazioni;
 let rotte = null;
@@ -225,6 +227,7 @@ const preparaTrasporto = async () => {
     moduloPubblico: await carica("src/app/api/public/forms/[publicSlug]/route.ts"),
     risorsa: await carica("src/app/api/v1/[resource]/route.ts"),
     riscatto: await carica("src/app/api/v1/auth/access/redeem/route.ts"),
+    personaLavoro: await carica("src/app/api/v1/sport-work/people/[id]/route.ts"),
     avatar: await carica("src/app/api/v1/athletes/[id]/avatar/route.ts"),
     rata: await carica("src/app/api/athlete-payments/[paymentId]/route.ts"),
     documentiGenerati: await carica("src/app/api/v1/documents/generated/route.ts"),
@@ -5270,6 +5273,314 @@ const u65 = async () => {
   await prisma.athlete.update({ where: { id: ATLETA_A }, data: { data: {} } });
 };
 
+const u66 = async () => {
+  /* ================================================================== */
+  /*  U-66 — la nona revisione, seconda tornata: quattro porte senza     */
+  /*         perimetro, e un IBAN che usciva in lettura   [HIGH]         */
+  /* ================================================================== */
+
+  console.log(
+    `${NL}U-66 — quattro porte senza perimetro, e un IBAN in lettura   [HIGH]`,
+  );
+
+  const perimetroSedeA = [{ kind: "site", value: SEDE_A }];
+
+  /* ---------------------------------------------------------------- */
+  /*  1. l'IBAN esce solo da chi amministra, e si misura dalla rotta   */
+  /* ---------------------------------------------------------------- */
+
+  const personaIban = await prisma.sportWorkPerson.create({
+    data: {
+      organization_id: CLUB_A,
+      first_name: "Iba",
+      last_name: "Sessantasei",
+      iban: "IT60X0542811101000000123456",
+    },
+  });
+
+  const leggiPersona = async (utenteAttore, ruolo) => {
+    await comeUtente(utenteAttore, CLUB_A);
+    const risposta = await rotte.personaLavoro.GET(
+      richiesta(`/api/v1/sport-work/people/${personaIban.id}`, {
+        headers: { "x-active-access-role": ruolo },
+      }),
+      { params: { id: personaIban.id } },
+    );
+    SESSIONE = null;
+    CLUB_ATTIVO = null;
+    const corpo = await risposta.json().catch(() => ({}));
+    return { stato: risposta.status, dati: corpo?.data || {} };
+  };
+
+  /*
+    Un ruolo di club costruito su `club_manager` con la sola lettura: e
+    esattamente la figura che prepara i bonifici senza poterli disporre, ed e
+    la ragione per cui `sport_work.read` esiste separata da `manage`.
+
+    Il ruolo si crea **in archivio** e si assegna a una tessera vera: il
+    gettone effimero `custom:...#chiavi` lo compone lo scope dalla riga, non
+    l'intestazione della richiesta. Passarlo a mano misurerebbe una sessione
+    che non esiste.
+  */
+  const ruoloContabile = await ruoliDiClub.createClubRole(
+    { ...scopeRuolo("owner"), actorEmail: utenti.owner.email },
+    {
+      name: "Contabile Sonda",
+      baseRole: "club_manager",
+      permissions: ["sport_work.read"],
+    },
+  );
+
+  await ruoliDiClub.assignClubRole(
+    { ...scopeRuolo("owner"), actorEmail: utenti.owner.email },
+    { userId: utenti.staff.id, role: ruoloContabile.slug },
+  );
+
+  const inLettura = await leggiPersona(utenti.staff, ruoloContabile.slug);
+  const inGestione = await leggiPersona(utenti.owner, "owner");
+
+  prova(
+    "U-66 l'IBAN non esce a chi ha la sola lettura del lavoro sportivo",
+    { stato: 200, iban: undefined, has_iban: true },
+    {
+      stato: inLettura.stato,
+      iban: inLettura.dati.iban,
+      has_iban: inLettura.dati.has_iban,
+    },
+    "`projectPersonForList` lo toglieva dall'elenco e dichiarava che si legge aprendo la scheda «con `sport_work.manage`»: la scheda chiedeva `read` e restituiva la riga intera",
+  );
+
+  prova(
+    "U-66 ma chi amministra le coordinate bancarie le vede",
+    { stato: 200, iban: "IT60X0542811101000000123456" },
+    { stato: inGestione.stato, iban: inGestione.dati.iban },
+    "controspecchio: una redazione che togliesse sempre l'IBAN renderebbe impossibile disporre un bonifico, e nessuna prova di diniego se ne accorgerebbe",
+  );
+
+  await prisma.sportWorkPerson
+    .delete({ where: { id: personaIban.id } })
+    .catch(() => {});
+
+  await prisma.organizationUser
+    .deleteMany({
+      where: {
+        organization_id: CLUB_A,
+        user_id: utenti.staff.id,
+        custom_role_id: ruoloContabile.id,
+      },
+    })
+    .catch(() => {});
+  await prisma.clubRole
+    .delete({ where: { id: ruoloContabile.id } })
+    .catch(() => {});
+
+  /* ---------------------------------------------------------------- */
+  /*  2. fattura e ricevuta seguono l'atleta                           */
+  /* ---------------------------------------------------------------- */
+
+  const fatturaDentro = await prisma.invoice.create({
+    data: {
+      organization_id: CLUB_A,
+      athlete_id: ATLETA_A,
+      invoice_number: "U66-DENTRO",
+      issue_date: new Date(),
+      amount: 100,
+      description: "Quota U66-DENTRO",
+      status: "issued",
+      updated_at: new Date(),
+    },
+  });
+  const fatturaFuori = await prisma.invoice.create({
+    data: {
+      organization_id: CLUB_A,
+      athlete_id: ATLETA_ALTRUI,
+      invoice_number: "U66-FUORI",
+      issue_date: new Date(),
+      amount: 200,
+      description: "Quota U66-FUORI",
+      status: "issued",
+      updated_at: new Date(),
+    },
+  });
+
+  const numeriFattura = async (scope) => {
+    const pagina = await risorse.listResourcePage(
+      "invoices",
+      new URLSearchParams({ organization_id: CLUB_A }),
+      scope,
+    );
+    return (pagina.records || [])
+      .map((riga) => riga.invoice_number)
+      .filter((numero) => String(numero || "").startsWith("U66-"))
+      .sort();
+  };
+
+  prova(
+    "U-66 le fatture di un minore fuori perimetro non si elencano",
+    ["U66-DENTRO"],
+    await numeriFattura({
+      ...scopeRuolo("club_manager"),
+      accessScopes: perimetroSedeA,
+    }),
+    "il documento fiscale di un minore porta nome, indirizzo, codice fiscale e importo: e la stessa anagrafica che il perimetro toglie, su carta intestata",
+  );
+
+  prova(
+    "U-66 e senza perimetro si vedono tutte e due",
+    ["U66-DENTRO", "U66-FUORI"],
+    await numeriFattura(scopeRuolo("club_manager")),
+    "controspecchio: zero righe di perimetro significano **tutto il club**, e un filtro che negasse sempre romperebbe la contabilita di ogni club che non usa le sedi",
+  );
+
+  await prisma.invoice
+    .deleteMany({ where: { id: { in: [fatturaDentro.id, fatturaFuori.id] } } })
+    .catch(() => {});
+
+  /* ---------------------------------------------------------------- */
+  /*  3. il roster della stagione e una mappa atleta -> sede           */
+  /* ---------------------------------------------------------------- */
+
+  /*
+    Si misura sull'atleta dell'**altra** sede, non su un elenco fisso: le
+    prove che lo precedono spostano appartenenze, e un elenco atteso alla
+    lettera misurerebbe la loro scia invece del perimetro.
+  */
+  const roster = async (accessScopes) =>
+    (
+      await appartenenzeStagione.listSeasonRoster({
+        organizationId: CLUB_A,
+        sourceCategoryIds: [CATEGORIA],
+        accessScopes,
+      })
+    ).athletes.map((atleta) => atleta.athleteId);
+
+  const rosterRecintato = await roster(perimetroSedeA);
+  const rosterIntero = await roster([]);
+
+  prova(
+    "U-66 il roster della riconferma rispetta il perimetro",
+    { fuoriPerimetro: false, vuoto: false },
+    {
+      fuoriPerimetro: rosterRecintato.includes(ATLETA_ALTRUI),
+      vuoto: rosterRecintato.length === 0,
+    },
+    "la rotta chiede `seasons.change`, che e della direzione: ma un ruolo di club puo avere quella chiave **e** un recinto, e l'elenco dava la corrispondenza completa atleta -> sede",
+  );
+
+  prova(
+    "U-66 e senza perimetro il roster contiene anche l'altra sede",
+    true,
+    rosterIntero.includes(ATLETA_ALTRUI),
+    "controspecchio: il passo di riconferma esiste per vedere chi si sta per riportare, e un filtro sempre chiuso lo spegnerebbe",
+  );
+
+  /* ---------------------------------------------------------------- */
+  /*  4. il pubblico di una comunicazione                              */
+  /* ---------------------------------------------------------------- */
+
+  const destinatari = async (accessScopes) => {
+    const esito = await pubblico.resolveAudience({
+      organizationId: CLUB_A,
+      criteria: [{ kind: "all_families" }],
+      scope: { ...scopeRuolo("club_manager"), accessScopes },
+      actorRole: "club_manager",
+    });
+    const nomi = new Set();
+    for (const gruppo of [esito.recipients || [], esito.exclusions || []]) {
+      for (const voce of gruppo) {
+        nomi.add(String(voce.athleteName || ""));
+      }
+    }
+    return [...nomi];
+  };
+
+  const nomeAltrui = (nome) => nome.includes("Altrui");
+  const pubblicoRecintato = await destinatari(perimetroSedeA);
+  const pubblicoIntero = await destinatari([]);
+
+  prova(
+    "U-66 il pubblico di una comunicazione rispetta il perimetro",
+    false,
+    pubblicoRecintato.some(nomeAltrui),
+    "«manda a tutte le famiglie» chiedeva il permesso di comunicare e non il recinto di chi comunica: il permesso e fra i primi che un club delega, e lo delega **insieme** a un recinto",
+  );
+
+  prova(
+    "U-66 e senza perimetro il pubblico raggiunge anche l'altra sede",
+    true,
+    pubblicoIntero.some(nomeAltrui),
+    "controspecchio: senza questa riga un filtro sempre chiuso spegnerebbe la comunicazione massiva e nessuna prova di diniego lo direbbe",
+  );
+
+  /* ---------------------------------------------------------------- */
+  /*  5. un codice che risponde per due club non si riscatta           */
+  /* ---------------------------------------------------------------- */
+
+  const nomeGettone = "U66OMONIMO";
+
+  const coniaGettone = (clubId) =>
+    prisma.clubResourceItem.create({
+      data: {
+        organization_id: clubId,
+        resource_type: "access_tokens",
+        name: nomeGettone,
+        status: "active",
+        payload: {
+          role: "collaborator",
+          minted_by_role: "owner",
+          one_time: true,
+        },
+        updated_at: new Date(),
+      },
+    });
+
+  const riscatta = async () => {
+    await comeUtente(utenti.staff, CLUB_A);
+    const risposta = await rotte.riscatto.POST(
+      richiesta("/api/v1/auth/access/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: nomeGettone }),
+      }),
+    );
+    SESSIONE = null;
+    CLUB_ATTIVO = null;
+    return risposta.status;
+  };
+
+  const gettoneA = await coniaGettone(CLUB_A);
+  const gettoneB = await coniaGettone(CLUB_B);
+
+  prova(
+    "U-66 un codice che risponde per due club viene rifiutato",
+    409,
+    await riscatta(),
+    "si teneva «il piu recente»: chi conosce un codice ne coniava uno omonimo nel proprio club e da quel momento era il suo club a rispondere",
+  );
+
+  await prisma.clubResourceItem.delete({ where: { id: gettoneB.id } });
+
+  prova(
+    "U-66 e quando il codice e di un club solo il riscatto arriva alla verifica",
+    true,
+    (await riscatta()) !== 409,
+    "controspecchio: rifiutare sempre spegnerebbe l'onboarding, e la prova qui sopra passerebbe lo stesso",
+  );
+
+  await prisma.clubResourceItem
+    .deleteMany({ where: { name: nomeGettone } })
+    .catch(() => {});
+  await prisma.organizationUser
+    .deleteMany({
+      where: {
+        organization_id: CLUB_A,
+        user_id: utenti.staff.id,
+        role: "collaborator",
+      },
+    })
+    .catch(() => {});
+};
+
 /* ------------------------------------------------------------- il giro */
 
 try {
@@ -5291,6 +5602,8 @@ try {
   ruoliDiAccesso = await carica("src/lib/access-roles.ts");
   permessiContabili = await carica("src/lib/accounting/permissions.ts");
   agenda = await carica("src/lib/server/sport-work-agenda.ts");
+  pubblico = await carica("src/lib/server/audience.ts");
+  appartenenzeStagione = await carica("src/lib/server/season-memberships.ts");
   segnaposto = await carica("src/lib/server/document-placeholders.ts");
 
   await preparaTrasporto();
@@ -5323,6 +5636,7 @@ try {
   await u63();
   await u64();
   await u65();
+  await u66();
 
   const falliti = esiti.filter((e) => !e.ok);
   if (deviazioni.length) {

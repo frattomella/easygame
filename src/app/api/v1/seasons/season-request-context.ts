@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { hasSeasonPermission } from "@/lib/seasons/permissions";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { isValidationError, validationErrorPayload } from "@/lib/validation";
 import { publicErrorMessage } from "@/lib/server/api-errors";
 import {
@@ -25,6 +26,14 @@ export type SeasonRequestContext = {
   role: string | null;
   userId: string;
   email: string | null;
+  /**
+   * Il perimetro di sede e categoria dell'attore.
+   *
+   * Sta nel contesto e non solo dentro la rotta che lo usa perche il roster
+   * non e l'unica risposta di questo dominio che nomina degli atleti, ed e
+   * meglio che chi ne scrive una seconda lo trovi gia in mano.
+   */
+  accessScopes: AccessScopeEntry[];
   audit: (
     event: Omit<AuditEventInput, "organizationId" | "actorUserId" | "actorEmail" | "actorRole" | "request">,
   ) => Promise<boolean>;
@@ -96,6 +105,7 @@ export const resolveSeasonRequestContext = async (
     role: scope.activeRole,
     userId: session.db.user_id,
     email: session.db.user.email,
+    accessScopes: scope.accessScopes,
     audit: (event) =>
       recordAuditEvent({
         ...event,

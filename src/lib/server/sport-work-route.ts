@@ -6,6 +6,7 @@ import {
 } from "./auth";
 import {
   assertSportWorkPermission,
+  hasSportWorkPermission,
   type SportWorkPermission,
 } from "@/lib/sport-work/permissions";
 import { recordAuditEvent, AUDIT_ACTIONS } from "./audit";
@@ -103,6 +104,62 @@ export const sportWorkFailure = (error: any, fallback: string) => {
   return NextResponse.json({ data: null, error: { message: raw } }, { status });
 };
 
+/**
+ * **Le coordinate bancarie escono solo da `sport_work.manage`.**
+ *
+ * `projectPersonForList` le toglie dall'elenco e ne lascia il solo
+ * `has_iban`, e il commento che accompagna quella proiezione dichiara che
+ * «le coordinate si leggono aprendo la scheda, e chi lo fa ha
+ * `sport_work.manage`». Non era vero: `GET /people/:id` chiede
+ * `sport_work.read` e restituiva la **riga intera**, IBAN compreso. Lo
+ * stesso valeva per il dettaglio di un rapporto, che monta la persona
+ * accanto al rapporto.
+ *
+ * **Perche qui e non nelle due rotte.** Perche le due rotte sono quelle di
+ * oggi. La proprieta da tenere non e «questa funzione proietta», e «nessuna
+ * risposta di questo dominio porta un IBAN a chi non amministra»: e una
+ * proprieta sulle **risposte**, e il solo posto da cui passano tutte e
+ * l'involucro. Una rotta scritta domani la eredita senza saperlo.
+ *
+ * Il campo non sparisce e basta: al suo posto resta `has_iban`, che e cio
+ * che l'elenco gia mostra. Chi legge vede che le coordinate esistono e non
+ * le legge — che e la distinzione che serve a chi prepara un pagamento
+ * senza poterlo disporre.
+ */
+const redigiCoordinateBancarie = (valore: unknown): unknown => {
+  if (Array.isArray(valore)) return valore.map(redigiCoordinateBancarie);
+  if (!valore || typeof valore !== "object") return valore;
+
+  const dentro = valore as Record<string, unknown>;
+  const fuori: Record<string, unknown> = {};
+
+  for (const [chiave, contenuto] of Object.entries(dentro)) {
+    if (chiave === "iban") {
+      fuori.has_iban = Boolean(
+        typeof contenuto === "string" ? contenuto.trim() : contenuto,
+      );
+      continue;
+    }
+    fuori[chiave] = redigiCoordinateBancarie(contenuto);
+  }
+
+  return fuori;
+};
+
+const rispostaRedatta = async (risposta: Response) => {
+  const tipo = risposta.headers.get("content-type") || "";
+  if (!tipo.includes("application/json")) return risposta;
+
+  const corpo = await risposta
+    .clone()
+    .json()
+    .catch(() => undefined);
+  if (corpo === undefined) return risposta;
+
+  return NextResponse.json(redigiCoordinateBancarie(corpo), {
+    status: risposta.status,
+  });
+};
 export const sportWorkRoute =
   (
     permission: SportWorkPermission,
@@ -143,7 +200,7 @@ export const sportWorkRoute =
         );
       }
 
-      return await handler({
+      const risposta = await handler({
         request,
         url,
         session,
@@ -157,6 +214,10 @@ export const sportWorkRoute =
           request,
         },
       });
+
+      return hasSportWorkPermission(scope.activeRole, "sport_work.manage")
+        ? risposta
+        : await rispostaRedatta(risposta);
     } catch (error: any) {
       return sportWorkFailure(error, fallbackMessage);
     }

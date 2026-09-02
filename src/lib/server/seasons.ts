@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import {
   readClubResourceCollection,
   replaceClubResourceCollection,
@@ -320,6 +321,7 @@ export const runClubSeasonRollover = async (options: {
 export const readSeasonRoster = async (options: {
   organizationId: string;
   seasonId: string;
+  accessScopes?: readonly AccessScopeEntry[] | null;
 }): Promise<SeasonRoster & { seasonId: string; seasonLabel: string }> => {
   const { organizationId } = options;
   const state = await readClubSeasonState(organizationId);
@@ -351,6 +353,7 @@ export const readSeasonRoster = async (options: {
   // categoria non appartiene piu alla stagione di origine, e in quel caso non
   // entra nemmeno in questo elenco.
   const roster = await listSeasonRoster({
+    accessScopes: options.accessScopes,
     organizationId,
     sourceCategoryIds,
     categoryNameById,

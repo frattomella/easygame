@@ -3850,6 +3850,22 @@ const buildAccessScopeFilter = (
     "simplified_certificates",
     "payments",
     "simplified_payments",
+    /*
+      Fattura e ricevuta arrivano dopo, e da una revisione successiva. Il
+      documento fiscale di un minore porta il suo nome, il suo indirizzo, il
+      suo codice fiscale e l'importo: e la stessa anagrafica che il perimetro
+      toglie, scritta su una carta intestata. Un ruolo recintato sulla sede
+      Nord leggeva le fatture di tutto il club — e con una base di gestione
+      le annullava.
+
+      `athlete_id` e **facoltativo**: un documento intestato al club non
+      porta il valore di nessuno dei due assi, quindi non passa. E la stessa
+      scelta gia presa per l'atleta senza sede, dichiarata in
+      `access-scope-query.ts`: un perimetro fallisce **chiuso**, perche una
+      riga di cui non si sa dire dove sia non e «di tutte le sedi».
+    */
+    "invoices",
+    "receipts",
   ]);
 
   if (PER_ATLETA.has(resource)) {

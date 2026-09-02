@@ -1,4 +1,6 @@
 import { prisma } from "./prisma";
+import { buildMembershipAccessScopeConditions } from "./access-scope-query";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
 /**
  * I tesserati che passano da una stagione all'altra (W1-A, gap G-01).
@@ -93,18 +95,43 @@ const emptySummary = (
   requested,
 });
 
+/**
+ * **Il roster e una mappa `atleta -> sede/categoria`, e il perimetro la
+ * governa.**
+ *
+ * L'elenco della riconferma nomina ogni tesserato con la sua squadra e la sua
+ * sede. E esattamente il dato che il perimetro esiste per non far vedere, e
+ * per giunta nella forma piu comoda: non «alcuni atleti», ma la corrispondenza
+ * completa fra atleta e recinto — cioe l'elenco degli identificativi che ogni
+ * altra porta del prodotto accetta.
+ *
+ * La rotta chiede `seasons.change`, che appartiene alla direzione: sembrava
+ * bastare. Ma un ruolo personalizzato costruito su `club_manager` puo avere
+ * quella chiave **e** un perimetro, e una revisione l'ha misurato — sede Nord
+ * dichiarata, club intero letto.
+ *
+ * Il filtro e sulle **colonne dell'appartenenza**, non sull'atleta: e la
+ * stessa forma che il registro generico applica gia a
+ * `athlete_category_memberships`, chiesta allo stesso proprietario. Un atleta
+ * che non ha nessuna appartenenza dentro il perimetro esce dall'elenco da se,
+ * perche il montaggio scarta chi resta senza righe.
+ */
 const readMembershipsForCategories = async (
   organizationId: string,
   categoryIds: string[],
+  scope?: { accessScopes?: readonly AccessScopeEntry[] | null } | null,
 ) => {
   if (!categoryIds.length) {
     return [];
   }
 
+  const perimetro = buildMembershipAccessScopeConditions(scope);
+
   return prisma.athleteCategoryMembership.findMany({
     where: {
       organization_id: organizationId,
       category_id: { in: categoryIds },
+      ...(perimetro ? { AND: perimetro } : {}),
     },
     select: {
       id: true,
@@ -131,12 +158,14 @@ export const listSeasonRoster = async (options: {
   organizationId: string;
   sourceCategoryIds: string[];
   categoryNameById?: Record<string, string>;
+  accessScopes?: readonly AccessScopeEntry[] | null;
 }): Promise<SeasonRoster> => {
   const { organizationId, sourceCategoryIds, categoryNameById = {} } = options;
 
   const memberships = await readMembershipsForCategories(
     organizationId,
     sourceCategoryIds,
+    { accessScopes: options.accessScopes },
   );
 
   if (!memberships.length) {

@@ -2192,3 +2192,25 @@ un'utenza, il legame per email si accende solo se l'identita era stata scritta
 da un ruolo che aveva le due chiavi. Vuol dire tenere traccia di **chi** ha
 scritto quell'identita, cioe una colonna nuova sul tutore, e non e un lavoro da
 closeout.
+
+### W6-D29 — `access_tokens.name` non ha un vincolo di unicita
+
+Il riscatto di un codice di accesso (`POST /api/v1/auth/access/redeem`) cerca
+la riga per `name` **senza sapere il club**: chi riscatta non ne fa ancora
+parte, quindi non lo puo dichiarare.
+
+Finche due club potevano coniare lo stesso nome, la ricerca teneva «il piu
+recente di un club che esiste ancora», e questo permetteva un dirottamento:
+chi conosce un codice ne conia uno omonimo nel proprio club, lo tocca, e da
+quel momento e il suo club a rispondere.
+
+**Cosa e stato fatto ora.** La rotta rifiuta l'ambiguita: se il nome risponde
+per piu di una riga, il riscatto e negato con 409 e tracciato. Chi collide
+ottiene di **fermare** un riscatto, non di dirottarlo.
+
+**Cosa resta.** Un vincolo di unicita su `(resource_type, name)` limitato a
+`access_tokens` sposterebbe la difesa dal momento della lettura al momento
+della scrittura: la collisione non nascerebbe affatto, e il club che prova a
+coniare un omonimo riceverebbe subito un errore invece di rompere il riscatto
+altrui. E una **migrazione**, e in piu richiede di decidere cosa fare delle
+righe gia esistenti che collidono: non e un lavoro da closeout.

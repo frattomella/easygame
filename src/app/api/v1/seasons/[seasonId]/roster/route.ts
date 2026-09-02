@@ -29,6 +29,7 @@ export async function GET(request: Request, context: Context) {
     const roster = await readSeasonRoster({
       organizationId: requestContext.organizationId,
       seasonId: context.params.seasonId,
+      accessScopes: requestContext.accessScopes,
     });
 
     return NextResponse.json({ data: roster, error: null });

@@ -821,6 +821,40 @@ Prima della Wave 6 la sede era un filtro che arrivava **dal chiamante**, e la
 documentazione lo diceva a chiare lettere: «non e un confine di sicurezza».
 Adesso lo e — ma solo per chi ne ha uno dichiarato.
 
+#### Dove il perimetro arriva, e le quattro porte che non lo chiedevano
+
+Il perimetro non e un filtro di elenco: e un confine. Nel closeout della
+Wave 6 due revisioni indipendenti hanno misurato quattro superfici che lo
+ignoravano, e nessuna delle quattro era un elenco di atleti — erano gli
+**altri** modi di chiedere la stessa cosa.
+
+| Superficie | Cosa usciva | Dove si applica ora |
+|-----------|-------------|---------------------|
+| `invoices`, `receipts` | Il documento fiscale di un minore fuori perimetro: nome, indirizzo, codice fiscale, importo | `buildAccessScopeFilter` in `resources.ts`, insieme a certificati e rate |
+| Roster della riconferma (`GET /api/v1/seasons/:id/roster`) | La corrispondenza completa **atleta → sede/categoria** del club | `readMembershipsForCategories` in `season-memberships.ts` |
+| Risolutore del pubblico (`resolveAudience`) | I recapiti di tutte le famiglie del club a chi puo comunicare solo con la propria sede | La query degli atleti in `audience.ts` |
+| Dettaglio persona del lavoro sportivo | Non il perimetro ma l'**IBAN**, a chi ha `sport_work.read` e non `manage` | L'involucro `sportWorkRoute`, sulla **risposta** |
+
+Le prime tre sono la stessa lezione gia scritta per la lettura per
+identificativo: **un filtro di elenco si aggira chiedendo altro**. La quarta
+e la lezione gemella sul verso opposto — la proiezione dell'elenco toglieva
+l'IBAN e dichiarava che «si legge aprendo la scheda, e chi lo fa ha
+`sport_work.manage`»; la scheda chiedeva `read` e restituiva la riga intera.
+La difesa non stava dove il commento diceva.
+
+Per l'IBAN il presidio e sull'**involucro** e non sulle due rotte di oggi:
+la proprieta da tenere non e «questa funzione proietta», e «nessuna risposta
+di questo dominio porta un IBAN a chi non amministra». Una rotta scritta
+domani la eredita senza saperlo.
+
+Un documento fiscale **senza atleta** — intestato al club — non porta il
+valore di nessuno dei due assi, quindi non passa: e la seconda regola qui
+sopra, applicata.
+
+Copertura: `U-66` in `scripts/wave-6-security-probe.mjs`, che misura ognuna
+delle quattro **dalla rotta o dalla funzione che la rotta chiama**, con la
+controprova positiva accanto — senza perimetro l'elenco resta intero, e chi
+amministra l'IBAN lo vede.
 Il «gruppo» non e un `scope_kind`: e la coppia (categoria, sede)
 ([ADR-0055](18-decision-log.md)), non un'entita, e darglielo come perimetro
 significherebbe crearne una.

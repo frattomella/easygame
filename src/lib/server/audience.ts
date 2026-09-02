@@ -35,6 +35,8 @@ import {
   type AudienceSubject,
 } from "@/lib/audience/recipients";
 import { assertCommunicationPermission } from "@/lib/communications/permissions";
+import { buildAthleteAccessScopeConditions } from "./access-scope-query";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import {
   consentBlocksSubject,
   readConsentEnforcement,
@@ -61,6 +63,24 @@ export type AudienceScope = {
   activeOrganizationId: string | null;
   allowedOrganizationIds: string[];
   activeRole?: string | null;
+  /**
+   * **Il perimetro di sede e categoria dell'attore.**
+   *
+   * Il risolutore del pubblico e una porta sui recapiti delle famiglie: dice
+   * chi si raggiunge, con che indirizzo, e — quando il criterio e economico —
+   * chi e in arretrato. Chiedeva il **permesso** di comunicare e non il
+   * **perimetro** di chi comunica, quindi un ruolo recintato sulla sede Nord
+   * componeva «tutte le famiglie» e otteneva i recapiti di tutto il club.
+   *
+   * Non e un caso di scuola: il permesso di comunicare e fra i primi che un
+   * club delega, ed e delegato **insieme** a un recinto — «scrive alle
+   * famiglie della sua sede» e la ragione per cui il recinto esiste.
+   *
+   * Assente significa «nessun perimetro», che e cio che vale per i giri
+   * automatici: l'automazione notturna non ha un attore, e il suo pubblico e
+   * gia ristretto dal criterio con cui la regola e stata scritta.
+   */
+  accessScopes?: readonly AccessScopeEntry[] | null;
   /**
    * **Il consenso e configurazione, non un filtro cablato** (Wave 6, §15.2).
    *
@@ -464,6 +484,8 @@ export const resolveAudience = async ({
       criterion.kind === "athlete_ids",
   );
 
+  const perimetroAtleti = buildAthleteAccessScopeConditions(scope);
+
   const [club, athletes] = await Promise.all([
     (prisma as any).club.findUnique({
       where: { id: clubId },
@@ -473,6 +495,14 @@ export const resolveAudience = async ({
       where: {
         organization_id: clubId,
         ...(athleteIdCriterion ? { id: { in: athleteIdCriterion.values } } : {}),
+        /*
+          Il perimetro entra **nella query** e non fra i criteri: un criterio
+          si compone, si toglie e si nega, e chi manda lo sceglie. Questo no.
+          Restringere qui vuol dire che ogni criterio — presente e futuro —
+          lavora su un insieme gia ridotto, invece di dover ricordare di
+          applicarlo ognuno per conto suo.
+        */
+        ...(perimetroAtleti ? { AND: perimetroAtleti } : {}),
       },
       include: {
         category_memberships: true,

@@ -308,13 +308,14 @@ export async function POST(request: Request) {
       un codice riemesso vince su uno vecchio, che e cio che chi lo consegna
       si aspetta.
     */
-    const accessToken = await prisma.clubResourceItem.findFirst({
+    const candidati = await prisma.clubResourceItem.findMany({
       where: {
         resource_type: "access_tokens",
         name: token,
         organization: { is: {} },
       },
       orderBy: { updated_at: "desc" },
+      take: 2,
       include: {
         organization: {
           select: {
@@ -331,6 +332,49 @@ export async function POST(request: Request) {
         },
       },
     });
+
+    /*
+      **Un codice che risponde per due club non si riscatta: si rifiuta.**
+
+      Tenere «il piu recente» risolve il gettone orfano, ma sceglie anche
+      quando la scelta non spetta a noi. Chi conosce un codice — e per
+      consegnarlo qualcuno lo conosce: la segreteria che lo detta, la casella
+      da cui passa — puo coniarne uno **con lo stesso nome nel proprio club**
+      e toccarlo un istante dopo: da quel momento e il suo club a rispondere.
+      Chi riscatta entra dove non voleva, con nome e indirizzo, e se il
+      gettone del club ospite e un legame di tutore si trova davanti la
+      cartella di un minore che non conosce.
+
+      Il codice non dice a quale club appartiene, e chi riscatta non lo puo
+      dire — non ne fa ancora parte. Quando la domanda e ambigua l'unica
+      risposta onesta e nessuna: si rifiuta, si traccia, e il club riemette.
+      Chi collide ottiene di fermare un riscatto, non di dirottarlo — che e
+      il lato giusto su cui sbagliare.
+
+      La chiusura durevole e un vincolo di unicita su
+      `(resource_type, name)`, cioe una migrazione: sta nel debito tecnico
+      come W6-D29, e non si apre in un closeout.
+    */
+    if (candidati.length > 1) {
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        motivo: "token ambiguo fra piu club",
+      });
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Questo codice non e utilizzabile: chiedi al club di generarne uno nuovo",
+          },
+        },
+        { status: 409 },
+      );
+    }
+
+    const accessToken = candidati[0] || null;
 
     if (!accessToken) {
       /* Il tentativo a vuoto e il segno di chi prova codici: e la riga che lo mostra. */
