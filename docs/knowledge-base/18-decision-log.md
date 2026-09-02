@@ -5565,6 +5565,48 @@ Due assi, `site` e `category`, in **AND** fra loro e in **OR** dentro se stessi.
   debito dichiarato: chiamarlo «perimetro» senza dire dove arriva sarebbe la
   stessa promessa vuota che questa Wave e stata chiamata a smontare.
 
+### Emendamento (2026-09-02): l'eccezione e caduta, e il perimetro e diventato un confine
+
+Due delle conseguenze scritte qui sopra sono state **superate nella stessa
+Wave**, dall'audit ostile di chiusura. Non si riscrive la decisione — resta
+quella — si registra dove e arrivata.
+
+**L'eccezione sugli atleti senza sede non c'e piu.** Veniva da ADR-0038, dove la
+sede vuota vuol dire «non dichiarata» e non «nessuna»: giusto per un filtro di
+**visualizzazione**, dove nascondere quelle righe farebbe sparire dagli elenchi
+gli atleti iscritti prima che il club attivasse le sedi. Ma un perimetro non e un
+filtro: e un confine, e un confine fallisce chiuso. Il modulo che possiede la
+regola lo scriveva gia — «un dato senza sede non e "di tutte le sedi"» — e il
+SQL diceva il contrario: due proprietari, due risposte opposte, e a decidere era
+sempre la piu larga.
+
+Il costo e reale e va detto: chi ha un perimetro non vede piu le schede senza
+sede, cioe proprio quelle che qualcuno dovrebbe completare. E il prezzo di
+chiamarlo confine, e sta in [16 — W6-D18](16-technical-debt.md).
+
+**Il perimetro restringe adesso tre cose, non due**: atleti, eventi e il
+**fascicolo documentale**. Il terzo non e un'estensione, e una correzione: la
+coda documentale porta `subjectName`, cioe nome e cognome di un minore, per ogni
+riga di tutto il club. Sull'elenco atleti il perimetro funzionava, quindi quel
+nome non si poteva risolvere di li — lo consegnava la coda. Il recinto stava in
+piedi e la porta di servizio era aperta proprio sul dato per cui era stato
+costruito.
+
+**E vale su tutti gli atti, non solo sull'elenco.** Girava dentro
+`listResourcePage` e basta: un filtro di elenco si aggira chiedendo la riga per
+identificativo, che e proprio come si aggira un filtro di elenco — e con un
+ruolo base di gestione non si trattava solo di leggere. Lettura per id, modifica
+e cancellazione ci passano adesso.
+
+**La forma Prisma ha un proprietario unico** (`src/lib/server/access-scope-query.ts`).
+Stava dentro il registro generico, e quando e servita altrove le strade erano
+importare seimila righe o riscriverla: riscriverla era gia costato la divergenza
+qui sopra.
+
+Restano fuori dodici domini — pagamenti, appuntamenti, comunicazioni, consensi,
+libro soci, lavoro sportivo — e adesso l'editor lo **dice a schermo** invece di
+promettere «tutto il club» senza riserve.
+
 ---
 
 ## ADR-0104 — L'accesso di un atleta si consegna con un **invito**, e nessun ramo compone una password

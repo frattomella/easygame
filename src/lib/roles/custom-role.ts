@@ -390,6 +390,27 @@ export const assertMayGrantRole = (
 
     for (const entry of PERMISSION_CATALOG) {
       if (!entry.roles.includes(concessoNormalizzato)) continue;
+      /*
+        **Le chiavi di legame non contano nel confronto, e ignorarlo rompeva
+        tutto.**
+
+        Una chiave `byLink` — rispondere a una convocazione, decidere un
+        consenso per se — non nasce dal **ruolo**: nasce dal legame con un
+        atleta. Nessuno la porta per ruolo, nemmeno chi la esercita.
+
+        La prima stesura di questo ciclo non le escludeva, e la conseguenza e
+        stata misurata da una revisione ostile: un amministratore con ruolo
+        personalizzato — anche con **tutte** e trentasette le chiavi del
+        catalogo — non poteva assegnare `parent` ne `athlete`, perche
+        `rsvp.answer` e di legame e «non la porta». Quattro voci nella tendina
+        dei ruoli standard, tutte e quattro rifiutate: la stessa classe di
+        difetto che questa Wave chiude — un comando che non fa cio che dice —
+        introdotta dalla correzione di un'altra.
+
+        `listGrantablePermissions` le escludeva gia, ed e l'elenco che la
+        schermata disegna: le due regole devono guardare le stesse chiavi.
+      */
+      if (isLinkGatedPermission(entry.key)) continue;
       if (!roleCarriesPermission(actorRole, entry.key)) {
         throw roleDenied(
           `non si concede il ruolo «${concessoNormalizzato}», che porta il permesso «${entry.key}» che il ruolo attivo non ha`,

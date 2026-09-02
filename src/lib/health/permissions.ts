@@ -186,6 +186,32 @@ export const CLINICAL_ATHLETE_FIELDS: readonly string[] = [
   "shared_documents",
   "parentDocuments",
   "parent_documents",
+  /*
+    **E i tre che la prima correzione non aveva visto.**
+
+    L'elenco era stato completato guardando i contenitori che *sembravano*
+    sanitari. Una seconda revisione ostile ha fatto la cosa giusta: e andata a
+    leggere **quali raccolte la scheda atleta persiste davvero**
+    (`persistAthleteCollections`), e ne ha contate nove. Ne mancavano tre.
+
+    La peggiore e `documents`, il contenitore **libero**: la finestra «Aggiungi
+    Documento» offre «Certificato Medico» nella tendina dei tipi e scrive li,
+    non in `certificateFiles`. Misurato su uno scope da allenatore, la risposta
+    conteneva:
+
+        documents: [{ type: "Certificato Medico",
+                      notes: "idoneita con riserva: soffio sistolico",
+                      fileUrl: "attachment:att-cert" }]
+
+    Stessa porta della prima correzione, con un'altra chiave. E la ragione per
+    cui il presidio ora costruisce la sua anagrafica di prova con **tutte e
+    nove** le raccolte, ricavate da quella funzione: la prima passava perche la
+    fixture ometteva proprio queste.
+  */
+  "documents",
+  "registrations",
+  "enrollmentDocuments",
+  "enrollment_documents",
 ] as const;
 
 const CLINICAL_ATHLETE_FIELD_SET = new Set(CLINICAL_ATHLETE_FIELDS);

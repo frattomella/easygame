@@ -35,10 +35,30 @@ import {
  */
 
 /*
-  Un'anagrafica con la forma reale: i nomi vengono da `src/app/athletes/[id]/
-  page.tsx`, che e l'unica schermata che scrive queste raccolte, e i valori
-  dalla misura della revisione.
+  **L'anagrafica di prova ha tutte e nove le raccolte, e non e un dettaglio.**
+
+  La prima stesura ne aveva cinque, scelte perche *sembravano* sanitarie, e per
+  questo passava mentre il difetto era ancora aperto: mancava proprio
+  `documents`, il contenitore **libero** in cui la finestra «Aggiungi
+  Documento» scrive quando qualcuno sceglie «Certificato Medico» dalla tendina.
+
+  Le nove sono quelle che `persistAthleteCollections` salva davvero
+  (`src/app/athletes/[id]/page.tsx`): il presidio le enumera da li, e il
+  controllo qui sotto pretende che l'elenco resti allineato — cosi una raccolta
+  nuova non puo nascere senza che qualcuno decida se e clinica.
 */
+const RACCOLTE_DELLA_SCHEDA = [
+  "guardians",
+  "registrations",
+  "medicalVisits",
+  "identityDocuments",
+  "enrollmentDocuments",
+  "documents",
+  "payments",
+  "certificateFiles",
+  "clothingSizes",
+];
+
 const anagraficaReale = () => ({
   firstName: "Giulia",
   lastName: "Rossi",
@@ -54,7 +74,11 @@ const anagraficaReale = () => ({
   bloodType: "A+",
   blsd: true,
 
-  // i contenitori, che passavano interi
+  // le nove raccolte, con dentro cio che ci finisce davvero
+  guardians: [{ name: "Maria", email: "maria@famiglia.it", phone: "333" }],
+  registrations: [
+    { season: "2026/27", fileUrl: "data:application/pdf;base64,JVBERi0xLjQK" },
+  ],
   medicalVisits: [
     {
       title: "Visita cardiologica",
@@ -62,12 +86,22 @@ const anagraficaReale = () => ({
       fileUrl: "data:application/pdf;base64,JVBERi0xLjQK",
     },
   ],
-  certificateFiles: {
-    blsd: "data:application/pdf;base64,JVBERi0xLjQK",
-  },
-  identityDocuments: [
-    { fileUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRg==" },
+  identityDocuments: [{ fileUrl: "data:image/jpeg;base64,/9j/4AAQSkZJRg==" }],
+  enrollmentDocuments: [
+    { name: "Modulo iscrizione", fileUrl: "attachment:att-iscr" },
   ],
+  documents: [
+    {
+      type: "Certificato Medico",
+      notes: "idoneita con riserva: soffio sistolico",
+      fileUrl: "attachment:att-cert",
+    },
+  ],
+  payments: [{ amount: 120, method: "bonifico" }],
+  certificateFiles: { blsd: "data:application/pdf;base64,JVBERi0xLjQK" },
+  clothingSizes: { maglia: "M" },
+
+  // depositi condivisi con la famiglia, con l'identificativo dell'allegato
   sharedDocuments: [
     {
       assetId: "asset-1",
@@ -219,4 +253,123 @@ test("i contenitori che portavano i file sono dichiarati nell'elenco", () => {
       `«${contenitore}» porta allegati in base64 e deve restare nell'elenco`,
     );
   }
+});
+
+test("l'elenco copre le raccolte che la scheda atleta salva davvero", () => {
+  /*
+    **Perche questa prova esiste.**
+
+    La prima correzione aveva aggiunto quattro contenitori scelti perche
+    sembravano sanitari, e ne erano rimasti tre. Il modo di non sbagliare piu e
+    partire da **chi scrive**: `persistAthleteCollections` salva nove raccolte,
+    e per ognuna qualcuno deve aver deciso se e clinica o no.
+
+    Le tre che restano fuori sono dichiarate qui con il motivo, non dimenticate.
+  */
+  const NON_CLINICHE = new Map([
+    [
+      "guardians",
+      "recapiti dei tutori: e dato personale, non clinico, e chi allena deve poter chiamare una famiglia. Il permesso che lo governa e `viewAthleteContacts` (debito W6-28)",
+    ],
+    [
+      "payments",
+      "denaro, non salute: lo governa il permesso sui pagamenti, non `clinical.read`",
+    ],
+    [
+      "clothingSizes",
+      "taglie del vestiario: servono a consegnare una maglia",
+    ],
+  ]);
+
+  const scoperte = RACCOLTE_DELLA_SCHEDA.filter(
+    (raccolta) =>
+      !CLINICAL_ATHLETE_FIELDS.includes(raccolta) && !NON_CLINICHE.has(raccolta),
+  );
+
+  assert.deepEqual(
+    scoperte,
+    [],
+    `raccolte che la scheda salva e che nessuno ha classificato: ${scoperte.join(", ")}. ` +
+      "Mettile fra i campi clinici, oppure dichiarale in NON_CLINICHE con il motivo",
+  );
+});
+
+test("il contenitore libero e la sua trappola: «Certificato Medico» scritto in «documents»", () => {
+  /*
+    Il caso esatto che la seconda revisione ha eseguito. La finestra «Aggiungi
+    Documento» offre «Certificato Medico» nella tendina dei tipi e scrive nel
+    contenitore libero, non in `certificateFiles`: un elenco costruito
+    guardando i nomi dei campi non poteva vederlo.
+  */
+  const tagliato = stripClinicalAthleteFields(anagraficaReale());
+
+  assert.equal(
+    tagliato.documents,
+    undefined,
+    "il contenitore libero porta certificati medici: non sopravvive al taglio",
+  );
+  assert.equal(
+    JSON.stringify(tagliato).includes("att-cert"),
+    false,
+    "e nemmeno l'identificativo dell'allegato, che e la chiave per bussare ai byte",
+  );
+});
+
+test("la categoria dell'allegato segue il tipo dichiarato, o il gate non si accende", async () => {
+  /*
+    L'altra meta dello stesso difetto. Il controllo che protegge i byte giudica
+    la **categoria** con cui il file e stato depositato: finche la scheda
+    scriveva la costante `"documento"` anche per un certificato, quel controllo
+    non si accendeva mai.
+  */
+  const { normalizeDocumentKind, isMedicalCertificateDocumentKind } =
+    await import("../../src/lib/documents/request-model.ts");
+  const sorgente = await readFile("src/app/athletes/[id]/page.tsx", "utf8");
+
+  assert.ok(
+    isMedicalCertificateDocumentKind(normalizeDocumentKind("Certificato Medico")),
+    "il tipo della tendina deve tradursi in una categoria che il gate riconosce",
+  );
+  assert.match(
+    sorgente,
+    new RegExp(String.raw`normalizeDocumentKind\(newDocument\.type\)`),
+    "la scheda deve derivare la categoria dal tipo dichiarato, non usare una costante",
+  );
+});
+
+test("un salvataggio che non porta un campo clinico non lo cancella", async () => {
+  /*
+    **Il difetto che la correzione precedente aveva creato.**
+
+    La colonna `data` si scrive intera, quindi salvare la scheda e sempre una
+    sostituzione. Chi non ha `clinical.read` la riceve **senza** i campi
+    clinici — che e la difesa — e la rimanda cosi: il primo salvataggio
+    azzerava visite mediche, documenti d'identita e i file degli attestati.
+
+    Rendere una lettura parziale indistinguibile da una cancellazione e la
+    forma del difetto; la regola che lo chiude e che **un'assenza non e una
+    cancellazione**.
+
+    Il presidio legge il sorgente, e va detto perche: la funzione che scrive
+    parla con Prisma e la prova sul dato la fa `scripts/wave-6-uat.mjs`. Qui si
+    tiene ferma la **forma** della regola, che e cio che un lettore deve
+    ritrovare.
+  */
+  const sorgente = await readFile("src/lib/server/resources.ts", "utf8");
+
+  assert.match(
+    sorgente,
+    /Un campo clinico non si cancella scrivendo senza averlo letto/,
+    "la regola deve essere scritta dove qualcuno la cerchera",
+  );
+  assert.match(
+    sorgente,
+    /for \(const campo of CLINICAL_ATHLETE_FIELDS\) \{[\s\S]{0,400}hasOwnProperty\.call\(precedente, campo\)[\s\S]{0,200}!Object\.prototype\.hasOwnProperty\.call\(nuovo, campo\)/,
+    "cio che c'era e non e stato ricevuto deve essere conservato",
+  );
+  assert.match(
+    sorgente,
+    /normalized\.data = \{ \.\.\.conservati, \.\.\.nuovo \}/,
+    "e cio che e stato ricevuto deve comunque vincere: e una modifica, non un ripristino",
+  );
 });

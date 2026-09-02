@@ -1923,3 +1923,31 @@ stessa tornata di sonde.
 | Il filtro di stato era sensibile alle maiuscole | `athleteStatusQueryValues` elenca le grafie in minuscolo e `text IN (...)` su Postgres confronta lettera per lettera: un atleta scritto `Attivo` non compariva in **nessun** filtro. Misurato: 0 righe contro 224 | `mode: "insensitive"` sull'`IN`, cioe la correzione W6-03 completata dentro se stessa |
 | Salvare un campo qualunque cancellava le appartenenze | `updateClubAthlete` chiudeva sempre con `replaceAthleteMemberships`, ricostruendo le appartenenze da una proiezione che **non le contiene**. Salvando la sola foto restavano una categoria su due, nessuna sede, e un'etichetta al posto di un id | Le appartenenze si leggono dalla loro tabella; e se l'aggiornamento non ne parla, la tabella non si tocca |
 | La stagione attiva non arrivava all'area atleta | Il payload la pubblica come `activeSeasonId`/`activeSeasonLabel`, l'area atleta chiedeva `seasonId`/`seasonLabel`: `undefined`, quindi `null`, quindi un club senza stagione. Stessa forma di W6-09, superficie nuova | Si chiede il nome che il dominio pubblica |
+
+## Wave 6 — l'app mobile perde i documenti d'identita, ed e voluto (2026-09-02)
+
+CLAUDE.md §6 chiede di verificare l'altro albero quando si cambia qualcosa che
+lo riguarda, e di **dichiararlo**. Questo e il caso.
+
+Il taglio del dato clinico ora toglie da `athletes.data`, per chi non ha
+`clinical.read`, anche i contenitori di documenti: `medicalVisits`,
+`certificateFiles`, `identityDocuments`, `sharedDocuments`, `documents`,
+`registrations`, `enrollmentDocuments`. Il ruolo che non ha quella chiave e,
+fra gli altri, l'**allenatore** — e la app mobile e **solo** allenatore.
+
+Conseguenza misurata: `TrainerAthleteProfileScreen` mostra una sezione
+«Documenti d'identita» che da adesso e sempre vuota, perche
+`GET /api/v1/athletes` non porta piu quel contenitore a uno scope da allenatore.
+
+**Non e una regressione da correggere: e la correzione.** Quella sezione
+mostrava a un allenatore il documento d'identita di un minore, e nella stessa
+risposta viaggiavano l'esito di una visita medica e i PDF dei certificati in
+base64. La app mobile non aveva un difetto proprio — leggeva cio che il server
+le mandava — e cio che il server mandava era troppo.
+
+Cosa fare quando lo sviluppo mobile riprenderà ([ADR-0025](18-decision-log.md)):
+togliere la sezione, oppure chiedere al club di concedere `clinical.read` al
+ruolo che deve vederla. La seconda non e una scorciatoia — e la stessa decisione
+che il web offre — ma va **presa**, non subita: oggi quella sezione promette un
+contenuto che non arriva, ed e la forma di difetto che questa Wave esiste per
+smontare.

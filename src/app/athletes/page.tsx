@@ -96,6 +96,10 @@ import {
   deleteClubAthlete,
 } from "@/lib/simplified-db";
 import type { ListPageMeta } from "@/lib/api/client";
+import {
+  eDatiPersonaliDaSmaltire,
+  messaggioDatiPersonali,
+} from "@/components/athletes/profile/athlete-data-subject-section";
 import { describeSelection } from "@/lib/list-selection";
 import { printPeoplePdf } from "@/lib/people-pdf-export";
 import { csvFileName, downloadCsv, toCsv } from "@/lib/csv";
@@ -1037,9 +1041,25 @@ export default function AthletesPage() {
       setAthletes(athletes.filter((a) => a.id !== athleteId));
 
       showToast("success", `Atleta ${athleteName} eliminato con successo`);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting athlete:", error);
-      showToast("error", "Errore nell'eliminazione dell'atleta");
+      /*
+        **Il motivo lo diceva gia il server, e finiva nel cestino.**
+
+        `assertPersonalDataDisposed` elenca i dati che resterebbero orfani — «3
+        file depositati, 2 consensi registrati» — e indica la strada.
+        Sostituirlo con «Errore nell'eliminazione dell'atleta» lasciava chi
+        prova senza sapere ne cosa e successo ne cosa fare, e su quasi ogni
+        atleta reale: l'iscrizione online crea richieste documentali e i moduli
+        registrano consensi.
+      */
+      const messaggio = String(error?.message || "").trim();
+      showToast(
+        "error",
+        eDatiPersonaliDaSmaltire(messaggio)
+          ? messaggioDatiPersonali(messaggio, athleteName)
+          : messaggio || "Errore nell'eliminazione dell'atleta",
+      );
     } finally {
       setPendingAthleteDeletion(null);
     }
@@ -1387,7 +1407,13 @@ export default function AthletesPage() {
         : "tutti gli atleti registrati";
 
     if (pendingBulkAction.action === "delete") {
-      return `Stai per eliminare ${athletesCount} ${athletesCount === 1 ? "atleta" : "atleti"} tra ${scopeLabel}. Questa azione non può essere annullata. Vuoi continuare?`;
+      /*
+        Il testo diceva solo «non può essere annullata». Non diceva che
+        l'operazione puo riuscire **su una parte**: gli atleti con dati
+        personali da smaltire non vengono eliminati, e gli altri si. Chi
+        conferma deve saperlo prima, non scoprirlo dal riepilogo dopo.
+      */
+      return `Stai per eliminare ${athletesCount} ${athletesCount === 1 ? "atleta" : "atleti"} tra ${scopeLabel}. Questa azione non può essere annullata. Gli atleti che hanno file, consensi, richieste o consegne documentali non vengono eliminati: vanno trattati uno per uno dalla sezione «Dati personali» della loro scheda. Al termine viene detto quanti sono stati eliminati e quanti no. Vuoi continuare?`;
     }
 
     if (pendingBulkAction.action === "changeCategory") {
@@ -1422,14 +1448,67 @@ export default function AthletesPage() {
           : "Aggiornamento atleti in corso, attendi il completamento...",
         async () => {
           if (pendingBulkAction.action === "delete") {
+            /*
+              **Il ciclo si fermava al primo che non si poteva cancellare.**
+
+              Era un `for` senza `try`: bastava un atleta con un consenso o una
+              richiesta documentale — cioe quasi chiunque si sia iscritto
+              online — perche l'errore uscisse dal ciclo, i successivi non
+              venissero nemmeno tentati, e l'operatore leggesse «Errore durante
+              l'esecuzione dell'operazione in blocco» su una cancellazione
+              **gia parzialmente avvenuta**, senza sapere quali fossero spariti.
+
+              Adesso ogni elemento e tentato per conto suo e l'esito e
+              dichiarato per intero: quanti sono spariti, quanti no e perche.
+              La cancellazione parziale resta possibile — e irreversibile per
+              natura — ma smette di essere una sorpresa.
+            */
+            const eliminati: string[] = [];
+            const falliti: Array<{ id: string; motivo: string }> = [];
+
             for (const athleteId of targetIds) {
-              await deleteClubAthlete(clubId, athleteId);
+              try {
+                await deleteClubAthlete(clubId, athleteId);
+                eliminati.push(athleteId);
+              } catch (caught: any) {
+                console.error("Error deleting athlete in bulk:", caught);
+                falliti.push({
+                  id: athleteId,
+                  motivo: String(caught?.message || "").trim(),
+                });
+              }
             }
 
-            showToast(
-              "success",
-              `${targetIds.length} ${targetIds.length === 1 ? "atleta eliminato" : "atleti eliminati"} con successo`,
-            );
+            if (eliminati.length) {
+              showToast(
+                "success",
+                `${eliminati.length} ${eliminati.length === 1 ? "atleta eliminato" : "atleti eliminati"} con successo`,
+              );
+            }
+
+            if (falliti.length) {
+              /*
+                Il motivo che ricorre e sempre lo stesso — i dati personali che
+                non spariscono con l'anagrafica — e va detto una volta con la
+                strada, non ripetuto per ogni riga.
+              */
+              const conDatiPersonali = falliti.filter((riga) =>
+                eDatiPersonaliDaSmaltire(riga.motivo),
+              );
+
+              showToast(
+                "error",
+                conDatiPersonali.length
+                  ? `${falliti.length} ${falliti.length === 1 ? "atleta non e stato eliminato" : "atleti non sono stati eliminati"}: ` +
+                    `${conDatiPersonali.length} ${conDatiPersonali.length === 1 ? "ha" : "hanno"} dati personali ` +
+                    "(file, consensi, richieste o consegne documentali) che cancellando l'anagrafica " +
+                    "resterebbero in archivio slegati da tutto. Apri la scheda di ognuno e usa la " +
+                    "sezione «Dati personali»: la cancellazione in blocco non la puo fare al posto tuo, " +
+                    "perche per un minore serve una conferma esplicita su cio che verra distrutto."
+                  : `${falliti.length} ${falliti.length === 1 ? "atleta non e stato eliminato" : "atleti non sono stati eliminati"}: ` +
+                    (falliti[0]?.motivo || "operazione non riuscita"),
+              );
+            }
           } else if (pendingBulkAction.action === "changeCategory") {
             const targetCategory = categories.find(
               (category) => category.id === pendingBulkAction.targetCategoryId,
@@ -2811,10 +2890,20 @@ export default function AthletesPage() {
         type="error"
         title="Eliminare questo atleta?"
         description={
+          /*
+            Prometteva che «i certificati medici collegati vengono rimossi».
+            Da quando `assertPersonalDataDisposed` presidia `deleteResource`,
+            un'anagrafica con anche un solo file, consenso, richiesta o
+            deposito **non si cancella affatto**: la frase era falsa per quasi
+            ogni atleta reale. Adesso dice cosa succede, e dove sta l'altra
+            strada.
+          */
           `Stai per eliminare ${pendingAthleteDeletion?.name ?? "questo atleta"}. ` +
-          "L'operazione non si annulla: la scheda, le appartenenze alle categorie " +
-          "e i certificati medici collegati vengono rimossi. Le rate e i movimenti " +
-          "gia registrati restano in contabilita."
+          "L'operazione non si annulla: la scheda e le appartenenze alle categorie " +
+          "vengono rimosse. Le rate e i movimenti gia registrati restano in " +
+          "contabilita. Se questa persona ha file, consensi, richieste o consegne " +
+          "documentali, l'eliminazione non parte: apri la sua scheda e usa la " +
+          "sezione «Dati personali»."
         }
         confirmText="Elimina atleta"
         cancelText="Annulla"

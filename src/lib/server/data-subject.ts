@@ -1151,10 +1151,28 @@ export const eraseDataSubject = async (
 export const assertPersonalDataDisposed = async (
   resource: string,
   athleteId: string,
+  organizationId?: string | null,
 ) => {
   if (resource !== "athletes" && resource !== "simplified_athletes") return;
   const subjectId = asText(athleteId);
   if (!subjectId) return;
+
+  /*
+    **La guardia conta con lo stesso filtro con cui l'inventario elenca.**
+
+    Contava per solo `subject_id`, mentre `previewDataSubjectErasure` filtra
+    per club su tutte le stesse tabelle. Non era una fuga — un conteggio non
+    consegna righe, e gli identificativi sono opachi — ma le due letture
+    rispondevano a domande diverse sulla stessa cosa: la guardia poteva vedere
+    righe che l'inventario non avrebbe mostrato, e chi si fosse fidato del
+    secondo per soddisfare la prima non ci sarebbe riuscito senza capire
+    perche.
+
+    E anche la regola 1 di CLAUDE.md §8, che non ha eccezioni annotate:
+    nessuna query club-scoped senza filtro `organization_id`.
+  */
+  const club = asText(organizationId);
+  const perClub = club ? { organization_id: club } : {};
 
   /*
     **Le quattro che si cancellano, e non le altre.**
@@ -1174,16 +1192,16 @@ export const assertPersonalDataDisposed = async (
   */
   const [allegati, consensi, richieste, depositi] = await Promise.all([
     (prisma as any).attachment.count({
-      where: { owner_type: "athlete", owner_id: subjectId },
+      where: { ...perClub, owner_type: "athlete", owner_id: subjectId },
     }),
     (prisma as any).consentRecord.count({
-      where: { subject_kind: "athlete", subject_id: subjectId },
+      where: { ...perClub, subject_kind: "athlete", subject_id: subjectId },
     }),
     (prisma as any).documentRequest.count({
-      where: { subject_kind: "athlete", subject_id: subjectId },
+      where: { ...perClub, subject_kind: "athlete", subject_id: subjectId },
     }),
     (prisma as any).documentSubmission.count({
-      where: { subject_kind: "athlete", subject_id: subjectId },
+      where: { ...perClub, subject_kind: "athlete", subject_id: subjectId },
     }),
   ]);
 

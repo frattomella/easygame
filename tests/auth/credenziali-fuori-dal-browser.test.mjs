@@ -117,37 +117,101 @@ const sorgenti = async (cartella) => {
   return file;
 };
 
-test("nessun percorso scrive una sessione nel browser senza togliere le credenziali", async () => {
+/*
+  **Le chiavi sotto cui vive una sessione.**
+
+  Il presidio guarda **queste**, non il nome della variabile che viene
+  serializzata: una revisione ostile ha rimesso il difetto rinominando
+  `session` in `dati`, e la prima stesura — che cercava la parola «session»
+  dentro lo `setItem` — dava cinque verdi con il gettone di nuovo in chiaro.
+
+  Il nome di una variabile e di chi scrive; la chiave dell'archivio e il
+  contratto.
+*/
+const CHIAVI_DI_SESSIONE = [
+  "SESSION_CACHE_KEY",
+  "LEGACY_SESSION_CACHE_KEY",
+  "SESSION_KEY",
+  "supabase_session",
+  "easygame.api-session",
+];
+
+test("nessun percorso scrive sotto una chiave di sessione senza togliere le credenziali", async () => {
   /*
-    Si cerca la forma reale del difetto: uno `setItem` che serializza una
-    variabile chiamata `session` (o `sessione`). Chi la scrive deve passare da
-    `sessionSenzaCredenziali` nella stessa istruzione — chiamarla venti righe
-    prima e riscrivere l'originale e proprio come e nato il secondo caso.
+    Si cerca ogni `setItem` la cui **chiave** e una di quelle sotto cui vive
+    una sessione. Chi scrive li deve passare da `sessionSenzaCredenziali` nella
+    stessa istruzione: chiamarla venti righe prima e poi serializzare
+    l'originale e proprio come e nato il secondo caso.
   */
   const file = await sorgenti(SRC);
   const colpevoli = [];
 
   for (const percorso of file) {
     const testo = await readFile(percorso, "utf8");
-    if (!/setItem\(/.test(testo)) continue;
+    if (!testo.includes("setItem(")) continue;
 
     const scritture =
-      testo.match(/setItem\(\s*[\s\S]{0,200}?JSON\.stringify\(\s*[\s\S]{0,120}?\)/g) || [];
+      testo.match(new RegExp(String.raw`setItem\([\s\S]{0,400}?\)\s*;`, "g")) ||
+      [];
 
     for (const scrittura of scritture) {
-      const parlaDiSessione = /\bsession\b|\bsessione\b/i.test(scrittura);
-      if (!parlaDiSessione) continue;
+      const chiave = scrittura.slice(0, scrittura.indexOf(","));
+      /*
+        Accanto alla sessione vive il suo **orario di scadenza**, sotto una
+        chiave che contiene lo stesso prefisso. E un numero, non una sessione:
+        confonderli farebbe fallire il presidio su una riga innocua, e un
+        presidio che grida al lupo su un timestamp e un presidio che qualcuno
+        disattivera.
+      */
+      if (/TIMESTAMP|_timestamp/.test(chiave)) continue;
+      if (!CHIAVI_DI_SESSIONE.some((nome) => chiave.includes(nome))) continue;
+      if (scrittura.includes("removeItem")) continue;
       if (scrittura.includes("sessionSenzaCredenziali")) continue;
-      colpevoli.push(`${path.relative(SRC, percorso)}: ${scrittura.slice(0, 90)}`);
+      colpevoli.push(
+        `${path.relative(SRC, percorso)}: ${scrittura
+          .replace(/\s+/g, " ")
+          .slice(0, 100)}`,
+      );
     }
   }
 
   assert.deepEqual(
     colpevoli,
     [],
-    `una sessione viene scritta nel browser con le credenziali dentro:\n${colpevoli.join("\n")}\n` +
-      "Passa da `sessionSenzaCredenziali` (src/lib/auth/session-sync.ts): il cookie e httpOnly proprio perche quella copia non esista",
+    "una sessione viene scritta nel browser con le credenziali dentro: " +
+      colpevoli.join(" | ") +
+      ". Passa da `sessionSenzaCredenziali` (src/lib/auth/session-sync.ts): il cookie e httpOnly proprio perche quella copia non esista",
   );
+});
+
+test("le chiavi presidiate sono quelle che il modulo dichiara davvero", async () => {
+  /*
+    L'elenco sopra e scritto a mano, e un elenco scritto a mano invecchia. Qui
+    si verifica che le due chiavi che il modulo esporta siano fra quelle
+    presidiate: se qualcuno ne aggiunge una terza, questa prova la nomina.
+  */
+  const modulo = await readFile(
+    path.join(SRC, "lib", "auth", "session-sync.ts"),
+    "utf8",
+  );
+
+  const dichiarate = [
+    ...modulo.matchAll(new RegExp(String.raw`export const (\w+_KEY)\b`, "g")),
+  ]
+    .map((trovato) => trovato[1])
+    .filter((nome) => nome.includes("SESSION") && !nome.includes("TIMESTAMP"));
+
+  assert.ok(
+    dichiarate.length >= 2,
+    `il modulo deve dichiarare le chiavi delle cache: trovate ${dichiarate.length}`,
+  );
+
+  for (const nome of dichiarate) {
+    assert.ok(
+      CHIAVI_DI_SESSIONE.includes(nome),
+      `${nome} e una chiave di sessione dichiarata dal modulo e il presidio non la guarda`,
+    );
+  }
 });
 
 test("la regola vive in un posto solo, insieme alle chiavi delle cache", async () => {

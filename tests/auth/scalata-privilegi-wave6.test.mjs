@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { before, beforeEach } from "node:test";
 
+import { readFileSync } from "node:fs";
 import { createFakePrisma } from "../helpers/fake-prisma.mjs";
 import { assertMayGrantRole } from "../../src/lib/roles/custom-role.ts";
 import { PERMISSION_CATALOG } from "../../src/lib/permissions/catalog.ts";
@@ -293,6 +294,106 @@ test("il divieto «su se stessi» c'e su tutti e tre gli atti che cambiano un ac
       corpo,
       /testo\(scope\.userId\)/,
       `${atto} non confronta il bersaglio con chi lo chiede`,
+    );
+  }
+});
+
+/* ========================= 4. la colonna che nomina la persona, non il ruolo */
+
+test("una tessera non cambia intestatario dalla rotta generica", async () => {
+  /*
+    **Il buco che la prima correzione ha lasciato aperto, e perche.**
+
+    La guardia guardava `role` e `custom_role_id`: le due colonne che nominano
+    un **ruolo**. La colonna che nomina la **persona** non la guardava nessuno,
+    ed e scalare — sopravvive alla rimozione delle relazioni e arriva intatta
+    alla `update`.
+
+    Una revisione ostile lo ha eseguito: un `PATCH` sulla tessera del
+    proprietario con il solo campo `user_id`, e la segreteria ristretta si
+    ritrova a portare la tessera `owner`. Nessuna guardia si accendeva: la riga
+    e del suo club, la risorsa non e `athletes`, il ruolo non e nominato.
+
+    E la stessa forma dei due CRITICAL che l'hanno preceduto — una difesa
+    scritta contro il caso difficile e non applicata a quello facile — ed e il
+    motivo per cui questa prova sta qui e non fra i casi particolari.
+  */
+  await assert.rejects(
+    () =>
+      resources.updateResource(
+        "organization_users",
+        "tessera-proprietario",
+        { user_id: "user-segreteria" },
+        scopeSegreteria(),
+      ),
+    /Accesso negato/,
+    "spostare una tessera e revocarla e riconcederla: passa da dove si concede",
+  );
+
+  const dopo = fake.rows("organizationUser").find(
+    (riga) => riga.id === "tessera-proprietario",
+  );
+  assert.equal(
+    dopo.user_id,
+    "user-presidente",
+    "e la riga non deve essere cambiata comunque",
+  );
+});
+
+test("un PATCH che non tocca l'intestatario continua a passare", async () => {
+  /*
+    La guardia confronta il valore chiesto con quello che c'e: riscrivere la
+    riga intera — che e cio che fa un client che rimanda l'oggetto letto — non
+    deve essere respinto come un trasferimento.
+  */
+  await assert.doesNotReject(
+    () =>
+      resources.updateResource(
+        "organization_users",
+        "tessera-propria",
+        { user_id: "user-segreteria", is_primary: false },
+        scopeSegreteria(),
+      ),
+    "riscrivere lo stesso intestatario non e un trasferimento",
+  );
+});
+
+test("nessuna tessera di club si cancella dalla rotta generica", async () => {
+  /*
+    La prima stesura bloccava solo le tessere che **normalizzano** su `owner`.
+    Una tessera con uno slug personalizzato non normalizza su `owner`, quindi
+    si cancellava di qui saltando `revokeClubAccess` — e con esso la protezione
+    del fondatore, il divieto su se stessi e la riga di audit.
+  */
+  for (const tessera of ["tessera-proprietario", "tessera-propria"]) {
+    await assert.rejects(
+      () =>
+        resources.deleteResource(
+          "organization_users",
+          tessera,
+          scopeSegreteria(),
+        ),
+      /Accesso negato/,
+      `${tessera} non deve cancellarsi dal registro generico`,
+    );
+  }
+});
+
+test("il divieto copre le colonne che cambiano il potere, tutte", () => {
+  /*
+    Chiude la classe invece delle tre istanze. `organization_users` ha quattro
+    colonne che decidono **chi puo cosa**: la persona, il ruolo, il ruolo
+    personalizzato e il club. Ognuna deve essere nominata da una guardia in
+    `updateResource`, o la prossima dimenticanza sara la quarta.
+  */
+  const sorgente = readFileSync("src/lib/server/resources.ts", "utf8");
+  const inizio = sorgente.indexOf("export const updateResource");
+  const corpo = sorgente.slice(inizio, sorgente.indexOf("\nexport const ", inizio + 30));
+
+  for (const colonna of ["user_id", "role", "custom_role_id"]) {
+    assert.ok(
+      new RegExp(`"${colonna}" in normalized`).test(corpo),
+      `updateResource non guarda «${colonna}» su organization_users: e una colonna che cambia il potere`,
     );
   }
 });

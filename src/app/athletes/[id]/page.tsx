@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { normalizeDocumentKind } from "@/lib/documents/request-model";
 import dynamic from "next/dynamic";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
@@ -119,6 +120,11 @@ import {
 } from "@/lib/athlete-profile-fields";
 import { AthleteProfileHeader } from "@/components/athletes/profile/athlete-profile-header";
 import { AthleteAccountSection } from "@/components/athletes/profile/athlete-account-section";
+import {
+  AthleteDataSubjectSection,
+  eDatiPersonaliDaSmaltire,
+  messaggioDatiPersonali,
+} from "@/components/athletes/profile/athlete-data-subject-section";
 import { AthleteProfileTabsBar } from "@/components/athletes/profile/athlete-profile-tabs";
 import { PersonCompensationTab } from "@/components/sport-work/PersonCompensationTab";
 import { resolveAthleteProfileTab } from "@/lib/athlete-profile-tabs";
@@ -1198,15 +1204,29 @@ export default function AthleteProfilePage() {
       [athlete?.firstName, athlete?.lastName].filter(Boolean).join(" ") ||
       "questo atleta";
 
+    /*
+      **Il dialogo prometteva una cosa che il server non fa piu.**
+
+      Diceva «la scheda, le appartenenze e i certificati medici collegati
+      vengono rimossi». Da quando `assertPersonalDataDisposed` e innestata in
+      `deleteResource`, un'anagrafica con anche un solo file, consenso,
+      richiesta o deposito **non si cancella affatto**: la promessa era falsa
+      per quasi ogni atleta reale, perche l'iscrizione online crea richieste
+      documentali e i moduli registrano consensi.
+
+      Adesso dice cosa succede davvero, e dice dove sta l'altra strada.
+    */
     const confermato = await richiediConferma({
       type: "error",
       title: "Eliminare questo atleta?",
       confirmText: "Elimina atleta",
       description:
-        `Stai per eliminare ${nome}. L'operazione non si annulla: la scheda, ` +
-        "le appartenenze alle categorie e i certificati medici collegati " +
-        "vengono rimossi. Le rate e i movimenti gia registrati restano in " +
-        "contabilita.",
+        `Stai per eliminare ${nome}. L'operazione non si annulla: la scheda e ` +
+        "le appartenenze alle categorie vengono rimosse. Le rate e i movimenti " +
+        "gia registrati restano in contabilita. Se questa persona ha file, " +
+        "consensi, richieste o consegne documentali, l'eliminazione non parte: " +
+        "quei dati resterebbero in archivio slegati da tutto, e vanno trattati " +
+        "dalla sezione «Dati personali» di questa scheda.",
     });
     if (!confermato) return;
 
@@ -1215,11 +1235,22 @@ export default function AthleteProfilePage() {
       await deleteClubAthlete(clubId, athleteId);
       showToast("success", "Atleta eliminato con successo");
       router.push(clubId ? `/athletes?clubId=${clubId}` : "/athletes");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error deleting athlete:", error);
+      /*
+        **Il messaggio del server diceva gia perche, e qui veniva buttato via.**
+
+        La guardia elenca i dati che restano — «3 file depositati, 2 consensi
+        registrati» — e indica la strada. Sostituirlo con «Errore
+        nell'eliminazione dell'atleta» lasciava la persona senza sapere ne cosa
+        fosse successo ne cosa fare.
+      */
+      const messaggio = String(error?.message || "").trim();
       showToast({
         title: "Errore",
-        description: "Errore nell'eliminazione dell'atleta",
+        description: eDatiPersonaliDaSmaltire(messaggio)
+          ? messaggioDatiPersonali(messaggio)
+          : messaggio || "Errore nell'eliminazione dell'atleta",
         variant: "destructive",
       });
     }
@@ -2199,6 +2230,23 @@ export default function AthleteProfilePage() {
     }
 
     try {
+      /*
+        **La categoria segue il tipo dichiarato, o il gate sui byte non si
+        accende mai.**
+
+        La categoria era la costante `"documento"` anche quando la tendina
+        diceva «Certificato Medico». Ma il controllo che protegge i byte di un
+        documento sanitario giudica proprio la **categoria**
+        (`isMedicalCertificateDocumentKind`), quindi non si accendeva: un
+        certificato caricato da qui usciva a chiunque potesse leggere gli
+        allegati di un atleta.
+
+        Il tipo lo dichiara chi carica, in italiano; la categoria e il
+        vocabolario del fascicolo. `normalizeDocumentKind` traduce dall'uno
+        all'altro, ed e lo stesso che il gate interroga: un vocabolario solo per
+        la stessa domanda.
+      */
+      const categoriaDichiarata = normalizeDocumentKind(newDocument.type);
       const doc = await buildStoredAttachment(
         {
           name: newDocument.name,
@@ -2206,7 +2254,7 @@ export default function AthleteProfilePage() {
           file: newDocument.file,
         },
         newDocument.type,
-        "documento",
+        categoriaDichiarata || "documento",
       );
       const nextDocuments = [...documents, doc];
 
@@ -3658,6 +3706,26 @@ export default function AthleteProfilePage() {
               <AthleteAccountSection
                 athleteId={athleteId}
                 suggestedEmail={athlete?.email || null}
+              />
+            ) : null}
+
+            {/*
+              **I diritti dell'interessato, che fin qui non avevano una porta.**
+
+              Le tre rotte sotto `/api/v1/data-subject` esistevano dalla Wave 6
+              e non le chiamava nessuno: il messaggio della guardia diceva «usa
+              la cancellazione dei dati personali» e non c'era niente da usare.
+              Sta accanto all'accesso EasyGame per la stessa ragione — non e un
+              dato dell'anagrafica, e una cosa che si **fa** — e resta sopra le
+              schede perche e la strada che l'eliminazione dell'atleta indica.
+            */}
+            {athleteId ? (
+              <AthleteDataSubjectSection
+                athleteId={athleteId}
+                athleteName={athlete?.name || null}
+                onErased={() =>
+                  router.push(clubId ? `/athletes?clubId=${clubId}` : "/athletes")
+                }
               />
             ) : null}
 

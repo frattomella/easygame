@@ -5766,6 +5766,54 @@ export const updateResource = async (
     ruolo personalizzato: cambiare `is_primary` non deve dover ridichiarare
     niente.
   */
+  /*
+    **La tessera non cambia intestatario da qui, ed e il buco che la prima
+    correzione ha lasciato aperto.**
+
+    La guardia di sotto controlla `role` e `custom_role_id`, cioe le due
+    colonne che nominano un **ruolo**. Ma la colonna che nomina la **persona**
+    non era controllata da niente, ed e scalare: sopravviveva alla rimozione
+    delle relazioni e arrivava intatta alla `update`.
+
+    Una revisione ostile lo ha eseguito: una «Segreteria» basata su
+    `club_manager` con una chiave sola manda un `PATCH` sulla tessera del
+    **proprietario** con il solo campo `{"user_id": "<se stessa>"}`, e da quel
+    momento e lei a portare la tessera `owner`. Nessuna delle guardie esistenti
+    la vedeva: la riga e del suo club, la risorsa non e `athletes`, il ruolo
+    non e nominato.
+
+    Spostare una tessera da una persona a un'altra non e una modifica: e una
+    **revoca piu una concessione**, e le fa `club-roles.ts`, che sa negarle su
+    se stessi e lascia le due righe di audit. Qui si nega e basta — la stessa
+    scelta gia presa per `clubs.creator_id`, che per la stessa ragione non si
+    cambia dal registro generico.
+  */
+  if (
+    scope &&
+    resource === "organization_users" &&
+    "user_id" in normalized &&
+    String(normalized.user_id ?? "").trim() !==
+      String((existing as any)?.user_id ?? "").trim()
+  ) {
+    await recordPermissionDenied({
+      scope: {
+        userId: scope.userId,
+        activeRole: scope.activeRole,
+        activeOrganizationId: scope.activeOrganizationId,
+      },
+      permission: "club_roles.assign",
+      resource: "organization_users",
+      metadata: {
+        target_user_id: String((existing as any)?.user_id || ""),
+        requested_user_id: String(normalized.user_id || ""),
+        reason: "membership_transfer_from_generic_route",
+      },
+    });
+    throw new Error(
+      "Accesso negato: una tessera non cambia intestatario. Revocala e concedila dalla gestione accessi, che lascia le due righe di audit",
+    );
+  }
+
   if (
     resource === "organization_users" &&
     ("role" in normalized || "custom_role_id" in normalized)
@@ -5824,6 +5872,47 @@ export const updateResource = async (
       normalized.organization_id || existing?.organization_id,
     );
   }
+
+  /*
+    **Un campo clinico non si cancella scrivendo senza averlo letto.**
+
+    La colonna `data` si scrive intera, quindi il salvataggio della scheda
+    atleta e sempre una **sostituzione**. Chi non ha `clinical.read` riceve
+    l'anagrafica **senza** i campi clinici — e la difesa che questa Wave ha
+    appena rafforzato — e la rimanda cosi: il primo salvataggio azzerava visite
+    mediche, documenti d'identita e i file degli attestati.
+
+    Il difetto non nasce dalla schermata: nasce dall'aver reso una lettura
+    parziale indistinguibile da una cancellazione. La regola giusta e che
+    **un'assenza non e una cancellazione**: cio che non e stato ricevuto resta
+    com'era.
+
+    C'e un secondo effetto, e va detto perche e quello che rende la regola
+    necessaria e non solo prudente: senza, ogni salvataggio della scheda
+    porterebbe con se le chiavi dei contenitori clinici, e
+    `toccaCampiClinici` chiederebbe il permesso sanitario **a ogni correzione
+    di un cognome** — cioe esattamente cio che il commento di
+    `RISORSE_CON_SCHEDA_ATLETA` dichiara di voler evitare.
+  */
+  if (RISORSE_CON_SCHEDA_ATLETA.has(resource) && normalized.data && existing?.data) {
+    const precedente = existing.data as Record<string, any>;
+    const nuovo = normalized.data as Record<string, any>;
+    const conservati: Record<string, any> = {};
+
+    for (const campo of CLINICAL_ATHLETE_FIELDS) {
+      if (
+        Object.prototype.hasOwnProperty.call(precedente, campo) &&
+        !Object.prototype.hasOwnProperty.call(nuovo, campo)
+      ) {
+        conservati[campo] = precedente[campo];
+      }
+    }
+
+    if (Object.keys(conservati).length) {
+      normalized.data = { ...conservati, ...nuovo };
+    }
+  }
+
   const record = await delegate.update({
     where: { id },
     data: normalized,
@@ -6098,11 +6187,15 @@ export const deleteResource = async (
     tessere di club si tolgono da dove le si concede, che e anche l'unico
     posto che lascia la riga di audit giusta.
   */
-  if (
-    scope &&
-    resource === "organization_users" &&
-    normalizeAccessRole((existing as any)?.role) === "owner"
-  ) {
+  /*
+    La prima stesura bloccava solo le tessere che **normalizzano** su `owner`.
+    Una tessera con uno slug personalizzato non normalizza su `owner` e si
+    cancellava quindi dal registro generico, saltando `revokeClubAccess` — che
+    protegge il fondatore, vieta la revoca su se stessi e lascia la riga di
+    audit. Le tessere di club si tolgono da dove le si concede: qui si nega per
+    **tutte**, e la riga di audit la scrive l'altra porta.
+  */
+  if (scope && resource === "organization_users") {
     await recordPermissionDenied({
       scope: {
         userId: scope.userId,
@@ -6113,11 +6206,12 @@ export const deleteResource = async (
       resource: "organization_users",
       metadata: {
         target_user_id: String((existing as any)?.user_id || ""),
-        reason: "owner_membership_from_generic_route",
+        target_role: String((existing as any)?.role || ""),
+        reason: "membership_from_generic_route",
       },
     });
     throw new Error(
-      "Accesso negato: la tessera di un proprietario si revoca dalla gestione accessi, non dalla rotta generica",
+      "Accesso negato: una tessera di club si revoca dalla gestione accessi, non dalla rotta generica",
     );
   }
 
@@ -6147,7 +6241,11 @@ export const deleteResource = async (
     siano stati **smaltiti** prima, con il percorso che li attraversa tutti
     (src/lib/server/data-subject.ts).
   */
-  await assertPersonalDataDisposed(resource, existing?.id);
+  await assertPersonalDataDisposed(
+    resource,
+    existing?.id,
+    existing?.organization_id,
+  );
   await assertClubHasNoFiscalHistory(resource, existing?.id);
 
   const record = await delegate.delete({

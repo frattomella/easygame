@@ -56,6 +56,7 @@ const CLUB_A = randomUUID();
 const CLUB_B = randomUUID();
 
 const SEDE_A = "sede-uat6s";
+const SEDE_ALTRA = "sede-uat6s-altra";
 const CATEGORIA = "cat-uat6s";
 
 /** L'atleta del club A, legato al genitore del club A. */
@@ -89,6 +90,7 @@ let MODULO_A = null;
 
 let eventi;
 let documenti;
+let datiPersonali;
 let appuntamenti;
 let risorse;
 let autenticazione;
@@ -452,6 +454,31 @@ const semina = async () => {
     categoryId: CATEGORIA,
   });
   EVENTO_B = eventoB.id || eventoB.event?.id;
+
+  /*
+    **Due sedi, due atleti**: senza questo il perimetro non ha niente da
+    restringere, e ogni prova su di esso passerebbe misurando il vuoto.
+  */
+  await prisma.athleteCategoryMembership.createMany({
+    data: [
+      {
+        organization_id: CLUB_A,
+        athlete_id: ATLETA_A,
+        category_id: CATEGORIA,
+        category_name: "Under 15",
+        site_id: SEDE_A,
+        is_primary: true,
+      },
+      {
+        organization_id: CLUB_A,
+        athlete_id: ATLETA_ALTRUI,
+        category_id: CATEGORIA,
+        category_name: "Under 15",
+        site_id: SEDE_ALTRA,
+        is_primary: true,
+      },
+    ],
+  });
 
   /* Un fascicolo documentale vero nel club A. */
   const scopeStaffA = scopeDi(utenti.staff.id, CLUB_A, "staff");
@@ -865,6 +892,49 @@ const u34 = async () => {
     "senza questo controspecchio una proiezione che azzera tutto passerebbe per una difesa",
   );
 
+  /*
+    **L'export dell'interessato, esercitato invece che letto.**
+
+    Le prove che presidiavano questo taglio erano cinque `assert.match` sul
+    testo del file. Una revisione ostile ha **invertito** la condizione — il
+    clinico esce a chi non ha la chiave e sparisce a chi ce l'ha — e i cinque
+    controlli sono rimasti verdi. Un presidio che dichiara una proprieta di
+    sicurezza e ne verifica la sintassi non presidia niente.
+
+    Qui l'export si chiama davvero, con due ruoli, e si guarda cosa esce.
+  */
+  const esportaCon = async (ruoloAttivo) => {
+    /*
+      Lo scope si costruisce sulla stessa utenza — la direzione del club A — e
+      cambia **solo** il ruolo attivo: cosi la differenza fra le due misure e il
+      gettone, e non la persona.
+    */
+    const risultato = await datiPersonali.exportDataSubject(
+      { ...scopeDi(utenti.club_manager.id, CLUB_A, ruoloAttivo) },
+      { subjectKind: "athlete", subjectId: ATLETA_A },
+    );
+    const testo = JSON.stringify(risultato.sections?.athletes || []);
+    return {
+      omesso: Boolean(risultato.clinicalContentOmitted),
+      allergie: testo.includes("Arachidi"),
+    };
+  };
+
+  prova(
+    "U-34 l'export di chi ha `clinical.read` porta il contenuto clinico",
+    { omesso: false, allergie: true },
+    await esportaCon("club_manager"),
+    "senza questo controspecchio un export che azzera tutto passerebbe per una difesa",
+  );
+
+  prova(
+    "U-34 e quello di un ruolo a cui la chiave e stata tolta non lo porta, e lo dichiara",
+    { omesso: true, allergie: false },
+    await esportaCon(
+      "custom:club_manager:senza-clinico#documents.request,data_subject.export",
+    ),
+  );
+
   await varco(
     "U-34 e dal club B l'atleta del club A non esce affatto",
     () =>
@@ -1237,6 +1307,120 @@ const u38 = async () => {
     ["inesistente", "ambiguo", "negato"],
   );
 
+  /* ================================================================== */
+  /*  U-39 — il perimetro, esercitato invece che letto  [CRITICAL: minori]  */
+  /* ================================================================== */
+
+  /*
+    **Perche queste prove stanno qui e non fra i test.**
+
+    Il perimetro si esprime con un filtro su una **relazione**
+    (`category_memberships: { some: { site_id: ... } }`), e il doppio di Prisma
+    della suite non sa valutarlo: un test scritto li misurerebbe il doppio.
+
+    Non e una sottigliezza. Una revisione ostile ha mutato la guardia del
+    perimetro perche non negasse **mai**, e i quattordici controlli che la
+    presidiavano sono rimasti verdi: erano tutti `assert.match` sul testo del
+    file. Un presidio che legge il sorgente verifica che qualcuno abbia scritto
+    la riga, non che la riga faccia qualcosa.
+
+    Qui il database e vero e la riga si esercita.
+  */
+  console.log(`${NL}U-39 — il perimetro esercitato, non letto   [CRITICAL: minori]`);
+
+  const perimetrato = {
+    ...scopeDi(utenti.staff.id, CLUB_A, "club_manager"),
+    accessScopes: [{ kind: "site", value: SEDE_A }],
+  };
+  const senzaPerimetro = scopeDi(utenti.staff.id, CLUB_A, "club_manager");
+
+  const elencoPerimetrato = await risorse.listResourcePage(
+    "athletes",
+    new URLSearchParams({ organization_id: CLUB_A }),
+    perimetrato,
+  );
+  const idPerimetrati = (elencoPerimetrato.records || []).map((r) => r.id);
+  prova(
+    "U-39 l'elenco non porta l'atleta dell'altra sede",
+    [true, false],
+    [idPerimetrati.includes(ATLETA_A), idPerimetrati.includes(ATLETA_ALTRUI)],
+    `atleti visti=${idPerimetrati.length}`,
+  );
+
+  const elencoIntero = await risorse.listResourcePage(
+    "athletes",
+    new URLSearchParams({ organization_id: CLUB_A }),
+    senzaPerimetro,
+  );
+  prova(
+    "U-39 e senza perimetro li porta entrambi: a restringere e il perimetro",
+    true,
+    (elencoIntero.records || []).map((r) => r.id).includes(ATLETA_ALTRUI),
+  );
+
+  await varco(
+    "U-39 per identificativo, l'atleta fuori perimetro e negato",
+    () => risorse.getResourceById("athletes", ATLETA_ALTRUI, perimetrato),
+    ["inesistente", "ambiguo", "negato"],
+  );
+  await varco(
+    "U-39 e non si modifica",
+    () =>
+      risorse.updateResource(
+        "athletes",
+        ATLETA_ALTRUI,
+        { first_name: "Cambiato" },
+        perimetrato,
+      ),
+    ["inesistente", "ambiguo", "negato"],
+  );
+
+  const dopoTentativo = await prisma.athlete.findUnique({
+    where: { id: ATLETA_ALTRUI },
+    select: { first_name: true },
+  });
+  prova(
+    "U-39 e nulla e stato scritto",
+    "Minore",
+    dopoTentativo?.first_name ?? null,
+  );
+
+  const dentro = await risorse.getResourceById("athletes", ATLETA_A, perimetrato);
+  prova(
+    "U-39 e il proprio atleta si legge ancora: il perimetro restringe, non blocca",
+    ATLETA_A,
+    dentro?.id ?? null,
+  );
+
+  /*
+    Il fascicolo: e la superficie dove il perimetro era **sconfitto**, perche
+    ogni riga della coda porta nome e cognome di un minore.
+  */
+  const fascicoloPerimetrato = await documenti.getDocumentDossier(perimetrato, {});
+  prova(
+    "U-39 il fascicolo non porta le richieste dell'altra sede",
+    true,
+    (fascicoloPerimetrato || []).every((riga) => riga.subjectId !== ATLETA_ALTRUI),
+    `righe=${(fascicoloPerimetrato || []).length}`,
+  );
+
+  /*
+    L'errore piu facile da commettere qui: confondere «nessun perimetro» con
+    «perimetro che non contiene nessuno». Il secondo non deve aprire il club.
+  */
+  const perimetroVuoto = await documenti.getDocumentDossier(
+    {
+      ...perimetrato,
+      accessScopes: [{ kind: "site", value: "sede-che-non-esiste" }],
+    },
+    {},
+  );
+  prova(
+    "U-39 un perimetro che non contiene nessuno non apre tutto il club",
+    0,
+    (perimetroVuoto || []).length,
+  );
+
   const evento = await prisma.clubEvent.findUnique({ where: { id: EVENTO_A } });
   prova(
     "U-38 e nulla e stato scritto: il titolo e ancora il suo",
@@ -1271,6 +1455,7 @@ const u38 = async () => {
 try {
   eventi = await carica("src/lib/server/events.ts");
   documenti = await carica("src/lib/server/document-requests.ts");
+  datiPersonali = await carica("src/lib/server/data-subject.ts");
   appuntamenti = await carica("src/lib/server/appointments.ts");
   risorse = await carica("src/lib/server/resources.ts");
   autenticazione = await carica("src/lib/server/auth.ts");
