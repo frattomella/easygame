@@ -1326,6 +1326,150 @@ const u38 = async () => {
 
     Qui il database e vero e la riga si esercita.
   */
+  /* ================================================================== */
+  /*  U-40 — la credenziale della famiglia    [CRITICAL: minori, salute]  */
+  /* ================================================================== */
+
+  /*
+    `athletes.data.guardians[]` porta il valore **in chiaro** del gettone con
+    cui un tutore si collega. Non e clinico, quindi nessuno dei tagli lo
+    toccava, e `POST /api/v1/auth/access/redeem` lega chi lo presenta **come
+    tutore**: chi lo raccoglie ottiene per legame il fascicolo clinico
+    completo, cioe esattamente cio che il taglio gli nega. Una difesa aggirata
+    non da un buco, ma dalla porta accanto.
+  */
+  console.log(`${NL}U-40 — la credenziale della famiglia   [CRITICAL: minori]`);
+
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: {
+      data: {
+        allergies: "Arachidi",
+        bloodType: "0+",
+        medications: "Salbutamolo",
+        phone: "3330000000",
+        guardians: [
+          {
+            name: "Tutore Alfa",
+            phone: "3331111111",
+            email: "tutore@example.invalid",
+            parentAccessTokenValue: "GETTONE-IN-CHIARO-DA-NON-VEDERE",
+          },
+        ],
+      },
+    },
+  });
+
+  const gettoneVisibileA = async (ruolo) => {
+    const scope = ruolo.includes(":")
+      ? scopeDi(utenti.club_manager.id, CLUB_A, ruolo)
+      : scopeRuolo(ruolo);
+    const righe = await risorse.listResource(
+      "athletes",
+      new URLSearchParams({ organization_id: CLUB_A, id: ATLETA_A }),
+      scope,
+    );
+    const testo = JSON.stringify(righe[0]?.data || {});
+    return {
+      righe: righe.length,
+      gettone: testo.includes("GETTONE-IN-CHIARO-DA-NON-VEDERE"),
+      recapito: testo.includes("3331111111"),
+    };
+  };
+
+  prova(
+    "U-40 l'allenatore non riceve il gettone della famiglia",
+    { righe: 1, gettone: false, recapito: true },
+    await gettoneVisibileA("trainer"),
+    "il recapito resta: chi allena deve poter chiamare una famiglia, ed e per quello che i tutori non sono clinici",
+  );
+  prova(
+    "U-40 e nemmeno il collaboratore, che pure ha `clinical.read`",
+    { righe: 1, gettone: false, recapito: true },
+    await gettoneVisibileA("collaborator"),
+    "la credenziale non e un dato clinico: a proteggerla e la matrice di `access_tokens`, non il taglio sanitario",
+  );
+  prova(
+    "U-40 ne un ruolo personalizzato con una chiave sola",
+    { righe: 1, gettone: false, recapito: true },
+    await gettoneVisibileA("custom:club_manager:segreteria#members.register.read"),
+  );
+  prova(
+    "U-40 la direzione, che puo leggere i gettoni, continua a vederlo",
+    { righe: 1, gettone: true, recapito: true },
+    await gettoneVisibileA("club_manager"),
+    "senza questo controspecchio una proiezione che azzera tutto passerebbe per una difesa",
+  );
+
+  /* ================================================================== */
+  /*  U-41 — svuotare cio che non si e potuto leggere  [CRITICAL: salute] */
+  /* ================================================================== */
+
+  /*
+    La schermata rimanda **sempre** tutte le raccolte, e quelle che chi salva
+    non ha potuto leggere arrivano come `[]` o `{}`. Un vuoto non e
+    un'assenza: la prima stesura della regola conservava solo le chiavi
+    mancanti, e il salvataggio azzerava lo stesso.
+  */
+  console.log(
+    `${NL}U-41 — svuotare cio che non si e potuto leggere   [CRITICAL: salute]`,
+  );
+
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: {
+      data: {
+        allergies: "Arachidi",
+        medicalVisits: [{ title: "Visita", outcome: "da rivalutare" }],
+        certificateFiles: { blsd: "data:application/pdf;base64,AAAA" },
+        phone: "3330000000",
+      },
+    },
+  });
+
+  const senzaLettura = scopeDi(
+    utenti.club_manager.id,
+    CLUB_A,
+    "custom:club_manager:gestore-senza-clinico#clinical.manage,members.register.read",
+  );
+
+  await risorse.updateResource(
+    "athletes",
+    ATLETA_A,
+    {
+      last_name: "Corretto",
+      data: {
+        allergies: "",
+        medicalVisits: [],
+        certificateFiles: {},
+        phone: "3330000000",
+      },
+    },
+    senzaLettura,
+  );
+
+  const dopoSalvataggio = await prisma.athlete.findUnique({
+    where: { id: ATLETA_A },
+    select: { last_name: true, data: true },
+  });
+  const dati = dopoSalvataggio?.data || {};
+
+  prova(
+    "U-41 chi non puo leggere il clinico non lo cancella salvando",
+    { visite: 1, certificati: 1, allergie: "Arachidi" },
+    {
+      visite: Array.isArray(dati.medicalVisits) ? dati.medicalVisits.length : 0,
+      certificati: Object.keys(dati.certificateFiles || {}).length,
+      allergie: dati.allergies ?? null,
+    },
+  );
+  prova(
+    "U-41 e la correzione che voleva fare passa comunque",
+    "Corretto",
+    dopoSalvataggio?.last_name ?? null,
+    "una difesa che impedisce di correggere un cognome e un comando che non fa cio che dice",
+  );
+
   console.log(`${NL}U-39 — il perimetro esercitato, non letto   [CRITICAL: minori]`);
 
   const perimetrato = {
@@ -1383,6 +1527,38 @@ const u38 = async () => {
     "U-39 e nulla e stato scritto",
     "Minore",
     dopoTentativo?.first_name ?? null,
+  );
+
+  /*
+    **La quarta porta.** Le tre sopra erano quelle che la prima stesura di U-39
+    esercitava, e una quarta revisione ha misurato che ne restava una: il ramo
+    `upsert`, che non crea — aggiorna per chiave, e la chiave la sceglie chi
+    chiama. Passava.
+  */
+  await varco(
+    "U-39 e non si scrive nemmeno per upsert, che aggiorna per chiave",
+    () =>
+      risorse.createResource(
+        "athletes",
+        {
+          id: ATLETA_ALTRUI,
+          organization_id: CLUB_A,
+          first_name: "ViaUpsert",
+        },
+        "upsert",
+        perimetrato,
+      ),
+    ["inesistente", "ambiguo", "negato"],
+  );
+
+  const dopoUpsert = await prisma.athlete.findUnique({
+    where: { id: ATLETA_ALTRUI },
+    select: { first_name: true },
+  });
+  prova(
+    "U-39 e la riga e ancora quella di prima",
+    "Minore",
+    dopoUpsert?.first_name ?? null,
   );
 
   const dentro = await risorse.getResourceById("athletes", ATLETA_A, perimetrato);

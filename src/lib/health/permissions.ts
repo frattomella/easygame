@@ -282,3 +282,74 @@ export const stripClinicalCertificateFields = (
 
   return next;
 };
+
+/**
+ * I campi di un tutore che sono una **credenziale**, non un recapito.
+ *
+ * `athletes.data.guardians[]` porta il valore **in chiaro** del gettone con cui
+ * un tutore si collega al proprio account. Non e un dato sanitario, quindi
+ * nessuno dei tagli di questo modulo lo toccava — ed e uscito per mesi a
+ * chiunque potesse leggere un atleta.
+ *
+ * Sta qui, accanto agli altri elenchi chiusi, per la stessa ragione per cui ci
+ * stanno quelli: la proiezione lato server e la schermata devono nascondere
+ * **le stesse cose**, e quando erano due elenchi uno dei due e rimasto indietro
+ * per undici mesi.
+ */
+export const GUARDIAN_CREDENTIAL_FIELDS: readonly string[] = [
+  "parentAccessTokenValue",
+  "parent_access_token_value",
+  "accessTokenValue",
+  "access_token_value",
+  "parentAccessCode",
+  "parent_access_code",
+] as const;
+
+const GUARDIAN_CREDENTIAL_FIELD_SET = new Set(GUARDIAN_CREDENTIAL_FIELDS);
+
+/**
+ * Toglie le credenziali dai tutori dentro un oggetto `data` di anagrafica.
+ *
+ * Restituisce **lo stesso oggetto** quando non c'e niente da togliere: e la
+ * condizione che rende il taglio gratuito sulla maggioranza delle righe, ed e
+ * anche il modo in cui il chiamante sa se ha dovuto copiare.
+ */
+export const stripGuardianAccessTokens = (data: unknown) => {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+
+  const source = data as Record<string, unknown>;
+  let toccato = false;
+
+  const ripulisci = (elenco: unknown) => {
+    if (!Array.isArray(elenco)) return elenco;
+
+    return elenco.map((voce) => {
+      if (!voce || typeof voce !== "object" || Array.isArray(voce)) return voce;
+
+      const tutore = voce as Record<string, unknown>;
+      const next: Record<string, unknown> = {};
+      let tolto = false;
+
+      for (const [chiave, valore] of Object.entries(tutore)) {
+        if (GUARDIAN_CREDENTIAL_FIELD_SET.has(chiave)) {
+          tolto = true;
+          continue;
+        }
+        next[chiave] = valore;
+      }
+
+      if (!tolto) return voce;
+      toccato = true;
+      return next;
+    });
+  };
+
+  const next: Record<string, unknown> = { ...source };
+  for (const contenitore of ["guardians", "tutori", "parents"]) {
+    if (contenitore in next) {
+      next[contenitore] = ripulisci(next[contenitore]);
+    }
+  }
+
+  return toccato ? next : source;
+};

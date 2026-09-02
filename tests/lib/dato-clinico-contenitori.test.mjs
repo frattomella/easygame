@@ -337,23 +337,27 @@ test("la categoria dell'allegato segue il tipo dichiarato, o il gate non si acce
   );
 });
 
-test("un salvataggio che non porta un campo clinico non lo cancella", async () => {
+test("la regola contro lo svuotamento e scritta dove qualcuno la cerchera", async () => {
   /*
-    **Il difetto che la correzione precedente aveva creato.**
+    **Questo controllo non prova la regola: la nomina.** E una distinzione che
+    questa Wave ha pagato due volte, e vale la pena scriverla qui.
 
-    La colonna `data` si scrive intera, quindi salvare la scheda e sempre una
-    sostituzione. Chi non ha `clinical.read` la riceve **senza** i campi
-    clinici — che e la difesa — e la rimanda cosi: il primo salvataggio
-    azzerava visite mediche, documenti d'identita e i file degli attestati.
+    La prima stesura di questo presidio era un `assert.match` sul sorgente e
+    dichiarava, nel messaggio di commit, che «la prova sul dato la fa
+    scripts/wave-6-uat.mjs». Non era vero: quella prova non esisteva, e una
+    revisione ostile ha neutralizzato la regola ottenendo 32 test verdi e due
+    sonde su due verdi.
 
-    Rendere una lettura parziale indistinguibile da una cancellazione e la
-    forma del difetto; la regola che lo chiude e che **un'assenza non e una
-    cancellazione**.
+    La prova sul dato adesso esiste davvero, e sta in
+    `scripts/wave-6-security-probe.mjs` (U-41): semina un contenuto clinico,
+    salva con un ruolo che ha `clinical.manage` e **non** `clinical.read`, e
+    conta cosa e rimasto. E la sonda che ha trovato l'errore piu insidioso di
+    questa correzione — l'ordine dello spread, che faceva vincere il vuoto
+    appena scartato.
 
-    Il presidio legge il sorgente, e va detto perche: la funzione che scrive
-    parla con Prisma e la prova sul dato la fa `scripts/wave-6-uat.mjs`. Qui si
-    tiene ferma la **forma** della regola, che e cio che un lettore deve
-    ritrovare.
+    Cio che resta qui e cio che un controllo sul sorgente sa fare davvero:
+    tenere ferma la **forma** della regola per chi legge il file, e dire dove
+    sta la prova.
   */
   const sorgente = await readFile("src/lib/server/resources.ts", "utf8");
 
@@ -364,12 +368,14 @@ test("un salvataggio che non porta un campo clinico non lo cancella", async () =
   );
   assert.match(
     sorgente,
-    /for \(const campo of CLINICAL_ATHLETE_FIELDS\) \{[\s\S]{0,400}hasOwnProperty\.call\(precedente, campo\)[\s\S]{0,200}!Object\.prototype\.hasOwnProperty\.call\(nuovo, campo\)/,
-    "cio che c'era e non e stato ricevuto deve essere conservato",
+    /normalized.data = { ...nuovo, ...conservati }/,
+    "cio che si conserva deve vincere sullo spread di cio che arriva, o il vuoto lo sovrascrive",
   );
+
+  const sonda = await readFile("scripts/wave-6-security-probe.mjs", "utf8");
   assert.match(
-    sorgente,
-    /normalized\.data = \{ \.\.\.conservati, \.\.\.nuovo \}/,
-    "e cio che e stato ricevuto deve comunque vincere: e una modifica, non un ripristino",
+    sonda,
+    /U-41 chi non puo leggere il clinico non lo cancella salvando/,
+    "la prova sul dato deve esistere davvero: dichiararla e non scriverla e come non averla",
   );
 });

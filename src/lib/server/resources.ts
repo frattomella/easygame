@@ -7,6 +7,7 @@ import {
 import {
   isClubResourceDeclared,
   isCustomRoleValue,
+  canAccessClubResource,
   normalizeAccessRole,
 } from "@/lib/access-roles";
 import { assertMayGrantRole } from "@/lib/roles/custom-role";
@@ -23,6 +24,7 @@ import {
   hasHealthPermission,
   stripClinicalAthleteFields,
   stripClinicalCertificateFields,
+  stripGuardianAccessTokens,
 } from "@/lib/health/permissions";
 import { Prisma } from "@prisma/client";
 import { hashPassword } from "./auth";
@@ -553,15 +555,52 @@ const RISORSE_CLINICHE = new Set([
 
 const RISORSE_CON_SCHEDA_ATLETA = new Set(["athletes", "simplified_athletes"]);
 
+/**
+ * Vero se il valore e «niente»: assente, nullo, testo vuoto, elenco vuoto,
+ * oggetto senza chiavi.
+ *
+ * Serve a distinguere **due cose che sembrano uguali e non lo sono**: chi
+ * cancella un contenuto clinico, e chi rimanda un contenitore che non ha mai
+ * potuto vedere. La schermata normalizza cio che manca in `[]` e `{}`, quindi
+ * l'assenza non arriva mai fino al server: arriva un vuoto.
+ */
+const eVuoto = (valore: unknown) => {
+  if (valore === undefined || valore === null) return true;
+  if (typeof valore === "string") return valore.trim() === "";
+  if (Array.isArray(valore)) return valore.length === 0;
+  if (typeof valore === "object") return Object.keys(valore as object).length === 0;
+  return false;
+};
+
 const toccaCampiClinici = (input: unknown): boolean => {
   if (!input || typeof input !== "object") return false;
   const record = input as Record<string, any>;
 
+  /*
+    **Un contenitore vuoto non e un atto clinico.**
+
+    Prima bastava che la **chiave** fosse presente. Ma la schermata rimanda
+    sempre tutte e nove le raccolte, e quelle che chi salva non ha potuto
+    leggere arrivano come `[]` o `{}`: ogni salvataggio risultava quindi un
+    atto clinico, e un ruolo a cui era stata tolta la sola `clinical.manage`
+    non poteva piu **correggere un cognome**. Misurato: la scheda diventava non
+    modificabile in nessun campo.
+
+    E l'esatto contrario di cio che il commento di `RISORSE_CON_SCHEDA_ATLETA`
+    dichiara — «chi non puo vedere le allergie non puo piu correggere un
+    cognome» — prodotto dalla correzione che voleva evitarlo.
+
+    Cio che conta e se si sta **scrivendo** qualcosa di clinico. Un vuoto non
+    scrive: la regola qui sotto, accanto, si occupa di non farlo nemmeno
+    cancellare.
+  */
   const dentro = (oggetto: unknown) =>
     Boolean(oggetto) &&
     typeof oggetto === "object" &&
-    CLINICAL_ATHLETE_FIELDS.some((campo) =>
-      Object.prototype.hasOwnProperty.call(oggetto as object, campo),
+    CLINICAL_ATHLETE_FIELDS.some(
+      (campo) =>
+        Object.prototype.hasOwnProperty.call(oggetto as object, campo) &&
+        !eVuoto((oggetto as Record<string, unknown>)[campo]),
     );
 
   return dentro(record) || dentro(record.data);
@@ -1358,6 +1397,25 @@ const RISORSE_CON_DATO_CLINICO = new Set([
   "simplified_certificates",
 ]);
 
+/**
+ * Chi puo vedere il **gettone** di accesso di una famiglia dentro l'anagrafica.
+ *
+ * Non e la matrice per risorsa da sola, e la ragione e misurata: la matrice
+ * passa da `normalizeAccessRole`, che di un gettone
+ * `custom:club_manager:<slug>` risponde `club_manager` — quindi un ruolo
+ * personalizzato con **una chiave sola** vedeva la credenziale come il gestore
+ * pieno. E il residuo W6-D17, e su una credenziale non lo si puo accettare.
+ *
+ * Si pretende quindi un ruolo **canonico** di direzione. Un ruolo
+ * personalizzato, anche completo, legge i gettoni dalla loro rotta
+ * (`/api/v1/access_tokens`), che e il proprietario del dato e sa dire di no
+ * per conto proprio: qui non ne ha bisogno, e fallire chiuso costa una
+ * schermata in meno e non una credenziale in piu.
+ */
+const vedeICredenzialiDiAccesso = (role: string | null | undefined) =>
+  !isCustomRoleValue(role) &&
+  canAccessClubResource(role, "access_tokens", "read");
+
 const proiettaSenzaDatoClinico = (
   resource: string,
   record: Record<string, any>,
@@ -1369,6 +1427,38 @@ const proiettaSenzaDatoClinico = (
     RISORSE_CON_ANAGRAFICA_PERSONALE.has(resource)
   ) {
     return proiettaPersonaPerAllenatore(record);
+  }
+
+  /*
+    **La credenziale della famiglia usciva a chiunque leggesse un atleta.**
+
+    `athletes.data.guardians[]` porta `parentAccessTokenValue`: il valore **in
+    chiaro** del gettone con cui un tutore si collega. Non e clinico, quindi
+    nessuno dei tagli qui sotto lo toccava, e la proiezione ridotta vale solo
+    per `trainers`/`staff_members`, non per gli atleti.
+
+    Misurato sul database di sviluppo: con uno scope da **allenatore**, da
+    **collaboratore** e da ruolo personalizzato con una chiave, il gettone di
+    ogni famiglia usciva. E `POST /api/v1/auth/access/redeem` lega chi lo
+    presenta come tutore — quindi chi lo raccoglie ottiene **per legame** il
+    fascicolo clinico completo, cioe esattamente cio che il taglio gli nega.
+    Una difesa aggirata non da un buco, ma dalla porta accanto.
+
+    `access_tokens` e fra le risorse riservate alla direzione **proprio per
+    questo**, e `athletes.data` lo aggirava. La regola qui e la stessa: il
+    gettone lo vede chi puo vedere i gettoni. Gli altri campi del tutore —
+    nome, indirizzo, telefono — restano: chi allena deve poter chiamare una
+    famiglia, ed e quella la ragione per cui `guardians` non e clinico.
+  */
+  if (
+    scope &&
+    (resource === "athletes" || resource === "simplified_athletes") &&
+    !vedeICredenzialiDiAccesso(scope.activeRole)
+  ) {
+    const senzaGettoni = stripGuardianAccessTokens(record.data);
+    if (senzaGettoni !== record.data) {
+      record = { ...record, data: senzaGettoni };
+    }
   }
 
   if (!scope || !RISORSE_CON_DATO_CLINICO.has(resource)) {
@@ -5157,6 +5247,24 @@ export const createResource = async (
         const esistente = await delegate.findUnique({ where });
         if (esistente) {
           assertRecordAccess(resource, esistente, scope);
+          /*
+            **La quarta porta del perimetro, e l'unica che era rimasta.**
+
+            `assertRecordWithinAccessScope` era su lettura per id, modifica e
+            cancellazione. Non qui — e questo ramo **non crea**: aggiorna per
+            chiave, e la chiave la sceglie chi chiama. Misurato sul database
+            vero, con lo stesso atleta fuori perimetro e lo stesso scope:
+
+                update  -> negato
+                delete  -> negato
+                upsert  -> **passato**, riga scritta
+
+            E la stessa forma che il commento di `buildAccessScopeFilter`
+            dichiara chiusa — «un filtro di elenco si aggira chiedendo la riga
+            per identificativo» — sulla porta che quel commento non aveva
+            visitato. Anche la sonda U-39 esercitava tre porte su quattro.
+          */
+          await assertRecordWithinAccessScope(resource, esistente, scope);
         } else if (isPersonalResource(resource)) {
           /*
             Una risorsa personale che **non** esiste ancora: crearla per conto
@@ -5899,7 +6007,39 @@ export const updateResource = async (
     const nuovo = normalized.data as Record<string, any>;
     const conservati: Record<string, any> = {};
 
+    /*
+      **Chi non puo leggere un contenuto clinico non lo puo nemmeno svuotare.**
+
+      La prima stesura conservava solo le chiavi **assenti**, e non e bastato:
+      la schermata normalizza cio che manca in `[]` e `{}`, quindi il vuoto
+      arriva al posto dell'assenza e la fusione non scattava. Misurato
+      end-to-end con un ruolo che ha `clinical.manage` e non `clinical.read`:
+      visite mediche, documenti d'identita, file dei certificati e contenitore
+      libero di un minore **azzerati da un salvataggio ordinario**.
+
+      La regola completa distingue le due cose che sembrano uguali: un vuoto da
+      chi **puo** vedere quel contenuto e una cancellazione, e si rispetta; un
+      vuoto da chi **non puo** vederlo e il segno di una lettura parziale, e non
+      cancella niente.
+    */
+    const puoVedereIlClinico = hasHealthPermission(
+      scope?.activeRole,
+      "clinical.read",
+    );
+
     for (const campo of CLINICAL_ATHLETE_FIELDS) {
+      const eraPieno =
+        Object.prototype.hasOwnProperty.call(precedente, campo) &&
+        !eVuoto(precedente[campo]);
+      const arrivaVuoto =
+        !Object.prototype.hasOwnProperty.call(nuovo, campo) ||
+        eVuoto(nuovo[campo]);
+
+      if (eraPieno && arrivaVuoto && !puoVedereIlClinico) {
+        conservati[campo] = precedente[campo];
+        continue;
+      }
+
       if (
         Object.prototype.hasOwnProperty.call(precedente, campo) &&
         !Object.prototype.hasOwnProperty.call(nuovo, campo)
@@ -5908,8 +6048,23 @@ export const updateResource = async (
       }
     }
 
+    /*
+      **L'ordine dello spread e la meta della regola, e la prima stesura lo
+      aveva al contrario.**
+
+      Con `{ ...conservati, ...nuovo }` cio che arriva vince sempre — ed e
+      giusto per una chiave **assente**, che in `nuovo` non c'e, e sbagliato
+      per una chiave **vuota**, che c'e e sovrascrive proprio il valore appena
+      conservato. La sonda lo ha misurato: visite e certificati tornavano a
+      zero con la regola in funzione.
+
+      Cio che entra in `conservati` ci entra **solo** se chi scrive non poteva
+      vedere quel campo: farlo vincere non calpesta nessuna modifica
+      volontaria, perche una modifica volontaria di chi vede il campo non passa
+      mai di qui.
+    */
     if (Object.keys(conservati).length) {
-      normalized.data = { ...conservati, ...nuovo };
+      normalized.data = { ...nuovo, ...conservati };
     }
   }
 
