@@ -121,6 +121,30 @@ export const canAccessAttachmentOwner = (
     if (!hasHealthPermission(activeRole, "clinical.read")) return false;
   }
 
+  /*
+    **Un allegato di un modulo puo essere un certificato, e nessuno dice che non
+    lo sia.**
+
+    Ogni caricamento da un modulo online viene depositato con la categoria
+    `compilazione-modulo`, qualunque cosa contenga: il modulo di iscrizione
+    chiede il certificato medico, e quel file finisce li. Il cancello sopra
+    giudica la **categoria**, quindi su quei file non si accendeva mai.
+
+    Misurato: lo stesso certificato dello stesso minore era negato se depositato
+    dal fascicolo e **leggibile, sovrascrivibile e cancellabile** se caricato dal
+    modulo di iscrizione — dal ruolo personalizzato a cui il club aveva tolto
+    `clinical.read`, cioe esattamente lo scopo di questa Wave.
+
+    I campi di un modulo non dichiarano un genere documentale, quindi non c'e
+    niente da cui dedurre. Si sbaglia allora **nel verso giusto**: chi non puo
+    vedere un certificato non vede un allegato che potrebbe esserlo. Non costa
+    niente ai ruoli canonici che rivedono i moduli — collaboratore e segreteria
+    hanno `clinical.read` — e chiude il caso che il difetto apriva.
+  */
+  if (tipo === "form") {
+    if (!hasHealthPermission(activeRole, "clinical.read")) return false;
+  }
+
   if (tipo === "club" || tipo === "announcement") return true;
 
   const risorsa = RISORSA_PER_TIPO[tipo];

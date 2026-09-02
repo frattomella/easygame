@@ -468,6 +468,54 @@ const resolveTrainingStatus = (training: any) => {
   return "upcoming";
 };
 
+/**
+ * I campi di un evento che una famiglia puo vedere.
+ *
+ * **Elenco chiuso, e non una lista di esclusioni.** Un evento porta anche le
+ * convocazioni — cioe gli identificativi di altri minori — e le note interne
+ * del club: dichiarare cosa **puo uscire** e l'unica forma in cui un campo
+ * nuovo nasce invisibile invece che visibile.
+ */
+const CAMPI_EVENTO_VISIBILI_ALLA_FAMIGLIA = [
+  "id",
+  "legacy_id",
+  "kind",
+  "title",
+  "name",
+  "date",
+  "time",
+  "startTime",
+  "start_time",
+  "endTime",
+  "end_time",
+  "startsAt",
+  "starts_at",
+  "endsAt",
+  "ends_at",
+  "location",
+  "locationName",
+  "location_name",
+  "field",
+  "fieldName",
+  "venue",
+  "opponent",
+  "homeAway",
+  "home_away",
+  "category",
+  "categoryName",
+  "category_name",
+  "categoryId",
+  "category_id",
+  "categories",
+  "status",
+  "notes",
+  "rsvpRequired",
+  "rsvp_required",
+  "rsvpDeadline",
+  "rsvp_deadline",
+  "timezone",
+] as const;
+
 const summarizeEvent = (
   event: any,
   categories: NormalizedCategoryOption[],
@@ -487,8 +535,33 @@ const summarizeEvent = (
       ? resolveCategoryLabel(categoryReference, categories)
       : "Categoria";
 
+  /*
+    **Un elenco chiuso, e non uno spread.**
+
+    Qui c'era `{ ...event }`, e `event` e la proiezione grezza della riga di
+    `club_events`. Il filtro sceglie **quali** eventi passano; non ha mai detto
+    niente su **cosa** contengono.
+
+    Misurato sulla home di un genitore: nel payload di una gara arrivavano
+    `convocatedAthletes` e `convocationEntries` — cioe gli identificativi di
+    **ogni altro minore convocato**, con il loro attributo di appartenenza
+    («fuori quota») — e `noteInterne`, il campo libero che il club scrive per
+    se. Gli identificativi sono spendibili su ogni superficie `[athleteId]`.
+
+    L'area atleta, costruita nella stessa Wave, proietta con un elenco chiuso:
+    e la forma giusta, e qui mancava. Un campo nuovo su `club_events` deve
+    nascere **invisibile** alla famiglia, non visibile finche qualcuno se ne
+    accorge.
+  */
+  const visibile: Record<string, any> = {};
+  for (const campo of CAMPI_EVENTO_VISIBILI_ALLA_FAMIGLIA) {
+    if (Object.prototype.hasOwnProperty.call(event ?? {}, campo)) {
+      visibile[campo] = (event as Record<string, any>)[campo];
+    }
+  }
+
   return {
-    ...event,
+    ...visibile,
     id:
       firstText(event?.id) ||
       [

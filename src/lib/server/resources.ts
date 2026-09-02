@@ -30,6 +30,7 @@ import {
   stripClinicalAthleteFields,
   stripClinicalCertificateFields,
   stripGuardianAccessTokens,
+  stripPersonCredentials,
 } from "@/lib/health/permissions";
 import { Prisma } from "@prisma/client";
 import { hashPassword } from "./auth";
@@ -1267,6 +1268,27 @@ const serializeRecord = (
       return proiettaPersonaPerAllenatore(serializzato);
     }
 
+    /*
+      **E la riduzione valeva solo per l'allenatore.**
+
+      La riga sopra copre il ruolo `trainer`; collaboratore, segreteria e ogni
+      ruolo personalizzato — che normalizza sulla propria base — leggevano la
+      scheda intera, con il gettone di accesso in chiaro, il codice fiscale e
+      **l'IBAN**.
+
+      Il taglio sta qui e non in fondo alla funzione per la stessa ragione
+      scritta sopra: le risorse di club escono per questa strada e in fondo non
+      ci arrivano mai. Ed e la ragione per cui il primo taglio delle credenziali
+      — scritto in fondo, per gli atleti — non toccava queste schede.
+    */
+    if (
+      scope &&
+      RISORSE_CON_ANAGRAFICA_PERSONALE.has(resource) &&
+      !vedeICredenzialiDiAccesso(scope.activeRole)
+    ) {
+      return stripPersonCredentials(serializzato);
+    }
+
     return serializzato;
   }
 
@@ -1456,6 +1478,26 @@ const proiettaSenzaDatoClinico = (
     nome, indirizzo, telefono — restano: chi allena deve poter chiamare una
     famiglia, ed e quella la ragione per cui `guardians` non e clinico.
   */
+  /*
+    **La stessa regola per le persone del club, e valeva solo per l'allenatore.**
+
+    `trainers` e `staff_members` portano il gettone di accesso in chiaro, il
+    codice fiscale e **l'IBAN**. La proiezione ridotta esisteva, ma solo per il
+    ruolo `trainer`: collaboratore, segreteria e ogni ruolo personalizzato — che
+    normalizza sulla propria base — leggevano la riga intera.
+
+    `sport_work` e riservata alla direzione con la motivazione «le coordinate
+    bancarie di ogni collaboratore». Le stesse coordinate uscivano dalla porta
+    accanto.
+  */
+  if (
+    scope &&
+    RISORSE_CON_ANAGRAFICA_PERSONALE.has(resource) &&
+    !vedeICredenzialiDiAccesso(scope.activeRole)
+  ) {
+    record = stripPersonCredentials(record);
+  }
+
   if (
     scope &&
     (resource === "athletes" || resource === "simplified_athletes") &&

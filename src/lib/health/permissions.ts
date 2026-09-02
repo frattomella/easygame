@@ -422,3 +422,90 @@ export const stripGuardianAccessTokens = (data: unknown) => {
 
   return toccato ? next : source;
 };
+
+/**
+ * I campi di una **persona del club** che sono credenziali o coordinate bancarie.
+ *
+ * `trainers` e `staff_members` sono risorse aperte alla gestione, e la loro
+ * scheda porta il gettone di accesso in chiaro, il codice fiscale e **l'IBAN**.
+ * La proiezione ridotta esisteva, ma valeva solo quando il ruolo attivo era
+ * `trainer`: collaboratore, segreteria e ogni ruolo personalizzato — che
+ * normalizza sulla propria base — leggevano la riga intera.
+ *
+ * `sport_work` e fra le risorse riservate alla direzione con la motivazione
+ * esplicita «le coordinate bancarie di ogni collaboratore». Le stesse
+ * coordinate, scritte sulla scheda della persona, uscivano dalla porta accanto.
+ */
+export const PERSON_CREDENTIAL_FIELDS: readonly string[] = [
+  "accessTokenValue",
+  "access_token_value",
+  "accessCode",
+  "access_code",
+  "token",
+  "parentAccessTokenValue",
+  "parent_access_token_value",
+  "iban",
+  "IBAN",
+  "bankAccount",
+  "bank_account",
+  "fiscalCode",
+  "fiscal_code",
+  "codiceFiscale",
+] as const;
+
+const PERSON_CREDENTIAL_FIELD_SET = new Set(PERSON_CREDENTIAL_FIELDS);
+
+/**
+ * Toglie credenziali e coordinate bancarie dalla scheda di una persona,
+ * al primo livello e dentro `data`.
+ *
+ * Restituisce lo **stesso** oggetto quando non c'e niente da togliere: e cio
+ * che rende il taglio gratuito sulla maggioranza delle righe.
+ */
+export const stripPersonCredentials = (record: Record<string, any>) => {
+  if (!record || typeof record !== "object") return record;
+
+  let toccato = false;
+  const next: Record<string, any> = {};
+
+  for (const [chiave, valore] of Object.entries(record)) {
+    if (PERSON_CREDENTIAL_FIELD_SET.has(chiave)) {
+      toccato = true;
+      continue;
+    }
+    next[chiave] = valore;
+  }
+
+  /*
+    **I due contenitori annidati, e perche servono entrambi.**
+
+    Una risorsa di club esce con il proprio `payload` spalmato al primo livello
+    **e** conservato sotto la chiave `payload`: togliere solo il primo livello
+    lasciava l'IBAN e il gettone nella copia. Un'anagrafica di modello li porta
+    invece dentro `data`.
+
+    Sono due forme dello stesso contenitore, e un taglio che ne conosce una sola
+    e un taglio che copre meta delle righe.
+  */
+  for (const contenitore of ["data", "payload"]) {
+    const dentro = next[contenitore];
+    if (!dentro || typeof dentro !== "object" || Array.isArray(dentro)) continue;
+
+    const ripulito: Record<string, any> = {};
+    let toccatoDentro = false;
+    for (const [chiave, valore] of Object.entries(dentro)) {
+      if (PERSON_CREDENTIAL_FIELD_SET.has(chiave)) {
+        toccatoDentro = true;
+        continue;
+      }
+      ripulito[chiave] = valore;
+    }
+
+    if (toccatoDentro) {
+      next[contenitore] = ripulito;
+      toccato = true;
+    }
+  }
+
+  return toccato ? next : record;
+};

@@ -98,6 +98,7 @@ let cruscottoFamiglia;
 let contiAtleta;
 let allegati;
 let permessiSanitari;
+let permessiAllegati;
 let ruoliDiClub;
 let registro;
 let moduli;
@@ -1327,6 +1328,149 @@ const u38 = async () => {
     Qui il database e vero e la riga si esercita.
   */
   /* ================================================================== */
+  /*  U-47 — le persone del club: gettone, codice fiscale, IBAN          */
+  /*         [CRITICAL: denaro]                                          */
+  /* ================================================================== */
+
+  /*
+    `trainers` e `staff_members` portano il gettone di accesso in chiaro, il
+    codice fiscale e **l'IBAN**. La proiezione ridotta esisteva, ma valeva solo
+    quando il ruolo attivo era `trainer`: collaboratore, segreteria e ogni ruolo
+    personalizzato leggevano la riga intera.
+
+    `sport_work` e riservata alla direzione con la motivazione esplicita «le
+    coordinate bancarie di ogni collaboratore». Le stesse coordinate uscivano
+    dalla porta accanto.
+  */
+  console.log(
+    `${NL}U-47 — le persone del club: gettone, CF, IBAN   [CRITICAL: denaro]`,
+  );
+
+  /*
+    Si **aggiorna** la scheda che la semina ha gia creato, invece di crearne
+    una: `createResource` su una risorsa di club riscrive l'aggregato
+    `clubs.trainers`, e cosi facendo cancellava il profilo dell'allenatore
+    seminato — che e quello su cui poggiano meta delle prove di questo file.
+
+    E una lezione piccola e vera: una sonda che semina puo rompere le prove che
+    vengono dopo, e il modo di accorgersene e che qualcosa **altrove** diventa
+    rosso.
+  */
+  await prisma.clubResourceItem.create({
+    data: {
+      organization_id: CLUB_A,
+      resource_type: "trainers",
+      name: "Mario Allenatore",
+      payload: {
+        first_name: "Mario",
+        last_name: "Allenatore",
+        email: "mario@example.invalid",
+        iban: "IT60X0542811101000000123456",
+        fiscalCode: "LLNMRA80A01H501U",
+        accessTokenValue: "GETTONE-ALLENATORE-SEGRETO",
+      },
+      updated_at: new Date(),
+    },
+  });
+
+  const personaVistaDa = async (ruolo) => {
+    const scope = ruolo.includes(":")
+      ? scopeDi(utenti.club_manager.id, CLUB_A, ruolo)
+      : scopeRuolo(ruolo);
+    const righe = await risorse.listResource(
+      "trainers",
+      new URLSearchParams({ organization_id: CLUB_A }),
+      scope,
+    );
+    const testo = JSON.stringify(righe);
+    return {
+      righe: righe.length,
+      gettone: testo.includes("GETTONE-ALLENATORE-SEGRETO"),
+      iban: testo.includes("IT60X0542811101000000123456"),
+      cf: testo.includes("LLNMRA80A01H501U"),
+    };
+  };
+
+  for (const ruolo of [
+    "collaborator",
+    "staff",
+    "custom:club_manager:segreteria#members.register.read",
+  ]) {
+    prova(
+      `U-47 ${ruolo.split("#")[0]} non riceve gettone, IBAN e codice fiscale`,
+      { righe: 1, gettone: false, iban: false, cf: false },
+      await personaVistaDa(ruolo),
+    );
+  }
+
+  prova(
+    "U-47 la direzione continua a vederli",
+    { righe: 1, gettone: true, iban: true, cf: true },
+    await personaVistaDa("club_manager"),
+    "senza questo controspecchio una proiezione che azzera tutto passerebbe per una difesa",
+  );
+
+  /* ================================================================== */
+  /*  U-48 — il certificato caricato da un modulo   [CRITICAL: salute]   */
+  /* ================================================================== */
+
+  /*
+    Ogni caricamento da un modulo online viene depositato con la categoria
+    `compilazione-modulo`, qualunque cosa contenga — e il modulo di iscrizione
+    chiede il certificato medico. Il cancello sui byte giudica la **categoria**,
+    quindi su quei file non si accendeva mai.
+
+    Misurato: lo stesso certificato dello stesso minore era negato se depositato
+    dal fascicolo e leggibile se caricato dal modulo di iscrizione, dal ruolo
+    personalizzato a cui il club aveva tolto `clinical.read`.
+  */
+  console.log(
+    `${NL}U-48 — il certificato caricato da un modulo   [CRITICAL: salute]`,
+  );
+
+  const senzaClinico =
+    "custom:club_manager:senza-clinico#documents.review,forms.read";
+
+  prova(
+    "U-48 un allegato di modulo non si legge senza il permesso sul dato clinico",
+    { modulo: false, fascicolo: false },
+    {
+      modulo: permessiAllegati.canAccessAttachmentOwner(
+        senzaClinico,
+        "form",
+        "read",
+        "compilazione-modulo",
+      ),
+      fascicolo: permessiAllegati.canAccessAttachmentOwner(
+        senzaClinico,
+        "athlete",
+        "read",
+        "medical_certificate",
+      ),
+    },
+    "prima le due porte rispondevano diversamente sullo stesso certificato dello stesso minore",
+  );
+
+  prova(
+    "U-48 e chi ha il permesso clinico continua a rivedere i moduli",
+    { modulo: true, fascicolo: true },
+    {
+      modulo: permessiAllegati.canAccessAttachmentOwner(
+        "collaborator",
+        "form",
+        "read",
+        "compilazione-modulo",
+      ),
+      fascicolo: permessiAllegati.canAccessAttachmentOwner(
+        "collaborator",
+        "athlete",
+        "read",
+        "medical_certificate",
+      ),
+    },
+  );
+
+  /* ================================================================== */
   /*  U-46 — il perimetro sul documentale, fino ai byte                  */
   /*         [CRITICAL: minori]                                          */
   /* ================================================================== */
@@ -2073,6 +2217,7 @@ try {
   eventi = await carica("src/lib/server/events.ts");
   documenti = await carica("src/lib/server/document-requests.ts");
   datiPersonali = await carica("src/lib/server/data-subject.ts");
+  permessiAllegati = await carica("src/lib/server/attachment-permissions.ts");
   appuntamenti = await carica("src/lib/server/appointments.ts");
   risorse = await carica("src/lib/server/resources.ts");
   autenticazione = await carica("src/lib/server/auth.ts");
