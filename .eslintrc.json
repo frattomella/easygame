@@ -1,5 +1,7 @@
 {
-  "extends": ["next/core-web-vitals"],
+  "extends": [
+    "next/core-web-vitals"
+  ],
   "rules": {},
   "overrides": [
     {
@@ -9,7 +11,27 @@
         "src/components/**/*.tsx"
       ],
       "rules": {
-        "no-console": ["error", { "allow": ["error", "warn"] }]
+        "no-console": [
+          "error",
+          {
+            "allow": [
+              "error",
+              "warn"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/lib/server/**/*.ts",
+        "src/app/api/**/*.ts"
+      ],
+      "excludedFiles": [
+        "src/lib/server/observability.ts"
+      ],
+      "rules": {
+        "no-console": "error"
       }
     }
   ]

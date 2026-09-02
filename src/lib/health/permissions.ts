@@ -499,10 +499,27 @@ export const restoreGuardianAccessTokens = (
     Chi la credenziale la vede non passa di qui: la revoca resta sua.
   */
 ): unknown => {
+  /*
+    **L'identita di un tutore, e perche non basta l'`id`.**
+
+    La stesura precedente accoppiava **solo** per `id`/`uuid`. Una revisione
+    ha misurato il prezzo: quell'`id` lo assegna il **browser**
+    (`athlete-guardians.ts`), quindi i tutori gia in archivio ne sono privi
+    finche la scheda non viene risalvata una volta — e senza aggancio il
+    gettone non veniva ripristinato. Con la guardia contro la perdita in
+    piedi, la scheda di quei minori era **non salvabile**, per sempre, da
+    segreteria e collaboratori.
+
+    Si aggancia quindi in tre modi, dal piu stabile al piu debole: `id`, poi
+    l'email di contatto, poi la **posizione**. Cio che si perde accettando i
+    due deboli e la resistenza a chi riordina l'elenco apposta — e chi vuole
+    far sparire un gettone puo comunque togliere il tutore, che e un atto
+    legittimo. Cio che si guadagna e che la scheda si salva.
+  */
   const identita = (voce: unknown) => {
     if (!voce || typeof voce !== "object" || Array.isArray(voce)) return null;
     const oggetto = voce as Record<string, unknown>;
-    for (const chiave of ["id", "uuid"]) {
+    for (const chiave of ["id", "uuid", "email"]) {
       const valore = oggetto[chiave];
       if (typeof valore === "string" && valore.trim()) {
         return `${chiave}:${valore.trim().toLowerCase()}`;
@@ -525,13 +542,35 @@ export const restoreGuardianAccessTokens = (
 
       const usate = new Set<string>();
       let cambiato = false;
-      const mappato = nuovo.map((voce) => {
+      const mappato = nuovo.map((voce, indice) => {
         const chiave = identita(voce);
-        if (!chiave || usate.has(chiave) || !perIdentita.has(chiave)) {
-          return voce;
+        const controparte =
+          chiave && !usate.has(chiave) && perIdentita.has(chiave)
+            ? perIdentita.get(chiave)
+            : /*
+                Nessuna identita stabile: si accoppia per **posizione**, e
+                solo quando anche la controparte non ne ha una — cosi un
+                tutore con `id` non riceve mai il gettone di un altro.
+              */
+              !chiave && !identita(vecchio[indice])
+              ? vecchio[indice]
+              : null;
+
+        if (!controparte) {
+          /*
+            Un tutore **nuovo** non ha una controparte, e quindi non ha un
+            valore precedente da conservare. Cio che il client ha scritto sui
+            campi credenziale non vale: si toglie, altrimenti chi non li vede
+            potrebbe **forgiarne** uno — che e il difetto opposto a quello che
+            questa funzione esiste per chiudere, e altrettanto grave.
+          */
+          const ripulita = stripGuardianAccessTokens(voce);
+          if (ripulita !== voce) cambiato = true;
+          return ripulita;
         }
-        usate.add(chiave);
-        const risultato = cammina(perIdentita.get(chiave), voce);
+        if (chiave) usate.add(chiave);
+
+        const risultato = cammina(controparte, voce);
         if (risultato !== voce) cambiato = true;
         return risultato;
       });
@@ -554,17 +593,41 @@ export const restoreGuardianAccessTokens = (
     const risultato: Record<string, unknown> = { ...daNuovo };
     let cambiato = false;
 
+    /*
+      **Per chi non vede una credenziale, quei campi sono in sola lettura.**
+
+      Tre stesure, e vale la pena scriverle tutte perche la terza e la sola
+      che non ha effetti collaterali.
+
+      La prima ripristinava una chiave **assente o vuota**: annullava le
+      revoche. La seconda ripristinava solo l'assente e faceva contare la
+      presente come una perdita da **rifiutare**: bloccava il salvataggio
+      dell'anagrafica sui dati storici, e negava alla segreteria di togliere
+      un tutore. Accettare la presente, invece, lascia **forgiare** un codice
+      di accesso a chi quel codice non l'ha mai visto.
+
+      La terza risposta e piu semplice di tutte e tre: cio che chi scrive non
+      puo vedere, non lo puo nemmeno cambiare. Il valore precedente vince
+      sempre; se non c'e una controparte — un tutore nuovo — la chiave sparisce
+      dall'oggetto, invece di portare cio che il client ha mandato.
+
+      Nessuna di queste righe impedisce di **togliere un tutore**: quello e un
+      atto legittimo, e con lui se ne va il suo codice.
+    */
     for (const campo of GUARDIAN_CREDENTIAL_FIELDS) {
-      if (!Object.prototype.hasOwnProperty.call(daVecchio, campo)) continue;
-      /*
-        Si ripristina una chiave **assente**, e si lascia stare una presente.
-        Chi non vede la credenziale non riceve la chiave — il taglio la
-        toglie — quindi l'assenza e il giro di andata e ritorno. Una chiave
-        presente e una scrittura deliberata su un valore che non si conosce:
-        non la si ripristina, e il chiamante la conta come **perdita**.
-      */
-      if (Object.prototype.hasOwnProperty.call(daNuovo, campo)) continue;
-      risultato[campo] = daVecchio[campo];
+      const nelVecchio = Object.prototype.hasOwnProperty.call(daVecchio, campo);
+      const nelNuovo = Object.prototype.hasOwnProperty.call(daNuovo, campo);
+      if (!nelVecchio && !nelNuovo) continue;
+
+      if (nelVecchio) {
+        if (risultato[campo] === daVecchio[campo]) continue;
+        risultato[campo] = daVecchio[campo];
+        cambiato = true;
+        continue;
+      }
+
+      /* Non c'era: cio che il client manda su questo campo non vale. */
+      delete risultato[campo];
       cambiato = true;
     }
 

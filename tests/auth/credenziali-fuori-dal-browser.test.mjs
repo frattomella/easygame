@@ -380,6 +380,71 @@ test("le chiavi dichiarate esistono ancora", async () => {
   );
 });
 
+test("nessun percorso del browser aliassa un archivio", async () => {
+  /*
+    **Le regole sulle chiavi cercano il nome dell'archivio, e un alias lo
+    nasconde.**
+
+    Una revisione ha scritto `const cache = window.sessionStorage;` e poi
+    `cache.setItem(chiave, JSON.stringify(session))`: nessuna delle tre
+    regole vede una chiave, perche nessuna vede `sessionStorage`. E la stessa
+    mossa, un passo piu in la, delle quattro che l'hanno preceduta.
+
+    Un archivio si usa per nome. Non e una limitazione: e cio che rende
+    leggibile chi scrive dove.
+  */
+  /**
+   * L'unico modulo che puo incapsulare un archivio, con il motivo.
+   *
+   * `draft-storage.ts` lo fa apposta: in navigazione privata
+   * `window.localStorage` puo **lanciare**, e quel modulo deve continuare a
+   * funzionare. Le chiavi che scrive sono dichiarate come tutte le altre.
+   */
+  const PUO_INCAPSULARE = new Map([
+    [
+      "lib/forms/draft-storage.ts",
+      "in navigazione privata l'accesso puo lanciare, e questo modulo non deve",
+    ],
+  ]);
+
+  const file = await sorgenti(SRC);
+  const colpevoli = [];
+
+  for (const percorso of file) {
+    const relativo = path.relative(SRC, percorso).split(path.sep).join("/");
+    if (PUO_INCAPSULARE.has(relativo)) continue;
+    const testo = await readFile(percorso, "utf8");
+
+    /*
+      L'archivio **stesso**, non una lettura da esso:
+      `const x = localStorage.getItem(k)` e una riga normale, `const x =
+      localStorage` no. E la differenza fra usare un archivio e nasconderlo.
+    */
+    const alias =
+      testo.match(
+        /(?:const|let|var)\s+\w+\s*(?::[^=]*)?=\s*(?:window\s*\.\s*)?(?:local|session)Storage\s*(?![.\[\w])/g,
+      ) || [];
+
+    /* e uno passato a una funzione o restituito */
+    const passato =
+      testo.match(
+        /return\s+(?:window\s*\.\s*)?(?:local|session)Storage\s*(?![.\[\w])/g,
+      ) || [];
+
+    for (const trovato of [...alias, ...passato]) {
+      colpevoli.push(`${relativo}: ${trovato.replace(/\s+/g, " ")}`);
+    }
+  }
+
+  assert.deepEqual(
+    colpevoli,
+    [],
+    "un archivio del browser e stato messo in una variabile: le regole sulle " +
+      "chiavi cercano il suo nome, e un alias le rende cieche.\n" +
+      colpevoli.join("\n"),
+  );
+});
+
 test("nessun percorso del browser usa un archivio non dichiarato", async () => {
   /*
     Gli altri archivi che un browser offre: `window.name` sopravvive alla

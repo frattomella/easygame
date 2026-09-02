@@ -155,6 +155,53 @@ export const GUARDIAN_LINK_FIELDS: readonly string[] = [
   "email",
 ] as const;
 
+/**
+ * **Le identita che, scritte su un tutore, aprono il cruscotto della
+ * famiglia.**
+ *
+ * Questa funzione esiste per una ragione sola, e vale la pena scriverla:
+ * `resources.ts` deve impedire che quell'insieme **cresca** da chi non ha
+ * la vista clinica, e per farlo deve calcolarlo **esattamente come lo
+ * calcola chi apre il cruscotto**.
+ *
+ * Le due stesure precedenti hanno condiviso prima niente, poi la **lista dei
+ * campi**. Una revisione ha misurato che condividere la lista non basta: la
+ * guardia contava solo i valori **stringa**, e `firstText` fa `String(v)`,
+ * quindi `email: ["attaccante@…"]` non entrava nell'insieme sorvegliato e
+ * apriva il cruscotto. Le due parti concordavano sui campi e non su cosa sia
+ * un valore.
+ *
+ * Adesso condividono la **funzione**. Non c'e piu una seconda nozione di
+ * identita da tenere allineata, e non ci sono contenitori da enumerare: si
+ * parte dagli stessi `getGuardianRows` che il predicato usa.
+ */
+export const guardianAccessIdentities = (data: unknown): Set<string> => {
+  const identita = new Set<string>();
+
+  for (const guardian of getGuardianRows({ data })) {
+    /*
+      Le stesse due letture di `isGuardianLinkedToUser`, e con lo stesso
+      `firstText`: e li che un array diventa la sua stringa.
+    */
+    const perId = firstText(
+      (guardian as any).linkedUserId,
+      (guardian as any).linked_user_id,
+      (guardian as any).userId,
+      (guardian as any).user_id,
+    );
+    const perEmail = firstText(
+      (guardian as any).linkedUserEmail,
+      (guardian as any).linked_user_email,
+      (guardian as any).email,
+    );
+
+    if (perId) identita.add(perId.trim().toLowerCase());
+    if (perEmail) identita.add(perEmail.trim().toLowerCase());
+  }
+
+  return identita;
+};
+
 const isGuardianLinkedToUser = (
   guardian: Record<string, any>,
   userId: string,

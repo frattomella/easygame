@@ -771,6 +771,7 @@ export const handleGatewayWebhookEvent = async (
   const environment = checkWebhookEnvironment(event.liveMode);
 
   if (!environment.accepted) {
+    /* eslint-disable-next-line no-console -- un evento del PSP di un altro ambiente: si scarta e si dice quale */
     console.warn("[payments/webhook] evento di un altro ambiente", {
       provider: event.provider,
       eventId,

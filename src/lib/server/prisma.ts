@@ -1,4 +1,5 @@
 import { PrismaPg } from "@prisma/adapter-pg";
+import { reportServerError } from "./observability";
 import { Pool } from "pg";
 import { Prisma, PrismaClient } from "@prisma/client";
 
@@ -48,7 +49,9 @@ const createPrismaClient = () => {
   const pool = new Pool({ connectionString: databaseUrl });
 
   pool.on("error", (error) => {
-    console.error("Prisma PostgreSQL pool error:", error);
+    reportServerError(error, {
+      metadata: { esito: "errore del pool PostgreSQL" },
+    });
   });
 
   const adapter = new PrismaPg(pool, { disposeExternalPool: true });

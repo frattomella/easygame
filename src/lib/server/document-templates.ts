@@ -1030,6 +1030,28 @@ export const advanceGeneratedDocument = async (
   ensureOrganizationAccess(scope, row.organization_id);
 
   /*
+    **E il perimetro anche qui.**
+
+    L'elenco e la lettura per identificativo lo verificano; l'avanzamento di
+    stato no — e il commento accanto («chi non puo leggerlo non puo nemmeno
+    toccarlo») era stato applicato alla **sensibilita** e non al perimetro.
+    Misurato: 200 con `{status:"archived"}` su un documento di un minore di
+    un'altra sede, e la risposta ne porta l'etichetta.
+  */
+  if (String(row.subject_kind || "").trim().toLowerCase() === "athlete") {
+    const dentro = await athleteWithinAccessScope(
+      row.organization_id,
+      String(row.subject_id || "").trim(),
+      scope,
+    );
+    if (!dentro) {
+      throw denied(
+        "questo documento riguarda una persona fuori dal perimetro di sede o categoria del ruolo attivo",
+      );
+    }
+  }
+
+  /*
     **Chi non puo leggerlo non puo nemmeno toccarlo.** Prima qui bastava
     appartenere ai ruoli di segreteria: chi non poteva aprire un'attestazione
     con gli importi poteva comunque archiviarla, e la risposta gli restituiva

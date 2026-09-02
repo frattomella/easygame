@@ -1,5 +1,9 @@
 import { prisma } from "./prisma";
-import { athleteWithinAccessScope } from "./access-scope-query";
+import {
+  athleteIdsWithinAccessScope,
+  athleteWithinAccessScope,
+  buildAthleteAccessScopeConditions,
+} from "./access-scope-query";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { isManagementAccessRole, normalizeAccessRole } from "@/lib/access-roles";
@@ -196,6 +200,23 @@ export type ListAppointmentsFilters = {
  * accende su un parametro scelto da chi chiama (e il difetto D-5, che qui non
  * si ripete).
  */
+/**
+ * **Le righe di appuntamento che il perimetro lascia passare.**
+ *
+ * Le sei scritture lo verificano gia. La lettura no, ed era debito
+ * dichiarato — ma un appuntamento porta il nome del minore e un `reason`
+ * libero, che nella pratica dice **perche** ci si vede. Chiuderla costa una
+ * interrogazione a chi ha un perimetro, e nessuna a chi non ce l'ha.
+ */
+const filtroDiPerimetro = async (
+  scope: AppointmentsScope,
+  organizationId: string,
+) => {
+  if (!buildAthleteAccessScopeConditions(scope)) return null;
+  const ammessi = await athleteIdsWithinAccessScope(organizationId, scope);
+  return [{ OR: [{ athlete_id: null }, { athlete_id: { in: ammessi } }] }];
+};
+
 export const listAppointments = async (
   scope: AppointmentsScope,
   filters: ListAppointmentsFilters = {},
@@ -231,6 +252,9 @@ export const listAppointments = async (
     if (filters.to) where.starts_at.lte = new Date(filters.to);
   }
 
+  const perimetro = await filtroDiPerimetro(scope, organizationId);
+  if (perimetro) where.AND = [...(where.AND || []), ...perimetro];
+
   const rows = await prisma.appointment.findMany({
     where,
     orderBy: { starts_at: "asc" },
@@ -262,6 +286,25 @@ export const readAppointment = async (scope: AppointmentsScope, id: string) => {
 
   assertActiveClub(scope, row.organization_id, "l'appuntamento");
   if (!puoLeggereTutto) assertPerimetro(scope, row);
+
+  /*
+    E il perimetro di sede e categoria, come sulle sei scritture: un
+    appuntamento porta il nome del minore e un `reason` libero, che dice
+    perche ci si vede.
+  */
+  const suAtletaLetto = asText((row as any).athlete_id);
+  if (suAtletaLetto) {
+    const dentro = await athleteWithinAccessScope(
+      row.organization_id,
+      suAtletaLetto,
+      scope,
+    );
+    if (!dentro) {
+      throw negato(
+        "questo atleta e fuori dal perimetro di sede o categoria del ruolo attivo",
+      );
+    }
+  }
 
   return row;
 };

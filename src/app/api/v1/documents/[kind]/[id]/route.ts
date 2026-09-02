@@ -274,6 +274,7 @@ export async function GET(request: Request, context: Context) {
       return denied(403, message);
     }
 
+    /* eslint-disable-next-line no-console -- il messaggio gia redatto da publicErrorMessage */
     console.error("[documents]", message);
     return denied(500, "Errore nella generazione del documento");
   }

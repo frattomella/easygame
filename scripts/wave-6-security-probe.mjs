@@ -225,6 +225,11 @@ const preparaTrasporto = async () => {
     risorsa: await carica("src/app/api/v1/[resource]/route.ts"),
     riscatto: await carica("src/app/api/v1/auth/access/redeem/route.ts"),
     avatar: await carica("src/app/api/v1/athletes/[id]/avatar/route.ts"),
+    rata: await carica("src/app/api/athlete-payments/[paymentId]/route.ts"),
+    documentiGenerati: await carica("src/app/api/v1/documents/generated/route.ts"),
+    documentoGenerato: await carica(
+      "src/app/api/v1/documents/generated/[id]/route.ts",
+    ),
     profiloAtleta: await carica(
       "src/app/api/v1/auth/athlete-profile/[athleteId]/route.ts",
     ),
@@ -3595,30 +3600,35 @@ const u57 = async () => {
 
 const u58 = async () => {
   /* ================================================================== */
-  /*  U-58 — il ripristino delle credenziali, e i tre difetti che aveva  */
-  /*         introdotto                    [HIGH: accesso della famiglia]*/
+  /*  U-58 — le credenziali della famiglia: chi le vede, chi le tocca    */
+  /*         [HIGH: accesso della famiglia]                              */
   /* ================================================================== */
 
   /*
-    `restoreGuardianAccessTokens` e nato per chiudere un difetto vero — la
-    scheda riletta senza il gettone e rimandata indietro lo cancellava — e ne
-    ha introdotti tre, che una revisione ostile ha misurato:
+    **Quattro stesure di questa regola, e tre revisioni per arrivarci.**
 
-      * una **revoca** veniva annullata: si revoca scrivendo il valore vuoto,
-        e il ripristino considerava «assente» anche quello. Lo stato diceva
-        `revoked` e il gettone era tornato;
-      * accoppiando gli elementi **per email** e **per posizione**, chi scrive
-        l'anagrafica sceglieva su quale persona atterrasse la credenziale di
-        un'altra: bastava una riga nuova con l'email giusta, o un elenco
-        riordinato;
-      * cambiando la **forma** del contenitore il ripristino non scattava, e il
-        gettone spariva in silenzio — cioe il danno che doveva impedire.
+    Il problema di partenza: `data` si salva **intera**, quindi la scheda
+    riletta senza il gettone — il taglio lo toglie a chi non deve vederlo — e
+    rimandata indietro lo cancellava.
 
-    E la prova che lo copriva era vacua sul punto: verificava la revoca **solo
-    da `owner`**, l'unico ruolo per cui il ripristino non si attiva.
+    Le tre risposte sbagliate, tutte misurate:
+
+      1. ripristinare una chiave assente **o vuota**: annullava le revoche, e
+         accoppiando per posizione ed email spostava il gettone di un tutore
+         su un altro;
+      2. ripristinare solo l'assente, e **rifiutare** la scrittura quando un
+         valore spariva: i tutori gia in archivio non hanno l'`id` — lo
+         assegna il browser — quindi la scheda di quei minori era diventata
+         **non salvabile**, e togliere un tutore era vietato alla segreteria;
+      3. accettare la chiave presente: lasciava **forgiare** un codice di
+         accesso a chi non l'aveva mai visto.
+
+    La risposta buona e la piu semplice: per chi non vede una credenziale,
+    quei campi sono **in sola lettura**. Non li cancella per omissione, non li
+    scrive, e non gli impediscono di fare il proprio lavoro.
   */
   console.log(
-    `${NL}U-58 — il ripristino delle credenziali, e i suoi tre difetti   [HIGH]`,
+    `${NL}U-58 — le credenziali della famiglia: chi le vede, chi le tocca   [HIGH]`,
   );
 
   const scriviTutori = async (tutori) =>
@@ -3642,198 +3652,184 @@ const u58 = async () => {
     { id: "g-padre", firstName: "Bruno", parentAccessTokenValue: "U58-PADRE" },
   ];
 
-  /* --- 1. chi non vede la credenziale non la revoca ne la sostituisce --- */
-  /*
-    **La prima stesura di questa prova pretendeva la cosa sbagliata.**
-
-    Chiedeva che una «revoca esplicita» — il valore vuoto — fosse rispettata
-    anche da un ruolo che il gettone non lo vede. Una revisione ha mostrato
-    che quella non e una revoca: chi non ha mai letto il valore non puo aver
-    deciso di toglierlo, e da quella porta si azzeravano due codici di
-    accesso e se ne sostituiva uno con un valore scelto.
-
-    La regola giusta e piu semplice, e non ha rami: per chi non vede la
-    credenziale, **ogni** sparizione e una perdita. La revoca resta di chi la
-    vede, e il controspecchio in fondo la prova.
-  */
-  await scriviTutori(DUE_TUTORI);
-
+  /* --- 1. chi non vede non scrive: ne il vuoto, ne un valore scelto --- */
   for (const [titolo, valore] of [
     ["U-58 chi non vede la credenziale non la azzera", ""],
-    ["U-58 ne la sostituisce con un valore scelto", "SCELTO-DA-ME"],
+    ["U-58 ne la sostituisce con un valore scelto", "FORGIATO-DA-ME"],
   ]) {
-    await varco(
+    await scriviTutori(DUE_TUTORI);
+
+    await risorse.updateResource(
+      "athletes",
+      ATLETA_A,
+      {
+        data: {
+          guardians: [
+            { id: "g-madre", firstName: "Anna", parentAccessTokenValue: valore },
+            { id: "g-padre", firstName: "Bruno" },
+          ],
+        },
+      },
+      scopeRuolo("collaborator"),
+    );
+
+    const dopo = await leggiArchivio();
+    prova(
       titolo,
-      () =>
-        risorse.updateResource(
-          "athletes",
-          ATLETA_A,
-          {
-            data: {
-              guardians: [
-                {
-                  id: "g-madre",
-                  firstName: "Anna",
-                  parentAccessTokenValue: valore,
-                  parentAccessTokenStatus: "revoked",
-                },
-                { id: "g-padre", firstName: "Bruno" },
-              ],
-            },
-          },
-          scopeRuolo("collaborator"),
-        ),
-      ["negato"],
+      { madre: true, padre: true, forgiato: false },
+      {
+        madre: dopo.includes("U58-MADRE"),
+        padre: dopo.includes("U58-PADRE"),
+        forgiato: dopo.includes("FORGIATO-DA-ME"),
+      },
+      "il valore precedente vince: non e un rifiuto, e una sola lettura",
     );
   }
 
-  prova(
-    "U-58 e i due codici sono ancora quelli veri",
-    { madre: true, padre: true, scelto: false },
-    {
-      madre: (await leggiArchivio()).includes("U58-MADRE"),
-      padre: (await leggiArchivio()).includes("U58-PADRE"),
-      scelto: (await leggiArchivio()).includes("SCELTO-DA-ME"),
-    },
-  );
-
-  /*
-    E il salvataggio ordinario — quello che rimanda indietro cio che ha letto,
-    cioe **senza** la chiave, perche il taglio l'ha tolta — deve passare.
-    Senza questa riga la regola sarebbe «non si salva piu l'anagrafica».
-  */
+  /* --- 2. e non lo eredita nessun altro --- */
+  await scriviTutori(DUE_TUTORI);
   await risorse.updateResource(
     "athletes",
     ATLETA_A,
     {
       data: {
         guardians: [
-          { id: "g-madre", firstName: "Anna", phone: "3330000001" },
-          { id: "g-padre", firstName: "Bruno" },
-        ],
-      },
-    },
-    scopeRuolo("collaborator"),
-  );
-
-  prova(
-    "U-58 e un salvataggio ordinario passa, e conserva i codici",
-    { madre: true, padre: true, telefono: true },
-    {
-      madre: (await leggiArchivio()).includes("U58-MADRE"),
-      padre: (await leggiArchivio()).includes("U58-PADRE"),
-      telefono: (await leggiArchivio()).includes("3330000001"),
-    },
-  );
-  /* --- 2. la credenziale non si sposta su un'altra persona --- */
-  await scriviTutori(DUE_TUTORI);
-
-  await varco(
-    "U-58 una riga nuova con l'email di un altro non ne eredita il gettone",
-    () =>
-      risorse.updateResource(
-        "athletes",
-        ATLETA_A,
-        {
-          data: {
-            guardians: [
-              { id: "g-intruso", firstName: "Mallory", email: "anna@example.invalid" },
-              { id: "g-padre", firstName: "Bruno" },
-            ],
+          {
+            id: "g-intruso",
+            firstName: "Mallory",
+            email: "anna@example.invalid",
+            parentAccessTokenValue: "PROVO-A-PRENDERLO",
           },
-        },
-        scopeRuolo("collaborator"),
-      ),
-    ["negato"],
-    "la madre sparirebbe dall'elenco: e una perdita, e chi non vede il gettone non la puo causare",
-  );
-
-  await scriviTutori(DUE_TUTORI);
-
-  await risorse.updateResource(
-    "athletes",
-    ATLETA_A,
-    {
-      data: {
-        guardians: [
           { id: "g-padre", firstName: "Bruno" },
-          { id: "g-madre", firstName: "Anna" },
         ],
       },
     },
     scopeRuolo("collaborator"),
   );
 
-  const dopoIlRiordino = JSON.parse(await leggiArchivio());
-  /*
-    Si confrontano coppie **ordinate**: `prova` compara le stringhe JSON, e un
-    oggetto che riordina le chiavi darebbe rosso su un comportamento giusto.
-  */
-  const perNome = (dopoIlRiordino.guardians || [])
-    .map((t) => [t.firstName, t.parentAccessTokenValue])
-    .sort((uno, due) => String(uno[0]).localeCompare(String(due[0])));
+  const dopoIntruso = JSON.parse(await leggiArchivio());
+  const gettoneIntruso = (dopoIntruso.guardians || []).find(
+    (t) => t.id === "g-intruso",
+  )?.parentAccessTokenValue;
 
   prova(
-    "U-58 e riordinare l'elenco non incrocia i gettoni di due tutori",
-    [
-      ["Anna", "U58-MADRE"],
-      ["Bruno", "U58-PADRE"],
-    ],
-    perNome,
-    "prima l'accoppiamento era posizionale: Bruno riceveva il gettone di Anna e viceversa",
-  );
-
-  /* --- 3. nessuna perdita silenziosa --- */
-  await scriviTutori(DUE_TUTORI);
-
-  await varco(
-    "U-58 cambiare la forma del contenitore non fa sparire il gettone in silenzio",
-    () =>
-      risorse.updateResource(
-        "athletes",
-        ATLETA_A,
-        { data: { guardians: { 0: { id: "g-madre", firstName: "Anna" } } } },
-        scopeRuolo("collaborator"),
-      ),
-    ["negato"],
-  );
-
-  prova(
-    "U-58 e i due gettoni sono ancora in archivio",
-    { madre: true, padre: true },
+    "U-58 un tutore nuovo non nasce con un codice di accesso",
+    { gettone: undefined, padreConservato: true },
     {
-      madre: (await leggiArchivio()).includes("U58-MADRE"),
-      padre: (await leggiArchivio()).includes("U58-PADRE"),
+      gettone: gettoneIntruso,
+      padreConservato: (await leggiArchivio()).includes("U58-PADRE"),
     },
+    "non c'era una controparte: la chiave sparisce invece di portare cio che il client manda",
   );
 
-  /* --- 4. il controspecchio: chi lo vede lo revoca ancora, e senza attriti --- */
-  await scriviTutori(DUE_TUTORI);
+  /* --- 3. le tre controprove positive, che le stesure 2 e 3 avevano rotto --- */
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: {
+      data: {
+        email: "atleta@example.invalid",
+        guardians: [
+          /* **senza `id`**: e la forma dei dati gia in archivio */
+          { firstName: "Anna", parentAccessTokenValue: "U58-STORICO" },
+        ],
+      },
+    },
+  });
 
+  const salvataggioStorico = await risorse
+    .updateResource(
+      "athletes",
+      ATLETA_A,
+      {
+        data: {
+          email: "atleta@example.invalid",
+          guardians: [{ firstName: "Anna", phone: "3330001111" }],
+        },
+      },
+      scopeRuolo("collaborator"),
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "U-58 la scheda di un tutore SENZA id resta salvabile, e conserva il codice",
+    { esito: "riuscita", codice: true, telefono: true },
+    {
+      esito: salvataggioStorico,
+      codice: (await leggiArchivio()).includes("U58-STORICO"),
+      telefono: (await leggiArchivio()).includes("3330001111"),
+    },
+    "l'`id` lo assegna il browser: senza questo, quelle schede erano bloccate per sempre",
+  );
+
+  const togliereUnTutore = await risorse
+    .updateResource(
+      "athletes",
+      ATLETA_A,
+      { data: { email: "atleta@example.invalid", guardians: [] } },
+      scopeRuolo("collaborator"),
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "U-58 e la segreteria puo togliere un tutore, con il suo codice",
+    { esito: "riuscita", codice: false },
+    {
+      esito: togliereUnTutore,
+      codice: (await leggiArchivio()).includes("U58-STORICO"),
+    },
+    "togliere un tutore e un atto legittimo: vietarlo era la regressione della stesura precedente",
+  );
+
+  const recapitoAtleta = await risorse
+    .updateResource(
+      "athletes",
+      ATLETA_A,
+      { data: { email: "nuovo@example.invalid" } },
+      {
+        ...scopeRuolo("staff"),
+        activeRole: "custom:staff:segreteria-u58#members.register.read",
+      },
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "U-58 e il recapito dell'atleta non e il legame di un tutore",
+    "riuscita",
+    recapitoAtleta,
+    "la copia locale percorreva tutto `data`: la chiave `email` di primo livello e dell'atleta",
+  );
+
+  /* --- 4. il controspecchio: chi lo vede lo revoca --- */
+  await scriviTutori(DUE_TUTORI);
   await risorse.updateResource(
     "athletes",
     ATLETA_A,
     {
       data: {
-        guardians: [{ id: "g-madre", firstName: "Anna" }],
+        guardians: [
+          { id: "g-madre", firstName: "Anna", parentAccessTokenValue: "" },
+          { id: "g-padre", firstName: "Bruno", parentAccessTokenValue: "U58-PADRE" },
+        ],
       },
     },
     scopeRuolo("owner"),
   );
 
   prova(
-    "U-58 la direzione toglie ancora un tutore e la sua credenziale",
-    { madre: false, padre: false },
+    "U-58 la direzione revoca ancora un codice, e non tocca l'altro",
+    { madre: false, padre: true },
     {
       madre: (await leggiArchivio()).includes("U58-MADRE"),
       padre: (await leggiArchivio()).includes("U58-PADRE"),
     },
-    "controspecchio: una regola che vietasse ogni perdita renderebbe un gettone non piu revocabile",
+    "controspecchio: una regola che vietasse ogni scrittura renderebbe un codice non piu revocabile",
   );
 
   await prisma.athlete.update({ where: { id: ATLETA_A }, data: { data: {} } });
 };
-
 const u59 = async () => {
   /* ================================================================== */
   /*  U-59 — l'elenco senza filtro, il cruscotto grezzo, e il tutore     */
@@ -4365,14 +4361,18 @@ const u61 = async () => {
   );
 
   prova(
-    "U-61 un `data` nullo non cancella il clinico ne le credenziali",
-    { allergia: true, gettone: true },
-    {
-      allergia: dopoIlVuoto.includes("ALLERGIA-U61"),
-      gettone: dopoIlVuoto.includes("U61-GETTONE"),
-    },
+    "U-61 un `data` nullo non cancella il contenuto clinico",
+    { allergia: true },
+    { allergia: dopoIlVuoto.includes("ALLERGIA-U61") },
     "le tre guardie erano condizionate a due valori **veri**: un nullo le attraversava tutte",
   );
+
+  /*
+    I tutori invece se ne vanno, ed e coerente: svuotare `data` e togliere i
+    tutori, che e un atto legittimo — lo stesso che la segreteria compie dalla
+    scheda. Cio che non deve succedere e che il **legame** cresca, e lo prova
+    il passo successivo.
+  */
 
   await varco(
     "U-61 e il secondo passo non aggiunge un legame di famiglia",
@@ -4645,6 +4645,467 @@ const u62 = async () => {
   });
 };
 
+const u63 = async () => {
+  /* ================================================================== */
+  /*  U-63 — l'ottava revisione: il ramo che scavalcava, il valore in    */
+  /*         array, e le difese scritte e mai percorse   [CRITICAL]      */
+  /* ================================================================== */
+
+  console.log(
+    `${NL}U-63 — il ramo che scavalcava, il valore in array, e le difese mai percorse   [CRITICAL]`,
+  );
+
+  const perimetrato = {
+    ...scopeDi(utenti.club_manager.id, CLUB_A, "club_manager"),
+    accessScopes: [{ kind: "site", value: SEDE_A }],
+  };
+
+  /* --- 1. il restringimento vale anche per la base `club_manager` --- */
+  const suBaseGestore = "custom:club_manager:controllo#events.read";
+  const suBaseCollaboratore = "custom:collaborator:controllo#events.read";
+
+  prova(
+    "U-63 un ruolo ristretto e ristretto su ogni base, non su tre su quattro",
+    {
+      gestore: false,
+      collaboratore: false,
+      canonico: true,
+      cancellaRata: false,
+    },
+    {
+      gestore: ruoliDiAccesso.canAccessClubResource(
+        suBaseGestore,
+        "payments",
+        "read",
+      ),
+      collaboratore: ruoliDiAccesso.canAccessClubResource(
+        suBaseCollaboratore,
+        "payments",
+        "read",
+      ),
+      canonico: ruoliDiAccesso.canAccessClubResource(
+        "club_manager",
+        "payments",
+        "read",
+      ),
+      /* misurato: rispondeva `true`, cioe piu di una segreteria canonica */
+      cancellaRata: ruoliDiAccesso.canAccessClubResource(
+        suBaseGestore,
+        "payments",
+        "delete",
+      ),
+    },
+    "la regola stava sotto il ramo `owner || club_manager`, che esce `true` per primo",
+  );
+
+  /* --- 2. il legame di famiglia, e il valore in array --- */
+  const senzaAccessi =
+    "custom:staff:segreteria-u63#members.register.read,clinical.read";
+
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: {
+      data: {
+        allergies: "ALLERGIA-U63",
+        guardians: [{ id: "g-madre", firstName: "Anna" }],
+      },
+    },
+  });
+
+  for (const [titolo, valore] of [
+    ["U-63 il legame non si scrive come stringa", utenti.staff.email],
+    ["U-63 ne come array, che il predicato stringifica", [utenti.staff.email]],
+  ]) {
+    await varco(
+      titolo,
+      () =>
+        risorse.updateResource(
+          "athletes",
+          ATLETA_A,
+          {
+            /*
+              **Niente campi clinici nel carico.**
+
+              La prima stesura mandava anche `allergies`, e a fermarla era
+              `assertClinicalWrite` — non la guardia in prova. Il controllo
+              restava verde anche togliendo la guardia: vacuo.
+            */
+            data: {
+              guardians: [
+                { id: "g-madre", firstName: "Anna" },
+                { id: "g-intruso", firstName: "Mallory", email: valore },
+              ],
+            },
+          },
+          { ...scopeRuolo("staff"), activeRole: senzaAccessi },
+        ),
+      ["negato"],
+    );
+  }
+
+  prova(
+    "U-63 e chi ci ha provato non e famiglia di quel minore",
+    false,
+    await cruscottoFamiglia.canParentAccessAthlete(utenti.staff.id, ATLETA_A),
+    "la guardia contava solo le stringhe, `firstText` fa `String(v)`: le due parti non concordavano su cosa sia un valore",
+  );
+
+  /*
+    E il controspecchio: la chiave che governa questo atto e quella degli
+    **accessi**, non quella clinica — un legame apre molto piu del dato
+    sanitario. Chi la porta continua a lavorare.
+  */
+  const conGliAccessi = await risorse
+    .updateResource(
+      "athletes",
+      ATLETA_A,
+      {
+        data: {
+          guardians: [
+            { id: "g-madre", firstName: "Anna" },
+            {
+              id: "g-nuovo",
+              firstName: "Carla",
+              email: "carla-u63@example.invalid",
+            },
+          ],
+        },
+      },
+      scopeRuolo("staff"),
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "U-63 ma la segreteria aggiunge ancora un tutore con la sua email",
+    "riuscita",
+    conGliAccessi,
+    "e la strada con cui una famiglia entra senza riscattare un codice",
+  );
+
+  /* --- 3. i documenti generati: la difesa scritta e mai percorsa --- */
+  /*
+    Il modello si semina qui: senza, il blocco veniva **saltato** e la prova
+    non misurava niente — la forma di vacuita che questa Wave ha imparato a
+    riconoscere.
+  */
+  const modelloDoc = await prisma.documentTemplate.create({
+    data: {
+      organization_id: CLUB_A,
+      title: "Modello U-63",
+      subject_kind: "athlete",
+      status: "published",
+    },
+  });
+
+  if (modelloDoc) {
+    const versione = await prisma.documentTemplateVersion.create({
+      data: {
+        template_id: modelloDoc.id,
+        organization_id: CLUB_A,
+        version: 1,
+        title: "Modello U-63",
+        content_html: "<p>{{athlete.address}}</p>",
+        subject_kind: "athlete",
+      },
+    });
+
+    const generato = await prisma.generatedDocument.create({
+      data: {
+        organization_id: CLUB_A,
+        template_id: modelloDoc.id,
+        version_id: versione.id,
+        subject_kind: "athlete",
+        subject_id: ATLETA_ALTRUI,
+        subject_label: "Minore fuori perimetro",
+        content_html: "<p>Via Riservata 1 — U63</p>",
+        values_snapshot: {},
+        sensitivity: [],
+        status: "issued",
+      },
+    });
+
+    await comeUtente(utenti.club_manager, CLUB_A);
+    const tesseraGestore = await prisma.organizationUser.findFirst({
+      where: {
+        organization_id: CLUB_A,
+        user_id: utenti.club_manager.id,
+        role: "club_manager",
+      },
+      select: { id: true },
+    });
+    await prisma.clubAccessScope.create({
+      data: {
+        organization_user_id: tesseraGestore.id,
+        scope_kind: "site",
+        scope_value: SEDE_A,
+      },
+    });
+
+    const elenco = await rotte.documentiGenerati.GET(
+      richiesta(`/api/v1/documents/generated?organization_id=${CLUB_A}`),
+    );
+    const corpoElenco = JSON.stringify(await elenco.json());
+
+    const perId = await rotte.documentoGenerato.GET(
+      richiesta(`/api/v1/documents/generated/${generato.id}`),
+      { params: { id: generato.id } },
+    );
+
+    await prisma.clubAccessScope.deleteMany({
+      where: { organization_user_id: tesseraGestore.id },
+    });
+    SESSIONE = null;
+    CLUB_ATTIVO = null;
+
+    prova(
+      "U-63 un documento gia generato su un minore fuori perimetro non si legge",
+      { nellElenco: false, perId: true },
+      {
+        nellElenco: corpoElenco.includes("Minore fuori perimetro"),
+        perId: [403, 404].includes(perId.status),
+      },
+      "la guardia leggeva `scope.accessScopes` e le rotte non lo passavano: scritta e mai percorsa",
+    );
+
+    await prisma.generatedDocument
+      .delete({ where: { id: generato.id } })
+      .catch(() => {});
+    await prisma.documentTemplateVersion
+      .deleteMany({ where: { template_id: modelloDoc.id } })
+      .catch(() => {});
+    await prisma.documentTemplate
+      .delete({ where: { id: modelloDoc.id } })
+      .catch(() => {});
+  }
+
+  /* --- 4. le due porte rimaste, e la controprova che non negano troppo --- */
+  const scopeModuliU63 = scopeDi(utenti.owner.id, CLUB_A, "owner");
+  const modelloU63 = await moduli.createFormTemplate(scopeModuliU63, {
+    organizationId: CLUB_A,
+  });
+  await moduli.updateFormTemplateDraft(scopeModuliU63, modelloU63.id, {
+    title: "Modulo U-63",
+    description: "",
+    fields: [
+      { id: "nome", type: "short_text", label: "Nome", binding: "athlete.firstName" },
+    ],
+  });
+  await moduli.publishFormTemplate(scopeModuliU63, modelloU63.id);
+
+  await varco(
+    "U-63 un modulo non si precompila su un minore fuori perimetro",
+    () =>
+      compilazioni.buildCompileContext(
+        { ...scopeRuolo("club_manager"), accessScopes: perimetrato.accessScopes },
+        {
+          templateId: modelloU63.id,
+          subjects: [{ subject: "athlete", recordId: ATLETA_ALTRUI }],
+        },
+      ),
+    ["negato"],
+  );
+
+  const appuntamentoFuori = await appuntamenti.createAppointment(
+    scopeRuolo("club_manager"),
+    {
+      athleteId: ATLETA_ALTRUI,
+      reason: "Colloquio U-63",
+      startsAt: new Date(Date.now() + 345600_000).toISOString(),
+      outsideAvailability: true,
+      confirmed: false,
+    },
+  );
+  const idApp = appuntamentoFuori?.id || appuntamentoFuori?.appointment?.id;
+
+  await varco(
+    "U-63 e un appuntamento fuori perimetro non si legge",
+    () => appuntamenti.readAppointment(perimetrato, idApp),
+    ["negato"],
+    "porta il nome del minore e un `reason` libero, che dice perche ci si vede",
+  );
+
+  const elencoApp = await appuntamenti.listAppointments(perimetrato, {});
+  prova(
+    "U-63 ne compare nell'elenco",
+    false,
+    JSON.stringify(elencoApp).includes("Colloquio U-63"),
+  );
+
+  /* la controprova: dentro il recinto si legge e si scrive come prima */
+  const appuntamentoDentro = await appuntamenti.createAppointment(perimetrato, {
+    athleteId: ATLETA_A,
+    reason: "Colloquio dentro il recinto",
+    startsAt: new Date(Date.now() + 432000_000).toISOString(),
+    outsideAvailability: true,
+    confirmed: false,
+  });
+  const idDentro =
+    appuntamentoDentro?.id || appuntamentoDentro?.appointment?.id;
+
+  const letturaDentro = await appuntamenti
+    .readAppointment(perimetrato, idDentro)
+    .then((riga) => (riga ? "riuscita" : "vuota"))
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "U-63 e dentro il recinto si legge e si scrive come prima",
+    "riuscita",
+    letturaDentro,
+    "controspecchio: un perimetro che nega dentro il proprio recinto e un difetto quanto uno che non nega fuori",
+  );
+
+  /* --- 5. le due colonne della tessera, e la regressione che avevano causato --- */
+  const appartenenza = await prisma.athleteCategoryMembership.findFirst({
+    where: { athlete_id: ATLETA_A },
+    select: { id: true },
+  });
+
+  if (appartenenza) {
+    const categoriaPrimaria = await risorse
+      .updateResource(
+        "athlete_category_memberships",
+        appartenenza.id,
+        { is_primary: true },
+        scopeRuolo("owner"),
+      )
+      .then(() => "riuscita")
+      .catch((errore) => String(errore?.message || errore));
+
+    prova(
+      "U-63 la categoria primaria di un atleta si cambia ancora",
+      "riuscita",
+      categoriaPrimaria,
+      "la guardia sulle tessere aveva perso il filtro di risorsa e negava anche questa, al proprietario compreso",
+    );
+  }
+
+  await prisma.appointment
+    .deleteMany({ where: { athlete_id: { in: [ATLETA_A, ATLETA_ALTRUI] } } })
+    .catch(() => {});
+  await prisma.formTemplateVersion
+    .deleteMany({ where: { template_id: modelloU63.id } })
+    .catch(() => {});
+  await prisma.formTemplate
+    .delete({ where: { id: modelloU63.id } })
+    .catch(() => {});
+  await prisma.athlete.update({ where: { id: ATLETA_A }, data: { data: {} } });
+};
+
+const u64 = async () => {
+  /* ================================================================== */
+  /*  U-64 — le due difese che funzionavano e che niente teneva ferme    */
+  /*         [HIGH]                                                      */
+  /* ================================================================== */
+
+  /*
+    Una revisione ha rimesso la riga sbagliata in due correzioni gia fatte, e
+    **tutti e sei i gate sono rimasti verdi**. Una difesa che funziona e che
+    nessuno tiene ferma e una difesa che dura fino al prossimo refactor.
+  */
+  console.log(
+    `${NL}U-64 — le due difese che niente teneva ferme   [HIGH]`,
+  );
+
+  /* --- 1. la rata: il verbo viene dall'azione, non dal metodo HTTP --- */
+  const rata = await prisma.athletePayment.findFirst({
+    where: { athlete_id: ATLETA_A },
+    select: { id: true, status: true },
+  });
+
+  if (rata) {
+    await comeUtente(utenti.staff, CLUB_A);
+
+    const chiama = (azione) =>
+      rotte.rata.PATCH(
+        richiesta(`/api/athlete-payments/${rata.id}`, {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            "x-active-access-role": "staff",
+          },
+          body: JSON.stringify({ action: azione, amount: 120 }),
+        }),
+        { params: { paymentId: rata.id } },
+      );
+
+    const modifica = await chiama("update");
+    const annullamento = await chiama("cancel");
+    const cancellazione = await chiama("delete");
+
+    SESSIONE = null;
+    CLUB_ATTIVO = null;
+
+    prova(
+      "U-64 la segreteria modifica una rata e non la annulla",
+      /*
+        Si guarda il **verdetto**, non il codice: un 400 di merito — importo
+        fuori forma, rata in uno stato che non lo ammette — e una risposta del
+        dominio, non della guardia. Cio che conta e che la modifica non sia
+        **negata** e che l annullamento lo sia.
+      */
+      { modificaNegata: false, annullamento: 403, cancellazione: 403 },
+      {
+        modificaNegata: modifica.status === 403,
+        annullamento: annullamento.status,
+        cancellazione: cancellazione.status,
+      },
+      "il verbo veniva da `request.method`, e questo file esporta solo PATCH: il ramo `delete` non si interrogava mai",
+    );
+
+    const rataDopo = await prisma.athletePayment.findUnique({
+      where: { id: rata.id },
+      select: { status: true },
+    });
+    prova(
+      "U-64 e la rata non e stata annullata",
+      true,
+      rataDopo?.status !== "cancelled",
+    );
+  }
+
+  /* --- 2. il registro generico: la porta, non solo la mappa --- */
+  const senzaChiavi = "custom:collaborator:vuoto-u64#";
+  const conLaChiave = "custom:collaborator:soci-u64#members.register.read";
+
+  const elencaComeRuolo = (ruolo, risorsa) =>
+    risorse
+      .listResource(
+        risorsa,
+        new URLSearchParams({ organization_id: CLUB_A }),
+        scopeDi(utenti.collaborator.id, CLUB_A, ruolo),
+      )
+      .then(() => "riuscita")
+      .catch((errore) =>
+        String(errore?.message || "").includes("Accesso negato")
+          ? "negato"
+          : `errore: ${errore?.message}`,
+      );
+
+  prova(
+    "U-64 la porta nega, non solo la mappa",
+    { senza: "negato", con: "riuscita" },
+    {
+      senza: await elencaComeRuolo(senzaChiavi, "members"),
+      con: await elencaComeRuolo(conLaChiave, "members"),
+    },
+    "il pin provava `customRoleReachesResource`, che e la funzione pura: togliere il cancello dal predicato lasciava tutto verde",
+  );
+
+  /*
+    E la stessa domanda su una risorsa che una chiave governa e che il registro
+    serve: se qualcuno degradasse la voce della mappa, questa cade.
+  */
+  prova(
+    "U-64 e vale per ogni risorsa governata, non per una sola",
+    { sconti: "negato", certificati: "negato" },
+    {
+      sconti: await elencaComeRuolo(senzaChiavi, "discounts"),
+      certificati: await elencaComeRuolo(senzaChiavi, "medical_certificates"),
+    },
+  );
+};
+
 /* ------------------------------------------------------------- il giro */
 
 try {
@@ -4694,6 +5155,8 @@ try {
   await u60();
   await u61();
   await u62();
+  await u63();
+  await u64();
 
   const falliti = esiti.filter((e) => !e.ok);
   if (deviazioni.length) {

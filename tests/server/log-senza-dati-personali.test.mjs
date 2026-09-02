@@ -36,14 +36,22 @@ const RADICI = ["src/app/api", "src/lib/server"];
  * accorcia. Ognuno appartiene a una lane che non e la 6I, e il rapporto della
  * lane li elenca con file e riga.
  */
-const RESIDUI_DICHIARATI = new Set([
-  "src/app/api/athlete-payments/[paymentId]/route.ts",
-  "src/app/api/v1/accounting/accounts/route-context.ts",
-  "src/app/api/v1/clubs/[id]/signature/route.ts",
-  "src/lib/server/form-submissions.ts",
-  "src/lib/server/prisma.ts",
-  "src/lib/server/sport-work-route.ts",
-]);
+/**
+ * **Il registro dei residui e vuoto, e va detto perche.**
+ *
+ * Tutti e sei sono stati convertiti: passano dal punto unico, che redige.
+ * Resta l elenco — non l insieme dei nomi — perche il controllo che lo legge e
+ * quello che impedisce di **riempirlo di nuovo** senza accorgersene.
+ *
+ * E dalla quarta stesura di questo file la difesa vera non e piu qui: e una
+ * regola di lint (`no-console` sotto `src/lib/server` e `src/app/api`, con
+ * deroga solo a `observability.ts`). Quattro revisioni hanno evaso quattro
+ * stesure di espressioni regolari — un nome di variabile italiano, una
+ * chiamata spezzata su piu righe, una variabile intermedia — e la lezione e
+ * che una proprieta sulla **sintassi** si aggira sempre con altra sintassi.
+ * Il lint non guarda la forma: guarda se la chiamata esiste.
+ */
+const RESIDUI_DICHIARATI = new Set([]);
 
 /** I file che la lane 6I ha corretto: qui la tolleranza e zero. */
 const PERIMETRO_RIPULITO = [

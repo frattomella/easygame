@@ -80,6 +80,8 @@ export async function GET(request: Request) {
         userId: session.db.user_id,
         activeOrganizationId: scope.activeOrganizationId,
         allowedOrganizationIds: scope.allowedOrganizationIds,
+        /* Il perimetro: senza, la guardia sui documenti generati non si accende mai. */
+        accessScopes: scope.accessScopes,
         role: scope.activeRole,
       },
       {
@@ -182,6 +184,17 @@ export async function POST(request: Request) {
       userId: session.db.user_id,
       activeOrganizationId: organizationId,
       allowedOrganizationIds: scope.allowedOrganizationIds,
+      /*
+        **Il perimetro, che qui non arrivava.**
+      
+        La guardia sui documenti generati legge `scope.accessScopes`, e
+        queste rotte costruiscono lo scope a mano: il campo mancava,
+        quindi `buildAthleteAccessScopeConditions` rispondeva «nessun
+        perimetro» e la difesa non veniva **mai** eseguita dal prodotto.
+        Rispondeva solo alle chiamate dirette alla funzione, che e come
+        era stata provata: codice scritto e mai percorso (CLAUDE.md §11.8).
+      */
+      accessScopes: scope.accessScopes,
       role: scope.activeRole,
     };
 

@@ -1162,6 +1162,7 @@ export const sendPaymentReminders = async ({
           status: "failed",
           reason: "delivery_failed",
         });
+        /* eslint-disable-next-line no-console -- l'esito di un invio, senza l'errore */
         console.error("[payment-reminders] invio non riuscito", {
           athleteId: entry.athleteId,
           code: asText(error?.code) || "SMTP_DELIVERY_FAILED",

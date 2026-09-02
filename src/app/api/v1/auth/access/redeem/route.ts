@@ -295,11 +295,26 @@ export async function POST(request: Request) {
       );
     }
 
+    /*
+      **Due club che coniano lo stesso codice si oscuravano a vicenda.**
+
+      La ricerca non aveva ne filtro di organizzazione ne ordinamento, e le
+      righe di un club **cancellato** restano in archivio: una revisione ha
+      misurato un gettone orfano che rispondeva al posto di uno vivo,
+      restituendo 409 su un riscatto legittimo.
+
+      Il club non lo puo dire chi riscatta — non ne fa ancora parte — quindi
+      si tiene il piu **recente** fra quelli di un club che esiste ancora:
+      un codice riemesso vince su uno vecchio, che e cio che chi lo consegna
+      si aspetta.
+    */
     const accessToken = await prisma.clubResourceItem.findFirst({
       where: {
         resource_type: "access_tokens",
         name: token,
+        organization: { is: {} },
       },
+      orderBy: { updated_at: "desc" },
       include: {
         organization: {
           select: {

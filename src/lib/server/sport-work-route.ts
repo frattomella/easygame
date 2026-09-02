@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { reportServerError } from "./observability";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -84,7 +85,9 @@ export const sportWorkFailure = (error: any, fallback: string) => {
   }
 
   if (isInfrastructureError(raw)) {
-    console.error("[sport-work] errore non gestito:", error);
+    reportServerError(error, {
+      metadata: { esito: "[sport-work] errore non gestito" },
+    });
     return NextResponse.json(
       { data: null, error: { message: fallback } },
       { status: 400 },

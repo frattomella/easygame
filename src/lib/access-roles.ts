@@ -839,6 +839,36 @@ export const canAccessClubResource = (
     .trim()
     .toLowerCase();
 
+  /*
+    **Un ruolo ristretto e ristretto per ogni chiamante, e prima di ogni ramo.**
+
+    Due revisioni su questa riga, e vale la pena scrivere entrambe.
+
+    La prima ha misurato che la regola viveva in `resources.ts`, quindi valeva
+    per il registro generico e non per chi chiama **questo** predicato:
+    `funding.ts` e `attachment-permissions.ts` rispondevano al ruolo base, e
+    l'elenco dei beneficiari di un contributo pubblico usciva a chi non aveva
+    la chiave. La regola e stata portata qui.
+
+    La seconda ha misurato che era stata messa **sotto** il ramo
+    `owner || club_manager`, che esce `true` per primo. Quel ramo accoglie
+    anche `custom:club_manager:<slug>` — che e la base con cui i club
+    costruiscono «Segreteria» e «Direttore sportivo» — quindi tre basi su
+    quattro erano ristrette e la quarta no. Misurato: lo stesso ruolo a zero
+    chiavi riceveva 403 dal registro e 200 dai bandi, e
+    `canAccessClubResource(payments, delete)` rispondeva `true` — piu di
+    quanto possa una segreteria **canonica**.
+
+    Sta quindi prima di tutti i rami. Una regola che vale «per ogni
+    chiamante» deve valere anche per ogni ramo, o non vale.
+  */
+  if (
+    isCustomRoleValue(role) &&
+    !customRoleReachesResource(role, normalizedResource)
+  ) {
+    return false;
+  }
+
   if (normalizedRole === "owner" || normalizedRole === "club_manager") {
     /*
       **La direzione personalizzata non e la direzione.**
@@ -863,29 +893,6 @@ export const canAccessClubResource = (
       return false;
     }
     return true;
-  }
-
-  /*
-    **Un ruolo ristretto e ristretto per ogni chiamante, non solo per il
-    registro generico.**
-
-    Questa regola viveva in `resources.ts`, per non creare un ciclo di import
-    fra questo modulo e il catalogo. Una revisione ha misurato il prezzo di
-    quella scelta: `funding.ts` e `attachment-permissions.ts` chiamano
-    **questo** predicato e non il registro, e l'elenco dei beneficiari di un
-    contributo pubblico — quali famiglie lo ricevono e per quanto —
-    rispondeva al ruolo **base**. Lo stesso ruolo di club: 403 dal registro
-    generico, 200 dalle rotte dei bandi.
-
-    Il ciclo non si forma: il catalogo usa questo modulo dentro le funzioni e
-    non a tempo di inizializzazione, e cosi fa questa riga. La regola sta
-    dove sta la domanda, e vale per tutti invece che per uno.
-  */
-  if (
-    isCustomRoleValue(role) &&
-    !customRoleReachesResource(role, normalizedResource)
-  ) {
-    return false;
   }
 
   if (normalizedRole === "collaborator" || normalizedRole === "staff") {

@@ -282,6 +282,7 @@ export const handlePlatformBillingEvent = async (
   const environment = checkWebhookEnvironment(event.liveMode);
 
   if (!environment.accepted) {
+    /* eslint-disable-next-line no-console -- un evento di un altro ambiente: si scarta e si dice quale */
     console.warn("[billing/webhook] evento di un altro ambiente", {
       eventId,
       expected: environment.expected,

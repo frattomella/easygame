@@ -1,4 +1,6 @@
 import { randomUUID } from "crypto";
+import { reportServerError } from "./observability";
+import { athleteWithinAccessScope } from "./access-scope-query";
 import {
   hasHealthPermission,
   stripClinicalAthleteFields,
@@ -610,7 +612,9 @@ const scartaAllegati = async (files: FormSubmissionFile[]) => {
     if (!id) continue;
     await deleteAttachment(id).catch((error) => {
       // Un allegato orfano non deve far fallire un invio che e andato a buon fine.
-      console.error("Allegato del doppio invio non rimosso:", error);
+      reportServerError(error, {
+      metadata: { esito: "allegato del doppio invio non rimosso" },
+    });
     });
   }
 };
@@ -784,7 +788,9 @@ const storeSubmission = async ({
       respondentName: asText(input.respondentName),
     }).catch((error) => {
       // Una notifica che fallisce non deve far perdere la compilazione.
-      console.error("Notifica compilazione non inviata:", error);
+      reportServerError(error, {
+      metadata: { esito: "notifica della compilazione non inviata" },
+    });
     });
   }
 
@@ -2131,6 +2137,34 @@ export const buildCompileContext = async (
             : riga,
         ]),
       );
+
+  /*
+    **E il perimetro di sede e categoria.**
+
+    Il taglio clinico c'e gia — un ruolo senza `clinical.read` non riceve le
+    allergie — ma il perimetro no: un operatore recintato su una sede apriva
+    un modulo sul minore di un'altra e se lo trovava precompilato con nome,
+    codice fiscale e tutori.
+
+    E la stessa «porta di servizio dell'anagrafica» dei segnaposto
+    documentali, che ha gia la sua guardia: qui mancava.
+  */
+  for (const selezione of selections) {
+    if (selezione.subject !== "athlete") continue;
+    const idAtleta = asText(selezione.recordId);
+    if (!idAtleta) continue;
+
+    const dentro = await athleteWithinAccessScope(
+      organizationId,
+      idAtleta,
+      scope,
+    );
+    if (!dentro) {
+      throw new Error(
+        "Accesso negato: questo atleta e fuori dal perimetro di sede o categoria del ruolo attivo",
+      );
+    }
+  }
 
   const answers = buildPrefilledAnswers(
     compilable.schema,

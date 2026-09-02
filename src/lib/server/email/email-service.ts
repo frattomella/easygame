@@ -350,6 +350,7 @@ export const sendNotificationEmails = async (recipientUserIds: string[]) => {
         html: "<p>Hai una nuova notifica.</p><p>Accedi a <strong>EasyGame</strong> per visualizzarla in modo sicuro.</p>",
       });
     } catch (error) {
+      /* eslint-disable-next-line no-console -- il codice di una mancata consegna, non il messaggio */
       console.error("Notification email delivery failed", {
         code:
           error instanceof EmailDeliveryError

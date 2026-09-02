@@ -65,6 +65,8 @@ export async function GET(request: Request, context: Context) {
         userId: session.db.user_id,
         activeOrganizationId: scope.activeOrganizationId,
         allowedOrganizationIds: scope.allowedOrganizationIds,
+        /* Il perimetro: senza, la guardia sui documenti generati non si accende mai. */
+        accessScopes: scope.accessScopes,
         role: scope.activeRole,
       },
       context.params.id,
@@ -118,6 +120,8 @@ export async function PATCH(request: Request, context: Context) {
         userId: session.db.user_id,
         activeOrganizationId: scope.activeOrganizationId,
         allowedOrganizationIds: scope.allowedOrganizationIds,
+        /* Il perimetro: senza, la guardia sui documenti generati non si accende mai. */
+        accessScopes: scope.accessScopes,
         role: scope.activeRole,
       },
       context.params.id,

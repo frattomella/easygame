@@ -194,6 +194,7 @@ const sendPhoneViaTwilioVerify = async (phone: string) => {
   );
 
   if (!response.ok) {
+    /* eslint-disable-next-line no-console -- l'esito di una consegna Twilio: codice del provider, nessun errore */
     console.error("Twilio verification delivery failed", {
       status: response.status,
     });

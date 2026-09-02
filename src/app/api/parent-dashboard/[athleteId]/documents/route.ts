@@ -234,6 +234,7 @@ export async function POST(request: Request, context: Context) {
         Non e un errore da mostrare: e il caso normale prima del travaso. Si
         registra dove chi legge i log lo cerchera, e si prosegue.
       */
+      /* eslint-disable-next-line no-console -- una nota di diagnostica senza dati della persona */
       console.info(
         "[fascicolo] deposito spontaneo: la richiesta e ancora nell'archivio storico",
         { documentId: legacyDocumentReadOnly(deposito.requestId).message },

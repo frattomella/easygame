@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { reportServerError } from "@/lib/server/observability";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -77,7 +78,9 @@ const failure = (error: any, fallback: string) => {
   }
 
   if (isInfrastructureError(raw)) {
-    console.error("[club-signature] errore non gestito:", error);
+    reportServerError(error, {
+      metadata: { esito: "[club-signature] errore non gestito" },
+    });
     return NextResponse.json(
       { data: null, error: { message: fallback } },
       { status: 400 },

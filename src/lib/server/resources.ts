@@ -1,6 +1,9 @@
 import { prisma } from "./prisma";
-import { GUARDIAN_LINK_FIELDS } from "./parent-dashboard";
-import { customRoleReachesResource } from "@/lib/permissions/catalog";
+import { guardianAccessIdentities } from "./parent-dashboard";
+import {
+  customRoleReachesResource,
+  roleHasPermission,
+} from "@/lib/permissions/catalog";
 import {
   assertMembershipWithinAccessScope,
   athleteWithinAccessScope,
@@ -32,7 +35,6 @@ import {
   hasHealthPermission,
   stripClinicalAthleteFields,
   stripClinicalCertificateFields,
-  collectGuardianCredentialValues,
   restoreGuardianAccessTokens,
   stripGuardianAccessTokens,
   stripPersonCredentials,
@@ -2143,8 +2145,22 @@ const assertColonneDiTesseraNonScrivibili = (
   input: Record<string, any>,
   esistente: { user_id?: unknown } | null | undefined,
   scope?: ResourceAccessScope,
+  /**
+   * **La risorsa, che la prima stesura aveva perso.**
+   *
+   * La regola viveva dentro `if (resource === "organization_users")`. Spostarla
+   * «accanto alla guardia che tutte le porte chiamano» ne ha allargato il
+   * raggio: `athlete_category_memberships` ha anch'essa una colonna
+   * `is_primary` e non ha `user_id`, quindi il confronto era sempre vero e la
+   * modifica della categoria primaria di un atleta veniva negata a **tutti**,
+   * proprietario compreso, con un messaggio che parla di tessere di club.
+   *
+   * Nessun gate lo vedeva: e un presidio che non copre la propria regressione.
+   */
+  resource?: string,
 ) => {
   if (!scope) return;
+  if (resource && resource !== "organization_users") return;
 
   if ("custom_role_id" in input) {
     throw new Error(
@@ -2388,6 +2404,7 @@ const syncClubMembers = async (
       },
       null,
       scope,
+      "organization_users",
     );
     await assertConcessioneDiAccessoLecita(
       organization_id,
@@ -2404,11 +2421,20 @@ const syncClubMembers = async (
     });
 
     if (existingAccess) {
+      /*
+        **Omettere non e dichiarare `false`.**
+
+        La guardia sopra nega di cambiare il club d'ingresso di un altro, e
+        scatta su `"is_primary" in input`. Ma questa riga lo riscriveva
+        comunque: chiave assente diventava `false`. Dichiarare l'intenzione
+        era vietato, ometterla la eseguiva — misurato, la scrivania di una
+        persona si spostava lo stesso.
+      */
       await prisma.organizationUser.update({
         where: { id: existingAccess.id },
-        data: {
-          is_primary: Boolean(member?.is_primary ?? member?.isPrimary),
-        },
+        data: dichiaraIlClubDiIngresso
+          ? { is_primary: Boolean(member?.is_primary ?? member?.isPrimary) }
+          : {},
       });
     } else {
       await prisma.organizationUser.create({
@@ -3042,6 +3068,8 @@ const guardaIlConioDiUnGettone = async (
   resource: string,
   data: Record<string, any>,
   scope?: ResourceAccessScope,
+  /** Vero quando la riga esiste gia: e una modifica, non un conio. */
+  esiste = false,
 ) => {
   if (resource !== "access_tokens") return;
 
@@ -3078,6 +3106,18 @@ const guardaIlConioDiUnGettone = async (
       throw errore;
     }
   }
+
+  /*
+    **La firma la mette chi conia, e non si riscrive.**
+
+    Questa riga timbrava a ogni scrittura. Su una **modifica** il payload
+    viene poi fuso con quello esistente, quindi `role` restava quello di
+    prima e la firma diventava quella di chi ha fatto il `PATCH`: il gettone
+    `owner` del proprietario veniva declassato in silenzio, il suo segreto
+    sostituito, e la riga finiva per **affermare il falso** su chi aveva
+    coniato quella concessione — che e l'unica cosa che il riscatto guarda.
+  */
+  if (esiste) return;
 
   payload.minted_by_role = scope.activeRole || null;
   payload.minted_by_user_id = scope.userId || null;
@@ -3791,6 +3831,31 @@ const buildAccessScopeFilter = (
 
   if (resource === "athlete_category_memberships") {
     return buildMembershipAccessScopeConditions(scope);
+  }
+
+  /*
+    **Le righe che appartengono a un atleta seguono l'atleta.**
+
+    Il filtro conosceva tre risorse. Una revisione ha misurato cosa usciva
+    dalle altre: il certificato medico di un minore di un'altra sede — con
+    `data.doctor` e `data.notes` — e le sue rate. Non era «non filtra i
+    nomi»: era il contenuto clinico.
+
+    La condizione si esprime sulla **relazione**: la riga passa se il suo
+    atleta passa. E la stessa forma del filtro sull'anagrafica, chiesta al
+    modulo che possiede il perimetro.
+  */
+  const PER_ATLETA = new Set([
+    "medical_certificates",
+    "simplified_certificates",
+    "payments",
+    "simplified_payments",
+  ]);
+
+  if (PER_ATLETA.has(resource)) {
+    const condizioni = buildAthleteAccessScopeConditions(scope);
+    if (!condizioni) return null;
+    return [{ athlete: { AND: condizioni } }];
   }
 
   return null;
@@ -5564,7 +5629,7 @@ export const createResource = async (
       /api/v1/organization_users` in `upsert` scriveva la tessera senza che
       `assertRecordAccess` la vedesse mai, perche il ramo esce prima.
     */
-    assertColonneDiTesseraNonScrivibili(normalized, null, scope);
+    assertColonneDiTesseraNonScrivibili(normalized, null, scope, "organization_users");
     await assertConcessioneDiAccessoLecita(
       String(normalized.organization_id),
       String(normalized.user_id),
@@ -5613,6 +5678,21 @@ export const createResource = async (
     La riga esistente si legge **prima**, e si giudica con lo stesso metro di
     ogni altra porta.
   */
+  /*
+    **Anche la creazione, e per la stessa ragione dell'upsert.**
+
+    Le guardie di modifica giravano nel ramo `upsert` **solo se la riga
+    esisteva**. Un `create` non le incontrava mai: si nasceva con
+    `athletes.user_id` valorizzato — la colonna che ADR-0104 riserva a
+    `athlete-accounts.ts` — e con un legame di famiglia gia scritto.
+
+    Il lato precedente e vuoto: non c'e niente da conservare, e ogni legame
+    presente e **nuovo**.
+  */
+  if (mode === "create" && RISORSE_CON_SCHEDA_ATLETA.has(resource)) {
+    await applicaGuardieDiModifica(resource, normalized, null, scope);
+  }
+
   if (mode === "upsert") {
     const where = resolveUpsertWhere(resource, normalized);
     if (where) {
@@ -5725,7 +5805,6 @@ export const createResource = async (
               libro restava a citare una persona che l anagrafica non conosceva piu.
             */
             assertNotDomainOwnedResourceItem(field, field);
-        assertNotAdminOnlyFromClubAggregate(field);
             assertNotAdminOnlyFromClubAggregate(field);
             await syncClubResourceItemsFromField(
               record.id,
@@ -5749,7 +5828,7 @@ export const createResource = async (
     controllo, e la sua documentazione diceva che non ne aveva.
   */
   if (resource === "organization_users" && normalized.organization_id && normalized.user_id) {
-    assertColonneDiTesseraNonScrivibili(normalized, null, scope);
+    assertColonneDiTesseraNonScrivibili(normalized, null, scope, "organization_users");
     await assertConcessioneDiAccessoLecita(
       String(normalized.organization_id),
       String(normalized.user_id),
@@ -6214,32 +6293,20 @@ const applicaGuardieDiModifica = async (
       (resource === "athletes" || resource === "simplified_athletes") &&
       "data" in normalized
     ) {
-      const legami = (dato: unknown): Set<string> => {
-        const trovati = new Set<string>();
-        const scendi = (nodo: unknown) => {
-          if (Array.isArray(nodo)) {
-            for (const voce of nodo) scendi(voce);
-            return;
-          }
-          if (!nodo || typeof nodo !== "object") return;
-          for (const [chiave, valore] of Object.entries(
-            nodo as Record<string, unknown>,
-          )) {
-            if (GUARDIAN_LINK_FIELDS.includes(chiave)) {
-              const testo =
-                typeof valore === "string" ? valore.trim().toLowerCase() : "";
-              if (testo) trovati.add(testo);
-              continue;
-            }
-            scendi(valore);
-          }
-        };
-        scendi(dato);
-        return trovati;
-      };
+      /*
+        **Non una seconda funzione: la stessa.**
 
-      const prima = legami(existing?.data ?? {});
-      const dopo = legami(normalized.data ?? {});
+        La copia locale percorreva tutto `data` e contava solo le stringhe.
+        Due difetti misurati da questo: un valore in **array** le passava
+        davanti (`String(["a@b.c"]) === "a@b.c"`), e la chiave `email` di
+        **primo livello** — il recapito dell'atleta, non di un tutore —
+        veniva sorvegliata, negando alla segreteria di correggerlo.
+
+        Entrambi spariscono chiedendo l'insieme a chi lo usa per decidere.
+      */
+      const prima = guardianAccessIdentities(existing?.data ?? {});
+
+      const dopo = guardianAccessIdentities(normalized.data ?? {});
       const nuovi = [...dopo].filter((id) => !prima.has(id));
 
       /*
@@ -6262,9 +6329,25 @@ const applicaGuardieDiModifica = async (
         club ha tolto `clinical.read` — che e esattamente cio che il club
         intendeva togliendola.
       */
+      /*
+        **La chiave giusta e quella che governa gli accessi, non quella
+        clinica.**
+
+        La stesura precedente chiedeva `clinical.read` perche il cruscotto
+        della famiglia mostra il dato sanitario. Ma un legame concede molto
+        di piu — documenti condivisi, RSVP, prenotazione di appuntamenti,
+        checkout dei pagamenti — e chi ha la sola vista clinica se lo
+        scriveva addosso su **qualunque** minore, misurato con un
+        `collaborator` canonico.
+
+        `accounts.athlete.manage` e la chiave che questa stessa funzione cita
+        quando registra il diniego, ed e quella dell'accesso di una persona a
+        EasyGame. Appartiene alla gestione, quindi segreteria e collaboratore
+        continuano a lavorare; la perde il ruolo a cui il club l'ha tolta.
+      */
       if (
         nuovi.length &&
-        !hasHealthPermission(scope.activeRole, "clinical.read")
+        !roleHasPermission(scope.activeRole, "accounts.athlete.manage")
       ) {
         await recordPermissionDenied({
           scope: {
@@ -6281,7 +6364,7 @@ const applicaGuardieDiModifica = async (
           },
         });
         throw new Error(
-          "Accesso negato: scrivere il legame di un tutore concede la vista sul dato clinico del minore, e il ruolo attivo non ce l'ha",
+          "Accesso negato: il legame fra un tutore e un'utenza apre a quella persona l'area famiglia del minore, e il ruolo attivo non amministra gli accessi",
         );
       }
     }
@@ -6338,7 +6421,7 @@ const applicaGuardieDiModifica = async (
       alla guardia che tutte e tre le porte chiamano, perche una revisione ha
       misurato che scritta qui ne copriva una sola.
     */
-    assertColonneDiTesseraNonScrivibili(normalized, existing, scope);
+    assertColonneDiTesseraNonScrivibili(normalized, existing, scope, resource);
 
     if (
       scope &&
@@ -6493,22 +6576,6 @@ const applicaGuardieDiModifica = async (
       */
       if (!vedeICredenzialiDiAccesso(scope?.activeRole)) {
         /*
-          **Il `Set` delle revoche era vuoto di senso, e apriva la porta.**
-
-          Serviva a distinguere una revoca deliberata da una perdita. Ma questo
-          ramo gira **solo per chi la credenziale non la vede**: chi arriva qui
-          non puo aver deciso di revocare niente, perche non ha mai letto il
-          valore. Raccogliere «ogni valore diverso da quello di prima» come
-          revoca voleva dire lasciar passare qualunque scrittura sul campo.
-
-          Misurato: due codici di accesso di famiglia azzerati, e uno sostituito
-          con un valore scelto dall attaccante, senza errore e senza traccia.
-
-          Il `Set` resta vuoto: per chi non vede, **ogni** sparizione e una
-          perdita. Chi vede la credenziale non passa di qui — la revoca e la
-          modifica restano sue.
-        */
-        /*
           Il **secondo** argomento e `normalized.data`, non `nuovo`: la fusione
           che conserva il clinico e gia avvenuta, e ripartire da `nuovo` la
           butterebbe via. E il genere di errore che si vede solo a runtime, e la
@@ -6520,31 +6587,28 @@ const applicaGuardieDiModifica = async (
         );
 
         /*
-          **E cio che il ripristino non ha saputo riagganciare non si perde in
-          silenzio.**
+          **Qui c'era una guardia contro la sparizione di una credenziale, e
+          non e difendibile.**
 
-          Il ripristino accoppia i tutori per identita stabile — `id` o `uuid`.
-          Una scrittura che riordina un elenco senza id, o che ne cambia la
-          forma, gli passa accanto: il gettone sparirebbe senza un errore, che
-          e esattamente il danno che questa regola esiste per impedire, ed e
-          stato misurato da una revisione.
+          Pretendeva che chi non vede un gettone non potesse farlo sparire, e
+          confrontava gli insiemi di valori prima e dopo. Tre revisioni l'hanno
+          smontata da tre lati diversi:
 
-          Si confrontano gli **insiemi di valori**, che e una proprieta e non
-          dipende da come il contenitore e fatto: se chi non puo vedere una
-          credenziale ne fa sparire una, la scrittura fallisce e dice perche.
-          Chi la vede continua a revocarla: quel ramo non passa di qui.
+            * **non protegge**. Togliere un tutore fa sparire il suo gettone
+              ed e un atto legittimo che la segreteria compie ogni giorno:
+              chi vuole distruggere una credenziale toglie il tutore, e la
+              guardia non ha niente da dire;
+            * **blocca il lavoro vero**. I tutori gia in archivio non hanno
+              l'`id` — lo assegna il browser — quindi ogni salvataggio della
+              loro scheda perdeva l'aggancio e veniva **rifiutato**. Quelle
+              schede erano diventate non modificabili;
+            * **nega a chi deve**. «Scollega account» e un pulsante che
+              l'interfaccia mostra alla segreteria, che poi riceveva un 403.
+
+          Resta il **ripristino**, che e la difesa vera e non ha questi
+          effetti: cio che non e stato ricevuto torna com'era, e cio che si
+          toglie deliberatamente si toglie.
         */
-        const prima = collectGuardianCredentialValues(precedente);
-        const dopo = collectGuardianCredentialValues(normalized.data);
-        const perse = [...prima].filter(
-          (valore) => !dopo.has(valore),
-        );
-
-        if (perse.length) {
-          throw new Error(
-            "Accesso negato: questo salvataggio farebbe sparire il codice di accesso di una famiglia, e il ruolo attivo non puo vederlo. Si revoca dalla scheda di chi lo possiede",
-          );
-        }
       }
     }
 };
@@ -6575,7 +6639,7 @@ export const updateResource = async (
       ...input,
       id: existing.id,
     });
-    await guardaIlConioDiUnGettone(resource, normalized, scope);
+    await guardaIlConioDiUnGettone(resource, normalized, scope, true);
     const inputLogicalId =
       !isUuid(input?.id) && typeof input?.id === "string" && input.id.trim()
         ? input.id.trim()

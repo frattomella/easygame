@@ -96,6 +96,7 @@ export async function POST(request: Request) {
         { status: 503 },
       );
     }
+    /* eslint-disable-next-line no-console -- un codice di esito, nessun errore */
     console.error("Email verification resend error", {
       code: "EMAIL_VERIFICATION_RESEND_FAILED",
     });

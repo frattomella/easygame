@@ -298,6 +298,7 @@ export async function POST(request: Request) {
       return jsonError(message, 403);
     }
 
+    /* eslint-disable-next-line no-console -- il messaggio gia redatto da publicErrorMessage */
     console.error("[payments/create-checkout-session]", message);
     return jsonError("Errore nell'apertura del pagamento online", 500);
   }

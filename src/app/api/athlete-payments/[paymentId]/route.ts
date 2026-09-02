@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { reportServerError } from "@/lib/server/observability";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import {
   requireAuthenticatedUser,
@@ -321,7 +322,10 @@ export async function PATCH(request: Request, context: Context) {
       modello, operazione, codice Postgres. Il dettaglio resta nei log del
       server, dove serve.
     */
-    console.error("PATCH /api/athlete-payments/[paymentId]", error);
+    reportServerError(error, {
+      route: "/api/athlete-payments/[paymentId]",
+      method: "PATCH",
+    });
     return jsonError(
       publicErrorMessage(error, "Errore aggiornamento pagamento"),
       500,

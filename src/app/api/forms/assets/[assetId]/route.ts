@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildAthleteAccessScopeConditions } from "@/lib/server/access-scope-query";
 import { hasHealthPermission } from "@/lib/health/permissions";
 import { canAccessClubResource } from "@/lib/access-roles";
 import {
@@ -64,6 +65,26 @@ export async function GET(request: Request, context: Context) {
 
       La regola e la stessa, e sta nel modulo che la possiede: si chiede a lui.
     */
+    /*
+      **E il perimetro, che a questa rotta non arriva.**
+
+      L'asset storico porta solo l'organizzazione: non dice a quale persona
+      appartiene, e risalire alla compilazione che lo cita costerebbe una
+      scansione di tutti i moduli del club. Non e una scelta fra due
+      difese: e che questa rotta non ha modo di sapere di chi sia il file.
+
+      Chi ha un perimetro dichiarato non passa quindi affatto: e il verso
+      giusto in cui sbagliare su un archivio storico che il prodotto non
+      scrive piu, e chi ha bisogno di quel file lo raggiunge da Attachment
+      Core, che il proprietario lo conosce.
+    */
+    if (buildAthleteAccessScopeConditions(scope)) {
+      return jsonError(
+        "Accesso negato: questo archivio storico non dice a chi appartiene un file, e il ruolo attivo ha un perimetro di sede o categoria",
+        403,
+      );
+    }
+
     if (!hasHealthPermission(scope.activeRole, "clinical.read")) {
       return jsonError(
         "Accesso negato: il contenuto di un allegato di modulo lo vede chi ha il permesso sul dato clinico",

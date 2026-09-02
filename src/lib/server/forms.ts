@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "crypto";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { canAccessClubResource } from "@/lib/access-roles";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
@@ -77,6 +78,14 @@ export type FormsAccessScope = {
    * gia lo scope della sessione, che lo contiene.
    */
   activeRole?: string | null;
+  /**
+   * Il perimetro di sede e categoria.
+   *
+   * Serve alla **compilazione**: un modulo precompilato e la porta di servizio
+   * dell anagrafica, come i segnaposto documentali. Le rotte passano gia lo
+   * scope della sessione, che lo contiene.
+   */
+  accessScopes?: readonly AccessScopeEntry[] | null;
 };
 
 const denied = (message: string) => new Error(`Accesso negato: ${message}`);

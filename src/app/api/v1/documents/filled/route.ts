@@ -194,6 +194,7 @@ export async function GET(request: Request) {
       malformato racconterebbero lo schema a chi non deve conoscerlo. Resta nel
       log del server, dove serve.
     */
+    /* eslint-disable-next-line no-console -- il messaggio gia redatto da publicErrorMessage */
     console.error("[documents.filled]", message);
     return denied(500, "Errore nella generazione del documento");
   }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { reportServerError } from "@/lib/server/observability";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -78,7 +79,9 @@ export const accountingFailure = (error: any, fallback: string) => {
   }
 
   if (isInfrastructureError(raw)) {
-    console.error("[accounting/accounts] errore non gestito:", error);
+    reportServerError(error, {
+      metadata: { esito: "[accounting/accounts] errore non gestito" },
+    });
     return NextResponse.json(
       { data: null, error: { message: fallback } },
       { status: 400 },

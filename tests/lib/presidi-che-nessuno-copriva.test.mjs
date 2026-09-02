@@ -195,11 +195,28 @@ test("nessuna guardia asincrona viene invocata senza `await`", () => {
       locali.add(trovato[1]);
     }
 
-    /* i nomi importati, che valgono se qualcuno li dichiara asincroni */
+    /*
+      **Il binding locale, non il nome originale.**
+
+      La stesura precedente registrava `pezzo.split(/as/)[0]`, cioe il nome
+      **esportato**. Una revisione ha scritto
+      `import { assertPersonalDataDisposed as assertSmaltimento }` e ha tolto
+      l'`await`: la chiamata `assertSmaltimento(…)` non apparteneva a nessun
+      insieme, e sei gate sono rimasti verdi.
+
+      Cio che compare nelle chiamate e il nome **locale**: e quello che va
+      registrato, e il nome esportato serve solo a sapere se e asincrono.
+    */
     for (const blocco of testo.matchAll(/import\s*\{([^}]*)\}\s*from/g)) {
       for (const pezzo of blocco[1].split(",")) {
-        const nome = pezzo.replace(/\btype\b/, "").trim().split(/\s+as\s+/)[0].trim();
-        if (nome && dichiarateAsincrone.has(nome)) locali.add(nome);
+        const pulito = pezzo.replace(/\btype\b/, "").trim();
+        if (!pulito) continue;
+
+        const [originale, locale] = pulito.split(/\s+as\s+/).map((v) => v.trim());
+        const nomeLocale = locale || originale;
+        if (originale && dichiarateAsincrone.has(originale)) {
+          locali.add(nomeLocale);
+        }
       }
     }
 

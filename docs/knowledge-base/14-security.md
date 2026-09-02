@@ -2204,3 +2204,91 @@ misurare una proprieta**.
 E la proiezione sul profilo atleta — la riga che tiene i codici d'accesso delle
 famiglie fuori da una risposta — non era esercitata da nessun gate: toglierla
 dava sei verdi. Adesso c'e `U-62`.
+
+## Wave 6 — closeout: l'ottava revisione, e la lezione sul correggere (2026-09-02)
+
+Tre revisori: ruoli e conio, perimetro e famiglia, vacuita dei presidi e
+regressioni. Il conto: **3 Critical, 11 High**. E il dato che conta piu dei
+numeri: **la maggioranza dei difetti piu gravi era stata introdotta dalle
+correzioni della settima revisione**, come nella settima lo era stata da quelle
+della sesta.
+
+Tre round di fila con lo stesso schema hanno reso visibile la causa, che non e
+nel codice: e nel modo di correggere. Una guardia si scriveva, si provava che
+**nega**, e si dava per fatta — senza provare che **lascia passare** il lavoro
+di tutti i giorni, e senza percorrere la strada che il prodotto percorre. Da
+questa tornata ogni correzione porta la sua controprova positiva **nella stessa
+prova**, e si misura dalla rotta e non dalla funzione.
+
+### I tre Critical
+
+| Cosa passava | Perche |
+|---|---|
+| Un ruolo di club a **una chiave** leggeva i beneficiari dei contributi pubblici, i byte del fascicolo di un minore, e **annullava una rata** — piu di quanto possa una segreteria canonica | Il restringimento era stato messo **sotto** il ramo `owner \|\| club_manager`, che esce `true` per primo. Tre basi su quattro erano ristrette e la quarta — quella con cui i club costruiscono «Segreteria» — no |
+| Il legame di famiglia si scriveva con un valore in **array**: `email: ["attaccante@…"]`. Da li allergie, farmaci ed esito di una visita cardiologica a chi il club aveva tolto `clinical.read` | Guardia e predicato condividevano la **lista dei campi** e non la nozione di valore: la guardia contava solo le stringhe, `firstText` fa `String(v)` |
+| I documenti gia generati si leggevano **e si modificavano** fuori perimetro | Le quattro rotte costruiscono lo scope a mano e non ci mettevano `accessScopes`: la guardia non veniva **mai** eseguita dal prodotto. Rispondeva solo alle chiamate dirette alla funzione, che e come era stata provata |
+
+Il secondo si e chiuso esportando la **funzione** invece della lista:
+`guardianAccessIdentities` parte dagli stessi `getGuardianRows` del predicato,
+e non c'e piu una seconda nozione di identita da tenere allineata.
+
+### Le regressioni, e una regola che e stata tolta
+
+Tre difetti erano **negazioni di troppo**, e uno bloccava il lavoro:
+
+- un tutore **senza `id`** rendeva l'anagrafica non salvabile — e quell'`id` lo
+  assegna il browser, quindi i dati gia in archivio ne sono privi: le schede di
+  quei minori erano bloccate per sempre per segreteria e collaboratori;
+- **togliere un tutore** o revocarne il codice era vietato a chiunque non fosse
+  direzione canonica, mentre l'interfaccia offre il pulsante «Scollega account»;
+- correggere il **recapito dell'atleta** veniva negato con un messaggio sui
+  tutori, perche la guardia percorreva tutto `data` e la chiave `email` valeva
+  ovunque.
+
+La conclusione e stata che **la guardia contro la «perdita» di una credenziale
+non e difendibile**, e non c'e piu: togliere un tutore fa sparire il suo codice
+ed e un atto legittimo, quindi chi vuole distruggerlo lo fa comunque — la regola
+non proteggeva da lui e bloccava la segreteria.
+
+Al suo posto una regola piu semplice e senza effetti collaterali: **per chi non
+vede una credenziale, quei campi sono in sola lettura**. Il valore precedente
+vince sempre; un tutore nuovo nasce senza; e chi la vede continua a revocarla.
+E l'aggancio ora funziona anche sui dati storici — `id`, poi email, poi
+posizione — perche una regola che non si aggancia e una regola che rifiuta.
+
+### Le altre porte
+
+`is_primary` scritto anche quando **omesso** (dichiarare l'intenzione era
+vietato, ometterla la eseguiva); la stessa guardia che, spostata «accanto a
+quella che tutti chiamano», aveva perso il filtro di risorsa e negava la
+categoria primaria di un atleta **al proprietario**; `custom_role_id` accettato
+in creazione; un `PATCH` su un gettone che ne riscriveva il segreto e
+**sovrascriveva la firma** del coniatore; la compilazione di un modulo, la
+lettura di un appuntamento e l'archivio storico degli allegati senza perimetro;
+e un gettone che sopravviveva al club cancellato oscurandone uno vivo.
+
+### I presidi, e il cambio di strumento
+
+Quattro stesure del presidio sui log, quattro evasioni: un nome di variabile
+italiano, una chiamata spezzata su piu righe, una variabile intermedia. La
+lezione e che **una proprieta sulla sintassi si aggira sempre con altra
+sintassi**, e che il presidio giusto non era un'espressione regolare.
+
+Adesso e una **regola di lint**: `no-console` sotto `src/lib/server` e
+`src/app/api`, con deroga al solo `observability.ts` e una riga di motivo su
+ognuna delle dieci chiamate che restano — tutte senza errore dentro. I sette che
+passavano l'errore intero sono stati convertiti, e il registro dei residui e
+**vuoto**.
+
+Gli altri quattro presidi sono stati stretti dove l'evasione era strutturale: la
+regola sugli `await` registrava il nome **esportato** invece del binding locale,
+quindi un `import { x as y }` la rendeva cieca; le regole sugli archivi del
+browser cercavano il nome dell'archivio, e `const cache = window.sessionStorage`
+lo nascondeva. E due difese che funzionavano — il verbo della rata e il cancello
+del registro generico — non erano tenute ferme da niente: adesso hanno la loro
+prova (`U-64`).
+
+Resta dichiarato un limite: il cancello sui byte del certificato vincola cio che
+sta **prima** del primo controllo, e una terza uscita inserita dopo, su un ramo
+che il secondo non attraversa, gli passerebbe accanto. E l'unica delle cinque
+per cui non ho trovato una forma che non sia di nuovo un'enumerazione.
