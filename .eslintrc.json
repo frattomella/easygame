@@ -31,7 +31,26 @@
         "src/lib/server/observability.ts"
       ],
       "rules": {
-        "no-console": "error"
+        "no-console": "error",
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "MemberExpression[object.name='globalThis'][property.name='console']",
+            "message": "Un errore del server passa da reportServerError in src/lib/server/observability.ts. `globalThis.console` aggira `no-console` senza cambiare cosa finisce nei log."
+          },
+          {
+            "selector": "MemberExpression[object.name='global'][property.name='console']",
+            "message": "Un errore del server passa da reportServerError in src/lib/server/observability.ts. `global.console` aggira `no-console` senza cambiare cosa finisce nei log."
+          },
+          {
+            "selector": "MemberExpression[object.object.name='process'][object.property.name=/^(stdout|stderr)$/][property.name='write']",
+            "message": "Un errore del server passa da reportServerError in src/lib/server/observability.ts. Scrivere su process.stdout/stderr scrive nello stesso posto di console, senza la riduzione a nome, prima riga e codice."
+          },
+          {
+            "selector": "VariableDeclarator[init.name='console']",
+            "message": "Un errore del server passa da reportServerError in src/lib/server/observability.ts. Un alias di `console` aggira `no-console` senza cambiare cosa finisce nei log."
+          }
+        ]
       }
     }
   ]

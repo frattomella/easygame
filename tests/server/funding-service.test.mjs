@@ -92,6 +92,10 @@ const presenza = (trainingId, organizationId, athleteId = ATLETA_A) => ({
 /** Settembre: 8 ore (soglia raggiunta). Ottobre: 4 ore (sotto soglia). */
 const seed = () => ({
   fundingProgram: [programma(PROG_A, CLUB_A), programma(PROG_B, CLUB_B)],
+  /* Il beneficiario deve esistere nel club del bando. */
+  athlete: [
+    { id: ATLETA_A, organization_id: CLUB_A, first_name: "Atleta", last_name: "Sonda" },
+  ],
   fundingEnrollment: [],
   fundingAccrual: [],
   fundingSettlement: [],

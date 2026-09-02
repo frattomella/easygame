@@ -27,6 +27,7 @@ import { createFakePrisma } from "../helpers/fake-prisma.mjs";
 const CLUB = "aaaaaaaa-0000-4000-8000-000000000001";
 const ALTRO_CLUB = "bbbbbbbb-0000-4000-8000-000000000002";
 const PROGRAMMA = "pppppppp-0000-4000-8000-00000000p001";
+const ISCRIZIONE = "dddddddd-0000-4000-8000-00000000d001";
 const ACCRUAL_1 = "eeeeeeee-0000-4000-8000-00000000e001";
 const ACCRUAL_2 = "eeeeeeee-0000-4000-8000-00000000e002";
 const LIQ = "ssssssss-0000-4000-8000-00000000s001";
@@ -49,10 +50,15 @@ const seed = () => ({
   fundingProgram: [
     { id: PROGRAMMA, organization_id: CLUB, name: "Voucher Sport 2026", status: "active" },
   ],
+  /* Il maturato appartiene al bando attraverso la sua iscrizione. */
+  fundingEnrollment: [
+    { id: ISCRIZIONE, organization_id: CLUB, program_id: PROGRAMMA },
+  ],
   fundingAccrual: [
     {
       id: ACCRUAL_1,
       organization_id: CLUB,
+      enrollment_id: ISCRIZIONE,
       program_id: PROGRAMMA,
       accrued_amount: 500,
       status: "settled",
@@ -60,6 +66,7 @@ const seed = () => ({
     {
       id: ACCRUAL_2,
       organization_id: CLUB,
+      enrollment_id: ISCRIZIONE,
       program_id: PROGRAMMA,
       accrued_amount: 300,
       status: "settled",
@@ -304,6 +311,7 @@ test("una liquidazione nuova dichiara su quale conto e arrivato il bonifico", as
   fake.rows("fundingAccrual").push({
     id: "eeeeeeee-0000-4000-8000-00000000e003",
     organization_id: CLUB,
+    enrollment_id: ISCRIZIONE,
     program_id: PROGRAMMA,
     accrued_amount: 500,
     status: "reported",

@@ -343,6 +343,40 @@ export const createFundingEnrollment = async (
     throw new Error("Indica l'atleta beneficiario");
   }
 
+  /*
+    **Il beneficiario deve essere del club del programma.**
+
+    L'identificativo dell'atleta arrivava dal corpo della richiesta e non
+    veniva confrontato con niente: il programma si risolve nello scope, la
+    riga nasce con l'organizzazione del programma, e sembrava chiuso. Non lo
+    era — quello che entra nel confine non e la riga, e **l'atleta**.
+
+    Il calcolo del maturato legge le presenze e gli allenamenti del
+    beneficiario (`loadAttendanceInputs`): un atleta di un altro club
+    iscritto qui avrebbe fatto entrare la sua frequenza in un rendiconto che
+    non lo riguarda, e la frequenza di un minore dice dove si trova due volte
+    a settimana.
+
+    Ed e un dato che poi **esce**: la rendicontazione all'ente porta nome e
+    ore del beneficiario.
+  */
+  const beneficiario = await (prisma as any).athlete.findUnique({
+    where: { id: athleteId },
+    select: { organization_id: true },
+  });
+
+  if (
+    !beneficiario ||
+    asText(beneficiario.organization_id) !== asText(program.organization_id)
+  ) {
+    /*
+      «Non trovato» e non «negato»: confermare che quell'identificativo
+      esiste in un altro club e gia un'informazione, ed e la stessa scelta
+      presa su ogni altra lettura per identificativo.
+    */
+    throw new Error("Atleta non trovato");
+  }
+
   if (program.status === "closed") {
     throw new Error("Il programma e chiuso: non ammette nuovi beneficiari");
   }
@@ -1131,12 +1165,59 @@ export const createFundingSettlement = async (
   }));
 
   const accrualIds = lines.map((line) => line.accrualId).filter(Boolean);
+  /*
+    Il maturato **non porta il bando**: lo porta la sua iscrizione. Cercare
+    un `program_id` sulla riga darebbe sempre indefinito e rifiuterebbe ogni
+    liquidazione — un rifiuto che nessuna prova di diniego noterebbe, perche
+    negare e cio che si attende.
+
+    Si risolve con una **seconda interrogazione** e non con un `include`:
+    una relazione montata dall'ORM e cio che il doppio di questo archivio
+    nei test unitari non sa fare, e una guardia che dipende da una capacita
+    dell'ORM diventa un rifiuto totale la` dove quella capacita manca.
+  */
   const accrualRows = accrualIds.length
     ? await accrualClient().findMany({ where: { id: { in: accrualIds } } })
     : [];
 
+  const enrollmentIds = Array.from(
+    new Set(accrualRows.map((row: any) => asText(row.enrollment_id))),
+  ).filter(Boolean);
+
+  const programByEnrollment = new Map<string, string>();
+  if (enrollmentIds.length) {
+    const iscrizioni = await enrollmentClient().findMany({
+      where: { id: { in: enrollmentIds } },
+      select: { id: true, program_id: true },
+    });
+    for (const riga of iscrizioni) {
+      programByEnrollment.set(asText(riga.id), asText(riga.program_id));
+    }
+  }
+
   for (const row of accrualRows) {
     ensureOrganizationAccess(scope, row.organization_id);
+
+    /*
+      **Un maturato appartiene al suo bando.**
+
+      Il club era verificato, il bando no: le righe di una liquidazione
+      potevano venire da un **altro programma dello stesso club**. Il credito
+      verso un ente si chiudeva consumando il maturato di un ente diverso, e i
+      due rendiconti — quello che si manda e quello che si tiene — dicevano
+      numeri che non tornano.
+
+      Non e una fuga: e un dato che esce verso un ente pubblico con dentro ore
+      che quell ente non ha finanziato.
+    */
+    if (
+      programByEnrollment.get(asText(row.enrollment_id)) !==
+      asText(program.id)
+    ) {
+      throw new Error(
+        "Una riga della liquidazione non appartiene a questo programma",
+      );
+    }
   }
 
   /**

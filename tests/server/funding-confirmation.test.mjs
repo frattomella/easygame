@@ -92,6 +92,10 @@ const seed = () => ({
     programma(PROG_ESTERNO),
     programma(PROG_EASYGAME, { accrual_source: "easygame_attendance" }),
   ],
+  /* Il beneficiario deve esistere nel club del bando. */
+  athlete: [
+    { id: ATLETA, organization_id: CLUB, first_name: "Atleta", last_name: "Sonda" },
+  ],
   fundingEnrollment: [],
   fundingAccrual: [],
   fundingSettlement: [],

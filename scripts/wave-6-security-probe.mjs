@@ -106,6 +106,7 @@ let ruoliDiAccesso;
 let permessiContabili;
 let agenda;
 let pubblico;
+let contributi;
 let appartenenzeStagione;
 let segnaposto;
 let compilazioni;
@@ -5581,6 +5582,142 @@ const u66 = async () => {
     .catch(() => {});
 };
 
+const u67 = async () => {
+  /* ================================================================== */
+  /*  U-67 — i contributi: il beneficiario di un altro club, e il        */
+  /*         maturato di un altro bando               [tenant, denaro]   */
+  /* ================================================================== */
+
+  console.log(
+    `${NL}U-67 — il beneficiario di un altro club, e il maturato di un altro bando`,
+  );
+
+  const scopeFondi = { ...scopeRuolo("owner"), actorEmail: utenti.owner.email };
+
+  const bando = async (nome) =>
+    contributi.createFundingProgram(
+      {
+        organizationId: CLUB_A,
+        name: nome,
+        funderName: "Ente Sonda",
+        validFrom: "2026-01-01",
+        validTo: "2026-12-31",
+        athletePlafond: 500,
+        totalPlafond: 5000,
+        periodAmount: 100,
+        periodFrequency: "monthly",
+        unmetBehavior: "full",
+        accrualSource: "easygame_attendance",
+      },
+      scopeFondi,
+    );
+
+  const bandoUno = await bando("Bando U-67 uno");
+  const bandoDue = await bando("Bando U-67 due");
+
+  /* --- 1. il beneficiario deve essere del club del bando --- */
+
+  const iscrivi = (programId, athleteId) =>
+    contributi
+      .createFundingEnrollment({ programId, athleteId }, scopeFondi)
+      .then(() => "riuscita")
+      .catch((errore) => String(errore?.message || "errore"));
+
+  prova(
+    "U-67 un atleta di un altro club non si iscrive a un bando",
+    "Atleta non trovato",
+    await iscrivi(bandoUno.id, ATLETA_B),
+    "il bando si risolveva nello scope e la riga nasceva con la sua organizzazione: ma il calcolo del maturato legge **le presenze del beneficiario**, e la frequenza di un minore dice dove si trova due volte a settimana",
+  );
+
+  prova(
+    "U-67 e un atleta del club si iscrive",
+    "riuscita",
+    await iscrivi(bandoUno.id, ATLETA_A),
+    "controspecchio: una guardia che negasse sempre spegnerebbe i contributi, e la prova qui sopra passerebbe lo stesso",
+  );
+
+  /* --- 2. un maturato appartiene al suo bando --- */
+
+  await contributi.createFundingEnrollment(
+    { programId: bandoDue.id, athleteId: ATLETA_ALTRUI },
+    scopeFondi,
+  );
+
+  const iscrizioneDue = (
+    await contributi.listFundingEnrollments(
+      { programId: bandoDue.id },
+      scopeFondi,
+    )
+  )[0];
+
+  /*
+    Il maturato non porta il bando: lo porta la sua iscrizione. E la ragione
+    per cui la guardia deve leggerlo di li, e la ragione per cui una prima
+    stesura — che cercava `program_id` sulla riga — avrebbe rifiutato **ogni**
+    liquidazione senza che nessuna prova di diniego se ne accorgesse.
+  */
+  const maturatoDue = await prisma.fundingAccrual.create({
+    data: {
+      organization_id: CLUB_A,
+      enrollment_id: iscrizioneDue.id,
+      period_index: 1,
+      period_label: "Gennaio 2026",
+      period_start: new Date("2026-01-01"),
+      period_end: new Date("2026-01-31"),
+      requirement_min: 0,
+      requirement_unit: "hours",
+      requirement_met: true,
+      eligible_amount: 100,
+      accrued_amount: 100,
+      status: "confirmed",
+      confirmed_at: new Date(),
+      computed_at: new Date(),
+    },
+  });
+
+  const liquida = (programId, accrualId) =>
+    contributi
+      .createFundingSettlement(
+        {
+          programId,
+          amount: 100,
+          lines: [{ accrualId, amount: 100 }],
+        },
+        scopeFondi,
+      )
+      .then(() => "riuscita")
+      .catch((errore) => String(errore?.message || "errore"));
+
+  prova(
+    "U-67 il maturato di un bando non chiude il credito di un altro",
+    "Una riga della liquidazione non appartiene a questo programma",
+    await liquida(bandoUno.id, maturatoDue.id),
+    "il club era verificato, il bando no: il rendiconto che si manda all'ente conteneva ore che quell'ente non ha finanziato",
+  );
+
+  prova(
+    "U-67 e sul proprio bando la liquidazione passa",
+    "riuscita",
+    await liquida(bandoDue.id, maturatoDue.id),
+    "controspecchio: senza questa riga un vincolo sempre chiuso renderebbe impossibile liquidare, e nessuna prova di diniego lo direbbe",
+  );
+
+  /* --- pulizia --- */
+  await prisma.fundingSettlement
+    .deleteMany({ where: { organization_id: CLUB_A } })
+    .catch(() => {});
+  await prisma.fundingAccrual
+    .deleteMany({ where: { organization_id: CLUB_A } })
+    .catch(() => {});
+  await prisma.fundingEnrollment
+    .deleteMany({ where: { program_id: { in: [bandoUno.id, bandoDue.id] } } })
+    .catch(() => {});
+  await prisma.fundingProgram
+    .deleteMany({ where: { id: { in: [bandoUno.id, bandoDue.id] } } })
+    .catch(() => {});
+};
+
 /* ------------------------------------------------------------- il giro */
 
 try {
@@ -5603,6 +5740,7 @@ try {
   permessiContabili = await carica("src/lib/accounting/permissions.ts");
   agenda = await carica("src/lib/server/sport-work-agenda.ts");
   pubblico = await carica("src/lib/server/audience.ts");
+  contributi = await carica("src/lib/server/funding.ts");
   appartenenzeStagione = await carica("src/lib/server/season-memberships.ts");
   segnaposto = await carica("src/lib/server/document-placeholders.ts");
 
@@ -5637,6 +5775,7 @@ try {
   await u64();
   await u65();
   await u66();
+  await u67();
 
   const falliti = esiti.filter((e) => !e.ok);
   if (deviazioni.length) {

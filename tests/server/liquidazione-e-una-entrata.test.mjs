@@ -64,6 +64,10 @@ const seed = () => ({
       data: {},
     },
   ],
+  /* Il maturato appartiene al bando attraverso la sua iscrizione. */
+  fundingEnrollment: [
+    { id: "iscrizione-1", organization_id: CLUB, program_id: PROGRAMMA },
+  ],
   fundingAccrual: [
     {
       id: MATURATO,

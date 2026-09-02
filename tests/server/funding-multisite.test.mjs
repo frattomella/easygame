@@ -121,6 +121,10 @@ const seed = ({ marioSiteId = SITE_SCAURI, trainingGroups = true } = {}) => ({
     },
   ],
   fundingProgram: [programma()],
+  /* Il beneficiario deve esistere nel club del bando. */
+  athlete: [
+    { id: MARIO, organization_id: CLUB, first_name: "Mario", last_name: "Sonda" },
+  ],
   fundingEnrollment: [],
   fundingAccrual: [],
   fundingSettlement: [],

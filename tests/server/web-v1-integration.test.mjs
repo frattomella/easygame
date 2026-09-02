@@ -143,6 +143,10 @@ const seed = () => ({
   athletePayment: [rata(RATA, CLUB_A)],
   paymentTransaction: [],
   fundingProgram: [programma(PROGRAMMA, CLUB_A)],
+  /* Il beneficiario deve esistere nel club del bando. */
+  athlete: [
+    { id: ATLETA, organization_id: CLUB_A, first_name: "Atleta", last_name: "Sonda" },
+  ],
   fundingEnrollment: [],
   fundingAccrual: [],
   fundingSettlement: [],
@@ -494,6 +498,13 @@ test("un modulo pubblico non sceglie il club: lo decide lo slug", async () => {
 test("una compilazione pubblica non scrive in anagrafica prima dell'approvazione", async () => {
   const modulo = await moduloPubblicato(scopeA());
 
+  /*
+    Si conta la **differenza**, non il totale: la finzione porta ormai un
+    atleta seminato — il beneficiario di un bando deve esistere — e un totale
+    atteso a zero misurerebbe la semina invece della compilazione.
+  */
+  const prima = fake.rows("athlete").length;
+
   await compilazioni.submitPublicForm(modulo.publicSlug, {
     answers: { f_nome: "Mario", f_cognome: "Rossi" },
     files: [],
@@ -501,7 +512,7 @@ test("una compilazione pubblica non scrive in anagrafica prima dell'approvazione
 
   assert.equal(
     fake.rows("athlete").length,
-    0,
+    prima,
     "l'anagrafica la tocca la segreteria approvando, non chi compila",
   );
   assert.equal(fake.rows("formSubmission")[0].status, "pending");
