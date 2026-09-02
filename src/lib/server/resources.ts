@@ -6307,47 +6307,94 @@ const applicaGuardieDiModifica = async (
       const prima = guardianAccessIdentities(existing?.data ?? {});
 
       const dopo = guardianAccessIdentities(normalized.data ?? {});
-      const nuovi = [...dopo].filter((id) => !prima.has(id));
+      const cresciute = [...dopo].filter((id) => !prima.has(id));
 
       /*
-        **Scrivere un legame di famiglia e un atto sul dato clinico.**
+        **Un'identita che non appartiene a nessuno non concede niente.**
 
-        La prima stesura vietava di far crescere l'insieme dei legami, e
-        sorvegliava due campi mentre il predicato che apre il cruscotto ne
-        legge sette: bastava scrivere l'**email di contatto** del tutore —
-        il campo che una segreteria modifica ogni giorno — per diventare
-        famiglia di quel minore e leggerne allergie, farmaci e visite.
+        La stesura precedente negava ogni **crescita** dell'insieme. Una
+        revisione ha misurato il prezzo: correggere un refuso nell'email di un
+        tutore cambia l'insieme, quindi veniva rifiutato — e una «Segreteria»
+        modellata come ruolo di club non poteva piu correggere un indirizzo
+        sbagliato, che e il lavoro di tutti i giorni.
 
-        Vietarlo del tutto sarebbe stato peggio: quella e la strada con cui
-        una famiglia entra senza riscattare un codice, e una sonda la
-        verifica per nome (`U-06`). La domanda giusta non e «si puo
-        scrivere?» ma «**chi** puo scrivere una cosa che concede la vista
-        clinica?». La risposta e: chi quella vista ce l'ha gia.
+        Cio che concede accesso non e scrivere un indirizzo: e scriverne uno
+        che **corrisponde a un'utenza**. Si guarda quindi se le identita nuove
+        esistono davvero — per identificativo o per email — e solo allora la
+        scrittura e una concessione.
 
-        Segreteria e collaboratore la hanno per matrice, quindi il flusso di
-        tutti i giorni non cambia. La perde il ruolo personalizzato a cui il
-        club ha tolto `clinical.read` — che e esattamente cio che il club
-        intendeva togliendola.
+        Resta una finestra, e va detta: scrivere oggi l'indirizzo di un'utenza
+        che **nascera domani** produce il legame senza passare di qui. Chiuderla
+        vorrebbe dire negare la correzione di un'email, cioe il difetto che
+        questa riga esiste per non rifare. E scritta in `16-technical-debt.md`.
       */
+      const nuovi = cresciute.length
+        ? await (async () => {
+            const perId = cresciute.filter((valore) => isUuid(valore));
+            const perEmail = cresciute.filter((valore) => valore.includes("@"));
+
+            const utenze = await prisma.user.findMany({
+              where: {
+                OR: [
+                  ...(perId.length ? [{ id: { in: perId } }] : []),
+                  ...(perEmail.length
+                    ? [{ email: { in: perEmail, mode: "insensitive" as const } }]
+                    : []),
+                ],
+              },
+              select: { id: true, email: true },
+            });
+
+            const esistenti = new Set<string>();
+            for (const utenza of utenze) {
+              esistenti.add(String(utenza.id).trim().toLowerCase());
+              if (utenza.email) {
+                esistenti.add(String(utenza.email).trim().toLowerCase());
+              }
+            }
+
+            return cresciute.filter((valore) => esistenti.has(valore));
+          })()
+        : [];
+
       /*
-        **La chiave giusta e quella che governa gli accessi, non quella
-        clinica.**
+        **Scrivere un legame di famiglia concede due cose, e servono
+        entrambe le chiavi.**
 
-        La stesura precedente chiedeva `clinical.read` perche il cruscotto
-        della famiglia mostra il dato sanitario. Ma un legame concede molto
-        di piu — documenti condivisi, RSVP, prenotazione di appuntamenti,
-        checkout dei pagamenti — e chi ha la sola vista clinica se lo
-        scriveva addosso su **qualunque** minore, misurato con un
-        `collaborator` canonico.
+        Tre stesure di questa riga, e la terza le corregge tutte e due.
 
-        `accounts.athlete.manage` e la chiave che questa stessa funzione cita
-        quando registra il diniego, ed e quella dell'accesso di una persona a
-        EasyGame. Appartiene alla gestione, quindi segreteria e collaboratore
-        continuano a lavorare; la perde il ruolo a cui il club l'ha tolta.
+        La prima chiedeva `clinical.read`, perche il cruscotto della famiglia
+        mostra allergie, farmaci e visite. Una revisione ha misurato che un
+        legame concede molto di piu — documenti condivisi, RSVP, appuntamenti,
+        checkout — e che chi aveva la sola vista clinica se lo scriveva addosso.
+
+        La seconda ha **sostituito** la chiave invece di aggiungerla, e ha
+        aperto il verso opposto: un ruolo con `accounts.athlete.manage` e
+        **senza** `clinical.read` si legava a un minore qualunque e ne apriva
+        il fascicolo sanitario. Misurato: 4307 byte con allergie, farmaci e
+        certificato, a un ruolo a cui il club la vista clinica l'aveva tolta.
+
+        Un legame apre **l'area famiglia**, e l'area famiglia contiene il dato
+        sanitario: le due cose non si separano, quindi non si separano nemmeno
+        le due chiavi. Chi scrive un legame deve poter vedere cio che sta
+        concedendo — `clinical.read` — ed essere autorizzato a concedere un
+        accesso — `accounts.athlete.manage`.
+
+        Entrambe appartengono alla **gestione**, quindi segreteria e
+        collaboratore canonici lavorano come prima. Un ruolo di club a cui ne
+        manca una non aggiunge tutori: se il club vuole delegarlo, spunta le
+        due caselle — che e esattamente cio per cui l'editor esiste.
+
+        E la crescita si misura sulle **identita**, non sui campi: correggere
+        un refuso in un'email che non appartiene a nessuna utenza non concede
+        niente, e non passa di qui.
       */
       if (
         nuovi.length &&
-        !roleHasPermission(scope.activeRole, "accounts.athlete.manage")
+        !(
+          roleHasPermission(scope.activeRole, "accounts.athlete.manage") &&
+          hasHealthPermission(scope.activeRole, "clinical.read")
+        )
       ) {
         await recordPermissionDenied({
           scope: {
@@ -6364,7 +6411,7 @@ const applicaGuardieDiModifica = async (
           },
         });
         throw new Error(
-          "Accesso negato: il legame fra un tutore e un'utenza apre a quella persona l'area famiglia del minore, e il ruolo attivo non amministra gli accessi",
+          "Accesso negato: il legame fra un tutore e un'utenza apre a quella persona l'area famiglia del minore — dato sanitario compreso — e servono sia il permesso sugli accessi sia quello sul dato clinico",
         );
       }
     }

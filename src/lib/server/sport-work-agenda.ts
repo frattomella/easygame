@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { lockPersonAndInstallment } from "./sport-work-ledger";
 import { createAccountingEntry } from "./accounting";
 import {
   audit,
@@ -163,6 +164,25 @@ export const payBonus = async (
   }
 
   const outcome = await (prisma as any).$transaction(async (client: any) => {
+    /*
+      **`findUnique` non blocca niente, e la variabile si chiamava `locked`.**
+
+      Dentro una transazione interattiva questa e una `SELECT` semplice: in
+      READ COMMITTED due richieste concorrenti — un doppio clic, il retry di
+      una richiesta lenta — leggono entrambe lo stato di partenza, creano
+      entrambe la riga di uscita, e non collidono su niente.
+
+      Misurato: **1000 euro usciti due volte**, con la riga di controllo che
+      dichiara l'importo singolo — quindi nessuno va a cercarlo. Le stesse tre
+      strade dell'agenda: premio, rimborso, fattura P.IVA.
+
+      Il blocco vero esiste gia ed e esportato: `lockPersonAndInstallment`
+      prende un `FOR UPDATE` sulla persona, ed e cio che il **compenso** fa da
+      sempre. Bloccare la persona basta: le tre strade escono tutte verso la
+      stessa persona, e la franchigia annua e per persona.
+    */
+    await lockPersonAndInstallment(client, bonus.person_id);
+
     const locked = await client.sportWorkBonus.findUnique({
       where: { id: bonus.id },
     });
@@ -362,6 +382,9 @@ export const payReimbursement = async (
   }
 
   const outcome = await (prisma as any).$transaction(async (client: any) => {
+    /* Vedi `payBonus`: il blocco e sulla persona, e serve. */
+    await lockPersonAndInstallment(client, reimbursement.person_id);
+
     const locked = await client.sportWorkExpenseReimbursement.findUnique({
       where: { id: reimbursement.id },
     });
@@ -513,6 +536,9 @@ export const payVatInvoice = async (
   }
 
   const outcome = await (prisma as any).$transaction(async (client: any) => {
+    /* Vedi `payBonus`: il blocco e sulla persona, e serve. */
+    await lockPersonAndInstallment(client, invoice.person_id);
+
     const locked = await client.sportWorkVatInvoice.findUnique({
       where: { id: invoice.id },
     });

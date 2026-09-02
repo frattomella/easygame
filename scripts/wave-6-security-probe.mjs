@@ -104,6 +104,7 @@ let registro;
 let moduli;
 let ruoliDiAccesso;
 let permessiContabili;
+let agenda;
 let segnaposto;
 let compilazioni;
 let rotte = null;
@@ -5106,6 +5107,169 @@ const u64 = async () => {
   );
 };
 
+const u65 = async () => {
+  /* ================================================================== */
+  /*  U-65 — la nona revisione: il denaro due volte, e le due chiavi     */
+  /*         [CRITICAL: denaro, salute]                                  */
+  /* ================================================================== */
+
+  console.log(
+    `${NL}U-65 — il denaro che usciva due volte, e le due chiavi   [CRITICAL]`,
+  );
+
+  /* --- 1. il legame di famiglia: servono entrambe le chiavi --- */
+  const soloAccessi = "custom:collaborator:accessi#accounts.athlete.manage";
+  const soloClinico = "custom:collaborator:clinico#clinical.read";
+  const entrambe =
+    "custom:collaborator:segreteria#accounts.athlete.manage,clinical.read";
+
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: { data: { guardians: [{ id: "g-madre", firstName: "Anna" }] } },
+  });
+
+  const provaLegame = async (ruolo, email) => {
+    /* ogni tentativo riparte dallo stesso archivio: le tre prove sono
+       indipendenti, altrimenti la prima che passa spegne le altre */
+    await prisma.athlete.update({
+      where: { id: ATLETA_A },
+      data: { data: { guardians: [{ id: "g-madre", firstName: "Anna" }] } },
+    });
+
+    return risorse
+      .updateResource(
+        "athletes",
+        ATLETA_A,
+        {
+          data: {
+            guardians: [
+              { id: "g-madre", firstName: "Anna" },
+              { id: "g-nuovo", firstName: "Chi Prova", email },
+            ],
+          },
+        },
+        { ...scopeRuolo("collaborator"), activeRole: ruolo },
+      )
+      .then(() => "riuscita")
+      .catch((errore) =>
+        String(errore?.message || "").includes("Accesso negato")
+          ? "negato"
+          : `errore: ${errore?.message}`,
+      );
+  };
+
+  prova(
+    "U-65 un legame verso un'utenza vera chiede entrambe le chiavi",
+    { soloAccessi: "negato", soloClinico: "negato", entrambe: "riuscita" },
+    {
+      soloAccessi: await provaLegame(soloAccessi, utenti.staff.email),
+      soloClinico: await provaLegame(soloClinico, utenti.staff.email),
+      entrambe: await provaLegame(entrambe, utenti.staff.email),
+    },
+    "la stesura precedente aveva **sostituito** la chiave clinica invece di aggiungerla: chi non vedeva il clinico se lo riprendeva legandosi",
+  );
+
+  prova(
+    "U-65 e chi si e legato con entrambe e davvero famiglia",
+    true,
+    await cruscottoFamiglia.canParentAccessAthlete(utenti.staff.id, ATLETA_A),
+    "controspecchio: se negasse sempre, il legame non si potrebbe piu creare da nessuno",
+  );
+
+  /*
+    E la correzione di un refuso — un indirizzo che non e di nessuno — non e una
+    concessione, e non deve chiedere niente. Era il difetto opposto: una
+    «Segreteria» di club non poteva piu correggere un'email sbagliata.
+  */
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: { data: { guardians: [{ id: "g-madre", firstName: "Anna" }] } },
+  });
+
+  prova(
+    "U-65 ma correggere un'email che non e di nessuno non chiede niente",
+    "riuscita",
+    await provaLegame(
+      "custom:collaborator:segreteria-ridotta#members.register.read",
+      "refuso-u65@example.invalid",
+    ),
+    "cio che concede accesso non e scrivere un indirizzo: e scriverne uno che corrisponde a un'utenza",
+  );
+
+  /* --- 2. il denaro che usciva due volte --- */
+  const persona = await prisma.sportWorkPerson
+    .create({
+      data: {
+        organization_id: CLUB_A,
+        first_name: "Ugo",
+        last_name: "Sessantacinque",
+      },
+    })
+    .catch((e) => {
+      console.log("DEBUG persona:", String(e?.message).slice(0, 120));
+      return null;
+    });
+
+  if (persona) {
+    const premio = await prisma.sportWorkBonus
+      .create({
+        data: {
+          organization_id: CLUB_A,
+          person_id: persona.id,
+          amount: 1000,
+          reason: "Premio U-65",
+          award_date: new Date(),
+          status: "SCHEDULED",
+        },
+      })
+      .catch((e) => {
+        console.log("DEBUG premio:", String(e?.message).slice(0, 120));
+        return null;
+      });
+
+    if (premio) {
+      const scopeLavoro = {
+        ...scopeRuolo("owner"),
+        actorEmail: utenti.owner.email,
+      };
+
+      /*
+        Due erogazioni **in parallelo**: e il doppio clic, o il retry di una
+        richiesta lenta. Prima passavano entrambe.
+      */
+      const esiti = await Promise.allSettled([
+        agenda.payBonus(premio.id, {}, scopeLavoro),
+        agenda.payBonus(premio.id, {}, scopeLavoro),
+      ]);
+
+      const riuscite = esiti.filter((e) => e.status === "fulfilled").length;
+      const uscite = await prisma.sportWorkOutboundTransaction.count({
+        where: { person_id: persona.id },
+      });
+
+      prova(
+        "U-65 un premio non si eroga due volte in parallelo",
+        { riuscite: 1, righeDiUscita: 1 },
+        { riuscite, righeDiUscita: uscite },
+        "`findUnique` dentro una transazione non blocca niente, e la variabile si chiamava `locked`: misurato 1000 euro usciti due volte",
+      );
+
+      await prisma.sportWorkOutboundTransaction
+        .deleteMany({ where: { person_id: persona.id } })
+        .catch(() => {});
+      await prisma.sportWorkBonus
+        .deleteMany({ where: { person_id: persona.id } })
+        .catch(() => {});
+    }
+
+    await prisma.sportWorkPerson
+      .delete({ where: { id: persona.id } })
+      .catch(() => {});
+  }
+
+  await prisma.athlete.update({ where: { id: ATLETA_A }, data: { data: {} } });
+};
+
 /* ------------------------------------------------------------- il giro */
 
 try {
@@ -5126,6 +5290,7 @@ try {
   compilazioni = await carica("src/lib/server/form-submissions.ts");
   ruoliDiAccesso = await carica("src/lib/access-roles.ts");
   permessiContabili = await carica("src/lib/accounting/permissions.ts");
+  agenda = await carica("src/lib/server/sport-work-agenda.ts");
   segnaposto = await carica("src/lib/server/document-placeholders.ts");
 
   await preparaTrasporto();
@@ -5157,6 +5322,7 @@ try {
   await u62();
   await u63();
   await u64();
+  await u65();
 
   const falliti = esiti.filter((e) => !e.ok);
   if (deviazioni.length) {

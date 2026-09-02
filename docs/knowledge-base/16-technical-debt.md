@@ -2163,3 +2163,32 @@ fa la sua base — che e il ruolo che il club ha scelto.
 **Perche resta aperta.** Dare una chiave all'elenco atleti vorrebbe dire
 **aprire una capability nuova**, che questo closeout non fa. E la prima cosa da
 decidere quando la Wave 7 aprira il capitolo dei permessi.
+
+### W6-D28 — Un legame di famiglia verso un'utenza che non esiste ancora
+
+`applicaGuardieDiModifica` in `src/lib/server/resources.ts` chiede due chiavi —
+`accounts.athlete.manage` e `clinical.read` — a chi **fa crescere** l'insieme
+delle identita dei tutori di un atleta, perche il legame apre a quella persona
+l'area famiglia, dato sanitario compreso.
+
+La crescita si misura sulle identita che **corrispondono a un'utenza esistente**,
+per identificativo o per email. E deliberato: la stesura che negava ogni
+crescita rendeva impossibile correggere un refuso nell'indirizzo di un tutore,
+che e il lavoro di tutti i giorni di una segreteria, e una revisione l'ha
+misurato.
+
+**Cosa resta aperto.** Scrivere oggi l'indirizzo di un'utenza che **nascera
+domani** produce il legame senza passare dalla guardia: alla registrazione,
+`canParentAccessAthlete` trovera la corrispondenza per email.
+
+**Perche non e un blocco.** Chi scrive quell'indirizzo sta gia amministrando
+l'anagrafica del club, e il legame diventa effettivo solo se qualcuno registra
+un'utenza con quell'indirizzo **e ne controlla la casella** — la registrazione
+verifica l'email. Non e un'escalation silenziosa: e un ritardo nell'applicazione
+della stessa guardia.
+
+**La chiusura.** Valutare la guardia anche in **registrazione**: quando nasce
+un'utenza, il legame per email si accende solo se l'identita era stata scritta
+da un ruolo che aveva le due chiavi. Vuol dire tenere traccia di **chi** ha
+scritto quell'identita, cioe una colonna nuova sul tutore, e non e un lavoro da
+closeout.
