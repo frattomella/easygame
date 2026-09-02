@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { canAccessClubResource } from "@/lib/access-roles";
 import {
   createClothingAssignment,
   normalizeClubClothingState,
@@ -34,6 +35,32 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { data: null, error: { message: "Club non trovato" } },
         { status: 400 },
+      );
+    }
+
+    /*
+      **Questa rotta non chiedeva nessun ruolo.**
+
+      Sessione, club attivo, «l'atleta e di questo club», e poi scriveva. Una
+      revisione ostile l'ha chiamata con un account che nel club e soltanto
+      **genitore**, sull'atleta di un'altra famiglia: 200, assegnazione creata,
+      scorte consumate.
+
+      E una rotta sotto `/api/` e non `/api/v1/`, cioe la stessa classe di
+      difetto gia trovata due volte: la ricognizione delle guardie si era
+      fermata al prefisso versionato. Il magazzino e una risorsa di club, e la
+      matrice sa gia chi lo tocca.
+    */
+    if (!canAccessClubResource(scope.activeRole, "kit_assignments", "create")) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Accesso negato: l'assegnazione del materiale la registra chi lavora nel club",
+          },
+        },
+        { status: 403 },
       );
     }
 

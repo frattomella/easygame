@@ -1327,6 +1327,136 @@ const u38 = async () => {
     Qui il database e vero e la riga si esercita.
   */
   /* ================================================================== */
+  /*  U-46 — il perimetro sul documentale, fino ai byte                  */
+  /*         [CRITICAL: minori]                                          */
+  /* ================================================================== */
+
+  /*
+    Il perimetro era applicato in **un punto su otto** del dominio documentale —
+    `getDocumentDossier` — e le altre sette lo ignoravano. Una revisione ostile
+    ha letto per identificativo la richiesta di un minore di un'altra sede, ne
+    ha depositato un documento, ne ha cancellato un altro, e **ne ha scaricato i
+    byte della carta d'identita**.
+
+    E c'erano due code sulla stessa tabella e sulla **stessa rotta** — una con
+    `view=queue` e una senza — di cui solo la prima passava dal perimetro.
+
+    Adesso il perimetro sta **dentro la guardia che tutte chiamano**, e arriva
+    fino agli allegati, che sono la fine di ogni catena: chiunque ottenga un
+    identificativo, da qualunque elenco, arrivava ai byte.
+  */
+  console.log(
+    `${NL}U-46 — il perimetro sul documentale, fino ai byte   [CRITICAL: minori]`,
+  );
+
+  const segreteriaPerimetrata = {
+    ...scopeDi(utenti.staff.id, CLUB_A, "staff"),
+    accessScopes: [{ kind: "site", value: SEDE_A }],
+  };
+
+  /* Una richiesta e un allegato per l'atleta FUORI dal perimetro. */
+  const richiestaFuori = await documenti.createDocumentRequest(
+    scopeRuolo("club_manager"),
+    {
+      subjectKind: "athlete",
+      subjectId: ATLETA_ALTRUI,
+      documentKind: "identity_document",
+      title: "Carta d'identita fuori perimetro",
+      required: true,
+    },
+  );
+  const idRichiestaFuori =
+    richiestaFuori.requestId || richiestaFuori.id || richiestaFuori.request?.id;
+
+  const allegatoFuori = await allegati.createAttachment(
+    {
+      organizationId: CLUB_A,
+      ownerType: "athlete",
+      ownerId: ATLETA_ALTRUI,
+      category: "identity_document",
+      fileName: "carta-identita-fuori.pdf",
+      mimeType: "application/pdf",
+      content: Buffer.from("%PDF-1.4 BYTE-DI-UN-MINORE-FUORI-PERIMETRO"),
+    },
+    scopeRuolo("club_manager"),
+  );
+
+  await varco(
+    "U-46 la richiesta di un minore fuori perimetro non si legge per id",
+    () => documenti.getDocumentRequest(segreteriaPerimetrata, idRichiestaFuori),
+    ["negato", "ambiguo", "inesistente"],
+  );
+
+  await varco(
+    "U-46 ne si crea una richiesta su di lui",
+    () =>
+      documenti.createDocumentRequest(segreteriaPerimetrata, {
+        subjectKind: "athlete",
+        subjectId: ATLETA_ALTRUI,
+        documentKind: "other",
+        title: "Iniettata",
+        required: false,
+      }),
+    ["negato", "ambiguo"],
+  );
+
+  const codaSenzaParametro = await documenti.listPendingDocumentSubmissions(
+    segreteriaPerimetrata,
+    {},
+  );
+  prova(
+    "U-46 la coda senza `view=queue` non porta i depositi dell'altra sede",
+    true,
+    (codaSenzaParametro || []).every(
+      (riga) => riga.subjectId !== ATLETA_ALTRUI,
+    ),
+    `righe=${(codaSenzaParametro || []).length}`,
+  );
+
+  await varco(
+    "U-46 e i byte del suo documento non si scaricano",
+    () => allegati.readAttachment(allegatoFuori.id, segreteriaPerimetrata),
+    ["negato", "ambiguo", "inesistente"],
+  );
+
+  /*
+    I due controspecchi, senza cui una proiezione che azzera tutto passerebbe
+    per una difesa: dentro il perimetro si legge, e senza perimetro si legge
+    tutto.
+  */
+  const suoAllegato = await allegati.createAttachment(
+    {
+      organizationId: CLUB_A,
+      ownerType: "athlete",
+      ownerId: ATLETA_A,
+      category: "identity_document",
+      fileName: "carta-identita-dentro.pdf",
+      mimeType: "application/pdf",
+      content: Buffer.from("%PDF-1.4 DENTRO-IL-PERIMETRO"),
+    },
+    scopeRuolo("club_manager"),
+  );
+
+  const letturaDentro = await tenta(() =>
+    allegati.readAttachment(suoAllegato.id, segreteriaPerimetrata),
+  );
+  prova(
+    "U-46 e l'allegato di un atleta dentro il perimetro si legge ancora",
+    "riuscito",
+    letturaDentro.esito,
+    letturaDentro.messaggio ? letturaDentro.messaggio.slice(0, 120) : "",
+  );
+
+  const letturaSenzaPerimetro = await tenta(() =>
+    allegati.readAttachment(allegatoFuori.id, scopeRuolo("club_manager")),
+  );
+  prova(
+    "U-46 e chi non ha perimetro legge entrambi",
+    "riuscito",
+    letturaSenzaPerimetro.esito,
+  );
+
+  /* ================================================================== */
   /*  U-45 — il perimetro non si allarga da dentro   [CRITICAL: minori]  */
   /* ================================================================== */
 

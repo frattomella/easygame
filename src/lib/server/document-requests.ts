@@ -1,5 +1,8 @@
 import { prisma } from "./prisma";
-import { athleteIdsWithinAccessScope } from "./access-scope-query";
+import {
+  athleteIdsWithinAccessScope,
+  athleteWithinAccessScope,
+} from "./access-scope-query";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import {
   assertActiveClub,
@@ -149,6 +152,52 @@ const assertRolePermission = async (
  * famiglia-socio o famiglia-collaboratore, e concederlo per analogia aprirebbe
  * il fascicolo di un adulto a chi ha un figlio nella stessa societa.
  */
+/**
+ * **Il perimetro vale su chi entra per ruolo, non su chi entra per legame.**
+ *
+ * Una famiglia non ha un perimetro: il suo confine e il legame con il figlio, e
+ * applicarglielo sarebbe negarle il proprio fascicolo. Un operatore
+ * perimetrato si.
+ *
+ * Sta qui, dentro la guardia che **tutte** le funzioni del dominio chiamano,
+ * invece che accanto a ognuna. Il perimetro era applicato in un punto solo su
+ * otto — `getDocumentDossier` — e le altre sette lo ignoravano: una revisione
+ * ostile ha letto per identificativo la richiesta di un minore di un'altra
+ * sede, ne ha depositato un documento, ne ha cancellato un altro e **ne ha
+ * scaricato i byte della carta d'identita**.
+ *
+ * Contarle una alla volta e il metodo che ha fallito quattro volte. Una guardia
+ * che ogni chiamante deve **ricordarsi** di chiamare e una guardia che il
+ * prossimo chiamante dimentichera.
+ */
+const assertSubjectWithinAccessScope = async (
+  scope: DocumentDossierScope,
+  subjectKind: unknown,
+  subjectId: unknown,
+) => {
+  const kind = String(subjectKind ?? "").trim().toLowerCase();
+  const id = asText(subjectId);
+  if (kind !== "athlete" || !id) return;
+
+  const club = asText(scope?.activeOrganizationId);
+  if (!club) return;
+
+  const dentro = await athleteWithinAccessScope(club, id, scope);
+  if (dentro) return;
+
+  await recordPermissionDenied({
+    scope,
+    permission: "documents.read_dossier",
+    resource: "document_requests",
+    resourceId: id,
+    metadata: { via: "perimetro" },
+  });
+
+  throw denied(
+    "questa persona e fuori dal perimetro di sede o categoria dell'accesso",
+  );
+};
+
 const assertSubjectAccess = async (
   scope: DocumentDossierScope,
   key: string,
@@ -156,7 +205,10 @@ const assertSubjectAccess = async (
   subjectId: unknown,
   spiegazione: string,
 ) => {
-  if (roleHasPermission(scope?.activeRole, key)) return;
+  if (roleHasPermission(scope?.activeRole, key)) {
+    await assertSubjectWithinAccessScope(scope, subjectKind, subjectId);
+    return;
+  }
 
   const kind = String(subjectKind ?? "").trim().toLowerCase();
   if (kind === "athlete" && asText(subjectId)) {
@@ -548,6 +600,21 @@ export const createDocumentRequest = async (
     input.organizationId,
     "la richiesta",
   );
+
+  /*
+    **Chiedere un documento a qualcuno e un atto su quel qualcuno.**
+
+    Qui si verificava solo il permesso — «chi lavora nella segreteria» — e non
+    **su chi**. Un operatore perimetrato su una sede apriva una richiesta
+    documentale nel fascicolo di un minore di un'altra sede: la famiglia riceve
+    la notifica, deposita, e il documento finisce in una coda che quell'operatore
+    ora vede a buon diritto.
+
+    Le altre funzioni del dominio passano da `assertSubjectAccess`, che porta
+    il perimetro con se; questa no, perche chi crea non ha ancora una riga da
+    leggere. Il controllo e quindi esplicito, e chiede la stessa cosa.
+  */
+  await assertSubjectWithinAccessScope(scope, input.subjectKind, input.subjectId);
 
   const validazione = validateDocumentRequestDraft({
     subjectKind: input.subjectKind,
@@ -1375,6 +1442,39 @@ export const listPendingDocumentSubmissions = async (
     status: "under_review",
   };
   if (asText(filter.subjectId)) where.subject_id = asText(filter.subjectId);
+
+  /*
+    **La seconda coda sulla stessa tabella, e sulla stessa rotta.**
+
+    `GET /api/v1/document-submissions` serve questa funzione senza
+    `view=queue` e `listDocumentReviewQueue` con: due elenchi della stessa
+    cosa, un parametro di distanza, e solo il secondo passava dal perimetro. Una
+    revisione ostile ha ottenuto da qui l'elenco dei depositi di **tutto** il
+    club, ciascuno con il proprio `attachmentUrl`.
+
+    Il perimetro si applica come nel fascicolo: attraverso l'elenco degli
+    atleti, perche questa tabella conosce un `subject_id` e non una sede.
+    `null` significa «nessun perimetro»; elenco vuoto significa «nessun
+    atleta», ed e un'altra cosa.
+  */
+  const dentroIlPerimetro = await athleteIdsWithinAccessScope(
+    organizationId,
+    scope,
+  );
+  if (dentroIlPerimetro) {
+    if (where.subject_id) {
+      if (!dentroIlPerimetro.includes(where.subject_id)) {
+        throw denied(
+          "questa persona e fuori dal perimetro di sede o categoria dell'accesso",
+        );
+      }
+    } else {
+      where.OR = [
+        { subject_kind: { not: "athlete" } },
+        { subject_id: { in: dentroIlPerimetro } },
+      ];
+    }
+  }
 
   const rows = (await prisma.documentSubmission.findMany({
     where,

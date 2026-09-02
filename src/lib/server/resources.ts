@@ -53,6 +53,7 @@ import {
 } from "../club-seasons";
 import { toBirthDateIso } from "../birth-date";
 import { withPlatformOwnedSettings } from "../entitlements/ownership";
+import { hasSeasonPermission } from "@/lib/seasons/permissions";
 import { assertPersonalDataDisposed } from "./data-subject";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import {
@@ -5530,6 +5531,53 @@ const guardPlatformOwnedClubSettings = async (
 ) => {
   if (resource !== "clubs" && resource !== "organizations") return;
   if (normalized.settings === undefined) return;
+
+  /*
+    **La stagione attiva ha una chiave, e la porta generica la scavalcava.**
+
+    Le stagioni vivono in `clubs.settings.seasons` e `settings.activeSeasonId`,
+    e `PATCH /api/v1/clubs/:id` le scrive. La guardia qui sotto protegge cio che
+    e **della piattaforma** — abbonamento, servizi, diritti — non cio che e
+    riservato alla direzione del club.
+
+    Misurato: un ruolo a cui era stata tolta la casella `seasons.change`
+    cambiava comunque `activeSeasonId` di qui. E il modulo delle stagioni scrive
+    che cambiare stagione «riscrive il perimetro di **tutto** cio che il club
+    vede»: una casella che non impedisce l'atto che nomina e la promessa vuota
+    che questa Wave esiste per smontare.
+  */
+  const settingsNuovi =
+    normalized.settings && typeof normalized.settings === "object"
+      ? (normalized.settings as Record<string, any>)
+      : {};
+  const settingsVecchi =
+    existingSettings && typeof existingSettings === "object"
+      ? (existingSettings as Record<string, any>)
+      : {};
+
+  const toccaLaStagione = ["seasons", "activeSeasonId", "activeSeason"].some(
+    (campo) =>
+      Object.prototype.hasOwnProperty.call(settingsNuovi, campo) &&
+      JSON.stringify(settingsNuovi[campo] ?? null) !==
+        JSON.stringify(settingsVecchi[campo] ?? null),
+  );
+
+  if (toccaLaStagione && scope && !hasSeasonPermission(scope.activeRole, "seasons.change")) {
+    await recordPermissionDenied({
+      scope: {
+        userId: scope.userId,
+        activeRole: scope.activeRole,
+        activeOrganizationId: scope.activeOrganizationId,
+      },
+      permission: "seasons.change",
+      resource: "clubs",
+      resourceId: String(organizationId || ""),
+      metadata: { reason: "season_change_from_generic_route" },
+    });
+    throw new Error(
+      "Accesso negato: la stagione attiva la cambia chi ne ha il permesso, e questa strada non lo chiedeva",
+    );
+  }
 
   const guard = withPlatformOwnedSettings(existingSettings, normalized.settings, {
     isPlatformAdmin: Boolean(options?.isPlatformAdmin),

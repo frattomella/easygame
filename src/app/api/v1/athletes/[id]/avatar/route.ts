@@ -185,6 +185,27 @@ export async function GET(request: Request, context: Context) {
       const attachment = await readAttachment(attachmentId, scope);
       if (!attachment) return notFound();
 
+      /*
+        **Questa rotta consegna una foto, e consegnava qualunque cosa.**
+
+        L'identificativo arriva da `avatar_url` / `data.avatar`, cioe da un
+        campo che chiunque possa scrivere l'anagrafica influenza. Poi finiva in
+        `readAttachment`, che verifica il club e — da questa Wave — il
+        perimetro, ma **non** la categoria: piantando li il riferimento a un
+        certificato medico, un allenatore lo scaricava da qui mentre le due
+        porte dei documenti gli rispondevano 403.
+
+        Il difetto strutturale e a monte — ogni rotta che passa a
+        `readAttachment` un identificativo influenzabile dal client aggira
+        `attachment-permissions.ts` — e questa e oggi l'unica. Si chiude
+        dicendo cosa questa rotta serve: **un'immagine**. Qualunque altra cosa
+        e nel posto sbagliato, e il posto giusto ha le sue guardie.
+      */
+      const tipo = String(attachment.metadata.mimeType || "").toLowerCase();
+      if (!tipo.startsWith("image/")) {
+        return notFound();
+      }
+
       return new NextResponse(new Uint8Array(attachment.content), {
         status: 200,
         headers: headers(attachment.metadata.mimeType, attachment.content.length),

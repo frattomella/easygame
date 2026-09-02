@@ -323,6 +323,119 @@ const ENTRIES: readonly PermissionEntry[] = [
     roles: GESTIONE,
   },
 
+  /* ------------------------------------------------- comunicazioni e bacheca --- */
+  /*
+    **Quattordici poteri che nessuna casella governava.**
+
+    Questi domini hanno una **matrice privata** e chiamano gia
+    `narrowDomainPermission` — ma quella funzione, davanti a una chiave che il
+    catalogo non conosce, risponde «vale il ruolo base». Il ponte c'era e non
+    reggeva nessun peso: un ruolo personalizzato con **una** chiave poteva
+    inviare comunicazioni a tutte le famiglie, selezionare il pubblico «chi non
+    ha pagato», pubblicare in bacheca, accendere automazioni, e stornare
+    movimenti contabili.
+
+    Il presidio della domanda inversa non le vedeva per costruzione: filtrava
+    per **domini gia in catalogo**, quindi un dominio interamente assente era
+    invisibile. Una revisione ostile lo ha dimostrato inventando quattro chiavi
+    in domini orfani e ottenendo un verde.
+
+    Le matrici restano dove sono — sono dei domini — e qui entra l'**elenco**,
+    che e cio che l'editor disegna. E la stessa forma gia usata per
+    `sport_work`.
+  */
+  {
+    key: "communications.send",
+    domain: "communications",
+    label: "Creare e inviare una comunicazione alle famiglie",
+    roles: DIREZIONE,
+  },
+  {
+    key: "communications.read_recipients",
+    domain: "communications",
+    label: "Vedere l'elenco nominativo dei destinatari e degli esclusi",
+    roles: DIREZIONE,
+  },
+  {
+    key: "communications.audience_economic",
+    domain: "communications",
+    label: "Selezionare un pubblico in base alla posizione economica",
+    roles: DIREZIONE,
+  },
+  {
+    key: "automations.manage",
+    domain: "communications",
+    label: "Creare, modificare, accendere e spegnere un'automazione",
+    roles: DIREZIONE,
+  },
+  {
+    key: "board.publish",
+    domain: "communications",
+    label: "Pubblicare un avviso in bacheca",
+    roles: DIREZIONE,
+  },
+  /*
+    `board.read` **non** entra in catalogo, ed e una scelta.
+
+    Il dominio la dichiara nel proprio vocabolario, ma nessuna guardia la
+    interroga: le schermate della bacheca decidono con altri criteri, e la
+    chiave compare solo nei commenti che raccontano una lane passata.
+
+    Metterla qui darebbe all'editor una casella che non toglie niente — cioe
+    esattamente il difetto che le quattordici righe qui sopra chiudono, con il
+    segno invertito. Quando una guardia la chiedera, entrera.
+  */
+
+  /* ------------------------------------------------------------ contabilita --- */
+  {
+    key: "accounting.read",
+    domain: "accounting",
+    label: "Leggere la prima nota e i movimenti del club",
+    roles: GESTIONE,
+  },
+  {
+    key: "accounting.manage",
+    domain: "accounting",
+    label: "Registrare e modificare un movimento",
+    roles: GESTIONE,
+  },
+  {
+    key: "accounting.reconcile",
+    domain: "accounting",
+    label: "Riconciliare un movimento con un incasso",
+    roles: GESTIONE,
+  },
+  {
+    key: "accounting.reverse",
+    domain: "accounting",
+    label: "Stornare un movimento gia registrato",
+    roles: DIREZIONE,
+  },
+  {
+    key: "accounting.export",
+    domain: "accounting",
+    label: "Esportare la contabilita del club",
+    roles: DIREZIONE,
+  },
+  {
+    key: "accounting.accounts_read",
+    domain: "accounting",
+    label: "Vedere i conti correnti del club e i loro saldi",
+    roles: DIREZIONE,
+  },
+  {
+    key: "accounting.accounts_manage",
+    domain: "accounting",
+    label: "Aprire, modificare e chiudere un conto corrente",
+    roles: DIREZIONE,
+  },
+  {
+    key: "accounting.causes_manage",
+    domain: "accounting",
+    label: "Configurare le causali contabili del club",
+    roles: DIREZIONE,
+  },
+
   /* ---------------------------------------------------- stagioni sportive --- */
   /*
     La chiave esisteva gia in `src/lib/seasons/permissions.ts` e non era in

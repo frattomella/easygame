@@ -37,6 +37,15 @@ import {
   canReadMembershipRegister,
 } from "../../src/lib/members/permissions.ts";
 import { canAccessClubResource } from "../../src/lib/access-roles.ts";
+import {
+  COMMUNICATION_PERMISSIONS,
+  hasCommunicationPermission,
+} from "../../src/lib/communications/permissions.ts";
+import {
+  ACCOUNTING_PERMISSIONS,
+  hasAccountingPermission,
+} from "../../src/lib/accounting/permissions.ts";
+import { SEASON_PERMISSIONS } from "../../src/lib/seasons/permissions.ts";
 
 /**
  * **Il catalogo unico delle chiavi di permesso** (W5-70), e la fine
@@ -539,8 +548,28 @@ const CATALOGHI_DI_AUDIT = [
   guardia, con un dominio fra questi, e quasi certamente una chiave: e il
   criterio piu largo che non annega nei falsi positivi.
 */
+/*
+  **I domini si prendono dal catalogo E dai vocabolari dei domini.**
+
+  Prendendoli dal solo catalogo, un dominio interamente assente era invisibile
+  per costruzione: e cosi che quattordici chiavi di `communications` e
+  `accounting` — «manda a chi non ha pagato», «storna un movimento» — sono
+  vissute fuori da ogni casella. Una revisione ostile lo ha dimostrato
+  inventando chiavi in domini orfani e ottenendo un verde.
+
+  Prendere **tutte** le stringhe a forma di chiave non funziona: i segnaposto
+  dei documenti e delle automazioni (`athlete.first_name`, `club.name`) hanno
+  la stessa forma e non sono permessi. Il criterio giusto sta in mezzo — i
+  domini che qualcuno dichiara come **vocabolario di permessi** — ed e chiuso
+  dal controllo qui sotto, che pretende che ogni vocabolario stia in catalogo.
+*/
 const dominiNoti = () =>
-  new Set(listPermissionKeys().map((chiave) => chiave.split(".")[0]));
+  new Set(
+    [
+      ...listPermissionKeys(),
+      ...VOCABOLARI_DI_DOMINIO.flatMap((voce) => voce.chiavi),
+    ].map((chiave) => chiave.split(".")[0]),
+  );
 
 const CHIAVE_CITATA = new RegExp(
   String.raw`"([a-z][a-z_]*\.[a-z][a-z_.]*)"`,
@@ -671,4 +700,92 @@ test("W6 · togliere la chiave toglie davvero il potere, e rimetterla lo ridà",
   // e il ruolo canonico non cambia comportamento
   assert.equal(roleHasPermission("club_manager", "data_subject.erase"), true);
   assert.equal(roleHasPermission("secretary", "data_subject.erase"), false);
+});
+
+/**
+ * I vocabolari che ogni dominio con **matrice privata** dichiara per conto suo.
+ *
+ * Sono la fonte piu affidabile per sapere quali chiavi esistono davvero: un
+ * dominio le elenca perche le usa, mentre un controllo che legge il sorgente
+ * deve indovinare quali stringhe siano permessi.
+ */
+const VOCABOLARI_DI_DOMINIO = [
+  { nome: "health", chiavi: HEALTH_PERMISSIONS },
+  { nome: "sport_work", chiavi: SPORT_WORK_PERMISSIONS },
+  { nome: "communications", chiavi: COMMUNICATION_PERMISSIONS },
+  { nome: "accounting", chiavi: ACCOUNTING_PERMISSIONS },
+  { nome: "seasons", chiavi: SEASON_PERMISSIONS },
+];
+
+test("W6 · ogni chiave che un dominio dichiara sta in catalogo", () => {
+  /*
+    **L'invariante che chiude la classe, e che il presidio testuale non poteva
+    chiudere.**
+
+    `narrowDomainPermission`, davanti a una chiave che il catalogo non conosce,
+    risponde «vale il ruolo base»: un dominio con matrice privata puo quindi
+    chiamare il restringimento e non restringere niente. E successo a
+    `communications` e ad `accounting` — quattordici chiavi, fra cui «seleziona
+    il pubblico in base alla posizione economica» e «storna un movimento» —
+    mentre la documentazione presentava quei domini come **ponteggiati**.
+
+    Il ponte c'era. Non reggeva nessun peso, perche il catalogo non conosceva
+    le chiavi che ci passavano sopra.
+
+    Le eccezioni si dichiarano qui con il motivo: una chiave che nessuna
+    guardia interroga non entra in catalogo, perche darebbe all'editor una
+    casella che non toglie niente.
+  */
+  const DICHIARATE_MA_NON_APPLICATE = new Map([
+    [
+      "board.read",
+      "nessuna guardia la interroga: le schermate della bacheca decidono con altri criteri, e una casella che non toglie niente e il difetto opposto",
+    ],
+  ]);
+
+  const conosciute = new Set(listPermissionKeys());
+  const orfane = [];
+
+  for (const { nome, chiavi } of VOCABOLARI_DI_DOMINIO) {
+    for (const chiave of chiavi) {
+      if (conosciute.has(chiave)) {
+        assert.equal(
+          DICHIARATE_MA_NON_APPLICATE.has(chiave),
+          false,
+          `${chiave} e dichiarata non applicata ma sta in catalogo: togli la riga`,
+        );
+        continue;
+      }
+      if (DICHIARATE_MA_NON_APPLICATE.has(chiave)) continue;
+      orfane.push(`${chiave} (vocabolario ${nome})`);
+    }
+  }
+
+  assert.deepEqual(
+    orfane,
+    [],
+    `chiavi dichiarate da un dominio e assenti dal catalogo: ${orfane.join(", ")}. ` +
+      "Fuori catalogo `narrowDomainPermission` risponde «vale il ruolo base»: " +
+      "il restringimento di un ruolo personalizzato non arriva, e la casella non esiste",
+  );
+});
+
+test("W6 · e restringere davvero toglie quei poteri a un ruolo personalizzato", () => {
+  /*
+    La prova sul comportamento, sulle due chiavi piu pesanti dei due domini che
+    erano scoperti: chi non le ha non le esercita, chi le ha si, e il ruolo
+    canonico non cambia.
+  */
+  const senza = "custom:club_manager:segreteria#members.register.read";
+  const con =
+    "custom:club_manager:segreteria#communications.audience_economic,accounting.reverse";
+
+  assert.equal(hasCommunicationPermission(senza, "communications.audience_economic"), false);
+  assert.equal(hasCommunicationPermission(con, "communications.audience_economic"), true);
+  assert.equal(hasAccountingPermission(senza, "accounting.reverse"), false);
+  assert.equal(hasAccountingPermission(con, "accounting.reverse"), true);
+
+  assert.equal(hasCommunicationPermission("club_manager", "communications.audience_economic"), true);
+  assert.equal(hasAccountingPermission("club_manager", "accounting.reverse"), true);
+  assert.equal(hasAccountingPermission("trainer", "accounting.read"), false);
 });

@@ -1,4 +1,6 @@
 import { createHash } from "crypto";
+import { athleteWithinAccessScope } from "./access-scope-query";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
 import {
@@ -41,6 +43,15 @@ export type AttachmentAccessScope = {
   userId: string;
   activeOrganizationId: string | null;
   allowedOrganizationIds: string[];
+  /**
+   * Il perimetro di sede e categoria, quando chi legge ne ha uno.
+   *
+   * Gli allegati non lo conoscevano affatto, e sono la **fine** di ogni catena:
+   * chiunque ottenesse un identificativo — da una coda non perimetrata, da un
+   * elenco, da un fascicolo — arrivava ai byte. Una revisione ostile ha
+   * scaricato cosi la carta d'identita di un minore di un'altra sede.
+   */
+  accessScopes?: readonly AccessScopeEntry[] | null;
 };
 
 const denied = (message: string) => new Error(`Accesso negato: ${message}`);
@@ -478,6 +489,36 @@ export type AttachmentContent = {
   content: Buffer;
 };
 
+/**
+ * **Il perimetro arriva fino ai byte.**
+ *
+ * Un allegato di un atleta appartiene a quell'atleta: se l'atleta e fuori dal
+ * perimetro di chi legge, i suoi byte lo sono. Prima non c'era nessun
+ * controllo, e questa e la fine di ogni catena — l'identificativo si ottiene da
+ * una coda, da un elenco, da un fascicolo, e chi lo ha in mano scarica.
+ *
+ * Gli allegati che non appartengono a un atleta non sono toccati: il perimetro
+ * parla di sedi e categorie, che sono di una persona.
+ */
+const assertAttachmentWithinAccessScope = async (
+  scope: AttachmentAccessScope | undefined,
+  row: { owner_type?: string | null; owner_id?: string | null; organization_id?: string | null },
+) => {
+  if (!scope) return;
+  if (String(row?.owner_type || "").trim().toLowerCase() !== "athlete") return;
+
+  const atleta = String(row?.owner_id || "").trim();
+  const club = String(row?.organization_id || "").trim();
+  if (!atleta || !club) return;
+
+  const dentro = await athleteWithinAccessScope(club, atleta, scope);
+  if (dentro) return;
+
+  throw denied(
+    "questo documento appartiene a una persona fuori dal perimetro di sede o categoria dell'accesso",
+  );
+};
+
 export const readAttachment = async (
   id: string,
   scope?: AttachmentAccessScope,
@@ -489,6 +530,7 @@ export const readAttachment = async (
 
   if (!row) return null;
   ensureOrganizationAccess(scope, row.organization_id);
+  await assertAttachmentWithinAccessScope(scope, row);
 
   const content = await driverFor(row.storage_driver).get(id, row.storage_key);
   if (!content) return null;
