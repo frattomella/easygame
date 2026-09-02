@@ -3,6 +3,7 @@ import {
   assertMembershipWithinAccessScope,
   athleteWithinAccessScope,
   buildAthleteAccessScopeConditions,
+  buildMembershipAccessScopeConditions,
 } from "./access-scope-query";
 import {
   assertActiveClub,
@@ -3602,14 +3603,33 @@ export const buildWhereFromSearchParams = (
  * dimenticanza»: sono fuori da cio che questi due assi sanno dire, ed e
  * scritto in [16] con il conto dei domini scoperti.
  */
+/**
+ * **La tabella che *definisce* il perimetro era servita senza perimetro.**
+ *
+ * Il filtro copriva le due risorse dell'anagrafica e nient'altro. Ma
+ * `athlete_category_memberships` **e** il perimetro:
+ * `buildAthleteAccessScopeConditions` interroga proprio quella tabella per
+ * decidere chi passa. Servirla intera a chi e recintato gli dava la mappa
+ * completa `atleta -> sede/categoria` del club, cioe l'elenco esatto degli
+ * identificativi che ogni altra porta accetta.
+ *
+ * Qui il perimetro si applica sulla riga stessa — la sede e la categoria sono
+ * sue colonne — e non passando dall'atleta: e la stessa regola che
+ * `assertMembershipWithinAccessScope` applica gia in scrittura.
+ */
 const buildAccessScopeFilter = (
   resource: string,
   scope?: ResourceAccessScope,
 ) => {
-  if (resource !== "athletes" && resource !== "simplified_athletes") {
-    return null;
+  if (resource === "athletes" || resource === "simplified_athletes") {
+    return buildAthleteAccessScopeConditions(scope);
   }
-  return buildAthleteAccessScopeConditions(scope);
+
+  if (resource === "athlete_category_memberships") {
+    return buildMembershipAccessScopeConditions(scope);
+  }
+
+  return null;
 };
 
 /**

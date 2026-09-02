@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { athleteWithinAccessScope } from "@/lib/server/access-scope-query";
 import { canAccessClubResource } from "@/lib/access-roles";
 import {
   requireAuthenticatedUser,
@@ -149,6 +150,37 @@ export async function GET(request: Request, context: Context) {
         {
           data: null,
           error: { message: "Accesso negato per il ruolo attivo" },
+        },
+        { status: 403 },
+      );
+    }
+
+    /*
+      **Il perimetro vale anche per una foto.**
+
+      La rotta appartiene al dominio `athletes`, ed era l'unica sua superficie
+      a non consultare il perimetro di sede e categoria: il volto di un minore
+      di un'altra sede usciva con un 200. La catena e completa e misurata —
+      l'elenco degli allegati dava gli identificativi, questa rotta dava le
+      facce.
+
+      Il ramo `attachment:` sarebbe stato salvato da `readAttachment`; i rami
+      `data:` (storico, e il commento di questa rotta dichiara che esiste
+      ancora) e `https:` consegnano i byte direttamente.
+    */
+    const dentroIlPerimetro = await athleteWithinAccessScope(
+      athlete.organization_id,
+      athlete.id,
+      scope,
+    );
+    if (!dentroIlPerimetro) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Accesso negato: questo atleta e fuori dal perimetro di sede o categoria del ruolo attivo",
+          },
         },
         { status: 403 },
       );

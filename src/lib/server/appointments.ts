@@ -1,4 +1,6 @@
 import { prisma } from "./prisma";
+import { athleteWithinAccessScope } from "./access-scope-query";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { isManagementAccessRole, normalizeAccessRole } from "@/lib/access-roles";
 import { roleHasPermission } from "@/lib/permissions/catalog";
@@ -89,6 +91,8 @@ export type AppointmentsScope = {
   activeOrganizationId?: string | null;
   activeRole?: string | null;
   allowedOrganizationIds?: string[];
+  /** Il perimetro di sede e categoria. */
+  accessScopes?: readonly AccessScopeEntry[] | null;
 };
 
 type Attore = {
@@ -691,6 +695,29 @@ export const createAppointment = async (
 ) => {
   await assertAppointmentsPermission(scope, "appointments.request");
   const organizationId = requireActiveOrganization(scope);
+
+  /*
+    **Fissare un appuntamento su una persona e un atto su quella persona.**
+
+    La **lettura** degli appuntamenti fuori perimetro e debito dichiarato
+    (W6-D18). La scrittura no: `reason` e `notes` sono testo libero, la
+    creazione manda una notifica ai tutori del minore, e nessuno del club di
+    quella sede ha chiesto niente. Un debito che dice «non filtra» non
+    copre «scrive e avvisa».
+  */
+  const suAtleta = asText(input.athleteId);
+  if (suAtleta) {
+    const dentro = await athleteWithinAccessScope(
+      organizationId,
+      suAtleta,
+      scope,
+    );
+    if (!dentro) {
+      throw negato(
+        "questo atleta e fuori dal perimetro di sede o categoria del ruolo attivo",
+      );
+    }
+  }
 
   const confermato = Boolean(input.confirmed);
   const fuoriDaSlot = Boolean(input.outsideAvailability);

@@ -100,6 +100,49 @@ export const accessScopeAllows = (
   return true;
 };
 
+/**
+ * **Un perimetro non si allarga concedendolo a qualcun altro.**
+ *
+ * `updateAssignmentScopes` vieta gia di cambiare il **proprio** perimetro, e
+ * il commento accanto racconta perche. Ma il perimetro non faceva parte del
+ * soffitto di una concessione: `assertMayGrantRole` confronta le **chiavi** e
+ * mai gli **scope**.
+ *
+ * Misurato: un `club_manager` recintato sulla sede Nord concedeva a una
+ * seconda utenza un `club_manager` **senza perimetro**, e da quel momento
+ * leggeva tutto il club per interposta persona. E la stessa lezione gia
+ * scritta per le chiavi — «l'auto-assegnazione era vietata; concederlo a un
+ * complice no» — un asse piu in la.
+ *
+ * La regola tiene conto della semantica dei due assi, che sono in **AND** fra
+ * loro: chi restringe la sede deve concedere una sede, e sceglierla fra le
+ * proprie. Restringere anche la categoria e lecito — e piu stretto. Non
+ * nominare affatto un asse che si ha ristretto **non** lo e: zero righe su un
+ * asse significa «tutto il club», che e piu largo.
+ *
+ * Chi non ha un perimetro non e toccato: concede quello che vuole.
+ */
+export const accessScopeContains = (
+  concedente: readonly AccessScopeEntry[] | null | undefined,
+  concesso: readonly AccessScopeEntry[] | null | undefined,
+) => {
+  const mio = normalizeAccessScopes(concedente);
+  if (!mio.length) return true;
+
+  const suo = normalizeAccessScopes(concesso);
+
+  for (const kind of ACCESS_SCOPE_KINDS) {
+    const miei = mio.filter((entry) => entry.kind === kind).map((e) => e.value);
+    if (!miei.length) continue;
+
+    const suoi = suo.filter((entry) => entry.kind === kind).map((e) => e.value);
+    if (!suoi.length) return false;
+    if (suoi.some((valore) => !miei.includes(valore))) return false;
+  }
+
+  return true;
+};
+
 /** I valori di un asse, per costruire un filtro `in` senza ripetere la forma. */
 export const accessScopeValues = (
   scopes: readonly AccessScopeEntry[] | null | undefined,

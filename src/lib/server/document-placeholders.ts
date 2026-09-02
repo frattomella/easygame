@@ -1,4 +1,6 @@
 import { prisma } from "./prisma";
+import { athleteWithinAccessScope } from "./access-scope-query";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { buildMemberIdentity, getResourceById } from "./resources";
 import { readClubSignatureImage } from "./club-signature";
@@ -67,6 +69,8 @@ export type DocumentPlaceholderScope = {
   userId: string;
   activeOrganizationId: string | null;
   allowedOrganizationIds: string[];
+  /** Il perimetro di sede e categoria: un documento non esce su chi e fuori. */
+  accessScopes?: readonly AccessScopeEntry[] | null;
 };
 
 export type DocumentPlaceholderTemplate = {
@@ -631,6 +635,28 @@ export const resolveDocumentPlaceholders = async ({
 
   if (!athlete) {
     throw denied("l'atleta non appartiene a questo club");
+  }
+
+  /*
+    **E il perimetro, che qui non arrivava.**
+
+    Il filtro per club c'era; quello di sede e categoria no. Misurato:
+    generando un documento su un minore fuori perimetro se ne ottenevano nome,
+    **indirizzo e telefono** — e il registro generico gli negava la stessa
+    anagrafica una riga piu in la.
+
+    Il documento e la porta di servizio dell'anagrafica: chiede l'atleta per
+    identificativo e ne rende i campi, uno per uno, dentro un HTML.
+  */
+  const dentroIlPerimetro = await athleteWithinAccessScope(
+    clubId,
+    wantedAthleteId,
+    scope,
+  );
+  if (!dentroIlPerimetro) {
+    throw denied(
+      "questo atleta e fuori dal perimetro di sede o categoria del ruolo attivo",
+    );
   }
 
   const club = await getResourceById("clubs", clubId, scope);

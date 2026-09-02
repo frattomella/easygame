@@ -1,4 +1,8 @@
 import { prisma } from "./prisma";
+import {
+  athleteIdsWithinAccessScope,
+  buildAthleteAccessScopeConditions,
+} from "./access-scope-query";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { normalizeAccessRole } from "@/lib/access-roles";
 import { roleHasPermission } from "@/lib/permissions/catalog";
@@ -72,6 +76,14 @@ export type EventsScope = {
   activeOrganizationId?: string | null;
   activeRole?: string | null;
   allowedOrganizationIds?: string[];
+  /**
+   * Il perimetro di sede e categoria.
+   *
+   * Il dominio lo usava gia — `assertAccessScopeOnEvent` — leggendolo da uno
+   * scope che il tipo non dichiarava. Dichiararlo serve a poterlo passare
+   * anche alla guardia sulle **persone**, che e quella che mancava.
+   */
+  accessScopes?: readonly AccessScopeEntry[] | null;
 };
 
 type Attore = {
@@ -914,6 +926,58 @@ export type ConvocationInput = {
  * dello stesso fatto con tre scrittori distinti (ADR-0086, esteso da
  * ADR-0099). Una promessa non diventa mai una presenza.
  */
+/**
+ * **Il perimetro va guardato anche sulle persone, non solo sull'evento.**
+ *
+ * `assertAccessScopeOnEvent` confronta il perimetro con la sede e la
+ * categoria **dell'evento**. Gli atleti che l'evento nomina non venivano
+ * confrontati con niente.
+ *
+ * Misurato: un operatore recintato sulla sede Nord crea un evento nella
+ * **propria** sede — che passa — e ci convoca un minore della sede Sud, poi
+ * ne segna la presenza. Convocare scrive su quel minore e fa partire l'invito
+ * alla sua famiglia; la presenza e il dato su cui si rendicontano i
+ * contributi pubblici.
+ *
+ * E la stessa regola gia scritta per le appartenenze —
+ * `assertMembershipWithinAccessScope`, «il perimetro non si allarga da
+ * dentro» — mancante sul lato atleta della convocazione.
+ */
+const assertAtletiDentroIlPerimetro = async (
+  scope: EventsScope,
+  organizationId: string,
+  athleteIds: readonly string[],
+  permesso: string,
+) => {
+  const richiesti = Array.from(
+    new Set(athleteIds.map((id) => asText(id)).filter(Boolean)),
+  );
+  if (!richiesti.length) return;
+  if (!buildAthleteAccessScopeConditions(scope)) return;
+
+  const ammessi = new Set(
+    await athleteIdsWithinAccessScope(organizationId, scope),
+  );
+  const fuori = richiesti.filter((id) => !ammessi.has(id));
+  if (!fuori.length) return;
+
+  await recordPermissionDenied({
+    scope: {
+      userId: scope.userId,
+      activeRole: scope.activeRole,
+      activeOrganizationId: organizationId,
+    },
+    permission: permesso,
+    resource: "club_event_participants",
+    resourceId: fuori[0],
+    metadata: { fuori_dal_perimetro: fuori.length },
+  });
+
+  throw new Error(
+    "Accesso negato: uno degli atleti indicati e fuori dal perimetro di sede o categoria del ruolo attivo",
+  );
+};
+
 export const saveEventConvocations = async (
   scope: EventsScope,
   idOrLegacyId: string,
@@ -936,6 +1000,13 @@ export const saveEventConvocations = async (
       isExtraCategory: Boolean(entry.isExtraCategory),
     }))
     .filter((entry) => entry.athleteId && entry.status);
+
+  await assertAtletiDentroIlPerimetro(
+    scope,
+    organizationId,
+    normalizzate.map((entry) => entry.athleteId),
+    "events.convoke",
+  );
 
   const convocati = normalizzate.filter(
     (entry) => entry.status === "convocated",
@@ -1055,6 +1126,13 @@ export const saveEventAttendance = async (
       notes: asText(entry.notes) || null,
     }))
     .filter((entry) => entry.athleteId);
+
+  await assertAtletiDentroIlPerimetro(
+    scope,
+    organizationId,
+    normalizzate.map((entry) => entry.athleteId),
+    "events.attendance",
+  );
 
   await prisma.$transaction(async (tx) => {
     for (const entry of normalizzate) {

@@ -1,5 +1,9 @@
 import { createHash } from "crypto";
-import { athleteWithinAccessScope } from "./access-scope-query";
+import {
+  athleteIdsWithinAccessScope,
+  athleteWithinAccessScope,
+  buildAthleteAccessScopeConditions,
+} from "./access-scope-query";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
@@ -378,6 +382,36 @@ export const createAttachment = async (
  * ricarica», che invece lascerebbe il record a puntare al nulla per il tempo
  * che passa fra le due operazioni.
  */
+/**
+ * **Il perimetro arriva fino ai byte.**
+ *
+ * Un allegato di un atleta appartiene a quell'atleta: se l'atleta e fuori dal
+ * perimetro di chi legge, i suoi byte lo sono. Prima non c'era nessun
+ * controllo, e questa e la fine di ogni catena — l'identificativo si ottiene da
+ * una coda, da un elenco, da un fascicolo, e chi lo ha in mano scarica.
+ *
+ * Gli allegati che non appartengono a un atleta non sono toccati: il perimetro
+ * parla di sedi e categorie, che sono di una persona.
+ */
+const assertAttachmentWithinAccessScope = async (
+  scope: AttachmentAccessScope | undefined,
+  row: { owner_type?: string | null; owner_id?: string | null; organization_id?: string | null },
+) => {
+  if (!scope) return;
+  if (String(row?.owner_type || "").trim().toLowerCase() !== "athlete") return;
+
+  const atleta = String(row?.owner_id || "").trim();
+  const club = String(row?.organization_id || "").trim();
+  if (!atleta || !club) return;
+
+  const dentro = await athleteWithinAccessScope(club, atleta, scope);
+  if (dentro) return;
+
+  throw denied(
+    "questo documento appartiene a una persona fuori dal perimetro di sede o categoria dell'accesso",
+  );
+};
+
 export const replaceAttachmentContent = async (
   id: string,
   input: {
@@ -407,6 +441,16 @@ export const replaceAttachmentContent = async (
   }
 
   ensureOrganizationAccess(scope, existing.organization_id);
+  /*
+    **Il perimetro si fermava un verbo prima.**
+
+    Misurato: la carta d'identita di un minore fuori perimetro **non si
+    legge** (403 su `readAttachment`) e si poteva **sovrascrivere** con
+    qualunque cosa, e **distruggere**. L'asimmetria e assurda, e nasce
+    dall'aver messo la guardia sulla funzione che consegna i byte invece che
+    su tutte quelle che li toccano.
+  */
+  await assertAttachmentWithinAccessScope(scope, existing);
 
   const content = input.content;
   if (!Buffer.isBuffer(content) || content.length === 0) {
@@ -480,6 +524,12 @@ export const getAttachmentMetadata = async (
 
   if (!row) return null;
   ensureOrganizationAccess(scope, row.organization_id);
+  /*
+    La rotta degli allegati per identificativo si autorizza **con questa**, per PUT e
+    per DELETE: lasciarla fuori dal perimetro voleva dire lasciarci fuori
+    anche loro. E il nome del file nomina la persona.
+  */
+  await assertAttachmentWithinAccessScope(scope, row);
 
   return serializeAttachment(row);
 };
@@ -487,36 +537,6 @@ export const getAttachmentMetadata = async (
 export type AttachmentContent = {
   metadata: AttachmentMetadata;
   content: Buffer;
-};
-
-/**
- * **Il perimetro arriva fino ai byte.**
- *
- * Un allegato di un atleta appartiene a quell'atleta: se l'atleta e fuori dal
- * perimetro di chi legge, i suoi byte lo sono. Prima non c'era nessun
- * controllo, e questa e la fine di ogni catena — l'identificativo si ottiene da
- * una coda, da un elenco, da un fascicolo, e chi lo ha in mano scarica.
- *
- * Gli allegati che non appartengono a un atleta non sono toccati: il perimetro
- * parla di sedi e categorie, che sono di una persona.
- */
-const assertAttachmentWithinAccessScope = async (
-  scope: AttachmentAccessScope | undefined,
-  row: { owner_type?: string | null; owner_id?: string | null; organization_id?: string | null },
-) => {
-  if (!scope) return;
-  if (String(row?.owner_type || "").trim().toLowerCase() !== "athlete") return;
-
-  const atleta = String(row?.owner_id || "").trim();
-  const club = String(row?.organization_id || "").trim();
-  if (!atleta || !club) return;
-
-  const dentro = await athleteWithinAccessScope(club, atleta, scope);
-  if (dentro) return;
-
-  throw denied(
-    "questo documento appartiene a una persona fuori dal perimetro di sede o categoria dell'accesso",
-  );
 };
 
 export const readAttachment = async (
@@ -562,7 +582,38 @@ export const listAttachments = async (
     orderBy: { created_at: "desc" },
   });
 
-  return rows.map((row: Record<string, any>) => serializeAttachment(row));
+  /*
+    **Un elenco e la porta di servizio di ogni lettura per identificativo.**
+
+    I byte erano chiusi, i nomi dei file no — e un nome di file nomina la
+    persona. La riga porta anche `owner_id`, cioe l'identificativo di ogni
+    atleta fuori perimetro: la chiave d'ingresso di tutte le altre porte.
+
+    Si filtra dopo la lettura, e non nel `where`, perche il perimetro si
+    calcola sulle appartenenze e non su questa tabella: l'insieme degli
+    atleti ammessi si chiede una volta sola al proprietario del perimetro.
+  */
+  const diAtleti = rows.filter(
+    (row: Record<string, any>) =>
+      String(row?.owner_type || "").trim().toLowerCase() === "athlete",
+  );
+
+  if (!diAtleti.length || !buildAthleteAccessScopeConditions(scope)) {
+    return rows.map((row: Record<string, any>) => serializeAttachment(row));
+  }
+
+  const ammessi = new Set(
+    await athleteIdsWithinAccessScope(organizationId, scope),
+  );
+
+  return rows
+    .filter((row: Record<string, any>) => {
+      if (String(row?.owner_type || "").trim().toLowerCase() !== "athlete") {
+        return true;
+      }
+      return ammessi.has(String(row?.owner_id || "").trim());
+    })
+    .map((row: Record<string, any>) => serializeAttachment(row));
 };
 
 /**
@@ -648,6 +699,8 @@ export const deleteAttachment = async (
 
   if (!row) return false;
   ensureOrganizationAccess(scope, row.organization_id);
+  /* Cancellare e l'atto piu irreversibile dei tre: vedi `replaceAttachmentContent`. */
+  await assertAttachmentWithinAccessScope(scope, row);
 
   await driverFor(row.storage_driver).remove(id, row.storage_key);
   await (prisma as any).attachment.delete({ where: { id } });

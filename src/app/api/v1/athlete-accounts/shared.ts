@@ -80,6 +80,8 @@ export const risolviScope = async (
       activeOrganizationId: scope.activeOrganizationId,
       activeRole: scope.activeRole,
       allowedOrganizationIds: scope.allowedOrganizationIds,
+      /* Il perimetro: senza, si invita al posto di un minore di un altra sede. */
+      accessScopes: scope.accessScopes,
       actorEmail: session.db.user.email,
     },
   };

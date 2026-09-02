@@ -97,6 +97,39 @@ export const buildAthleteAccessScopeConditions = (
  * perimetro non si puo esprimere come `where` sulla stessa tabella, e passa da
  * un elenco di identificativi.
  */
+/**
+ * **Il perimetro sulla tabella che lo definisce.**
+ *
+ * `athlete_category_memberships` non e una risorsa come le altre: e la
+ * tabella che `buildAthleteAccessScopeConditions` interroga per decidere chi
+ * passa. Il registro generico la serviva **senza filtro**, e quindi dava a
+ * chi e recintato la mappa completa `atleta -> sede/categoria` del club:
+ * l'elenco esatto degli identificativi che ogni altra porta accetta.
+ *
+ * Qui il perimetro si applica alle colonne della riga stessa, non passando
+ * dall'atleta — e la stessa regola che `assertMembershipWithinAccessScope`
+ * applica gia in scrittura, dalla parte della lettura.
+ *
+ * Sta in questo modulo e non nel registro perche il **vocabolario** del
+ * perimetro ha un proprietario solo: averlo in due file e gia costato una
+ * divergenza, e il presidio la impedisce.
+ */
+export const buildMembershipAccessScopeConditions = (
+  scope: ScopeConPerimetro | undefined | null,
+) => {
+  const perimetri = normalizeAccessScopes(scope?.accessScopes);
+  if (!perimetri.length) return null;
+
+  const condizioni: Record<string, unknown>[] = [];
+  const sedi = accessScopeValues(perimetri, "site");
+  const categorie = accessScopeValues(perimetri, "category");
+
+  if (sedi.length) condizioni.push({ site_id: { in: sedi } });
+  if (categorie.length) condizioni.push({ category_id: { in: categorie } });
+
+  return condizioni.length ? condizioni : null;
+};
+
 export const athleteIdsWithinAccessScope = async (
   organizationId: string,
   scope: ScopeConPerimetro | undefined | null,

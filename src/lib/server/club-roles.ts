@@ -27,6 +27,7 @@ import {
   type CustomRoleDraft,
 } from "@/lib/roles/custom-role";
 import {
+  accessScopeContains,
   normalizeAccessScopes,
   type AccessScopeEntry,
 } from "@/lib/roles/access-scope";
@@ -64,6 +65,11 @@ export type ClubRolesScope = ActiveClubScope & {
   userId: string;
   activeRole: string | null;
   actorEmail?: string | null;
+  /**
+   * Il perimetro di chi amministra, che fa parte del **soffitto** di cio che
+   * puo concedere: vedi `accessScopeContains`.
+   */
+  accessScopes?: readonly AccessScopeEntry[] | null;
 };
 
 export type ClubRoleView = {
@@ -141,6 +147,39 @@ const assertPuoAmministrareAccessi = async (
   });
 
   throw roleDenied(`il ruolo attivo non puo ${atto}`);
+};
+
+/**
+ * Il perimetro che si concede dev'essere dentro il proprio.
+ *
+ * Vedi `accessScopeContains`. Qui si aggiunge la riga di audit, perche un
+ * tentativo di uscire dal recinto e un evento di sicurezza.
+ */
+const assertPerimetroConcedibile = async (
+  scope: ClubRolesScope,
+  richiesti: readonly AccessScopeEntry[],
+  atto: string,
+) => {
+  if (accessScopeContains(scope.accessScopes, richiesti)) return;
+
+  await recordPermissionDenied({
+    scope: {
+      userId: scope.userId,
+      activeRole: scope.activeRole,
+      activeOrganizationId: scope.activeOrganizationId,
+    },
+    permission: "club_roles.scope",
+    resource: "club_access_scopes",
+    metadata: {
+      action: atto,
+      mio: normalizeAccessScopes(scope.accessScopes),
+      richiesto: normalizeAccessScopes(richiesti),
+    },
+  });
+
+  throw roleDenied(
+    "non si concede un perimetro piu ampio del proprio: chi e ristretto a una sede o a una categoria puo delegare solo dentro di essa",
+  );
 };
 
 const tracciaDiniegoProprietario = async (
@@ -687,6 +726,7 @@ export const assignClubRole = async (
       "Un perimetro deve indicare «site» o «category» e un valore: la richiesta ne porta uno incompleto",
     );
   }
+  await assertPerimetroConcedibile(scope, perimetri, "assegnare un ruolo");
 
   /*
     **Il fondatore non si restringe.** La sua proprieta non nasce da una
@@ -837,6 +877,12 @@ export const updateAssignmentScopes = async (
       "Un perimetro deve indicare «site» o «category» e un valore: la richiesta ne porta uno incompleto",
     );
   }
+
+  await assertPerimetroConcedibile(
+    scope,
+    perimetri,
+    "cambiare il perimetro di un accesso",
+  );
 
   await prisma.clubAccessScope.deleteMany({
     where: { organization_user_id: tessera.id },

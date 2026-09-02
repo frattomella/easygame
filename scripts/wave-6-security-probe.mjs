@@ -104,6 +104,7 @@ let registro;
 let moduli;
 let ruoliDiAccesso;
 let permessiContabili;
+let segnaposto;
 let rotte = null;
 
 /* ----------------------------------------------------------- il verdetto */
@@ -222,6 +223,7 @@ const preparaTrasporto = async () => {
     moduloPubblico: await carica("src/app/api/public/forms/[publicSlug]/route.ts"),
     risorsa: await carica("src/app/api/v1/[resource]/route.ts"),
     riscatto: await carica("src/app/api/v1/auth/access/redeem/route.ts"),
+    avatar: await carica("src/app/api/v1/athletes/[id]/avatar/route.ts"),
   };
 };
 
@@ -3148,6 +3150,437 @@ const u55 = async () => {
   );
 };
 
+const u56 = async () => {
+  /* ================================================================== */
+  /*  U-56 — il perimetro, sulle nove porte che non lo guardavano        */
+  /*         [CRITICAL: minori, salute, cancellazione]                   */
+  /* ================================================================== */
+
+  /*
+    Una revisione ha censito **ogni** funzione che tocca un atleta e ha
+    misurato quali applicano il perimetro. Il risultato: le cinque superfici
+    coperte erano esattamente le cinque che le sonde esistenti esercitavano —
+    elenco, lettura per id, fascicolo, byte dell'allegato, scrittura
+    dell'appartenenza — e tutte le altre erano aperte.
+
+    Non e un difetto: e la forma di un presidio scritto **enumerando le porte**
+    invece che dichiarando la proprieta. Questa prova esiste per cambiare la
+    domanda: non «la porta X e chiusa?» ma «di tutto cio che si puo fare a una
+    persona, cosa passa il recinto?».
+  */
+  console.log(
+    `${NL}U-56 — il perimetro, sulle nove porte che non lo guardavano   [CRITICAL]`,
+  );
+
+  const perimetrato = {
+    ...scopeDi(utenti.club_manager.id, CLUB_A, "club_manager"),
+    accessScopes: [{ kind: "site", value: SEDE_A }],
+  };
+
+  /* Il controspecchio: dentro il perimetro tutto deve continuare a funzionare. */
+  prova(
+    "U-56 il controspecchio: il proprio atleta si legge ancora",
+    ATLETA_A,
+    (
+      await risorse.getResourceById("athletes", ATLETA_A, perimetrato)
+    )?.id ?? null,
+    "senza questo, una regola che negasse tutto passerebbe per una difesa",
+  );
+
+  /* --- 1. i diritti dell'interessato: export e cancellazione --- */
+  await varco(
+    "U-56 l'inventario di un minore fuori perimetro e negato",
+    () =>
+      datiPersonali.previewDataSubjectErasure(perimetrato, {
+        organizationId: CLUB_A,
+        subjectId: ATLETA_ALTRUI,
+      }),
+    ["negato"],
+  );
+
+  await varco(
+    "U-56 e il suo export",
+    () =>
+      datiPersonali.exportDataSubject(perimetrato, {
+        organizationId: CLUB_A,
+        subjectId: ATLETA_ALTRUI,
+      }),
+    ["negato"],
+  );
+
+  await varco(
+    "U-56 e la sua cancellazione, che e irreversibile",
+    () =>
+      datiPersonali.eraseDataSubject(perimetrato, {
+        organizationId: CLUB_A,
+        subjectId: ATLETA_ALTRUI,
+      }),
+    ["negato"],
+  );
+
+  const vivo = await prisma.athlete.findUnique({
+    where: { id: ATLETA_ALTRUI },
+    select: { first_name: true },
+  });
+  prova(
+    "U-56 e il minore fuori perimetro e ancora integro",
+    "Minore",
+    vivo?.first_name ?? null,
+    "la cancellazione anonimizza: se fosse passata, questo direbbe «[dato cancellato]»",
+  );
+
+  /* --- 2. il documentale per identificativo --- */
+  const richiestaFuori = await documenti.createDocumentRequest(
+    scopeRuolo("club_manager"),
+    {
+      subjectKind: "athlete",
+      subjectId: ATLETA_ALTRUI,
+      documentKind: "identity_document",
+      title: "Carta d'identita U-56",
+      required: true,
+    },
+  );
+  const idFuori =
+    richiestaFuori.requestId || richiestaFuori.id || richiestaFuori.request?.id;
+
+  for (const [titolo, atto] of [
+    [
+      "U-56 il sollecito su una richiesta fuori perimetro e negato",
+      () => documenti.remindDocumentRequest(perimetrato, idFuori),
+    ],
+    [
+      "U-56 e il suo annullamento",
+      () => documenti.cancelDocumentRequest(perimetrato, idFuori),
+    ],
+  ]) {
+    await varco(titolo, atto, ["negato", "ambiguo", "inesistente"]);
+  }
+
+  const richiestaDopo = await prisma.documentRequest.findUnique({
+    where: { id: idFuori },
+    select: { status: true, last_reminded_at: true },
+  });
+  prova(
+    "U-56 e la richiesta e intatta: nessun sollecito, nessun annullamento",
+    { stato: "open", sollecitata: false },
+    {
+      stato: richiestaDopo?.status ?? null,
+      sollecitata: Boolean(richiestaDopo?.last_reminded_at),
+    },
+  );
+
+  /* --- 3. gli allegati: leggere, riscrivere, distruggere --- */
+  const allegatoFuori = await allegati.createAttachment(
+    {
+      organizationId: CLUB_A,
+      ownerType: "athlete",
+      ownerId: ATLETA_ALTRUI,
+      category: "identity_document",
+      fileName: "u56-fuori.pdf",
+      mimeType: "application/pdf",
+      content: Buffer.from("%PDF-1.4 U56 BYTE DI UN MINORE FUORI PERIMETRO"),
+    },
+    scopeRuolo("club_manager"),
+  );
+
+  for (const [titolo, atto] of [
+    [
+      "U-56 i byte di un minore fuori perimetro non si leggono",
+      () => allegati.readAttachment(allegatoFuori.id, perimetrato),
+    ],
+    [
+      "U-56 e nemmeno si riscrivono",
+      () =>
+        allegati.replaceAttachmentContent(
+          allegatoFuori.id,
+          {
+            fileName: "sostituito.pdf",
+            mimeType: "application/pdf",
+            content: Buffer.from("%PDF-1.4 SOSTITUITO DA CHI NON PUO LEGGERLO"),
+          },
+          perimetrato,
+        ),
+    ],
+    [
+      "U-56 e nemmeno si distruggono",
+      () => allegati.deleteAttachment(allegatoFuori.id, perimetrato),
+    ],
+    [
+      "U-56 e nemmeno se ne leggono i metadati, che nominano la persona",
+      () => allegati.getAttachmentMetadata(allegatoFuori.id, perimetrato),
+    ],
+  ]) {
+    await varco(titolo, atto, ["negato"]);
+  }
+
+  const bytesDopo = await allegati.readAttachment(
+    allegatoFuori.id,
+    scopeRuolo("club_manager"),
+  );
+  prova(
+    "U-56 e il file e ancora quello di prima",
+    { esiste: true, originale: true },
+    {
+      esiste: Boolean(bytesDopo),
+      originale: String(bytesDopo?.content || "").includes("U56 BYTE"),
+    },
+  );
+
+  const elencati = await allegati.listAttachments(
+    { organizationId: CLUB_A, ownerType: "athlete" },
+    perimetrato,
+  );
+  prova(
+    "U-56 e l'elenco non nomina i file di chi e fuori",
+    false,
+    JSON.stringify(elencati).includes("u56-fuori.pdf"),
+    "il nome di un file nomina la persona, e la riga porta il suo identificativo",
+  );
+
+  /* --- 4. l'accesso EasyGame di un minore fuori perimetro --- */
+  await varco(
+    "U-56 l'invito all'account di un minore fuori perimetro e negato",
+    () =>
+      contiAtleta.sendAthleteAccountInvite(perimetrato, {
+        athleteId: ATLETA_ALTRUI,
+        email: "attaccante-u56@example.invalid",
+      }),
+    ["negato"],
+  );
+
+  prova(
+    "U-56 e nessun invito e stato scritto",
+    0,
+    await prisma.athleteAccountInvite.count({
+      where: { athlete_id: ATLETA_ALTRUI },
+    }),
+  );
+
+  /* --- 5. convocazione e presenza su una persona fuori perimetro --- */
+  const eventoDentro = await eventi.createClubEvent(
+    scopeRuolo("club_manager"),
+    "training",
+    {
+      id: "u56-allenamento",
+      date: "2026-10-08",
+      time: "18:00",
+      title: "Allenamento U-56",
+      siteId: SEDE_A,
+    },
+  );
+  const idEvento =
+    eventoDentro?.id || eventoDentro?.event?.id || "u56-allenamento";
+
+  await varco(
+    "U-56 non si convoca un atleta fuori perimetro in un evento della propria sede",
+    () =>
+      eventi.saveEventConvocations(perimetrato, idEvento, [
+        { athleteId: ATLETA_ALTRUI, status: "convocated" },
+      ]),
+    ["negato"],
+  );
+
+  await varco(
+    "U-56 e non se ne segna la presenza",
+    () =>
+      eventi.saveEventAttendance(perimetrato, idEvento, [
+        { athleteId: ATLETA_ALTRUI, status: "present" },
+      ]),
+    ["negato"],
+  );
+
+  prova(
+    "U-56 e nessuna riga di partecipazione e stata scritta",
+    0,
+    await prisma.clubEventParticipant.count({
+      where: { athlete_id: ATLETA_ALTRUI },
+    }),
+  );
+
+  /* --- 6. l'appuntamento, che scrive e avvisa --- */
+  await varco(
+    "U-56 non si fissa un appuntamento su un minore fuori perimetro",
+    () =>
+      appuntamenti.createAppointment(perimetrato, {
+        athleteId: ATLETA_ALTRUI,
+        reason: "Colloquio su un minore fuori perimetro",
+        startsAt: new Date(Date.now() + 172800_000).toISOString(),
+        outsideAvailability: true,
+        confirmed: true,
+      }),
+    ["negato"],
+  );
+
+  /* --- 7. la mappa del perimetro, servita dal registro generico --- */
+  const appartenenze = await risorse.listResource(
+    "athlete_category_memberships",
+    new URLSearchParams({ organization_id: CLUB_A }),
+    perimetrato,
+  );
+  prova(
+    "U-56 la tabella che definisce il perimetro non lo pubblica",
+    false,
+    JSON.stringify(appartenenze).includes(ATLETA_ALTRUI),
+    "e la mappa atleta -> sede: darla a chi e recintato e dargli le chiavi di tutte le altre porte",
+  );
+
+  /* --- 8. la foto --- */
+  /*
+    La foto va **seminata**: senza, la rotta risponde 404 per assenza e la
+    prova passerebbe anche a difesa spenta. E la forma di vacuita che questa
+    Wave ha imparato a temere.
+  */
+  await prisma.athlete.update({
+    where: { id: ATLETA_ALTRUI },
+    data: {
+      avatar_url:
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    },
+  });
+
+  /*
+    E il perimetro va scritto **in archivio**: questa rotta risolve il proprio
+    scope da sola — un `<img src>` non manda gli header — quindi uno scope
+    sintetico non la raggiungerebbe. E anche il modo giusto di provarlo: e
+    l unico percorso in cui il perimetro arriva dalla sessione vera.
+  */
+  const tesseraGestore = await prisma.organizationUser.findFirst({
+    where: {
+      organization_id: CLUB_A,
+      user_id: utenti.club_manager.id,
+      role: "club_manager",
+    },
+    select: { id: true },
+  });
+  await prisma.clubAccessScope.create({
+    data: {
+      organization_user_id: tesseraGestore.id,
+      scope_kind: "site",
+      scope_value: SEDE_A,
+    },
+  });
+
+  await comeUtente(utenti.club_manager, CLUB_A);
+  const foto = await rotte.avatar.GET(
+    richiesta(`/api/v1/athletes/${ATLETA_ALTRUI}/avatar`, {
+      headers: { "x-active-access-role": "club_manager" },
+    }),
+    { params: { id: ATLETA_ALTRUI } },
+  );
+  SESSIONE = null;
+  CLUB_ATTIVO = null;
+  await prisma.clubAccessScope.deleteMany({
+    where: { organization_user_id: tesseraGestore.id },
+  });
+
+  prova(
+    "U-56 e il volto di un minore fuori perimetro non esce",
+    true,
+    foto.status === 403,
+    `stato=${foto.status}. La catena era completa: l'elenco dava gli id, questa rotta le facce`,
+  );
+
+  /* --- 9. il documento generato, che rende i campi uno per uno --- */
+  await varco(
+    "U-56 un documento non si genera su un minore fuori perimetro",
+    () =>
+      segnaposto.resolveDocumentPlaceholders({
+        template: {
+          id: "u56",
+          title: "Prova",
+          content: "<p>{{athlete.address}} / {{athlete.phone}}</p>",
+        },
+        organizationId: CLUB_A,
+        athleteId: ATLETA_ALTRUI,
+        scope: perimetrato,
+      }),
+    ["negato"],
+  );
+
+  await prisma.attachment
+    .delete({ where: { id: allegatoFuori.id } })
+    .catch(() => {});
+  await prisma.documentRequest.delete({ where: { id: idFuori } }).catch(() => {});
+};
+
+const u57 = async () => {
+  /* ================================================================== */
+  /*  U-57 — il perimetro non si allarga per interposta persona          */
+  /*         [CRITICAL: consegna del club]                               */
+  /* ================================================================== */
+
+  /*
+    `updateAssignmentScopes` vieta gia di cambiare il **proprio** perimetro, e
+    il commento accanto spiega perche. Ma il perimetro non faceva parte del
+    soffitto di una concessione: `assertMayGrantRole` confronta le **chiavi** e
+    mai gli **scope**.
+
+    Misurato: un `club_manager` recintato sulla sede Nord concedeva a una
+    seconda utenza un `club_manager` **senza perimetro**, e da quel momento
+    leggeva tutto il club per interposta persona. E la stessa lezione gia
+    scritta per le chiavi — «l'auto-assegnazione era vietata; concederlo a un
+    complice no» — un asse piu in la.
+  */
+  console.log(
+    `${NL}U-57 — il perimetro non si allarga per interposta persona   [CRITICAL]`,
+  );
+
+  const perimetrato = {
+    userId: utenti.club_manager.id,
+    activeOrganizationId: CLUB_A,
+    activeRole: "club_manager",
+    allowedOrganizationIds: [CLUB_A],
+    accessScopes: [{ kind: "site", value: SEDE_A }],
+    actorEmail: utenti.club_manager.email,
+  };
+
+  await varco(
+    "U-57 chi e recintato non concede un accesso senza recinto",
+    () =>
+      ruoliDiClub.assignClubRole(perimetrato, {
+        userId: utenti.athlete.id,
+        role: "collaborator",
+        scopes: [],
+      }),
+    ["negato"],
+  );
+
+  await varco(
+    "U-57 ne uno recintato su un'altra sede",
+    () =>
+      ruoliDiClub.assignClubRole(perimetrato, {
+        userId: utenti.athlete.id,
+        role: "collaborator",
+        scopes: [{ kind: "site", value: SEDE_ALTRA }],
+      }),
+    ["negato"],
+  );
+
+  const dentro = await ruoliDiClub
+    .assignClubRole(perimetrato, {
+      userId: utenti.athlete.id,
+      role: "collaborator",
+      scopes: [{ kind: "site", value: SEDE_A }],
+    })
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "U-57 ma dentro il proprio recinto delega ancora",
+    "riuscita",
+    dentro,
+    "controspecchio: una regola che negasse ogni concessione passerebbe per una difesa",
+  );
+
+  await prisma.organizationUser.deleteMany({
+    where: {
+      organization_id: CLUB_A,
+      user_id: utenti.athlete.id,
+      role: "collaborator",
+    },
+  });
+};
+
 /* ------------------------------------------------------------- il giro */
 
 try {
@@ -3167,6 +3600,7 @@ try {
   moduli = await carica("src/lib/server/forms.ts");
   ruoliDiAccesso = await carica("src/lib/access-roles.ts");
   permessiContabili = await carica("src/lib/accounting/permissions.ts");
+  segnaposto = await carica("src/lib/server/document-placeholders.ts");
 
   await preparaTrasporto();
 
@@ -3188,6 +3622,8 @@ try {
   await u53();
   await u54();
   await u55();
+  await u56();
+  await u57();
 
   const falliti = esiti.filter((e) => !e.ok);
   if (deviazioni.length) {

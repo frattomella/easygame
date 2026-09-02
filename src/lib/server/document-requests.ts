@@ -463,6 +463,23 @@ const loadRequest = async (
 
   if (!row) throw denied("la richiesta non e stata trovata, o non e di questo club");
   assertActiveClub(scope, row.organization_id, "la richiesta");
+  /*
+    **E il perimetro, perche questa e la porta per identificativo.**
+
+    La guardia stava dentro `assertSubjectAccess`, che cinque ingressi su otto
+    chiamano. Gli altri tre — sollecito, ritiro e decisione di un deposito —
+    passano di qui e verificavano **solo il club**. Misurato con un
+    `club_manager` recintato sulla sede Nord: approvava il certificato medico
+    di un minore della sede Sud, scrivendo una riga in `medical_certificates`
+    e notificando la sua famiglia; ne annullava le richieste; e il sollecito
+    gli restituiva il titolo, che nomina il minore.
+
+    Il commento di `assertSubjectWithinAccessScope` dichiarava «dentro la
+    guardia che **tutte** le funzioni del dominio chiamano»: la coppia
+    elenco/identificativo lo smentiva, ed e la stessa forma gia trovata due
+    volte in questa Wave.
+  */
+  await assertSubjectWithinAccessScope(scope, row.subject_kind, row.subject_id);
   return row;
 };
 
@@ -1079,6 +1096,8 @@ const loadSubmission = async (
     throw denied("il documento non e stato trovato, o non e di questo club");
   }
   assertActiveClub(scope, row.organization_id, "il documento");
+  /* Stessa ragione di `loadRequest`: e la porta per identificativo. */
+  await assertSubjectWithinAccessScope(scope, row.subject_kind, row.subject_id);
   return row;
 };
 

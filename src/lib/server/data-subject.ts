@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { prisma } from "./prisma";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { canManageClubConfiguration } from "@/lib/access-roles";
+import { athleteWithinAccessScope } from "./access-scope-query";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { roleHasPermission } from "@/lib/permissions/catalog";
 import { AUDIT_ACTIONS, recordAuditEvent, recordPermissionDenied } from "./audit";
 import { deleteAttachment, listAttachments } from "./attachments";
@@ -76,6 +78,15 @@ export type DataSubjectScope = {
   activeOrganizationId: string | null;
   allowedOrganizationIds: string[];
   activeRole?: string | null;
+  /**
+   * Il perimetro di sede e categoria, quando la sessione ne porta uno.
+   *
+   * Mancava, e con esso mancava la difesa: un operatore recintato su una
+   * sede **esportava e cancellava** il fascicolo completo di un minore
+   * dell'altra. Diciassette sezioni, salute e denaro comprese, e la
+   * cancellazione e irreversibile.
+   */
+  accessScopes?: readonly AccessScopeEntry[] | null;
 };
 
 const denied = (message: string) => new Error(`Accesso negato: ${message}`);
@@ -188,6 +199,53 @@ const assertCanDispose = async (
     canManageClubConfiguration(scope.activeRole) &&
     chiavi.some((chiave) => roleHasPermission(scope.activeRole, chiave))
   ) {
+    /*
+      **E il perimetro, che qui non arrivava affatto.**
+
+      Questo modulo non importava `access-scope-query.ts`: nessuno dei tre
+      atti — inventario, export, cancellazione — guardava
+      `scope.accessScopes`. Misurato con un `club_manager` recintato sulla
+      sede Nord: l'export del minore della sede Sud usciva con tutte e
+      diciassette le sezioni, e `eraseDataSubject` lo anonimizzava.
+
+      E la superficie piu distruttiva del prodotto, ed era anche l'unica del
+      suo elenco a non comparire fra i domini scoperti dichiarati in
+      `16-technical-debt.md`: chi leggeva quel debito credeva questa porta
+      chiusa.
+
+      Si guarda **solo** se il soggetto e un atleta: il perimetro si calcola
+      sulle appartenenze, e un socio o una persona di staff non ne ha. Un
+      perimetro assente non restringe niente, ed e la regola dichiarata —
+      zero righe vuol dire tutto il club.
+    */
+    const eUnAtleta = await prisma.athlete.count({
+      where: { id: subjectId, organization_id: organizationId },
+    });
+
+    if (eUnAtleta) {
+      const dentro = await athleteWithinAccessScope(
+        organizationId,
+        subjectId,
+        scope,
+      );
+      if (!dentro) {
+        await recordPermissionDenied({
+          scope: {
+            userId: scope.userId,
+            activeRole: scope.activeRole || null,
+            activeOrganizationId: organizationId,
+          },
+          permission: chiavi[0],
+          resource: "data_subject",
+          resourceId: subjectId,
+          metadata: { reason: "fuori_dal_perimetro" },
+        });
+        throw denied(
+          "questa persona e fuori dal perimetro di sede o categoria del ruolo attivo",
+        );
+      }
+    }
+
     return;
   }
 

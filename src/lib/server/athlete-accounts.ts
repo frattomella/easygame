@@ -1,4 +1,6 @@
 import { createHash, randomBytes } from "crypto";
+import { athleteWithinAccessScope } from "./access-scope-query";
+import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
 import { prisma } from "./prisma";
 import { hashPassword } from "./auth";
@@ -93,6 +95,17 @@ export type AthleteAccountsScope = {
   activeRole?: string | null;
   allowedOrganizationIds?: readonly string[];
   actorEmail?: string | null;
+  /**
+   * Il perimetro di sede e categoria.
+   *
+   * Non arrivava qui, e questo modulo e **l'unica** strada che scrive
+   * `athletes.user_id` (ADR-0104). Misurato: un operatore recintato su una
+   * sede leggeva lo stato dell'accesso di un minore dell'altra e gli mandava
+   * un invito **verso un indirizzo scelto da lui**. Accettato l'invito,
+   * l'account di quel minore — nome, recapiti, documenti, stato del
+   * certificato — era suo. Non e una fuga di dati: e una presa di possesso.
+   */
+  accessScopes?: readonly AccessScopeEntry[] | null;
 };
 
 /** La chiave unica del dominio: leggere lo stato e agirci sopra. */
@@ -205,6 +218,22 @@ const caricaAtletaDelClubAttivo = async (
 
   if (!atleta) throw new Error("Atleta non trovato");
   assertActiveClub(scope, atleta.organization_id, "l'atleta");
+
+  /*
+    Tutti e cinque gli atti del dominio passano di qui — lo stato, l'invito,
+    il reinvio, il cambio di indirizzo, la revoca — quindi e l'unico punto in
+    cui il perimetro va messo. Ed era l'unico in cui non c'era.
+  */
+  const dentro = await athleteWithinAccessScope(
+    atleta.organization_id,
+    atleta.id,
+    scope,
+  );
+  if (!dentro) {
+    throw new Error(
+      "Accesso negato: questo atleta e fuori dal perimetro di sede o categoria del ruolo attivo",
+    );
+  }
 
   return atleta;
 };

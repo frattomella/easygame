@@ -67,6 +67,12 @@ export const risolviScope = async (
       activeOrganizationId: scope.activeOrganizationId,
       activeRole: scope.activeRole,
       allowedOrganizationIds: scope.allowedOrganizationIds,
+      /*
+        Il perimetro fa parte del soffitto di cio che si puo concedere: senza,
+        chi e recintato su una sede delegava a un complice un accesso **senza**
+        recinto, e leggeva tutto il club per interposta persona.
+      */
+      accessScopes: scope.accessScopes,
       actorEmail: session.db.user.email,
     },
   };
