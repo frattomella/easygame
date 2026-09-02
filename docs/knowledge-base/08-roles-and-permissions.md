@@ -867,3 +867,36 @@ Sul redirect d'ingresso cambiano due cose:
   Pagamenti, Movimenti, Impostazioni e altre trenta voci, ci cliccava, e
   rimbalzava sulla guardia senza una parola. Un menu che elenca cio che non si
   puo fare non e un menu.
+
+## Closeout Wave 6 — chi amministra gli accessi (2026-09-02)
+
+`assertPuoAmministrareAccessi` — l'unica guardia degli otto ingressi di
+`club-roles.ts` — chiedeva `canManageClubConfiguration`, che **normalizza sulla
+base**. Un ruolo personalizzato costruito su `club_manager`, anche con **zero
+chiavi** — il piu ristretto che si possa creare — entrava: leggeva l'elenco di
+chi ha accesso al club con le chiavi di ciascuno, e poteva creare, modificare,
+cancellare e assegnare ruoli.
+
+Il modello e **soffitto ∧ concessione**. Questa era la porta che permetteva di
+rialzare il soffitto dal di dentro: darsi le chiavi negate, o assegnarsele con
+un secondo ruolo. Il soffitto di `assertMayGrantRole` reggeva ancora — era
+l'ultima difesa — ma dentro una stanza in cui quel ruolo non doveva poter
+entrare.
+
+Adesso la configurazione degli accessi la amministra un ruolo **canonico**:
+`owner` o `club_manager` non personalizzati. Non esiste una chiave di catalogo
+con cui delegarlo, ed e voluto: **delegare la facolta di ridefinire le deleghe
+e un atto del proprietario**.
+
+`canAccessManagementPath` e stato allineato per la sola
+`/dashboard/access-management`: senza, la pagina restava nel menu di quel ruolo
+per aprirsi piena di errori 403 — e una divergenza fra cio che si vede e cio che
+si puo e essa stessa un difetto, perche insegna a diffidare dei messaggi. Vale
+per quella pagina e non per le altre riservate — `/settings`, `/communications`
+hanno chiavi di catalogo con cui un club puo delegarle davvero.
+
+Prove: `U-29.2` e `U-29.2bis` in `wave-6-roles-probe.mjs`, e i due `escalation 2`
+in `tests/server/ruoli-personalizzati-rotte.test.mjs`. La seconda esiste perche
+la guardia nuova rende il soffitto irraggiungibile per la strada che lo provava:
+va esercitato dove **resta** raggiungibile, cioe su un `club_manager` canonico
+che tenta di concedere una chiave di direzione.

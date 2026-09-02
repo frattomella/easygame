@@ -986,14 +986,61 @@ const u29 = async () => {
   );
 
   prima = await dinieghi();
+  /*
+    **La scalata era possibile per due strade, e ora la prima e murata.**
+
+    Fino alla quinta revisione un ruolo personalizzato arrivava dentro
+    l'amministrazione degli accessi — `canManageClubConfiguration` normalizza
+    sulla base — e li lo fermava il soffitto: «non si concede il permesso che
+    non si ha». Il soffitto reggeva, ma era l'**ultima** difesa, e reggeva
+    dentro una stanza in cui nessun ruolo personalizzato doveva poter entrare:
+    lo stesso titolare poteva leggere l'elenco di chi ha accesso al club,
+    vedere le chiavi di tutti, e provare le combinazioni finche una passava.
+
+    Adesso la porta e chiusa prima. Il diniego cambia frase, e va detto qui:
+    una prova che pretendesse ancora il messaggio del soffitto racconterebbe
+    che la difesa e la stessa di prima.
+  */
   await respinta(
-    "U-29.2 e non puo concedere una chiave che lui non ha",
+    "U-29.2 e un ruolo personalizzato non entra affatto nell'amministrazione",
     () =>
       ruoliDiClub.assignClubRole(scopeLimitato, {
         userId: SEGRETERIA.id,
         role: RUOLO_SEGRETERIA.slug,
       }),
-    /non si concede il permesso/i,
+    /non puo assegnare un ruolo/i,
+  );
+
+  await respinta(
+    "U-29.2 ne ne legge la configurazione",
+    () => ruoliDiClub.listClubRoles(scopeLimitato),
+    /non puo vedere i ruoli/i,
+  );
+
+  /*
+    **E il soffitto va provato dove resta raggiungibile**, altrimenti la
+    guardia nuova lo renderebbe una regola che nessuna prova esercita piu.
+    L'attore qui e un `club_manager` **canonico**, che nell'amministrazione ci
+    entra di diritto: cio che non puo e concedere una chiave sopra il proprio
+    soffitto.
+  */
+  const RUOLO_CON_DIREZIONE = await ruoliDiClub.createClubRole(
+    scopeProprietario,
+    {
+      name: "Con una chiave di direzione",
+      baseRole: "club_manager",
+      permissions: ["data_subject.erase"],
+    },
+  );
+
+  await respinta(
+    "U-29.2bis e un gestore canonico non concede un ruolo con una chiave di direzione",
+    () =>
+      ruoliDiClub.assignClubRole(scopeGestore, {
+        userId: SEGRETERIA.id,
+        role: RUOLO_CON_DIREZIONE.slug,
+      }),
+    /soltanto il proprietario/i,
   );
   prova(
     "U-30.2 e anche questo tentativo lascia una riga di audit",

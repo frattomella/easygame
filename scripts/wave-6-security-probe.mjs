@@ -219,6 +219,7 @@ const preparaTrasporto = async () => {
     bacheca: await carica("src/app/api/parent-dashboard/[athleteId]/board/route.ts"),
     moduloPubblico: await carica("src/app/api/public/forms/[publicSlug]/route.ts"),
     risorsa: await carica("src/app/api/v1/[resource]/route.ts"),
+    riscatto: await carica("src/app/api/v1/auth/access/redeem/route.ts"),
   };
 };
 
@@ -2211,6 +2212,509 @@ const u38 = async () => {
   );
 };
 
+const u49 = async () => {
+  /* ================================================================== */
+  /*  U-49 — l'export che consegnava anche gli altri   [HIGH: privacy]   */
+  /* ================================================================== */
+
+  /*
+    Chi esercita il proprio diritto riceve **i propri** dati. L'export ne
+    portava due che non erano suoi.
+
+    Il primo: una compilazione che nomina piu persone — un modulo di iscrizione
+    con due fratelli, o un genitore e un figlio — usciva **intera**, con le
+    `answers` e gli allegati riferiti anche all'altra famiglia. Il dominio la
+    sapeva gia riconoscere: `readFormSubmissionsForSubject` la teneva separata
+    per decidere che **non si puo cancellare**, e poi l'export le rimetteva
+    insieme.
+
+    Il secondo: `communication_deliveries.athlete_ids` e l'elenco di tutti i
+    destinatari di quel messaggio. Usciva intero, e diceva a una famiglia chi
+    altro e iscritto.
+  */
+  console.log(
+    `${NL}U-49 — l'export che consegnava anche gli altri   [HIGH: privacy]`,
+  );
+
+  const modello = await prisma.formTemplate.findFirst({
+    where: { organization_id: CLUB_A },
+    select: { id: true },
+  });
+  const versione = modello
+    ? await prisma.formTemplateVersion.findFirst({
+        where: { template_id: modello.id },
+        select: { id: true },
+      })
+    : null;
+
+  prova(
+    "U-49 c'e un modulo su cui costruire la compilazione condivisa",
+    { modello: true, versione: true },
+    { modello: Boolean(modello), versione: Boolean(versione) },
+    "senza il modulo seminato la prova non misurerebbe niente",
+  );
+
+  if (!modello || !versione) return;
+
+  const condivisa = await prisma.formSubmission.create({
+    data: {
+      organization_id: CLUB_A,
+      template_id: modello.id,
+      version_id: versione.id,
+      kind: "enrollment",
+      status: "pending",
+      subjects: [
+        { kind: "athlete", recordId: ATLETA_A, label: "Il mio" },
+        { kind: "athlete", recordId: ATLETA_ALTRUI, label: "Di un altro" },
+      ],
+      answers: {
+        note: "RISPOSTA-DELL-ALTRA-FAMIGLIA",
+        iban_altrui: "IT60X0542811101000000999999",
+      },
+      files: [],
+      respondent_name: "GENITORE-DELL-ALTRO",
+      respondent_email: "altro@example.invalid",
+    },
+  });
+
+  const consegna = await prisma.communicationDelivery.create({
+    data: {
+      organization_id: CLUB_A,
+      source_kind: "bulk",
+      source_id: randomUUID(),
+      dedup_key: `sonda-u49-${randomUUID()}`,
+      recipient_key: "u49@example.invalid",
+      athlete_ids: [ATLETA_A, ATLETA_ALTRUI],
+      channel: "email",
+      status: "sent",
+    },
+  });
+
+  const esportato = await datiPersonali.exportDataSubject(
+    scopeRuolo("club_manager"),
+    { organizationId: CLUB_A, subjectId: ATLETA_A },
+  );
+  const testo = JSON.stringify(esportato);
+
+  prova(
+    "U-49 l'export non porta le risposte di una compilazione condivisa",
+    {
+      risposteAltrui: false,
+      ibanAltrui: false,
+      compilanteAltrui: false,
+      citata: true,
+    },
+    {
+      risposteAltrui: testo.includes("RISPOSTA-DELL-ALTRA-FAMIGLIA"),
+      ibanAltrui: testo.includes("IT60X0542811101000000999999"),
+      compilanteAltrui: testo.includes("GENITORE-DELL-ALTRO"),
+      citata: testo.includes(condivisa.id),
+    },
+    "la traccia della compilazione deve restare: e il contenuto altrui che non esce",
+  );
+
+  const consegneEsportate = (
+    esportato?.sections?.communication_deliveries || []
+  ).filter((riga) => riga?.id === consegna.id);
+
+  prova(
+    "U-49 una consegna non porta con se l'elenco degli altri destinatari",
+    { trovata: 1, destinatari: [ATLETA_A] },
+    {
+      trovata: consegneEsportate.length,
+      destinatari: consegneEsportate[0]?.athlete_ids ?? null,
+    },
+  );
+
+  prova(
+    "U-49 l'altro atleta non compare da nessuna parte nell'export",
+    false,
+    testo.includes(ATLETA_ALTRUI),
+    "controspecchio: senza questo, una proiezione che togliesse tutto passerebbe",
+  );
+
+  await prisma.formSubmission.delete({ where: { id: condivisa.id } });
+  await prisma.communicationDelivery.delete({ where: { id: consegna.id } });
+};
+
+const u50 = async () => {
+  /* ================================================================== */
+  /*  U-50 — la provenienza dichiarata dal client   [HIGH: integrita]    */
+  /* ================================================================== */
+
+  /*
+    `source` di un deposito decide due cose vere: se nasce un lavoro nella coda
+    di chi deve controllare il documento, e cosa la famiglia legge nel proprio
+    fascicolo. Arrivava dal corpo della richiesta —
+    `/api/v1/document-submissions` lo inoltrava tal quale — e un genitore che
+    scriveva `source=club` otteneva un documento registrato come condiviso
+    **dal club**: nessuna riga nella coda della segreteria, una notifica che
+    diceva alla famiglia che era stato il club a mandarlo, e un registro che
+    attribuiva il deposito a chi non lo aveva fatto.
+
+    Adesso la provenienza si ricava dal ruolo attivo, che il client non scrive.
+  */
+  console.log(
+    `${NL}U-50 — la provenienza dichiarata dal client   [HIGH: integrita]`,
+  );
+
+  const scopeFamiglia = await documenti.resolveLinkedFamilyScope(
+    utenti.parent.id,
+    ATLETA_A,
+  );
+
+  const deposito = await documenti.submitDocument(scopeFamiglia, {
+    subjectKind: "athlete",
+    subjectId: ATLETA_A,
+    documentKind: "other",
+    /* la bugia: e la famiglia a caricare, e dichiara di essere il club */
+    source: "club",
+    file: {
+      fileName: "provenienza.pdf",
+      mimeType: "application/pdf",
+      content: Buffer.from("%PDF-1.4 U-50"),
+    },
+  });
+
+  const idDeposito = deposito.submissions?.[0]?.id || deposito.id;
+  const riga = await prisma.documentSubmission.findUnique({
+    where: { id: idDeposito },
+    select: { id: true, source: true, attachment_id: true },
+  });
+
+  prova(
+    "U-50 il deposito della famiglia resta della famiglia, anche se dichiara il club",
+    "parent",
+    riga?.source ?? null,
+  );
+
+  const depositoClub = await documenti.submitDocument(
+    scopeRuolo("club_manager"),
+    {
+      subjectKind: "athlete",
+      subjectId: ATLETA_A,
+      documentKind: "other",
+      /* la bugia opposta: e il club, e dichiara la famiglia */
+      source: "parent",
+      file: {
+        fileName: "provenienza-club.pdf",
+        mimeType: "application/pdf",
+        content: Buffer.from("%PDF-1.4 U-50 bis"),
+      },
+    },
+  );
+  const idClub = depositoClub.submissions?.[0]?.id || depositoClub.id;
+  const rigaClub = await prisma.documentSubmission.findUnique({
+    where: { id: idClub },
+    select: { id: true, source: true, attachment_id: true },
+  });
+
+  prova(
+    "U-50 e il deposito del club resta del club, anche se dichiara la famiglia",
+    "club",
+    rigaClub?.source ?? null,
+    "controspecchio: una regola che scrivesse sempre `parent` passerebbe la meta della prova",
+  );
+
+  for (const r of [riga, rigaClub]) {
+    if (!r) continue;
+    await prisma.documentSubmission.delete({ where: { id: r.id } }).catch(() => {});
+    if (r.attachment_id) {
+      await prisma.attachment
+        .delete({ where: { id: r.attachment_id } })
+        .catch(() => {});
+    }
+  }
+};
+
+const u51 = async () => {
+  /* ================================================================== */
+  /*  U-51 — il codice della famiglia: il quarto nome, e il salvataggio  */
+  /*         che lo cancellava            [HIGH: accesso della famiglia] */
+  /* ================================================================== */
+
+  /*
+    Due difetti sullo stesso valore, e sono l'uno il rovescio dell'altro.
+
+    Il taglio in lettura entrava in tre contenitori cablati — `guardians`,
+    `tutori`, `parents`. Il repository ne usa un quarto, `tutors`, e il gettone
+    scritto li usciva intero. Enumerare le porte, di nuovo.
+
+    Il ripristino in scrittura non c'era affatto: la scheda letta **senza** il
+    gettone e rimandata indietro lo cancellava. La colonna `data` si salva
+    intera, quindi ogni salvataggio di un collaboratore revocava alla famiglia
+    il codice con cui entra — senza un errore, senza una riga, e la famiglia lo
+    scopriva al primo accesso.
+
+    E la stessa regola gia scritta per il dato clinico: **un'assenza non e una
+    cancellazione**.
+  */
+  console.log(
+    `${NL}U-51 — il codice della famiglia: il quarto nome, e il salvataggio che lo cancellava   [HIGH]`,
+  );
+
+  const primaData = {
+    tutors: [
+      {
+        id: "tutore-1",
+        firstName: "Anna",
+        parentAccessTokenValue: "GETTONE-SOTTO-TUTORS",
+      },
+    ],
+    guardians: [
+      {
+        id: "tutore-2",
+        firstName: "Bruno",
+        parentAccessTokenValue: "GETTONE-SOTTO-GUARDIANS",
+      },
+    ],
+  };
+
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: { data: primaData },
+  });
+
+  const lettoDaCollaboratore = await risorse.getResourceById(
+    "athletes",
+    ATLETA_A,
+    scopeRuolo("collaborator"),
+  );
+  const testoCollaboratore = JSON.stringify(lettoDaCollaboratore);
+
+  prova(
+    "U-51 il gettone non esce da nessuno dei due contenitori",
+    { sottoTutors: false, sottoGuardians: false, tutoriRestano: true },
+    {
+      sottoTutors: testoCollaboratore.includes("GETTONE-SOTTO-TUTORS"),
+      sottoGuardians: testoCollaboratore.includes("GETTONE-SOTTO-GUARDIANS"),
+      tutoriRestano:
+        testoCollaboratore.includes("Anna") &&
+        testoCollaboratore.includes("Bruno"),
+    },
+    "i tutori devono restare visibili: e la credenziale che sparisce, non la persona",
+  );
+
+  /*
+    Il salvataggio ordinario: si rimanda indietro **esattamente cio che si e
+    letto**, che e quello che fa una schermata.
+  */
+  await risorse.updateResource(
+    "athletes",
+    ATLETA_A,
+    { data: lettoDaCollaboratore?.data ?? {} },
+    scopeRuolo("collaborator"),
+  );
+
+  const dopoIlSalvataggio = await prisma.athlete.findUnique({
+    where: { id: ATLETA_A },
+    select: { data: true },
+  });
+  const testoArchivio = JSON.stringify(dopoIlSalvataggio?.data ?? {});
+
+  prova(
+    "U-51 e un salvataggio ordinario non revoca l'accesso alla famiglia",
+    { sottoTutors: true, sottoGuardians: true },
+    {
+      sottoTutors: testoArchivio.includes("GETTONE-SOTTO-TUTORS"),
+      sottoGuardians: testoArchivio.includes("GETTONE-SOTTO-GUARDIANS"),
+    },
+  );
+
+  const lettoDallaDirezione = await risorse.getResourceById(
+    "athletes",
+    ATLETA_A,
+    scopeRuolo("club_manager"),
+  );
+  const testoDirezione = JSON.stringify(lettoDallaDirezione);
+
+  prova(
+    "U-51 la direzione continua a vedere il codice: il taglio restringe, non azzera",
+    { sottoTutors: true, sottoGuardians: true },
+    {
+      sottoTutors: testoDirezione.includes("GETTONE-SOTTO-TUTORS"),
+      sottoGuardians: testoDirezione.includes("GETTONE-SOTTO-GUARDIANS"),
+    },
+    "controspecchio: senza, una proiezione che cancellasse tutto passerebbe per una difesa",
+  );
+
+  /*
+    E il rovescio del ripristino: chi **puo** vedere il gettone lo deve poter
+    togliere davvero, altrimenti la regola avrebbe reso un codice non piu
+    revocabile.
+  */
+  await risorse.updateResource(
+    "athletes",
+    ATLETA_A,
+    {
+      data: {
+        tutors: [{ id: "tutore-1", firstName: "Anna" }],
+        guardians: [{ id: "tutore-2", firstName: "Bruno" }],
+      },
+    },
+    scopeRuolo("owner"),
+  );
+
+  const dopoLaRevoca = await prisma.athlete.findUnique({
+    where: { id: ATLETA_A },
+    select: { data: true },
+  });
+
+  prova(
+    "U-51 e chi lo vede lo puo revocare",
+    false,
+    JSON.stringify(dopoLaRevoca?.data ?? {}).includes("GETTONE-SOTTO-"),
+  );
+
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: { data: {} },
+  });
+};
+
+const u52 = async () => {
+  /* ================================================================== */
+  /*  U-52 — il riscatto: nessuna riga, nessun contatore                 */
+  /*         [HIGH: accesso al club]                                     */
+  /* ================================================================== */
+
+  /*
+    Riscattare un gettone **fa entrare una persona in un club**, con il ruolo
+    che il gettone porta scritto nel proprio payload. Era l'unico atto di
+    questa portata che non lasciava niente:
+
+      * `AUDIT_ACTIONS.accessTokenRedeemed` esisteva in `audit.ts` — dichiarata
+        nella Wave 4 e **mai scritta da nessuno**. Una costante non e un
+        presidio;
+      * nessun contatore. Il codice e corto e si scrive a mano; la sessione
+        richiesta non e una difesa, perche le utenze si creano. Chi provava
+        mille codici non incontrava nessun limite e non lasciava nessuna
+        traccia — cioe la forma esatta di un attacco a forza bruta invisibile.
+  */
+  console.log(
+    `${NL}U-52 — il riscatto: nessuna riga, nessun contatore   [HIGH: accesso al club]`,
+  );
+
+  await prisma.authRateLimitBucket.deleteMany({
+    where: { scope: "access_token_redeem" },
+  });
+
+  const righeRiscatto = (outcome) =>
+    prisma.auditLog.count({
+      where: { action: "membership.access_token.redeemed", outcome },
+    });
+
+  await comeUtente(utenti.athlete, CLUB_A);
+
+  const primaNegati = await righeRiscatto("denied");
+  const aVuoto = await rotte.riscatto.POST(
+    richiesta("/api/v1/auth/access/redeem", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "CODICE-CHE-NON-ESISTE" }),
+    }),
+  );
+
+  prova(
+    "U-52 un gettone inesistente e respinto e lascia una riga",
+    { stato: 404, tracciato: true },
+    {
+      stato: aVuoto.status,
+      tracciato: (await righeRiscatto("denied")) > primaNegati,
+    },
+    "senza la riga, mille tentativi a vuoto sono indistinguibili da zero",
+  );
+
+  /* Un gettone vero, con dentro un ruolo che vale qualcosa. */
+  const gettone = await prisma.clubResourceItem.create({
+    data: {
+      organization_id: CLUB_A,
+      resource_type: "access_tokens",
+      name: "SONDAU52RISCATTO",
+      status: "active",
+      payload: { role: "collaborator", one_time: true },
+    },
+  });
+
+  const primaRiusciti = await righeRiscatto("success");
+  const riuscito = await rotte.riscatto.POST(
+    richiesta("/api/v1/auth/access/redeem", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "SONDAU52RISCATTO" }),
+    }),
+  );
+
+  const rigaRiuscita = await prisma.auditLog.findFirst({
+    where: {
+      action: "membership.access_token.redeemed",
+      outcome: "success",
+      resource_id: gettone.id,
+    },
+    orderBy: { created_at: "desc" },
+  });
+
+  prova(
+    "U-52 il riscatto riuscito lascia la riga, con il club e il ruolo",
+    {
+      stato: 200,
+      contate: true,
+      club: CLUB_A,
+      ruolo: "collaborator",
+    },
+    {
+      stato: riuscito.status,
+      contate: (await righeRiscatto("success")) > primaRiusciti,
+      club: rigaRiuscita?.organization_id ?? null,
+      ruolo: rigaRiuscita?.actor_role ?? null,
+    },
+  );
+
+  prova(
+    "U-52 e il valore del gettone non finisce nel registro",
+    false,
+    JSON.stringify(rigaRiuscita ?? {}).includes("SONDAU52RISCATTO"),
+    "il registro si rilegge: una credenziale scritta dentro sarebbe una credenziale conservata",
+  );
+
+  /*
+    Il contatore. Il limite per utenza e dieci all'ora: si martella finche non
+    risponde 429, e si pretende che arrivi **prima** di venti tentativi.
+  */
+  let stato429 = null;
+  for (let tentativo = 0; tentativo < 20 && stato429 === null; tentativo += 1) {
+    const risposta = await rotte.riscatto.POST(
+      richiesta("/api/v1/auth/access/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: `TENTATIVO-${tentativo}` }),
+      }),
+    );
+    if (risposta.status === 429) stato429 = tentativo + 1;
+  }
+
+  prova(
+    "U-52 e provare codici a raffica si ferma da solo",
+    true,
+    stato429 !== null && stato429 <= 20,
+    `fermato al tentativo ${stato429 ?? "mai"}`,
+  );
+
+  await prisma.organizationUser.deleteMany({
+    where: {
+      organization_id: CLUB_A,
+      user_id: utenti.athlete.id,
+      role: "collaborator",
+    },
+  });
+  await prisma.clubResourceItem.delete({ where: { id: gettone.id } }).catch(() => {});
+  await prisma.authRateLimitBucket.deleteMany({
+    where: { scope: "access_token_redeem" },
+  });
+  SESSIONE = null;
+  CLUB_ATTIVO = null;
+};
+
 /* ------------------------------------------------------------- il giro */
 
 try {
@@ -2242,6 +2746,10 @@ try {
   await u36();
   await u37();
   await u38();
+  await u49();
+  await u50();
+  await u51();
+  await u52();
 
   const falliti = esiti.filter((e) => !e.ok);
   if (deviazioni.length) {

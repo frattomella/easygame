@@ -384,43 +384,148 @@ const GUARDIAN_CREDENTIAL_FIELD_SET = new Set(GUARDIAN_CREDENTIAL_FIELDS);
  * anche il modo in cui il chiamante sa se ha dovuto copiare.
  */
 export const stripGuardianAccessTokens = (data: unknown) => {
-  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  /*
+    **Si cerca il campo, non il contenitore.**
 
-  const source = data as Record<string, unknown>;
+    La prima stesura entrava in tre nomi cablati — `guardians`, `tutori`,
+    `parents`. Una revisione ha trovato lo stesso gettone sotto `tutors`, che
+    e il quarto nome che questo repository usa per la stessa cosa, e il taglio
+    passava accanto senza vederlo.
+
+    Enumerare le porte e stato il difetto ricorrente di tutta la Wave. Qui la
+    regola e sul **campo**: un valore che si chiama `parentAccessTokenValue`
+    e una credenziale ovunque si trovi, e non c'e nome di contenitore che lo
+    renda innocuo.
+  */
   let toccato = false;
 
-  const ripulisci = (elenco: unknown) => {
-    if (!Array.isArray(elenco)) return elenco;
+  const scendi = (nodo: unknown): unknown => {
+    if (Array.isArray(nodo)) {
+      const mappato = nodo.map((voce) => scendi(voce));
+      return mappato.some((voce, indice) => voce !== nodo[indice])
+        ? mappato
+        : nodo;
+    }
 
-    return elenco.map((voce) => {
-      if (!voce || typeof voce !== "object" || Array.isArray(voce)) return voce;
+    if (!nodo || typeof nodo !== "object") return nodo;
 
-      const tutore = voce as Record<string, unknown>;
-      const next: Record<string, unknown> = {};
-      let tolto = false;
+    const oggetto = nodo as Record<string, unknown>;
+    const next: Record<string, unknown> = {};
+    let cambiato = false;
 
-      for (const [chiave, valore] of Object.entries(tutore)) {
-        if (GUARDIAN_CREDENTIAL_FIELD_SET.has(chiave)) {
-          tolto = true;
-          continue;
-        }
-        next[chiave] = valore;
+    for (const [chiave, valore] of Object.entries(oggetto)) {
+      if (GUARDIAN_CREDENTIAL_FIELD_SET.has(chiave)) {
+        cambiato = true;
+        toccato = true;
+        continue;
       }
+      const disceso = scendi(valore);
+      if (disceso !== valore) cambiato = true;
+      next[chiave] = disceso;
+    }
 
-      if (!tolto) return voce;
-      toccato = true;
-      return next;
-    });
+    return cambiato ? next : nodo;
   };
 
-  const next: Record<string, unknown> = { ...source };
-  for (const contenitore of ["guardians", "tutori", "parents"]) {
-    if (contenitore in next) {
-      next[contenitore] = ripulisci(next[contenitore]);
-    }
-  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
 
-  return toccato ? next : source;
+  const ripulito = scendi(data);
+  return toccato ? ripulito : data;
+};
+
+/**
+ * **Il gemello del taglio: cio che non e stato letto non si cancella.**
+ *
+ * `stripGuardianAccessTokens` toglie il gettone a chi non deve vederlo. Ma
+ * la colonna `data` si salva **intera**: la stessa scheda, riletta senza il
+ * gettone e rimandata indietro, cancellava il codice con cui la famiglia
+ * entra. Nessuno lo aveva chiesto, nessun errore compariva, e la famiglia
+ * scopriva il danno al primo accesso.
+ *
+ * E lo stesso principio gia scritto per il dato clinico in `resources.ts`:
+ * **un'assenza non e una cancellazione**. Qui pero la regola non puo stare
+ * su un elenco di campi di primo livello, perche il gettone e annidato in un
+ * elemento di un elenco: si cammina sui due alberi in parallelo, e si
+ * accoppiano gli elementi per identita quando ce l'hanno.
+ *
+ * Restituisce **lo stesso oggetto** quando non c'e niente da ripristinare.
+ */
+export const restoreGuardianAccessTokens = (
+  previous: unknown,
+  next: unknown,
+): unknown => {
+  const identita = (voce: unknown) => {
+    if (!voce || typeof voce !== "object" || Array.isArray(voce)) return null;
+    const oggetto = voce as Record<string, unknown>;
+    for (const chiave of ["id", "uuid", "fiscalCode", "fiscal_code", "email"]) {
+      const valore = oggetto[chiave];
+      if (typeof valore === "string" && valore.trim()) return `${chiave}:${valore.trim().toLowerCase()}`;
+    }
+    return null;
+  };
+
+  const vuoto = (valore: unknown) =>
+    valore === undefined ||
+    valore === null ||
+    (typeof valore === "string" && !valore.trim());
+
+  const cammina = (vecchio: unknown, nuovo: unknown): unknown => {
+    if (Array.isArray(vecchio) && Array.isArray(nuovo)) {
+      const perIdentita = new Map<string, unknown>();
+      vecchio.forEach((voce) => {
+        const chiave = identita(voce);
+        if (chiave && !perIdentita.has(chiave)) perIdentita.set(chiave, voce);
+      });
+
+      let cambiato = false;
+      const mappato = nuovo.map((voce, indice) => {
+        const chiave = identita(voce);
+        const controparte =
+          chiave && perIdentita.has(chiave) ? perIdentita.get(chiave) : vecchio[indice];
+        const risultato = cammina(controparte, voce);
+        if (risultato !== voce) cambiato = true;
+        return risultato;
+      });
+      return cambiato ? mappato : nuovo;
+    }
+
+    if (
+      !vecchio ||
+      !nuovo ||
+      typeof vecchio !== "object" ||
+      typeof nuovo !== "object" ||
+      Array.isArray(vecchio) !== Array.isArray(nuovo)
+    ) {
+      return nuovo;
+    }
+
+    const daVecchio = vecchio as Record<string, unknown>;
+    const daNuovo = nuovo as Record<string, unknown>;
+    const risultato: Record<string, unknown> = { ...daNuovo };
+    let cambiato = false;
+
+    for (const campo of GUARDIAN_CREDENTIAL_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(daVecchio, campo)) continue;
+      if (vuoto(daVecchio[campo])) continue;
+      if (!vuoto(daNuovo[campo])) continue;
+      risultato[campo] = daVecchio[campo];
+      cambiato = true;
+    }
+
+    for (const [chiave, valore] of Object.entries(daNuovo)) {
+      if (GUARDIAN_CREDENTIAL_FIELD_SET.has(chiave)) continue;
+      if (!Object.prototype.hasOwnProperty.call(daVecchio, chiave)) continue;
+      const disceso = cammina(daVecchio[chiave], valore);
+      if (disceso !== valore) {
+        risultato[chiave] = disceso;
+        cambiato = true;
+      }
+    }
+
+    return cambiato ? risultato : nuovo;
+  };
+
+  return cammina(previous, next);
 };
 
 /**

@@ -224,13 +224,24 @@ test("il ramo storico della rotta dei byte chiede il permesso come il ramo nuovo
     "utf8",
   );
 
-  const gate = /isMedicalCertificateDocumentKind\([\s\S]{0,80}?\)\s*&&\s*!hasHealthPermission\(\s*scope\.activeRole,\s*"clinical\.read"/g;
+  /*
+    **Contare le teste non basta: una revisione ne ha svuotato il corpo.**
+
+    La prima stesura contava due occorrenze della *condizione*. Una revisione
+    ostile ha lasciato l'if dov'era e ha svuotato il ramo: il conteggio restava
+    due, il certificato tornava a uscire, e nessun gate se ne accorgeva.
+
+    Adesso ogni condizione deve essere seguita da un **rifiuto**. Una testa
+    senza il suo corpo non e una guardia.
+  */
+  const gate =
+    /isMedicalCertificateDocumentKind\([\s\S]{0,80}?\)\s*&&\s*!hasHealthPermission\(\s*scope\.activeRole,\s*"clinical\.read"[\s\S]{0,240}?403/g;
   const quanti = (sorgente.match(gate) || []).length;
 
   assert.equal(
     quanti,
     2,
-    `i rami che consegnano byte sono due e i controlli sul dato clinico sono ${quanti}: ogni ramo deve avere il suo`,
+    `i rami che consegnano byte sono due e i controlli che davvero rifiutano sono ${quanti}: ogni ramo deve avere il suo, e deve negare`,
   );
 });
 

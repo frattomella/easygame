@@ -315,6 +315,53 @@ const readFormSubmissionsForSubject = async (
   return { mie, condivise };
 };
 
+/**
+ * **Una compilazione condivisa non e roba di chi la chiede.**
+ *
+ * `readFormSubmissionsForSubject` separa gia le compilazioni che riguardano
+ * *solo* questa persona da quelle che ne riguardano anche altre, e lo fa per
+ * decidere cosa si puo cancellare. L'export le rimetteva insieme, e cosi una
+ * famiglia che esercitava il proprio diritto riceveva `answers` — cioe le
+ * risposte, gli allegati e il nome di chi aveva compilato — di **altre**
+ * famiglie nominate nello stesso modulo.
+ *
+ * Le risposte di un modulo condiviso sono un testo unico e non si sanno
+ * dividere. Allora non escono: resta la traccia — quale modulo, quando, con
+ * che esito — e la sola citazione che riguarda questa persona. Chi vuole il
+ * resto lo chiede al club, che ha una persona per guardarlo.
+ */
+const proiettaCompilazioneCondivisa = (row: any, subjectId: string) => ({
+  id: row?.id ?? null,
+  organization_id: row?.organization_id ?? null,
+  template_id: row?.template_id ?? null,
+  version_id: row?.version_id ?? null,
+  kind: row?.kind ?? null,
+  source: row?.source ?? null,
+  season_id: row?.season_id ?? null,
+  status: row?.status ?? null,
+  submitted_at: row?.submitted_at ?? null,
+  reviewed_at: row?.reviewed_at ?? null,
+  subjects: (Array.isArray(row?.subjects) ? row.subjects : []).filter(
+    (subject: any) => asText(subject?.recordId) === subjectId,
+  ),
+  shared_with_others: true,
+  note: "compilazione condivisa con altre persone: le risposte non sono estraibili per una sola",
+});
+
+/**
+ * **La lista dei destinatari non e un dato di un destinatario.**
+ *
+ * `communication_deliveries.athlete_ids` porta *tutte* le persone a cui quel
+ * messaggio si riferiva. Una consegna finiva nell'export intera, e con essa
+ * l'elenco degli altri iscritti che avevano ricevuto lo stesso avviso.
+ */
+const proiettaConsegna = (row: any, subjectId: string) => ({
+  ...row,
+  athlete_ids: (Array.isArray(row?.athlete_ids) ? row.athlete_ids : []).filter(
+    (id: unknown) => asText(id) === subjectId,
+  ),
+});
+
 const digestOf = (slices: DataSubjectSlice[], subjectId: string) =>
   createHash("sha256")
     .update(
@@ -836,11 +883,18 @@ export const exportDataSubject = async (
       document_requests: richieste,
       document_submissions: depositi,
       generated_documents: documentiEmessi,
-      form_submissions: [...moduli.mie, ...moduli.condivise],
+      form_submissions: [
+        ...moduli.mie,
+        ...moduli.condivise.map((row) =>
+          proiettaCompilazioneCondivisa(row, subjectId),
+        ),
+      ],
       club_event_participants: partecipazioni,
       athlete_category_memberships: appartenenze,
       appointments: appuntamenti,
-      communication_deliveries: consegne,
+      communication_deliveries: consegne.map((row: any) =>
+        proiettaConsegna(row, subjectId),
+      ),
       athlete_payments: rate,
       payment_transactions: incassi,
       invoices: fatture,

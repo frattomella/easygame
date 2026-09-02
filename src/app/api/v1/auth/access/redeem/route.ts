@@ -1,4 +1,11 @@
 import { NextResponse } from "next/server";
+import {
+  AUTH_RATE_LIMITS,
+  consumeRequestRateLimits,
+  getRequestIp,
+  rateLimitHeaders,
+} from "@/lib/server/auth-rate-limit";
+import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { publicErrorMessage } from "@/lib/server/api-errors";
 import { normalizeAccessRole } from "@/lib/access-roles";
 import { prisma } from "@/lib/server/prisma";
@@ -105,6 +112,40 @@ const loadParentAccessTarget = async (
   };
 };
 
+/**
+ * **Il riscatto lasciava zero righe.**
+ *
+ * `AUDIT_ACTIONS.accessTokenRedeemed` esisteva gia in `audit.ts` — dichiarata
+ * e mai scritta da nessuno. L'atto che fa entrare una persona in un club, con
+ * il ruolo che il gettone porta dentro, non compariva nel registro: ne quando
+ * riusciva, ne quando qualcuno provava codici a caso.
+ *
+ * Il gettone non entra mai nella riga. E una credenziale, e il registro lo si
+ * rilegge: resta il suo identificativo, che dice quale gettone senza dirne il
+ * valore.
+ */
+const tracciaRiscatto = async (dati: {
+  esito: "success" | "denied";
+  userId?: string | null;
+  email?: string | null;
+  organizationId?: string | null;
+  tokenRecordId?: string | null;
+  ruolo?: string | null;
+  motivo?: string | null;
+}) => {
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.accessTokenRedeemed,
+    outcome: dati.esito,
+    actorUserId: dati.userId || null,
+    actorEmail: dati.email || null,
+    actorRole: dati.ruolo || null,
+    organizationId: dati.organizationId || null,
+    resource: "access_tokens",
+    resourceId: dati.tokenRecordId || null,
+    metadata: dati.motivo ? { motivo: dati.motivo } : null,
+  });
+};
+
 export async function POST(request: Request) {
   try {
     const session = await requireAuthenticatedUser(request);
@@ -115,6 +156,44 @@ export async function POST(request: Request) {
           error: { message: "Sessione non valida" },
         },
         { status: 401 },
+      );
+    }
+
+    /*
+      **Un gettone vale una tessera: provarne tanti dev'essere caro.**
+
+      Il codice e corto e scritto a mano; chi indovina entra nel club con il
+      ruolo che il gettone porta scritto dentro. Non c'era nessun contatore,
+      e la sessione richiesta qui sopra non e una difesa: le utenze si
+      creano.
+    */
+    const limitato = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.accessTokenRedeemUser,
+        identifier: String(session.db.user_id || "anonimo"),
+      },
+      {
+        policy: AUTH_RATE_LIMITS.accessTokenRedeemIp,
+        identifier: getRequestIp(request),
+      },
+    ]);
+    if (limitato) {
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        organizationId: null,
+        motivo: "troppi tentativi",
+      });
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message: "Troppi tentativi. Riprova fra qualche minuto.",
+            code: "RATE_LIMITED",
+          },
+        },
+        { status: 429, headers: rateLimitHeaders(limitato) },
       );
     }
 
@@ -154,6 +233,13 @@ export async function POST(request: Request) {
     });
 
     if (!accessToken) {
+      /* Il tentativo a vuoto e il segno di chi prova codici: e la riga che lo mostra. */
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        motivo: "gettone inesistente",
+      });
       return NextResponse.json(
         {
           data: null,
@@ -183,6 +269,15 @@ export async function POST(request: Request) {
         },
       });
 
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        organizationId: accessToken.organization_id,
+        tokenRecordId: accessToken.id,
+        motivo: "gettone scaduto",
+      });
+
       return NextResponse.json(
         {
           data: null,
@@ -193,6 +288,14 @@ export async function POST(request: Request) {
     }
 
     if (accessToken.status === "redeemed" && payload.one_time !== false) {
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        organizationId: accessToken.organization_id,
+        tokenRecordId: accessToken.id,
+        motivo: "gettone gia riscattato",
+      });
       return NextResponse.json(
         {
           data: null,
@@ -457,6 +560,15 @@ export async function POST(request: Request) {
         },
       });
     }
+
+    await tracciaRiscatto({
+      esito: "success",
+      userId: session.db.user_id,
+      email: session.db.user?.email,
+      organizationId: accessToken.organization_id,
+      tokenRecordId: accessToken.id,
+      ruolo: role,
+    });
 
     return NextResponse.json({
       data: {

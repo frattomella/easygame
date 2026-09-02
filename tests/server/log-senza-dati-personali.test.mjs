@@ -80,8 +80,21 @@ const elencaFile = (radice) => {
  * corrisponde, ed e la forma che il repository usa gia dove e stata scritta
  * bene.
  */
-const PASSA_ERRORE_INTERO =
-  /console\.(log|info|warn|error|debug|trace)\((?:[^()]*,)?\s*(error|err|e|ex|exception)\s*\)/;
+/**
+ * Le tre forme che portano l'errore **intero** dentro un log.
+ *
+ * La prima stesura ne vedeva una sola — la variabile nuda passata come ultimo
+ * argomento. Una revisione ostile ha rimesso il messaggio di Prisma con
+ * `String(error)` e con l'interpolazione, e il presidio e rimasto verde.
+ *
+ * Non e la variabile a fare il danno: e il **messaggio**. In un errore Prisma
+ * quel messaggio contiene la query e i suoi parametri.
+ */
+const PASSA_ERRORE_INTERO = [
+  /console\.(log|info|warn|error|debug|trace)\((?:[^()]*,)?\s*(error|err|e|ex|exception)\s*\)/,
+  /console\.(log|info|warn|error|debug|trace)\([^;]*String\(\s*(error|err|e|ex|exception)\s*\)/,
+  /console\.(log|info|warn|error|debug|trace)\([^;]*\$\{\s*(error|err|e|ex|exception)\s*\}/,
+];
 
 /**
  * I commenti non sono codice.
@@ -127,7 +140,7 @@ const violazioni = () => {
     for (const file of elencaFile(radice)) {
       const originali = fs.readFileSync(file, "utf8").split(/\r?\n/);
       senzaCommenti(originali).forEach((riga, indice) => {
-        if (PASSA_ERRORE_INTERO.test(riga)) {
+        if (PASSA_ERRORE_INTERO.some((forma) => forma.test(riga))) {
           trovate.push({
             file,
             riga: indice + 1,
@@ -149,8 +162,10 @@ test("nessun log server passa un errore intero, fuori dai residui dichiarati", (
   assert.deepEqual(
     nuove.map((violazione) => `${violazione.file}:${violazione.riga}`),
     [],
-    "un log nuovo passa l'errore intero: usa reportServerError, oppure " +
-      "`{ message: error?.message, code: error?.code }`",
+    "un log nuovo porta l'errore intero nel registro: passa da " +
+      "reportServerError, che redige. Non ricomporlo a mano con " +
+      "`error?.message`: il messaggio di un errore Prisma contiene la query " +
+      "e i suoi parametri, cioe il dato personale che si voleva togliere",
   );
 });
 

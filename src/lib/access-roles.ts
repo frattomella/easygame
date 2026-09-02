@@ -736,6 +736,28 @@ export const canAccessPath = (
     const adminOnly = MANAGEMENT_ADMIN_ONLY_PATH_PREFIXES.some((prefix) =>
       matchesPathPrefix(pathname, prefix),
     );
+
+    /*
+      **La pagina che ridefinisce le deleghe non e delegabile.**
+
+      `club-roles.ts` la nega a un ruolo personalizzato, perche riscrivere i
+      ruoli del club vuol dire potersi ridare le chiavi che erano state
+      tolte. La guardia di rotta pero normalizzava sulla base, quindi un ruolo
+      costruito su `club_manager` la vedeva nel menu, la apriva, e ci trovava
+      dentro solo errori: la divergenza fra cio che si vede e cio che si puo
+      e essa stessa un difetto, perche insegna a diffidare dei messaggi.
+
+      Vale per **questa** pagina e non per le altre riservate: `/settings` o
+      `/communications` hanno chiavi di catalogo con cui un club puo
+      delegarle, questa no, ed e voluto.
+    */
+    if (
+      matchesPathPrefix(pathname, "/dashboard/access-management") &&
+      isCustomRoleValue(role)
+    ) {
+      return false;
+    }
+
     return !adminOnly || ["owner", "club_manager"].includes(normalizedRole);
   }
 

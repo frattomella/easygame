@@ -554,13 +554,61 @@ test("escalation 2 · non si concede una chiave che non si possiede", async () =
     ),
   );
 
+  /*
+    **La stessa scalata, e adesso la porta e murata prima del soffitto.**
+
+    Fino al closeout della Wave 6 il ruolo personalizzato entrava
+    nell'amministrazione degli accessi — `canManageClubConfiguration`
+    normalizza sulla base — e li lo fermava il soffitto: «non si concede il
+    permesso che non si ha». Reggeva, ma era l'**ultima** difesa dentro una
+    stanza in cui non doveva poter entrare: lo stesso titolare leggeva
+    l'elenco di chi ha accesso al club e le chiavi di tutti, e poteva provare
+    le combinazioni finche una passava.
+
+    Il diniego cambia frase, e va detto: una prova che pretendesse ancora il
+    messaggio del soffitto racconterebbe che la difesa e rimasta quella.
+  */
   assert.equal(rifiutata.status, 403);
-  assert.match(rifiutata.payload.error.message, /consents\.records\.read/);
+  assert.match(rifiutata.payload.error.message, /non puo assegnare un ruolo/);
   assert.equal(
     dinieghi().some(
-      (riga) => riga.metadata?.permission === "club_roles.assign",
+      (riga) => riga.metadata?.permission === "club_roles.manage",
     ),
     true,
+  );
+});
+
+test("escalation 2bis · il soffitto regge dove resta raggiungibile", async () => {
+  /*
+    La guardia nuova chiude la stanza ai ruoli personalizzati, e cosi
+    toglierebbe ogni prova al soffitto se non lo si esercitasse **dove resta
+    raggiungibile**: un `club_manager` canonico, che nell'amministrazione entra
+    di diritto, e che non puo concedere una chiave di direzione.
+  */
+  const ruolo = await creaRuolo({
+    name: "Direzione per interposta persona",
+    base_role: "club_manager",
+    permissions: ["data_subject.erase"],
+  });
+  assert.equal(ruolo.status, 201);
+
+  const rifiutata = await leggi(
+    await rotteAssegnazioni.POST(
+      richiesta("http://localhost/api/v1/club-roles/assignments", {
+        method: "POST",
+        token: TOKEN_GESTORE,
+        role: "club_manager",
+        body: { user_id: OPERATORE, role: ruolo.payload.data.slug },
+      }),
+    ),
+  );
+
+  assert.equal(rifiutata.status, 403);
+  assert.match(rifiutata.payload.error.message, /soltanto il proprietario/);
+  assert.equal(
+    dinieghi().length > 0,
+    true,
+    "un tentativo di concedere la direzione deve restare scritto",
   );
 });
 

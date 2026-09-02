@@ -29,7 +29,6 @@ import {
   explainDocumentReminderDenial,
   explainDocumentRequestTransitionDenial,
   isDocumentSubjectKind,
-  isDocumentSubmissionSource,
   isMedicalCertificateDocumentKind,
   validateDocumentRequestDraft,
   type DocumentRequestState,
@@ -919,8 +918,27 @@ export const submitDocument = async (
     throw denied("l'atleta non e stato trovato, o non e di questo club");
   }
 
-  const source: DocumentSubmissionSource = isDocumentSubmissionSource(input.source)
-    ? (String(input.source).trim().toLowerCase() as DocumentSubmissionSource)
+  /*
+    **La provenienza non la dichiara chi deposita: si ricava da chi sta agendo.**
+
+    `source` decide due cose vere: se il deposito apre un lavoro per la
+    segreteria, e cosa la famiglia legge nel proprio fascicolo. Arrivava dal
+    corpo della richiesta — `/api/v1/document-submissions` la inoltrava tal
+    quale — e un genitore che scriveva `source=club` otteneva un documento
+    registrato come condiviso **dal club**: nessuna riga nella coda di chi
+    doveva controllarlo, una notifica alla famiglia che diceva che era il club
+    ad averlo mandato, e un registro che attribuiva il deposito a chi non lo
+    aveva fatto.
+
+    Il ruolo attivo e gia passato da `resolveOrganizationScopeForUser` e da
+    `assertSubjectAccess`: e l'unico dato di provenienza che il client non
+    scrive. `public_form` resta nell'enum perche esistono righe storiche che
+    lo portano, ma **nessun ingresso puo piu produrlo**.
+  */
+  const source: DocumentSubmissionSource = isManagementAccessRole(
+    scope.activeRole,
+  )
+    ? "club"
     : "parent";
 
   /*

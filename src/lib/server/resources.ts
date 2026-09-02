@@ -29,6 +29,7 @@ import {
   hasHealthPermission,
   stripClinicalAthleteFields,
   stripClinicalCertificateFields,
+  restoreGuardianAccessTokens,
   stripGuardianAccessTokens,
   stripPersonCredentials,
 } from "@/lib/health/permissions";
@@ -6306,6 +6307,26 @@ export const updateResource = async (
     */
     if (Object.keys(conservati).length) {
       normalized.data = { ...nuovo, ...conservati };
+    }
+
+    /*
+      **La stessa regola vale per il codice con cui entra la famiglia.**
+
+      `data.guardians[].parentAccessTokenValue` viene tolto in lettura a
+      chiunque non abbia una direzione canonica. La scheda letta cosi e
+      rimandata indietro cancellava il codice: la famiglia non entrava piu, e
+      nessuno aveva chiesto di revocarlo.
+
+      Il difetto e identico a quello clinico qui sopra — un'assenza scambiata
+      per una cancellazione — ma non poteva essere risolto dallo stesso ciclo,
+      perche quello guarda le chiavi di primo livello e il gettone e dentro un
+      elemento di un elenco.
+    */
+    if (!vedeICredenzialiDiAccesso(scope?.activeRole)) {
+      normalized.data = restoreGuardianAccessTokens(
+        existing.data,
+        normalized.data,
+      );
     }
   }
 

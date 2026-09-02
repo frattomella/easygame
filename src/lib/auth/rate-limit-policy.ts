@@ -15,7 +15,8 @@ export type AuthRateLimitPolicy = {
     | "public_form_submit"
     | "payment_link_view"
     | "payment_link_checkout"
-    | "enrollment_status";
+    | "enrollment_status"
+    | "access_token_redeem";
   limit: number;
   windowMs: number;
 };
@@ -76,6 +77,30 @@ export const AUTH_RATE_LIMITS = {
   paymentLinkCheckoutToken: {
     scope: "payment_link_checkout",
     limit: 10,
+    windowMs: 60 * 60_000,
+  },
+  /*
+    **Il riscatto di un gettone d'accesso** (Wave 6, closeout).
+
+    Un gettone e un codice corto, scritto a mano da chi lo riceve, e chi lo
+    riscatta ottiene una **tessera nel club** con il ruolo che il gettone
+    porta scritto dentro. Non c'era nessun contatore: un'utenza qualunque
+    poteva provarne quanti ne voleva, e un colpo a segno vale una tessera.
+
+    Due contatori come per il link di pagamento, e per la stessa ragione:
+    quello per **utenza** ferma chi prova in sequenza da un account solo,
+    quello per **indirizzo** ferma chi si crea account nuovi. Dieci
+    tentativi all'ora coprono chi trascrive male un codice tre volte, e non
+    reggono nessuna enumerazione.
+  */
+  accessTokenRedeemUser: {
+    scope: "access_token_redeem",
+    limit: 10,
+    windowMs: 60 * 60_000,
+  },
+  accessTokenRedeemIp: {
+    scope: "access_token_redeem",
+    limit: 30,
     windowMs: 60 * 60_000,
   },
   paymentLinkCheckoutIp: {

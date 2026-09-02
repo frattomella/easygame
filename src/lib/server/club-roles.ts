@@ -11,6 +11,7 @@ import {
 import {
   canManageClubConfiguration,
   getAccessRoleLabel,
+  isCustomRoleValue,
   normalizeAccessRole,
   parseCustomRoleValue,
 } from "@/lib/access-roles";
@@ -100,7 +101,19 @@ const testo = (value: unknown) => String(value ?? "").trim();
 
 /**
  * La lettura e la scrittura della configurazione degli accessi hanno lo stesso
- * perimetro della pagina che le ospita: proprietario e gestore.
+ * perimetro della pagina che le ospita: proprietario e gestore, e **soltanto
+ * nella loro forma canonica**.
+ *
+ * Un ruolo personalizzato normalizza sulla propria base. Uno costruito su
+ * `club_manager` — anche con **zero chiavi**, cioe il piu ristretto che si
+ * possa creare — arrivava qui, `canManageClubConfiguration` vedeva
+ * `club_manager`, e quel ruolo poteva riscrivere i ruoli del club: darsi le
+ * chiavi che gli erano state negate, o assegnarsele con un secondo ruolo. Il
+ * modello e soffitto ∧ concessione, e questa era la porta che rialzava il
+ * soffitto dal di dentro.
+ *
+ * Non c'e una chiave di catalogo con cui concederlo, ed e voluto: delegare la
+ * facolta di ridefinire le deleghe e un atto del proprietario.
  *
  * Il diniego lascia una riga, perche «chi ha provato a guardare chi puo fare
  * cosa» e un evento di sicurezza e non un errore di navigazione.
@@ -109,7 +122,12 @@ const assertPuoAmministrareAccessi = async (
   scope: ClubRolesScope,
   atto: string,
 ) => {
-  if (canManageClubConfiguration(scope.activeRole)) return;
+  if (
+    !isCustomRoleValue(scope.activeRole) &&
+    canManageClubConfiguration(scope.activeRole)
+  ) {
+    return;
+  }
 
   await recordPermissionDenied({
     scope: {

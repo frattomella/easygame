@@ -1951,3 +1951,67 @@ ruolo che deve vederla. La seconda non e una scorciatoia — e la stessa decisio
 che il web offre — ma va **presa**, non subita: oggi quella sezione promette un
 contenuto che non arriva, ed e la forma di difetto che questa Wave esiste per
 smontare.
+
+## Wave 6 — closeout: la quinta revisione, e le sei porte che ha trovato (2026-09-02)
+
+La quinta revisione indipendente ha cercato **la seconda porta**, non il
+difetto: la stessa capability raggiunta da un'altra rotta, la stessa regola
+scritta due volte, il campo sensibile annidato in un JSON, la guardia messa sul
+caso complesso e non su quello semplice. Sei difetti, e cinque su sei sono lo
+stesso errore di metodo — **un presidio scritto enumerando le porte** invece che
+dichiarando la proprieta.
+
+Ognuno e stato riprodotto, corretto alla radice, e coperto da una prova
+comportamentale di cui e stata verificata la **non vacuita**: il difetto e stato
+reintrodotto e la prova e diventata rossa.
+
+| Cosa usciva o si poteva fare | Come | Correzione | Prova |
+|---|---|---|---|
+| Le risposte di una compilazione condivisa, di **un'altra famiglia** | L'export di un diritto rimetteva insieme `moduli.mie` e `moduli.condivise`. Il dominio le sapeva gia distinguere — le teneva separate per decidere che quelle condivise **non si cancellano** — e poi le riuniva in uscita | `proiettaCompilazioneCondivisa`: resta la traccia (quale modulo, quando, con che esito) e la sola citazione che riguarda questa persona. Le `answers` sono un testo unico e non si dividono: non escono | `U-49` |
+| L'elenco di **tutti** i destinatari di una comunicazione | `communication_deliveries.athlete_ids` usciva intero nell'export | `proiettaConsegna` filtra l'elenco sulla sola persona che ha chiesto | `U-49` |
+| Un deposito della famiglia registrato come **fatto dal club** | `source` arrivava dal corpo della richiesta: `/api/v1/document-submissions` lo inoltrava tal quale. Effetti veri: nessuna riga nella coda di chi doveva controllare il documento, una notifica che diceva alla famiglia che era il club a mandarlo, un registro che attribuiva il deposito a chi non lo aveva fatto | La provenienza si **ricava dal ruolo attivo**, che il client non scrive. `public_form` resta nell'enum per le righe storiche, ma nessun ingresso puo piu produrlo | `U-50` |
+| Il **codice di accesso della famiglia**, a chiunque | `stripGuardianAccessTokens` entrava in tre contenitori cablati — `guardians`, `tutori`, `parents`. Il repository ne usa un quarto, `tutors` | Il taglio cerca il **campo**, ovunque si trovi nell'albero: un valore che si chiama `parentAccessTokenValue` e una credenziale a qualunque profondita | `U-51` |
+| Lo stesso codice **cancellato** da un salvataggio ordinario | `data` si salva intera: la scheda letta senza il gettone e rimandata indietro lo revocava. Nessun errore, nessuna riga, e la famiglia lo scopriva al primo accesso | `restoreGuardianAccessTokens`: la stessa regola gia scritta per il dato clinico — **un'assenza non e una cancellazione** — ma su un valore annidato, quindi si cammina sui due alberi accoppiando gli elementi per identita | `U-51` |
+| L'amministrazione degli accessi, a un ruolo personalizzato **con zero chiavi** | `canManageClubConfiguration` normalizza sulla base: uno costruito su `club_manager` entrava. Da li: leggere le chiavi di tutti, e provare le combinazioni finche una passava | La configurazione degli accessi la amministra un ruolo **canonico**. Non c'e chiave di catalogo con cui delegarlo, ed e voluto: delegare la facolta di ridefinire le deleghe e un atto del proprietario. La guardia di rotta e stata allineata, altrimenti la pagina restava nel menu per aprirsi piena di 403 | `U-29.2` |
+
+### Il riscatto di un gettone non lasciava niente, e nessuno lo contava
+
+`POST /api/v1/auth/access/redeem` **fa entrare una persona in un club**, con il
+ruolo che il gettone porta scritto nel proprio payload.
+
+- `AUDIT_ACTIONS.accessTokenRedeemed` esisteva in `audit.ts` dalla Wave 4,
+  **dichiarata e mai scritta da nessuno**. Una costante non e un presidio;
+- nessun contatore. Il codice e corto e si trascrive a mano; la sessione
+  richiesta non e una difesa, perche le utenze si creano. Provarne mille non
+  incontrava nessun limite e non lasciava nessuna traccia: la forma esatta di
+  un attacco a forza bruta invisibile.
+
+Adesso ogni esito lascia la sua riga — riuscito, gettone inesistente, scaduto,
+gia usato, troppi tentativi — e il **valore** del gettone non entra mai nel
+registro: resta il suo identificativo, che dice quale senza dirne il valore.
+Il contatore e in `AUTH_RATE_LIMITS`: dieci tentativi all'ora per utenza,
+trenta per indirizzo, gli stessi due contatori del link di pagamento e per la
+stessa ragione (chi cambia account, e chi cambia rete).
+
+### I tre presidi che una revisione ha attraversato
+
+Sono la parte che dura, perche un presidio evadibile e peggio di nessun
+presidio: dice verde.
+
+- **Le credenziali fuori dal browser.** Cercava cinque nomi di chiave cablati.
+  Una revisione ha rimesso il gettone in `localStorage` in tre modi — variabile
+  rinominata, chiave nuova (`easygame.session.v2`), `document.cookie` — e ha
+  ottenuto sei verdi. Adesso sono tre regole chiuse: nessun file del browser
+  **nomina** una credenziale di sessione (due eccezioni dichiarate); ogni
+  scrittura di un oggetto in un archivio del browser e **dichiarata** con il
+  motivo; nessun percorso del browser scrive un cookie a mano.
+- **Il cancello sui byte del certificato.** Contava due occorrenze della
+  *condizione*. Una revisione ha lasciato l'`if` dov'era e ha svuotato il ramo:
+  il conteggio restava due. Adesso ogni condizione dev'essere seguita da un
+  **rifiuto**: la testa senza il corpo non e una guardia.
+- **L'errore intero nei log.** Vedeva solo la variabile nuda passata come
+  ultimo argomento. `String(error)` e l'interpolazione passavano — ed e il
+  messaggio a fare il danno, non la variabile: in un errore Prisma quel
+  messaggio contiene la query e i suoi parametri. Il messaggio di aiuto,
+  inoltre, **consigliava la fuga**: `{ message: error?.message }`. Adesso
+  rileva le tre forme e indirizza al solo punto che redige.
