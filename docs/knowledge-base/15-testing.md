@@ -342,3 +342,61 @@ I quattro sono poi diventati un presidio in
 `tests/server/sonde-wave6-difetti.test.mjs`, che chiude la classe e non
 l'istanza: non «questo atleta si trova», ma «ogni grafia cercata si normalizza
 sullo stato che la cerca».
+
+---
+
+## Wave 6 §27: le interrogazioni si contano, le attese si misurano (2026-09-02)
+
+`npm run wave6:perf` (`scripts/wave-6-performance.mjs`) misura le otto superfici
+del §27 alle taglie del mandato — 200 atleti, 100 eventi, 500 notifiche — e le
+confronta con una taglia piccola sullo **stesso** club.
+
+**Perche due taglie.** Il valore assoluto non dice se c'e un N+1: su un
+database locale con mille righe un N+1 da duecento interrogazioni e veloce, e
+lo stesso codice su Neon non lo e. Quello che lo dice e il **rapporto**: un
+conteggio che cresce con le righe dipende dai dati, uno che resta fermo no.
+
+**Perche anche i giri di rete.** Venticinque interrogazioni non sono un numero
+finche non si sa se sono in fila. Lo script le rimisura con una latenza fissa
+iniettata davanti a ogni interrogazione: il tempo in piu diviso la latenza da
+le attese in fila. Due letture parallele aspettano insieme e contano una.
+
+### La misura, dopo la correzione
+
+| superficie | interrogazioni | giri | righe |
+|------------|----------------|------|-------|
+| Home famiglia | 25 | **12** | — |
+| Elenco figli (caso peggiore: 200 figli) | 6 | 2 | 200 |
+| Elenco atleti (una pagina) | 2 | 1 | 25 |
+| Elenco atleti (tutti) | 1 | 2 | 200 |
+| Calendario eventi | 1 | 1 | 100 |
+| Notifiche | 1 | 1 | 250 |
+| Coda documentale | 2 | 1 | 200 |
+| Matrice Gestione Accessi | 10 | 8 | — |
+
+**Nessuna superficie cresce con i dati**: il costo di ogni apertura e fisso.
+Da 20 a 200 atleti, da 10 a 100 eventi, da 50 a 500 notifiche, il conteggio
+non si muove di una interrogazione. Il §27 e soddisfatto sul punto che chiede.
+
+**Cosa la misura ha cambiato.** `getParentLinkedAthletes` faceva tre letture in
+fila — utente, tessere, club posseduti — che dipendono tutte e sole da
+`userId`. Messe insieme: l'elenco dei figli e passato da 6 giri a 2, e la home
+famiglia da 19 a 12. Su Neon a 25 ms di andata e ritorno sono circa 175 ms in
+meno su ogni apertura.
+
+**Cosa resta, e perche non e stato toccato.** Dodici giri sulla home famiglia
+sono ancora circa 300 ms di sola attesa. La causa e misurata e non e un N+1:
+lo **stesso legame tutore-atleta viene ricavato tre volte** nella stessa
+richiesta — una in `getParentDashboardData`, una in `canParentAccessAthlete`
+dentro `assertSubjectAccess`, una nel fascicolo documentale. Ognuna di quelle
+verifiche e corretta dove sta: il dominio dei documenti **deve** controllare da
+solo, e toglierlo lo indebolirebbe.
+
+Chiuderlo vuol dire cambiare il contratto di `assertSubjectAccess` fra due
+domini, cioe un rifacimento che attraversa moduli a Wave finita: sta in
+[16 — Debito tecnico](16-technical-debt.md) con il numero misurato, non in
+questo commit (CLAUDE.md §3).
+
+Le due superfici piu care in giri — home famiglia e matrice degli accessi —
+sono anche le due che nessun test poteva sorvegliare: il conteggio delle
+interrogazioni e identico prima e dopo. Solo la latenza iniettata le distingue.

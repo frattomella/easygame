@@ -771,10 +771,32 @@ const serializeParentStructureBooking = (
 });
 
 export const getParentLinkedAthletes = async (userId: string) => {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { email: true, email_verified_at: true },
-  });
+  /*
+    **Tre domande su `userId`, e nessuna dipende dall'altra.**
+
+    Erano tre `await` in fila. Su Neon da Vercel ogni lettura paga un giro di
+    rete: in fila costano tre attese, insieme una. La misura del §27
+    (`npm run wave6:perf`) conta le attese iniettando una latenza fissa, ed e
+    li che si vedono — il conteggio delle interrogazioni non cambia, il tempo
+    che una famiglia aspetta si.
+
+    L'elenco degli atleti resta dopo, perche quello **dipende** davvero dalle
+    prime due: e la quarta attesa, e non si puo togliere.
+  */
+  const [user, memberships, ownedClubs] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true, email_verified_at: true },
+    }),
+    prisma.organizationUser.findMany({
+      where: { user_id: userId },
+      select: { organization_id: true },
+    }),
+    prisma.club.findMany({
+      where: { creator_id: userId },
+      select: { id: true },
+    }),
+  ]);
 
   /*
     **L'indirizzo vale come legame solo se e verificato.**
@@ -797,18 +819,6 @@ export const getParentLinkedAthletes = async (userId: string) => {
     dimostrare di leggere quella casella.
   */
   const verifiedEmail = user?.email_verified_at ? user.email : null;
-  const memberships = await prisma.organizationUser.findMany({
-    where: {
-      user_id: userId,
-    },
-    select: {
-      organization_id: true,
-    },
-  });
-  const ownedClubs = await prisma.club.findMany({
-    where: { creator_id: userId },
-    select: { id: true },
-  });
   const organizationIds = Array.from(
     new Set(
       memberships

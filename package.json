@@ -34,7 +34,8 @@
     "measure:dashboard": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/measure-dashboard-performance.mjs",
     "wave6:uat": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/wave-6-uat.mjs",
     "wave6:roles": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/wave-6-roles-probe.mjs",
-    "wave6:security": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/wave-6-security-probe.mjs"
+    "wave6:security": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/wave-6-security-probe.mjs",
+    "wave6:perf": "node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs scripts/wave-6-performance.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^6.19.2",
