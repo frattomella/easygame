@@ -3,6 +3,7 @@ import { isManagementAccessRole } from "@/lib/access-roles";
 import {
   hasHealthPermission,
   stripClinicalAthleteFields,
+  stripGuardianAccessTokens,
   stripClinicalCertificateFields,
 } from "@/lib/health/permissions";
 import {
@@ -142,11 +143,31 @@ export async function GET(request: Request, context: Context) {
 
   const anagrafica = contenutoClinicoConsentito
     ? athlete
-    : { ...athlete, data: stripClinicalAthleteFields(athlete.data) };
+    : {
+        ...athlete,
+        data: stripClinicalAthleteFields(athlete.data),
+      };
+
+  /*
+    **La credenziale del tutore non esce da qui, e non e questione di ruolo.**
+
+    Il taglio applicato sopra e solo quello **clinico**: il gettone con cui un
+    tutore si collega non e un dato sanitario, quindi passava. Misurato: un
+    collaboratore riceveva 200 e il gettone nel corpo.
+
+    E chi raccoglie quel gettone si lega come tutore, ottenendo **per legame**
+    il fascicolo clinico completo — cioe esattamente cio che il taglio qui
+    sopra gli nega. Il difetto non era nel taglio: era nell'aver protetto una
+    porta sola.
+  */
+  const anagraficaSenzaCredenziali = {
+    ...anagrafica,
+    data: stripGuardianAccessTokens(anagrafica.data),
+  };
 
   return NextResponse.json({
     data: {
-      athlete: { ...anagrafica, medical_certificates: certificati },
+      athlete: { ...anagraficaSenzaCredenziali, medical_certificates: certificati },
       certificates: certificati,
       categoryMemberships: athlete.category_memberships,
     },

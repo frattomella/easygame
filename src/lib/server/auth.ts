@@ -479,13 +479,28 @@ export const resolveOrganizationScopeForUser = async (
           (ownsActiveOrganization ? "owner" : null);
 
   /*
-    Il perimetro si legge **solo** per la tessera scelta, e solo se e una
-    tessera con un ruolo di club: le altre non ne hanno, e una lettura per
-    ogni richiesta autenticata non si aggiunge per un caso che oggi non
-    esiste.
+    **Il perimetro si legge per ogni tessera, e la restrizione precedente lo
+    rendeva inerte su ogni ruolo canonico.**
+
+    Qui si leggeva solo se la tessera portava uno slug personalizzato, con la
+    motivazione che «le altre non ne hanno». Non era vero, e a smentirlo era il
+    prodotto stesso: `assignClubRole` e `updateAssignmentScopes` scrivono
+    `club_access_scopes` per **qualunque** tessera, e la schermata di gestione
+    accessi offre le caselle Sedi e Categorie anche quando il ruolo scelto e
+    canonico.
+
+    Il risultato misurato: il proprietario assegna «Collaboratore, solo sede
+    Nord», la riga viene scritta, l'audit la registra, la pastiglia «Sede: Nord»
+    compare a schermo — e la persona vede **tutto il club**. Una recinzione che
+    si configura, si mostra e non recinta.
+
+    Il costo e una interrogazione per richiesta autenticata su una tabella
+    piccola, indicizzata per `organization_user_id`. Il caso che la
+    motivazione precedente dichiarava inesistente e quello che l'interfaccia
+    produce da quando esiste.
   */
   const accessScopes =
-    selectedMembership?.customSlug && selectedMembership.id
+    selectedMembership?.id
       ? normalizeAccessScopes(
           (
             await prisma.clubAccessScope.findMany({

@@ -1,5 +1,9 @@
 import { prisma } from "./prisma";
-import { buildAthleteAccessScopeConditions } from "./access-scope-query";
+import {
+  assertMembershipWithinAccessScope,
+  athleteWithinAccessScope,
+  buildAthleteAccessScopeConditions,
+} from "./access-scope-query";
 import {
   assertActiveClub,
   belongsToActiveClub,
@@ -8,6 +12,7 @@ import {
   isClubResourceDeclared,
   isCustomRoleValue,
   canAccessClubResource,
+  isManagementAdminOnlyResource,
   normalizeAccessRole,
 } from "@/lib/access-roles";
 import { assertMayGrantRole } from "@/lib/roles/custom-role";
@@ -3238,10 +3243,49 @@ const applyRecipientScope = (
  * senza `automations.manage`, e cancellare entrambi. E il `PATCH` restituiva
  * il record, cioe era anche la scorciatoia di lettura che il dettaglio negava.
  */
+/**
+ * **Una risorsa riservata alla direzione non si raggiunge dal registro
+ * generico.**
+ *
+ * `access_tokens`, `bank_accounts`, `document_templates` e `payment_methods`
+ * hanno una rotta propria, protetta dalla matrice come riservata alla
+ * direzione. Ma le loro righe **sono** `club_resource_items`, che e aperta alla
+ * gestione: la protezione era sul **cartello**, non sulla porta.
+ *
+ * Misurato: un collaboratore che riceve «Accesso negato» da
+ * `POST /api/v1/access_tokens` scriveva la stessa riga con
+ * `POST /api/v1/club_resource_items` e `resource_type: "access_tokens"`, con
+ * dentro `payload.role: "owner"`. Riscattato quel gettone, si tesserava
+ * **proprietario** — saltando `assertMayGrantRole` e
+ * `assertConcessioneDiAccessoLecita` — e senza lasciare una riga di audit.
+ * Dalla stessa porta uscivano in lettura i gettoni in chiaro di ogni famiglia,
+ * e gli IBAN dei conti correnti.
+ *
+ * La regola e **derivata**, non elencata: si chiede alla matrice chi e
+ * riservato. Una risorsa che domani entra fra le riservate e coperta senza che
+ * nessuno debba ricordarsene — che e la ragione per cui l'elenco scritto a mano
+ * di sopra ha dovuto essere corretto quattro volte.
+ */
+const assertNotAdminOnlyFromGenericRoute = (
+  resource: string,
+  value: unknown,
+) => {
+  if (resource !== "club_resource_items") return;
+
+  const tipo = String(value || "").trim();
+  if (!tipo || !isManagementAdminOnlyResource(tipo)) return;
+
+  throw new Error(
+    `Accesso negato: ${tipo} e riservata alla direzione e si legge e si scrive dalla sua rotta, non dal registro generico`,
+  );
+};
+
 const assertNotDomainOwnedResourceItem = (
   resource: string,
   value: unknown,
 ) => {
+  assertNotAdminOnlyFromGenericRoute(resource, value);
+
   /*
     **Due modi di arrivare alla stessa riga, e la guardia deve coprirli
     entrambi.**
@@ -3381,6 +3425,7 @@ export const buildWhereFromSearchParams = (
     integra continuerebbe a chiamare la rotta sbagliata.
   */
   if (resource === "club_resource_items") {
+    assertNotAdminOnlyFromGenericRoute(resource, where.resource_type);
     if (isDomainOwnedResourceItemType(where.resource_type)) {
       throw new Error(
         `Accesso negato: ${where.resource_type} si legge dalla sua rotta, non dal registro generico`,
@@ -4887,6 +4932,8 @@ export const getResourceById = async (
     dell'elenco si aggirerebbe passando l'id, che e proprio come si aggira un
     filtro di elenco. Vedi `DOMAIN_OWNED_RESOURCE_ITEM_TYPES`.
   */
+  assertNotAdminOnlyFromGenericRoute(resource, record?.resource_type);
+
   if (
     resource === "club_resource_items" &&
     isDomainOwnedResourceItemType(record?.resource_type)
@@ -5036,7 +5083,7 @@ export const createResource = async (
           );
         }
 
-        return serializeRecord(resource, record);
+        return serializeRecord(resource, record, scope);
       }
     }
 
@@ -5057,7 +5104,7 @@ export const createResource = async (
     if (data.organization_id) {
       await syncClubAggregateField(data.organization_id, resource);
     }
-    return serializeRecord(resource, record);
+    return serializeRecord(resource, record, scope);
   }
 
   const normalized = await normalizeModelInput(resource, input);
@@ -5149,6 +5196,38 @@ export const createResource = async (
   */
   await guardNotificationRecipient(resource, normalized, scope);
   await guardParentBelongsToClub(resource, normalized, scope);
+  /*
+    **Il perimetro non si allarga da dentro.**
+
+    Le righe di `athlete_category_memberships` **definiscono** il perimetro di
+    sede, e la stessa tabella e aperta in scrittura alla gestione. Un ruolo
+    perimetrato sulla sede Nord creava un'appartenenza per un atleta della sede
+    Sud, con la **propria** sede dentro, e da quel momento ogni porta chiusa gli
+    si apriva a buon diritto: il confine non veniva aggirato, veniva spostato.
+
+    Due condizioni, e servono entrambe: la riga deve stare dentro il proprio
+    perimetro (`assertMembershipWithinAccessScope`), e l'atleta a cui si
+    attacca deve essere gia dentro (`athleteWithinAccessScope`) — altrimenti
+    basterebbe scrivere la riga giusta sull'atleta sbagliato.
+  */
+  if (scope && resource === "athlete_category_memberships") {
+    assertMembershipWithinAccessScope(scope, normalized);
+
+    const atleta = String(normalized.athlete_id ?? "").trim();
+    const club = String(
+      normalized.organization_id ?? scope.activeOrganizationId ?? "",
+    ).trim();
+
+    if (atleta && club) {
+      const dentro = await athleteWithinAccessScope(club, atleta, scope);
+      if (!dentro) {
+        throw new Error(
+          "Accesso negato: questo atleta e fuori dal perimetro di sede o categoria dell'accesso",
+        );
+      }
+    }
+  }
+
 
   const existingCharge =
     (resource === "payments" || resource === "simplified_payments") && normalized.id
@@ -5215,7 +5294,7 @@ export const createResource = async (
           data: accessData,
         });
 
-    return serializeRecord(resource, record);
+    return serializeRecord(resource, record, scope);
   }
 
   /*
@@ -5352,7 +5431,7 @@ export const createResource = async (
         }
       }
 
-      return serializeRecord(resource, record);
+      return serializeRecord(resource, record, scope);
     }
   }
 
@@ -5422,7 +5501,7 @@ export const createResource = async (
     }
   }
 
-  return serializeRecord(resource, record);
+  return serializeRecord(resource, record, scope);
 };
 
 /**
@@ -5782,7 +5861,7 @@ export const updateResource = async (
       await syncClubAggregateField(normalized.organization_id, resource);
     }
 
-    return serializeRecord(resource, record);
+    return serializeRecord(resource, record, scope);
   }
 
   const normalized = await normalizeModelInput(resource, input);
@@ -5840,6 +5919,38 @@ export const updateResource = async (
     },
     scope,
   );
+  /*
+    **Il perimetro non si allarga da dentro.**
+
+    Le righe di `athlete_category_memberships` **definiscono** il perimetro di
+    sede, e la stessa tabella e aperta in scrittura alla gestione. Un ruolo
+    perimetrato sulla sede Nord creava un'appartenenza per un atleta della sede
+    Sud, con la **propria** sede dentro, e da quel momento ogni porta chiusa gli
+    si apriva a buon diritto: il confine non veniva aggirato, veniva spostato.
+
+    Due condizioni, e servono entrambe: la riga deve stare dentro il proprio
+    perimetro (`assertMembershipWithinAccessScope`), e l'atleta a cui si
+    attacca deve essere gia dentro (`athleteWithinAccessScope`) — altrimenti
+    basterebbe scrivere la riga giusta sull'atleta sbagliato.
+  */
+  if (scope && resource === "athlete_category_memberships") {
+    assertMembershipWithinAccessScope(scope, normalized);
+
+    const atleta = String(normalized.athlete_id ?? "").trim();
+    const club = String(
+      normalized.organization_id ?? scope.activeOrganizationId ?? "",
+    ).trim();
+
+    if (atleta && club) {
+      const dentro = await athleteWithinAccessScope(club, atleta, scope);
+      if (!dentro) {
+        throw new Error(
+          "Accesso negato: questo atleta e fuori dal perimetro di sede o categoria dell'accesso",
+        );
+      }
+    }
+  }
+
 
   if ("user_id" in normalized) {
     await guardNotificationRecipient(
@@ -5874,6 +5985,46 @@ export const updateResource = async (
     ruolo personalizzato: cambiare `is_primary` non deve dover ridichiarare
     niente.
   */
+  /*
+    **`athletes.user_id` non si scrive dal registro generico.**
+
+    CLAUDE.md §2 e ADR-0104 dichiarano `athlete-accounts.ts` «l'unica strada
+    che scrive `athletes.user_id`», e la chiave `accounts.athlete.manage`
+    esiste per governarla. Ma `athletes` e aperta in scrittura alla gestione e
+    nessuna proiezione toglieva quel campo dall'ingresso.
+
+    Misurato con uno `staff` canonico: un `PATCH` che porta `user_id` collega
+    la scheda di un minore a un'utenza qualunque, e
+    `GET /api/v1/athlete-accounts/me` — che non chiede ne ruolo ne tessera,
+    perche risolve la scheda **da quel campo** — consegna a quell'utenza l'area
+    atleta completa. Serve anche a **staccare** un atleta legittimo dal proprio
+    account, senza audit e senza revoca.
+  */
+  if (
+    scope &&
+    (resource === "athletes" || resource === "simplified_athletes") &&
+    "user_id" in normalized &&
+    String(normalized.user_id ?? "").trim() !==
+      String((existing as any)?.user_id ?? "").trim()
+  ) {
+    await recordPermissionDenied({
+      scope: {
+        userId: scope.userId,
+        activeRole: scope.activeRole,
+        activeOrganizationId: scope.activeOrganizationId,
+      },
+      permission: "accounts.athlete.manage",
+      resource: "athletes",
+      metadata: {
+        athlete_id: String((existing as any)?.id || ""),
+        reason: "athlete_user_link_from_generic_route",
+      },
+    });
+    throw new Error(
+      "Accesso negato: il legame fra un atleta e un'utenza si crea e si revoca dalla gestione dell'accesso EasyGame, non dal registro generico",
+    );
+  }
+
   /*
     **La tessera non cambia intestatario da qui, ed e il buco che la prima
     correzione ha lasciato aperto.**
@@ -6108,7 +6259,7 @@ export const updateResource = async (
     }
   }
 
-  return serializeRecord(resource, record);
+  return serializeRecord(resource, record, scope);
 };
 
 /**
@@ -6162,8 +6313,23 @@ const assertAthleteHasNoSettledFunding = async (
   if (resource !== "athletes" && resource !== "simplified_athletes") return;
   if (!athleteId) return;
 
+  /*
+    **Questa guardia rifiutava ogni cancellazione, sempre.**
+
+    Interrogava `accrual.athlete_id`, e `FundingAccrual` **non ha** quella
+    colonna: ha `enrollment_id`, ed e `FundingEnrollment` a portare
+    l'atleta. Prisma rispondeva con un errore di validazione, non con un
+    conteggio — quindi nessun atleta era cancellabile, da nessun ruolo, da
+    nessuna delle due rotte, nemmeno uno senza un solo contributo.
+
+    E i tre test che la presidiavano **passavano**, perche il doppio di Prisma
+    riceveva righe scritte a mano nella forma `{ accrual: { athlete_id } }`:
+    il presidio modellava l'assunzione sbagliata del codice invece dello
+    schema. Due implementazioni d'accordo fra loro non sono una verifica se
+    condividono la stessa assunzione.
+  */
   const righeLiquidate = await (prisma as any).fundingSettlementLine.count({
-    where: { accrual: { athlete_id: athleteId } },
+    where: { accrual: { enrollment: { athlete_id: athleteId } } },
   });
 
   if (righeLiquidate > 0) {
@@ -6319,7 +6485,7 @@ export const deleteResource = async (
     if (existing?.organization_id) {
       await syncClubAggregateField(existing.organization_id, resource);
     }
-    return serializeRecord(resource, record);
+    return serializeRecord(resource, record, scope);
   }
 
   const existing = await delegate.findUnique({
@@ -6408,5 +6574,5 @@ export const deleteResource = async (
     include: getModelInclude(resource),
   });
 
-  return serializeRecord(resource, record);
+  return serializeRecord(resource, record, scope);
 };

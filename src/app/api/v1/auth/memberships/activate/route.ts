@@ -313,7 +313,22 @@ export async function POST(request: Request) {
     return NextResponse.json({
       data: {
         ...updatedMembership,
-        role: accessTarget.resolvedRole,
+        /*
+          **`role` resta lo slug della tessera, e `resolved_role` la sua base.**
+
+          Qui si sovrascriveva `role` con il ruolo **normalizzato**, e il
+          browser salvava quello: da li in poi mandava `club_manager` come
+          `x-active-access-role` per una persona la cui tessera dice
+          `custom:club_manager:segreteria`. Il server non trova nessuna tessera
+          con quello slug e risolve `activeRole: null` — cioe 403 su ogni
+          rotta, con il menu intero a schermo.
+
+          I due campi rispondono a due domande diverse e servono entrambi: lo
+          **slug** dice quale tessera si sta usando, la **base** dice cosa quel
+          ruolo e in astratto. Farne uno solo, e farlo essere il secondo, era la
+          meta della capability che non arrivava a destinazione.
+        */
+        role: updatedMembership.role,
         access_kind: "membership",
         is_ownership_record: false,
         redirect_path: accessTarget.redirectPath,

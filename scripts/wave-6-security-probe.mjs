@@ -1327,6 +1327,317 @@ const u38 = async () => {
     Qui il database e vero e la riga si esercita.
   */
   /* ================================================================== */
+  /*  U-45 — il perimetro non si allarga da dentro   [CRITICAL: minori]  */
+  /* ================================================================== */
+
+  /*
+    Il perimetro di sede si calcola su `athlete_category_memberships.site_id`, e
+    quella tabella e servita dal registro generico ed e aperta in scrittura alla
+    gestione.
+
+    Prima della correzione: un ruolo perimetrato sulla sede Nord creava
+    un'appartenenza per un atleta della sede Sud, con la **propria** sede
+    dentro, e da quel momento tutte le porte chiuse gli si aprivano **a buon
+    diritto**. Il confine non veniva aggirato: veniva **spostato**.
+
+    E la classe piu insidiosa di tutte, perche ogni singola guardia continuava a
+    funzionare: il recinto era giusto, erano le assi a essere scrivibili da
+    dentro.
+  */
+  console.log(
+    `${NL}U-45 — il perimetro non si allarga da dentro   [CRITICAL: minori]`,
+  );
+
+  const perimetratoNord = {
+    ...scopeDi(utenti.staff.id, CLUB_A, "staff"),
+    accessScopes: [{ kind: "site", value: SEDE_A }],
+  };
+
+  await varco(
+    "U-45 non si scrive un'appartenenza per un atleta fuori perimetro",
+    () =>
+      risorse.createResource(
+        "athlete_category_memberships",
+        {
+          organization_id: CLUB_A,
+          athlete_id: ATLETA_ALTRUI,
+          category_id: CATEGORIA,
+          category_name: "Under 15",
+          site_id: SEDE_A,
+          is_primary: false,
+        },
+        "create",
+        perimetratoNord,
+      ),
+    ["negato", "ambiguo"],
+  );
+
+  await varco(
+    "U-45 ne una che dichiara una sede diversa dalla propria",
+    () =>
+      risorse.createResource(
+        "athlete_category_memberships",
+        {
+          organization_id: CLUB_A,
+          athlete_id: ATLETA_A,
+          category_id: CATEGORIA,
+          category_name: "Under 15",
+          site_id: SEDE_ALTRA,
+          is_primary: false,
+        },
+        "create",
+        perimetratoNord,
+      ),
+    ["negato", "ambiguo"],
+  );
+
+  const elencoDopoITentativi = await risorse.listResourcePage(
+    "athletes",
+    new URLSearchParams({ organization_id: CLUB_A }),
+    perimetratoNord,
+  );
+  prova(
+    "U-45 e il perimetro e ancora quello di prima",
+    false,
+    elencoDopoITentativi.records.map((r) => r.id).includes(ATLETA_ALTRUI),
+    "se una delle due scritture fosse passata, l'atleta dell'altra sede comparirebbe qui",
+  );
+
+  /*
+    Il controspecchio: chi **non** ha un perimetro continua a lavorare come
+    prima. Una guardia che blocca anche chi non c'entra non e una guardia, e un
+    guasto.
+  */
+  const senzaPerimetroScrive = await tenta(() =>
+    risorse.createResource(
+      "athlete_category_memberships",
+      {
+        organization_id: CLUB_A,
+        athlete_id: ATLETA_ALTRUI,
+        /* Una categoria diversa: la coppia (atleta, categoria) e unica. */
+        category_id: "cat-uat6s-controprova",
+        category_name: "Controprova",
+        site_id: SEDE_ALTRA,
+        is_primary: false,
+      },
+      "create",
+      scopeRuolo("club_manager"),
+    ),
+  );
+  prova(
+    "U-45 e chi non ha perimetro continua a scrivere un'appartenenza",
+    "riuscito",
+    senzaPerimetroScrive.esito,
+    senzaPerimetroScrive.messaggio
+      ? senzaPerimetroScrive.messaggio.slice(0, 140)
+      : "",
+  );
+
+  /* ================================================================== */
+  /*  U-43 — la risposta di SCRITTURA e proiettata come la lettura       */
+  /*         [CRITICAL: minori, salute]                                  */
+  /* ================================================================== */
+
+  /*
+    `createResource`, `updateResource` e `deleteResource` chiamavano
+    `serializeRecord(resource, record)` **senza scope**, e la proiezione esce
+    subito quando lo scope manca. Un `PATCH` che cambia il solo cognome
+    restituiva allergie, esito della visita, PDF del certificato e gettone
+    della famiglia — cioe tutto cio che la `GET` dello stesso ruolo nega.
+
+    Annullava tre scenari di questa sonda insieme (U-34, U-40, U-41), ed e la
+    quarta ricorrenza della stessa forma: la difesa messa su una porta e non
+    sull'altra.
+  */
+  console.log(
+    `${NL}U-43 — la risposta di scrittura e proiettata   [CRITICAL: salute]`,
+  );
+
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: {
+      data: {
+        allergies: "Arachidi",
+        medicalVisits: [{ title: "Visita", outcome: "da rivalutare" }],
+        phone: "3330000000",
+        guardians: [
+          {
+            name: "Tutore Alfa",
+            phone: "3331111111",
+            parentAccessTokenValue: "GETTONE-IN-CHIARO-DA-NON-VEDERE",
+          },
+        ],
+      },
+    },
+  });
+
+  const scritturaCon = async (ruolo) => {
+    const scope = ruolo.includes(":")
+      ? scopeDi(utenti.club_manager.id, CLUB_A, ruolo)
+      : scopeRuolo(ruolo);
+
+    const risposta = await risorse.updateResource(
+      "athletes",
+      ATLETA_A,
+      { last_name: `Scritto-${Date.now()}` },
+      scope,
+    );
+
+    const testo = JSON.stringify(risposta?.data ?? {});
+    return {
+      allergie: testo.includes("Arachidi"),
+      esito: testo.includes("da rivalutare"),
+      gettone: testo.includes("GETTONE-IN-CHIARO-DA-NON-VEDERE"),
+    };
+  };
+
+  prova(
+    "U-43 la scrittura di un ruolo senza `clinical.read` non restituisce il clinico",
+    { allergie: false, esito: false, gettone: false },
+    await scritturaCon("custom:club_manager:senza-clinico#members.register.read"),
+  );
+  prova(
+    "U-43 ne il collaboratore riceve la credenziale della famiglia",
+    { allergie: true, esito: true, gettone: false },
+    await scritturaCon("collaborator"),
+    "il collaboratore ha `clinical.read`, quindi il clinico gli arriva: a non arrivargli e la credenziale",
+  );
+  prova(
+    "U-43 e l'allenatore non riceve niente di clinico nemmeno scrivendo",
+    { allergie: false, esito: false, gettone: false },
+    await scritturaCon("trainer"),
+  );
+
+  /* ================================================================== */
+  /*  U-44 — un atleta senza contributi si cancella   [integrita]        */
+  /* ================================================================== */
+
+  /*
+    La guardia sulle liquidazioni interrogava `accrual.athlete_id`, colonna che
+    **non esiste**: `FundingAccrual` ha `enrollment_id`, ed e
+    `FundingEnrollment` a portare l'atleta. Prisma rispondeva con un errore di
+    validazione invece che con un conteggio, quindi **nessun atleta era
+    cancellabile**, da nessun ruolo, nemmeno uno senza un solo contributo.
+
+    I tre test che la presidiavano passavano, perche il doppio di Prisma
+    riceveva righe scritte a mano nella forma che il codice si aspettava: il
+    presidio modellava l'assunzione sbagliata invece dello schema.
+  */
+  console.log(`${NL}U-44 — la cancellazione di un atleta   [integrita]`);
+
+  const usaEGetta = await prisma.athlete.create({
+    data: {
+      organization_id: CLUB_A,
+      first_name: "UsaE",
+      last_name: "Getta",
+      status: "active",
+      data: {},
+      updated_at: new Date(),
+    },
+  });
+
+  const cancellazione = await tenta(() =>
+    risorse.deleteResource("athletes", usaEGetta.id, scopeRuolo("club_manager")),
+  );
+  const restaInArchivio = await prisma.athlete.findUnique({
+    where: { id: usaEGetta.id },
+    select: { id: true },
+  });
+
+  prova(
+    "U-44 un atleta senza contributi e senza documenti si cancella",
+    { esito: "riuscito", restaInArchivio: false },
+    { esito: cancellazione.esito, restaInArchivio: Boolean(restaInArchivio) },
+    cancellazione.messaggio ? cancellazione.messaggio.slice(0, 140) : "",
+  );
+
+  if (restaInArchivio) {
+    await prisma.athlete.delete({ where: { id: usaEGetta.id } }).catch(() => {});
+  }
+
+  /* ================================================================== */
+  /*  U-42 — la seconda porta sulle risorse riservate  [CRITICAL: tenant] */
+  /* ================================================================== */
+
+  /*
+    `access_tokens`, `bank_accounts`, `document_templates` e `payment_methods`
+    hanno una rotta propria, riservata alla direzione. Ma le loro righe **sono**
+    `club_resource_items`, che e aperta alla gestione: la protezione era sul
+    **cartello**, non sulla porta.
+
+    Misurato prima della correzione: un collaboratore forgiava un gettone di
+    accesso con `payload.role: "owner"`, lo riscattava, e si tesserava
+    proprietario **senza lasciare una riga di audit**. Dalla stessa porta
+    uscivano in lettura i gettoni in chiaro di ogni famiglia e gli IBAN dei
+    conti correnti.
+  */
+  console.log(
+    `${NL}U-42 — la seconda porta sulle risorse riservate   [CRITICAL: tenant]`,
+  );
+
+  const RISERVATE = [
+    "access_tokens",
+    "bank_accounts",
+    "document_templates",
+    "payment_methods",
+  ];
+
+  for (const ruolo of ["collaborator", "staff", "trainer"]) {
+    const suo = scopeRuolo(ruolo);
+
+    for (const tipo of RISERVATE) {
+      await varco(
+        `U-42 ${ruolo} non legge ${tipo} dal registro generico`,
+        () =>
+          risorse.listResourcePage(
+            "club_resource_items",
+            new URLSearchParams({
+              organization_id: CLUB_A,
+              resource_type: tipo,
+            }),
+            suo,
+          ),
+        ["negato", "ambiguo"],
+      );
+    }
+
+    await varco(
+      `U-42 ${ruolo} non forgia un gettone di accesso dal registro generico`,
+      () =>
+        risorse.createResource(
+          "club_resource_items",
+          {
+            organization_id: CLUB_A,
+            resource_type: "access_tokens",
+            name: `FORGIATO-${ruolo}`,
+            payload: { role: "owner", one_time: false },
+          },
+          "create",
+          suo,
+        ),
+      ["negato", "ambiguo"],
+    );
+  }
+
+  /*
+    Il controspecchio: la direzione continua a passare dalla **propria** rotta,
+    che e il posto in cui la matrice riservata sa dire di si.
+  */
+  const dallaSuaRotta = await tenta(() =>
+    risorse.listResourcePage(
+      "access_tokens",
+      new URLSearchParams({ organization_id: CLUB_A }),
+      scopeRuolo("club_manager"),
+    ),
+  );
+  prova(
+    "U-42 e la direzione continua a leggerli dalla loro rotta",
+    true,
+    dallaSuaRotta.esito !== "negato" && dallaSuaRotta.esito !== "errore",
+    `esito=${dallaSuaRotta.esito}`,
+  );
+
+  /* ================================================================== */
   /*  U-40 — la credenziale della famiglia    [CRITICAL: minori, salute]  */
   /* ================================================================== */
 

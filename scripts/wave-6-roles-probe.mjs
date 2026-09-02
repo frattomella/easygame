@@ -723,6 +723,70 @@ const u27 = async () => {
     eventiNord.map((riga) => riga.legacy_id),
   );
 
+  /*
+    **Il perimetro su un ruolo CANONICO, che e la porta che nessuna sonda
+    esercitava.**
+
+    U-27 qui sopra lo prova sul direttore, che porta un ruolo **personalizzato**
+    — cioe la porta gia presidiata. E la stessa forma che il commit `986a497`
+    descrive per la scalata precedente: «la sonda lo sfiorava, provando lo
+    stesso scenario con un ruolo personalizzato».
+
+    La quinta revisione ha misurato cosa c'era dietro: `resolveOrganizationScopeForUser`
+    leggeva `club_access_scopes` **solo** per le tessere con uno slug
+    personalizzato. Ma la schermata di gestione accessi offre le caselle Sedi e
+    Categorie anche per i ruoli canonici, e `assignClubRole` le scrive. Il
+    proprietario assegnava «Collaboratore, solo sede Nord», vedeva la pastiglia,
+    l'audit registrava la riga — e la persona vedeva **tutto il club**.
+
+    Una recinzione che si configura, si mostra, si registra e non recinta.
+  */
+  const tesseraGestore = await prisma.organizationUser.findFirst({
+    where: { organization_id: CLUB_A, user_id: GESTORE.id },
+    select: { id: true, role: true },
+  });
+
+  prova(
+    "U-27bis la tessera del gestore porta un ruolo canonico",
+    ["club_manager", false],
+    [
+      tesseraGestore?.role ?? null,
+      String(tesseraGestore?.role ?? "").includes("custom:"),
+    ],
+  );
+
+  await ruoliDiClub.updateAssignmentScopes(
+    scopeProprietario,
+    tesseraGestore.id,
+    [{ kind: "site", value: SEDE_1 }],
+  );
+
+  const gestorePerimetrato = await sessioneDi(GESTORE.id);
+  prova(
+    "U-27bis il perimetro di un ruolo canonico arriva nella sessione",
+    [{ kind: "site", value: SEDE_1 }],
+    gestorePerimetrato.accessScopes,
+    "e la meta che mancava: le righe si scrivevano, la schermata le mostrava, e la sessione non le leggeva",
+  );
+
+  const atletiDelGestore = await risorse.listResourcePage(
+    "athletes",
+    new URLSearchParams({ organization_id: CLUB_A }),
+    gestorePerimetrato,
+  );
+  prova(
+    "U-27bis e restringe davvero cio che vede",
+    [ATLETA_NORD],
+    atletiDelGestore.records.map((riga) => riga.id),
+  );
+
+  /* Rimesso com'era: le prove che seguono non devono ereditare il perimetro. */
+  await ruoliDiClub.updateAssignmentScopes(
+    scopeProprietario,
+    tesseraGestore.id,
+    [],
+  );
+
   const prima = await prisma.auditLog.count({
     where: { organization_id: CLUB_A, outcome: "denied" },
   });
@@ -797,6 +861,74 @@ const u27 = async () => {
 
 const u29 = async () => {
   console.log(`${NL}U-29 / U-30 — le quattro scalate, negate e tracciate`);
+
+  /*
+    **Il giro di andata e ritorno: dallo slug in archivio all'header e ritorno.**
+
+    Nessuna prova lo copriva, e per questo il difetto e vissuto: le sonde
+    chiamano `resolveOrganizationScopeForUser(userId)` **senza header**, cioe
+    saltando esattamente il pezzo rotto.
+
+    Il browser normalizzava lo slug prima di salvarlo e mandava la **base** come
+    `x-active-access-role`. Il server cerca una tessera con quello slug, non ne
+    trova nessuna — la sua e quella personalizzata — e risolve `activeRole:
+    null`: menu intero a schermo e **403 su ogni rotta**. La capability di punta
+    della Wave era irraggiungibile dall'interfaccia.
+
+    Qui si simula il giro come lo fa il prodotto: si legge lo slug dall'archivio
+    esattamente come lo legge il browser, lo si passa come header, e si guarda
+    cosa risolve la sessione.
+  */
+  const tesseraSegreteria = await prisma.organizationUser.findUnique({
+    where: { id: TESSERA_SEGRETERIA },
+    select: { role: true },
+  });
+
+  const comeLoManderebbeIlBrowser = tesseraSegreteria?.role ?? null;
+
+  prova(
+    "U-30bis il browser conserva lo slug della tessera, non la sua base",
+    [true, false],
+    [
+      String(comeLoManderebbeIlBrowser || "").startsWith("custom:"),
+      comeLoManderebbeIlBrowser === "collaborator",
+    ],
+    `valore mandato = ${comeLoManderebbeIlBrowser}`,
+  );
+
+  const conHeader = await autenticazione.resolveOrganizationScopeForUser(
+    SEGRETERIA.id,
+    CLUB_A,
+    comeLoManderebbeIlBrowser,
+  );
+
+  prova(
+    "U-30bis e con quell'header la sessione risolve il ruolo, non `null`",
+    [true, true],
+    [
+      Boolean(conHeader.activeRole),
+      String(conHeader.activeRole || "").startsWith("custom:"),
+    ],
+    `activeRole = ${conHeader.activeRole}`,
+  );
+
+  /*
+    Il controspecchio, che e cio che rendeva il difetto invisibile: mandando la
+    **base** — come faceva il browser — la sessione non risolve niente.
+  */
+  const conLaBase = await autenticazione.resolveOrganizationScopeForUser(
+    SEGRETERIA.id,
+    CLUB_A,
+    String(comeLoManderebbeIlBrowser || "").split(":")[1] || "collaborator",
+  );
+  prova(
+    "U-30bis mentre mandando la base la sessione non risolve nessun ruolo",
+    null,
+    conLaBase.activeRole,
+    "e la ragione per cui una persona con un ruolo personalizzato riceveva 403 ovunque",
+  );
+
+
 
   const scopeGestore = {
     ...scopeCanonico(GESTORE.id, "club_manager"),

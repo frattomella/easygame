@@ -263,6 +263,28 @@ export const CLINICAL_CERTIFICATE_FIELDS: readonly string[] = [
   "public_url",
   "result",
   "sport_type",
+  /*
+    **Le forme in camelCase, e perche mancavano.**
+
+    L'elenco era scritto con i nomi delle **colonne**, che sono snake_case. Ma
+    dentro `medical_certificates.data` scrive il dominio, e il dominio scrive
+    in camelCase: `promoteMedicalCertificate` produce
+    `{ source, submissionId, requestId, attachmentId }`.
+
+    Un elenco che copre una sola grafia copre una sola meta del prodotto, ed e
+    la stessa classe del filtro di stato che cercava solo minuscole.
+  */
+  "attachmentId",
+  "attachmentUrl",
+  "certificateUrl",
+  "dataBase64",
+  "doctorName",
+  "fileName",
+  "fileUrl",
+  "publicUrl",
+  "sportType",
+  "submissionId",
+  "requestId",
 ] as const;
 
 const CLINICAL_CERTIFICATE_FIELD_SET = new Set(CLINICAL_CERTIFICATE_FIELDS);
@@ -276,11 +298,58 @@ export const stripClinicalCertificateFields = (
     if (CLINICAL_CERTIFICATE_FIELD_SET.has(chiave)) {
       continue;
     }
+    /*
+      **Dentro `data` valeva l'elenco sbagliato.**
+
+      Il primo livello si filtrava con `CLINICAL_CERTIFICATE_FIELDS`, e per la
+      chiave `data` si chiamava `stripClinicalAthleteFields`, cioe l'elenco
+      dell'**anagrafica**. `attachment_id`, `file_url`, `doctor` e
+      `data_base64` non stanno in quell'elenco: al secondo livello
+      sopravvivevano tutti.
+
+      Non era teorico: `promoteMedicalCertificate` scrive esattamente
+      `data: { source, submissionId, requestId, attachmentId }`. Misurato con
+      uno scope da allenatore, `file_url` e `notes` venivano tolti al primo
+      livello e `data.attachmentId` usciva — cioe, con le parole del presidio
+      di questo repository, «la chiave per bussare ai byte».
+
+      Adesso a `data` si applicano **entrambi** gli elenchi: e un certificato,
+      e ci sta dentro un'anagrafica.
+    */
     next[chiave] =
-      chiave === "data" ? stripClinicalAthleteFields(valore) : valore;
+      chiave === "data"
+        ? stripClinicalAthleteFields(stripCertificateFieldsDeep(valore))
+        : valore;
   }
 
   return next;
+};
+
+/**
+ * I campi di **certificato** tolti da un oggetto annidato.
+ *
+ * Esiste per una ragione sola: `stripClinicalCertificateFields` filtra il primo
+ * livello con il proprio elenco e poi delegava a quello dell'anagrafica. Le due
+ * liste rispondono a domande diverse, e dentro `data` serve la prima.
+ */
+const stripCertificateFieldsDeep = (valore: unknown) => {
+  if (!valore || typeof valore !== "object" || Array.isArray(valore)) {
+    return valore;
+  }
+
+  const source = valore as Record<string, unknown>;
+  let toccato = false;
+  const next: Record<string, unknown> = {};
+
+  for (const [chiave, contenuto] of Object.entries(source)) {
+    if (CLINICAL_CERTIFICATE_FIELD_SET.has(chiave)) {
+      toccato = true;
+      continue;
+    }
+    next[chiave] = contenuto;
+  }
+
+  return toccato ? next : source;
 };
 
 /**

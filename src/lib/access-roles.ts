@@ -853,3 +853,25 @@ export const canManageClubConfiguration = (role?: string | null) => {
   const normalizedRole = normalizeAccessRole(role);
   return normalizedRole === "owner" || normalizedRole === "club_manager";
 };
+
+/**
+ * Vero se la risorsa e **riservata alla direzione**.
+ *
+ * Esiste perche la stessa riga si raggiunge da due nomi: `access_tokens` ha una
+ * rotta propria, protetta da questa matrice, e vive in `club_resource_items`,
+ * che e aperta alla gestione. La protezione era quindi sul **cartello**, non
+ * sulla porta.
+ *
+ * Misurato prima della correzione: un collaboratore che non puo chiamare
+ * `POST /api/v1/access_tokens` poteva chiamare `POST /api/v1/club_resource_items`
+ * con `resource_type: "access_tokens"`, forgiare un gettone con
+ * `payload.role: "owner"`, riscattarlo e **tesserarsi proprietario** senza
+ * lasciare una riga di audit. La stessa porta serviva `bank_accounts` — IBAN e
+ * saldi — `document_templates` e `payment_methods`.
+ *
+ * Il registro generico interroga questa funzione invece di un elenco scritto a
+ * mano: una risorsa che domani entra fra le riservate e coperta senza che
+ * nessuno debba ricordarsene.
+ */
+export const isManagementAdminOnlyResource = (resource: string) =>
+  MANAGEMENT_ADMIN_ONLY_RESOURCES.has(String(resource || "").trim());

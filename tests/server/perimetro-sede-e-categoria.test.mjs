@@ -126,9 +126,28 @@ test("§11.3 · il perimetro arriva fino allo scope della richiesta", () => {
     auth.includes("prisma.clubAccessScope.findMany"),
     "e qualcuno deve leggerlo dall archivio, non dal client",
   );
-  assert.ok(
+  /*
+    **Qui c'era un'asserzione che affermava il difetto.**
+
+    Pretendeva la condizione `selectedMembership?.customSlug && …`, cioe che il
+    perimetro si leggesse **solo** per le tessere con un ruolo personalizzato.
+    La motivazione scritta accanto — «le altre non ne hanno» — era falsa: la
+    schermata di gestione accessi offre le caselle Sedi e Categorie anche per i
+    ruoli canonici, e `assignClubRole` le scrive.
+
+    Quindi il presidio non mancava: **codificava**. Un proprietario assegnava
+    «Collaboratore, solo sede Nord», vedeva la pastiglia, l'audit registrava la
+    riga, e la persona vedeva tutto il club — con questo file verde.
+
+    La prova che conta ora e comportamentale e sta in
+    `scripts/wave-6-roles-probe.mjs` (U-27 su un **ruolo canonico**): qui resta
+    la sola invariante di forma, cioe che il perimetro venga letto
+    dall'archivio per la tessera scelta, senza dire **quali** tessere.
+  */
+  assert.equal(
     auth.includes("selectedMembership?.customSlug && selectedMembership.id"),
-    "la lettura in piu si fa solo per le tessere che un perimetro possono averlo",
+    false,
+    "il perimetro non si legge solo per i ruoli personalizzati: la schermata lo scrive anche per i canonici",
   );
 });
 

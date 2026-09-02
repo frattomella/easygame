@@ -93,7 +93,26 @@ const parseStoredActiveClub = (rawValue: string | null) => {
 const buildActiveClubFromMembership = (membership: MembershipRecord) => {
   const organization =
     membership.organization || membership.organizations || {};
-  const role = normalizeAccessRole(membership.role);
+  /*
+    **Lo slug si conserva, e normalizzarlo qui rompeva i ruoli personalizzati.**
+
+    In archivio la tessera porta `custom:<base>:<slug>`. Qui si normalizzava a
+    `<base>` prima di salvare, e `client.ts` manda quel valore come
+    `x-active-access-role`. Il server cerca allora una tessera con quello slug,
+    non ne trova nessuna — la sua e quella personalizzata — e risolve
+    `activeRole: null`: la persona vede il menu intero e riceve **403 su ogni
+    rotta**.
+
+    Cioe la capability di punta della Wave era irraggiungibile dall'interfaccia,
+    e nessuna prova la vedeva perche le sonde chiamano
+    `resolveOrganizationScopeForUser` **senza header**.
+
+    Lo slug non e una credenziale e non porta chiavi: le chiavi il server le
+    rilegge dall'archivio. Conservarlo e l'unico modo perche il ruolo scelto
+    arrivi a destinazione — e ogni predicato lato browser normalizza per conto
+    proprio, quindi non cambia niente per loro.
+  */
+  const role = String(membership.role || "").trim() || null;
   const seasonState = normalizeClubSeasons(organization.settings || {});
   const accessKind =
     membership.access_kind ||
@@ -260,7 +279,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               ...storedClub,
             }
           : buildActiveClubFromMembership(nextMembership);
-        const nextRole = normalizeAccessRole(nextClubCandidate.role);
+        /* Stessa ragione della prima: lo slug arriva fino alla richiesta. */
+        const nextRole = String(nextClubCandidate.role || "").trim() || null;
         const nextClub = {
           ...nextClubCandidate,
           role: nextRole,

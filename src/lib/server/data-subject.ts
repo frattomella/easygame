@@ -10,6 +10,7 @@ import { anonymizeDeliveriesForSubject } from "./communication-deliveries";
 import {
   hasHealthPermission,
   stripClinicalAthleteFields,
+  stripGuardianAccessTokens,
   stripClinicalCertificateFields,
 } from "@/lib/health/permissions";
 
@@ -795,6 +796,20 @@ export const exportDataSubject = async (
   const atletaProiettato = puoLeggereIlClinico
     ? athlete
     : { ...athlete, data: stripClinicalAthleteFields(athlete?.data) };
+
+  /*
+    **E la credenziale non esce nemmeno da qui, a nessuno.**
+
+    Il taglio sopra e clinico e dipende da `clinical.read`; il gettone del
+    tutore non e clinico e non dipende da niente. Misurato: un ruolo con
+    `data_subject.export` e senza chiave clinica riceveva un export in cui le
+    allergie erano tolte **e il gettone c'era** — nella stessa risposta.
+
+    Qui la regola e piu stretta che altrove e deve esserlo: questo file si
+    **consegna** a una famiglia. Una credenziale viva dentro un export e una
+    credenziale consegnata a chi non doveva averla, senza nemmeno un attacco.
+  */
+  atletaProiettato.data = stripGuardianAccessTokens(atletaProiettato.data);
 
   const certificatiProiettati = puoLeggereIlClinico
     ? certificati

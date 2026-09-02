@@ -139,3 +139,54 @@ export const athleteWithinAccessScope = async (
 
   return dentro > 0;
 };
+
+/**
+ * **Il perimetro non si allarga da dentro.**
+ *
+ * Il perimetro di sede si calcola su `athlete_category_memberships.site_id`.
+ * Quella tabella e servita dal registro generico ed e aperta in scrittura alla
+ * gestione: un ruolo perimetrato sulla sede Nord creava una riga di
+ * appartenenza per un atleta della sede Sud, con `site_id` **la propria** sede,
+ * e da quel momento tutte le porte chiuse gli si aprivano **a buon diritto**.
+ *
+ * Il confine non veniva aggirato: veniva **spostato**. E la stessa forma con
+ * cui una tessera di club poteva essere riscritta da chi la portava — con la
+ * differenza che qui non serviva nemmeno toccare la propria riga.
+ *
+ * La regola: chi ha un perimetro puo scrivere un'appartenenza **solo** dentro
+ * il proprio perimetro, su entrambi gli assi. Chi non ne ha uno non e toccato.
+ *
+ * Solleva con «Accesso negato» perche il route handler generico lo mappi su
+ * 403.
+ */
+export const assertMembershipWithinAccessScope = (
+  scope: ScopeConPerimetro | undefined | null,
+  riga: { site_id?: unknown; category_id?: unknown },
+) => {
+  const perimetro = normalizeAccessScopes(scope?.accessScopes);
+  if (!perimetro.length) return;
+
+  const sedi = accessScopeValues(perimetro, "site");
+  const categorie = accessScopeValues(perimetro, "category");
+
+  const sede = String(riga.site_id ?? "").trim();
+  const categoria = String(riga.category_id ?? "").trim();
+
+  /*
+    Un asse ristretto pretende un valore **dichiarato e dentro**: una riga
+    senza sede, scritta da chi e perimetrato su una sede, e proprio il modo in
+    cui il recinto si scioglierebbe — la riga passerebbe i filtri di lettura
+    che accettano l'assenza, e la persona si ritroverebbe l'atleta dentro.
+  */
+  if (sedi.length && (!sede || !sedi.includes(sede))) {
+    throw new Error(
+      "Accesso negato: un'appartenenza si scrive dentro il proprio perimetro di sede, e questa ne dichiara un'altra",
+    );
+  }
+
+  if (categorie.length && (!categoria || !categorie.includes(categoria))) {
+    throw new Error(
+      "Accesso negato: un'appartenenza si scrive dentro il proprio perimetro di categoria, e questa ne dichiara un'altra",
+    );
+  }
+};
