@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { reportServerError } from "@/lib/server/observability";
 import {
   handleGatewayWebhookEvent,
   type WebhookOutcome,
@@ -100,10 +101,15 @@ export async function POST(request: Request) {
     const event = provider.parseWebhook({ rawBody, signature, secret });
     outcome = await handleGatewayWebhookEvent(event);
   } catch (error: any) {
-    if (error instanceof PaymentGatewayError && error.code === "invalid_signature") {
-      console.warn("[payments/webhook] firma rifiutata", {
-        provider: providerKey,
-        reason: error.message,
+    if (
+      error instanceof PaymentGatewayError &&
+      error.code === "invalid_signature"
+    ) {
+      reportServerError(error, {
+        metadata: {
+          provider: providerKey,
+          esito: "[payments/webhook] firma rifiutata",
+        },
       });
       return rejected(400);
     }
@@ -112,9 +118,11 @@ export async function POST(request: Request) {
       Nel log finiscono il provider e il messaggio, mai il corpo: contiene
       l'email di chi paga, l'importo e i riferimenti dell'account connesso.
     */
-    console.error("[payments/webhook] evento non elaborato", {
-      provider: providerKey,
-      message: String(error?.message || error),
+    reportServerError(error, {
+      metadata: {
+        provider: providerKey,
+        esito: "[payments/webhook] evento non elaborato",
+      },
     });
 
     return NextResponse.json(

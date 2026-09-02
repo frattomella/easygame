@@ -275,10 +275,12 @@ export async function POST(request: Request) {
       );
     }
     if (isPrismaConnectionError(error)) {
-      console.error("Login database connection error:", {
-        databaseUrlConfigured: Boolean(process.env.DATABASE_URL),
-        directUrlConfigured: Boolean(process.env.DIRECT_URL),
-        message: error?.message,
+      reportServerError(error, {
+        route: "/api/v1/auth/login",
+        metadata: {
+          databaseUrlConfigured: Boolean(process.env.DATABASE_URL),
+          directUrlConfigured: Boolean(process.env.DIRECT_URL),
+        },
       });
 
       return NextResponse.json(

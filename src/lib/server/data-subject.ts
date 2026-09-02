@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { parseAttachmentReference } from "@/lib/attachments";
 
 import { prisma } from "./prisma";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
@@ -949,7 +950,25 @@ export const exportDataSubject = async (
       ],
       club_event_participants: partecipazioni,
       athlete_category_memberships: appartenenze,
-      appointments: appuntamenti,
+      /*
+        **Le note interne di un appuntamento non sono un dato dell interessato.**
+
+        `toFamilyAppointment` non porta `internal_notes` ne `decision_note`, e
+        lo schema dice «Mai visibili alla famiglia». L export leggeva la riga
+        grezza e le consegnava: e la stessa classe della compilazione condivisa
+        — una proiezione dichiarata in un dominio, aggirata da chi legge la
+        tabella.
+
+        Restano nel prodotto e nel registro: e la **consegna** che le esclude.
+      */
+      appointments: appuntamenti.map((riga: any) => {
+        const {
+          internal_notes: _note,
+          decision_note: _decisione,
+          ...resto
+        } = riga || {};
+        return resto;
+      }),
       communication_deliveries: consegne.map((row: any) =>
         proiettaConsegna(row, subjectId),
       ),
@@ -1038,28 +1057,22 @@ export const eraseDataSubject = async (
     la riga e poi il blob significa, se qualcosa si interrompe in mezzo, un
     blob che nessuno sa piu di avere.
   */
+  const scopeAllegati = scope
+    ? {
+        userId: scope.userId,
+        activeOrganizationId: scope.activeOrganizationId,
+        allowedOrganizationIds: scope.allowedOrganizationIds,
+        accessScopes: scope.accessScopes,
+      }
+    : undefined;
+
   const allegati = await listAttachments(
     { organizationId, ownerType: "athlete", ownerId: subjectId },
-    scope
-      ? {
-          userId: scope.userId,
-          activeOrganizationId: scope.activeOrganizationId,
-          allowedOrganizationIds: scope.allowedOrganizationIds,
-        }
-      : undefined,
+    scopeAllegati,
   );
 
   for (const allegato of allegati) {
-    await deleteAttachment(
-      allegato.id,
-      scope
-        ? {
-            userId: scope.userId,
-            activeOrganizationId: scope.activeOrganizationId,
-            allowedOrganizationIds: scope.allowedOrganizationIds,
-          }
-        : undefined,
-    );
+    await deleteAttachment(allegato.id, scopeAllegati);
     conta(deleted, "attachments", 1);
   }
 
@@ -1119,9 +1132,67 @@ export const eraseDataSubject = async (
     /* La tabella e della lane 6C: se non c'e ancora, non e un errore. */
   }
 
+  /*
+    **Le notifiche restavano, e nominavano l'interessato.**
+
+    «Il club richiede: Carta d'identita di Alfa» resta in bacheca alla
+    segreteria dopo la cancellazione, con nome, cognome e identificativo del
+    minore dentro `data`. La cascata dello schema copre la cancellazione di
+    un **utente**, non quella di un **atleta**.
+
+    Si cancellano quelle che lo citano nel proprio `data`: e un indice
+    polimorfo, e questo modulo e il posto dichiarato in cui vivono
+    (CLAUDE.md §2).
+  */
+  try {
+    const notifiche = await (prisma as any).notification.findMany({
+      where: { organization_id: organizationId },
+      select: { id: true, data: true, title: true, message: true },
+    });
+
+    const daTogliere = (Array.isArray(notifiche) ? notifiche : []).filter(
+      (riga: any) => JSON.stringify(riga?.data ?? {}).includes(subjectId),
+    );
+
+    for (const riga of daTogliere) {
+      await (prisma as any).notification.delete({ where: { id: riga.id } });
+      conta(deleted, "notifications", 1);
+    }
+  } catch {
+    /* Se la tabella non esiste in questo ambiente, non e un errore. */
+  }
+
   const moduli = await readFormSubmissionsForSubject(organizationId, subjectId);
 
+  /*
+    **I file caricati da un modulo non erano intestati alla persona, e
+    sopravvivevano alla sua cancellazione.**
+
+    Ogni caricamento di un modulo online viene depositato con
+    `ownerType: "form"` e `ownerId: <id del modello>` — non con l'atleta —
+    e `decideFormSubmission` non li re-intesta mai alla persona che
+    l'approvazione crea. Il ciclo qui sopra cancella per `ownerType:
+    "athlete"`, quindi quei byte restavano: **il certificato medico o il
+    documento d'identita di un minore**, dopo una richiesta di cancellazione.
+
+    E non comparivano nemmeno nel riepilogo mostrato prima di premere
+    «cancella», ne fra i residui — che era `[]` — e la guardia gemella
+    dichiarava l'archivio pulito. Un residuo taciuto e peggio di un residuo:
+    e una promessa.
+
+    I file si raggiungono dal riferimento dentro `files[]` della
+    compilazione, che e l'unico indice che li lega alla persona.
+  */
+  const allegatoDiUnModulo = (submission: any): string[] =>
+    (Array.isArray(submission?.files) ? submission.files : [])
+      .map((file: any) => parseAttachmentReference(asText(file?.reference)))
+      .filter(Boolean);
+
   for (const submission of moduli.mie) {
+    for (const idAllegato of allegatoDiUnModulo(submission)) {
+      const tolto = await deleteAttachment(idAllegato, scopeAllegati);
+      if (tolto) conta(deleted, "attachments", 1);
+    }
     await (prisma as any).formSubmission.delete({ where: { id: submission.id } });
     conta(deleted, "form_submissions", 1);
   }

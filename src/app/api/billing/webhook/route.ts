@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { reportServerError } from "@/lib/server/observability";
 import {
   parsePlatformBillingWebhook,
   PLATFORM_BILLING_EVENT_TYPES,
@@ -103,14 +104,15 @@ export async function POST(request: Request) {
         richiesta quale controllo non ha superato e spiegarlo a chi sta
         provando.
       */
-      console.warn("[billing/webhook] firma rifiutata", {
-        reason: error.message,
+      reportServerError(error, {
+        route: "/api/billing/webhook",
+        metadata: { esito: "firma rifiutata" },
       });
       return rejected(400);
     }
 
-    console.error("[billing/webhook] evento non elaborato", {
-      message: String(error?.message || error),
+    reportServerError(error, {
+      metadata: { esito: "[billing/webhook] evento non elaborato" },
     });
 
     return NextResponse.json(

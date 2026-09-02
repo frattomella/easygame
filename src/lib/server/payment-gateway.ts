@@ -31,6 +31,7 @@
  */
 
 import { prisma } from "./prisma";
+import { reportServerError } from "./observability";
 import {
   createPaymentTransaction,
   findTransactionByExternalPaymentId,
@@ -316,7 +317,10 @@ export const openGatewayCheckout = async (
 export const backfillProviderFees = async (input?: {
   limit?: number;
 }): Promise<{ esaminati: number; aggiornati: number }> => {
-  const limit = Math.max(1, Math.min(200, Math.round(Number(input?.limit) || 50)));
+  const limit = Math.max(
+    1,
+    Math.min(200, Math.round(Number(input?.limit) || 50)),
+  );
 
   const pendenti = await (prisma as any).paymentTransaction.findMany({
     where: {
@@ -363,7 +367,10 @@ export const backfillProviderFees = async (input?: {
       where: { id: riga.id },
       data: {
         provider_fee_cents: providerFeeCents,
-        net_amount_cents: Math.max(0, lordo - quotaPiattaforma - providerFeeCents),
+        net_amount_cents: Math.max(
+          0,
+          lordo - quotaPiattaforma - providerFeeCents,
+        ),
       },
     });
 
@@ -541,9 +548,11 @@ export const requestGatewayRefund = async (
     });
   } catch (error: any) {
     /* Il messaggio del provider si riporta; la richiesta no. */
-    console.warn("[payments/refund] il provider ha rifiutato il rimborso", {
-      provider: account.provider,
-      message: String(error?.message || error),
+    reportServerError(error, {
+      metadata: {
+        provider: account.provider,
+        esito: "[payments/refund] il provider ha rifiutato il rimborso",
+      },
     });
     throw error;
   }
@@ -648,9 +657,11 @@ const fetchProviderSettlement = async (input: {
     });
   } catch (error: any) {
     /* Il messaggio, mai la richiesta: contiene importo e account connesso. */
-    console.warn("[payments/webhook] costo dell'incasso non disponibile", {
-      provider: input.provider,
-      message: String(error?.message || error),
+    reportServerError(error, {
+      metadata: {
+        provider: input.provider,
+        esito: "[payments/webhook] costo dell'incasso non disponibile",
+      },
     });
     return null;
   }

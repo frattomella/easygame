@@ -169,7 +169,22 @@ test("nessun file del browser nomina una credenziale di sessione", async () => {
       .replace(/parent_access_token\w*/g, "")
       .replace(/access_tokens/g, "");
 
-    if (!/\baccess_token\b|\brefresh_token\b/.test(testo)) continue;
+    /*
+      **E il nome non si compone a pezzi.**
+
+      `"access" + "_token"` non contiene `access_token`, e una revisione lo
+      ha usato per rimettere il gettone in `localStorage` lasciando il
+      presidio verde. Si toglie quindi cio che separa i pezzi — virgolette,
+      piu, spazi — prima di cercare: un nome ricomposto e lo stesso nome.
+    */
+    const ricomposto = testo.replace(/["'`]\s*\+\s*["'`]/g, "");
+
+    if (
+      !/\baccess_token\b|\brefresh_token\b/.test(testo) &&
+      !/\baccess_token\b|\brefresh_token\b/.test(ricomposto)
+    ) {
+      continue;
+    }
     if (PUO_NOMINARE_LA_CREDENZIALE.has(relativo)) continue;
     colpevoli.push(relativo);
   }
@@ -209,6 +224,28 @@ const SCRITTURE_DICHIARATE = new Map([
     "filtri della vista pagamenti",
   ],
   ["lib/forms/draft-storage.ts", "bozza di una compilazione, senza allegati"],
+  /*
+    Le otto qui sotto le ha scoperte la regola piu forte — «ogni `setItem` va
+    dichiarato», invece di «ogni `setItem` che serializza un oggetto». Nessuna
+    porta una credenziale, e si vede dal valore: sono preferenze di vista,
+    il club attivo, e due campi di profilo. Restano scritte qui perche la
+    nona si deve notare.
+  */
+  ["app/settings/page.tsx", "lingua scelta dall'utente"],
+  [
+    "app/token-verification/[userId]/profile-modal.tsx",
+    "nome e immagine del profilo, mostrati mentre si completa la verifica",
+  ],
+  ["components/athlete/athlete-sidebar.tsx", "barra laterale aperta o chiusa"],
+  [
+    "components/parent-dashboard/ParentSidebar.tsx",
+    "barra laterale aperta o chiusa",
+  ],
+  ["components/trainer/TrainerSidebar.tsx", "barra laterale aperta o chiusa"],
+  [
+    "components/providers/AuthProvider.tsx",
+    "club attivo e istante dell'ultima sincronizzazione: la sessione passa da sessionSenzaCredenziali",
+  ],
 
   /*
     Il club attivo e le sue liste. Portano nome, identificativo e stagione — non
@@ -244,7 +281,18 @@ test("nessun percorso scrive un oggetto nel browser senza dichiararlo", async ()
       [];
 
     for (const scrittura of scritture) {
-      if (!scrittura.includes("JSON.stringify(")) continue;
+      /*
+        **Si guarda la scrittura, non la sua forma.**
+
+        La prima stesura si accendeva solo su `JSON.stringify(`. Una
+        revisione ostile ha rimesso il gettone nel browser con
+        `String(session[campo])` sotto una chiave nuova, e il presidio e
+        rimasto verde: la forma del valore non e la proprieta, e la
+        **scrittura** a esserlo.
+
+        Adesso ogni `setItem` di un file del browser deve essere dichiarato.
+        Sono poche e stabili — una in piu si nota, ed e il punto.
+      */
       if (scrittura.includes("sessionSenzaCredenziali")) continue;
       if (SCRITTURE_DICHIARATE.has(relativo)) continue;
       colpevoli.push(
@@ -283,6 +331,57 @@ test("le scritture dichiarate esistono ancora", async () => {
     scomparse,
     [],
     "scritture dichiarate che non esistono piu: " + scomparse.join(", "),
+  );
+});
+
+test("nessun percorso del browser usa un archivio non dichiarato", async () => {
+  /*
+    **La quarta difesa, e chiude gli archivi che nessuno aveva guardato.**
+
+    Le prime tre parlano di `localStorage`, `sessionStorage` e dei cookie.
+    Un browser ne ha altri, e una revisione li ha elencati: `window.name`
+    sopravvive alla navigazione, IndexedDB e uno spazio intero, e
+    `history.replaceState` porta il suo stato nella cronologia.
+
+    Nessuno di questi e usato dal prodotto, ed e proprio per questo che vale
+    la pena dirlo adesso: la regola costa niente finche resta vera, e la
+    prima volta che smette di esserlo qualcuno deve fermarsi a spiegarlo.
+  */
+  const file = await sorgenti(SRC);
+  const colpevoli = [];
+
+  const ARCHIVI = [
+    [/\bwindow\.name\s*=/, "window.name"],
+    [/\bindexedDB\b/, "IndexedDB"],
+    /*
+      `history.replaceState` con uno stato **vuoto** o con quello che c'era
+      gia serve a riscrivere l'indirizzo, e il prodotto lo usa in cinque
+      punti per togliere un parametro dalla barra. Cio che va vietato e
+      **metterci dentro qualcosa**: la cronologia sopravvive alla
+      navigazione e non e un archivio di cui qualcuno si ricordi.
+    */
+    [
+      /history\.(replace|push)State\s*\(\s*(?!\{\s*\}|null|undefined|window\.history\.state|history\.state)[^)\s]/,
+      "history.state",
+    ],
+  ];
+
+  for (const percorso of file) {
+    const relativo = path.relative(SRC, percorso);
+    if (relativo.startsWith(path.join("lib", "server"))) continue;
+    if (relativo.startsWith(path.join("app", "api"))) continue;
+
+    const testo = await readFile(percorso, "utf8");
+    for (const [forma, nome] of ARCHIVI) {
+      if (forma.test(testo)) colpevoli.push(`${relativo}: ${nome}`);
+    }
+  }
+
+  assert.deepEqual(
+    colpevoli,
+    [],
+    "archivi del browser usati senza che nessuno li abbia dichiarati: " +
+      colpevoli.join(", "),
   );
 });
 

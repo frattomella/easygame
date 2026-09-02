@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { reportServerError } from "@/lib/server/observability";
 import {
   AUTH_RATE_LIMITS,
   consumeRequestRateLimits,
@@ -122,8 +123,8 @@ export async function POST(request: Request, context: Context) {
       );
     }
 
-    console.error("[payment-links/checkout] apertura non riuscita", {
-      message: String(error?.message || error),
+    reportServerError(error, {
+      metadata: { esito: "[payment-links/checkout] apertura non riuscita" },
     });
 
     return NextResponse.json(

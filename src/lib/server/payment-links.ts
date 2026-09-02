@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "crypto";
+import { reportServerError } from "./observability";
 import { prisma } from "./prisma";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import { openGatewayCheckout } from "./payment-gateway";
@@ -348,7 +349,8 @@ const resolveOrganizationId = (
   const wanted = asText(requested);
 
   if (!scope) {
-    if (!wanted) throw new Error("Nessun club indicato per il link di pagamento");
+    if (!wanted)
+      throw new Error("Nessun club indicato per il link di pagamento");
     return wanted;
   }
 
@@ -498,8 +500,10 @@ const registerPaymentLinkOpen = async (
       data: { last_used_at: options.now, use_count: { increment: 1 } },
     });
   } catch (error: any) {
-    console.warn("[payment-links] contatore di apertura non aggiornato", {
-      message: String(error?.message || error),
+    reportServerError(error, {
+      metadata: {
+        esito: "[payment-links] contatore di apertura non aggiornato",
+      },
     });
   }
 
@@ -543,7 +547,10 @@ export const issuePaymentLink = async (input: {
   entitlement?: PaymentLinkEntitlementPort;
 }): Promise<IssuePaymentLinkResult> => {
   const now = input.now || new Date();
-  const organizationId = resolveOrganizationId(input.scope, input.organizationId);
+  const organizationId = resolveOrganizationId(
+    input.scope,
+    input.organizationId,
+  );
   const paymentId = asText(input.paymentId);
 
   if (!paymentId) {
@@ -808,7 +815,10 @@ export const revokePaymentLink = async (input: {
   request?: Request;
 }): Promise<RevokePaymentLinkResult> => {
   const now = input.now || new Date();
-  const organizationId = resolveOrganizationId(input.scope, input.organizationId);
+  const organizationId = resolveOrganizationId(
+    input.scope,
+    input.organizationId,
+  );
   const linkId = asText(input.linkId);
 
   if (!linkId) throw new Error("Nessun link indicato");

@@ -57,6 +57,71 @@ jobs:
       - name: Nessun codice irraggiungibile
         run: npx tsc --noEmit --incremental false --allowUnreachableCode false
 
+  # ---------------------------------------------------------------------
+  # Le sonde di Wave 6.
+  #
+  # Una revisione ha misurato che, di ventuno difese della Wave, **nove**
+  # erano viste soltanto da `wave6:security` — che nessuno eseguiva
+  # automaticamente. Cioe: nove regole erano presidiate da un comando che
+  # bisognava ricordarsi di lanciare a mano, e cio che passa `npm test`
+  # arriva in produzione.
+  #
+  # Le sonde girano contro un Postgres vero perche misurano cose che il
+  # doppio di Prisma non sa valutare — i filtri di relazione del perimetro,
+  # per dirne una. Il database e un servizio effimero del runner: non tocca
+  # nessun ambiente, e le sonde si seminano da sole.
+  # ---------------------------------------------------------------------
+  sonde:
+    name: Sonde Wave 6 (UAT, ruoli, sicurezza)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: easygame
+          POSTGRES_PASSWORD: easygame
+          POSTGRES_DB: easygame_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: "postgresql://easygame:easygame@127.0.0.1:5432/easygame_ci?sslmode=disable"
+      DIRECT_URL: "postgresql://easygame:easygame@127.0.0.1:5432/easygame_ci?sslmode=disable"
+      # `scripts/db-guard.mjs` blocca gli script di scrittura se questo non
+      # vale `development`. Qui il database e effimero e del runner.
+      EASYGAME_DB_ENV: "development"
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Schema
+        run: npx prisma migrate deploy
+
+      - name: Sonda UAT
+        run: npm run wave6:uat
+
+      - name: Sonda ruoli e permessi
+        run: npm run wave6:roles
+
+      - name: Sonda di sicurezza
+        run: npm run wave6:security
+
   mobile:
     name: Mobile App (easygamemobile/)
     runs-on: ubuntu-latest

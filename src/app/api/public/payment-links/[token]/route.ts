@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { reportServerError } from "@/lib/server/observability";
 import {
   AUTH_RATE_LIMITS,
   consumeRequestRateLimits,
@@ -93,8 +94,8 @@ export async function GET(request: Request, context: Context) {
       servizio si, ed e l'unico posto in cui il motivo resta leggibile. Il
       token non entra nemmeno nei log: e una credenziale.
     */
-    console.error("[payment-links/public] lettura non riuscita", {
-      message: String(error?.message || error),
+    reportServerError(error, {
+      metadata: { esito: "[payment-links/public] lettura non riuscita" },
     });
     return NextResponse.json(
       { data: null, error: { message: "Errore nel caricamento del link" } },

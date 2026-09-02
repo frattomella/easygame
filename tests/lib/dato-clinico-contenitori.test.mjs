@@ -225,24 +225,53 @@ test("il ramo storico della rotta dei byte chiede il permesso come il ramo nuovo
   );
 
   /*
-    **Contare le teste non basta: una revisione ne ha svuotato il corpo.**
+    **Contare non basta, in nessuna delle due forme provate finora.**
 
-    La prima stesura contava due occorrenze della *condizione*. Una revisione
-    ostile ha lasciato l'if dov'era e ha svuotato il ramo: il conteggio restava
-    due, il certificato tornava a uscire, e nessun gate se ne accorgeva.
+    La prima stesura contava le **condizioni**: una revisione ha svuotato il
+    corpo lasciando l'`if`, e il conteggio restava due. La seconda ha
+    preteso che ogni condizione fosse seguita da un **rifiuto**: la stessa
+    revisione ha aggiunto una **terza** uscita di byte, senza condizione e
+    senza rifiuto, e il conteggio e rimasto due.
 
-    Adesso ogni condizione deve essere seguita da un **rifiuto**. Una testa
-    senza il suo corpo non e una guardia.
+    Il difetto non era il numero: era che si contava. La proprieta da tenere
+    e «**ogni** uscita di byte e preceduta dal cancello», e si misura sulle
+    posizioni nel file, non sulle occorrenze.
   */
-  const gate =
+  const uscitaDiByte =
+    /return\s+buildStoredFileResponse\(|return\s+new\s+NextResponse\(\s*[^)\s]/g;
+  const cancello =
     /isMedicalCertificateDocumentKind\([\s\S]{0,80}?\)\s*&&\s*!hasHealthPermission\(\s*scope\.activeRole,\s*"clinical\.read"[\s\S]{0,240}?403/g;
-  const quanti = (sorgente.match(gate) || []).length;
 
-  assert.equal(
-    quanti,
-    2,
-    `i rami che consegnano byte sono due e i controlli che davvero rifiutano sono ${quanti}: ogni ramo deve avere il suo, e deve negare`,
+  const posizioni = (espressione) =>
+    [...sorgente.matchAll(espressione)].map((trovato) => trovato.index ?? -1);
+
+  const uscite = posizioni(uscitaDiByte);
+  const cancelli = posizioni(cancello);
+
+  assert.ok(
+    uscite.length >= 2,
+    `le uscite di byte trovate sono ${uscite.length}: se la rotta e cambiata, questa prova va riscritta invece che tolta`,
   );
+
+  const scoperte = uscite.filter(
+    (uscita) => !cancelli.some((varco) => varco < uscita),
+  );
+
+  assert.deepEqual(
+    scoperte,
+    [],
+    `${scoperte.length} uscite di byte non hanno nessun cancello sul dato clinico prima di se: ` +
+      "una porta nuova non deve poter nascere senza la sua guardia",
+  );
+
+  /*
+    E ogni cancello deve **servire** a qualcosa: uno che non precede nessuna
+    uscita e codice morto che fa sembrare coperta una rotta che non lo e.
+  */
+  const inutili = cancelli.filter(
+    (varco) => !uscite.some((uscita) => uscita > varco),
+  );
+  assert.deepEqual(inutili, [], "cancelli che non precedono nessuna uscita di byte");
 });
 
 /* -------------------------------------------- l'elenco resta leggibile a un umano */

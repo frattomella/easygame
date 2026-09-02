@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { reportServerError } from "@/lib/server/observability";
 import {
   AUTH_RATE_LIMITS,
   consumeRequestRateLimits,
@@ -95,8 +96,8 @@ export async function GET(request: Request, context: Context) {
       servizio si, ed e l'unico posto in cui il motivo resta leggibile. Il
       riferimento non entra nemmeno nei log: e una credenziale.
     */
-    console.error("[enrollment-status] lettura non riuscita", {
-      message: String(error?.message || error),
+    reportServerError(error, {
+      route: "/api/public/enrollment-status/[reference]",
     });
 
     return NextResponse.json(

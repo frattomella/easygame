@@ -90,10 +90,43 @@ const elencaFile = (radice) => {
  * Non e la variabile a fare il danno: e il **messaggio**. In un errore Prisma
  * quel messaggio contiene la query e i suoi parametri.
  */
+/**
+ * Le forme che portano il **messaggio** di un errore dentro un log.
+ *
+ * La seconda stesura ne vedeva tre, e una revisione ne ha trovate altre due:
+ *
+ *   * una `console.error(` spezzata su piu righe non corrispondeva a niente,
+ *     perche l'analisi era **riga per riga** — e la forma multi-riga e quella
+ *     che scrive chiunque passi tre argomenti;
+ *   * `"…" + error.message` porta nel log esattamente il payload che questo
+ *     presidio esiste per fermare, ed era **la forma che il messaggio
+ *     d'errore del test consigliava**.
+ *
+ * Adesso la sorgente si normalizza su una riga sola prima di cercare, e le
+ * forme sono cinque. Cambia anche la domanda: non «quale variabile passi»,
+ * ma «il **messaggio** finisce nel registro?».
+ */
+const NOME_ERRORE = String.raw`(error|err|e|ex|exception)`;
+const APERTURA = String.raw`console\.(log|info|warn|error|debug|trace)\(`;
+
 const PASSA_ERRORE_INTERO = [
-  /console\.(log|info|warn|error|debug|trace)\((?:[^()]*,)?\s*(error|err|e|ex|exception)\s*\)/,
-  /console\.(log|info|warn|error|debug|trace)\([^;]*String\(\s*(error|err|e|ex|exception)\s*\)/,
-  /console\.(log|info|warn|error|debug|trace)\([^;]*\$\{\s*(error|err|e|ex|exception)\s*\}/,
+  /* la variabile nuda come ultimo argomento */
+  new RegExp(APERTURA + String.raw`(?:[^()]*,)?\s*` + NOME_ERRORE + String.raw`\s*\)`),
+  /* String(error) */
+  new RegExp(APERTURA + String.raw`[^;]*String\(\s*` + NOME_ERRORE + String.raw`\s*\)`),
+  /* `${error}` */
+  new RegExp(APERTURA + String.raw`[^;]*\$\{\s*` + NOME_ERRORE + String.raw`\s*\}`),
+  /* `${error.message}` e `${error?.message}` */
+  new RegExp(
+    APERTURA +
+      String.raw`[^;]*\$\{[^}]*` +
+      NOME_ERRORE +
+      String.raw`\??\.\s*(message|stack)`,
+  ),
+  /* "…" + error.message, e ogni altra concatenazione del messaggio */
+  new RegExp(
+    APERTURA + String.raw`[^;]*` + NOME_ERRORE + String.raw`\??\.\s*(message|stack)`,
+  ),
 ];
 
 /**
@@ -139,8 +172,33 @@ const violazioni = () => {
   for (const radice of RADICI) {
     for (const file of elencaFile(radice)) {
       const originali = fs.readFileSync(file, "utf8").split(/\r?\n/);
-      senzaCommenti(originali).forEach((riga, indice) => {
-        if (PASSA_ERRORE_INTERO.some((forma) => forma.test(riga))) {
+      const pulite = senzaCommenti(originali);
+      /*
+        **Una chiamata spezzata su piu righe e una chiamata.**
+
+        L'analisi riga per riga non vedeva `console.error(\n  "…",\n
+        error,\n);` — cioe la forma che scrive chiunque passi piu di due
+        argomenti, ed e proprio quella che una revisione ha usato per
+        rimettere il messaggio di Prisma dentro il perimetro a tolleranza
+        zero.
+
+        Si guarda quindi una **finestra** di righe, che e la chiamata
+        ricomposta. La riga segnalata resta la prima, che e quella su cui
+        si va a guardare.
+      */
+      pulite.forEach((riga, indice) => {
+        /*
+          La finestra parte **dove la chiamata comincia**: senza, le cinque
+          righe successive verrebbero segnalate tutte per lo stesso log, e
+          l elenco direbbe cinque difetti dove ce n e uno.
+        */
+        if (!new RegExp(APERTURA).test(riga.replace(/\s+/g, ""))) return;
+
+        const finestra = pulite
+          .slice(indice, indice + 6)
+          .join(" ")
+          .replace(/\s+/g, " ");
+        if (PASSA_ERRORE_INTERO.some((forma) => forma.test(finestra))) {
           trovate.push({
             file,
             riga: indice + 1,
