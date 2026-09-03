@@ -23,7 +23,10 @@ import {
   Trophy,
   LogOut,
 } from "lucide-react";
-import { EasyGameLogo } from "@/components/brand/easygame-logo";
+import {
+  EasyGameLogo,
+  EasyGameWordmark,
+} from "@/components/brand/easygame-logo";
 
 const TrainerSidebar = memo(() => {
   const [collapsed, setCollapsed] = React.useState(false);
@@ -193,9 +196,10 @@ const TrainerSidebar = memo(() => {
     >
       <div className="mb-6 flex items-center flex-col py-4 px-4">
         <div className="flex items-center gap-4">
-          <EasyGameLogo tone="light" className="h-10 w-10 shrink-0" />
-          {!collapsed && (
-            <h1 className="text-xl font-bold text-white">EasyGame</h1>
+          {collapsed ? (
+            <EasyGameLogo tone="light" className="h-10 w-10 shrink-0" />
+          ) : (
+            <EasyGameWordmark tone="light" logoClassName="h-8" />
           )}
         </div>
 

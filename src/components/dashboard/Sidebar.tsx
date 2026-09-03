@@ -49,7 +49,10 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { memoize } from "@/lib/performance";
 import { canOpenAccounting } from "@/lib/accounting/permissions";
-import { EasyGameLogo } from "@/components/brand/easygame-logo";
+import {
+  EasyGameLogo,
+  EasyGameWordmark,
+} from "@/components/brand/easygame-logo";
 
 type SidebarItem = {
   id: string;
@@ -433,9 +436,10 @@ const Sidebar = memo(() => {
           title="EasyGame"
           className="flex items-center gap-4 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
         >
-          <EasyGameLogo tone="light" className="h-10 w-10 shrink-0" />
-          {!collapsed && (
-            <h1 className="text-xl font-bold text-white">EasyGame</h1>
+          {collapsed ? (
+            <EasyGameLogo tone="light" className="h-10 w-10 shrink-0" />
+          ) : (
+            <EasyGameWordmark tone="light" logoClassName="h-8" />
           )}
         </Link>
 

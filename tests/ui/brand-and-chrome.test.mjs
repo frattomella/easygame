@@ -55,10 +55,18 @@ test("nessun riferimento ai PNG di logo inesistenti", () => {
   );
 });
 
-test("il marchio SVG non ha dipendenze di rete", () => {
+test("il marchio non ha dipendenze di rete", () => {
   const logo = read(path.join(SRC, "components/brand/easygame-logo.tsx"));
-  assert.equal(/https?:\/\//.test(logo.replace(/http:\/\/www\.w3\.org[^"']*/g, "")), false);
-  assert.match(logo, /<svg/, "il marchio deve essere un SVG inline");
+  assert.equal(
+    /https?:\/\//.test(logo),
+    false,
+    "gli asset del marchio sono import statici locali, non URL remoti",
+  );
+  assert.match(
+    logo,
+    /public\/images\/brand\//,
+    "il marchio deve venire dagli asset ufficiali in public/images/brand/",
+  );
 });
 
 // --- topbar del club ----------------------------------------------------------

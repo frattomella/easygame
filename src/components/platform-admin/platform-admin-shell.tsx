@@ -6,7 +6,10 @@ import { useRouter } from "next/navigation";
 import { Menu, LogOut, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { EasyGameLogo } from "@/components/brand/easygame-logo";
+import {
+  EasyGameLogo,
+  EasyGameWordmark,
+} from "@/components/brand/easygame-logo";
 import { cn } from "@/lib/utils";
 
 export type PlatformAdminSection = {
@@ -107,15 +110,11 @@ export function PlatformAdminShell({
             href="/account"
             className="flex items-center gap-3 rounded-lg px-1 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
           >
-            <EasyGameLogo tone="light" className="h-9 w-9 shrink-0" />
-            <span className="min-w-0">
-              <span className="block font-display text-sm font-semibold text-white">
-                EasyGame
-              </span>
-              <span className="eg-eyebrow-sm block text-blue-300">
-                Piattaforma
-              </span>
-            </span>
+            <EasyGameWordmark
+              tone="light"
+              logoClassName="h-7"
+              subtitle="Piattaforma"
+            />
           </Link>
           {nav}
         </div>
@@ -166,12 +165,11 @@ export function PlatformAdminShell({
           <div className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col justify-between overflow-y-auto bg-[var(--eg-navy)] p-4">
             <div className="space-y-6">
               <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2">
-                  <EasyGameLogo tone="light" className="h-8 w-8" />
-                  <span className="font-display text-sm font-semibold text-white">
-                    Piattaforma
-                  </span>
-                </span>
+                <EasyGameWordmark
+                  tone="light"
+                  logoClassName="h-7"
+                  subtitle="Piattaforma"
+                />
                 <Button
                   variant="ghost"
                   size="icon"

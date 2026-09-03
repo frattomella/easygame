@@ -4,10 +4,13 @@
 
 ### Marchio
 
-`src/components/brand/easygame-logo.tsx` — SVG in repo, nessuna richiesta di
-rete. `EasyGameLogo` con `tone="dark"` su fondo chiaro e `tone="light"` su
-fondo scuro; `EasyGameWordmark` dove EasyGame parla in prima persona
-(accesso, console di piattaforma, account).
+`src/components/brand/easygame-logo.tsx` monta gli asset ufficiali (PNG,
+import statico, nessuna richiesta di rete) da `public/images/brand/`.
+`EasyGameLogo` (icona) con `tone="dark"` su fondo chiaro e `tone="light"` su
+fondo scuro; `EasyGameWordmark` (logotipo, il testo "EasyGame" e gia
+nell'immagine) dove EasyGame parla in prima persona e nelle sidebar — li e
+l'**unico** elemento di marchio: mai un `<h1>EasyGame</h1>` o testo simile
+accanto, il logotipo lo contiene gia.
 
 **Non reintrodurre** `r2.fivemanage.com`, `/logo.png`, `/logo-blu.png` o
 `logo-bianco.png`: erano un PNG remoto sgranato e tre riferimenti a file

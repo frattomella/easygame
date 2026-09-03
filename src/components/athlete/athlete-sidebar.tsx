@@ -22,7 +22,10 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { cn } from "@/lib/utils";
 import { SidebarItemTooltip } from "@/components/navigation/sidebar-item-tooltip";
-import { EasyGameLogo } from "@/components/brand/easygame-logo";
+import {
+  EasyGameLogo,
+  EasyGameWordmark,
+} from "@/components/brand/easygame-logo";
 
 /**
  * **La navigazione dell'atleta, e perche non e quella del club** (W6-33).
@@ -77,10 +80,11 @@ const AthleteSidebar = memo(() => {
     >
       <div className="mb-6 flex flex-col items-center px-4 py-4">
         <div className="flex items-center gap-4">
-          <EasyGameLogo tone="light" className="h-10 w-10 shrink-0" />
-          {!collapsed ? (
-            <h1 className="text-xl font-bold text-white">EasyGame</h1>
-          ) : null}
+          {collapsed ? (
+            <EasyGameLogo tone="light" className="h-10 w-10 shrink-0" />
+          ) : (
+            <EasyGameWordmark tone="light" logoClassName="h-8" />
+          )}
         </div>
 
         <Button

@@ -47,7 +47,7 @@ import {
 } from "@/components/ui/sheet";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { ClubIdentity } from "@/components/brand/club-identity";
-import { EasyGameLogo } from "@/components/brand/easygame-logo";
+import { EasyGameWordmark } from "@/components/brand/easygame-logo";
 import { canAccessPath } from "@/lib/access-roles";
 import { canOpenAccounting } from "@/lib/accounting/permissions";
 
@@ -382,9 +382,8 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetContent side="left" className="w-72 max-w-[86vw] p-0">
           <SheetHeader className="shrink-0 border-b px-5 py-4 pr-12">
-            <SheetTitle className="flex items-center gap-2">
-              <EasyGameLogo className="h-6 w-6 shrink-0" />
-              EasyGame
+            <SheetTitle>
+              <EasyGameWordmark logoClassName="h-6" />
             </SheetTitle>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 pb-6">
