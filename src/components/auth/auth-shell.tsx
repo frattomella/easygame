@@ -23,10 +23,7 @@ import {
   Smartphone,
   UserRound,
 } from "lucide-react";
-import {
-  EasyGameLogo,
-  EasyGameWordmark,
-} from "@/components/brand/easygame-logo";
+import { EasyGameWordmark } from "@/components/brand/easygame-logo";
 
 type AuthMode = "login" | "register";
 
@@ -465,12 +462,7 @@ export function AuthShell({
           */}
           <aside className="hidden rounded-2xl bg-[var(--eg-navy)] p-10 text-white lg:flex lg:flex-col lg:justify-between">
             <div className="space-y-6">
-              <span className="flex items-center gap-3">
-                <EasyGameLogo tone="light" className="h-10 w-10" />
-                <span className="font-display text-xl font-semibold tracking-tight">
-                  EasyGame
-                </span>
-              </span>
+              <EasyGameWordmark tone="light" logoClassName="h-8" />
 
               <h1 className="font-display text-3xl font-semibold leading-[1.15] tracking-tight">
                 Il registro della tua

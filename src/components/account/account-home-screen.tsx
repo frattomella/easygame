@@ -53,7 +53,7 @@ import {
   ProfileFormState,
   sortClubs,
 } from "./account-shared";
-import { EasyGameLogo } from "@/components/brand/easygame-logo";
+import { EasyGameWordmark } from "@/components/brand/easygame-logo";
 
 /**
  * Home account: la porta d'ingresso a tutti i club di una persona.
@@ -913,10 +913,7 @@ export default function AccountHomeScreen() {
     <div className="min-h-[100dvh] bg-[var(--eg-paper)] text-slate-900">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-3 md:px-6">
-          <EasyGameLogo className="h-8 w-8 shrink-0" />
-          <span className="font-display text-base font-semibold tracking-tight">
-            EasyGame
-          </span>
+          <EasyGameWordmark logoClassName="h-7" />
 
           <div className="ml-auto flex items-center gap-2">
             <Button
