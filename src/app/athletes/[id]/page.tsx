@@ -119,7 +119,10 @@ import {
   normalizeClubFederations,
 } from "@/lib/athlete-profile-fields";
 import { AthleteProfileHeader } from "@/components/athletes/profile/athlete-profile-header";
-import { AthleteAccountSection } from "@/components/athletes/profile/athlete-account-section";
+import {
+  AthleteAccountDialog,
+  usePuoGestireAccessoAtleta,
+} from "@/components/athletes/profile/athlete-account-section";
 import {
   AthleteDataSubjectSection,
   eDatiPersonaliDaSmaltire,
@@ -164,10 +167,6 @@ import {
   getAthleteJerseyNumberSummary,
   getJerseyGroupSummary,
 } from "@/lib/jersey-numbering-utils";
-import {
-  parseScannedDocument,
-  type DocumentScanResult,
-} from "@/lib/document-scan";
 import {
   getPrimaryAthleteCategoryMembership,
   normalizeAthleteCategoryMemberships,
@@ -259,6 +258,14 @@ export default function AthleteProfilePage() {
    * (`resolveOrganizationScopeForUser` su ogni rotta).
    */
   const { activeClub } = useAuth();
+  /*
+    Il pannello «Accesso EasyGame» (PP-01 §G). Lo stato sta qui e non nel
+    componente perche il pulsante che lo apre e nell'intestazione, che e un
+    altro componente: due stati separati vorrebbero dire due verita su una
+    finestra sola.
+  */
+  const [pannelloAccessoAperto, setPannelloAccessoAperto] = useState(false);
+  const puoGestireAccesso = usePuoGestireAccessoAtleta();
   const [clubId, setClubId] = useState<string | null>(clubIdFromUrl || null);
   const requestedTab = searchParams?.get("tab");
   const initialTab = resolveAthleteProfileTab(requestedTab);
@@ -468,22 +475,6 @@ export default function AthleteProfilePage() {
     status: "In attesa",
   });
   const [isEnrollmentSaving, setIsEnrollmentSaving] = useState(false);
-  const [showDocumentScannerModal, setShowDocumentScannerModal] =
-    useState(false);
-  const [documentScanImage, setDocumentScanImage] = useState<string | null>(
-    null,
-  );
-  const [documentScanResult, setDocumentScanResult] =
-    useState<DocumentScanResult | null>(null);
-  const [documentScanError, setDocumentScanError] = useState("");
-  const [isDocumentScanInProgress, setIsDocumentScanInProgress] =
-    useState(false);
-  const [isCameraStarting, setIsCameraStarting] = useState(false);
-  const [isCameraAvailable, setIsCameraAvailable] = useState(false);
-  const documentScannerVideoRef = useRef<HTMLVideoElement>(null);
-  const documentScannerCanvasRef = useRef<HTMLCanvasElement>(null);
-  const documentScannerFileInputRef = useRef<HTMLInputElement>(null);
-  const documentScannerStreamRef = useRef<MediaStream | null>(null);
 
   // Initialize date on client side to avoid hydration mismatch
   useEffect(() => {
@@ -502,83 +493,6 @@ export default function AthleteProfilePage() {
 
     return () => window.clearInterval(intervalId);
   }, []);
-
-  const stopDocumentScannerCamera = React.useCallback(() => {
-    documentScannerStreamRef.current?.getTracks().forEach((track) => {
-      track.stop();
-    });
-    documentScannerStreamRef.current = null;
-
-    if (documentScannerVideoRef.current) {
-      documentScannerVideoRef.current.srcObject = null;
-    }
-
-    setIsCameraAvailable(false);
-  }, []);
-
-  const startDocumentScannerCamera = React.useCallback(async () => {
-    if (
-      typeof navigator === "undefined" ||
-      !navigator.mediaDevices?.getUserMedia
-    ) {
-      setDocumentScanError(
-        "La fotocamera non e disponibile in questo browser. Puoi comunque caricare una foto del documento.",
-      );
-      return;
-    }
-
-    setIsCameraStarting(true);
-    setDocumentScanError("");
-
-    try {
-      stopDocumentScannerCamera();
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      });
-
-      documentScannerStreamRef.current = stream;
-
-      if (documentScannerVideoRef.current) {
-        documentScannerVideoRef.current.srcObject = stream;
-        await documentScannerVideoRef.current.play().catch(() => undefined);
-      }
-
-      setIsCameraAvailable(true);
-    } catch (error) {
-      console.error("Error starting document scanner camera:", error);
-      setDocumentScanError(
-        "Non riesco ad accedere alla fotocamera. Controlla i permessi oppure carica una foto del documento.",
-      );
-      setIsCameraAvailable(false);
-    } finally {
-      setIsCameraStarting(false);
-    }
-  }, [stopDocumentScannerCamera]);
-
-  useEffect(() => {
-    if (showDocumentScannerModal) {
-      void startDocumentScannerCamera();
-      return;
-    }
-
-    stopDocumentScannerCamera();
-    setDocumentScanImage(null);
-    setDocumentScanResult(null);
-    setDocumentScanError("");
-    setIsDocumentScanInProgress(false);
-  }, [
-    showDocumentScannerModal,
-    startDocumentScannerCamera,
-    stopDocumentScannerCamera,
-  ]);
-
-  useEffect(() => () => stopDocumentScannerCamera(), [stopDocumentScannerCamera]);
 
 
   const refreshSharedDocuments = React.useCallback(async () => {
@@ -2873,225 +2787,6 @@ export default function AthleteProfilePage() {
     }
   };
 
-  const handleDocumentScanFileChange = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.target.files?.[0];
-
-    if (!file) {
-      return;
-    }
-
-    try {
-      const imageUrl = await fileToDataUrl(file);
-      setDocumentScanImage(imageUrl);
-      setDocumentScanResult(null);
-      setDocumentScanError("");
-    } catch (error) {
-      console.error("Error loading document scan file:", error);
-      showToast("error", "Impossibile leggere l'immagine del documento");
-    } finally {
-      event.target.value = "";
-    }
-  };
-
-  const captureDocumentSnapshot = async () => {
-    const videoElement = documentScannerVideoRef.current;
-    const canvasElement = documentScannerCanvasRef.current;
-
-    if (!videoElement || !canvasElement || videoElement.readyState < 2) {
-      showToast(
-        "error",
-        "La fotocamera non e ancora pronta. Attendi un istante e riprova.",
-      );
-      return;
-    }
-
-    const width = videoElement.videoWidth || 1280;
-    const height = videoElement.videoHeight || 720;
-    canvasElement.width = width;
-    canvasElement.height = height;
-
-    const context = canvasElement.getContext("2d");
-    if (!context) {
-      showToast("error", "Impossibile acquisire l'immagine del documento");
-      return;
-    }
-
-    context.drawImage(videoElement, 0, 0, width, height);
-    const imageUrl = canvasElement.toDataURL("image/jpeg", 0.92);
-    setDocumentScanImage(imageUrl);
-    setDocumentScanResult(null);
-    setDocumentScanError("");
-    showToast("success", "Foto del documento acquisita");
-  };
-
-  const handleRunDocumentScan = async () => {
-    if (!documentScanImage) {
-      showToast(
-        "error",
-        "Acquisisci prima una foto o carica un'immagine del documento",
-      );
-      return;
-    }
-
-    setIsDocumentScanInProgress(true);
-    setDocumentScanError("");
-    let worker: {
-      recognize: (input: string) => Promise<any>;
-      terminate: () => Promise<unknown>;
-    } | null = null;
-
-    try {
-      const { createWorker } = await import("tesseract.js");
-      const activeWorker = await createWorker("ita+eng");
-      worker = activeWorker;
-      const result = await activeWorker.recognize(documentScanImage);
-
-      const rawText = result?.data?.text || "";
-      if (!rawText.trim()) {
-        throw new Error("Nessun testo riconosciuto");
-      }
-
-      const parsedResult = parseScannedDocument(rawText);
-      setDocumentScanResult(parsedResult);
-
-      const extractedValues = [
-        parsedResult.documentType,
-        parsedResult.documentNumber,
-        parsedResult.name,
-        parsedResult.surname,
-        parsedResult.birthDate,
-        parsedResult.documentExpiry,
-      ].filter(Boolean);
-
-      if (extractedValues.length === 0) {
-        setDocumentScanError(
-          "Ho letto il documento ma non sono riuscito a ricavare campi affidabili. Puoi comunque copiare il testo OCR qui sotto e completare a mano.",
-        );
-      } else {
-        showToast(
-          "success",
-          "Documento analizzato. Controlla i dati e applicali alla scheda atleta.",
-        );
-      }
-    } catch (error) {
-      console.error("Error scanning document:", error);
-      setDocumentScanResult(null);
-      setDocumentScanError(
-        "Impossibile analizzare il documento. Prova con una foto piu nitida o con luce migliore.",
-      );
-      showToast("error", "Impossibile analizzare il documento");
-    } finally {
-      if (worker) {
-        await worker.terminate().catch(() => undefined);
-      }
-      setIsDocumentScanInProgress(false);
-    }
-  };
-
-  /*
-    I campi che il documento ha davvero prodotto, con l etichetta che la
-    persona legge e la nota se la scheda ha gia quel dato. E un elenco
-    **chiuso**: un campo nuovo del riconoscitore non entra nella scheda finche
-    qualcuno non decide che deve entrarci.
-  */
-  const campiDelDocumento = useMemo(() => {
-    if (!documentScanResult) return [] as Array<{
-      key: string;
-      label: string;
-      value: string;
-      giaPresente: boolean;
-    }>;
-
-    const definizioni: Array<[string, string]> = [
-      ["documentType", "Tipo documento"],
-      ["documentNumber", "Numero documento"],
-      ["name", "Nome"],
-      ["surname", "Cognome"],
-      ["birthDate", "Data di nascita"],
-      ["birthPlace", "Luogo di nascita"],
-      ["documentIssue", "Rilascio"],
-      ["documentExpiry", "Scadenza"],
-      ["fiscalCode", "Codice fiscale"],
-      ["nationality", "Nazionalita"],
-    ];
-
-    return definizioni
-      .map(([key, label]: [string, string]) => ({
-        key,
-        label,
-        value: String((documentScanResult as any)?.[key] || "").trim(),
-        giaPresente: Boolean(String((athlete as any)?.[key] || "").trim()),
-      }))
-      .filter((campo: { value: string }) => campo.value.length > 0);
-  }, [athlete, documentScanResult]);
-
-  const [documentScanAccepted, setDocumentScanAccepted] = useState<Set<string>>(
-    new Set(),
-  );
-
-  /*
-    La preselezione tocca solo cio che manca. Un dato che la segreteria ha gia
-    verificato non si sostituisce con uno letto da una fotografia senza che
-    qualcuno lo abbia chiesto.
-  */
-  useEffect(() => {
-    setDocumentScanAccepted(
-      new Set(
-        campiDelDocumento
-          .filter((campo) => !campo.giaPresente)
-          .map((campo) => campo.key),
-      ),
-    );
-  }, [campiDelDocumento]);
-
-  const toggleCampoDocumento = (key: string) =>
-    setDocumentScanAccepted((corrente) => {
-      const prossimo = new Set(corrente);
-      if (prossimo.has(key)) prossimo.delete(key);
-      else prossimo.add(key);
-      return prossimo;
-    });
-
-  const applyDocumentScanResult = async () => {
-    if (!documentScanResult) {
-      showToast("error", "Prima analizza il documento");
-      return;
-    }
-
-    /*
-      W6 §16. Si applica **cio che e stato spuntato**, non tutto cio che l OCR
-      ha letto. La differenza si vede quando il riconoscimento sbaglia un
-      carattere in un codice fiscale: prima quel valore entrava in scheda
-      senza che nessuno lo avesse guardato.
-    */
-    const nextFields: Record<string, any> = {};
-    for (const campo of campiDelDocumento) {
-      if (documentScanAccepted.has(campo.key)) {
-        nextFields[campo.key] = campo.value;
-      }
-    }
-    if (Object.keys(nextFields).length === 0) {
-      showToast(
-        "error",
-        "Nessun campo selezionato. Spunta i dati che vuoi portare in scheda, oppure usa il testo OCR come riferimento e completa a mano.",
-      );
-      return;
-    }
-
-    try {
-      await persistAthleteCollections({
-        athleteOverrides: nextFields,
-      });
-      setShowDocumentScannerModal(false);
-      showToast("success", "Dati documento applicati alla scheda atleta");
-    } catch (error) {
-      console.error("Error applying document scan result:", error);
-      showToast("error", "Impossibile applicare i dati del documento");
-    }
-  };
-
   const handleSaveEnrollmentDocument = async () => {
     if (!newEnrollmentDocument.name || !newEnrollmentDocument.file) {
       showToast("error", "Nome documento e file sono obbligatori");
@@ -3688,44 +3383,39 @@ export default function AthleteProfilePage() {
         <Header title="Profilo Atleta" />
         <main className={dashboardMainClassName}>
           <DashboardPageContainer className="max-w-7xl">
+            {/*
+              **Le due sezioni che stavano qui sopra adesso non stanno piu qui**
+              (PP-01 §G e §I).
+
+              «Accesso EasyGame» e «Dati personali» occupavano insieme la prima
+              schermata di **ogni** atleta, per due cose che nella vita di
+              quell'atleta si fanno una volta sola — o mai. Chi apre una scheda
+              venti volte al giorno cerca l'anagrafica, e la trovava sotto due
+              pannelli di amministrazione.
+
+              L'accesso e ora un pulsante nell'intestazione che apre un dialogo;
+              i diritti dell'interessato stanno in fondo alla scheda «Generale».
+              **Nessuna delle due funzioni e stata tolta**, e nessuna guardia e
+              cambiata: e cambiato dove si clicca per arrivarci.
+            */}
             <AthleteProfileHeader
               athlete={athlete}
               categories={athleteCategoryMemberships}
               onAvatarChange={handleAvatarChange}
-              onScanDocument={() => setShowDocumentScannerModal(true)}
+              onOpenAccount={
+                athleteId && puoGestireAccesso
+                  ? () => setPannelloAccessoAperto(true)
+                  : null
+              }
               onDelete={handleDeleteAthlete}
             />
 
-            {/*
-              L'accesso EasyGame dell'atleta (W6-25/26/27). Sta sopra le
-              schede e non dentro «Generale» perche non e un dato
-              dell'anagrafica: e una cosa che si **fa**, e finche non e stata
-              fatta l'atleta non puo entrare da nessuna parte.
-            */}
             {athleteId ? (
-              <AthleteAccountSection
+              <AthleteAccountDialog
                 athleteId={athleteId}
                 suggestedEmail={athlete?.email || null}
-              />
-            ) : null}
-
-            {/*
-              **I diritti dell'interessato, che fin qui non avevano una porta.**
-
-              Le tre rotte sotto `/api/v1/data-subject` esistevano dalla Wave 6
-              e non le chiamava nessuno: il messaggio della guardia diceva «usa
-              la cancellazione dei dati personali» e non c'era niente da usare.
-              Sta accanto all'accesso EasyGame per la stessa ragione — non e un
-              dato dell'anagrafica, e una cosa che si **fa** — e resta sopra le
-              schede perche e la strada che l'eliminazione dell'atleta indica.
-            */}
-            {athleteId ? (
-              <AthleteDataSubjectSection
-                athleteId={athleteId}
-                athleteName={athlete?.name || null}
-                onErased={() =>
-                  router.push(clubId ? `/athletes?clubId=${clubId}` : "/athletes")
-                }
+                open={pannelloAccessoAperto}
+                onOpenChange={setPannelloAccessoAperto}
               />
             ) : null}
 
@@ -3948,6 +3638,33 @@ export default function AthleteProfilePage() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/*
+                  **I diritti dell'interessato, in fondo a «Generale»**
+                  (PP-01 §I).
+
+                  Stavano sopra le schede, in una fascia rossa, prima
+                  dell'anagrafica. Non duplicano nessun campo di questa scheda —
+                  non mostrano dati anagrafici affatto, ma cosa esiste in
+                  archivio su questa persona e cosa succederebbe a cancellarlo —
+                  quindi lo spostamento e un trasloco, non una fusione.
+
+                  Stanno in coda a «Generale» e non in una scheda propria perche
+                  «Generale» e la scheda che si apre da sola: la guardia
+                  dell'eliminazione nomina questa sezione, e nominare un posto
+                  che si raggiunge senza cercarlo e cio che la rende una strada.
+                */}
+                {athleteId ? (
+                  <AthleteDataSubjectSection
+                    athleteId={athleteId}
+                    athleteName={athlete?.name || null}
+                    onErased={() =>
+                      router.push(
+                        clubId ? `/athletes?clubId=${clubId}` : "/athletes",
+                      )
+                    }
+                  />
+                ) : null}
               </TabsContent>
 
               {/* CONTATTI TAB */}
@@ -5937,14 +5654,6 @@ export default function AthleteProfilePage() {
                     <CardTitle>Documento di Identità</CardTitle>
                     <div className="flex items-center gap-2">
                       <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowDocumentScannerModal(true)}
-                      >
-                        <Camera className="h-4 w-4 mr-2" />
-                        Scansiona documento
-                      </Button>
-                      <Button
                         variant="ghost"
                         size="sm"
                         aria-label="Modifica il documento di identita"
@@ -7010,239 +6719,6 @@ export default function AthleteProfilePage() {
         setNewPayment={setNewPayment}
         onSavePayment={() => void handleSavePayment()}
       />
-
-      <Dialog
-        open={showDocumentScannerModal}
-        onOpenChange={setShowDocumentScannerModal}
-      >
-        <DialogContent className="sm:max-w-5xl max-h-[92vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Scansiona documento</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-1 lg:grid-cols-[1.15fr_0.85fr] gap-6 py-2">
-            <div className="space-y-4">
-              <div className="rounded-3xl border border-slate-200 bg-slate-950 p-4 text-white shadow-xl">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold">Acquisizione documento</p>
-                    <p className="text-xs text-white/70">
-                      Usa la fotocamera oppure carica una foto fronte documento.
-                    </p>
-                  </div>
-                  <IdCard className="h-5 w-5 text-cyan-300" />
-                </div>
-
-                <div className="mt-4 aspect-[4/3] overflow-hidden rounded-2xl border border-white/10 bg-black/60">
-                  {documentScanImage ? (
-                    <img
-                      src={documentScanImage}
-                      alt="Anteprima documento"
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <video
-                      ref={documentScannerVideoRef}
-                      autoPlay
-                      muted
-                      playsInline
-                      className="h-full w-full object-cover"
-                    />
-                  )}
-                </div>
-
-                <canvas ref={documentScannerCanvasRef} className="hidden" />
-                <Input
-                  ref={documentScannerFileInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={handleDocumentScanFileChange}
-                  className="hidden"
-                />
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      void startDocumentScannerCamera();
-                    }}
-                    disabled={isCameraStarting}
-                    className="border-white/20 bg-white/10 text-white hover:bg-white/20"
-                  >
-                    {isCameraStarting ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                    )}
-                    Avvia fotocamera
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      void captureDocumentSnapshot();
-                    }}
-                    className="bg-cyan-500 text-slate-950 hover:bg-cyan-400"
-                    disabled={!isCameraAvailable}
-                  >
-                    <Camera className="h-4 w-4 mr-2" />
-                    Scatta foto
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => documentScannerFileInputRef.current?.click()}
-                    className="border-white/20 bg-white/10 text-white hover:bg-white/20"
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Carica immagine
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      void handleRunDocumentScan();
-                    }}
-                    disabled={isDocumentScanInProgress || !documentScanImage}
-                    className="bg-white text-slate-950 hover:bg-slate-100"
-                  >
-                    {isDocumentScanInProgress ? (
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <IdCard className="h-4 w-4 mr-2" />
-                    )}
-                    Analizza documento
-                  </Button>
-                </div>
-
-                {documentScanError ? (
-                  <div className="mt-4 rounded-2xl border border-amber-300/40 bg-amber-500/10 p-3 text-sm text-amber-100">
-                    {documentScanError}
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="rounded-2xl border bg-muted/40 p-4">
-                <p className="text-sm font-semibold text-foreground">
-                  Consigli per una scansione pulita
-                </p>
-                <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-                  <li>Usa uno sfondo uniforme e tieni il documento intero in vista.</li>
-                  <li>Evita riflessi e pieghe sul documento.</li>
-                  <li>Se il testo non viene letto bene, prova con una foto piu ravvicinata.</li>
-                </ul>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="rounded-2xl border bg-background p-4 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold">Dati riconosciuti</p>
-                    <p className="text-xs text-muted-foreground">
-                      I dati vengono **proposti**, non scritti: spunta quelli
-                      da portare in scheda. Sono gia selezionati i campi che
-                      la scheda non ha ancora.
-                    </p>
-                  </div>
-                </div>
-
-                {documentScanResult ? (
-                  /*
-                    W6 §16, terzo attrito. **Si propone, non si scrive.**
-
-                    Questo riquadro elencava i campi letti e basta: il pulsante
-                    in fondo li scriveva **tutti** sulla scheda. Il campo
-                    condiviso — quello montato nelle altre quattro schermate —
-                    fa il contrario: propone campo per campo e lascia scegliere.
-                    Erano due esperienze diverse dietro lo stesso nome, e la
-                    regola dichiarata del dominio e una sola:
-                    «si propone, non si scrive» (src/lib/document-extraction.ts).
-
-                    Su un documento d identita la differenza non e di stile: un
-                    OCR sbaglia, e un dato plausibile e falso scritto senza che
-                    nessuno lo abbia guardato diventa un errore federale al
-                    primo tesseramento.
-
-                    Preselezionati solo i campi che la scheda **non ha gia**:
-                    sovrascrivere un dato verificato dalla segreteria con uno
-                    letto da una fotografia sarebbe un peggioramento silenzioso.
-                  */
-                  <div className="mt-4 space-y-2 text-sm">
-                    {campiDelDocumento.length === 0 ? (
-                      <p className="rounded-2xl border border-dashed p-6 text-muted-foreground">
-                        Non ho ricavato nessun campo affidabile. Il testo
-                        riconosciuto e qui accanto: puoi usarlo come
-                        riferimento e completare a mano.
-                      </p>
-                    ) : (
-                      campiDelDocumento.map((campo) => (
-                        <label
-                          key={campo.key}
-                          className="flex cursor-pointer items-start gap-3 rounded-xl bg-muted/40 p-3"
-                        >
-                          <Checkbox
-                            checked={documentScanAccepted.has(campo.key)}
-                            onCheckedChange={() => toggleCampoDocumento(campo.key)}
-                            className="mt-0.5"
-                          />
-                          <span className="min-w-0">
-                            <span className="block text-xs uppercase tracking-wide text-muted-foreground">
-                              {campo.label}
-                            </span>
-                            <span className="mt-1 block break-words font-medium">
-                              {campo.value}
-                            </span>
-                            {campo.giaPresente ? (
-                              <span className="mt-1 block text-xs text-amber-700">
-                                La scheda ha gia un valore: spuntando questo lo
-                                sostituisci.
-                              </span>
-                            ) : null}
-                          </span>
-                        </label>
-                      ))
-                    )}
-                  </div>
-                ) : (
-                  <div className="mt-4 rounded-2xl border border-dashed p-6 text-sm text-muted-foreground">
-                    Dopo l&apos;analisi vedrai qui i campi estratti dal documento.
-                  </div>
-                )}
-              </div>
-
-              <div className="rounded-2xl border bg-background p-4 shadow-sm">
-                <Label>Testo OCR rilevato</Label>
-                <Textarea
-                  readOnly
-                  value={documentScanResult?.rawText || ""}
-                  rows={12}
-                  className="mt-2 text-xs leading-relaxed"
-                  placeholder="Il testo riconosciuto dal documento comparira qui."
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowDocumentScannerModal(false)}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={applyDocumentScanResult}
-              disabled={!documentScanResult || documentScanAccepted.size === 0}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              {documentScanAccepted.size
-                ? `Applica ${documentScanAccepted.size} ${
-                    documentScanAccepted.size === 1 ? "campo" : "campi"
-                  }`
-                : "Nessun campo selezionato"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Add Document Modal */}
       <Dialog

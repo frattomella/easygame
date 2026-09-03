@@ -20,6 +20,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/toast-notification";
@@ -91,13 +98,82 @@ const quando = (valore: string | null | undefined) => {
   });
 };
 
+/**
+ * **La stessa chiave, chiesta una volta sola.**
+ *
+ * La scheda atleta disegna il pulsante «Accesso EasyGame» solo a chi puo
+ * davvero gestirlo. Senza questo gancio la chiave finirebbe scritta due volte —
+ * qui e nella pagina — e il giorno in cui una delle due cambiasse comparirebbe
+ * un pulsante che apre un pannello vuoto.
+ */
+export function usePuoGestireAccessoAtleta() {
+  const { activeClub } = useAuth();
+  return roleHasPermission(activeClub?.role, "accounts.athlete.manage");
+}
+
+/**
+ * **Il pannello dedicato** (PP-01 §G).
+ *
+ * Il contenuto e lo stesso di prima: cambia solo dove sta. Stava in cima alla
+ * scheda, sopra l'anagrafica, e occupava la prima schermata di ogni atleta per
+ * una cosa che si fa **una volta sola** nella vita di quell'atleta. Adesso e un
+ * pulsante nell'intestazione che apre questo dialogo.
+ *
+ * Il contenuto si monta con il dialogo, quindi la chiamata a
+ * `GET /api/v1/athlete-accounts/:id` parte all'apertura e non piu a ogni
+ * visita della scheda: e una richiesta in meno per ogni atleta aperto.
+ */
+export function AthleteAccountDialog({
+  athleteId,
+  suggestedEmail,
+  open,
+  onOpenChange,
+}: {
+  athleteId: string;
+  suggestedEmail?: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4" />
+            Accesso EasyGame
+          </DialogTitle>
+          <DialogDescription>
+            L&apos;atleta riceve un link personale e sceglie da se la propria
+            password. EasyGame non manda mai una password per email, e nessuno
+            del club la puo vedere.
+          </DialogDescription>
+        </DialogHeader>
+        {open ? (
+          <AthleteAccountSection
+            athleteId={athleteId}
+            suggestedEmail={suggestedEmail}
+            chrome="plain"
+          />
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function AthleteAccountSection({
   athleteId,
   suggestedEmail,
+  chrome = "card",
 }: {
   athleteId: string;
   /** L'indirizzo gia in anagrafica: si propone, non si impone. */
   suggestedEmail?: string | null;
+  /**
+   * `card` disegna la propria intestazione; `plain` no, perche dentro un
+   * dialogo il titolo lo mette il dialogo e due cornici annidate sono solo
+   * due bordi.
+   */
+  chrome?: "card" | "plain";
 }) {
   const { activeClub } = useAuth();
   const { showToast } = useToast();
@@ -172,21 +248,8 @@ export function AthleteAccountSection({
 
   if (!puoGestire) return null;
 
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <ShieldCheck className="h-4 w-4" />
-          Accesso EasyGame
-        </CardTitle>
-        <CardDescription>
-          L&apos;atleta riceve un link personale e sceglie da se la propria
-          password. EasyGame non manda mai una password per email, e nessuno del
-          club la puo vedere.
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
+  const corpo = (
+    <div className="space-y-4">
         {caricamento ? (
           <p className="text-sm text-slate-500">Caricamento…</p>
         ) : errore ? (
@@ -366,8 +429,26 @@ export function AthleteAccountSection({
               </div>
             ) : null}
           </>
-        ) : null}
-      </CardContent>
+      ) : null}
+    </div>
+  );
+
+  if (chrome === "plain") return corpo;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <ShieldCheck className="h-4 w-4" />
+          Accesso EasyGame
+        </CardTitle>
+        <CardDescription>
+          L&apos;atleta riceve un link personale e sceglie da se la propria
+          password. EasyGame non manda mai una password per email, e nessuno del
+          club la puo vedere.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>{corpo}</CardContent>
     </Card>
   );
 }

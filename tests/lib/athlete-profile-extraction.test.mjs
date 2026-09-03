@@ -309,7 +309,13 @@ test("la sezione richiesta si accetta solo se esiste", () => {
  */
 // Abbassato insieme all'estrazione di `AthleteCategoriesPanel` (Workstream B):
 // il blocco categoria primaria / sede / secondarie e uscito dalla pagina.
-const MAX_ATHLETE_PAGE_LINES = 8470;
+//
+// Abbassato di nuovo da PP-01 §H: lo scanner documenti — fotocamera, OCR,
+// selezione dei campi e dialogo — e uscito dalla pagina, cinquecentoventi
+// righe. Il limite scende **insieme** alla rimozione, non dopo: lasciarlo
+// dov'era regalerebbe alla prossima aggiunta lo spazio che questa rimozione
+// ha liberato, ed e esattamente il modo in cui una soglia smette di servire.
+const MAX_ATHLETE_PAGE_LINES = 7500;
 
 test("la scheda atleta non torna a crescere", () => {
   const source = readFileSync(

@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
-import { Camera, Trash2 } from "lucide-react";
+import { KeyRound, Trash2 } from "lucide-react";
 
 /**
  * Intestazione della scheda atleta: foto, nome, categorie, due azioni.
@@ -42,7 +42,8 @@ export type AthleteProfileHeaderProps = {
   };
   categories: AthleteProfileHeaderCategory[];
   onAvatarChange: (image: string | null) => void;
-  onScanDocument: () => void;
+  /** Apre il pannello «Accesso EasyGame». Assente per chi non lo puo gestire. */
+  onOpenAccount?: (() => void) | null;
   onDelete: () => void;
 };
 
@@ -50,7 +51,7 @@ export function AthleteProfileHeader({
   athlete,
   categories,
   onAvatarChange,
-  onScanDocument,
+  onOpenAccount,
   onDelete,
 }: AthleteProfileHeaderProps) {
   return (
@@ -86,14 +87,16 @@ export function AthleteProfileHeader({
         </div>
       </div>
       <div className="flex gap-2 w-full md:w-auto">
-        <Button
-          variant="outline"
-          className="flex-1 md:flex-none"
-          onClick={onScanDocument}
-        >
-          <Camera className="h-4 w-4 mr-2" />
-          Scansiona documento
-        </Button>
+        {onOpenAccount ? (
+          <Button
+            variant="outline"
+            className="flex-1 md:flex-none"
+            onClick={onOpenAccount}
+          >
+            <KeyRound className="h-4 w-4 mr-2" />
+            Accesso EasyGame
+          </Button>
+        ) : null}
         <Button
           variant="destructive"
           className="flex-1 md:flex-none"

@@ -4,29 +4,39 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
- * **W6 §16 — una sola esperienza dietro un solo nome.**
+ * **W6 §16 — una sola esperienza dietro un solo nome**, e la decisione che
+ * PP-01 ha ribaltato per una schermata sola.
  *
- * ## La premessa del mandato che i fatti hanno corretto
+ * ## Cosa disse la Wave 6, e perche
  *
- * Il mandato chiedeva di **nascondere** «Scansiona documento» finché la
- * capability non fosse reale. Non era da nascondere: l'OCR c'era, era locale,
- * riconosceva la MRZ e validava il codice fiscale con il carattere di
- * controllo prima di proporlo, ed era montato in cinque schermate.
+ * Il mandato della Wave 6 chiedeva di **nascondere** «Scansiona documento»
+ * finche la capability non fosse reale. Questi controlli risposero di no: l'OCR
+ * c'era, era locale, riconosceva la MRZ e validava il codice fiscale con il
+ * carattere di controllo prima di proporlo, ed era montato in cinque schermate.
+ * Il difetto vero era che quattro schermate su cinque **proponevano** i campi e
+ * la quinta — la scheda atleta — li **scriveva tutti**. La Wave 6 allineo la
+ * quinta invece di spegnerla.
  *
- * Ciò che spiegava la percezione contraria erano **tre attriti**, e sono
- * quelli che questi controlli presidiano.
+ * ## Cosa dice PP-01 §H, e perche non e la stessa richiesta
  *
- * ## Il terzo attrito, che è il più serio
+ * PP-01 toglie la funzione **dalla sola scheda atleta**. La Wave 6 aveva
+ * respinto «nascondi una capability che non esiste», perche esisteva; qui il
+ * proprietario del prodotto giudica **non utilizzabile l'esperienza** di quella
+ * schermata — la fotocamera a tutta pagina, il dialogo largo, l'OCR
+ * sull'immagine di una scrivania — e decide di riproporla in futuro con un
+ * percorso vero: acquisizione, riconoscimento, estrazione, anteprima, conferma.
  *
- * `DocumentExtractionField` — il campo montato in quattro schermate — propone
- * i dati **campo per campo** e lascia scegliere. La scheda atleta, con lo
- * stesso pulsante e lo stesso nome, li **scriveva tutti**.
+ * **Cio che PP-01 non tocca** e esattamente cio che questo file difendeva:
+ * `DocumentExtractionField` e il motore che gli sta sotto restano montati nelle
+ * altre quattro schermate — nuovo socio, nuovo staff, nuovo allenatore, nuovo
+ * atleta — **e nel dialogo del tutore dentro questa stessa scheda**. La regola
+ * del dominio «si propone, non si scrive» resta la regola, e i controlli che la
+ * presidiano restano tutti qui.
  *
- * Non è una differenza di stile. Un OCR sbaglia: su un codice fiscale basta un
- * carattere, e un dato plausibile e falso scritto senza che nessuno lo abbia
- * guardato diventa un errore federale al primo tesseramento. La regola del
- * dominio è dichiarata in testa a `src/lib/document-extraction.ts` — «si
- * propone, non si scrive» — ed era rispettata in quattro schermate su cinque.
+ * Il controllo che ha cambiato segno e **uno solo**: chiedeva alla scheda
+ * atleta di avere un proprio scanner allineato al campo condiviso; adesso
+ * chiede che non ne abbia uno proprio. Accanto gli sta il censimento, che
+ * verifica che togliere quello non abbia tolto anche gli altri cinque.
  */
 
 const SRC = path.join(process.cwd(), "src");
@@ -48,44 +58,62 @@ test("§16 · la regola del dominio e una sola, ed e scritta", () => {
   );
 });
 
-test("§16 · la scheda atleta propone i campi invece di scriverli tutti", () => {
+test("PP-01 §H · la scheda atleta non ha piu uno scanner suo", () => {
   const scheda = senzaCommenti(leggi(SCHEDA));
 
-  assert.ok(
-    scheda.includes("const campiDelDocumento"),
-    "servono i campi come elenco scegliibile, non un blocco da applicare",
-  );
-  assert.ok(
-    scheda.includes("documentScanAccepted"),
-    "e una selezione che qualcuno ha fatto",
-  );
-  assert.ok(
-    scheda.includes("if (documentScanAccepted.has(campo.key))"),
-    "si applica cio che e stato spuntato",
-  );
+  for (const residuo of [
+    "Scansiona documento",
+    "showDocumentScannerModal",
+    "documentScanAccepted",
+    "campiDelDocumento",
+    "startDocumentScannerCamera",
+    "getUserMedia",
+    'import("tesseract.js")',
+    "parseScannedDocument",
+  ]) {
+    assert.equal(
+      scheda.includes(residuo),
+      false,
+      `la funzione e stata tolta dalla superficie: non deve restarne il motore (${residuo})`,
+    );
+  }
+});
 
+test("PP-01 §H · toglierla dalla scheda non l'ha tolta dalle altre cinque", () => {
   /*
-    La forma vecchia: dieci `if` che copiavano un campo nell'oggetto da
-    scrivere, senza che nessuno li avesse guardati.
+    **Il censimento, come controllo.** La scheda atleta duplicava il motore
+    invece di montare il campo condiviso: e per questo che togliere il suo
+    scanner non tocca nessun altro. Se un giorno qualcuno togliesse anche il
+    campo condiviso credendo di finire il lavoro, questo controllo lo ferma.
   */
-  assert.equal(
-    /nextFields\.fiscalCode = documentScanResult\.fiscalCode/.test(scheda),
-    false,
-    "un codice fiscale letto da una fotografia non entra in scheda senza che qualcuno lo confermi",
+  const consumatori = [
+    "app/soci/new/page.tsx",
+    "app/staff/new/page.tsx",
+    "app/trainers/new/page.tsx",
+    "components/forms/AthleteCreateForm.tsx",
+    /* Il tutore vive **dentro** la scheda atleta, e li il campo resta. */
+    "app/athletes/[id]/page.tsx",
+  ];
+
+  for (const file of consumatori) {
+    assert.ok(
+      leggi(file).includes("DocumentExtractionField"),
+      `${file}: il campo condiviso deve restare montato`,
+    );
+  }
+
+  assert.ok(
+    leggi("lib/document-extraction.ts").includes("parseScannedDocument"),
+    "il parser resta: lo usa il campo condiviso",
   );
 });
 
 test("§16 · la preselezione non sovrascrive cio che la segreteria ha gia verificato", () => {
-  for (const [file, marcatore] of [
-    [CAMPO, "!hasValue(entry.key)"],
-    [SCHEDA, "!campo.giaPresente"],
-  ]) {
-    const sorgente = senzaCommenti(leggi(file));
-    assert.ok(
-      sorgente.includes(marcatore),
-      `${file}: un dato gia in scheda non si spunta da solo`,
-    );
-  }
+  const sorgente = senzaCommenti(leggi(CAMPO));
+  assert.ok(
+    sorgente.includes("!hasValue(entry.key)"),
+    `${CAMPO}: un dato gia in scheda non si spunta da solo`,
+  );
 });
 
 test("§16 · la fotocamera non e piu in un punto solo dell'applicazione", () => {
