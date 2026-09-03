@@ -7,16 +7,12 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
-  BadgeEuro,
   Briefcase,
   Building,
-  CalendarClock,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ClipboardCheck,
-  FileSignature,
   FileCheck,
   FileText,
   ScrollText,
@@ -197,34 +193,28 @@ const sidebarGroups: SidebarGroup[] = [
       { id: "sponsors", label: "Sponsor", href: "/sponsors", icon: Handshake },
     ],
   },
+  /*
+    **Il modulo e una voce sola.** Le quattro sezioni — Rapporti, Compensi,
+    Scadenze, Adempimenti — non stanno piu nella barra laterale perche il
+    modulo porta gia la propria navigazione: `SPORT_WORK_SECTIONS` in
+    `src/components/sport-work/SportWorkShell.tsx` disegna la riga di
+    collegamenti su **tutte** le sue pagine e segna quella attiva. Ripeterle
+    qui faceva cinque icone mute nella barra compressa, dove l'intestazione
+    del gruppo non viene disegnata.
+
+    Nessuna rotta e stata tolta: un collegamento profondo — quello di
+    `AccountingSummary` verso `/sport-work/compensations` — continua ad
+    aprire la sua pagina.
+  */
   {
     id: "sport-work",
     label: "LAVORO SPORTIVO",
     items: [
-      { id: "sport-work", label: "Dashboard", href: "/sport-work", icon: HardHat },
       {
-        id: "sport-work-relationships",
-        label: "Rapporti",
-        href: "/sport-work/relationships",
-        icon: FileSignature,
-      },
-      {
-        id: "sport-work-compensations",
-        label: "Compensi",
-        href: "/sport-work/compensations",
-        icon: BadgeEuro,
-      },
-      {
-        id: "sport-work-deadlines",
-        label: "Scadenze",
-        href: "/sport-work/deadlines",
-        icon: CalendarClock,
-      },
-      {
-        id: "sport-work-obligations",
-        label: "Adempimenti",
-        href: "/sport-work/obligations",
-        icon: ClipboardCheck,
+        id: "sport-work",
+        label: "Lavoro sportivo",
+        href: "/sport-work",
+        icon: HardHat,
       },
     ],
   },
@@ -241,7 +231,28 @@ const sidebarGroups: SidebarGroup[] = [
     items: [
       { id: "organization", label: "Club", href: "/organization", icon: Shield },
       { id: "settings", label: "Impostazioni", href: "/settings", icon: Settings },
-      { id: "permissions", label: "Permessi", href: "/permissions", icon: Lock },
+      /*
+        **«Permessi» e «Ruoli e accessi» erano due voci adiacenti con lo stesso
+        sostantivo, e due sistemi diversi sotto** (PP-01 §M).
+
+        Questa governa venticinque interruttori della **dashboard
+        dell'allenatore** — quali pagine vede, quali riquadri, quali azioni — e
+        li scrive in `clubs.settings.trainerDashboardPermissions`. Quella sotto
+        governa i **ruoli di club** e i loro perimetri, in tabelle proprie
+        (ADR-0102, ADR-0103). Non hanno una chiave in comune: nessuna delle
+        venticinque sta nel catalogo dei permessi.
+
+        La pagina si chiama gia «Permessi Allenatore» nella propria
+        intestazione: il nome nella barra ora dice la stessa cosa. La
+        ricognizione che porta a tenerle separate sta in
+        `docs/knowledge-base/42-pp-01-club-atleti-allenamenti.md`.
+      */
+      {
+        id: "permissions",
+        label: "Permessi allenatore",
+        href: "/permissions",
+        icon: Lock,
+      },
       /*
         W6-1 e W6-2. Le due schermate della lane 6G. Senza queste righe
         nascerebbero irraggiungibili — e `/dashboard/access-management` lo era
@@ -423,7 +434,7 @@ const Sidebar = memo(() => {
 
   return (
     <aside
-      className={`hidden lg:flex h-[100dvh] shrink-0 ${collapsed ? "w-[80px]" : "w-[320px]"} flex-col bg-gradient-to-b from-blue-600 to-blue-800 text-white transition-all duration-300 overflow-hidden relative`}
+      className={`hidden lg:flex h-[100dvh] shrink-0 ${collapsed ? "w-[80px]" : "w-[264px]"} flex-col bg-gradient-to-b from-blue-600 to-blue-800 text-white transition-all duration-300 overflow-hidden relative`}
     >
       <div className="mb-6 flex items-center flex-col py-4 px-4">
         {/*
@@ -478,14 +489,20 @@ const Sidebar = memo(() => {
         }}
       >
         <div className="mb-4">
+          {/*
+            Anche l'HUB e una pagina, e nella barra compressa era l'unica
+            icona senza il fumetto delle altre: `title` e del browser, arriva
+            dopo un secondo e non risponde al fuoco da tastiera.
+          */}
+          <SidebarItemTooltip label="EasyGame HUB" collapsed={collapsed}>
           <Link
             href={buildUrl("/hub")}
+            aria-label={collapsed ? "EasyGame HUB" : undefined}
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 transition-all shadow-lg",
               collapsed && "justify-center px-0",
               pathname === "/hub" && "ring-2 ring-white/50",
             )}
-            title="EasyGame HUB"
           >
             <Sparkles size={20} className="shrink-0 text-white" />
             {!collapsed && (
@@ -497,6 +514,7 @@ const Sidebar = memo(() => {
               </div>
             )}
           </Link>
+          </SidebarItemTooltip>
         </div>
 
         {sidebarGroups.map((group) => {

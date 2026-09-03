@@ -605,9 +605,7 @@ const Header = memo(
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  onClick={() =>
-                    router.push(user?.id ? `/profile/${user.id}` : "/account")
-                  }
+                  onClick={() => router.push("/account?profile=1")}
                 >
                   <UserCircle className="mr-2 h-4 w-4" />
                   Profilo

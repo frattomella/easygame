@@ -562,6 +562,20 @@ export default function AccountHomeScreen() {
       setCreateClubOpen(true);
       window.history.replaceState({}, "", "/account");
     }
+    /*
+      **«Profilo» apre il profilo, non una pagina da cui cercarlo** (PP-01 §J).
+
+      La voce «Profilo» del menu utente portava a `/profile/[userId]`, che e la
+      seconda superficie: mostrava meno campi, non permetteva di cambiare
+      l'indirizzo, scriveva l'immagine in una colonna **che non esiste**, e per
+      cinque ruoli su sette rispondeva 403. Adesso porta qui, e questo parametro
+      apre direttamente il dialogo invece di lasciare la persona davanti
+      all'elenco dei club a cercarlo in un menu.
+    */
+    if (params.get("profile") === "1") {
+      setProfileOpen(true);
+      window.history.replaceState({}, "", "/account");
+    }
   }, []);
 
   const updateProfileField = (field: keyof ProfileFormState, value: string) => {

@@ -25,12 +25,8 @@ import {
   Bell,
   BarChart3,
   FolderKanban,
-  BadgeEuro,
-  CalendarClock,
   CalendarDays,
-  ClipboardCheck,
   FileCheck,
-  FileSignature,
   HardHat,
   ScrollText,
   Send,
@@ -152,29 +148,12 @@ const navSections = [
   {
     id: "lavoro-sportivo",
     label: "LAVORO SPORTIVO",
-    items: [
-      { href: "/sport-work", label: "Dashboard", icon: HardHat },
-      {
-        href: "/sport-work/relationships",
-        label: "Rapporti",
-        icon: FileSignature,
-      },
-      {
-        href: "/sport-work/compensations",
-        label: "Compensi",
-        icon: BadgeEuro,
-      },
-      {
-        href: "/sport-work/deadlines",
-        label: "Scadenze",
-        icon: CalendarClock,
-      },
-      {
-        href: "/sport-work/obligations",
-        label: "Adempimenti",
-        icon: ClipboardCheck,
-      },
-    ],
+    /*
+      Una voce sola, come nella barra laterale: le sezioni del modulo stanno
+      dentro il modulo (`SPORT_WORK_SECTIONS`). La parita fra i due menu e
+      verificata da `tests/ui/navigazione-sotto-1024-e-768.test.mjs`.
+    */
+    items: [{ href: "/sport-work", label: "Lavoro sportivo", icon: HardHat }],
   },
   {
     id: "magazzino",
@@ -198,7 +177,8 @@ const navSections = [
       { href: "/communications", label: "Comunicazioni", icon: Send },
       { href: "/reports", label: "Report", icon: BarChart3 },
       { href: "/settings", label: "Impostazioni", icon: Settings },
-      { href: "/permissions", label: "Permessi", icon: Shield },
+      /* Stesso nome della barra laterale (PP-01 §M). */
+      { href: "/permissions", label: "Permessi allenatore", icon: Shield },
       /*
         W6-1 e W6-2. Le due schermate della lane 6G, con le etichette della
         barra laterale. Chi governa i ruoli o legge il registro degli accessi
@@ -284,7 +264,7 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
 
   const handleProfileClick = () => {
     if (user?.id) {
-      router.push(`/profile/${user.id}`);
+      router.push("/account?profile=1");
     }
   };
 
