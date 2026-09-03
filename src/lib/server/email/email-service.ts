@@ -15,6 +15,7 @@ import type {
   TransactionalEmail,
 } from "./provider";
 import { SmtpEmailProvider } from "./smtp-provider";
+import { renderEmailLayout } from "./layout";
 
 export type SafeEmailErrorCode =
   | "SMTP_AUTH_FAILED"
@@ -178,7 +179,10 @@ export const testSmtpDelivery = async (to: string) => {
       to,
       subject: "Test configurazione email EasyGame",
       text: "La configurazione SMTP di EasyGame funziona correttamente.",
-      html: "<p>La configurazione SMTP di <strong>EasyGame</strong> funziona correttamente.</p>",
+      html: renderEmailLayout({
+        bodyHtml:
+          "<p>La configurazione SMTP di <strong>EasyGame</strong> funziona correttamente.</p>",
+      }),
     });
     await prisma.emailProviderConfig.update({
       where: { id: SMTP_CONFIG_ID },

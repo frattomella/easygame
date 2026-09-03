@@ -95,10 +95,14 @@ test("il marchio EasyGame sta nella sidebar, non nella topbar del club", () => {
   );
 
   const sidebar = readCode(CLUB_SIDEBAR);
-  assert.match(sidebar, /<EasyGameLogo/, "il marchio e l'SVG in repo");
   assert.match(
     sidebar,
-    /href="\/account"[\s\S]{0,240}<EasyGameLogo/,
+    /<EasyGame(Logo|Wordmark)/,
+    "il marchio sono gli asset ufficiali in public/images/brand/",
+  );
+  assert.match(
+    sidebar,
+    /href="\/account"[\s\S]{0,320}<EasyGame(Logo|Wordmark)/,
     "dal marchio si torna all'elenco dei club",
   );
 });
@@ -256,6 +260,11 @@ const DOCUMENT_GENERATORS = new Set([
     ragione per cui quel messaggio non carica niente da fuori.
   */
   "lib/server/athlete-accounts.ts",
+  /*
+    Il guscio HTML condiviso delle email (Branding Pass): stessa ragione dei
+    due file sopra, un client di posta non ha i font dell'applicazione.
+  */
+  "lib/server/email/layout.ts",
 ]);
 
 /**
@@ -389,7 +398,7 @@ test("le asserzioni reggono anche in un checkout CRLF", () => {
   );
   assert.match(
     comeLoLeggeIlTest,
-    /href="\/account"[\s\S]{0,240}<EasyGameLogo/,
+    /href="\/account"[\s\S]{0,320}<EasyGame(Logo|Wordmark)/,
     "la distanza fra marchio e link non deve dipendere dal checkout",
   );
 });

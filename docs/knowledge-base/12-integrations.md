@@ -52,6 +52,22 @@ scrive in una riga, e chi non ha un account non potrebbe nemmeno farlo.
 scadenza, che e un pezzo di sicurezza a se ed e Wave 2. Non esiste nessun
 canale SMS o push per i solleciti.
 
+### Guscio HTML condiviso (Branding Pass)
+
+`src/lib/server/email/layout.ts` — `renderEmailLayout({ bodyHtml })` avvolge
+il contenuto di ogni email con intestazione (logotipo EasyGame, da
+`public/images/brand/logotipo-b.png`, servito con URL assoluto via
+`NEXT_PUBLIC_APP_URL` — i client di posta non caricano percorsi relativi) e
+piede pagina. Prima non esisteva nessun guscio condiviso: ogni chiamata
+costruiva la propria stringa HTML, senza marchio.
+
+Ogni punto di invio avvolge solo la propria stringa `html:`; nessuna modifica
+a destinatari, oggetto o innesco. Email "Platform" (EasyGame e il
+mittente/soggetto) gia avvolte:
+`sendEmailVerificationChallenge`, `sendPasswordResetChallenge`
+(`auth-workflows.ts`), `inviaEmailDiInvito` (`athlete-accounts.ts`),
+`testSmtpDelivery` (`email-service.ts`).
+
 **Quando SMTP non e configurato il sollecito non mente.**
 `sendTransactionalEmail` restituisce `{status: "skipped", reason:
 "not_configured"}` invece di sollevare, e il dominio dei solleciti lo traduce

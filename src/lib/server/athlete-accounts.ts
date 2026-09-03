@@ -13,6 +13,7 @@ import {
   recordPermissionDenied,
 } from "./audit";
 import { sendTransactionalEmail } from "./email/email-service";
+import { renderEmailLayout } from "./email/layout";
 import { sendPasswordResetChallenge } from "./auth-workflows";
 import { getParentDashboardData } from "./parent-dashboard";
 import { readAthleteRsvpInvitations } from "./rsvp";
@@ -427,17 +428,17 @@ const inviaEmailDiInvito = async (input: {
       "",
       input.clubName,
     ].join("\n"),
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; color: #0f172a;">
-        <h2 style="margin-bottom: 12px;">Attiva il tuo accesso EasyGame</h2>
+    html: renderEmailLayout({
+      bodyHtml: `
+        <h2 style="margin:0 0 12px;">Attiva il tuo accesso EasyGame</h2>
         <p>Ciao ${escapeHtml(input.athleteName)}, <strong>${escapeHtml(input.clubName)}</strong> ti ha aperto un accesso personale su EasyGame: da li vedi i tuoi allenamenti, le gare, le convocazioni e i tuoi documenti.</p>
         <p style="padding: 20px 0;">
           <a href="${link}" style="background:#2563eb;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Attiva il mio accesso</a>
         </p>
         <p>Il link scade tra ${ATHLETE_INVITE_TTL_DAYS} giorni. Al primo accesso sceglierai tu la tua password: nessuno del club la conosce e nessuno te la puo comunicare.</p>
         <p style="color:#64748b;font-size:13px;">Se non ti aspettavi questo messaggio, ignoralo: senza il link non succede niente.</p>
-      </div>
-    `,
+      `,
+    }),
   });
 };
 
