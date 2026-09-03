@@ -218,7 +218,21 @@ test("§11.3 · sugli eventi vale su ogni atto, non solo sull'elenco", () => {
 test("§11.3 · il diniego lo dice, e lascia traccia", () => {
   const events = leggi("lib/server/events.ts");
   const inizio = events.indexOf("const assertAccessScopeOnEvent = async (");
-  const corpo = events.slice(inizio, inizio + 1800);
+  assert.ok(inizio >= 0, "la guardia deve esistere");
+  /*
+    **Il corpo finisce dove finisce la funzione**, non dopo un numero di
+    caratteri deciso a mano.
+
+    Prima si leggevano 1.800 caratteri dall'inizio. Ha funzionato finche
+    nessuno ha scritto un commento dentro quella funzione: PP-01 §A ne ha
+    aggiunto uno e `recordPermissionDenied` e uscito dalla finestra, facendo
+    fallire un presidio su un comportamento che non era cambiato. Un presidio
+    che si rompe quando il codice **non** cambia misura la propria finestra, non
+    il codice.
+  */
+  const fine = events.indexOf("\n};", inizio);
+  assert.ok(fine > inizio, "la funzione deve chiudersi");
+  const corpo = events.slice(inizio, fine);
 
   assert.ok(
     corpo.includes("recordPermissionDenied"),

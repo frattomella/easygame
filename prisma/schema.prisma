@@ -1283,6 +1283,18 @@ model ClubEvent {
   field_id           String?
   category_id        String?
   category_name      String?
+  /// **Tutte** le categorie dell'evento, la primaria compresa e per prima.
+  ///
+  /// `category_id` resta la primaria e nessun lettore storico cambia. Questa
+  /// colonna esiste perche un allenamento di tre categorie ne dichiarava una
+  /// sola: le altre due vivevano dentro `payload.categories`, cioe in un posto
+  /// che nessuna query poteva interrogare. Filtrare per la seconda categoria
+  /// non trovava l'evento, e un ruolo ristretto a quella categoria non lo
+  /// vedeva affatto (PP-01 §A).
+  ///
+  /// E `String[]` e non `Json` per una ragione sola: `hasSome` e un filtro,
+  /// `payload` no.
+  category_ids       String[]               @default([])
   /// I gruppi operativi convocati (ADR-0055). Elenco di identificativi.
   group_ids          Json?
   /// **Istante assoluto**, con il fuso dichiarato accanto. Prima erano due
@@ -1324,6 +1336,12 @@ model ClubEvent {
   @@index([organization_id, season_id, starts_at])
   @@index([organization_id, site_id, starts_at])
   @@index([organization_id, category_id, starts_at])
+  /*
+    Indice GIN sulla sola colonna: un GIN multicolonna che comprenda uno
+    scalare richiede `btree_gin`, cioe un'estensione, e un'estensione e una
+    dipendenza dell'ambiente. Il filtro per club resta il btree che c'e gia.
+  */
+  @@index([category_ids], type: Gin)
   @@map("club_events")
 }
 

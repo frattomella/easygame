@@ -25,6 +25,7 @@ import {
   normalizeConvocationStatus,
   normalizeEventKind,
   normalizeEventStatus,
+  campiCongelatiToccati,
   toEventColumns,
   toEventLegacyShape,
   type EventKind,
@@ -312,6 +313,8 @@ export type TrainerPerimeterCandidate = {
   id?: string | null;
   category_id?: string | null;
   category_name?: string | null;
+  /** Tutte le categorie dell'evento, non la sola primaria (PP-01 §A). */
+  category_ids?: readonly string[] | null;
   group_ids?: unknown;
 };
 
@@ -353,7 +356,17 @@ export const eventWithinTrainerPerimeter = (
     perimetro.categoryIds.map((value) => value.toLowerCase()),
   );
 
-  return [evento.category_id, evento.category_name]
+  /*
+    **Tutte le categorie dell'evento, non la sola primaria** (PP-01 §A).
+    L'allenatore della seconda categoria di un allenamento multi-categoria era
+    fuori perimetro sul proprio stesso allenamento: lo vedeva sparire dal
+    calendario e non poteva farne l'appello.
+  */
+  const categorieEvento = Array.isArray(evento.category_ids)
+    ? (evento.category_ids as unknown[])
+    : [];
+
+  return [evento.category_id, evento.category_name, ...categorieEvento]
     .map((value) => asText(value).toLowerCase())
     .filter(Boolean)
     .some((value) => categorie.has(value));
@@ -405,13 +418,45 @@ const assertAccessScopeOnEvent = async (
   );
   if (!perimetro.length) return;
 
-  const fuori = candidati.filter(
-    (candidato) =>
-      !accessScopeAllows(perimetro, {
-        siteId: candidato?.siteId ?? candidato?.site_id ?? null,
-        categoryId: candidato?.categoryId ?? candidato?.category_id ?? null,
+  /*
+    **Un evento multi-categoria si giudica su tutte le sue categorie**
+    (PP-01 §A), e basta che **una** stia nel perimetro.
+
+    E la stessa regola con cui l'elenco lo mostra — `hasSome` — e le due devono
+    coincidere: un evento che compare nel calendario e su cui poi ogni atto
+    viene rifiutato e la divergenza fra cio che si vede e cio che si puo, che in
+    questo repository e gia stata un difetto piu volte.
+
+    Il perimetro sugli **atleti** resta separato e piu stretto:
+    `assertAtletiDentroIlPerimetro` giudica ogni persona convocata, quindi
+    ammettere l'evento non ammette le persone fuori perimetro che ci stanno
+    dentro.
+  */
+  const dentroIlPerimetro = (candidato: Record<string, any>) => {
+    const sede = candidato?.siteId ?? candidato?.site_id ?? null;
+    const elencate = Array.isArray(candidato?.category_ids)
+      ? (candidato.category_ids as unknown[])
+      : Array.isArray(candidato?.categoryIds)
+        ? (candidato.categoryIds as unknown[])
+        : [];
+    const categorie = [
+      candidato?.categoryId ?? candidato?.category_id ?? null,
+      ...elencate,
+    ].filter((valore) => asText(valore));
+
+    if (!categorie.length) {
+      return accessScopeAllows(perimetro, { siteId: sede, categoryId: null });
+    }
+
+    return categorie.some((categoria) =>
+      accessScopeAllows(perimetro, {
+        siteId: sede,
+        categoryId: asText(categoria),
       }),
-  );
+    );
+  };
+
+  const fuori = candidati.filter((candidato) => !dentroIlPerimetro(candidato));
   if (!fuori.length) return;
 
   await recordPermissionDenied({
@@ -478,7 +523,28 @@ export const listClubEvents = async (
   }
   if (filters.seasonId) where.season_id = asText(filters.seasonId);
   if (filters.siteId) where.site_id = asText(filters.siteId);
-  if (filters.categoryId) where.category_id = asText(filters.categoryId);
+  /*
+    **La categoria chiesta puo essere la seconda** (PP-01 §A). Un allenamento
+    di tre categorie ne dichiara una primaria e le altre due nella colonna
+    `category_ids`: cercare solo la primaria non lo trovava, ed era il motivo
+    per cui un allenamento multi-categoria spariva dal calendario di due delle
+    tre squadre convocate.
+
+    `category_id` resta nella disgiunzione per le righe precedenti alla
+    migrazione, se ce ne fosse rimasta una senza travaso.
+  */
+  if (filters.categoryId) {
+    const chiesta = asText(filters.categoryId);
+    where.AND = [
+      ...((where.AND as unknown[]) ?? []),
+      {
+        OR: [
+          { category_id: chiesta },
+          { category_ids: { has: chiesta } },
+        ],
+      },
+    ];
+  }
 
   /*
     Wave 6 §11.3. Il perimetro dell assegnazione si somma ai filtri, non li
@@ -494,7 +560,17 @@ export const listClubEvents = async (
     const sedi = accessScopeValues(perimetroDelRuolo, "site");
     const categorie = accessScopeValues(perimetroDelRuolo, "category");
     if (sedi.length) where.site_id = { in: sedi };
-    if (categorie.length) where.category_id = { in: categorie };
+    if (categorie.length) {
+      where.AND = [
+        ...((where.AND as unknown[]) ?? []),
+        {
+          OR: [
+            { category_id: { in: categorie } },
+            { category_ids: { hasSome: categorie } },
+          ],
+        },
+      ];
+    }
   }
   if (filters.status) where.status = normalizeEventStatus(filters.status);
   else if (!filters.includeCancelled) where.status = { not: "archived" };
@@ -690,9 +766,11 @@ const assertNoOverlap = async (
     starts_at: Date;
     ends_at: Date | null;
   },
+  /** `true` quando chi salva ha gia visto l'avviso e ha confermato. */
+  consentito = false,
 ) => {
   if (!candidate.structure_id && !candidate.field_id && !candidate.site_id) {
-    return;
+    return [];
   }
 
   const giorno = new Date(candidate.starts_at);
@@ -721,12 +799,70 @@ const assertNoOverlap = async (
   });
 
   const conflitti = findEventOverlaps(candidate, altri);
-  if (conflitti.length) {
-    const primo = altri.find((row) => row.id === conflitti[0].id);
+  if (!conflitti.length) return [];
+
+  const nomi = conflitti
+    .map((conflitto) => altri.find((row) => row.id === conflitto.id))
+    .map((row) => row?.title || "un altro evento");
+
+  /*
+    **La sovrapposizione e un avviso, non un muro** (PP-01 §C).
+
+    Il campo occupato non e un fatto che il prodotto conosce meglio della
+    segreteria: due squadre su meta campo, un'ora che finisce mentre l'altra
+    comincia, un allenamento congiunto. Prima l'avviso lo dava il browser, la
+    persona confermava, e **la conferma non usciva dal browser**: il server
+    rifiutava lo stesso, e la pagina rispondeva «Errore durante l'aggiunta
+    dell'allenamento» senza nemmeno riportare il motivo.
+
+    Adesso la conferma viaggia — `allowOverlap` — e cio che resta bloccante e
+    un'altra cosa: `assertFieldIsOpen`, cioe il campo **chiuso**. Quello non e
+    un giudizio di opportunita, e un orario in cui la struttura non apre.
+  */
+  if (!consentito) {
     throw new Error(
-      `Il campo e gia occupato in quell'orario da «${primo?.title || "un altro evento"}»`,
+      `Il campo e gia occupato in quell'orario da «${nomi[0]}»`,
     );
   }
+
+  return nomi;
+};
+
+/**
+ * **Cio che una storia congela** (PP-01 §B).
+ *
+ * La regola sta in `src/lib/events/model.ts` — `campiCongelatiToccati` — perche
+ * e dominio puro e si prova senza database. Qui c'e solo il fatto che la rende
+ * applicabile: **quante righe di partecipazione** l'evento ha gia.
+ *
+ * Zero righe, nessun congelamento: un allenamento concluso che nessuno ha
+ * segnato si modifica per intero, e correggerne l'ora e una correzione, non una
+ * riscrittura della storia.
+ */
+const assertEventoNonConsolidato = (
+  esistente: Record<string, any>,
+  prossimo: Record<string, any>,
+  partecipanti: number,
+) => {
+  if (partecipanti <= 0) return;
+
+  /*
+    **Annullare non e modificare.** Un evento con una storia si annulla e non si
+    cancella (ADR-0098): se il congelamento valesse anche qui, l'unica strada
+    che quella regola lascia aperta sarebbe chiusa da questa. Lo stesso vale al
+    contrario, per riportarlo in programma.
+  */
+  if (prossimo?.status !== esistente?.status) return;
+
+  const toccati = campiCongelatiToccati(esistente, prossimo);
+  if (!toccati.length) return;
+
+  throw new Error(
+    `Questo evento ha gia una storia — ${partecipanti} fra convocazioni, ` +
+      "presenze e risposte delle famiglie — e non si puo piu cambiarne " +
+      `${toccati.join(", ")}. Titolo, note e allenatori restano modificabili; ` +
+      "per spostarlo davvero, annullalo e creane uno nuovo.",
+  );
 };
 
 export const createClubEvent = async (
@@ -734,10 +870,17 @@ export const createClubEvent = async (
   kind: EventKind,
   input: unknown,
   attore: Attore = {},
+  options: { allowOverlap?: boolean } = {},
 ) => {
   await assertEventsPermission(scope, "events.manage");
   const organizationId = requireActiveOrganization(scope);
   const colonne = toEventColumns(normalizeEventKind(kind), input);
+  const consenteSovrapposizione = Boolean(
+    options.allowOverlap ??
+      (input && typeof input === "object"
+        ? (input as any).allowOverlap
+        : false),
+  );
 
   /*
     Il caso legittimo resta legittimo: l'allenatore che crea l'allenamento del
@@ -756,13 +899,17 @@ export const createClubEvent = async (
     ends_at: colonne.ends_at,
   });
 
-  await assertNoOverlap(organizationId, {
-    structure_id: colonne.structure_id,
-    field_id: colonne.field_id,
-    site_id: colonne.site_id,
-    starts_at: colonne.starts_at,
-    ends_at: colonne.ends_at,
-  });
+  const sovrapposti = await assertNoOverlap(
+    organizationId,
+    {
+      structure_id: colonne.structure_id,
+      field_id: colonne.field_id,
+      site_id: colonne.site_id,
+      starts_at: colonne.starts_at,
+      ends_at: colonne.ends_at,
+    },
+    consenteSovrapposizione,
+  );
 
   const row = await prisma.clubEvent.create({
     data: {
@@ -785,7 +932,20 @@ export const createClubEvent = async (
     organizationId,
     resource: "club_events",
     resourceId: row.id,
-    metadata: { kind: row.kind, startsAt: row.starts_at.toISOString() },
+    metadata: {
+      kind: row.kind,
+      startsAt: row.starts_at.toISOString(),
+      /*
+        **Uno scavalcamento lascia una traccia** (ADR-0113). La sovrapposizione
+        e diventata un avviso, e un avviso che si puo scavalcare senza che
+        rimanga scritto chi lo ha fatto e quando non e un avviso: e un controllo
+        spento. Il campo compare **solo** quando qualcuno ha davvero
+        scavalcato, cosi cercarlo nel registro trova esattamente quei casi.
+      */
+      ...(sovrapposti.length
+        ? { sovrapposizioneConfermata: sovrapposti }
+        : {}),
+    },
   });
 
   return row;
@@ -804,7 +964,7 @@ export const updateClubEvent = async (
   idOrLegacyId: string,
   input: unknown,
   attore: Attore = {},
-  options: { expectedVersion?: number | null } = {},
+  options: { expectedVersion?: number | null; allowOverlap?: boolean } = {},
 ) => {
   await assertEventsPermission(scope, "events.manage");
   const organizationId = requireActiveOrganization(scope);
@@ -814,17 +974,44 @@ export const updateClubEvent = async (
   assertActiveClub(scope, existing.organization_id, "l'evento");
 
   const source = input && typeof input === "object" ? (input as any) : {};
+  const consenteSovrapposizione = Boolean(
+    options.allowOverlap ?? source.allowOverlap ?? false,
+  );
+
+  /*
+    **La modifica parte dalla riga, non dal payload archiviato** (PP-01 §B).
+
+    Il payload e l'archivio del dato **di partenza** (ADR-0098), non lo stato
+    corrente. Ripartire da li e riderivarne le colonne significava riscrivere
+    con un dato vecchio tutto cio che nel frattempo aveva cambiato **colonna** e
+    non payload — e sono i fatti piu importanti dell'evento:
+
+    - `saveEventConvocations` chiude la convocazione scrivendo `convocation_status`
+      e non tocca il payload: modificare il titolo di una gara **riapriva** le
+      convocazioni, senza un errore e senza che nessuno lo chiedesse;
+    - lo stato `completed` vive anch'esso solo in colonna: modificare un
+      allenamento concluso lo riportava «in programma»;
+    - dalla migrazione di PP-01 §A anche le categorie oltre la primaria vivono
+      in colonna.
+
+    `toEventLegacyShape` e gia la traduzione fedele della riga nella forma che
+    `toEventColumns` sa leggere — e conserva le chiavi del payload che nessuna
+    colonna copre. Percio la base della fusione e quella, e la richiesta ci
+    scrive sopra **solo cio che nomina**: che e cio che una PATCH significa.
+  */
   const merged = {
-    ...(existing.payload && typeof existing.payload === "object"
-      ? existing.payload
-      : {}),
+    ...toEventLegacyShape(existing),
     id: existing.legacy_id ?? existing.id,
-    date: existing.starts_at.toISOString(),
     ...source,
   };
 
   const colonne = toEventColumns(existing.kind as EventKind, merged);
   assertEventTransition(existing.status, colonne.status);
+
+  const partecipanti = await prisma.clubEventParticipant.count({
+    where: { organization_id: organizationId, event_id: existing.id },
+  });
+  assertEventoNonConsolidato(existing, colonne, partecipanti);
 
   /*
     **Si giudicano tutte e due le forme**: la riga com'e e la riga come
@@ -852,14 +1039,18 @@ export const updateClubEvent = async (
     ends_at: colonne.ends_at,
   });
 
-  await assertNoOverlap(organizationId, {
-    id: existing.id,
-    structure_id: colonne.structure_id,
-    field_id: colonne.field_id,
-    site_id: colonne.site_id,
-    starts_at: colonne.starts_at,
-    ends_at: colonne.ends_at,
-  });
+  const sovrapposti = await assertNoOverlap(
+    organizationId,
+    {
+      id: existing.id,
+      structure_id: colonne.structure_id,
+      field_id: colonne.field_id,
+      site_id: colonne.site_id,
+      starts_at: colonne.starts_at,
+      ends_at: colonne.ends_at,
+    },
+    consenteSovrapposizione,
+  );
 
   const attesa =
     options.expectedVersion === undefined || options.expectedVersion === null
@@ -901,6 +1092,10 @@ export const updateClubEvent = async (
       kind: existing.kind,
       statusFrom: existing.status,
       statusTo: colonne.status,
+      /* Uno scavalcamento lascia una traccia anche in modifica (ADR-0113). */
+      ...(sovrapposti.length
+        ? { sovrapposizioneConfermata: sovrapposti }
+        : {}),
     },
   });
 

@@ -6047,3 +6047,171 @@ scrivere `linkedUserId` su un allenatore attraverso la rotta generica non
 verificava **nessun** permesso specifico — chiuso qui perche il nuovo
 scrittore dedicato e il posto giusto per aprirlo, non perche qualcuno lo
 avesse gia sfruttato.
+
+---
+
+## ADR-0111 — Un evento ha **una** categoria primaria e **tutte** le sue categorie
+
+**Data:** 2026-09-03 · **Contesto:** PP-01 §A
+
+**Il fatto.** ADR-0098 ha fatto dell'evento sportivo una riga, e ha dato a quella
+riga `category_id`: **una** categoria. Ma il prodotto permette di creare un
+allenamento su piu categorie da prima che quella riga esistesse, e il modulo di
+creazione manda `categories: string[]`. Le categorie oltre la primaria finivano
+percio dentro `payload`, che ADR-0098 aveva dichiarato «l'archivio di cio che non
+ha una colonna».
+
+Era vero che erano archiviate. Non era vero che bastasse:
+
+1. **Il calendario filtrato per la seconda categoria non trovava l'evento.**
+   `where.category_id = x` non puo vedere dentro un JSON.
+2. **Un ruolo di club recintato sulla seconda categoria non lo vedeva affatto**,
+   e ogni atto su di esso veniva rifiutato.
+3. **L'allenatore della seconda categoria era fuori perimetro sul proprio stesso
+   allenamento.** Il ripiego su `category_name` era morto anche lui: quel campo
+   conteneva la stringa unita «A, B, C», che non e il nome di nessuna categoria.
+
+Nessuno dei tre e un difetto di interfaccia. Sono tre conseguenze dello stesso
+fatto: **un dato su cui si filtra e si autorizza non puo stare in un payload.**
+
+**La decisione.** `club_events.category_ids TEXT[]`, con la primaria per prima.
+
+`category_id` **resta** e resta la primaria: e cio che i lettori storici leggono,
+e cio che ogni schermata che stampa **una** categoria deve continuare a stampare.
+La colonna nuova non la sostituisce, la completa.
+
+**Perche `String[]` e non una tabella di legame.** Una tabella sarebbe il modello
+piu puro, e sarebbe anche una terza entita da mantenere — con la sua scrittura,
+il suo perimetro e la sua migrazione — per una relazione che non porta **nessun
+attributo proprio**. Non c'e una data di associazione, non c'e un ruolo, non c'e
+uno stato: c'e un elenco. `hasSome` di PostgreSQL con un indice GIN e un filtro
+vero, ed e cio che mancava; il resto sarebbe stato struttura senza contenuto. Il
+precedente e nello stesso schema: `athlete_ids`, `placeholder_keys`,
+`sensitivity`.
+
+**Perche «almeno una» e non «tutte», nel perimetro.** Un evento e dentro il
+perimetro se **almeno una** delle sue categorie ci sta, sia in lettura sia
+nell'atto. La regola alternativa — richiedere che tutte lo siano — renderebbe un
+allenamento congiunto invisibile a **ognuno** dei tre allenatori che lo tengono,
+che e il contrario del motivo per cui esiste. E soprattutto le due devono
+coincidere: l'elenco usa `hasSome`, e se l'atto usasse un'altra regola si
+tornerebbe alla divergenza fra cio che si vede e cio che si puo, che in questo
+repository e gia stata un difetto piu volte.
+
+Il perimetro sulle **persone** resta separato e piu stretto:
+`assertAtletiDentroIlPerimetro` giudica ogni atleta convocato, quindi ammettere
+l'evento non ammette le persone fuori perimetro che ci stanno dentro.
+
+**La migrazione travasa invece di ricominciare.**
+`20260903120000_pp01_categorie_evento` legge `payload.categories` e lo porta in
+colonna, conservando l'**ordine di dichiarazione** e mettendo la primaria
+davanti. Il payload non viene svuotato: e l'archivio del dato di partenza, e lo
+resta.
+
+---
+
+## ADR-0112 — Un evento con una storia si corregge, non si riscrive
+
+**Data:** 2026-09-03 · **Contesto:** PP-01 §B
+
+**Il fatto.** Un allenamento concluso aveva due regole opposte, e nessuna delle
+due era quella giusta.
+
+Il **client** nascondeva «Modifica» a un evento concluso. Effetto: non si poteva
+correggere un titolo sbagliato ne aggiungere una nota su cio che era successo —
+cioe proprio le due cose che si scrivono **dopo** un allenamento.
+
+Il **server** non aveva nessuna guardia. `updateClubEvent` scriveva ogni colonna
+che `toEventColumns` produce, su qualunque evento, in qualunque stato. Chi
+passava dall'API spostava la data di un allenamento con le presenze gia
+registrate — e le presenze alimentano la rendicontazione dei contributi
+pubblici.
+
+E ne discendevano due difetti silenziosi, che nessuno aveva collegato:
+
+- **modificare un allenamento concluso lo riportava «in programma»**;
+- **chiudere le convocazioni di una gara e poi modificarne il titolo le
+  riapriva**.
+
+Stessa causa per entrambi: la fusione ripartiva da `existing.payload`, e lo stato
+corrente **non sta nel payload**. `completed` sta in colonna;
+`convocation_status` lo scrive `saveEventConvocations` in colonna e non tocca il
+payload. Ricostruire le colonne da un archivio vecchio significa riscrivere con
+un dato vecchio tutto cio che nel frattempo e cambiato altrove.
+
+**La decisione, in due parti.**
+
+**1. La modifica parte dalla riga.**
+`merged = { ...toEventLegacyShape(existing), id, ...source }`. La richiesta
+scrive sopra **solo cio che nomina** — che e cio che una `PATCH` significa. Il
+payload continua a portare le chiavi che nessuna colonna copre, perche
+`toEventLegacyShape` lo diffonde per primo.
+
+**2. La linea passa fra cio che ha lasciato una traccia e cio che non ne ha
+lasciata**, non fra «concluso» e «in programma».
+
+| Sempre modificabile | Congelato quando l'evento ha righe di partecipazione |
+|---|---|
+| titolo, note, allenatori | istante, fine, sede, struttura, campo, categoria, categorie, gruppi, capienza, richiesta di conferma, termine |
+
+I primi sono **descrizioni**: correggerli non cambia il significato di una
+presenza gia registrata. I secondi cambiano il significato delle righe gia
+scritte — spostare la data ridata ogni presenza, cambiare categoria sposta
+l'appello sulla squadra sbagliata, abbassare la capienza sotto i convocati la
+rende una regola che i dati gia violano.
+
+E la stessa distinzione con cui ADR-0098 decide che un evento con storia **si
+annulla e non si cancella**, e con cui la Wave 4 ha difeso le rate con una storia
+economica. Un allenamento concluso che nessuno ha segnato non ha niente da
+proteggere, e resta modificabile per intero.
+
+**Annullare non e modificare.** Un cambio di stato non e mai congelato: se lo
+fosse, l'unica strada che ADR-0098 lascia aperta a un evento con una storia
+sarebbe chiusa da questa decisione.
+
+**Il confronto e per valore, non per identita.** Il modulo di modifica rimanda
+tutti i campi, anche quelli che nessuno ha toccato: se il congelamento scattasse
+sulla presenza di un campo invece che sul suo **cambiamento**, correggere un
+titolo verrebbe rifiutato perche la data e stata rimandata uguale.
+
+---
+
+## ADR-0113 — Il campo occupato e un avviso; il campo chiuso e un rifiuto
+
+**Data:** 2026-09-03 · **Contesto:** PP-01 §C
+
+**Il fatto.** Creando un allenamento sullo stesso campo e alla stessa ora di un
+altro, il prodotto mostrava un avviso, la persona confermava, e la creazione
+falliva. La conferma **non usciva dal browser**: `window.confirm` decideva se
+proseguire, ma la richiesta che partiva era identica a quella che il server aveva
+gia rifiutato. Nessun campo di override esisteva in tutta la catena — la ricerca
+di `override|force|ignoreConflict|allowOverlap|skipOverlap` dava zero.
+
+E c'era un secondo fatto, piu insidioso: **client e server non parlavano dello
+stesso posto.** Il client confrontava il **campo**; il server legge il campo da
+`fieldId`, che il modulo non mandava mai, quindi la colonna restava nulla e il
+controllo ricadeva sulla **struttura**. Due allenamenti su due campi diversi
+dello stesso impianto non davano nessun avviso nel browser e venivano rifiutati
+dal server — con un messaggio generico, perche anche quello del server veniva
+scartato.
+
+**La decisione.** Due controlli che sembravano uno solo si separano.
+
+**La sovrapposizione e un giudizio di opportunita, e si scavalca.** «Il campo e
+occupato» non e un fatto che il prodotto conosce meglio della segreteria: due
+squadre su meta campo, un'ora che finisce mentre l'altra comincia, un allenamento
+congiunto. `assertNoOverlap` accetta un consenso — `allowOverlap` — e quando c'e
+torna i conflitti invece di lanciarli.
+
+**Il campo chiuso e un fatto, e resta bloccante.** `assertFieldIsOpen` non cambia:
+non e un'opinione sulla convenienza, e un orario in cui la struttura non apre.
+
+**La conferma e un'istruzione della richiesta, non una proprieta dell'evento**, e
+percio non entra nel `payload`: conservarla la farebbe rispedire da sola alla
+modifica successiva, e da quel momento quell'evento scavalcherebbe ogni controllo
+futuro senza che nessuno lo avesse piu deciso.
+
+**Corollario.** Quando un conflitto smette di bloccare, il doppio clic smette di
+essere innocuo: il secondo invio non e piu fermato dall'errore e crea il doppione
+che prima l'errore nascondeva. La guardia sul salvataggio in corso e parte di
+questa decisione, non un'aggiunta accanto.

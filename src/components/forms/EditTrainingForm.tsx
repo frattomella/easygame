@@ -70,6 +70,19 @@ interface EditTrainingFormProps {
   /** I gruppi operativi del club: e a questi che un allenamento si assegna. */
   groups?: TrainingGroupOption[];
   locations: string[];
+  /**
+   * **Cosa non si puo piu cambiare, e perche** (PP-01 §B).
+   *
+   * Un allenamento concluso resta modificabile — titolo e note si scrivono
+   * proprio dopo — ma se ha gia convocazioni, presenze o risposte delle
+   * famiglie, istante, luogo, categorie, gruppi e capienza sono congelati: sono
+   * i campi che cambiano **il significato delle righe gia scritte**.
+   *
+   * La regola la applica il server (`campiCongelatiToccati`). Qui si dichiara,
+   * perche una regola che si scopre solo quando il salvataggio fallisce e una
+   * regola che non e stata dichiarata.
+   */
+  consolidato?: boolean;
 }
 
 export function EditTrainingForm({
@@ -81,6 +94,7 @@ export function EditTrainingForm({
   categories = [],
   groups = [],
   locations = ["Campo Principale", "Campo Secondario", "Palestra"],
+  consolidato = false,
 }: EditTrainingFormProps) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState<Training>({
@@ -265,6 +279,16 @@ export function EditTrainingForm({
         <DialogHeader>
           <DialogTitle>Modifica Allenamento</DialogTitle>
         </DialogHeader>
+
+        {consolidato ? (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Questo allenamento ha gia una storia — convocazioni, presenze o
+            risposte delle famiglie. <strong>Titolo, note e allenatori</strong>{" "}
+            restano modificabili; giorno, ora, luogo, categorie e gruppi no:
+            cambiarli cambierebbe il significato delle presenze gia registrate.
+            Per spostarlo davvero, annullalo e creane uno nuovo.
+          </p>
+        ) : null}
         <form onSubmit={handleSubmit}>
           <div className="space-y-4 py-4">
             <div className="space-y-2">

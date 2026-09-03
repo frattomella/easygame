@@ -440,6 +440,45 @@ export default function TrainingPage() {
   const [weeklySchedule, setWeeklySchedule] = React.useState<any[]>([]);
   const [clubAthletes, setClubAthletes] = useState<any[]>([]);
   const [showAddTrainingModal, setShowAddTrainingModal] = useState(false);
+  /*
+    **Un salvataggio alla volta** (PP-01 §C). Due clic rapidi sul pulsante di
+    salvataggio mandavano due richieste, e con la sovrapposizione ora
+    scavalcabile la seconda non viene piu fermata dal conflitto: creerebbe il
+    doppione che prima l'errore nascondeva.
+  */
+  const [salvataggioInCorso, setSalvataggioInCorso] = useState(false);
+  /*
+    La conferma della sovrapposizione, come promessa: `window.confirm` non e
+    solo brutto — il browser lo sopprime dopo il primo uso e in una webview puo
+    non comparire affatto, cioe l'operazione parte senza che nessuno abbia
+    confermato niente. E la stessa primitiva che la scheda atleta usa gia.
+  */
+  const [confermaInSospeso, setConfermaInSospeso] = useState<{
+    title: string;
+    description: string;
+    confirmText: string;
+    risolvi: (esito: boolean) => void;
+  } | null>(null);
+
+  const richiediConferma = React.useCallback(
+    (richiesta: { title: string; description: string; confirmText?: string }) =>
+      new Promise<boolean>((risolvi) => {
+        setConfermaInSospeso({
+          title: richiesta.title,
+          description: richiesta.description,
+          confirmText: richiesta.confirmText ?? "Conferma",
+          risolvi,
+        });
+      }),
+    [],
+  );
+
+  const chiudiConferma = React.useCallback((esito: boolean) => {
+    setConfermaInSospeso((corrente) => {
+      corrente?.risolvi(esito);
+      return null;
+    });
+  }, []);
   const [showEditTrainingModal, setShowEditTrainingModal] = useState(false);
   const [editingTraining, setEditingTraining] =
     useState<TrainingSession | null>(null);
@@ -793,6 +832,8 @@ export default function TrainingPage() {
       showToast("error", "Nessun club attivo selezionato");
       return;
     }
+    if (salvataggioInCorso) return;
+    setSalvataggioInCorso(true);
 
     try {
       // Map category and trainer IDs to names for display
@@ -820,13 +861,33 @@ export default function TrainingPage() {
       };
       const collisions = findTrainingCollisions(trainings, collisionCandidate);
 
-      if (
-        collisions.length > 0 &&
-        !window.confirm(
-          `Attenzione: nel campo selezionato esistono già ${collisions.length} allenamenti nello stesso orario. Vuoi inserirlo comunque?`,
-        )
-      ) {
-        return;
+      /*
+        **L'avviso lo da il browser, ma a decidere e il server** (PP-01 §C).
+
+        Prima il controllo del client guardava il **campo** e quello del server
+        la **struttura**, perche il modulo non mandava mai `fieldId`: due
+        allenamenti su due campi della stessa struttura non davano nessun avviso
+        qui e venivano rifiutati la, con un messaggio che non nominava il
+        conflitto. Adesso il campo viaggia — vedi `fieldId` piu sotto — e le due
+        domande sono la stessa domanda.
+
+        E soprattutto: la conferma **viaggia**. Prima restava nel browser, e
+        l'unica cosa che arrivava al server era una richiesta identica a quella
+        che aveva gia rifiutato.
+      */
+      let sovrapposizioneConfermata = false;
+      if (collisions.length > 0) {
+        sovrapposizioneConfermata = await richiediConferma({
+          title: "Il campo risulta gia occupato",
+          confirmText: "Inseriscilo comunque",
+          description:
+            `In quel campo e a quell'ora ci sono gia ${collisions.length} ` +
+            `${collisions.length === 1 ? "allenamento" : "allenamenti"}. ` +
+            "Puoi inserirlo lo stesso — due squadre su meta campo, o un " +
+            "allenamento congiunto, sono situazioni normali — e l'allenamento " +
+            "verra creato accanto agli altri.",
+        });
+        if (!sovrapposizioneConfermata) return;
       }
 
       const newTraining = {
@@ -850,7 +911,16 @@ export default function TrainingPage() {
             : "Allenatore",
         structureId: selectedLocation?.structureId || trainingData.structureId || null,
         locationId: selectedLocation?.fieldId || trainingData.locationId || null,
+        /*
+          **`fieldId` non partiva mai** (PP-01 §C). Il server legge il campo da
+          `fieldId` / `field_id` e non da `locationId`: senza, la colonna
+          restava vuota e il controllo di sovrapposizione ricadeva sulla
+          struttura, cioe rifiutava due allenamenti su due campi diversi dello
+          stesso impianto.
+        */
+        fieldId: selectedLocation?.fieldId || trainingData.locationId || null,
         location: selectedLocation?.name || trainingData.location,
+        allowOverlap: sovrapposizioneConfermata,
         attendees: 0,
         categoryColor: "bg-blue-500 text-white",
         status: "upcoming",
@@ -908,9 +978,23 @@ export default function TrainingPage() {
         "success",
         `Allenamento ${formattedTraining.title} aggiunto e salvato con successo`,
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error adding training:", error);
-      showToast("error", "Errore durante l'aggiunta dell'allenamento");
+      /*
+        **Il server diceva gia perche, e qui veniva buttato via** (PP-01 §C).
+
+        «Il campo e gia occupato in quell'orario da «Under 15»» oppure «La
+        struttura e chiusa a quell'ora» diventavano tutti «Errore durante
+        l'aggiunta dell'allenamento», e chi salvava restava senza sapere ne cosa
+        fosse successo ne cosa cambiare.
+      */
+      const messaggio = String(error?.message || "").trim();
+      showToast(
+        "error",
+        messaggio || "Errore durante l'aggiunta dell'allenamento",
+      );
+    } finally {
+      setSalvataggioInCorso(false);
     }
   };
 
@@ -1532,8 +1616,25 @@ export default function TrainingPage() {
                                         : "Presenze"}
                                     </Button>
                                   )}
-                                  {derivedStatus !== "concluded" &&
-                                    derivedStatus !== "annullato" && (
+                                  {/*
+                                    **«Modifica» c'e anche dopo la
+                                    conclusione** (PP-01 §B).
+
+                                    Prima spariva, e con essa spariva la
+                                    possibilita di correggere un titolo
+                                    sbagliato o di aggiungere una nota su cio
+                                    che era successo — cioe proprio le due cose
+                                    che si scrivono **dopo** un allenamento.
+
+                                    Cio che non si puo piu cambiare lo dice il
+                                    server, e non e «tutto»: e l'istante, il
+                                    luogo, le categorie, i gruppi, la capienza e
+                                    le regole di risposta, e **solo** se
+                                    l'allenamento ha gia convocazioni, presenze
+                                    o risposte delle famiglie. Il modulo di
+                                    modifica lo dichiara in testa.
+                                  */}
+                                  {derivedStatus !== "annullato" && (
                                       <Button
                                         size="sm"
                                         className="bg-amber-600 hover:bg-amber-700 mr-2"
@@ -2171,13 +2272,17 @@ export default function TrainingPage() {
                 { ignoreId: updatedTraining.id },
               );
 
-              if (
-                collisions.length > 0 &&
-                !window.confirm(
-                  `Attenzione: nel campo selezionato esistono già ${collisions.length} allenamenti nella stessa fascia oraria. Vuoi salvare comunque le modifiche?`,
-                )
-              ) {
-                return;
+              let sovrapposizioneConfermata = false;
+              if (collisions.length > 0) {
+                sovrapposizioneConfermata = await richiediConferma({
+                  title: "Il campo risulta gia occupato",
+                  confirmText: "Salva comunque",
+                  description:
+                    `In quel campo e in quella fascia ci sono gia ${collisions.length} ` +
+                    `${collisions.length === 1 ? "allenamento" : "allenamenti"}. ` +
+                    "Puoi salvare lo stesso: l'allenamento restera accanto agli altri.",
+                });
+                if (!sovrapposizioneConfermata) return;
               }
 
               // Prepare the update data
@@ -2217,6 +2322,9 @@ export default function TrainingPage() {
                     .map((category) => category.name)
                     .join(", ") || editingTraining.category,
                 locationId: resolvedLocationId,
+                /* Il campo deve arrivare al server: vedi PP-01 §C in creazione. */
+                fieldId: resolvedLocationId,
+                allowOverlap: sovrapposizioneConfermata,
                 updated_at: new Date().toISOString(),
               };
 
@@ -2249,9 +2357,21 @@ export default function TrainingPage() {
                 "success",
                 `Allenamento ${updatedTraining.title} modificato e salvato con successo`,
               );
-            } catch (error) {
+            } catch (error: any) {
               console.error("Error updating training:", error);
-              showToast("error", "Errore durante la modifica dell'allenamento");
+              /*
+                **Qui il messaggio del server e la funzione** (PP-01 §B).
+
+                Se l'allenamento ha gia una storia, il dominio rifiuta e dice
+                **quali** campi non si possono piu cambiare e cosa resta
+                modificabile. Sostituirlo con «Errore durante la modifica»
+                lascerebbe chi salva davanti a una porta chiusa senza cartello.
+              */
+              const messaggio = String(error?.message || "").trim();
+              showToast(
+                "error",
+                messaggio || "Errore durante la modifica dell'allenamento",
+              );
             }
           }}
           training={{
@@ -2283,6 +2403,18 @@ export default function TrainingPage() {
           categories={categories}
           groups={groupOptions}
           locations={locations.map((loc) => loc.name)}
+          /*
+            **Un avviso, non un presidio** (PP-01 §B). Il client sa se
+            l'appello e stato fatto, e con questo anticipa la regola invece di
+            farla scoprire a salvataggio fallito. L'autorita resta il server —
+            `campiCongelatiToccati` conta anche convocazioni e risposte delle
+            famiglie, che qui non sono caricate — e se dice di no lo dice con il
+            proprio messaggio, che la pagina ora mostra per intero.
+          */
+          consolidato={
+            normalizeTrainingAttendanceEntries(editingTraining.attendance)
+              .length > 0
+          }
         />
       )}
 
@@ -2334,6 +2466,36 @@ export default function TrainingPage() {
               }}
             >
               Elimina
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/*
+        La conferma della sovrapposizione (PP-01 §C). E la stessa primitiva
+        della cancellazione qui sopra: un dialogo dell'applicazione, non il
+        `confirm` del browser, che il browser sopprime dopo il primo uso e che
+        in una webview puo non comparire affatto.
+      */}
+      <AlertDialog
+        open={Boolean(confermaInSospeso)}
+        onOpenChange={(aperto) => {
+          if (!aperto) chiudiConferma(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confermaInSospeso?.title}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confermaInSospeso?.description}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => chiudiConferma(false)}>
+              Annulla
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={() => chiudiConferma(true)}>
+              {confermaInSospeso?.confirmText}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

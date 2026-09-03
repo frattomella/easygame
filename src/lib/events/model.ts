@@ -169,6 +169,8 @@ export type EventColumns = {
   field_id: string | null;
   category_id: string | null;
   category_name: string | null;
+  /** Tutte le categorie, la primaria per prima. Mai `null`: al piu vuoto. */
+  category_ids: string[];
   group_ids: string[] | null;
   starts_at: Date;
   ends_at: Date | null;
@@ -194,6 +196,29 @@ const toIdList = (value: unknown): string[] | null => {
     )
     .filter(Boolean);
   return ids.length ? Array.from(new Set(ids)) : null;
+};
+
+/**
+ * Le categorie di un evento: la primaria davanti, le altre dietro, senza
+ * ripetizioni.
+ *
+ * La primaria si mette per prima **anche quando l'elenco la contiene gia**,
+ * perche l'ordine e cio che distingue «la categoria dell'evento» dalle altre in
+ * ogni schermata che ne stampa una sola.
+ */
+const mergeCategoryIds = (
+  primaria: string,
+  altre: readonly string[] | null,
+): string[] => {
+  const viste = new Set<string>();
+  const risultato: string[] = [];
+  for (const valore of [primaria, ...(altre ?? [])]) {
+    const pulito = asText(valore);
+    if (!pulito || viste.has(pulito)) continue;
+    viste.add(pulito);
+    risultato.push(pulito);
+  }
+  return risultato;
 };
 
 const toPositiveInt = (value: unknown) => {
@@ -262,6 +287,21 @@ export const toEventColumns = (
     category_name:
       firstText(source.categoryName, source.category_name, source.category) ||
       null,
+    /*
+      **La primaria per prima, e poi le altre** (PP-01 §A).
+
+      Prima l'evento dichiarava una categoria e le altre restavano dentro
+      `payload`, dove nessuna query poteva vederle. Qui si raccolgono tutte le
+      grafie che i moduli usano — `categories`, `categoryIds`, `category_ids` —
+      e si mette davanti la primaria, che e l'unica che i lettori storici
+      leggono.
+    */
+    category_ids: mergeCategoryIds(
+      firstText(source.categoryId, source.category_id),
+      toIdList(source.categories) ??
+        toIdList(source.categoryIds) ??
+        toIdList(source.category_ids),
+    ),
     group_ids:
       toIdList(source.groupIds) ??
       toIdList(source.group_ids) ??
@@ -293,7 +333,14 @@ export const toEventColumns = (
       (firstText(source.trainerId, source.trainer_id)
         ? [firstText(source.trainerId, source.trainer_id)]
         : null),
-    payload: source,
+    /*
+      L'archivio del dato di partenza — **meno le istruzioni della richiesta**.
+      `allowOverlap` dice «ho visto l'avviso e confermo», ed e una cosa che
+      qualcuno ha fatto una volta: conservarla dentro l'evento la farebbe
+      riapparire come se fosse una proprieta dell'allenamento, e la modifica
+      successiva la rispedirebbe da sola.
+    */
+    payload: (({ allowOverlap: _confermato, ...resto }) => resto)(source),
   };
 };
 
@@ -312,6 +359,7 @@ export type EventRowLike = {
   field_id?: string | null;
   category_id?: string | null;
   category_name?: string | null;
+  category_ids?: readonly string[] | null;
   group_ids?: unknown;
   starts_at: Date | string;
   ends_at?: Date | string | null;
@@ -370,6 +418,15 @@ export const toEventLegacyShape = (row: EventRowLike) => {
     field_id: row.field_id ?? null,
     categoryId: row.category_id ?? null,
     category_id: row.category_id ?? null,
+    /*
+      La forma storica porta `categories`, ed e da li che le schermate leggono
+      le categorie di un allenamento. Prima arrivava dal `payload` — cioe
+      sopravviveva solo finche nessuno riscriveva quella colonna; adesso viene
+      dalla colonna, che e la fonte.
+    */
+    categories: Array.isArray(row.category_ids) ? row.category_ids : [],
+    categoryIds: Array.isArray(row.category_ids) ? row.category_ids : [],
+    category_ids: Array.isArray(row.category_ids) ? row.category_ids : [],
     category: row.category_name ?? payload.category ?? "",
     categoryName: row.category_name ?? null,
     category_name: row.category_name ?? null,
@@ -393,6 +450,93 @@ export const toEventLegacyShape = (row: EventRowLike) => {
         : (row.updated_at ?? null),
   };
 };
+
+/* --------------------------------- cosa si puo ancora cambiare, e quando -- */
+
+/**
+ * **Un evento concluso si modifica, ma non tutto** (PP-01 §B).
+ *
+ * Fin qui c'erano due meta-verita. Il client nascondeva «Modifica» a un evento
+ * concluso — quindi la segreteria non poteva correggere un titolo sbagliato — e
+ * il server non aveva **nessuna** guardia: chi passava dall'API cambiava data,
+ * campo, categorie e capienza di un evento su cui le presenze erano gia state
+ * registrate, e nessuno se ne accorgeva.
+ *
+ * La linea non passa fra «concluso» e «in programma»: passa fra cio che ha
+ * lasciato una traccia e cio che non ne ha lasciata — la stessa distinzione con
+ * cui ADR-0098 decide che un evento con storia **si annulla e non si cancella**.
+ *
+ * ## Cosa si puo sempre cambiare
+ *
+ * Titolo, note, allenatori. Sono descrizioni: correggerle non cambia il
+ * significato di una presenza gia registrata.
+ *
+ * ## Cosa si congela quando l'evento ha una storia
+ *
+ * Istante, durata, luogo, categorie, gruppi, capienza e regole di risposta.
+ * Ognuno di questi cambia **il significato delle righe gia scritte**:
+ *
+ * - spostare la data ridata ogni presenza — e le presenze alimentano la
+ *   rendicontazione dei contributi pubblici (`attendance-measure`);
+ * - cambiare categoria o gruppo sposta l'appello sulla squadra sbagliata;
+ * - abbassare la capienza sotto il numero dei convocati la rende una regola che
+ *   i dati gia violano;
+ * - riaprire l'RSVP su un evento passato chiede una promessa su una cosa
+ *   avvenuta.
+ *
+ * «Avere una storia» significa: almeno una riga di partecipazione — convocato,
+ * presente o risposta della famiglia. Un evento concluso **senza** nessuna riga
+ * non ha niente da proteggere, e resta modificabile per intero: e il caso
+ * dell'allenamento che nessuno ha segnato.
+ */
+export const CAMPI_SEMPRE_MODIFICABILI = [
+  "title",
+  "notes",
+  "trainer_ids",
+] as const;
+
+const CAMPI_CONGELATI_DA_UNA_STORIA = [
+  ["starts_at", "l'istante"],
+  ["ends_at", "la fine"],
+  ["site_id", "la sede"],
+  ["structure_id", "la struttura"],
+  ["field_id", "il campo"],
+  ["category_id", "la categoria"],
+  ["category_ids", "le categorie"],
+  ["group_ids", "i gruppi"],
+  ["capacity", "la capienza"],
+  ["rsvp_required", "la richiesta di conferma"],
+  ["rsvp_deadline", "il termine per confermare"],
+] as const;
+
+const stessoValore = (a: unknown, b: unknown) => {
+  if (a instanceof Date || b instanceof Date) {
+    const x = a instanceof Date ? a.getTime() : a ? new Date(a as any).getTime() : null;
+    const y = b instanceof Date ? b.getTime() : b ? new Date(b as any).getTime() : null;
+    return x === y;
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    const x = Array.isArray(a) ? a.map((v) => asText(v)) : [];
+    const y = Array.isArray(b) ? b.map((v) => asText(v)) : [];
+    return x.length === y.length && x.every((v, i) => v === y[i]);
+  }
+  if (a === null || a === undefined) return b === null || b === undefined;
+  return a === b;
+};
+
+/**
+ * I campi congelati che la modifica sta cambiando davvero.
+ *
+ * Torna un elenco di **etichette**, non di nomi di colonna: il messaggio che ne
+ * esce lo legge una persona.
+ */
+export const campiCongelatiToccati = (
+  esistente: Record<string, any>,
+  prossimo: Record<string, any>,
+) =>
+  CAMPI_CONGELATI_DA_UNA_STORIA.filter(
+    ([campo]) => !stessoValore(esistente?.[campo], prossimo?.[campo]),
+  ).map(([, etichetta]) => etichetta);
 
 /* ------------------------------------------------- i due controlli nuovi -- */
 

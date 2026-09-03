@@ -249,12 +249,26 @@ const findCategoryMatch = (
   );
 };
 
-const getCurrentCategoryMatch = (
+/**
+ * **Tutte le categorie dell'allenamento, non la prima che combacia**
+ * (PP-01 §A).
+ *
+ * Qui stava il difetto: la funzione tornava al primo riscontro. Un allenamento
+ * creato su tre categorie mostrava «A, B, C» finche la pagina lo teneva in
+ * memoria — la stringa la componeva il modulo di creazione — e alla prima
+ * rilettura diventava «A». Sembrava che a degradarlo fosse la conclusione
+ * dell'evento, perche e visitando lo storico che si ricarica: era la
+ * **ricarica**, non lo stato.
+ *
+ * L'ordine e voluto: la categoria primaria — `categoryId` — resta la prima,
+ * e le altre la seguono nell'ordine in cui l'evento le dichiara.
+ */
+const getTrainingCategoryMatches = (
   training: Record<string, any>,
   categories: Array<Pick<NormalizedCategoryOption, "id" | "name" | "color">>,
 ) => {
   if (!categories.length) {
-    return null;
+    return [] as NormalizedCategoryOption[];
   }
 
   const source = getTrainingSourceRecord(training);
@@ -262,24 +276,38 @@ const getCurrentCategoryMatch = (
     training.categoryId,
     training.category_id,
     training.category?.id,
+    ...collectCategoryReferenceValues(training.categoryIds),
+    ...collectCategoryReferenceValues(training.category_ids),
     ...collectCategoryReferenceValues(training.categories),
     ...collectCategoryReferenceValues(training.category),
     source.categoryId,
     source.category_id,
     source.category?.id,
+    ...collectCategoryReferenceValues(source.categoryIds),
+    ...collectCategoryReferenceValues(source.category_ids),
     ...collectCategoryReferenceValues(source.categories),
     ...collectCategoryReferenceValues(source.category),
   ]);
 
+  const trovate: any[] = [];
+  const viste = new Set<string>();
+
   for (const reference of references) {
     const match = findCategoryMatch(reference, categories);
-    if (match) {
-      return match;
-    }
+    if (!match) continue;
+    const chiave = normalizeLookupValue(match.id) || normalizeLookupValue(match.name);
+    if (!chiave || viste.has(chiave)) continue;
+    viste.add(chiave);
+    trovate.push(match);
   }
 
-  return null;
+  return trovate;
 };
+
+const getCurrentCategoryMatch = (
+  training: Record<string, any>,
+  categories: Array<Pick<NormalizedCategoryOption, "id" | "name" | "color">>,
+) => getTrainingCategoryMatches(training, categories)[0] || null;
 
 const collectTrainerObjectLabels = (value: unknown): string[] => {
   if (Array.isArray(value)) {
@@ -929,6 +957,14 @@ export const getTrainingCategoryReferences = (training: unknown) => {
     training.categoryName,
     training.category?.name,
     training.category,
+    /*
+      `category_ids` e la colonna che PP-01 §A ha aggiunto: e la fonte, e va
+      letta con le altre grafie. Senza, un allenamento riletto dal database
+      dichiarerebbe solo la primaria a chi chiede i suoi riferimenti — cioe
+      all'RSVP e alle automazioni.
+    */
+    ...collectCategoryReferenceValues(training.categoryIds),
+    ...collectCategoryReferenceValues(training.category_ids),
     ...collectCategoryReferenceValues(training.categories),
     ...collectCategoryReferenceValues(training.category),
     source.categoryId,
@@ -938,6 +974,8 @@ export const getTrainingCategoryReferences = (training: unknown) => {
     source.categoryName,
     source.category?.name,
     source.category,
+    ...collectCategoryReferenceValues(source.categoryIds),
+    ...collectCategoryReferenceValues(source.category_ids),
     ...collectCategoryReferenceValues(source.categories),
     ...collectCategoryReferenceValues(source.category),
   ]);
@@ -952,9 +990,18 @@ export const resolveCategoryLabelForTraining = (
   }
 
   const source = getTrainingSourceRecord(training);
-  const currentMatch = getCurrentCategoryMatch(training, categories);
-  if (currentMatch?.name) {
-    return String(currentMatch.name);
+  /*
+    **Se l'allenamento e di tre categorie, l'etichetta ne dice tre.** E la
+    stessa stringa che il modulo di creazione compone al salvataggio: prima
+    dopo una ricarica ne restava una, e le altre due sparivano dalla vista pur
+    restando in archivio.
+  */
+  const currentMatches = getTrainingCategoryMatches(training, categories);
+  if (currentMatches.length) {
+    return currentMatches
+      .map((match) => String(match.name))
+      .filter(Boolean)
+      .join(", ");
   }
 
   const explicitLabel = firstNonEmptyString(
@@ -982,6 +1029,12 @@ export const resolveCategoryLabelForTraining = (
 };
 
 export const getTrainingCategoryLabel = resolveCategoryLabelForTraining;
+
+/** Le categorie dell'allenamento riconosciute nel catalogo del club, in ordine. */
+export const resolveCategoriesForTraining = (
+  training: unknown,
+  categories: Array<Pick<NormalizedCategoryOption, "id" | "name" | "color">> = [],
+) => (isRecord(training) ? getTrainingCategoryMatches(training, categories) : []);
 
 export const getTrainingCategoryColor = (
   training: unknown,

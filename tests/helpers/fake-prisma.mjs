@@ -219,6 +219,25 @@ const matchesWhere = (record, where) => {
         continue;
       }
       /*
+        `hasSome`, cioe «questa colonna array contiene **almeno uno** di
+        questi valori».
+
+        Aggiunto da PP-01 §A, e per la stessa ragione per cui `has` esiste:
+        senza, la condizione cadeva in «non supportata», che la considera
+        soddisfatta. Il perimetro di categoria sugli eventi
+        (`club_events.category_ids`, ADR-0111) e scritto proprio cosi, e un
+        doppio che lo ignora fa passare un test sul perimetro **restituendo
+        tutte le righe** — che e il contrario di cio che quel test prova.
+      */
+      if ("hasSome" in condition) {
+        const lista = Array.isArray(value) ? value : [];
+        const cercati = Array.isArray(condition.hasSome)
+          ? condition.hasSome
+          : [condition.hasSome];
+        if (!cercati.some((atteso) => lista.includes(atteso))) return false;
+        continue;
+      }
+      /*
         La **chiave unica composta**, cioe come Prisma la scrive in un `where`
         unico: `{ organization_id_training_id_athlete_id: { organization_id,
         training_id, athlete_id } }`. Il nome della chiave non e una colonna,
