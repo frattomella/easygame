@@ -398,6 +398,32 @@ const risolviUtenza = async (
   return { user, creata: true as const };
 };
 
+/**
+ * Estratto per essere richiamabile anche dall'anteprima di sviluppo
+ * (`/private/email-preview`), stessa ragione dei builder in
+ * `auth-workflows.ts`.
+ */
+export const buildAthleteInviteEmailHtml = ({
+  athleteName,
+  clubName,
+  link,
+}: {
+  athleteName: string;
+  clubName: string;
+  link: string;
+}): string =>
+  renderEmailLayout({
+    bodyHtml: `
+      <h2 style="margin:0 0 12px;">Attiva il tuo accesso EasyGame</h2>
+      <p>Ciao ${escapeHtml(athleteName)}, <strong>${escapeHtml(clubName)}</strong> ti ha aperto un accesso personale su EasyGame: da li vedi i tuoi allenamenti, le gare, le convocazioni e i tuoi documenti.</p>
+      <p style="padding: 20px 0;">
+        <a href="${link}" style="background:#2563eb;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Attiva il mio accesso</a>
+      </p>
+      <p>Il link scade tra ${ATHLETE_INVITE_TTL_DAYS} giorni. Al primo accesso sceglierai tu la tua password: nessuno del club la conosce e nessuno te la puo comunicare.</p>
+      <p style="color:#64748b;font-size:13px;">Se non ti aspettavi questo messaggio, ignoralo: senza il link non succede niente.</p>
+    `,
+  });
+
 const inviaEmailDiInvito = async (input: {
   to: string;
   athleteName: string;
@@ -428,16 +454,10 @@ const inviaEmailDiInvito = async (input: {
       "",
       input.clubName,
     ].join("\n"),
-    html: renderEmailLayout({
-      bodyHtml: `
-        <h2 style="margin:0 0 12px;">Attiva il tuo accesso EasyGame</h2>
-        <p>Ciao ${escapeHtml(input.athleteName)}, <strong>${escapeHtml(input.clubName)}</strong> ti ha aperto un accesso personale su EasyGame: da li vedi i tuoi allenamenti, le gare, le convocazioni e i tuoi documenti.</p>
-        <p style="padding: 20px 0;">
-          <a href="${link}" style="background:#2563eb;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Attiva il mio accesso</a>
-        </p>
-        <p>Il link scade tra ${ATHLETE_INVITE_TTL_DAYS} giorni. Al primo accesso sceglierai tu la tua password: nessuno del club la conosce e nessuno te la puo comunicare.</p>
-        <p style="color:#64748b;font-size:13px;">Se non ti aspettavi questo messaggio, ignoralo: senza il link non succede niente.</p>
-      `,
+    html: buildAthleteInviteEmailHtml({
+      athleteName: input.athleteName,
+      clubName: input.clubName,
+      link,
     }),
   });
 };

@@ -339,6 +339,18 @@ export const sendPaymentReminderEmail = async (
   });
 };
 
+/**
+ * Contenuto fisso, di proposito: copre appuntamenti, richieste documenti,
+ * form, alert trainer, certificati e le notifiche generiche `/api/v1` — mai
+ * un dato riservato nell'oggetto o nel corpo, solo l'invito ad accedere.
+ * Estratto per essere richiamabile anche dall'anteprima di sviluppo.
+ */
+export const buildGenericNotificationEmailHtml = (): string =>
+  renderEmailLayout({
+    bodyHtml:
+      "<p>Hai una nuova notifica.</p><p>Accedi a <strong>EasyGame</strong> per visualizzarla in modo sicuro.</p>",
+  });
+
 export const sendNotificationEmails = async (recipientUserIds: string[]) => {
   const userIds = Array.from(new Set(recipientUserIds.filter(Boolean)));
   if (userIds.length === 0 || !(await isEmailDeliveryConfigured())) return;
@@ -353,10 +365,7 @@ export const sendNotificationEmails = async (recipientUserIds: string[]) => {
         to: user.email,
         subject: "Nuova notifica EasyGame",
         text: "Hai una nuova notifica. Accedi a EasyGame per visualizzarla in modo sicuro.",
-        html: renderEmailLayout({
-          bodyHtml:
-            "<p>Hai una nuova notifica.</p><p>Accedi a <strong>EasyGame</strong> per visualizzarla in modo sicuro.</p>",
-        }),
+        html: buildGenericNotificationEmailHtml(),
       });
     } catch (error) {
       /* eslint-disable-next-line no-console -- il codice di una mancata consegna, non il messaggio */

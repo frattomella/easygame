@@ -92,6 +92,16 @@ logo o nome del club: la distinzione Platform/Club resta nel **contenuto**
 (voce, oggetto, `{{club.name}}`), non nel guscio visivo, che e lo stesso per
 tutte.
 
+**Anteprima locale.** `src/app/private/email-preview/page.tsx` — solo
+development (`notFound()` se `NODE_ENV === "production"`), protetta anche da
+sessione + `isPlatformAdminSession`, stessa guardia di `/private/api-docs`. Chiama gli stessi
+builder puri usati dagli invii veri (`buildVerificationEmailHtml`,
+`buildPasswordResetEmailHtml`, `buildAthleteInviteEmailHtml`,
+`buildGenericNotificationEmailHtml`, estratti dalle rispettive funzioni di
+invio proprio per questo) piu `renderMessageTemplate` e `buildDailyDigest`
+con dati di esempio: mostra lo stesso HTML che parte, non un markup
+reimplementato.
+
 **Quando SMTP non e configurato il sollecito non mente.**
 `sendTransactionalEmail` restituisce `{status: "skipped", reason:
 "not_configured"}` invece di sollevare, e il dominio dei solleciti lo traduce

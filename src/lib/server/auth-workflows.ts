@@ -203,6 +203,27 @@ const sendPhoneViaTwilioVerify = async (phone: string) => {
   return response.ok;
 };
 
+/**
+ * L'HTML dell'email di verifica, estratto per essere richiamabile anche
+ * dall'anteprima di sviluppo (`/private/email-preview`) senza duplicare il
+ * markup: la preview deve mostrare esattamente quello che si spedisce.
+ */
+export const buildVerificationEmailHtml = ({
+  firstName,
+  code,
+}: {
+  firstName?: string | null;
+  code: string;
+}): string =>
+  renderEmailLayout({
+    bodyHtml: `
+      <h2 style="margin:0 0 12px;">Verifica accesso EasyGame</h2>
+      <p>Ciao ${escapeHtml(firstName || "")}, usa questo codice per completare l'accesso:</p>
+      <div style="font-size: 32px; font-weight: 700; letter-spacing: 8px; padding: 16px 0;">${code}</div>
+      <p>Il codice scade tra ${EMAIL_CODE_TTL_MINUTES} minuti.</p>
+    `,
+  });
+
 export const sendEmailVerificationChallenge = async (
   user: {
     id: string;
@@ -223,14 +244,7 @@ export const sendEmailVerificationChallenge = async (
     to: user.email,
     subject: "Verifica il tuo account EasyGame",
     text: `Il tuo codice EasyGame è ${code}. Scade tra ${EMAIL_CODE_TTL_MINUTES} minuti.`,
-    html: renderEmailLayout({
-      bodyHtml: `
-        <h2 style="margin:0 0 12px;">Verifica accesso EasyGame</h2>
-        <p>Ciao ${escapeHtml(user.first_name || "")}, usa questo codice per completare l'accesso:</p>
-        <div style="font-size: 32px; font-weight: 700; letter-spacing: 8px; padding: 16px 0;">${code}</div>
-        <p>Il codice scade tra ${EMAIL_CODE_TTL_MINUTES} minuti.</p>
-      `,
-    }),
+    html: buildVerificationEmailHtml({ firstName: user.first_name, code }),
   });
 
   return {
@@ -1126,6 +1140,26 @@ export const findUserByEmailForPasswordReset = async (email: string) => {
   return prisma.user.findUnique({ where: { email: normalizedEmail } });
 };
 
+/** Estratto per la stessa ragione di `buildVerificationEmailHtml`. */
+export const buildPasswordResetEmailHtml = ({
+  firstName,
+  resetUrl,
+}: {
+  firstName?: string | null;
+  resetUrl: string;
+}): string =>
+  renderEmailLayout({
+    bodyHtml: `
+      <h2 style="margin:0 0 12px;">Reimposta la password</h2>
+      <p>Ciao ${escapeHtml(firstName || "")}, hai richiesto di reimpostare la password del tuo account EasyGame.</p>
+      <p style="padding: 20px 0;">
+        <a href="${resetUrl}" style="background:#2563eb;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Scegli una nuova password</a>
+      </p>
+      <p>Il link scade tra ${PASSWORD_RESET_TTL_MINUTES} minuti e può essere usato una sola volta.</p>
+      <p style="color:#64748b;font-size:13px;">Se non hai richiesto tu il reset, ignora questa email: la password resta invariata.</p>
+    `,
+  });
+
 export const sendPasswordResetChallenge = async (user: {
   id: string;
   email: string;
@@ -1166,16 +1200,9 @@ export const sendPasswordResetChallenge = async (user: {
       `Hai richiesto di reimpostare la password del tuo account EasyGame.\n\n` +
       `Apri questo link entro ${PASSWORD_RESET_TTL_MINUTES} minuti:\n${resetUrl}\n\n` +
       `Se non hai richiesto tu il reset, ignora questa email: la password resta invariata.`,
-    html: renderEmailLayout({
-      bodyHtml: `
-        <h2 style="margin:0 0 12px;">Reimposta la password</h2>
-        <p>Ciao ${escapeHtml(user.first_name || "")}, hai richiesto di reimpostare la password del tuo account EasyGame.</p>
-        <p style="padding: 20px 0;">
-          <a href="${resetUrl}" style="background:#2563eb;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Scegli una nuova password</a>
-        </p>
-        <p>Il link scade tra ${PASSWORD_RESET_TTL_MINUTES} minuti e può essere usato una sola volta.</p>
-        <p style="color:#64748b;font-size:13px;">Se non hai richiesto tu il reset, ignora questa email: la password resta invariata.</p>
-      `,
+    html: buildPasswordResetEmailHtml({
+      firstName: user.first_name,
+      resetUrl,
     }),
   });
 
