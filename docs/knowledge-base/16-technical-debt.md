@@ -2277,3 +2277,19 @@ stringa grezza · `L-4` l'elenco documenti dell'area genitore ignora
 dal corpo senza traccia · `L-7` la convocazione non verifica che l'atleta sia
 del club (righe sporche, non una fuga). Non riprodotti; nessuno apre un dato
 di un altro club o di un minore.
+
+## Debito trovato dal Branding Pass, non toccato perche fuori scope (2026-09-03)
+
+Trovato mentre si sostituiva il marchio placeholder con gli asset ufficiali e
+si portava un'identita coerente su chrome, auth ed email. Nessuna di queste
+e stata corretta qui: sono bug, incoerenze o superfici funzionali fuori dal
+perimetro di un intervento dichiaratamente solo di branding.
+
+| # | Cosa | Perche non e stato corretto qui |
+|---|---|---|
+| **BR-1** | `--eg-blue: #1d4ed8` (`globals.css`) non combacia esattamente col blu degli asset ufficiali (`#2563EB`, verificato per campionamento pixel) | Il token e usato da molti componenti: allinearlo e un cambiamento visivo diffuso, non uno scambio di asset. Va deciso e verificato a parte |
+| **BR-2** | `src/components/ui/mobile-header.tsx` referenzia `/images/logo_bianco.png`, che non esiste in `public/`: un'immagine rotta | Il componente non e montato da nessuna pagina (verificato: nessun import vivo). E un bug reale ma su codice irraggiungibile, e "non correggere bug trovati incidentalmente" era un vincolo esplicito di questo intervento |
+| **BR-3** | Nessun `error.tsx` / `global-error.tsx` / `not-found.tsx` esiste in `src/app`: gli errori cadono sul fallback di default di Next.js, senza marchio | Crearli e una superficie funzionale nuova (contenuti, layout, decisioni UX), non uno scambio di asset su una pagina che gia esiste |
+| **BR-4** | Le pagine pubbliche transazionali (`iscrizione/[reference]`, `forms/[publicSlug]`, `pay/[token]`) non mostrano ne il marchio EasyGame ne quello del club | Scelta deliberata, non dimenticanza: sono superfici rivolte alla famiglia dove l'identita visibile e quella del club, la stessa distinzione Platform/Club chiesta per le email (§8 del mandato). Aggiungere il marchio EasyGame li e un giudizio di prodotto, non branding meccanico |
+| **BR-5** | Il gradiente di sfondo blu-ciano (`from-blue-600 to-cyan-400`) di `token-verification/page.tsx` e `token-verification/[userId]/page.tsx` non usa i token `--eg-*` come il resto del prodotto | E uno stile preesistente incoerente, non un difetto di marchio: correggerlo e ridisegno, non sostituzione di un asset |
+| **BR-6** | `12-integrations.md` (righe intorno a "Non contiene link di pagamento... Wave 2") descrive `sendPaymentReminderEmail` come privo di link di pagamento, ma il codice lo supporta gia (`paymentLink`, dal commento di W1-F) | Notato leggendo il file per il branding delle email; la KB era gia disallineata dal codice prima di questo intervento, per una ragione che non riguarda il marchio |
