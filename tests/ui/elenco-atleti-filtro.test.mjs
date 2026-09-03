@@ -159,18 +159,50 @@ test("W6-04 · l'elenco non tiene una copia propria del vocabolario", () => {
     "il vocabolario ha un proprietario, e le schermate lo importano",
   );
 
+  /*
+    **Il controllo cercava le virgolette, e il difetto era in un `<span>`**
+    (PP-01 §D).
+
+    L'ultima copia del vocabolario non stava in una stringa fra virgolette: era
+    testo JSX — `<span>In Prestito</span>` — e questo elenco, che confrontava
+    `'"In Prestito"'`, ci passava accanto senza vederlo. La cella dell'elenco ha
+    continuato per tutta la Wave 6 a stampare «In Prestito» per `inactive` e
+    «Sospeso» per `loan`: i due stati **scambiati**, in bella vista, sotto un
+    presidio verde.
+
+    Adesso si cerca la scritta, non la sua punteggiatura, e lo si fa **fuori dai
+    commenti**, perche la prosa che racconta il difetto lo nomina apposta.
+  */
+  const codice = sorgente
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+
   for (const scritta of [
-    '"In Prestito"',
-    '"Disattivati"',
-    '"Atleti in Prestito"',
-    '"Atleti Attivi"',
+    "In Prestito",
+    "Atleti in Prestito",
+    "Atleti Attivi",
   ]) {
     assert.equal(
-      sorgente.includes(scritta),
+      codice.includes(scritta),
       false,
-      `${scritta} scritta a mano: e cosi che tre stati diventavano quattro etichette`,
+      `«${scritta}» scritta a mano: e cosi che tre stati diventavano quattro etichette`,
     );
   }
+
+  /*
+    E il verso positivo: la cella **deve** leggere il vocabolario. Vietare le
+    scritte sbagliate non basta — un quinto stato scritto a mano domani non
+    somiglierebbe a nessuna di quelle.
+  */
+  assert.ok(
+    codice.includes("ATHLETE_STATUS_LABELS[athlete.status]"),
+    "la riga dell'elenco prende l'etichetta dal vocabolario, non da un ternario",
+  );
+  assert.ok(
+    codice.includes("ATHLETE_STATUS_TONE[athlete.status]"),
+    "e anche il colore: era stato scritto per questo e non lo chiamava nessuno",
+  );
 });
 
 test("W6-07 · una cancellazione irreversibile non passa dal confirm del browser", () => {

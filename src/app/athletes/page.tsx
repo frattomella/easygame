@@ -64,6 +64,7 @@ import {
   ATHLETE_STATUS_LABELS,
   ATHLETE_STATUSES,
   ATHLETE_STATUS_PLURAL_LABELS,
+  ATHLETE_STATUS_TONE,
   normalizeAthleteStatus,
   type AthleteBulkStatusAction,
   type AthleteStatus,
@@ -260,6 +261,23 @@ const ATHLETE_PAGE_SIZE = 200;
  * tre — di cui due sarebbero comunque zero.
  */
 const STATUS_FILTER_HEADINGS = ATHLETE_STATUS_HEADINGS;
+
+/**
+ * Il colore dell'icona di stato, dal tono che il vocabolario gia dichiara.
+ *
+ * `ATHLETE_STATUS_TONE` esisteva dalla Wave 6 e **non lo chiamava nessuno**:
+ * era stato scritto proprio per far combaciare i quattro stati ovunque
+ * compaiano, e la riga dell'elenco continuava a decidere da se — sbagliando.
+ */
+const STATUS_ICON_TONE: Record<
+  (typeof ATHLETE_STATUS_TONE)[keyof typeof ATHLETE_STATUS_TONE],
+  string
+> = {
+  success: "text-green-500",
+  warning: "text-red-500",
+  info: "text-blue-500",
+  muted: "text-gray-500",
+};
 
 /**
  * L'indirizzo dell'iscrizione di un nuovo atleta.
@@ -1801,22 +1819,29 @@ export default function AthletesPage() {
               )}
               {visibleColumns.status && (
                 <td className="py-3 px-4">
-                  {athlete.status === "active" ? (
-                    <div className="flex items-center gap-1">
+                  {/*
+                    **L'ultima copia del difetto W6-04** (PP-01 §D).
+
+                    Qui c'erano tre rami per quattro stati, e due erano
+                    scambiati: `inactive` stampava «In Prestito» e `loan`
+                    cadeva nel ramo finale e stampava «Sospeso». Filtrare per
+                    «In prestito» dava righe etichettate «Sospeso», e filtrare
+                    per «Disattivati» righe etichettate «In Prestito» — cioe
+                    esattamente cio che si legge come «il filtro mostra le
+                    persone sbagliate».
+                  */}
+                  <div className="flex items-center gap-1">
+                    {athlete.status === "active" ? (
                       <CheckCircle2 className="h-4 w-4 text-green-500" />
-                      <span>Attivo</span>
-                    </div>
-                  ) : athlete.status === "inactive" ? (
-                    <div className="flex items-center gap-1">
-                      <X className="h-4 w-4 text-gray-500" />
-                      <span>In Prestito</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1">
-                      <X className="h-4 w-4 text-red-500" />
-                      <span>Sospeso</span>
-                    </div>
-                  )}
+                    ) : (
+                      <X
+                        className={`h-4 w-4 ${
+                          STATUS_ICON_TONE[ATHLETE_STATUS_TONE[athlete.status]]
+                        }`}
+                      />
+                    )}
+                    <span>{ATHLETE_STATUS_LABELS[athlete.status]}</span>
+                  </div>
                 </td>
               )}
               {visibleColumns.medicalCert && (
