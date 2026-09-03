@@ -510,6 +510,10 @@ cancellato in `finally`.
 ### Cosa **non** e stato verificato, e perche
 
 **Il collaudo dal browser con una sessione autenticata non e stato eseguito.**
+La checklist puntuale di cio che resta da guardare a occhio — con, per ogni
+riga, cosa succedeva **prima**, che e il modo piu rapido di riconoscere una
+regressione — sta in
+[42b — La UAT a schermo](42-pp-01-uat-a-schermo.md).
 Le pagine gestionali richiedono un accesso, e non inserisco credenziali in un
 modulo di login. Gli elementi 11-33 della UAT del mandato che dipendono da una
 sessione — l'aspetto della barra a 375/768/1280/1440 px, il flash dell'elenco
