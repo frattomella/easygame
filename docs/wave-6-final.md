@@ -6,7 +6,11 @@
 
 ## Verdetto
 
-**Da compilare dopo il deploy su staging** (vedi §6).
+**WAVE 6 = DONE.** Critical 0 / High 0 sui sei finding ricevuti (sei
+confermati, zero falsi positivi); gate tutti verdi; staging `READY` su HEAD
+con smoke e prova del rate limiting superati; nessun deploy in produzione;
+KB aggiornata; working tree pulito. Restano fuori dal codice i due blocker
+esterni W6-4 e W6-5 (§5).
 
 ## 1. Repository
 
@@ -95,7 +99,46 @@ migrazione, nessun file mobile.
 
 ## 6. Staging
 
-*Da compilare dopo il deploy.*
+| | |
+|---|---|
+| Progetto | `mefrancesco2007-5434s-projects/easygame-staging` (nessun progetto production nello scope; `easygamemobile` e la app mobile, non toccata) |
+| Prima del deploy | ultimo deploy del 31 agosto, **53 commit** indietro rispetto a HEAD (l'handoff diceva 33: la differenza sono i commit di revisione arrivati dopo) |
+| Deploy | commit `7d20b69`, `npx vercel --prod` — `● Ready` in 3 minuti |
+| URL | `https://easygame-staging-b46uvhf7w-mefrancesco2007-5434s-projects.vercel.app` (alias `https://easygame-staging-pi.vercel.app`) |
+| Migrazioni | il deploy ha applicato **13 migrazioni** pendenti (da `wave5_evento_sportivo` a `wave6_liquidazione_e_una_entrata`): «All migrations have been successfully applied» |
+
+### Smoke (senza sessione: nessuna credenziale e stata usata)
+
+| Superficie | Esito |
+|------------|-------|
+| `/`, `/login`, `/register`, `/api/v1/registry` | 200 |
+| `/api/v1/auth/session` senza cookie | 200, `session: null` |
+| `/api/v1/athletes` senza sessione | 401 |
+| `/dashboard`, `/parent-view`, `/trainer-dashboard`, `/athlete-dashboard`, `/dashboard/access-management`, `/permissions`, `/documenti`, `/appuntamenti`, `/payments`, `/calendar`, `/modulistica`, `/audit`, `/sport-work`, `/movements` | 307 → `/login?next=…` (protette, raggiungibili) |
+| `/forms/<slug inesistente>`, `/pay/<token inesistente>` | 200 con stato «non trovato» lato client; `/api/public/enrollment-status/<inesistente>` 404 |
+
+### Rate limiting sull'ambiente vero (serverless, piu istanze)
+
+| Prova | Esito |
+|-------|-------|
+| conferma OTP, 12 richieste in sequenza, stesso `userId` e indirizzo (limite 5) | `400 ×5`, poi `429 ×7` |
+| conferma OTP, **20 richieste in parallelo** | **esattamente 5** `400` e 15 `429` — il contatore regge la concorrenza fra istanze |
+| login con password sbagliata, 14 in sequenza (limite per identita 10) | `401 ×10`, poi `429 ×4` |
+
+### Aree per ruolo
+
+| Area | Esito | Nota |
+|------|-------|------|
+| Club | PASS | dashboard e sotto-pagine protette e raggiungibili; API 401 senza sessione |
+| Parent | PARTIAL | `/parent-view` raggiungibile e protetta; il flusso con sessione (figli, rate, RSVP) va percorso nel collaudo manuale, §7 |
+| Trainer | PARTIAL | `/trainer-dashboard` raggiungibile e protetta; appello e «I miei compensi» nel collaudo manuale |
+| Athlete | PARTIAL | `/athlete-dashboard` raggiungibile e protetta; account atleta nel collaudo manuale |
+| Custom roles | PARTIAL | `/dashboard/access-management` e `/permissions` protette; il restringimento e provato a runtime dalla sonda `wave6:roles` (52/52) sul database di sviluppo, non ancora con un clic su staging |
+
+Il motivo dei `PARTIAL` e uno solo: lo smoke non ha aperto nessuna sessione,
+perche non e stata usata nessuna credenziale. Tutto cio che una sessione
+mostra e coperto dalle tre sonde a runtime (403 controlli) e va confermato
+dal collaudo manuale del §7.
 
 ## 7. Checklist per il collaudo manuale su staging
 
