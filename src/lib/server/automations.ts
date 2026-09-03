@@ -5,6 +5,7 @@ import {
   isEmailDeliveryConfigured,
   sendTransactionalEmail,
 } from "./email/email-service";
+import { renderEmailLayout } from "./email/layout";
 import { claimDelivery, settleDelivery } from "./communication-deliveries";
 import { resolveAudience, type AudienceScope } from "./audience";
 import { listPendingRsvpForAthlete } from "./rsvp";
@@ -1347,7 +1348,7 @@ const deliverToFamilies = async ({
             to: recipient.email,
             subject: rendered.subject,
             text: rendered.text,
-            html: rendered.html,
+            html: renderEmailLayout({ bodyHtml: rendered.html }),
           });
 
           if (result.status !== "sent") {
@@ -1782,7 +1783,7 @@ const deliverDigest = async ({
           to: address,
           subject: digest.subject,
           text: digest.text,
-          html: digest.html,
+          html: renderEmailLayout({ bodyHtml: digest.html }),
         });
 
         if (result.status === "sent") {

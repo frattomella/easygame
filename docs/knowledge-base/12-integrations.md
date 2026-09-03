@@ -62,11 +62,35 @@ piede pagina. Prima non esisteva nessun guscio condiviso: ogni chiamata
 costruiva la propria stringa HTML, senza marchio.
 
 Ogni punto di invio avvolge solo la propria stringa `html:`; nessuna modifica
-a destinatari, oggetto o innesco. Email "Platform" (EasyGame e il
-mittente/soggetto) gia avvolte:
-`sendEmailVerificationChallenge`, `sendPasswordResetChallenge`
-(`auth-workflows.ts`), `inviaEmailDiInvito` (`athlete-accounts.ts`),
-`testSmtpDelivery` (`email-service.ts`).
+a destinatari, oggetto o innesco.
+
+**Inventario.** Email "Platform" (EasyGame e il mittente/soggetto: verifica,
+sicurezza, accesso):
+
+| Email | Generatore | Branded |
+|---|---|---|
+| Verifica OTP | `sendEmailVerificationChallenge` (`auth-workflows.ts`) | si |
+| Reset password | `sendPasswordResetChallenge` (`auth-workflows.ts`) | si |
+| Attivazione accesso atleta | `inviaEmailDiInvito` (`athlete-accounts.ts`) | si |
+| Test SMTP (admin) | `testSmtpDelivery` (`email-service.ts`) | si |
+
+Email "Club → utente" (EasyGame resta il contenitore/piattaforma; la voce
+resta il club, gia presente nel testo come `{{club.name}}` o nel corpo —
+nessuna di queste mostrava logo o nome del club prima di questo intervento,
+quindi non c'era un'identita club da proteggere in questo livello visivo):
+
+| Email | Generatore | Branded |
+|---|---|---|
+| Sollecito pagamento | `sendPaymentReminderEmail` (`email-service.ts`) | si |
+| Notifica generica (appuntamenti, richieste documenti, form, alert trainer, certificati, `/api/v1` generico) | `sendNotificationEmails` (`email-service.ts`) | si |
+| Comunicazione broadcast del club | `communications.ts` (via `renderMessageTemplate`) | si |
+| Regola di automazione (rata in/scaduta, certificato in scadenza, invito evento, documento in scadenza) | `automations.ts` (via `renderMessageTemplate`) | si |
+| Digest giornaliero al club | `automations.ts` (via `buildDailyDigest`) | si |
+
+Tutte le email individuate nel repository sono branded. Nessuna email mostra
+logo o nome del club: la distinzione Platform/Club resta nel **contenuto**
+(voce, oggetto, `{{club.name}}`), non nel guscio visivo, che e lo stesso per
+tutte.
 
 **Quando SMTP non e configurato il sollecito non mente.**
 `sendTransactionalEmail` restituisce `{status: "skipped", reason:

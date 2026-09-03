@@ -324,16 +324,18 @@ export const sendPaymentReminderEmail = async (
       "",
       content.clubName,
     ].join("\n"),
-    html: [
-      `<p>${escapeHtml(greeting)}</p>`,
-      `<p>${escapeHtml(content.clubName)} ricorda che risultano quote ancora da versare.</p>`,
-      `<ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`,
-      paymentLink
-        ? `<p><a href="${escapeHtml(paymentLink)}">Paga la quota</a></p>`
-        : "",
-      "<p>Se il pagamento e gia stato effettuato, consideri questo messaggio come non ricevuto.</p>",
-      `<p>${escapeHtml(content.clubName)}</p>`,
-    ].join(""),
+    html: renderEmailLayout({
+      bodyHtml: [
+        `<p>${escapeHtml(greeting)}</p>`,
+        `<p>${escapeHtml(content.clubName)} ricorda che risultano quote ancora da versare.</p>`,
+        `<ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`,
+        paymentLink
+          ? `<p><a href="${escapeHtml(paymentLink)}">Paga la quota</a></p>`
+          : "",
+        "<p>Se il pagamento e gia stato effettuato, consideri questo messaggio come non ricevuto.</p>",
+        `<p>${escapeHtml(content.clubName)}</p>`,
+      ].join(""),
+    }),
   });
 };
 
@@ -351,7 +353,10 @@ export const sendNotificationEmails = async (recipientUserIds: string[]) => {
         to: user.email,
         subject: "Nuova notifica EasyGame",
         text: "Hai una nuova notifica. Accedi a EasyGame per visualizzarla in modo sicuro.",
-        html: "<p>Hai una nuova notifica.</p><p>Accedi a <strong>EasyGame</strong> per visualizzarla in modo sicuro.</p>",
+        html: renderEmailLayout({
+          bodyHtml:
+            "<p>Hai una nuova notifica.</p><p>Accedi a <strong>EasyGame</strong> per visualizzarla in modo sicuro.</p>",
+        }),
       });
     } catch (error) {
       /* eslint-disable-next-line no-console -- il codice di una mancata consegna, non il messaggio */

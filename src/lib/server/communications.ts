@@ -5,6 +5,7 @@ import {
   isEmailDeliveryConfigured,
   sendTransactionalEmail,
 } from "./email/email-service";
+import { renderEmailLayout } from "./email/layout";
 import {
   claimDelivery,
   buildDedupKey,
@@ -621,7 +622,7 @@ export const sendCommunication = async (
         to: recipient.email,
         subject: rendered.subject,
         text: rendered.text,
-        html: rendered.html,
+        html: renderEmailLayout({ bodyHtml: rendered.html }),
       });
 
       if (result.status !== "sent") {
