@@ -306,6 +306,19 @@ export const AUDIT_ACTIONS = {
   athleteAccountRevoked: "athlete_account.access.revoked",
 
   /*
+    Lo scollegamento di un profilo dall'utenza che vi accedeva — atleta,
+    allenatore, genitore (correzione Fortitudo Scauri, `profile-account-links.ts`).
+    E un atto distinto dalla revoca: qui il **profilo** dimentica l'utenza,
+    la tessera di club (`organization_users`) non si tocca. La revoca
+    completa da Gestione Accessi (`club_role.revoked`) resta l'unico atto che
+    toglie anche la tessera, e quando lo fa lascia la sua stessa traccia con i
+    profili ripuliti in metadata.
+  */
+  athleteAccountUnlinked: "athlete_account.link.removed",
+  trainerAccountUnlinked: "trainer_account.link.removed",
+  guardianAccountUnlinked: "guardian_account.link.removed",
+
+  /*
     I ruoli personalizzati di club (Wave 6, lane 6G). Sono **sei** azioni e non
     una `club_role.changed`, per la stessa ragione degli appuntamenti: sono le
     righe che si vanno a cercare, e le domande sono diverse. «Chi ha creato

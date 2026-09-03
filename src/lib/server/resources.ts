@@ -2519,7 +2519,17 @@ const ensureClubDashboard = async (
   });
 };
 
-const syncClubAggregateField = async (
+/**
+ * Riallinea `clubs.<resource_type>` (JSON) alle righe vive di
+ * `club_resource_items` per quel tipo.
+ *
+ * Esportata perche `src/lib/server/profile-account-links.ts` la chiama dopo
+ * aver scritto direttamente `clubResourceItem.payload`: senza, lo
+ * scollegamento di un allenatore aggiornerebbe la riga ma lascerebbe
+ * `clubs.trainers[]` — la proiezione che gran parte dell'interfaccia legge
+ * ancora, D2 — con il vecchio collegamento (correzione Fortitudo Scauri).
+ */
+export const syncClubAggregateField = async (
   organization_id: string,
   resource_type: string,
 ) => {

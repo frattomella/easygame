@@ -32,6 +32,12 @@ import {
   type AccessScopeEntry,
 } from "@/lib/roles/access-scope";
 import { normalizeClubSites } from "@/lib/club-sites";
+import {
+  unlinkClubJsonProfiles,
+  unlinkProfileResources,
+  unlinkParentGuardians,
+  unlinkDirectAthleteProfile,
+} from "./profile-account-links";
 
 /**
  * **I ruoli personalizzati di club, dalla parte che scrive** (Wave 6, lane 6G).
@@ -919,6 +925,16 @@ export const updateAssignmentScopes = async (
  *   * **sul fondatore** — la sua proprieta non nasce da questa riga ma da
  *     `clubs.creator_id`, e toglierla darebbe l'impressione di aver fatto
  *     qualcosa che non e stato fatto.
+ *
+ * **Ripulisce anche i riferimenti che questa tessera lasciava dietro**
+ * (correzione Fortitudo Scauri). Prima cancellava solo la tessera:
+ * `clubs.trainers[].linkedUserId`, `athletes.data.guardians[].linkedUserId` e
+ * `athletes.user_id` restavano collegati a un'utenza che nel club non aveva
+ * piu accesso — la stessa scheda allenatore mostrava «Account collegato» a
+ * un `organization_users` gia vuoto. Lo sweep e lo stesso che
+ * `/api/v1/auth/memberships/delete` gia usa quando e la persona a
+ * lasciare da sola il club: qui si applica anche quando e il proprietario a
+ * cacciarla.
  */
 export const revokeClubAccess = async (
   scope: ClubRolesScope,
@@ -950,24 +966,66 @@ export const revokeClubAccess = async (
     }
   }
 
-  const societa = await prisma.club.findUnique({
-    where: { id: club },
-    select: { creator_id: true },
-  });
+  const [societa, utente] = await Promise.all([
+    prisma.club.findUnique({
+      where: { id: club },
+      select: { creator_id: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: tessera.user_id },
+      select: { email: true },
+    }),
+  ]);
   if (societa?.creator_id && testo(societa.creator_id) === testo(tessera.user_id)) {
     throw roleDenied(
       "il fondatore del club non si revoca: la sua proprieta non nasce da questa tessera",
     );
   }
 
-  await prisma.clubAccessScope.deleteMany({
-    where: { organization_user_id: tessera.id },
+  const ripulito = await prisma.$transaction(async (tx) => {
+    await tx.clubAccessScope.deleteMany({
+      where: { organization_user_id: tessera.id },
+    });
+    await tx.organizationUser.delete({ where: { id: tessera.id } });
+
+    const clubJsonProfiles = await unlinkClubJsonProfiles(
+      tx,
+      tessera.organization_id,
+      tessera.user_id,
+      utente?.email || null,
+      tessera.role,
+    );
+    const resourceProfiles = await unlinkProfileResources(
+      tx,
+      tessera.organization_id,
+      tessera.user_id,
+      utente?.email || null,
+      tessera.role,
+    );
+    const parentProfiles = await unlinkParentGuardians(
+      tx,
+      tessera.organization_id,
+      tessera.user_id,
+      utente?.email || null,
+      tessera.role,
+    );
+    const athleteProfiles = await unlinkDirectAthleteProfile(
+      tx,
+      tessera.organization_id,
+      tessera.user_id,
+      tessera.role,
+    );
+
+    return {
+      unlinkedProfilesCount:
+        clubJsonProfiles + resourceProfiles + parentProfiles + athleteProfiles,
+    };
   });
-  await prisma.organizationUser.delete({ where: { id: tessera.id } });
 
   await audit(scope, AUDIT_ACTIONS.clubRoleRevoked, tessera.id, {
     role: tessera.role,
     target_user_id: tessera.user_id,
+    unlinked_profiles_count: ripulito.unlinkedProfilesCount,
   });
 
   return { membership_id: tessera.id, revoked: true };

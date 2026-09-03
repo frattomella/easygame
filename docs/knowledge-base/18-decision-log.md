@@ -5973,3 +5973,77 @@ restituito. Mai una lettura prima.
   decisione va spostata nel `WHERE` della scrittura — o nel database, con un
   indice — e la prova va nella sonda con `Promise.all`, perche un test in
   memoria non la puo dare.
+
+---
+
+## ADR-0110 — Scollegare un profilo non e revocare una tessera
+
+**Data:** 2026-09-03 · **Contesto:** segnalazione Fortitudo Scauri (staging)
+
+**Contesto.** Il trainer Francesco Mella risultava ancora «collegato»
+all'utenza `mefrancesco2007y@gmail.com` — `linked_user_id` e
+`linked_user_email` valorizzati nella sua scheda — anche dopo che la Gestione
+Accessi aveva gia revocato la tessera di quell'utenza in quel club. Premere
+«Scollega account» dalla scheda allenatore rispondeva «Accesso Negato: una
+tessera di club si revoca dalla gestione accessi, non dalla rotta generica»:
+il pulsante chiamava `DELETE /api/v1/organization_users/<id>`, la stessa
+rotta che `resources.ts` rifiuta esplicitamente per **qualunque** tessera
+(la guardia introdotta a protezione di `revokeClubAccess`).
+
+Due difetti distinti, entrambi dalla stessa confusione:
+
+1. **Scollegare un profilo** (far dimenticare a una scheda l'utenza che aveva)
+   veniva scritto come se fosse **revocare una tessera** (togliere
+   l'appartenenza al club) — la stessa identita che l'atleta gia non
+   condivideva: `revokeAthleteAccess` slega `athletes.user_id` **e** cancella
+   la tessera **di proposito**, in una transazione sola, perche e un atto di
+   revoca completa e non di semplice scollegamento.
+2. **Revocare una tessera** (`revokeClubAccess`, dalla Gestione Accessi) non
+   ripuliva i riferimenti che quella tessera lasciava dietro: la scheda
+   allenatore, il genitore dentro `athletes.data.guardians[]`, l'atleta
+   collegato via `athletes.user_id` restavano tutti «collegati» a un'utenza
+   che nel club non aveva piu nessuna tessera. La stessa cosa, gia risolta,
+   esisteva gia per l'**uscita volontaria** dal club
+   (`/api/v1/auth/memberships/delete`), che dal Blocco che l'ha introdotta
+   ripulisce correttamente trainer/staff/genitori/atleta — ma solo quando e la
+   persona a lasciare da sola, non quando e il proprietario a cacciarla.
+
+**La decisione.**
+
+- **Scollegare** (`unlinkTrainerAccount`, `unlinkGuardianAccount` in
+  `src/lib/server/profile-account-links.ts`, `unlinkAthleteAccount` in
+  `athlete-accounts.ts`) e **revocare** (`revokeClubAccess` in
+  `club-roles.ts`) restano due atti separati, con due nomi diversi e due
+  audit action diverse. Nessuna delle funzioni di scollegamento tocca
+  `organization_users`; nessuna revoca di membership lascia intatta la scheda
+  di chi la portava.
+- `revokeAthleteAccess` (revoca completa: FK, tessera e invito insieme) non
+  cambia — e l'unico caso in cui i due atti erano gia distinti correttamente
+  in origine, coperto da `tests/server/accesso-atleta.test.mjs` — ma affianca
+  ora `unlinkAthleteAccount`, la sua controparte di solo scollegamento, per
+  la stessa scelta fatta per allenatore e genitore.
+- Lo sweep di pulizia (`unlinkClubJsonProfiles`, `unlinkProfileResources`,
+  `unlinkParentGuardians`, `unlinkDirectAthleteProfile`) e **un'unica
+  implementazione**, spostata da `memberships/delete/route.ts` a
+  `profile-account-links.ts`, e chiamata sia dall'uscita volontaria sia da
+  `revokeClubAccess`. Due copie della stessa scopa sono la duplicazione che
+  CLAUDE.md §2 vieta, e la seconda copia e esattamente quella che mancava.
+- **Un'utenza puo restare collegata a piu profili dello stesso club** —
+  atleta e allenatore, ad esempio — e nessuna delle due correzioni introduce
+  un vincolo che lo impedisca: `organization_users` ammette gia piu righe per
+  la stessa coppia (organizzazione, utente) purche il `role` sia diverso
+  (`@@unique(organization_id, user_id, role)`), e nessuna delle tre colonne di
+  legame (`athletes.user_id`, `clubs.trainers[].linkedUserId`,
+  `athletes.data.guardians[].linkedUserId`) e una alternativa esclusiva delle
+  altre due.
+- **Lo stato di Fortitudo Scauri si corregge con il flusso applicativo**:
+  chiamando `unlinkTrainerAccount` sulla scheda di Francesco Mella, non con
+  un `UPDATE` scritto a mano.
+
+**Conseguenze accettate.** Due nuove chiavi di permesso
+(`accounts.trainer.manage`, `accounts.parent.manage`, catalogo Wave 6, stesso
+ruolo `GESTIONE` di `accounts.athlete.manage`): prima di questa correzione
+scrivere `linkedUserId` su un allenatore attraverso la rotta generica non
+verificava **nessun** permesso specifico — chiuso qui perche il nuovo
+scrittore dedicato e il posto giusto per aprirlo, non perche qualcuno lo
+avesse gia sfruttato.

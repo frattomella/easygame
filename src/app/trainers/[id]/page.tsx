@@ -879,6 +879,15 @@ export default function TrainerDetailsPage() {
     }
   };
 
+  /*
+    **Scollega, non revoca.** Una sola chiamata al dominio
+    (`unlinkTrainerAccount`, `src/lib/server/profile-account-links.ts`):
+    slega l'utenza da questa scheda e revoca il gettone d'accesso associato.
+    Non tocca `organization_users` — prima lo faceva, ed e per questo che il
+    pulsante rispondeva «Accesso Negato: una tessera di club si revoca dalla
+    gestione accessi, non dalla rotta generica» (correzione Fortitudo Scauri,
+    2026-09-03). La tessera, se c'e ancora, si revoca da li.
+  */
   const handleDisconnectLinkedAccount = async () => {
     if (!clubId || !trainerId || !trainer) {
       showToast("error", "Allenatore non valido");
@@ -888,61 +897,16 @@ export default function TrainerDetailsPage() {
     setIsDisconnectingAccess(true);
 
     try {
-      const headers = {
-        "x-active-club-id": clubId,
-      };
-      const nowIso = new Date().toISOString();
+      const risposta = await apiRequest(
+        `/api/v1/trainer-accounts/${encodeURIComponent(trainerId)}`,
+        {
+          method: "DELETE",
+          headers: { "x-active-club-id": clubId },
+        },
+      );
 
-      if (trainer.linkedUserId) {
-        const membershipResponse = await apiRequest<any[]>(
-          `/api/v1/organization_users?organization_id=${encodeURIComponent(clubId)}&user_id=${encodeURIComponent(trainer.linkedUserId)}&role=trainer`,
-          {
-            method: "GET",
-            headers,
-          },
-        );
-
-        if (membershipResponse.error) {
-          throw new Error(membershipResponse.error.message);
-        }
-
-        const membership = Array.isArray(membershipResponse.data)
-          ? membershipResponse.data[0]
-          : null;
-
-        if (membership?.id) {
-          const deleteMembershipResponse = await apiRequest(
-            `/api/v1/organization_users/${membership.id}`,
-            {
-              method: "DELETE",
-              headers,
-            },
-          );
-
-          if (deleteMembershipResponse.error) {
-            throw new Error(deleteMembershipResponse.error.message);
-          }
-        }
-      }
-
-      if (trainer.accessTokenRecordId) {
-        const revokeTokenResponse = await apiRequest(
-          `/api/v1/access_tokens/${trainer.accessTokenRecordId}`,
-          {
-            method: "PATCH",
-            headers,
-            body: {
-              status: "revoked",
-              revoked_at: nowIso,
-              revoked_by_trainer_id: trainerId,
-              revoked_linked_user_id: trainer.linkedUserId || null,
-            },
-          },
-        );
-
-        if (revokeTokenResponse.error) {
-          throw new Error(revokeTokenResponse.error.message);
-        }
+      if (risposta.error) {
+        throw new Error(risposta.error.message);
       }
 
       const resetAccessState = {
@@ -958,8 +922,6 @@ export default function TrainerDetailsPage() {
         access_token_value: "",
         token: "",
       };
-
-      await updateTrainerRecord(resetAccessState);
       const nextTrainerState = {
         ...(trainer || {}),
         ...resetAccessState,
@@ -970,10 +932,7 @@ export default function TrainerDetailsPage() {
       }));
       await refreshAccessControlData(nextTrainerState);
       setShowDisconnectAccessDialog(false);
-      showToast(
-        "success",
-        "Account scollegato dal profilo allenatore e accesso al club revocato",
-      );
+      showToast("success", "Account scollegato dal profilo allenatore");
     } catch (error: any) {
       console.error("Error disconnecting trainer account:", error);
       showToast(
@@ -1958,7 +1917,7 @@ export default function TrainerDetailsPage() {
                       <Button
                         variant="destructive"
                         onClick={() => setShowDisconnectAccessDialog(true)}
-                        disabled={!trainer.linkedUserId || isDisconnectingAccess}
+                        disabled={!(trainer.linkedUserId || trainer.linked_user_id) || isDisconnectingAccess}
                       >
                         {isDisconnectingAccess ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1971,7 +1930,7 @@ export default function TrainerDetailsPage() {
                         variant="outline"
                         className="border-red-200 text-red-700 hover:bg-red-50"
                         onClick={() => setShowDisconnectAccessDialog(true)}
-                        disabled={!trainer.linkedUserId || isDisconnectingAccess}
+                        disabled={!(trainer.linkedUserId || trainer.linked_user_id) || isDisconnectingAccess}
                       >
                         <Unlink2 className="mr-2 h-4 w-4" />
                         Scollega tutti gli account
@@ -3048,9 +3007,10 @@ export default function TrainerDetailsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Scollegare questo account?</AlertDialogTitle>
             <AlertDialogDescription>
-              L&apos;utente perdera l&apos;accesso a questo club come allenatore e il
-              collegamento con il profilo allenatore verra revocato. Se servira,
-              potrai poi generare un nuovo token dalla tab Accesso Account.
+              La scheda allenatore dimentichera l&apos;utenza collegata, ma il suo
+              accesso al club non viene toccato: per revocarlo usa la Gestione
+              Accessi. Se servira, potrai poi generare un nuovo token dalla tab
+              Accesso Account.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

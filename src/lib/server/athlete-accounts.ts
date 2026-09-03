@@ -787,6 +787,61 @@ export const revokeAthleteAccess = async (
 };
 
 /* ========================================================================= *
+ *  Lo scollegamento: non e la revoca
+ * ========================================================================= */
+
+/**
+ * Slega `athletes.user_id` e basta.
+ *
+ * **La differenza con `revokeAthleteAccess`, in una frase**: quella toglie
+ * anche la tessera `athlete` di `organization_users` e chiude l'invito vivo —
+ * e un atto di revoca completa, riservato a chi decide che questa persona non
+ * ha piu accesso al club come atleta. Questa funzione non tocca nessuna
+ * tessera: e la forma di «Scollega account» che il mandato del 2026-09-03
+ * (correzione Fortitudo Scauri) chiede anche per l'atleta, simmetrica a
+ * quella gia scritta per allenatore e genitore in
+ * `profile-account-links.ts`. La tessera, se c'e ancora, resta — la si
+ * revoca dalla Gestione Accessi, non da qui.
+ *
+ * **Idempotente**: un atleta gia scollegato non lancia, restituisce
+ * `revokedUserId: null`. Un doppio clic non e un errore.
+ */
+export const unlinkAthleteAccount = async (
+  scope: AthleteAccountsScope,
+  input: { athleteId: string; reason?: string | null },
+): Promise<{ athleteId: string; unlinkedUserId: string | null }> => {
+  await assertPuoGestireAccessi(scope, input.athleteId);
+  const atleta = await caricaAtletaDelClubAttivo(scope, input.athleteId);
+
+  const utenteCollegato = asText(atleta.user_id) || null;
+  if (!utenteCollegato) {
+    return { athleteId: atleta.id, unlinkedUserId: null };
+  }
+
+  await prisma.athlete.update({
+    where: { id: atleta.id },
+    data: { user_id: null },
+  });
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.athleteAccountUnlinked,
+    actorUserId: scope.userId,
+    actorEmail: scope.actorEmail,
+    actorRole: scope.activeRole,
+    organizationId: atleta.organization_id,
+    resource: "athletes",
+    resourceId: atleta.id,
+    metadata: {
+      athlete_id: atleta.id,
+      unlinked_user_id: utenteCollegato,
+      reason: asText(input.reason) || null,
+    },
+  });
+
+  return { athleteId: atleta.id, unlinkedUserId: utenteCollegato };
+};
+
+/* ========================================================================= *
  *  L'accettazione
  * ========================================================================= */
 

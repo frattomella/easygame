@@ -799,6 +799,20 @@ ovunque — perche e l'unico che **cancella righe**.
 - `GET|PATCH /api/v1/athlete-accounts/me` — l'area dell'atleta, con proiezione a
   elenco chiuso, e i **sei** campi che puo correggere. Nome, data di nascita,
   codice fiscale, maglia e stato restano della societa.
+- `DELETE /api/v1/athlete-accounts/:athleteId/link` — scollega l'utenza dalla
+  scheda, **senza** toccare `organization_users`. Distinta dalla revoca
+  completa (la rotta senza `/link`), che tessera e invito li tocca di
+  proposito (ADR-0110).
+
+### Scollegare un profilo (allenatore, genitore)
+
+- `DELETE /api/v1/trainer-accounts/:trainerId` — scollega l'utenza dalla
+  scheda allenatore e revoca il suo gettone d'accesso. Non e la rotta generica
+  su `organization_users`, che una tessera di club la rifiuta sempre
+  (ADR-0110).
+- `DELETE /api/v1/guardian-accounts/:athleteId/:guardianId` — scollega
+  l'utenza dal genitore indicato di questo atleta. Non tocca
+  `organization_users` ne gli altri genitori dello stesso atleta.
 
 ### Lavoro sportivo
 

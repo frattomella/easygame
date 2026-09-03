@@ -554,6 +554,33 @@ const ENTRIES: readonly PermissionEntry[] = [
       "Invitare un atleta ad accedere a EasyGame, reinviare l'invito e revocargli l'accesso",
     roles: GESTIONE,
   },
+  {
+    /*
+      **Scollegare un profilo non e revocare una tessera** (correzione
+      Fortitudo Scauri).
+
+      Prima di questa chiave, scollegare l'account da una scheda allenatore o
+      genitore passava dalla stessa porta generica che scrive
+      `organization_users` — la stessa che quella tabella nega esplicitamente
+      per le tessere. Il pulsante «Scollega account» non tocca una tessera: fa
+      dimenticare a **questo profilo** l'utenza che aveva, e nient'altro.
+      `GESTIONE` e non `DIREZIONE` per lo stesso motivo di
+      `accounts.athlete.manage`: chi legge gia per intero la scheda puo anche
+      scollegarne l'accesso.
+    */
+    key: "accounts.trainer.manage",
+    domain: "accounts",
+    label:
+      "Collegare e scollegare l'accesso EasyGame di un allenatore dalla sua scheda",
+    roles: GESTIONE,
+  },
+  {
+    key: "accounts.parent.manage",
+    domain: "accounts",
+    label:
+      "Collegare e scollegare l'accesso EasyGame di un genitore dalla scheda del figlio",
+    roles: GESTIONE,
+  },
 
   /* -------------------------------------------- il registro di audit ----- */
   {

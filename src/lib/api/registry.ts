@@ -197,6 +197,30 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "athlete_accounts.unlink",
+    method: "DELETE",
+    path: "/api/v1/athlete-accounts/:athleteId/link",
+    description:
+      "Scollega l utenza dalla scheda atleta senza toccare la tessera organization_users. Distinta dalla revoca completa sulla rotta senza /link, che tessera e invito li tocca di proposito",
+    mobile_ready: false,
+  },
+  {
+    name: "trainer_accounts.unlink",
+    method: "DELETE",
+    path: "/api/v1/trainer-accounts/:trainerId",
+    description:
+      "Scollega l utenza dalla scheda allenatore. Non e la rotta generica su organization_users, che una tessera di club la rifiuta sempre",
+    mobile_ready: false,
+  },
+  {
+    name: "guardian_accounts.unlink",
+    method: "DELETE",
+    path: "/api/v1/guardian-accounts/:athleteId/:guardianId",
+    description:
+      "Scollega l utenza dal genitore indicato di questo atleta, e revoca il suo token d accesso. Non tocca organization_users ne gli altri genitori",
+    mobile_ready: false,
+  },
+  {
     name: "sport_work.me",
     method: "GET",
     path: "/api/v1/sport-work/me",

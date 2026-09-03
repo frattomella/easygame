@@ -871,6 +871,13 @@ Il catalogo passa da trentatre a **trentacinque** voci.
 | `accounts.athlete.manage` | gestione | Consegnare un accesso non e leggere una scheda, ma **non concede niente che chi lo compie non abbia gia**: il ruolo dell'invito e fisso (`athlete`) e il perimetro e la scheda di quell'atleta, che segreteria e collaboratore leggono tutti i giorni. Chiuderla alla direzione avrebbe messo la consegna dell'accesso in un ufficio diverso da quello che tiene l'anagrafica, cioe l'avrebbe resa una cosa che non si fa |
 | `audit.read` | direzione | Il registro porta **tutti** gli atti del club insieme — chi ha stornato un incasso, chi ha cambiato l'anagrafica di un minore, chi ha provato a fare cosa e si e visto negare. E il piu trasversale dei dati societari, e il suo perimetro e lo stesso che gia protegge i conti correnti. Resta **concedibile** a un ruolo personalizzato basato su `club_manager`, ed e la chiave con cui un club costruisce un controllo interno — ma concederla e un atto del proprietario, perche e una chiave di direzione |
 
+**Due chiavi in piu (2026-09-03, ADR-0110).** Scollegare l'utenza dalla scheda
+di un allenatore o di un genitore passava dalla rotta generica senza **nessun**
+permesso dedicato — chi poteva modificare la scheda poteva anche riscriverne
+il legame. `accounts.trainer.manage` e `accounts.parent.manage` (gestione,
+stessa forma di `accounts.athlete.manage`) coprono ora lo scollegamento
+puro, fatto da `src/lib/server/profile-account-links.ts`.
+
 `/audit` sta fra i percorsi **gestionali** e non fra quelli amministrativi, ed e
 deliberato: a decidere e la chiave, non il prefisso. Metterlo fra gli
 amministrativi lo avrebbe chiuso a ogni ruolo diverso da proprietario e gestore

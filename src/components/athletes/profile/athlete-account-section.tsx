@@ -7,6 +7,7 @@ import {
   RotateCcw,
   ShieldCheck,
   ShieldOff,
+  Unlink2,
   UserPlus,
 } from "lucide-react";
 
@@ -223,21 +224,38 @@ export function AthleteAccountSection({
 
             {/* ----------------------------------------------- le azioni -- */}
             {stato.status === "active" ? (
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={inCorso}
-                onClick={() => {
-                  void agisci(
-                    `/api/v1/athlete-accounts/${athleteId}`,
-                    { method: "DELETE" },
-                    "Accesso revocato",
-                  );
-                }}
-              >
-                <ShieldOff className="mr-2 h-4 w-4" />
-                Revoca l&apos;accesso
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={inCorso}
+                  onClick={() => {
+                    void agisci(
+                      `/api/v1/athlete-accounts/${athleteId}/link`,
+                      { method: "DELETE" },
+                      "Account scollegato dal profilo atleta",
+                    );
+                  }}
+                >
+                  <Unlink2 className="mr-2 h-4 w-4" />
+                  Scollega account
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={inCorso}
+                  onClick={() => {
+                    void agisci(
+                      `/api/v1/athlete-accounts/${athleteId}`,
+                      { method: "DELETE" },
+                      "Accesso revocato",
+                    );
+                  }}
+                >
+                  <ShieldOff className="mr-2 h-4 w-4" />
+                  Revoca l&apos;accesso
+                </Button>
+              </div>
             ) : (
               <div className="space-y-3">
                 <div className="max-w-md">

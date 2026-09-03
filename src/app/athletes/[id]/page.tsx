@@ -1518,11 +1518,20 @@ export default function AthleteProfilePage() {
     }
   };
 
+  /*
+    Una sola chiamata al dominio (`unlinkGuardianAccount`,
+    `src/lib/server/profile-account-links.ts`): slega l'utenza da questo
+    genitore e revoca il suo token d'accesso, in una scrittura server sola e
+    auditata invece di due chiamate client separate (correzione Fortitudo
+    Scauri, 2026-09-03). Non tocca `organization_users`: era gia cosi, e resta
+    cosi.
+  */
   const handleDisconnectGuardianAccount = async (guardianId: string) => {
     const guardian = guardians.find((entry) => entry.id === guardianId);
     const effectiveClubId = athlete?.club_id || clubId;
+    const effectiveAthleteId = athlete?.id || athleteId;
 
-    if (!guardian || !effectiveClubId) {
+    if (!guardian || !effectiveClubId || !effectiveAthleteId) {
       showToast("error", "Genitore non disponibile");
       return;
     }
@@ -1541,45 +1550,36 @@ export default function AthleteProfilePage() {
     setGuardianAccessBusyId(guardianId);
 
     try {
-      const recordId =
-        guardian.parentAccessTokenRecordId ||
-        guardian.parent_access_token_record_id ||
-        guardian.accessTokenRecordId ||
-        null;
-      const nowIso = new Date().toISOString();
+      const risposta = await apiRequest(
+        `/api/v1/guardian-accounts/${encodeURIComponent(effectiveAthleteId)}/${encodeURIComponent(guardianId)}`,
+        {
+          method: "DELETE",
+          headers: { "x-active-club-id": effectiveClubId },
+        },
+      );
 
-      if (recordId) {
-        const revokeResponse = await apiRequest(`/api/v1/access_tokens/${recordId}`, {
-          method: "PATCH",
-          headers: {
-            "x-active-club-id": effectiveClubId,
-          },
-          body: {
-            status: "revoked",
-            revoked_at: nowIso,
-            revoked_by_guardian_id: guardianId,
-            revoked_linked_user_id:
-              guardian.linkedUserId || guardian.linked_user_id || null,
-          },
-        });
-
-        if (revokeResponse.error) {
-          throw new Error(revokeResponse.error.message);
-        }
+      if (risposta.error) {
+        throw new Error(risposta.error.message);
       }
 
-      await updateGuardianAccessState(guardianId, {
-        linkedUserId: null,
-        linked_user_id: null,
-        linkedUserEmail: "",
-        linked_user_email: "",
-        linkedAt: null,
-        linked_at: null,
-        parentAccessTokenStatus: "revoked",
-        parent_access_token_status: "revoked",
-        parentAccessTokenValue: "",
-        parent_access_token_value: "",
-      });
+      const nextGuardians = guardians.map((entry) =>
+        entry.id === guardianId
+          ? {
+              ...entry,
+              linkedUserId: null,
+              linked_user_id: null,
+              linkedUserEmail: "",
+              linked_user_email: "",
+              linkedAt: null,
+              linked_at: null,
+              parentAccessTokenStatus: "revoked",
+              parent_access_token_status: "revoked",
+              parentAccessTokenValue: "",
+              parent_access_token_value: "",
+            }
+          : entry,
+      );
+      setGuardians(nextGuardians);
       showToast("success", "Account scollegato dal genitore");
     } catch (error: any) {
       console.error("Error disconnecting guardian account:", error);
