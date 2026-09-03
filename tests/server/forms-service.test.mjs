@@ -1191,3 +1191,80 @@ test("un campo firma accetta un'immagine e rifiuta il resto", async () => {
     "un tipo qualunque non passa piu dalla porta della firma",
   );
 });
+
+/* ------------------------------------------------ la presa in esame (B-H4) */
+
+/*
+  Due approvazioni della stessa compilazione producevano due schede: il
+  controllo «e ancora pending?» stava in testa e il passaggio ad `approved`
+  in coda. Contro Postgres lo misura la sonda (U-72); qui il doppio esegue le
+  due chiamate **intrecciate** ai confini degli `await`, e la presa in esame
+  — un `updateMany` condizionato — e atomica come in un database. Con la
+  forma vecchia questo blocco e rosso: due schede.
+*/
+
+test("due approvazioni intrecciate producono una scheda sola", async () => {
+  const template = await publishedTemplate();
+  const id = await submitOne(template, { f_nome: "Mario", f_cognome: "Rossi" });
+
+  const esiti = await Promise.allSettled([
+    submissions.decideFormSubmission(scopeA(), id, { decision: "approve" }),
+    submissions.decideFormSubmission(scopeA(), id, { decision: "approve" }),
+  ]);
+
+  assert.equal(esiti.filter((e) => e.status === "fulfilled").length, 1);
+  assert.match(
+    String(esiti.find((e) => e.status === "rejected")?.reason?.message),
+    /gia in esame|gia stata esaminata/,
+  );
+  assert.equal(fake.rows("athlete").length, 1, "una scheda sola per lo stesso minore");
+});
+
+test("una compilazione presa in esame adesso si rifiuta; una presa vecchia si riprende", async () => {
+  const template = await publishedTemplate();
+  const id = await submitOne(template, { f_nome: "Mario", f_cognome: "Rossi" });
+  const row = fake.rows("formSubmission").find((entry) => entry.id === id);
+
+  row.reviewed_at = new Date();
+  await assert.rejects(
+    () => submissions.decideFormSubmission(scopeA(), id, { decision: "approve" }),
+    /gia in esame/,
+  );
+  assert.equal(fake.rows("athlete").length, 0);
+
+  /* Un processo caduto senza rilascio: dopo dieci minuti la pratica torna libera. */
+  row.reviewed_at = new Date(Date.now() - 20 * 60_000);
+  const esito = await submissions.decideFormSubmission(scopeA(), id, { decision: "approve" });
+
+  assert.equal(esito.submission.status, "approved");
+  assert.equal(fake.rows("athlete").length, 1);
+});
+
+test("una decisione fallita rilascia la presa: il tentativo successivo passa", async () => {
+  const template = await publishedTemplate([
+    { id: "f_genitore", type: "short_text", label: "Nome del genitore", binding: "guardian.name" },
+  ]);
+  const id = await submitOne(template, { f_genitore: "Anna" });
+
+  /* Senza atleta scelto il genitore non sa a chi collegarsi: fallisce dopo la presa. */
+  await assert.rejects(
+    () => submissions.decideFormSubmission(scopeA(), id, { decision: "approve" }),
+    /scegli o crea/,
+  );
+  const row = fake.rows("formSubmission").find((entry) => entry.id === id);
+  assert.equal(row.status, "pending");
+  assert.equal(row.reviewed_at, null, "la presa si rilascia");
+
+  fake.rows("athlete").push({
+    id: "atleta-1",
+    organization_id: CLUB_A,
+    first_name: "Mario",
+    last_name: "Rossi",
+    data: {},
+  });
+  const esito = await submissions.decideFormSubmission(scopeA(), id, {
+    decision: "approve",
+    subjects: [{ subject: "athlete", recordId: "atleta-1", label: "Mario Rossi" }],
+  });
+  assert.equal(esito.submission.status, "approved");
+});

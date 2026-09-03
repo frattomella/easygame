@@ -1009,12 +1009,64 @@ export const createFakePrisma = (seedByDelegate = {}) => {
 
   const delegates = new Map();
 
+  /**
+   * **L'unica istruzione SQL grezza che questo doppio sa eseguire.**
+   *
+   * Il contatore di frequenza (`auth-rate-limit.ts`) e un solo
+   * `INSERT … ON CONFLICT DO UPDATE … RETURNING`, perche la sua atomicita
+   * sotto richieste simultanee non ha una forma Prisma (B-H2, revisione
+   * finale della Wave 6). Un doppio che rispondesse `[]` farebbe fallire ogni
+   * test sui limiti; uno che rispondesse sempre `count: 1` li farebbe passare
+   * provando il contrario di cio che devono provare.
+   *
+   * Si emula quindi **quella** istruzione, sulle righe di
+   * `authRateLimitBucket`, con la stessa semantica: riga nuova o scaduta →
+   * `count = 1` e nuova scadenza; riga viva → `count + 1`. L'ordine dei
+   * parametri (chiave, scope, scadenza, adesso) e parte del contratto. La
+   * concorrenza vera non si emula qui: la prova la sonda contro Postgres.
+   *
+   * Qualunque altra istruzione risponde `[]`, come prima: i `SELECT … FOR
+   * UPDATE` dei lock di riga non hanno niente da restituire.
+   */
+  const eseguiSqlGrezzo = (strings, values) => {
+    const testo = Array.isArray(strings)
+      ? strings.join("?")
+      : String(strings?.sql ?? strings ?? "");
+    if (!/INSERT INTO auth_rate_limit_buckets/i.test(testo)) return [];
+
+    const [key, scope, nextExpiry, now] = values;
+    const righe = rowsOf("authRateLimitBucket");
+    const esistente = righe.find((r) => r.key === key);
+
+    if (!esistente) {
+      righe.push({
+        key,
+        scope,
+        count: 1,
+        expires_at: nextExpiry,
+        created_at: now,
+        updated_at: now,
+      });
+      return [{ count: 1, expires_at: nextExpiry }];
+    }
+
+    if (esistente.expires_at <= now) {
+      esistente.count = 1;
+      esistente.expires_at = nextExpiry;
+    } else {
+      esistente.count += 1;
+    }
+    esistente.scope = scope;
+    esistente.updated_at = now;
+    return [{ count: esistente.count, expires_at: esistente.expires_at }];
+  };
+
   const client = new Proxy(
     {
       $transaction: async (input) =>
         typeof input === "function" ? input(client) : Promise.all(input),
       $disconnect: async () => {},
-      $queryRaw: async () => [],
+      $queryRaw: async (strings, ...values) => eseguiSqlGrezzo(strings, values),
     },
     {
       get: (target, property) => {

@@ -1044,10 +1044,58 @@ export const reviewFormSubmission = async (
     ? normalizeSelections(overrideSelections)
     : submission.subjects;
 
-  const { records } = await loadSubjectRecords(
+  /*
+    **La proposta e la gemella della precompilazione, e le mancavano le
+    stesse due guardie.** (B-H5, revisione finale della Wave 6)
+
+    `buildCompileContext` toglie il clinico a chi non ha `clinical.read` e
+    chiede `athleteWithinAccessScope` prima di precompilare un modulo con la
+    scheda di un atleta. Questa funzione fa la stessa cosa — legge la scheda
+    scelta e la confronta con le risposte — e non chiedeva niente: il
+    `recordId` arriva dal corpo (`action: "preview"`, `subjects`), l'anteprima
+    non scrive e non lascia audit, e il `changeSet` porta il **valore
+    attuale** di ogni campo. Un operatore recintato sulla sede Nord, con una
+    compilazione qualunque in mano, otteneva nome, codice fiscale, data di
+    nascita e tutori del minore della sede Sud — e con un campo legato ad
+    `athlete.allergies`, il suo dato sanitario.
+
+    Il perimetro si chiede **prima** di leggere il confronto, e la risposta e
+    la stessa di ogni altra porta sul perimetro. Il clinico si toglie dal
+    record prima di costruire il `changeSet`: per chi non ha la chiave il
+    valore attuale di un campo clinico non esiste, come nella precompilazione.
+  */
+  for (const selezione of selections) {
+    if (selezione.subject !== "athlete") continue;
+    const idAtleta = asText(selezione.recordId);
+    if (!idAtleta) continue;
+
+    const dentro = await athleteWithinAccessScope(
+      row.organization_id,
+      idAtleta,
+      scope,
+    );
+    if (!dentro) {
+      throw new Error(
+        "Accesso negato: questo atleta e fuori dal perimetro di sede o categoria del ruolo attivo",
+      );
+    }
+  }
+
+  const { records: recordsInteri } = await loadSubjectRecords(
     row.organization_id,
     selections,
   );
+
+  const records = hasHealthPermission(scope.activeRole, "clinical.read")
+    ? recordsInteri
+    : (Object.fromEntries(
+        Object.entries(recordsInteri).map(([soggetto, riga]) => [
+          soggetto,
+          riga && soggetto === "athlete"
+            ? { ...riga, data: stripClinicalAthleteFields((riga as any).data) }
+            : riga,
+        ]),
+      ) as typeof recordsInteri);
 
   const changeSet = buildChangeSet({
     schema: submission.schema,
@@ -1655,6 +1703,86 @@ export const decideFormSubmission = async (
     throw new Error("Questa compilazione e gia stata esaminata.");
   }
 
+  const presa = await prendiInEsame(row.id, scope);
+  try {
+    return await eseguiDecisione(scope, row, decision);
+  } catch (errore) {
+    await rilasciaEsame(row.id, presa);
+    throw errore;
+  }
+};
+
+/**
+ * Quanto dura la presa in esame di una compilazione prima che si consideri
+ * abbandonata. Un'approvazione dura secondi; dieci minuti coprono anche un
+ * processo caduto a meta, senza lasciare una pratica bloccata per sempre.
+ */
+const LEASE_ESAME_MS = 10 * 60_000;
+
+/**
+ * **Una compilazione si prende in esame prima di scriverla, e la si prende in
+ * una scrittura sola.** (B-H4, revisione finale della Wave 6)
+ *
+ * **Il difetto che chiude.** Il controllo «e ancora `pending`?» stava in
+ * testa e il passaggio ad `approved` in coda, con in mezzo la creazione della
+ * scheda, delle appartenenze, dei consensi e delle richieste documentali.
+ * Due approvazioni **simultanee** — un doppio clic, o due persone della
+ * segreteria sulla stessa pratica — leggevano entrambe `pending` e scrivevano
+ * entrambe: misurato `['OK','OK']`, **due schede** per lo stesso minore, con
+ * appartenenze, consensi e richieste duplicati.
+ *
+ * Non si puo chiudere spostando `approved` in testa: se il processo cade a
+ * meta la pratica deve restare `pending`, quindi riapprovabile — e il motivo
+ * per cui consenso e documento precedono il cambio di stato. Serve quindi
+ * una **presa**: `reviewed_at` valorizzato **su una riga ancora `pending`**
+ * dice «qualcuno la sta scrivendo adesso». Si prende con un `updateMany`
+ * condizionato, cioe lo stesso schema di `document-requests.ts`: Postgres
+ * rivaluta il `WHERE` sulla riga bloccata, e di due richieste simultanee una
+ * sola trova la riga libera. L'altra riceve un errore, non un duplicato.
+ *
+ * La presa si **rilascia** se la decisione fallisce, cosi la pratica torna
+ * riapprovabile subito; e **scade** da sola dopo `LEASE_ESAME_MS`, cosi un
+ * processo caduto senza `catch` non la blocca per sempre. Su una riga
+ * `approved` o `rejected` `reviewed_at` conserva il significato di sempre:
+ * quando e stata decisa.
+ */
+const prendiInEsame = async (id: string, scope: FormsAccessScope) => {
+  const adesso = new Date();
+  const presa = await (prisma as any).formSubmission.updateMany({
+    where: {
+      id,
+      status: "pending",
+      OR: [
+        { reviewed_at: null },
+        { reviewed_at: { lt: new Date(adesso.getTime() - LEASE_ESAME_MS) } },
+      ],
+    },
+    data: { reviewed_at: adesso, reviewed_by: scope.userId || null },
+  });
+
+  if (presa.count !== 1) {
+    throw new Error(
+      "Questa compilazione e gia in esame da un'altra richiesta: attendi che finisca e ricarica.",
+    );
+  }
+
+  return adesso;
+};
+
+/** Rilascia la presa solo se e ancora la propria: una presa altrui non si tocca. */
+const rilasciaEsame = (id: string, presa: Date) =>
+  (prisma as any).formSubmission
+    .updateMany({
+      where: { id, status: "pending", reviewed_at: presa },
+      data: { reviewed_at: null, reviewed_by: null },
+    })
+    .catch(() => undefined);
+
+const eseguiDecisione = async (
+  scope: FormsAccessScope,
+  row: SubmissionRow,
+  decision: ReviewDecision,
+): Promise<ReviewOutcome> => {
   const note = asText(decision.note).slice(0, 2000);
 
   if (decision.decision === "reject") {

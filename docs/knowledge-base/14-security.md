@@ -2394,3 +2394,119 @@ due. Prova: `U-68` nella sonda di sicurezza, con la controprova positiva
 accanto a ognuna — senza perimetro le partecipazioni si vedono tutte, chi non
 e allenatore legge la riga, chi amministra vede l'IBAN, e chi puo scrivere
 quel tipo scrive anche dal contenitore.
+
+## Wave 6 — la revisione finale: sei High riprodotti, misurati e chiusi (2026-09-03)
+
+L'handoff della Wave 6 (`docs/wave-6-handoff.md`, §8) consegnava **sei High
+riportati da un revisore e non verificati**. La regola della revisione finale
+era di non darne per buono nessuno: riprodurre, misurare, correggere solo se
+confermato, e provare la non vacuita reintroducendo il difetto. **Tutti e sei
+erano veri.** Due Medium della tornata precedente si erano rivelati falsi
+positivi; qui nessuno.
+
+### B-H1 + B-H2 — una presa di possesso dell'account, in due meta
+
+**B-H2, il contatore di frequenza.** `consumeAuthRateLimit` girava in una
+transazione interattiva: lettura del secchiello, poi `upsert` con `count: 1`
+se mancava o era scaduto, altrimenti `update` con `increment`. Il ramo
+dell'incremento era atomico; quello di apertura no. Misurato contro Postgres:
+**21 richieste ammesse su 40** a freddo e 19 su 40 a finestra scaduta, contro
+un limite di 5. In sequenza il conteggio era giusto, ed e per questo che i test
+unitari non lo vedevano: un doppio in memoria esegue una chiamata alla volta.
+Toccava tutti i contatori — login, registrazione, invio e conferma OTP, riscatto
+gettone, moduli pubblici, link di pagamento, ricevuta di iscrizione — perche la
+primitiva e una.
+
+**B-H1, il contatore dei tentativi OTP.** `verifyInternalChallenge` leggeva
+`attempts`, confrontava il codice e riscriveva `attempts + 1` come valore
+**assoluto**. Misurato: **60 codici sbagliati in parallelo, `attempts = 1`,
+challenge viva, e il codice giusto accettato subito dopo**. Il codice e a sei
+cifre, la challenge si fa emettere senza sessione da `POST
+/api/v1/auth/verify/email/send`, e il successo restituisce una sessione.
+
+**La correzione** ([ADR-0109](18-decision-log.md#adr-0109--un-contatore-che-difende-si-scrive-in-unistruzione-condizionata-sola-mai-letto-e-poi-scritto)).
+Il contatore di frequenza e un solo `INSERT … ON CONFLICT DO UPDATE …
+RETURNING`: Postgres prende il lock di riga e valuta il `SET` sulla versione gia
+committata, quindi N richieste simultanee ricevono N valori distinti e solo le
+prime `limit` passano; la riapertura a finestra scaduta sta nello stesso `CASE`
+e conta una volta per finestra. Non c'e piu una transazione interattiva ne una
+lettura prima della scrittura: e per questo che regge fra istanze serverless
+diverse. La verifica OTP **spende** il tentativo prima di giudicare il codice
+(`UPDATE … SET attempts = attempts + 1 WHERE consumed_at IS NULL AND attempts
+< MAX`) e consuma la challenge solo se e ancora viva: dieci codici giusti
+simultanei producono **una** verifica. Il reset della password usa la stessa
+primitiva; un token giusto seguito da una password che non vale non consuma il
+tentativo, come prima.
+
+Una prima stesura chiudeva la challenge al tetto scrivendo `consumed_at`: il
+doppio in memoria ha mostrato che quella scrittura **competeva** con il
+consumo di un codice giusto ancora in volo — cinque codici giusti e un sesto
+qualunque potevano finire senza nessuna verifica. Il tetto vive nel `WHERE`,
+e basta.
+
+### B-H3 — l'importo di una rata dal registro generico
+
+`guardLedgerOwnedPaymentState` chiudeva lo `status`; `amount`, `due_date` e
+`athlete_id` restavano aperti. Misurato: rata `paid` da 130 portata a 500 da
+`PATCH /api/v1/payments/:id`, riga ancora `paid`, registro riletto `partial`
+con residuo 370. La stessa regola della rotta di dominio vale ora sul registro
+generico e sull'alias `simplified_payments`: una rata saldata o annullata non
+cambia importo, scadenza ne atleta; una rata aperta cambia importo **dentro il
+lock di riga** e lo stato lo riscrive `recomputeChargeFromLedger`; una rata con
+incassi non si sposta su un altro atleta. Descrizione e note restano libere,
+perche le schermate rimandano il record intero.
+
+### B-H4 — due approvazioni simultanee della stessa iscrizione
+
+Il controllo «e ancora `pending`?» stava in testa e il passaggio ad `approved`
+in coda. Misurato: `['OK','OK']`, **due schede** per lo stesso minore. Non si
+poteva spostare `approved` in testa, perche un'approvazione interrotta deve
+restare riapprovabile. La compilazione si **prende in esame** con un
+`updateMany` condizionato — `reviewed_at` valorizzato su una riga ancora
+`pending` significa «qualcuno la sta scrivendo adesso» — si rilascia se la
+decisione fallisce, e scade da sola dopo dieci minuti se il processo cade
+senza rilascio. Stesso schema di `document-requests.ts`.
+
+### B-H5 — l'anteprima di una compilazione fuori perimetro
+
+`reviewFormSubmission` e la gemella di `buildCompileContext` e non aveva le sue
+due guardie: il `recordId` arriva dal corpo (`action: "preview"`), l'anteprima
+non scrive e non lascia audit, e il `changeSet` porta il **valore attuale** di
+ogni campo. Un operatore recintato sulla sede Nord otteneva nome, codice
+fiscale, data di nascita, tutori — e, con un campo legato ad
+`athlete.allergies`, il dato sanitario — del minore della sede Sud. Adesso il
+perimetro si chiede prima di leggere il confronto e il clinico si toglie dal
+record per chi non ha `clinical.read`, come nella precompilazione.
+
+### B-H6 — la seconda porta alla prima nota
+
+`createAccountingEntry` non contiene il permesso: lo chiede l'involucro
+`accountingRoute`. `completeObligation` la chiamava da una rotta custodita dal
+solo `sport_work.manage`, con scope composto a mano e importo dal corpo. Un
+ruolo personalizzato con quella chiave e senza `accounting.manage` scriveva
+un'uscita in prima nota. Adesso la chiave si chiede **prima** di marcare
+l'adempimento assolto, cosi un 403 non lascia un adempimento chiuso con un
+versamento mai registrato; assolvere senza registrare il versamento resta un
+atto del lavoro sportivo.
+
+### Prova e non vacuita
+
+`U-69`…`U-74` in `scripts/wave-6-security-probe.mjs`, dalla rotta o dalla
+funzione che la rotta chiama, con `Promise.all` contro Postgres dove il
+difetto e la concorrenza, e con la controprova positiva accanto a ognuna (in
+sequenza i primi cinque passano; due errori e il codice giusto verificano; la
+rata aperta cambia importo; la presa vecchia non blocca; la proposta dentro il
+perimetro mostra il valore; assolvere senza versamento passa). Non vacuita
+verificata reintroducendo i sei difetti insieme: **14 controlli rossi su 24**,
+tutte le controprove positive verdi. Cinque nuove prove unitarie sul doppio —
+che esegue le chiamate intrecciate ai confini degli `await` — coprono B-H1,
+B-H3, B-H4 e B-H6; B-H5 e B-H2 si provano solo contro il database, perche il
+doppio non valuta i filtri di relazione ne la concorrenza vera.
+
+### Cosa e stato deciso di **non** fare, e dove sta scritto
+
+Gli otto Medium e i sette Low del §8 dell'handoff non toccano il perimetro di
+questa revisione (correzioni e loro regressioni) e sono stati classificati come
+debito con il loro motivo in [16 — Debito tecnico](16-technical-debt.md)
+(`W6-D30`…`W6-D33`). Nessuno di loro e un accesso cross-tenant, una fuga di
+dato di minore o clinico, o denaro che esce due volte.

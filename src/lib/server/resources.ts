@@ -45,6 +45,14 @@ import {
 import { Prisma } from "@prisma/client";
 import { hashPassword } from "./auth";
 import {
+  lockInstallmentAndTransaction,
+  recomputeChargeFromLedger,
+} from "./payment-transactions";
+import {
+  isPaymentExcludedFromTotals,
+  isPaymentPaidLike,
+} from "@/lib/payments/payment-status-utils";
+import {
   getPasswordPolicyMessage,
   validatePassword,
 } from "../auth/password-policy";
@@ -6316,6 +6324,91 @@ const guardLedgerOwnedPaymentState = async (
   });
 };
 
+const PAYMENT_RESOURCES = new Set(["payments", "simplified_payments"]);
+
+const stessoImporto = (a: unknown, b: unknown) =>
+  Math.round(Number(a ?? 0) * 100) === Math.round(Number(b ?? 0) * 100);
+
+const stessaData = (a: unknown, b: unknown) => {
+  const da = a ? new Date(a as any).getTime() : null;
+  const db = b ? new Date(b as any).getTime() : null;
+  return da === db;
+};
+
+/**
+ * **L'importo di una rata e denaro, e il registro generico lo riscriveva
+ * come una colonna qualunque.** (B-H3, revisione finale della Wave 6)
+ *
+ * `guardLedgerOwnedPaymentState` chiude lo `status`: non si dichiara pagata
+ * una rata senza incasso. Ma lo stato si **ricava** dagli importi
+ * (ADR-0036, ADR-0067), e gli importi restavano aperti: un
+ * `PATCH /api/v1/payments/:id {"amount": 500}` su una rata **pagata** da 130
+ * scriveva 500 senza lock e senza ricalcolo. Misurato: la riga restava
+ * `paid`, e il registro — riletto — diceva `partial`, residuo 370, scaduta.
+ * Lo stato salvato contraddiceva i propri importi, che e esattamente la
+ * contraddizione che il proprietario del dominio
+ * (`/api/athlete-payments/:id`) impedisce da due Wave: li una rata pagata
+ * non si modifica, e un cambio d'importo su una rata aperta passa dal lock
+ * di riga e da `recomputeChargeFromLedger`.
+ *
+ * Qui si applica **la stessa regola**, non una seconda: le tre colonne che
+ * cambiano il debito — `amount`, `due_date`, `athlete_id` — su una rata
+ * pagata o annullata non si toccano; su una rata aperta si scrivono dentro
+ * la transazione che blocca la riga, e lo stato lo riscrive il proprietario
+ * del ledger. Spostare su un altro atleta una rata che ha incassi e vietato
+ * in ogni caso: gli incassi portano l'atleta anche loro, e la rata li
+ * contraddirebbe.
+ *
+ * Le altre colonne — descrizione, note, metodo — restano libere anche su una
+ * rata pagata: non spostano un euro, e le schermate rimandano il record
+ * intero. Il diniego arriva **solo** quando il valore cambia davvero.
+ */
+const guardLedgerOwnedPaymentAmounts = async (
+  resource: string,
+  normalized: Record<string, any>,
+  existing: Record<string, any> | null | undefined,
+): Promise<{ ricalcola: boolean }> => {
+  if (!PAYMENT_RESOURCES.has(resource) || !existing) return { ricalcola: false };
+
+  const cambiaImporto =
+    normalized.amount !== undefined &&
+    normalized.amount !== null &&
+    !stessoImporto(normalized.amount, existing.amount);
+  const cambiaScadenza =
+    normalized.due_date !== undefined &&
+    !stessaData(normalized.due_date, existing.due_date);
+  const cambiaAtleta =
+    normalized.athlete_id !== undefined &&
+    normalized.athlete_id !== null &&
+    String(normalized.athlete_id) !== String(existing.athlete_id ?? "");
+
+  if (!cambiaImporto && !cambiaScadenza && !cambiaAtleta) {
+    return { ricalcola: false };
+  }
+
+  if (isPaymentExcludedFromTotals(existing)) {
+    throw new Error("Una rata annullata non si modifica: creane una nuova");
+  }
+  if (isPaymentPaidLike(existing)) {
+    throw new Error(
+      "I pagamenti gia pagati non possono essere modificati: importo, scadenza e atleta di una rata saldata sono fissati dai suoi incassi",
+    );
+  }
+
+  if (cambiaAtleta) {
+    const incassi = await prisma.paymentTransaction.count({
+      where: { payment_id: String(existing.id), reversed_at: null },
+    });
+    if (incassi > 0) {
+      throw new Error(
+        "La rata ha incassi registrati: non si sposta su un altro atleta",
+      );
+    }
+  }
+
+  return { ricalcola: cambiaImporto };
+};
+
 /**
  * **I documenti fiscali non si scrivono come una riga qualunque.** (W4-E)
  *
@@ -7085,6 +7178,7 @@ export const updateResource = async (
     existing?.id || id,
   );
   await guardLedgerOwnedPaymentState(resource, normalized, existing, scope, id);
+  const importi = await guardLedgerOwnedPaymentAmounts(resource, normalized, existing);
   guardFiscalDocumentIntegrity(resource, normalized, existing);
 
   if (isOrganizationScopedResource(resource)) {
@@ -7096,11 +7190,34 @@ export const updateResource = async (
 
   await applicaGuardieDiModifica(resource, normalized, existing, scope);
 
-  const record = await delegate.update({
-    where: { id },
-    data: normalized,
-    include: getModelInclude(resource),
-  });
+  const record = importi.ricalcola
+    ? await (prisma as any).$transaction(async (client: any) => {
+        /*
+          Un cambio d'importo cambia il residuo, quindi lo stato: si scrive
+          sulla riga **bloccata e riletta**, come fa il proprietario del
+          dominio, e lo stato lo ricava il ledger — non il valore che il
+          client ha rimandato.
+        */
+        await lockInstallmentAndTransaction(client, id);
+        const fresca = await client.athletePayment.findUnique({ where: { id } });
+        if (!fresca) throw new Error("Pagamento non trovato");
+        if (isPaymentPaidLike(fresca) || isPaymentExcludedFromTotals(fresca)) {
+          throw new Error(
+            "I pagamenti gia pagati non possono essere modificati: un incasso e entrato nel frattempo",
+          );
+        }
+        await client.athletePayment.update({ where: { id }, data: normalized });
+        await recomputeChargeFromLedger(client, id);
+        return client.athletePayment.findUnique({
+          where: { id },
+          include: getModelInclude(resource),
+        });
+      })
+    : await delegate.update({
+        where: { id },
+        data: normalized,
+        include: getModelInclude(resource),
+      });
 
   if (resource === "users") {
     await syncUserClubAccess(record.id, input.club_access, scope);

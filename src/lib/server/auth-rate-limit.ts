@@ -67,6 +67,49 @@ export const getRequestIp = (request: Request) => {
   return request.headers.get("x-real-ip")?.trim() || "unknown";
 };
 
+type RigaDelSecchiello = { count: number; expires_at: Date };
+
+/**
+ * **L'unico contatore di frequenza, e in un'istruzione sola.**
+ *
+ * **Il difetto che chiude (B-H2, revisione finale della Wave 6).** Il
+ * contatore girava in una transazione interattiva: `findUnique`, e poi
+ * `upsert` con `count: 1` se il secchiello mancava o era scaduto, altrimenti
+ * `update` con `increment`. Il ramo dell'incremento era atomico; quello di
+ * apertura no. Con N richieste **simultanee** su un secchiello nuovo — o su
+ * uno appena scaduto — ognuna leggeva «non c'e», ognuna scriveva `count = 1`,
+ * e nessuna vedeva le altre: Postgres in `READ COMMITTED` non serializza due
+ * `SELECT` che non trovano niente. Misurato dal database vero: **21 ammesse
+ * su 40** contro un limite di 5, e 19 su 40 a finestra scaduta. In sequenza
+ * il conteggio era giusto, ed e per questo che nessun test lo vedeva: un
+ * doppio in memoria esegue una chiamata alla volta.
+ *
+ * Con B-H1 questo era un percorso di presa di possesso di un account: le
+ * raffiche superavano il contatore per indirizzo, e il contatore dei
+ * tentativi sulla challenge contava le raffiche invece dei tentativi.
+ *
+ * **La forma.** `INSERT … ON CONFLICT DO UPDATE … RETURNING`: Postgres prende
+ * il lock di riga sul conflitto e valuta il `SET` sulla versione **gia
+ * committata** dalle richieste arrivate prima, quindi N richieste simultanee
+ * ricevono N valori distinti `1..N`, e solo le prime `limit` passano. La
+ * riapertura a finestra scaduta sta nello stesso `CASE`: e atomica come
+ * l'incremento, e riparte da 1 **una volta** per finestra, non una volta per
+ * richiesta. Non c'e piu una transazione interattiva ne una lettura prima
+ * della scrittura: il database e l'unico stato, ed e per questo che regge
+ * anche fra istanze serverless diverse, che non condividono memoria.
+ *
+ * La finestra e **fissa** per scelta: si apre al primo tentativo, dura
+ * `windowMs`, e finche e viva l'incremento non la allunga. Quando scade, un
+ * tentativo nuovo ne apre un'altra da 1 — e il comportamento dichiarato in
+ * `rate-limit-policy.ts`, non una falla: cio che il difetto apriva era la
+ * possibilita di riaprirla N volte **nello stesso istante**.
+ *
+ * E l'unica istruzione SQL grezza sul contatore, ed e l'unica che il doppio
+ * dei test sa emulare (`tests/helpers/fake-prisma.mjs`): l'ordine dei
+ * parametri — chiave, scope, scadenza, adesso — e parte del contratto con il
+ * doppio. La prova di concorrenza vera sta nella sonda
+ * (`scripts/wave-6-security-probe.mjs`, U-69), contro Postgres.
+ */
 export const consumeAuthRateLimit = async (
   policy: AuthRateLimitPolicy,
   identifier: string,
@@ -75,33 +118,34 @@ export const consumeAuthRateLimit = async (
   const key = hashIdentifier(policy.scope, identifier);
   const nextExpiry = new Date(now.getTime() + policy.windowMs);
 
-  const bucket = await prisma.$transaction(async (tx) => {
-    const existing = await tx.authRateLimitBucket.findUnique({ where: { key } });
+  const righe = await prisma.$queryRaw<RigaDelSecchiello[]>`
+    INSERT INTO auth_rate_limit_buckets (key, scope, count, expires_at, created_at, updated_at)
+    VALUES (${key}, ${policy.scope}, 1, ${nextExpiry}, ${now}, ${now})
+    ON CONFLICT (key) DO UPDATE SET
+      count = CASE
+        WHEN auth_rate_limit_buckets.expires_at <= ${now} THEN 1
+        ELSE auth_rate_limit_buckets.count + 1
+      END,
+      expires_at = CASE
+        WHEN auth_rate_limit_buckets.expires_at <= ${now} THEN ${nextExpiry}
+        ELSE auth_rate_limit_buckets.expires_at
+      END,
+      scope = ${policy.scope},
+      updated_at = ${now}
+    RETURNING count, expires_at
+  `;
 
-    if (!existing || existing.expires_at <= now) {
-      return tx.authRateLimitBucket.upsert({
-        where: { key },
-        create: {
-          key,
-          scope: policy.scope,
-          count: 1,
-          expires_at: nextExpiry,
-        },
-        update: {
-          scope: policy.scope,
-          count: 1,
-          expires_at: nextExpiry,
-        },
-      });
-    }
+  const bucket = righe[0];
+  if (!bucket) {
+    throw new Error("Il contatore di frequenza non ha restituito nessuna riga");
+  }
 
-    return tx.authRateLimitBucket.update({
-      where: { key },
-      data: { count: { increment: 1 } },
-    });
-  });
-
-  return buildRateLimitResult(bucket.count, policy, bucket.expires_at, now);
+  return buildRateLimitResult(
+    Number(bucket.count),
+    policy,
+    new Date(bucket.expires_at),
+    now,
+  );
 };
 
 export const consumeRequestRateLimits = async (

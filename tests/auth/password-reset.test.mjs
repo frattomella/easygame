@@ -60,9 +60,20 @@ test("il token e monouso, scade e ha un tetto di tentativi", () => {
     WORKFLOWS.includes("expires_at: { gt: new Date() }"),
     "la challenge scaduta non deve essere accettata",
   );
+  /*
+    Il tetto si applica **dentro** la scrittura, non prima: `attempts < MAX`
+    nel `WHERE` dell'incremento e cio che fa contare i tentativi e non le
+    raffiche (B-H1). Un controllo `challenge.attempts >= MAX` letto prima
+    dell'incremento e la forma del difetto, e questa prova non deve piu
+    accettarla.
+  */
   assert.ok(
-    WORKFLOWS.includes("challenge.attempts >= MAX_OTP_ATTEMPTS"),
-    "serve un tetto ai tentativi",
+    WORKFLOWS.includes("attempts: { lt: MAX_OTP_ATTEMPTS }"),
+    "il tetto ai tentativi va nel WHERE dell'incremento",
+  );
+  assert.ok(
+    !WORKFLOWS.includes("challenge.attempts >= MAX_OTP_ATTEMPTS"),
+    "il tetto non si controlla leggendo prima di scrivere",
   );
   assert.ok(
     WORKFLOWS.includes("consumed_at: new Date()"),

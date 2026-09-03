@@ -5,6 +5,11 @@
 > aperto e cosa va rieseguito.
 >
 > Data: **2026-09-02**.
+>
+> **Esito (2026-09-03):** la revisione finale ha riprodotto e chiuso tutti e
+> sei gli High del §8. Il verbale, i gate e la checklist per il collaudo
+> manuale stanno in [`wave-6-final.md`](wave-6-final.md). Questo documento
+> resta come fotografia dello stato **prima** della revisione.
 
 ---
 

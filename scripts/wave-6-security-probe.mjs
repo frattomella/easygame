@@ -39,7 +39,7 @@
  */
 
 import { PrismaClient } from "@prisma/client";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -98,6 +98,8 @@ let cruscottoFamiglia;
 let contiAtleta;
 let allegati;
 let permessiSanitari;
+let limiti;
+let flussiAuth;
 let permessiAllegati;
 let ruoliDiClub;
 let registro;
@@ -228,6 +230,7 @@ const preparaTrasporto = async () => {
     moduloPubblico: await carica("src/app/api/public/forms/[publicSlug]/route.ts"),
     risorsa: await carica("src/app/api/v1/[resource]/route.ts"),
     riscatto: await carica("src/app/api/v1/auth/access/redeem/route.ts"),
+    confermaEmail: await carica("src/app/api/v1/auth/verify/email/confirm/route.ts"),
     personaLavoro: await carica("src/app/api/v1/sport-work/people/[id]/route.ts"),
     avatar: await carica("src/app/api/v1/athletes/[id]/avatar/route.ts"),
     rata: await carica("src/app/api/athlete-payments/[paymentId]/route.ts"),
@@ -6042,6 +6045,698 @@ const u68 = async () => {
     .catch(() => {});
 };
 
+/* ==================================================================== */
+/*  U-69 — il contatore di frequenza sotto le raffiche                  */
+/* ==================================================================== */
+
+const u69 = async () => {
+  /*
+    **B-H2, revisione finale della Wave 6.** Il contatore girava in una
+    transazione interattiva: lettura, poi `upsert` con `count: 1` se il
+    secchiello mancava o era scaduto. Sotto N richieste simultanee ognuna
+    leggeva «non c'e» e ognuna scriveva 1. Misurato prima della correzione:
+    **21 ammesse su 40** a freddo e 19 su 40 a finestra scaduta, contro un
+    limite di 5. In sequenza contava giusto, ed e per questo che nessun test
+    unitario lo vedeva.
+
+    Si misura con `Promise.all` contro Postgres, non con un doppio: la
+    concorrenza e il difetto, e un doppio esegue una chiamata alla volta.
+  */
+  console.log(
+    `${NL}U-69 — il contatore di frequenza sotto le raffiche   [HIGH: accesso, con U-70 presa di possesso]`,
+  );
+
+  const inizio = new Date();
+  const politica = limiti.AUTH_RATE_LIMITS.otpConfirm;
+  const RAFFICA = 40;
+
+  const raffica = async (identificativo) => {
+    const esiti = await Promise.all(
+      Array.from({ length: RAFFICA }, () =>
+        limiti.consumeAuthRateLimit(politica, identificativo),
+      ),
+    );
+    return esiti.filter((esito) => esito.allowed).length;
+  };
+
+  const identificativo = `sonda-u69-${randomUUID()}`;
+  prova(
+    "U-69 quaranta richieste simultanee a freddo: ne passano esattamente `limit`",
+    politica.limit,
+    await raffica(identificativo),
+    "prima della correzione: 21/40 ammesse contro un limite di 5",
+  );
+
+  /*
+    La finestra scaduta: il secchiello esiste ma e vecchio. La riapertura
+    deve contare **una** volta, non una per richiesta.
+  */
+  const secchiello = await prisma.authRateLimitBucket.findFirst({
+    where: { scope: politica.scope, updated_at: { gte: inizio } },
+    orderBy: { updated_at: "desc" },
+  });
+  await prisma.authRateLimitBucket.update({
+    where: { key: secchiello.key },
+    data: { expires_at: new Date(Date.now() - 1000) },
+  });
+  prova(
+    "U-69 e a finestra scaduta la riapertura conta una volta sola",
+    politica.limit,
+    await raffica(identificativo),
+    "prima della correzione: 19/40 ammesse",
+  );
+
+  /* --- controspecchio: la famiglia che sbaglia e riprova --- */
+
+  const famiglia = `sonda-u69-famiglia-${randomUUID()}`;
+  let ammessi = 0;
+  for (let tentativo = 0; tentativo < politica.limit; tentativo += 1) {
+    if ((await limiti.consumeAuthRateLimit(politica, famiglia)).allowed) ammessi += 1;
+  }
+  const sesto = await limiti.consumeAuthRateLimit(politica, famiglia);
+  prova(
+    "U-69 controspecchio: in sequenza i primi cinque passano e il sesto aspetta",
+    { ammessi: politica.limit, sesto: false, attesa: true },
+    { ammessi, sesto: sesto.allowed, attesa: sesto.retryAfterSeconds > 0 },
+    "un contatore che negasse sempre chiuderebbe il login a tutti, e le prove di diniego passerebbero lo stesso",
+  );
+
+  const secchielloFamiglia = await prisma.authRateLimitBucket.findFirst({
+    where: { scope: politica.scope, updated_at: { gte: inizio }, key: { not: secchiello.key } },
+    orderBy: { updated_at: "desc" },
+  });
+  await prisma.authRateLimitBucket.update({
+    where: { key: secchielloFamiglia.key },
+    data: { expires_at: new Date(Date.now() - 1000) },
+  });
+  const dopoLaFinestra = await limiti.consumeAuthRateLimit(politica, famiglia);
+  prova(
+    "U-69 e alla scadenza della finestra la famiglia riprova da capo",
+    { ammesso: true, restanti: politica.limit - 1 },
+    { ammesso: dopoLaFinestra.allowed, restanti: dopoLaFinestra.remaining },
+  );
+
+  /* --- dalla rotta: e il contatore per indirizzo della conferma OTP --- */
+
+  const bersaglio = randomUUID();
+  const risposte = await Promise.all(
+    Array.from({ length: RAFFICA }, () =>
+      rotte.confermaEmail.POST(
+        new Request("http://collaudo.invalid/api/v1/auth/verify/email/confirm", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-forwarded-for": "198.51.100.69",
+          },
+          body: JSON.stringify({ userId: bersaglio, code: "000000" }),
+        }),
+      ),
+    ),
+  );
+  const oltreIlContatore = risposte.filter((r) => r.status !== 429).length;
+  prova(
+    "U-69 dalla rotta di conferma OTP: al piu `limit` richieste simultanee superano il contatore",
+    true,
+    oltreIlContatore <= politica.limit,
+    `non-429 = ${oltreIlContatore} su ${RAFFICA}, limite ${politica.limit}`,
+  );
+
+  await prisma.authRateLimitBucket.deleteMany({
+    where: { scope: politica.scope, updated_at: { gte: inizio } },
+  });
+};
+
+/* ==================================================================== */
+/*  U-70 — il contatore dei tentativi OTP                               */
+/* ==================================================================== */
+
+const u70 = async () => {
+  /*
+    **B-H1, revisione finale della Wave 6.** `verifyInternalChallenge`
+    leggeva `attempts`, confrontava il codice e riscriveva `attempts + 1`
+    come valore assoluto. Sotto N richieste simultanee ognuna leggeva 0 e
+    scriveva 1: il contatore contava le raffiche. Misurato prima della
+    correzione: **60 codici sbagliati in parallelo, `attempts = 1`, challenge
+    viva, e il codice giusto accettato subito dopo**. Il codice e a sei
+    cifre, la challenge si emette senza sessione, il successo restituisce
+    una sessione: con U-69 era una presa di possesso dell'account.
+
+    Si misura **dalla rotta**, con indirizzi diversi per ogni richiesta —
+    che e la forma di un attacco distribuito, e il motivo per cui il
+    contatore per indirizzo da solo non basta.
+  */
+  console.log(
+    `${NL}U-70 — il contatore dei tentativi OTP conta i tentativi, non le raffiche   [CRITICAL: presa di possesso]`,
+  );
+
+  const inizio = new Date();
+  const { MAX_OTP_ATTEMPTS } = await carica("src/lib/auth/otp-policy.ts");
+  const vittima = await utente("uat6s-vittima-u70@example.invalid", "Vittima");
+  const CODICE = "654321";
+
+  const nuovaChallenge = () =>
+    prisma.authVerificationChallenge.create({
+      data: {
+        user_id: vittima.id,
+        channel: "email",
+        purpose: "verify_email",
+        target: vittima.email,
+        code_hash: createHash("sha256").update(CODICE).digest("hex"),
+        expires_at: new Date(Date.now() + 10 * 60_000),
+      },
+    });
+
+  const conferma = (codice, indirizzo) =>
+    rotte.confermaEmail.POST(
+      new Request("http://collaudo.invalid/api/v1/auth/verify/email/confirm", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": indirizzo,
+        },
+        body: JSON.stringify({ userId: vittima.id, code: codice }),
+      }),
+    );
+
+  const RAFFICA = 60;
+  const challenge = await nuovaChallenge();
+  const risposte = await Promise.all(
+    Array.from({ length: RAFFICA }, (_, i) =>
+      conferma(String(100000 + i), `203.0.113.${(i % 50) + 1}`),
+    ),
+  );
+  const dopo = await prisma.authVerificationChallenge.findUnique({
+    where: { id: challenge.id },
+  });
+  /*
+    «Chiusa» vuol dire non piu spendibile: al tetto, oppure consumata. Il
+    tetto vive nel `WHERE` dell'incremento, non in `consumed_at`.
+  */
+  prova(
+    "U-70 sessanta codici sbagliati in parallelo dalla rotta: tutti respinti, e i tentativi contati fino al tetto",
+    { respinti: RAFFICA, tentativi: MAX_OTP_ATTEMPTS, chiusa: true },
+    {
+      respinti: risposte.filter((r) => r.status === 400).length,
+      tentativi: dopo?.attempts ?? null,
+      chiusa: Boolean(dopo?.consumed_at) || (dopo?.attempts ?? 0) >= MAX_OTP_ATTEMPTS,
+    },
+    "prima della correzione: attempts = 1 e challenge ancora viva",
+  );
+
+  const giusto = await conferma(CODICE, "203.0.113.200");
+  prova(
+    "U-70 e il codice giusto, dopo la raffica, non apre piu niente",
+    400,
+    giusto.status,
+    "prima della correzione: 200 e una sessione",
+  );
+
+  /* --- controspecchio: la persona che sbaglia due volte e poi indovina --- */
+
+  const seconda = await nuovaChallenge();
+  const sbagliati = [];
+  for (let i = 0; i < 2; i += 1) {
+    await flussiAuth
+      .confirmEmailVerification(vittima.id, "000000")
+      .catch((errore) => sbagliati.push(errore.message));
+  }
+  const esito = await flussiAuth
+    .confirmEmailVerification(vittima.id, CODICE)
+    .then(() => "verificato")
+    .catch((errore) => `respinto: ${errore.message}`);
+  const secondaDopo = await prisma.authVerificationChallenge.findUnique({
+    where: { id: seconda.id },
+  });
+  prova(
+    "U-70 controspecchio: due errori e poi il codice giusto verificano l'indirizzo",
+    { sbagliati: 2, esito: "verificato", tentativi: 3, consumata: true },
+    {
+      sbagliati: sbagliati.length,
+      esito,
+      tentativi: secondaDopo?.attempts ?? null,
+      consumata: Boolean(secondaDopo?.consumed_at),
+    },
+    "un contatore che negasse sempre chiuderebbe la verifica a tutti",
+  );
+
+  /* --- e la challenge e monouso anche quando il codice giusto arriva dieci volte --- */
+
+  await nuovaChallenge();
+  const paralleli = await Promise.allSettled(
+    Array.from({ length: 10 }, () =>
+      flussiAuth.confirmEmailVerification(vittima.id, CODICE),
+    ),
+  );
+  prova(
+    "U-70 e la challenge e monouso anche sotto dieci richieste giuste simultanee",
+    1,
+    paralleli.filter((p) => p.status === "fulfilled").length,
+  );
+
+  await prisma.user.delete({ where: { id: vittima.id } }).catch(() => {});
+  await prisma.authRateLimitBucket.deleteMany({
+    where: { scope: "otp_confirm", updated_at: { gte: inizio } },
+  });
+};
+
+/* ==================================================================== */
+/*  U-71 — l'importo di una rata dal registro generico                  */
+/* ==================================================================== */
+
+const u71 = async () => {
+  /*
+    **B-H3, revisione finale della Wave 6.** `guardLedgerOwnedPaymentState`
+    chiudeva lo `status`; gli importi restavano aperti. Misurato: rata
+    `paid` da 130 portata a 500 da `PATCH /api/v1/payments/:id`, riga ancora
+    `paid`, registro riletto `partial` con residuo 370 e scaduta. Lo stato
+    salvato contraddiceva i propri importi (ADR-0036, ADR-0067), mentre la
+    rotta di dominio sulla stessa riga rifiutava.
+  */
+  console.log(
+    `${NL}U-71 — l'importo di una rata saldata dal registro generico   [CRITICAL: denaro]`,
+  );
+
+  const rata = async (importo, stato, incassato) => {
+    const riga = await prisma.athletePayment.create({
+      data: {
+        id: randomUUID(),
+        organization_id: CLUB_A,
+        athlete_id: ATLETA_A,
+        description: `Rata U-71 ${stato}`,
+        amount: importo,
+        due_date: new Date("2026-09-30"),
+        status: stato,
+        paid_at: stato === "paid" ? new Date("2026-09-01") : null,
+        data: {},
+        updated_at: new Date(),
+      },
+    });
+    if (incassato > 0) {
+      await prisma.paymentTransaction.create({
+        data: {
+          organization_id: CLUB_A,
+          athlete_id: ATLETA_A,
+          payment_id: riga.id,
+          amount: incassato,
+          paid_at: new Date("2026-09-01"),
+          payment_method: "cash",
+          source: "MANUAL",
+          data: {},
+        },
+      });
+    }
+    return riga;
+  };
+
+  const modifica = (id, patch) =>
+    risorse
+      .updateResource("payments", id, patch, scopeRuolo("owner"))
+      .then(() => "riuscita")
+      .catch((errore) => `respinta: ${errore.message}`);
+
+  const saldata = await rata(130, "paid", 130);
+  const esito = await modifica(saldata.id, { amount: 500 });
+  const saldataDopo = await prisma.athletePayment.findUnique({
+    where: { id: saldata.id },
+  });
+  prova(
+    "U-71 una rata saldata non cambia importo dal registro generico",
+    { esito: "respinta", importo: 130, stato: "paid" },
+    {
+      esito: esito.startsWith("respinta") ? "respinta" : esito,
+      importo: saldataDopo?.amount ?? null,
+      stato: saldataDopo?.status ?? null,
+    },
+    `esito: ${esito}`,
+  );
+
+  /* --- controspecchio: la rata aperta cambia, e lo stato lo ricava il registro --- */
+
+  const aperta = await rata(200, "partially_paid", 120);
+  const ridotta = await modifica(aperta.id, { amount: 120 });
+  const apertaDopo = await prisma.athletePayment.findUnique({
+    where: { id: aperta.id },
+  });
+  prova(
+    "U-71 controspecchio: su una rata aperta l'importo cambia e lo stato lo ricava il registro",
+    { esito: "riuscita", importo: 120, stato: "paid", residuo: 0 },
+    {
+      esito: ridotta,
+      importo: apertaDopo?.amount ?? null,
+      stato: apertaDopo?.status ?? null,
+      residuo: apertaDopo?.data?.ledger?.residualAmount ?? null,
+    },
+    "una guardia che negasse ogni modifica renderebbe impossibile correggere una rata sbagliata",
+  );
+
+  prova(
+    "U-71 e la descrizione di una rata saldata resta modificabile",
+    "riuscita",
+    await modifica(saldata.id, { description: "Rata U-71 saldata (nota)" }),
+    "le schermate rimandano il record intero: solo cio che sposta denaro e fissato",
+  );
+
+  await prisma.paymentTransaction.deleteMany({
+    where: { payment_id: { in: [saldata.id, aperta.id] } },
+  });
+  await prisma.athletePayment.deleteMany({
+    where: { id: { in: [saldata.id, aperta.id] } },
+  });
+};
+
+/* ==================================================================== */
+/*  U-72 — due approvazioni simultanee della stessa iscrizione          */
+/* ==================================================================== */
+
+const modelloConCampi = async (titolo, fields) => {
+  const scopeModuli = scopeRuolo("owner");
+  const modello = await moduli.createFormTemplate(scopeModuli, {
+    organizationId: CLUB_A,
+  });
+  await moduli.updateFormTemplateDraft(scopeModuli, modello.id, {
+    title: titolo,
+    description: "",
+    fields,
+  });
+  await moduli.publishFormTemplate(scopeModuli, modello.id);
+  const versione = await prisma.formTemplateVersion.findFirst({
+    where: { template_id: modello.id },
+    orderBy: { version: "desc" },
+    select: { id: true },
+  });
+  return { id: modello.id, versionId: versione.id };
+};
+
+const compilazionePendente = (modello, answers, extra = {}) =>
+  prisma.formSubmission.create({
+    data: {
+      organization_id: CLUB_A,
+      template_id: modello.id,
+      version_id: modello.versionId,
+      kind: "enrollment",
+      status: "pending",
+      subjects: [],
+      answers,
+      files: [],
+      respondent_name: "Famiglia Sonda",
+      ...extra,
+    },
+  });
+
+const u72 = async () => {
+  /*
+    **B-H4, revisione finale della Wave 6.** Il controllo «e ancora
+    `pending`?» stava in testa e il passaggio ad `approved` in coda, con in
+    mezzo la creazione della scheda. Due `decideFormSubmission` in parallelo:
+    misurato `['OK','OK']` e **due schede** per lo stesso minore, con
+    appartenenze, consensi e richieste documentali duplicati.
+  */
+  console.log(
+    `${NL}U-72 — due approvazioni simultanee della stessa iscrizione   [CRITICAL: minori, integrita]`,
+  );
+
+  const modello = await modelloConCampi("Iscrizione U-72", [
+    { id: "nome", type: "short_text", label: "Nome", required: true, binding: "athlete.firstName" },
+    { id: "cognome", type: "short_text", label: "Cognome", required: true, binding: "athlete.lastName" },
+  ]);
+  const COGNOME = "Settantadue";
+  const risposte = { nome: "Gemello", cognome: COGNOME };
+
+  const approva = (id, decision = {}) =>
+    compilazioni
+      .decideFormSubmission(scopeRuolo("owner"), id, { decision: "approve", ...decision })
+      .then(() => "OK")
+      .catch((errore) =>
+        /gia in esame|gia stata esaminata/.test(String(errore?.message))
+          ? "RIFIUTATA"
+          : `errore: ${errore?.message}`,
+      );
+  const schede = () =>
+    prisma.athlete.count({ where: { organization_id: CLUB_A, last_name: COGNOME } });
+
+  const doppia = await compilazionePendente(modello, risposte);
+  const esiti = await Promise.all([approva(doppia.id), approva(doppia.id)]);
+  prova(
+    "U-72 due approvazioni simultanee producono una scheda sola",
+    { esiti: ["OK", "RIFIUTATA"], schede: 1 },
+    { esiti: [...esiti].sort(), schede: await schede() },
+    "prima della correzione: ['OK','OK'] e due schede",
+  );
+
+  const doppiaDopo = await prisma.formSubmission.findUnique({ where: { id: doppia.id } });
+  prova(
+    "U-72 e la compilazione approvata ricorda chi e diventata",
+    { stato: "approved", atletaCollegato: true },
+    {
+      stato: doppiaDopo?.status ?? null,
+      atletaCollegato: Boolean(
+        (doppiaDopo?.subjects || []).find((s) => s.subject === "athlete")?.recordId,
+      ),
+    },
+  );
+
+  /* --- controspecchio: la presa scade, si rilascia, e non blocca chi arriva dopo --- */
+
+  const abbandonata = await compilazionePendente(
+    modello,
+    { nome: "Abbandonato", cognome: COGNOME },
+    { reviewed_at: new Date(Date.now() - 20 * 60_000), reviewed_by: utenti.staff.id },
+  );
+  prova(
+    "U-72 controspecchio: una presa in esame vecchia di venti minuti non blocca la pratica",
+    "OK",
+    await approva(abbandonata.id),
+    "un processo caduto senza rilascio non deve lasciare una pratica bloccata per sempre",
+  );
+
+  const inEsame = await compilazionePendente(
+    modello,
+    { nome: "InEsame", cognome: COGNOME },
+    { reviewed_at: new Date(), reviewed_by: utenti.staff.id },
+  );
+  prova(
+    "U-72 ma una presa in esame di adesso la blocca",
+    "RIFIUTATA",
+    await approva(inEsame.id),
+  );
+
+  /*
+    Il rilascio su errore: un modulo con il solo genitore fallisce dopo la
+    presa («scegli o crea l'atleta prima di approvare»), e la pratica deve
+    tornare libera — cosi il secondo tentativo, con l'atleta scelto, passa.
+  */
+  const modelloGenitore = await modelloConCampi("Genitore U-72", [
+    { id: "nome_genitore", type: "short_text", label: "Nome del genitore", required: true, binding: "guardian.name" },
+  ]);
+  const senzaAtleta = await compilazionePendente(modelloGenitore, { nome_genitore: "Anna" });
+  const fallita = await approva(senzaAtleta.id);
+  const senzaAtletaDopo = await prisma.formSubmission.findUnique({ where: { id: senzaAtleta.id } });
+  const ritentata = await approva(senzaAtleta.id, {
+    subjects: [{ subject: "athlete", recordId: ATLETA_A, label: "Minore Alfa" }],
+  });
+  prova(
+    "U-72 e una decisione fallita rilascia la presa: il tentativo successivo passa",
+    { fallita: true, liberata: true, ritentata: "OK" },
+    {
+      fallita: fallita.startsWith("errore:"),
+      liberata: senzaAtletaDopo?.status === "pending" && senzaAtletaDopo?.reviewed_at === null,
+      ritentata,
+    },
+    `primo esito: ${fallita}`,
+  );
+
+  await prisma.formSubmission.deleteMany({
+    where: { id: { in: [doppia.id, abbandonata.id, inEsame.id, senzaAtleta.id] } },
+  });
+  await prisma.athlete.deleteMany({ where: { organization_id: CLUB_A, last_name: COGNOME } });
+  await prisma.formTemplate.deleteMany({ where: { id: { in: [modello.id, modelloGenitore.id] } } });
+};
+
+/* ==================================================================== */
+/*  U-73 — l'anteprima di una compilazione fuori perimetro              */
+/* ==================================================================== */
+
+const u73 = async () => {
+  /*
+    **B-H5, revisione finale della Wave 6.** `buildCompileContext` toglie il
+    clinico e chiede `athleteWithinAccessScope`; la gemella
+    `reviewFormSubmission` no. Il `recordId` arriva dal corpo
+    (`action: "preview"`), l'anteprima non scrive e non lascia audit, e il
+    `changeSet` porta il valore attuale di ogni campo: nome, codice fiscale,
+    data di nascita, tutori — e allergie — di un minore fuori perimetro.
+  */
+  console.log(
+    `${NL}U-73 — l'anteprima di una compilazione fuori perimetro   [CRITICAL: minori, salute]`,
+  );
+
+  /*
+    Le prove precedenti azzerano `data` dell'atleta piu volte: il contenuto
+    clinico si semina qui, altrimenti la controprova positiva misurerebbe il
+    vuoto lasciato da un'altra prova e lo chiamerebbe «taglio».
+  */
+  await prisma.athlete.update({
+    where: { id: ATLETA_A },
+    data: { data: { allergies: "Arachidi", phone: "3330000000" } },
+  });
+
+  const modello = await modelloConCampi("Anteprima U-73", [
+    { id: "nome", type: "short_text", label: "Nome", required: true, binding: "athlete.firstName" },
+    { id: "allergie", type: "long_text", label: "Allergie", required: false, binding: "athlete.allergies" },
+  ]);
+  const compilazione = await compilazionePendente(modello, {
+    nome: "Nuovo",
+    allergie: "Nessuna",
+  });
+
+  const ristretto = {
+    ...scopeDi(
+      utenti.collaborator.id,
+      CLUB_A,
+      "custom:collaborator:segreteria-nord#forms.read,forms.review",
+    ),
+    accessScopes: [{ kind: "site", value: SEDE_A }],
+  };
+  const anteprima = (scope, atleta) =>
+    compilazioni.reviewFormSubmission(scope, compilazione.id, [
+      { subject: "athlete", recordId: atleta, label: "scelto" },
+    ]);
+  const valoreAttuale = (esito, binding) =>
+    esito.changeSet.subjects
+      .find((s) => s.subject === "athlete")
+      ?.changes.find((c) => c.binding === binding)?.currentValue ?? null;
+
+  await varco(
+    "U-73 l'anteprima sul minore fuori perimetro e negata",
+    () => anteprima(ristretto, ATLETA_ALTRUI),
+    ["negato"],
+  );
+
+  const dentro = await anteprima(ristretto, ATLETA_A);
+  prova(
+    "U-73 controspecchio: sul minore dentro il perimetro la proposta mostra il valore attuale",
+    "Minore",
+    valoreAttuale(dentro, "athlete.firstName"),
+    "una guardia che negasse sempre renderebbe inutile l'anteprima alla segreteria",
+  );
+  prova(
+    "U-73 e senza `clinical.read` il valore attuale delle allergie non esiste",
+    "",
+    valoreAttuale(dentro, "athlete.allergies"),
+    "il modulo e la porta di servizio dell'anagrafica, come i segnaposto documentali",
+  );
+
+  const direzione = await anteprima(scopeRuolo("owner"), ATLETA_A);
+  prova(
+    "U-73 ma chi ha la chiave sanitaria lo vede",
+    "Arachidi",
+    valoreAttuale(direzione, "athlete.allergies"),
+  );
+
+  await prisma.formSubmission.delete({ where: { id: compilazione.id } }).catch(() => {});
+  await prisma.formTemplate.delete({ where: { id: modello.id } }).catch(() => {});
+};
+
+/* ==================================================================== */
+/*  U-74 — la seconda porta alla prima nota                             */
+/* ==================================================================== */
+
+const u74 = async () => {
+  /*
+    **B-H6, revisione finale della Wave 6.** `createAccountingEntry` non
+    contiene il permesso — lo chiede l'involucro `accountingRoute` — e
+    `completeObligation` la chiamava con uno scope composto a mano e
+    l'importo dal corpo, custodita dal solo `sport_work.manage`. Un ruolo
+    personalizzato con quella chiave e senza `accounting.manage` scriveva
+    un'uscita in prima nota da qui, mentre la rotta della prima nota gli
+    rispondeva 403.
+  */
+  console.log(
+    `${NL}U-74 — la seconda porta alla prima nota   [HIGH: denaro, permessi]`,
+  );
+
+  /* Il catalogo delle causali del club: senza, nessuna riga di prima nota si scrive. */
+  await (await carica("src/lib/server/fiscal-config.ts")).listOperationTypes(CLUB_A);
+  const conto = await prisma.financialAccount.create({
+    data: { organization_id: CLUB_A, name: "Cassa U-74", kind: "CASH" },
+  });
+  const adempimento = await prisma.sportWorkObligation.create({
+    data: {
+      organization_id: CLUB_A,
+      kind: "F24",
+      reference_key: `u74-f24-${Date.now()}`,
+      title: "F24 U-74",
+      due_date: new Date("2026-09-16"),
+      status: "DUE",
+      amount: 100,
+      source: "manual",
+    },
+  });
+  const chiave = `sport_work_obligation:${adempimento.reference_key}`;
+  const righe = () =>
+    prisma.accountingEntry.count({
+      where: { organization_id: CLUB_A, source_event_key: chiave },
+    });
+  const stato = async () =>
+    (await prisma.sportWorkObligation.findUnique({ where: { id: adempimento.id } }))?.status ?? null;
+
+  const versamento = {
+    financialAccountId: conto.id,
+    operationTypeCode: "altra_operazione",
+    amount: 100,
+    paymentMethod: "F24",
+  };
+  const soloLavoro = scopeDi(
+    utenti.staff.id,
+    CLUB_A,
+    "custom:club_manager:lavoro-u74#sport_work.manage,sport_work.read",
+  );
+  const completa = (scope, input) =>
+    agenda
+      .completeObligation(adempimento.id, input, scope)
+      .then(() => "riuscita")
+      .catch((errore) =>
+        String(errore?.message || "").includes("Accesso negato")
+          ? "negato"
+          : `errore: ${errore?.message}`,
+      );
+
+  prova(
+    "U-74 senza `accounting.manage` l'adempimento non scrive in prima nota, e non si chiude",
+    { esito: "negato", stato: "DUE", righe: 0 },
+    { esito: await completa(soloLavoro, { payment: versamento }), stato: await stato(), righe: await righe() },
+    "prima della correzione: riga in prima nota scritta con il solo `sport_work.manage`",
+  );
+
+  prova(
+    "U-74 controspecchio: assolvere senza registrare il versamento resta un atto del lavoro sportivo",
+    { esito: "riuscita", stato: "COMPLETED", righe: 0 },
+    {
+      esito: await completa(soloLavoro, { notes: "Versato allo sportello" }),
+      stato: await stato(),
+      righe: await righe(),
+    },
+    "una guardia che chiedesse sempre la prima nota toglierebbe gli adempimenti a chi gestisce solo il lavoro sportivo",
+  );
+
+  prova(
+    "U-74 e chi ha la chiave della prima nota registra il versamento anche dopo",
+    { esito: "riuscita", righe: 1 },
+    {
+      esito: await completa(
+        { ...scopeRuolo("owner"), actorEmail: utenti.owner.email },
+        { payment: versamento },
+      ),
+      righe: await righe(),
+    },
+  );
+
+  await prisma.accountingEntry
+    .deleteMany({ where: { organization_id: CLUB_A, source_event_key: chiave } })
+    .catch(() => {});
+  await prisma.sportWorkObligation.delete({ where: { id: adempimento.id } }).catch(() => {});
+  await prisma.financialAccount.delete({ where: { id: conto.id } }).catch(() => {});
+};
+
 /* ------------------------------------------------------------- il giro */
 
 try {
@@ -6057,6 +6752,8 @@ try {
   allegati = await carica("src/lib/server/attachments.ts");
   permessiSanitari = await carica("src/lib/health/permissions.ts");
   ruoliDiClub = await carica("src/lib/server/club-roles.ts");
+  limiti = await carica("src/lib/server/auth-rate-limit.ts");
+  flussiAuth = await carica("src/lib/server/auth-workflows.ts");
   registro = await carica("src/lib/server/audit.ts");
   moduli = await carica("src/lib/server/forms.ts");
   compilazioni = await carica("src/lib/server/form-submissions.ts");
@@ -6101,6 +6798,12 @@ try {
   await u66();
   await u67();
   await u68();
+  await u69();
+  await u70();
+  await u71();
+  await u72();
+  await u73();
+  await u74();
 
   const falliti = esiti.filter((e) => !e.ok);
   if (deviazioni.length) {

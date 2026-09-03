@@ -5905,3 +5905,71 @@ ragione per cui la colonna non serviva.
   funzione che nessun vincolo sostiene e peggio di una colonna assente: chi la
   legge le crede, e il codice di lettura le si costruisce sopra. La domanda da
   farsi non e «serve?», e «**chi la fa rispettare?**».
+
+## ADR-0109 — Un contatore che difende si scrive in **un'istruzione condizionata sola**, mai «letto e poi scritto»
+
+**Data:** 2026-09-03 · **Contesto:** Wave 6, revisione finale — B-H1, B-H2, B-H4
+
+**Contesto.** Tre difetti High della revisione finale avevano la stessa forma,
+in tre domini diversi: una **lettura** seguita da una **scrittura** che
+dipendeva da cio che si era letto. Il contatore di frequenza leggeva il
+secchiello e, se mancava o era scaduto, scriveva `count = 1`; la verifica OTP
+leggeva `attempts`, giudicava il codice e riscriveva `attempts + 1`;
+l'approvazione di una compilazione leggeva `status = pending` e, molte
+scritture dopo, scriveva `approved`. In sequenza tutte e tre erano giuste. Sotto
+richieste **simultanee** — un doppio clic, un retry, una raffica — ognuna
+leggeva lo stato di partenza e nessuna vedeva le altre: 21 richieste ammesse su
+40 contro un limite di 5; 60 codici sbagliati e `attempts = 1`; due schede per
+lo stesso minore. Postgres in `READ COMMITTED` non serializza due letture che
+non trovano niente, e una transazione interattiva attorno non cambia questo.
+
+`npm test` non poteva vederlo: il doppio in memoria esegue una chiamata alla
+volta. Lo ha visto la sonda contro il database vero, con `Promise.all`.
+
+**La decisione.** Dove un contatore o uno stato **difende** qualcosa — un
+limite, un tetto, un'unicita — la decisione si prende **dentro la scrittura**,
+in un'istruzione sola, e l'esito e il numero di righe toccate o il valore
+restituito. Mai una lettura prima.
+
+- **Contatore di frequenza**: un solo `INSERT … ON CONFLICT (key) DO UPDATE SET
+  count = CASE WHEN expires_at <= now THEN 1 ELSE count + 1 END … RETURNING`.
+  Postgres blocca la riga in conflitto e valuta il `SET` sulla versione gia
+  committata: N richieste ricevono N valori distinti. La riapertura a finestra
+  scaduta sta nello stesso `CASE` e conta **una volta per finestra**. E l'unica
+  istruzione SQL grezza sul contatore, ed e l'unica che il doppio dei test
+  emula, con l'ordine dei parametri come contratto.
+- **Tentativi OTP e reset**: `UPDATE … SET attempts = attempts + 1 WHERE id = ?
+  AND consumed_at IS NULL AND attempts < MAX`; zero righe = esaurita. Il codice
+  si giudica **dopo** aver speso il tentativo. Il consumo del codice giusto e
+  un secondo `UPDATE … WHERE consumed_at IS NULL`: di dieci codici giusti
+  simultanei ne passa uno. **Al tetto non si scrive `consumed_at`**: il tetto
+  vive gia nel `WHERE`, e una scrittura in piu ha mostrato di competere con il
+  consumo di un codice giusto ancora in volo.
+- **Approvazione di una compilazione**: non si poteva scrivere `approved` in
+  testa, perche un'approvazione interrotta deve restare riapprovabile. Si
+  scrive invece una **presa**: `UPDATE … SET reviewed_at = now WHERE status =
+  'pending' AND (reviewed_at IS NULL OR reviewed_at < now - 10 min)`. Su una
+  riga `pending`, `reviewed_at` significa «qualcuno la sta scrivendo adesso»;
+  si rilascia se la decisione fallisce e scade da sola se il processo cade.
+  Stesso schema di `document-requests.ts` (`updateMany({ where: { id, status:
+  row.status } })`).
+
+**Le conseguenze accettate.**
+
+- **Una migrazione in meno e un significato in piu.** `reviewed_at` porta due
+  significati a seconda dello stato della riga. Una colonna dedicata sarebbe
+  piu pulita; la Wave era in closeout e le migrazioni vietate. Se il modello
+  crescera, la colonna avra il suo nome, e questa nota dice dove sta il debito.
+- **Una pratica puo restare «in esame» per dieci minuti** dopo un crash senza
+  rilascio. E il prezzo di non poterla lasciare bloccata per sempre, ed e
+  dichiarato nel messaggio a chi ci prova.
+- **Il doppio dei test emula un'istruzione SQL.** E l'unica, e sta scritta
+  accanto al motivo. Un secondo `$queryRaw` con logica propria dovrebbe
+  aggiungere la sua emulazione o rinunciare al doppio: la concorrenza vera si
+  prova comunque solo nella sonda.
+- **La regola generale, che vale oltre i tre casi.** Ogni volta che una
+  funzione fa `findX` e poi decide se scrivere, chiedersi cosa succede a due
+  richieste nello stesso istante. Se la risposta e «entrambe scrivono», la
+  decisione va spostata nel `WHERE` della scrittura — o nel database, con un
+  indice — e la prova va nella sonda con `Promise.all`, perche un test in
+  memoria non la puo dare.

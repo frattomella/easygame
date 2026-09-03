@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { lockPersonAndInstallment } from "./sport-work-ledger";
 import { createAccountingEntry } from "./accounting";
+import { assertAccountingPermission } from "@/lib/accounting/permissions";
 import {
   audit,
   ensureOrganizationAccess,
@@ -918,16 +919,50 @@ const confrontaImporto = (esistente: any, richiesto: number) => {
   };
 };
 
+type VersamentoRichiesto =
+  | {
+      financialAccountId?: unknown;
+      operationTypeCode?: unknown;
+      amount?: unknown;
+      paidAt?: unknown;
+      paymentMethod?: unknown;
+      reference?: unknown;
+    }
+  | undefined;
+
+/**
+ * **La seconda porta alla prima nota chiede la stessa chiave della prima.**
+ * (B-H6, revisione finale della Wave 6)
+ *
+ * `createAccountingEntry` non contiene il permesso: lo chiede l'involucro
+ * `accountingRoute` con `accounting.manage`, perche ogni rotta della prima
+ * nota passa di li. Questa e l'unica chiamata che arriva da **un'altra**
+ * rotta — `POST /sport-work/obligations/:id/complete`, custodita da
+ * `sport_work.manage` — con uno scope composto a mano e l'importo preso dal
+ * corpo. Un ruolo personalizzato con `sport_work.manage` e **senza**
+ * `accounting.manage` (le due chiavi sono in domini diversi e l'editor le
+ * concede separatamente) scriveva un'uscita in prima nota da qui, mentre
+ * `POST /api/v1/accounting/entries` gli rispondeva 403.
+ *
+ * Si chiede la chiave del dominio in cui si scrive, **prima** di marcare
+ * l'adempimento assolto: un 403 dopo aver chiuso l'adempimento lascerebbe
+ * un adempimento assolto e un versamento mai registrato, con un errore in
+ * mano a chi ha cliccato. Assolvere **senza** registrare il versamento resta
+ * un atto del lavoro sportivo, e non chiede niente di piu di prima.
+ */
+const assertPuoScrivereLaPrimaNota = (
+  payment: VersamentoRichiesto,
+  scope: SportWorkScope | undefined,
+) => {
+  const accountId = asText(payment?.financialAccountId);
+  const code = asText(payment?.operationTypeCode);
+  if (!accountId && !code) return;
+  assertAccountingPermission(scope?.activeRole, "accounting.manage");
+};
+
 const registraVersamento = async (
   obligation: any,
-  payment: {
-    financialAccountId?: unknown;
-    operationTypeCode?: unknown;
-    amount?: unknown;
-    paidAt?: unknown;
-    paymentMethod?: unknown;
-    reference?: unknown;
-  } | undefined,
+  payment: VersamentoRichiesto,
   scope: SportWorkScope | undefined,
 ) => {
   if (!ADEMPIMENTI_CHE_PAGANO.has(String(obligation.kind || "").toUpperCase())) {
@@ -945,6 +980,9 @@ const registraVersamento = async (
         "Finche non vengono indicati, l'uscita dei contributi non compare fra le uscite del club.",
     };
   }
+
+  /* Il punto che scrive si difende da solo, anche se un chiamante nuovo dimenticasse di chiedere prima. */
+  assertPuoScrivereLaPrimaNota(payment, scope);
 
   const importo = payment?.amount ?? obligation.amount;
   if (importo === null || importo === undefined || Number(importo) <= 0) {
@@ -1056,6 +1094,7 @@ export const completeObligation = async (
   });
   if (!row) throw new Error("Adempimento non trovato");
   ensureOrganizationAccess(scope, row.organization_id);
+  assertPuoScrivereLaPrimaNota(input.payment, scope);
 
   if (row.status === "COMPLETED") {
     /*

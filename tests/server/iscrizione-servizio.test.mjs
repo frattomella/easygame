@@ -440,8 +440,13 @@ test("riapprovare non chiede due volte lo stesso documento", async () => {
     documentRequests: documenti,
   });
 
-  /* Un'approvazione interrotta si ritenta: la riga torna in coda. */
+  /*
+    Un'approvazione interrotta si ritenta: la riga torna in coda — e torna
+    **libera**: su una riga `pending`, `reviewed_at` e la presa in esame
+    (B-H4), e una riga in coda non e in mano a nessuno.
+  */
   riga(esito.submissionId).status = "pending";
+  riga(esito.submissionId).reviewed_at = null;
 
   await submissions.decideFormSubmission(scopeA(), esito.submissionId, {
     decision: "approve",

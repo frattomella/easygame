@@ -2125,6 +2125,16 @@ il proxy che `AUTH_RATE_LIMIT_TRUSTED_PROXIES` dichiara. Misurato: il 429 arriva
 comunque, per il contatore **per utenza**. Con nove caratteri su un alfabeto di
 trentadue la forza bruta resta infattibile.
 
+**Aggiornamento 2026-09-03.** Il difetto piu grave dello stesso contatore —
+il conteggio che si azzerava sotto richieste simultanee (B-H2, 21 ammesse su
+40 contro un limite di 5) — e **chiuso** con un'istruzione atomica sola
+([ADR-0109](18-decision-log.md#adr-0109--un-contatore-che-difende-si-scrive-in-unistruzione-condizionata-sola-mai-letto-e-poi-scritto)),
+e la conferma OTP non conta piu le raffiche (B-H1). Resta vero cio che dice
+questa voce: **senza il proxy dichiarato**, il contatore per indirizzo si
+aggira ruotando l'intestazione; a difendere restano il contatore per utenza e,
+per l'OTP, il tetto di cinque tentativi sulla challenge, che ora regge anche
+in parallelo e da indirizzi diversi (`U-70`).
+
 ### W6-D24 — `/api/v1/registry` e pubblica
 
 Pubblica la mappa completa dell'API prima del login. Non espone dati e non apre
@@ -2214,3 +2224,56 @@ della scrittura: la collisione non nascerebbe affatto, e il club che prova a
 coniare un omonimo riceverebbe subito un errore invece di rompere il riscatto
 altrui. E una **migrazione**, e in piu richiede di decidere cosa fare delle
 righe gia esistenti che collidono: non e un lavoro da closeout.
+
+### W6-D30 — Un'approvazione fallita **dopo** aver creato la scheda la ricrea al tentativo successivo
+
+`decideFormSubmission` scrive `subjects` con il `recordId` della persona
+creata solo nell'ultimo `update`, insieme ad `approved`. Se l'approvazione
+fallisce dopo `createResource("athletes")` — per esempio su una richiesta
+documentale con un tipo sconosciuto — la compilazione torna `pending` (la presa
+si rilascia, B-H4) ma non ricorda la scheda gia creata: il tentativo
+successivo ne crea una seconda. Consenso e documento sono idempotenti; la
+scheda no. **Non e una corsa** (B-H4 la chiude) ed e visibile alla segreteria
+come duplicato. Chiusura: scrivere `subjects` con i `recordId` subito dopo la
+creazione, prima delle scritture successive.
+
+### W6-D31 — I candidati duplicati dell'anteprima escono da tutto il club
+
+`reviewFormSubmission` chiede il perimetro sull'atleta **scelto** (B-H5), ma
+`findAthleteDuplicates` cerca per codice fiscale, cognome ed email in tutto il
+club: un operatore recintato sulla sede Nord vede nome e data di nascita dei
+possibili omonimi della sede Sud. Serve alla deduplica, e non porta ne
+tutori ne clinico; e comunque un nome fuori perimetro. Chiusura: filtrare i
+candidati con `buildAthleteAccessScopeConditions`, o mostrare solo «esiste un
+omonimo fuori dal tuo perimetro» senza il nome.
+
+### W6-D32 — Gli otto Medium del secondo revisore, con la classificazione
+
+Riportati nell'handoff (§8) e **non riprodotti** in questa revisione, perche
+fuori dal suo perimetro (le correzioni e le loro regressioni). Nessuno e un
+accesso cross-tenant, una fuga di dato di minore o clinico, o denaro che esce
+due volte; tre toccano il denaro e vanno riprodotti per primi alla prossima
+tornata:
+
+| # | Segnalazione | Perche non e un blocker | Priorita |
+|---|--------------|-------------------------|----------|
+| M-1 | premi/rimborsi/fatture escono senza `financial_account_id` | il denaro esce una volta e resta tracciato; non abbassa un conto, quindi il saldo del conto e ottimista | alta |
+| M-2 | `confirmAccrualPeriods` fuori da transazione | interruzione a meta lascia periodi confermati parziali, riconfermabili | media |
+| M-3 | `markAccrualsReported` riapre un periodo `settled` | stato incoerente su un periodo gia liquidato, senza uscita di denaro | alta |
+| M-4 | `cancelInstallment` check-then-act senza lock | la forma di ADR-0109; una rata annullata mentre si incassa | media |
+| M-5 | `PATCH /accounting/entries/:id` scrive `site_id` non risolto | una sede inesistente su una riga, senza effetto sul saldo | bassa |
+| M-6 | `applySubscriptionSnapshot` guardia d'ordine come check-then-act | la forma di ADR-0109 sui webhook, gia deduplicati per evento | bassa |
+| M-7 | il giroconto non ha idempotenza | un doppio clic scrive due giroconti, a somma zero sul club e visibili | media |
+| M-8 | `reverseCompensationPayout` accetta premi/rimborsi/fatture e non riapre il documento | lo storno e corretto sul registro; il documento resta «erogato» | alta |
+
+### W6-D33 — I sette Low del secondo revisore
+
+`L-1` oracolo di esistenza cross-tenant su moduli e compilazioni (403 contro
+404: la forma di W6-D25) · `L-2` entitlement `forms_v2` aggirabile via
+`duplicate` + `publish` · `L-3` `requestMissingDocuments` deduplica sulla
+stringa grezza · `L-4` l'elenco documenti dell'area genitore ignora
+`visibleToParent` per titolo e descrizione (i byte sono filtrati) · `L-5`
+`season_id` mai verificato in scrittura · `L-6` `allowOverpayment` si accende
+dal corpo senza traccia · `L-7` la convocazione non verifica che l'atleta sia
+del club (righe sporche, non una fuga). Non riprodotti; nessuno apre un dato
+di un altro club o di un minore.

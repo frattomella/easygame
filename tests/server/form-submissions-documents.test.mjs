@@ -282,12 +282,21 @@ const modelloDocumento = async ({
     : creato;
 };
 
-/** Rimette la compilazione in coda: e cosi che si prova un nuovo tentativo. */
+/**
+ * Rimette la compilazione in coda: e cosi che si prova un nuovo tentativo.
+ *
+ * Anche `reviewed_at` torna vuoto: su una riga `pending` quel campo e la
+ * **presa in esame** (B-H4) — «qualcuno la sta scrivendo adesso» — e una
+ * riga tornata in coda non e in mano a nessuno. Lasciarlo pieno modellerebbe
+ * un'approvazione ancora in corso, che e proprio cio che il nuovo tentativo
+ * deve trovare libero.
+ */
 const riapri = (submissionId) => {
   const row = fake
     .rows("formSubmission")
     .find((entry) => entry.id === submissionId);
   row.status = "pending";
+  row.reviewed_at = null;
   return row;
 };
 

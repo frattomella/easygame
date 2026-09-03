@@ -305,32 +305,95 @@ const verifyInternalChallenge = async ({
     throw new Error("Codice non valido o scaduto");
   }
 
-  if (challenge.attempts >= MAX_OTP_ATTEMPTS) {
-    await prisma.authVerificationChallenge.update({
-      where: { id: challenge.id },
-      data: { consumed_at: new Date() },
-    });
-    throw new Error("Codice non valido o scaduto");
-  }
-
-  const isValid = challenge.code_hash === hashOtpCode(code);
-  const nextAttempts = challenge.attempts + 1;
-  await prisma.authVerificationChallenge.update({
-    where: { id: challenge.id },
-    data: {
-      attempts: nextAttempts,
-      consumed_at:
-        isValid || nextAttempts >= MAX_OTP_ATTEMPTS
-          ? new Date()
-          : challenge.consumed_at,
-    },
-  });
-
-  if (!isValid) {
+  const esito = await spendiUnTentativo(
+    challenge.id,
+    challenge.code_hash === hashOtpCode(code),
+  );
+  if (esito !== "valido") {
     throw new Error("Codice non valido o scaduto");
   }
 
   return challenge;
+};
+
+/**
+ * **Un tentativo si prende prima di giudicare il codice, e si prende in una
+ * scrittura sola.**
+ *
+ * **Il difetto che chiude (B-H1, revisione finale della Wave 6).** La
+ * verifica leggeva `attempts`, confrontava il codice e riscriveva
+ * `attempts + 1` come **valore assoluto**. Sotto N richieste simultanee ognuna
+ * leggeva 0 e ognuna scriveva 1: il contatore contava le raffiche, non i
+ * tentativi. Misurato dal database vero: **60 codici sbagliati in parallelo,
+ * `attempts = 1`, challenge ancora viva, e il codice giusto accettato subito
+ * dopo**. Il codice e a sei cifre, la challenge si fa emettere senza sessione
+ * e il successo restituisce una sessione: con B-H2 — che lasciava passare le
+ * raffiche anche dal contatore per indirizzo — era una presa di possesso
+ * dell'account.
+ *
+ * **La forma.** Tre scritture condizionate, nessuna lettura fra una e l'altra:
+ *
+ * 1. si **spende** il tentativo: `UPDATE … SET attempts = attempts + 1 WHERE
+ *    id = ? AND consumed_at IS NULL AND attempts < MAX`. Postgres valuta il
+ *    `WHERE` sulla riga bloccata, quindi N richieste simultanee ne fanno
+ *    passare **al massimo MAX**, e le altre trovano zero righe: la challenge
+ *    e esaurita (o consumata) e si chiude, senza guardare il codice;
+ * 2. se il codice e sbagliato e il tentativo era l'ultimo, la challenge si
+ *    **consuma** con lo stesso `WHERE` sul tetto — chi ha spento l'ultimo
+ *    tentativo la chiude, gli altri non hanno niente da chiudere;
+ * 3. se il codice e giusto, si consuma **solo se e ancora viva**: due
+ *    richieste con il codice giusto nello stesso istante producono **una**
+ *    verifica, non due, perche una challenge e monouso e la seconda scrittura
+ *    trova `consumed_at` gia valorizzato.
+ *
+ * Il codice si confronta **dopo** aver speso il tentativo, non prima: un
+ * confronto che precede la scrittura e la stessa lettura-poi-scrittura che
+ * questo commento chiude. Lo stesso schema vale per il reset della password,
+ * dove il token e lungo ma la corsa era identica.
+ *
+ * La prova sotto concorrenza vera sta nella sonda
+ * (`scripts/wave-6-security-probe.mjs`, U-70), dalla rotta.
+ */
+const spendiUnTentativo = async (
+  challengeId: string,
+  codiceValido: boolean,
+): Promise<"valido" | "sbagliato" | "esaurito"> => {
+  if (!(await prendiUnTentativo(challengeId))) return "esaurito";
+  if (!codiceValido) return "sbagliato";
+
+  const consumata = await prisma.authVerificationChallenge.updateMany({
+    where: { id: challengeId, consumed_at: null },
+    data: { consumed_at: new Date() },
+  });
+
+  return consumata.count === 1 ? "valido" : "esaurito";
+};
+
+/**
+ * Spende un tentativo sulla challenge, in una scrittura condizionata sola.
+ * `false` se era gia al tetto o consumata.
+ *
+ * **Al tetto non si scrive `consumed_at`, di proposito.** Il tetto vive gia
+ * nel `WHERE` (`attempts < MAX`): una challenge a cinque tentativi non e piu
+ * spendibile da nessuno, e non serve una seconda scrittura per dirlo. La
+ * prima stesura la chiudeva — «chi spegne l'ultimo tentativo la consuma» —
+ * e quella scrittura **competeva** con il consumo di un codice giusto ancora
+ * in volo: cinque richieste con il codice giusto e una sesta qualunque
+ * potevano finire con la challenge chiusa e **nessuna** verifica riuscita.
+ * Un doppio in memoria lo ha mostrato prima del database. Due scritture
+ * condizionate, e basta: prendere il tentativo, consumare se valido.
+ */
+const prendiUnTentativo = async (challengeId: string) => {
+  const speso = await prisma.authVerificationChallenge.updateMany({
+    where: {
+      id: challengeId,
+      consumed_at: null,
+      attempts: { lt: MAX_OTP_ATTEMPTS },
+    },
+    data: { attempts: { increment: 1 } },
+  });
+
+  return speso.count === 1;
 };
 
 const verifyPhoneWithTwilio = async (phone: string, code: string) => {
@@ -1160,11 +1223,15 @@ export const confirmPasswordReset = async ({
     throw new Error("Link di reset non valido o scaduto");
   }
 
-  if (challenge.attempts >= MAX_OTP_ATTEMPTS) {
-    await prisma.authVerificationChallenge.update({
-      where: { id: challenge.id },
-      data: { consumed_at: new Date() },
-    });
+  /*
+    Il tentativo si prende **prima** del confronto, con la stessa scrittura
+    condizionata della verifica OTP (vedi `prendiUnTentativo`): qui il
+    controllo `attempts >= MAX_OTP_ATTEMPTS` precedeva l'incremento, quindi N
+    richieste simultanee lo superavano tutte. Il token e lungo e la forza
+    bruta non e praticabile, ma la corsa era la stessa di B-H1 e la primitiva
+    e una sola.
+  */
+  if (!(await prendiUnTentativo(challenge.id))) {
     throw new Error("Link di reset non valido o scaduto");
   }
 
@@ -1174,12 +1241,20 @@ export const confirmPasswordReset = async ({
     provided.length === expected.length && timingSafeEqual(provided, expected);
 
   if (!matches) {
-    await prisma.authVerificationChallenge.update({
-      where: { id: challenge.id },
-      data: { attempts: { increment: 1 } },
-    });
     throw new Error("Link di reset non valido o scaduto");
   }
+
+  /*
+    Il token giusto non consuma tentativi: se la password che segue non
+    rispetta la regola, la persona corregge e rimanda con lo **stesso** link,
+    come prima. Il rimborso e condizionato alla challenge ancora aperta e
+    a un contatore positivo: chi non ha il token non ha niente da farsi
+    rimborsare.
+  */
+  await prisma.authVerificationChallenge.updateMany({
+    where: { id: challenge.id, consumed_at: null, attempts: { gt: 0 } },
+    data: { attempts: { decrement: 1 } },
+  });
 
   /*
     **La regola sulla password si controlla dopo il token, non prima.**

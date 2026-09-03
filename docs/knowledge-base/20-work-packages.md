@@ -2121,6 +2121,26 @@ L'invariante «mai un soprainsieme» e proprio cio che rende sicuro il motore de
 ruoli, e proprio cio che gli impedisce di restituire un permesso che il ruolo
 base non ha. Le due cose non si possono avere insieme.
 
+### La revisione finale della Wave 6 (2026-09-03) — `DONE`
+
+L'handoff (`docs/wave-6-handoff.md`, §8) consegnava sei High riportati da un
+revisore e non verificati. **Tutti e sei riprodotti e chiusi** — B-H1 e B-H2
+insieme erano una presa di possesso dell'account — con la regola di questa
+Wave: riprodurre dalla rotta, correggere la causa, controprova positiva nella
+stessa prova, non vacuita reintroducendo il difetto (14 controlli rossi su 24).
+Il resoconto sta in [14 — Sicurezza](14-security.md#wave-6--la-revisione-finale-sei-high-riprodotti-misurati-e-chiusi-2026-09-03)
+e la decisione in [ADR-0109](18-decision-log.md#adr-0109--un-contatore-che-difende-si-scrive-in-unistruzione-condizionata-sola-mai-letto-e-poi-scritto).
+Gli otto Medium e i sette Low dello stesso revisore sono debito dichiarato
+(`W6-D30`…`W6-D33`), nessuno di sicurezza, privacy, isolamento o denaro
+duplicato.
+
+Le sonde contano ora **78 + 52 + 273 = 403 controlli**, tutti verdi, e la
+suite unitaria 4.564 test. Il criterio di chiusura — Critical = 0, High = 0 —
+e raggiunto. Restano aperti, e restano **fuori dal codice**, i due blocker
+W6-4 (validazione legale della policy dei consensi) e W6-5 (una decisione di
+prodotto sul dato clinico per singolo operatore): sono di chi decide, non di
+chi scrive.
+
 ### Le tre sonde di runtime, e i quattro difetti che hanno trovato
 
 La Wave 6 chiude con tre sonde di correttezza che girano su un database di
