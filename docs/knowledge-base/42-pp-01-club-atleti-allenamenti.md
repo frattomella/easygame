@@ -537,10 +537,37 @@ Provata su una tabella temporanea prima di essere applicata (ordine conservato,
 duplicati tolti, payload non-array e categoria nulla gestiti), poi applicata al
 **solo** database di sviluppo (`easygame_dev`, porta 5434).
 
-**Non e stata applicata a staging.** Ogni deploy Vercel esegue
-`prisma migrate deploy`: il travaso girera sui dati pilot di Fortitudo al primo
-deploy, ed e per questo che e stato scritto per essere idempotente e non
-distruttivo.
+**Applicata a staging il 2026-09-04**, su autorizzazione esplicita del
+proprietario del prodotto, consapevole che il travaso girava sui dati pilot di
+Fortitudo. E per questo che era stata scritta additiva e non distruttiva, e
+provata prima su una tabella temporanea.
+
+    Applying migration `20260903120000_pp01_categorie_evento`
+    All migrations have been successfully applied.
+
+---
+
+## 16. Staging
+
+Distribuito su `easygame-staging` il **2026-09-04**, dopo il verde di tutti i
+gate.
+
+| Cosa | Esito |
+|---|---|
+| Deploy | `● Ready`, build 6m, `easygame-staging-pi.vercel.app` |
+| Migrazione | applicata, 54/54 |
+| Smoke `/` | 200 |
+| Smoke `/login` | 200 |
+| Smoke `/api/v1/registry` | 200, e risponde con il registro |
+| Confini senza sessione — `/api/v1/events`, `/api/v1/athletes`, `/api/v1/athlete-accounts/:id` | **401** |
+
+Lo smoke e **non distruttivo**: nessuna scrittura, nessun seme, nessuna
+fixture. I dati pilot non sono stati toccati.
+
+**Cosa resta da guardare su staging**, ed e li che va guardato: la foto profilo
+(§E). La segnalazione e nata li, e li il codice corretto non era ancora arrivato:
+e l'unico dei difetti riportati che nessuna sonda riproduce. Sta come E1-E4 in
+[42b](42-pp-01-uat-a-schermo.md).
 
 ---
 
