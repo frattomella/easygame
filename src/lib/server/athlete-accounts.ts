@@ -1396,7 +1396,17 @@ export const readAthleteAreaOverview = async (
     throw negato("nessuna scheda atleta collegata a questo account");
   }
 
-  const dati = await getParentDashboardData(userId, profilo.id);
+  /*
+    **L'unico punto che chiede `includeSelf`.**
+
+    Il ragazzo non e tutore di se stesso, e le rotte della famiglia glielo
+    dicono. Qui pero i dati servono davvero: e da questo cruscotto che si
+    ricava la proiezione ristretta dell'area atleta, che di suo mostra molto
+    meno — niente denaro, niente tutori, niente altri atleti.
+  */
+  const dati = await getParentDashboardData(userId, profilo.id, {
+    includeSelf: true,
+  });
   if (!dati) {
     throw negato("nessuna scheda atleta collegata a questo account");
   }

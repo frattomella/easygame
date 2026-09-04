@@ -199,7 +199,25 @@ export type ParentDashboardData = {
     items: Array<Record<string, any>>;
     bookings: Array<Record<string, any>>;
   };
-  notifications: Array<Record<string, any>>;
+  /**
+   * **La forma che il server manda davvero**, non `Record<string, any>`.
+   *
+   * La proiezione e un elenco chiuso di sette campi da quando le notifiche di
+   * club — che possono nominare altre famiglie dentro `data` — hanno smesso di
+   * uscire per spread. Dichiararla qui serve a una cosa sola, e non e
+   * l'eleganza: con `any` un componente che legge un nome sbagliato compila,
+   * e in questo pacchetto e successo due volte (`missingDocuments` invece di
+   * `pendingDocuments`, e i quattro campi promessi da `AppointmentSlot`).
+   */
+  notifications: Array<{
+    id: string;
+    title: string;
+    message: string;
+    type: string;
+    read: boolean;
+    created_at: string | null;
+    updated_at: string | null;
+  }>;
   /** Quante fra quelle mostrate non sono ancora state lette (W6-20). */
   notificationsUnread: number;
   analytics: {

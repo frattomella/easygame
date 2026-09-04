@@ -211,7 +211,11 @@ const assertSubjectAccess = async (
 
   const kind = String(subjectKind ?? "").trim().toLowerCase();
   if (kind === "athlete" && asText(subjectId)) {
-    const legato = await canParentAccessAthlete(scope.userId, asText(subjectId));
+    const legato = await canParentAccessAthlete(
+      scope.userId,
+      asText(subjectId),
+      { includeSelf: Boolean((scope as any)?.includeSelf) },
+    );
     if (legato) return;
   }
 

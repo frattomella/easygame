@@ -163,6 +163,14 @@ export default function ParentDashboardShell({
             dell'area atleta lo passava gia.
           */
           notificationCount={data?.notificationsUnread || 0}
+          /*
+            E le notifiche stesse: il pannello altrimenti le chiede al registro
+            **generico** del club, che a un genitore risponde 403 e scrive una
+            riga di diniego in audit a ogni apertura. Finche il conteggio era
+            zero la pastiglia non compariva e nessuno lo apriva; accenderla ha
+            reso visibile il difetto — «tre avvisi» e poi «Nessuna notifica».
+          */
+          notifications={data?.notifications || null}
           clubIdentity={
             data
               ? {

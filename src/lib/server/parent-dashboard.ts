@@ -116,6 +116,19 @@ const getGuardianRows = (athlete: any) => {
       guardian?.linkedUserEmail,
       guardian?.linked_user_email,
     ),
+    /*
+      **Il marchio della revoca viaggia con la riga.**
+
+      Questa proiezione e chiusa, ed e giusto: la scheda di un tutore non deve
+      far uscire tutto cio che c'e in archivio. Ma il vaglio del legame legge
+      **queste** righe, non quelle grezze, e senza questo campo il marchio che
+      la revoca scrive non arrivava mai a chi decide — la revoca restava una
+      scritta sulla scheda e non un fatto.
+    */
+    accessRevokedAt: firstText(
+      guardian?.accessRevokedAt,
+      guardian?.access_revoked_at,
+    ),
   }));
 
   const legacyParents = [data.parent1, data.parent2]
@@ -137,6 +150,10 @@ const getGuardianRows = (athlete: any) => {
       linkedUserEmail: firstText(
         guardian?.linkedUserEmail,
         guardian?.linked_user_email,
+      ),
+      accessRevokedAt: firstText(
+        guardian?.accessRevokedAt,
+        guardian?.access_revoked_at,
       ),
     }));
 
@@ -246,18 +263,68 @@ const isGuardianLinkedToUser = (
     guardian.email,
   );
 
-  return (
-    sameId(linkedUserId, userId) ||
-    (!!userEmail && sameId(linkedUserEmail, userEmail))
+  /*
+    **Un legame dichiarato vince sempre**: se la riga porta l'identificativo di
+    questa persona, il legame c'e, anche dopo una revoca seguita da un nuovo
+    riscatto — che e proprio il modo in cui si ricollega.
+  */
+  if (sameId(linkedUserId, userId)) return true;
+
+  /*
+    **Il ripiego sull'indirizzo cade se l'accesso e stato revocato.**
+
+    Le due definizioni di «tutore collegato» divergevano: questa accetta anche
+    l'indirizzo di **contatto**, e la revoca — giustamente — quell'indirizzo
+    non lo cancella, perche al club serve per scrivere alla persona. Il
+    risultato era che «Scollega account» rispondeva 200, la scheda mostrava
+    «Account non collegato», e chi era stato scollegato continuava a leggere
+    calendario, rate, ricevute, documenti e i byte del certificato medico del
+    minore — e poteva revocare i consensi dati dall'altro genitore.
+
+    Adesso la revoca lascia un marchio, e il ripiego lo rispetta. Cio che ADR
+    -0114 tiene aperto — la famiglia che entra con l'indirizzo che la
+    segreteria le ha scritto, senza riscattare un codice — resta aperto: quella
+    riga un marchio non ce l'ha.
+  */
+  if (!userEmail || !sameId(linkedUserEmail, userEmail)) return false;
+
+  const revocato = firstText(
+    guardian.accessRevokedAt,
+    guardian.access_revoked_at,
   );
+
+  return !revocato;
 };
 
+/**
+ * **«E un mio figlio» e «sono io» non sono la stessa domanda.**
+ *
+ * Questa funzione rispondeva `true` anche quando chi chiede **e** l'atleta, e
+ * da li passa tutta l'area famiglia: un ragazzo con il proprio accesso
+ * EasyGame (ADR-0104) apriva `/api/parent-dashboard/<se stesso>` e leggeva
+ * nome, **indirizzo e telefono dei propri tutori** — che sono dati di terzi —,
+ * la riga `data` grezza, allergie e note mediche, tutte le rate, le ricevute e
+ * le fatture della famiglia; e da `/documents/<id>` i **byte** del certificato
+ * medico. E poteva **scrivere**: revocare il consenso alle immagini dato dal
+ * genitore, con la riga di audit intestata al ruolo `parent`.
+ *
+ * L'area atleta esiste apposta come elenco chiuso, e il commento accanto a
+ * `CAMPI_AREA_ATLETA` dichiara di **non** mettere il link ai documenti proprio
+ * perche quella rotta risponderebbe. La difesa era «non mettere il link»: una
+ * difesa che vale finche nessuno digita l'indirizzo.
+ *
+ * Adesso il ramo «sono io» va **chiesto**, e lo chiede solo l'area atleta, che
+ * da questi stessi dati costruisce la propria proiezione ristretta. Le rotte
+ * della famiglia non lo chiedono: per loro un atleta non e piu tutore di se
+ * stesso.
+ */
 const athleteBelongsToParent = (
   athlete: any,
   userId: string,
   userEmail?: string | null,
+  opzioni?: { includeSelf?: boolean },
 ) => {
-  if (sameId(athlete?.user_id, userId)) {
+  if (opzioni?.includeSelf && sameId(athlete?.user_id, userId)) {
     return true;
   }
 
@@ -809,7 +876,7 @@ export const getFamilyDocumentAreas = async (
   userId: string,
   athlete: { id: string; organization_id: string },
   club: any,
-  options: { now?: Date } = {},
+  options: { now?: Date; includeSelf?: boolean } = {},
 ): Promise<FamilyDocumentAreas> => {
   const organizationId = String(athlete?.organization_id || "");
   const scope = {
@@ -817,6 +884,12 @@ export const getFamilyDocumentAreas = async (
     activeOrganizationId: organizationId,
     activeRole: null as string | null,
     allowedOrganizationIds: [organizationId],
+    /*
+      L'area atleta legge da qui lo **stato** dei propri documenti — non i
+      byte, che la sua proiezione non espone. Senza questo, chiuderla ai
+      ragazzi avrebbe spento la loro stanza invece di chiudere una porta.
+    */
+    includeSelf: Boolean(options.includeSelf),
   };
 
   const { getDocumentDossier } = await import("./document-requests");
@@ -1180,7 +1253,10 @@ const findClubsWhereUserIsGuardian = async (userId: string) => {
   }
 };
 
-export const getParentLinkedAthletes = async (userId: string) => {
+export const getParentLinkedAthletes = async (
+  userId: string,
+  opzioni?: { includeSelf?: boolean },
+) => {
   /*
     **Tre domande su `userId`, e nessuna dipende dall'altra.**
 
@@ -1303,7 +1379,7 @@ export const getParentLinkedAthletes = async (userId: string) => {
 
   const uniqueAthletes = new Map<string, (typeof candidateAthletes)[number]>();
   candidateAthletes.forEach((athlete) => {
-    if (athleteBelongsToParent(athlete, userId, verifiedEmail)) {
+    if (athleteBelongsToParent(athlete, userId, verifiedEmail, opzioni)) {
       uniqueAthletes.set(athlete.id, athlete);
     }
   });
@@ -1331,14 +1407,25 @@ export const getParentLinkedAthletes = async (userId: string) => {
 export const canParentAccessAthlete = async (
   userId: string,
   athleteId: string,
+  /*
+    Vale la stessa regola del cruscotto: il ramo «sono io» va chiesto, e lo
+    chiede solo chi costruisce l'area atleta. Le rotte della famiglia no.
+  */
+  opzioni?: { includeSelf?: boolean },
 ) => {
-  const linkedAthletes = await getParentLinkedAthletes(userId);
+  const linkedAthletes = await getParentLinkedAthletes(userId, opzioni);
   return linkedAthletes.some((athlete) => sameId(athlete.id, athleteId));
 };
 
 export const getParentDashboardData = async (
   userId: string,
   requestedAthleteOrClubId: string,
+  /*
+    `includeSelf` lo chiede **solo** l'area atleta, che da qui costruisce la
+    propria proiezione ristretta. Le rotte della famiglia non lo passano, e per
+    loro un ragazzo non e tutore di se stesso.
+  */
+  opzioni?: { includeSelf?: boolean },
 ) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -1349,7 +1436,7 @@ export const getParentDashboardData = async (
       last_name: true,
     },
   });
-  const linkedAthletes = await getParentLinkedAthletes(userId);
+  const linkedAthletes = await getParentLinkedAthletes(userId, opzioni);
   const requestedId = String(requestedAthleteOrClubId || "").trim();
   /*
     **PP-02 §A. Un identificativo che non si riconosce e una richiesta
@@ -1601,7 +1688,7 @@ export const getParentDashboardData = async (
     userId,
     selectedAthlete,
     club,
-    { now: new Date(now) },
+    { now: new Date(now), includeSelf: Boolean(opzioni?.includeSelf) },
   );
   /*
     **Un elenco chiuso, come le ricevute e gli slot.**

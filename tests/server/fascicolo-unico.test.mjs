@@ -86,8 +86,18 @@ const seed = () => ({
       first_name: "Mario",
       last_name: "Rossi",
       /* Il legame vero: e questo, e non una membership, a fare il genitore. */
-      user_id: GENITORE,
-      data: {},
+      /*
+        Il legame di un genitore vive in `data.guardians`. Questa fixture usava
+        `athletes.user_id`, che dice un'altra cosa — «questo atleta ha il
+        proprio accesso» — e funzionava solo perche il vaglio accettava anche
+        quel ramo. Da li passava tutta l'area famiglia, e un ragazzo leggeva i
+        recapiti dei tutori, le note mediche e le ricevute della famiglia.
+      */
+      data: {
+        guardians: [
+          { id: "tutore-genitore", name: "Genitore", linkedUserId: GENITORE },
+        ],
+},
     },
     {
       id: ATLETA_ALTRUI,

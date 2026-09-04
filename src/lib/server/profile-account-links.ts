@@ -244,6 +244,29 @@ export const clearLinkedFields = (
     linked_at: null,
     accessTokenRecordId: null,
     access_token_record_id: null,
+    /*
+      **La revoca scrive un negativo, e non basta cancellare i positivi.**
+
+      Il legame che concede l'accesso ha **quattro** forme, e la quarta e
+      l'indirizzo di **contatto** che la segreteria scrive a mano sulla scheda
+      (`guardian.email`). Quell'indirizzo qui non si tocca — deve restare,
+      perche il club deve poter continuare a scrivere a quella persona — e
+      finche non c'era questo campo la conseguenza era che **la revoca non
+      revocava**: la scheda diceva «Account non collegato», il dialogo aveva
+      promesso «non vedra piu calendario, pagamenti e documenti del minore», e
+      la persona continuava a vedere tutto, byte del certificato medico
+      compresi.
+
+      Non e un caso limite: e il percorso normale di una separazione, di un
+      affido che cambia, di un tutore che il club toglie. Cancellare
+      l'indirizzo avrebbe risolto l'accesso distruggendo un dato che serve; un
+      negativo esplicito toglie l'accesso e lascia il dato.
+
+      Un riscatto successivo riscrive `linkedUserId`, e quello vince: il
+      marchio nega il **ripiego** sull'indirizzo, non un legame dichiarato.
+    */
+    accessRevokedAt: new Date().toISOString(),
+    access_revoked_at: new Date().toISOString(),
   };
 
   if (isRecord(record.data)) {

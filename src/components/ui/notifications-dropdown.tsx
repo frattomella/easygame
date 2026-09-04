@@ -30,12 +30,34 @@ interface NotificationsDropdownProps {
   notificationCount?: number;
   allNotificationsHref?: string;
   buttonClassName?: string;
+  /**
+   * **Le notifiche gia in mano a chi monta il pannello.**
+   *
+   * Senza, questo componente le va a chiedere da se al registro **generico**
+   * del club (`/api/v1/simplified_notifications`), che a un genitore risponde
+   * 403 — e scrive pure una riga `resource.access_denied` in audit a ogni
+   * apertura. Finche il conteggio era sempre zero la pastiglia non compariva e
+   * nessuno apriva il pannello: il difetto viveva dietro un default. Accendere
+   * la pastiglia lo ha reso visibile — «tre avvisi» e poi «Nessuna notifica».
+   *
+   * L'area famiglia le sue notifiche le ha gia nel cruscotto, filtrate per il
+   * figlio scelto. Passarle di qui e anche una richiesta in meno.
+   */
+  items?: Array<{
+    id: string;
+    title?: string | null;
+    message?: string | null;
+    type?: string | null;
+    read?: boolean | null;
+    created_at?: string | null;
+  }> | null;
 }
 
 export function NotificationsDropdown({
   notificationCount = 0,
   allNotificationsHref = "/notifications",
   buttonClassName = "relative",
+  items = null,
 }: NotificationsDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -43,10 +65,33 @@ export function NotificationsDropdown({
   const router = useRouter();
 
   useEffect(() => {
+    /*
+      Chi ce le ha gia non deve andare a chiederle: e il caso dell'area
+      famiglia, dove il registro generico e chiuso per ruolo.
+    */
+    if (items) {
+      setNotifications(
+        items.map((riga) => ({
+          id: riga.id,
+          title: riga.title || "",
+          message: riga.message || "",
+          type: (riga.type || "system") as
+            | "certificate"
+            | "training"
+            | "registration"
+            | "system",
+          date: riga.created_at || new Date().toISOString(),
+          read: Boolean(riga.read),
+          created_at: riga.created_at || undefined,
+        })),
+      );
+      return;
+    }
+
     if (isOpen) {
       loadNotifications();
     }
-  }, [isOpen]);
+  }, [isOpen, items]);
 
   const loadNotifications = async () => {
     try {

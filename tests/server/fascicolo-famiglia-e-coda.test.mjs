@@ -111,9 +111,30 @@ const seed = () => ({
       organization_id: CLUB,
       first_name: "Marco",
       last_name: "Rossi",
-      /* Il legame vero: e questo, e non una membership, a fare il genitore. */
-      user_id: GENITORE,
+      /*
+        **Il legame di un genitore vive in `data.guardians`, non in
+        `athletes.user_id`.**
+
+        Questa fixture usava `user_id` per dire «questo e suo figlio», e
+        funzionava per un motivo sbagliato: il vaglio del legame accettava
+        anche il ramo «l'atleta e chi chiede», nato per l'area del ragazzo. Da
+        quel ramo passava pero **tutta** l'area famiglia, e un sedicenne con il
+        proprio accesso leggeva indirizzo e telefono dei tutori, allergie, note
+        mediche, rate e ricevute — e i byte del certificato.
+
+        Chiuso quel ramo alle rotte della famiglia, la fixture ha smesso di
+        rappresentare cio che dichiara. Adesso il legame e quello vero, ed e la
+        stessa forma che ha in produzione.
+      */
       data: {
+        guardians: [
+          {
+            id: "tutore-genitore",
+            name: "Genitore Rossi",
+            relation: "genitore",
+            linkedUserId: GENITORE,
+          },
+        ],
         /*
           L'array JSON di prima resta nell'anagrafica: il travaso e
           un'operazione a se. Se l'area famiglia lo leggesse ancora, questo

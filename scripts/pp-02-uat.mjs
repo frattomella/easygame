@@ -3213,6 +3213,246 @@ const sezioneT = async () => {
   );
 };
 
+/* ==================================================================== */
+/*  §W — la revoca che non revocava                                      */
+/* ==================================================================== */
+
+/**
+ * **Il reperto piu grave dell'intero pacchetto, e non era nel diff.**
+ *
+ * Esistevano **due definizioni divergenti di «tutore collegato»**. Quella che
+ * concede l'accesso guarda quattro campi, e l'ultimo e l'indirizzo di contatto
+ * che la segreteria scrive a mano sulla scheda. Quella che **revoca** azzera
+ * gli altri tre e non tocca l'indirizzo.
+ *
+ * Il risultato: la segreteria preme «Scollega account», legge la conferma che
+ * promette «perde l'accesso all'area famiglia: non vedra piu calendario,
+ * pagamenti e documenti del minore», la scheda mostra «Account non collegato»
+ * — e la persona continua a vedere tutto. Calendario, rate, ricevute, fatture,
+ * documenti, i **byte** del certificato medico, e puo perfino revocare i
+ * consensi dati dall'altro genitore.
+ *
+ * **Perche nessuna sonda lo vedeva.** `M-12`/`M-13` la revoca la simulavano
+ * cosi:
+ *
+ *     data: { guardians: [] }
+ *
+ * cioe cancellando l'intera riga del tutore — una revoca che il prodotto non
+ * esegue mai. Misuravano una revoca ipotetica, non quella che il pulsante fa.
+ * E la quarta volta in questo pacchetto: cio che era coperto era il vaglio,
+ * non la strada.
+ */
+const sezioneW = async () => {
+  console.log("\n§W — la revoca che non revocava\n");
+
+  const legami = await carica("src/lib/server/profile-account-links.ts");
+
+  /*
+    L'allestimento e quello vero: la segreteria scrive l'indirizzo di contatto
+    **e** il legame nasce con il riscatto di un token, che scrive
+    `linkedUserId`. Sono le due cose insieme che esistono in archivio.
+  */
+  const FIGLIO_REVOCA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_REVOCA,
+      organization_id: CLUB,
+      first_name: "Elia",
+      last_name: "Revoca",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          {
+            id: "tutore-anna",
+            name: "Anna Collaudo",
+            relation: "madre",
+            email: ANNA.email,
+            linkedUserId: ANNA.id,
+            linkedUserEmail: ANNA.email,
+          },
+        ],
+      },
+    },
+  });
+
+  prova(
+    "W-01 prima della revoca il legame c'e",
+    true,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_REVOCA),
+  );
+
+  /* La revoca **vera**: quella che preme il pulsante della segreteria. */
+  const scopeSegreteria = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "owner",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  await legami.unlinkGuardianAccount(scopeSegreteria, {
+    athleteId: FIGLIO_REVOCA,
+    guardianId: "tutore-anna",
+  });
+
+  const dopoLaRevoca = await prisma.athlete.findUnique({
+    where: { id: FIGLIO_REVOCA },
+    select: { data: true },
+  });
+  const rigaTutore = (dopoLaRevoca?.data?.guardians || [])[0] || {};
+
+  prova(
+    "W-02 la revoca azzera il riferimento all'utente",
+    [null, null],
+    [rigaTutore.linkedUserId ?? null, rigaTutore.linkedUserEmail ?? null],
+  );
+
+  /*
+    **E l'indirizzo di contatto resta**, ed e giusto che resti: la segreteria
+    deve poter continuare a scrivere a quella persona. Cio che non deve restare
+    e l'**accesso**.
+  */
+  prova(
+    "W-03 l'indirizzo di contatto resta, perche serve al club",
+    ANNA.email,
+    rigaTutore.email,
+  );
+
+  prova(
+    "W-04 ma dopo la revoca l'accesso non c'e piu",
+    false,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_REVOCA),
+    "prima: l'indirizzo di contatto teneva in piedi il legame, e la revoca era una bugia",
+  );
+
+  /*
+    E la strada vera, non solo il vaglio: la rotta del cruscotto deve negare.
+    Un accesso revocato che risponde 200 e la forma in cui questo difetto si
+    sarebbe visto in produzione.
+  */
+  const authW = await carica("src/lib/server/auth.ts");
+  const sessioneW = await authW.createSessionForUser(ANNA);
+  const rottaCruscotto = await carica(
+    "src/app/api/parent-dashboard/[athleteId]/route.ts",
+  );
+
+  const rispostaRevocata = await rottaCruscotto.GET(
+    new Request("http://collaudo.invalid/api/parent-dashboard/x", {
+      headers: { authorization: `Bearer ${sessioneW.access_token}` },
+    }),
+    { params: { athleteId: FIGLIO_REVOCA } },
+  );
+
+  prova(
+    "W-05 e la rotta del cruscotto lo nega, non solo il vaglio",
+    true,
+    rispostaRevocata.status >= 400,
+    `stato ${rispostaRevocata.status}`,
+  );
+
+  /*
+    **Il legame per solo indirizzo, quando non e mai stato revocato, resta.**
+
+    E la decisione ADR-0114 / PP02-D2: la segreteria scrive l'indirizzo, la
+    famiglia si registra con quello, e dentro un club dove ha gia una tessera il
+    legame vale. La correzione non doveva toccarla — doveva togliere l'accesso
+    a chi e stato **scollegato esplicitamente**, che e un'altra cosa.
+  */
+  const FIGLIO_SOLO_EMAIL = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_SOLO_EMAIL,
+      organization_id: CLUB,
+      first_name: "Nina",
+      last_name: "SoloEmail",
+      status: "active",
+      updated_at: new Date(),
+      data: { guardians: [{ name: "Anna", email: ANNA.email }] },
+    },
+  });
+
+  prova(
+    "W-06 un legame per solo indirizzo, mai revocato, continua a valere",
+    true,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_SOLO_EMAIL),
+    "la correzione non deve capovolgere ADR-0114",
+  );
+
+  await prisma.athlete.deleteMany({
+    where: { id: { in: [FIGLIO_REVOCA, FIGLIO_SOLO_EMAIL] } },
+  });
+
+  /* ------------- W7: un ragazzo non e tutore di se stesso --------------- */
+
+  /*
+    **W7.** `athleteBelongsToParent` rispondeva vero anche quando chi chiede
+    **e** l'atleta, e da li passa tutta l'area famiglia: nome, indirizzo e
+    telefono dei propri tutori — dati di terzi — la riga `data` grezza,
+    allergie e note mediche, le rate, le ricevute, le fatture; e dai documenti
+    i **byte** del certificato medico. E poteva revocare il consenso alle
+    immagini dato dal genitore, con l'audit intestato al ruolo `parent`.
+
+    L'area atleta e un elenco chiuso proprio per non mostrare quelle cose, e il
+    commento accanto dichiara di non mettere il link ai documenti «perche
+    quella rotta risponderebbe». Una difesa che vale finche nessuno digita
+    l'indirizzo.
+  */
+  const UTENTE_RAGAZZO = await utente("ragazzo.pp02@collaudo.invalid", "Elia");
+  await prisma.athlete.update({
+    where: { id: MARCO },
+    data: { user_id: UTENTE_RAGAZZO.id },
+  });
+
+  prova(
+    "W-07 per le rotte della famiglia un atleta non e tutore di se stesso",
+    false,
+    await cruscotto.canParentAccessAthlete(UTENTE_RAGAZZO.id, MARCO),
+    "prima: vero, e con esso tutta l'area famiglia del proprio profilo",
+  );
+
+  const authW7 = await carica("src/lib/server/auth.ts");
+  const sessioneRagazzo = await authW7.createSessionForUser(UTENTE_RAGAZZO);
+  const rottaCruscottoW7 = await carica(
+    "src/app/api/parent-dashboard/[athleteId]/route.ts",
+  );
+  const rispostaRagazzo = await rottaCruscottoW7.GET(
+    new Request("http://collaudo.invalid/api/parent-dashboard/x", {
+      headers: { authorization: "Bearer " + sessioneRagazzo.access_token },
+    }),
+    { params: { athleteId: MARCO } },
+  );
+
+  prova(
+    "W-08 e la rotta glielo dice, non solo il vaglio",
+    true,
+    rispostaRagazzo.status >= 400,
+    "stato " + rispostaRagazzo.status,
+  );
+
+  /*
+    **E la sua area resta aperta**, perche e da quegli stessi dati che nasce.
+    Se questa diventasse rossa avremmo chiuso una porta e spento una stanza.
+  */
+  const accessoW7 = await carica("src/lib/server/athlete-accounts.ts");
+  const suaArea = await accessoW7
+    .readAthleteAreaOverview(UTENTE_RAGAZZO.id)
+    .catch((errore) => ({ errore: String(errore?.message || errore) }));
+
+  prova(
+    "W-09 ma la sua area atleta continua a funzionare",
+    true,
+    !suaArea?.errore && Boolean(suaArea?.me?.id),
+    suaArea?.errore || "aperta",
+  );
+
+  await prisma.athlete.update({
+    where: { id: MARCO },
+    data: { user_id: null },
+  });
+};
+
 const main = async () => {
   console.log("PP-02 — collaudo contro il database di sviluppo");
   await semina();
@@ -3231,6 +3471,7 @@ const main = async () => {
     await sezioneR();
     await sezioneS();
     await sezioneT();
+    await sezioneW();
   } finally {
     await pulisci();
     await prisma.$disconnect();

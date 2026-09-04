@@ -381,7 +381,20 @@ const authorizeAnsweringUser = async (userId: string, athleteId: string) => {
 
   if (!athlete) throw new Error("Atleta non trovato");
 
-  const linked = await canParentAccessAthlete(userId, athlete.id);
+  /*
+    **Qui il ragazzo risponde per se, ed e voluto.**
+
+    Tre righe piu sotto il ruolo con cui si risponde e **derivato** dal fatto
+    che l'atleta sia chi chiede (`actingRole = "athlete"`): questa e una delle
+    superfici in cui un sedicenne conferma la propria presenza, e chiuderla
+    sarebbe stato spegnere una funzione invece di chiudere una porta.
+
+    Il cruscotto della famiglia — denaro, tutori, documenti, consensi — non lo
+    chiede, e per lui un atleta non e tutore di se stesso.
+  */
+  const linked = await canParentAccessAthlete(userId, athlete.id, {
+    includeSelf: true,
+  });
   if (!linked) {
     /*
       **Qui il permesso e il legame, e il legame e l'unica cosa che nega.** Il

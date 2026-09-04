@@ -127,6 +127,16 @@ const QUICK_ACTIONS = [
  * — la targhetta della stagione porta a `/organization`, che per un genitore e
  * una porta chiusa.
  */
+/** Una riga di notifica gia letta da chi monta l'intestazione. */
+export type HeaderNotification = {
+  id: string;
+  title?: string | null;
+  message?: string | null;
+  type?: string | null;
+  read?: boolean | null;
+  created_at?: string | null;
+};
+
 export type HeaderClubIdentity = {
   name: string;
   seasonLabel: string | null;
@@ -136,6 +146,14 @@ export type HeaderClubIdentity = {
 
 interface HeaderProps {
   title?: string;
+  /**
+   * Le notifiche gia in mano a chi monta l'intestazione, quando le ha.
+   *
+   * Il pannello altrimenti se le prende dal registro **generico** del club,
+   * che per un genitore e chiuso: la pastiglia diceva «tre» e il pannello
+   * «Nessuna notifica».
+   */
+  notifications?: HeaderNotification[] | null;
   onSearch?: (query: string) => void;
   notificationCount?: number;
   userAvatar?: string;
@@ -155,6 +173,7 @@ const Header = memo(
     mobileNavSections,
     showMobileHubLink = true,
     clubIdentity = null,
+    notifications = null,
   }: HeaderProps) => {
     const router = useRouter();
     const pathname = usePathname();
@@ -421,6 +440,16 @@ const Header = memo(
           : "/parent-view";
       }
 
+      /*
+        **E l'area atleta**, che e la gemella dimenticata del ramo qui sopra.
+        `/notifications` sta fra i percorsi di gestione: la guardia respingeva
+        il ragazzo sulla propria home, senza spiegazione, dopo che aveva
+        premuto «Vedi tutte» su una pastiglia che il suo guscio accende gia.
+      */
+      if (pathname?.startsWith("/athlete-dashboard")) {
+        return "/athlete-dashboard/notifiche";
+      }
+
       return "/notifications";
     }, [pathname]);
 
@@ -618,6 +647,12 @@ const Header = memo(
               buttonClassName={topBarButtonClassName}
               notificationCount={notificationCount}
               allNotificationsHref={notificationsHref}
+              /*
+                Quando chi monta l'intestazione le ha gia — l'area famiglia le
+                riceve nel cruscotto — il pannello non va a chiederle al
+                registro generico del club, che per quel ruolo e chiuso.
+              */
+              items={notifications}
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
