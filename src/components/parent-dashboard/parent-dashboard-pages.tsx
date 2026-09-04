@@ -3102,7 +3102,18 @@ export function ParentContactsPage() {
   const { data } = useParentDashboard();
   if (!data) return null;
 
-  const sitoDelClub = data.club.website;
+  /*
+    **L4.** Il campo lato club e un `<Input>` senza `type="url"`, quindi ci
+    finisce dentro `www.asd.it` almeno quanto `https://www.asd.it`. Messo
+    dritto in un `href`, il primo e un percorso **relativo**: il pulsante «Sito
+    web» portava la famiglia su `/parent-view/<figlio>/www.asd.it`.
+  */
+  const sitoGrezzo = String(data.club.website || "").trim();
+  const sitoDelClub = sitoGrezzo
+    ? /^https?:\/\//i.test(sitoGrezzo)
+      ? sitoGrezzo
+      : `https://${sitoGrezzo}`
+    : "";
 
   return (
     <div className="space-y-6">

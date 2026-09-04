@@ -1340,7 +1340,7 @@ export const saveAppointmentsConfig = async (
   });
 
   await recordAuditEvent({
-    action: AUDIT_ACTIONS.appointmentSlotChanged,
+    action: AUDIT_ACTIONS.appointmentConfigChanged,
     organizationId,
     actorUserId: attore.userId || scope.userId || null,
     actorRole: scope.activeRole || null,

@@ -428,7 +428,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "GET|PUT",
     path: "/api/v1/appointments/config",
     description:
-      "Come riceve il club: se le famiglie possono chiedere un appuntamento, e per quali motivi. La lettura serve anche alla famiglia — deve sapere fra cosa scegliere; la scrittura passa dallo stesso gate della disponibilita, chi amministra",
+      "Come riceve il club: se le famiglie possono chiedere un appuntamento, e per quali motivi. La legge chiunque abbia una tessera nel club — un motivo e un nome e un interruttore, e serve anche a chi fissa un appuntamento dal desk; la famiglia non passa di qui, riceve gli stessi motivi dentro il proprio cruscotto. La scrittura passa dallo stesso gate della disponibilita",
     mobile_ready: false,
   },
   {

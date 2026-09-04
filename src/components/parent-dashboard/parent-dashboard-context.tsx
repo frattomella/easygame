@@ -138,6 +138,23 @@ const readCachedParentDashboard = (athleteId: string) => {
   }
 };
 
+/**
+ * Butta via la copia in cache di un figlio.
+ *
+ * Serve a una cosa sola: quando il server dice che il legame non c'e piu,
+ * cio che resta in `sessionStorage` e il passato, e mostrarlo e una revoca
+ * che non si vede.
+ */
+const clearCachedParentDashboard = (athleteId: string) => {
+  if (typeof window === "undefined" || !athleteId) return;
+
+  try {
+    window.sessionStorage.removeItem(getParentDashboardCacheKey(athleteId));
+  } catch {
+    // Se la cache non si puo toccare, azzerare lo stato basta da solo.
+  }
+};
+
 const writeCachedParentDashboard = (
   routeId: string,
   nextData: ParentDashboardData,
@@ -310,6 +327,27 @@ export function ParentDashboardProvider({
         nextError?.message || "Errore caricamento dashboard genitore";
       setError(message);
       showToast("error", message);
+
+      /*
+        **Una revoca deve vedersi.**
+
+        Il ramo d'errore lasciava `data` com'era, e lo shell mostra la
+        schermata d'errore solo quando `data` non c'e: con la copia in
+        `sessionStorage` gia in pagina, un genitore a cui il club ha **tolto
+        il legame** continuava a vedere il cruscotto intero — importi, stato
+        del certificato, tutori — con un avviso di passaggio e nessuna via
+        d'uscita disegnata. I byte erano gia in quel browser, quindi non e una
+        fuga di dati: e una revoca che non si vede, ed e peggio, perche chi
+        guarda non ha modo di sapere che sta leggendo il passato.
+
+        Si azzera **solo** quando il server ha detto che il legame o la
+        sessione non ci sono piu. Un guasto di rete non deve cancellare cio
+        che si stava leggendo.
+      */
+      if (/Accesso negato|non collegat|sessione/i.test(String(message))) {
+        setData(null);
+        clearCachedParentDashboard(athleteRouteId);
+      }
     } finally {
       setLoading(false);
     }

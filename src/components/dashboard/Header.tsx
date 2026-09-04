@@ -1,6 +1,6 @@
 "use client";
 
-import React, { memo, useCallback, useState } from "react";
+import React, { memo, useCallback, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Calendar,
@@ -400,10 +400,31 @@ const Header = memo(
       userRole,
     ]);
 
+    /*
+      **Le notifiche di un genitore non stanno in `/notifications`.**
+
+      Quel percorso e fra i prefissi di gestione: la guardia respinge il
+      genitore, e siccome la navigazione e un `window.location.href` — cioe un
+      ricaricamento completo — lo buttava anche **fuori dall'area famiglia**.
+      L'area ha la sua pagina, dentro il contesto del figlio, e il campanello
+      deve portare li.
+    */
+    const notificationsHref = useMemo(() => {
+      if (pathname?.startsWith("/trainer-dashboard")) {
+        return "/trainer-dashboard/notifications";
+      }
+
+      if (pathname?.startsWith("/parent-view/")) {
+        const figlio = pathname.split("/").filter(Boolean)[1];
+        return figlio
+          ? `/parent-view/${figlio}/notifications`
+          : "/parent-view";
+      }
+
+      return "/notifications";
+    }, [pathname]);
+
     const handleNotificationClick = useCallback(() => {
-      const notificationsHref = pathname?.startsWith("/trainer-dashboard")
-        ? "/trainer-dashboard/notifications"
-        : "/notifications";
 
       // Prevent navigation in storyboard environment
       if (
@@ -413,7 +434,7 @@ const Header = memo(
       ) {
         window.location.href = notificationsHref;
       }
-    }, [pathname]);
+    }, [notificationsHref]);
 
     const handleReturnToAccount = () => {
       router.push("/account");
@@ -608,11 +629,7 @@ const Header = memo(
             <NotificationsDropdown
               buttonClassName={topBarButtonClassName}
               notificationCount={notificationCount}
-              allNotificationsHref={
-                pathname?.startsWith("/trainer-dashboard")
-                  ? "/trainer-dashboard/notifications"
-                  : "/notifications"
-              }
+              allNotificationsHref={notificationsHref}
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

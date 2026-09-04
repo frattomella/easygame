@@ -287,6 +287,12 @@ export const AUDIT_ACTIONS = {
   appointmentCancelled: "appointment.cancelled",
   appointmentClosed: "appointment.closed",
   appointmentSlotChanged: "appointment.slot.changed",
+  /*
+    Cambiare **come il club riceve** — se accetta richieste online e per quali
+    motivi — non e cambiare una fascia di disponibilita. Le due cose passavano
+    dalla stessa voce, e nel registro non si distinguevano piu.
+  */
+  appointmentConfigChanged: "appointment.config.changed",
 
   /*
     **La prenotazione di una struttura da parte della famiglia** (PP-02 §L).

@@ -579,8 +579,10 @@ dal client — si legge dalla riga dell'atleta.
   a «cosa ti chiede il club» — e mandare tutti al rinnovo faceva arrivare in
   segreteria questionari etichettati come pratiche di rinnovo
 - `GET|PUT /api/v1/appointments/config` — come riceve il club (PP-02 §K): se le
-  famiglie possono chiedere un appuntamento, e per quali motivi. La lettura
-  serve anche alla famiglia; la scrittura e di chi amministra
+  famiglie possono chiedere un appuntamento, e per quali motivi. La legge
+  chiunque abbia una tessera nel club — serve anche a chi fissa un appuntamento
+  dal desk; la **famiglia non passa di qui**, riceve gli stessi motivi dentro il
+  proprio cruscotto. La scrittura e di chi amministra
 
 `GET /api/v1/documents/receipt/:id` accetta adesso **anche** il legame: la
 ricevuta era elencata e non scaricabile perche il gate era di ruolo.
