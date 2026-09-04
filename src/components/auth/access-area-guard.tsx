@@ -50,12 +50,31 @@ export function AccessAreaGuard({ children }: { children: React.ReactNode }) {
     dice. Le tredici pagine dentro l'area continuano a passare da
     `canAccessPath`, e ognuna dal legame con quel figlio.
   */
-  const scegliFiglio = pathname === "/parent-view";
+  /*
+    **E l'area del figlio scelto, non solo la schermata di scelta.**
+
+    La prima stesura apriva il solo `/parent-view`, e il muro si e spostato di
+    un passo: il tutore senza tessera arrivava all'elenco dei propri figli, ne
+    sceglieva uno, e `/parent-view/<id>` — che ha la **stessa** guardia — lo
+    rimandava su `/account`. Con un figlio solo la schermata redirige da se,
+    quindi si vedeva lampeggiare «Cerco i tuoi figli collegati» e si atterrava
+    fuori. Una porta che si apre su un corridoio chiuso.
+
+    Il confine vero e sul **server**, e c'e: `/api/parent-dashboard/:id`
+    risolve il legame a ogni lettura, e chi non e tutore di quel figlio riceve
+    un diniego. Qui si toglie l'unica condizione che una persona senza tessera
+    non puo soddisfare — l'esistenza di un club attivo — e si lascia in piedi
+    tutto il resto: fuori dall'area famiglia `canAccessPath` continua a
+    decidere come prima.
+  */
+  const areaFamiglia = pathname === "/parent-view" || pathname.startsWith("/parent-view/");
 
   const allowed = Boolean(
     user &&
-      (scegliFiglio ||
-        (activeClub?.id && canAccessPath(role, pathname, { linkedAthleteIds }))),
+      (areaFamiglia
+        ? canAccessPath(role, pathname, { linkedAthleteIds }) ||
+          !activeClub?.id
+        : activeClub?.id && canAccessPath(role, pathname, { linkedAthleteIds })),
   );
 
   useEffect(() => {

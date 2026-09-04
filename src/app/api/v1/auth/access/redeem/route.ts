@@ -832,6 +832,17 @@ export async function POST(request: Request) {
               linked_user_email: session.db.user.email,
               linkedAt: nowIso,
               linked_at: nowIso,
+              /*
+                **Il riscatto toglie il marchio della revoca.**
+
+                Senza, l'accesso tornava — il legame dichiarato vince sul
+                marchio — ma i **promemoria** del certificato medico no: quel
+                filtro guarda il marchio, e il tutore riattivato restava
+                escluso per sempre dagli avvisi sulla scadenza, senza che
+                niente lo dicesse. Un accesso ridato si ridà per intero.
+              */
+              accessRevokedAt: null,
+              access_revoked_at: null,
               parentAccessTokenRecordId: accessToken.id,
               parent_access_token_record_id: accessToken.id,
               parentAccessTokenStatus:

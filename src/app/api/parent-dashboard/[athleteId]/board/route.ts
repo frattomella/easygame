@@ -36,7 +36,20 @@ const errorStatus = (error: any) =>
   String(error?.message || "").includes("Accesso negato") ? 403 : 400;
 
 const requireLinkedAthlete = async (userId: string, athleteId: string) => {
-  if (!(await canParentAccessAthlete(userId, athleteId))) {
+  /*
+    **`includeSelf`, perche questa rotta serve anche il ragazzo.**
+
+    L'area atleta la propria bacheca la legge da qui — e l'unica chiamata che
+    fa verso una rotta esterna — e il commento accanto lo dichiara da sempre:
+    «il gate e il legame con l'atleta, e per un atleta quel legame e se
+    stesso». Chiudere il ramo «sono io» sulle rotte della famiglia ha spento
+    quella schermata: il ragazzo apriva la bacheca e leggeva «Accesso negato»,
+    e il club smetteva di registrare le letture degli atleti.
+
+    Una bacheca non e il fascicolo della famiglia: sono gli avvisi che il club
+    manda **a lui**. Qui il ramo si apre, sul denaro e sui tutori resta chiuso.
+  */
+  if (!(await canParentAccessAthlete(userId, athleteId, { includeSelf: true }))) {
     throw new Error("Accesso negato: atleta non collegato a questo account");
   }
 

@@ -603,12 +603,24 @@ test("§W · la schermata di scelta del figlio non chiede una tessera", () => {
     La sonda di §A chiamava `listParentChildren` direttamente: e la stessa
     lezione, applicata al dominio e non al percorso del browser.
   */
+  /*
+    **E l'area, non la sola schermata di scelta.** La prima stesura apriva
+    `/parent-view` e basta, e il muro si e spostato di un passo: il tutore
+    arrivava all'elenco dei propri figli, ne sceglieva uno, e
+    `/parent-view/<id>` — che ha la stessa guardia — lo rimandava su
+    `/account`. Con un figlio solo la schermata redirige da se, quindi si
+    vedeva lampeggiare «Cerco i tuoi figli collegati» e si atterrava fuori.
+  */
   assert.ok(
-    guardia.includes('pathname === "/parent-view"'),
-    "la scelta del figlio e l'ingresso, e non puo chiedere cio che l'ingresso deve procurare",
+    guardia.includes('pathname.startsWith("/parent-view/")'),
+    "anche l'area del figlio scelto, o la porta si apre su un corridoio chiuso",
   );
   assert.ok(
-    guardia.includes("scegliFiglio ||"),
-    "la porta si apre alla sola schermata di scelta, non alle tredici pagine dentro",
+    guardia.includes("!activeClub?.id"),
+    "l'unica condizione che una persona senza tessera non puo soddisfare",
+  );
+  assert.ok(
+    guardia.includes("canAccessPath(role, pathname, { linkedAthleteIds })"),
+    "fuori dall'area famiglia decide come prima",
   );
 });

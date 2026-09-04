@@ -51,6 +51,13 @@ interface NotificationsDropdownProps {
     read?: boolean | null;
     created_at?: string | null;
   }> | null;
+  /**
+   * Cosa fare quando si segna letta una riga arrivata da `items`.
+   *
+   * Chi fornisce le notizie sa dove vivono: l'area famiglia ha la propria
+   * rotta, e il registro generico del club a quel ruolo e chiuso.
+   */
+  onMarkRead?: (id: string) => void;
 }
 
 export function NotificationsDropdown({
@@ -58,6 +65,7 @@ export function NotificationsDropdown({
   allNotificationsHref = "/notifications",
   buttonClassName = "relative",
   items = null,
+  onMarkRead,
 }: NotificationsDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);

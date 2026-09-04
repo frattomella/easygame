@@ -230,6 +230,18 @@ export const clearLinkedFields = (
     ...record,
     linkedUserId: null,
     linked_user_id: null,
+    /*
+      **Anche `userId` e `user_id`**, che concedono e che nessuno ripuliva.
+
+      `resolveFamilyRecipients` in `document-requests.ts` raccoglie **quattro**
+      grafie dell'identificativo, non due: una riga tutore scritta con
+      `user_id` sopravviveva alla revoca e continuava a ricevere le notifiche
+      documentali su quel minore — che ne portano il nome e il documento
+      chiesto. Il cruscotto no, perche la sua proiezione quelle due grafie le
+      lascia cadere; la campanella si. Due letture, due risposte.
+    */
+    userId: null,
+    user_id: null,
     linkedUserEmail: null,
     linked_user_email: null,
     linkedUserIds: removeTargetFromList(record.linkedUserIds, userId, userEmail),

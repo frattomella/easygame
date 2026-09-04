@@ -191,7 +191,25 @@ export const readAthleteGuardianContacts = (
     (value) => value && typeof value === "object",
   ) as GuardianLike[];
 
-  const rows = listed.length > 0 ? listed : legacy;
+  const rows = (listed.length > 0 ? listed : legacy).filter((riga) => {
+    /*
+      **Chi e stato scollegato non riceve piu avvisi su quel minore.**
+
+      Da qui passano i solleciti di pagamento e le comunicazioni di gruppo, che
+      portano il nome del minore, l'insoluto e un collegamento a gettone. La
+      revoca lascia in piedi l'indirizzo di **contatto** — al club serve per
+      scrivere a quella persona di sua iniziativa — ma questi invii non sono
+      una scelta del club: partono da soli, per un minore che quella persona
+      non segue piu.
+
+      E la stessa domanda a cui i promemoria del certificato hanno gia
+      risposto: due letture non possono dare due risposte.
+    */
+    const record = (riga || {}) as GuardianLike;
+    return !String(
+      (record as any).accessRevokedAt || (record as any).access_revoked_at || "",
+    ).trim();
+  });
 
   return normalizeGuardianRows(rows, String(athlete?.id || "senza-atleta")).map(
     (guardian) => ({

@@ -3419,6 +3419,79 @@ const sezioneW = async () => {
     "prima: l'indirizzo di contatto lo teneva fra i destinatari",
   );
 
+  /*
+    **W-11.** Il marchio della revoca si cancellava con un salvataggio
+    ordinario dell'anagrafica.
+
+    `athletes.data` e un blob JSON che la rotta generica **sostituisce per
+    intero**, e il client manda l'array dei tutori come lo aveva in memoria:
+    dopo una revoca quella copia e quella di **prima**, perche nessun file
+    client conosce `accessRevokedAt`. Bastava premere «Scollega account» e poi,
+    senza ricaricare, caricare un certificato o salvare una sezione — e la
+    revoca si annullava da sola.
+
+    La guardia esistente sorveglia la **crescita** dell'insieme delle identita,
+    e togliere il marchio non fa crescere niente: l'indirizzo era gia dentro.
+    Non e una concessione nuova, e una concessione **restituita**.
+  */
+  const risorse = await carica("src/lib/server/resources.ts");
+
+  const FIGLIO_SALVATO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_SALVATO,
+      organization_id: CLUB,
+      first_name: "Rita",
+      last_name: "Salvata",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          {
+            id: "tutore-rita",
+            name: "Anna",
+            email: ANNA.email,
+            accessRevokedAt: new Date().toISOString(),
+          },
+        ],
+      },
+    },
+  });
+
+  /* Il client rimanda l'array **senza** il marchio: e la copia pre-revoca. */
+  await risorse.updateResource(
+    "athletes",
+    FIGLIO_SALVATO,
+    {
+      data: {
+        guardians: [{ id: "tutore-rita", name: "Anna", email: ANNA.email }],
+      },
+    },
+    scopeSegreteria,
+  );
+
+  const dopoIlSalvataggio = await prisma.athlete.findUnique({
+    where: { id: FIGLIO_SALVATO },
+    select: { data: true },
+  });
+
+  prova(
+    "W-11 un salvataggio dell'anagrafica non annulla la revoca",
+    true,
+    Boolean(
+      ((dopoIlSalvataggio?.data?.guardians || [])[0] || {}).accessRevokedAt,
+    ),
+    "prima: il marchio spariva e l'accesso tornava",
+  );
+
+  prova(
+    "W-11b e infatti l'accesso resta negato",
+    false,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_SALVATO),
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_SALVATO } });
+
   /* ------------- W7: un ragazzo non e tutore di se stesso --------------- */
 
   /*

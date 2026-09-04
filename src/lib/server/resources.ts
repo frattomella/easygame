@@ -6592,6 +6592,76 @@ const applicaGuardieDiModifica = async (
       const cresciute = [...dopo].filter((id) => !prima.has(id));
 
       /*
+        **Il marchio della revoca non si toglie da qui, e si riporta da se.**
+
+        `athletes.data` e un blob JSON che questa rotta **sostituisce per
+        intero**. Il client della scheda atleta manda l'array dei tutori come
+        lo aveva in memoria, e dopo una revoca quella copia e quella di
+        **prima**: nessun file client conosce `accessRevokedAt`. Bastava
+        quindi premere «Scollega account» e poi, senza ricaricare, caricare un
+        certificato o salvare una sezione — e il marchio spariva dall'archivio.
+
+        La persona scollegata tornava a leggere calendario, rate, ricevute,
+        documenti e i byte del certificato del minore: la tessera non era stata
+        toccata (per progetto, ADR-0110), e l'indirizzo di contatto era ancora
+        li a fare da ripiego.
+
+        La guardia sopra sorveglia solo la **crescita** dell'insieme delle
+        identita, e togliere il marchio non fa crescere niente — l'indirizzo
+        era gia dentro. Non e una concessione **nuova**: e una concessione
+        **restituita**, che e la stessa cosa e nessuno la contava.
+
+        Percio qui non si nega: si **riporta**. Un salvataggio dell'anagrafica
+        non deve poter riaccendere un accesso, e nemmeno fallire per una
+        chiave che il client non sa di dover mandare. A toglierlo resta una
+        strada sola, quella che lo ha scritto — un riscatto che riscrive il
+        legame dichiarato, in `profile-account-links.ts`.
+      */
+      const revocheDaConservare = new Map<string, string>();
+      for (const riga of toArrayValue(((existing?.data as any) ?? {}).guardians)) {
+        const record = (riga || {}) as Record<string, any>;
+        const marchio = String(
+          record.accessRevokedAt || record.access_revoked_at || "",
+        ).trim();
+        const chiave = String(record.id || "").trim();
+        if (marchio && chiave) revocheDaConservare.set(chiave, marchio);
+      }
+
+      if (revocheDaConservare.size) {
+        const tutoriInArrivo = toArrayValue(((normalized.data as any) ?? {}).guardians);
+        let riportato = false;
+
+        const conMarchio = tutoriInArrivo.map((riga: any) => {
+          const record = (riga || {}) as Record<string, any>;
+          const chiave = String(record.id || "").trim();
+          const marchio = chiave ? revocheDaConservare.get(chiave) : "";
+          const dichiarato = String(
+            record.linkedUserId || record.linked_user_id || "",
+          ).trim();
+
+          /*
+            Se la riga porta di nuovo un legame **dichiarato**, il marchio non
+            si riporta: e il caso del riscatto, dove l'accesso viene ridato di
+            proposito e da una strada che ha il suo gate.
+          */
+          if (!marchio || dichiarato) return riga;
+          if (record.accessRevokedAt || record.access_revoked_at) {
+            return riga;
+          }
+
+          riportato = true;
+          return { ...record, accessRevokedAt: marchio, access_revoked_at: marchio };
+        });
+
+        if (riportato) {
+          normalized.data = {
+            ...(((normalized.data as any) ?? {}) as Record<string, any>),
+            guardians: conMarchio,
+          };
+        }
+      }
+
+      /*
         **Un'identita che non appartiene a nessuno non concede niente.**
 
         La stesura precedente negava ogni **crescita** dell'insieme. Una

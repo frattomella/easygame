@@ -125,6 +125,11 @@ export const getGuardianRows = (athlete: any) => {
 
   const legacyParents = [data.parent1, data.parent2]
     .filter(Boolean)
+    /* Il marchio vale anche sulla coppia storica, o la revoca ha un buco. */
+    .filter((guardian) => {
+      const record = asRecord(guardian);
+      return !firstText(record.accessRevokedAt, record.access_revoked_at);
+    })
     .map((guardian) => {
       const record = asRecord(guardian);
       return {
@@ -142,7 +147,25 @@ export const getGuardianRows = (athlete: any) => {
       };
     });
 
-  return guardians.length > 0 ? guardians : legacyParents;
+  /*
+    **Il filtro si applica alla fine, non prima della scelta.**
+
+    La prima stesura scartava le righe revocate **dentro** `guardians`, e poi
+    sceglieva `guardians.length > 0 ? guardians : legacyParents`: un atleta i
+    cui tutori fossero **tutti** revocati si ritrovava con l'elenco vuoto e
+    ricadeva sulla coppia storica `parent1`/`parent2`. Cioe la revoca faceva
+    **comparire** destinatari invece di toglierli.
+  */
+  /*
+    **La scelta fra le due forme si fa sul contenuto grezzo, non sul filtrato.**
+
+    Ogni ramo scarta gia le righe revocate. Ma la scelta
+    `guardians.length > 0 ? guardians : legacyParents` guardava l'elenco **dopo**
+    il filtro: un atleta i cui tutori fossero **tutti** revocati si ritrovava
+    con l'elenco vuoto e ricadeva sulla coppia storica `parent1`/`parent2`.
+    Cioe la revoca faceva **comparire** destinatari invece di toglierli.
+  */
+  return asArray(data.guardians).length > 0 ? guardians : legacyParents;
 };
 
 /** La chiave con cui una notifica dice a quale promemoria corrisponde. */
