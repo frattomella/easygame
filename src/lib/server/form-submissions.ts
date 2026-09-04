@@ -2053,6 +2053,37 @@ const eseguiDecisione = async (
       records.guardian || null,
     );
 
+    /*
+      **Un indirizzo dichiarato da uno sconosciuto non e una credenziale.**
+
+      ADR-0114 dice che l'indirizzo di contatto di un tutore vale come legame:
+      la segreteria lo scrive, la famiglia si registra con quello, ed entra
+      senza riscattare un codice. Quella decisione poggia su un presupposto che
+      qui non regge — che l'indirizzo lo abbia **scritto il club**.
+
+      Un modulo pubblico lo compila chiunque, senza sessione. Bastava conoscere
+      lo slug — il link che il club diffonde — e il nome di un minore
+      tesserato: si dichiarava il proprio indirizzo nei campi `guardian.*`, la
+      segreteria vedeva il minore proposto fra i duplicati, approvava, e da
+      quel momento l'area famiglia di quel bambino era aperta a chi si
+      registrava con quell'indirizzo. Allergie, farmaci, i byte del certificato
+      medico, le ricevute, e la revoca dei consensi dati dall'altro genitore.
+
+      Approvare una pratica non deve poter **concedere un accesso**: e
+      un'operazione di anagrafica, e chi la compie non ha modo di sapere che
+      quella riga e una chiave. Percio una riga nata da una compilazione
+      anonima porta il segno di dove viene, e per lei il ripiego sull'indirizzo
+      non vale: si entra con un invito, che e la strada che ha il suo gate e
+      che scrive un legame **dichiarato**.
+
+      Cio che ADR-0114 tiene aperto resta aperto: l'indirizzo scritto dalla
+      segreteria — a mano, o da una compilazione interna — vale come prima.
+    */
+    if (row.source !== "internal") {
+      patch.contactOnly = true;
+      patch.contact_only = true;
+    }
+
     if (Number.isInteger(index) && index >= 0 && index < guardians.length) {
       guardians[index] = { ...guardians[index], ...patch };
       applied.push(`Genitore aggiornato: ${guardianChange.recordLabel}`);

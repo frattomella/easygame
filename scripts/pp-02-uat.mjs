@@ -3560,21 +3560,69 @@ const sezioneW = async () => {
     "prima: il marchio era sulla riga, e la riga nuova non ce l'aveva",
   );
 
-  /* Seconda strada: la guardia della crescita deve **vedere** il rientro. */
-  const identitaPrima = cruscotto.guardianAccessIdentities(
-    (
-      await prisma.athlete.findUnique({
-        where: { id: FIGLIO_AGGIRO },
-        select: { data: true },
-      })
-    )?.data,
-  );
+  /*
+    Seconda strada: la guardia della crescita deve **vedere** il rientro.
+
+    E qui si misura il **delta**, non l'insieme isolato. La prima stesura di
+    questa prova guardava `guardianAccessIdentities(data)` da sola e la
+    dichiarava priva dell'identita revocata: vero, e inutile — perche la
+    guardia confronta due insiemi, e sottrarre le revocate da **entrambi**
+    lasciava la differenza identica. La proprieta provata era vera; quella che
+    serviva era falsa, e la guardia era piu debole di prima.
+  */
+  const datiAggiro = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_AGGIRO },
+      select: { data: true },
+    })
+  )?.data;
+
+  /*
+    E si passa dalla **guardia**, non dal calcolo. Calcolare il delta qui
+    dentro proverebbe la mia aritmetica; cio che serve e che
+    `updateResource` **rifiuti** a un ruolo che non puo ne vedere ne
+    concedere. E la stessa distinzione fra il vaglio e la strada che questo
+    pacchetto ha pagato otto volte.
+  */
+  const risorseAggiro = await carica("src/lib/server/resources.ts");
+  const scopeSenzaPermessi = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "trainer",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  const rientroNegato = await risorseAggiro
+    .updateResource(
+      "athletes",
+      FIGLIO_AGGIRO,
+      {
+        data: {
+          ...datiAggiro,
+          guardians: [
+            ...(datiAggiro?.guardians || []),
+            /*
+              La riga porta l**indirizzo**, che e l identita **revocata**: e
+              quella che deve risultare una crescita. Con l identificativo
+              utente crescerebbe comunque, perche e un altra identita, e la
+              prova non distinguerebbe niente.
+            */
+            { id: "t-rientro", name: "Anna", email: ANNA.email },
+          ],
+        },
+      },
+      scopeSenzaPermessi,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
 
   prova(
-    "W-13c l'identita revocata non conta come «presente»: rimetterla e crescita",
-    false,
-    identitaPrima.has(String(ANNA.email).toLowerCase()),
-    "cosi il vaglio dei due permessi scatta, invece di non vedere niente",
+    "W-13c rimettere un'identita revocata e una crescita, e la guardia la rifiuta",
+    true,
+    rientroNegato !== "riuscita",
+    rientroNegato,
   );
 
   /* E il legame **dichiarato** riapre, perche e cosi che ci si ricollega. */
@@ -3678,6 +3726,127 @@ const sezioneW = async () => {
   );
 
   await prisma.athlete.delete({ where: { id: FIGLIO_TESSERA } });
+
+  /*
+    **W-15. Le quattro falle della stesura precedente.**
+
+    Il decimo round le ha trovate tutte dentro la correzione del nono, che era
+    la correzione dell'ottavo. Quattro forme, e nessuna e una svista di
+    battitura: sono i modi in cui una difesa nuova non eredita le protezioni
+    di quella che sostituisce.
+  */
+  const risorseW = await carica("src/lib/server/resources.ts");
+
+  const nuovoFiglio = async (dati) => {
+    const id = randomUUID();
+    await prisma.athlete.create({
+      data: {
+        id,
+        organization_id: CLUB,
+        first_name: "Prova",
+        last_name: "Quindici",
+        status: "active",
+        updated_at: new Date(),
+        data: dati,
+      },
+    });
+    return id;
+  };
+
+  const letto = async (id) =>
+    (
+      await prisma.athlete.findUnique({
+        where: { id },
+        select: { data: true },
+      })
+    )?.data;
+
+  /* --- W-15a: il ramo del legame dichiarato non alzava la bandiera --- */
+  const A = await nuovoFiglio({
+    guardians: [
+      {
+        id: "t",
+        name: "Anna",
+        email: ANNA.email,
+        accessRevokedAt: new Date().toISOString(),
+      },
+    ],
+    revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
+  });
+
+  /* Il client rimanda la riga com'era **prima** della revoca. */
+  await risorseW.updateResource(
+    "athletes",
+    A,
+    {
+      data: {
+        guardians: [
+          { id: "t", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+        ],
+        revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
+      },
+    },
+    scopeSegreteria,
+  );
+
+  prova(
+    "W-15a un salvataggio che riporta il legame non riapre l'accesso",
+    false,
+    await cruscotto.canParentAccessAthlete(ANNA.id, A),
+    "prima: la bandiera si alzava solo sull'altro ramo, e il risultato veniva buttato",
+  );
+
+  /* --- W-15b: il registro delle revoche si conserva --- */
+  const B = await nuovoFiglio({
+    guardians: [{ id: "t", name: "Anna", email: ANNA.email }],
+    revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
+  });
+
+  /* Un salvataggio che non riecheggia la chiave la azzerava. */
+  await risorseW.updateResource(
+    "athletes",
+    B,
+    { data: { guardians: [{ id: "t", name: "Anna", email: ANNA.email }] } },
+    scopeSegreteria,
+  );
+
+  prova(
+    "W-15b il registro delle revoche sopravvive a un salvataggio che non lo nomina",
+    true,
+    ((await letto(B))?.revokedGuardianIdentities || []).includes(
+      String(ANNA.email).toLowerCase(),
+    ),
+    "prima: la chiave spariva, e con lei ogni revoca mai fatta",
+  );
+
+  /* --- W-15c: i due canali di invio leggono l'elenco --- */
+  const promemoriaW = await carica(
+    "src/lib/server/medical-certificate-reminders.ts",
+  );
+  const contattiW = await carica("src/lib/athlete-guardians.ts");
+
+  const rigaSorella = {
+    data: {
+      guardians: [
+        { id: "t-vecchio", name: "Anna", email: ANNA.email },
+        { id: "t-sorella", name: "Anna", email: ANNA.email },
+      ],
+      revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
+    },
+    id: "x",
+  };
+
+  prova(
+    "W-15c la riga sorella non riapre i due canali di invio",
+    [0, 0],
+    [
+      promemoriaW.getGuardianRows(rigaSorella).length,
+      contattiW.readAthleteGuardianContacts(rigaSorella).length,
+    ],
+    "promemoria del certificato e solleciti: leggevano solo il marchio di riga",
+  );
+
+  await prisma.athlete.deleteMany({ where: { id: { in: [A, B] } } });
 
   /* ------------- W7: un ragazzo non e tutore di se stesso --------------- */
 

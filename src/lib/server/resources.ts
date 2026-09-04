@@ -6586,7 +6586,15 @@ const applicaGuardieDiModifica = async (
 
         Entrambi spariscono chiedendo l'insieme a chi lo usa per decidere.
       */
-      const prima = guardianAccessIdentities(existing?.data ?? {});
+      /*
+        **Lo stato di partenza esclude le identita revocate, quello in arrivo
+        no**: e cosi che rimettere una persona revocata risulta una crescita, e
+        la guardia la vede. Sottrarle da tutti e due lasciava la differenza
+        identica, cioe non serviva a niente.
+      */
+      const prima = guardianAccessIdentities(existing?.data ?? {}, {
+        escludiRevocate: true,
+      });
 
       const dopo = guardianAccessIdentities(normalized.data ?? {});
       const cresciute = [...dopo].filter((id) => !prima.has(id));
@@ -6656,11 +6664,27 @@ const applicaGuardieDiModifica = async (
             ha il suo gate e che ripulisce anche l'elenco delle identita.
           */
           if (!marchio) return riga;
+
+          /*
+            **La bandiera si alza qui, su tutti e due i rami che cambiano.**
+
+            La prima stesura la alzava solo sul ramo finale, e `conMarchio`
+            veniva **buttato via** quando nessuna riga passava di li — cioe
+            proprio nel caso per cui il ramo del legame dichiarato era stato
+            scritto. Peggio: non era inerte, era **non deterministico**. Se
+            nello stesso salvataggio c'era un'altra riga revocata che passava
+            dal ramo finale, la bandiera si alzava e allora anche il primo ramo
+            si applicava: il comportamento di sicurezza di una riga dipendeva
+            da righe scorrelate.
+          */
           if (dichiarato) {
+            riportato = true;
             return {
               ...record,
               linkedUserId: null,
               linked_user_id: null,
+              userId: null,
+              user_id: null,
               accessRevokedAt: marchio,
               access_revoked_at: marchio,
             };
@@ -6679,6 +6703,46 @@ const applicaGuardieDiModifica = async (
             guardians: conMarchio,
           };
         }
+      }
+
+      /*
+        **E il registro delle revoche si conserva, come tutto il resto.**
+
+        `athletes.data` e un blob che questa rotta sostituisce per intero, e
+        qui si conservano gia a mano i campi clinici e i gettoni dei tutori. Il
+        registro delle identita revocate — la difesa **nuova**, quella che
+        sostituisce il marchio di riga — non era nell'elenco: una scrittura che
+        non lo riecheggiasse lo azzerava in silenzio, e con lui ogni revoca mai
+        fatta su quell'atleta.
+
+        La difesa nuova viveva in un contenitore descritto come «sostituito per
+        intero» e aveva **meno** protezione di quella vecchia che rimpiazza.
+      */
+      const revochePrecedenti = Array.isArray(
+        ((existing?.data as any) ?? {}).revokedGuardianIdentities,
+      )
+        ? (((existing?.data as any) ?? {})
+            .revokedGuardianIdentities as unknown[])
+        : [];
+
+      if (revochePrecedenti.length) {
+        const inArrivo = Array.isArray(
+          ((normalized.data as any) ?? {}).revokedGuardianIdentities,
+        )
+          ? (((normalized.data as any) ?? {})
+              .revokedGuardianIdentities as unknown[])
+          : [];
+
+        const unione = new Set<string>(
+          [...revochePrecedenti, ...inArrivo]
+            .map((valore) => String(valore || "").trim().toLowerCase())
+            .filter(Boolean),
+        );
+
+        normalized.data = {
+          ...(((normalized.data as any) ?? {}) as Record<string, any>),
+          revokedGuardianIdentities: Array.from(unione) as string[],
+        };
       }
 
       /*

@@ -212,3 +212,57 @@ test("un legame dichiarato riapre, perche e cosi che ci si ricollega", async () 
 
   assert.equal(await canParentAccessAthlete(ANNA, FIGLIO), true);
 });
+
+/* ==================================================================== */
+/*  Un indirizzo dichiarato da uno sconosciuto non e una credenziale     */
+/* ==================================================================== */
+
+test("una riga tutore nata da un modulo pubblico non apre l'area famiglia", async () => {
+  /*
+    ADR-0114 fa valere l'indirizzo di contatto come legame, e poggia su un
+    presupposto: che lo abbia scritto **il club**. Un modulo pubblico lo
+    compila chiunque, senza sessione.
+
+    Bastava conoscere lo slug — il link che il club diffonde — e il nome di un
+    minore tesserato: si dichiarava il proprio indirizzo nei campi `guardian.*`,
+    la segreteria vedeva il minore fra i duplicati proposti, approvava, e da
+    quel momento l'area famiglia di quel bambino era aperta a chi si registrava
+    con quell'indirizzo.
+
+    Approvare una pratica e un'operazione di anagrafica: non deve poter
+    concedere un accesso, e chi la compie non ha modo di sapere che quella riga
+    sarebbe una chiave.
+  */
+  const righe = seme({ id: "t", name: "Sconosciuto", email: EMAIL_ANNA });
+  righe.athlete[0].data = {
+    guardians: [
+      { id: "t", name: "Sconosciuto", email: EMAIL_ANNA, contactOnly: true },
+    ],
+  };
+  setPrismaClientForTests(createFakePrisma(righe).client);
+
+  assert.equal(await canParentAccessAthlete(ANNA, FIGLIO), false);
+});
+
+test("ma un invito riscattato apre lo stesso, anche su quella riga", async () => {
+  /*
+    Il segno toglie il **ripiego** sull'indirizzo, non la possibilita di
+    diventare tutore: si entra con un invito, che e la strada che ha il suo
+    gate e che scrive un legame dichiarato.
+  */
+  const righe = seme({ id: "t", name: "Nuovo tutore", email: EMAIL_ANNA });
+  righe.athlete[0].data = {
+    guardians: [
+      {
+        id: "t",
+        name: "Nuovo tutore",
+        email: EMAIL_ANNA,
+        contactOnly: true,
+        linkedUserId: ANNA,
+      },
+    ],
+  };
+  setPrismaClientForTests(createFakePrisma(righe).client);
+
+  assert.equal(await canParentAccessAthlete(ANNA, FIGLIO), true);
+});

@@ -122,15 +122,38 @@ const missingProviderContext: ParentDashboardContextValue = {
 const ParentDashboardContext =
   createContext<ParentDashboardContextValue>(missingProviderContext);
 
-const getParentDashboardCacheKey = (athleteId: string) =>
-  athleteId ? `easygame:parent-dashboard:${athleteId}` : "";
+/**
+ * **La chiave porta anche chi legge, e non e un dettaglio.**
+ *
+ * Era intestata al solo atleta, e `sessionStorage` non viene ripulito da
+ * nessuna parte all'uscita. Su una postazione condivisa — la segreteria di una
+ * ASD, il computer di casa — il genitore A apriva l'area del figlio e usciva;
+ * B entrava nella stessa scheda e apriva quell'indirizzo, e il provider
+ * dipingeva il cruscotto del figlio di A dalla cache — allergie, rate,
+ * documenti — finche il server non rispondeva «Accesso negato».
+ *
+ * Finche la guardia d'area negava, quella pittura non arrivava mai. Aprendo
+ * l'area famiglia — necessario, perche il ruolo non sa dire chi e tutore di
+ * chi — il riparo e caduto, ed e giusto che il riparo sia qui: una cache di
+ * lettura si intesta a chi legge, non a cosa legge.
+ */
+const getParentDashboardCacheKey = (athleteId: string, userId?: string | null) => {
+  if (!athleteId) return "";
+  const chi = String(userId || "").trim();
+  return chi
+    ? `easygame:parent-dashboard:${chi}:${athleteId}`
+    : `easygame:parent-dashboard:${athleteId}`;
+};
 
-const readCachedParentDashboard = (athleteId: string) => {
+const readCachedParentDashboard = (
+  athleteId: string,
+  userId?: string | null,
+) => {
   if (typeof window === "undefined" || !athleteId) return null;
 
   try {
     const raw = window.sessionStorage.getItem(
-      getParentDashboardCacheKey(athleteId),
+      getParentDashboardCacheKey(athleteId, userId),
     );
     return raw ? (JSON.parse(raw) as ParentDashboardData) : null;
   } catch {
@@ -148,6 +171,7 @@ const readCachedParentDashboard = (athleteId: string) => {
 const clearCachedParentDashboard = (
   routeId: string,
   athleteId?: string | null,
+  userId?: string | null,
 ) => {
   if (typeof window === "undefined") return;
 
@@ -160,7 +184,9 @@ const clearCachedParentDashboard = (
   for (const chiave of [routeId, athleteId]) {
     if (!chiave) continue;
     try {
-      window.sessionStorage.removeItem(getParentDashboardCacheKey(chiave));
+      window.sessionStorage.removeItem(
+        getParentDashboardCacheKey(chiave, userId),
+      );
     } catch {
       // Se la cache non si puo toccare, azzerare lo stato basta da solo.
     }
@@ -170,6 +196,7 @@ const clearCachedParentDashboard = (
 const writeCachedParentDashboard = (
   routeId: string,
   nextData: ParentDashboardData,
+  userId?: string | null,
 ) => {
   if (typeof window === "undefined") return;
 
@@ -177,13 +204,13 @@ const writeCachedParentDashboard = (
     const serialized = JSON.stringify(nextData);
     if (routeId) {
       window.sessionStorage.setItem(
-        getParentDashboardCacheKey(routeId),
+        getParentDashboardCacheKey(routeId, userId),
         serialized,
       );
     }
     if (nextData.athlete?.id && nextData.athlete.id !== routeId) {
       window.sessionStorage.setItem(
-        getParentDashboardCacheKey(nextData.athlete.id),
+        getParentDashboardCacheKey(nextData.athlete.id, userId),
         serialized,
       );
     }
@@ -207,10 +234,10 @@ export function ParentDashboardProvider({
     .filter(Boolean)[1];
   const athleteRouteId = String(params?.id || routeIdFromPath || "");
   const [data, setData] = useState<ParentDashboardData | null>(() =>
-    readCachedParentDashboard(athleteRouteId),
+    readCachedParentDashboard(athleteRouteId, user?.id),
   );
   const [loading, setLoading] = useState(
-    () => !readCachedParentDashboard(athleteRouteId),
+    () => !readCachedParentDashboard(athleteRouteId, user?.id),
   );
   const [error, setError] = useState<string | null>(null);
   const dataRef = useRef<ParentDashboardData | null>(null);
@@ -220,13 +247,13 @@ export function ParentDashboardProvider({
   }, [data]);
 
   useEffect(() => {
-    const cachedData = readCachedParentDashboard(athleteRouteId);
+    const cachedData = readCachedParentDashboard(athleteRouteId, user?.id);
     if (!cachedData) return;
 
     setData(cachedData);
     setLoading(false);
     setError(null);
-  }, [athleteRouteId]);
+  }, [athleteRouteId, user?.id]);
 
   const refresh = useCallback(async () => {
     if (authLoading) {
@@ -263,7 +290,7 @@ export function ParentDashboardProvider({
       }
 
       setData(payload.data);
-      writeCachedParentDashboard(athleteRouteId, payload.data);
+      writeCachedParentDashboard(athleteRouteId, payload.data, user?.id);
 
       if (typeof window !== "undefined" && payload.data?.club) {
         /*
@@ -358,7 +385,11 @@ export function ParentDashboardProvider({
       */
       if (/Accesso negato|non collegat|sessione/i.test(String(message))) {
         setData(null);
-        clearCachedParentDashboard(athleteRouteId, dataRef.current?.athlete?.id);
+        clearCachedParentDashboard(
+          athleteRouteId,
+          dataRef.current?.athlete?.id,
+          user?.id,
+        );
       }
     } finally {
       setLoading(false);

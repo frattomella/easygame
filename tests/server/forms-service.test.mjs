@@ -583,7 +583,21 @@ test("approvare crea l'atleta con i valori mostrati nell'anteprima", async () =>
   assert.equal(atleta.organization_id, CLUB_A);
   assert.equal(atleta.first_name, "Mario");
   assert.equal(atleta.last_name, "Rossi");
-  assert.deepEqual(atleta.data.guardians, [{ phone: "3331234567" }]);
+  /*
+    **`contactOnly` e il segno di dove viene questa riga**, e va preteso.
+
+    Un modulo pubblico lo compila chiunque, senza sessione. ADR-0114 fa valere
+    l'indirizzo di contatto come legame, e poggia sul presupposto che lo abbia
+    scritto il club: qui non regge. Bastava dichiarare il proprio indirizzo nei
+    campi del tutore, farsi approvare la pratica sul minore giusto, e l'area
+    famiglia di quel bambino si apriva a chi si registrava con quell'indirizzo.
+
+    Approvare una pratica non deve poter concedere un accesso: chi la compie
+    non ha modo di sapere che quella riga sarebbe una chiave.
+  */
+  assert.deepEqual(atleta.data.guardians, [
+    { phone: "3331234567", contactOnly: true, contact_only: true },
+  ]);
   assert.equal(esito.submission.status, "approved");
   assert.ok(esito.applied.length > 0);
 });

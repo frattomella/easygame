@@ -134,6 +134,8 @@ const getGuardianRows = (athlete: any) => {
       guardian?.linkedUserEmail,
       guardian?.linked_user_email,
     ),
+    /* Il segno di una riga che il club non ha scritto: vedi il vaglio. */
+    contactOnly: Boolean(guardian?.contactOnly || guardian?.contact_only),
     /*
       **Il marchio della revoca viaggia con la riga.**
 
@@ -254,7 +256,10 @@ export const revokedGuardianIdentities = (data: unknown): Set<string> => {
   );
 };
 
-export const guardianAccessIdentities = (data: unknown): Set<string> => {
+export const guardianAccessIdentities = (
+  data: unknown,
+  opzioni?: { escludiRevocate?: boolean },
+): Set<string> => {
   const identita = new Set<string>();
 
   for (const guardian of getGuardianRows({ data })) {
@@ -279,16 +284,30 @@ export const guardianAccessIdentities = (data: unknown): Set<string> => {
   }
 
   /*
-    **Un'identita revocata non e «presente»**, e questa riga e cio che rende
-    la guardia della crescita capace di vedere il rientro.
+    **L'esclusione vale su «prima», non su «dopo», e la differenza e tutto.**
 
     `resources.ts` nega una scrittura che fa **crescere** questo insieme senza
-    i due permessi. Finche una revoca lasciava l'indirizzo dentro l'insieme,
-    riaggiungere quella persona non era crescita: passava un ruolo che non
-    poteva ne vedere ne concedere. Adesso e crescita, ed e vagliata.
+    i due permessi. L'idea e giusta: un'identita revocata non deve contare come
+    «gia presente», o rimetterla non sarebbe crescita e passerebbe un ruolo che
+    non puo ne vedere ne concedere.
+
+    La prima stesura pero sottraeva le revocate **da tutti e due** gli insiemi
+    — il blob in arrivo si porta dietro l'elenco, e tutti gli scrittori reali
+    lo conservano — quindi la differenza restava identica e la guardia era
+    **piu debole di prima**: scrivere un legame dichiarato verso un'identita
+    revocata non incontrava piu niente, mentre prima veniva rifiutato.
+
+    Perversa anche nel modo: era piu debole quanto piu il client era fedele.
+    Uno che rimandava il blob intero la spegneva; uno che mandava solo
+    `guardians` la faceva scattare.
+
+    Adesso il parametro c'e, e lo chiede **solo** chi misura lo stato di
+    partenza.
   */
-  for (const revocata of revokedGuardianIdentities(data)) {
-    identita.delete(revocata);
+  if (opzioni?.escludiRevocate) {
+    for (const revocata of revokedGuardianIdentities(data)) {
+      identita.delete(revocata);
+    }
   }
 
   return identita;
@@ -332,6 +351,19 @@ const isGuardianLinkedToUser = (
     riscatto — che e proprio il modo in cui si ricollega.
   */
   if (sameId(linkedUserId, userId)) return true;
+
+  /*
+    **E cade anche su una riga che il club non ha scritto.**
+
+    Una riga nata dall'approvazione di un modulo **pubblico** porta un
+    indirizzo dichiarato da chi ha compilato, che puo essere chiunque: vale
+    come recapito e non come chiave. Il presupposto di ADR-0114 e che
+    l'indirizzo lo scriva la segreteria, e li si regge; qui no.
+  */
+  const soloRecapito = Boolean(
+    (guardian as any).contactOnly || (guardian as any).contact_only,
+  );
+  if (soloRecapito) return false;
 
   /*
     **Il ripiego sull'indirizzo cade se l'accesso e stato revocato.**

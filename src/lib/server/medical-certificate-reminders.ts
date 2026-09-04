@@ -87,6 +87,38 @@ const normalizeEmail = (value: unknown) =>
  */
 export const getGuardianRows = (athlete: any) => {
   const data = asRecord(athlete?.data);
+
+  /*
+    **Anche l'elenco delle identita, non solo il marchio di riga.**
+
+    La verita sulla revoca si e spostata dalla riga all'identita, perche il
+    marchio di riga si aggirava aggiungendone una sorella con lo stesso
+    indirizzo — mossa che si crea da sola approvando un modulo. Questa lettura
+    e rimasta al marchio, quindi la riga sorella riapriva **questo** canale: i
+    promemoria sulla scadenza del certificato medico di un minore, risolti
+    proprio dall'indirizzo di contatto.
+  */
+  const identitaRevocate = new Set<string>(
+    (Array.isArray((data as any).revokedGuardianIdentities)
+      ? ((data as any).revokedGuardianIdentities as unknown[])
+      : []
+    )
+      .map((valore) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  const revocataPerIdentita = (record: Record<string, any>) =>
+    [
+      record.linkedUserId,
+      record.linked_user_id,
+      record.userId,
+      record.user_id,
+      record.linkedUserEmail,
+      record.linked_user_email,
+      record.email,
+    ].some((valore) =>
+      identitaRevocate.has(String(valore || "").trim().toLowerCase()),
+    );
   const guardians = asArray(data.guardians)
     /*
       **Chi e stato scollegato non riceve piu avvisi sul minore.**
@@ -104,6 +136,7 @@ export const getGuardianRows = (athlete: any) => {
     */
     .filter((guardian) => {
       const record = asRecord(guardian);
+      if (revocataPerIdentita(record)) return false;
       return !firstText(record.accessRevokedAt, record.access_revoked_at);
     })
     .map((guardian) => {
@@ -128,6 +161,7 @@ export const getGuardianRows = (athlete: any) => {
     /* Il marchio vale anche sulla coppia storica, o la revoca ha un buco. */
     .filter((guardian) => {
       const record = asRecord(guardian);
+      if (revocataPerIdentita(record)) return false;
       return !firstText(record.accessRevokedAt, record.access_revoked_at);
     })
     .map((guardian) => {

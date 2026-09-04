@@ -191,7 +191,39 @@ export const readAthleteGuardianContacts = (
     (value) => value && typeof value === "object",
   ) as GuardianLike[];
 
+  /*
+    **Anche qui l'elenco delle identita, non solo il marchio di riga.**
+
+    Da questa funzione escono i solleciti degli insoluti — che portano il
+    **link per pagare** — e le comunicazioni di gruppo. La verita sulla revoca
+    si e spostata dalla riga all'identita, perche il marchio di riga si
+    aggirava aggiungendone una sorella con lo stesso indirizzo; questa lettura
+    era rimasta indietro, quindi la riga sorella riapriva questo canale.
+  */
+  const identitaRevocate = new Set(
+    (Array.isArray((record as any).revokedGuardianIdentities)
+      ? ((record as any).revokedGuardianIdentities as unknown[])
+      : []
+    )
+      .map((valore) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+
   const rows = (listed.length > 0 ? listed : legacy).filter((riga) => {
+    const identita = (riga || {}) as GuardianLike;
+    const revocataPerIdentita = [
+      (identita as any).linkedUserId,
+      (identita as any).linked_user_id,
+      (identita as any).userId,
+      (identita as any).user_id,
+      (identita as any).linkedUserEmail,
+      (identita as any).linked_user_email,
+      (identita as any).email,
+    ].some((valore) =>
+      identitaRevocate.has(String(valore || "").trim().toLowerCase()),
+    );
+    if (revocataPerIdentita) return false;
+
     /*
       **Chi e stato scollegato non riceve piu avvisi su quel minore.**
 
