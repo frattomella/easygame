@@ -117,6 +117,8 @@ export type ProfileFormState = {
   email: string;
   phone: string;
   avatarUrl: string;
+  /** La password attuale: obbligatoria per cambiare email, cellulare o password (PP-05). */
+  currentPassword: string;
   newPassword: string;
   confirmPassword: string;
 };
@@ -220,6 +222,7 @@ export const createProfileDefaults = (user: any): ProfileFormState => ({
   email: user?.email || "",
   phone: user?.user_metadata?.phone || "",
   avatarUrl: user?.user_metadata?.avatarUrl || "",
+  currentPassword: "",
   newPassword: "",
   confirmPassword: "",
 });

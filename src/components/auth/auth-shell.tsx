@@ -36,6 +36,8 @@ type AuthCapabilities = {
   providers: AuthProvider[];
   emailVerification: boolean;
   phoneVerification: boolean;
+  /** Se la verifica del numero blocca l'accesso su questa installazione. */
+  phoneVerificationRequired: boolean;
   emailProviderConfigured: boolean;
   phoneProviderConfigured: boolean;
   testCodesEnabled: boolean;
@@ -55,6 +57,7 @@ const defaultCapabilities: AuthCapabilities = {
   providers: [],
   emailVerification: true,
   phoneVerification: false,
+  phoneVerificationRequired: false,
   emailProviderConfigured: false,
   phoneProviderConfigured: false,
   testCodesEnabled: false,
@@ -139,6 +142,9 @@ export function AuthShell({
           providers: response.data.providers || [],
           emailVerification: Boolean(response.data.emailVerification),
           phoneVerification: Boolean(response.data.phoneVerification),
+          phoneVerificationRequired: Boolean(
+            response.data.phoneVerificationRequired,
+          ),
           phoneProviderConfigured: Boolean(
             response.data.phoneProviderConfigured,
           ),
@@ -825,28 +831,43 @@ export function AuthShell({
                         </div>
                       </div>
 
-                      {capabilities.phoneVerification && (
-                        <div className="space-y-2">
-                          <Label htmlFor="phone">Cellulare</Label>
-                          <div className="relative">
-                            <Smartphone className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
-                            <Input
-                              id="phone"
-                              type="tel"
-                              className="pl-10"
-                              value={registerData.phone}
-                              onChange={(event) =>
-                                handleRegisterChange(
-                                  "phone",
-                                  event.target.value,
-                                )
-                              }
-                              placeholder="+39 3xx xxx xxxx"
-                              required
-                            />
-                          </div>
+                      {/*
+                        **Il campo c'e sempre (ADR-0115).** Prima era dentro un
+                        `capabilities.phoneVerification &&`, cioe compariva solo
+                        dove un fornitore SMS era configurato: su ogni
+                        installazione reale il numero non veniva chiesto, la
+                        colonna restava vuota e tutto il flusso di verifica —
+                        rotte, challenge, contatori — era codice che nessuno
+                        poteva raggiungere. Il numero e obbligatorio per regola
+                        di prodotto, quindi si chiede sempre; cio che dipende
+                        dall'installazione e solo se la verifica **blocchi**
+                        l'accesso, e lo dice la nota qui sotto.
+                      */}
+                      <div className="space-y-2">
+                        <Label htmlFor="phone">Cellulare</Label>
+                        <div className="relative">
+                          <Smartphone className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+                          <Input
+                            id="phone"
+                            type="tel"
+                            inputMode="tel"
+                            autoComplete="tel"
+                            className="pl-10"
+                            value={registerData.phone}
+                            onChange={(event) =>
+                              handleRegisterChange("phone", event.target.value)
+                            }
+                            placeholder="+39 3xx xxx xxxx"
+                            required
+                            aria-describedby="phone-hint"
+                          />
                         </div>
-                      )}
+                        <p id="phone-hint" className="text-xs text-slate-500">
+                          {capabilities.phoneVerificationRequired
+                            ? "Ti invieremo un codice via SMS per verificarlo: senza verifica l'account non è attivo."
+                            : "Serve per contattarti. Su questa installazione la verifica via SMS non è attiva."}
+                        </p>
+                      </div>
 
                       <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-2">

@@ -110,6 +110,120 @@ function ClubAvatar({ club }: { club: AccountClub }) {
   );
 }
 
+/**
+ * L'avviso di un recapito non verificato, con il gesto che lo risolve.
+ *
+ * Un componente solo per i due canali: il telefono e l'email hanno lo stesso
+ * problema — «questo recapito non e provato» — e due riquadri scritti a mano
+ * sarebbero divergiti alla prima modifica. Nessuna tavolozza propria: i colori
+ * sono quelli gia usati dagli altri avvisi di questa pagina.
+ *
+ * A 375 px il pulsante va a capo sotto il testo (`flex-wrap`), come l'avviso
+ * di errore delle membership qui sotto.
+ */
+function VerificationNotice({
+  tone,
+  title,
+  description,
+  ctaLabel,
+  pending,
+  open,
+  onAction,
+  onConfirm,
+  onResend,
+}: {
+  tone: "warning" | "info";
+  title: string;
+  description: string;
+  ctaLabel: string;
+  pending: boolean;
+  /** Se la casella del codice e aperta: il codice e gia partito. */
+  open: boolean;
+  onAction: () => void;
+  onConfirm: (code: string) => void;
+  onResend: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const palette =
+    tone === "warning"
+      ? "border-amber-200 bg-amber-50 text-amber-900"
+      : "border-slate-200 bg-slate-50 text-slate-700";
+
+  return (
+    <div
+      className={cn("rounded-xl border px-4 py-3 text-sm", palette)}
+      role="status"
+    >
+      <div className="flex flex-wrap items-center gap-3">
+        <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">{title}</p>
+          <p className="text-xs opacity-90">{description}</p>
+        </div>
+        {open ? null : (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={pending}
+            onClick={onAction}
+          >
+            {pending ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : null}
+            {ctaLabel}
+          </Button>
+        )}
+      </div>
+
+      {open ? (
+        /*
+          A colonna singola sotto i 640 px e in riga sopra: a 375 px un campo
+          codice accanto a due pulsanti lascerebbe al campo una manciata di
+          pixel, ed e la larghezza in cui va scritta la cosa piu importante
+          della schermata.
+        */
+        <form
+          className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onConfirm(code.trim());
+          }}
+        >
+          <label className="sr-only" htmlFor={`verification-code-${tone}`}>
+            Codice di verifica
+          </label>
+          <Input
+            id={`verification-code-${tone}`}
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            placeholder="Codice a 6 cifre"
+            className="sm:max-w-[180px]"
+          />
+          <Button type="submit" size="sm" disabled={pending || !code.trim()}>
+            {pending ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : null}
+            Conferma
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={pending}
+            onClick={onResend}
+          >
+            Rimanda il codice
+          </Button>
+        </form>
+      ) : null}
+    </div>
+  );
+}
+
 function RoleBadge({ ownerMode, label }: { ownerMode: boolean; label: string }) {
   return (
     <span
@@ -419,8 +533,115 @@ export default function AccountHomeScreen() {
   const activeClubId = activeClub?.id || null;
   const availableClubSlots =
     clubSlotLimit === null ? null : Math.max(clubSlotLimit - ownedClubs.length, 0);
-  const emailVerified = Boolean(user?.user_metadata?.emailVerified);
-  const phoneVerified = Boolean(user?.user_metadata?.phoneVerified);
+  const [verificatoOra, setVerificatoOra] = useState<Array<"email" | "phone">>(
+    [],
+  );
+  const emailVerified =
+    Boolean(user?.user_metadata?.emailVerified) ||
+    verificatoOra.includes("email");
+  const phoneVerified =
+    Boolean(user?.user_metadata?.phoneVerified) ||
+    verificatoOra.includes("phone");
+
+  /*
+    **La verifica si completa qui, non altrove.**
+
+    La tentazione era mandare a `/token-verification/<id>`, che dal nome sembra
+    la pagina giusta: **non lo e**. Quella schermata riscatta il gettone di
+    accesso a un club — cinque, otto o dieci caselle — e non sa niente di OTP.
+    Mandarci una persona che deve confermare l'email avrebbe prodotto il difetto
+    piu comune di questo repository (CLAUDE.md §11, punto 8): un flusso che
+    sembra collegato e finisce sul consumer sbagliato.
+
+    Il codice si scrive quindi dentro l'avviso stesso, dove la persona sta gia
+    guardando, e la conferma ricarica la sessione: `emailVerified` e
+    `phoneVerified` vengono dal server, quindi l'avviso sparisce da solo quando
+    e vero che deve sparire.
+  */
+  const [verificationSending, setVerificationSending] = useState<
+    "email" | "phone" | null
+  >(null);
+  const [verificationOpen, setVerificationOpen] = useState<
+    "email" | "phone" | null
+  >(null);
+
+  const requestVerificationCode = async (channel: "email" | "phone") => {
+    if (!user?.id || verificationSending) return;
+    setVerificationSending(channel);
+
+    /*
+      **Non `fetch`**: la regola di trasporto e `@/lib/api/client` (CLAUDE.md
+      §2), gia importato qui. L'identificativo e `user.id`: le rotte accettano
+      sia il riferimento opaco della registrazione sia l'identificativo, e qui
+      la sessione c'e gia — non si sta rivelando niente che chi chiama non
+      sappia di se stesso.
+    */
+    const response = await apiRequest<{ sent: boolean }>(
+      `/api/v1/auth/verify/${channel}/send`,
+      {
+        method: "POST",
+        body: { userId: user.id },
+      },
+    );
+
+    setVerificationSending(null);
+
+    if (response.error) {
+      showToast("error", response.error.message || "Invio non riuscito");
+      /*
+        Anche quando l'invio e rifiutato per il cooldown la casella si apre: il
+        codice precedente e ancora buono, e chiudere la casella costringerebbe
+        ad aspettare un minuto per scrivere un codice che si ha gia in mano.
+      */
+      if (response.error.code !== "RESEND_TOO_SOON") return;
+    } else {
+      showToast(
+        "success",
+        channel === "email"
+          ? "Ti abbiamo inviato un codice via email."
+          : "Ti abbiamo inviato un codice via SMS.",
+      );
+    }
+
+    setVerificationOpen(channel);
+  };
+
+  const confirmVerificationCode = async (
+    channel: "email" | "phone",
+    code: string,
+  ) => {
+    if (!user?.id) return;
+    setVerificationSending(channel);
+
+    const response = await apiRequest<{ user: unknown }>(
+      `/api/v1/auth/verify/${channel}/confirm`,
+      {
+        method: "POST",
+        body: { userId: user.id, code },
+      },
+    );
+
+    setVerificationSending(null);
+
+    if (response.error) {
+      showToast("error", response.error.message || "Codice non valido");
+      return;
+    }
+
+    setVerificationOpen(null);
+    /*
+      Il segno locale, e non una riscrittura di `user`: `AuthProvider` non
+      espone un ricaricamento della sessione e **non e un file di questa lane**
+      (contratto di ownership parallelo), quindi non gli si aggiunge un metodo
+      qui. Il segno vale finche la pagina resta aperta; al caricamento
+      successivo l'avviso lo decide di nuovo il server, che e la fonte vera.
+    */
+    setVerificatoOra((precedente) => [...precedente, channel]);
+    showToast(
+      "success",
+      channel === "email" ? "Email verificata" : "Telefono verificato",
+    );
+  };
   const accountDisplayName =
     [profileForm.firstName, profileForm.lastName].filter(Boolean).join(" ") ||
     user?.user_metadata?.name ||
@@ -707,9 +928,29 @@ export default function AccountHomeScreen() {
     const phoneChanged =
       profileForm.phone.trim() !== String(user?.user_metadata?.phone || "");
 
+    /*
+      La password attuale si manda **solo** quando serve — cioe quando cambia
+      un fattore — e non a ogni salvataggio: chi corregge un refuso nel proprio
+      cognome non deve ridigitare la password.
+    */
+    const richiedePassword =
+      emailChanged || phoneChanged || Boolean(profileForm.newPassword.trim());
+
+    if (richiedePassword && !profileForm.currentPassword.trim()) {
+      showToast(
+        "error",
+        "Per cambiare email, cellulare o password serve la password attuale.",
+      );
+      setSavingProfile(false);
+      return;
+    }
+
     const response = await supabase.auth.updateUser({
       email: profileForm.email.trim().toLowerCase(),
       password: profileForm.newPassword.trim() || undefined,
+      currentPassword: richiedePassword
+        ? profileForm.currentPassword
+        : undefined,
       data: {
         firstName: profileForm.firstName.trim(),
         lastName: profileForm.lastName.trim(),
@@ -1024,6 +1265,61 @@ export default function AccountHomeScreen() {
             </div>
           </div>
         </section>
+
+        {/*
+          **Gli avvisi di verifica dei recapiti (PP-05).**
+
+          `emailVerified` e `phoneVerified` arrivavano gia dentro
+          `user_metadata` — `buildUserMetadata` li scrive da sempre — e
+          **nessuna schermata li leggeva**: due booleani calcolati a ogni
+          richiesta e mai mostrati a nessuno. Questa e la superficie che li
+          rende visibili, con il gesto che li risolve accanto.
+
+          L'ordine non e casuale: il telefono sta sopra perche e l'unico che
+          **blocca** (ADR-0115) — chi lo ha cambiato non rientrera al prossimo
+          accesso finche non lo verifica — mentre l'email non impedisce niente
+          e puo aspettare. Un avviso che grida quanto quello sopra insegna a
+          ignorarli entrambi.
+        */}
+        {!phoneVerified ? (
+          <VerificationNotice
+            tone="warning"
+            title="Telefono non verificato"
+            description="Finché non verifichi il numero non potrai rientrare al prossimo accesso."
+            ctaLabel="Verifica telefono"
+            pending={verificationSending === "phone"}
+            open={verificationOpen === "phone"}
+            onAction={() => {
+              void requestVerificationCode("phone");
+            }}
+            onResend={() => {
+              void requestVerificationCode("phone");
+            }}
+            onConfirm={(code) => {
+              void confirmVerificationCode("phone", code);
+            }}
+          />
+        ) : null}
+
+        {!emailVerified ? (
+          <VerificationNotice
+            tone="info"
+            title="Email non verificata"
+            description={`Non abbiamo ancora confermato ${profileForm.email || "il tuo indirizzo"}. Puoi usare EasyGame lo stesso, ma un indirizzo non verificato non vale come prova della tua identità.`}
+            ctaLabel="Verifica email"
+            pending={verificationSending === "email"}
+            open={verificationOpen === "email"}
+            onAction={() => {
+              void requestVerificationCode("email");
+            }}
+            onResend={() => {
+              void requestVerificationCode("email");
+            }}
+            onConfirm={(code) => {
+              void confirmVerificationCode("email", code);
+            }}
+          />
+        ) : null}
 
         {membershipsStatus === "error" && hasLoadedMemberships ? (
           <div

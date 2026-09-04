@@ -156,6 +156,29 @@ export function AccountProfileDialog({
             </div>
           </div>
 
+          {/*
+            **La password attuale, prima delle altre due (PP-05).**
+
+            Sta sopra e da sola perche non e «una terza password da inventare»:
+            e la prova che chi sta cambiando i recapiti e la persona a cui
+            appartengono. Una sessione presa in prestito non la porta con se, ed
+            e per questo che email, cellulare e password nuova adesso la
+            richiedono tutte e tre (chiude il debito W4-R13).
+          */}
+          <div className="space-y-2">
+            <Label htmlFor="profile-current-password">Password attuale</Label>
+            <Input
+              id="profile-current-password"
+              type="password"
+              autoComplete="current-password"
+              value={form.currentPassword}
+              onChange={(event) =>
+                onChange("currentPassword", event.target.value)
+              }
+              placeholder="Serve per cambiare email, cellulare o password"
+            />
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="profile-new-password">Nuova password</Label>
