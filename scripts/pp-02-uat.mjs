@@ -3828,6 +3828,87 @@ const sezioneW = async () => {
     "prima: la chiave spariva, e con lei ogni revoca mai fatta",
   );
 
+  /* ---------- W-19: la revoca ha un perimetro, e non ce l'aveva ---------- */
+
+  /*
+    **W-19.** La revoca **scrive**, e scriveva senza perimetro. Un
+    collaboratore recintato su una sede poteva chiamarla su un minore di
+    un'altra e mettere l'identita del tutore vero nell'elenco delle revoche,
+    chiudendogli l'accesso su ogni canale — cruscotto, promemoria del
+    certificato, solleciti, notifiche documentali.
+
+    E per uscirne serve un **riscatto**, cioe coniare un gettone, che e della
+    direzione: un ruolo perimetrato poteva togliere cio che non puo ridare.
+
+    Il gemello che gestisce l'accesso degli **atleti** il perimetro ce l'aveva
+    gia. Questa — l'unica porta con cui si revoca un tutore — no.
+  */
+  const FIGLIO_PERIMETRO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_PERIMETRO,
+      organization_id: CLUB,
+      first_name: "Sara",
+      last_name: "Perimetro",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "t", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+        ],
+      },
+    },
+  });
+
+  /*
+    Il perimetro di sede si calcola sulle **appartenenze**, non su una colonna
+    dell'atleta: e la forma che ADR-0103 ha scelto perche un ragazzo puo
+    allenarsi in due sedi.
+  */
+  await prisma.athleteCategoryMembership.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      athlete_id: FIGLIO_PERIMETRO,
+      category_id: CAT_B,
+      site_id: SEDE_2,
+      is_primary: true,
+      updated_at: new Date(),
+    },
+  });
+
+  const scopeRecintato = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "collaborator",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [{ kind: "site", value: SEDE_1 }],
+  };
+
+  const revocaFuoriPerimetro = await legami
+    .unlinkGuardianAccount(scopeRecintato, {
+      athleteId: FIGLIO_PERIMETRO,
+      guardianId: "t",
+    })
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-19 un ruolo recintato non revoca un tutore fuori dal proprio perimetro",
+    true,
+    revocaFuoriPerimetro !== "riuscita",
+    revocaFuoriPerimetro,
+  );
+
+  prova(
+    "W-19b e il tutore vero continua a entrare",
+    true,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_PERIMETRO),
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_PERIMETRO } });
+
   /* ---------- W-18: l'RSVP, che nessuna sonda aveva mai toccato ---------- */
 
   /*

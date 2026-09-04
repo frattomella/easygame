@@ -1,3 +1,4 @@
+import { athleteWithinAccessScope } from "@/lib/server/access-scope-query";
 import { NextResponse } from "next/server";
 import { readDocumentSnapshot } from "@/lib/documents/document-snapshot";
 import { canAccessClubResource } from "@/lib/access-roles";
@@ -145,6 +146,29 @@ export async function GET(request: Request, context: Context) {
     );
     if (!perRuolo && !perLegame) {
       return denied(403, "Accesso negato per il ruolo attivo");
+    }
+
+    /*
+      **E il perimetro, per chi entra col ruolo.**
+
+      Il registro generico queste stesse righe le recinta gia — `receipts` e
+      `invoices` sono fra le risorse per atleta — e il commento accanto
+      descrive letteralmente questo attacco: «un ruolo recintato sulla sede
+      Nord leggeva le fatture di tutto il club». La porta che **stampa** la
+      carta non aveva ricevuto la stessa correzione.
+
+      Chi entra per **legame** non passa di qui: il suo confine e il legame
+      stesso, gia verificato, e un genitore non ha un perimetro di sede.
+    */
+    if (perRuolo && !perLegame && row.athlete_id) {
+      const dentro = await athleteWithinAccessScope(
+        row.organization_id,
+        row.athlete_id,
+        scope,
+      );
+      if (!dentro) {
+        return denied(403, "Accesso negato: atleta fuori dal perimetro");
+      }
     }
 
     const [club, athlete] = await Promise.all([

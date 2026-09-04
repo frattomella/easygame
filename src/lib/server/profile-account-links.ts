@@ -1,3 +1,4 @@
+import { athleteWithinAccessScope } from "./access-scope-query";
 import { prisma } from "./prisma";
 import { reportServerError } from "./observability";
 import {
@@ -478,6 +479,27 @@ const caricaAtletaDelClubAttivo = async (
   const atleta = await prisma.athlete.findUnique({ where: { id } });
   if (!atleta) throw new Error("Atleta non trovato");
   assertActiveClub(scope, atleta.organization_id, "l'atleta");
+
+  /*
+    **E il perimetro di sede e categoria, che questa porta non chiedeva.**
+
+    Il gemello che gestisce l'accesso degli atleti ce l'ha; questa — l'unica
+    porta con cui si **revoca** un tutore — no, benche lo scope dichiari
+    `accessScopes` e nessuna riga lo leggesse.
+
+    Il verso pericoloso non e la lettura: e che la revoca **scrive**. Un
+    collaboratore recintato sulla sede Nord poteva chiamarla su un minore
+    della sede Sud e mettere l'identita del tutore vero nell'elenco delle
+    revoche, chiudendogli l'accesso su ogni canale — cruscotto, promemoria del
+    certificato, solleciti, notifiche documentali. E per uscirne serve un
+    **riscatto**, cioe coniare un gettone, che e della direzione: un ruolo
+    perimetrato poteva togliere cio che non puo ridare.
+  */
+  if (!(await athleteWithinAccessScope(atleta.organization_id, atleta.id, scope))) {
+    throw new Error(
+      "Accesso negato: questo atleta e fuori dal tuo perimetro",
+    );
+  }
 
   return atleta;
 };
