@@ -5931,6 +5931,26 @@ export const createResource = async (
             registrazione passa da `auth/register`, che non ha scope.
           */
           throw new Error("Accesso negato alla risorsa del club");
+        } else if (RISORSE_CON_SCHEDA_ATLETA.has(resource)) {
+          /*
+            **Un `upsert` che crea e una creazione, e va vagliato come tale.**
+
+            Le guardie giravano in questo ramo **solo se la riga esisteva**, e
+            il vaglio della creazione qui sopra si accende su
+            `mode === "create"`: un `upsert` con un identificativo nuovo non
+            incontrava ne l'uno ne l'altro. Nasceva quindi una scheda con
+            `athletes.user_id` scritto dal registro generico — la colonna che
+            ADR-0104 riserva al proprio dominio — e con un legame di famiglia
+            gia dentro, senza i due permessi e senza audit.
+
+            E il **terzo** ramo della stessa funzione: la lezione scritta poche
+            righe piu su — «i due rami devono chiamare la stessa funzione» — era
+            stata applicata a due su tre.
+
+            Il lato precedente e vuoto, come per la creazione: non c'e niente da
+            conservare, e ogni legame presente e nuovo.
+          */
+          await applicaGuardieDiModifica(resource, normalized, null, scope);
         }
       }
 

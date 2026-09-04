@@ -3828,6 +3828,48 @@ const sezioneW = async () => {
     "prima: la chiave spariva, e con lei ogni revoca mai fatta",
   );
 
+  /* -------- W-22: il terzo ramo, che le guardie non incontravano --------- */
+
+  /*
+    **W-22.** `applicaGuardieDiModifica` ha tre rami che possono scrivere una
+    scheda atleta: la creazione, la modifica, e l'`upsert`. Le guardie giravano
+    nell'`upsert` **solo se la riga esisteva**, e il vaglio della creazione si
+    accende su `mode === "create"`: un `upsert` con un identificativo **nuovo**
+    non incontrava ne l'uno ne l'altro.
+
+    Nasceva quindi una scheda con `athletes.user_id` scritto dal registro
+    generico — la colonna che ADR-0104 riserva al proprio dominio — e con un
+    legame di famiglia gia dentro, senza i due permessi e senza audit.
+
+    La lezione «i due rami devono chiamare la stessa funzione», scritta poche
+    righe piu su in quello stesso file, era stata applicata a **due su tre**.
+  */
+  const upsertNegato = await risorseW
+    .createResource(
+      "athletes",
+      {
+        id: randomUUID(),
+        organization_id: CLUB,
+        first_name: "Furbo",
+        last_name: "Upsert",
+        user_id: PRESIDENTE.id,
+        data: {
+          guardians: [{ id: "t", name: "Io", linkedUserId: PRESIDENTE.id }],
+        },
+      },
+      "upsert",
+      scopeSenzaPermessiW17,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-22 un upsert che crea passa dalle stesse guardie della creazione",
+    true,
+    upsertNegato !== "riuscita",
+    upsertNegato,
+  );
+
   /* ------ W-21: le tre difese, lette da tutti i canali allo stesso modo ---- */
 
   /*
