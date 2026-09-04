@@ -1013,11 +1013,24 @@ export function ParentAthletePage() {
             />
           </div>
 
+          {/*
+            **Qui il pulsante non c'e**, e non e una dimenticanza.
+
+            La Home rendeva `showPayNow` senza passare ne il gestore ne il
+            motivo del canale, e il componente ricadeva sulla frase «Il
+            pagamento online non e attivo su questa schermata» — accanto a un
+            pulsante grigio, **anche quando il club incassa online benissimo**.
+            E la contraddizione che §D e nato per chiudere, sopravvissuta in una
+            delle tre superfici.
+
+            Il pagamento vive su Pagamenti, dove il pulsante funziona e dove il
+            motivo, quando manca qualcosa, e quello vero. Un riepilogo non deve
+            fingere di essere anche una cassa.
+          */}
           <EnrollmentPaymentBreakdown
             summary={paymentSummary}
             payments={data.payments.items}
             mode="parent"
-            showPayNow
           />
 
           {enrollment.notes ? (
@@ -1989,8 +2002,21 @@ export function ParentDocumentsPage() {
                       size="sm"
                       variant="outline"
                       onClick={() =>
+                        /*
+                          **Dove porta dipende da cosa e il modulo.**
+
+                          Prima portava tutti alla pagina Iscrizione, che apre
+                          il flusso di rinnovo. Su un questionario quella
+                          schermata dice «Il rinnovo e lo stesso modulo
+                          dell'iscrizione» e l'invio nasce `kind: "renewal"`:
+                          la segreteria si trovava una pratica di rinnovo che
+                          non era un rinnovo. Un modulo generico si compila
+                          dove i moduli generici si compilano.
+                        */
                         router.push(
-                          `/parent-view/${data.athlete.id}/enrollment?modulo=${encodeURIComponent(modulo.publicSlug)}`,
+                          modulo.isEnrollment
+                            ? `/parent-view/${data.athlete.id}/enrollment?modulo=${encodeURIComponent(modulo.publicSlug)}`
+                            : `/forms/${encodeURIComponent(modulo.publicSlug)}`,
                         )
                       }
                     >
@@ -2176,7 +2202,29 @@ export function ParentSecretariatPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (tipiAppuntamento.length ? !form.typeId : !form.reason.trim()) {
+    /*
+      **Un motivo storico e un motivo.**
+
+      Il dominio ha un ramo esplicito: con i tipi configurati e senza `typeId`,
+      riprogrammando si conserva il **motivo corrente**, perche un appuntamento
+      chiesto prima che il club configurasse i tipi si deve poter spostare
+      senza che la famiglia sia costretta a reinventarlo.
+
+      La schermata non ci arrivava mai. `startEditAppointment` cerca il tipo
+      per nome, su un testo libero non lo trova, lascia `typeId` vuoto — e
+      questa guardia rifiutava. La tendina era vuota, il campo libero non veniva
+      reso, e l'unica uscita era scegliere un motivo **diverso**: cioe
+      riscrivere la richiesta che si voleva solo spostare.
+    */
+    const motivoConservato = Boolean(
+      editingAppointmentId && form.reason.trim(),
+    );
+
+    if (
+      tipiAppuntamento.length
+        ? !form.typeId && !motivoConservato
+        : !form.reason.trim()
+    ) {
       showToast("error", "Indica il motivo dell'appuntamento.");
       return;
     }
@@ -2360,6 +2408,21 @@ export function ParentSecretariatPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {/*
+                      Riprogrammando un appuntamento chiesto **prima** che il
+                      club configurasse i tipi, il motivo storico non e in
+                      elenco: si dice che resta quello, invece di lasciare una
+                      tendina vuota che sembra un errore.
+                    */}
+                    {editingAppointmentId &&
+                    !form.typeId &&
+                    form.reason.trim() ? (
+                      <p className="text-xs text-slate-500">
+                        Motivo attuale: {form.reason.trim()}. Lascialo com&apos;e
+                        per spostare soltanto l&apos;orario, oppure scegline uno
+                        nuovo.
+                      </p>
+                    ) : null}
                   </div>
                 ) : (
                   <div className="space-y-2">

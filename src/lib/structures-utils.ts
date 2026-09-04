@@ -464,6 +464,20 @@ const toMinutes = (value: string) => {
  * **Una prenotazione che scavalca la mezzanotte e fuori**, perche una fascia
  * appartiene a un giorno e non ce n'e nessuna che possa contenerla.
  */
+/**
+ * Il giorno di calendario successivo a `YYYY-MM-DD`.
+ *
+ * Passa da `Date.UTC`, che non conosce fusi ne ora legale: qui non si sta
+ * spostando un istante, si sta girando una pagina del calendario.
+ */
+const giornoSuccessivo = (data: string) => {
+  const [anno, mese, giorno] = data.split("-").map(Number);
+  if (!anno || !mese || !giorno) return "";
+
+  const dopo = new Date(Date.UTC(anno, mese - 1, giorno + 1));
+  return `${dopo.getUTCFullYear()}-${String(dopo.getUTCMonth() + 1).padStart(2, "0")}-${String(dopo.getUTCDate()).padStart(2, "0")}`;
+};
+
 export function isWithinFieldAvailability(
   field: Pick<StructureField, "availability">,
   start: Date,
@@ -489,10 +503,14 @@ export function isWithinFieldAvailability(
     mezzanotte», e su quel «diverso» passavano trenta ore: lunedi 18:00 →
     mercoledi 00:00. Adesso il giorno seguente e **calcolato**, non dedotto dal
     nome.
+
+    E si calcola **sul calendario**, non aggiungendo ventiquattro ore
+    all'istante: nella notte in cui l'orologio va avanti quelle ventiquattro
+    ore scavalcano il giorno seguente e atterrano su quello dopo ancora, e una
+    prenotazione 23:00 → 00:00 dentro una fascia dichiarata veniva rifiutata.
+    Un giorno l'anno, e nessuno avrebbe saputo dire perche.
   */
-  const giornoDopo = new Date(start.getTime());
-  giornoDopo.setUTCDate(giornoDopo.getUTCDate() + 1);
-  const dataSeguente = describeInstantForAvailability(giornoDopo, timeZone).date;
+  const dataSeguente = giornoSuccessivo(inizio.date);
 
   const stessoGiorno = fine.date === inizio.date;
   const mezzanotteSeguente = fine.date === dataSeguente && fine.minutes === 0;

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getParentDashboardData } from "@/lib/server/parent-dashboard";
 
@@ -43,7 +44,7 @@ export async function GET(request: Request, context: Context) {
         data: null,
         error: {
           message:
-            error?.message || "Errore caricamento dashboard genitore",
+            publicErrorMessage(error, "Errore caricamento dashboard genitore"),
         },
       },
       { status: 500 },

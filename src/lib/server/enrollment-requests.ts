@@ -583,6 +583,20 @@ export type FamilyOnlineForm = {
   singleSubmission: boolean;
   /** Se un invio e ancora possibile: e cio che accende la CTA. */
   canSubmit: boolean;
+  /**
+   * **Se questo modulo e un'iscrizione**, e quindi dove porta il pulsante.
+   *
+   * Questo elenco non filtra per tipo, ed e giusto: risponde a «cosa ti chiede
+   * il club», e un questionario lo e. Ma la CTA mandava **tutti** al flusso di
+   * rinnovo, che apre `RenewalForm` sotto il titolo «Rinnova l'iscrizione» e
+   * invia con `kind: "renewal"`: un questionario di gradimento arrivava in
+   * segreteria etichettato come una pratica di rinnovo, da esaminare e
+   * approvare — e approvarla avrebbe scritto anagrafica da risposte che non
+   * sono un'iscrizione.
+   *
+   * L'elenco non doveva restringersi: doveva restringersi la **destinazione**.
+   */
+  isEnrollment: boolean;
 };
 
 /**
@@ -722,6 +736,7 @@ export const listFamilyOnlineForms = async (
       const completedAt = toIso(ultimaPerModulo.get(riga.id) ?? null);
       const chiuso = isFormClosed(schema, now);
       const unaVoltaSola = Boolean(schema.settings.singleSubmission);
+      const iscrizione = isEnrollmentForm(schema);
 
       /*
         L'ordine e voluto. «Completato» vince su «scaduto»: chi lo ha gia
@@ -740,6 +755,7 @@ export const listFamilyOnlineForms = async (
 
       return {
         publicSlug: asText(riga.public_slug),
+        isEnrollment: iscrizione,
         title: schema.title || asText(riga.title) || "Modulo",
         athleteName: nomeAtleta,
         state,

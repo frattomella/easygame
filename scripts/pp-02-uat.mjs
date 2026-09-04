@@ -2129,6 +2129,503 @@ const sezioneL = async () => {
 
 /* ==================================================================== */
 
+/* ==================================================================== */
+/*  §S — cio che la TERZA revisione indipendente ha trovato             */
+/* ==================================================================== */
+
+/**
+ * **Due revisioni in parallelo — una sulla correttezza del percorso, una
+ * ostile sulla sicurezza — su un pacchetto che si era gia dichiarato pulito
+ * due volte.**
+ *
+ * Nessun Critical, e nessuna via per cui un genitore raggiunga i dati di un
+ * figlio non suo. Ma due High di correttezza, un High di disponibilita, un
+ * Medium multi-tenant e nove fra Medium e Low.
+ *
+ * Il filo che li tiene insieme e lo stesso del secondo round, e va scritto una
+ * terza volta: **le sonde misuravano il dominio, e i difetti stavano nel
+ * percorso.** Il correttivo del secondo round era stato applicato solo dove il
+ * difetto era stato trovato. Queste prove partono tutte da fuori.
+ */
+const sezioneS = async () => {
+  console.log("\n§S — le correzioni della terza revisione\n");
+
+  const auth = await carica("src/lib/server/auth.ts");
+  const sessione = await auth.createSessionForUser(ANNA);
+
+  /* ------------------------------------------------- il proprio impianto */
+
+  /*
+    Un campo **senza fasce dichiarate**: e lo stato normale di ogni club che
+    quel riquadro non lo ha compilato, ed e il ramo che nessuna sonda toccava.
+    Si aggiunge qui e non nel semaforo comune perche P-80 elenca le strutture
+    per nome.
+  */
+  const STRUTTURA_LIBERA = "struttura-pp02-libera";
+  const CAMPO_LIBERO = "campo-pp02-libero";
+
+  const clubCorrente = await prisma.club.findUnique({
+    where: { id: CLUB },
+    select: { structures: true },
+  });
+
+  await prisma.club.update({
+    where: { id: CLUB },
+    data: {
+      structures: [
+        ...(clubCorrente?.structures || []),
+        {
+          id: STRUTTURA_LIBERA,
+          name: "Palestra senza orari",
+          siteId: SEDE_1,
+          isVisibleToMembers: true,
+          isBookableByMembers: true,
+          fields: [
+            {
+              id: CAMPO_LIBERO,
+              name: "Campo C",
+              isVisible: true,
+              isBookable: true,
+              pricing: [{ id: "p3", durationMinutes: 60, price: 10 }],
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  const rottaStrutture = await carica(
+    "src/app/api/parent-dashboard/[athleteId]/structures/route.ts",
+  );
+
+  const prenotaS = async (corpo) => {
+    const risposta = await rottaStrutture.POST(
+      new Request("http://collaudo.invalid/api/parent-dashboard/x/structures", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${sessione.access_token}`,
+        },
+        body: JSON.stringify(corpo),
+      }),
+      { params: { athleteId: MARCO } },
+    );
+    return { stato: risposta.status, corpo: await risposta.json() };
+  };
+
+  /* ---------------------------------- S1: una richiesta ha una durata */
+
+  /*
+    **S1 (High).** Il solo vincolo era `inizio < fine`, e la fascia non copre
+    il caso: un campo che non dichiara fasce non ha vincolo, ed e deliberato
+    (W6-D03, il silenzio non e un divieto). Su un campo cosi bastava chiedere
+    dal 2027 al 2099. La riga nasce `pending`, e `hasBookingConflict` considera
+    `pending` bloccante: **il campo restava occupato per settant'anni**, per
+    ogni altra famiglia e per la segreteria. Non serviva malafede: un errore di
+    battitura sull'anno bastava.
+  */
+  const settantAnni = await prenotaS({
+    structureId: STRUTTURA_LIBERA,
+    fieldId: CAMPO_LIBERO,
+    start: "2027-01-04T09:00:00.000Z",
+    end: "2099-01-01T09:00:00.000Z",
+  });
+  prova(
+    "S-01 una prenotazione non puo durare settant'anni",
+    true,
+    settantAnni.stato === 400 &&
+      /piu di un giorno/.test(String(settantAnni.corpo?.error?.message || "")),
+    settantAnni.corpo?.error?.message,
+  );
+
+  /*
+    E il campo senza fasce **resta prenotabile**: il tetto e sulla durata, non
+    sul silenzio del club. Se questa diventasse rossa avremmo trasformato
+    W6-D03 nel suo opposto, che e proprio cio che il difetto R4 aveva fatto.
+  */
+  const normale = await prenotaS({
+    structureId: STRUTTURA_LIBERA,
+    fieldId: CAMPO_LIBERO,
+    start: "2027-05-04T09:00:00.000Z",
+    end: "2027-05-04T10:00:00.000Z",
+  });
+  prova(
+    "S-02 un campo senza fasce dichiarate resta prenotabile",
+    200,
+    normale.stato,
+    normale.corpo?.error?.message,
+  );
+
+  const passato = await prenotaS({
+    structureId: STRUTTURA_LIBERA,
+    fieldId: CAMPO_LIBERO,
+    start: "2020-01-01T09:00:00.000Z",
+    end: "2020-01-01T10:00:00.000Z",
+  });
+  prova(
+    "S-03 non si prenota un orario gia passato",
+    true,
+    passato.stato === 400 &&
+      /gia passato/.test(String(passato.corpo?.error?.message || "")),
+    passato.corpo?.error?.message,
+  );
+
+  /* ------------------------- S4: il figlio lo dice il percorso, non il corpo */
+
+  /*
+    **S4 (Medium, multi-tenant).** Il corpo poteva sovrascrivere il figlio: si
+    cercava `body.athleteId` fra `linkedAthletes`, che sono tutti i figli di chi
+    chiede, di **tutti** i club. Il controllo verificava che l'id fosse di un
+    proprio figlio e **non** che quel figlio fosse di questo club — mentre il
+    club della prenotazione viene dal percorso.
+
+    Anna, con Marco qui e una figlia in un'altra societa, poteva far scrivere
+    dentro le strutture di **questo** club una prenotazione intestata alla
+    figlia dell'altra: con la sua riga di audit e una notifica a tutta la
+    dirigenza che nomina un minore **che non e loro tesserato**.
+  */
+  const FIGLIA_ALTROVE = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIA_ALTROVE,
+      organization_id: ALTRO_CLUB,
+      first_name: "Elena",
+      last_name: "Collaudo",
+      status: "active",
+      data: { guardians: [{ name: "Anna", linkedUserId: ANNA.id }] },
+      updated_at: new Date(),
+    },
+  });
+
+  /* Il legame c'e davvero: e cio che rendeva l'attacco possibile. */
+  prova(
+    "S-04a la figlia nell'altro club e davvero una figlia",
+    true,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIA_ALTROVE),
+  );
+
+  await prenotaS({
+    structureId: STRUTTURA_LIBERA,
+    fieldId: CAMPO_LIBERO,
+    start: "2027-05-05T09:00:00.000Z",
+    end: "2027-05-05T10:00:00.000Z",
+    athleteId: FIGLIA_ALTROVE,
+  });
+
+  const dopo = await prisma.club.findUnique({
+    where: { id: CLUB },
+    select: { structures: true },
+  });
+  const intestatari = (dopo?.structures || [])
+    .filter((s) => s.id === STRUTTURA_LIBERA)
+    .flatMap((s) => s.bookings || [])
+    .filter((b) => String(b.start || "").startsWith("2027-05-05"))
+    .map((b) => b.athleteId);
+
+  prova(
+    "S-04 il corpo non porta un figlio di un altro club dentro questo club",
+    [MARCO],
+    intestatari,
+    "prima: la riga nasceva intestata alla figlia dell'altra societa",
+  );
+
+  /* ------------------------------- S5: la versione dopo il salvataggio */
+
+  /*
+    **S5 (High).** La schermata mandava la versione — la correzione di §O — e
+    non riscriveva mai quella **tornata indietro**: la copia in memoria veniva
+    ricomposta campo per campo e `version` non era fra i campi. Il modale non si
+    chiude da solo dopo un salvataggio riuscito, quindi la seconda modifica di
+    fila ripartiva da una versione **gia consumata**: «modificato da qualcun
+    altro», con nessun altro che aveva toccato niente. E riprovando dallo stesso
+    modale, lo stesso errore per sempre.
+
+    Qui si misura la proprieta su cui la correzione poggia: la risposta del
+    `PATCH` porta la versione nuova, risalvare su quella vecchia viene respinto,
+    e con quella fresca passa.
+  */
+  const rottaEvento = await carica("src/app/api/v1/events/[id]/route.ts");
+  const sessionePresidente = await auth.createSessionForUser(PRESIDENTE);
+
+  const evento = await prisma.clubEvent.findFirst({
+    where: { organization_id: CLUB, kind: "training" },
+    select: { id: true, version: true },
+  });
+
+  const patchEvento = async (versione, titolo) => {
+    const risposta = await rottaEvento.PATCH(
+      new Request(`http://collaudo.invalid/api/v1/events/${evento.id}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${sessionePresidente.access_token}`,
+        },
+        body: JSON.stringify({ data: { title: titolo, version: versione } }),
+      }),
+      { params: { id: evento.id } },
+    );
+    return { stato: risposta.status, corpo: await risposta.json() };
+  };
+
+  const versionePartenza = evento.version ?? 1;
+  const primo = await patchEvento(versionePartenza, "Rinominato una volta");
+  const versioneTornata = primo.corpo?.data?.row?.version;
+
+  prova(
+    "S-05 la risposta del salvataggio porta la versione nuova",
+    true,
+    typeof versioneTornata === "number" && versioneTornata > versionePartenza,
+    `${versionePartenza} -> ${versioneTornata}`,
+  );
+
+  const conVecchia = await patchEvento(versionePartenza, "Secondo tentativo");
+  prova(
+    "S-06 risalvare sulla versione gia consumata viene respinto",
+    true,
+    conVecchia.stato >= 400 &&
+      /modificato da qualcun altro/i.test(
+        String(conVecchia.corpo?.error?.message || ""),
+      ),
+    conVecchia.corpo?.error?.message,
+  );
+
+  const conFresca = await patchEvento(versioneTornata, "Secondo tentativo");
+  prova(
+    "S-07 con la versione tornata indietro il secondo salvataggio passa",
+    200,
+    conFresca.stato,
+    conFresca.corpo?.error?.message,
+  );
+
+  /* ------------------------- S8: un questionario non e un rinnovo */
+
+  /*
+    **S8 (High).** L'elenco dei moduli online non filtra per tipo, ed e giusto:
+    risponde a «cosa ti chiede il club», e un questionario lo e. Ma la CTA
+    mandava **tutti** al flusso di rinnovo, che apre `RenewalForm` sotto il
+    titolo «Rinnova l'iscrizione» e invia con `kind: "renewal"`: un questionario
+    di gradimento arrivava in segreteria etichettato come **pratica di
+    rinnovo**, da esaminare e approvare — e approvarla avrebbe scritto
+    anagrafica da risposte che non sono un'iscrizione.
+
+    L'elenco non doveva restringersi: doveva restringersi la **destinazione**.
+    Percio la proiezione adesso dice cosa e ogni modulo.
+  */
+  const modello = await carica("src/lib/forms/model.ts");
+  const pubblicaTipata = async (titolo, purpose) => {
+    const templateId = randomUUID();
+    const slug = `pp02-s-${purpose}-${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const schema = modello.normalizeFormSchema({
+      title: titolo,
+      description: "",
+      fields: [{ id: "f_nome", type: "short_text", label: "Nome" }],
+      settings: { purpose },
+    });
+
+    await prisma.formTemplate.create({
+      data: {
+        id: templateId,
+        organization_id: CLUB,
+        title: titolo,
+        status: "published",
+        public_slug: slug,
+        public_enabled: true,
+        published_version: 1,
+        published_at: new Date(),
+        draft: schema,
+        updated_at: new Date(),
+      },
+    });
+    await prisma.formTemplateVersion.create({
+      data: {
+        id: randomUUID(),
+        organization_id: CLUB,
+        template_id: templateId,
+        version: 1,
+        schema_json: schema,
+        published_at: new Date(),
+      },
+    });
+
+    return slug;
+  };
+
+  const slugIscrizione = await pubblicaTipata("Iscrizione S", "enrollment");
+  const slugQuestionario = await pubblicaTipata("Questionario S", "generic");
+
+  const moduliFamiglia = await carica("src/lib/server/enrollment-requests.ts");
+  const elenco = await moduliFamiglia.listFamilyOnlineForms(ANNA.id, MARCO);
+  const per = new Map(elenco.map((m) => [m.publicSlug, m]));
+
+  prova(
+    "S-08 la proiezione distingue un'iscrizione da un questionario",
+    [true, false],
+    [
+      per.get(slugIscrizione)?.isEnrollment,
+      per.get(slugQuestionario)?.isEnrollment,
+    ],
+    "prima: il campo non esisteva, e la CTA mandava tutti al rinnovo",
+  );
+
+  /*
+    Ed entrambi restano in elenco: il difetto non era che il questionario ci
+    fosse — quello e voluto — ma dove portava il pulsante.
+  */
+  prova(
+    "S-08b il questionario resta fra i moduli che il club chiede",
+    true,
+    Boolean(per.get(slugQuestionario)),
+  );
+
+  /* ------------------ S9: il desk non e vincolato dal «una volta sola» */
+
+  /*
+    **S9 (Medium).** Il vincolo era applicato in `storeSubmission`, coda comune
+    di tre strade: la segretaria che ricompilava un modulo per correggere un
+    dato **per conto** della famiglia riceveva l'errore scritto per la famiglia
+    — «se serve una correzione, scrivi alla segreteria» — cioe l'istruzione di
+    scrivere a se stessa, con come unica uscita respingere la pratica esistente.
+  */
+  const invii = await carica("src/lib/server/form-submissions.ts");
+  const scopeSegreteria = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "owner",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  const daDesk = await invii
+    .submitInternalForm(scopeSegreteria, {
+      templateId: MODULO_UNICO.templateId,
+      answers: { f_nome: "Correzione dal desk" },
+      files: [],
+      subjects: [{ subject: "athlete", recordId: MARCO }],
+      respondentEmail: PRESIDENTE.email,
+    })
+    .catch((errore) => ({ errore: String(errore?.message || errore) }));
+
+  prova(
+    "S-09 la segreteria puo ricompilare un modulo «una volta sola»",
+    true,
+    !daDesk?.errore,
+    daDesk?.errore || "accettato",
+  );
+
+  /*
+    E per la famiglia il vincolo **resta**: la correzione non lo ha spento, lo
+    ha ristretto a chi compila da fuori.
+  */
+  await respinta(
+    "S-09b per la famiglia il vincolo vale ancora",
+    () =>
+      invii.submitRenewalForm(ANNA.id, {
+        athleteId: MARCO,
+        publicSlug: MODULO_UNICO.slug,
+        answers: { f_nome: "Ancora una volta" },
+        files: [],
+        respondentEmail: ANNA.email,
+      }),
+    /gia stato compilato|gia compilato|non si puo inviare/i,
+  );
+
+  /* ------------------------- S10: la mezzanotte del cambio d'ora */
+
+  /*
+    **S10 (Low).** Il giorno seguente si calcolava aggiungendo ventiquattro ore
+    **UTC** all'istante di inizio. Nella notte in cui l'orologio va avanti
+    quelle ventiquattro ore scavalcano il giorno seguente e atterrano su quello
+    dopo ancora: una prenotazione 23:00 → 00:00 dentro una fascia dichiarata
+    veniva rifiutata. Un giorno l'anno, e nessuno avrebbe saputo dire perche.
+  */
+  const strutture = await carica("src/lib/structures-utils.ts");
+  const campoNotturno = {
+    availability: { Sab: [{ start: "22:00", end: "00:00" }] },
+  };
+
+  prova(
+    "S-10 la notte del cambio d'ora, mezzanotte chiude ancora la giornata",
+    true,
+    strutture.isWithinFieldAvailability(
+      campoNotturno,
+      strutture.instantFromLocalTime("2027-03-27", "23:00"),
+      strutture.instantFromLocalTime("2027-03-28", "00:00"),
+    ),
+    "prima: il giorno seguente risultava il 29, e la prenotazione era rifiutata",
+  );
+
+  /* ------------------- S11: l'operatore del club non esce alla famiglia */
+
+  /*
+    **S11 (Low).** `toFamilyAppointment` includeva `requested_by_user_id`, che
+    su una riga nata dal desk porta **l'operatore del club**. Nessuna schermata
+    lo disegnava, ma usciva nella risposta: ripetendo su piu appuntamenti si
+    ricostruiva l'elenco di chi lavora in segreteria e di chi riceve in quali
+    giorni. E lo stesso dato che gli slot dichiarano di aver tolto, per la
+    stessa ragione — una risposta e cio che si pubblica.
+  */
+  const proiezione = await carica("src/lib/appointments/projection.ts");
+  const reso = proiezione.toFamilyAppointment(
+    {
+      id: randomUUID(),
+      organization_id: CLUB,
+      starts_at: new Date(),
+      ends_at: new Date(),
+      status: "requested",
+      requested_by_user_id: PRESIDENTE.id,
+      version: 1,
+    },
+    {},
+  );
+
+  prova(
+    "S-11 la risposta alla famiglia non nomina l'operatore del club",
+    false,
+    Object.prototype.hasOwnProperty.call(reso, "requested_by_user_id"),
+    Object.keys(reso).join(","),
+  );
+
+  /* ---------------- S12: il messaggio dell'ORM non arriva al browser */
+
+  /*
+    **S12 (Low).** Cinque rotte di famiglia rimandavano il messaggio grezzo
+    dell'ORM. Un `id` che non e un UUID **passa il gate** — il legame con il
+    figlio e vero — e poi la query lancia: il `catch` restituiva nome del
+    modello, operazione e `PostgresError`. E la classe W4-R14, che
+    `api-errors.ts` esiste per chiudere, e che PP-02 aveva chiuso su quattro
+    rotte lasciandone scoperte cinque.
+  */
+  const rottaAppuntamentiS = await carica(
+    "src/app/api/parent-dashboard/[athleteId]/appointments/route.ts",
+  );
+  const idStorto = await rottaAppuntamentiS.PATCH(
+    new Request("http://collaudo.invalid/api/parent-dashboard/x/appointments", {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${sessione.access_token}`,
+      },
+      body: JSON.stringify({
+        id: "non-un-uuid",
+        date: "2027-09-01",
+        time: "10:00",
+      }),
+    }),
+    { params: { athleteId: MARCO } },
+  );
+  const messaggioStorto = String(
+    (await idStorto.json().catch(() => ({})))?.error?.message || "",
+  );
+
+  prova(
+    "S-12 un identificativo malformato non fa uscire il messaggio dell'ORM",
+    false,
+    /prisma|PostgresError|invalid input syntax/i.test(messaggioStorto),
+    messaggioStorto.slice(0, 120),
+  );
+};
+
 const main = async () => {
   console.log("PP-02 — collaudo contro il database di sviluppo");
   await semina();
@@ -2145,6 +2642,7 @@ const main = async () => {
     await sezioneO();
     await sezioneM();
     await sezioneR();
+    await sezioneS();
   } finally {
     await pulisci();
     await prisma.$disconnect();

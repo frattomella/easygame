@@ -154,6 +154,22 @@ const readDeposito = async (
   const dataBase64 = firstText(body?.dataBase64, body?.data_base64);
   if (!fileName || !dataBase64) return { message: "File documento mancante" };
 
+  /*
+    **Si misura prima di decodificare**, e prima ancora si guarda la stringa.
+
+    Il ramo multipart qui sopra fa la cosa giusta: legge `file.size` e rifiuta
+    senza materializzare niente. Questo no: decodificava per intero e **poi**
+    misurava, cioe allocava due copie di un corpo che stava per rifiutare. In
+    App Router non c'e il tetto di 4 MB delle vecchie Pages API, quindi il
+    corpo lo decide chi chiama.
+
+    Base64 gonfia di un terzo: dalla lunghezza della stringa si sa gia se il
+    contenuto sfora, senza toccarlo.
+  */
+  if (dataBase64.length > Math.ceil((MAX_UPLOAD_BYTES * 4) / 3) + 4) {
+    return { message: "File troppo grande. Limite massimo 10MB." };
+  }
+
   const content = decodeBase64(dataBase64);
   if (content.length > MAX_UPLOAD_BYTES) {
     return { message: "File troppo grande. Limite massimo 10MB." };

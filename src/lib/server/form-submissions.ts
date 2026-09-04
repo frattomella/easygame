@@ -779,8 +779,18 @@ const storeSubmission = async ({
     Prima di caricare gli allegati, che e il lavoro costoso: un modulo gia
     compilato non deve far depositare una seconda copia di un certificato
     medico per poi rifiutare la pratica che lo citava.
+
+    **E non vale sul desk.** `storeSubmission` e la coda comune di tre strade,
+    e il vincolo era applicato a tutte e tre: la segretaria che ricompilava un
+    modulo per correggere un dato per conto della famiglia riceveva l'errore
+    scritto **per la famiglia** — «se serve una correzione, scrivi alla
+    segreteria» — cioe l'istruzione di scrivere a se stessa, e come unica
+    uscita respingere la pratica esistente. «Una volta sola» e una promessa
+    fatta a chi compila da fuori, non un divieto per chi tiene il registro.
   */
-  await assertNonGiaCompilato(match, selections);
+  if (source !== "internal") {
+    await assertNonGiaCompilato(match, selections);
+  }
 
   const files = await storeSubmissionFiles({
     organizationId: match.organizationId,

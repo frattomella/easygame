@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { prisma } from "@/lib/server/prisma";
 import { buildStoredFileResponse } from "@/lib/server/stored-file-response";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
@@ -134,7 +135,7 @@ export async function GET(request: Request, context: Context) {
       {
         data: null,
         error: {
-          message: error?.message || "Errore download documento",
+          message: publicErrorMessage(error, "Errore download documento"),
         },
       },
       { status: 500 },

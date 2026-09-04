@@ -65,11 +65,28 @@ export async function POST(request: Request, context: Context) {
     const fieldId = firstText(body?.fieldId);
     const start = firstText(body?.start);
     const end = firstText(body?.end);
-    const requestedAthleteId = firstText(body?.athleteId, dashboard.athlete.id);
-    const linkedAthlete =
-      dashboard.athlete.linkedAthletes.find((athlete: any) =>
-        sameText(athlete.id, requestedAthleteId),
-      ) || dashboard.athlete;
+    /*
+      **Il figlio lo dice il percorso, e nient'altro.**
+
+      Qui il corpo poteva sovrascriverlo: si cercava `body.athleteId` fra
+      `linkedAthletes`, che sono **tutti** i figli di chi chiede, di **tutti**
+      i club. Il controllo verificava che l'id fosse di un proprio figlio e non
+      che quel figlio fosse di **questo** club — e il club della prenotazione
+      viene invece dal percorso.
+
+      Una madre con Marco nel club X e Sofia nel club Y poteva quindi scrivere
+      dentro le strutture del club X una prenotazione intestata a Sofia, con la
+      sua riga di audit e una notifica a tutta la dirigenza che nomina **un
+      minore che non e loro tesserato**. Nessun attacco: bastava il campo
+      sbagliato in un corpo JSON.
+
+      La correzione non e un controllo in piu, e un controllo in **meno**: il
+      contesto del figlio e gia risolto e verificato dal segmento di rotta
+      (`resolveParentDashboard`), e il client mandava comunque lo stesso id.
+      Due fonti per lo stesso fatto sono una di troppo, e la seconda non era
+      vagliata.
+    */
+    const linkedAthlete = dashboard.athlete;
 
     if (!structureId || !fieldId || !start || !end) {
       return NextResponse.json(
@@ -92,6 +109,49 @@ export async function POST(request: Request, context: Context) {
         {
           data: null,
           error: { message: "Intervallo prenotazione non valido" },
+        },
+        { status: 400 },
+      );
+    }
+
+    /*
+      **Una richiesta ha una durata, e sta nel futuro.**
+
+      Il solo vincolo era `inizio < fine`, e la fascia oraria non lo copre: un
+      campo che **non dichiara fasce** non ha vincolo, ed e deliberato
+      (W6-D03, il silenzio non e un divieto) — cioe e lo stato normale di ogni
+      club che quel riquadro non lo ha compilato.
+
+      Su un campo cosi bastava chiedere dal 2027 al 2099. La riga nasce
+      `pending`, e `hasBookingConflict` considera `pending` bloccante: il
+      campo restava occupato per settant'anni, per ogni altra famiglia e per la
+      segreteria. Non serviva nemmeno malafede: un errore di battitura
+      sull'anno bastava.
+
+      Il tetto e **un giorno**, che e la forma piu lunga che la fascia stessa
+      sappia validare (fino alla mezzanotte successiva), e il passato si
+      rifiuta perche una prenotazione e una richiesta, e non si chiede una cosa
+      per ieri.
+    */
+    const DURATA_MASSIMA_MS = 24 * 60 * 60 * 1000;
+    if (endDate.getTime() - startDate.getTime() > DURATA_MASSIMA_MS) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Una prenotazione non puo durare piu di un giorno: dividila in piu richieste",
+          },
+        },
+        { status: 400 },
+      );
+    }
+
+    if (startDate.getTime() < Date.now()) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Non si puo prenotare un orario gia passato" },
         },
         { status: 400 },
       );

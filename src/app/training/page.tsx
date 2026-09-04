@@ -628,10 +628,37 @@ export default function TrainingPage() {
     window.history.replaceState(window.history.state, "", nextUrl);
   }, []);
 
-  const loadData = React.useCallback(async () => {
+  /**
+   * **Ricarica, e restituisce cio che ha ricaricato.**
+   *
+   * Serve al ramo del conflitto ottimistico: dopo la ricarica il modale di
+   * modifica va risincronizzato sulla riga fresca, e leggerlo da `trainings`
+   * subito dopo darebbe la copia vecchia — lo stato di React non e ancora
+   * cambiato dentro la stessa funzione.
+   */
+/**
+ * **La versione che il server ha appena scritto.**
+ *
+ * `PATCH /api/v1/events/[id]` risponde con la riga aggiornata sotto `row`,
+ * piu la sua forma storica appiattita. La versione si legge di li: senza, la
+ * copia in memoria resta a quella **di prima** del salvataggio, e il controllo
+ * ottimistico del salvataggio successivo fallisce contro una modifica che ha
+ * fatto la stessa persona un istante prima.
+ */
+const versioneSalvata = (risposta: any): number | null => {
+  if (typeof risposta?.row?.version === "number") return risposta.row.version;
+  if (typeof risposta?.version === "number") return risposta.version;
+  return null;
+};
+
+  const loadData = React.useCallback(async (): Promise<
+    TrainingSession[] | undefined
+  > => {
     if (!activeClub?.id) {
-      return;
+      return undefined;
     }
+
+    let risultato: TrainingSession[] | undefined;
 
     try {
       const settledResults = await Promise.allSettled([
@@ -735,7 +762,10 @@ export default function TrainingPage() {
         .filter(Boolean)
         .sort(compareTrainingsByStart) as TrainingSession[];
 
-      setTrainings(dedupeTrainings(formattedTrainings));
+      const elencoFresco = dedupeTrainings(formattedTrainings);
+      setTrainings(elencoFresco);
+
+      risultato = elencoFresco;
 
       if (failedSections.length > 0) {
         setLoadWarning(
@@ -751,6 +781,7 @@ export default function TrainingPage() {
       );
       showToast("error", "Errore nel caricamento dei dati");
     }
+    return risultato;
   }, [activeClub?.id, showToast]);
 
   // Load data from database
@@ -1725,12 +1756,29 @@ export default function TrainingPage() {
                                         }
 
                                         try {
-                                          await cancelEvent(training.id);
+                                          /*
+                                            Anche qui la versione: partendo
+                                            senza, il server ricadeva sulla
+                                            corrente e la incrementava, e la
+                                            copia locale non lo sapeva. Il primo
+                                            salvataggio dopo un «Annulla»
+                                            falliva per un conflitto che non
+                                            esisteva.
+                                          */
+                                          const annullato = await cancelEvent(
+                                            training.id,
+                                            training.version ?? null,
+                                          );
+                                          const versioneAnnullata =
+                                            versioneSalvata(annullato);
 
                                           const updatedTrainings = trainings.map((t) =>
                                             t.id === training.id
                                               ? {
                                                   ...t,
+                                                  version:
+                                                    versioneAnnullata ??
+                                                    t.version,
                                                   status: "annullato" as const,
                                                 }
                                               : t,
@@ -1770,12 +1818,21 @@ export default function TrainingPage() {
                                         }
 
                                         try {
-                                          await restoreEvent(training.id);
+                                          const ripristinato =
+                                            await restoreEvent(
+                                              training.id,
+                                              training.version ?? null,
+                                            );
+                                          const versioneRipristinata =
+                                            versioneSalvata(ripristinato);
 
                                           const updatedTrainings = trainings.map((t) =>
                                             t.id === training.id
                                               ? {
                                                   ...t,
+                                                  version:
+                                                    versioneRipristinata ??
+                                                    t.version,
                                                   status: "upcoming" as const,
                                                 }
                                               : t,
@@ -2387,18 +2444,31 @@ export default function TrainingPage() {
                 si ricarica **davvero**, cosi la seconda persona non deve
                 ricordarsene.
               */
-              await updateEvent(
+              const salvato = await updateEvent(
                 updatedTraining.id,
                 updateData,
                 editingTraining.version ?? null,
               );
 
+              /*
+                **La versione torna indietro, e va scritta.**
+
+                Mandarla non bastava: la copia in memoria veniva ricomposta
+                campo per campo e `version` non era fra i campi, quindi restava
+                quella **di prima**. Il modale non si chiude da solo dopo un
+                salvataggio riuscito, percio la seconda modifica di fila
+                ripartiva da una versione gia consumata e si sentiva rispondere
+                «modificato da qualcun altro» con nessun altro che aveva toccato
+                niente.
+              */
+              const versioneNuova = versioneSalvata(salvato);
 
               // Update the training in the local state
               const updatedTrainings = trainings.map((t) =>
                 t.id === updatedTraining.id
                   ? {
                       ...t,
+                      version: versioneNuova ?? t.version,
                       title: updatedTraining.title,
                       date: new Date(updatedTraining.date),
                       time: updatedTraining.time,
@@ -2414,6 +2484,16 @@ export default function TrainingPage() {
                   : t,
               );
               setTrainings(updatedTrainings);
+              /*
+                E il modale resta aperto: va risincronizzato anche lui, o la
+                riga fresca vive solo nell'elenco sotto.
+              */
+              setEditingTraining((corrente) =>
+                corrente && corrente.id === updatedTraining.id
+                  ? updatedTrainings.find((t) => t.id === updatedTraining.id) ||
+                    corrente
+                  : corrente,
+              );
               showToast(
                 "success",
                 `Allenamento ${updatedTraining.title} modificato e salvato con successo`,
@@ -2447,7 +2527,19 @@ export default function TrainingPage() {
                 appena scritto, senza servire a niente.
               */
               if (/modificato da qualcun altro/i.test(messaggio)) {
-                await loadData();
+                /*
+                  Ricaricare l'elenco non bastava: il modale legge
+                  `editingTraining`, che e una copia a se stante. Senza questa
+                  risincronizzazione ogni nuovo tentativo dallo stesso modale
+                  rimandava la **stessa** versione stantia, e l'errore si
+                  ripeteva per sempre — cioe l'opposto di cio che il commento
+                  qui sopra promette.
+                */
+                const freschi = await loadData();
+                const fresco = freschi?.find(
+                  (t) => t.id === updatedTraining.id,
+                );
+                if (fresco) setEditingTraining(fresco);
               }
             }
           }}

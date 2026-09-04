@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { canParentAccessAthlete } from "@/lib/server/parent-dashboard";
 import { prisma } from "@/lib/server/prisma";
@@ -80,7 +81,7 @@ export async function GET(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: [],
-        error: { message: error?.message || "Errore lettura bacheca" },
+        error: { message: publicErrorMessage(error, "Errore lettura bacheca") },
       },
       { status: errorStatus(error) },
     );
@@ -137,7 +138,7 @@ export async function POST(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore lettura annuncio" },
+        error: { message: publicErrorMessage(error, "Errore lettura annuncio") },
       },
       { status: errorStatus(error) },
     );

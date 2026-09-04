@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { toFamilyFreeSlot } from "@/lib/appointments/projection";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import {
@@ -56,6 +57,11 @@ const firstText = (...values: unknown[]) => {
   return "";
 };
 
+/*
+  **Qui si legge il messaggio grezzo**, e non quello ripulito: questa funzione
+  non pubblica niente, classifica. `publicErrorMessage` governa cosa **esce**
+  nell'envelope; lo stato si decide su cio che l'errore dice davvero.
+*/
 const errorStatus = (error: any) => {
   const messaggio = String(error?.message || "");
   if (messaggio.includes("Accesso negato")) return 403;
@@ -134,7 +140,7 @@ export async function GET(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore lettura appuntamenti" },
+        error: { message: publicErrorMessage(error, "Errore lettura appuntamenti") },
       },
       { status: errorStatus(error) },
     );
@@ -191,7 +197,7 @@ export async function POST(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore prenotazione appuntamento" },
+        error: { message: publicErrorMessage(error, "Errore prenotazione appuntamento") },
       },
       { status: errorStatus(error) },
     );
@@ -253,7 +259,7 @@ export async function PATCH(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore modifica appuntamento" },
+        error: { message: publicErrorMessage(error, "Errore modifica appuntamento") },
       },
       { status: errorStatus(error) },
     );
@@ -284,7 +290,7 @@ export async function DELETE(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore cancellazione appuntamento" },
+        error: { message: publicErrorMessage(error, "Errore cancellazione appuntamento") },
       },
       { status: errorStatus(error) },
     );
