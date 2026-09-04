@@ -834,3 +834,80 @@ Il mandato chiede che un round completo torni pulito prima di `DONE`. Dopo le
 correzioni il pacchetto e passato a una **terza** revisione indipendente, su due
 assi separati — correttezza del percorso e sicurezza — condotta da chi non aveva
 visto i due round precedenti.
+
+---
+
+## 18. Il terzo round: due revisioni in parallelo, e tre High
+
+Il pacchetto si era dichiarato pulito **due volte**. Il terzo round e stato
+condotto da due revisori indipendenti in parallelo, su assi separati — la
+correttezza del percorso, e una lettura ostile della sicurezza — nessuno dei due
+a conoscenza dei round precedenti.
+
+### Cio che la sicurezza **non** ha trovato
+
+Vale la pena scriverlo per primo, perche e il risultato piu importante:
+
+> **Nessun Critical. Nessuna via per cui un genitore raggiunga i dati di un
+> figlio che non e suo.**
+
+Provata e tenuta da nove direzioni: IDOR su ricevute e fatture (la rotta rilegge
+l'atleta della riga e lo confronta con il legame), checkout, appuntamenti,
+documenti, depositi con `requestId` altrui, bacheca, consensi, notifiche.
+Nessuna SQL injection nella query grezza. Nessuna query club-scoped senza
+`organization_id`. Upload con allowlist chiusa, tetto, nome ripulito, `nosniff`.
+`bookable=false` rifiutato **lato server**. Legame revocato riletto a ogni
+richiesta, senza cache nel token.
+
+### I tre High
+
+| # | Cosa | Come si vedeva |
+|---|---|---|
+| **La versione che non tornava indietro** | La schermata degli allenamenti mandava la versione — la correzione di §O — e non riscriveva mai quella che il server rispondeva. La copia in memoria si ricomponeva campo per campo, e `version` non era fra i campi | Una segretaria modifica un allenamento, si accorge di un refuso, salva di nuovo: «modificato da qualcun altro», **con nessun altro che ha toccato niente**. Il modale non si chiude da solo, quindi riprovando riceveva lo stesso errore per sempre e perdeva le modifiche |
+| **Un questionario che diventava un rinnovo** | L'elenco dei moduli online non filtra per tipo, ed e giusto. Ma la CTA mandava **tutti** al flusso di rinnovo, che invia con `kind: "renewal"` | Il club pubblica un «Questionario gradimento». La famiglia preme «Compila» e legge «Il rinnovo e lo stesso modulo dell'iscrizione». In segreteria arriva una **pratica di rinnovo**, da esaminare e approvare — e approvarla avrebbe scritto anagrafica da risposte che non sono un'iscrizione |
+| **Un campo occupato per settant'anni** | La prenotazione aveva come solo vincolo `inizio < fine`. Un campo che non dichiara fasce non ha vincolo, ed e deliberato (W6-D03): cioe e lo stato normale di ogni club che quel riquadro non lo ha compilato | Bastava chiedere dal 2027 al 2099 — anche per un refuso sull'anno. La riga nasce `pending`, e `pending` blocca: il campo restava occupato per tutti. La sonda, con il difetto rimesso, lo mostra per intero: la prenotazione normale del giorno dopo risponde **409** |
+
+### Il Medium multi-tenant
+
+Il corpo della richiesta di prenotazione poteva **sovrascrivere il figlio**. Si
+cercava `body.athleteId` fra i figli di chi chiede — che sono i figli in
+**tutti** i club — e si verificava che fosse un proprio figlio, non che fosse
+un figlio di **questo** club. Il club, invece, viene dal percorso.
+
+Una madre con un figlio qui e una figlia in un'altra societa poteva far scrivere
+dentro le strutture di questo club una prenotazione intestata alla figlia
+dell'altra: con la sua riga di audit, e una notifica a tutta la dirigenza che
+nomina **un minore che non e loro tesserato**.
+
+La correzione non e un controllo in piu, e un controllo in **meno**: il contesto
+del figlio e gia risolto e verificato dal segmento di rotta, e il client mandava
+comunque lo stesso identificativo. Due fonti per lo stesso fatto sono una di
+troppo, e la seconda non era vagliata.
+
+### La lezione, per la terza volta
+
+Il correttivo del secondo round — «quando la proprieta riguarda una rotta, la
+prova passa dalla rotta» — era stato applicato **solo dove il difetto era stato
+trovato**. Il revisore lo ha detto meglio di come lo avremmo scritto noi:
+
+- P-94…P-97 (versione ottimistica) chiamavano `updateClubEvent`, mentre la
+  proprieta di §O e «la **schermata** manda la versione giusta»;
+- P-104…P-106 chiamavano il servizio degli appuntamenti, mai il modulo;
+- P-70…P-76 chiamavano `submitRenewalForm`, e cosi **ratificavano** il difetto
+  del questionario invece di contestarlo;
+- P-54 verificava che `downloadPath` cominci con un prefisso, cioe una stringa;
+- i 23 test di superficie sono `includes()` sul sorgente: dicono che una riga
+  esiste, mai che il valore che ci passa e giusto.
+
+Le dodici prove di §S partono tutte da fuori — dalla rotta o dalla proiezione,
+mai dal servizio — e **rimettendo i difetti diventano rosse**, una per una.
+
+### Cio che e stato corretto e cio che no
+
+Tutti i reperti sono stati chiusi, con una sola eccezione dichiarata: `notes`
+sulle presenze **resta** visibile alla famiglia. E la nota sull'appello di quel
+ragazzo, e l'area atleta la dichiara fra i quattro campi che mostra a lui di se
+stesso, leggendola proprio da qui. Toglierla avrebbe spento quella schermata di
+rimbalzo — una decisione di prodotto presa altrove, che non si capovolge dentro
+una lane di correzioni. Il test dell'area atleta lo ha detto subito, ed e
+servito.
