@@ -1316,20 +1316,101 @@ const sezioneM = async () => {
     MARCO,
   );
 
-  await respinta(
-    "M-09 non si annulla l'appuntamento di un'altra famiglia",
-    () => appuntamenti.cancelFamilyAppointment(contestoAnna, rigaDiBruno.id),
-    /non trovata|Accesso negato/i,
+  /*
+    **Queste due passano dalla ROTTA, e non dal servizio.**
+
+    La prima stesura chiamava `cancelFamilyAppointment` e
+    `rescheduleFamilyAppointment` direttamente, con un contesto gia risolto:
+    misuravano il vaglio del dominio, non la strada che ci arriva. E la classe
+    di difetto che questo pacchetto ha prodotto sette volte, e che su una
+    proprieta di **sicurezza** non si puo permettere: se domani una rotta
+    risolvesse il contesto in modo diverso — o non lo risolvesse affatto — una
+    prova che parte da dentro resterebbe verde.
+
+    Qui si costruisce una `Request` con la sessione vera di Anna e si chiede al
+    server di toccare l'appuntamento di un'**altra famiglia**, per percorso e
+    per corpo insieme: sono le due leve che un attaccante ha.
+  */
+  const authM = await carica("src/lib/server/auth.ts");
+  const sessioneAnnaM = await authM.createSessionForUser(ANNA);
+  const rottaAppuntamentiM = await carica(
+    "src/app/api/parent-dashboard/[athleteId]/appointments/route.ts",
   );
 
-  await respinta(
-    "M-10 ne si riprogramma",
-    () =>
-      appuntamenti.rescheduleFamilyAppointment(contestoAnna, rigaDiBruno.id, {
-        date: "2027-06-02",
-        time: "10:00",
-      }),
-    /non trovata|Accesso negato/i,
+  const chiediSuAppuntamento = async (metodo, corpo, atletaNelPercorso) => {
+    const richiesta = new Request(
+      "http://collaudo.invalid/api/parent-dashboard/x/appointments",
+      {
+        method: metodo,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${sessioneAnnaM.access_token}`,
+        },
+        body: JSON.stringify(corpo),
+      },
+    );
+    const risposta = await rottaAppuntamentiM[metodo](richiesta, {
+      params: { athleteId: atletaNelPercorso },
+    });
+    const letto = await risposta.json().catch(() => ({}));
+    return {
+      stato: risposta.status,
+      messaggio: String(letto?.error?.message || ""),
+    };
+  };
+
+  /* Il percorso e il proprio figlio, l'appuntamento e di un'altra famiglia. */
+  const disdettaAltrui = await chiediSuAppuntamento(
+    "DELETE",
+    { id: rigaDiBruno.id },
+    MARCO,
+  );
+  prova(
+    "M-09 dalla rotta non si annulla l'appuntamento di un'altra famiglia",
+    true,
+    disdettaAltrui.stato >= 400 &&
+      /non trovata|Accesso negato/i.test(disdettaAltrui.messaggio),
+    `${disdettaAltrui.stato} ${disdettaAltrui.messaggio}`,
+  );
+
+  const spostaAltrui = await chiediSuAppuntamento(
+    "PATCH",
+    { id: rigaDiBruno.id, date: "2027-06-02", time: "10:00" },
+    MARCO,
+  );
+  prova(
+    "M-10 ne si riprogramma dalla rotta",
+    true,
+    spostaAltrui.stato >= 400 &&
+      /non trovata|Accesso negato/i.test(spostaAltrui.messaggio),
+    `${spostaAltrui.stato} ${spostaAltrui.messaggio}`,
+  );
+
+  /*
+    E la seconda leva: mettere **il figlio altrui nel percorso**. Qui non deve
+    bastare che l'appuntamento non si trovi: deve cadere prima, sul legame.
+  */
+  const conFiglioAltruiNelPercorso = await chiediSuAppuntamento(
+    "DELETE",
+    { id: rigaDiBruno.id },
+    LUCA,
+  );
+  prova(
+    "M-09b ne mettendo il figlio altrui nel percorso",
+    true,
+    conFiglioAltruiNelPercorso.stato >= 400,
+    `${conFiglioAltruiNelPercorso.stato} ${conFiglioAltruiNelPercorso.messaggio}`,
+  );
+
+  /* E la riga dell'altra famiglia e ancora li, intatta. */
+  const rigaDopoITentativi = await prisma.appointment.findUnique({
+    where: { id: rigaDiBruno.id },
+    select: { status: true, athlete_id: true },
+  });
+  prova(
+    "M-09c dopo i tre tentativi la riga dell'altra famiglia e intatta",
+    ["requested", LUCA],
+    [rigaDopoITentativi?.status, rigaDopoITentativi?.athlete_id],
   );
 
   prova("M-11 e Bruno il proprio contesto lo trova", true, Boolean(contestoBruno));
