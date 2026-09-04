@@ -165,6 +165,42 @@ test("l'ora digitata si legge nel fuso del club, non del dispositivo", () => {
   assert.equal(instantFromLocalTime("2027-03-01", "diciotto"), null);
 });
 
+test("il salto dell'ora legale non sposta l'orario di un'ora", () => {
+  /*
+    **Misurato**: con una sola passata di correzione, il 28 marzo 2027 alle
+    01:30 a Roma tornava 00:30. La prima stima cade oltre il salto, prende
+    l'offset di **dopo** e sbaglia di un'ora; la seconda passata ricalcola
+    sull'istante corretto e chiude.
+
+    E il caso non e teorico: il 28 marzo e dentro la stagione sportiva.
+  */
+  const rendi = (istante, tz) =>
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      dateStyle: "short",
+      timeStyle: "short",
+      hour12: false,
+    }).format(istante);
+
+  const casi = [
+    ["2027-03-28", "01:30", "Europe/Rome"],
+    ["2027-03-28", "03:30", "Europe/Rome"],
+    ["2027-10-31", "02:30", "Europe/Rome"],
+    /* Fusi a mezz'ora e a quarto d'ora, e un fuso negativo. */
+    ["2027-01-15", "09:30", "Asia/Kolkata"],
+    ["2027-09-24", "12:00", "Pacific/Chatham"],
+    ["2027-06-15", "20:00", "America/New_York"],
+  ];
+
+  for (const [giorno, ora, tz] of casi) {
+    const istante = instantFromLocalTime(giorno, ora, tz);
+    assert.ok(
+      rendi(istante, tz).includes(ora),
+      `${giorno} ${ora} ${tz} -> ${rendi(istante, tz)}`,
+    );
+  }
+});
+
 /* ==================================================================== */
 /*  Il difetto vero: il dominio del browser dentro un route handler     */
 /* ==================================================================== */

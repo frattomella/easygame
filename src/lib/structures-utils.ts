@@ -520,10 +520,20 @@ export function describeFieldAvailability(
  * trovava in agenda le 18:30.
  *
  * Non serve una libreria: si prende l'istante come se fosse UTC, si guarda in
- * che ora lo rende il fuso di destinazione, e si corregge della differenza. Una
- * sola iterazione basta per ogni fuso reale — gli scarti sono multipli di un
- * quarto d'ora e non superano le quattordici ore — e il salto dell'ora legale
- * cade su orari che nessun campo pubblica.
+ * che ora lo rende il fuso di destinazione, e si corregge della differenza.
+ *
+ * **Le iterazioni sono due, e la seconda non e una cerimonia.** Misurato: con
+ * una sola, il 28 marzo 2027 alle 01:30 a Roma tornava 00:30. La prima stima
+ * cade oltre il salto dell'ora legale, prende l'offset **sbagliato** — quello
+ * di dopo — e sbaglia di un'ora. La seconda passata ricalcola l'offset
+ * sull'istante corretto e chiude, perche a quel punto i due stanno dallo stesso
+ * lato della transizione.
+ *
+ * Resta un caso senza risposta giusta, e vale la pena dirlo: **l'ora che non
+ * esiste** — le 02:30 del giorno in cui l'orologio salta da 02:00 a 03:00. Non
+ * c'e nessun istante che la renda, e la funzione restituisce il primo istante
+ * successivo. E cio che fa qualunque libreria, e su un campo sportivo e un
+ * orario che nessuno pubblica.
  */
 export function instantFromLocalTime(
   day: string,
@@ -539,7 +549,7 @@ export function instantFromLocalTime(
   const comeUtc = new Date(`${giorno}T${ora}:00.000Z`);
   if (Number.isNaN(comeUtc.getTime())) return null;
 
-  const parti = new Intl.DateTimeFormat("en-GB", {
+  const formato = new Intl.DateTimeFormat("en-GB", {
     timeZone,
     year: "numeric",
     month: "2-digit",
@@ -547,18 +557,25 @@ export function instantFromLocalTime(
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
-  }).formatToParts(comeUtc);
+  });
 
-  const leggi = (tipo: string) =>
-    Number(parti.find((parte) => parte.type === tipo)?.value || "0");
+  /** Quanto il fuso sposta l'orologio, all'istante dato. */
+  const scarto = (istante: Date) => {
+    const parti = formato.formatToParts(istante);
+    const leggi = (tipo: string) =>
+      Number(parti.find((parte) => parte.type === tipo)?.value || "0");
 
-  const reso = Date.UTC(
-    leggi("year"),
-    leggi("month") - 1,
-    leggi("day"),
-    leggi("hour") === 24 ? 0 : leggi("hour"),
-    leggi("minute"),
-  );
+    const reso = Date.UTC(
+      leggi("year"),
+      leggi("month") - 1,
+      leggi("day"),
+      leggi("hour") === 24 ? 0 : leggi("hour"),
+      leggi("minute"),
+    );
 
-  return new Date(comeUtc.getTime() - (reso - comeUtc.getTime()));
+    return reso - istante.getTime();
+  };
+
+  const primaStima = new Date(comeUtc.getTime() - scarto(comeUtc));
+  return new Date(comeUtc.getTime() - scarto(primaStima));
 }
