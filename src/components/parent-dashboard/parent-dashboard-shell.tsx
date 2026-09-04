@@ -24,6 +24,7 @@ import {
   dashboardMainClassName,
 } from "@/components/dashboard/dashboard-page-container";
 import type { MobileNavSection } from "@/components/layout/MobileTopBar";
+import { apiRequest } from "@/lib/api/client";
 import ParentSidebar from "./ParentSidebar";
 import { useParentDashboard } from "./parent-dashboard-context";
 
@@ -171,6 +172,21 @@ export default function ParentDashboardShell({
             reso visibile il difetto — «tre avvisi» e poi «Nessuna notifica».
           */
           notifications={data?.notifications || null}
+          /*
+            **E dove segnarle lette.** Senza, il clic sulla riga passava dal
+            registro **generico** del club — chiuso a questo ruolo — e lo
+            sfondo azzurro spariva solo a schermo: il contatore restava lo
+            stesso e al ricaricamento la notifica tornava da leggere. La rotta
+            della famiglia accetta un id singolo, ed e questa.
+          */
+          onMarkRead={(id: string) => {
+            void apiRequest(
+              `/api/parent-dashboard/${encodeURIComponent(
+                String(data?.athlete.id || ""),
+              )}/notifications`,
+              { method: "PATCH", body: { id } },
+            ).then(() => refresh());
+          }}
           clubIdentity={
             data
               ? {

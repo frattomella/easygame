@@ -154,6 +154,13 @@ interface HeaderProps {
    * «Nessuna notifica».
    */
   notifications?: HeaderNotification[] | null;
+  /**
+   * Dove segnare letta una riga di `notifications`.
+   *
+   * Chi fornisce le notizie sa dove vivono: senza questo, il pannello finiva
+   * sul registro generico del club, che a genitori e atleti e chiuso.
+   */
+  onMarkRead?: (id: string) => void;
   onSearch?: (query: string) => void;
   notificationCount?: number;
   userAvatar?: string;
@@ -174,6 +181,7 @@ const Header = memo(
     showMobileHubLink = true,
     clubIdentity = null,
     notifications = null,
+    onMarkRead,
   }: HeaderProps) => {
     const router = useRouter();
     const pathname = usePathname();
@@ -653,6 +661,7 @@ const Header = memo(
                 registro generico del club, che per quel ruolo e chiuso.
               */
               items={notifications}
+              onMarkRead={onMarkRead}
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

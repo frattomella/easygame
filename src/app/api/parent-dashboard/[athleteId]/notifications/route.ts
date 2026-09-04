@@ -37,7 +37,20 @@ export async function PATCH(request: Request, context: Context) {
     }
 
     const athleteId = String(context.params.athleteId || "").trim();
-    if (!(await canParentAccessAthlete(session.db.user_id, athleteId))) {
+    if (
+      /*
+        **`includeSelf`, come per la bacheca.**
+
+        Le notifiche di un atleta le serve questa rotta: il pannello della sua
+        campanella le riceve gia dal cruscotto, ma **segnarle lette** passa di
+        qui. Senza il ramo «sono io» il ragazzo riceveva 403 e la campanella
+        non si spegneva mai — lo stesso difetto che aveva spento la sua
+        bacheca, sul pulsante accanto.
+      */
+      !(await canParentAccessAthlete(session.db.user_id, athleteId, {
+        includeSelf: true,
+      }))
+    ) {
       return NextResponse.json(
         {
           data: null,

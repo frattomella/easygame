@@ -3540,6 +3540,68 @@ const sezioneW = async () => {
   );
 
   /*
+    **W-12. Le rotte che l'area del ragazzo percorre davvero.**
+
+    `W-09` provava che «la sua area continua a funzionare» chiamando il
+    **dominio**, e per questo non ha visto che la sua **bacheca** rispondeva
+    403: quella schermata passa da una rotta della famiglia, e chiudere il ramo
+    «sono io» l'aveva spenta. Stessa cosa per «segna letta» sulla campanella.
+
+    Qui si percorrono le rotte, una per una, con la sessione del ragazzo. E un
+    elenco che va allungato ogni volta che l'area atleta ne usa una nuova.
+  */
+  const rotteDelRagazzo = [
+    ["bacheca", "src/app/api/parent-dashboard/[athleteId]/board/route.ts", "GET"],
+    [
+      "segna letta una notifica",
+      "src/app/api/parent-dashboard/[athleteId]/notifications/route.ts",
+      "PATCH",
+    ],
+  ];
+
+  for (const [nome, percorso, metodo] of rotteDelRagazzo) {
+    const modulo = await carica(percorso);
+    const risposta = await modulo[metodo](
+      new Request("http://collaudo.invalid/api/parent-dashboard/x", {
+        method: metodo === "GET" ? "GET" : metodo,
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer " + sessioneRagazzo.access_token,
+        },
+        ...(metodo === "GET" ? {} : { body: JSON.stringify({ all: true }) }),
+      }),
+      { params: { athleteId: MARCO } },
+    );
+
+    prova(
+      `W-12 ${nome}: la rotta risponde al ragazzo per la propria scheda`,
+      true,
+      risposta.status < 400,
+      "stato " + risposta.status,
+    );
+  }
+
+  /*
+    E la stessa rotta, per un atleta che **non e** lui, continua a negare: il
+    ramo «sono io» non e una porta aperta a tutti.
+  */
+  const bachecaAltrui = await (
+    await carica("src/app/api/parent-dashboard/[athleteId]/board/route.ts")
+  ).GET(
+    new Request("http://collaudo.invalid/api/parent-dashboard/x", {
+      headers: { authorization: "Bearer " + sessioneRagazzo.access_token },
+    }),
+    { params: { athleteId: LUCA } },
+  );
+
+  prova(
+    "W-12b ma non per la scheda di un altro atleta",
+    true,
+    bachecaAltrui.status >= 400,
+    "stato " + bachecaAltrui.status,
+  );
+
+  /*
     **E la sua area resta aperta**, perche e da quegli stessi dati che nasce.
     Se questa diventasse rossa avremmo chiuso una porta e spento una stanza.
   */

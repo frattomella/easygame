@@ -12,6 +12,7 @@ import type { MobileNavSection } from "@/components/layout/MobileTopBar";
 import { Button } from "@/components/ui/button";
 
 import AthleteSidebar, { ATHLETE_NAV_ITEMS } from "./athlete-sidebar";
+import { apiRequest } from "@/lib/api/client";
 import { useAthleteArea } from "./athlete-area-context";
 
 /**
@@ -77,6 +78,19 @@ export default function AthleteAreaShell({
           mobileNavSections={mobileNavSections}
           notificationCount={data?.notificationsUnread || 0}
           notifications={data?.notifications || null}
+          /*
+            Anche il ragazzo segna letta una riga, e anche per lui il registro
+            generico del club e chiuso: senza questo la sua campanella non si
+            sarebbe **mai** spenta.
+          */
+          onMarkRead={(id: string) => {
+            void apiRequest(
+              `/api/parent-dashboard/${encodeURIComponent(
+                String(data?.me?.id || ""),
+              )}/notifications`,
+              { method: "PATCH", body: { id } },
+            ).then(() => refresh());
+          }}
           /*
             **La stessa identita e le stesse notifiche del genitore.**
 
