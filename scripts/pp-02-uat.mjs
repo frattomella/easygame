@@ -900,6 +900,45 @@ const sezioneR = async () => {
     },
   ).catch((errore) => ({ errore: String(errore?.message || errore) }));
 
+  /*
+    **E il testo libero non rientra dalla porta della riprogrammazione.**
+
+    Con i motivi configurati resta una strada sola: un tipo prenotabile, oppure
+    il motivo **che c'era gia**. Accettare un `reason` nuovo vorrebbe dire che
+    si sposta l'orario e nel frattempo si scrive quello che si vuole.
+  */
+  const altraRiga = await prisma.appointment.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      starts_at: new Date(Date.UTC(2027, 6, 8, 9, 0)),
+      ends_at: new Date(Date.UTC(2027, 6, 8, 9, 30)),
+      status: "requested",
+      athlete_id: MARCO,
+      requested_by_user_id: ANNA.id,
+      reason: secondo.name,
+      version: 1,
+      updated_at: new Date(),
+    },
+  });
+
+  const conTestoLibero = await appuntamenti
+    .rescheduleFamilyAppointment(contesto, altraRiga.id, {
+      reason: "quello che mi pare",
+      date: "2027-07-09",
+      time: "11:00",
+    })
+    .catch((errore) => ({ errore: String(errore?.message || errore) }));
+
+  prova(
+    "R-01b il testo libero non rientra dalla riprogrammazione",
+    secondo.name,
+    conTestoLibero?.errore
+      ? `errore: ${conTestoLibero.errore}`
+      : conTestoLibero?.reason,
+    "resta il motivo che c'era: un tipo scelto, o quello di prima",
+  );
+
   prova(
     "R-01 riprogrammando, il motivo scelto e quello che viene salvato",
     secondo.name,

@@ -1671,19 +1671,28 @@ const risolviMotivoDellaFamiglia = async (
 
   if (tipo) return tipo.name;
 
-  const scritto = asText(input.reason) || asText(motivoCorrente);
-
-  /*
-    Con i motivi configurati non si manda piu un testo libero — tranne quando
-    e **quello che c'era gia**: un appuntamento chiesto prima che il club
-    configurasse i tipi si deve poter spostare senza che la famiglia sia
-    costretta a reinventarne il motivo.
-  */
   const tipiPrenotabili = bookableAppointmentTypes(configurazione);
-  if (tipiPrenotabili.length && !asText(motivoCorrente)) {
-    throw new Error("Scegli il motivo dell'appuntamento fra quelli proposti");
+
+  if (tipiPrenotabili.length) {
+    /*
+      **Con i motivi configurati il testo libero non entra piu, in nessuna
+      forma.**
+
+      Resta una sola strada: il motivo **che c'era gia**. Un appuntamento
+      chiesto prima che il club configurasse i tipi si deve poter spostare
+      senza che la famiglia sia costretta a reinventarlo — ma non si deve
+      poterlo **riscrivere**, altrimenti la riprogrammazione diventa la porta
+      da cui il testo libero rientra: si sposta l'orario e nel frattempo si
+      scrive quello che si vuole.
+    */
+    const corrente = asText(motivoCorrente);
+    if (!corrente) {
+      throw new Error("Scegli il motivo dell'appuntamento fra quelli proposti");
+    }
+    return corrente;
   }
 
+  const scritto = asText(input.reason) || asText(motivoCorrente);
   if (!scritto) throw new Error("Il motivo dell'appuntamento e obbligatorio");
   return scritto;
 };
