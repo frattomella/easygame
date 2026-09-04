@@ -166,3 +166,65 @@ test("§F · il vocabolario del certificato ha un solo proprietario", () => {
     "l'etichetta la dice il dominio, non la schermata",
   );
 });
+
+/* ==================================================================== */
+/*  §O — i due residui di PP-01                                         */
+/* ==================================================================== */
+
+const ALLENAMENTI = "app/training/page.tsx";
+
+test("§O · la pulizia degli allenamenti orfani passa dal dominio degli eventi", () => {
+  const dominio = senzaCommenti(leggi("lib/simplified-db.ts"));
+  const inizio = dominio.indexOf("export async function cleanupOrphanScheduledTrainings");
+  const fine = dominio.indexOf("export async function updateClubData");
+  const funzione = dominio.slice(inizio, fine);
+
+  assert.ok(inizio > 0 && fine > inizio, "la funzione deve esistere");
+  assert.ok(
+    funzione.includes("deleteEventIfEmpty"),
+    "gli allenamenti sono eventi: cancellarli scrivendo clubs.trainings riceve un 403 da ADR-0098, e il pulsante fallisce sempre",
+  );
+  assert.equal(
+    /update\(\{\s*weekly_schedule[\s\S]{0,120}trainings:/.test(funzione),
+    false,
+    "la colonna proiettata non si scrive: e in sola lettura da ADR-0098",
+  );
+  assert.ok(
+    funzione.includes("keptWithHistory"),
+    "cio che non si e potuto togliere va dichiarato, non contato come tolto",
+  );
+});
+
+test("§O · la conferma della pulizia e un dialogo dell'applicazione", () => {
+  const pagina = senzaCommenti(leggi(ALLENAMENTI));
+
+  assert.ok(
+    pagina.includes("Rimuovere gli allenamenti in programma?"),
+    "la conferma era un window.confirm, la stessa finestra che PP-01 ha tolto da questa pagina",
+  );
+  assert.ok(pagina.includes("setPuliziaCategorieAperta(true)"));
+  assert.ok(
+    !pagina.includes(
+      "Rimuovere solo gli allenamenti in programma collegati a categorie non piu disponibili?",
+    ),
+    "il testo del confirm di sistema non deve restare",
+  );
+});
+
+test("§O · la modifica di un allenamento manda la versione su cui e stata fatta", () => {
+  const pagina = senzaCommenti(leggi(ALLENAMENTI));
+
+  assert.ok(
+    pagina.includes("editingTraining.version ?? null"),
+    "senza la versione il controllo ottimistico di ADR-0098 non puo mai fallire: due segretarie tornano a «vince l'ultimo»",
+  );
+  assert.ok(
+    pagina.includes("version:\n      typeof training?.version === \"number\"") ||
+      /version:\s*\n?\s*typeof training\?\.version === "number"/.test(pagina),
+    "e la versione deve arrivare fin li: la forma storica la porta, e qui si perdeva",
+  );
+  assert.ok(
+    pagina.includes("/modificato da qualcun altro/i.test(messaggio)"),
+    "sul conflitto si ricarica: lasciarlo come istruzione vuol dire che chi non la esegue riceve lo stesso errore per sempre",
+  );
+});

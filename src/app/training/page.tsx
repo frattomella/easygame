@@ -183,6 +183,17 @@ interface TrainingSession {
   status: "upcoming" | "completed" | "cancelled" | "annullato" | "concluded";
   attendance?: any[];
   expectedAttendees?: number;
+  /**
+   * **La versione su cui questa copia e stata letta** (PP-02 §O, debito
+   * PP01-D2).
+   *
+   * Il controllo ottimistico di ADR-0098 esiste dalla Wave 6 e da questa
+   * schermata **non poteva mai fallire**: `updateEvent(id, data)` partiva
+   * senza terzo argomento, quindi il server ricadeva sulla versione corrente e
+   * scriveva sempre. Due segretarie che salvavano insieme tornavano a «vince
+   * l'ultimo», in silenzio.
+   */
+  version?: number | null;
 }
 
 type TrainingPersonOption = {
@@ -372,6 +383,16 @@ const formatTrainingSession = ({
     status: training?.status || "upcoming",
     attendance: Array.isArray(training?.attendance) ? training.attendance : [],
     expectedAttendees,
+    /*
+      PP-02 §O. La versione viaggia dalla lettura al salvataggio: la forma
+      storica la porta gia (`toEventLegacyShape`), e qui si perdeva.
+    */
+    version:
+      typeof training?.version === "number"
+        ? training.version
+        : typeof source?.version === "number"
+          ? source.version
+          : null,
   };
 };
 
@@ -505,6 +526,8 @@ export default function TrainingPage() {
   const [shouldRenderSchedule, setShouldRenderSchedule] = useState(false);
   const [cleaningMissingCategories, setCleaningMissingCategories] =
     useState(false);
+  /* PP-02 §O: la conferma e un dialogo dell'applicazione, non del sistema. */
+  const [puliziaCategorieAperta, setPuliziaCategorieAperta] = useState(false);
   const [loadWarning, setLoadWarning] = useState<string | null>(null);
   const scheduleSectionRef = React.useRef<HTMLDivElement | null>(null);
   const { showToast } = useToast();
@@ -781,16 +804,22 @@ export default function TrainingPage() {
     };
   }, [missingUpcomingTrainingCategories, missingWeeklyScheduleCategories]);
 
-  const handleCleanupMissingCategories = React.useCallback(async () => {
+  /*
+    **PP-02 §O. La pulizia esce dal browser, e l'esito dice la verita.**
+
+    Erano due difetti in dieci righe. La funzione scriveva `clubs.trainings`
+    direttamente e il server la rifiutava da ADR-0098, quindi il pulsante
+    falliva **sempre**; e la conferma era un `window.confirm`, che e la stessa
+    finestra di sistema che PP-01 ha tolto da questa pagina per la
+    sovrapposizione.
+
+    E l'esito contava cio che si voleva togliere, non cio che si e tolto: un
+    allenamento con l'appello gia fatto non si cancella — si annulla — e il
+    dominio lo rifiuta con un messaggio che lo dice. Adesso quel rifiuto si
+    **conta e si nomina**, invece di scomparire dentro un totale.
+  */
+  const eseguiPuliziaCategorie = React.useCallback(async () => {
     if (!activeClub?.id || !missingCategoryPanel?.references.length) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      "Rimuovere solo gli allenamenti in programma collegati a categorie non piu disponibili? Gli allenamenti storici resteranno salvati.",
-    );
-
-    if (!confirmed) {
       return;
     }
 
@@ -801,31 +830,50 @@ export default function TrainingPage() {
         missingCategoryPanel.references,
       );
 
-      const removedCount =
+      const rimossi =
         (Array.isArray(result?.removedWeeklyScheduleItems)
           ? result.removedWeeklyScheduleItems.length
           : 0) +
         (Array.isArray(result?.removedUpcomingTrainings)
           ? result.removedUpcomingTrainings.length
           : 0);
+      const trattenuti = Array.isArray(result?.keptWithHistory)
+        ? result.keptWithHistory.length
+        : 0;
 
       await loadData();
-      showToast(
-        "success",
-        removedCount > 0
-          ? `Ripuliti ${removedCount} allenamenti programmati collegati a categorie eliminate`
-          : "Nessun allenamento programmato da ripulire",
-      );
+
+      if (!rimossi && !trattenuti) {
+        showToast("success", "Nessun allenamento programmato da ripulire");
+      } else if (trattenuti) {
+        showToast(
+          "success",
+          `Ripuliti ${rimossi} allenamenti. ${trattenuti} non si possono cancellare perche hanno gia presenze o risposte: vanno annullati uno per uno.`,
+        );
+      } else {
+        showToast(
+          "success",
+          `Ripuliti ${rimossi} allenamenti programmati collegati a categorie eliminate`,
+        );
+      }
     } catch (error) {
       console.error("Error cleaning orphan scheduled trainings:", error);
       showToast(
         "error",
-        "Errore durante la pulizia degli allenamenti con categorie non rilevate",
+        error instanceof Error && error.message
+          ? error.message
+          : "Errore durante la pulizia degli allenamenti con categorie non rilevate",
       );
     } finally {
       setCleaningMissingCategories(false);
+      setPuliziaCategorieAperta(false);
     }
   }, [activeClub?.id, loadData, missingCategoryPanel, showToast]);
+
+  const handleCleanupMissingCategories = React.useCallback(() => {
+    if (!activeClub?.id || !missingCategoryPanel?.references.length) return;
+    setPuliziaCategorieAperta(true);
+  }, [activeClub?.id, missingCategoryPanel]);
 
   const handleAddTraining = async (trainingData: any) => {
     if (!activeClub?.id) {
@@ -2329,8 +2377,21 @@ export default function TrainingPage() {
               };
 
 
-              // Save to database
-              await updateEvent(updatedTraining.id, updateData);
+              /*
+                **PP-02 §O. La versione parte con la modifica.**
+
+                Senza, `expectedVersion` era `null` e il server ricadeva sulla
+                versione corrente: il controllo ottimistico non poteva fallire,
+                e due segretarie che salvavano insieme tornavano a «vince
+                l'ultimo». Il messaggio del server dice gia di ricaricare; qui
+                si ricarica **davvero**, cosi la seconda persona non deve
+                ricordarsene.
+              */
+              await updateEvent(
+                updatedTraining.id,
+                updateData,
+                editingTraining.version ?? null,
+              );
 
 
               // Update the training in the local state
@@ -2372,6 +2433,22 @@ export default function TrainingPage() {
                 "error",
                 messaggio || "Errore durante la modifica dell'allenamento",
               );
+              /*
+                **PP-02 §O. Sul conflitto si ricarica, e non lo si chiede.**
+
+                Il server dice «ricarica la pagina e riprova», ed e la cosa
+                giusta da dire; ma lasciarla come istruzione vuol dire che chi
+                non la esegue continua a salvare su una versione vecchia e a
+                ricevere lo stesso errore per sempre. Qui la ricarica avviene, e
+                il modulo resta aperto con i dati freschi sotto.
+
+                Solo sul conflitto: su un campo congelato o su una
+                sovrapposizione ricaricare butterebbe via cio che la persona ha
+                appena scritto, senza servire a niente.
+              */
+              if (/modificato da qualcun altro/i.test(messaggio)) {
+                await loadData();
+              }
             }
           }}
           training={{
@@ -2417,6 +2494,45 @@ export default function TrainingPage() {
           }
         />
       )}
+
+      {/*
+        PP-02 §O. La conferma della pulizia, dentro l'applicazione. Dice
+        esattamente cosa succede alle due meta — il programma settimanale e gli
+        allenamenti gia in calendario — e cosa **non** succede allo storico,
+        che e la domanda che una segreteria si fa prima di premere.
+      */}
+      <AlertDialog
+        open={puliziaCategorieAperta}
+        onOpenChange={(open) => {
+          if (!open) setPuliziaCategorieAperta(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Rimuovere gli allenamenti in programma?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Vengono tolti dal programma settimanale e dal calendario soltanto
+              gli allenamenti ancora da svolgere collegati a categorie che non
+              esistono piu. Gli allenamenti gia svolti restano, e quelli su cui
+              e stato fatto l&apos;appello o e arrivata una risposta non si
+              cancellano: vanno annullati uno per uno.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void eseguiPuliziaCategorie();
+              }}
+            >
+              Rimuovi
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={showDeleteTraining}

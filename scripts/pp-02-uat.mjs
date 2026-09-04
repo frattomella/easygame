@@ -679,6 +679,201 @@ const sezioneC = async () => {
 };
 
 /* ==================================================================== */
+/*  §O — i due residui di PP-01                                         */
+/* ==================================================================== */
+
+/**
+ * **Il trasporto verso i route handler veri.**
+ *
+ * `cleanupOrphanScheduledTrainings` e il dominio che gira **nel browser**:
+ * parla con `/api/v1/...` attraverso `src/lib/api/client.ts`. Il difetto che
+ * §O chiude sta esattamente li — una scrittura che il server rifiuta — e
+ * chiamare l'API da sola non lo eseguirebbe mai. Qui la rete c'e, ed e vera
+ * fino alla riga: c'e solo un cavo piu corto. Stessa forma di
+ * `scripts/pp-01-uat.mjs`.
+ */
+let SESSIONE = null;
+let rotte = null;
+
+const preparaTrasporto = async () => {
+  rotte = {
+    elenco: await carica("src/app/api/v1/[resource]/route.ts"),
+    riga: await carica("src/app/api/v1/[resource]/[id]/route.ts"),
+    eventi: await carica("src/app/api/v1/events/route.ts"),
+    evento: await carica("src/app/api/v1/events/[id]/route.ts"),
+  };
+
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(String(input), "http://collaudo.invalid");
+    const metodo = String(init.method || "GET").toUpperCase();
+    const headers = new Headers(init.headers || {});
+    if (SESSIONE) headers.set("authorization", `Bearer ${SESSIONE}`);
+    headers.set("x-active-club-id", CLUB);
+    headers.set("x-active-access-role", "owner");
+    const richiesta = new Request(url.toString(), { ...init, headers });
+
+    const segmenti = url.pathname.replace(/^\/api\/v1\//, "").split("/");
+
+    if (segmenti[0] === "events") {
+      const modulo = segmenti.length === 1 ? rotte.eventi : rotte.evento;
+      const fn = modulo[metodo];
+      if (!fn) throw new Error(`Nessun handler ${metodo} per ${url.pathname}`);
+      return segmenti.length === 1
+        ? fn(richiesta)
+        : fn(richiesta, { params: { id: segmenti[1] } });
+    }
+
+    if (segmenti.length === 1) {
+      const fn = rotte.elenco[metodo];
+      if (!fn) throw new Error(`Nessun handler ${metodo} per /${segmenti[0]}`);
+      return fn(richiesta, { params: { resource: segmenti[0] } });
+    }
+
+    const fn = rotte.riga[metodo];
+    if (!fn) throw new Error(`Nessun handler ${metodo} per ${url.pathname}`);
+    return fn(richiesta, { params: { resource: segmenti[0], id: segmenti[1] } });
+  };
+};
+
+const sezioneO = async () => {
+  console.log("\n§O — i residui di PP-01\n");
+
+  const auth = await carica("src/lib/server/auth.ts");
+  const sessione = await auth.createSessionForUser(PRESIDENTE);
+  SESSIONE = sessione.access_token;
+  await preparaTrasporto();
+
+  const eventi = await carica("src/lib/server/events.ts");
+  const scope = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "owner",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  /*
+    Due allenamenti sulla categoria che verra tolta: uno pulito, uno con una
+    presenza gia registrata. La regola di ADR-0098 dice che il secondo non si
+    cancella — si annulla — e la pulizia deve **dirlo**, non contarlo fra i
+    rimossi.
+  */
+  const pulito = await eventi.createClubEvent(scope, "training", {
+    id: `pp02-pulito-${Date.now()}`,
+    title: "Da ripulire",
+    date: "2027-03-01",
+    time: "18:00",
+    endTime: "19:30",
+    categories: [CAT_B],
+    categoryId: CAT_B,
+  });
+  const conStoria = await eventi.createClubEvent(scope, "training", {
+    id: `pp02-storia-${Date.now()}`,
+    title: "Con presenze",
+    date: "2027-03-02",
+    time: "18:00",
+    endTime: "19:30",
+    categories: [CAT_B],
+    categoryId: CAT_B,
+  });
+
+  await prisma.clubEventParticipant.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      event_id: conStoria.eventId || conStoria.id,
+      athlete_id: LUCA,
+      status: "present",
+      updated_at: new Date(),
+    },
+  });
+
+  const dominioClient = await carica("src/lib/simplified-db.ts");
+  const esito = await dominioClient.cleanupOrphanScheduledTrainings(CLUB, [
+    CAT_B,
+  ]);
+
+  prova(
+    "P-90 la pulizia toglie l'allenamento in programma senza storia",
+    1,
+    esito.removedUpcomingTrainings.length,
+    "prima scriveva clubs.trainings e il server rispondeva 403: falliva sempre",
+  );
+
+  prova(
+    "P-91 e dichiara quello che non ha potuto togliere",
+    1,
+    esito.keptWithHistory.length,
+  );
+
+  prova(
+    "P-92 l'evento senza storia e sparito davvero dall'archivio",
+    null,
+    await prisma.clubEvent.findUnique({
+      where: { id: pulito.eventId || pulito.id },
+      select: { id: true },
+    }),
+  );
+
+  prova(
+    "P-93 l'evento con le presenze e ancora li",
+    true,
+    Boolean(
+      await prisma.clubEvent.findUnique({
+        where: { id: conStoria.eventId || conStoria.id },
+        select: { id: true },
+      }),
+    ),
+  );
+
+  /* ---------------------------------------- PP01-D2, il controllo di versione */
+
+  const evento = await eventi.createClubEvent(scope, "training", {
+    id: `pp02-versione-${Date.now()}`,
+    title: "Versione",
+    date: "2027-04-01",
+    time: "18:00",
+    endTime: "19:30",
+    categories: [CAT_A],
+    categoryId: CAT_A,
+  });
+  const id = evento.eventId || evento.id;
+
+  prova(
+    "P-94 la proiezione storica porta la versione, che la schermata deve rimandare",
+    1,
+    evento.version,
+  );
+
+  await eventi.updateClubEvent(scope, id, { title: "Cambiato da un altro" });
+
+  await respinta(
+    "P-95 salvare su una versione vecchia viene rifiutato",
+    () =>
+      eventi.updateClubEvent(
+        scope,
+        id,
+        { title: "Salvataggio in ritardo" },
+        {},
+        { expectedVersion: 1 },
+      ),
+    /modificato da qualcun altro/i,
+  );
+
+  const riletto = await prisma.clubEvent.findUnique({
+    where: { id },
+    select: { title: true, version: true },
+  });
+  prova(
+    "P-96 e il salvataggio in ritardo non ha scritto niente",
+    "Cambiato da un altro",
+    riletto?.title,
+  );
+  prova("P-97 con la versione giusta invece passa", true, riletto?.version === 2);
+};
+
+/* ==================================================================== */
 /*  §D e §E — il pagamento e le sue carte                               */
 /* ==================================================================== */
 
@@ -830,6 +1025,7 @@ const main = async () => {
     await sezioneC();
     await sezioneDE();
     await sezioneL();
+    await sezioneO();
   } finally {
     await pulisci();
     await prisma.$disconnect();

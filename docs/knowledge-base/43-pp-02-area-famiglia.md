@@ -277,7 +277,60 @@ poter giocare e no. La resa dichiara il fuso.
 
 ---
 
-## 7. Verifica
+## 7. §O — I due residui di PP-01
+
+### O.1 — «Rimuovi allenamenti in programma» falliva sempre
+
+**Riprodotto.** Il pulsante della pagina Allenamenti rispondeva «Errore durante
+la pulizia degli allenamenti con categorie non rilevate», sempre, su qualunque
+club.
+
+**Causa.** `cleanupOrphanScheduledTrainings` scriveva `clubs.trainings`
+**direttamente dal browser**, con un `PATCH /api/v1/clubs` che portava l'array
+intero. Da ADR-0098 quella colonna e una proiezione in sola lettura con un solo
+scrittore, e `resources.ts` la rifiuta con un 403 — che arrivava alla persona
+travestito da messaggio su un'altra cosa.
+
+**Correzione.** Le due meta prendono due strade, perche sono due cose diverse:
+il **programma settimanale** e configurazione del club e resta dov'era; gli
+**allenamenti in programma** sono eventi e si cancellano dal loro dominio, uno
+per uno, con `deleteEventIfEmpty` — che rifiuta di cancellare cio che ha
+lasciato una traccia.
+
+Il programma settimanale si scrive **per primo**: e la sorgente che rigenera gli
+allenamenti, e toglierlo dopo vorrebbe dire che fra le due scritture il motore
+delle automazioni puo ricreare cio che si sta cancellando.
+
+**E l'esito dice la verita.** Contava cio che si voleva togliere, non cio che si
+e tolto: adesso porta `keptWithHistory` e la schermata lo nomina — «N non si
+possono cancellare perche hanno gia presenze o risposte: vanno annullati uno per
+uno». Un conteggio silenziosamente diverso da quello promesso e il modo in cui
+una pulizia sembra riuscita e non lo e.
+
+La conferma e passata da `window.confirm` al dialogo dell'applicazione: e la
+stessa finestra di sistema che PP-01 §C aveva gia tolto da questa pagina per la
+sovrapposizione, ed era rimasta qui.
+
+### O.2 — La modifica non mandava la versione
+
+Il controllo ottimistico di ADR-0098 esiste dalla Wave 6 e da questa schermata
+**non poteva mai fallire**: `updateEvent(id, data)` partiva senza terzo
+argomento, il server ricadeva sulla versione corrente e scriveva sempre. Due
+segretarie che salvavano insieme tornavano a «vince l'ultimo», in silenzio.
+
+La versione c'era gia nella forma storica (`toEventLegacyShape`) e si perdeva
+in `formatTrainingSession`. Adesso viaggia fino al salvataggio.
+
+**E sul conflitto si ricarica.** Il server dice «ricarica la pagina e riprova»,
+ed e la cosa giusta da dire; ma lasciarla come istruzione vuol dire che chi non
+la esegue continua a salvare su una versione vecchia e a ricevere lo stesso
+errore per sempre. La ricarica avviene **solo** sul conflitto: su un campo
+congelato o su una sovrapposizione butterebbe via cio che la persona ha appena
+scritto.
+
+---
+
+## 8. Verifica
 
 ### Collaudo di dominio
 
