@@ -3026,6 +3026,105 @@ const sezioneT = async () => {
     "prima: la CTA si accendeva e portava a «Modulo non trovato»",
   );
 
+  /* ------------- V: cio che il sesto round ha trovato sul dominio */
+
+  /*
+    **V1.** L'area atleta si costruisce dallo **stesso** cruscotto della
+    famiglia, e teneva le tre chiavi vecchie del certificato: `status` vale
+    `"missing"` ogni volta che non c'e una data, cioe anche quando il documento
+    e stato consegnato senza scadenza. Al ragazzo si diceva «Certificato
+    mancante» per una cosa che aveva gia fatto, mentre sulla Home il genitore
+    leggeva «Consegnato»: lo stesso documento, due risposte opposte dentro lo
+    stesso prodotto.
+  */
+  await prisma.medicalCertificate.deleteMany({
+    where: { organization_id: CLUB, athlete_id: MARCO },
+  });
+  await prisma.medicalCertificate.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      athlete_id: MARCO,
+      type: "agonistico",
+      status: "valid",
+      expiry_date: null,
+      updated_at: new Date(),
+    },
+  });
+
+  const cruscottoSenzaData = await cruscotto.getParentDashboardData(
+    ANNA.id,
+    MARCO,
+  );
+
+  prova(
+    "V-01 un certificato consegnato senza scadenza non e «mancante» per la famiglia",
+    ["undated", "Consegnato"],
+    [
+      cruscottoSenzaData?.health?.familyState,
+      cruscottoSenzaData?.health?.familyLabel,
+    ],
+  );
+
+  /*
+    Serve un ragazzo con il proprio accesso: `readAthleteAreaOverview` parte da
+    `athletes.user_id`. Qui si scrive la colonna direttamente perche e
+    **allestimento di collaudo** — in produzione l'unica strada resta
+    `athlete-accounts.ts`, e la prova che lo tiene fermo vive altrove.
+  */
+  const UTENTE_MARCO = await utente("marco.pp02@collaudo.invalid", "Marco");
+  await prisma.athlete.update({
+    where: { id: MARCO },
+    data: { user_id: UTENTE_MARCO.id },
+  });
+
+  const accessoAtleta = await carica("src/lib/server/athlete-accounts.ts");
+  const areaAtleta = await accessoAtleta
+    .readAthleteAreaOverview(UTENTE_MARCO.id)
+    .catch((errore) => ({ errore: String(errore?.message || errore) }));
+
+  prova(
+    "V-02 e nemmeno per il ragazzo, che legge dallo stesso cruscotto",
+    ["undated", "Consegnato"],
+    areaAtleta?.errore
+      ? `errore: ${areaAtleta.errore}`
+      : [areaAtleta?.health?.status, areaAtleta?.health?.statusLabel],
+    "prima: «missing» / «Certificato mancante», per un certificato consegnato",
+  );
+
+  await prisma.athlete.update({
+    where: { id: MARCO },
+    data: { user_id: null },
+  });
+
+  /*
+    **V3.** Lo stato dell'atleta usciva **grezzo** dalla colonna, e chi lo legge
+    si indicizza un vocabolario chiuso. La colonna contiene davvero altre
+    grafie, perche la guardia in scrittura canonicalizza da oggi in avanti e non
+    riscrive le righe storiche: con una di quelle, il figlio non riceveva
+    **nessuna** pastiglia sul selettore — cioe la schermata tornava a promettere
+    un'iscrizione viva.
+  */
+  await prisma.athlete.update({
+    where: { id: GIULIA },
+    data: { status: "disattivato" },
+  });
+
+  const figliConGrafiaStorica = await cruscotto.listParentChildren(ANNA.id);
+  const giulia = figliConGrafiaStorica.find((f) => f.id === GIULIA);
+
+  prova(
+    "V-03 una grafia storica dello stato esce canonica, non grezza",
+    "inactive",
+    giulia?.status,
+    "prima: «disattivato», e nessuna etichetta la riconosceva",
+  );
+
+  await prisma.athlete.update({
+    where: { id: GIULIA },
+    data: { status: "active" },
+  });
+
   prova(
     "T-14 la riga di un fratello porta cinque campi, non venti",
     ["birth_date", "category_name", "id", "name", "organization_id"],

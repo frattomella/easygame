@@ -108,6 +108,12 @@ const STILE_CERTIFICATO: Record<string, string> = {
   valid: "border-emerald-200 bg-emerald-50 text-emerald-900",
   expiring: "border-amber-200 bg-amber-50 text-amber-900",
   expired: "border-red-200 bg-red-50 text-red-900",
+  /*
+    **Consegnato non e mancante**, e i due toni lo dicono: il primo e uno
+    stato in cui non c'e niente da fare per chi legge — manca una data, e la
+    mette la segreteria — il secondo e una cosa da portare.
+  */
+  undated: "border-blue-200 bg-blue-50 text-blue-900",
   missing: "border-slate-200 bg-slate-50 text-slate-700",
 };
 
@@ -129,8 +135,14 @@ function CertificatoCard({ data }: { data: AthleteAreaData }) {
           <p className="font-medium">
             {data.health.statusLabel || "Stato non disponibile"}
           </p>
+          {/*
+            La frase la scrive il dominio, che sa distinguere «Scade il …» da
+            «Scaduto il …» e da «Data di scadenza non disponibile». Qui si
+            scriveva sempre «Scadenza:», e su un certificato senza data
+            diventava una riga vuota dopo i due punti.
+          */}
           <p className="text-sm">
-            Scadenza: {soloData(data.health.expiryDate)}
+            {data.health.detail || `Scadenza: ${soloData(data.health.expiryDate)}`}
           </p>
         </div>
         {/*

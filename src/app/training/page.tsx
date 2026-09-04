@@ -916,10 +916,18 @@ const versioneSalvata = (risposta: any): number | null => {
         /*
           Una pulizia che lascia indietro qualcosa non e riuscita: chi legge
           deve sapere che gli resta del lavoro a mano.
+
+          **E il ramo senza niente da rimuovere esiste**, ed e proprio quello
+          per cui questo messaggio e stato scritto: quando ogni allenamento
+          orfano ha gia l'appello fatto, i due elenchi tornano vuoti e
+          `dettaglioRimossi` e la stringa vuota. La prima stesura scriveva
+          «Rimossi . 3 non si possono cancellare», che non e una frase.
         */
         showToast(
           "warning",
-          `Rimossi ${dettaglioRimossi}. ${trattenuti} non si possono cancellare perche hanno gia presenze o risposte: vanno annullati uno per uno.`,
+          dettaglioRimossi
+            ? `Rimossi ${dettaglioRimossi}. ${trattenuti} non si possono cancellare perche hanno gia presenze o risposte: vanno annullati uno per uno.`
+            : `Non e stato rimosso niente: ${trattenuti} allenamenti hanno gia presenze o risposte e vanno annullati uno per uno.`,
         );
       } else {
         showToast(

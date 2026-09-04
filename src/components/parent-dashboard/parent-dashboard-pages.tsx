@@ -211,9 +211,26 @@ const classeStatoAppuntamento = (status: unknown) => {
 const getStatusClassName = (status: unknown) => {
   const normalized = normalizeText(status);
   if (
-    ["completed", "concluded", "concluso", "conclusa", "paid", "pagato", "saldato", "approved", "approvato", "valid"].includes(
-      normalized,
-    )
+    /*
+      `confirmed` mancava, e una prenotazione di struttura confermata cadeva sul
+      ripiego azzurro — lo stesso tono di uno stato che non si conosce — mentre
+      il lato club la dipinge verde. Due schermate, lo stesso fatto, due colori.
+    */
+    [
+      "completed",
+      "concluded",
+      "concluso",
+      "conclusa",
+      "paid",
+      "pagato",
+      "saldato",
+      "approved",
+      "approvato",
+      "valid",
+      "confirmed",
+      "confermata",
+      "confermato",
+    ].includes(normalized)
   ) {
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }

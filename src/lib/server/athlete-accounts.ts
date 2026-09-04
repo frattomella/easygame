@@ -1294,9 +1294,23 @@ const proiettaAreaAtleta = (
      * Lo **stato** del certificato e la sua data. Nient'altro: non i
      * certificati, non le allergie, non le note mediche.
      */
+    /*
+      **Le stesse parole che legge la famiglia.**
+
+      Questa area si costruisce dallo stesso `getParentDashboardData`, e
+      teneva le tre chiavi vecchie: `status` vale `"missing"` ogni volta che
+      non c'e una data, cioe **anche** quando il certificato e stato
+      consegnato senza scadenza. Al ragazzo si diceva «Certificato mancante»
+      per una cosa che aveva gia fatto, mentre sulla Home il genitore leggeva
+      «Consegnato»: lo stesso documento, due risposte opposte dentro lo stesso
+      prodotto. E' la distinzione che PP-02 §F e nato per introdurre, arrivata
+      su una superficie sola.
+    */
     health: {
-      status: salute.status || "missing",
-      statusLabel: salute.statusLabel || "",
+      status: salute.familyState || salute.status || "missing",
+      statusLabel: salute.familyLabel || salute.statusLabel || "",
+      detail: salute.familyDetail || "",
+      summary: salute.familySummary || "",
       expiryDate: salute.expiryDate || null,
     },
     trainings: {

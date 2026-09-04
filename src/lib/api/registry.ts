@@ -436,7 +436,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "GET",
     path: "/api/v1/family/online-forms?athlete_id=…",
     description:
-      "I moduli online pubblicati dal club con lo stato di questo figlio: da compilare, inviato, completato, scaduto. Non e un secondo dominio: e la lettura dei moduli pubblicati messa accanto a quella delle pratiche di questa famiglia. Ogni voce porta isEnrollment, che decide dove va il pulsante: al rinnovo se e un'iscrizione, alla pagina del modulo altrimenti",
+      "I moduli online pubblicati dal club con lo stato di questo figlio: da compilare, inviato, completato, scaduto. Non e un secondo dominio: e la lettura dei moduli pubblicati messa accanto a quella delle pratiche di questa famiglia. Ogni voce porta isEnrollment: il pulsante porta comunque dentro l'area famiglia, e quel campo dice con quali parole la schermata deve parlare e se la pratica che nascera porta una stagione. Un questionario non e un rinnovo",
     mobile_ready: false,
   },
   {

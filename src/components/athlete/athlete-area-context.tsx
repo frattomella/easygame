@@ -62,8 +62,13 @@ export type AthleteAreaData = {
   };
   categories: { id: string; name: string; isPrimary: boolean }[];
   health: {
+    /** `valid` | `expiring` | `expired` | `undated` | `missing` (PP-02 §F). */
     status: string;
     statusLabel: string;
+    /** La frase sulla data, gia scritta: «Scade il …» oppure che non c'e. */
+    detail: string;
+    /** Etichetta e data insieme, nella forma che il mandato chiede. */
+    summary: string;
     expiryDate: string | null;
   };
   trainings: { upcoming: any[]; history: any[] };

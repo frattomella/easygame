@@ -148,6 +148,21 @@ export default function ParentDashboardShell({
           title={resolvePageTitle(pathname || "")}
           showMobileHubLink={false}
           mobileNavSections={mobileNavSections}
+          /*
+            **Il numero, non solo la porta.**
+
+            Questo stesso pacchetto ha corretto **dove porta** il campanello e
+            ha lasciato **se si accende**: la pastiglia e governata solo da
+            questa prop, che ha un default a zero, quindi ometterla non e un
+            errore di compilazione — e una campanella spenta per sempre. Un
+            genitore con avvisi non letti la guardava spenta, e il conteggio
+            compariva solo **dentro** la pagina che si sarebbe voluto fargli
+            raggiungere.
+
+            Il server lo calcola per figlio da sempre, e il guscio gemello
+            dell'area atleta lo passava gia.
+          */
+          notificationCount={data?.notificationsUnread || 0}
           clubIdentity={
             data
               ? {

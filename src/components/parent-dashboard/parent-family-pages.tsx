@@ -474,7 +474,6 @@ export function ParentCalendarPage() {
       );
   }, [data, tipo]);
 
-  const figli = data?.athlete.linkedAthletes || [];
 
   return (
     <div className="space-y-6">
@@ -845,8 +844,26 @@ export function ParentEnrollmentPage() {
           ) : (
             pratiche.map((pratica: any) => {
               const stato = etichetta(pratica.state || pratica.status);
-              const mancanti = Array.isArray(pratica.missingDocuments)
-                ? pratica.missingDocuments
+              /*
+                **Il nome giusto e `pendingDocuments`.**
+
+                Il server lo calcola per ogni pratica — due query a testa — e
+                lo spedisce; qui si leggeva `missingDocuments`, che nessun
+                produttore emette. `mancanti` era quindi sempre vuoto, e con
+                lui sparivano l'elenco «Il club aspetta:» **e** il pulsante
+                «Carica documenti»: cioe la seconda meta di cio che il
+                sottotitolo di questa pagina promette, «a che punto e la tua
+                domanda, e cosa manca».
+
+                Il gemello pubblico invece funziona, e legge il nome giusto: uno
+                sconosciuto con il link della ricevuta vedeva **piu** di un
+                genitore autenticato.
+
+                Il tipo non poteva accorgersene perche la riga arriva come
+                `any` — ed e la ragione per cui adesso non arriva piu.
+              */
+              const mancanti = Array.isArray(pratica.pendingDocuments)
+                ? pratica.pendingDocuments
                 : [];
               return (
                 <article

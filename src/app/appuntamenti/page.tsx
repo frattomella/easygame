@@ -26,6 +26,7 @@ import {
   DEFAULT_APPOINTMENTS_CONFIG,
   normalizeAppointmentsConfig,
   type AppointmentsConfig,
+  familyCanRequestAppointment,
 } from "@/lib/appointments/config";
 import {
   AlertDialog,
@@ -552,6 +553,33 @@ export default function AppuntamentiDisponibilitaPage() {
                         }
                       />
                     </div>
+
+                    {/*
+                      **Chi chiude la porta deve vederla chiusa.**
+
+                      `familyCanRequestAppointment` e la risposta del dominio a
+                      «una famiglia puo davvero mandare una richiesta?», ed e
+                      falsa anche quando l'interruttore e acceso ma nessun
+                      motivo e prenotabile. La schermata della famiglia la
+                      chiede e scrive «Le richieste online non sono attive»;
+                      questa — che e quella che **causa** lo stato — mostrava
+                      solo l'interruttore grezzo. Un amministratore toglieva la
+                      spunta ai tre motivi, vedeva l'interruttore ancora acceso,
+                      e il club smetteva in silenzio di ricevere.
+                    */}
+                    {configurazione.familyBookingEnabled &&
+                    !familyCanRequestAppointment(configurazione) ? (
+                      <p
+                        role="status"
+                        className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+                      >
+                        Nessun motivo e prenotabile dalle famiglie: per loro le
+                        richieste online risultano <strong>chiuse</strong>.
+                        Spunta «Le famiglie possono chiederlo» su almeno un
+                        motivo, oppure togli del tutto i motivi per accettare
+                        anche il testo libero.
+                      </p>
+                    ) : null}
 
                     <div className="space-y-2">
                       <Label>Motivi che accettiamo</Label>

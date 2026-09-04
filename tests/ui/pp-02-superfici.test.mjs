@@ -535,3 +535,56 @@ test("§U · il colore dell'appuntamento segue la sua etichetta", () => {
     "i sei stati terminali devono essere nominati, o cadono su un ripiego",
   );
 });
+
+test("§V · il campanello della famiglia riceve il numero, non solo la porta", () => {
+  const guscio = senzaCommenti(leggi("components/parent-dashboard/parent-dashboard-shell.tsx"));
+
+  /*
+    La pastiglia e governata **solo** da `notificationCount`, che ha un default
+    a zero: ometterla non e un errore di compilazione, e' una campanella spenta
+    per sempre. Questo pacchetto ha corretto **dove porta** il campanello e ha
+    lasciato **se si accende** — un genitore con avvisi non letti la guardava
+    spenta, e il numero compariva solo dentro la pagina che avrebbe dovuto
+    raggiungere.
+  */
+  assert.ok(
+    guscio.includes("notificationCount={data?.notificationsUnread || 0}"),
+    "il numero il server lo calcola per figlio: qui va passato",
+  );
+});
+
+test("§V · «cosa manca» legge il nome che il server manda", () => {
+  const pagine = senzaCommenti(leggi("components/parent-dashboard/parent-family-pages.tsx"));
+
+  /*
+    Il server manda `pendingDocuments`; qui si leggeva `missingDocuments`, che
+    nessun produttore emette. L'elenco «Il club aspetta:» e il pulsante «Carica
+    documenti» non si disegnavano mai — cioe la seconda meta di cio che il
+    sottotitolo della pagina promette. Il gemello pubblico invece funzionava:
+    uno sconosciuto con il link della ricevuta vedeva piu di un genitore
+    autenticato.
+  */
+  assert.ok(
+    pagine.includes("pratica.pendingDocuments"),
+    "il nome deve essere quello che il server emette",
+  );
+  assert.ok(
+    !pagine.includes("pratica.missingDocuments"),
+    "il nome che nessuno produce non deve tornare",
+  );
+});
+
+test("§V · la schermata del club dice quando ha chiuso la porta senza volerlo", () => {
+  const club = senzaCommenti(leggi("app/appuntamenti/page.tsx"));
+
+  /*
+    `familyCanRequestAppointment` e falsa anche con l'interruttore acceso,
+    quando nessun motivo e prenotabile. La schermata della famiglia la chiede;
+    questa — che e quella che **causa** lo stato — mostrava solo l'interruttore
+    grezzo, e un amministratore chiudeva le richieste senza accorgersene.
+  */
+  assert.ok(
+    club.includes("!familyCanRequestAppointment(configurazione)"),
+    "chi chiude la porta deve vederla chiusa",
+  );
+});

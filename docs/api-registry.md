@@ -573,11 +573,13 @@ dal client — si legge dalla riga dell'atleta.
   precompilata e il suo invio
 - `GET /api/v1/family/online-forms?athlete_id=…` — i moduli online pubblicati
   dal club con lo stato di **questo figlio** (PP-02 §G): da compilare, inviato,
-  completato, scaduto. Ogni voce dice anche `isEnrollment`, perche da li
-  dipende **dove porta il pulsante**: un'iscrizione al flusso di rinnovo, un
-  questionario alla pagina del modulo. L'elenco non filtra per tipo — risponde
-  a «cosa ti chiede il club» — e mandare tutti al rinnovo faceva arrivare in
-  segreteria questionari etichettati come pratiche di rinnovo
+  completato, scaduto. Ogni voce dice anche `isEnrollment`. L'elenco non filtra
+  per tipo — risponde a «cosa ti chiede il club», e un questionario lo e — e il
+  pulsante porta **sempre** dentro l'area famiglia, perche fuori di li l'invio
+  sarebbe anonimo e perderebbe il legame con il figlio. Quel campo dice con
+  quali parole la schermata deve parlare, e se la pratica che nascera porta una
+  stagione: mandare tutti al rinnovo faceva arrivare in segreteria questionari
+  da approvare come iscrizioni
 - `GET|PUT /api/v1/appointments/config` — come riceve il club (PP-02 §K): se le
   famiglie possono chiedere un appuntamento, e per quali motivi. La legge
   chiunque abbia una tessera nel club — serve anche a chi fissa un appuntamento

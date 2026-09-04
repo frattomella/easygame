@@ -899,10 +899,27 @@ test("l'area atleta e un elenco chiuso: niente denaro, niente tutori, niente alt
   assert.equal(testo.includes("SEGRETO-CLINICO"), false);
   assert.equal(testo.includes("polline"), false);
   assert.equal(testo.includes("A+"), false);
+  /*
+    **Cinque chiavi, e le due nuove non sono contenuto clinico.**
+
+    `detail` e `summary` sono la stessa frase che legge la famiglia — «Scade
+    il 01/06/2027», «Mancante — Data di scadenza non disponibile» — scritta dal
+    dominio invece che ricomposta da ogni schermata. Sono entrate perche
+    l'area teneva le tre chiavi vecchie, e `status` vale `"missing"` ogni volta
+    che non c'e una data: al ragazzo si diceva «Certificato mancante» per un
+    certificato che aveva **consegnato**, mentre sulla Home il genitore leggeva
+    «Consegnato». Lo stesso documento, due risposte opposte dentro lo stesso
+    prodotto.
+
+    L'elenco resta chiuso, ed e questa riga a tenerlo tale: aggiungere una
+    chiave qui deve costare un test da cambiare, con la sua ragione scritta.
+  */
   assert.deepEqual(Object.keys(area.health).sort(), [
+    "detail",
     "expiryDate",
     "status",
     "statusLabel",
+    "summary",
   ]);
 
   /* E `athletes.data` intero non esce: escono i campi dichiarati. */

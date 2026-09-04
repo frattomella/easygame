@@ -1,3 +1,4 @@
+import { normalizeAthleteStatus } from "@/lib/athletes/status";
 import { prisma } from "@/lib/server/prisma";
 import { stripGuardianAccessTokens } from "@/lib/health/permissions";
 import {
@@ -2115,7 +2116,17 @@ export const listParentChildren = async (userId: string) => {
     birthYear: athlete.birth_date
       ? new Date(athlete.birth_date).getUTCFullYear()
       : null,
-    status: athlete.status || "active",
+    /*
+      **Canonico, non grezzo.** La colonna contiene davvero altre grafie —
+      `disattivato`, `sospeso`, `on_loan`, `in prestito` — perche la guardia
+      in scrittura canonicalizza da oggi in avanti e non riscrive le righe
+      storiche. Chi legge qui si indicizza un vocabolario chiuso: con una
+      grafia storica il figlio non riceveva **nessuna** pastiglia sul
+      selettore, cioe la schermata tornava a promettere un'iscrizione viva —
+      la cosa che §B ha scritto per impedire. Il lato club normalizza in
+      lettura da sempre; adesso lo fa anche questa strada.
+    */
+    status: normalizeAthleteStatus(athlete.status),
     avatarUrl: athlete.avatar_url || null,
   }));
 };

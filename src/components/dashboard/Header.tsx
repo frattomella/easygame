@@ -424,18 +424,6 @@ const Header = memo(
       return "/notifications";
     }, [pathname]);
 
-    const handleNotificationClick = useCallback(() => {
-
-      // Prevent navigation in storyboard environment
-      if (
-        typeof window !== "undefined" &&
-        !window.location.href.includes("storyboard=true") &&
-        window.location.pathname !== notificationsHref
-      ) {
-        window.location.href = notificationsHref;
-      }
-    }, [notificationsHref]);
-
     const handleReturnToAccount = () => {
       router.push("/account");
     };
