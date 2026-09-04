@@ -3,10 +3,14 @@ import {
   readRequestId,
   reportServerError,
 } from "@/lib/server/observability";
-import { attachSessionCookie, serializeAuthUser } from "@/lib/server/auth";
+import {
+  attachSessionCookie,
+  serializeAuthUserWithoutSession,
+} from "@/lib/server/auth";
 import {
   VerificationRejected,
   buildPendingVerificationResponse,
+  challengePurposeCanMintSession,
   confirmEmailVerification,
   finalizeVerifiedSession,
 } from "@/lib/server/auth-workflows";
@@ -57,14 +61,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const verifiedUser = await confirmEmailVerification(userId, code);
-    const finalized = await finalizeVerifiedSession(verifiedUser.id);
+    const { user: verifiedUser, purpose } = await confirmEmailVerification(
+      userId,
+      code,
+    );
+
+    /* Stessa regola della rotta gemella (CRITICAL-1, ADR-0117). */
+    const finalized = challengePurposeCanMintSession(purpose)
+      ? await finalizeVerifiedSession(verifiedUser.id)
+      : { session: null, verification: null };
 
     if (!finalized.session) {
       const pending = await buildPendingVerificationResponse(verifiedUser.id);
       return NextResponse.json({
         data: {
-          user: serializeAuthUser(pending.user),
+          user: serializeAuthUserWithoutSession(pending.user),
           session: null,
           verification: pending.verification,
         },

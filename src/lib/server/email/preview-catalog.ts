@@ -63,10 +63,12 @@ const LINK = "https://esempio.test/pay/gettone-di-esempio";
 /**
  * **Costruisce l'inventario. Non spedisce, e non puo spedire.**
  *
- * Non importa `sendTransactionalEmail` e non chiama nessuna funzione che lo
- * faccia: chiama solo i costruttori di contenuto, che sono puri. Se un giorno
- * qualcuno aggiungesse qui una riga che manda davvero, il test
- * `tests/email/anteprima-non-spedisce.test.mjs` diventerebbe rosso.
+ * Non importa il punto di invio e non chiama nessuna funzione che ci arrivi:
+ * chiama solo i costruttori di contenuto, che sono puri. Se un giorno qualcuno
+ * aggiungesse qui una riga che manda davvero, due cose diventerebbero rosse —
+ * `tests/email/anteprima-non-spedisce.test.mjs`, che conta gli invii, e il
+ * test strutturale di `tests/ui/communications-ownership.test.mjs`, che tiene
+ * l'elenco dei chiamanti legittimi.
  */
 export const buildEmailPreviewCatalog = (): EmailPreviewItem[] => {
   const verifica = buildVerificationEmail({

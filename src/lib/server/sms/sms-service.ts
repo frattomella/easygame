@@ -1,4 +1,8 @@
 import { reportServerError } from "../observability";
+import {
+  SMS_TRANSPORT_UNKNOWN_MESSAGE,
+  resolveSmsTransport,
+} from "../../auth/sms-transport";
 import type {
   SafeSmsErrorCode,
   SmsDeliveryResult,
@@ -68,21 +72,44 @@ export const __setSmsProviderForTests = (
  * `noop` in silenzio, perche un'installazione che ha scritto `SMS_PROVIDER`
  * sbagliato deve accorgersene invece di credere di spedire.
  */
+/**
+ * Un nome sconosciuto si dice **una volta sola**, e senza il valore dentro.
+ *
+ * Senza questa riga la configurazione sbagliata era completamente muta
+ * (HIGH-2): `resolveSmsProvider` rispondeva `null` e chi aveva scritto
+ * `SMS_PROVIDER=twilio` credeva di aver acceso l'invio. Il messaggio non
+ * riporta il valore letto dall'ambiente: una variabile non si ripete mai in
+ * chiaro in un log.
+ */
+let nomeSconosciutoGiaSegnalato = false;
+
 export const resolveSmsProvider = (
   environment: Record<string, string | undefined> = process.env,
 ): SmsProvider | null => {
   if (providerOverride !== undefined) return providerOverride;
 
-  const nome = String(environment.SMS_PROVIDER || "").trim().toLowerCase();
-  if (!nome) return null;
-  if (nome === "noop") return new NoopSmsProvider();
+  const esito = resolveSmsTransport(environment);
+  if (esito.kind === "absent") return null;
+
+  if (esito.kind === "unknown") {
+    if (!nomeSconosciutoGiaSegnalato) {
+      nomeSconosciutoGiaSegnalato = true;
+      reportServerError(new Error(SMS_TRANSPORT_UNKNOWN_MESSAGE), {
+        route: "lib/server/sms/sms-service",
+        method: "resolveSmsProvider",
+      });
+    }
+    return null;
+  }
 
   /*
-    Nessun operatore reale e ancora cablato: chi arriva qui ha dichiarato un
-    nome che questo codice non conosce. Si risponde `null` — cioe «non
-    configurato» — e lo si dice una volta sola, senza il nome scritto
-    dall'ambiente dentro un messaggio di errore che potrebbe finire altrove.
+    L'elenco dei nomi vive in `src/lib/auth/sms-transport.ts` e non qui: era
+    ricopiato a mano anche in `provider-policy.ts`, e le due copie decidevano
+    cose diverse sullo stesso valore. Aggiungere un operatore vero significa
+    aggiungere una riga la e un `case` qui.
   */
+  if (esito.transport.name === "noop") return new NoopSmsProvider();
+
   return null;
 };
 

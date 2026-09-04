@@ -10,11 +10,12 @@ import {
 } from "@/lib/server/prisma";
 import {
   attachSessionCookie,
-  serializeAuthUser,
+  serializeAuthUserWithoutSession,
   verifyPassword,
 } from "@/lib/server/auth";
 import {
   VerificationRejected,
+  buildOtpTargetCounterKey,
   finalizeVerifiedSession,
   isPhoneVerificationBlocking,
   maskStoredPhone,
@@ -166,6 +167,20 @@ export async function POST(request: Request) {
           policy: AUTH_RATE_LIMITS.otpSendAccount,
           identifier: `phone:account:${user.id}`,
         },
+        /*
+          **Anche l'asse per destinatario** (HIGH-3 della revisione ostile
+          PP-05A). Mancava qui come mancava nella registrazione: il numero e
+          l'unica cosa che l'attaccante non puo cambiare a costo zero, e quindi
+          l'unico asse che conta davvero contro il pompaggio di SMS. Qui serve
+          la password, quindi la strada e stretta — ma il contatore per numero
+          e condiviso con le altre rotte, ed e li che deve maturare.
+        */
+        {
+          policy: AUTH_RATE_LIMITS.otpSendTarget,
+          identifier: `phone:target:${buildOtpTargetCounterKey(
+            String(user.phone || ""),
+          )}`,
+        },
       ]);
       if (otpRateLimit) return rateLimitedResponse(otpRateLimit);
 
@@ -190,7 +205,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           data: {
-            user: serializeAuthUser(user),
+            user: serializeAuthUserWithoutSession(user),
             session: null,
             verification: {
               userId: user.id,
@@ -216,7 +231,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           data: {
-            user: serializeAuthUser(finalized.user),
+            user: serializeAuthUserWithoutSession(finalized.user),
             session: null,
             verification: finalized.verification,
           },

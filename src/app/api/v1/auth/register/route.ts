@@ -7,6 +7,7 @@ import { prisma } from "@/lib/server/prisma";
 import { hashPassword, verifyPassword } from "@/lib/server/auth";
 import {
   VerificationRejected,
+  buildOtpTargetCounterKey,
   createVerificationReference,
   canDeliverPhoneOtp,
   isPhoneVerificationRequired,
@@ -208,6 +209,39 @@ export async function POST(request: Request) {
       );
     }
     const phone = numero.e164;
+
+    /*
+      **Il contatore per destinatario vale anche qui** (HIGH-3 della revisione
+      ostile PP-05A).
+
+      `rate-limit-policy.ts` dichiara che `otpSendTarget` esiste per fermare il
+      pompaggio di SMS verso un numero «**anche quando l'attaccante si crea
+      account nuovi**». Era esattamente lo scenario che questa rotta non
+      copriva: consumava solo `registerIp` e `registerIdentity`, cioe indirizzo
+      di rete e indirizzo email — due assi che l'attaccante sceglie — e nessuno
+      dei tre assi `otp_send`. Misurato: **dieci SMS all'ora verso un numero
+      scelto** da un solo indirizzo IP, moltiplicabile cambiando rete, e ogni
+      invio invalidava alla vittima il codice appena ricevuto.
+
+      Il contatore si consuma **prima** di sapere se l'indirizzo email esista
+      gia, cosi il costo di una registrazione e lo stesso nei due rami e non
+      diventa un modo per distinguerli. Se e esaurito non si risponde 429 — la
+      risposta di questa rotta resta una sola, indistinguibile — semplicemente
+      **l'SMS non parte**: la challenge non nasce, e chi sta registrando
+      davvero puo chiederne una da `/verify/phone/send`.
+    */
+    const numeroSaturo = phoneVerificationEnabled
+      ? Boolean(
+          await consumeRequestRateLimits([
+            {
+              policy: AUTH_RATE_LIMITS.otpSendTarget,
+              identifier: `phone:target:${buildOtpTargetCounterKey(phone)}`,
+            },
+          ]),
+        )
+      : false;
+    const puoMandareSms = phoneVerificationEnabled && !numeroSaturo;
+
     const organization_name = String(
       userData.organizationName ||
         [first_name, last_name].filter(Boolean).join(" ").trim() ||
@@ -231,7 +265,7 @@ export async function POST(request: Request) {
               sendEmailVerificationChallenge(pendingUser, "signup"),
             )
           : { sent: false, previewCode: null };
-        const phoneChallenge = phoneVerificationEnabled
+        const phoneChallenge = puoMandareSms
           ? await senzaCooldown(() =>
               sendPhoneVerificationChallenge(pendingUser, "signup"),
             )
@@ -299,7 +333,7 @@ export async function POST(request: Request) {
           sendEmailVerificationChallenge(createdUser, "signup"),
         )
       : { sent: false, previewCode: null };
-    const phoneChallenge = phoneVerificationEnabled
+    const phoneChallenge = puoMandareSms
       ? await senzaCooldown(() =>
           sendPhoneVerificationChallenge(createdUser, "signup"),
         )

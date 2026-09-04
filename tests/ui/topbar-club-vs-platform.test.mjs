@@ -265,6 +265,14 @@ const DOCUMENT_GENERATORS = new Set([
     due file sopra, un client di posta non ha i font dell'applicazione.
   */
   "lib/server/email/layout.ts",
+  /*
+    L'Email Template Core (PP-05B): da qui in avanti e **l'unico** posto in cui
+    una dichiarazione di font per la posta puo esistere. `layout.ts` resta
+    nell'elenco perche resta un file, ma non compone piu niente, e i due
+    `escapeHtml` di `auth-workflows.ts` e `email-service.ts` sono spariti
+    insieme al markup che li richiedeva.
+  */
+  "lib/server/email/template-core.ts",
 ]);
 
 /**

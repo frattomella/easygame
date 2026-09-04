@@ -730,6 +730,64 @@ const prendiUnTentativo = async (challengeId: string) => {
   return speso.count === 1;
 };
 
+/**
+ * **Quali codici fanno nascere una sessione, e quali no** (PP-05, ADR-0117).
+ *
+ * Un OTP telefono non e una password, ma la conferma ne produceva una sessione
+ * **sempre**, per chiunque presentasse l'identificativo dell'account e il
+ * codice. Su un account occupato — registrato con l'indirizzo di un'altra
+ * persona — quello era un secondo ingresso che nessuno dei due meccanismi di
+ * sfratto chiudeva: la revisione ostile ha misurato la presa di possesso
+ * completa, senza password e senza codici di prova, dopo che l'adozione OAuth
+ * aveva gia azzerato la password dell'occupante.
+ *
+ * La regola: **il codice apre una porta solo se la porta era gia stata
+ * aperta**. `signup` — l'account e appena nato da questa richiesta, che
+ * portava una password — e `login`, dove la password e appena stata
+ * verificata. Un codice chiesto da `/verify/<canale>/send` ha scopo `verify_email` o
+ * `verify_phone`: verifica il recapito e basta, e chi lo chiede da dentro
+ * l'area Account una sessione ce l'ha gia.
+ */
+const SCOPI_CHE_APRONO_UNA_SESSIONE = new Set<VerificationPurpose>([
+  "signup",
+  "login",
+]);
+
+export const challengePurposeCanMintSession = (purpose: string) =>
+  SCOPI_CHE_APRONO_UNA_SESSIONE.has(purpose as VerificationPurpose);
+
+/**
+ * **Lo sfratto di un occupante chiude tutti i canali, non solo la password.**
+ *
+ * Chiude CRITICAL-1 della revisione ostile PP-05A. Prima si azzerava la
+ * password e si cancellavano le sessioni, e sembrava bastare. Non bastava: il
+ * **numero di cellulare** dell'occupante restava sulla riga, e il numero e un
+ * canale con cui si rientra — `/verify/phone/send` piu `/verify/phone/confirm`
+ * — mentre la vittima restava chiusa fuori, perche il telefono altrui le
+ * bloccava la sessione.
+ *
+ * Si azzerano quindi anche il numero, la sua verifica e il riferimento
+ * pubblico di verifica. Il numero azzerato **non** lascia la vittima bloccata:
+ * `isPhoneVerificationBlocking` pretende che un numero ci sia, e senza numero
+ * non blocca — la vittima lo riscrive dalla propria area Account.
+ *
+ * `phone_verification_required` resta acceso di proposito: e una proprieta
+ * dell'account, e il giorno in cui la vittima scrive il proprio numero deve
+ * tornare a valere.
+ */
+const sfrattaOccupante = async (userId: string) => {
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      password_hash: await hashPassword(randomBytes(32).toString("hex")),
+      phone: null,
+      phone_verified_at: null,
+      token_verification_id: createVerificationReference(),
+    },
+  });
+  await prisma.session.deleteMany({ where: { user_id: userId } });
+};
+
 export const confirmEmailVerification = async (
   userReference: string,
   code: string,
@@ -737,7 +795,7 @@ export const confirmEmailVerification = async (
   const user = await findUserByVerificationReference(userReference);
   if (!user) throw new VerificationRejected();
 
-  await verifyInternalChallenge({
+  const challenge = await verifyInternalChallenge({
     userId: user.id,
     channel: "email",
     target: user.email,
@@ -759,7 +817,7 @@ export const confirmEmailVerification = async (
 
   const aggiornato = await prisma.user.findUnique({ where: { id: user.id } });
   if (!aggiornato) throw new VerificationRejected();
-  return aggiornato;
+  return { user: aggiornato, purpose: challenge.purpose };
 };
 
 export const confirmPhoneVerification = async (
@@ -783,7 +841,7 @@ export const confirmPhoneVerification = async (
     throw new VerificationRejected();
   }
 
-  await verifyInternalChallenge({
+  const challenge = await verifyInternalChallenge({
     userId: user.id,
     channel: "phone",
     target: numero.e164,
@@ -798,7 +856,7 @@ export const confirmPhoneVerification = async (
 
   const aggiornato = await prisma.user.findUnique({ where: { id: user.id } });
   if (!aggiornato) throw new VerificationRejected();
-  return aggiornato;
+  return { user: aggiornato, purpose: challenge.purpose };
 };
 
 export const ensurePrimaryClubForUser = async (userId: string) => {
@@ -1382,13 +1440,14 @@ export const findOrCreateOAuthUser = async ({
     */
     const eraOccupatoSenzaProva = !existingUser.email_verified_at;
     if (eraOccupatoSenzaProva) {
-      await prisma.user.update({
-        where: { id: existingUser.id },
-        data: {
-          password_hash: await hashPassword(randomBytes(32).toString("hex")),
-        },
-      });
-      await prisma.session.deleteMany({ where: { user_id: existingUser.id } });
+      /*
+        **Anche il numero, non solo la password** (CRITICAL-1 della revisione
+        ostile PP-05A). Azzerare la sola password lasciava all'occupante un
+        secondo ingresso — il proprio cellulare sulla riga della vittima, con
+        cui `/verify/phone/confirm` gli restituiva una sessione — e chiudeva
+        fuori la vittima, a cui quel numero altrui bloccava l'accesso.
+      */
+      await sfrattaOccupante(existingUser.id);
     }
 
     const updatedUser = await prisma.user.update({
@@ -1563,30 +1622,66 @@ export const sendPasswordResetChallenge = async (user: {
   const token = createPasswordResetToken();
 
   // Un solo token di reset valido per volta.
-  await prisma.authVerificationChallenge.updateMany({
-    where: {
-      user_id: user.id,
-      channel: "email",
-      purpose: "reset_password",
-      consumed_at: null,
-    },
-    data: { consumed_at: new Date() },
-  });
+  /*
+    **Le due scritture in una transazione, e la corsa la perde il database**
+    (LOW-9 della revisione ostile PP-05A).
 
-  await prisma.authVerificationChallenge.create({
-    data: {
-      user_id: user.id,
-      channel: "email",
-      purpose: "reset_password",
-      target: user.email,
-      code_hash: hashOtpCode(token, {
-        userId: user.id,
-        channel: "email",
-        purpose: "reset_password",
+    La migrazione `20260904120000_pp05_una_challenge_viva_per_canale` ha messo
+    un indice unico parziale anche sui token di reset, e questo ramo non era
+    stato adeguato: sei richieste simultanee producevano due token e quattro
+    violazioni `P2002`, che risalivano fino al logger di Prisma — quattro righe
+    di errore **fuori** dal punto unico — mentre la rotta le assorbiva nel suo
+    messaggio generico. Chi guardava lo schermo leggeva «ti abbiamo inviato le
+    istruzioni» senza che fosse partito niente.
+
+    Stessa forma di `createInternalChallenge`: transazione, e la violazione
+    tradotta in «esiste gia un token vivo», che qui vuol dire «l'email e gia
+    partita». Chi chiama risponde comunque con il messaggio generico, quindi
+    non nasce nessuna enumerazione.
+  */
+  const adesso = new Date();
+  try {
+    await prisma.$transaction([
+      prisma.authVerificationChallenge.updateMany({
+        where: {
+          user_id: user.id,
+          channel: "email",
+          purpose: "reset_password",
+          consumed_at: null,
+        },
+        data: { consumed_at: adesso },
       }),
-      expires_at: new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000),
-    },
-  });
+      prisma.authVerificationChallenge.create({
+        data: {
+          user_id: user.id,
+          channel: "email",
+          purpose: "reset_password",
+          target: user.email,
+          code_hash: hashOtpCode(token, {
+            userId: user.id,
+            channel: "email",
+            purpose: "reset_password",
+          }),
+          created_at: adesso,
+          expires_at: new Date(
+            adesso.getTime() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000,
+          ),
+          consumed_at: null,
+          attempts: 0,
+        },
+      }),
+    ]);
+  } catch (error: any) {
+    if (error?.code === "P2002") {
+      /*
+        Un token vivo esiste gia ed e gia partito verso la casella: mandarne un
+        secondo non aiuterebbe nessuno. Si risponde «non inviato» senza codice
+        di anteprima, e la rotta lo copre con il messaggio generico di sempre.
+      */
+      return { sent: false, previewCode: null };
+    }
+    throw error;
+  }
 
   const resetUrl = `${getAppBaseUrl()}/auth/reset-password?uid=${encodeURIComponent(
     user.id,
@@ -1711,6 +1806,33 @@ export const confirmPasswordReset = async ({
 
   const password_hash = await hashPassword(password);
 
+  /*
+    **Il reset su un account mai verificato e uno sfratto** (CRITICAL-1 della
+    revisione ostile PP-05A).
+
+    Il caso: qualcuno registra un account con l'indirizzo di un'altra persona e
+    **il proprio numero**. La vittima arriva, fa «Password dimenticata», e
+    rientra — ma l'occupante rientrava anche lui, dal telefono: chiedeva un
+    codice a `/verify/phone/send` e `/verify/phone/confirm` gli restituiva una
+    sessione sull'account della vittima. Il reset cancellava le sessioni e non
+    toccava il canale che le faceva rinascere.
+
+    Chi apre il link ha dimostrato di controllare **la casella**, non il
+    numero: il numero non ha nessun titolo per sopravvivere.
+
+    **Il prezzo, dichiarato.** Un utente legittimo che non aveva mai verificato
+    l'indirizzo e che dimentica la password perde il numero e lo riscrive: un
+    SMS in piu, una volta. Non si applica a chi l'indirizzo l'aveva gia
+    verificato — li nessuna occupazione era possibile, e il numero resta.
+  */
+  const sfratto = user.email_verified_at
+    ? {}
+    : {
+        phone: null,
+        phone_verified_at: null,
+        token_verification_id: createVerificationReference(),
+      };
+
   await prisma.$transaction([
     prisma.authVerificationChallenge.update({
       where: { id: challenge.id },
@@ -1722,6 +1844,7 @@ export const confirmPasswordReset = async ({
         password_hash,
         // Chi ha aperto il link ha dimostrato di controllare la casella.
         ...(user.email_verified_at ? {} : { email_verified_at: new Date() }),
+        ...sfratto,
       },
     }),
     // Un reset invalida ogni sessione aperta, ovunque.

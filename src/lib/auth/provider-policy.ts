@@ -24,6 +24,8 @@
  *   finche non e disattivata per scelta esplicita.
  */
 
+import { smsTransportDelivers } from "./sms-transport";
+
 export type PhoneVerificationEnvironment = Partial<
   Record<
     | "NODE_ENV"
@@ -35,17 +37,23 @@ export type PhoneVerificationEnvironment = Partial<
 >;
 
 /**
- * C'e un trasporto che possa portare un SMS fuori di qui?
+ * **C'e un trasporto che porti davvero un SMS a destinazione?**
  *
- * Ricalca `resolveSmsProvider` (`src/lib/server/sms/sms-service.ts`) senza
- * importarlo: quello e un modulo server, questo e puro e lo importa anche chi
- * non puo caricare `src/lib/server/**`. La duplicazione e una riga e il
- * contratto e dichiarato in entrambi i posti — l'alternativa era rendere
- * questo file non testabile senza database.
+ * Non «e configurato qualcosa»: **consegna**. La differenza l'ha pagata la
+ * revisione ostile (HIGH-2): questa funzione era vera per `SMS_PROVIDER=noop`,
+ * cioe per il trasporto che per contratto **non spedisce**, e da li discendeva
+ * un blocco dell'accesso in attesa di un codice che nessuno avrebbe mai
+ * ricevuto. E l'elenco dei nomi viveva qui **a mano**, ricopiato da
+ * `resolveSmsProvider`: il giorno in cui si fosse scritto il nome di un
+ * operatore vero, questa riga sarebbe stata falsa e la verifica si sarebbe
+ * spenta in silenzio, proprio mentre qualcuno credeva di averla accesa.
+ *
+ * Adesso l'elenco e uno solo, in `sms-transport.ts`, ed e puro: lo leggono sia
+ * questo modulo sia il costruttore del trasporto.
  */
 export const isSmsTransportConfigured = (
   environment: PhoneVerificationEnvironment = process.env,
-) => String(environment.SMS_PROVIDER || "").trim().toLowerCase() === "noop";
+) => smsTransportDelivers(environment);
 
 /**
  * Si puo far arrivare un codice a una persona?

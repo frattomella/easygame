@@ -118,9 +118,18 @@ test("controspecchio: due errori e poi il codice giusto verificano l'indirizzo",
   await assert.rejects(() => flussi.confirmEmailVerification(UTENTE, "000000"));
   await assert.rejects(() => flussi.confirmEmailVerification(UTENTE, "111111"));
 
-  const utente = await flussi.confirmEmailVerification(UTENTE, CODICE);
+  const { user: utente, purpose } = await flussi.confirmEmailVerification(
+    UTENTE,
+    CODICE,
+  );
 
   assert.ok(utente.email_verified_at, "l'indirizzo risulta verificato");
+  /*
+    Lo scopo torna insieme all'utente (PP-05, ADR-0117): e cio su cui la rotta
+    decide se aprire una sessione, e qui la challenge e stata scritta come `verify_email`, che **non** apre una
+    sessione.
+  */
+  assert.equal(purpose, "verify_email");
   assert.equal(riga().attempts, 3);
   assert.ok(riga().consumed_at, "la challenge usata si consuma");
 });

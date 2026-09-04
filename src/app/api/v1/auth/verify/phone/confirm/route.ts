@@ -3,10 +3,14 @@ import {
   readRequestId,
   reportServerError,
 } from "@/lib/server/observability";
-import { attachSessionCookie, serializeAuthUser } from "@/lib/server/auth";
+import {
+  attachSessionCookie,
+  serializeAuthUserWithoutSession,
+} from "@/lib/server/auth";
 import {
   VerificationRejected,
   buildPendingVerificationResponse,
+  challengePurposeCanMintSession,
   confirmPhoneVerification,
   finalizeVerifiedSession,
 } from "@/lib/server/auth-workflows";
@@ -64,14 +68,27 @@ export async function POST(request: Request) {
       );
     }
 
-    const verifiedUser = await confirmPhoneVerification(userId, code);
-    const finalized = await finalizeVerifiedSession(verifiedUser.id);
+    const { user: verifiedUser, purpose } = await confirmPhoneVerification(
+      userId,
+      code,
+    );
+
+    /*
+      **Un codice apre una sessione solo se la porta era gia stata aperta**
+      (CRITICAL-1, ADR-0117). Un codice chiesto da `/verify/phone/send` ha
+      scopo `verify_phone`: conferma il numero e basta. Chi lo chiede dall'area
+      Account una sessione ce l'ha gia; chi lo chiede senza averla non deve
+      ottenerne una presentando solo un identificativo e un codice SMS.
+    */
+    const finalized = challengePurposeCanMintSession(purpose)
+      ? await finalizeVerifiedSession(verifiedUser.id)
+      : { session: null, verification: null };
 
     if (!finalized.session) {
       const pending = await buildPendingVerificationResponse(verifiedUser.id);
       return NextResponse.json({
         data: {
-          user: serializeAuthUser(pending.user),
+          user: serializeAuthUserWithoutSession(pending.user),
           session: null,
           verification: pending.verification,
         },

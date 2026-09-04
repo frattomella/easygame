@@ -79,11 +79,48 @@ export const resolveOtpResendDecision = (
   };
 };
 
+/**
+ * Gli ambienti in cui un codice non torna **mai** nella risposta, qualunque
+ * cosa dica `AUTH_ALLOW_TEST_CODES`. `preview` e `staging` sono qui perche
+ * portano dati che assomigliano a quelli veri e indirizzi che assomigliano a
+ * quelli veri.
+ */
+const AMBIENTI_SENZA_ANTEPRIMA = new Set(["production", "staging", "preview"]);
+
+/**
+ * **Il codice torna nella risposta?**
+ *
+ * Due condizioni, e la prima e sempre una scelta esplicita:
+ * `AUTH_ALLOW_TEST_CODES` deve valere `true`. Nessun ambiente lo accende da
+ * solo.
+ *
+ * **Il fail-open che chiude** (LOW-10 della revisione ostile PP-05A): la
+ * condizione era `NODE_ENV !== "production"`, quindi un `NODE_ENV` **non
+ * impostato** apriva. Su Vercel `NODE_ENV` vale sempre `production` e il
+ * rischio pratico era basso, ma una difesa che si apre quando una variabile
+ * manca e scritta al contrario: quando un ambiente non si dichiara, non lo si
+ * indovina. Qui, senza `NODE_ENV`, si chiede al database di dichiararsi —
+ * `EASYGAME_DB_ENV`, la stessa variabile su cui si regge la guardia degli
+ * script di scrittura — e in mancanza anche di quella si nega.
+ */
 export const shouldExposeVerificationPreviewCode = (
   environment: {
     NODE_ENV?: string;
     AUTH_ALLOW_TEST_CODES?: string;
+    EASYGAME_DB_ENV?: string;
   } = process.env,
-) =>
-  environment.NODE_ENV !== "production" &&
-  environment.AUTH_ALLOW_TEST_CODES === "true";
+) => {
+  if (environment.AUTH_ALLOW_TEST_CODES !== "true") return false;
+
+  const ambiente = String(environment.NODE_ENV || "")
+    .trim()
+    .toLowerCase();
+  if (AMBIENTI_SENZA_ANTEPRIMA.has(ambiente)) return false;
+  if (ambiente) return true;
+
+  return (
+    String(environment.EASYGAME_DB_ENV || "")
+      .trim()
+      .toLowerCase() === "development"
+  );
+};

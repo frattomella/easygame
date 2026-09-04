@@ -15,6 +15,13 @@ import {
   getPasswordPolicyMessage,
   validatePassword,
 } from "@/lib/auth/password-policy";
+import {
+  AUTH_RATE_LIMITS,
+  consumeRequestRateLimits,
+  getRequestIp,
+  rateLimitHeaders,
+} from "@/lib/server/auth-rate-limit";
+import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 export async function GET(request: Request) {
   const session = await getSessionFromRequest(request);
@@ -176,12 +183,59 @@ export async function PATCH(request: Request) {
       nome, cognome e preferenze, che non sono fattori.
     */
     if (emailChanged || phoneChanged || requestedPassword !== undefined) {
+      /*
+        **Un tetto ai tentativi, e una riga nel registro** (MEDIUM-7 della
+        revisione ostile PP-05A).
+
+        La richiesta della password attuale e nata contro la sessione rubata, e
+        senza contatore la sessione rubata poteva semplicemente **indovinarla**:
+        misurati venticinque tentativi di fila senza un solo 429, e nessun
+        evento di audit a raccontarlo. Il contatore si consuma **prima** del
+        confronto, altrimenti conterebbe i successi e non i tentativi.
+      */
+      const cambioRateLimit = await consumeRequestRateLimits([
+        {
+          policy: AUTH_RATE_LIMITS.credentialChangeIp,
+          identifier: `credential:ip:${getRequestIp(request)}`,
+        },
+        {
+          policy: AUTH_RATE_LIMITS.credentialChangeAccount,
+          identifier: `credential:account:${session.db.user_id}`,
+        },
+      ]);
+      if (cambioRateLimit) {
+        return NextResponse.json(
+          {
+            data: { user: null },
+            error: {
+              message: "Troppi tentativi. Riprova più tardi.",
+              code: "RATE_LIMITED",
+            },
+          },
+          { status: 429, headers: rateLimitHeaders(cambioRateLimit) },
+        );
+      }
+
       const currentPassword = String(body?.currentPassword || "");
       const passwordCorretta =
         Boolean(currentPassword) &&
         (await verifyPassword(currentPassword, session.db.user.password_hash));
 
       if (!passwordCorretta) {
+        await recordAuditEvent({
+          action: AUDIT_ACTIONS.authLoginFailure,
+          outcome: "failure",
+          actorUserId: session.db.user_id,
+          actorEmail: session.db.user.email,
+          request,
+          /*
+            Il motivo dice **quale porta** e stata provata: senza, questa riga
+            si confonderebbe con un login sbagliato, e chi legge il registro
+            non saprebbe che qualcuno con una sessione valida stava provando a
+            cambiare i recapiti.
+          */
+          metadata: { reason: "wrong_current_password_on_credential_change" },
+        });
         return NextResponse.json(
           {
             data: { user: null },

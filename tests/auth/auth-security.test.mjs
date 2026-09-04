@@ -98,9 +98,40 @@ test("il cellulare e obbligatorio sempre, la verifica solo se consegnabile", () 
   */
   assert.equal(isPhoneVerificationRequired(produzioneMuta), false);
 
-  /* Con un trasporto dichiarato la verifica torna a essere obbligatoria. */
-  const conTrasporto = { NODE_ENV: "production", SMS_PROVIDER: "noop" };
-  assert.equal(isSmsTransportConfigured(conTrasporto), true);
+  /*
+    **`noop` e configurato e non consegna** (HIGH-2 della revisione ostile
+    PP-05A). Prima questa riga era `true`, e da li discendeva un blocco
+    dell'accesso in attesa di un codice che `NoopSmsProvider` non spedisce per
+    contratto: ogni account nuovo restava fuori per sempre, con la challenge
+    scritta in archivio e nessuno a riceverla. La domanda giusta non e «e
+    configurato qualcosa», e «consegna».
+  */
+  const soloNoop = { NODE_ENV: "production", SMS_PROVIDER: "noop" };
+  assert.equal(isSmsTransportConfigured(soloNoop), false);
+  assert.equal(isPhoneVerificationRequired(soloNoop), false);
+
+  /*
+    E un nome che questo codice non conosce **non** e un trasporto: prima
+    `resolveSmsProvider` rispondeva `null` in silenzio, quindi scrivere il nome
+    dell'operatore appena comprato **spegneva** la verifica invece di
+    accenderla — il verso peggiore, perche succede quando qualcuno crede di
+    aver finito la configurazione.
+  */
+  const nomeSconosciuto = { NODE_ENV: "production", SMS_PROVIDER: "twilio" };
+  assert.equal(isSmsTransportConfigured(nomeSconosciuto), false);
+  assert.equal(isPhoneVerificationRequired(nomeSconosciuto), false);
+
+  /*
+    Con i codici di prova — che in produzione non esistono mai — il canale c'e
+    e la verifica torna obbligatoria. E la sola combinazione oggi disponibile
+    per esercitare il flusso intero.
+  */
+  const conTrasporto = {
+    NODE_ENV: "development",
+    SMS_PROVIDER: "noop",
+    AUTH_ALLOW_TEST_CODES: "true",
+  };
+  assert.equal(canDeliverPhoneOtp(conTrasporto), true);
   assert.equal(isPhoneVerificationRequired(conTrasporto), true);
 
   /* E si puo spegnere per scelta esplicita, non per assenza di configurazione. */

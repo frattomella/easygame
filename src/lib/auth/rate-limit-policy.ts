@@ -16,7 +16,9 @@ export type AuthRateLimitPolicy = {
     | "payment_link_view"
     | "payment_link_checkout"
     | "enrollment_status"
-    | "access_token_redeem";
+    | "access_token_redeem"
+    /** Cambio di un fattore su un account gia autenticato (PP-05). */
+    | "credential_change";
   limit: number;
   windowMs: number;
 };
@@ -70,6 +72,31 @@ export const AUTH_RATE_LIMITS = {
     copre nessuna enumerazione.
   */
   otpConfirmIp: { scope: "otp_confirm", limit: 30, windowMs: 15 * 60_000 },
+  /*
+    **Cambiare un fattore ha un tetto** (MEDIUM-7 della revisione ostile
+    PP-05A).
+
+    `PATCH /api/v1/auth/user` chiede la password attuale per cambiare email,
+    cellulare o password — ed e la difesa introdotta proprio contro la sessione
+    rubata. Ma non contava i tentativi: la revisione ne ha misurati **25 di
+    fila senza mai un 429**, e nessun evento di audit. Chi aveva la sessione
+    poteva indovinare la password con calma, cioe rendere permanente un accesso
+    temporaneo — esattamente cio che quella richiesta doveva impedire.
+
+    Dieci in un quarto d'ora per account: e la stessa larghezza del login, e
+    non c'e ragione perche una porta secondaria sia piu larga di quella
+    principale.
+  */
+  credentialChangeAccount: {
+    scope: "credential_change",
+    limit: 10,
+    windowMs: 15 * 60_000,
+  },
+  credentialChangeIp: {
+    scope: "credential_change",
+    limit: 30,
+    windowMs: 15 * 60_000,
+  },
   /*
     Aprire un modulo pubblico e gratuito ma non illimitato: sessanta aperture
     in un quarto d'ora da uno stesso indirizzo bastano a una famiglia che
