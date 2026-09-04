@@ -1,3 +1,4 @@
+import { athleteWithinAccessScope } from "@/lib/server/access-scope-query";
 import { NextResponse } from "next/server";
 import { canAccessClubResource } from "@/lib/access-roles";
 import {
@@ -57,6 +58,31 @@ export async function GET(request: Request, context: Context) {
       : null;
 
     if (!athlete) return jsonError("Atleta non appartenente al club", 403);
+
+    /*
+      **E il perimetro di sede e categoria, che questa porta non chiedeva.**
+
+      La riga qui sopra verifica il **club**, non il perimetro: un operatore
+      ristretto a una sede — o un allenatore, che ha `medical_certificates` in
+      lettura — poteva chiedere i byte del documento di un atleta fuori dal
+      proprio perimetro. E non serviva indovinare un UUID: il ramo storico
+      accetta anche gli identificativi di ripiego `shared-document-<indice>`,
+      cioe `-0`, `-1`, `-2`.
+
+      Le altre due porte sullo stesso documento il perimetro lo applicano —
+      l'elenco passa da `getDocumentDossier`, e il ramo nuovo da
+      `readAttachment`. Questa era l'unica delle tre a non averlo: una porta
+      chiusa, una aperta, sullo stesso documento dello stesso minore.
+    */
+    if (
+      !(await athleteWithinAccessScope(
+        athlete.organization_id,
+        athlete.id,
+        scope,
+      ))
+    ) {
+      return jsonError("Accesso negato: atleta fuori dal perimetro", 403);
+    }
 
     /*
       **Prima il fascicolo nuovo, poi l'archivio storico** (Wave 5, lane 5D).

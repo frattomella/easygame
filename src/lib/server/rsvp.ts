@@ -479,6 +479,34 @@ export const answerRsvp = async ({
     throw new Error(answerability.message);
   }
 
+  /*
+    **Si risponde per un evento a cui l'atleta e atteso.**
+
+    Il vaglio verificava il legame con **l'atleta** (giusto), che l'evento
+    fosse del club (giusto) e che la finestra fosse aperta (giusto). Nessuno
+    guardava se quell'atleta appartenga al **pubblico** dell'evento: un
+    genitore di un Pulcino poteva rispondere «ci sara» su un allenamento
+    dell'Under 18, e la riga entrava nel riepilogo che l'allenatore legge.
+
+    La funzione che lo sa esiste da sempre — `resolveExpectedAthletes`, che
+    guarda prima il gruppo operativo e poi la categoria (ADR-0055) — ed era
+    usata **solo in lettura**. Il lato lettura e il lato scrittura dello stesso
+    fatto rispondevano a due regole diverse: la forma di asimmetria che questo
+    repository paga da nove round.
+
+    Un evento **senza** riferimenti di categoria riguarda tutti, ed e la forma
+    con cui i club mono-categoria hanno sempre salvato: li non si restringe
+    niente, come in lettura.
+  */
+  const contesto = buildEventContext(club, asRecord(training));
+  const attesi = resolveExpectedAthletes(contesto, [athlete]);
+
+  if (!attesi.length) {
+    throw new Error(
+      "Questo evento non riguarda l'atleta: non e fra i convocabili.",
+    );
+  }
+
   const answeredAt = new Date(now.getTime());
   const trimmedNote = asText(note).slice(0, 500);
 
