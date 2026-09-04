@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "crypto";
 import { reportServerError } from "./observability";
 import { athleteWithinAccessScope } from "./access-scope-query";
+import { clubsWhereStillAthlete } from "./athlete-membership";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
 import { prisma } from "./prisma";
@@ -452,12 +453,32 @@ export const readAthleteAccountState = async (
     e semplicemente passato del tempo. Resta `none`, e la data dell'ultimo
     invito dice perche.
   */
-  const accettatoInPassato = inviti.find((riga) => riga.accepted_at) || null;
-  const revocatoPiuRecente = inviti.find((riga) => riga.revoked_at) || null;
   const ultimo = inviti[0] || null;
 
+  /*
+    **La domanda si fa all'ultimo invito, non a uno qualunque** (PP-04,
+    ADR-0121).
+
+    La stesura precedente cercava, in tutta la storia, *un* invito accettato
+    oppure *un* invito con `revoked_at`. Ma `revoked_at` non lo scrive solo una
+    revoca: lo scrive `chiudiInvitoVivo(..., "revoked")`, che e cio che fanno
+    **il reinvio** e **il cambio di indirizzo**. Un invito reinviato — o mandato
+    all'indirizzo corretto — che poi **scade** lasciava dietro di se una riga
+    revocata, e il pannello dichiarava «Accesso revocato» a un atleta che non
+    ne aveva mai avuto uno, con una `revokedAt` che era la data del reinvio.
+
+    Il commento qui sopra diceva gia la cosa giusta — «un invito solo scaduto
+    non e una revoca» — e la derivazione non la realizzava: e il difetto piu
+    difficile da vedere, quello in cui l'intento e scritto e il codice dice
+    altro.
+
+    Sulla riga piu recente le due clausole di ADR-0115 restano intere:
+    `accepted_at` dice che un accesso e esistito e adesso non c'e piu;
+    `revoked_at` dice che l'invito e stato tolto prima di diventarlo. Una riga
+    solo `expired` non dice ne l'una ne l'altra.
+  */
   const revocato =
-    !utente && !vivo && Boolean(accettatoInPassato || revocatoPiuRecente);
+    !utente && !vivo && Boolean(ultimo?.accepted_at || ultimo?.revoked_at);
 
   return {
     athleteId: atleta.id,
@@ -471,9 +492,7 @@ export const readAthleteAccountState = async (
     isMinor: athleteIsMinor(atleta.birth_date, adesso),
     lastInviteEmail: ultimo?.email ?? null,
     lastInviteAt: iso(ultimo?.sent_at),
-    revokedAt: revocato
-      ? iso(revocatoPiuRecente?.revoked_at ?? accettatoInPassato?.revoked_at)
-      : null,
+    revokedAt: revocato ? iso(ultimo?.revoked_at) : null,
     account: utente
       ? {
           userId: utente.id,
@@ -1243,10 +1262,31 @@ export const acceptAthleteAccountInvite = async (
       });
     }
 
-    await tx.athleteAccountInvite.update({
-      where: { id: invito.id },
+    /*
+      **Il consumo e qui, ed e condizionato** (PP-04, ADR-0119).
+
+      La lettura che ha deciso «questo invito e `sent`» sta **fuori** dalla
+      transazione, e fra quella lettura e questa scrittura passa un'attesa di
+      rete. Con un `update` per identificativo, due riscatti simultanei dello
+      stesso token superavano entrambi il controllo e scrivevano entrambi:
+      misurato contro PostgreSQL, due 200, due righe di audit `accepted` e —
+      la parte che conta — **due `sendPasswordResetChallenge`**, cioe due token
+      di reset validi emessi da un gesto solo.
+
+      `updateMany` con `status: "sent"` nel `where` sposta la decisione dentro
+      la transazione e la fa prendere al database, che e l'unico che puo
+      prenderla: la riga si aggiorna una volta sola, e il secondo tentativo
+      conta zero e aborta la transazione.
+
+      Un fake Prisma non avrebbe mai mostrato questo: e la classe di difetti
+      per cui la sonda della lane parla con PostgreSQL vero.
+    */
+    const consumato = await tx.athleteAccountInvite.updateMany({
+      where: { id: invito.id, status: "sent" },
       data: { status: "accepted", accepted_at: new Date() },
     });
+
+    if (consumato.count !== 1) throw nonValido();
 
     if (senzaCredenzialiNote) {
       /*
@@ -1511,6 +1551,28 @@ export const CAMPI_AREA_ATLETA = {
   notifica: ["id", "title", "message", "type", "read", "created_at"],
 } as const satisfies Record<string, readonly CampoProiettato[]>;
 
+/**
+ * **Delle categorie di un evento escono solo le sue** (PP-04, ADR-0120).
+ *
+ * `categories` e nato per rispondere a «con quale delle mie squadre ci vado?»,
+ * su un allenamento congiunto in cui `categoryName` — l'etichetta della sola
+ * primaria — e il nome di una squadra che non e la sua. L'incrocio lo faceva
+ * pero **la schermata**, e il server consegnava l'array intero.
+ *
+ * Un filtro nel client non e un filtro: la rotta risponde a `curl`. Da li
+ * uscivano gli identificativi dei gruppi a cui l'atleta **non** appartiene —
+ * non i nomi, che nessuna superficie dell'atleta risolve, ma la cardinalita e
+ * la correlazione: quanti gruppi tocca un evento, e quali eventi condividono
+ * un gruppo. Filtrare qui non costa niente e chiude anche l'inferenza.
+ */
+const soloLeMieCategorie = (righe: any[], mie: ReadonlySet<string>) =>
+  righe.map((riga) => ({
+    ...riga,
+    categories: Array.isArray(riga?.categories)
+      ? riga.categories.filter((id: unknown) => mie.has(String(id)))
+      : [],
+  }));
+
 const proiettaAreaAtleta = (
   dati: Record<string, any>,
   invitiRsvp: Awaited<ReturnType<typeof readAthleteRsvpInvitations>>,
@@ -1518,6 +1580,15 @@ const proiettaAreaAtleta = (
   const atleta = (dati.athlete || {}) as Record<string, any>;
   const club = (dati.club || {}) as Record<string, any>;
   const salute = (dati.health || {}) as Record<string, any>;
+
+  /* Gli identificativi delle squadre di questo atleta: vedi soloLeMieCategorie. */
+  const mieCategorie = new Set<string>(
+    (Array.isArray(atleta.categories) ? atleta.categories : [])
+      .map((categoria: any) => String(categoria?.id ?? ""))
+      .filter(Boolean),
+  );
+  const evento = (righe: unknown, campi: readonly CampoProiettato[]) =>
+    soloLeMieCategorie(soloCampi(righe, campi), mieCategorie);
 
   return {
     me: {
@@ -1576,18 +1647,12 @@ const proiettaAreaAtleta = (
       expiryDate: salute.expiryDate || null,
     },
     trainings: {
-      upcoming: soloCampi(
-        dati.trainings?.upcoming,
-        CAMPI_AREA_ATLETA.allenamento,
-      ),
-      history: soloCampi(
-        dati.trainings?.history,
-        CAMPI_AREA_ATLETA.allenamento,
-      ),
+      upcoming: evento(dati.trainings?.upcoming, CAMPI_AREA_ATLETA.allenamento),
+      history: evento(dati.trainings?.history, CAMPI_AREA_ATLETA.allenamento),
     },
     matches: {
-      upcoming: soloCampi(dati.matches?.upcoming, CAMPI_AREA_ATLETA.gara),
-      history: soloCampi(dati.matches?.history, CAMPI_AREA_ATLETA.gara),
+      upcoming: evento(dati.matches?.upcoming, CAMPI_AREA_ATLETA.gara),
+      history: evento(dati.matches?.history, CAMPI_AREA_ATLETA.gara),
     },
     /** Le convocazioni ancora da rispondere: e la sola cosa che gli e chiesta. */
     rsvp: invitiRsvp,
@@ -1610,12 +1675,12 @@ const proiettaAreaAtleta = (
       matchesPlayed: (dati.matches?.history || []).length,
       attendanceRate: dati.analytics?.attendanceRate ?? 0,
       nextTraining:
-        soloCampi(
+        evento(
           dati.analytics?.nextTraining ? [dati.analytics.nextTraining] : [],
           CAMPI_AREA_ATLETA.allenamento,
         )[0] || null,
       nextMatch:
-        soloCampi(
+        evento(
           dati.analytics?.nextMatch ? [dati.analytics.nextMatch] : [],
           CAMPI_AREA_ATLETA.gara,
         )[0] || null,
@@ -1683,35 +1748,17 @@ export const findAthleteProfileForUser = async (userId: string) => {
   });
   if (!candidati.length) return null;
 
-  const organizzazioni = Array.from(
-    new Set(candidati.map((riga) => riga.organization_id)),
+  /*
+    **La domanda vive in un modulo solo** (ADR-0117). Stava qui, e lo stesso
+    campo aveva un secondo lettore — `athleteBelongsToParent` in
+    `parent-dashboard.ts` — che non se la faceva: la porta d'ingresso era
+    chiusa e quella di servizio no. Copiarla li avrebbe rifatto il difetto di
+    partenza, che e due elenchi che divergono.
+  */
+  const eAncoraAtleta = await clubsWhereStillAthlete(
+    id,
+    candidati.map((riga) => riga.organization_id),
   );
-
-  const [tessere, fondati] = await Promise.all([
-    prisma.organizationUser.findMany({
-      where: { user_id: id, organization_id: { in: organizzazioni } },
-      select: {
-        organization_id: true,
-        role: true,
-        custom_role: { select: { base_role: true } },
-      },
-    }),
-    prisma.club.findMany({
-      where: { id: { in: organizzazioni }, creator_id: id },
-      select: { id: true },
-    }),
-  ]);
-
-  const eAncoraAtleta = new Set([
-    ...tessere
-      .filter(
-        (tessera) =>
-          normalizeAccessRole(tessera.custom_role?.base_role || tessera.role) ===
-          "athlete",
-      )
-      .map((tessera) => tessera.organization_id),
-    ...fondati.map((riga) => riga.id),
-  ]);
 
   return (
     candidati.find((riga) => eAncoraAtleta.has(riga.organization_id)) || null

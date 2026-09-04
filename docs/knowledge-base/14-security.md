@@ -2099,6 +2099,39 @@ invito e senza audit. Lo stesso ramo cancellava i contenitori clinici.
 > una decisione che il repository non e in grado di prendere da solo — le tre
 > domande legali ancora aperte sono elencate nell'ADR.
 
+> **Aggiornamento PP-04 (2026-09-04, [ADR-0117](18-decision-log.md#adr-0117--la-stessa-domanda-per-i-due-lettori-dello-stesso-campo) e [ADR-0118](18-decision-log.md#adr-0118--il-cruscotto-della-famiglia-lo-apre-un-tutore)).**
+> **Chiudere una porta non basta se il campo ha due lettori.** ADR-0114 ha
+> chiuso `findAthleteProfileForUser`; `athleteBelongsToParent` in
+> `parent-dashboard.ts` legge lo **stesso** `athletes.user_id` e non si faceva
+> quella domanda. Misurato contro PostgreSQL con **zero tessere** nel club:
+> `GET /api/v1/athlete-accounts/me` rispondeva 403 e
+> `GET /api/parent-dashboard/<la stessa scheda>` rispondeva 200, con quote,
+> ricevute, anagrafica dei tutori e contenuto clinico; e
+> `PATCH .../notifications` **scriveva**. La domanda vive ora in un modulo
+> solo, `src/lib/server/athlete-membership.ts`, e i due lettori la chiamano.
+>
+> Nello stesso giro: l'elenco chiuso `CAMPI_AREA_ATLETA` valeva sulla
+> **proiezione** e non sulla **rotta**, quindi un atleta in regola apriva il
+> cruscotto della propria famiglia e riceveva il payload intero — incluso
+> l'indirizzo del file del certificato medico, che
+> `src/lib/health/permissions.ts` nega al ruolo `athlete`. Le rotte del
+> cruscotto passano ora `allowSelfAthleteLink: false`: quelle le apre un
+> **tutore**.
+>
+> Regola generale che ne esce, e che vale oltre questo caso: **quando si
+> stringe la lettura di una colonna, si cercano tutti i suoi lettori.** Un
+> `grep` sul nome della colonna costa un minuto; qui la differenza fra i due
+> lettori valeva un payload intero.
+
+> **Aggiornamento PP-04 (2026-09-04, [ADR-0119](18-decision-log.md#adr-0119--il-token-dinvito-si-consuma-dentro-la-transazione-e-a-condizione)).**
+> Il riscatto dell'invito atleta leggeva la riga **fuori** dalla transazione e
+> dentro la aggiornava per identificativo: due riscatti simultanei dello stesso
+> token passavano entrambi, e ne uscivano due `sendPasswordResetChallenge`,
+> cioe **due token di reset validi da un gesto solo**. Il replay sequenziale
+> era gia respinto — e la concorrenza a passare, e un fake Prisma non la mostra.
+> Il consumo e ora `updateMany` con `status: "sent"` nel `where`, dentro la
+> transazione.
+
 Non era la prima volta che questa coppia si divideva: il perimetro di sede era
 gia stato aggiunto all'`upsert` una revisione fa. Le guardie ora stanno in
 **una funzione sola** che entrambi i rami chiamano, e il presidio pretende le

@@ -22,6 +22,7 @@ import { dedupeTrainings } from "@/lib/training-utils";
   componente client copierebbe.
 */
 import { listAttachments } from "./attachments";
+import { clubsWhereStillAthlete } from "./athlete-membership";
 import {
   buildFamilyDocumentAreas,
   type FamilyDocumentAreas,
@@ -240,12 +241,35 @@ const isGuardianLinkedToUser = (
   );
 };
 
+/**
+ * **Il legame diretto vale finche la tessera vale** (PP-04, ADR-0117).
+ *
+ * `athletes.user_id` da solo rispondeva di si, e un legame puo sopravvivere
+ * alla tessera: due strade lo producono, e ADR-0114 le ha chiuse sull'area
+ * atleta senza che nessuno chiudesse **questo** lettore, che dello stesso
+ * campo consegna strettamente di piu — denaro, tutori, contenuto clinico, e
+ * delle scritture. Misurato: con zero tessere nel club,
+ * `/api/v1/athlete-accounts/me` rispondeva 403 e `/api/parent-dashboard/<la
+ * stessa scheda>` rispondeva 200.
+ *
+ * `ancoraAtleta` e l'insieme dei club in cui questa persona e ancora un atleta,
+ * e lo calcola `clubsWhereStillAthlete`: **una funzione sola per i due
+ * lettori**, perche due elenchi separati divergono ed e il difetto di partenza.
+ *
+ * Il ramo del **tutore** non e toccato: un tutore puo legittimamente non avere
+ * nessuna tessera nel club, ed e la ragione per cui questa area non gira su un
+ * permesso di ruolo.
+ */
 const athleteBelongsToParent = (
   athlete: any,
   userId: string,
-  userEmail?: string | null,
+  userEmail: string | null | undefined,
+  ancoraAtleta: ReadonlySet<string>,
 ) => {
-  if (sameId(athlete?.user_id, userId)) {
+  if (
+    sameId(athlete?.user_id, userId) &&
+    ancoraAtleta.has(String(athlete?.organization_id || ""))
+  ) {
     return true;
   }
 
@@ -950,7 +974,38 @@ const serializeParentStructureBooking = (
   paymentStatus: booking.paymentStatus,
 });
 
-export const getParentLinkedAthletes = async (userId: string) => {
+/**
+ * **Da quale legame si sta entrando** (PP-04, ADR-0118).
+ *
+ * Due legami diversi aprono questa area, e non danno diritto alle stesse cose:
+ *
+ * - il **tutore**, che e la famiglia, e per cui l'area e stata scritta;
+ * - l'**atleta stesso**, per il quale `athletes.user_id` esiste perche l'area
+ *   atleta riusa questo dominio come sorgente — e poi ne proietta un elenco
+ *   chiuso di campi (`CAMPI_AREA_ATLETA`), che e dove denaro, tutori e
+ *   contenuto clinico restano fuori.
+ *
+ * Il difetto misurato da una revisione ostile: l'elenco chiuso vale sulla
+ * proiezione, **non sulla rotta**. Un atleta perfettamente in regola apriva
+ * `GET /api/parent-dashboard/<la propria scheda>` e riceveva il payload
+ * intero — le quote e le ricevute della famiglia, la diagnosi e l'indirizzo
+ * del file del certificato, l'anagrafica dei tutori. Il commento che dice
+ * «fuori dall'elenco, e non per dimenticanza» era vero su una rotta sola.
+ *
+ * `allowSelfAthleteLink: false` chiude il ramo diretto: quella rotta pretende
+ * un legame di **tutela**. Il valore predefinito resta `true` perche i
+ * chiamanti che servono davvero l'atleta — `readAthleteAreaOverview`, la
+ * bacheca, l'RSVP, gli appuntamenti — passano dallo stesso dominio e ne
+ * proiettano il poco che gli spetta.
+ */
+export type ParentAccessOptions = {
+  allowSelfAthleteLink?: boolean;
+};
+
+export const getParentLinkedAthletes = async (
+  userId: string,
+  { allowSelfAthleteLink = true }: ParentAccessOptions = {},
+) => {
   /*
     **Tre domande su `userId`, e nessuna dipende dall'altra.**
 
@@ -1039,9 +1094,24 @@ export const getParentLinkedAthletes = async (userId: string) => {
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
   });
 
+  /*
+    I club in cui questa persona e **ancora un atleta**: serve solo al ramo del
+    legame diretto, e si chiede una volta sola per l'intero elenco invece che
+    per riga (ADR-0117). Si interroga soltanto sui club degli atleti che
+    portano il suo `user_id`: sugli altri la domanda non si pone.
+  */
+  const ancoraAtleta = allowSelfAthleteLink
+    ? await clubsWhereStillAthlete(
+        userId,
+        candidateAthletes
+          .filter((athlete) => sameId(athlete.user_id, userId))
+          .map((athlete) => athlete.organization_id),
+      )
+    : new Set<string>();
+
   const uniqueAthletes = new Map<string, (typeof candidateAthletes)[number]>();
   candidateAthletes.forEach((athlete) => {
-    if (athleteBelongsToParent(athlete, userId, verifiedEmail)) {
+    if (athleteBelongsToParent(athlete, userId, verifiedEmail, ancoraAtleta)) {
       uniqueAthletes.set(athlete.id, athlete);
     }
   });
@@ -1069,14 +1139,16 @@ export const getParentLinkedAthletes = async (userId: string) => {
 export const canParentAccessAthlete = async (
   userId: string,
   athleteId: string,
+  opzioni: ParentAccessOptions = {},
 ) => {
-  const linkedAthletes = await getParentLinkedAthletes(userId);
+  const linkedAthletes = await getParentLinkedAthletes(userId, opzioni);
   return linkedAthletes.some((athlete) => sameId(athlete.id, athleteId));
 };
 
 export const getParentDashboardData = async (
   userId: string,
   requestedAthleteOrClubId: string,
+  opzioni: ParentAccessOptions = {},
 ) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -1087,7 +1159,7 @@ export const getParentDashboardData = async (
       last_name: true,
     },
   });
-  const linkedAthletes = await getParentLinkedAthletes(userId);
+  const linkedAthletes = await getParentLinkedAthletes(userId, opzioni);
   const requestedId = String(requestedAthleteOrClubId || "").trim();
   const selectedAthlete =
     linkedAthletes.find((athlete) => sameId(athlete.id, requestedId)) ||

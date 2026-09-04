@@ -6392,3 +6392,162 @@ dichiarato.
 `revokeClubAccess` per la terza domanda e questo modulo per la prima; i test
 che le presidiano stanno in `tests/server/pp-04-minori.test.mjs` e sono le
 righe che verranno cambiate **di proposito** invece che per caso.
+
+---
+
+## ADR-0117 — La stessa domanda, per i due lettori dello stesso campo
+
+**Data:** 2026-09-04 · **Lane:** PP-04 · **Stato:** adottata
+
+**Il fatto.** [ADR-0114](#adr-0114--larea-di-un-atleta-si-apre-sulla-tessera-non-sul-legame-superstite)
+ha chiuso `findAthleteProfileForUser`: l'area atleta non si apre piu sul solo
+`athletes.user_id`, perche quel legame puo sopravvivere alla tessera.
+
+**Lo stesso campo ha pero un secondo lettore**, `athleteBelongsToParent` in
+`parent-dashboard.ts`, e quello non se la faceva, quella domanda. Una revisione
+ostile lo ha misurato contro PostgreSQL: con **zero tessere** nel club,
+`GET /api/v1/athlete-accounts/me` rispondeva 403 e
+`GET /api/parent-dashboard/<la stessa scheda>` rispondeva 200 — con dentro
+strettamente **di piu** dell'area atleta: quote, ricevute, anagrafica dei
+tutori, contenuto clinico. E `PATCH .../notifications` **scriveva**.
+
+La porta d'ingresso era chiusa e quella di servizio dava su una stanza piu
+grande. Il debito **PP04-D1** la conosceva a monte e la assegnava a un'altra
+lane, scrivendo che «ogni altro lettore che si fidi del solo legame resta
+esposto»: quel lettore non era ipotetico, era una rotta viva con un 200 e una
+scrittura riuscita.
+
+**La decisione.** La domanda «questa persona e ancora un atleta di questo
+club?» vive in **un modulo solo**, `src/lib/server/athlete-membership.ts`, e i
+due lettori la chiamano. Copiarla nel secondo sarebbe stato il difetto di
+partenza con un nome nuovo: due elenchi che divergono.
+
+Conta come «ancora atleta» una tessera il cui ruolo **risolto**
+(`normalizeAccessRole(base_role ?? role)`, quindi alias e ruoli personalizzati
+compresi) vale `athlete`, piu l'essere `clubs.creator_id`. Nessun elenco di
+slug: il difetto **e** un elenco di slug.
+
+Il ramo del **tutore** non e toccato. Un tutore entra per
+`guardians[].linkedUserId`, e continua a entrare: puo non avere nessun ruolo
+utile nel club, ed e la ragione per cui questa area non gira su un permesso.
+
+**Effetto sulle fixture.** Tre file di test modellavano il genitore scrivendolo
+dentro `athletes.user_id`, con il commento «il legame vero e questo, e non una
+membership». E la colonna dell'account **dell'atleta** (ADR-0104), e nella vita
+vera un genitore non ci sta: riscattare il token di accesso genitore
+(`/api/v1/auth/access/redeem`) scrive insieme la tessera `parent` e
+`guardians[].linkedUserId`. Le fixture ora modellano quello stato, che e quello
+che esiste.
+
+---
+
+## ADR-0118 — Il cruscotto della famiglia lo apre un tutore
+
+**Data:** 2026-09-04 · **Lane:** PP-04 · **Stato:** adottata
+
+**Il fatto.** L'elenco chiuso `CAMPI_AREA_ATLETA` tiene fuori denaro, tutori e
+contenuto clinico «non per dimenticanza». E vero, e vale **sulla proiezione**.
+Non valeva sulla rotta: un atleta **perfettamente in regola** apriva
+`GET /api/parent-dashboard/<la propria scheda>` e riceveva il payload intero —
+quote e ricevute della famiglia, codice fiscale dei tutori, diagnosi e
+indirizzo del file del certificato medico, che `src/lib/health/permissions.ts`
+nega al ruolo `athlete`. Il soggetto e tipicamente un minore, e quei dati sono
+della famiglia prima che suoi.
+
+**La decisione.** `getParentLinkedAthletes`, `canParentAccessAthlete` e
+`getParentDashboardData` accettano `{ allowSelfAthleteLink }`. Con `false` il
+ramo del legame diretto non vale: serve un legame di **tutela**.
+
+Lo passano le rotte del cruscotto di famiglia, che l'area atleta non chiama mai:
+
+| Rotta | Perche |
+|---|---|
+| `GET /api/parent-dashboard/:id` | il payload intero |
+| `GET /api/parent-dashboard/:id/documents/:assetId` | i **byte**, certificato medico compreso |
+| `GET /api/parent-dashboard/:id/structures` | le strutture prenotabili della societa |
+| `POST /api/parent-dashboard/:id/checkout` | il denaro lo muove chi ha la responsabilita |
+| `GET` e `POST /api/parent-dashboard/:id/consents` | un consenso di un minore lo esprime il tutore: `CONSENT_SUBJECT_KINDS` porta `guardian` proprio per questo |
+
+**Il predefinito resta permissivo, ed e voluto.** `readAthleteAreaOverview`
+legge da questo stesso dominio e poi ne proietta l'elenco chiuso; la bacheca,
+l'RSVP, gli appuntamenti e il fascicolo documentale sono superfici che l'atleta
+usa davvero, e ognuna ha la propria proiezione. La chiusura e delle **rotte**
+del cruscotto, non del dominio: invertire il predefinito spegnerebbe l'area
+atleta.
+
+**Conseguenza dichiarata.** Un atleta **maggiorenne** che volesse gestire da se
+quote e consensi non ha oggi una strada: l'area atleta non li mostra, e il
+cruscotto di famiglia si apre a un tutore. Non e una regressione — l'area
+famiglia pretende gia il ruolo `parent` per essere aperta dal browser — ma e
+una funzione mancante, annotata come debito **PP04-D5**.
+
+---
+
+## ADR-0119 — Il token d'invito si consuma dentro la transazione, e a condizione
+
+**Data:** 2026-09-04 · **Lane:** PP-04 · **Stato:** adottata
+
+**Il fatto.** `acceptAthleteAccountInvite` leggeva l'invito **fuori** dalla
+transazione e, dentro, lo aggiornava per identificativo. Fra la lettura e la
+scrittura passa un'attesa di rete: due riscatti simultanei dello stesso token
+superavano entrambi il controllo. Misurato contro PostgreSQL: due 200, due
+righe di audit `athlete_account.invite.accepted` e — la parte che conta — **due
+`sendPasswordResetChallenge`**, cioe due token di reset validi emessi da un
+gesto solo.
+
+Il replay **sequenziale** era gia respinto: e la concorrenza a passare, e un
+fake Prisma non l'avrebbe mai mostrata. E la classe di difetti per cui la sonda
+di questa lane parla con PostgreSQL vero.
+
+**La decisione.** `updateMany({ where: { id, status: "sent" }, ... })` dentro la
+transazione, e `count !== 1` la aborta. La decisione la prende il database, che
+e l'unico che puo prenderla.
+
+---
+
+## ADR-0120 — Delle categorie di un evento escono solo le sue
+
+**Data:** 2026-09-04 · **Lane:** PP-04 · **Stato:** adottata
+
+**Il fatto.** `categories` e nato per rispondere a «con quale delle mie squadre
+ci vado?» su un allenamento congiunto, dove `categoryName` — l'etichetta della
+sola primaria — e il nome di una squadra che non e la sua. L'incrocio con le
+squadre dell'atleta lo faceva pero la **schermata**: il server consegnava
+l'array intero, e un filtro nel client non e un filtro, perche la rotta
+risponde a `curl`.
+
+Non uscivano i **nomi** — nessuna superficie dell'atleta risolve un
+identificativo di categoria in un nome, e il payload di famiglia non porta il
+catalogo del club — ma la **cardinalita e la correlazione**: quanti gruppi
+tocca un evento, e quali eventi condividono un gruppo.
+
+**La decisione.** `soloLeMieCategorie` interseca lato server con le categorie
+di quell'atleta. La schermata riceve esattamente cio che gia mostrava, e
+l'inferenza si chiude. Filtrare qui non costa niente.
+
+---
+
+## ADR-0121 — «Revocato» lo dice l'ultimo invito, non un invito qualunque
+
+**Data:** 2026-09-04 · **Lane:** PP-04 · **Stato:** adottata
+
+**Il fatto.** [ADR-0115](#adr-0115--un-accesso-revocato-non-e-un-accesso-mai-aperto)
+derivava `revoked` cercando, in tutta la storia, *un* invito accettato oppure
+*un* invito con `revoked_at`. Ma `revoked_at` non lo scrive solo una revoca: lo
+scrive `chiudiInvitoVivo(..., "revoked")`, che e cio che fanno **il reinvio** e
+**il cambio di indirizzo**.
+
+Quindi un invito reinviato — o mandato all'indirizzo corretto — che poi
+**scade** lasciava dietro di se una riga revocata, e il pannello dichiarava
+«Questo atleta aveva un accesso a EasyGame e non ce l'ha piu» a un atleta che
+non ne aveva mai avuto uno, con una `revokedAt` che era la data del reinvio.
+
+Il commento del dominio diceva gia la cosa giusta — «un invito solo scaduto non
+e una revoca» — e la derivazione non la realizzava. E il difetto piu difficile
+da vedere: quello in cui l'intento e scritto e il codice dice altro.
+
+**La decisione.** La domanda si fa alla riga **piu recente**. Sulle sue due
+colonne le clausole di ADR-0115 restano intere: `accepted_at` dice che un
+accesso e esistito e adesso non c'e piu; `revoked_at` dice che l'invito e stato
+tolto prima di diventarlo. Una riga solo `expired` non dice ne l'una ne
+l'altra, e resta `none`.

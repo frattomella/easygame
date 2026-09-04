@@ -49,7 +49,15 @@ export async function POST(request: Request, context: Context) {
     }
 
     const athleteId = String(context.params.athleteId || "").trim();
-    if (!(await canParentAccessAthlete(session.db.user_id, athleteId))) {
+    /*
+      **Il denaro lo muove chi ha la responsabilita, non il ragazzo**
+      (ADR-0118): il legame diretto non basta, serve un legame di tutela.
+    */
+    if (
+      !(await canParentAccessAthlete(session.db.user_id, athleteId, {
+        allowSelfAthleteLink: false,
+      }))
+    ) {
       return NextResponse.json(
         {
           data: null,
