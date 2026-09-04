@@ -75,6 +75,9 @@ const PRISMA_FILTER_KEYS = new Set([
   "none",
   "is",
   "isNot",
+  "has",
+  "hasSome",
+  "array_contains",
 ]);
 
 const matchesWhere = (record, where) => {
@@ -237,6 +240,61 @@ const matchesWhere = (record, where) => {
         if (!cercati.some((atteso) => lista.includes(atteso))) return false;
         continue;
       }
+      /*
+        `array_contains`, cioe l'operatore `@>` di Postgres su una colonna
+        `jsonb`.
+
+        **E il ramo piu pericoloso che questo doppio abbia avuto**, e non
+        perche sbagliasse: perche non c'era. Una condizione non supportata qui
+        si considera **soddisfatta**, quindi un
+        `where: { subjects: { array_contains: [{ subject: "athlete", recordId }] } }`
+        non filtrava niente e il doppio restituiva **tutte** le righe del
+        club. Due vincoli si appoggiano proprio a quel filtro — «questo modulo
+        si compila una volta sola» e lo stato dei moduli online di un figlio —
+        e un test su di essi poteva essere verde su una semantica che la
+        produzione non ha. Lo ha trovato una revisione dichiarando di non aver
+        letto questo file: e stato il sospetto a portarci, non la lettura.
+
+        La semantica e quella di `@>`, e va detta per intero perche e
+        controintuitiva su due punti:
+
+        1. **contenimento parziale**: `[{recordId: "x"}]` corrisponde a un
+           elemento `{recordId: "x", subject: "athlete", label: "..."}`. Si
+           confrontano le sole chiavi scritte nel filtro;
+        2. **non posizionale**: ogni elemento cercato puo stare in qualunque
+           posizione dell'array della riga.
+      */
+      if ("array_contains" in condition) {
+        const cercati = Array.isArray(condition.array_contains)
+          ? condition.array_contains
+          : [condition.array_contains];
+        const presenti = Array.isArray(value) ? value : [];
+
+        const contenuto = (elemento, atteso) => {
+          if (atteso === null || typeof atteso !== "object") {
+            return elemento === atteso;
+          }
+          if (Array.isArray(atteso)) {
+            return (
+              Array.isArray(elemento) &&
+              atteso.every((voce) =>
+                elemento.some((candidato) => contenuto(candidato, voce)),
+              )
+            );
+          }
+          if (!elemento || typeof elemento !== "object") return false;
+          return Object.entries(atteso).every(([chiave, valore]) =>
+            contenuto(elemento[chiave], valore),
+          );
+        };
+
+        const tutti = cercati.every((atteso) =>
+          presenti.some((elemento) => contenuto(elemento, atteso)),
+        );
+        if (!tutti) return false;
+        continue;
+      }
+
       /*
         La **chiave unica composta**, cioe come Prisma la scrive in un `where`
         unico: `{ organization_id_training_id_athlete_id: { organization_id,
