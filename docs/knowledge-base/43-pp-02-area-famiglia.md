@@ -911,3 +911,64 @@ stesso, leggendola proprio da qui. Toglierla avrebbe spento quella schermata di
 rimbalzo — una decisione di prodotto presa altrove, che non si capovolge dentro
 una lane di correzioni. Il test dell'area atleta lo ha detto subito, ed e
 servito.
+
+---
+
+## 19. Il quarto e il quinto round, e la malattia di questo pacchetto
+
+Il terzo round si era chiuso e il quarto doveva confermarlo. Non lo ha fatto:
+ha trovato **quattro High**. Il quinto, che doveva coprire la superficie che il
+quarto aveva dichiarato di non aver raggiunto, ne ha trovata **una**.
+
+A questo punto vale piu di ogni singolo reperto scrivere la diagnosi.
+
+### La malattia
+
+> **Il dominio calcola la risposta giusta, e la superficie che ci arriva non
+> gliela chiede.**
+
+Si e manifestata sei volte in questo pacchetto, sempre diversa e sempre la
+stessa:
+
+| Forma | Dove |
+|---|---|
+| Un campo che il client manda e il server non legge | `type_id` sulla riprogrammazione (2° round) |
+| Una prova che chiama il servizio invece della rotta | `R-01` (2° round) |
+| Uno stato locale che non riceve cio che il server ha appena scritto | la versione dell'evento (4° round) |
+| Una condizione sempre vera perche confronta fuori dal codominio | `status !== "cancelled"` (4° round) |
+| Una correzione applicata a una superficie e non alla sua gemella | `clubIdentity` su `Header` e non su `MobileTopBar` (4° round) |
+| Un vocabolario imparato dal dominio e non dalla schermata | le parole del rinnovo (5° round), il **colore** dello stato (5° round) |
+
+E tre volte **la correzione di un round ha creato il difetto del successivo**:
+
+1. la correzione di R6 (mezzanotte) ha aperto F4 (trenta ore fino a mezzanotte
+   due giorni dopo);
+2. la correzione del questionario-rinnovo lo ha mandato alla pagina pubblica
+   anonima, perdendo il legame con il figlio;
+3. la correzione dell'etichetta dell'appuntamento ha lasciato il **colore** sul
+   vocabolario vecchio, e le due meta si contraddicevano nella stessa pastiglia.
+
+### La cosa piu utile che un revisore ha fatto
+
+Il quarto ha chiuso il proprio referto dicendo, a chiare lettere, **quali file
+non era riuscito a coprire**. Quella dichiarazione ha prodotto il quinto round,
+che su quei file ha trovato una High — in `renewal-form.tsx`, un file che **non
+e mai stato nel diff di PP-02**, e che per questo quattro round non avevano
+avuto motivo di aprire.
+
+Da qui una regola che vale oltre questo pacchetto:
+
+> Una revisione che dichiara la propria copertura vale piu di una che sembra
+> completa. E il difetto che sopravvive non sta quasi mai nel file che hai
+> cambiato: sta in quello che **legge** cio che hai cambiato.
+
+### Cosa ne esce per le prove
+
+Le sonde di §S e §T partono tutte dalla rotta o dalla proiezione. Ma i test di
+superficie restano `includes()` sul sorgente, e il quarto revisore lo ha detto
+senza girarci intorno: possono dire che una riga esiste, mai che il valore che
+ci passa e giusto. Le due prove nuove sugli appuntamenti guardano **i campi che
+la riga legge** invece della stringa che li circonda — e' il massimo che questa
+forma di test consente. Il resto lo dovra fare un collaudo a schermo, che per
+questo pacchetto e stato fatto (§ precedente) e va rifatto a ogni cambiamento
+dell'area.
