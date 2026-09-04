@@ -517,17 +517,47 @@ export const unlinkGuardianAccount = async (
   }
 
   const guardian = guardians[index] || {};
-  const linkedUserId = testo(
-    guardian.linkedUserId || guardian.linked_user_id,
-  ) || null;
 
-  if (!linkedUserId) {
-    return { athleteId: atleta.id, guardianId, unlinkedUserId: null };
-  }
+  /*
+    **Quattro grafie, non due.**
+
+    `resolveFamilyRecipients` ne legge quattro per decidere **chi riceve**, e
+    una riga scritta con `userId`/`user_id` usciva di qui al primo `return`:
+    nessun marchio, nessuna ripulitura, nessun audit — e la rotta rispondeva
+    **200**. La scheda mostrava «Account non collegato» perche anche quel badge
+    guarda due grafie, quindi il club non aveva modo di sapere che quella
+    persona continuava a ricevere le notifiche documentali sul minore, ne un
+    pulsante per toglierla.
+
+    E la forma esatta del difetto che questa funzione e nata per chiudere,
+    sopravvissuta su un canale diverso.
+  */
+  const linkedUserId =
+    testo(
+      guardian.linkedUserId ||
+        guardian.linked_user_id ||
+        guardian.userId ||
+        guardian.user_id,
+    ) || null;
 
   const linkedUserEmail =
-    testo(guardian.linkedUserEmail || guardian.linked_user_email) || null;
-  const { next } = clearLinkedFields(guardian, linkedUserId, linkedUserEmail);
+    testo(
+      guardian.linkedUserEmail || guardian.linked_user_email || guardian.email,
+    ) || null;
+
+  /*
+    **Non c'e piu un'uscita silenziosa.** Una riga senza nessuna identita non
+    concede niente e non c'e niente da revocare; una riga che ha almeno un
+    indirizzo si revoca, perche e quell'indirizzo a fare da ripiego.
+  */
+  if (!linkedUserId && !linkedUserEmail) {
+    return { athleteId: atleta.id, guardianId, unlinkedUserId: null };
+  }
+  const { next } = clearLinkedFields(
+    guardian,
+    linkedUserId || "",
+    linkedUserEmail,
+  );
   const nextGuardian = {
     ...next,
     parentAccessTokenStatus: "revoked",
@@ -538,9 +568,44 @@ export const unlinkGuardianAccount = async (
     position === index ? nextGuardian : entry,
   );
 
+  /*
+    **L'accesso si toglie a un'identita, non a una riga.**
+
+    Il marchio sulla riga si aggirava in due mosse, e nessuna delle due
+    richiedeva malafede: aggiungerne una **nuova** con lo stesso indirizzo e un
+    `id` diverso, oppure lasciare che lo facesse il dominio dei moduli, che
+    all'approvazione di un'iscrizione in cui la persona si dichiara tutore fa
+    `guardians.push(...)` di un oggetto nuovo. Una riga pulita, e il ripiego
+    sull'indirizzo la accetta.
+
+    L'elenco vive sull'atleta e non ha un `id` da cambiare. Chi si presenta con
+    un'identita che sta qui dentro non entra, da qualunque riga arrivi —
+    finche non torna con un legame **dichiarato**, cioe un riscatto, che e la
+    strada che ha il suo gate e che da questo elenco lo toglie.
+  */
+  const identitaRevocate = new Set<string>(
+    (Array.isArray((data as any).revokedGuardianIdentities)
+      ? (data as any).revokedGuardianIdentities
+      : []
+    )
+      .map((valore: unknown) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  for (const valore of [linkedUserId, linkedUserEmail]) {
+    const pulito = String(valore || "").trim().toLowerCase();
+    if (pulito) identitaRevocate.add(pulito);
+  }
+
   await prisma.athlete.update({
     where: { id: atleta.id },
-    data: { data: { ...data, guardians: nextGuardians } },
+    data: {
+      data: {
+        ...data,
+        guardians: nextGuardians,
+        revokedGuardianIdentities: Array.from(identitaRevocate) as string[],
+      },
+    },
   });
 
   const tokenRecordId = testo(

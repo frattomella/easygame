@@ -6640,11 +6640,31 @@ const applicaGuardieDiModifica = async (
           ).trim();
 
           /*
-            Se la riga porta di nuovo un legame **dichiarato**, il marchio non
-            si riporta: e il caso del riscatto, dove l'accesso viene ridato di
-            proposito e da una strada che ha il suo gate.
+            **Nessuna esenzione, e il legame dichiarato si toglie con lei.**
+
+            La prima stesura esentava le righe che tornavano con un
+            `linkedUserId`, «perche e il caso del riscatto». Il riscatto **non
+            passa di qui**: scrive con una `prisma.athlete.update` diretta.
+            L'esenzione proteggeva un caso irraggiungibile e ne apriva uno
+            reale — una scheda aperta **prima** della revoca ha ancora il
+            legame in memoria, e basta salvarla per riscriverlo. La guardia
+            della crescita non la ferma, perche una segreteria canonica i due
+            permessi ce li ha.
+
+            Percio qui si riporta il marchio **e** si toglie il legame che
+            arriva: chi vuole ridarlo passa da un riscatto, che e la strada che
+            ha il suo gate e che ripulisce anche l'elenco delle identita.
           */
-          if (!marchio || dichiarato) return riga;
+          if (!marchio) return riga;
+          if (dichiarato) {
+            return {
+              ...record,
+              linkedUserId: null,
+              linked_user_id: null,
+              accessRevokedAt: marchio,
+              access_revoked_at: marchio,
+            };
+          }
           if (record.accessRevokedAt || record.access_revoked_at) {
             return riga;
           }

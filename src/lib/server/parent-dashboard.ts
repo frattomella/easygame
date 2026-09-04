@@ -111,7 +111,25 @@ const getGuardianRows = (athlete: any) => {
     relationship: firstText(guardian?.relationship, guardian?.role),
     email: firstText(guardian?.email),
     phone: firstText(guardian?.phone),
-    linkedUserId: firstText(guardian?.linkedUserId, guardian?.linked_user_id),
+    /*
+      **Quattro grafie, non due**, e la ragione e che quattro ne **concedono**.
+
+      `resolveFamilyRecipients` legge `userId` e `user_id` per decidere chi
+      riceve le notifiche documentali su un minore. Questa proiezione le
+      lasciava cadere, e da li discendeva tutto: `guardianAccessIdentities` —
+      che parte da queste righe — era cieca proprio sulle grafie che aprono un
+      canale, quindi scrivere `guardians[].user_id = <se stesso>` dal registro
+      generico dell'anagrafica **non faceva crescere** l'insieme sorvegliato e
+      non incontrava nessuna guardia. Le due letture che
+      `guardianAccessIdentities` faceva su `userId`/`user_id` erano codice
+      morto: la riga proiettata quei campi non li aveva mai.
+    */
+    linkedUserId: firstText(
+      guardian?.linkedUserId,
+      guardian?.linked_user_id,
+      guardian?.userId,
+      guardian?.user_id,
+    ),
     linkedUserEmail: firstText(
       guardian?.linkedUserEmail,
       guardian?.linked_user_email,
@@ -204,6 +222,38 @@ export const GUARDIAN_LINK_FIELDS: readonly string[] = [
  * identita da tenere allineata, e non ci sono contenitori da enumerare: si
  * parte dagli stessi `getGuardianRows` che il predicato usa.
  */
+/**
+ * **Le identita a cui il club ha tolto l'accesso a questo atleta.**
+ *
+ * Il marchio sulla **riga** non bastava, e il nono round lo ha misurato in due
+ * mosse: il riporto del marchio si aggancia all'`id` della riga, quindi
+ * bastava aggiungerne una **nuova** con lo stesso indirizzo e un `id` diverso
+ * — o cambiare l'`id` a quella che c'era — per ritrovarsi una riga pulita che
+ * il ripiego sull'indirizzo accetta. E la stessa cosa succedeva da sola
+ * approvando un modulo di iscrizione in cui la persona si dichiara tutore: il
+ * dominio dei moduli fa `guardians.push(...)` di un oggetto nuovo.
+ *
+ * L'errore era di livello: **l'accesso si concede a un'identita, non a una
+ * riga**. Percio la revoca si registra sull'atleta, e vale per chiunque si
+ * presenti con quell'identita, da qualunque riga.
+ *
+ * Resta reversibile, ed e importante che lo sia: un riscatto successivo
+ * riscrive il legame **dichiarato**, che vince sul ripiego, e toglie
+ * l'identita da questo elenco.
+ */
+export const revokedGuardianIdentities = (data: unknown): Set<string> => {
+  const record = asRecord(data);
+  const elenco = Array.isArray((record as any).revokedGuardianIdentities)
+    ? (record as any).revokedGuardianIdentities
+    : [];
+
+  return new Set(
+    elenco
+      .map((valore: unknown) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+};
+
 export const guardianAccessIdentities = (data: unknown): Set<string> => {
   const identita = new Set<string>();
 
@@ -226,6 +276,19 @@ export const guardianAccessIdentities = (data: unknown): Set<string> => {
 
     if (perId) identita.add(perId.trim().toLowerCase());
     if (perEmail) identita.add(perEmail.trim().toLowerCase());
+  }
+
+  /*
+    **Un'identita revocata non e «presente»**, e questa riga e cio che rende
+    la guardia della crescita capace di vedere il rientro.
+
+    `resources.ts` nega una scrittura che fa **crescere** questo insieme senza
+    i due permessi. Finche una revoca lasciava l'indirizzo dentro l'insieme,
+    riaggiungere quella persona non era crescita: passava un ruolo che non
+    poteva ne vedere ne concedere. Adesso e crescita, ed e vagliata.
+  */
+  for (const revocata of revokedGuardianIdentities(data)) {
+    identita.delete(revocata);
   }
 
   return identita;
@@ -328,9 +391,35 @@ const athleteBelongsToParent = (
     return true;
   }
 
-  return getGuardianRows(athlete).some((guardian) =>
-    isGuardianLinkedToUser(guardian, userId, userEmail),
-  );
+  /*
+    **La revoca vale per l'identita, non per la riga.**
+
+    Il marchio sulla riga si aggirava aggiungendone una nuova con lo stesso
+    indirizzo — a mano, o da sola approvando un modulo in cui la persona si
+    dichiara tutore. L'elenco vive sull'atleta e non ha un `id` da cambiare.
+
+    Un legame **dichiarato** resta piu forte: e cosi che ci si ricollega dopo
+    una revoca, e il riscatto toglie anche l'identita dall'elenco.
+  */
+  const revocate = revokedGuardianIdentities(athlete?.data);
+  const ioRevocato =
+    revocate.size > 0 &&
+    (revocate.has(String(userId || "").trim().toLowerCase()) ||
+      (!!userEmail && revocate.has(String(userEmail).trim().toLowerCase())));
+
+  return getGuardianRows(athlete).some((guardian) => {
+    if (!isGuardianLinkedToUser(guardian, userId, userEmail)) return false;
+    if (!ioRevocato) return true;
+
+    /* Revocato: passa solo un legame dichiarato, cioe un nuovo riscatto. */
+    return sameId(
+      firstText(
+        (guardian as any).linkedUserId,
+        (guardian as any).linked_user_id,
+      ),
+      userId,
+    );
+  });
 };
 
 const getAthleteCategoryTokens = (

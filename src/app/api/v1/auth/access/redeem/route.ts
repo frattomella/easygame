@@ -859,12 +859,33 @@ export async function POST(request: Request) {
           : guardian,
       );
 
+      /*
+        **Il riscatto toglie l'identita dall'elenco delle revoche.**
+
+        Senza, l'accesso tornava — il legame dichiarato vince sul ripiego — ma
+        i canali automatici no: promemoria del certificato, solleciti e
+        notifiche documentali guardano l'elenco, e il tutore riattivato
+        restava escluso per sempre senza che niente lo dicesse. Un accesso
+        ridato si ridà per intero.
+      */
+      const identita = new Set<string>(
+        (Array.isArray((parentTarget.data as any)?.revokedGuardianIdentities)
+          ? (parentTarget.data as any).revokedGuardianIdentities
+          : []
+        )
+          .map((valore: unknown) => String(valore || "").trim().toLowerCase())
+          .filter(Boolean) as string[],
+      );
+      identita.delete(String(session.db.user_id || "").trim().toLowerCase());
+      identita.delete(String(session.db.user.email || "").trim().toLowerCase());
+
       await prisma.athlete.update({
         where: { id: parentTarget.athlete.id },
         data: {
           data: {
             ...parentTarget.data,
             guardians: updatedGuardians,
+            revokedGuardianIdentities: Array.from(identita) as string[],
           },
         },
       });

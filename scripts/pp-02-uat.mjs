@@ -3492,6 +3492,119 @@ const sezioneW = async () => {
 
   await prisma.athlete.delete({ where: { id: FIGLIO_SALVATO } });
 
+  /*
+    **W-13. Le due strade con cui si aggirava il marchio della revoca.**
+
+    Il marchio stava sulla **riga**, e l'accesso si concede a un'**identita**.
+    Bastava quindi una riga nuova con lo stesso indirizzo e un `id` diverso —
+    scritta a mano, o creata da sola all'approvazione di un modulo in cui la
+    persona si dichiara tutore, dove il dominio dei moduli fa un `push`.
+
+    E la guardia della crescita non se ne accorgeva: l'indirizzo era gia
+    dentro l'insieme sorvegliato, quindi riaggiungere quella persona non era
+    «crescita» e il vaglio dei due permessi non scattava.
+  */
+  const FIGLIO_AGGIRO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_AGGIRO,
+      organization_id: CLUB,
+      first_name: "Ivo",
+      last_name: "Aggiro",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "t-vecchio", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+        ],
+      },
+    },
+  });
+
+  await legami.unlinkGuardianAccount(scopeSegreteria, {
+    athleteId: FIGLIO_AGGIRO,
+    guardianId: "t-vecchio",
+  });
+
+  prova(
+    "W-13a dopo la revoca l'accesso non c'e",
+    false,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_AGGIRO),
+  );
+
+  /* Prima strada: una riga **nuova**, stesso indirizzo, id diverso. */
+  const rigaAttuale = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_AGGIRO },
+      select: { data: true },
+    })
+  )?.data;
+
+  await prisma.athlete.update({
+    where: { id: FIGLIO_AGGIRO },
+    data: {
+      data: {
+        ...rigaAttuale,
+        guardians: [
+          ...(rigaAttuale?.guardians || []),
+          { id: "t-nuovo", name: "Anna", email: ANNA.email },
+        ],
+      },
+    },
+  });
+
+  prova(
+    "W-13b una riga sorella con lo stesso indirizzo non riapre l'accesso",
+    false,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_AGGIRO),
+    "prima: il marchio era sulla riga, e la riga nuova non ce l'aveva",
+  );
+
+  /* Seconda strada: la guardia della crescita deve **vedere** il rientro. */
+  const identitaPrima = cruscotto.guardianAccessIdentities(
+    (
+      await prisma.athlete.findUnique({
+        where: { id: FIGLIO_AGGIRO },
+        select: { data: true },
+      })
+    )?.data,
+  );
+
+  prova(
+    "W-13c l'identita revocata non conta come «presente»: rimetterla e crescita",
+    false,
+    identitaPrima.has(String(ANNA.email).toLowerCase()),
+    "cosi il vaglio dei due permessi scatta, invece di non vedere niente",
+  );
+
+  /* E il legame **dichiarato** riapre, perche e cosi che ci si ricollega. */
+  const dopoAggiro = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_AGGIRO },
+      select: { data: true },
+    })
+  )?.data;
+
+  await prisma.athlete.update({
+    where: { id: FIGLIO_AGGIRO },
+    data: {
+      data: {
+        ...dopoAggiro,
+        guardians: [{ id: "t-nuovo", name: "Anna", linkedUserId: ANNA.id }],
+        revokedGuardianIdentities: [],
+      },
+    },
+  });
+
+  prova(
+    "W-13d un riscatto, che riscrive il legame e pulisce l'elenco, riapre",
+    true,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_AGGIRO),
+    "una revoca non deve essere definitiva",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_AGGIRO } });
+
   /* ------------- W7: un ragazzo non e tutore di se stesso --------------- */
 
   /*

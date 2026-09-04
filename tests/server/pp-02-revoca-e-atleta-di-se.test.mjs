@@ -173,3 +173,42 @@ test("e il tutore vero resta tale in tutti e due i casi", async () => {
     true,
   );
 });
+
+/* ==================================================================== */
+/*  La revoca vale per l'identita, non per la riga                       */
+/* ==================================================================== */
+
+test("una riga sorella con lo stesso indirizzo non riapre l'accesso", async () => {
+  /*
+    Il marchio stava sulla **riga**, e l'accesso si concede a un'**identita**.
+    Bastava quindi aggiungere una riga nuova con lo stesso indirizzo e un `id`
+    diverso — a mano, oppure lasciando che lo facesse il dominio dei moduli,
+    che all'approvazione di un'iscrizione in cui la persona si dichiara tutore
+    fa `guardians.push(...)` di un oggetto nuovo.
+
+    L'elenco delle identita revocate vive sull'atleta e non ha un `id` da
+    cambiare.
+  */
+  const righe = seme({ id: "t-vecchio", name: "Anna", email: EMAIL_ANNA });
+  righe.athlete[0].data = {
+    guardians: [
+      { id: "t-vecchio", name: "Anna", email: EMAIL_ANNA },
+      { id: "t-nuovo", name: "Anna", email: EMAIL_ANNA },
+    ],
+    revokedGuardianIdentities: [EMAIL_ANNA],
+  };
+  setPrismaClientForTests(createFakePrisma(righe).client);
+
+  assert.equal(await canParentAccessAthlete(ANNA, FIGLIO), false);
+});
+
+test("un legame dichiarato riapre, perche e cosi che ci si ricollega", async () => {
+  const righe = seme({ id: "t", name: "Anna", email: EMAIL_ANNA });
+  righe.athlete[0].data = {
+    guardians: [{ id: "t", name: "Anna", linkedUserId: ANNA }],
+    revokedGuardianIdentities: [],
+  };
+  setPrismaClientForTests(createFakePrisma(righe).client);
+
+  assert.equal(await canParentAccessAthlete(ANNA, FIGLIO), true);
+});

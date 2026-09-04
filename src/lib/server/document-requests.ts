@@ -537,6 +537,25 @@ const asRecord = (value: unknown): Record<string, any> =>
 const resolveFamilyRecipients = (athlete: any): string[] => {
   const data = asRecord(athlete?.data);
   const tutori = Array.isArray(data.guardians) ? data.guardians : [];
+
+  /*
+    **Chi e stato scollegato non riceve piu notifiche su quel minore.**
+
+    Qui si raccolgono **quattro** grafie dell'identificativo, e le notifiche
+    che ne escono — in applicazione e per email — portano il nome del minore e
+    il documento chiesto. Una riga scritta con `userId`/`user_id` sopravviveva
+    alla revoca: nessuno la ripuliva, la scheda mostrava «Account non
+    collegato», e il club non aveva ne modo di saperlo ne un pulsante per
+    toglierla.
+  */
+  const revocate = new Set(
+    (Array.isArray((data as any).revokedGuardianIdentities)
+      ? (data as any).revokedGuardianIdentities
+      : []
+    )
+      .map((valore: unknown) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
   const collegati = tutori
     .flatMap((guardian: any) => [
       asRecord(guardian).linkedUserId,
@@ -549,6 +568,8 @@ const resolveFamilyRecipients = (athlete: any): string[] => {
 
   return Array.from(
     new Set([asText(athlete?.user_id), ...collegati].filter(Boolean)),
+  ).filter(
+    (id) => !revocate.has(String(id || "").trim().toLowerCase()),
   ) as string[];
 };
 
