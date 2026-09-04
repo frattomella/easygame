@@ -20,12 +20,18 @@ import { publicErrorMessage } from "@/lib/server/api-errors";
  * solo come `active` sulla singola fascia — che e un'altra domanda; la seconda
  * non esisteva affatto, e il motivo arrivava come testo libero.
  *
- * **La lettura non chiede permessi** ed e voluto: la famiglia deve poter sapere
- * quali motivi puo scegliere, e questa risposta e esattamente quell'elenco.
- * Non porta niente che un membro del club non possa gia vedere — nomi di
- * motivi, sedi, durate — e i tipi non prenotabili escono comunque, perche la
- * schermata del club li deve amministrare; e la **scrittura** a essere
- * ristretta a chi amministra, dallo stesso gate della disponibilita.
+ * **Chi legge da qui e il club, non la famiglia.** La famiglia riceve i soli
+ * motivi **prenotabili** dentro il payload del proprio cruscotto
+ * (`appointments.config`), che passa dal legame con l'atleta: non ha bisogno di
+ * questa rotta e non la raggiunge — senza una tessera non ha nemmeno un club
+ * attivo da cui costruire uno scope.
+ *
+ * Qui la lettura e aperta a **chiunque abbia una tessera nel club**, e non a
+ * chi amministra: non porta niente che un membro non possa gia vedere — nomi di
+ * motivi, durate, sedi — e restringerla vorrebbe dire che la schermata della
+ * segreteria non puo mostrare l'elenco a un collaboratore che poi fissa un
+ * appuntamento dal desk. E la **scrittura** a essere ristretta, dallo stesso
+ * gate della disponibilita.
  */
 
 export const runtime = "nodejs";

@@ -1284,9 +1284,14 @@ export type AppointmentSlotInput = {
  * scrive per se e non ha una storia da conservare: cambiarne una voce non deve
  * riscrivere gli appuntamenti gia presi, che portano il **motivo** con se.
  *
- * La lettura non chiede nessun permesso: la famiglia deve poter sapere quali
- * motivi puo scegliere, ed e esattamente cio che questa funzione risponde. La
- * scrittura passa dallo stesso gate della disponibilita — chi amministra —
+ * La lettura non chiede nessun permesso perche non ne ha uno da chiedere: la
+ * chiama il cruscotto della famiglia — che ha gia verificato il legame con
+ * l'atleta e ne ricava il club — e la schermata della segreteria, che ha gia
+ * una tessera. Alla famiglia escono comunque i soli motivi **prenotabili**: il
+ * filtro lo applica chi compone il payload, non questa funzione, che restituisce
+ * la configurazione com'e.
+ *
+ * La scrittura passa dallo stesso gate della disponibilita — chi amministra —
  * perche e la stessa domanda: come riceve questo club.
  */
 export const readAppointmentsConfig = async (
