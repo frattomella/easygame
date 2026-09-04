@@ -615,9 +615,16 @@ test("§W · la schermata di scelta del figlio non chiede una tessera", () => {
     guardia.includes('pathname.startsWith("/parent-view/")'),
     "anche l'area del figlio scelto, o la porta si apre su un corridoio chiuso",
   );
+  /*
+    Dentro l'area il cancello e il server. La stesura intermedia componeva
+    `canAccessPath(...) || !activeClub?.id` ed era insieme troppo larga
+    (chiunque senza club entrava in tutto il sottoalbero) e troppo stretta
+    (pretendeva il ruolo `parent`, quindi l'allenatore che e anche genitore
+    restava fuori da un'area a cui il server gli da accesso).
+  */
   assert.ok(
-    guardia.includes("!activeClub?.id"),
-    "l'unica condizione che una persona senza tessera non puo soddisfare",
+    guardia.includes("areaFamiglia ||"),
+    "dentro l'area non si indovina dal ruolo chi e tutore di chi",
   );
   assert.ok(
     guardia.includes("canAccessPath(role, pathname, { linkedAthleteIds })"),

@@ -69,12 +69,32 @@ export function AccessAreaGuard({ children }: { children: React.ReactNode }) {
   */
   const areaFamiglia = pathname === "/parent-view" || pathname.startsWith("/parent-view/");
 
+  /*
+    **Dentro l'area famiglia il cancello e il server, e conviene dirlo.**
+
+    La stesura precedente componeva `canAccessPath(...) || !activeClub?.id`, ed
+    era **insieme** troppo larga e troppo stretta: larga perche chiunque senza
+    club attivo entrava in tutto il sottoalbero — il commento accanto
+    prometteva il contrario — e stretta perche pretendeva il ruolo `parent`.
+    Chi perdeva: l'allenatore che e **anche** genitore, caso ordinario in una
+    ASD, che ha una tessera di altro ruolo e nessuna `parent`. Il server gli
+    darebbe accesso — e tutore collegato — e nessun percorso del browser ce lo
+    portava. La stessa forma di §A, spostata dal «senza tessera» al «con la
+    tessera sbagliata».
+
+    Qui non si prova piu a indovinare dal ruolo chi e tutore di chi: quella
+    domanda ha una sola risposta giusta, e sta sul server, che la rilegge a
+    ogni richiesta. Questa guardia serve a non far **lampeggiare** una
+    schermata a chi non deve vederla, e per l'area famiglia il modo onesto e
+    lasciar chiedere: chi non ha figli legati riceve un diniego e la schermata
+    di errore, che e cio che deve leggere.
+
+    Fuori dall'area famiglia non cambia niente.
+  */
   const allowed = Boolean(
     user &&
-      (areaFamiglia
-        ? canAccessPath(role, pathname, { linkedAthleteIds }) ||
-          !activeClub?.id
-        : activeClub?.id && canAccessPath(role, pathname, { linkedAthleteIds })),
+      (areaFamiglia ||
+        (activeClub?.id && canAccessPath(role, pathname, { linkedAthleteIds }))),
   );
 
   useEffect(() => {
