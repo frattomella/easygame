@@ -4,9 +4,12 @@ import {
   reportServerError,
 } from "@/lib/server/observability";
 import {
+  VerificationRejected,
+  buildOtpTargetCounterKey,
   findUserByVerificationReference,
   sendPhoneVerificationChallenge,
 } from "@/lib/server/auth-workflows";
+import { normalizePhoneNumber } from "@/lib/auth/phone-number";
 import {
   AUTH_RATE_LIMITS,
   consumeRequestRateLimits,
@@ -14,9 +17,30 @@ import {
   rateLimitHeaders,
 } from "@/lib/server/auth-rate-limit";
 
+/**
+ * **La risposta non dice se il numero esiste.**
+ *
+ * Un riferimento sconosciuto, un utente senza numero, un numero gia verificato
+ * e un invio riuscito danno tutti `{ sent: true }`. E la stessa regola del
+ * recupero password (`PASSWORD_RESET_GENERIC_MESSAGE`), e vale anche per il
+ * **tempo**: sotto non c'e nessun ramo che costi visibilmente piu degli altri
+ * — nessun bcrypt, nessuna chiamata di rete condizionata — perche l'unica
+ * consegna che potrebbe farsi attendere e a valle di una challenge scritta,
+ * cioe dentro il ramo che gia esiste.
+ *
+ * L'unica risposta diversa e il 429, e la si ottiene solo avendo gia in mano
+ * un riferimento valido: e un segreto lungo, non un identificativo che si
+ * indovina.
+ */
+const rispostaOpaca = () =>
+  NextResponse.json({
+    data: { sent: true, previewCode: null },
+    error: null,
+  });
+
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const userId = String(body?.userId || "").trim();
 
     if (!userId) {
@@ -29,13 +53,25 @@ export async function POST(request: Request) {
       );
     }
 
-    const rateLimit = await consumeRequestRateLimits([
+    const ip = getRequestIp(request);
+
+    /*
+      **Tre assi (PP-05).** Prima la chiave era una sola,
+      `phone:<utente>:<indirizzo>`: chi cambiava indirizzo IP ripartiva da zero
+      e poteva far arrivare SMS senza fine al numero di un'altra persona,
+      invalidandole ogni volta il codice appena ricevuto. Adesso si contano
+      account e indirizzo prima ancora di sapere chi sia il riferimento — cosi
+      il costo di provare un riferimento a caso e lo stesso di provarne uno
+      valido — e il **numero** subito dopo, quando lo si conosce.
+    */
+    const primoGiro = await consumeRequestRateLimits([
+      { policy: AUTH_RATE_LIMITS.otpSendIp, identifier: `phone:ip:${ip}` },
       {
-        policy: AUTH_RATE_LIMITS.otpSend,
-        identifier: `phone:${userId}:${getRequestIp(request)}`,
+        policy: AUTH_RATE_LIMITS.otpSendAccount,
+        identifier: `phone:account:${userId}`,
       },
     ]);
-    if (rateLimit) {
+    if (primoGiro) {
       return NextResponse.json(
         {
           data: null,
@@ -44,17 +80,42 @@ export async function POST(request: Request) {
             code: "RATE_LIMITED",
           },
         },
-        { status: 429, headers: rateLimitHeaders(rateLimit) },
+        { status: 429, headers: rateLimitHeaders(primoGiro) },
       );
     }
 
     const user = await findUserByVerificationReference(userId);
 
     if (!user || !user.phone || user.phone_verified_at) {
-      return NextResponse.json({
-        data: { sent: true, previewCode: null },
-        error: null,
-      });
+      return rispostaOpaca();
+    }
+
+    const numero = normalizePhoneNumber(user.phone);
+    if (!numero.valid) return rispostaOpaca();
+
+    /*
+      Il contatore **per numero** usa l'impronta e mai il numero in chiaro: i
+      secchielli non devono diventare un secondo archivio da cui leggere i
+      recapiti di chi si registra. Stessa scelta gia fatta per il riferimento
+      di un'iscrizione (`enrollmentStatusReference`).
+    */
+    const perNumero = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.otpSendTarget,
+        identifier: `phone:target:${buildOtpTargetCounterKey(numero.e164)}`,
+      },
+    ]);
+    if (perNumero) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message: "Troppi reinvii verso questo numero. Riprova più tardi.",
+            code: "RATE_LIMITED",
+          },
+        },
+        { status: 429, headers: rateLimitHeaders(perNumero) },
+      );
     }
 
     const challenge = await sendPhoneVerificationChallenge(user, "verify_phone");
@@ -66,6 +127,28 @@ export async function POST(request: Request) {
       error: null,
     });
   } catch (error: any) {
+    /*
+      Il cooldown non e un errore del server: e la risposta prevista a un
+      secondo clic sul pulsante «rimanda». Porta con se i secondi che mancano,
+      perche una schermata che dice «attendi» senza dire quanto fa premere di
+      nuovo subito.
+    */
+    if (
+      error instanceof VerificationRejected &&
+      error.code === "RESEND_TOO_SOON"
+    ) {
+      const attesa = error.retryAfterSeconds || 1;
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message: `Attendi ${attesa} secondi prima di richiedere un altro codice.`,
+            code: "RESEND_TOO_SOON",
+          },
+        },
+        { status: 429, headers: { "Retry-After": String(attesa) } },
+      );
+    }
     /*
       **Non l'errore intero** (ADR-0019: i log non devono contenere dati personali).
       Il messaggio di un errore di validazione dell'ORM porta con se l'oggetto che

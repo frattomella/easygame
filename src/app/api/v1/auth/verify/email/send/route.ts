@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import {
+  VerificationRejected,
+  buildOtpTargetCounterKey,
   findUserByVerificationReference,
   sendEmailVerificationChallenge,
 } from "@/lib/server/auth-workflows";
@@ -31,6 +33,8 @@ export async function POST(request: Request) {
       );
     }
 
+    const ip = getRequestIp(request);
+
     if (!(await isEmailDeliveryConfigured())) {
       return NextResponse.json(
         {
@@ -44,13 +48,20 @@ export async function POST(request: Request) {
       );
     }
 
-    const rateLimit = await consumeRequestRateLimits([
+    /*
+      Tre assi come sull'invio del codice al telefono (PP-05): indirizzo IP e
+      account **prima** di sapere chi sia il riferimento — cosi provare un
+      riferimento a caso costa quanto provarne uno valido — e destinatario
+      subito dopo, per impronta e mai in chiaro.
+    */
+    const primoGiro = await consumeRequestRateLimits([
+      { policy: AUTH_RATE_LIMITS.otpSendIp, identifier: `email:ip:${ip}` },
       {
-        policy: AUTH_RATE_LIMITS.otpSend,
-        identifier: `email:${userId}:${getRequestIp(request)}`,
+        policy: AUTH_RATE_LIMITS.otpSendAccount,
+        identifier: `email:account:${userId}`,
       },
     ]);
-    if (rateLimit) {
+    if (primoGiro) {
       return NextResponse.json(
         {
           data: null,
@@ -59,7 +70,7 @@ export async function POST(request: Request) {
             code: "RATE_LIMITED",
           },
         },
-        { status: 429, headers: rateLimitHeaders(rateLimit) },
+        { status: 429, headers: rateLimitHeaders(primoGiro) },
       );
     }
 
@@ -70,6 +81,25 @@ export async function POST(request: Request) {
         data: { sent: true, previewCode: null },
         error: null,
       });
+    }
+
+    const perIndirizzo = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.otpSendTarget,
+        identifier: `email:target:${buildOtpTargetCounterKey(user.email)}`,
+      },
+    ]);
+    if (perIndirizzo) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message: "Troppi reinvii verso questo indirizzo. Riprova più tardi.",
+            code: "RATE_LIMITED",
+          },
+        },
+        { status: 429, headers: rateLimitHeaders(perIndirizzo) },
+      );
     }
 
     const challenge = await sendEmailVerificationChallenge(
@@ -84,6 +114,23 @@ export async function POST(request: Request) {
       error: null,
     });
   } catch (error: any) {
+    /* Il cooldown non e un errore del server: vedi la rotta gemella del telefono. */
+    if (
+      error instanceof VerificationRejected &&
+      error.code === "RESEND_TOO_SOON"
+    ) {
+      const attesa = error.retryAfterSeconds || 1;
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message: `Attendi ${attesa} secondi prima di richiedere un altro codice.`,
+            code: "RESEND_TOO_SOON",
+          },
+        },
+        { status: 429, headers: { "Retry-After": String(attesa) } },
+      );
+    }
     if (error instanceof EmailDeliveryError) {
       return NextResponse.json(
         {

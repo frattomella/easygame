@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
-import { isPhoneVerificationEnabled } from "@/lib/auth/provider-policy";
+import {
+  getPhoneNormalizationMessage,
+  normalizePhoneNumber,
+} from "@/lib/auth/phone-number";
 import { publicErrorMessage } from "@/lib/server/api-errors";
 import { prisma } from "@/lib/server/prisma";
 import {
   buildSessionPayload,
   getSessionFromRequest,
   hashPassword,
+  verifyPassword,
 } from "@/lib/server/auth";
 import {
   getPasswordPolicyMessage,
@@ -122,9 +126,75 @@ export async function PATCH(request: Request) {
       }
     }
 
+    /*
+      **Il numero si normalizza qui come alla registrazione.**
+
+      Senza normalizzazione lo stesso numero scritto in due modi produceva due
+      valori diversi in colonna, e il legame fra challenge e numero corrente
+      (`verifyInternalChallenge`) non si sarebbe mai chiuso: la persona avrebbe
+      ricevuto l'SMS e il codice sarebbe stato rifiutato, senza capire perche.
+      Un numero vuoto **non e** un modo per togliersi il cellulare: e
+      obbligatorio, e chi lo cancella riceve lo stesso rifiuto di chi lo scrive
+      male.
+    */
+    let phoneNormalizzato: string | undefined;
+    if (phone !== undefined) {
+      const numero = normalizePhoneNumber(phone);
+      if (!numero.valid) {
+        return NextResponse.json(
+          {
+            data: { user: null },
+            error: {
+              message: getPhoneNormalizationMessage(numero.reason),
+              code: "INVALID_PHONE",
+            },
+          },
+          { status: 400 },
+        );
+      }
+      phoneNormalizzato = numero.e164;
+    }
+
     const emailChanged = email !== undefined && email !== session.db.user.email;
     const phoneChanged =
-      phone !== undefined && phone !== String(session.db.user.phone || "");
+      phoneNormalizzato !== undefined &&
+      phoneNormalizzato !== String(session.db.user.phone || "");
+
+    /*
+      **Cambiare recapito richiede la password corrente (chiude W4-R13).**
+
+      Era registrato come debito: «chiedere anche la password corrente e la
+      difesa che manca ancora». Con PP-05 non e piu rimandabile, perche il
+      recapito e diventato un **fattore**: chi possiede una sessione altrui —
+      un browser lasciato aperto, un Bearer sfuggito — poteva sostituire
+      indirizzo e numero con i propri, verificarli, e diventare il titolare
+      dell'account a tutti gli effetti, con il proprietario chiuso fuori dal suo
+      stesso recupero password.
+
+      La password corrente e cio che una sessione rubata **non** porta con se.
+      Vale per l'indirizzo, per il numero e per la password nuova; non vale per
+      nome, cognome e preferenze, che non sono fattori.
+    */
+    if (emailChanged || phoneChanged || requestedPassword !== undefined) {
+      const currentPassword = String(body?.currentPassword || "");
+      const passwordCorretta =
+        Boolean(currentPassword) &&
+        (await verifyPassword(currentPassword, session.db.user.password_hash));
+
+      if (!passwordCorretta) {
+        return NextResponse.json(
+          {
+            data: { user: null },
+            error: {
+              message:
+                "Per cambiare email, cellulare o password serve la password attuale.",
+              code: "CURRENT_PASSWORD_REQUIRED",
+            },
+          },
+          { status: 403 },
+        );
+      }
+    }
 
     const updated = await prisma.user.update({
       where: { id: session.db.user_id },
@@ -141,13 +211,17 @@ export async function PATCH(request: Request) {
           metadata.lastName !== undefined
             ? String(metadata.lastName || "")
             : undefined,
-        phone: phone !== undefined ? phone || null : undefined,
+        phone: phoneNormalizzato,
+        /*
+          **Cambio recapito → nuova verifica.** Le due righe c'erano gia; cio
+          che mancava era che qualcuno le facesse valere, e a farle valere e il
+          legame fra challenge e destinatario in `verifyInternalChallenge`:
+          senza, un codice emesso per il recapito vecchio confermava quello
+          nuovo, e l'azzeramento era teatro.
+        */
         email_verified_at: emailChanged ? null : undefined,
         phone_verified_at: phoneChanged ? null : undefined,
-        phone_verification_required:
-          phone !== undefined
-            ? Boolean(phone) && isPhoneVerificationEnabled()
-            : undefined,
+        phone_verification_required: phone !== undefined ? true : undefined,
         organization_name:
           metadata.organizationName !== undefined
             ? metadata.organizationName || null
@@ -181,7 +255,7 @@ export async function PATCH(request: Request) {
       Chiedere **anche** la password corrente e la difesa che manca ancora, ed
       e una modifica a due schermate: e registrata come debito (W4-R13).
     */
-    if (emailChanged || requestedPassword !== undefined) {
+    if (emailChanged || phoneChanged || requestedPassword !== undefined) {
       await prisma.session.deleteMany({
         where: {
           user_id: session.db.user_id,

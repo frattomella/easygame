@@ -15,8 +15,10 @@ import {
   shouldExposeVerificationPreviewCode,
 } from "../../src/lib/auth/otp-policy.ts";
 import {
-  isPhoneVerificationEnabled,
-  isPhoneVerificationProviderConfigured,
+  canDeliverPhoneOtp,
+  isPhoneNumberRequiredAtSignup,
+  isPhoneVerificationRequired,
+  isSmsTransportConfigured,
 } from "../../src/lib/auth/provider-policy.ts";
 
 test("la password policy server-side richiede complessità e lunghezza", () => {
@@ -71,26 +73,62 @@ test("i codici test non sono mai esposti in produzione", () => {
   );
 });
 
-test("la verifica SMS è proposta solo quando il canale è disponibile", () => {
-  const production = { NODE_ENV: "production" };
-  assert.equal(isPhoneVerificationProviderConfigured(production), false);
-  assert.equal(isPhoneVerificationEnabled(production), false);
+/**
+ * **Il numero si chiede sempre; la verifica dipende dal canale (ADR-0115).**
+ *
+ * Il test di prima provava l'opposto — «la verifica SMS e proposta solo quando
+ * il canale e disponibile» — e provava anche, senza dirlo, che senza le tre
+ * variabili di Twilio il prodotto non aveva il concetto di cellulare. Quello
+ * era il difetto, non la proprieta: il numero e un dato del prodotto e non una
+ * funzione del fornitore.
+ */
+test("il cellulare e obbligatorio sempre, la verifica solo se consegnabile", () => {
+  const produzioneMuta = { NODE_ENV: "production" };
 
+  /* Il numero: obbligatorio ovunque, senza guardare l'ambiente. */
+  assert.equal(isPhoneNumberRequiredAtSignup(), true);
+
+  /* Senza trasporto e senza codici di prova non si puo consegnare niente. */
+  assert.equal(isSmsTransportConfigured(produzioneMuta), false);
+  assert.equal(canDeliverPhoneOtp(produzioneMuta), false);
+  /*
+    E cio che non si puo consegnare non si puo pretendere: pretenderlo
+    chiuderebbe fuori ogni account nuovo di un'installazione senza contratto
+    SMS. Il ripiego e dichiarato, non silenzioso: `/auth/providers` lo espone.
+  */
+  assert.equal(isPhoneVerificationRequired(produzioneMuta), false);
+
+  /* Con un trasporto dichiarato la verifica torna a essere obbligatoria. */
+  const conTrasporto = { NODE_ENV: "production", SMS_PROVIDER: "noop" };
+  assert.equal(isSmsTransportConfigured(conTrasporto), true);
+  assert.equal(isPhoneVerificationRequired(conTrasporto), true);
+
+  /* E si puo spegnere per scelta esplicita, non per assenza di configurazione. */
   assert.equal(
-    isPhoneVerificationEnabled({
-      NODE_ENV: "production",
-      TWILIO_ACCOUNT_SID: "AC_test",
-      TWILIO_AUTH_TOKEN: "secret",
-      TWILIO_VERIFY_SERVICE_SID: "VA_test",
+    isPhoneVerificationRequired({
+      ...conTrasporto,
+      AUTH_REQUIRE_PHONE_VERIFICATION: "false",
     }),
-    true,
+    false,
   );
+
+  /* In sviluppo i codici di prova valgono come canale. */
   assert.equal(
-    isPhoneVerificationEnabled({
+    isPhoneVerificationRequired({
       NODE_ENV: "development",
       AUTH_ALLOW_TEST_CODES: "true",
     }),
     true,
+  );
+
+  /*
+    **Un nome di fornitore sconosciuto non e un fornitore.** Chi scrive male
+    `SMS_PROVIDER` non deve credere di spedire: si comporta come se non ci
+    fosse niente.
+  */
+  assert.equal(
+    isSmsTransportConfigured({ NODE_ENV: "production", SMS_PROVIDER: "twilio" }),
+    false,
   );
 });
 

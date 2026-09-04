@@ -1,5 +1,6 @@
 import {
   createHash,
+  createHmac,
   randomBytes,
   randomInt,
   randomUUID,
@@ -8,7 +9,12 @@ import {
 import { prisma } from "./prisma";
 import { createSessionForUser, hashPassword } from "./auth";
 import {
+  EMAIL_OTP_TTL_MINUTES,
   MAX_OTP_ATTEMPTS,
+  OTP_RESEND_COOLDOWN_SECONDS,
+  OTP_CODE_LENGTH,
+  PHONE_OTP_TTL_MINUTES,
+  resolveOtpResendDecision,
   shouldExposeVerificationPreviewCode,
 } from "../auth/otp-policy";
 import {
@@ -16,18 +22,24 @@ import {
   validatePassword,
 } from "../auth/password-policy";
 import {
+  canDeliverPhoneOtp,
   isPhoneVerificationEnabled,
-  isPhoneVerificationProviderConfigured,
+  isPhoneVerificationRequired,
+  isSmsTransportConfigured,
 } from "../auth/provider-policy";
+import { maskPhoneNumber, normalizePhoneNumber } from "../auth/phone-number";
 import {
   isEmailDeliveryConfigured,
   sendTransactionalEmail,
 } from "./email/email-service";
+import { sendSms } from "./sms/sms-service";
 import { renderEmailLayout } from "./email/layout";
 
 export {
+  canDeliverPhoneOtp,
   isPhoneVerificationEnabled,
-  isPhoneVerificationProviderConfigured,
+  isPhoneVerificationRequired,
+  isSmsTransportConfigured,
 } from "../auth/provider-policy";
 
 type VerificationChannel = "email" | "phone";
@@ -43,8 +55,39 @@ type VerificationDispatchResult = {
   previewCode: string | null;
 };
 
-const EMAIL_CODE_TTL_MINUTES = 15;
-const PHONE_CODE_TTL_MINUTES = 10;
+const EMAIL_CODE_TTL_MINUTES = EMAIL_OTP_TTL_MINUTES;
+const PHONE_CODE_TTL_MINUTES = PHONE_OTP_TTL_MINUTES;
+
+/**
+ * **Il codice sbagliato non e un errore di sistema.**
+ *
+ * Un errore con questo nome non viene registrato dal punto unico degli errori:
+ * e la cosa piu comune che succede su questi endpoint, e riempirne i log
+ * significa non vedere piu quelli veri. Le rotte lo riconoscono dal messaggio;
+ * la classe esiste perche riconoscerlo dal messaggio e fragile e perche il
+ * ripiego sul messaggio resta come seconda difesa.
+ */
+export class VerificationRejected extends Error {
+  readonly code: "INVALID_OR_EXPIRED_CODE" | "RESEND_TOO_SOON";
+  readonly retryAfterSeconds: number | null;
+
+  constructor(
+    code:
+      | "INVALID_OR_EXPIRED_CODE"
+      | "RESEND_TOO_SOON" = "INVALID_OR_EXPIRED_CODE",
+    retryAfterSeconds: number | null = null,
+  ) {
+    super(
+      code === "RESEND_TOO_SOON"
+        ? "Attendi prima di richiedere un altro codice"
+        : "Codice non valido o scaduto",
+    );
+    this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
+    this.name = "VerificationRejected";
+  }
+}
+
 const DEFAULT_WIDGETS = [
   "metrics",
   "activities",
@@ -72,18 +115,98 @@ const asMetadataRecord = (value: unknown): Record<string, any> =>
     ? (value as Record<string, any>)
     : {};
 
-const createOtpCode = () => randomInt(100000, 1_000_000).toString();
+/**
+ * Sei cifre uniformi su **tutto** l'intervallo, zeri iniziali compresi.
+ *
+ * `randomInt(100000, 1_000_000)` — la forma di prima — non produceva mai un
+ * codice che comincia per zero: novecentomila valori invece di un milione.
+ */
+const createOtpCode = () =>
+  randomInt(0, 10 ** OTP_CODE_LENGTH)
+    .toString()
+    .padStart(OTP_CODE_LENGTH, "0");
 
-const hashOtpCode = (code: string) =>
-  createHash("sha256").update(code).digest("hex");
+/**
+ * **Il pepe delle impronte OTP.**
+ *
+ * Stessa catena di ripieghi del contatore di frequenza
+ * (`auth-rate-limit.ts`), e per la stessa ragione: un'installazione che non ha
+ * dichiarato un segreto proprio deve comunque avere un valore che non e nel
+ * database.
+ */
+const otpPepper = () =>
+  process.env.AUTH_OTP_SECRET ||
+  process.env.AUTH_RATE_LIMIT_SECRET ||
+  process.env.CRON_SECRET ||
+  process.env.DATABASE_URL ||
+  "easygame-local";
+
+/**
+ * **L'impronta di un codice a sei cifre non e un'impronta, se e uno SHA nudo.**
+ *
+ * `sha256(codice)` su un codice a sei cifre e reversibile in un istante: un
+ * milione di valori, una tabella precalcolata, e chi legge la colonna
+ * `code_hash` legge il codice. Il requisito «OTP memorizzato in forma sicura,
+ * mai in chiaro» non era soddisfatto — era soddisfatto *alla lettera* e non
+ * nella sostanza, che e il modo peggiore.
+ *
+ * Un HMAC con un pepe che vive **nell'ambiente e non nel database** chiude
+ * quella strada: chi porta via un dump non ha il pepe, e senza il pepe il
+ * milione di valori non si puo enumerare.
+ *
+ * L'impronta lega anche **canale, scopo e utente**. Serve a rendere inutile lo
+ * spostamento di una riga: un `code_hash` copiato dalla challenge email di un
+ * account sulla challenge telefono di un altro non corrisponde piu a niente.
+ *
+ * ## Cosa succede alle challenge gia emesse
+ *
+ * Diventano inverificabili, e va bene: vivono cinque o quindici minuti, e chi
+ * si trova a cavallo del rilascio richiede il codice. Non c'e migrazione,
+ * perche non c'e niente da conservare.
+ */
+export const hashOtpCode = (
+  code: string,
+  binding: { userId: string; channel: string; purpose: string },
+) =>
+  createHmac("sha256", otpPepper())
+    .update(`${binding.channel}:${binding.purpose}:${binding.userId}:${code}`)
+    .digest("hex");
+
+/** Il destinatario, come impronta: i contatori non tengono numeri in chiaro. */
+const hashTarget = (target: string) =>
+  createHash("sha256")
+    .update(
+      `${otpPepper()}:target:${String(target || "")
+        .trim()
+        .toLowerCase()}`,
+    )
+    .digest("hex");
+
+export const buildOtpTargetCounterKey = (target: string) => hashTarget(target);
 
 const getAppBaseUrl = () =>
   process.env.AUTH_BASE_URL ||
   process.env.NEXT_PUBLIC_APP_URL ||
   "http://localhost:3001";
 
-const getPreviewCode = (sent: boolean, code: string) =>
-  !sent && shouldExposeVerificationPreviewCode() ? code : null;
+/**
+ * Il codice restituito nella risposta, in sviluppo.
+ *
+ * **Il `sent` non entra piu nella decisione.** Prima era
+ * `!sent && shouldExposeVerificationPreviewCode()`: il codice si vedeva solo
+ * quando la consegna **falliva**. Con un trasporto configurato — anche una
+ * sandbox, anche un doppio di prova — la consegna riesce, e chi sviluppa
+ * restava senza codice proprio quando aveva finalmente un canale da provare.
+ * Era una condizione nata come ripiego («se non parte, almeno leggilo») e
+ * diventata un ostacolo.
+ *
+ * La difesa e una sola e non cambia: `shouldExposeVerificationPreviewCode()`
+ * vuole `NODE_ENV !== "production"` **e** `AUTH_ALLOW_TEST_CODES === "true"`.
+ * In produzione non c'e nessuna combinazione di variabili che faccia uscire un
+ * codice da qui.
+ */
+const getPreviewCode = (_sent: boolean, code: string) =>
+  shouldExposeVerificationPreviewCode() ? code : null;
 
 export const createVerificationReference = () =>
   `verify_${randomBytes(24).toString("hex")}`;
@@ -108,6 +231,21 @@ export const findUserByVerificationReference = async (reference: string) => {
   return prisma.user.findUnique({ where: { id: normalizedReference } });
 };
 
+/**
+ * Il numero in archivio, come si mostra a chi non ha ancora una sessione.
+ *
+ * Passa dalla forma canonica perche il mascheramento conti le cifre giuste:
+ * `340 123 4567` e `+393401234567` hanno lunghezze diverse e produrrebbero due
+ * maschere diverse per lo stesso numero. Un numero illeggibile resta
+ * mascherato lo stesso — mai restituito in chiaro per il fatto di essere
+ * scritto male.
+ */
+export const maskStoredPhone = (phone?: string | null) => {
+  if (!phone) return null;
+  const numero = normalizePhoneNumber(phone);
+  return maskPhoneNumber(numero.valid ? numero.e164 : String(phone));
+};
+
 const buildVerificationPayload = (user: {
   id: string;
   email: string;
@@ -118,19 +256,64 @@ const buildVerificationPayload = (user: {
 }) => ({
   userId: user.id,
   email: user.email,
-  phone: user.phone || null,
+  /*
+    **Il numero si mostra mascherato.** Questa struttura esce da rotte che si
+    raggiungono senza sessione (registrazione, login non completato, invio e
+    conferma del codice): restituire il numero per intero significherebbe che
+    chi ha un identificativo di verifica legge il cellulare del titolare.
+    Prefisso e ultime tre cifre bastano a chi si sta verificando per
+    riconoscere il proprio, e non bastano a nessun altro per comporlo.
+  */
+  phone: maskStoredPhone(user.phone),
   emailRequired: !user.email_verified_at,
-  phoneRequired:
-    isPhoneVerificationEnabled() &&
-    Boolean(user.phone_verification_required && user.phone) &&
-    !user.phone_verified_at,
+  phoneRequired: isPhoneVerificationBlocking(user),
 });
 
-const buildTwilioAuthHeader = () =>
-  `Basic ${Buffer.from(
-    `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`,
-  ).toString("base64")}`;
+/**
+ * **«Account non pienamente attivato», in una riga sola (ADR-0115).**
+ *
+ * Un account e non pienamente attivato quando **richiede** la verifica del
+ * telefono e non l'ha ancora ottenuta. L'unica limitazione che ne discende e
+ * quella dichiarata: **non si crea una sessione**. Non ce ne sono altre, e non
+ * se ne inventano: chi e dentro resta dentro, chi deve entrare verifica prima.
+ *
+ * L'email non entra in questa definizione. Da PP-05 l'indirizzo e obbligatorio
+ * ma si verifica **dopo**: un'email non verificata non impedisce l'accesso, si
+ * vede sulla pagina Account con la sua chiamata all'azione, e porta con se una
+ * sola limitazione, definita in `findOrCreateOAuthUser`.
+ */
+export const isPhoneVerificationBlocking = (user: {
+  phone?: string | null;
+  phone_verified_at?: Date | null;
+  phone_verification_required?: boolean;
+}) =>
+  isPhoneVerificationRequired() &&
+  Boolean(user.phone_verification_required && user.phone) &&
+  !user.phone_verified_at;
 
+/**
+ * Apre una challenge nuova e chiude quelle vive dello stesso canale.
+ *
+ * ## Le tre cose che questa funzione fa e prima non faceva
+ *
+ * **1. Il cooldown.** Se una challenge dello stesso canale e nata da meno di
+ * `OTP_RESEND_COOLDOWN_SECONDS`, non se ne apre un'altra: si solleva
+ * `RESEND_TOO_SOON` e **la challenge esistente resta viva**. Prima ogni invio
+ * chiudeva il precedente, quindi due clic sul pulsante «rimanda» rendevano
+ * inutile il codice appena arrivato — e chi conosceva un identificativo poteva
+ * tenere un account permanentemente inverificabile invalidandogli il codice a
+ * ripetizione.
+ *
+ * **2. Si chiude tutto il canale, non solo lo stesso scopo.** Il `where`
+ * portava anche `purpose`, quindi una challenge `signup` e una `verify_phone`
+ * convivevano: due codici validi insieme sullo stesso numero, e la verifica —
+ * che il proposito non lo guardava — accettava il piu recente dei due. Adesso
+ * chi apre chiude, per canale, con l'unica eccezione del reset password, che ha
+ * un flusso e una vita sue.
+ *
+ * **3. Il `target` e quello passato, e la verifica lo ricontrolla.** Vedi
+ * `verifyInternalChallenge`.
+ */
 const createInternalChallenge = async ({
   userId,
   channel,
@@ -144,64 +327,118 @@ const createInternalChallenge = async ({
   target: string;
   expiresInMinutes: number;
 }) => {
-  const code = createOtpCode();
+  const adesso = new Date();
 
-  await prisma.authVerificationChallenge.updateMany({
+  const ultima = await prisma.authVerificationChallenge.findFirst({
     where: {
       user_id: userId,
       channel,
-      purpose,
+      purpose: { not: "reset_password" },
       consumed_at: null,
+      expires_at: { gt: adesso },
     },
-    data: {
-      consumed_at: new Date(),
-    },
+    orderBy: { created_at: "desc" },
   });
 
-  await prisma.authVerificationChallenge.create({
-    data: {
-      user_id: userId,
-      channel,
-      purpose,
-      target,
-      code_hash: hashOtpCode(code),
-      expires_at: new Date(Date.now() + expiresInMinutes * 60 * 1000),
-    },
-  });
+  const rinvio = resolveOtpResendDecision(ultima?.created_at || null, adesso);
+  if (!rinvio.allowed) {
+    throw new VerificationRejected("RESEND_TOO_SOON", rinvio.retryAfterSeconds);
+  }
+
+  const code = createOtpCode();
+
+  /*
+    **Chiudere e aprire sono una cosa sola, e il database lo fa rispettare.**
+
+    Le due scritture erano separate, e in sequenza il risultato era giusto. In
+    parallelo no: N richieste simultanee eseguono prima tutti gli `UPDATE` — che
+    non trovano niente da chiudere, perche nessuno ha ancora inserito — e poi
+    tutti gli `INSERT`. La sonda contro Postgres lo ha misurato (P3, dodici
+    reinvii simultanei): **dodici challenge vive, dodici codici validi insieme**.
+    Il cooldown si scavalcava mandando le richieste insieme invece che in fila, e
+    dodici codici validi con cinque tentativi ciascuno moltiplicano per dodici le
+    probabilita di indovinarne uno.
+
+    Adesso le due scritture stanno in una transazione, e — cio che conta
+    davvero — l'invariante «una challenge viva per utente e canale» e un
+    **indice unico parziale** (migrazione `20260904120000_pp05_...`): non e piu
+    una cosa che questo codice promette, e una cosa che il database non lascia
+    accadere. Chi perde la corsa riceve una violazione di unicita, e qui la si
+    traduce nel cooldown — che e la risposta vera: un codice valido esiste gia
+    ed e gia partito.
+  */
+  try {
+    await prisma.$transaction([
+      prisma.authVerificationChallenge.updateMany({
+        where: {
+          user_id: userId,
+          channel,
+          purpose: { not: "reset_password" },
+          consumed_at: null,
+        },
+        data: {
+          consumed_at: adesso,
+        },
+      }),
+      prisma.authVerificationChallenge.create({
+        data: {
+          user_id: userId,
+          channel,
+          purpose,
+          target,
+          code_hash: hashOtpCode(code, { userId, channel, purpose }),
+          /*
+            **`created_at` si scrive, non si lascia al database.** Il cooldown lo
+            confronta con `new Date()` dell'applicazione: mescolare l'orologio di
+            Postgres con quello del processo fa durare il cooldown un po' di piu o
+            un po' di meno a seconda della deriva fra i due, e su una finestra di
+            sessanta secondi la deriva conta.
+          */
+          created_at: adesso,
+          expires_at: new Date(adesso.getTime() + expiresInMinutes * 60 * 1000),
+          /*
+            **Lo stato iniziale si scrive, non si eredita dallo schema.** Sono i
+            valori predefiniti delle colonne, quindi Postgres li metterebbe
+            comunque; scriverli rende la riga completa nel momento in cui nasce,
+            indipendentemente da dove vivano i default — ed e la differenza fra un
+            `where: { consumed_at: null }` che trova la riga e uno che non la trova
+            perche la colonna, in quel momento, non e stata ancora popolata da
+            nessuno.
+          */
+          consumed_at: null,
+          attempts: 0,
+        },
+      }),
+    ]);
+  } catch (error: any) {
+    /*
+      `P2002` e la violazione di unicita di Prisma. Qui vuol dire una cosa
+      sola: un'altra richiesta simultanea ha gia aperto la challenge di questo
+      canale. Non e un errore da registrare — e la corsa che l'indice esiste
+      per perdere — e la risposta corretta e la stessa del cooldown.
+    */
+    if (error?.code === "P2002") {
+      throw new VerificationRejected(
+        "RESEND_TOO_SOON",
+        OTP_RESEND_COOLDOWN_SECONDS,
+      );
+    }
+    throw error;
+  }
 
   return code;
 };
 
-const sendPhoneViaTwilioVerify = async (phone: string) => {
-  if (!isPhoneVerificationProviderConfigured()) {
-    return false;
-  }
-
-  const body = new URLSearchParams({
-    To: phone,
-    Channel: "sms",
-  });
-
-  const response = await fetch(
-    `https://verify.twilio.com/v2/Services/${process.env.TWILIO_VERIFY_SERVICE_SID}/Verifications`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: buildTwilioAuthHeader(),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: body.toString(),
-    },
-  );
-
-  if (!response.ok) {
-    /* eslint-disable-next-line no-console -- l'esito di una consegna Twilio: codice del provider, nessun errore */
-    console.error("Twilio verification delivery failed", {
-      status: response.status,
-    });
-  }
-  return response.ok;
-};
+/**
+ * Il testo dell'SMS, in un posto solo.
+ *
+ * Corto e senza link, per tre ragioni pratiche: sta in un solo segmento
+ * GSM-7 (costa un SMS e non due), si legge dalla schermata di blocco senza
+ * aprire niente, e non insegna a nessuno che EasyGame manda link via SMS —
+ * che e la cosa che rende credibile il messaggio di chi imita EasyGame.
+ */
+export const buildPhoneVerificationSmsText = (code: string) =>
+  `EasyGame: il tuo codice di verifica e ${code}. Scade tra ${PHONE_CODE_TTL_MINUTES} minuti. Non condividerlo con nessuno.`;
 
 /**
  * L'HTML dell'email di verifica, estratto per essere richiamabile anche
@@ -253,6 +490,19 @@ export const sendEmailVerificationChallenge = async (
   };
 };
 
+/**
+ * **Il codice lo fa EasyGame, l'operatore lo porta. Sempre (ADR-0114).**
+ *
+ * Prima c'erano due meccanismi: con Twilio configurato il codice lo generava e
+ * lo verificava Twilio, senza Twilio lo generava e lo verificava questo file.
+ * Due implementazioni della stessa cosa, con due comportamenti diversi — tetto
+ * dei tentativi, scadenza, consumo monouso e corsa fra invio e conferma valgono
+ * solo nella seconda — e con la piu debole attiva **proprio in produzione**,
+ * cioe l'unico posto dove Twilio era configurato. Nessun test poteva vederlo,
+ * perche nei test Twilio non c'era mai.
+ *
+ * Adesso la challenge si scrive sempre, e il trasporto e solo un trasporto.
+ */
 export const sendPhoneVerificationChallenge = async (
   user: {
     id: string;
@@ -260,48 +510,74 @@ export const sendPhoneVerificationChallenge = async (
   },
   purpose: VerificationPurpose = "signup",
 ): Promise<VerificationDispatchResult> => {
-  if (!user.phone) {
-    return {
-      sent: false,
-      previewCode: null,
-    };
-  }
-
-  if (isPhoneVerificationProviderConfigured()) {
-    const sent = await sendPhoneViaTwilioVerify(user.phone);
-    return {
-      sent,
-      previewCode: null,
-    };
+  /*
+    Si normalizza qui e non ci si fida della colonna: una riga scritta prima di
+    PP-05 puo contenere `340 123 4567`, e il legame fra challenge e numero
+    corrente (`verifyInternalChallenge`) confronta forme canoniche. Un numero
+    illeggibile non apre nessuna challenge e non fa partire nessun SMS.
+  */
+  const numero = normalizePhoneNumber(user.phone);
+  if (!numero.valid) {
+    return { sent: false, previewCode: null };
   }
 
   const code = await createInternalChallenge({
     userId: user.id,
     channel: "phone",
     purpose,
-    target: user.phone,
+    target: numero.e164,
     expiresInMinutes: PHONE_CODE_TTL_MINUTES,
   });
 
+  const delivery = await sendSms({
+    to: numero.e164,
+    text: buildPhoneVerificationSmsText(code),
+  });
+
   return {
-    sent: false,
-    previewCode: getPreviewCode(false, code),
+    sent: delivery.status === "sent",
+    previewCode: getPreviewCode(delivery.status === "sent", code),
   };
 };
 
+/**
+ * **Una challenge vale per il destinatario per cui e nata, e per nessun altro.**
+ *
+ * Il difetto che chiude (PP-05). La ricerca era per `user_id` e `channel` e
+ * basta: il `target` scritto sulla riga non veniva mai riletto. Bastava
+ * quindi:
+ *
+ * 1. registrarsi con il proprio numero e farsi mandare il codice;
+ * 2. cambiare il numero del profilo con quello di un altro — la scrittura
+ *    azzera `phone_verified_at`, ed e giusto che lo faccia;
+ * 3. confermare con il codice ricevuto **sul proprio** numero.
+ *
+ * Il risultato era `phone_verified_at` valorizzato su un numero che nessuno
+ * aveva mai verificato: la regola «cambio numero → nuova verifica» esisteva
+ * nella riga che azzera la colonna e non esisteva in quella che la riscrive.
+ * Lo stesso vale per l'indirizzo email.
+ *
+ * Adesso il destinatario corrente entra nel `where`, in forma canonica. Se non
+ * corrisponde, la challenge non si trova, e non si trova **senza spendere un
+ * tentativo**: non c'e niente da consumare su una riga che non riguarda questo
+ * destinatario.
+ */
 const verifyInternalChallenge = async ({
   userId,
   channel,
+  target,
   code,
 }: {
   userId: string;
   channel: VerificationChannel;
+  target: string;
   code: string;
 }) => {
   const challenge = await prisma.authVerificationChallenge.findFirst({
     where: {
       user_id: userId,
       channel,
+      target,
       // Le challenge di reset password hanno un token lungo e un flusso
       // proprio: non devono essere consumate da una conferma OTP, altrimenti
       // un reset in corso verrebbe invalidato da un tentativo di verifica.
@@ -317,15 +593,31 @@ const verifyInternalChallenge = async ({
   });
 
   if (!challenge) {
-    throw new Error("Codice non valido o scaduto");
+    throw new VerificationRejected();
   }
 
-  const esito = await spendiUnTentativo(
-    challenge.id,
-    challenge.code_hash === hashOtpCode(code),
+  /*
+    Il confronto e a tempo costante come quello del reset password. Su un
+    codice a sei cifre la differenza pratica e nulla — il tetto dei tentativi
+    chiude molto prima di qualunque misura — ma un confronto fra impronte si
+    scrive cosi, e avere due primitive diverse per la stessa cosa nello stesso
+    file e il modo in cui una delle due resta indietro.
+  */
+  const fornita = Buffer.from(
+    hashOtpCode(code, {
+      userId,
+      channel,
+      purpose: challenge.purpose,
+    }),
+    "hex",
   );
+  const attesa = Buffer.from(challenge.code_hash, "hex");
+  const corrisponde =
+    fornita.length === attesa.length && timingSafeEqual(fornita, attesa);
+
+  const esito = await spendiUnTentativo(challenge.id, corrisponde);
   if (esito !== "valido") {
-    throw new Error("Codice non valido o scaduto");
+    throw new VerificationRejected();
   }
 
   return challenge;
@@ -411,53 +703,36 @@ const prendiUnTentativo = async (challengeId: string) => {
   return speso.count === 1;
 };
 
-const verifyPhoneWithTwilio = async (phone: string, code: string) => {
-  const body = new URLSearchParams({
-    To: phone,
-    Code: code,
-  });
-
-  const response = await fetch(
-    `https://verify.twilio.com/v2/Services/${process.env.TWILIO_VERIFY_SERVICE_SID}/VerificationCheck`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: buildTwilioAuthHeader(),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: body.toString(),
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error("Codice SMS non valido");
-  }
-
-  const payload = (await response.json()) as { status?: string };
-  if (payload.status !== "approved") {
-    throw new Error("Codice SMS non valido");
-  }
-};
-
 export const confirmEmailVerification = async (
   userReference: string,
   code: string,
 ) => {
   const user = await findUserByVerificationReference(userReference);
-  if (!user) throw new Error("Codice non valido o scaduto");
+  if (!user) throw new VerificationRejected();
 
   await verifyInternalChallenge({
     userId: user.id,
     channel: "email",
+    target: user.email,
     code,
   });
 
-  return prisma.user.update({
-    where: { id: user.id },
-    data: {
-      email_verified_at: new Date(),
-    },
+  /*
+    **Si scrive solo se l'indirizzo e ancora quello.** Fra l'emissione della
+    challenge e la conferma qualcuno puo aver cambiato l'indirizzo da un'altra
+    sessione: la scrittura condizionata fa fallire quella corsa invece di
+    stampare «verificato» sull'indirizzo nuovo. `updateMany` con il `where`,
+    non `update` con l'id.
+  */
+  const scritto = await prisma.user.updateMany({
+    where: { id: user.id, email: user.email },
+    data: { email_verified_at: new Date() },
   });
+  if (scritto.count !== 1) throw new VerificationRejected();
+
+  const aggiornato = await prisma.user.findUnique({ where: { id: user.id } });
+  if (!aggiornato) throw new VerificationRejected();
+  return aggiornato;
 };
 
 export const confirmPhoneVerification = async (
@@ -467,29 +742,36 @@ export const confirmPhoneVerification = async (
   const user = await findUserByVerificationReference(userReference);
 
   if (!user) {
-    throw new Error("Codice non valido o scaduto");
+    throw new VerificationRejected();
   }
 
-  if (!user.phone) {
-    throw new Error("Telefono non disponibile");
+  const numero = normalizePhoneNumber(user.phone);
+  if (!numero.valid) {
+    /*
+      Stesso errore di un codice sbagliato, di proposito: «telefono non
+      disponibile» diceva a chi provava identificativi a caso che quello
+      corrispondeva a un account privo di numero. Anti-enumeration
+      (14-security.md): la risposta non distingue i casi.
+    */
+    throw new VerificationRejected();
   }
 
-  if (isPhoneVerificationProviderConfigured()) {
-    await verifyPhoneWithTwilio(user.phone, code);
-  } else {
-    await verifyInternalChallenge({
-      userId: user.id,
-      channel: "phone",
-      code,
-    });
-  }
-
-  return prisma.user.update({
-    where: { id: user.id },
-    data: {
-      phone_verified_at: new Date(),
-    },
+  await verifyInternalChallenge({
+    userId: user.id,
+    channel: "phone",
+    target: numero.e164,
+    code,
   });
+
+  const scritto = await prisma.user.updateMany({
+    where: { id: user.id, phone: user.phone },
+    data: { phone_verified_at: new Date() },
+  });
+  if (scritto.count !== 1) throw new VerificationRejected();
+
+  const aggiornato = await prisma.user.findUnique({ where: { id: user.id } });
+  if (!aggiornato) throw new VerificationRejected();
+  return aggiornato;
 };
 
 export const ensurePrimaryClubForUser = async (userId: string) => {
@@ -570,16 +852,25 @@ export const finalizeVerifiedSession = async (userId: string) => {
     throw new Error("Utente non trovato");
   }
 
-  if (!user.email_verified_at) {
-    throw new Error("Email non verificata");
-  }
+  /*
+    **L'email non blocca piu la sessione (ADR-0115).**
 
-  if (
-    isPhoneVerificationEnabled() &&
-    user.phone_verification_required &&
-    user.phone &&
-    !user.phone_verified_at
-  ) {
+    Prima questa riga sollevava «Email non verificata» e nessun account senza
+    indirizzo confermato poteva entrare — nemmeno per vedere la pagina che gli
+    chiedeva di confermarlo. Su un'installazione senza SMTP configurato quello
+    era un blocco totale: l'account si creava e non si poteva usare, e la
+    schermata che lo diceva era irraggiungibile.
+
+    La regola nuova: l'indirizzo e **obbligatorio** e si verifica **dopo**. Chi
+    non l'ha verificato entra, e trova sulla pagina Account l'avviso «Email non
+    verificata» con il pulsante che manda il codice. La limitazione che
+    l'accompagna e una sola, ed e in `findOrCreateOAuthUser`: un indirizzo non
+    verificato **non vale come identita**, quindi non protegge l'account da chi
+    quell'indirizzo lo possiede davvero e lo dimostra.
+
+    Il telefono invece blocca, ed e l'unico blocco: `isPhoneVerificationBlocking`.
+  */
+  if (isPhoneVerificationBlocking(user)) {
     return {
       user,
       session: null,
@@ -723,12 +1014,20 @@ type OAuthProviderConfig = {
  * sta attaccando. Un tenant nominato e invece una directory sola, la cui
  * amministrazione e nota.
  */
-const MICROSOFT_SHARED_TENANTS = new Set(["common", "organizations", "consumers"]);
+const MICROSOFT_SHARED_TENANTS = new Set([
+  "common",
+  "organizations",
+  "consumers",
+]);
 
 /** Due indirizzi sono lo stesso indirizzo. Confronto normalizzato, come al login. */
 const sameEmail = (a: unknown, b: unknown) =>
-  String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase() &&
-  String(a ?? "").trim() !== "";
+  String(a ?? "")
+    .trim()
+    .toLowerCase() ===
+    String(b ?? "")
+      .trim()
+      .toLowerCase() && String(a ?? "").trim() !== "";
 
 const microsoftTenant = () =>
   String(process.env.MICROSOFT_TENANT_ID || "").trim() || "common";
@@ -1030,6 +1329,41 @@ export const findOrCreateOAuthUser = async ({
 
   if (existingUser) {
     const existingMetadata = asMetadataRecord(existingUser.user_metadata);
+
+    /*
+      **L'unica limitazione di un'email non verificata (ADR-0115).**
+
+      Da PP-05 un account con l'indirizzo non confermato ha una sessione. Cio
+      apre una strada che prima era chiusa da sola: registro un account con
+      `vittima@example.com`, non verifico niente, e uso il prodotto. Quando la
+      vittima arriva davvero — con Google, che l'indirizzo lo certifica — questo
+      ramo la fa entrare **dentro** il conto che ho occupato, e io ci resto
+      insieme a lei, con la mia password ancora buona e le mie sessioni ancora
+      aperte.
+
+      Chi dimostra di possedere l'indirizzo ha piu titolo di chi lo ha solo
+      scritto in un modulo. Quindi, quando un account mai verificato viene
+      adottato da un accesso esterno che certifica quell'indirizzo, la
+      credenziale dell'occupante **decade**: password sostituita con un valore
+      casuale che nessuno conosce, sessioni chiuse tutte. Non si cancella
+      niente e non si perde niente: chi era il legittimo proprietario e non
+      aveva mai verificato usa «Password dimenticata» e rientra dall'indirizzo
+      che ora e provato suo.
+
+      Non tocca chi si era gia collegato con lo stesso `sub` (ramo di sopra) ne
+      chi aveva l'indirizzo gia verificato: li nessuna occupazione e possibile.
+    */
+    const eraOccupatoSenzaProva = !existingUser.email_verified_at;
+    if (eraOccupatoSenzaProva) {
+      await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          password_hash: await hashPassword(randomBytes(32).toString("hex")),
+        },
+      });
+      await prisma.session.deleteMany({ where: { user_id: existingUser.id } });
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id: existingUser.id },
       data: {
@@ -1091,9 +1425,19 @@ export const getAuthCapabilities = async () => {
   const emailConfigured = await isEmailDeliveryConfigured();
   return {
     emailVerification: true,
-    phoneVerification: isPhoneVerificationEnabled(),
+    /*
+      **Il numero si chiede sempre.** Prima questa chiave diceva alla schermata
+      di registrazione se mostrare il campo «Cellulare», e senza Twilio il
+      campo spariva. Oggi il campo c'e sempre, perche il numero e obbligatorio
+      per regola di prodotto; queste chiavi dicono invece se il codice si puo
+      **consegnare** e se la verifica **blocca** l'accesso, che sono le due
+      cose che dipendono davvero dall'installazione.
+    */
+    phoneNumberRequired: true,
+    phoneVerification: canDeliverPhoneOtp(),
+    phoneVerificationRequired: isPhoneVerificationRequired(),
     emailProviderConfigured: emailConfigured,
-    phoneProviderConfigured: isPhoneVerificationProviderConfigured(),
+    phoneProviderConfigured: isSmsTransportConfigured(),
     testCodesEnabled: shouldExposeVerificationPreviewCode(),
     providers: getEnabledOAuthProviders().map((provider) => ({
       id: provider.id,
@@ -1135,7 +1479,9 @@ export const PASSWORD_RESET_GENERIC_MESSAGE =
 const createPasswordResetToken = () => randomBytes(32).toString("hex");
 
 export const findUserByEmailForPasswordReset = async (email: string) => {
-  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const normalizedEmail = String(email || "")
+    .trim()
+    .toLowerCase();
   if (!normalizedEmail) return null;
   return prisma.user.findUnique({ where: { email: normalizedEmail } });
 };
@@ -1184,7 +1530,11 @@ export const sendPasswordResetChallenge = async (user: {
       channel: "email",
       purpose: "reset_password",
       target: user.email,
-      code_hash: hashOtpCode(token),
+      code_hash: hashOtpCode(token, {
+        userId: user.id,
+        channel: "email",
+        purpose: "reset_password",
+      }),
       expires_at: new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000),
     },
   });
@@ -1263,7 +1613,14 @@ export const confirmPasswordReset = async ({
     throw new Error("Link di reset non valido o scaduto");
   }
 
-  const provided = Buffer.from(hashOtpCode(normalizedToken), "hex");
+  const provided = Buffer.from(
+    hashOtpCode(normalizedToken, {
+      userId: user.id,
+      channel: "email",
+      purpose: "reset_password",
+    }),
+    "hex",
+  );
   const expected = Buffer.from(challenge.code_hash, "hex");
   const matches =
     provided.length === expected.length && timingSafeEqual(provided, expected);

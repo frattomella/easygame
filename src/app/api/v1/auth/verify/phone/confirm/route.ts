@@ -5,6 +5,7 @@ import {
 } from "@/lib/server/observability";
 import { attachSessionCookie, serializeAuthUser } from "@/lib/server/auth";
 import {
+  VerificationRejected,
   buildPendingVerificationResponse,
   confirmPhoneVerification,
   finalizeVerifiedSession,
@@ -32,10 +33,22 @@ export async function POST(request: Request) {
       );
     }
 
+    /*
+      **Due assi anche sulla conferma (PP-05).** La chiave era
+      `canale:utente:indirizzo`: chi cambiava rete azzerava il contatore. Il
+      tetto vero resta quello della challenge — cinque tentativi, in una
+      scrittura condizionata sola — ma questi contatori fermano chi si fa
+      emettere challenge nuove per avere tentativi nuovi, e per farlo devono
+      contare l'account **indipendentemente** dalla rete da cui arriva.
+    */
     const rateLimit = await consumeRequestRateLimits([
       {
+        policy: AUTH_RATE_LIMITS.otpConfirmIp,
+        identifier: `phone:ip:${getRequestIp(request)}`,
+      },
+      {
         policy: AUTH_RATE_LIMITS.otpConfirm,
-        identifier: `phone:${userId}:${getRequestIp(request)}`,
+        identifier: `phone:account:${userId}`,
       },
     ]);
     if (rateLimit) {
@@ -78,10 +91,21 @@ export async function POST(request: Request) {
     attachSessionCookie(response, finalized.session);
     return response;
   } catch (error: any) {
-    if (
-      error?.message !== "Codice non valido o scaduto" &&
-      error?.message !== "Codice SMS non valido"
-    ) {
+    /*
+      **Un errore del server non e un codice sbagliato (PP-05).**
+
+      Questo `catch` rispondeva 400 «Codice non valido o scaduto» a *qualunque*
+      eccezione: un guasto del database, una sessione che non si crea, un
+      difetto introdotto a valle. Chi guardava lo schermo leggeva «il codice e
+      sbagliato», riscriveva lo stesso codice, e bruciava i cinque tentativi
+      contro un guasto che non c'entrava niente — mentre chi guardava i log non
+      vedeva la riga, perche il ramo del codice sbagliato non registra nulla.
+
+      Adesso solo `VerificationRejected` — l'errore che il dominio solleva
+      quando il codice davvero non vale — produce il 400. Tutto il resto e un
+      500 registrato, come su ogni altra rotta.
+    */
+    if (!(error instanceof VerificationRejected)) {
       /*
         **Non l'errore intero** (ADR-0019: i log non devono contenere dati personali).
         Il messaggio di un errore di validazione dell'ORM porta con se l'oggetto che
@@ -95,6 +119,13 @@ export async function POST(request: Request) {
         route: "/api/v1/auth/verify/phone/confirm",
         method: "POST",
       });
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Verifica non riuscita" },
+        },
+        { status: 500 },
+      );
     }
     return NextResponse.json(
       {

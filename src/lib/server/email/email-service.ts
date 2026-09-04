@@ -113,9 +113,32 @@ export const saveSmtpConfiguration = async (
   return toPublicSmtpConfiguration(saved);
 };
 
+let providerOverride: EmailProvider | null | undefined;
+
+/**
+ * Sostituisce il trasporto SMTP per la durata di un test.
+ *
+ * Gemello di `__setSmsProviderForTests`, e per la stessa ragione: una prova
+ * comportamentale deve poter affermare «questo indirizzo ha ricevuto questo
+ * corpo» senza che un byte lasci la macchina, e deve poter affermare
+ * **l'opposto** — «l'anteprima non ha spedito niente» — che e una proprieta
+ * che si dimostra solo contando gli invii verso un doppio.
+ *
+ * Senza questo seme un test dell'email o parlava con un server SMTP vero, o si
+ * fermava al 503 di «non configurato» senza mai arrivare al contenuto.
+ * `undefined` rimette la risoluzione normale.
+ */
+export const __setEmailProviderForTests = (
+  provider: EmailProvider | null | undefined,
+) => {
+  providerOverride = provider;
+};
+
 const createConfiguredProvider = async (
   requireEnabled = true,
 ): Promise<EmailProvider | null> => {
+  if (providerOverride !== undefined) return providerOverride;
+
   const config = await prisma.emailProviderConfig.findUnique({
     where: { id: SMTP_CONFIG_ID },
   });
@@ -144,6 +167,7 @@ const createConfiguredProvider = async (
 };
 
 export const isEmailDeliveryConfigured = async () => {
+  if (providerOverride !== undefined) return providerOverride !== null;
   if (!isCredentialEncryptionAvailable()) return false;
   const config = await prisma.emailProviderConfig.findUnique({
     where: { id: SMTP_CONFIG_ID },

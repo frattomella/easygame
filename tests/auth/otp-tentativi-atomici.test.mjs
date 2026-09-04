@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test, { before, beforeEach } from "node:test";
-import { createHash } from "node:crypto";
 
 import { createFakePrisma } from "../helpers/fake-prisma.mjs";
 
@@ -22,7 +21,16 @@ const UTENTE = "11111111-0000-4000-8000-000000000aaa";
 const CODICE = "654321";
 const TOKEN_RESET = "token-di-reset-lungo-e-imprevedibile";
 
-const impronta = (valore) => createHash("sha256").update(valore).digest("hex");
+/*
+  **L'impronta la calcola il codice di produzione, non il test.**
+
+  Prima era una riga di SHA-256 nuda scritta qui: quando `hashOtpCode` e
+  diventato un HMAC con il pepe e con il legame a canale, scopo e utente
+  (PP-05), questo file e diventato rosso — ed e giusto che lo sia diventato,
+  perche una copia dell'impronta scritta nel test avrebbe continuato a passare
+  qualunque cosa facesse la produzione. Adesso si chiama la stessa funzione.
+*/
+let impronta;
 
 let flussi;
 let MAX_OTP_ATTEMPTS;
@@ -62,6 +70,8 @@ const seed = () => ({
 before(async () => {
   process.env.DATABASE_URL ||= "postgresql://test:test@127.0.0.1:5432/test";
   flussi = await import("../../src/lib/server/auth-workflows.ts");
+  impronta = (valore, purpose = "verify_email", channel = "email") =>
+    flussi.hashOtpCode(valore, { userId: UTENTE, channel, purpose });
   ({ MAX_OTP_ATTEMPTS } = await import("../../src/lib/auth/otp-policy.ts"));
   ({ __setPrismaClientForTests: setPrismaClientForTests } = await import(
     "../../src/lib/server/prisma.ts"
@@ -132,7 +142,7 @@ test("reset password: il token giusto non consuma tentativi se la password che s
     challenge({
       id: "ch-reset",
       purpose: "reset_password",
-      code_hash: impronta(TOKEN_RESET),
+      code_hash: impronta(TOKEN_RESET, "reset_password"),
     }),
   );
 
@@ -180,7 +190,7 @@ test("reset password, controspecchio: il token giusto e una password valida camb
     challenge({
       id: "ch-reset",
       purpose: "reset_password",
-      code_hash: impronta(TOKEN_RESET),
+      code_hash: impronta(TOKEN_RESET, "reset_password"),
     }),
   );
 

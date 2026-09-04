@@ -6,8 +6,10 @@ import {
 import { prisma } from "@/lib/server/prisma";
 import { hashPassword, verifyPassword } from "@/lib/server/auth";
 import {
+  VerificationRejected,
   createVerificationReference,
-  isPhoneVerificationEnabled,
+  canDeliverPhoneOtp,
+  isPhoneVerificationRequired,
   sendEmailVerificationChallenge,
   sendPhoneVerificationChallenge,
 } from "@/lib/server/auth-workflows";
@@ -22,6 +24,11 @@ import {
   validatePassword,
 } from "@/lib/auth/password-policy";
 import { normalizePublicRegistrationRole } from "@/lib/auth/registration-policy";
+import {
+  getPhoneNormalizationMessage,
+  maskPhoneNumber,
+  normalizePhoneNumber,
+} from "@/lib/auth/phone-number";
 import { parseInput, validationErrorPayload } from "@/lib/validation";
 import { registerInputSchema } from "@/lib/validation/schemas";
 import { resolveEmailVerificationPolicy } from "@/lib/auth/email-verification-policy";
@@ -30,6 +37,32 @@ import {
   getEmailErrorMessage,
   isEmailDeliveryConfigured,
 } from "@/lib/server/email/email-service";
+
+/**
+ * Manda il codice, e se il cooldown lo vieta non e un errore.
+ *
+ * La registrazione ripetuta di un indirizzo non ancora verificato riapre la
+ * stessa schermata di verifica: se e passato meno di un minuto dal codice
+ * precedente, `createInternalChallenge` rifiuta di aprirne un altro **e lascia
+ * vivo quello gia inviato**. Da qui la risposta e la stessa di un invio
+ * riuscito, perche per chi guarda lo schermo lo e: il codice che ha in mano
+ * funziona.
+ */
+const senzaCooldown = async (
+  invio: () => Promise<{ sent: boolean; previewCode: string | null }>,
+) => {
+  try {
+    return await invio();
+  } catch (error) {
+    if (
+      error instanceof VerificationRejected &&
+      error.code === "RESEND_TOO_SOON"
+    ) {
+      return { sent: false, previewCode: null };
+    }
+    throw error;
+  }
+};
 
 const registrationResponse = ({
   verificationReference,
@@ -52,9 +85,18 @@ const registrationResponse = ({
         verification: {
           userId: verificationReference,
           email,
-          phone,
+          /*
+            **Mascherato.** Questa risposta esce senza sessione: chi la riceve
+            ha appena scritto il numero e lo riconosce dalle ultime tre cifre,
+            e chi la riceve **per un account che esisteva gia** — il ramo
+            dell'indirizzo occupato, che risponde identico per non rivelare
+            l'occupazione — non deve poter leggere il recapito di quell'altra
+            persona. Restituirlo per intero avrebbe reso quel ramo, nato per
+            non dire niente, il modo piu comodo per farsi dire un numero.
+          */
+          phone: phone ? maskPhoneNumber(phone) : null,
           emailRequired: true,
-          phoneRequired: Boolean(phone),
+          phoneRequired: Boolean(phone) && isPhoneVerificationRequired(),
           emailPreviewCode,
           phonePreviewCode,
         },
@@ -134,13 +176,38 @@ export async function POST(request: Request) {
     );
     const first_name = String(userData.firstName || "").trim() || null;
     const last_name = String(userData.lastName || "").trim() || null;
-    const phoneVerificationEnabled = isPhoneVerificationEnabled();
+    const phoneVerificationEnabled = canDeliverPhoneOtp();
     const emailVerificationPolicy = resolveEmailVerificationPolicy(
       await isEmailDeliveryConfigured(),
     );
-    const phone = phoneVerificationEnabled
-      ? String(userData.phone || "").trim() || null
-      : null;
+
+    /*
+      **Email e cellulare sono entrambi obbligatori (ADR-0115).**
+
+      Prima il numero si raccoglieva solo se un fornitore SMS era configurato,
+      quindi su ogni installazione reale non si raccoglieva affatto e l'intero
+      flusso di verifica era irraggiungibile. Adesso il numero si chiede
+      sempre, si normalizza in E.164 e si rifiuta se non e un cellulare: e un
+      dato del prodotto, non una funzione del fornitore.
+
+      Il rifiuto arriva **prima** di guardare se l'indirizzo esista gia: un
+      numero malformato risponde allo stesso modo per un indirizzo libero e per
+      uno occupato, e non diventa quindi un modo per sapere quale dei due sia.
+    */
+    const numero = normalizePhoneNumber(userData.phone);
+    if (!numero.valid) {
+      return NextResponse.json(
+        {
+          data: { user: null, session: null },
+          error: {
+            message: getPhoneNormalizationMessage(numero.reason),
+            code: "INVALID_PHONE",
+          },
+        },
+        { status: 400 },
+      );
+    }
+    const phone = numero.e164;
     const organization_name = String(
       userData.organizationName ||
         [first_name, last_name].filter(Boolean).join(" ").trim() ||
@@ -160,16 +227,20 @@ export async function POST(request: Request) {
           data: { token_verification_id: verificationReference },
         });
         const emailChallenge = emailVerificationPolicy.canSendOtp
-          ? await sendEmailVerificationChallenge(pendingUser, "signup")
+          ? await senzaCooldown(() =>
+              sendEmailVerificationChallenge(pendingUser, "signup"),
+            )
           : { sent: false, previewCode: null };
         const phoneChallenge = phoneVerificationEnabled
-          ? await sendPhoneVerificationChallenge(pendingUser, "signup")
+          ? await senzaCooldown(() =>
+              sendPhoneVerificationChallenge(pendingUser, "signup"),
+            )
           : { sent: false, previewCode: null };
 
         return registrationResponse({
           verificationReference,
           email,
-          phone: phoneVerificationEnabled ? pendingUser.phone || null : null,
+          phone: pendingUser.phone || null,
           emailPreviewCode: emailChallenge.previewCode,
           phonePreviewCode: phoneChallenge.previewCode,
         });
@@ -192,7 +263,16 @@ export async function POST(request: Request) {
         first_name,
         last_name,
         phone,
-        phone_verification_required: Boolean(phoneVerificationEnabled && phone),
+        /*
+          **Il flag si scrive sempre a `true`.** Prima dipendeva dalla presenza
+          di un fornitore SMS: un account creato prima del contratto restava
+          `false` per sempre, e non tornava mai a chiedere la verifica quando
+          l'operatore arrivava. Il flag dice «questo account deve verificare il
+          numero», che e una proprieta dell'account; se la verifica **blocchi**
+          l'accesso lo decide `isPhoneVerificationRequired()` al momento della
+          sessione, che e una proprieta dell'installazione e cambia con essa.
+        */
+        phone_verification_required: true,
         role,
         is_club_creator: shouldCreateClub,
         organization_name: shouldCreateClub ? organization_name : null,
@@ -215,10 +295,14 @@ export async function POST(request: Request) {
     });
 
     const emailChallenge = emailVerificationPolicy.canSendOtp
-      ? await sendEmailVerificationChallenge(createdUser, "signup")
+      ? await senzaCooldown(() =>
+          sendEmailVerificationChallenge(createdUser, "signup"),
+        )
       : { sent: false, previewCode: null };
     const phoneChallenge = phoneVerificationEnabled
-      ? await sendPhoneVerificationChallenge(createdUser, "signup")
+      ? await senzaCooldown(() =>
+          sendPhoneVerificationChallenge(createdUser, "signup"),
+        )
       : { sent: false, previewCode: null };
 
     return registrationResponse({

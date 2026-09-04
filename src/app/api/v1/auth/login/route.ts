@@ -14,9 +14,10 @@ import {
   verifyPassword,
 } from "@/lib/server/auth";
 import {
+  VerificationRejected,
   finalizeVerifiedSession,
-  isPhoneVerificationEnabled,
-  sendEmailVerificationChallenge,
+  isPhoneVerificationBlocking,
+  maskStoredPhone,
   sendPhoneVerificationChallenge,
 } from "@/lib/server/auth-workflows";
 import {
@@ -138,68 +139,54 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!user.email_verified_at) {
-      const emailVerificationPolicy = resolveEmailVerificationPolicy(
-        await isEmailDeliveryConfigured(),
-      );
-      if (emailVerificationPolicy.canSendOtp) {
-        const otpRateLimit = await consumeRequestRateLimits([
-          {
-            policy: AUTH_RATE_LIMITS.otpSend,
-            identifier: `email:${user.id}:${ip}`,
-          },
-        ]);
-        if (otpRateLimit) return rateLimitedResponse(otpRateLimit);
-      }
+    /*
+      **L'email non ferma piu il login (ADR-0115).**
 
-      const emailChallenge = emailVerificationPolicy.canSendOtp
-        ? await sendEmailVerificationChallenge(user, "login")
-        : { sent: false, previewCode: null };
-      return NextResponse.json(
-        {
-          data: {
-            user: serializeAuthUser(user),
-            session: null,
-            verification: {
-              userId: user.id,
-              email: user.email,
-              phone: user.phone || null,
-              emailRequired: true,
-              phoneRequired: Boolean(
-                isPhoneVerificationEnabled() &&
-                  user.phone_verification_required &&
-                  user.phone,
-              ),
-              emailPreviewCode: emailChallenge.previewCode,
-            },
-          },
-          error: {
-            message: "Email non verificata",
-            code: "EMAIL_NOT_VERIFIED",
-          },
-        },
-        { status: 403 },
-      );
-    }
+      Qui c'era un 403 `EMAIL_NOT_VERIFIED` che rimandava indietro chiunque non
+      avesse confermato l'indirizzo, e su un'installazione senza SMTP quel ramo
+      non poteva nemmeno mandare il codice: l'account restava inutilizzabile per
+      sempre. La regola nuova e che l'indirizzo e obbligatorio e si verifica
+      **dopo**; l'avviso e la chiamata all'azione vivono sulla pagina Account,
+      che adesso si puo raggiungere.
 
-    if (
-      isPhoneVerificationEnabled() &&
-      user.phone_verification_required &&
-      user.phone &&
-      !user.phone_verified_at
-    ) {
+      Resta il blocco del telefono, ed e l'unico: sotto, `finalizeVerifiedSession`
+      restituisce `session: null` quando `isPhoneVerificationBlocking`, e questa
+      rotta risponde 403 `PHONE_NOT_VERIFIED` mandando il codice. Un ramo solo
+      invece dei due che c'erano: chi decide che cosa blocchi e il dominio, non
+      la rotta, ed e la ragione per cui prima le due condizioni erano scritte
+      qui **e** dentro `finalizeVerifiedSession`, con il rischio di divergere.
+    */
+    if (isPhoneVerificationBlocking(user)) {
       const otpRateLimit = await consumeRequestRateLimits([
         {
-          policy: AUTH_RATE_LIMITS.otpSend,
-          identifier: `phone:${user.id}:${ip}`,
+          policy: AUTH_RATE_LIMITS.otpSendIp,
+          identifier: `phone:ip:${ip}`,
+        },
+        {
+          policy: AUTH_RATE_LIMITS.otpSendAccount,
+          identifier: `phone:account:${user.id}`,
         },
       ]);
       if (otpRateLimit) return rateLimitedResponse(otpRateLimit);
 
+      /*
+        Il cooldown non deve trasformare un login in un errore: se il codice e
+        partito da meno di un minuto, quello che la persona ha in mano e ancora
+        buono, e la risposta e la stessa.
+      */
       const phoneChallenge = await sendPhoneVerificationChallenge(
         user,
         "login",
-      );
+      ).catch((error) => {
+        if (
+          error instanceof VerificationRejected &&
+          error.code === "RESEND_TOO_SOON"
+        ) {
+          return { sent: false, previewCode: null };
+        }
+        throw error;
+      });
+
       return NextResponse.json(
         {
           data: {
@@ -208,8 +195,9 @@ export async function POST(request: Request) {
             verification: {
               userId: user.id,
               email: user.email,
-              phone: user.phone,
-              emailRequired: false,
+              /* Mascherato: vedi `buildVerificationPayload`. */
+              phone: maskStoredPhone(user.phone),
+              emailRequired: !user.email_verified_at,
               phoneRequired: true,
               phonePreviewCode: phoneChallenge.previewCode,
             },

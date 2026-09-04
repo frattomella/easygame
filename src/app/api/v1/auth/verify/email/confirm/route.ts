@@ -5,6 +5,7 @@ import {
 } from "@/lib/server/observability";
 import { attachSessionCookie, serializeAuthUser } from "@/lib/server/auth";
 import {
+  VerificationRejected,
   buildPendingVerificationResponse,
   confirmEmailVerification,
   finalizeVerifiedSession,
@@ -32,10 +33,15 @@ export async function POST(request: Request) {
       );
     }
 
+    /* Due assi, come sulla conferma del telefono (PP-05). */
     const rateLimit = await consumeRequestRateLimits([
       {
+        policy: AUTH_RATE_LIMITS.otpConfirmIp,
+        identifier: `email:ip:${getRequestIp(request)}`,
+      },
+      {
         policy: AUTH_RATE_LIMITS.otpConfirm,
-        identifier: `email:${userId}:${getRequestIp(request)}`,
+        identifier: `email:account:${userId}`,
       },
     ]);
     if (rateLimit) {
@@ -78,7 +84,8 @@ export async function POST(request: Request) {
     attachSessionCookie(response, finalized.session);
     return response;
   } catch (error: any) {
-    if (error?.message !== "Codice non valido o scaduto") {
+    /* Un errore del server non e un codice sbagliato: vedi la rotta gemella. */
+    if (!(error instanceof VerificationRejected)) {
       /*
         **Non l'errore intero** (ADR-0019: i log non devono contenere dati personali).
         Il messaggio di un errore di validazione dell'ORM porta con se l'oggetto che
@@ -92,6 +99,13 @@ export async function POST(request: Request) {
         route: "/api/v1/auth/verify/email/confirm",
         method: "POST",
       });
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Verifica non riuscita" },
+        },
+        { status: 500 },
+      );
     }
     return NextResponse.json(
       {
