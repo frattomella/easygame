@@ -861,6 +861,32 @@ export const unlinkParentGuardians = async (
 
     if (!changed) continue;
 
+    /*
+      **Anche questa strada registra le identita revocate.**
+
+      Questo e lo sweep che segue la revoca di una **tessera** — e l'uscita
+      volontaria dal club — e ripuliva le righe senza lasciare traccia
+      dell'identita. Chi era stato tolto poteva quindi rientrare esattamente
+      come dall'altra porta: una riga sorella con lo stesso indirizzo, scritta
+      a mano o creata dall'approvazione di un modulo.
+
+      Due strade per togliere l'accesso, e una sola che lo registrava: e la
+      forma di asimmetria che questo pacchetto ha gia pagato tre volte.
+    */
+    const identita = new Set<string>(
+      (Array.isArray((data as any).revokedGuardianIdentities)
+        ? (data as any).revokedGuardianIdentities
+        : []
+      )
+        .map((valore: unknown) => String(valore || "").trim().toLowerCase())
+        .filter(Boolean) as string[],
+    );
+    for (const valore of [userId, userEmail]) {
+      const pulito = String(valore || "").trim().toLowerCase();
+      if (pulito) identita.add(pulito);
+    }
+    (data as any).revokedGuardianIdentities = Array.from(identita) as string[];
+
     await tx.athlete.update({ where: { id: athlete.id }, data: { data } });
     updated += 1;
   }

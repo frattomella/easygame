@@ -3605,6 +3605,80 @@ const sezioneW = async () => {
 
   await prisma.athlete.delete({ where: { id: FIGLIO_AGGIRO } });
 
+  /*
+    **W-14. La revoca della tessera, che e l'altra porta.**
+
+    `unlinkParentGuardians` e lo sweep che segue la revoca di una **tessera** —
+    e l'uscita volontaria dal club. Ripuliva le righe e non registrava
+    l'identita, quindi da questa strada si rientrava esattamente come
+    dall'altra: una riga sorella con lo stesso indirizzo. Due modi di togliere
+    l'accesso e uno solo che lo scriveva.
+  */
+  const FIGLIO_TESSERA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_TESSERA,
+      organization_id: CLUB,
+      first_name: "Tea",
+      last_name: "Tessera",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "t-anna", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+        ],
+      },
+    },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await legami.unlinkParentGuardians(
+      tx,
+      CLUB,
+      ANNA.id,
+      ANNA.email,
+      "parent",
+    );
+  });
+
+  const dopoSweep = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_TESSERA },
+      select: { data: true },
+    })
+  )?.data;
+
+  prova(
+    "W-14 lo sweep della tessera registra l'identita, non solo la riga",
+    true,
+    (dopoSweep?.revokedGuardianIdentities || []).includes(
+      String(ANNA.email).toLowerCase(),
+    ),
+    "prima: la riga si ripuliva e l'identita non restava scritta",
+  );
+
+  /* E la riga sorella non riapre nemmeno da questa strada. */
+  await prisma.athlete.update({
+    where: { id: FIGLIO_TESSERA },
+    data: {
+      data: {
+        ...dopoSweep,
+        guardians: [
+          ...(dopoSweep?.guardians || []),
+          { id: "t-sorella", name: "Anna", email: ANNA.email },
+        ],
+      },
+    },
+  });
+
+  prova(
+    "W-14b e la riga sorella non riapre nemmeno dopo la revoca della tessera",
+    false,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_TESSERA),
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_TESSERA } });
+
   /* ------------- W7: un ragazzo non e tutore di se stesso --------------- */
 
   /*
