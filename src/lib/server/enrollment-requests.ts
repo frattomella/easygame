@@ -666,10 +666,20 @@ export const listFamilyOnlineForms = async (
       organization_id: organizationId,
       template_id: { in: candidati.map((riga) => riga.id) },
       status: { in: ["pending", "approved"] },
+      /*
+        Il filtro sul figlio lo fa il database: senza, un tetto di
+        cinquecento righe su un club grande poteva lasciare fuori proprio la
+        compilazione di questo atleta, e la card avrebbe detto «Da compilare»
+        a chi lo aveva gia fatto. `array_contains` diventa un `@>`, che su un
+        array JSON accetta un oggetto parziale.
+
+        Il vaglio in memoria resta e decide comunque: una condizione non
+        valutata restituirebbe **piu** righe, non meno.
+      */
+      subjects: { array_contains: [{ recordId: atleta }] },
     },
     select: { template_id: true, subjects: true, submitted_at: true },
     orderBy: { submitted_at: "desc" },
-    take: 500,
   })) as Array<{
     template_id: string;
     subjects: unknown;

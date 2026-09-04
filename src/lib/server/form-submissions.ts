@@ -673,14 +673,33 @@ const assertNonGiaCompilato = async (
     .filter(Boolean);
   if (!soggetti.length) return;
 
+  /*
+    **Il filtro sul soggetto lo fa il database, e il vaglio lo rifa la memoria.**
+
+    Qui c'era `take: 500` e nessun filtro sul soggetto: su un modulo di
+    iscrizione di un club grande la compilazione di un atleta poteva **non**
+    stare nelle ultime cinquecento, e il vincolo sarebbe caduto in silenzio —
+    proprio sui club per cui serve.
+
+    `array_contains` diventa un `@>` di Postgres, che su un array JSON accetta
+    un oggetto **parziale**: la riga passa se contiene una selezione con quel
+    soggetto e quell'identificativo, qualunque etichetta porti accanto.
+
+    Il vaglio in memoria resta, e non e una ripetizione: se un domani questa
+    condizione non venisse valutata — un doppio di prova che non la conosce, un
+    cambio di adattatore — restituirebbe **piu** righe, non meno, e la seconda
+    lettura decide comunque. Il verso in cui si sbaglia e quello sicuro.
+  */
   const vive = (await (prisma as any).formSubmission.findMany({
     where: {
       organization_id: match.organizationId,
       template_id: match.templateId,
       status: { in: ["pending", "approved"] },
+      OR: soggetti.map((recordId) => ({
+        subjects: { array_contains: [{ recordId }] },
+      })),
     },
     select: { subjects: true },
-    take: 500,
   })) as Array<{ subjects: unknown }>;
 
   const gia = vive.some((riga) =>
