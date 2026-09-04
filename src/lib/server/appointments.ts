@@ -17,6 +17,7 @@ import { createClubNotifications } from "./club-notifications";
 import { sendNotificationEmails } from "./email/email-service";
 import { canParentAccessAthlete } from "./parent-dashboard";
 import {
+  familyCanRequestAppointment,
   findAppointmentType,
   normalizeAppointmentsConfig,
   type AppointmentsConfig,
@@ -1648,7 +1649,7 @@ const risolviMotivoDellaFamiglia = async (
   motivoCorrente?: string | null,
 ) => {
   const configurazione = await readAppointmentsConfig(organizationId);
-  if (!configurazione.familyBookingEnabled) {
+  if (!familyCanRequestAppointment(configurazione)) {
     throw new Error(
       "Questa societa non riceve richieste di appuntamento online: contatta la segreteria",
     );

@@ -116,6 +116,21 @@ const normalizeText = (value: unknown) =>
     .trim()
     .toLowerCase();
 
+/**
+ * Lo stato di un **atleta**, che non e lo stato di un evento.
+ *
+ * Le stesse quattro parole della schermata di scelta del figlio: se un giorno
+ * divergessero, una delle due mentirebbe.
+ */
+const etichettaStatoAtleta = (status: unknown) => {
+  const normalizzato = normalizeText(status);
+  if (normalizzato === "suspended") return "Sospeso";
+  if (normalizzato === "loan") return "In prestito";
+  if (normalizzato === "inactive") return "Non piu iscritto";
+  if (normalizzato === "active") return "Iscritto";
+  return "";
+};
+
 const getStatusLabel = (status: unknown) => {
   const normalized = normalizeText(status);
   if (["completed", "concluded", "concluso", "conclusa"].includes(normalized)) {
@@ -845,7 +860,17 @@ export function ParentAthletePage() {
                 },
                 { label: "Nazionalita", value: athlete.nationality },
                 { label: "Genere", value: athlete.gender },
-                { label: "Stato", value: getStatusLabel(athlete.status) },
+                {
+                  /*
+                    **M5.** Passava dal `getStatusLabel` degli eventi, che non
+                    conosce `active`, `inactive`, `suspended` e `loan`: ogni
+                    figlio, iscritto o no, leggeva «In programma» sulla propria
+                    scheda. Compreso quello non piu iscritto, per cui §B ha
+                    appena scritto l'etichetta giusta sulla schermata di scelta.
+                  */
+                  label: "Stato",
+                  value: etichettaStatoAtleta(athlete.status),
+                },
               ]}
             />
           </CardContent>
@@ -2003,20 +2028,28 @@ export function ParentDocumentsPage() {
                       variant="outline"
                       onClick={() =>
                         /*
-                          **Dove porta dipende da cosa e il modulo.**
+                          **Si compila qui dentro, sempre**, e il tipo della
+                          pratica lo decide il modulo (`isEnrollment`), non la
+                          porta.
 
-                          Prima portava tutti alla pagina Iscrizione, che apre
-                          il flusso di rinnovo. Su un questionario quella
-                          schermata dice «Il rinnovo e lo stesso modulo
-                          dell'iscrizione» e l'invio nasce `kind: "renewal"`:
-                          la segreteria si trovava una pratica di rinnovo che
-                          non era un rinnovo. Un modulo generico si compila
-                          dove i moduli generici si compilano.
+                          Ci sono voluti due tentativi. Il difetto di partenza
+                          era che ogni modulo diventava una pratica di
+                          **rinnovo**: un questionario di gradimento arrivava
+                          in segreteria da approvare. Il primo rimedio mandava
+                          i moduli generici alla pagina pubblica
+                          `/forms/<slug>`, che e **anonima**: l'invio nasceva
+                          senza soggetto e senza autore, quindi il legame con
+                          il figlio si perdeva, la card restava «Da compilare»
+                          per sempre anche dopo dieci invii, e l'interruttore
+                          «una volta sola» del club diventava inerte. Il
+                          genitore usciva anche dal guscio dell'area famiglia
+                          senza una via di rientro.
+
+                          La destinazione non era il problema: lo era il tipo
+                          scritto fisso all'arrivo. Adesso lo si deriva.
                         */
                         router.push(
-                          modulo.isEnrollment
-                            ? `/parent-view/${data.athlete.id}/enrollment?modulo=${encodeURIComponent(modulo.publicSlug)}`
-                            : `/forms/${encodeURIComponent(modulo.publicSlug)}`,
+                          `/parent-view/${data.athlete.id}/enrollment?modulo=${encodeURIComponent(modulo.publicSlug)}`,
                         )
                       }
                     >
@@ -2589,17 +2622,68 @@ export function ParentSecretariatPage() {
                         {appointment.notes}
                       </span>
                     ) : null}
+                    {/*
+                      Il motivo della risposta della segreteria: senza, un
+                      rifiuto e una porta chiusa senza spiegazione, e la
+                      famiglia non sa cosa correggere per riprovare.
+                    */}
+                    {appointment.decision_note ? (
+                      <span className="mt-1 block text-sm text-amber-800">
+                        Risposta della segreteria: {appointment.decision_note}
+                      </span>
+                    ) : null}
                   </div>
+                  {/*
+                    **La riga legge cio che la proiezione le manda.**
+
+                    Prima non ne leggeva niente. `toFamilyAppointment` calcola
+                    `status_label`, `decision_note`, `can_reschedule` e
+                    `can_cancel`, e la schermata li ignorava tutti e quattro:
+
+                    - il badge passava dal `getStatusLabel` locale, scritto per
+                      il vocabolario degli **eventi**. `cancelled_by_family`,
+                      `cancelled_by_club`, `rescheduled` e `no_show` non ci
+                      sono, e cadevano tutti sul ripiego «In programma». Una
+                      famiglia che disdiceva il proprio appuntamento leggeva la
+                      conferma della disdetta e poi, nella riga, che
+                      l'appuntamento **e in programma**;
+                    - «Elimina» compariva quando lo stato non era `"cancelled"`,
+                      che non e nel codominio: la condizione era **sempre vera**.
+                      Il pulsante stava su ogni riga storica — rifiutata,
+                      conclusa, gia annullata — e premendolo si otteneva il
+                      messaggio interno del dominio sulle transizioni non
+                      ammesse;
+                    - `decision_note` non era disegnata da nessuna parte. E il
+                      motivo del rifiuto, cioe la sola cosa che rende utile una
+                      risposta negativa: la segreteria lo scriveva e la famiglia
+                      leggeva «Rifiutato» e basta.
+
+                    Chi puo fare cosa lo dice il dominio, che conosce le
+                    transizioni. Qui non si ricalcola: si obbedisce.
+                  */}
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge
                       variant="outline"
-                      className={cn("border", getStatusClassName(appointment.status))}
+                      className={cn(
+                        "border",
+                        getStatusClassName(appointment.status),
+                      )}
                     >
-                      {getStatusLabel(appointment.status)}
+                      {appointment.status_label ||
+                        getStatusLabel(appointment.status)}
                     </Badge>
-                    {["pending", "requested", "richiesto"].includes(
-                      normalizeText(appointment.status),
-                    ) ? (
+                    {/*
+                      **M1.** `can_reschedule` dice che il **dominio** lo
+                      consente; `prenotazioniAperte` dice che il club accetta
+                      richieste, e riprogrammare crea una richiesta nuova
+                      (ADR-0101). Senza il secondo, il pulsante si disegnava,
+                      impostava lo stato di modifica e poi non succedeva
+                      niente a schermo: il modulo non viene reso quando le
+                      richieste sono chiuse. Disdire invece resta possibile —
+                      chiudere le richieste non e intrappolare chi ne ha gia
+                      una.
+                    */}
+                    {appointment.can_reschedule && prenotazioniAperte ? (
                       <Button
                         type="button"
                         variant="outline"
@@ -2610,7 +2694,7 @@ export function ParentSecretariatPage() {
                         Modifica
                       </Button>
                     ) : null}
-                    {normalizeText(appointment.status) !== "cancelled" ? (
+                    {appointment.can_cancel ? (
                       <Button
                         type="button"
                         variant="outline"
@@ -2618,7 +2702,7 @@ export function ParentSecretariatPage() {
                         onClick={() => setDaDisdire(appointment)}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
-                        Elimina
+                        Disdici
                       </Button>
                     ) : null}
                   </div>

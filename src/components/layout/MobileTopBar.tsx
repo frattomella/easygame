@@ -210,12 +210,30 @@ interface MobileTopBarProps {
   showHubLink?: boolean;
   title?: string;
   navSectionsOverride?: MobileNavSection[];
+  /**
+   * **Il club e la stagione detti dal server**, quando chi guarda non ha una
+   * tessera.
+   *
+   * PP-02 §C ha chiuso su `Header` il difetto per cui un tutore collegato
+   * senza tessera leggeva «EasyGame» e «Nessuna stagione attiva»: la barra
+   * pescava da `activeClub` in `localStorage`, che e una **copia** e per lui
+   * non esiste. Ma la correzione si fermava li, e `Header` non passava niente
+   * a questa barra — che e quella che si vede **sotto i 1024 px**, cioe su
+   * ogni telefono e ogni tablet, i due viewport che quel pacchetto cita in
+   * ogni sezione. Meta degli utenti vedeva ancora il difetto.
+   */
+  clubIdentity?: {
+    name: string;
+    seasonLabel: string | null;
+    logoUrl?: string | null;
+  } | null;
 }
 
 export const MobileTopBar: React.FC<MobileTopBarProps> = ({
   showHubLink = true,
   title,
   navSectionsOverride,
+  clubIdentity = null,
 }) => {
   const { user, activeClub } = useAuth();
   const router = useRouter();
@@ -325,9 +343,17 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
       <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 lg:hidden">
         <ClubIdentity
           compact
-          clubName={activeClub?.name || "EasyGame"}
-          seasonLabel={activeClub?.activeSeasonLabel || null}
-          logoUrl={activeClub?.logo_url || null}
+          clubName={clubIdentity?.name || activeClub?.name || "EasyGame"}
+          seasonLabel={
+            clubIdentity
+              ? clubIdentity.seasonLabel
+              : activeClub?.activeSeasonLabel || null
+          }
+          logoUrl={
+            clubIdentity
+              ? clubIdentity.logoUrl || null
+              : activeClub?.logo_url || null
+          }
           className="min-w-0 flex-1"
         />
 

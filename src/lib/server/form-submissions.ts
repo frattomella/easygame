@@ -40,6 +40,7 @@ import {
   fieldIsFile,
   formatAnswer,
   getSchemaSubjects,
+  isEnrollmentForm,
   normalizeFormSchema,
   type FormSchema,
   type FormSubmissionFile,
@@ -965,7 +966,24 @@ export const submitRenewalForm = async (
     throw new FormSubmissionError("Modulo non disponibile", 404);
   }
 
-  const seasons = await readClubSeasonState(match.organizationId);
+  /*
+    **Il tipo lo decide il modulo, non la porta da cui si entra.**
+
+    Questa funzione e la strada con cui una famiglia invia un modulo pubblicato
+    *per un proprio figlio*, e per una Wave l'unico modulo che ci passava era
+    il rinnovo: da li il nome, e da li `kind: "renewal"` scritto fisso. Quando
+    il fascicolo ha aperto la stessa strada a **tutti** i moduli pubblicati,
+    quella costante ha iniziato a mentire: un questionario di gradimento
+    arrivava in segreteria come pratica di rinnovo.
+
+    Una compilazione che non e un'iscrizione non porta nemmeno una stagione:
+    la stagione e cio che una pratica di iscrizione decide, e un questionario
+    non decide niente.
+  */
+  const iscrizione = isEnrollmentForm(match.schema);
+  const seasons = iscrizione
+    ? await readClubSeasonState(match.organizationId)
+    : null;
 
   return storeSubmission({
     match,
@@ -981,8 +999,8 @@ export const submitRenewalForm = async (
     ],
     submittedBy: asText(userId) || null,
     requireNarrowMimeTypes: true,
-    kind: "renewal",
-    seasonId: seasons.activeSeasonId || null,
+    kind: iscrizione ? "renewal" : "submission",
+    seasonId: seasons?.activeSeasonId || null,
   });
 };
 

@@ -166,6 +166,30 @@ export const normalizeAppointmentsConfig = (
 };
 
 /** I tipi che una famiglia puo scegliere. */
+/**
+ * **Se la famiglia puo davvero chiedere un appuntamento.**
+ *
+ * Non basta l'interruttore. Con i motivi configurati il dominio non accetta
+ * piu testo libero, e vuole **un motivo prenotabile**: un club che configura
+ * dei motivi e poi li lascia tutti «solo dal desk» — due clic sulla casella —
+ * non riceve piu nessuna richiesta online.
+ *
+ * Prima questa verita esisteva solo dentro il vaglio del server. Il cruscotto
+ * mandava alla famiglia i soli motivi **prenotabili**, che erano zero, e la
+ * schermata leggeva quello zero come «il club non ha configurato niente»:
+ * rendeva il campo libero, lo accettava, e il server rispondeva ogni volta
+ * «Scegli il motivo fra quelli proposti» — con zero motivi proposti da
+ * qualsiasi parte. Un vicolo cieco, senza una frase che lo spiegasse.
+ *
+ * La porta si chiude in un posto solo, e chi la guarda ne legge lo stesso
+ * stato del server.
+ */
+export const familyCanRequestAppointment = (config: AppointmentsConfig) => {
+  if (!config.familyBookingEnabled) return false;
+  if (!config.types.length) return true;
+  return bookableAppointmentTypes(config).length > 0;
+};
+
 export const bookableAppointmentTypes = (config: AppointmentsConfig) =>
   config.types.filter((tipo) => tipo.bookable);
 

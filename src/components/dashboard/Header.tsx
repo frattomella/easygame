@@ -459,6 +459,12 @@ const Header = memo(
           <MobileTopBar
             showHubLink={showMobileHubLink}
             title={title}
+            /*
+              **La stessa identita che vale sopra i 1024 px.** Senza questa
+              riga la correzione di §C valeva solo su desktop, e il viewport
+              che l'area famiglia usa davvero e l'altro.
+            */
+            clubIdentity={clubIdentity}
             navSectionsOverride={mobileNavSections}
           />
         </div>

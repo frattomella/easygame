@@ -14,6 +14,7 @@ import { normalizePaymentSettings } from "@/lib/payments/payment-config-utils";
 import { resolveFamilyCheckoutChannel } from "@/lib/payments/family-checkout";
 import {
   bookableAppointmentTypes,
+  familyCanRequestAppointment,
   normalizeAppointmentsConfig,
 } from "@/lib/appointments/config";
 import {
@@ -1810,7 +1811,26 @@ export const getParentDashboardData = async (
       */
       data: stripGuardianAccessTokens(selectedAthlete.data),
       guardians: getGuardianRows(selectedAthlete),
-      linkedAthletes: linkedAthletes.map(serializeAthleteCard),
+      /*
+        **La quarta proiezione aperta, nello stesso file appena bonificato.**
+
+        `serializeAthleteCard` e nata per l'atleta **selezionato** e porta una
+        ventina di campi: codice fiscale, luogo di nascita, indirizzo, telefono,
+        email, genere, nazionalita. Usarla anche per i fratelli voleva dire
+        spedirli tutti, per ogni figlio, a ogni caricamento di tutte e tredici
+        le pagine — quando cio che serve qui e un elenco per scegliere.
+
+        Non sono dati di un'altra famiglia: sono i figli di chi legge. Ma e la
+        stessa proprieta che questo file difende per nome tre volte poche righe
+        piu su, e valeva anche qui.
+      */
+      linkedAthletes: linkedAthletes.map((figlio: any) => ({
+        id: figlio.id,
+        organization_id: figlio.organization_id,
+        name: getAthleteDisplayName(figlio),
+        birth_date: toIso(figlio.birth_date),
+        category_name: figlio.category_name || null,
+      })),
     },
     health: {
       certificates,
@@ -1969,7 +1989,14 @@ export const getParentDashboardData = async (
         ha chiuso le prenotazioni produce un rifiuto dopo il gesto.
       */
       config: {
-        familyBookingEnabled: configurazioneAppuntamenti.familyBookingEnabled,
+        /*
+          **Non e l'interruttore: e se la richiesta puo davvero partire.**
+          Un club con dei motivi tutti «solo dal desk» tiene l'interruttore
+          acceso e non riceve nulla, e la schermata deve poterlo dire.
+        */
+        familyBookingEnabled: familyCanRequestAppointment(
+          configurazioneAppuntamenti,
+        ),
         types: bookableAppointmentTypes(configurazioneAppuntamenti).map(
           (tipo) => ({ id: tipo.id, name: tipo.name }),
         ),

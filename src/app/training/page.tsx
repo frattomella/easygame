@@ -628,14 +628,24 @@ export default function TrainingPage() {
     window.history.replaceState(window.history.state, "", nextUrl);
   }, []);
 
-  /**
-   * **Ricarica, e restituisce cio che ha ricaricato.**
-   *
-   * Serve al ramo del conflitto ottimistico: dopo la ricarica il modale di
-   * modifica va risincronizzato sulla riga fresca, e leggerlo da `trainings`
-   * subito dopo darebbe la copia vecchia — lo stato di React non e ancora
-   * cambiato dentro la stessa funzione.
-   */
+/**
+ * **Il messaggio del server, e la ricarica quando serve.**
+ *
+ * I due pulsanti «Annulla» e «Ripristina» adesso mandano la versione, quindi
+ * possono fallire per conflitto — per esempio se qualcun altro ha salvato le
+ * convocazioni, che la incrementano. I loro rami d'errore pero inghiottivano
+ * il messaggio e non ricaricavano: la versione locale restava vecchia e ogni
+ * tentativo successivo falliva allo stesso modo, per sempre, finche non si
+ * ricaricava la pagina a mano.
+ *
+ * E la stessa forma della High appena chiusa sulla modifica, sui due pulsanti
+ * accanto.
+ */
+const messaggioDiErrore = (error: any, ripiego: string) => {
+  const messaggio = String(error?.message || "").trim();
+  return messaggio || ripiego;
+};
+
 /**
  * **La versione che il server ha appena scritto.**
  *
@@ -651,6 +661,14 @@ const versioneSalvata = (risposta: any): number | null => {
   return null;
 };
 
+  /**
+   * **Ricarica, e restituisce cio che ha ricaricato.**
+   *
+   * Serve al ramo del conflitto ottimistico: dopo la ricarica il modale di
+   * modifica va risincronizzato sulla riga fresca, e leggerlo da `trainings`
+   * subito dopo darebbe la copia vecchia — lo stato di React non e ancora
+   * cambiato dentro la stessa funzione.
+   */
   const loadData = React.useCallback(async (): Promise<
     TrainingSession[] | undefined
   > => {
@@ -1795,8 +1813,20 @@ const versioneSalvata = (risposta: any): number | null => {
                                           );
                                           showToast(
                                             "error",
-                                            "Errore durante l'annullamento",
+                                            messaggioDiErrore(
+                                              error,
+                                              "Errore durante l'annullamento",
+                                            ),
                                           );
+                                          if (
+                                            /modificato da qualcun altro/i.test(
+                                              String(
+                                                (error as any)?.message || "",
+                                              ),
+                                            )
+                                          ) {
+                                            await loadData();
+                                          }
                                         }
                                       }}
                                     >
@@ -1849,8 +1879,20 @@ const versioneSalvata = (risposta: any): number | null => {
                                           );
                                           showToast(
                                             "error",
-                                            "Errore durante il ripristino",
+                                            messaggioDiErrore(
+                                              error,
+                                              "Errore durante il ripristino",
+                                            ),
                                           );
+                                          if (
+                                            /modificato da qualcun altro/i.test(
+                                              String(
+                                                (error as any)?.message || "",
+                                              ),
+                                            )
+                                          ) {
+                                            await loadData();
+                                          }
                                         }
                                       }}
                                     >

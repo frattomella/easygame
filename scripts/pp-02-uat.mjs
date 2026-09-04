@@ -45,6 +45,7 @@
  * semina comincia cancellando i residui di un'esecuzione interrotta.
  */
 
+import fs from "node:fs";
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -2626,6 +2627,368 @@ const sezioneS = async () => {
   );
 };
 
+/** Il sorgente di un file, per le poche prove che guardano la schermata. */
+const leggiSorgente = (rel) =>
+  fs.readFileSync(path.resolve(rel), "utf8");
+
+/* ==================================================================== */
+/*  §T — cio che la QUARTA revisione indipendente ha trovato            */
+/* ==================================================================== */
+
+/**
+ * **Il round che doveva tornare pulito, e non e tornato pulito.**
+ *
+ * Le otto correzioni del terzo round hanno retto tutte alla verifica. Ma la
+ * stessa lettura ne ha trovate altre quattro di gravita alta, e sono **tutte
+ * la stessa forma** — quella che questo pacchetto continua a produrre:
+ *
+ *   il dominio calcola la risposta giusta, e la schermata non gliela chiede.
+ *
+ * Una di queste — la CTA del modulo generico — era una regressione introdotta
+ * **dalla correzione del round precedente**. Vale la pena scriverlo per esteso
+ * invece che nasconderlo: correggere la destinazione di un pulsante aveva
+ * spostato il difetto invece di chiuderlo.
+ */
+const sezioneT = async () => {
+  console.log("\n§T — le correzioni della quarta revisione\n");
+
+  const config = await carica("src/lib/appointments/config.ts");
+  const appuntamenti = await carica("src/lib/server/appointments.ts");
+  const scopeClub = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "owner",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  /* ------------------- T1: il club che chiude senza dirlo */
+
+  /*
+    **T1 (High).** Con i motivi configurati il dominio non accetta piu testo
+    libero e vuole un motivo **prenotabile**. Il cruscotto pero mandava alla
+    famiglia i soli motivi prenotabili — che in un club con tutti i motivi
+    «solo dal desk» sono **zero** — e la schermata leggeva quello zero come
+    «il club non ha configurato niente»: rendeva il campo libero, lo accettava,
+    e il server rispondeva ogni volta «Scegli il motivo fra quelli proposti».
+    Con zero motivi proposti da qualsiasi parte, e senza una frase che lo
+    spiegasse: `familyBookingEnabled` restava `true`, quindi nemmeno il
+    riquadro «le richieste non sono attive» compariva.
+
+    Un vicolo cieco. Adesso la porta si chiude in un posto solo, e chi la
+    guarda ne legge lo stesso stato del server.
+  */
+  prova(
+    "T-01 con tutti i motivi «solo dal desk» la famiglia non puo chiedere",
+    false,
+    config.familyCanRequestAppointment({
+      familyBookingEnabled: true,
+      types: [{ id: "colloquio", name: "Colloquio", bookable: false }],
+    }),
+    "prima: il cruscotto diceva `true` e il server rifiutava sempre",
+  );
+
+  prova(
+    "T-02 senza motivi configurati la famiglia puo ancora chiedere",
+    true,
+    config.familyCanRequestAppointment({
+      familyBookingEnabled: true,
+      types: [],
+    }),
+    "il silenzio non e un divieto: W6-D03",
+  );
+
+  prova(
+    "T-03 basta un motivo prenotabile perche la porta resti aperta",
+    true,
+    config.familyCanRequestAppointment({
+      familyBookingEnabled: true,
+      types: [
+        { id: "a", name: "Solo desk", bookable: false },
+        { id: "b", name: "Colloquio", bookable: true },
+      ],
+    }),
+  );
+
+  /*
+    E la stessa verita la dice il **cruscotto**, che e cio che la schermata
+    legge: era li che le due meta divergevano.
+  */
+  await appuntamenti.saveAppointmentsConfig(scopeClub, {
+    familyBookingEnabled: true,
+    types: [{ name: "Colloquio", bookable: false }],
+  });
+
+  const cruscottoSoloDesk = await cruscotto.getParentDashboardData(
+    ANNA.id,
+    MARCO,
+  );
+
+  prova(
+    "T-04 il cruscotto lo dice alla schermata, non solo al server",
+    false,
+    cruscottoSoloDesk?.appointments?.config?.familyBookingEnabled,
+    "prima: `true`, con zero motivi in elenco e ogni invio rifiutato",
+  );
+
+  const contestoSoloDesk =
+    await appuntamenti.resolveFamilyAppointmentContext(ANNA.id, MARCO);
+
+  await respinta(
+    "T-05 e il server rifiuta per la porta chiusa, non per il motivo",
+    () =>
+      appuntamenti.requestFamilyAppointment(contestoSoloDesk, {
+        date: "2027-10-01",
+        time: "10:00",
+        reason: "quello che mi pare",
+      }),
+    /non riceve richieste di appuntamento online/,
+  );
+
+  await appuntamenti.saveAppointmentsConfig(scopeClub, {
+    familyBookingEnabled: true,
+    types: [],
+  });
+
+  /* --------------- T6: la riga dell'appuntamento sa cosa e successo */
+
+  /*
+    **T6 (High).** `toFamilyAppointment` calcola `status_label`,
+    `decision_note`, `can_reschedule` e `can_cancel`, e la schermata li
+    ignorava **tutti e quattro**. Il badge passava da un vocabolario scritto
+    per gli eventi, che non conosce `cancelled_by_family`, `cancelled_by_club`,
+    `rescheduled` e `no_show`: una famiglia che disdiceva il proprio
+    appuntamento leggeva la conferma della disdetta e poi, nella riga, che
+    l'appuntamento **e in programma**.
+
+    Qui si tiene fermo cio che la proiezione manda; che la schermata lo legga
+    lo tiene fermo il test di superficie, che non cerca piu una stringa ma il
+    campo.
+  */
+  const proiezione = await carica("src/lib/appointments/projection.ts");
+  const resa = (stato) =>
+    proiezione.toFamilyAppointment(
+      {
+        id: randomUUID(),
+        organization_id: CLUB,
+        starts_at: new Date(),
+        ends_at: new Date(),
+        status: stato,
+        version: 1,
+        decision_note: "Manca il certificato",
+      },
+      {},
+    );
+
+  prova(
+    "T-06 ogni stato ha la sua etichetta, e nessuno cade su un ripiego",
+    [
+      "Annullato dalla famiglia",
+      "Annullato dalla segreteria",
+      "Riprogrammato",
+      "Assente",
+      "Rifiutato",
+    ],
+    [
+      resa("cancelled_by_family").status_label,
+      resa("cancelled_by_club").status_label,
+      resa("rescheduled").status_label,
+      resa("no_show").status_label,
+      resa("rejected").status_label,
+    ],
+  );
+
+  /*
+    E i due permessi: su una riga conclusa non si disdice e non si sposta. La
+    schermata mostrava «Elimina» su **ogni** riga storica, perche confrontava
+    con `"cancelled"`, che non e uno stato di questo dominio: la condizione era
+    sempre vera. Chi premeva confermava un dialogo distruttivo e riceveva il
+    messaggio interno sulle transizioni non ammesse.
+  */
+  prova(
+    "T-07 su una riga conclusa non si disdice e non si sposta",
+    [false, false],
+    [resa("completed").can_cancel, resa("completed").can_reschedule],
+  );
+
+  prova(
+    "T-08 su una richiesta aperta si puo ancora fare entrambe",
+    [true, true],
+    [resa("requested").can_cancel, resa("requested").can_reschedule],
+  );
+
+  /*
+    Il motivo della risposta della segreteria arriva: era la sola cosa che
+    rendeva utile un rifiuto, e non veniva disegnata da nessuna parte.
+  */
+  prova(
+    "T-09 il motivo del rifiuto arriva alla famiglia",
+    "Manca il certificato",
+    resa("rejected").decision_note,
+  );
+
+  /* ------- T10: un questionario resta nel fascicolo, e cambia stato */
+
+  /*
+    **T10 (High), e questa e una regressione mia.** Il terzo round aveva
+    trovato che ogni modulo online diventava una pratica di **rinnovo**. La
+    correzione mandava i moduli generici alla pagina pubblica `/forms/<slug>`,
+    che e **anonima**: l'invio nasceva con `selections: []` e `submittedBy:
+    null`, quindi il legame con il figlio si perdeva. Conseguenze: la card
+    restava «Da compilare» per sempre anche dopo dieci invii, l'interruttore
+    «una volta sola» del club diventava inerte su quel percorso, e in
+    segreteria la pratica arrivava senza atleta e senza autore.
+
+    La destinazione non era il problema: lo era il **tipo scritto fisso**
+    all'arrivo. Adesso si deriva dal modulo, e la famiglia resta dentro la sua
+    area.
+  */
+  const modello = await carica("src/lib/forms/model.ts");
+  const invii = await carica("src/lib/server/form-submissions.ts");
+
+  const pubblicaT = async (titolo, purpose) => {
+    const templateId = randomUUID();
+    const slug = `pp02-t-${purpose}-${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const schema = modello.normalizeFormSchema({
+      title: titolo,
+      description: "",
+      fields: [{ id: "f_nome", type: "short_text", label: "Nome" }],
+      settings: { purpose },
+    });
+
+    await prisma.formTemplate.create({
+      data: {
+        id: templateId,
+        organization_id: CLUB,
+        title: titolo,
+        status: "published",
+        public_slug: slug,
+        public_enabled: true,
+        published_version: 1,
+        published_at: new Date(),
+        draft: schema,
+        updated_at: new Date(),
+      },
+    });
+    await prisma.formTemplateVersion.create({
+      data: {
+        id: randomUUID(),
+        organization_id: CLUB,
+        template_id: templateId,
+        version: 1,
+        schema_json: schema,
+        published_at: new Date(),
+      },
+    });
+
+    return slug;
+  };
+
+  const slugQuestionario = await pubblicaT("Questionario T", "generic");
+  const slugIscrizione = await pubblicaT("Iscrizione T", "enrollment");
+
+  const inviaT = (slug) =>
+    invii.submitRenewalForm(ANNA.id, {
+      athleteId: MARCO,
+      publicSlug: slug,
+      answers: { f_nome: "Marco" },
+      files: [],
+      respondentEmail: ANNA.email,
+    });
+
+  const ricevutaQuestionario = await inviaT(slugQuestionario);
+  const ricevutaIscrizione = await inviaT(slugIscrizione);
+
+  const righe = await prisma.formSubmission.findMany({
+    where: {
+      organization_id: CLUB,
+      id: { in: [ricevutaQuestionario.submissionId, ricevutaIscrizione.submissionId] },
+    },
+    select: { id: true, kind: true, subjects: true, submitted_by: true },
+  });
+  const perId = new Map(righe.map((r) => [r.id, r]));
+
+  prova(
+    "T-10 un questionario non arriva in segreteria come un rinnovo",
+    ["submission", "renewal"],
+    [
+      perId.get(ricevutaQuestionario.submissionId)?.kind,
+      perId.get(ricevutaIscrizione.submissionId)?.kind,
+    ],
+    "prima: `renewal` per entrambi, e la segreteria doveva approvare un questionario",
+  );
+
+  prova(
+    "T-11 e porta comunque il figlio e chi lo ha inviato",
+    [true, true],
+    [
+      (perId.get(ricevutaQuestionario.submissionId)?.subjects || []).some(
+        (s) => s?.recordId === MARCO,
+      ),
+      perId.get(ricevutaQuestionario.submissionId)?.submitted_by === ANNA.id,
+    ],
+    "il primo rimedio passava dalla pagina anonima e perdeva entrambi",
+  );
+
+  /*
+    E la card del fascicolo se ne accorge: era il difetto piu visibile del
+    rimedio precedente — dieci invii e lo stato restava «Da compilare».
+  */
+  const moduliFamiglia = await carica("src/lib/server/enrollment-requests.ts");
+  const elencoT = await moduliFamiglia.listFamilyOnlineForms(ANNA.id, MARCO);
+  const cardQuestionario = elencoT.find(
+    (m) => m.publicSlug === slugQuestionario,
+  );
+
+  prova(
+    "T-12 dopo l'invio la card del questionario non dice piu «Da compilare»",
+    true,
+    Boolean(cardQuestionario) && cardQuestionario.state !== "todo",
+    cardQuestionario?.state,
+  );
+
+  /* ---------------- T13: la scheda del figlio dice uno stato vero */
+
+  /*
+    **T13 (Medium).** `getStatusLabel` degli eventi non conosce il vocabolario
+    degli atleti: ogni figlio, iscritto o no, leggeva «In programma» sulla
+    propria scheda. Compreso quello **non piu iscritto**, per cui §B aveva
+    appena scritto l'etichetta giusta sulla schermata di scelta.
+  */
+  const superfici = leggiSorgente(
+    "src/components/parent-dashboard/parent-dashboard-pages.tsx",
+  );
+
+  prova(
+    "T-13 la scheda del figlio non usa il vocabolario degli eventi per lo stato",
+    true,
+    superfici.includes("etichettaStatoAtleta(athlete.status)") &&
+      !superfici.includes('label: "Stato", value: getStatusLabel(athlete.status)'),
+  );
+
+  /* -------- T14: i fratelli sono un elenco, non venti campi ciascuno */
+
+  /*
+    **T14 (Medium).** `linkedAthletes` usciva con `serializeAthleteCard`, nata
+    per l'atleta **selezionato**: una ventina di campi — codice fiscale, luogo
+    di nascita, indirizzo, telefono, email — per ogni fratello, a ogni
+    caricamento di tutte e tredici le pagine. Non e dato di un'altra famiglia,
+    ed e esattamente la proprieta che questo file difende per nome tre volte
+    poche righe piu su.
+  */
+  const cruscottoFinale = await cruscotto.getParentDashboardData(ANNA.id, MARCO);
+  const chiaviFratello = Object.keys(
+    (cruscottoFinale?.athlete?.linkedAthletes || [])[0] || {},
+  ).sort();
+
+  prova(
+    "T-14 la riga di un fratello porta cinque campi, non venti",
+    ["birth_date", "category_name", "id", "name", "organization_id"],
+    chiaviFratello,
+  );
+};
+
 const main = async () => {
   console.log("PP-02 — collaudo contro il database di sviluppo");
   await semina();
@@ -2643,6 +3006,7 @@ const main = async () => {
     await sezioneM();
     await sezioneR();
     await sezioneS();
+    await sezioneT();
   } finally {
     await pulisci();
     await prisma.$disconnect();

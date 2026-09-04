@@ -415,3 +415,75 @@ test("§H · i filtri della coda sono quelli del lavoro, e stanno nel dominio", 
     );
   }
 });
+
+/* ==================================================================== */
+/*  §T — cio che la quarta revisione ha trovato sulle schermate         */
+/* ==================================================================== */
+
+test("§T · la riga dell'appuntamento legge la proiezione, non un vocabolario suo", () => {
+  const pagine = senzaCommenti(leggi(PAGINE));
+
+  /*
+    **T6.** `toFamilyAppointment` calcola `status_label`, `decision_note`,
+    `can_reschedule` e `can_cancel`, e la schermata li ignorava tutti e
+    quattro. Il badge passava da un vocabolario scritto per gli **eventi**,
+    che non conosce `cancelled_by_family`, `cancelled_by_club`, `rescheduled`
+    e `no_show`: cadevano tutti su un ripiego, e una famiglia che disdiceva il
+    proprio appuntamento leggeva nella riga che l'appuntamento e in programma.
+
+    E «Elimina» compariva quando lo stato non era `"cancelled"` — una stringa
+    che non e nel codominio del dominio, quindi la condizione era **sempre
+    vera**: il pulsante stava su ogni riga storica, e premendolo si otteneva
+    il messaggio interno sulle transizioni non ammesse.
+  */
+  assert.ok(
+    pagine.includes("appointment.status_label ||"),
+    "l'etichetta la sa il dominio, che conosce gli otto stati",
+  );
+  assert.ok(
+    pagine.includes("appointment.can_reschedule && prenotazioniAperte"),
+    "chi puo spostare lo dice il dominio; se il club ha chiuso, il modulo non viene reso",
+  );
+  assert.ok(
+    pagine.includes("appointment.can_cancel ?"),
+    "chi puo disdire lo dice il dominio, che conosce le transizioni",
+  );
+  assert.ok(
+    pagine.includes("appointment.decision_note ?"),
+    "il motivo del rifiuto e la sola cosa che rende utile una risposta negativa",
+  );
+  assert.ok(
+    !pagine.includes('normalizeText(appointment.status) !== "cancelled"'),
+    "la condizione sempre vera non deve tornare",
+  );
+});
+
+test("§T · la barra su telefono riceve la stessa identita di quella su desktop", () => {
+  const header = senzaCommenti(leggi("components/dashboard/Header.tsx"));
+  const barra = senzaCommenti(leggi("components/layout/MobileTopBar.tsx"));
+
+  /*
+    **T (High).** La correzione di §C — il club e la stagione detti dal
+    server, per chi non ha una tessera — viveva solo su `Header`. A
+    `MobileTopBar` non arrivava niente, e quella e la barra che si vede
+    **sotto i 1024 px**: su ogni telefono e ogni tablet, cioe i due viewport
+    che questo pacchetto cita in ogni sezione, un tutore collegato senza
+    tessera leggeva ancora «EasyGame» e «Nessuna stagione attiva».
+
+    Il test di §C cercava due sottostringhe dentro `Header.tsx` e non aveva
+    motivo di guardare l'altro file. Adesso ce l'ha.
+  */
+  assert.ok(
+    header.includes("clubIdentity={clubIdentity}"),
+    "senza questa riga la correzione di §C vale solo sopra i 1024 px",
+  );
+  assert.ok(
+    barra.includes("clubIdentity?.name || activeClub?.name"),
+    "quando il server dice il club, e lui a vincere sulla copia in localStorage",
+  );
+  assert.ok(
+    barra.includes("clubIdentity\n              ? clubIdentity.seasonLabel") ||
+      barra.includes("? clubIdentity.seasonLabel"),
+    "la stagione segue la stessa regola del nome, o si torna a «Nessuna stagione attiva»",
+  );
+});
