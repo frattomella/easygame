@@ -355,7 +355,197 @@ un difetto, una prenotazione persa dopo il salvataggio e un difetto peggiore.
 
 ---
 
-## 8. §O — I due residui di PP-01
+## 8. §G — «Moduli online» diceva dove sono, non cosa manca
+
+Le tre aree del fascicolo — Da fare, Documenti, Moduli online — esistono dalla
+Wave 6 e la regola che le separa e giusta: una voce sta in **una** area sola, e
+la domanda che decide e «la famiglia deve ancora fare qualcosa?».
+
+La terza pero non era un'area: era **un rimando**. Una frase e un pulsante verso
+la pagina Iscrizione. Il posto e giusto — i moduli vivono li, e ospitarne una
+seconda copia sarebbe la seconda implementazione di un dominio che ne ha gia una
+— ma la card non rispondeva alla domanda per cui esiste, che e la stessa delle
+altre due: **cosa devo ancora fare**. Per saperlo bisognava aprire un'altra
+pagina e leggerne due elenchi.
+
+`listFamilyOnlineForms` non e un dominio nuovo: mette accanto due letture che gia
+esistono — i moduli pubblicati dal club e le pratiche di **questo figlio** — e ne
+ricava lo stato. `GET /api/v1/family/online-forms?athlete_id=…`.
+
+| Stato | Quando |
+|---|---|
+| Da compilare | nessun invio, e il modulo e ancora aperto |
+| Inviato | c'e un invio vivo, e il modulo si puo rimandare |
+| Completato | c'e un invio vivo su un modulo che si compila **una volta sola** |
+| Scaduto | nessun invio, e la data di chiusura e passata |
+
+**«In compilazione» non c'e, e non e una dimenticanza.** Una bozza vive nel
+deposito locale del browser che l'ha cominciata: il server non la conosce, e
+dichiararla vorrebbe dire mostrare «in compilazione» a chi apre da un altro
+telefono e non trova niente.
+
+**«Completato» vince su «scaduto»**: chi lo ha gia mandato non deve leggere che e
+in ritardo. E le pratiche contano **per figlio**, non per famiglia: dire
+«completato» perche lo ha fatto il fratello e il modo piu diretto di far saltare
+un'iscrizione.
+
+**Nessun filtro sul tipo**, a differenza di `listFamilyRenewalForms`. Quella
+risponde a «cosa puoi rinnovare» e un questionario non e un rinnovo; questa
+risponde a «cosa ti chiede il club», e un questionario lo e.
+
+---
+
+## 9. §J — Il modulo che si compila una volta sola, e il catalogo che si vede
+
+### J.1 — La regola non esisteva
+
+La sola difesa contro un secondo invio era la **deduplicazione a finestra**:
+dieci minuti, e con le **stesse** risposte. E una difesa vera e resta — protegge
+dal doppio clic — ma protegge da una cosa diversa. Fuori da quella finestra, o
+cambiando una virgola, la stessa iscrizione si poteva rimandare tre volte, e in
+segreteria arrivavano tre pratiche da leggere per capire quale valesse.
+
+`settings.singleSubmission` sta **dentro la versione pubblicata**, non in una
+colonna del modulo: fa parte di cio che quella compilazione dichiarava di essere,
+come le domande. Il presidio (`assertNonGiaCompilato`) gira **prima** di caricare
+gli allegati — un modulo gia compilato non deve far depositare una seconda copia
+di un certificato medico per poi rifiutare la pratica che lo citava.
+
+Due confini, entrambi deliberati:
+
+- **una pratica respinta non blocca**: e proprio il caso in cui la famiglia deve
+  poter rimandare;
+- **senza un soggetto risolvibile non si vincola niente**. Una compilazione
+  pubblica di chi non e ancora in anagrafica non ha un atleta su cui contare, e
+  inventare un conteggio per indirizzo email bloccherebbe due fratelli iscritti
+  dallo stesso genitore. Il vincolo vale sul rinnovo di chi e gia in archivio, e
+  va detto al club.
+
+### J.2 — «Modelli consigliati» non diceva cosa chiedono
+
+La distinzione fra **catalogo** e **modulo del club** era gia solida e non e
+stata toccata: adottare una voce ne crea una copia (`buildFormFromCatalog`), la
+chiave resta solo come provenienza, e da quel momento il catalogo non la tocca
+piu. Un modello **non** compare mai alla famiglia: compare il modulo del club,
+quando e pubblicato.
+
+Cio che mancava era piu semplice: la scheda diceva titolo, descrizione, classe e
+provenienza, e **non una parola su cosa chiede il modulo**. Per saperlo bisognava
+adottarlo — creare una copia nel club — aprirla, e poi eventualmente cancellarla:
+tre gesti per rispondere alla sola domanda che conta davanti a un catalogo.
+
+Adesso ogni voce apre l'elenco dei propri campi, che e cio che distingue due
+modelli dallo stesso titolo. E il pulsante dice cosa succede: «Usa modello», non
+«Adotta».
+
+---
+
+## 10. §K — Come riceve il club
+
+Il dominio degli appuntamenti e completo — slot, stati, transizioni, indice
+unico, versione, audit, notifiche — e la sua configurazione rispondeva a cinque
+delle sei domande che una segreteria si fa: chi riceve, dove, per quanto, quando,
+e se la fascia e attiva. Le due che mancavano:
+
+1. **se** le famiglie possono chiedere. Esisteva `active` sulla singola fascia,
+   che e un'altra domanda: un club che voleva chiudere le richieste doveva
+   spegnere le fasce a una a una, e riaprirle a una a una;
+2. **per cosa**. Il motivo era testo libero, e in coda arrivavano «info»,
+   «parlare col mister», «pagamento?»: chi riceveva doveva interpretare la
+   richiesta prima di poterla assegnare.
+
+`clubs.settings.appointments` porta un interruttore e un elenco corto di motivi,
+ognuno con la propria durata e con un `bookable` che distingue cio che la
+famiglia puo chiedere da cio che il club fissa dal desk — «Convocazione» e il
+caso. E **configurazione e non una tabella** perche cambiarne una voce non deve
+riscrivere gli appuntamenti gia presi, che portano il motivo con se.
+
+Due ripieghi dichiarati, ed e la lezione di W6-D03:
+
+- **un club che non ha configurato niente riceve comunque.** Chi non ha mai avuto
+  un interruttore non puo aver espresso una scelta;
+- **un club senza motivi non vincola il motivo**: la famiglia continua a
+  scriverlo. I tipi restringono; la loro assenza non e un divieto.
+
+La famiglia lo sa **prima di compilare**: il payload porta l'interruttore e i
+soli motivi prenotabili, e con le richieste chiuse il modulo non compare affatto.
+E la stessa regola di «Paga ora» in §D — la ragione si conosce prima del gesto.
+
+La scrittura passa dallo stesso gate della disponibilita (`isManagementAccessRole`)
+e riscrive **una chiave** di `settings`, non l'oggetto: sostituirlo con cio che
+questa schermata conosce e il modo in cui una pagina cancella i dati di un'altra.
+
+---
+
+## 11. §M — L'audit ostile
+
+La regola di questa sezione, e vale la pena scriverla: **ogni prova ha due
+meta.** Che la propria famiglia arrivi dove deve, e che l'altra non ci arrivi.
+Una prova sola delle due non dice niente — un perimetro che nega tutto passa la
+seconda e rompe il prodotto; uno che concede tutto passa la prima.
+
+Gli attori sono **due famiglie nello stesso club**: due club diversi si separano
+gia da soli per `organization_id`, e misurare li vorrebbe dire misurare Prisma.
+
+| Prova | Cosa misura |
+|---|---|
+| M-01 / M-02 | la ricevuta si scarica dalla propria famiglia, e l'altra riceve 403 |
+| M-03 | il checkout su una rata di un'altra famiglia: 404 |
+| M-04 | il cruscotto di un figlio altrui: 403 |
+| M-05 | il fascicolo documentale di un figlio altrui: 403 |
+| M-06 / M-07 / M-08 | modulo, pratiche e moduli online di un figlio altrui: rifiutati |
+| M-09 / M-10 / M-11 | l'appuntamento di un'altra famiglia non si annulla ne si riprogramma, e il proprio si trova |
+| M-12 / M-13 | un tutore scollegato perde l'accesso **alla richiesta successiva**, e non gli resta nemmeno l'elenco |
+| M-14 | il ruolo `parent` non apre nessuna risorsa generica del club |
+
+**Nessuna prova statica.** Ognuna passa dalla rotta vera o dal servizio vero,
+contro il database di sviluppo.
+
+### La verifica al contrario
+
+Il mandato chiede di misurare che una prova diventi **rossa** reintroducendo il
+difetto. Due mutazioni, applicate insieme e poi disfatte:
+
+| Difetto reintrodotto | Prove diventate rosse |
+|---|---|
+| il ripiego `linkedAthletes[0]` su un identificativo sconosciuto | P-07, P-08, P-09 e **M-04** — cioe il cruscotto di un figlio di **un'altra famiglia** torna a rispondere 200 |
+| la ricevuta spanata invece della proiezione chiusa | P-51, P-52, P-53, P-54 |
+
+La riga che conta e M-04: il ripiego non usciva dal perimetro della famiglia
+**finche l'identificativo era malformato**, ma con quello di un atleta reale di
+un'altra famiglia apriva il suo cruscotto. Era una fuga di dati, non una
+sciatteria.
+
+---
+
+## 12. §N — Cio che deve reggere a 375 px
+
+Le superfici che PP-02 ha aggiunto o riscritto entrano nel presidio delle
+invarianti di responsivita (`tests/ui/responsive-invariants.test.mjs`), che
+misura la classe di difetti che si introduce **senza accorgersene**: una griglia
+a due colonne senza punto di rottura, una tabella che allarga il documento invece
+del proprio contenitore.
+
+Cio che e stato cambiato per farle passare:
+
+- i due orari della prenotazione di un campo erano una griglia a due colonne
+  rigida. Adesso sono `flex-wrap` con una larghezza minima: **si impilano da
+  soli** quando non ci stanno, invece di stringersi finche il controllo nativo
+  dell'ora non si legge piu;
+- la riga di una ricevuta e passata da tre blocchi a quattro — si sono aggiunti
+  il figlio, il numero e lo stato — e da una riga sola a tre impilate. Dentro un
+  contenitore con `overflow-hidden` cio che non ci sta non sporge: viene
+  **tagliato**, e la ricevuta torna a non essere scaricabile;
+- la fascia «Stai vedendo …» non occupa piu la prima riga di tredici pagine su
+  tredici (§A.3).
+
+**Cio che un test statico non dice**, e che resta da guardare a occhio, sta in
+[43b — La UAT a schermo](43-pp-02-uat-a-schermo.md).
+
+
+---
+
+## 13. §O — I due residui di PP-01
 
 ### O.1 — «Rimuovi allenamenti in programma» falliva sempre
 
@@ -408,7 +598,7 @@ scritto.
 
 ---
 
-## 9. Verifica
+## 14. Verifica
 
 ### Collaudo di dominio
 

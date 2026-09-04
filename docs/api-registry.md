@@ -571,6 +571,12 @@ dal client — si legge dalla riga dell'atleta.
   iscrizione e rinnovo, con lo stato e cio che il club aspetta
 - `GET|POST /api/v1/family/enrollment-requests/renewal` — la bozza di rinnovo
   precompilata e il suo invio
+- `GET /api/v1/family/online-forms?athlete_id=…` — i moduli online pubblicati
+  dal club con lo stato di **questo figlio** (PP-02 §G): da compilare, inviato,
+  completato, scaduto
+- `GET|PUT /api/v1/appointments/config` — come riceve il club (PP-02 §K): se le
+  famiglie possono chiedere un appuntamento, e per quali motivi. La lettura
+  serve anche alla famiglia; la scrittura e di chi amministra
 
 `GET /api/v1/documents/receipt/:id` accetta adesso **anche** il legame: la
 ricevuta era elencata e non scaricabile perche il gate era di ruolo.

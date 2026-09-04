@@ -51,6 +51,19 @@ const TOUCHED = [
     apre per spegnere una regola, spesso di corsa e spesso dal telefono.
   */
   "app/communications/automazioni/page.tsx",
+  /*
+    **PP-02 §N: le superfici dell'area famiglia.** E la parte del prodotto che
+    si apre piu spesso da un telefono — in palestra, in macchina, la sera — e
+    quella su cui PP-02 ha spostato di piu: la scelta del figlio, l'identita
+    nel guscio, la riga delle ricevute, l'elenco dei moduli online e la scelta
+    del motivo di un appuntamento.
+  */
+  "app/parent-view/page.tsx",
+  "components/parent-dashboard/parent-dashboard-pages.tsx",
+  "components/parent-dashboard/parent-family-pages.tsx",
+  "components/parent-dashboard/parent-dashboard-shell.tsx",
+  "components/parent-dashboard/ParentSidebar.tsx",
+  "app/appuntamenti/page.tsx",
 ];
 
 test("nessuna griglia resta a due colonne a 375 px", () => {

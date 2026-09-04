@@ -185,6 +185,20 @@ export type ParentDashboardData = {
   appointments: {
     items: Array<Record<string, any>>;
     openingHours?: any;
+    /**
+     * **Come riceve questo club** (PP-02 §K): se accetta richieste online, e
+     * per quali motivi. Facoltativo perche il payload puo arrivare dalla cache
+     * di una sessione aperta prima del rilascio.
+     */
+    config?: {
+      familyBookingEnabled: boolean;
+      types: Array<{
+        id: string;
+        name: string;
+        durationMinutes: number;
+        siteId: string | null;
+      }>;
+    };
   };
   structures?: {
     items: Array<Record<string, any>>;

@@ -424,6 +424,22 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "appointments.config",
+    method: "GET|PUT",
+    path: "/api/v1/appointments/config",
+    description:
+      "Come riceve il club: se le famiglie possono chiedere un appuntamento, e per quali motivi. La lettura serve anche alla famiglia — deve sapere fra cosa scegliere; la scrittura passa dallo stesso gate della disponibilita, chi amministra",
+    mobile_ready: false,
+  },
+  {
+    name: "family.online_forms",
+    method: "GET",
+    path: "/api/v1/family/online-forms?athlete_id=…",
+    description:
+      "I moduli online pubblicati dal club con lo stato di questo figlio: da compilare, inviato, completato, scaduto. Non e un secondo dominio: e la lettura dei moduli pubblicati messa accanto a quella delle pratiche di questa famiglia",
+    mobile_ready: false,
+  },
+  {
     name: "public.enrollment_status",
     method: "GET",
     path: "/api/public/enrollment-status/:reference",

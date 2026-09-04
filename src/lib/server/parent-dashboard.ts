@@ -13,6 +13,10 @@ import { resolveCheckoutReadiness } from "@/lib/server/connect-accounts";
 import { normalizePaymentSettings } from "@/lib/payments/payment-config-utils";
 import { resolveFamilyCheckoutChannel } from "@/lib/payments/family-checkout";
 import {
+  bookableAppointmentTypes,
+  normalizeAppointmentsConfig,
+} from "@/lib/appointments/config";
+import {
   getLatestMedicalCertificateExpiry,
   getMedicalCertificateAvailability,
   getMedicalCertificateAvailabilityLabel,
@@ -1675,6 +1679,10 @@ export const getParentDashboardData = async (
       return { available: true, blocker: null, message: "" } as const;
     });
 
+  const configurazioneAppuntamenti = normalizeAppointmentsConfig(
+    asRecord(club.settings).appointments,
+  );
+
   const visibleStructures = getVisibleBookableStructures(asArray(club.structures));
   /*
     W6-13. Le prenotazioni erano «del figlio **oppure** fatte da me», e la
@@ -1892,6 +1900,24 @@ export const getParentDashboardData = async (
       della segreteria non sono nascoste dall'interfaccia, non ci sono.
     */
     appointments: {
+      /*
+        PP-02 §K. **Cosa questo club accetta**, e se accetta. La famiglia deve
+        poterlo sapere prima di compilare: un modulo che chiede un motivo
+        libero a un club che ha configurato quattro tipi produce una richiesta
+        che qualcuno dovra tradurre a mano, e un modulo aperto su un club che
+        ha chiuso le prenotazioni produce un rifiuto dopo il gesto.
+      */
+      config: {
+        familyBookingEnabled: configurazioneAppuntamenti.familyBookingEnabled,
+        types: bookableAppointmentTypes(configurazioneAppuntamenti).map(
+          (tipo) => ({
+            id: tipo.id,
+            name: tipo.name,
+            durationMinutes: tipo.durationMinutes,
+            siteId: tipo.siteId || null,
+          }),
+        ),
+      },
       items: appointmentRows.map((row) =>
         toFamilyAppointment(row as any, {
           athleteName: getAthleteDisplayName(selectedAthlete),

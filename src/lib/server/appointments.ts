@@ -16,6 +16,12 @@ import {
 import { createClubNotifications } from "./club-notifications";
 import { sendNotificationEmails } from "./email/email-service";
 import { canParentAccessAthlete } from "./parent-dashboard";
+import {
+  bookableAppointmentTypes,
+  findAppointmentType,
+  normalizeAppointmentsConfig,
+  type AppointmentsConfig,
+} from "@/lib/appointments/config";
 /*
   I tutori di un atleta li sa risolvere una funzione sola, e sta li: e la
   stessa che i promemoria dei certificati usano per decidere a chi scrivere.
@@ -420,6 +426,15 @@ export type AppointmentInput = {
   durationMinutes?: number | null;
   timezone?: string | null;
   reason?: string | null;
+  /**
+   * **Il tipo di appuntamento scelto fra quelli che il club accetta**
+   * (PP-02 §K).
+   *
+   * Quando c'e, e lui a dare il motivo: il nome del tipo. Quando il club non ne
+   * ha configurato nessuno resta vuoto, e il motivo torna a essere il testo
+   * che la famiglia scrive.
+   */
+  typeId?: string | null;
   notes?: string | null;
   internalNotes?: string | null;
   idempotencyKey?: string | null;
@@ -1260,6 +1275,81 @@ export type AppointmentSlotInput = {
   notes?: string | null;
 };
 
+/* ---------------------------------- la configurazione del club (PP-02 §K) */
+
+/**
+ * **Cosa il club accetta, e se le famiglie possono chiedere.**
+ *
+ * Vive in `clubs.settings.appointments` perche e un elenco corto che il club
+ * scrive per se e non ha una storia da conservare: cambiarne una voce non deve
+ * riscrivere gli appuntamenti gia presi, che portano il **motivo** con se.
+ *
+ * La lettura non chiede nessun permesso: la famiglia deve poter sapere quali
+ * motivi puo scegliere, ed e esattamente cio che questa funzione risponde. La
+ * scrittura passa dallo stesso gate della disponibilita — chi amministra —
+ * perche e la stessa domanda: come riceve questo club.
+ */
+export const readAppointmentsConfig = async (
+  organizationId: string,
+): Promise<AppointmentsConfig> => {
+  const club = await prisma.club.findUnique({
+    where: { id: asText(organizationId) },
+    select: { settings: true },
+  });
+
+  const settings =
+    club?.settings && typeof club.settings === "object"
+      ? (club.settings as Record<string, any>)
+      : {};
+
+  return normalizeAppointmentsConfig(settings.appointments);
+};
+
+export const saveAppointmentsConfig = async (
+  scope: AppointmentsScope,
+  input: unknown,
+  attore: Attore = {},
+): Promise<AppointmentsConfig> => {
+  assertPuoConfigurareLaDisponibilita(scope);
+  const organizationId = requireActiveOrganization(scope);
+
+  const config = normalizeAppointmentsConfig(input);
+
+  const club = await prisma.club.findUnique({
+    where: { id: organizationId },
+    select: { settings: true },
+  });
+  const settings =
+    club?.settings && typeof club.settings === "object"
+      ? (club.settings as Record<string, any>)
+      : {};
+
+  /*
+    Si riscrive **una chiave**, non l'oggetto: `settings` porta stagioni,
+    configurazione fiscale e altro, e sostituirlo con cio che questa schermata
+    conosce e il modo in cui una pagina cancella i dati di un'altra.
+  */
+  await prisma.club.update({
+    where: { id: organizationId },
+    data: { settings: { ...settings, appointments: config } as any },
+  });
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.appointmentSlotChanged,
+    organizationId,
+    actorUserId: attore.userId || scope.userId || null,
+    actorRole: scope.activeRole || null,
+    resource: "appointment_config",
+    resourceId: organizationId,
+    metadata: {
+      familyBookingEnabled: config.familyBookingEnabled,
+      types: config.types.length,
+    },
+  }).catch(() => false);
+
+  return config;
+};
+
 export const listAppointmentSlots = async (scope: AppointmentsScope) => {
   if (
     !roleHasPermission(scope.activeRole, "appointments.read") &&
@@ -1539,7 +1629,48 @@ export const requestFamilyAppointment = async (
   input: AppointmentInput,
 ) => {
   const timezone = asText(input.timezone) || DEFAULT_APPOINTMENT_TIMEZONE;
-  const reason = asText(input.reason);
+
+  /*
+    **PP-02 §K. Due domande che il club non poteva porre.**
+
+    La prima: le famiglie possono chiedere un appuntamento? Esisteva `active`
+    sulla fascia — «questa fascia vale» — che non e la stessa cosa: un club che
+    voleva chiudere le prenotazioni doveva spegnere le fasce a una a una.
+
+    La seconda: **per cosa**. Il motivo era testo libero, e in coda arrivavano
+    «info», «parlare col mister», «pagamento?»: chi riceveva doveva
+    interpretare la richiesta prima di poterla assegnare.
+
+    Un club senza tipi configurati non vincola niente e la famiglia continua a
+    scrivere: i tipi restringono, la loro assenza non e un divieto.
+  */
+  const configurazione = await readAppointmentsConfig(ctx.organizationId);
+  if (!configurazione.familyBookingEnabled) {
+    throw new Error(
+      "Questa societa non riceve richieste di appuntamento online: contatta la segreteria",
+    );
+  }
+
+  const tipoRichiesto = asText(input.typeId);
+  const tipo = tipoRichiesto
+    ? findAppointmentType(configurazione, tipoRichiesto)
+    : null;
+
+  if (tipoRichiesto && (!tipo || !tipo.bookable)) {
+    /*
+      Un tipo che non esiste e uno che il club tiene per se ricevono lo stesso
+      rifiuto: dire «esiste ma non e per te» racconterebbe la configurazione
+      interna a chi prova gli identificativi.
+    */
+    throw new Error("Il motivo scelto non e disponibile per la prenotazione");
+  }
+
+  const tipiPrenotabili = bookableAppointmentTypes(configurazione);
+  if (!tipo && tipiPrenotabili.length) {
+    throw new Error("Scegli il motivo dell'appuntamento fra quelli proposti");
+  }
+
+  const reason = tipo ? tipo.name : asText(input.reason);
   if (!reason) throw new Error("Il motivo dell'appuntamento e obbligatorio");
 
   const startsAt = risolviIstante(input, timezone);

@@ -186,6 +186,26 @@ export type FormSettings = {
   /** Notificare la segreteria a ogni invio. */
   notifyOnSubmit: boolean;
   /**
+   * **Si compila una volta sola** (PP-02 §J).
+   *
+   * Fin qui l'unica difesa contro un secondo invio era la deduplicazione a
+   * finestra: dieci minuti, e con le **stesse** risposte. Fuori da quella
+   * finestra, o cambiando una virgola, una famiglia poteva rimandare la stessa
+   * iscrizione tre volte, e in segreteria arrivavano tre pratiche da leggere
+   * per capire quale valesse.
+   *
+   * La finestra resta e continua a fare il proprio mestiere — il doppio clic —
+   * perche sono due difese diverse: quella difende dal **gesto** ripetuto,
+   * questa dalla **compilazione** ripetuta.
+   *
+   * Vale per soggetto: «una volta sola» significa «una volta per atleta», non
+   * «una volta per club». Un modulo senza un soggetto risolvibile — la
+   * compilazione pubblica di chi non e ancora in anagrafica — non e vincolato,
+   * perche non c'e niente su cui contare, e va detto invece di lasciarlo
+   * credere.
+   */
+  singleSubmission: boolean;
+  /**
    * Il modello di documento che l'approvazione rende, oppure stringa vuota.
    *
    * Sta nelle impostazioni — cioe **dentro la versione** — e non in una
@@ -280,6 +300,7 @@ export const DEFAULT_FORM_SETTINGS: FormSettings = {
   documentTemplateId: "",
   purpose: "",
   catalogKey: "",
+  singleSubmission: false,
 };
 
 export const normalizeFormField = (value: unknown): FormField => {
@@ -339,6 +360,10 @@ export const normalizeFormSettings = (value: unknown): FormSettings => {
       record.notifyOnSubmit === undefined
         ? DEFAULT_FORM_SETTINGS.notifyOnSubmit
         : Boolean(record.notifyOnSubmit),
+    singleSubmission:
+      record.singleSubmission === undefined
+        ? DEFAULT_FORM_SETTINGS.singleSubmission
+        : Boolean(record.singleSubmission),
     documentTemplateId: asText(record.documentTemplateId).slice(0, 120),
     /*
       Un valore sconosciuto torna a «non dichiarato», non a «altro»: e la

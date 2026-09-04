@@ -148,8 +148,17 @@ export async function POST(request: Request, context: Context) {
     if (!ctx) return legameAssente();
 
     const body = await request.json().catch(() => ({}));
+    /*
+      **PP-02 §K. Il motivo puo arrivare come tipo scelto.**
+
+      Quando il club ha configurato i tipi, la famiglia sceglie fra quelli e il
+      motivo lo scrive il dominio dal nome del tipo: la validazione qui non deve
+      pretendere un testo che nessuno digita piu. Quando i tipi non ci sono, il
+      testo resta obbligatorio ed e il dominio a dirlo, con lo stesso messaggio.
+    */
     const reason = firstText(body?.reason, body?.title);
-    if (!reason) {
+    const typeId = firstText(body?.type_id, body?.typeId);
+    if (!reason && !typeId) {
       return NextResponse.json(
         { data: null, error: { message: "Il motivo e obbligatorio" } },
         { status: 400 },
@@ -158,6 +167,7 @@ export async function POST(request: Request, context: Context) {
 
     const appuntamento = await requestFamilyAppointment(ctx, {
       reason,
+      typeId,
       startsAt: body?.starts_at ?? body?.startsAt ?? null,
       date: firstText(body?.date),
       time: firstText(body?.time),

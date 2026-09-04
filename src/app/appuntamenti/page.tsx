@@ -21,6 +21,12 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { isManagementAccessRole } from "@/lib/access-roles";
 import { getClubData } from "@/lib/simplified-db";
 import { normalizeClubSites } from "@/lib/club-sites";
+import { apiRequest } from "@/lib/api/client";
+import {
+  DEFAULT_APPOINTMENTS_CONFIG,
+  normalizeAppointmentsConfig,
+  type AppointmentsConfig,
+} from "@/lib/appointments/config";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -186,6 +192,19 @@ export default function AppuntamentiDisponibilitaPage() {
     null,
   );
   const [modulo, setModulo] = useState<Modulo>(MODULO_VUOTO);
+  /*
+    PP-02 §K. «Come riceviamo»: se le famiglie possono chiedere, e per cosa.
+    Vive accanto alla disponibilita e non in una pagina sua perche e la stessa
+    domanda vista da un altro lato — e perche una seconda schermata con lo
+    stesso gate sarebbe una seconda strada da tenere allineata.
+  */
+  const [configurazione, setConfigurazione] = useState<AppointmentsConfig>(
+    DEFAULT_APPOINTMENTS_CONFIG,
+  );
+  const [nuovoTipo, setNuovoTipo] = useState({
+    name: "",
+    durationMinutes: "",
+  });
 
   const puoConfigurare = isManagementAccessRole(activeClub?.role);
 
@@ -197,14 +216,18 @@ export default function AppuntamentiDisponibilitaPage() {
 
     setCaricamento(true);
     try {
-      const [righe, sitiGrezzi, staff, allenatori] = await Promise.all([
+      const [righe, sitiGrezzi, staff, allenatori, config] = await Promise.all([
         listAppointmentSlots(intestazioniClub(activeClub.id)),
         getClubData(activeClub.id, "club_sites"),
         getClubData(activeClub.id, "staff_members"),
         getClubData(activeClub.id, "trainers"),
+        apiRequest<AppointmentsConfig>("/api/v1/appointments/config", {
+          headers: intestazioniClub(activeClub.id),
+        }),
       ]);
 
       setSlots(Array.isArray(righe) ? righe : []);
+      if (config?.data) setConfigurazione(normalizeAppointmentsConfig(config.data));
       setSedi(
         normalizeClubSites(sitiGrezzi).map((sede) => ({
           id: sede.id,
@@ -229,6 +252,45 @@ export default function AppuntamentiDisponibilitaPage() {
       setCaricamento(false);
     }
   }, [activeClub?.id, puoConfigurare, showToast]);
+
+  /*
+    Si salva l'intera configurazione a ogni gesto — un motivo aggiunto, uno
+    tolto, l'interruttore mosso — perche e un oggetto piccolo e perche il
+    server la normalizza comunque: mandare una patch parziale vorrebbe dire
+    due idee di cosa sia «la configurazione», e la seconda resterebbe
+    indietro.
+  */
+  const salvaConfigurazione = useCallback(
+    async (prossima: AppointmentsConfig) => {
+      if (!activeClub?.id) return;
+      const precedente = configurazione;
+      setConfigurazione(normalizeAppointmentsConfig(prossima));
+
+      const risposta = await apiRequest<AppointmentsConfig>(
+        "/api/v1/appointments/config",
+        {
+          method: "PUT",
+          headers: intestazioniClub(activeClub.id),
+          body: { data: prossima },
+        },
+      );
+
+      if (risposta.error) {
+        /* Il server ha detto di no: la schermata torna a cio che era vero. */
+        setConfigurazione(precedente);
+        showToast(
+          "error",
+          risposta.error.message || "Non riesco a salvare la configurazione",
+        );
+        return;
+      }
+
+      if (risposta.data) {
+        setConfigurazione(normalizeAppointmentsConfig(risposta.data));
+      }
+    },
+    [activeClub?.id, configurazione, showToast],
+  );
 
   useEffect(() => {
     void carica();
@@ -454,6 +516,149 @@ export default function AppuntamentiDisponibilitaPage() {
                     </CardContent>
                   </Card>
                 ) : null}
+
+                {/*
+                  **PP-02 §K. Come riceve questo club: se, e per cosa.**
+
+                  Due domande che la configurazione della disponibilita non
+                  sapeva porre. «Se» esisteva solo come `active` sulla singola
+                  fascia — che e un'altra cosa: un club che voleva chiudere le
+                  richieste doveva spegnerle a una a una. «Per cosa» non
+                  esisteva affatto, e il motivo arrivava come testo libero: in
+                  coda si leggeva «info», «parlare col mister», «pagamento?».
+                */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <CalendarClock className="h-4 w-4" />
+                      Come riceviamo
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <Label>Le famiglie possono prenotare</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Se disattivato, l&apos;area famiglia non mostra il
+                          modulo e la richiesta viene rifiutata. Gli
+                          appuntamenti gia presi restano.
+                        </p>
+                      </div>
+                      <Checkbox
+                        id="prenotazioni-famiglia"
+                        checked={configurazione.familyBookingEnabled}
+                        onCheckedChange={(valore) =>
+                          salvaConfigurazione({
+                            ...configurazione,
+                            familyBookingEnabled: valore === true,
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Motivi che accettiamo</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Senza nessun motivo la famiglia continua a scriverlo a
+                        mano: i motivi restringono, la loro assenza non e un
+                        divieto.
+                      </p>
+
+                      {configurazione.types.length ? (
+                        <div className="divide-y rounded-md border">
+                          {configurazione.types.map((tipo) => (
+                            <div
+                              key={tipo.id}
+                              className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                            >
+                              <span className="min-w-0">
+                                {tipo.name}
+                                {tipo.durationMinutes
+                                  ? ` · ${tipo.durationMinutes} min`
+                                  : ""}
+                                {tipo.bookable ? "" : " · solo dal desk"}
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  salvaConfigurazione({
+                                    ...configurazione,
+                                    types: configurazione.types.filter(
+                                      (voce) => voce.id !== tipo.id,
+                                    ),
+                                  })
+                                }
+                              >
+                                Rimuovi
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      <div className="flex flex-wrap items-end gap-2">
+                        <div className="min-w-[12rem] flex-1 space-y-1">
+                          <Label htmlFor="nuovo-motivo" className="text-xs">
+                            Nome
+                          </Label>
+                          <Input
+                            id="nuovo-motivo"
+                            value={nuovoTipo.name}
+                            onChange={(evento) =>
+                              setNuovoTipo((prima) => ({
+                                ...prima,
+                                name: evento.target.value,
+                              }))
+                            }
+                            placeholder="Es. Colloquio con la segreteria"
+                          />
+                        </div>
+                        <div className="w-28 space-y-1">
+                          <Label htmlFor="nuovo-motivo-durata" className="text-xs">
+                            Minuti
+                          </Label>
+                          <Input
+                            id="nuovo-motivo-durata"
+                            type="number"
+                            min={0}
+                            value={nuovoTipo.durationMinutes}
+                            onChange={(evento) =>
+                              setNuovoTipo((prima) => ({
+                                ...prima,
+                                durationMinutes: evento.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                        <Button
+                          onClick={() => {
+                            const nome = nuovoTipo.name.trim();
+                            if (!nome) return;
+                            void salvaConfigurazione({
+                              ...configurazione,
+                              types: [
+                                ...configurazione.types,
+                                {
+                                  id: "",
+                                  name: nome,
+                                  durationMinutes:
+                                    Number(nuovoTipo.durationMinutes) || 0,
+                                  siteId: "",
+                                  assignedToUserId: "",
+                                  bookable: true,
+                                },
+                              ],
+                            });
+                            setNuovoTipo({ name: "", durationMinutes: "" });
+                          }}
+                        >
+                          Aggiungi
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
 
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">

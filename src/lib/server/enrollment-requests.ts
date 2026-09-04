@@ -23,6 +23,7 @@ import {
 } from "@/lib/forms/enrollment-receipt";
 import {
   isEnrollmentForm,
+  isFormClosed,
   normalizeFormSchema,
   type FormSchema,
 } from "@/lib/forms/model";
@@ -542,6 +543,197 @@ export const listFamilyRenewalForms = async (
       */
       title: schema.title || asText(riga.title) || "Modulo di rinnovo",
     }));
+};
+
+/* -------------------------------------------------- i moduli online (§G) */
+
+/**
+ * Lo stato di un modulo online come lo legge una famiglia.
+ *
+ * **«In compilazione» non c'e, e non e una dimenticanza.** Una bozza vive nel
+ * deposito locale del browser che l'ha cominciata: il server non la conosce, e
+ * dichiararla vorrebbe dire mostrare «in compilazione» a chi apre da un altro
+ * telefono e non trova niente. Cio che il server sa dire e cio che e successo:
+ * niente, inviato, chiuso.
+ */
+export type FamilyOnlineFormState =
+  | "todo"
+  | "submitted"
+  | "completed"
+  | "expired";
+
+export const FAMILY_ONLINE_FORM_LABELS: Record<FamilyOnlineFormState, string> = {
+  todo: "Da compilare",
+  submitted: "Inviato",
+  completed: "Completato",
+  expired: "Scaduto",
+};
+
+export type FamilyOnlineForm = {
+  publicSlug: string;
+  title: string;
+  athleteName: string;
+  state: FamilyOnlineFormState;
+  stateLabel: string;
+  /** La data oltre la quale il club non accetta piu risposte. */
+  dueDate: string | null;
+  /** Quando questa famiglia lo ha inviato, se lo ha fatto. */
+  completedAt: string | null;
+  /** Il club ha dichiarato che si compila una volta sola (PP-02 §J). */
+  singleSubmission: boolean;
+  /** Se un invio e ancora possibile: e cio che accende la CTA. */
+  canSubmit: boolean;
+};
+
+/**
+ * **I moduli online del club, con lo stato di questa famiglia** (PP-02 §G).
+ *
+ * L'area «Moduli online» del fascicolo era un **rimando**: una frase e un
+ * pulsante verso la pagina Iscrizione. Il rimando non era sbagliato — i moduli
+ * vivono li, e ospitarli due volte sarebbe la seconda implementazione di un
+ * dominio che ne ha gia una — ma non rispondeva alla domanda per cui quella
+ * card esiste: **cosa mi manca da compilare, e cosa ho gia fatto**. Per saperlo
+ * bisognava aprire un'altra pagina e leggerne due elenchi.
+ *
+ * Qui non nasce nessun dominio nuovo: si mettono accanto due letture che gia
+ * esistono — i moduli pubblicati e le pratiche di questa famiglia — e se ne
+ * ricava lo stato.
+ *
+ * **Nessun filtro sul tipo**, a differenza di `listFamilyRenewalForms`. Quella
+ * risponde a «cosa puoi rinnovare» e un questionario non e un rinnovo; questa
+ * risponde a «cosa ti chiede il club», e un questionario lo e.
+ */
+export const listFamilyOnlineForms = async (
+  userId: string,
+  athleteId: string,
+  now: Date = new Date(),
+): Promise<FamilyOnlineForm[]> => {
+  const scope = await resolveLinkedFamilyScope(asText(userId), asText(athleteId));
+  const organizationId = asText(scope.activeOrganizationId);
+  if (!organizationId) return [];
+
+  const righe = (await (prisma as any).formTemplate.findMany({
+    where: {
+      organization_id: organizationId,
+      status: "published",
+      public_enabled: true,
+      published_version: { gt: 0 },
+    },
+    select: {
+      id: true,
+      public_slug: true,
+      title: true,
+      published_version: true,
+    },
+    orderBy: { title: "asc" },
+    take: 50,
+  })) as Array<{
+    id: string;
+    public_slug: string | null;
+    title: string | null;
+    published_version: number;
+  }>;
+
+  const candidati = righe.filter((riga) => asText(riga.public_slug));
+  if (!candidati.length) return [];
+
+  const versioni = (await (prisma as any).formTemplateVersion.findMany({
+    where: {
+      organization_id: organizationId,
+      OR: candidati.map((riga) => ({
+        template_id: riga.id,
+        version: riga.published_version,
+      })),
+    },
+    select: { template_id: true, schema_json: true },
+  })) as Array<{ template_id: string; schema_json: unknown }>;
+
+  const schemi = new Map(
+    versioni.map((versione) => [
+      versione.template_id,
+      normalizeFormSchema(versione.schema_json),
+    ]),
+  );
+
+  /*
+    Le pratiche di **questo figlio**, non della famiglia: la card sta dentro il
+    fascicolo di un atleta, e dire «completato» perche lo ha fatto il fratello
+    e il modo piu diretto di far saltare un'iscrizione.
+  */
+  const atleta = asText(athleteId);
+  const inviate = (await (prisma as any).formSubmission.findMany({
+    where: {
+      organization_id: organizationId,
+      template_id: { in: candidati.map((riga) => riga.id) },
+      status: { in: ["pending", "approved"] },
+    },
+    select: { template_id: true, subjects: true, submitted_at: true },
+    orderBy: { submitted_at: "desc" },
+    take: 500,
+  })) as Array<{
+    template_id: string;
+    subjects: unknown;
+    submitted_at: Date | null;
+  }>;
+
+  const ultimaPerModulo = new Map<string, Date | null>();
+  for (const riga of inviate) {
+    if (athleteOfSubjects(riga.subjects) !== atleta) continue;
+    if (!ultimaPerModulo.has(riga.template_id)) {
+      ultimaPerModulo.set(riga.template_id, riga.submitted_at ?? null);
+    }
+  }
+
+  const collegati = await getParentLinkedAthletes(asText(userId));
+  const nomeAtleta =
+    collegati
+      .filter((riga: any) => asText(riga.id) === atleta)
+      .map((riga: any) =>
+        [asText(riga.first_name), asText(riga.last_name)]
+          .filter(Boolean)
+          .join(" "),
+      )
+      .find(Boolean) || "";
+
+  return candidati
+    .map((riga) => ({ riga, schema: schemi.get(riga.id) }))
+    .filter(
+      (voce): voce is { riga: (typeof candidati)[number]; schema: FormSchema } =>
+        Boolean(voce.schema),
+    )
+    .map(({ riga, schema }) => {
+      const inviato = ultimaPerModulo.has(riga.id);
+      const completedAt = toIso(ultimaPerModulo.get(riga.id) ?? null);
+      const chiuso = isFormClosed(schema, now);
+      const unaVoltaSola = Boolean(schema.settings.singleSubmission);
+
+      /*
+        L'ordine e voluto. «Completato» vince su «scaduto»: chi lo ha gia
+        mandato non deve leggere che e in ritardo. E «inviato» resta distinto da
+        «completato» perche su un modulo che si puo rimandare la famiglia deve
+        sapere che **puo** — per esempio per correggere un dato.
+      */
+      const state: FamilyOnlineFormState =
+        inviato && unaVoltaSola
+          ? "completed"
+          : inviato
+            ? "submitted"
+            : chiuso
+              ? "expired"
+              : "todo";
+
+      return {
+        publicSlug: asText(riga.public_slug),
+        title: schema.title || asText(riga.title) || "Modulo",
+        athleteName: nomeAtleta,
+        state,
+        stateLabel: FAMILY_ONLINE_FORM_LABELS[state],
+        dueDate: asText(schema.settings.closeAt) || null,
+        completedAt,
+        singleSubmission: unaVoltaSola,
+        canSubmit: state === "todo" || state === "submitted",
+      };
+    });
 };
 
 export const buildRenewalDraft = async (

@@ -43,6 +43,11 @@ export type AppointmentSlot = {
 type AppointmentInput = {
   reason: string;
   /**
+   * Il motivo scelto fra quelli che il club accetta (PP-02 §K). Quando c'e, e
+   * lui a dare il motivo: il server usa il **nome** del tipo, non questo id.
+   */
+  typeId?: string;
+  /**
    * L'istante dello slot scelto. Sostituisce il giorno e l'ora liberi: erano
    * due campi che producevano quasi sempre un orario fuori griglia, e un
    * rifiuto che rimandava a un elenco che nessuna schermata mostrava.

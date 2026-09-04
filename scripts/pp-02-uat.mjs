@@ -684,6 +684,399 @@ const sezioneC = async () => {
 };
 
 /* ==================================================================== */
+/*  §K — la segreteria: come riceve il club                             */
+/* ==================================================================== */
+
+const sezioneK = async () => {
+  console.log("\n§K — la configurazione degli appuntamenti\n");
+
+  const appuntamenti = await carica("src/lib/server/appointments.ts");
+  const scopeClub = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "owner",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  prova(
+    "P-100 un club che non ha configurato niente riceve comunque",
+    true,
+    (await appuntamenti.readAppointmentsConfig(CLUB)).familyBookingEnabled,
+    "chi non ha mai avuto un interruttore non puo aver espresso una scelta",
+  );
+
+  await appuntamenti.saveAppointmentsConfig(scopeClub, {
+    familyBookingEnabled: true,
+    types: [
+      { name: "Colloquio con la segreteria", durationMinutes: 30 },
+      { name: "Convocazione", bookable: false },
+    ],
+  });
+
+  const config = await appuntamenti.readAppointmentsConfig(CLUB);
+  prova(
+    "P-101 i motivi configurati si rileggono",
+    ["Colloquio con la segreteria", "Convocazione"],
+    config.types.map((tipo) => tipo.name),
+  );
+
+  prova(
+    "P-102 alla famiglia escono solo quelli prenotabili",
+    ["Colloquio con la segreteria"],
+    (
+      await cruscotto.getParentDashboardData(ANNA.id, MARCO)
+    ).appointments.config.types.map((tipo) => tipo.name),
+  );
+
+  /* Un genitore non configura come riceve il club. */
+  await respinta(
+    "P-103 un genitore non puo scrivere la configurazione",
+    () =>
+      appuntamenti.saveAppointmentsConfig(
+        {
+          userId: ANNA.id,
+          activeOrganizationId: CLUB,
+          activeRole: "parent",
+          activeMembershipId: null,
+          allowedOrganizationIds: [CLUB],
+          accessScopes: [],
+        },
+        { familyBookingEnabled: false, types: [] },
+      ),
+    /Accesso negato/,
+  );
+
+  const contesto = await appuntamenti.resolveFamilyAppointmentContext(
+    ANNA.id,
+    MARCO,
+  );
+
+  await respinta(
+    "P-104 con i motivi configurati non si manda piu un testo libero",
+    () =>
+      appuntamenti.requestFamilyAppointment(contesto, {
+        reason: "info",
+        date: "2027-05-03",
+        time: "10:00",
+      }),
+    /Scegli il motivo/,
+  );
+
+  await respinta(
+    "P-105 un motivo che il club tiene per se non e prenotabile",
+    () =>
+      appuntamenti.requestFamilyAppointment(contesto, {
+        typeId: config.types.find((tipo) => !tipo.bookable)?.id,
+        date: "2027-05-03",
+        time: "10:00",
+      }),
+    /non e disponibile/,
+  );
+
+  await appuntamenti.saveAppointmentsConfig(scopeClub, {
+    familyBookingEnabled: false,
+    types: config.types,
+  });
+
+  await respinta(
+    "P-106 con le richieste chiuse la famiglia riceve un rifiuto che lo dice",
+    () =>
+      appuntamenti.requestFamilyAppointment(contesto, {
+        typeId: config.types[0].id,
+        date: "2027-05-03",
+        time: "10:00",
+      }),
+    /non riceve richieste di appuntamento online/,
+  );
+
+  prova(
+    "P-107 e la famiglia lo sa prima di compilare",
+    false,
+    (await cruscotto.getParentDashboardData(ANNA.id, MARCO)).appointments.config
+      .familyBookingEnabled,
+  );
+
+  prova(
+    "P-108 la configurazione non ha cancellato le stagioni del club",
+    "2026/27",
+    (await cruscotto.getParentDashboardData(ANNA.id, MARCO)).club
+      .activeSeasonLabel,
+    "si riscrive una chiave di settings, non l'oggetto",
+  );
+};
+
+/* ==================================================================== */
+/*  §M — l'audit ostile: cio che una famiglia non deve raggiungere       */
+/* ==================================================================== */
+
+/**
+ * **La regola di questa sezione: ogni prova ha due meta.**
+ *
+ * Che la propria famiglia arrivi dove deve, e che l'altra **non** ci arrivi.
+ * Una prova sola delle due non dice niente: un perimetro che nega tutto passa
+ * la seconda meta e rompe il prodotto, e uno che concede tutto passa la prima.
+ *
+ * Gli attori sono nello **stesso club**, che e la configurazione su cui un
+ * errore di perimetro si vede: due club diversi si separano gia da soli per
+ * `organization_id`, e misurare li vorrebbe dire misurare Prisma.
+ */
+const sezioneM = async () => {
+  console.log("\n§M — l'audit ostile\n");
+
+  const auth = await carica("src/lib/server/auth.ts");
+  const sessioneAnna = await auth.createSessionForUser(ANNA);
+  const sessioneBruno = await auth.createSessionForUser(BRUNO);
+
+  const chiama = async (modulo, metodo, url, params, token, corpo) => {
+    const init = {
+      method: metodo,
+      headers: { authorization: `Bearer ${token}` },
+    };
+    if (corpo !== undefined) {
+      init.headers["content-type"] = "application/json";
+      init.body = JSON.stringify(corpo);
+    }
+    const risposta = await modulo[metodo](
+      new Request(`http://collaudo.invalid${url}`, init),
+      { params },
+    );
+    return {
+      stato: risposta.status,
+      corpo: await risposta.json().catch(() => ({})),
+    };
+  };
+
+  /* ------------------------------------------------ ricevute e pagamenti */
+
+  const documenti = await carica("src/app/api/v1/documents/[kind]/[id]/route.ts");
+  const ricevutaDiMarco = await prisma.receipt.findFirst({
+    where: { organization_id: CLUB, athlete_id: MARCO },
+    select: { id: true },
+  });
+
+  prova(
+    "M-01 la famiglia scarica la ricevuta del proprio figlio",
+    200,
+    (
+      await chiama(
+        documenti,
+        "GET",
+        `/api/v1/documents/receipt/${ricevutaDiMarco.id}`,
+        { kind: "receipt", id: ricevutaDiMarco.id },
+        sessioneAnna.access_token,
+      )
+    ).stato,
+  );
+
+  prova(
+    "M-02 l'altra famiglia dello stesso club no",
+    403,
+    (
+      await chiama(
+        documenti,
+        "GET",
+        `/api/v1/documents/receipt/${ricevutaDiMarco.id}`,
+        { kind: "receipt", id: ricevutaDiMarco.id },
+        sessioneBruno.access_token,
+      )
+    ).stato,
+  );
+
+  const checkout = await carica(
+    "src/app/api/parent-dashboard/[athleteId]/checkout/route.ts",
+  );
+  const rataDiLuca = await prisma.athletePayment.findFirst({
+    where: { organization_id: CLUB, athlete_id: LUCA, status: "pending" },
+    select: { id: true },
+  });
+
+  const pagamentoAltrui = await chiama(
+    checkout,
+    "POST",
+    `/api/parent-dashboard/${MARCO}/checkout`,
+    { athleteId: MARCO },
+    sessioneAnna.access_token,
+    { payment_id: rataDiLuca.id },
+  );
+  prova(
+    "M-03 non si apre il checkout su una rata di un'altra famiglia",
+    404,
+    pagamentoAltrui.stato,
+    pagamentoAltrui.corpo?.error?.message,
+  );
+
+  const cruscottoRotta = await carica(
+    "src/app/api/parent-dashboard/[athleteId]/route.ts",
+  );
+  prova(
+    "M-04 il cruscotto di un figlio altrui e negato",
+    403,
+    (
+      await chiama(
+        cruscottoRotta,
+        "GET",
+        `/api/parent-dashboard/${LUCA}`,
+        { athleteId: LUCA },
+        sessioneAnna.access_token,
+      )
+    ).stato,
+  );
+
+  /* -------------------------------------------------------- i documenti */
+
+  const fascicolo = await carica(
+    "src/app/api/parent-dashboard/[athleteId]/documents/route.ts",
+  );
+  prova(
+    "M-05 il fascicolo di un figlio altrui e negato",
+    403,
+    (
+      await chiama(
+        fascicolo,
+        "GET",
+        `/api/parent-dashboard/${LUCA}/documents`,
+        { athleteId: LUCA },
+        sessioneAnna.access_token,
+      )
+    ).stato,
+  );
+
+  /* ---------------------------------------------------- i moduli online */
+
+  const invii = await carica("src/lib/server/form-submissions.ts");
+  await respinta(
+    "M-06 non si compila un modulo per il figlio di un'altra famiglia",
+    () =>
+      invii.submitRenewalForm(ANNA.id, {
+        athleteId: LUCA,
+        publicSlug: MODULO_LIBERO.slug,
+        answers: { f_nome: "Luca" },
+        files: [],
+        respondentEmail: ANNA.email,
+      }),
+    /Accesso negato|non disponibile|non trovat/i,
+  );
+
+  const pratiche = await carica("src/lib/server/enrollment-requests.ts");
+  await respinta(
+    "M-07 ne si leggono le sue pratiche",
+    () => pratiche.listFamilyEnrollmentRequests(ANNA.id, LUCA),
+    /Accesso negato/i,
+  );
+
+  await respinta(
+    "M-08 ne i suoi moduli online",
+    () => pratiche.listFamilyOnlineForms(ANNA.id, LUCA),
+    /Accesso negato/i,
+  );
+
+  /* ---------------------------------------------------- gli appuntamenti */
+
+  const appuntamenti = await carica("src/lib/server/appointments.ts");
+  await appuntamenti.saveAppointmentsConfig(
+    {
+      userId: PRESIDENTE.id,
+      activeOrganizationId: CLUB,
+      activeRole: "owner",
+      activeMembershipId: null,
+      allowedOrganizationIds: [CLUB],
+      accessScopes: [],
+    },
+    { familyBookingEnabled: true, types: [] },
+  );
+
+  const contestoBruno = await appuntamenti.resolveFamilyAppointmentContext(
+    BRUNO.id,
+    LUCA,
+  );
+  const rigaDiBruno = await prisma.appointment.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      starts_at: new Date(Date.UTC(2027, 5, 1, 9, 0)),
+      ends_at: new Date(Date.UTC(2027, 5, 1, 9, 30)),
+      status: "requested",
+      athlete_id: LUCA,
+      requested_by_user_id: BRUNO.id,
+      reason: "Colloquio",
+      version: 1,
+      updated_at: new Date(),
+    },
+  });
+
+  const contestoAnna = await appuntamenti.resolveFamilyAppointmentContext(
+    ANNA.id,
+    MARCO,
+  );
+
+  await respinta(
+    "M-09 non si annulla l'appuntamento di un'altra famiglia",
+    () => appuntamenti.cancelFamilyAppointment(contestoAnna, rigaDiBruno.id),
+    /non trovata|Accesso negato/i,
+  );
+
+  await respinta(
+    "M-10 ne si riprogramma",
+    () =>
+      appuntamenti.rescheduleFamilyAppointment(contestoAnna, rigaDiBruno.id, {
+        date: "2027-06-02",
+        time: "10:00",
+      }),
+    /non trovata|Accesso negato/i,
+  );
+
+  prova("M-11 e Bruno il proprio contesto lo trova", true, Boolean(contestoBruno));
+
+  /* ------------------------------------------------- il tutore revocato */
+
+  /*
+    Il caso che il mandato chiama «stale relationship»: il legame si toglie e
+    l'accesso deve cadere **alla richiesta successiva**, senza aspettare che
+    una sessione scada. Non c'e nessuna cache del legame nel token: ogni rotta
+    lo rilegge, ed e questa prova a dirlo.
+  */
+  const primaDellaRevoca = await cruscotto.canParentAccessAthlete(CARLA.id, NINA);
+  await prisma.athlete.update({
+    where: { id: NINA },
+    data: { data: { guardians: [] } },
+  });
+
+  prova(
+    "M-12 un tutore scollegato perde l'accesso alla richiesta successiva",
+    [true, false],
+    [primaDellaRevoca, await cruscotto.canParentAccessAthlete(CARLA.id, NINA)],
+  );
+
+  prova(
+    "M-13 e non gli resta nemmeno l'elenco",
+    [],
+    await cruscotto.listParentChildren(CARLA.id),
+  );
+
+  /* --------------------------------------- le API generiche del club */
+
+  const ruoli = await carica("src/lib/access-roles.ts");
+  prova(
+    "M-14 il ruolo genitore non apre nessuna risorsa generica del club",
+    [],
+    [
+      "athletes",
+      "clubs",
+      "trainers",
+      "payment_plans",
+      "staff_members",
+      "members",
+    ].filter(
+      (risorsa) =>
+        ruoli.canAccessClubResource("parent", risorsa, "read") ||
+        ruoli.canAccessClubResource("parent", risorsa, "update"),
+    ),
+  );
+};
+
+/* ==================================================================== */
 /*  §O — i due residui di PP-01                                         */
 /* ==================================================================== */
 
@@ -987,6 +1380,183 @@ const sezioneDE = async () => {
 };
 
 /* ==================================================================== */
+/*  §G e §J — i moduli online, e quello che si compila una volta sola    */
+/* ==================================================================== */
+
+let MODULO_LIBERO = null;
+let MODULO_UNICO = null;
+let MODULO_CHIUSO = null;
+
+const seminaModuli = async () => {
+  const moduli = await carica("src/lib/server/forms.ts");
+  const modello = await carica("src/lib/forms/model.ts");
+
+  const pubblica = async (titolo, impostazioni) => {
+    const templateId = randomUUID();
+    const versionId = randomUUID();
+    const slug = `pp02-${titolo.toLowerCase().replace(/\W+/g, "-")}-${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const schema = modello.normalizeFormSchema({
+      title: titolo,
+      description: "",
+      fields: [
+        {
+          id: "f_nome",
+          type: "short_text",
+          label: "Nome",
+          required: true,
+        },
+      ],
+      settings: impostazioni,
+    });
+
+    await prisma.formTemplate.create({
+      data: {
+        id: templateId,
+        organization_id: CLUB,
+        title: titolo,
+        status: "published",
+        public_slug: slug,
+        public_enabled: true,
+        published_version: 1,
+        published_at: new Date(),
+        draft: schema,
+        updated_at: new Date(),
+      },
+    });
+    await prisma.formTemplateVersion.create({
+      data: {
+        id: versionId,
+        organization_id: CLUB,
+        template_id: templateId,
+        version: 1,
+        schema_json: schema,
+        published_at: new Date(),
+      },
+    });
+
+    return { templateId, versionId, slug };
+  };
+
+  MODULO_LIBERO = await pubblica("Questionario", {});
+  MODULO_UNICO = await pubblica("Iscrizione", { singleSubmission: true });
+  MODULO_CHIUSO = await pubblica("Torneo di Natale", {
+    closeAt: "2026-01-01",
+  });
+
+  return moduli;
+};
+
+const sezioneGJ = async () => {
+  console.log("\n§G — i moduli online del fascicolo\n");
+
+  await seminaModuli();
+  const pratiche = await carica("src/lib/server/enrollment-requests.ts");
+
+  const elenco = await pratiche.listFamilyOnlineForms(ANNA.id, MARCO);
+  const per = (titolo) => elenco.find((riga) => riga.title === titolo);
+
+  prova(
+    "P-60 la famiglia vede i moduli pubblicati dal club",
+    ["Iscrizione", "Questionario", "Torneo di Natale"],
+    elenco.map((riga) => riga.title).sort(),
+  );
+
+  prova(
+    "P-61 uno mai compilato e da compilare",
+    "Da compilare",
+    per("Questionario")?.stateLabel,
+  );
+
+  prova(
+    "P-62 uno chiuso e scaduto, e non si puo compilare",
+    ["Scaduto", false],
+    [per("Torneo di Natale")?.stateLabel, per("Torneo di Natale")?.canSubmit],
+  );
+
+  prova(
+    "P-63 la riga dice di quale figlio parla",
+    "Marco Rossi",
+    per("Iscrizione")?.athleteName,
+  );
+
+  console.log("\n§J — il modulo che si compila una volta sola\n");
+
+  const invii = await carica("src/lib/server/form-submissions.ts");
+
+  const invia = (slug, atleta = MARCO, risposte = { f_nome: "Marco" }) =>
+    invii.submitRenewalForm(ANNA.id, {
+      athleteId: atleta,
+      publicSlug: slug,
+      answers: risposte,
+      files: [],
+      respondentEmail: ANNA.email,
+    });
+
+  const primo = await invia(MODULO_UNICO.slug);
+  prova(
+    "P-70 il primo invio passa",
+    true,
+    Boolean(primo?.submissionId),
+  );
+
+  await respinta(
+    "P-71 il secondo invio dello stesso modulo viene rifiutato",
+    () => invia(MODULO_UNICO.slug, MARCO, { f_nome: "Marco corretto" }),
+    /gia stato compilato/i,
+  );
+
+  /*
+    La deduplicazione a finestra resta e fa un mestiere diverso: quella difende
+    dal gesto ripetuto, questa dalla compilazione ripetuta. Un modulo che non
+    dichiara il vincolo si puo rimandare — e cio che serve per correggere un
+    dato.
+  */
+  await invia(MODULO_LIBERO.slug);
+  const secondoLibero = await invia(MODULO_LIBERO.slug, MARCO, {
+    f_nome: "Marco Rossi",
+  });
+  prova(
+    "P-72 un modulo senza il vincolo si puo rimandare",
+    true,
+    Boolean(secondoLibero?.submissionId),
+  );
+
+  /* Il vincolo e **per atleta**, non per club: il fratello non e bloccato. */
+  const perGiulia = await invia(MODULO_UNICO.slug, GIULIA, { f_nome: "Giulia" });
+  prova(
+    "P-73 il vincolo e per atleta: il fratello puo compilare lo stesso modulo",
+    true,
+    Boolean(perGiulia?.submissionId),
+  );
+
+  const dopo = await pratiche.listFamilyOnlineForms(ANNA.id, MARCO);
+  const dopoPer = (titolo) => dopo.find((riga) => riga.title === titolo);
+
+  prova(
+    "P-74 il fascicolo dichiara «Completato» e non offre di rifarlo",
+    ["Completato", false],
+    [dopoPer("Iscrizione")?.stateLabel, dopoPer("Iscrizione")?.canSubmit],
+  );
+
+  prova(
+    "P-75 e per il modulo libero dice «Inviato», con la data",
+    ["Inviato", true],
+    [
+      dopoPer("Questionario")?.stateLabel,
+      Boolean(dopoPer("Questionario")?.completedAt),
+    ],
+  );
+
+  prova(
+    "P-76 i moduli dell'altra famiglia non contano su questo figlio",
+    "Da compilare",
+    (await pratiche.listFamilyOnlineForms(BRUNO.id, LUCA)).find(
+      (riga) => riga.title === "Iscrizione",
+    )?.stateLabel,
+  );
+};
+
+/* ==================================================================== */
 /*  §L — le strutture non prenotabili                                   */
 /* ==================================================================== */
 
@@ -1112,8 +1682,11 @@ const main = async () => {
     await sezioneB();
     await sezioneC();
     await sezioneDE();
+    await sezioneGJ();
     await sezioneL();
+    await sezioneK();
     await sezioneO();
+    await sezioneM();
   } finally {
     await pulisci();
     await prisma.$disconnect();

@@ -81,6 +81,7 @@ import { getTrainingStableKey } from "@/lib/training-utils";
 */
 import { getFamilyDocumentStateClassName } from "@/lib/documents/family-dossier";
 import { withPayableInstalment } from "@/lib/payments/family-checkout";
+import { apiRequest } from "@/lib/api/client";
 import {
   describeFieldAvailability,
   isWithinFieldAvailability,
@@ -1260,22 +1261,27 @@ export function ParentPaymentsPage() {
     if (!data?.athlete.id || !rata?.id) return;
     setPagamentoInCorso(true);
     try {
-      const risposta = await fetch(
+      /*
+        **PP-02. Il trasporto e `apiRequest`, non un `fetch` nudo.**
+
+        CLAUDE.md §2 lo dice per un componente client, e qui c'era la sola
+        eccezione rimasta di questo file. Non e una formalita: con il `fetch`
+        nudo la richiesta non porta l'intestazione del club attivo e, sul 401,
+        nessuno avvisa la sessione — il genitore vedeva un errore rosso invece
+        di essere riportato al login.
+      */
+      const risposta = await apiRequest<{ url?: string }>(
         `/api/parent-dashboard/${data.athlete.id}/checkout`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ payment_id: rata.id }),
-        },
+        { method: "POST", body: { payment_id: rata.id } },
       );
-      const payload = await risposta.json().catch(() => ({}));
-      if (!risposta.ok || payload?.error) {
+
+      if (risposta.error) {
         throw new Error(
-          payload?.error?.message || "Pagamento online non disponibile",
+          risposta.error.message || "Pagamento online non disponibile",
         );
       }
-      if (payload?.data?.url) {
-        window.location.href = payload.data.url;
+      if (risposta.data?.url) {
+        window.location.href = risposta.data.url;
         return;
       }
       throw new Error("Pagamento online non disponibile");
@@ -1488,9 +1494,15 @@ export function ParentPaymentsPage() {
  * 2. **DOCUMENTI** — l'archivio di cio che e stato consegnato e non chiede
  *    niente: in verifica, approvato. Con data, tipo e download.
  * 3. **MODULI ONLINE** — non sono file. Sono compilazioni che il club pubblica
- *    e il genitore riempie, e vivono nella pagina Iscrizione, che e la loro. Qui
- *    c'e il rimando: fingere di ospitarli sarebbe la seconda implementazione di
- *    un dominio che ne ha gia una.
+ *    e il genitore riempie, e vivono nella pagina Iscrizione, che e la loro.
+ *
+ *    **PP-02 §G**: qui c'era il solo rimando, e il posto era giusto — ospitare
+ *    il motore due volte sarebbe la seconda implementazione di un dominio che
+ *    ne ha gia una — ma la card non rispondeva alla domanda per cui esiste, che
+ *    e la stessa delle altre due: **cosa devo ancora fare**. Adesso l'elenco e
+ *    qui, con lo stato di questo figlio, letto da
+ *    GET /api/v1/family/online-forms, e il gesto continua ad aprirsi dove il
+ *    modulo vive.
  *
  * Una voce sta in **una** area sola. La regola — «la famiglia deve ancora fare
  * qualcosa?» — vive in `src/lib/documents/family-dossier.ts`, dove un test la
@@ -1516,6 +1528,14 @@ export function ParentDocumentsPage() {
   /* La riga su cui si sta caricando. Vuoto = il caricamento spontaneo. */
   const [voceAperta, setVoceAperta] = useState("");
   /*
+    PP-02 §G. I moduli online di **questo figlio**, con il loro stato. Non
+    entrano nel payload del cruscotto: sono una lettura che serve a una
+    schermata sola, e metterla li vorrebbe dire pagarla su tutte e tredici.
+    `null` distingue «sto ancora leggendo» da «non ce ne sono»: le due frasi
+    che una famiglia legge sono diverse.
+  */
+  const [moduliOnline, setModuliOnline] = useState<any[] | null>(null);
+  /*
     **Due moduli, due stati.**
 
     Prima ce n'era uno solo, condiviso fra il modulo della riga aperta e il
@@ -1537,6 +1557,30 @@ export function ParentDocumentsPage() {
   const [azzeraRichiesta, setAzzeraRichiesta] = useState(0);
   const [azzeraSpontaneo, setAzzeraSpontaneo] = useState(0);
   const [inCaricamento, setInCaricamento] = useState(false);
+  /*
+    PP-02 §G. Un elenco vuoto e una risposta vera — «il club non ne ha
+    pubblicati» — e un errore di lettura non deve travestirsi da quella: qui
+    fallire lascia `null`, cioe «sto ancora leggendo», che e cio che la
+    schermata sa gia dire senza mentire.
+  */
+  const athleteId = data?.athlete.id;
+  useEffect(() => {
+    if (!athleteId) return;
+    let annullato = false;
+
+    void (async () => {
+      const risposta = await apiRequest<any[]>(
+        `/api/v1/family/online-forms?athlete_id=${encodeURIComponent(athleteId)}`,
+      );
+      if (annullato || risposta.error) return;
+      setModuliOnline(Array.isArray(risposta.data) ? risposta.data : []);
+    })();
+
+    return () => {
+      annullato = true;
+    };
+  }, [athleteId]);
+
   if (!data) return null;
 
   const daFare = data.documents.required;
@@ -1590,6 +1634,7 @@ export function ParentDocumentsPage() {
       setInCaricamento(false);
     }
   };
+
 
   return (
     <div className="space-y-6">
@@ -1850,29 +1895,112 @@ export function ParentDocumentsPage() {
       </Card>
 
       {/* -------------------------------------------------- MODULI ONLINE --- */}
+      {/*
+        **PP-02 §G. L'area diceva dove sono, non cosa manca.**
+
+        Erano una frase e un pulsante verso la pagina Iscrizione. Il posto era
+        giusto — i moduli vivono li, e ospitarne una seconda copia sarebbe la
+        seconda implementazione di un dominio che ne ha gia una — ma la card non
+        rispondeva alla domanda per cui esiste, che e la stessa delle altre due:
+        **cosa devo ancora fare.** Per saperlo bisognava aprire un'altra pagina
+        e leggerne due elenchi.
+
+        Adesso l'elenco e qui, con lo stato di **questo figlio**, e il gesto
+        continua ad aprirsi dove il modulo vive.
+      */}
       <Card className="border-slate-200 shadow-sm">
         <CardHeader>
           <CardTitle>Moduli online</CardTitle>
           <p className="text-sm text-slate-500">
-            Non sono file da caricare: si compilano qui dentro, e il club li
-            riceve firmati.
+            Non sono file da caricare: si compilano online, e il club li riceve
+            gia compilati.
           </p>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-slate-600">
-            I moduli che il club ha pubblicato — iscrizione, rinnovo,
-            questionari — stanno nella pagina Iscrizione, insieme allo stato
-            della pratica. Un modulo gia compilato non si ricompila.
-          </p>
+        <CardContent className="space-y-3">
+          {moduliOnline === null ? (
+            <p className="text-sm text-slate-500">Carico i moduli…</p>
+          ) : moduliOnline.length === 0 ? (
+            <EmptyState text="Il club non ha pubblicato nessun modulo online." />
+          ) : (
+            <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              {moduliOnline.map((modulo) => (
+                <div key={modulo.publicSlug} className="space-y-2 px-4 py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <p className="min-w-0 font-semibold text-slate-950">
+                      {modulo.title}
+                    </p>
+                    <span
+                      className={
+                        modulo.state === "completed"
+                          ? "shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800"
+                          : modulo.state === "expired"
+                            ? "shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
+                            : modulo.state === "submitted"
+                              ? "shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800"
+                              : "shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900"
+                      }
+                    >
+                      {modulo.stateLabel}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+                    {modulo.athleteName ? (
+                      <span>{modulo.athleteName}</span>
+                    ) : null}
+                    {modulo.dueDate ? (
+                      <>
+                        <span aria-hidden>·</span>
+                        <span>Entro il {formatDate(modulo.dueDate)}</span>
+                      </>
+                    ) : null}
+                    {modulo.completedAt ? (
+                      <>
+                        <span aria-hidden>·</span>
+                        <span>Inviato il {formatDate(modulo.completedAt)}</span>
+                      </>
+                    ) : null}
+                  </div>
+                  {/*
+                    Una CTA sola, e solo quando c'e qualcosa da fare. Un modulo
+                    completato che si compila una volta sola non ha un pulsante:
+                    accenderlo per poi rifiutare l'invio e la stessa promessa
+                    mancata che «Paga ora» faceva prima di §D.
+                  */}
+                  {modulo.canSubmit ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        router.push(
+                          `/parent-view/${data.athlete.id}/enrollment?modulo=${encodeURIComponent(modulo.publicSlug)}`,
+                        )
+                      }
+                    >
+                      <FileText className="mr-2 h-4 w-4" />
+                      {modulo.state === "submitted" ? "Compila di nuovo" : "Compila"}
+                    </Button>
+                  ) : modulo.state === "completed" ? (
+                    <p className="text-xs text-slate-500">
+                      Gia compilato: non si puo inviare di nuovo. Se serve una
+                      correzione, scrivi alla segreteria.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      Il club non accetta piu risposte per questo modulo.
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           <Button
             variant="outline"
-            className="shrink-0"
+            className="w-full sm:w-auto"
             onClick={() =>
               router.push(`/parent-view/${data.athlete.id}/enrollment`)
             }
           >
-            <FileText className="mr-2 h-4 w-4" />
-            Vai ai moduli
+            Vai a iscrizione e pratiche
           </Button>
         </CardContent>
       </Card>
@@ -1953,7 +2081,14 @@ export function ParentSecretariatPage() {
     cancelAppointment,
   } = useParentDashboard();
   const { showToast } = useToast();
-  const [form, setForm] = useState({ reason: "", notes: "" });
+  const [form, setForm] = useState({ reason: "", notes: "", typeId: "" });
+  /*
+    PP-02 §K. I motivi che il club accetta. Vuoto = il club non ne ha
+    configurati, e il campo libero resta.
+  */
+  const tipiAppuntamento: any[] = data?.appointments?.config?.types || [];
+  const prenotazioniAperte =
+    data?.appointments?.config?.familyBookingEnabled !== false;
   const [slots, setSlots] = useState<AppointmentSlot[]>([]);
   const [slotsState, setSlotsState] = useState<"loading" | "ready" | "error">(
     "loading",
@@ -2015,7 +2150,7 @@ export function ParentSecretariatPage() {
     activeDay?.slots.find((slot) => slot.startsAt === selectedStartsAt) || null;
 
   const resetForm = () => {
-    setForm({ reason: "", notes: "" });
+    setForm({ reason: "", notes: "", typeId: "" });
     setSelectedStartsAt("");
     setEditingAppointmentId(null);
   };
@@ -2023,7 +2158,7 @@ export function ParentSecretariatPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!form.reason.trim()) {
+    if (tipiAppuntamento.length ? !form.typeId : !form.reason.trim()) {
       showToast("error", "Indica il motivo dell'appuntamento.");
       return;
     }
@@ -2035,6 +2170,7 @@ export function ParentSecretariatPage() {
 
     const richiesta = {
       reason: form.reason,
+      typeId: form.typeId,
       notes: form.notes,
       startsAt: selectedSlot.startsAt,
       slotId: selectedSlot.slotId,
@@ -2064,8 +2200,17 @@ export function ParentSecretariatPage() {
 
   const startEditAppointment = (appointment: Record<string, any>) => {
     setEditingAppointmentId(String(appointment.id));
+    /*
+      PP-02 §K. Riprogrammando si ritrova il tipo scelto, non un campo vuoto:
+      il motivo e lo stesso, cambia l'orario. Il confronto e sul **nome**,
+      perche e cio che l'appuntamento porta con se — cambiare la
+      configurazione domani non deve riscrivere cio che e stato chiesto ieri.
+    */
+    const motivo = appointment.reason || appointment.title || "";
     setForm({
-      reason: appointment.reason || appointment.title || "",
+      reason: motivo,
+      typeId:
+        tipiAppuntamento.find((tipo: any) => tipo.name === motivo)?.id || "",
       notes: appointment.notes || "",
     });
     /*
@@ -2110,7 +2255,23 @@ export function ParentSecretariatPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {slotsState === "loading" ? (
+            {/*
+              PP-02 §K. Se il club ha chiuso le richieste online lo si dice
+              **prima**, invece di lasciare compilare un modulo che il server
+              rifiutera: e la stessa regola di «Paga ora» in §D.
+            */}
+            {!prenotazioniAperte ? (
+              <div className="space-y-2 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <p className="font-medium text-slate-900">
+                  Le richieste online non sono attive.
+                </p>
+                <p>
+                  Questa societa non riceve richieste di appuntamento
+                  dall&apos;applicazione: puoi contattare la segreteria negli
+                  orari indicati in questa pagina.
+                </p>
+              </div>
+            ) : slotsState === "loading" ? (
               <p
                 className="text-sm text-slate-500"
                 role="status"
@@ -2151,20 +2312,56 @@ export function ParentSecretariatPage() {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="appointment-reason">Motivo</Label>
-                  <Input
-                    id="appointment-reason"
-                    value={form.reason}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        reason: event.target.value,
-                      }))
-                    }
-                    placeholder="Es. consegna del certificato medico"
-                  />
-                </div>
+                {/*
+                  **PP-02 §K. Il motivo si sceglie, quando il club lo ha
+                  dichiarato.**
+
+                  Era un campo libero, e in coda arrivavano «info», «parlare col
+                  mister», «pagamento?»: chi riceveva doveva interpretare la
+                  richiesta prima di poterla assegnare. Quando il club non ha
+                  configurato nessun tipo il campo libero resta, ed e giusto: i
+                  tipi restringono, la loro assenza non e un divieto.
+                */}
+                {tipiAppuntamento.length ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="appointment-type">Motivo</Label>
+                    <Select
+                      value={form.typeId}
+                      onValueChange={(value) =>
+                        setForm((current) => ({ ...current, typeId: value }))
+                      }
+                    >
+                      <SelectTrigger id="appointment-type">
+                        <SelectValue placeholder="Scegli il motivo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tipiAppuntamento.map((tipo: any) => (
+                          <SelectItem key={tipo.id} value={tipo.id}>
+                            {tipo.name}
+                            {tipo.durationMinutes
+                              ? ` · ${tipo.durationMinutes} min`
+                              : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="appointment-reason">Motivo</Label>
+                    <Input
+                      id="appointment-reason"
+                      value={form.reason}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          reason: event.target.value,
+                        }))
+                      }
+                      placeholder="Es. consegna del certificato medico"
+                    />
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="appointment-day">Giorno</Label>
@@ -2642,8 +2839,16 @@ export function ParentStructuresPage() {
                     onChange={(event) => patchForm({ date: event.target.value })}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
+                {/*
+                  PP-02 §N. Due orari stanno affiancati e ci stanno anche a
+                  375 px — ma con `flex-wrap` e una larghezza minima **si
+                  impilano da soli** quando non ci stanno, invece di stringersi
+                  finche il controllo nativo dell'ora non si legge piu. Una
+                  griglia a due colonne senza punto di rottura non ha questa
+                  uscita.
+                */}
+                <div className="flex flex-wrap gap-3">
+                  <div className="min-w-[9rem] flex-1 space-y-2">
                     <Label>Ora inizio</Label>
                     <Input
                       type="time"
@@ -2653,7 +2858,7 @@ export function ParentStructuresPage() {
                       }
                     />
                   </div>
-                  <div className="space-y-2">
+                  <div className="min-w-[9rem] flex-1 space-y-2">
                     <Label>Ora fine</Label>
                     <Input
                       type="time"

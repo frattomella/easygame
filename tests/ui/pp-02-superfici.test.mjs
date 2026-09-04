@@ -228,3 +228,148 @@ test("§O · la modifica di un allenamento manda la versione su cui e stata fatt
     "sul conflitto si ricarica: lasciarlo come istruzione vuol dire che chi non la esegue riceve lo stesso errore per sempre",
   );
 });
+
+/* ==================================================================== */
+/*  §G e §J — i moduli online, e il modulo che si compila una volta sola */
+/* ==================================================================== */
+
+test("§G · l'area «Moduli online» elenca, non rimanda soltanto", () => {
+  const pagine = senzaCommenti(leggi(PAGINE));
+
+  assert.ok(
+    pagine.includes("/api/v1/family/online-forms?athlete_id="),
+    "la card diceva dove sono i moduli, non cosa manca: senza questa lettura torna un rimando",
+  );
+  assert.ok(
+    pagine.includes("moduliOnline.map((modulo)"),
+    "e l'elenco va disegnato, altrimenti la lettura non si vede",
+  );
+  assert.ok(
+    pagine.includes("modulo.stateLabel"),
+    "lo stato viene dal dominio: qui era gia stato riscritto tre volte per il certificato",
+  );
+  assert.ok(
+    pagine.includes("Entro il ") && pagine.includes("Inviato il "),
+    "scadenza e data di completamento sono due delle cinque cose chieste",
+  );
+  assert.ok(
+    pagine.includes("modulo.canSubmit"),
+    "una CTA che si accende su un modulo gia chiuso e la stessa promessa mancata di «Paga ora» prima di §D",
+  );
+});
+
+test("§J · l'interruttore «una volta sola» esiste, e il server lo applica", () => {
+  const builder = senzaCommenti(leggi("components/forms/form-builder.tsx"));
+  const dominio = senzaCommenti(leggi("lib/forms/model.ts"));
+  const servizio = senzaCommenti(leggi("lib/server/form-submissions.ts"));
+
+  assert.ok(
+    dominio.includes("singleSubmission: boolean;"),
+    "la dichiarazione sta nelle impostazioni, cioe dentro la versione pubblicata",
+  );
+  assert.ok(
+    builder.includes("Si compila una volta sola"),
+    "un vincolo che il club non puo accendere non esiste",
+  );
+  assert.ok(
+    servizio.includes("assertNonGiaCompilato"),
+    "e uno che nessuno applica e peggio: prometterebbe una regola che non c'e",
+  );
+  assert.ok(
+    servizio.includes('status: { in: ["pending", "approved"] }'),
+    "una pratica respinta non blocca: e proprio il caso in cui la famiglia deve poter rimandare",
+  );
+});
+
+test("§J · il catalogo dice cosa chiede un modello, prima di adottarlo", () => {
+  const catalogo = senzaCommenti(leggi("components/forms/forms-dashboard.tsx"));
+
+  assert.ok(
+    catalogo.includes("Cosa chiede questo modulo"),
+    "per saperlo bisognava adottarlo, aprirlo e cancellarlo: tre gesti per la sola domanda che conta",
+  );
+  assert.ok(
+    catalogo.includes("buildFormFromCatalog(entry).fields.map("),
+    "l'anteprima e l'elenco dei campi, che e cio che distingue due modelli dallo stesso titolo",
+  );
+  assert.ok(
+    catalogo.includes('"Usa modello"'),
+    "«Adotta» non dice cosa succede: si prende il modello e ne nasce una copia del club",
+  );
+});
+
+/* ==================================================================== */
+/*  §K — la segreteria: come riceve il club                             */
+/* ==================================================================== */
+
+test("§K · il club puo dire se riceve, e per cosa", () => {
+  const pagina = senzaCommenti(leggi("app/appuntamenti/page.tsx"));
+
+  assert.ok(
+    pagina.includes("Le famiglie possono prenotare"),
+    "esisteva solo `active` sulla fascia: chi voleva chiudere le richieste doveva spegnerle a una a una",
+  );
+  assert.ok(
+    pagina.includes("Motivi che accettiamo"),
+    "il motivo era testo libero, e in coda arrivavano «info» e «pagamento?»",
+  );
+  assert.ok(
+    pagina.includes("salvaConfigurazione("),
+    "un interruttore che non salva e un interruttore finto",
+  );
+});
+
+test("§K · la famiglia sceglie fra i motivi, e sa se le richieste sono chiuse", () => {
+  const pagine = senzaCommenti(leggi(PAGINE));
+
+  assert.ok(
+    pagine.includes("tipiAppuntamento.length ? ("),
+    "con i motivi configurati si sceglie; senza, il campo libero resta — i tipi restringono, la loro assenza non e un divieto",
+  );
+  assert.ok(
+    pagine.includes("Le richieste online non sono attive."),
+    "dirlo dopo il gesto e la stessa promessa mancata di «Paga ora» prima di §D",
+  );
+  assert.ok(
+    pagine.includes("prenotazioniAperte"),
+    "e la risposta arriva dal server, non da una regola riscritta qui",
+  );
+});
+
+/* ==================================================================== */
+/*  §N — cio che deve reggere a 375 px                                  */
+/* ==================================================================== */
+
+test("§N · le righe nuove dell'area famiglia vanno a capo", () => {
+  const pagine = senzaCommenti(leggi(PAGINE));
+
+  /*
+    Le tre superfici che PP-02 ha aggiunto o riscritto dentro contenitori con
+    `overflow-hidden`: li cio che non ci sta non sporge, viene **tagliato**.
+  */
+  assert.ok(
+    pagine.includes(`className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"`),
+    "la riga di una ricevuta e quella di un modulo: descrizione e importo su una riga rigida non stanno a 375 px",
+  );
+  assert.ok(
+    pagine.includes(`className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500"`),
+    "la riga di dettaglio — tipo, numero, data, figlio, stato — e la piu lunga di tutte",
+  );
+  assert.ok(
+    pagine.includes(`className="flex flex-wrap gap-3"`),
+    "i due orari della prenotazione devono impilarsi invece di stringersi finche non si leggono",
+  );
+});
+
+test("§N · la scheda del figlio nella barra non tronca il nome", () => {
+  const barra = senzaCommenti(leggi(BARRA));
+
+  assert.ok(
+    barra.includes("min-w-0"),
+    "senza, `truncate` non tronca: la larghezza minima resta quella del nome intero",
+  );
+  assert.ok(
+    barra.includes("truncate font-semibold"),
+    "un nome lungo deve troncarsi, non allargare la barra",
+  );
+});

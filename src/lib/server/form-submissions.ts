@@ -643,6 +643,61 @@ const riscontroDelDuplicato = (
   receiptReference: "",
 });
 
+/**
+ * **Questo modulo si compila una volta sola, e per questo soggetto e gia
+ * successo?** (PP-02 §J)
+ *
+ * La deduplicazione a finestra difende dal **gesto** ripetuto — dieci minuti,
+ * stesse risposte — e continua a farlo. Questa difende dalla **compilazione**
+ * ripetuta, che e un'altra cosa: fuori da quella finestra, o cambiando una
+ * virgola, la stessa iscrizione si poteva rimandare tre volte, e in segreteria
+ * arrivavano tre pratiche da leggere per capire quale valesse.
+ *
+ * **Una pratica respinta non blocca**: e proprio il caso in cui la famiglia
+ * deve poter rimandare. Contano le vive — in attesa e approvate.
+ *
+ * **Senza un soggetto risolvibile non si vincola niente.** Una compilazione
+ * pubblica di chi non e ancora in anagrafica non ha un atleta su cui contare, e
+ * inventare un conteggio per indirizzo email significherebbe bloccare due
+ * fratelli iscritti dallo stesso genitore. La conseguenza va detta al club: il
+ * vincolo vale sul rinnovo di chi e gia in archivio.
+ */
+const assertNonGiaCompilato = async (
+  match: PublicFormMatch,
+  selections: FormSubjectSelection[],
+) => {
+  if (!match.schema.settings.singleSubmission) return;
+
+  const soggetti = selections
+    .map((selection) => asText(selection.recordId))
+    .filter(Boolean);
+  if (!soggetti.length) return;
+
+  const vive = (await (prisma as any).formSubmission.findMany({
+    where: {
+      organization_id: match.organizationId,
+      template_id: match.templateId,
+      status: { in: ["pending", "approved"] },
+    },
+    select: { subjects: true },
+    take: 500,
+  })) as Array<{ subjects: unknown }>;
+
+  const gia = vive.some((riga) =>
+    normalizeSelections(riga.subjects).some((selection) =>
+      soggetti.includes(asText(selection.recordId)),
+    ),
+  );
+
+  if (gia) {
+    throw new FormSubmissionError(
+      "Questo modulo e gia stato compilato e non si puo inviare di nuovo. Se serve una correzione, scrivi alla segreteria.",
+      409,
+      {},
+    );
+  }
+};
+
 const storeSubmission = async ({
   match,
   input,
@@ -684,6 +739,13 @@ const storeSubmission = async ({
 
   const gemella = await trovaGemella(match.organizationId, dedupKey);
   if (gemella) return riscontroDelDuplicato(gemella, match);
+
+  /*
+    Prima di caricare gli allegati, che e il lavoro costoso: un modulo gia
+    compilato non deve far depositare una seconda copia di un certificato
+    medico per poi rifiutare la pratica che lo citava.
+  */
+  await assertNonGiaCompilato(match, selections);
 
   const files = await storeSubmissionFiles({
     organizationId: match.organizationId,
