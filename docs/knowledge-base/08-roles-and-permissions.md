@@ -878,6 +878,19 @@ il legame. `accounts.trainer.manage` e `accounts.parent.manage` (gestione,
 stessa forma di `accounts.athlete.manage`) coprono ora lo scollegamento
 puro, fatto da `src/lib/server/profile-account-links.ts`.
 
+**Il ruolo di una tessera si risolve, non si legge (2026-09-04, PP-03).** Lo
+sweep che `revokeClubAccess` esegue dopo aver cancellato una tessera decideva
+quali profili slegare confrontando `organization_users.role` con insiemi di
+stringhe scritti dentro `profile-account-links.ts`. Un ruolo **personalizzato**
+porta in colonna il proprio slug (`custom:trainer:preparatori`, ADR-0102), che
+nessuno di quegli insiemi conteneva: la tessera spariva e la scheda restava
+«Account collegato» a un'utenza senza piu accesso. Gli insiemi sono spariti; il
+ruolo passa da `normalizeAccessRole`, la sola funzione che conosce gli alias e
+che davanti a uno slug ne estrae la **base**. Regola generale: **nessuna
+guardia confronta `organization_users.role` con una stringa**, perche quella
+colonna porta uno slug ogni volta che il club ha un ruolo suo. Verbale in
+[44 — PP-03](44-pp-03-trainer.md) §3.
+
 `/audit` sta fra i percorsi **gestionali** e non fra quelli amministrativi, ed e
 deliberato: a decidere e la chiave, non il prefisso. Metterlo fra gli
 amministrativi lo avrebbe chiuso a ogni ruolo diverso da proprietario e gestore

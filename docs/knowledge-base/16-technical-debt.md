@@ -2310,3 +2310,13 @@ e il posto dove riscrivere un chiamante o cambiare la forma di un elenco.
 | **PP01-D5** | `/permissions` **non** ha l'esclusione dei ruoli personalizzati che `/dashboard/access-management` ha (`access-roles.ts`). Un `custom:*` passa la guardia di rotta; `getClubSettings` **inghiotte il 403** e la pagina mostra tutti i venticinque interruttori accesi a prescindere dalla configurazione reale; il salvataggio poi fallisce. E la divergenza fra cio che si vede e cio che si puo, su una pagina di permessi | E un difetto di autorizzazione su una pagina che PP-01 doveva **analizzare** e non modificare (§M: KEEP PARTIAL). Va corretto con il suo commit e il suo test di ruolo |
 | **PP01-D6** | Il menu `...` di un allenamento e costruito con `innerHTML` a mano invece che con la primitiva del menu, e contiene una voce sola | Riscriverlo e un cambiamento di natura diversa da una correzione di difetto |
 | **PP01-D7** | Ne la barra laterale ne il menu mobile filtrano per ruolo le voci «Permessi allenatore» e «Ruoli e accessi»: `collaborator` e `staff` le vedono e rimbalzano sulla guardia | Vale per l'intera barra — l'unico filtro esistente e `canOpenAccounting` — non per queste due voci |
+
+## Debito aperto da PP-03, non toccato perche fuori scope (2026-09-04)
+
+Trovato mentre si riproducevano i difetti di
+[44 — PP-03](44-pp-03-trainer.md). Vale la stessa regola: una lane di correzioni
+non e il posto dove bonificare l'archivio o riscrivere una pagina intera.
+
+| # | Cosa | Perche non e stato corretto qui |
+|---|---|---|
+| **PP03-D1** | Le righe **gia** dangling prodotte dallo sweep difettoso (§3 di [44](44-pp-03-trainer.md)) restano in archivio: `clubs.trainers[].linkedUserId`, `club_resource_items.payload.linkedUserId`, `athletes.data.guardians[].linkedUserId` e `athletes.user_id` che puntano a persone senza piu una tessera nel club. La correzione ferma la produzione di righe nuove, non ripulisce le vecchie | E una **bonifica dei dati**, non una modifica di codice: va scritta come script idempotente con il suo dry-run, eseguita per club e verificata, e le tre lane PP stanno lavorando in parallelo su database separati. Farla dentro una lane di correzioni significherebbe scrivere una migrazione di dati che nessuno ha ancora deciso di eseguire |
