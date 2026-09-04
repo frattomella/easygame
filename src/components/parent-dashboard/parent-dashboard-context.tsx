@@ -13,6 +13,7 @@ import { useParams, usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
+import type { FamilyFreeSlotView } from "@/lib/appointments/projection";
 import type { ParentDashboardData } from "./parent-dashboard-types";
 
 /**
@@ -23,22 +24,17 @@ import type { ParentDashboardData } from "./parent-dashboard-types";
  * un orario digitato a mano che non cade esattamente su uno slot viene
  * rifiutato. La famiglia deve poter scegliere fra questi, non comporne uno.
  */
-export type AppointmentSlot = {
-  slotId: string | null;
-  source: "slot" | "opening_hours";
-  siteId: string | null;
-  assignedToUserId: string | null;
-  /** L'istante di inizio in ISO: e il solo campo che il server confronta. */
-  startsAt: string;
-  endsAt: string;
-  /** Giorno `YYYY-MM-DD` e ora `HH:MM` gia risolti nel fuso del club. */
-  day: string;
-  time: string;
-  durationMinutes: number;
-  capacity: number;
-  taken: number;
-  remaining: number;
-};
+/*
+  **E la proiezione, non un tipo scritto a mano che le somiglia.**
+
+  La prima stesura lo ridichiarava, e prometteva quattro campi che il server
+  non manda: `assignedToUserId`, `capacity`, `taken`, `remaining`. Nessuno li
+  leggeva — ma un tipo che dichiara un campo assente e un invito a leggerlo, e
+  chi lo avesse fatto avrebbe trovato `undefined` senza che niente lo avvisasse.
+  `toFamilyFreeSlot` decide cosa esce; qui si prende quella decisione, non se ne
+  scrive una seconda.
+*/
+export type AppointmentSlot = FamilyFreeSlotView;
 
 type AppointmentInput = {
   reason: string;

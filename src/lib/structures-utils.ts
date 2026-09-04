@@ -409,6 +409,9 @@ export function describeInstantForAvailability(
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone,
     weekday: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -419,6 +422,16 @@ export function describeInstantForAvailability(
 
   return {
     dayKey: WEEKDAY_KEY_BY_EN[read("weekday")] || "",
+    /*
+      **La data, e non solo il nome del giorno.**
+
+      Il confronto guardava `dayKey`, che si ripete ogni sette giorni: una
+      prenotazione dal lunedi al lunedi **successivo** passava, perche i due
+      «Lun» sono lo stesso nome. E con la finestra della mezzanotte passava
+      anche il lunedi 18:00 → mercoledi 00:00, trenta ore, che la rotta non
+      limita in nessun altro modo.
+    */
+    date: `${read("year")}-${read("month")}-${read("day")}`,
     minutes: Number(read("hour")) * 60 + Number(read("minute")),
   };
 }
@@ -464,25 +477,42 @@ export function isWithinFieldAvailability(
   const inizio = describeInstantForAvailability(start, timeZone);
   const fine = describeInstantForAvailability(end, timeZone);
 
-  if (!inizio.dayKey) return false;
+  if (!inizio.dayKey || !inizio.date) return false;
 
   /*
-    **La mezzanotte chiude la giornata, non ne apre un'altra.**
+    **La mezzanotte chiude la giornata, non ne apre un'altra — ma solo quella
+    dopo.**
 
     Una prenotazione che finisce alle 00:00 non scavalca niente: e l'ultimo
-    istante della sera. Ma il calendario la scrive gia sul giorno dopo, e il
-    confronto fra i due giorni la rifiutava — su un campo aperto «fino a
-    mezzanotte» l'ultima ora non era mai prenotabile.
+    istante della sera, e il calendario la scrive gia sul giorno seguente. La
+    prima stesura di questa finestra chiedeva soltanto «un giorno diverso, e
+    mezzanotte», e su quel «diverso» passavano trenta ore: lunedi 18:00 →
+    mercoledi 00:00. Adesso il giorno seguente e **calcolato**, non dedotto dal
+    nome.
   */
-  const fineMinuti =
-    fine.dayKey !== inizio.dayKey && fine.minutes === 0 ? 24 * 60 : fine.minutes;
-  if (fine.dayKey !== inizio.dayKey && fine.minutes !== 0) return false;
+  const giornoDopo = new Date(start.getTime());
+  giornoDopo.setUTCDate(giornoDopo.getUTCDate() + 1);
+  const dataSeguente = describeInstantForAvailability(giornoDopo, timeZone).date;
+
+  const stessoGiorno = fine.date === inizio.date;
+  const mezzanotteSeguente = fine.date === dataSeguente && fine.minutes === 0;
+
+  if (!stessoGiorno && !mezzanotteSeguente) return false;
+  const fineMinuti = mezzanotteSeguente ? 24 * 60 : fine.minutes;
 
   return (availability[inizio.dayKey] || []).some((slot) => {
     const da = toMinutes(slot.start);
     const a = toMinutes(slot.end);
     if (da === null || a === null) return false;
-    return inizio.minutes >= da && fineMinuti <= (a === 0 ? 24 * 60 : a);
+    /*
+      Una fascia che finisce a `00:00` chiude a mezzanotte — tranne quando
+      **comincia** a mezzanotte: `00:00`-`00:00` e come si scrive una fascia
+      lasciata a zero, e leggerla «aperto tutto il giorno» aprirebbe il campo
+      alle tre di notte a chi non ha configurato niente.
+    */
+    const fineFascia = a === 0 && da > 0 ? 24 * 60 : a;
+    if (fineFascia <= da) return false;
+    return inizio.minutes >= da && fineMinuti <= fineFascia;
   });
 }
 
@@ -532,8 +562,16 @@ export function describeFieldAvailability(
  * Resta un caso senza risposta giusta, e vale la pena dirlo: **l'ora che non
  * esiste** — le 02:30 del giorno in cui l'orologio salta da 02:00 a 03:00. Non
  * c'e nessun istante che la renda, e la funzione restituisce il primo istante
- * successivo. E cio che fa qualunque libreria, e su un campo sportivo e un
- * orario che nessuno pubblica.
+ * successivo, come qualunque libreria.
+ *
+ * **E lo fa scegliendo, non per fortuna.** La prima stesura lo dichiarava e
+ * basta, e a Roma era vero perche l'iterazione capitava dalla parte giusta.
+ * Misurato altrove non lo era: a New York le 02:30 del 14 marzo 2027 tornavano
+ * **01:30**, e a Santiago le 00:30 del 5 settembre tornavano le 23:30 **del
+ * giorno prima** — una prenotazione chiesta per un giorno finiva in agenda su
+ * quello precedente. Quando la stima non si chiude, le candidate sono due, una
+ * per ciascuno dei due offset a cavallo del salto: si prende la **piu tarda**,
+ * che e l'istante subito dopo il buco in tutti e due i versi.
  */
 export function instantFromLocalTime(
   day: string,
@@ -577,5 +615,20 @@ export function instantFromLocalTime(
   };
 
   const primaStima = new Date(comeUtc.getTime() - scarto(comeUtc));
-  return new Date(comeUtc.getTime() - scarto(primaStima));
+  const secondaStima = new Date(comeUtc.getTime() - scarto(primaStima));
+
+  /*
+    Se la seconda stima rende l'ora chiesta, e quella: i due offset stanno dallo
+    stesso lato della transizione e il conto ha chiuso.
+  */
+  if (scarto(secondaStima) === comeUtc.getTime() - secondaStima.getTime()) {
+    return secondaStima;
+  }
+
+  /*
+    Altrimenti l'ora **non esiste**, e le due stime sono le due candidate a
+    cavallo del salto: la piu tarda e il primo istante dopo il buco. Senza
+    questa riga il verso dipendeva dal segno dell'offset del fuso.
+  */
+  return new Date(Math.max(primaStima.getTime(), secondaStima.getTime()));
 }

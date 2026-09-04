@@ -668,7 +668,21 @@ const assertNonGiaCompilato = async (
 ) => {
   if (!match.schema.settings.singleSubmission) return;
 
+  /*
+    **Solo i soggetti `athlete`, e non tutti i `recordId`.**
+
+    Il `recordId` di un tutore non e un identificativo: e la **posizione**
+    nell'elenco dei guardians — `"0"`, `"1"` — ed e cosi che lo legge chi lo
+    consuma. Contarlo fra i soggetti significava che la seconda famiglia in
+    assoluto riceveva «questo modulo e gia stato compilato», perche quasi ogni
+    compilazione indica il primo tutore.
+
+    Il difetto viveva gia nel vaglio in memoria; portare il filtro nel database
+    lo ha reso **fedele a una regola sbagliata**, ed e il verso in cui una
+    correzione di prestazioni peggiora una correttezza.
+  */
   const soggetti = selections
+    .filter((selection) => asText(selection.subject) === "athlete")
     .map((selection) => asText(selection.recordId))
     .filter(Boolean);
   if (!soggetti.length) return;
@@ -696,15 +710,17 @@ const assertNonGiaCompilato = async (
       template_id: match.templateId,
       status: { in: ["pending", "approved"] },
       OR: soggetti.map((recordId) => ({
-        subjects: { array_contains: [{ recordId }] },
+        subjects: { array_contains: [{ subject: "athlete", recordId }] },
       })),
     },
     select: { subjects: true },
   })) as Array<{ subjects: unknown }>;
 
   const gia = vive.some((riga) =>
-    normalizeSelections(riga.subjects).some((selection) =>
-      soggetti.includes(asText(selection.recordId)),
+    normalizeSelections(riga.subjects).some(
+      (selection) =>
+        asText(selection.subject) === "athlete" &&
+        soggetti.includes(asText(selection.recordId)),
     ),
   );
 

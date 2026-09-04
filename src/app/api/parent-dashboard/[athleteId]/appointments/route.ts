@@ -223,6 +223,21 @@ export async function PATCH(request: Request, context: Context) {
 
     const appuntamento = await rescheduleFamilyAppointment(ctx, appointmentId, {
       reason: firstText(body?.reason, body?.title) || null,
+      /*
+        **PP-02 §K. Il tipo scelto arriva anche qui.**
+
+        La `POST` lo leggeva e la `PATCH` no: il client lo mandava, il server lo
+        ignorava, e l'appuntamento riprogrammato conservava il motivo vecchio —
+        senza errore e senza avviso. La schermata, con i tipi configurati, non
+        rende nemmeno il campo del motivo libero, quindi cambiare la tendina
+        non aveva **nessun** effetto.
+
+        Il difetto e sopravvissuto alla prima revisione e alla sua sonda per la
+        stessa ragione: la sonda chiamava il **dominio**, non la rotta. E la
+        lezione di questo repository, di nuovo — cio che era coperto era il
+        vaglio, non la strada che ci arriva.
+      */
+      typeId: firstText(body?.type_id, body?.typeId),
       startsAt: body?.starts_at ?? body?.startsAt ?? null,
       date: firstText(body?.date),
       time: firstText(body?.time),

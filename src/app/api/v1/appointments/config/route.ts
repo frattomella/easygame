@@ -27,11 +27,11 @@ import { publicErrorMessage } from "@/lib/server/api-errors";
  * attivo da cui costruire uno scope.
  *
  * Qui la lettura e aperta a **chiunque abbia una tessera nel club**, e non a
- * chi amministra: non porta niente che un membro non possa gia vedere — nomi di
- * motivi, durate, sedi — e restringerla vorrebbe dire che la schermata della
- * segreteria non puo mostrare l'elenco a un collaboratore che poi fissa un
- * appuntamento dal desk. E la **scrittura** a essere ristretta, dallo stesso
- * gate della disponibilita.
+ * chi amministra: un tipo e un **nome** e un interruttore, e non porta niente
+ * che un membro non possa gia vedere. Restringerla vorrebbe dire che la
+ * schermata della segreteria non puo mostrare l'elenco a un collaboratore che
+ * poi fissa un appuntamento dal desk. E la **scrittura** a essere ristretta,
+ * dallo stesso gate della disponibilita.
  */
 
 export const runtime = "nodejs";

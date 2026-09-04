@@ -177,16 +177,18 @@ export const formatMedicalCertificateDate = (
  * sua data non dice cio che una famiglia deve sapere, che non e «va bene» ma
  * **fino a quando**.
  *
- * Le quattro forme, e sono un elenco chiuso:
+ * Le forme, e sono un elenco chiuso:
  *
  *     Valido — Scade il 01/06/2027
  *     In scadenza — Scade il 12/09/2026
  *     Scaduto — Scaduto il 03/01/2026
- *     Data di scadenza non disponibile
+ *     Mancante — Data di scadenza non disponibile
+ *     Consegnato — Data di scadenza non disponibile
  *
- * L'ultima vale per **entrambi** i casi senza data — il certificato che non c'e
- * e quello consegnato senza scadenza — perche e cio che si legge accanto
- * all'etichetta, che invece li distingue.
+ * **L'etichetta c'e sempre**, e senza data e l'unica cosa che distingue il
+ * certificato che non c'e da quello consegnato senza scadenza. La prima
+ * stesura la ometteva, e il riquadro della Home smetteva di scrivere
+ * «Mancante» proprio per l'atleta che il certificato non lo ha portato.
  */
 export const describeMedicalCertificateForFamily = (
   state: MedicalCertificateFamilyState,

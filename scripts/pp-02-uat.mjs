@@ -885,20 +885,48 @@ const sezioneR = async () => {
   });
 
   /*
-    **R1 (High).** La schermata obbliga a scegliere un motivo, e la rotta di
-    riprogrammazione non lo mandava: la scelta veniva buttata via e
-    l'appuntamento conservava il motivo vecchio, senza errore.
+    **R1 (High). E si passa dalla ROTTA, non dal servizio.**
+
+    La prima stesura di questa prova chiamava `rescheduleFamilyAppointment`
+    direttamente, passandogli `typeId`. Passava — e intanto la rotta `PATCH`
+    quel campo **non lo leggeva affatto**: il client lo mandava, il server lo
+    buttava, e la scelta della famiglia non arrivava da nessuna parte. Il
+    secondo round di revisione lo ha trovato leggendo la rotta.
+
+    E la stessa lezione di tutto il pacchetto, per la terza volta: cio che era
+    coperto era il vaglio, non la **strada** che ci arriva. Da qui in avanti
+    questa prova percorre la strada.
   */
-  const spostato = await appuntamenti.rescheduleFamilyAppointment(
-    contesto,
-    riga.id,
-    {
-      typeId: secondo.id,
-      date: "2027-07-02",
-      time: "10:00",
-      outsideAvailability: false,
-    },
-  ).catch((errore) => ({ errore: String(errore?.message || errore) }));
+  const rottaAppuntamenti = await carica(
+    "src/app/api/parent-dashboard/[athleteId]/appointments/route.ts",
+  );
+  const authR = await carica("src/lib/server/auth.ts");
+  const sessioneR = await authR.createSessionForUser(ANNA);
+
+  const riprogramma = async (id, corpo) => {
+    const risposta = await rottaAppuntamenti.PATCH(
+      new Request(
+        `http://collaudo.invalid/api/parent-dashboard/${MARCO}/appointments`,
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${sessioneR.access_token}`,
+          },
+          body: JSON.stringify({ id, ...corpo }),
+        },
+      ),
+      { params: { athleteId: MARCO } },
+    );
+    const corpoRisposta = await risposta.json().catch(() => ({}));
+    return corpoRisposta?.data || { errore: corpoRisposta?.error?.message };
+  };
+
+  const spostato = await riprogramma(riga.id, {
+    type_id: secondo.id,
+    date: "2027-07-02",
+    time: "10:00",
+  });
 
   /*
     **E il testo libero non rientra dalla porta della riprogrammazione.**
@@ -922,13 +950,11 @@ const sezioneR = async () => {
     },
   });
 
-  const conTestoLibero = await appuntamenti
-    .rescheduleFamilyAppointment(contesto, altraRiga.id, {
-      reason: "quello che mi pare",
-      date: "2027-07-09",
-      time: "11:00",
-    })
-    .catch((errore) => ({ errore: String(errore?.message || errore) }));
+  const conTestoLibero = await riprogramma(altraRiga.id, {
+    reason: "quello che mi pare",
+    date: "2027-07-09",
+    time: "11:00",
+  });
 
   prova(
     "R-01b il testo libero non rientra dalla riprogrammazione",

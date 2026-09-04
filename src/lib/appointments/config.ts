@@ -115,8 +115,14 @@ export const normalizeAppointmentsConfig = (
   const tipi = Array.isArray(record.types) ? record.types : [];
 
   /*
-    Deduplicato per identificativo: due voci con lo stesso id sono due nomi per
-    la stessa scelta, e la seconda vincerebbe a caso a seconda di chi cerca.
+    **Gli identificativi si rendono unici, non si scartano le voci.**
+
+    La prima stesura scartava la seconda di due voci con lo stesso id, e il
+    pulsante «Aggiungi» rispondeva con successo senza aggiungere niente. Adesso
+    si numera. Il confronto e **minuscolo**, come quello di
+    `findAppointmentType`: due id che differiscono solo per le maiuscole sono
+    lo stesso id per chi cerca, e tenerli distinti qui vorrebbe dire che la
+    ricerca ne restituisce sempre uno solo dei due — e magari quello sbagliato.
   */
   const visti = new Set<string>();
   const types: AppointmentType[] = [];
@@ -133,13 +139,13 @@ export const normalizeAppointmentsConfig = (
       numera: la voce entra, e chi l'ha scritta la vede.
     */
     let id = tipo.id || "motivo";
-    if (visti.has(id)) {
+    if (visti.has(id.toLowerCase())) {
       let contatore = 2;
-      while (visti.has(`${id}-${contatore}`)) contatore += 1;
+      while (visti.has(`${id}-${contatore}`.toLowerCase())) contatore += 1;
       id = `${id}-${contatore}`;
     }
 
-    visti.add(id);
+    visti.add(id.toLowerCase());
     types.push({ ...tipo, id });
   }
 

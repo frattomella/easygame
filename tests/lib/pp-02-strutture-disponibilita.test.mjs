@@ -156,10 +156,10 @@ test("l'ora digitata si legge nel fuso del club, non del dispositivo", () => {
   assert.equal(estate.toISOString(), "2027-07-01T16:00:00.000Z");
 
   /* Cio che rende e quello che la fascia poi legge. */
-  assert.deepEqual(describeInstantForAvailability(inverno), {
-    dayKey: "Lun",
-    minutes: 18 * 60,
-  });
+  const descritto = describeInstantForAvailability(inverno);
+  assert.equal(descritto.dayKey, "Lun");
+  assert.equal(descritto.minutes, 18 * 60);
+  assert.equal(descritto.date, "2027-03-01");
 
   assert.equal(instantFromLocalTime("", "18:00"), null);
   assert.equal(instantFromLocalTime("2027-03-01", "diciotto"), null);
@@ -264,4 +264,136 @@ test("nessun file del server importa il dominio del browser", () => {
     [],
     "il dominio del browser fa fetch su percorsi relativi: sul server restituisce sempre l'elenco vuoto, in silenzio",
   );
+});
+
+/* ==================================================================== */
+/*  Cio che il secondo round di revisione ha trovato                     */
+/* ==================================================================== */
+
+test("una prenotazione di trenta ore non passa perche finisce a mezzanotte", () => {
+  /*
+    **F4, e l'ha introdotta la correzione della mezzanotte.** La finestra
+    chiedeva soltanto «un giorno diverso, e mezzanotte»: su quel «diverso»
+    passava lunedi 18:00 → **mercoledi** 00:00. La rotta non ha nessun tetto di
+    durata, quindi in segreteria sarebbe arrivata una prenotazione di trenta
+    ore — e `hasBookingConflict` l'avrebbe poi usata per bloccare tutti gli
+    altri.
+  */
+  const campo = { availability: { Lun: [{ start: "18:00", end: "00:00" }] } };
+
+  const lunediSera = lun(18);
+  const martedi0 = new Date(Date.UTC(2027, 2, 1, 23));
+  const mercoledi0 = new Date(Date.UTC(2027, 2, 2, 23));
+
+  assert.equal(isWithinFieldAvailability(campo, lunediSera, martedi0), true);
+  assert.equal(isWithinFieldAvailability(campo, lunediSera, mercoledi0), false);
+});
+
+test("la prenotazione da un lunedi al lunedi dopo non passa", () => {
+  /*
+    **F5**, preesistente e non vista al primo giro: il confronto guardava il
+    **nome** del giorno, che si ripete ogni sette. Adesso guarda la data.
+  */
+  const campo = { availability: { Lun: [{ start: "18:00", end: "22:00" }] } };
+  const traUnaSettimana = new Date(Date.UTC(2027, 2, 8, 19));
+
+  assert.equal(isWithinFieldAvailability(campo, lun(18), traUnaSettimana), false);
+  assert.equal(isWithinFieldAvailability(campo, lun(18), lun(20)), true);
+});
+
+test("una fascia lasciata a zero non e «aperto tutto il giorno»", () => {
+  /*
+    **F6.** `00:00`-`00:00` e come si scrive una fascia che nessuno ha
+    compilato: leggerla come 00:00-24:00 aprirebbe il campo alle tre di notte
+    a un club che non ha configurato niente.
+  */
+  const campo = { availability: { Lun: [{ start: "00:00", end: "00:00" }] } };
+
+  assert.equal(isWithinFieldAvailability(campo, lun(3), lun(4)), false);
+  assert.equal(isWithinFieldAvailability(campo, lun(18), lun(19)), false);
+});
+
+test("l'ora che non esiste cade dopo il salto, e non prima", () => {
+  /*
+    **F10.** Il commento lo dichiarava e a Roma era vero per fortuna: la
+    seconda passata capitava dalla parte giusta. Misurato altrove no. Le 02:30
+    del 14 marzo 2027 a New York — l'ora che l'orologio salta — tornavano
+    **01:30**, prima del buco invece che dopo; e le 00:30 del 5 settembre a
+    Santiago tornavano le 23:30 del **giorno precedente**: una prenotazione
+    chiesta per un giorno finiva in agenda su quello prima.
+
+    Il fuso del club oggi e uno solo (`Europe/Rome`), quindi il difetto era
+    latente. Ma il commento prometteva un comportamento che il codice non
+    aveva, ed e la forma di debito che questo pacchetto ha gia incontrato tre
+    volte: la promessa scritta accanto al codice che nessuno ha verificato.
+  */
+  const reso = (istante, timeZone) =>
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(istante);
+
+  assert.equal(
+    reso(instantFromLocalTime("2027-03-28", "02:30", "Europe/Rome"), "Europe/Rome"),
+    "28/03/2027, 03:30",
+  );
+  assert.equal(
+    reso(
+      instantFromLocalTime("2027-03-14", "02:30", "America/New_York"),
+      "America/New_York",
+    ),
+    "14/03/2027, 03:30",
+  );
+  assert.equal(
+    reso(
+      instantFromLocalTime("2027-09-05", "00:30", "America/Santiago"),
+      "America/Santiago",
+    ),
+    "05/09/2027, 01:30",
+  );
+});
+
+test("ogni ora che esiste torna identica, in otto fusi", () => {
+  /*
+    La correzione dell'ora inesistente tocca il ramo comune, quindi va tenuto
+    fermo che non abbia spostato niente di cio che esiste.
+  */
+  const zone = [
+    "Europe/Rome",
+    "America/New_York",
+    "Pacific/Auckland",
+    "America/Santiago",
+    "Asia/Kolkata",
+    "UTC",
+    "Australia/Lord_Howe",
+    "Pacific/Chatham",
+  ];
+
+  for (const timeZone of zone) {
+    for (const giorno of ["2027-01-15", "2027-06-10", "2027-11-07"]) {
+      for (const ora of ["00:00", "09:30", "18:00", "23:30"]) {
+        const istante = instantFromLocalTime(giorno, ora, timeZone);
+        const reso = new Intl.DateTimeFormat("en-GB", {
+          timeZone,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }).format(istante);
+
+        assert.equal(
+          reso,
+          `${giorno.slice(8)}/${giorno.slice(5, 7)}/${giorno.slice(0, 4)}, ${ora}`,
+          `${timeZone} ${giorno} ${ora}`,
+        );
+      }
+    }
+  }
 });

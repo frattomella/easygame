@@ -572,6 +572,36 @@ export default function AppuntamentiDisponibilitaPage() {
                                 {tipo.name}
                                 {tipo.bookable ? "" : " · solo dal desk"}
                               </span>
+                              {/*
+                                **PP-02 §K. `bookable` aveva due rami nel
+                                dominio e nessuno scrittore nella schermata.**
+
+                                Il club non poteva creare un motivo «solo dal
+                                desk» — «Convocazione», il caso per cui la
+                                distinzione esiste — mentre il servizio la
+                                applicava e una sonda la esercitava fabbricando
+                                la configurazione via API. E la stessa forma di
+                                funzione incompleta che questa lane ha tolto dal
+                                tipo, con il segno invertito: non un campo che
+                                sembra governare, ma una regola che governa e
+                                che nessuno puo esprimere.
+                              */}
+                              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <Checkbox
+                                  checked={tipo.bookable}
+                                  onCheckedChange={(valore) =>
+                                    salvaConfigurazione({
+                                      ...configurazione,
+                                      types: configurazione.types.map((voce) =>
+                                        voce.id === tipo.id
+                                          ? { ...voce, bookable: valore === true }
+                                          : voce,
+                                      ),
+                                    })
+                                  }
+                                />
+                                Le famiglie possono chiederlo
+                              </label>
                               <Button
                                 variant="ghost"
                                 size="sm"

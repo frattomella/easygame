@@ -17,7 +17,6 @@ import { createClubNotifications } from "./club-notifications";
 import { sendNotificationEmails } from "./email/email-service";
 import { canParentAccessAthlete } from "./parent-dashboard";
 import {
-  bookableAppointmentTypes,
   findAppointmentType,
   normalizeAppointmentsConfig,
   type AppointmentsConfig,
@@ -1671,9 +1670,14 @@ const risolviMotivoDellaFamiglia = async (
 
   if (tipo) return tipo.name;
 
-  const tipiPrenotabili = bookableAppointmentTypes(configurazione);
-
-  if (tipiPrenotabili.length) {
+  /*
+    **Basta che il club abbia dichiarato dei motivi**, non che ne abbia lasciato
+    almeno uno prenotabile (F3 della seconda revisione). Un club i cui motivi
+    sono **tutti** «solo dal desk» ha detto la cosa piu chiara di tutte: le
+    richieste le decide lui. Guardare i soli prenotabili lo riportava al testo
+    libero, cioe all'opposto.
+  */
+  if (configurazione.types.length) {
     /*
       **Con i motivi configurati il testo libero non entra piu, in nessuna
       forma.**
@@ -1827,10 +1831,25 @@ export const rescheduleFamilyAppointment = async (
     row.reason,
   );
 
+  /*
+    **La sede si omette, non si azzera** (F9 della seconda revisione).
+
+    La rotta manda sempre la chiave, e `null` significa «togli la sede»: la
+    riga nuova la perdeva. Ma la disponibilita si calcola con
+    `input.siteId ?? row.site_id`, cioe ricade sulla **vecchia** — si validava
+    contro una sede e si scriveva senza. Omettendola, entrambi i rami leggono
+    la stessa cosa.
+  */
+  const { siteId, ...restoDellInput } = input;
   const esito = await riprogramma(
     ctx.scope,
     row,
-    { ...input, reason, outsideAvailability: false },
+    {
+      ...restoDellInput,
+      ...(asText(siteId) ? { siteId: asText(siteId) } : {}),
+      reason,
+      outsideAvailability: false,
+    },
     "family",
     { userId: ctx.userId },
     { userId: ctx.userId },
