@@ -116,6 +116,38 @@ export const getGuardianRows = (athlete: any) => {
   const soloRecapito = (record: Record<string, any>) =>
     Boolean(record.contactOnly || record.contact_only);
 
+      /*
+        **Un legame dichiarato e non revocato vince, come per l'accesso.**
+
+        Senza questa uscita i canali di invio erano piu chiusi del cancello, e
+        in due modi che si vedevano solo dal lato della famiglia:
+
+        1. `contactOnly` non aveva **nessuna strada di ritorno**. Il percorso
+           normale di una nuova iscrizione — la famiglia compila il modulo
+           pubblico, la segreteria approva e le genera un invito, lei lo
+           riscatta — le dava l'area famiglia completa e **nessun invio**: ne
+           il sollecito, ne il promemoria del certificato, ne le notifiche
+           documentali. Per sempre, e senza che niente lo dicesse: la scheda
+           mostrava «Account collegato». Un invito generato dal club **per
+           quella riga** e il club che se ne fa garante;
+        2. madre e padre con lo stesso indirizzo di famiglia — configurazione
+           ordinaria — e la revoca di uno metteva quell'indirizzo nell'elenco,
+           chiudendo i canali **all'altro**, che ha il proprio legame
+           dichiarato e continua a entrare nel cruscotto.
+
+        E la stessa uscita che `athleteBelongsToParent` ha da sempre. Averla
+        qui e non li voleva dire che la stessa domanda, sulla stessa persona,
+        aveva due risposte.
+      */
+  const legameDichiaratoVivo = (record: Record<string, any>) => {
+    const dichiarato = String(
+      record.linkedUserId || record.linked_user_id || "",
+    )
+      .trim()
+      .toLowerCase();
+    return Boolean(dichiarato) && !identitaRevocate.has(dichiarato);
+  };
+
   const revocataPerIdentita = (record: Record<string, any>) =>
     [
       record.linkedUserId,
@@ -145,6 +177,7 @@ export const getGuardianRows = (athlete: any) => {
     */
     .filter((guardian) => {
       const record = asRecord(guardian);
+      if (legameDichiaratoVivo(record)) return true;
       if (revocataPerIdentita(record) || soloRecapito(record)) return false;
       return !firstText(record.accessRevokedAt, record.access_revoked_at);
     })
@@ -170,6 +203,7 @@ export const getGuardianRows = (athlete: any) => {
     /* Il marchio vale anche sulla coppia storica, o la revoca ha un buco. */
     .filter((guardian) => {
       const record = asRecord(guardian);
+      if (legameDichiaratoVivo(record)) return true;
       if (revocataPerIdentita(record) || soloRecapito(record)) return false;
       return !firstText(record.accessRevokedAt, record.access_revoked_at);
     })

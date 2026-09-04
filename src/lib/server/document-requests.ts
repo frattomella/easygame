@@ -536,7 +536,22 @@ const asRecord = (value: unknown): Record<string, any> =>
  */
 const resolveFamilyRecipients = (athlete: any): string[] => {
   const data = asRecord(athlete?.data);
-  const tutori = Array.isArray(data.guardians) ? data.guardians : [];
+  /*
+    **E la coppia storica, che le altre tre letture leggono gia.**
+
+    `parent1`/`parent2` sono la forma di un'anagrafica travasata e
+    **concedono** come l'elenco. Questa lettura guardava solo `guardians`,
+    quindi una famiglia travasata non riceveva **mai** una notifica
+    documentale: ne la richiesta, ne il promemoria, ne l'esito
+    dell'approvazione. La tabella di ADR-0116 verifica che le quattro letture
+    onorino le tre difese, non che partano dalle stesse **righe**.
+  */
+  const elenco = Array.isArray(data.guardians) ? data.guardians : [];
+  const storici = [
+    (data as any).parent1,
+    (data as any).parent2,
+  ].filter((riga) => riga && typeof riga === "object");
+  const tutori = elenco.length > 0 ? elenco : storici;
 
   /*
     **Chi e stato scollegato non riceve piu notifiche su quel minore.**
@@ -570,6 +585,20 @@ const resolveFamilyRecipients = (athlete: any): string[] => {
   */
   const tutoriVivi = tutori.filter((guardian: any) => {
     const record = asRecord(guardian);
+
+    /*
+      **Un legame dichiarato e non revocato vince**, come per l'accesso e come
+      per gli altri due canali: un invito riscattato e il club che si fa
+      garante di quella riga, e chi condivide un indirizzo di famiglia con
+      qualcuno che e stato revocato non deve perdere i propri avvisi.
+    */
+    const dichiarato = String(
+      record.linkedUserId || record.linked_user_id || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (dichiarato && !revocate.has(dichiarato)) return true;
+
     if (record.contactOnly || record.contact_only) return false;
     if (record.accessRevokedAt || record.access_revoked_at) return false;
     return true;

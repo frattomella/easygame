@@ -911,15 +911,42 @@ export const unlinkParentGuardians = async (
     }
 
     /*
-      **L'identita si registra anche quando non c'era niente da ripulire.**
+      **L'identita si registra dove quella persona compare, e solo li.**
 
-      `if (!changed) continue` precedeva la registrazione: su un atleta la cui
+      Due stesure sbagliate, in due direzioni opposte, e la seconda era mia.
+
+      La prima registrava **dopo** `if (!changed) continue`: su un atleta la cui
       unica riga fosse storica — o gia ripulita da una stesura precedente —
-      l'elenco non veniva mai scritto, e con lui saltava la sola difesa che
-      tutti gli altri lettori consultano. Chi revoca una tessera vuole togliere
-      l'accesso **a quella persona su tutto il club**, non solo dove trova una
-      riga da modificare.
+      l'elenco non veniva mai scritto, e saltava la sola difesa che tutti gli
+      altri lettori consultano.
+
+      La seconda ha spostato la registrazione **prima** del `continue`, e ha
+      fatto molto peggio: l'insieme cresce sempre, quindi `changed` diventa
+      vero su **ogni atleta del club**. Il ciclo gira dentro una transazione, e
+      una `athlete.update` per atleta significa che su un club di qualche
+      centinaio di tesserati la revoca di una tessera — o l'uscita volontaria,
+      che e self-service — puo andare in timeout e non riuscire. E ogni scheda
+      accumulava l'indirizzo di ogni genitore mai uscito dal club, compresi i
+      figli di altre famiglie, senza nessuna strada che li togliesse.
+
+      La domanda giusta non e «ho cambiato qualcosa» ne «e un atleta del club»:
+      e **questa persona compare su questa scheda**. Su un atleta che con lei
+      non ha mai avuto niente a che fare non c'e niente da revocare.
     */
+    const compareSuQuestaScheda =
+      changed ||
+      [...collectionKeys, ...legacyKeys].some((key) => {
+        const valore = data[key];
+        const righe = Array.isArray(valore)
+          ? valore
+          : isRecord(valore)
+            ? [valore]
+            : [];
+        return righe.some((riga) => isLinkedToTarget(riga, userId, userEmail));
+      });
+
+    if (!compareSuQuestaScheda) continue;
+
     const identitaDaRegistrare = new Set<string>(
       (Array.isArray((data as any).revokedGuardianIdentities)
         ? ((data as any).revokedGuardianIdentities as unknown[])

@@ -315,6 +315,33 @@ export const guardianAccessIdentities = (
       continue;
     }
 
+    /*
+      **E nemmeno una riga marchiata come revocata.**
+
+      Il marchio di riga era visto dalla guardia della crescita solo **di
+      riflesso**: funzionava perche i due scrittori registrano sempre anche
+      l'identita nell'elenco. Una dipendenza non dichiarata, che uno scrittore
+      futuro avrebbe rotto senza accorgersene.
+
+      E c'era un costo immediato. La revoca **conserva di proposito**
+      l'indirizzo di contatto, quindi la riga revocata continuava a portarlo:
+      `prima` lo escludeva (identita revocata) e `dopo` no, quindi
+      **rimandare la riga invariata** risultava una crescita. Dopo una sola
+      revoca, un ruolo senza le due chiavi non poteva piu salvare **niente** su
+      quell'atleta — un documento, una taglia, un numero di telefono — perche
+      la schermata rimanda sempre l'array dei tutori. Per sempre, e con un
+      messaggio che parlava d'altro.
+
+      Se la riga non concede, non porta identita: rimandarla non e una
+      crescita, e toglierle il marchio lo e.
+    */
+    if (
+      (guardian as any).accessRevokedAt ||
+      (guardian as any).access_revoked_at
+    ) {
+      continue;
+    }
+
     if (perId) identita.add(perId.trim().toLowerCase());
     if (perEmail) identita.add(perEmail.trim().toLowerCase());
   }

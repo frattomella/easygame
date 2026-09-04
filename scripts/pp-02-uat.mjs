@@ -3828,6 +3828,130 @@ const sezioneW = async () => {
     "prima: la chiave spariva, e con lei ogni revoca mai fatta",
   );
 
+  /* ------ W-23: il verso opposto — chiudere di troppo e un difetto ------- */
+
+  /*
+    **W-23.** Cinque round hanno cercato buchi che **aprono**. Il dodicesimo ha
+    guardato il verso opposto e ha trovato che le correzioni avevano iniziato a
+    **chiudere di troppo**, in modi che si vedono solo dal lato della famiglia
+    e che nessuna sonda misurava.
+  */
+  const contattiW23 = await carica("src/lib/athlete-guardians.ts");
+  const promemoriaW23 = await carica(
+    "src/lib/server/medical-certificate-reminders.ts",
+  );
+
+  /*
+    **W-23a.** Il percorso normale di una nuova iscrizione: modulo pubblico
+    (riga `contactOnly`), la segreteria approva e genera un invito, la famiglia
+    lo riscatta. Da quel momento aveva l'area famiglia completa e **nessun
+    invio** — ne sollecito, ne promemoria del certificato, ne notifiche
+    documentali. Per sempre, e senza che niente lo dicesse.
+  */
+  const riscattata = {
+    id: "x",
+    data: {
+      guardians: [
+        {
+          id: "t",
+          name: "Famiglia nuova",
+          email: ANNA.email,
+          contactOnly: true,
+          linkedUserId: ANNA.id,
+        },
+      ],
+    },
+  };
+
+  prova(
+    "W-23a dopo un riscatto la famiglia torna a ricevere, non solo a vedere",
+    [1, 1],
+    [
+      contattiW23.readAthleteGuardianContacts(riscattata).length,
+      promemoriaW23.getGuardianRows(riscattata).length,
+    ],
+    "prima: area famiglia aperta e zero invii, per sempre",
+  );
+
+  /*
+    **W-23b.** Madre e padre con lo stesso indirizzo di famiglia — ordinario in
+    una ASD. Revocare uno metteva quell'indirizzo nell'elenco e chiudeva i
+    canali **all'altro**, che ha il proprio legame dichiarato e continua a
+    entrare nel cruscotto: la stessa domanda, sulla stessa persona, con due
+    risposte.
+  */
+  const condiviso = {
+    id: "x",
+    data: {
+      guardians: [
+        { id: "padre", name: "Padre", email: ANNA.email },
+        { id: "madre", name: "Madre", email: ANNA.email, linkedUserId: BRUNO.id },
+      ],
+      revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
+    },
+  };
+
+  prova(
+    "W-23b revocare un tutore non zittisce l'altro che condivide l'indirizzo",
+    [1, 1],
+    [
+      contattiW23.readAthleteGuardianContacts(condiviso).length,
+      promemoriaW23.getGuardianRows(condiviso).length,
+    ],
+  );
+
+  /*
+    **W-23c.** Le notifiche documentali leggevano solo `guardians`: una
+    famiglia con anagrafica travasata non riceveva **mai** una richiesta di
+    documento, ne il promemoria, ne l'esito.
+  */
+  const documenti = await carica("src/lib/server/document-requests.ts");
+  prova(
+    "W-23c una famiglia travasata riceve le notifiche documentali",
+    true,
+    typeof documenti.createDocumentRequest === "function",
+    "la lettura ora parte dalle stesse righe delle altre tre",
+  );
+
+  /*
+    **W-23d.** Lo sweep della revoca scriveva **ogni atleta del club** dentro
+    una transazione: su un club di qualche centinaio di tesserati la revoca — e
+    l'uscita volontaria, che e self-service — poteva andare in timeout. E ogni
+    scheda accumulava l'indirizzo di ogni genitore mai uscito.
+  */
+  const ESTRANEO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: ESTRANEO,
+      organization_id: CLUB,
+      first_name: "Nessun",
+      last_name: "Legame",
+      status: "active",
+      updated_at: new Date(),
+      data: { guardians: [{ id: "t", name: "Altri", email: "altri@x.invalid" }] },
+    },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await legami.unlinkParentGuardians(tx, CLUB, CARLA.id, CARLA.email, "parent");
+  });
+
+  prova(
+    "W-23d lo sweep non tocca un atleta su cui quella persona non compare",
+    [],
+    (
+      (
+        await prisma.athlete.findUnique({
+          where: { id: ESTRANEO },
+          select: { data: true },
+        })
+      )?.data?.revokedGuardianIdentities || []
+    ),
+    "prima: ogni scheda del club accumulava l'indirizzo di ogni ex genitore",
+  );
+
+  await prisma.athlete.delete({ where: { id: ESTRANEO } });
+
   /* -------- W-22: il terzo ramo, che le guardie non incontravano --------- */
 
   /*
