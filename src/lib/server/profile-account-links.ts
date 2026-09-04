@@ -298,9 +298,34 @@ const caricaAllenatoreDelClubAttivo = async (
     un allenatore reale porta l'identificativo **logico**
     (`trainer-<istante>-<casuale>`).
   */
+  /*
+    **Il club si filtra nella query, non dopo.**
+
+    Le due letture cercavano in tutto l'archivio e il club veniva controllato
+    solo dopo, su cio che era gia stato trovato. Chiudeva, ma due conseguenze
+    la rendevano comunque sbagliata:
+
+    - `payload.path=["id"]` **non e unico**. L'identificativo logico di un
+      allenatore (`trainer-<istante>-<casuale>`) puo ripetersi fra due club, e
+      `findFirst` ne sceglie uno qualsiasi: se sceglieva quello dell'altro
+      club, l'operatore si sentiva rispondere «Accesso negato» su un
+      allenatore **proprio**, esistente e legittimo;
+    - la coppia «non trovato» / «accesso negato» diceva a chi provava se un
+      identificativo esiste in **qualche** club, che e l'oracolo che
+      CLAUDE.md §8 vieta chiedendo il filtro `organization_id` in ogni query.
+
+    `assertActiveClub` resta: e la seconda cintura, non la prima.
+  */
+  const organizationId = testo(scope.activeOrganizationId);
+  if (!organizationId) throw new Error("Accesso negato: nessun club attivo");
+
   const perUuid = isUuid(id)
     ? await prisma.clubResourceItem.findFirst({
-        where: { id, resource_type: { in: [...TIPI_ALLENATORE] } },
+        where: {
+          id,
+          organization_id: organizationId,
+          resource_type: { in: [...TIPI_ALLENATORE] },
+        },
       })
     : null;
 
@@ -308,6 +333,7 @@ const caricaAllenatoreDelClubAttivo = async (
     perUuid ||
     (await prisma.clubResourceItem.findFirst({
       where: {
+        organization_id: organizationId,
         resource_type: { in: [...TIPI_ALLENATORE] },
         payload: { path: ["id"], equals: id },
       },
