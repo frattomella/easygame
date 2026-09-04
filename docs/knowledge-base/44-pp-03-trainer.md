@@ -260,3 +260,101 @@ Due ragioni per cui non e stato chiuso qui.
    decide con `scope.activeRole`, che il gettone ce l'ha — quindi nessun dato
    esce e nessuna scrittura passa. Cio che manca e la superficie, non la
    difesa.
+
+---
+
+## §6 — Le altre due porte sullo stesso dato
+
+Trovate da due revisori ostili indipendenti, lanciati con il mandato di
+rompere e non di approvare. Sono **la stessa causa di §1**, su due porte che
+§1 non aveva percorso: il perimetro delle persone di un allenatore ordinario
+vive nella **scheda** dentro `clubs.trainers`, non in `club_access_scopes`, e
+chi guardava solo la seconda vedeva un perimetro **assente** — cioe tutto il
+club (ADR-0103).
+
+### 6.1 — Il riepilogo RSVP (HIGH)
+
+**Riprodotto.** Allenamento congiunto A+B. L'allenatore della sola B apre
+`GET /api/v1/rsvp?training_id=<congiunto>`: riceve **200**, e dentro nomi,
+stato di risposta e la **nota libera della famiglia** dei minori della
+categoria A. Nella riproduzione la nota diceva «arriva in ritardo, allergia
+arachidi»: e testo che il genitore scrive a mano, e ci finisce quello che gli
+pare.
+
+**La causa.** `readEventRsvpSummary` (`src/lib/server/rsvp.ts`) chiama
+`assertTrainerCanSeeEvent`, che giudica l'**evento** — e dopo ADR-0111 il
+congiunto e legittimamente suo. Poi pero compone l'elenco degli attesi con
+`resolveExpectedAthletes`, che filtra sulle categorie **dell'evento**. La
+stessa falla che §1 ha chiuso su `GET /events/:id/participants`, sulla porta
+accanto.
+
+Un dettaglio ha reso la correzione meno ovvia di quanto sembrasse:
+`summarizeRsvp` costruisce il proprio universo come `attesi ∪ chi ha
+risposto`. Filtrare i soli attesi avrebbe lasciato passare dalla porta di
+servizio esattamente le persone piu interessanti — quelle che hanno gia
+risposto, e la cui riga porta la nota. Le due liste si tagliano insieme.
+
+**Effetto dichiarato.** Su un allenamento **precedente ai gruppi operativi**,
+un allenatore con gruppi dichiarati vedeva tutti gli atleti della categoria e
+adesso vede i propri. E coerente con il suo elenco atleti e con
+`/events/:id/participants`; la direzione continua a vederli tutti.
+`tests/server/rsvp-summary.test.mjs` e stato corretto, non aggirato: il suo
+caso di §6 teneva insieme due domande diverse — «puo aprire questo
+allenamento?» e «chi ci sta dentro?» — e la risposta piu larga vinceva.
+
+**Verificato.** `scripts/pp-03-rsvp-perimetro-probe.mjs`, 5/5 contro
+`easygame_dev_pp03` e le rotte vere (era 3/5).
+
+### 6.2 — Gli allegati (HIGH)
+
+**Riprodotto.** L'allenatore della categoria A chiede
+`GET /api/v1/attachments?owner_type=athlete&owner_id=<minore di B>`: riceve
+**200** con la riga, e con essa l'identificativo dell'allegato. Poi lo scarica:
+**200**, `content-type: application/pdf`, ed e la **carta d'identita** di un
+minore di un'altra squadra. Il contenuto clinico restava protetto da
+`clinical.read`; tutto il resto no.
+
+**La causa.** `listAttachments` e `assertAttachmentWithinAccessScope`
+(`src/lib/server/attachments.ts`) chiedevano solo
+`buildAthleteAccessScopeConditions`, cioe `club_access_scopes`. Con l'ironia
+che una revisione ha misurato e vale la pena scrivere: un allenatore con ruolo
+**personalizzato** e uno scope di categoria era protetto, quello **base** no.
+La difesa c'era e si accendeva sulla persona sbagliata.
+
+**Cosa e cambiato.** I due recinti si sommano, e ognuno torna `null` quando non
+ha niente da dire — `null` non e l'insieme vuoto. `AttachmentAccessScope`
+guadagna `activeRole`, che e cio che serve a sapere se il secondo recinto
+esiste.
+
+**Una nota di ownership.** `src/lib/server/attachments.ts` e dichiarato dal
+contratto delle lane parallele come file di **nessuna** delle tre. E stato
+modificato lo stesso, con il diff piu piccolo possibile, e la ragione e
+scritta qui perche l'integrazione la veda: la regola esiste per evitare
+conflitti fra lane, e nessuna delle altre due sta scrivendo quel file; il
+difetto e la consegna dei byte del documento d'identita di un minore, e il
+mandato PP-03 chiede un round di sicurezza con **High 0**. Registrarlo come
+dependency lo avrebbe consegnato a nessuno.
+
+**Verificato.** `scripts/pp-03-allegati-perimetro-probe.mjs`, 4/4 (era 3/4), e
+`tests/server/pp-03-allegati-perimetro-allenatore.test.mjs` in `npm test`, che
+misura anche il verso opposto: la direzione continua a vedere tutti gli
+allegati. Verifica per mutazione: tolti i due recinti, due prove su tre rosse.
+
+### 6.3 — Il legame che un proprietario riconosceva e l'altro no
+
+Emerso mentre 6.1 rompeva due test che erano verdi da mesi, e vale piu della
+sua riga di diff.
+
+`findClubTrainerProfile` (`events.ts`) riconosce **tre** forme di legame fra
+un'utenza e la scheda di un allenatore, e la terza — `entry.id` uguale
+all'identificativo dell'utenza — porta gia scritto accanto perche esiste: «un
+club che scrive la scheda usando l'identificativo dell'utenza come id del
+profilo non veniva riconosciuto qui, mentre `rsvp.ts` lo riconosceva. Due
+proprietari, due risposte opposte sullo stesso ingresso».
+
+`isProfileLinkedToUser` (`resources.ts`), che decide la stessa cosa per
+l'elenco atleti, quella terza forma non la conosceva. La divergenza falliva
+**chiusa**, ed e per questo che non si era vista: quel club aveva un allenatore
+con il **calendario pieno** e la **squadra vuota**, senza un errore da nessuna
+parte. Si e vista quando il perimetro delle persone e arrivato anche al
+riepilogo RSVP, cioe quando le due risposte hanno cominciato a toccarsi.

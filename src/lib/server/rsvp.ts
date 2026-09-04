@@ -21,6 +21,7 @@ import {
   findClubEvent,
   readTrainerEventPerimeter,
 } from "./events";
+import { athleteIdsWithinTrainerPerimeter } from "./resources";
 import {
   normalizeEventKind,
   toEventLegacyShape,
@@ -742,14 +743,63 @@ export const readEventRsvpSummary = async ({
       : Promise.resolve([]),
   ]);
 
-  const expected = resolveExpectedAthletes(context, athletes);
+  /*
+    **L'evento ammesso non ammette le persone dell'evento**, la terza porta.
+
+    `assertTrainerCanSeeEvent` giudica l'**evento**: dopo ADR-0111 un
+    allenamento congiunto A+B passa a chi ha una sola delle due categorie, ed e
+    giusto — l'evento e anche suo. Ma `resolveExpectedAthletes` compone poi
+    l'elenco degli attesi dalle categorie **dell'evento**, non dal perimetro di
+    chi guarda: l'allenatore della sola B riceveva nomi, stato di risposta e la
+    **nota libera della famiglia** dei minori della categoria A. La nota e testo
+    che il genitore scrive a mano, e ci finisce quello che gli pare: nel caso
+    riprodotto, un'allergia.
+
+    E la stessa correzione gia fatta su `GET /events/:id/participants` (§1 del
+    verbale), applicata alla porta accanto: si **filtrano le righe**, non si
+    nega l'evento, perche l'evento e legittimamente suo.
+
+    `athleteIdsWithinTrainerPerimeter` torna `null` per chi non e allenatore —
+    «nessun recinto» non e «recinto vuoto» — e per gli altri passa le righe vere
+    per lo stesso filtro che compone l'elenco atleti: una seconda
+    implementazione della stessa regola sarebbe la prossima divergenza.
+  */
+  const attesi = resolveExpectedAthletes(context, athletes);
+
+  /*
+    **Il recinto si chiede sull'unione, non sugli attesi.**
+
+    `summarizeRsvp` costruisce il proprio universo come
+    `attesi ∪ chi ha risposto`: filtrare i soli attesi avrebbe lasciato passare
+    dalla porta di servizio esattamente le persone piu interessanti, quelle che
+    hanno gia risposto e la cui riga porta la **nota**. Le due liste si tagliano
+    quindi insieme, con la stessa risposta.
+  */
+  const daGiudicare = Array.from(
+    new Set([
+      ...attesi.map((athlete) => asText(athlete.id)),
+      ...rows.map((row) => asText(row.athlete_id)),
+    ]),
+  ).filter(Boolean);
+
+  const dentroIlPerimetro = await athleteIdsWithinTrainerPerimeter(
+    wanted,
+    daGiudicare,
+    scope,
+  );
+  const ammesso = (athleteId: string) =>
+    !dentroIlPerimetro || dentroIlPerimetro.includes(athleteId);
+
+  const expected = attesi.filter((athlete) => ammesso(asText(athlete.id)));
+  const righeAmmesse = rows.filter((row) => ammesso(asText(row.athlete_id)));
+
   const namesById = new Map(
     athletes.map((athlete) => [asText(athlete.id), athleteDisplayName(athlete)]),
   );
 
   const summary = summarizeRsvp({
     expectedAthleteIds: expected.map((athlete) => asText(athlete.id)),
-    rows,
+    rows: righeAmmesse,
   });
   const config = readEventRsvpConfig(context.training, now);
 

@@ -4808,6 +4808,26 @@ const isProfileLinkedToUser = (
 ) => {
   const source = toObjectPayload(profile);
   const linkedCandidates = [
+    /*
+      **La terza forma di legame, e qui mancava.**
+
+      `findClubTrainerProfile` (`events.ts`) la riconosce e lo dichiara: un club
+      che scrive la scheda dell'allenatore usando **l'identificativo
+      dell'utenza** come id del profilo e un club legittimo, e quel legame vale.
+      Questa funzione no, e le due decidono la stessa cosa: chi e l'allenatore
+      che sta guardando.
+
+      Due proprietari della stessa domanda danno due risposte. Qui la
+      divergenza falliva **chiusa** e per questo non si era vista: il dominio
+      degli eventi riconosceva l'allenatore e gli mostrava il calendario, e
+      l'elenco atleti — che passa di qui — non lo riconosceva e gli rispondeva
+      con **zero atleti**. Un allenatore con il calendario pieno e la squadra
+      vuota, senza nessun errore da nessuna parte.
+
+      Si e vista quando il perimetro degli atleti e arrivato anche al riepilogo
+      RSVP: da li in poi le due risposte si toccano, e la piu stretta vince.
+    */
+    profile?.id,
     profile?.linkedUserId,
     profile?.linked_user_id,
     profile?.userId,

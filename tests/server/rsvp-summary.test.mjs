@@ -334,11 +334,25 @@ test("un allenamento senza gruppi dichiarati riguarda tutta la categoria", async
 });
 
 /**
- * Sullo stesso dato precedente, l'allenatore ricade sulla **categoria**: un
- * perimetro per gruppo applicato a un allenamento che i gruppi non li dichiara
- * negherebbe l'accesso proprio a chi il club lo ha configurato meglio.
+ * **Sul dato precedente l'allenatore entra, ma non gli entrano dentro tutti**
+ * (PP-03).
+ *
+ * Le due domande sono diverse e questo test le teneva insieme.
+ *
+ * - «Puo **aprire** questo allenamento?» Sul dato precedente ai gruppi la
+ *   risposta ricade sulla **categoria**: un perimetro per gruppo applicato a un
+ *   allenamento che i gruppi non li dichiara negherebbe l'accesso proprio a chi
+ *   il club lo ha configurato meglio. Non e cambiato: il riepilogo risponde.
+ * - «**Chi** ci sta dentro?» Qui la risposta e il perimetro delle persone, che
+ *   per un allenatore con gruppi dichiarati **e il gruppo** (W5-69): il suo
+ *   elenco atleti gli mostra i Pulcini di Scauri e non quelli di Santi Cosma, e
+ *   il riepilogo RSVP glieli mostrava tutti e tre — con nome e nota libera
+ *   della famiglia.
+ *
+ * Prima erano una domanda sola, e la risposta piu larga vinceva. Adesso sono
+ * due, e il denominatore e quello onesto: gli attesi che sono anche **suoi**.
  */
-test("sul dato precedente l'allenatore ricade sulla categoria", async () => {
+test("sul dato precedente l'allenatore apre il riepilogo, ristretto alle sue persone", async () => {
   const riepilogo = await service.readEventRsvpSummary({
     trainingId: T_LEGACY,
     scope: scope(ALLENATORE_SCAURI, "trainer"),
@@ -346,5 +360,21 @@ test("sul dato precedente l'allenatore ricade sulla categoria", async () => {
     now: ADESSO,
   });
 
-  assert.equal(riepilogo.totals.expected, 3);
+  assert.equal(
+    riepilogo.totals.expected,
+    2,
+    "il riepilogo porta anche i Pulcini di Santi Cosma, che non sono del suo gruppo",
+  );
+  assert.deepEqual(
+    riepilogo.athletes.map((riga) => riga.athleteId).sort(),
+    [A1, A2].sort(),
+  );
+
+  /* La direzione, invece, continua a vederli tutti e tre. */
+  const dallaDirezione = await service.readEventRsvpSummary({
+    trainingId: T_LEGACY,
+    scope: scope(OWNER, "owner"),
+    now: ADESSO,
+  });
+  assert.equal(dallaDirezione.totals.expected, 3);
 });
