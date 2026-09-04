@@ -60,6 +60,7 @@ export type PermissionDomain =
   | "data_subject"
   | "documents"
   | "events"
+  | "forms"
   | "health"
   | "members"
   | "seasons"
@@ -490,6 +491,20 @@ const ENTRIES: readonly PermissionEntry[] = [
     roles: DIREZIONE,
   },
 
+  /* ----------------------------------------------------- moduli online --- */
+  {
+    key: "forms.submissions.read",
+    domain: "forms",
+    label: "Leggere le iscrizioni e le compilazioni arrivate dai moduli online",
+    roles: GESTIONE,
+  },
+  {
+    key: "forms.submissions.review",
+    domain: "forms",
+    label: "Approvare o respingere un'iscrizione arrivata da un modulo online",
+    roles: GESTIONE,
+  },
+
   /* -------------------------------------------------------- libro soci --- */
   {
     key: "members.register.manage",
@@ -854,7 +869,30 @@ export const RESOURCE_PERMISSION_KEYS: Record<
   */
 
   /* --- moduli e documenti --- */
-  forms: { keys: [], reason: "i moduli online hanno le proprie rotte di dominio; nel registro generico nessuna chiave li governa" },
+  /*
+    **I moduli online non avevano nessuna chiave, e la conseguenza era grossa.**
+
+    La motivazione era «i moduli hanno le proprie rotte di dominio; nel
+    registro generico nessuna chiave li governa». Quelle rotte di dominio pero
+    autorizzano **proprio** con `canAccessClubResource(role, "forms", …)`, cioe
+    con il registro generico che questa riga dichiarava non governato: il
+    rimando era circolare.
+
+    E `customRoleReachesResource` su una voce senza chiavi risponde `true`
+    **incondizionatamente**. Un ruolo di club con una casella sola — o con
+    nessuna — leggeva quindi ogni pratica di iscrizione online: codice fiscale,
+    data di nascita, indirizzo, telefono e tutori di ogni minore iscritto. E
+    poteva **respingerle**, con il proprio nome sulla decisione.
+
+    Cioe le caselle di un ruolo personalizzato non facevano niente sui moduli:
+    quello che CLAUDE.md §2 descrive per i domini con matrice propria, in una
+    variante peggiore — qui una matrice non c'era.
+  */
+  forms: {
+    keys: ["forms.submissions.read", "forms.submissions.review"],
+    reason:
+      "le rotte dei moduli autorizzano con `canAccessClubResource(role, 'forms', …)`, cioe con questo registro: senza chiavi ogni ruolo di club passava",
+  },
 
   /* --- il contenitore generico: il tipo decide, e lo giudica la sua guardia --- */
   club_resource_items: {

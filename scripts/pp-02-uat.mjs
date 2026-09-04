@@ -3848,6 +3848,71 @@ const sezioneW = async () => {
 
   await prisma.athlete.deleteMany({ where: { id: { in: [A, B] } } });
 
+  /*
+    **W-16. Le pratiche di iscrizione non sono aperte a chiunque abbia una
+    tessera.**
+
+    La voce di catalogo dei moduli diceva `keys: []`, e
+    `customRoleReachesResource` su una voce senza chiavi risponde `true`
+    **incondizionatamente**: un ruolo di club con una casella sola — o con
+    nessuna — leggeva ogni pratica di iscrizione online del club. Codice
+    fiscale, data di nascita, indirizzo, telefono e tutori di ogni minore
+    iscritto. E poteva **respingerle**, con il proprio nome sulla decisione.
+
+    La motivazione era «i moduli hanno le proprie rotte di dominio», ma quelle
+    rotte autorizzano proprio con il registro generico che la riga dichiarava
+    non governato: il rimando era circolare, e in mezzo non c'era niente.
+  */
+  const catalogo = await carica("src/lib/permissions/catalog.ts");
+
+  prova(
+    "W-16 le due chiavi dei moduli esistono e sono della gestione",
+    [true, true],
+    [
+      catalogo.roleHasPermission("collaborator", "forms.submissions.read"),
+      catalogo.roleHasPermission("collaborator", "forms.submissions.review"),
+    ],
+  );
+
+  prova(
+    "W-16b un ruolo che non lavora sulle pratiche non le legge ne le decide",
+    [false, false],
+    [
+      catalogo.roleHasPermission("trainer", "forms.submissions.read"),
+      catalogo.roleHasPermission("trainer", "forms.submissions.review"),
+    ],
+    "prima: la voce di catalogo era senza chiavi, e passava chiunque",
+  );
+
+  /* E il dominio le chiede davvero, non solo il catalogo le dichiara. */
+  const inviiW16 = await carica("src/lib/server/form-submissions.ts");
+  const scopeSenzaModuli = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    /*
+      **Il ruolo che esponeva il buco**: un ruolo di club su base
+      collaboratore, con **nessuna** casella. Passa il primo vaglio — la
+      risorsa `forms` e fra quelle aperte alla gestione — e prima non ne
+      incontrava un secondo.
+    */
+    activeRole: "custom:collaborator:magazziniere",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  const letturaNegata = await inviiW16
+    .listFormSubmissions(scopeSenzaModuli, {})
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-16c e il dominio le chiede, non solo il catalogo le dichiara",
+    true,
+    /Accesso negato/.test(letturaNegata),
+    letturaNegata,
+  );
+
   /* ------------- W7: un ragazzo non e tutore di se stesso --------------- */
 
   /*

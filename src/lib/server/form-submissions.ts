@@ -6,6 +6,7 @@ import {
   stripClinicalAthleteFields,
 } from "@/lib/health/permissions";
 import { canAccessClubResource } from "@/lib/access-roles";
+import { roleHasPermission } from "@/lib/permissions/catalog";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
 import { createAttachment, deleteAttachment } from "./attachments";
@@ -125,6 +126,24 @@ const ensureOrganizationAccess = (
     dominio, e non aveva nessuna porta.
   */
   if (!canAccessClubResource(scope.activeRole, "forms", "read")) {
+    throw denied("le compilazioni della societa le legge chi ci lavora dentro");
+  }
+
+  /*
+    **E la chiave, perche il registro generico da solo non bastava.**
+
+    La voce di catalogo dei moduli diceva `keys: []`, e
+    `customRoleReachesResource` su una voce senza chiavi risponde `true`
+    **incondizionatamente**: un ruolo di club con una casella sola — o con
+    nessuna — leggeva ogni pratica di iscrizione online del club. Codice
+    fiscale, data di nascita, indirizzo, telefono e tutori di ogni minore
+    iscritto.
+
+    La motivazione scritta era «i moduli hanno le proprie rotte di dominio», ma
+    quelle rotte autorizzano **proprio** con `canAccessClubResource(role,
+    "forms", …)`: il rimando era circolare, e in mezzo non c'era niente.
+  */
+  if (!roleHasPermission(scope.activeRole, "forms.submissions.read")) {
     throw denied("le compilazioni della societa le legge chi ci lavora dentro");
   }
 };
@@ -1823,6 +1842,22 @@ export const decideFormSubmission = async (
   decision: ReviewDecision,
 ): Promise<ReviewOutcome> => {
   const row = await loadSubmissionRow(scope, id);
+
+  /*
+    **Decidere non e leggere**, e finora lo era.
+
+    Approvare crea atleti, appartenenze, consensi e documenti; respingere
+    chiude l'iscrizione di una famiglia con il proprio nome sulla decisione. Il
+    ramo di rifiuto scrive per di piu con una `prisma.formSubmission.update`
+    diretta, senza passare da `resources.ts` e senza un secondo vaglio: era
+    governato dal solo permesso di **lettura**, e quello — vedi sopra — non
+    filtrava nessuno.
+  */
+  if (!roleHasPermission(scope.activeRole, "forms.submissions.review")) {
+    throw denied(
+      "approvare o respingere un'iscrizione e di chi gestisce le pratiche",
+    );
+  }
 
   if (normalizeStatus(row.status) !== "pending") {
     throw new Error("Questa compilazione e gia stata esaminata.");
