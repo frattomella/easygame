@@ -694,16 +694,22 @@ export const listFamilyOnlineForms = async (
     }
   }
 
-  const collegati = await getParentLinkedAthletes(asText(userId));
-  const nomeAtleta =
-    collegati
-      .filter((riga: any) => asText(riga.id) === atleta)
-      .map((riga: any) =>
-        [asText(riga.first_name), asText(riga.last_name)]
-          .filter(Boolean)
-          .join(" "),
-      )
-      .find(Boolean) || "";
+  /*
+    **Il nome si legge dalla riga, non da una seconda scansione.**
+
+    Qui c'era `getParentLinkedAthletes`, che risolve il legame con una
+    scansione di `athletes` su tutti i club — la stessa che
+    `resolveLinkedFamilyScope` ha gia fatto due righe sopra per autorizzare
+    questa chiamata. Due scansioni per un nome, su una rotta che si apre a ogni
+    visita del fascicolo.
+  */
+  const riga = await prisma.athlete.findFirst({
+    where: { id: atleta, organization_id: organizationId },
+    select: { first_name: true, last_name: true },
+  });
+  const nomeAtleta = [asText(riga?.first_name), asText(riga?.last_name)]
+    .filter(Boolean)
+    .join(" ");
 
   return candidati
     .map((riga) => ({ riga, schema: schemi.get(riga.id) }))

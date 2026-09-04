@@ -192,12 +192,7 @@ export type ParentDashboardData = {
      */
     config?: {
       familyBookingEnabled: boolean;
-      types: Array<{
-        id: string;
-        name: string;
-        durationMinutes: number;
-        siteId: string | null;
-      }>;
+      types: Array<{ id: string; name: string }>;
     };
   };
   structures?: {

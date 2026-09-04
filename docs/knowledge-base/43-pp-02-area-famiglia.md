@@ -641,7 +641,7 @@ scritto.
 
 | Gate | Esito |
 |---|---|
-| `npm test` | **4.691 / 4.691** (baseline 4.617, + 74 controlli nuovi) |
+| `npm test` | **4.696 / 4.696** (baseline 4.617, + 79 controlli nuovi) |
 | `npm run typecheck` | pulito |
 | `npm run lint` | 0 errori, 34 warning (baseline invariata) |
 | `npm run build` | completa |
@@ -656,7 +656,7 @@ un pacchetto che corregge il percorso della famiglia.
 
 ### Collaudo di dominio
 
-`scripts/pp-02-uat.mjs` — **95 prove**, contro il database di sviluppo. Semina
+`scripts/pp-02-uat.mjs` — **101 prove**, contro il database di sviluppo. Semina
 **due famiglie nello stesso club** — che e la configurazione su cui un errore di
 perimetro si vede, perche due club diversi si separano gia da soli per
 `organization_id` — piu un tutore senza tessera e un club estraneo.
@@ -674,6 +674,7 @@ perimetro si vede, perche due club diversi si separano gia da soli per
 | §K | P-100…P-108 | come riceve il club |
 | §O | P-90…P-97 | i due residui di PP-01 |
 | §M | M-01…M-14 | l'audit ostile |
+| §R | R-01…R-06 | cio che la revisione indipendente ha trovato |
 
 Il club — e quello estraneo — vengono cancellati in `finally`, e la semina
 comincia cancellando i residui di un'esecuzione interrotta.
@@ -702,3 +703,71 @@ la grafia si e spostata. Sono stati corretti, non rimossi:
 - **La ricerca dei tutori**: risponderle `[]` sarebbe la risposta stretta — un
   test sul tutore senza tessera fallirebbe su codice corretto, che e lo stesso
   disservizio di `hasSome` al contrario.
+---
+
+## 16. La revisione indipendente, e cosa ha trovato
+
+Il pacchetto si e dichiarato chiuso, e **poi** e passato a una revisione ostile
+indipendente sul diff completo, con una consegna esplicita: **non fidarti dei
+commenti, verifica il codice.**
+
+Ha trovato **un High e otto Medium reali**. Tutti corretti, ognuno con la sua
+prova.
+
+| # | Gravita | Cosa | Perche contava |
+|---|---|---|---|
+| R1 | **High** | La riprogrammazione di un appuntamento **scartava il motivo scelto** | La schermata **obbliga** a sceglierlo, e la rotta `PATCH` non lo mandava: la scelta finiva nel nulla e l'appuntamento conservava il motivo vecchio, senza errore e senza avviso |
+| S2 | Medium | `familyBookingEnabled` non valeva sulla riprogrammazione | Riprogrammare **crea una riga nuova** (ADR-0101), cioe e una richiesta: l'interruttore non chiudeva la porta, la socchiudeva |
+| S1 | Medium | La rotta di configurazione faceva uscire l'**identificativo dell'operatore** a chiunque avesse una tessera | Chiuso togliendo il campo: vedi sotto |
+| Q1 | Medium | `jsonb_array_elements` fuori dalla protezione del tipo | Una riga con `guardians` scritto come oggetto avrebbe fatto cadere l'intera ricerca nel `catch`: l'allargamento sarebbe sparito **per tutte le famiglie**, in silenzio |
+| Q2 | Medium | Due scansioni di `athletes` per richiesta su `/api/v1/family/online-forms` | La seconda serviva **solo al nome dell'atleta**, che sta sulla riga |
+| R2 | Medium | La riga del certificato **perdeva l'etichetta** senza data | «Mancante» spariva dal riquadro proprio per l'atleta che il certificato non lo ha portato: il caso per cui quel riquadro esiste |
+| R3 | Medium | «Consegnato» e «Aggiorna il certificato» convivevano | La distinzione che §F ha introdotto arrivava nell'etichetta e **in nessuna delle decisioni che ne dipendono** |
+| R4 | Medium | La fascia storica `{ days: [...] }` diventava vincolante con **orari inventati** | `normalizeAvailability` riempiva con `18:00`-`22:00`: innocuo finche nessuno confrontava, un divieto da quando la fascia vincola. La stessa lezione di W6-D03, mancata su questa forma |
+| R5 | Medium | L'ora digitata era letta nel fuso **del dispositivo**, la fascia in quello del club | Un genitore su un altro fuso leggeva «Lun 18:00-22:00» e si sentiva rifiutare le 21:30; nel verso opposto le 17:30 passavano e il club si trovava in agenda le 18:30 |
+| R9 | Medium | `take: 500` senza filtro sul soggetto | Il vincolo «una volta sola» cadeva in silenzio **proprio sui club grandi**. Gia corretto prima della revisione, con il filtro in SQL |
+| R6, R8, R11, R12, config | Low | Mezzanotte come fine, slug che collidono, `400` su un guasto del server, salvataggi rapidi, `"false"` letto come acceso | Tutti corretti |
+
+### Le due correzioni che hanno cambiato una decisione
+
+**Il tipo di appuntamento e diventato un nome, e basta.** Portava anche durata,
+sede e operatore: tre campi che **nessuno legge** — chi riceve, dove e per
+quanto lo dice la fascia, che e dove sono gia onorati. Mostrarli al club voleva
+dire far credere che decidessero qualcosa, ed e la forma piu comune di funzione
+incompleta che questo repository conosce (CLAUDE.md §11): non il codice
+mancante, ma il campo che **sembra** governare. Toglierli ha chiuso anche S1,
+perche `assignedToUserId` era l'unico dato di persona che la rotta di lettura
+faceva uscire.
+
+**Gli orari storici non si inventano piu.** `normalizeAvailability` riempiva la
+forma `{ days: [...] }` con `18:00`-`22:00`. PP-02 ha reso la fascia vincolante
+citando W6-D03 — «il silenzio non e un divieto» — e non si era accorto che su
+questa forma il silenzio era **gia stato riempito** da un valore plausibile.
+Adesso senza orari la giornata resta senza fasce, cioe senza vincolo.
+
+### Una prova che non diventa rossa, e va detto
+
+`R-03` verifica che una riga con `guardians` malformato non faccia sparire i
+figli di nessuno. **Rimettendo la forma fragile la prova resta verde**: su
+questa query il pianificatore di Postgres valuta i congiunti nell'ordine
+scritto. Il rischio e reale ma **latente** — lo standard non garantisce
+quell'ordine, e un piano diverso lo cambierebbe senza avvisare — e la prova
+misura cio che puo misurare: che la forma robusta non abbia rotto niente.
+
+Dichiararlo vale piu che scrivere «verificato».
+
+### Cosa la revisione ha **non** trovato
+
+Nessuna via per cui un genitore raggiunga i dati di un figlio non suo. Nessuna
+SQL injection nella query grezza — il parametro e legato dal tagged template,
+non interpolato. Nessun hook chiamato condizionalmente. Nessuna regressione
+dalla rimozione del ripiego `UUID_PATTERN`: i quattro chiamanti passano tutti
+da un segmento di rotta dinamica o da un identificativo reale.
+
+### Cio che ha segnalato e resta aperto
+
+| Cosa | Perche resta |
+|---|---|
+| Il salvataggio delle strutture **lato club** puo ancora cancellare una prenotazione di famiglia arrivata nel frattempo | E il percorso del `PATCH` generico sul club, cioe il debito D2 (doppia rappresentazione). La transazione nuova protegge un verso solo, e adesso il commento lo dice. Chiuderlo e la tabella di PP02-D3 |
+| `cleanupOrphanScheduledTrainings` guadagna logica in `simplified-db.ts`, che CLAUDE.md §2 dichiara «in riduzione» | La correzione e giusta nel merito e il posto e quello che la regola scoraggia. Spostarla vuol dire portare l'azione lato server, che e un'altra forma della stessa migrazione (WP-07) |
+| Il diff mescola PP-02 con il debito PP-01 e superfici adiacenti | I commit sono separati per tema; il **pacchetto** e largo perche il mandato lo e |

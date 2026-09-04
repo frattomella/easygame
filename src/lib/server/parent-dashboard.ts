@@ -1113,6 +1113,21 @@ const serializeParentStructureBooking = (
  * lavoro con il suo perimetro (debito PP02-D1).
  */
 const findClubsWhereUserIsGuardian = async (userId: string) => {
+  /*
+    **Il controllo del tipo sta dentro la funzione, non accanto.**
+
+    La prima stesura scriveva `WHERE jsonb_typeof(...) = 'array' AND EXISTS(...
+    jsonb_array_elements(...))`, e Postgres **non garantisce** l'ordine di
+    valutazione dei congiunti di un `AND`: puo eseguire il sotto-piano su righe
+    in cui `guardians` e un oggetto o una stringa, e li
+    `jsonb_array_elements` lancia.
+    
+    Una sola riga malformata — un travaso, un import, una versione vecchia dello
+    schema JSON — avrebbe fatto cadere l'intera ricerca nel `catch`, cioe
+    avrebbe **rimesso il difetto** che questa funzione esiste per chiudere, per
+    tutte le famiglie del sistema e in silenzio. Il `CASE` sposta la domanda
+    dentro l'espressione, dove viene valutata riga per riga.
+  */
   const identita = [String(userId || "").trim().toLowerCase()].filter(Boolean);
   if (!identita.length) return [] as string[];
 
@@ -1120,10 +1135,15 @@ const findClubsWhereUserIsGuardian = async (userId: string) => {
     const righe = await prisma.$queryRaw<Array<{ organization_id: string }>>`
       SELECT DISTINCT a.organization_id::text AS organization_id
       FROM athletes a
-      WHERE jsonb_typeof(COALESCE(a.data -> 'guardians', 'null'::jsonb)) = 'array'
-        AND EXISTS (
+      WHERE EXISTS (
           SELECT 1
-          FROM jsonb_array_elements(a.data -> 'guardians') AS g
+          FROM jsonb_array_elements(
+            CASE
+              WHEN jsonb_typeof(a.data -> 'guardians') = 'array'
+                THEN a.data -> 'guardians'
+              ELSE '[]'::jsonb
+            END
+          ) AS g
           WHERE jsonb_typeof(g) = 'object'
             AND (
               lower(g ->> 'linkedUserId') = ANY(${identita})
@@ -1910,12 +1930,7 @@ export const getParentDashboardData = async (
       config: {
         familyBookingEnabled: configurazioneAppuntamenti.familyBookingEnabled,
         types: bookableAppointmentTypes(configurazioneAppuntamenti).map(
-          (tipo) => ({
-            id: tipo.id,
-            name: tipo.name,
-            durationMinutes: tipo.durationMinutes,
-            siteId: tipo.siteId || null,
-          }),
+          (tipo) => ({ id: tipo.id, name: tipo.name }),
         ),
       },
       items: appointmentRows.map((row) =>

@@ -196,10 +196,17 @@ export const describeMedicalCertificateForFamily = (
   const formatted = formatMedicalCertificateDate(expiryDate);
 
   if (!formatted) {
+    /*
+      **L'etichetta resta anche qui**, e la prima stesura la perdeva.
+      `summary` valeva la sola frase sulla data, e la Home — che ha sostituito
+      il paragrafo dell'etichetta con quello della riga — smetteva di scrivere
+      «Mancante» proprio sull'atleta che il certificato non ce l'ha. Cioe il
+      caso per cui il riquadro esiste.
+    */
     return {
       label,
       detail: "Data di scadenza non disponibile",
-      summary: "Data di scadenza non disponibile",
+      summary: `${label} — Data di scadenza non disponibile`,
     };
   }
 

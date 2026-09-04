@@ -46,16 +46,27 @@ const asRecord = (value: unknown): Record<string, any> =>
     ? (value as Record<string, any>)
     : {};
 
+/**
+ * **Un tipo e un nome, e basta.**
+ *
+ * La prima stesura portava anche durata, sede e operatore. Sono tre campi che
+ * **nessuno legge**: chi riceve, dove e per quanto lo dice la **fascia**
+ * (`appointment_slots`), che e dove quei tre valori sono gia onorati dal
+ * calcolo della disponibilita. Averli anche qui voleva dire mostrarli al club
+ * come se decidessero qualcosa — «30 min» accanto al motivo, nella tendina
+ * della famiglia — mentre la durata reale resta quella della fascia scelta.
+ *
+ * E la forma piu comune di funzione incompleta che questo repository conosce
+ * (CLAUDE.md §11): non il codice mancante, ma il campo che **sembra**
+ * governare qualcosa. Onorarli avrebbe voluto dire riscrivere il calcolo degli
+ * slot, che e un lavoro con il suo perimetro; toglierli e stato piu onesto che
+ * lasciarli in attesa — e ha tolto anche l'unico dato di persona che la rotta
+ * di lettura faceva uscire, l'identificativo dell'operatore.
+ */
 export type AppointmentType = {
   id: string;
   /** Cio che la famiglia sceglie: «Colloquio con la segreteria». */
   name: string;
-  /** Quanto dura, in minuti. Zero = lo decide la fascia. */
-  durationMinutes: number;
-  /** La sede in cui si riceve per questo motivo. Vuoto = qualunque. */
-  siteId: string;
-  /** Chi lo tiene. Vuoto = segreteria. */
-  assignedToUserId: string;
   /**
    * **Prenotabile dalla famiglia.**
    *
@@ -84,15 +95,15 @@ export const normalizeAppointmentType = (
   const name = asText(record.name).slice(0, 120);
   if (!name) return null;
 
-  const durata = Number(record.durationMinutes ?? 0);
-
   return {
-    id: asText(record.id) || name.toLowerCase().replace(/\W+/g, "-").slice(0, 60),
+    id:
+      asText(record.id) ||
+      name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60),
     name,
-    durationMinutes:
-      Number.isFinite(durata) && durata > 0 ? Math.min(480, Math.round(durata)) : 0,
-    siteId: asText(record.siteId).slice(0, 120),
-    assignedToUserId: asText(record.assignedToUserId).slice(0, 120),
     bookable: record.bookable === false ? false : true,
   };
 };
@@ -111,14 +122,39 @@ export const normalizeAppointmentsConfig = (
   const types: AppointmentType[] = [];
   for (const voce of tipi) {
     const tipo = normalizeAppointmentType(voce);
-    if (!tipo || visti.has(tipo.id)) continue;
-    visti.add(tipo.id);
-    types.push(tipo);
+    if (!tipo) continue;
+
+    /*
+      **Uno slug che collide non fa sparire la voce.**
+
+      L'identificativo si ricava dal nome, e due nomi diversi possono ridurvisi
+      allo stesso — «Colloquio!» e «Colloquio?». Scartare il secondo faceva
+      rispondere «aggiunto» a un pulsante che non aggiungeva niente. Adesso si
+      numera: la voce entra, e chi l'ha scritta la vede.
+    */
+    let id = tipo.id || "motivo";
+    if (visti.has(id)) {
+      let contatore = 2;
+      while (visti.has(`${id}-${contatore}`)) contatore += 1;
+      id = `${id}-${contatore}`;
+    }
+
+    visti.add(id);
+    types.push({ ...tipo, id });
   }
 
   return {
+    /*
+      **Solo un booleano decide.** `=== false` accettava `"false"`, `0` e
+      `null` come «acceso»: un client che non sia il browser mandava
+      `{"familyBookingEnabled":"false"}` e riaccendeva le prenotazioni credendo
+      di spegnerle. Cio che non e un booleano non e una scelta, ed e assenza —
+      che vale «acceso», come per un club che non ha mai aperto la schermata.
+    */
     familyBookingEnabled:
-      record.familyBookingEnabled === false ? false : true,
+      typeof record.familyBookingEnabled === "boolean"
+        ? record.familyBookingEnabled
+        : true,
     types,
   };
 };

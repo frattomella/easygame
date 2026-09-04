@@ -84,6 +84,7 @@ import { withPayableInstalment } from "@/lib/payments/family-checkout";
 import { apiRequest } from "@/lib/api/client";
 import {
   describeFieldAvailability,
+  instantFromLocalTime,
   isWithinFieldAvailability,
 } from "@/lib/structures-utils";
 import {
@@ -572,10 +573,22 @@ export function ParentDashboardHome() {
   const certificateSummary =
     data.health.familySummary || data.health.statusLabel;
   const certificateDetail = data.health.familyDetail || null;
+  /*
+    **La CTA guarda `familyState`, non `status`.**
+
+    `status` non distingue «consegnato senza scadenza» da «mancante»: e la
+    distinzione che §F ha introdotto, e la prima stesura la faceva arrivare
+    nell'etichetta e in nessuna delle decisioni che ne dipendono. L'atleta con
+    un certificato consegnato e senza data leggeva «Consegnato» e sotto
+    «Aggiorna il certificato» — cioe gli si chiedeva di rifare una cosa che ha
+    gia fatto, mentre quello che manca lo deve completare la segreteria.
+  */
+  const statoFamiglia = data.health.familyState || data.health.status;
   const certificatoDaRifare =
-    data.health.status === "expiring" ||
-    data.health.status === "expired" ||
-    data.health.status === "missing";
+    statoFamiglia === "expiring" ||
+    statoFamiglia === "expired" ||
+    statoFamiglia === "missing";
+  const certificatoDaCompletare = statoFamiglia === "undated";
 
   return (
     <div className="space-y-6">
@@ -627,7 +640,7 @@ export function ParentDashboardHome() {
           title="Certificato"
           value={certificateLabel}
           note={certificateDetail || undefined}
-          tone={data.health.status === "valid" ? "emerald" : "amber"}
+          tone={statoFamiglia === "valid" ? "emerald" : "amber"}
         />
         <MetricCard
           icon={CreditCard}
@@ -732,6 +745,11 @@ export function ParentDashboardHome() {
                   >
                     Aggiorna il certificato
                   </Button>
+                ) : certificatoDaCompletare ? (
+                  <p className="mt-3 text-sm text-slate-600">
+                    Il certificato risulta consegnato: la data di scadenza la
+                    completa la segreteria.
+                  </p>
                 ) : null}
               </div>
               <div className="rounded-2xl bg-slate-50 p-4">
@@ -2338,9 +2356,6 @@ export function ParentSecretariatPage() {
                         {tipiAppuntamento.map((tipo: any) => (
                           <SelectItem key={tipo.id} value={tipo.id}>
                             {tipo.name}
-                            {tipo.durationMinutes
-                              ? ` · ${tipo.durationMinutes} min`
-                              : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -2630,9 +2645,18 @@ export function ParentStructuresPage() {
       return;
     }
 
-    const start = new Date(`${form.date}T${form.startTime}`);
-    const end = new Date(`${form.date}T${form.endTime}`);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    /*
+      **PP-02 §L. L'ora digitata si legge nel fuso del club.**
+
+      `new Date("2027-03-01T18:00")` senza suffisso lo interpreta nel fuso del
+      **dispositivo**, e la fascia si valida in quello del club: per un genitore
+      con il telefono su un altro fuso le due cose non erano lo stesso orario.
+      La schermata mostrava «Lun 18:00-22:00» e poi rifiutava le 21:30; e nel
+      verso opposto le 17:30 passavano, e il club si trovava in agenda le 18:30.
+    */
+    const start = instantFromLocalTime(form.date, form.startTime);
+    const end = instantFromLocalTime(form.date, form.endTime);
+    if (!start || !end) {
       showToast("error", "Inserisci data e orari validi");
       return;
     }

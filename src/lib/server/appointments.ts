@@ -1629,27 +1629,26 @@ export const listFamilyFreeSlots = async (
   query: Omit<AvailabilityQuery, "assignedToUserId">,
 ) => calcolaDisponibilita(ctx.organizationId, { ...query, now: query.now ?? new Date() });
 
-export const requestFamilyAppointment = async (
-  ctx: FamilyAppointmentContext,
+/**
+ * **Il motivo scelto e la porta aperta, sulla riprogrammazione come sulla
+ * richiesta** (PP-02 §K, correzione della revisione indipendente).
+ *
+ * Le due guardie nuove erano **solo** su `requestFamilyAppointment`, e la
+ * riprogrammazione ne usciva da entrambe:
+ *
+ * * un club che aveva spento «Le famiglie possono prenotare» continuava ad
+ *   accettare riprogrammazioni — e riprogrammare **crea una riga nuova**
+ *   (ADR-0101), quindi l'interruttore non chiudeva la porta: la socchiudeva;
+ * * il `typeId` non arrivava fin qui, e la schermata **obbliga** a sceglierlo:
+ *   la persona sceglieva un motivo, e l'appuntamento riprogrammato conservava
+ *   quello vecchio, senza errore e senza avviso.
+ */
+const risolviMotivoDellaFamiglia = async (
+  organizationId: string,
   input: AppointmentInput,
+  motivoCorrente?: string | null,
 ) => {
-  const timezone = asText(input.timezone) || DEFAULT_APPOINTMENT_TIMEZONE;
-
-  /*
-    **PP-02 §K. Due domande che il club non poteva porre.**
-
-    La prima: le famiglie possono chiedere un appuntamento? Esisteva `active`
-    sulla fascia — «questa fascia vale» — che non e la stessa cosa: un club che
-    voleva chiudere le prenotazioni doveva spegnere le fasce a una a una.
-
-    La seconda: **per cosa**. Il motivo era testo libero, e in coda arrivavano
-    «info», «parlare col mister», «pagamento?»: chi riceveva doveva
-    interpretare la richiesta prima di poterla assegnare.
-
-    Un club senza tipi configurati non vincola niente e la famiglia continua a
-    scrivere: i tipi restringono, la loro assenza non e un divieto.
-  */
-  const configurazione = await readAppointmentsConfig(ctx.organizationId);
+  const configurazione = await readAppointmentsConfig(organizationId);
   if (!configurazione.familyBookingEnabled) {
     throw new Error(
       "Questa societa non riceve richieste di appuntamento online: contatta la segreteria",
@@ -1670,13 +1669,32 @@ export const requestFamilyAppointment = async (
     throw new Error("Il motivo scelto non e disponibile per la prenotazione");
   }
 
+  if (tipo) return tipo.name;
+
+  const scritto = asText(input.reason) || asText(motivoCorrente);
+
+  /*
+    Con i motivi configurati non si manda piu un testo libero — tranne quando
+    e **quello che c'era gia**: un appuntamento chiesto prima che il club
+    configurasse i tipi si deve poter spostare senza che la famiglia sia
+    costretta a reinventarne il motivo.
+  */
   const tipiPrenotabili = bookableAppointmentTypes(configurazione);
-  if (!tipo && tipiPrenotabili.length) {
+  if (tipiPrenotabili.length && !asText(motivoCorrente)) {
     throw new Error("Scegli il motivo dell'appuntamento fra quelli proposti");
   }
 
-  const reason = tipo ? tipo.name : asText(input.reason);
-  if (!reason) throw new Error("Il motivo dell'appuntamento e obbligatorio");
+  if (!scritto) throw new Error("Il motivo dell'appuntamento e obbligatorio");
+  return scritto;
+};
+
+export const requestFamilyAppointment = async (
+  ctx: FamilyAppointmentContext,
+  input: AppointmentInput,
+) => {
+  const timezone = asText(input.timezone) || DEFAULT_APPOINTMENT_TIMEZONE;
+
+  const reason = await risolviMotivoDellaFamiglia(ctx.organizationId, input);
 
   const startsAt = risolviIstante(input, timezone);
   if (!startsAt) throw new Error("Giorno e orario dell'appuntamento non validi");
@@ -1787,10 +1805,23 @@ export const rescheduleFamilyAppointment = async (
   if (!row) throw new Error("Richiesta appuntamento non trovata");
   assertRigaDellaFamiglia(ctx, row);
 
+  /*
+    Le stesse due guardie della richiesta, e per la stessa ragione: spostare un
+    appuntamento **crea una riga nuova** (ADR-0101), quindi e una richiesta a
+    tutti gli effetti. Il motivo corrente entra come ripiego, cosi un
+    appuntamento chiesto prima che il club configurasse i tipi si puo spostare
+    senza reinventarne il motivo.
+  */
+  const reason = await risolviMotivoDellaFamiglia(
+    ctx.organizationId,
+    input,
+    row.reason,
+  );
+
   const esito = await riprogramma(
     ctx.scope,
     row,
-    { ...input, outsideAvailability: false },
+    { ...input, reason, outsideAvailability: false },
     "family",
     { userId: ctx.userId },
     { userId: ctx.userId },

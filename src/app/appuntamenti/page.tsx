@@ -201,10 +201,7 @@ export default function AppuntamentiDisponibilitaPage() {
   const [configurazione, setConfigurazione] = useState<AppointmentsConfig>(
     DEFAULT_APPOINTMENTS_CONFIG,
   );
-  const [nuovoTipo, setNuovoTipo] = useState({
-    name: "",
-    durationMinutes: "",
-  });
+  const [nuovoTipo, setNuovoTipo] = useState({ name: "" });
 
   const puoConfigurare = isManagementAccessRole(activeClub?.role);
 
@@ -573,9 +570,6 @@ export default function AppuntamentiDisponibilitaPage() {
                             >
                               <span className="min-w-0">
                                 {tipo.name}
-                                {tipo.durationMinutes
-                                  ? ` · ${tipo.durationMinutes} min`
-                                  : ""}
                                 {tipo.bookable ? "" : " · solo dal desk"}
                               </span>
                               <Button
@@ -614,23 +608,6 @@ export default function AppuntamentiDisponibilitaPage() {
                             placeholder="Es. Colloquio con la segreteria"
                           />
                         </div>
-                        <div className="w-28 space-y-1">
-                          <Label htmlFor="nuovo-motivo-durata" className="text-xs">
-                            Minuti
-                          </Label>
-                          <Input
-                            id="nuovo-motivo-durata"
-                            type="number"
-                            min={0}
-                            value={nuovoTipo.durationMinutes}
-                            onChange={(evento) =>
-                              setNuovoTipo((prima) => ({
-                                ...prima,
-                                durationMinutes: evento.target.value,
-                              }))
-                            }
-                          />
-                        </div>
                         <Button
                           onClick={() => {
                             const nome = nuovoTipo.name.trim();
@@ -639,18 +616,10 @@ export default function AppuntamentiDisponibilitaPage() {
                               ...configurazione,
                               types: [
                                 ...configurazione.types,
-                                {
-                                  id: "",
-                                  name: nome,
-                                  durationMinutes:
-                                    Number(nuovoTipo.durationMinutes) || 0,
-                                  siteId: "",
-                                  assignedToUserId: "",
-                                  bookable: true,
-                                },
+                                { id: "", name: nome, bookable: true },
                               ],
                             });
-                            setNuovoTipo({ name: "", durationMinutes: "" });
+                            setNuovoTipo({ name: "" });
                           }}
                         >
                           Aggiungi

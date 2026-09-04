@@ -36,17 +36,22 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ data, error: null });
   } catch (error: any) {
-    const message = publicErrorMessage(
-      error,
-      "Lettura dei moduli online non riuscita",
-    );
+    /*
+      Un guasto del server non e una richiesta sbagliata: `publicErrorMessage`
+      riduce un errore di Prisma al proprio ripiego, e ricadere su 400 direbbe
+      al client «hai chiesto male» — cioe di non riprovare.
+    */
+    const ripiego = "Lettura dei moduli online non riuscita";
+    const message = publicErrorMessage(error, ripiego);
     return jsonError(
       message,
       message.includes("Accesso negato")
         ? 403
         : /non trovat[oa]/i.test(message)
           ? 404
-          : 400,
+          : message === ripiego
+            ? 500
+            : 400,
     );
   }
 }

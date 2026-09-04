@@ -169,9 +169,25 @@ export function normalizeAvailability(input: any): FieldAvailabilityV2 {
   }
 
   const days: string[] = Array.isArray(input.days) ? input.days : [];
-  const startTime = String(input.startTime || "18:00").slice(0, 5);
-  const endTime = String(input.endTime || "22:00").slice(0, 5);
+  const startTime = String(input.startTime || "").slice(0, 5);
+  const endTime = String(input.endTime || "").slice(0, 5);
   const out = normalizeAvailability(null);
+
+  /*
+    **PP-02 §L. Gli orari non si inventano piu.**
+
+    Qui c'erano due ripieghi — `"18:00"` e `"22:00"` — e finche nessuno
+    confrontava la fascia con una richiesta erano innocui: servivano a
+    disegnare qualcosa. Da quando `isWithinFieldAvailability` **vincola**, un
+    campo con la sola forma storica `{ days: [...] }` e senza orari
+    diventerebbe aperto solo dalle diciotto alle ventidue, e la famiglia
+    leggerebbe un rifiuto che nomina orari che il club non ha mai scritto.
+
+    E la stessa lezione di W6-D03: il silenzio non e una scelta, e riempirlo
+    con un valore plausibile lo trasforma in una scelta che nessuno ha fatto.
+    Senza orari la giornata resta **senza fasce**, cioe senza vincolo.
+  */
+  if (!startTime || !endTime) return out;
 
   days.forEach((day) => {
     if (out[day]) out[day] = [{ start: startTime, end: endTime }];
@@ -448,13 +464,25 @@ export function isWithinFieldAvailability(
   const inizio = describeInstantForAvailability(start, timeZone);
   const fine = describeInstantForAvailability(end, timeZone);
 
-  if (!inizio.dayKey || inizio.dayKey !== fine.dayKey) return false;
+  if (!inizio.dayKey) return false;
+
+  /*
+    **La mezzanotte chiude la giornata, non ne apre un'altra.**
+
+    Una prenotazione che finisce alle 00:00 non scavalca niente: e l'ultimo
+    istante della sera. Ma il calendario la scrive gia sul giorno dopo, e il
+    confronto fra i due giorni la rifiutava — su un campo aperto «fino a
+    mezzanotte» l'ultima ora non era mai prenotabile.
+  */
+  const fineMinuti =
+    fine.dayKey !== inizio.dayKey && fine.minutes === 0 ? 24 * 60 : fine.minutes;
+  if (fine.dayKey !== inizio.dayKey && fine.minutes !== 0) return false;
 
   return (availability[inizio.dayKey] || []).some((slot) => {
     const da = toMinutes(slot.start);
     const a = toMinutes(slot.end);
     if (da === null || a === null) return false;
-    return inizio.minutes >= da && fine.minutes <= a;
+    return inizio.minutes >= da && fineMinuti <= (a === 0 ? 24 * 60 : a);
   });
 }
 
@@ -476,4 +504,61 @@ export function describeFieldAvailability(
   })
     .filter(Boolean)
     .join(" · ");
+}
+
+/**
+ * **L'istante di un giorno e un'ora, letti nel fuso dichiarato.**
+ *
+ * PP-02 §L. Il modulo della famiglia componeva
+ * `new Date("2027-03-01T18:00")`, che Node e il browser interpretano nel fuso
+ * **del dispositivo**. La fascia si valida invece in `Europe/Rome`: per un
+ * genitore all'estero — o semplicemente con il telefono su un altro fuso — le
+ * due cose non erano lo stesso orario, e la schermata mostrava «Lun
+ * 18:00-22:00» rifiutando poi le 21:30 che quella fascia contiene.
+ *
+ * Il verso opposto era peggio: le 17:30 di Londra passavano, e il club si
+ * trovava in agenda le 18:30.
+ *
+ * Non serve una libreria: si prende l'istante come se fosse UTC, si guarda in
+ * che ora lo rende il fuso di destinazione, e si corregge della differenza. Una
+ * sola iterazione basta per ogni fuso reale — gli scarti sono multipli di un
+ * quarto d'ora e non superano le quattordici ore — e il salto dell'ora legale
+ * cade su orari che nessun campo pubblica.
+ */
+export function instantFromLocalTime(
+  day: string,
+  time: string,
+  timeZone: string = DEFAULT_STRUCTURE_TIMEZONE,
+): Date | null {
+  const giorno = String(day || "").trim().slice(0, 10);
+  const ora = String(time || "").trim().slice(0, 5);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(giorno) || !/^\d{2}:\d{2}$/.test(ora)) {
+    return null;
+  }
+
+  const comeUtc = new Date(`${giorno}T${ora}:00.000Z`);
+  if (Number.isNaN(comeUtc.getTime())) return null;
+
+  const parti = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(comeUtc);
+
+  const leggi = (tipo: string) =>
+    Number(parti.find((parte) => parte.type === tipo)?.value || "0");
+
+  const reso = Date.UTC(
+    leggi("year"),
+    leggi("month") - 1,
+    leggi("day"),
+    leggi("hour") === 24 ? 0 : leggi("hour"),
+    leggi("minute"),
+  );
+
+  return new Date(comeUtc.getTime() - (reso - comeUtc.getTime()));
 }

@@ -102,12 +102,20 @@ test("senza data si dice che la data non c'e, e non si inventa uno stato", () =>
   const mancante = describeMedicalCertificateForFamily("missing", null);
   const senzaData = describeMedicalCertificateForFamily("undated", null);
 
-  assert.equal(mancante.summary, "Data di scadenza non disponibile");
-  assert.equal(senzaData.summary, "Data di scadenza non disponibile");
   /*
-    La riga e la stessa, l'etichetta no: e li che le due situazioni si
-    distinguono, ed e quello che il riquadro mostra accanto.
+    **La riga porta comunque lo stato**, e la prima stesura lo perdeva:
+    `summary` valeva la sola frase sulla data, e la Home — che ha sostituito il
+    paragrafo dell'etichetta con quello della riga — smetteva di scrivere
+    «Mancante» proprio sull'atleta che il certificato non ce l'ha. Cioe il caso
+    per cui quel riquadro esiste. Lo ha trovato la revisione indipendente.
   */
+  assert.equal(mancante.detail, "Data di scadenza non disponibile");
+  assert.equal(senzaData.detail, "Data di scadenza non disponibile");
+  assert.equal(mancante.summary, "Mancante — Data di scadenza non disponibile");
+  assert.equal(
+    senzaData.summary,
+    "Consegnato — Data di scadenza non disponibile",
+  );
   assert.equal(mancante.label, "Mancante");
   assert.equal(senzaData.label, "Consegnato");
 });

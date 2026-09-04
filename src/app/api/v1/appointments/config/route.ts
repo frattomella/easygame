@@ -47,12 +47,20 @@ const scopeFrom = async (request: Request, userId: string) => {
   );
 };
 
-const errorStatus = (message: string) =>
+/*
+  Un guasto del server non e una richiesta sbagliata: `publicErrorMessage`
+  riduce un errore di Prisma al proprio ripiego, e ricadere su 400 diceva al
+  client «hai chiesto male» — cioe di non riprovare. Cio che non si riconosce
+  come diniego, come «non trovato» o come input non valido e un 500.
+*/
+const errorStatus = (message: string, fallback: string) =>
   message.includes("Accesso negato")
     ? 403
     : /non trovat[oa]/i.test(message)
       ? 404
-      : 400;
+      : message === fallback
+        ? 500
+        : 400;
 
 export async function GET(request: Request) {
   try {
@@ -76,13 +84,11 @@ export async function GET(request: Request) {
     const data = await readAppointmentsConfig(organizationId);
     return NextResponse.json({ data, error: null });
   } catch (error: any) {
-    const message = publicErrorMessage(
-      error,
-      "Errore lettura della configurazione appuntamenti",
-    );
+    const ripiego = "Errore lettura della configurazione appuntamenti";
+    const message = publicErrorMessage(error, ripiego);
     return NextResponse.json(
       { data: null, error: { message } },
-      { status: errorStatus(message) },
+      { status: errorStatus(message, ripiego) },
     );
   }
 }
@@ -105,13 +111,11 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({ data, error: null });
   } catch (error: any) {
-    const message = publicErrorMessage(
-      error,
-      "Errore salvataggio della configurazione appuntamenti",
-    );
+    const ripiego = "Errore salvataggio della configurazione appuntamenti";
+    const message = publicErrorMessage(error, ripiego);
     return NextResponse.json(
       { data: null, error: { message } },
-      { status: errorStatus(message) },
+      { status: errorStatus(message, ripiego) },
     );
   }
 }

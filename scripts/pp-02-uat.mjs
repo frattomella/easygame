@@ -808,6 +808,245 @@ const sezioneK = async () => {
 };
 
 /* ==================================================================== */
+/*  §R — cio che la revisione indipendente ha trovato                   */
+/* ==================================================================== */
+
+/**
+ * **Le prove nate da una revisione, non da una segnalazione.**
+ *
+ * Un pacchetto che si dichiara chiuso e passato a una revisione ostile
+ * indipendente. Ha trovato un High e otto Medium reali, tutti corretti; queste
+ * sono le prove che li tengono chiusi, e sono qui e non fra le altre perche la
+ * loro ragione e diversa: non riproducono un difetto segnalato da chi usa il
+ * prodotto, ma uno che sarebbe arrivato a chi lo usa.
+ */
+const sezioneR = async () => {
+  console.log("\n§R — le correzioni della revisione indipendente\n");
+
+  const appuntamenti = await carica("src/lib/server/appointments.ts");
+  const scopeClub = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "owner",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  await appuntamenti.saveAppointmentsConfig(scopeClub, {
+    familyBookingEnabled: true,
+    types: [
+      { name: "Colloquio con la segreteria" },
+      { name: "Consegna documenti" },
+    ],
+  });
+
+  const config = await appuntamenti.readAppointmentsConfig(CLUB);
+  const primo = config.types[0];
+  const secondo = config.types[1];
+
+  const contesto = await appuntamenti.resolveFamilyAppointmentContext(
+    ANNA.id,
+    MARCO,
+  );
+
+  /*
+    Una fascia vera in cui spostare: la famiglia sceglie **uno slot libero**,
+    non una data qualunque, ed e il senso di tutta la lane 5E. Senza, la
+    riprogrammazione fallirebbe per l'orario e non si misurerebbe il motivo.
+  */
+  await prisma.appointmentSlot.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      weekday: 5,
+      start_time: "10:00",
+      end_time: "12:00",
+      duration_minutes: 30,
+      active: true,
+      updated_at: new Date(),
+    },
+  });
+
+  /* Un appuntamento gia in agenda, che la famiglia vuole spostare. */
+  const riga = await prisma.appointment.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      starts_at: new Date(Date.UTC(2027, 6, 1, 9, 0)),
+      ends_at: new Date(Date.UTC(2027, 6, 1, 9, 30)),
+      status: "requested",
+      athlete_id: MARCO,
+      requested_by_user_id: ANNA.id,
+      reason: primo.name,
+      version: 1,
+      updated_at: new Date(),
+    },
+  });
+
+  /*
+    **R1 (High).** La schermata obbliga a scegliere un motivo, e la rotta di
+    riprogrammazione non lo mandava: la scelta veniva buttata via e
+    l'appuntamento conservava il motivo vecchio, senza errore.
+  */
+  const spostato = await appuntamenti.rescheduleFamilyAppointment(
+    contesto,
+    riga.id,
+    {
+      typeId: secondo.id,
+      date: "2027-07-02",
+      time: "10:00",
+      outsideAvailability: false,
+    },
+  ).catch((errore) => ({ errore: String(errore?.message || errore) }));
+
+  prova(
+    "R-01 riprogrammando, il motivo scelto e quello che viene salvato",
+    secondo.name,
+    spostato?.errore ? `errore: ${spostato.errore}` : spostato?.reason,
+  );
+
+  /*
+    **S2 (Medium).** L'interruttore non chiudeva la porta: la socchiudeva.
+    Riprogrammare **crea una riga nuova** (ADR-0101), cioe e una richiesta.
+  */
+  await appuntamenti.saveAppointmentsConfig(scopeClub, {
+    familyBookingEnabled: false,
+    types: config.types,
+  });
+
+  const daSpostare = await prisma.appointment.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      starts_at: new Date(Date.UTC(2027, 7, 1, 9, 0)),
+      ends_at: new Date(Date.UTC(2027, 7, 1, 9, 30)),
+      status: "requested",
+      athlete_id: MARCO,
+      requested_by_user_id: ANNA.id,
+      reason: primo.name,
+      version: 1,
+      updated_at: new Date(),
+    },
+  });
+
+  await respinta(
+    "R-02 con le richieste chiuse non si riprogramma nemmeno",
+    () =>
+      appuntamenti.rescheduleFamilyAppointment(contesto, daSpostare.id, {
+        typeId: primo.id,
+        date: "2027-08-02",
+        time: "10:00",
+      }),
+    /non riceve richieste di appuntamento online/,
+  );
+
+  await appuntamenti.saveAppointmentsConfig(scopeClub, {
+    familyBookingEnabled: true,
+    types: [],
+  });
+
+  /*
+    **Q1 (Medium).** Una riga con `guardians` scritto come **oggetto** invece
+    che come array faceva lanciare `jsonb_array_elements` e cadere l'intera
+    ricerca nel `catch`: l'allargamento ai club dove si e tutori spariva per
+    **tutte** le famiglie, in silenzio.
+  */
+  /*
+    Carla e stata scollegata da §M, ed e giusto: quella prova misura la revoca.
+    Qui serve di nuovo un tutore che dipenda **solo** dalla ricerca grezza —
+    senza tessera, senza altra strada — perche e quella che il dato malformato
+    farebbe cadere.
+  */
+  await prisma.athlete.update({
+    where: { id: NINA },
+    data: { data: { guardians: [tutore(CARLA, "Zia")] } },
+  });
+
+  const MALFORMATO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: MALFORMATO,
+      organization_id: CLUB,
+      first_name: "Dato",
+      last_name: "Storto",
+      status: "active",
+      data: { guardians: { name: "un oggetto, non un elenco" } },
+      updated_at: new Date(),
+    },
+  });
+
+  /*
+    **Questa prova non diventa rossa togliendo la correzione, e va detto.**
+
+    Misurato: rimettendo `WHERE jsonb_typeof(...) = 'array' AND EXISTS(...)` la
+    prova resta verde, perche su questa forma di query il pianificatore di
+    Postgres valuta i due congiunti nell'ordine scritto. Il rischio che la
+    revisione ha descritto e **reale ma latente**: lo standard non garantisce
+    quell'ordine, e un piano diverso — piu righe, un indice nuovo, una versione
+    successiva — lo cambierebbe senza avvisare.
+
+    Cio che questa prova misura, e che serve comunque: che la forma robusta
+    **non abbia rotto niente**, e che una riga malformata in archivio non faccia
+    sparire i figli di nessuno.
+  */
+  prova(
+    "R-03 una riga con `guardians` malformato non fa sparire i figli di nessuno",
+    ["Verdi Nina"],
+    (await cruscotto.listParentChildren(CARLA.id)).map((f) => f.name),
+  );
+
+  await prisma.athlete.delete({ where: { id: MALFORMATO } });
+
+  /*
+    **R8 (Low).** Due nomi che si riducono allo stesso identificativo: il
+    pulsante rispondeva «aggiunto» e la voce non compariva.
+  */
+  await appuntamenti.saveAppointmentsConfig(scopeClub, {
+    familyBookingEnabled: true,
+    types: [{ name: "Colloquio!" }, { name: "Colloquio?" }],
+  });
+
+  prova(
+    "R-04 due motivi con lo stesso identificativo restano due motivi",
+    ["Colloquio!", "Colloquio?"],
+    (await appuntamenti.readAppointmentsConfig(CLUB)).types.map((t) => t.name),
+  );
+
+  /*
+    **Config (Low).** Cio che non e un booleano non e una scelta: un client che
+    non sia il browser mandava `"false"` e riaccendeva le prenotazioni credendo
+    di spegnerle.
+  */
+  await appuntamenti.saveAppointmentsConfig(scopeClub, {
+    familyBookingEnabled: "false",
+    types: [],
+  });
+  prova(
+    "R-05 una stringa non spegne e non accende: vale l'assenza",
+    true,
+    (await appuntamenti.readAppointmentsConfig(CLUB)).familyBookingEnabled,
+  );
+
+  /*
+    **R2 (Medium).** La riga del certificato perdeva l'etichetta quando la data
+    non c'era, cioe proprio sull'atleta che il certificato non lo ha portato.
+  */
+  const certificati = await carica("src/lib/medical-certificates.ts");
+  prova(
+    "R-06 senza data la riga porta comunque lo stato",
+    [
+      "Mancante — Data di scadenza non disponibile",
+      "Consegnato — Data di scadenza non disponibile",
+    ],
+    [
+      certificati.describeMedicalCertificateForFamily("missing", null).summary,
+      certificati.describeMedicalCertificateForFamily("undated", null).summary,
+    ],
+  );
+};
+
+/* ==================================================================== */
 /*  §M — l'audit ostile: cio che una famiglia non deve raggiungere       */
 /* ==================================================================== */
 
@@ -1840,6 +2079,7 @@ const main = async () => {
     await sezioneK();
     await sezioneO();
     await sezioneM();
+    await sezioneR();
   } finally {
     await pulisci();
     await prisma.$disconnect();

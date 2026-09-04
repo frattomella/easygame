@@ -5,6 +5,8 @@ import path from "node:path";
 
 import {
   describeFieldAvailability,
+  describeInstantForAvailability,
+  instantFromLocalTime,
   isWithinFieldAvailability,
 } from "../../src/lib/structures-utils.ts";
 
@@ -88,6 +90,79 @@ test("le fasce si sanno scrivere, perche il rifiuto le nomina", () => {
     "Lun 18:00-20:00 · Mar 09:00-11:00, 18:00-22:00",
   );
   assert.equal(describeFieldAvailability({ availability: {} }), "");
+});
+
+
+/* ==================================================================== */
+/*  Cio che la revisione indipendente ha trovato, e che non deve tornare */
+/* ==================================================================== */
+
+test("la fascia storica senza orari non vincola niente", () => {
+  /*
+    **R4.** `normalizeAvailability` inventava `18:00`-`22:00` per la forma
+    storica `{ days: [...] }`. Finche nessuno confrontava la fascia con una
+    richiesta era innocuo: serviva a disegnare qualcosa. Da quando la fascia
+    **vincola**, un campo con quella forma e senza orari sarebbe diventato
+    aperto solo dalle diciotto alle ventidue — e la famiglia avrebbe letto un
+    rifiuto che nomina orari che il club non ha mai scritto.
+
+    E la lezione di W6-D03: il silenzio non e una scelta, e riempirlo con un
+    valore plausibile lo trasforma in una scelta che nessuno ha fatto.
+  */
+  const storico = { availability: { days: ["Lun", "Mer"] } };
+
+  assert.equal(describeFieldAvailability(storico), "");
+  assert.equal(isWithinFieldAvailability(storico, lun(3), lun(4)), true);
+  assert.equal(isWithinFieldAvailability(storico, lun(18), lun(19)), true);
+});
+
+test("la forma storica con gli orari continua a valere", () => {
+  const storico = {
+    availability: { days: ["Lun"], startTime: "19:00", endTime: "21:00" },
+  };
+
+  assert.equal(describeFieldAvailability(storico), "Lun 19:00-21:00");
+  assert.equal(isWithinFieldAvailability(storico, lun(19), lun(20)), true);
+  assert.equal(isWithinFieldAvailability(storico, lun(18), lun(19)), false);
+});
+
+test("una prenotazione che finisce a mezzanotte non e il giorno dopo", () => {
+  /*
+    **R6.** Non scavalca niente: e l'ultimo istante della sera. Ma il calendario
+    la scrive gia sul giorno successivo, e il confronto fra i due giorni la
+    rifiutava — su un campo aperto «fino a mezzanotte» l'ultima ora non era mai
+    prenotabile.
+  */
+  const campo = { availability: { Lun: [{ start: "22:00", end: "00:00" }] } };
+  const inizio = lun(22);
+  const mezzanotte = new Date(Date.UTC(2027, 2, 1, 23));
+
+  assert.equal(isWithinFieldAvailability(campo, inizio, mezzanotte), true);
+});
+
+test("l'ora digitata si legge nel fuso del club, non del dispositivo", () => {
+  /*
+    **R5.** `new Date("2027-03-01T18:00")` senza suffisso lo interpreta nel fuso
+    del dispositivo, e la fascia si valida in quello del club: per un genitore
+    con il telefono su un altro fuso le due cose non erano lo stesso orario. La
+    schermata mostrava «Lun 18:00-22:00» e poi rifiutava le 21:30; nel verso
+    opposto le 17:30 passavano e il club si trovava in agenda le 18:30.
+  */
+  const inverno = instantFromLocalTime("2027-03-01", "18:00");
+  assert.equal(inverno.toISOString(), "2027-03-01T17:00:00.000Z");
+
+  /* E l'ora legale non si dichiara: la conosce il fuso. */
+  const estate = instantFromLocalTime("2027-07-01", "18:00");
+  assert.equal(estate.toISOString(), "2027-07-01T16:00:00.000Z");
+
+  /* Cio che rende e quello che la fascia poi legge. */
+  assert.deepEqual(describeInstantForAvailability(inverno), {
+    dayKey: "Lun",
+    minutes: 18 * 60,
+  });
+
+  assert.equal(instantFromLocalTime("", "18:00"), null);
+  assert.equal(instantFromLocalTime("2027-03-01", "diciotto"), null);
 });
 
 /* ==================================================================== */

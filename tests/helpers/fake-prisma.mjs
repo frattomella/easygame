@@ -1162,15 +1162,18 @@ export const createFakePrisma = (seedByDelegate = {}) => {
           .map((valore) => String(valore || "").trim().toLowerCase())
           .filter(Boolean),
       );
-      const chiavi = [
-        "linkedUserId",
-        "linked_user_id",
-        "userId",
-        "user_id",
-        "linkedUserEmail",
-        "linked_user_email",
-        "email",
-      ];
+      /*
+        **Le stesse quattro chiavi della query vera, e non sette.**
+
+        La prima stesura ne confrontava sette — le tre dell'indirizzo comprese —
+        mentre la query di produzione ne guarda quattro, e il commento su
+        `findClubsWhereUserIsGuardian` spiega a lungo perche l'indirizzo **non
+        deve** allargare. Un doppio che contraddice l'invariante che presidia e
+        la stessa lezione di `hasSome`, con il segno invertito: qui non
+        mentirebbe dicendo di si, mentirebbe dicendo che il confine e piu largo
+        di quello che il database applica.
+      */
+      const chiavi = ["linkedUserId", "linked_user_id", "userId", "user_id"];
       const club = new Set();
 
       rowsOf("athlete").forEach((riga) => {
