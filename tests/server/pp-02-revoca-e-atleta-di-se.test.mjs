@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test, { before } from "node:test";
+import { readFileSync } from "node:fs";
 
 import { createFakePrisma } from "../helpers/fake-prisma.mjs";
 
@@ -265,4 +266,58 @@ test("ma un invito riscattato apre lo stesso, anche su quella riga", async () =>
   setPrismaClientForTests(createFakePrisma(righe).client);
 
   assert.equal(await canParentAccessAthlete(ANNA, FIGLIO), true);
+});
+
+test("il rinnovo che la famiglia invia non le toglie l'accesso", async () => {
+  /*
+    `contactOnly` nasce per lo sconosciuto che compila un modulo pubblico. Il
+    criterio era pero `source !== "internal"`, cioe l'etichetta del
+    **trasporto**: `submitRenewalForm` — la strada con cui una famiglia
+    **autenticata** rinnova dall'area famiglia, dopo che il legame e stato
+    dimostrato — salva anch'essa `source: "public"`.
+
+    Il genitore rinnovava, la segreteria approvava, e al caricamento dopo lui
+    trovava «Accesso negato». Colpiva esattamente le famiglie che entrano nel
+    modo che ADR-0114 prevede: quelle che non hanno riscattato un gettone.
+
+    Cio che distingue lo sconosciuto e che la sua compilazione **non ha un
+    autore dimostrato**.
+  */
+  const righe = seme({ id: "t", name: "Anna", email: EMAIL_ANNA });
+  righe.athlete[0].data = {
+    guardians: [{ id: "t", name: "Anna", email: EMAIL_ANNA }],
+  };
+  setPrismaClientForTests(createFakePrisma(righe).client);
+
+  assert.equal(
+    await canParentAccessAthlete(ANNA, FIGLIO),
+    true,
+    "una riga senza marchio, scritta dalla segreteria, vale come sempre",
+  );
+});
+
+test("il marchio non declassa una riga che il club aveva gia scritto", async () => {
+  /*
+    Applicarlo anche al ramo che **aggiorna** una riga esistente declassava a
+    solo-recapito un tutore scritto dalla segreteria mesi prima, perche uno
+    sconosciuto aveva compilato il modulo pubblico su quel minore e
+    l'anagrafica proposta era stata approvata. Nessuna schermata mostra o
+    toglie quel marchio: quel genitore restava fuori in silenzio.
+
+    Qui si tiene fermo il confine: il marchio appartiene alla riga che **nasce**
+    da una compilazione senza autore, non a quella che viene aggiornata.
+  */
+  const sorgente = readFileSync(
+    new URL("../../src/lib/server/form-submissions.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.ok(
+    sorgente.includes("const senzaAutore = !asText(row.submitted_by);"),
+    "il criterio e chi ha compilato, non da quale porta",
+  );
+  assert.ok(
+    sorgente.includes("if (senzaAutore && rigaNuova) {"),
+    "e vale solo sulla riga che nasce adesso",
+  );
 });

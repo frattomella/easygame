@@ -299,6 +299,12 @@ type SubmissionRow = {
   respondent_name: string | null;
   respondent_email: string | null;
   submitted_at: Date;
+  /*
+    **Chi ha compilato, quando lo si sa.** E cio che distingue lo sconosciuto
+    che apre un link pubblico dalla famiglia che rinnova dalla propria area: il
+    trasporto (`source`) per entrambe vale `public`.
+  */
+  submitted_by?: string | null;
   reviewed_at: Date | null;
   review_note: string | null;
   template?: { title: string } | null;
@@ -2114,7 +2120,42 @@ const eseguiDecisione = async (
       Cio che ADR-0114 tiene aperto resta aperto: l'indirizzo scritto dalla
       segreteria — a mano, o da una compilazione interna — vale come prima.
     */
-    if (row.source !== "internal") {
+    /*
+      **Il criterio e «chi ha compilato», non «da quale porta».**
+
+      La prima stesura guardava `source !== "internal"`, che e l'etichetta del
+      **trasporto**: `submitRenewalForm` — la strada con cui una famiglia
+      **autenticata** rinnova dall'area famiglia, dopo che
+      `resolveLinkedFamilyScope` ha **dimostrato il legame** — salva anche lei
+      `source: "public"`. Il genitore rinnovava, la segreteria approvava, e al
+      caricamento dopo lui trovava «Accesso negato»: perdeva calendario, rate,
+      ricevute, documenti e certificato del proprio figlio. E colpiva
+      **esattamente** le famiglie che entrano nel modo che ADR-0114 prevede,
+      cioe senza aver riscattato un gettone.
+
+      Cio che distingue lo sconosciuto non e la porta: e che la sua
+      compilazione **non ha un autore dimostrato**. `submitPublicForm` scrive
+      `submittedBy: null`; le altre due strade scrivono chi ha compilato.
+    */
+    const senzaAutore = !asText(row.submitted_by);
+
+    /*
+      **E vale solo sulla riga che nasce adesso.**
+
+      Applicarlo anche al ramo che **aggiorna** una riga esistente declassava a
+      solo-recapito un tutore scritto dalla segreteria mesi prima — che
+      ADR-0114 dichiara valido — perche uno sconosciuto aveva compilato il
+      modulo pubblico su quel minore e l'anagrafica proposta era stata
+      approvata. Il marchio non si toglie da nessuna schermata: quel genitore
+      restava fuori senza che niente lo spiegasse.
+    */
+    const rigaNuova = !(
+      Number.isInteger(index) &&
+      index >= 0 &&
+      index < guardians.length
+    );
+
+    if (senzaAutore && rigaNuova) {
       patch.contactOnly = true;
       patch.contact_only = true;
     }

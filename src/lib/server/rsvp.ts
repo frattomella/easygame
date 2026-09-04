@@ -374,9 +374,32 @@ export type RsvpAnswerResult = {
  * l'area genitore e l'RSVP direbbero cose diverse.
  */
 const authorizeAnsweringUser = async (userId: string, athleteId: string) => {
+  /*
+    **La proiezione porta cio che serve a decidere, non solo a riconoscere.**
+
+    Questa riga serviva a due domande: «di chi e questo atleta» e — da quando
+    la risposta si vaglia contro il pubblico dell'evento — «questo evento lo
+    riguarda». La seconda si risponde con la categoria e con le appartenenze,
+    e la proiezione non le portava: `resolveExpectedAthletes` riceveva una
+    riga senza `category_id`, senza `category_name` e senza
+    `category_memberships`, quindi **non riconosceva nessuno** e rifiutava
+    ogni risposta.
+
+    Il lato lettura la riga la carica intera; il lato scrittura no. Le due
+    meta chiamavano la stessa funzione su **due forme diverse dello stesso
+    atleta** — che e l'asimmetria di sempre, un piano piu in basso.
+  */
   const athlete = await prisma.athlete.findUnique({
     where: { id: athleteId },
-    select: { id: true, organization_id: true, user_id: true, data: true },
+    select: {
+      id: true,
+      organization_id: true,
+      user_id: true,
+      data: true,
+      category_id: true,
+      category_name: true,
+      category_memberships: true,
+    },
   });
 
   if (!athlete) throw new Error("Atleta non trovato");

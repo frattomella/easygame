@@ -166,7 +166,18 @@ const getGuardianRows = (athlete: any) => {
       relationship: firstText(guardian?.relationship) || "Genitore",
       email: firstText(guardian?.email),
       phone: firstText(guardian?.phone),
-      linkedUserId: firstText(guardian?.linkedUserId, guardian?.linked_user_id),
+      /*
+        **Le stesse chiavi della forma nuova**: quattro grafie
+        dell'identificativo e il segno di solo-recapito. La coppia storica
+        **concede** come l'elenco, e proiettarla piu stretta voleva dire che le
+        difese scritte per l'una non valevano per l'altra.
+      */
+      linkedUserId: firstText(
+        guardian?.linkedUserId,
+        guardian?.linked_user_id,
+        guardian?.userId,
+        guardian?.user_id,
+      ),
       linkedUserEmail: firstText(
         guardian?.linkedUserEmail,
         guardian?.linked_user_email,
@@ -174,6 +185,9 @@ const getGuardianRows = (athlete: any) => {
       accessRevokedAt: firstText(
         guardian?.accessRevokedAt,
         guardian?.access_revoked_at,
+      ),
+      contactOnly: Boolean(
+        guardian?.contactOnly || guardian?.contact_only,
       ),
     }));
 
@@ -278,6 +292,28 @@ export const guardianAccessIdentities = (
       (guardian as any).linked_user_email,
       (guardian as any).email,
     );
+
+    /*
+      **Una riga solo-recapito non porta identita.**
+
+      `contactOnly` marca la riga nata da una compilazione **senza autore
+      dimostrato**: vale come recapito e non come chiave, e il vaglio del
+      legame lo onora. Ma la guardia della crescita non lo guardava, quindi
+      l'indirizzo di quella riga stava gia dentro l'insieme sorvegliato:
+      passare `contactOnly: false` non faceva **crescere** niente e non
+      incontrava il vaglio dei due permessi. Un ruolo senza `clinical.read`
+      trasformava una riga inerte in una chiave dell'area famiglia con un
+      `PATCH` sull'anagrafica.
+
+      Se la riga non concede, non porta identita: e da questa riga che
+      toglierle il marchio risulta una **concessione**, e viene vagliata.
+    */
+    if (
+      (guardian as any).contactOnly ||
+      (guardian as any).contact_only
+    ) {
+      continue;
+    }
 
     if (perId) identita.add(perId.trim().toLowerCase());
     if (perEmail) identita.add(perEmail.trim().toLowerCase());

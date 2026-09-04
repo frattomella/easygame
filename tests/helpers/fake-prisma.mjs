@@ -844,6 +844,46 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     },
   };
 
+  /**
+   * **`select`, cioe la proiezione — quarto operatore trovato mancante.**
+   *
+   * Il doppio restituiva sempre la **riga intera**, e nessun test poteva
+   * accorgersi che una query proietta. Il costo e stato misurato: il vaglio
+   * dell'RSVP e stato spostato dal solo legame al «questo evento riguarda
+   * l'atleta», e la funzione che lo decide legge categoria e appartenenze —
+   * che la `select` di quel percorso **non chiedeva**. In produzione Prisma
+   * proietta davvero, quindi la riga arrivava senza quei campi e la risposta
+   * veniva rifiutata a **chiunque**; nei test arrivava intera e passava.
+   *
+   * E la stessa forma di `array_contains` e di `isEmpty`, con una differenza
+   * che la rende peggiore: quelli facevano tornare **piu** righe del vero,
+   * questo fa tornare **piu campi**, e un campo di troppo non si nota fino al
+   * giorno in cui qualcuno decide qualcosa su di lui.
+   *
+   * Le relazioni chieste in `select` si comportano come in `include`: Prisma
+   * accetta `select: { category_memberships: true }` e le risolve.
+   */
+  const applicaSelect = (name, row, select) => {
+    if (!row || !select || typeof select !== "object") return row;
+
+    const mappa = RELAZIONI[name] || {};
+    const proiettata = {};
+
+    for (const [chiave, chiesto] of Object.entries(select)) {
+      if (!chiesto) continue;
+
+      if (mappa[chiave]) {
+        const risolta = applicaInclude(name, row, { [chiave]: chiesto });
+        proiettata[chiave] = risolta?.[chiave];
+        continue;
+      }
+
+      proiettata[chiave] = row[chiave];
+    }
+
+    return proiettata;
+  };
+
   const applicaInclude = (name, row, include) => {
     if (!row || !include || typeof include !== "object") return row;
 
@@ -944,19 +984,27 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       if (Number.isInteger(args.skip)) rows = rows.slice(args.skip);
       if (Number.isInteger(args.take)) rows = rows.slice(0, args.take);
 
-      return args.include
-        ? rows.map((row) => applicaInclude(name, row, args.include))
-        : rows;
+      if (args.include) {
+        return rows.map((row) => applicaInclude(name, row, args.include));
+      }
+      if (args.select) {
+        return rows.map((row) => applicaSelect(name, row, args.select));
+      }
+      return rows;
     },
     findFirst: async (args = {}) => {
       calls.push({ delegate: name, method: "findFirst", args });
       const row = rowsOf(name).find((r) => matchesWhere(r, args.where)) || null;
-      return args.include ? applicaInclude(name, row, args.include) : row;
+      if (args.include) return applicaInclude(name, row, args.include);
+      if (args.select) return applicaSelect(name, row, args.select);
+      return row;
     },
     findUnique: async (args = {}) => {
       calls.push({ delegate: name, method: "findUnique", args });
       const row = rowsOf(name).find((r) => matchesWhere(r, args.where)) || null;
-      return args.include ? applicaInclude(name, row, args.include) : row;
+      if (args.include) return applicaInclude(name, row, args.include);
+      if (args.select) return applicaSelect(name, row, args.select);
+      return row;
     },
     create: async (args = {}) => {
       calls.push({ delegate: name, method: "create", args });

@@ -6625,6 +6625,26 @@ const applicaGuardieDiModifica = async (
         strada sola, quella che lo ha scritto — un riscatto che riscrive il
         legame dichiarato, in `profile-account-links.ts`.
       */
+      /*
+        **E il segno di solo-recapito, che e la terza difesa sullo stesso blob.**
+
+        `contactOnly` marca la riga nata da una compilazione senza autore
+        dimostrato. Vive dentro `athletes.data`, che questa rotta sostituisce
+        per intero, e nessun file client la conosce: qualunque salvataggio che
+        non la riecheggiasse la cancellava, e la riga tornava a essere una
+        chiave dell'area famiglia. E la terza volta che una difesa nuova nasce
+        senza le protezioni di quella che affianca — dopo il marchio della
+        revoca e il registro delle identita, entrambi conservati qui sotto.
+      */
+      const soloRecapitoDaConservare = new Set<string>();
+      for (const riga of toArrayValue(((existing?.data as any) ?? {}).guardians)) {
+        const record = (riga || {}) as Record<string, any>;
+        const chiave = String(record.id || "").trim();
+        if (chiave && (record.contactOnly || record.contact_only)) {
+          soloRecapitoDaConservare.add(chiave);
+        }
+      }
+
       const revocheDaConservare = new Map<string, string>();
       for (const riga of toArrayValue(((existing?.data as any) ?? {}).guardians)) {
         const record = (riga || {}) as Record<string, any>;
@@ -6701,6 +6721,31 @@ const applicaGuardieDiModifica = async (
           normalized.data = {
             ...(((normalized.data as any) ?? {}) as Record<string, any>),
             guardians: conMarchio,
+          };
+        }
+      }
+
+      if (soloRecapitoDaConservare.size) {
+        const tutoriInArrivo = toArrayValue(
+          ((normalized.data as any) ?? {}).guardians,
+        );
+        let riportatoRecapito = false;
+
+        const conRecapito = tutoriInArrivo.map((riga: any) => {
+          const record = (riga || {}) as Record<string, any>;
+          const chiave = String(record.id || "").trim();
+
+          if (!chiave || !soloRecapitoDaConservare.has(chiave)) return riga;
+          if (record.contactOnly || record.contact_only) return riga;
+
+          riportatoRecapito = true;
+          return { ...record, contactOnly: true, contact_only: true };
+        });
+
+        if (riportatoRecapito) {
+          normalized.data = {
+            ...(((normalized.data as any) ?? {}) as Record<string, any>),
+            guardians: conRecapito,
           };
         }
       }

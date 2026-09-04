@@ -3737,6 +3737,15 @@ const sezioneW = async () => {
   */
   const risorseW = await carica("src/lib/server/resources.ts");
 
+  const scopeSenzaPermessiW17 = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "trainer",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
   const nuovoFiglio = async (dati) => {
     const id = randomUUID();
     await prisma.athlete.create({
@@ -3818,6 +3827,172 @@ const sezioneW = async () => {
     ),
     "prima: la chiave spariva, e con lei ogni revoca mai fatta",
   );
+
+  /* ---------- W-18: l'RSVP, che nessuna sonda aveva mai toccato ---------- */
+
+  /*
+    **W-18.** Il vaglio dell'RSVP e stato spostato dal solo legame al «questo
+    evento riguarda l'atleta», e la funzione che lo decide legge categoria e
+    appartenenze. La `select` di quel percorso quei campi **non li chiedeva**:
+    in produzione Prisma proietta davvero, quindi la riga arrivava senza, la
+    funzione non riconosceva nessuno, e la risposta veniva rifiutata a
+    **chiunque**. Il genitore apriva l'invito, premeva «Ci sara», e leggeva
+    «questo evento non riguarda l'atleta».
+
+    Nei test passava, perche il doppio di Prisma non implementava `select` e
+    restituiva la riga intera. Ed e la ragione per cui `select` adesso c'e nel
+    doppio: e il quarto operatore trovato mancante, e il primo che faceva
+    tornare **piu campi** del vero invece di piu righe.
+
+    Nessuna sonda toccava `answerRsvp`: zero occorrenze in questo file.
+  */
+  const rsvpW = await carica("src/lib/server/rsvp.ts");
+
+  /* Un evento che la conferma la chiede davvero, e della categoria giusta. */
+  const EVENTO_RSVP = randomUUID();
+  await prisma.clubEvent.create({
+    data: {
+      id: EVENTO_RSVP,
+      organization_id: CLUB,
+      kind: "training",
+      title: "Allenamento con conferma",
+      status: "scheduled",
+      starts_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      ends_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 3600000),
+      category_ids: [CAT_A],
+      rsvp_required: true,
+      version: 1,
+      updated_at: new Date(),
+    },
+  });
+
+  /*
+    Un figlio suo, non toccato dalle revoche delle prove precedenti — lo sweep
+    della tessera (W-14) passa su **tutti** gli atleti del club, ed e giusto
+    che lo faccia.
+  */
+  const FIGLIO_RSVP = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_RSVP,
+      organization_id: CLUB,
+      first_name: "Rita",
+      last_name: "Risposta",
+      status: "active",
+      category_id: CAT_A,
+      category_name: "Under 12",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "t", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+        ],
+      },
+    },
+  });
+
+  const risposta = await rsvpW
+    .answerRsvp({
+      organizationId: CLUB,
+      trainingId: EVENTO_RSVP,
+      athleteId: FIGLIO_RSVP,
+      status: "yes",
+      userId: ANNA.id,
+      actorEmail: ANNA.email,
+    })
+    .then(() => "accettata")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-18 la famiglia puo rispondere all'invito del proprio figlio",
+    "accettata",
+    risposta,
+    "prima: rifiutata a chiunque, perche la proiezione non portava la categoria",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_RSVP } });
+  await prisma.clubEvent.delete({ where: { id: EVENTO_RSVP } });
+
+  /* --- W-17: la terza difesa, con le stesse protezioni delle prime due --- */
+
+  /*
+    **W-17.** `contactOnly` marca la riga nata da una compilazione **senza
+    autore dimostrato**: vale come recapito e non come chiave. Vive pero nello
+    stesso blob che la rotta generica sostituisce per intero, e nessun file
+    client la conosce — quindi qualunque salvataggio che non la riecheggiasse
+    la cancellava, e la riga tornava a essere una chiave dell'area famiglia.
+
+    Terza volta che una difesa nuova nasce senza le protezioni di quella che
+    affianca. E la guardia della crescita non la vedeva: passare
+    `contactOnly: false` non faceva crescere l'insieme, quindi un ruolo senza
+    `clinical.read` trasformava una riga inerte in una chiave con un `PATCH`.
+  */
+  const E = await nuovoFiglio({
+    guardians: [
+      { id: "t", name: "Sconosciuto", email: ANNA.email, contactOnly: true },
+    ],
+  });
+
+  prova(
+    "W-17 una riga solo-recapito non apre l'area famiglia",
+    false,
+    await cruscotto.canParentAccessAthlete(ANNA.id, E),
+  );
+
+  /* Il client rimanda la riga **senza** il segno. */
+  await risorseW.updateResource(
+    "athletes",
+    E,
+    {
+      data: {
+        guardians: [{ id: "t", name: "Sconosciuto", email: ANNA.email }],
+      },
+    },
+    scopeSegreteria,
+  );
+
+  prova(
+    "W-17b il segno sopravvive a un salvataggio che non lo nomina",
+    true,
+    Boolean(((await letto(E))?.guardians || [])[0]?.contactOnly),
+    "prima: spariva, e la riga tornava una chiave",
+  );
+
+  prova(
+    "W-17c e l'accesso resta chiuso",
+    false,
+    await cruscotto.canParentAccessAthlete(ANNA.id, E),
+  );
+
+  /* E toglierlo esplicitamente e una concessione, quindi si vaglia. */
+  const toglieIlSegno = await risorseW
+    .updateResource(
+      "athletes",
+      E,
+      {
+        data: {
+          guardians: [
+            {
+              id: "t",
+              name: "Sconosciuto",
+              email: ANNA.email,
+              contactOnly: false,
+            },
+          ],
+        },
+      },
+      scopeSenzaPermessiW17,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-17d togliere il segno e una concessione, e la guardia la vaglia",
+    true,
+    toglieIlSegno !== "riuscita",
+    toglieIlSegno,
+  );
+
+  await prisma.athlete.delete({ where: { id: E } });
 
   /* --- W-15d: l'elenco non si puo impugnare come un'arma --- */
 
