@@ -127,15 +127,27 @@ const readDeposito = async (
           Adesso il passaggio al multipart e una sostituzione sola: lo stesso
           oggetto, dentro una `FormData` invece che dentro un JSON.
         */
+        /*
+          **I due rami leggono gli stessi nomi, e non e un dettaglio.**
+
+          Prima non era cosi: il multipart accettava `document_kind` — il nome
+          della forma nuova — e il JSON no, quindi un client che si allineava a
+          quel nome restando su JSON vedeva il tipo diventare `"other"` in
+          silenzio. Il verso opposto di W6-18. E `documentId` lo leggeva solo il
+          JSON. Nessun chiamante ne era danneggiato oggi: era latente, e le
+          cose latenti in un elenco di alias si scoprono tardi.
+        */
         requestId: firstText(
           form.get("request_id"),
           form.get("document_id"),
           form.get("requestId"),
+          form.get("documentId"),
           form.get("templateId"),
           form.get("template_id"),
         ),
         documentKind: firstText(
           form.get("document_kind"),
+          form.get("documentKind"),
           form.get("documentType"),
           form.get("document_type"),
           "other",
@@ -186,6 +198,8 @@ const readDeposito = async (
         body?.template_id,
       ),
       documentKind: firstText(
+        body?.document_kind,
+        body?.documentKind,
         body?.documentType,
         body?.document_type,
         "other",

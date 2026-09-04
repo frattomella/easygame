@@ -411,6 +411,16 @@ export type RenewalDraftView = RenewalDraft & {
   athleteId: string;
   athleteName: string;
   clubName: string;
+  /**
+   * **Se cio che si sta compilando e un'iscrizione.**
+   *
+   * La schermata del rinnovo e una sola, e i moduli online del fascicolo
+   * passano tutti di li: senza questo campo parlerebbe di rinnovo anche su un
+   * questionario di gradimento, e la stagione comparirebbe su una pratica che
+   * nessuna stagione ha.
+   */
+  isEnrollment: boolean;
+
   form: {
     title: string;
     description: string;
@@ -763,7 +773,21 @@ export const listFamilyOnlineForms = async (
         dueDate: asText(schema.settings.closeAt) || null,
         completedAt,
         singleSubmission: unaVoltaSola,
-        canSubmit: state === "todo" || state === "submitted",
+        /*
+          **E il termine vale anche su un modulo gia inviato.**
+
+          `chiuso` era consultato solo sul ramo «non inviato»: un modulo con il
+          termine passato, che questa famiglia aveva gia mandato e che si puo
+          rimandare, usciva `submitted` con la CTA accesa. Premendo «Compila di
+          nuovo» si finiva su un riquadro rosso «Modulo non trovato» — perche
+          `findPublicFormBySlug` scarta i moduli chiusi — che non dice nemmeno
+          che il termine e scaduto.
+
+          E l'invariante scritta accanto alla CTA stessa: accendere un pulsante
+          per poi rifiutare l'invio e la promessa mancata che «Paga ora» faceva
+          prima di §D.
+        */
+        canSubmit: !chiuso && (state === "todo" || state === "submitted"),
       };
     });
 };
@@ -802,7 +826,20 @@ export const buildRenewalDraft = async (
     ) || null;
 
   const records: SubjectRecords = { athlete: athlete as any, guardian: tutore };
-  const stagioni = await readClubSeasonState(organizationId).catch(() => null);
+
+  /*
+    **La stagione la porta solo un'iscrizione.**
+
+    `submitRenewalForm` ha imparato a non intestare nessuna stagione a una
+    compilazione che non e un rinnovo; la bozza no, e chiamava
+    `readClubSeasonState` sempre. Cosi un questionario di gradimento si apriva
+    sotto la scritta «Rinnovo per Marco Rossi · stagione 2026/27»: la pratica
+    diceva il vero e la pagina no.
+  */
+  const iscrizione = isEnrollmentForm(match.schema);
+  const stagioni = iscrizione
+    ? await readClubSeasonState(organizationId).catch(() => null)
+    : null;
 
   const draft = buildRenewalDraftAnswers({
     schema: match.schema,
@@ -817,6 +854,12 @@ export const buildRenewalDraft = async (
     athleteName:
       `${asText(athlete.first_name)} ${asText(athlete.last_name)}`.trim(),
     clubName: match.club.name,
+    /*
+      **Come si chiama cio che si sta compilando.** La schermata e una sola —
+      i moduli online del fascicolo passano tutti di qui — e senza questo campo
+      parlerebbe sempre di rinnovo, anche su un questionario.
+    */
+    isEnrollment: iscrizione,
     form: {
       title: match.schema.title,
       description: match.schema.description,

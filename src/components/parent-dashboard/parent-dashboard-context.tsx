@@ -145,13 +145,25 @@ const readCachedParentDashboard = (athleteId: string) => {
  * cio che resta in `sessionStorage` e il passato, e mostrarlo e una revoca
  * che non si vede.
  */
-const clearCachedParentDashboard = (athleteId: string) => {
-  if (typeof window === "undefined" || !athleteId) return;
+const clearCachedParentDashboard = (
+  routeId: string,
+  athleteId?: string | null,
+) => {
+  if (typeof window === "undefined") return;
 
-  try {
-    window.sessionStorage.removeItem(getParentDashboardCacheKey(athleteId));
-  } catch {
-    // Se la cache non si puo toccare, azzerare lo stato basta da solo.
+  /*
+    **Due chiavi, perche due ne scrive `writeCachedParentDashboard`**: quella
+    del percorso e quella dell'atleta, che differiscono sulla forma storica
+    `/parent-view/<idClub>`. Cancellarne una sola lasciava in archivio una
+    copia che una navigazione successiva poteva ripescare per una pittura.
+  */
+  for (const chiave of [routeId, athleteId]) {
+    if (!chiave) continue;
+    try {
+      window.sessionStorage.removeItem(getParentDashboardCacheKey(chiave));
+    } catch {
+      // Se la cache non si puo toccare, azzerare lo stato basta da solo.
+    }
   }
 };
 
@@ -346,7 +358,7 @@ export function ParentDashboardProvider({
       */
       if (/Accesso negato|non collegat|sessione/i.test(String(message))) {
         setData(null);
-        clearCachedParentDashboard(athleteRouteId);
+        clearCachedParentDashboard(athleteRouteId, dataRef.current?.athlete?.id);
       }
     } finally {
       setLoading(false);

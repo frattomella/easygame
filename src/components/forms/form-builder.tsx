@@ -545,7 +545,9 @@ function FormSettingsPanel({
               <span>
                 Si compila una volta sola
                 <span className="block text-xs text-slate-500">
-                  Chi lo ha gia inviato non puo rimandarlo. Vale per atleta, e
+                  Chi lo ha gia inviato dall&apos;area famiglia non puo rimandarlo. Dal
+                  link pubblico il vincolo non si applica: li chi compila non e
+                  ancora in archivio, e non c&apos;e nessuno da riconoscere. Vale per atleta, e
                   una pratica respinta si puo sempre rifare.
                 </span>
               </span>

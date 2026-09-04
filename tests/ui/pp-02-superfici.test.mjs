@@ -487,3 +487,51 @@ test("§T · la barra su telefono riceve la stessa identita di quella su desktop
     "la stagione segue la stessa regola del nome, o si torna a «Nessuna stagione attiva»",
   );
 });
+
+test("§U · il modulo online non parla sempre di rinnovo", () => {
+  const modulo = senzaCommenti(leggi("components/enrollment/renewal-form.tsx"));
+
+  /*
+    Terza faccia dello stesso difetto, e va scritto. Il primo round trovo che
+    ogni modulo online diventava una pratica di **rinnovo**; il secondo rimedio
+    lo mando alla pagina pubblica anonima e perse il legame con il figlio; il
+    terzo derivo il tipo giusto sulla pratica — e la **schermata** continuava a
+    dire «Rinnovo per Marco», «Avevi gia iniziato a compilare questo rinnovo»,
+    «Invia il rinnovo», con la stagione accanto al nome.
+
+    Il dominio aveva imparato la terza parola e la pagina ne conosceva due.
+  */
+  assert.ok(
+    modulo.includes("draft.isEnrollment === false"),
+    "la schermata deve sapere cosa sta facendo compilare",
+  );
+  assert.ok(
+    !modulo.includes("Preparo il modulo di rinnovo"),
+    "il caricamento non anticipa un rinnovo che potrebbe non esserlo",
+  );
+  assert.ok(
+    !modulo.includes("compilare questo rinnovo"),
+    "la bozza ripresa e di un modulo, non necessariamente di un rinnovo",
+  );
+});
+
+test("§U · il colore dell'appuntamento segue la sua etichetta", () => {
+  const pagine = senzaCommenti(leggi(PAGINE));
+
+  /*
+    L'etichetta era stata portata sul vocabolario del dominio e il **colore**
+    no: `getStatusClassName` conosce `"cancelled"`, non `cancelled_by_family`.
+    Chi disdiceva leggeva «Annullato dalla famiglia» dentro una pastiglia
+    azzurra, identica a quella di un appuntamento vivo — e su una lista il
+    colore si legge prima del testo.
+  */
+  assert.ok(
+    pagine.includes("classeStatoAppuntamento(appointment.status)"),
+    "il tono lo decide il vocabolario degli appuntamenti",
+  );
+  assert.ok(
+    pagine.includes('"cancelled_by_family"') &&
+      pagine.includes('"no_show"'),
+    "i sei stati terminali devono essere nominati, o cadono su un ripiego",
+  );
+});

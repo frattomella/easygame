@@ -856,10 +856,15 @@ export function ParentEnrollmentPage() {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="font-semibold text-slate-950">
+                        {/*
+                          `kindLabel` lo calcola e lo manda il server, e
+                          conosce tutti e tre i tipi. Il ternario ne conosceva
+                          due: una compilazione con il modello cancellato si
+                          presentava come «Iscrizione».
+                        */}
                         {pratica.templateTitle ||
-                          (pratica.kind === "renewal"
-                            ? "Rinnovo"
-                            : "Iscrizione")}
+                          pratica.kindLabel ||
+                          "Pratica"}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
                         Inviata il {formatDate(pratica.submittedAt)}

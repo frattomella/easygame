@@ -175,6 +175,39 @@ const getStatusLabel = (status: unknown) => {
   return "In programma";
 };
 
+/**
+ * Il tono di uno stato di **appuntamento**, che ha il suo vocabolario.
+ *
+ * Sei stati terminali su otto sono negativi o neutri, e nessuno di loro esiste
+ * nel vocabolario degli eventi.
+ */
+const classeStatoAppuntamento = (status: unknown) => {
+  const normalizzato = normalizeText(status);
+
+  if (normalizzato === "completed") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (normalizzato === "confirmed") {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+  if (
+    [
+      "rejected",
+      "cancelled_by_family",
+      "cancelled_by_club",
+      "no_show",
+    ].includes(normalizzato)
+  ) {
+    return "border-red-200 bg-red-50 text-red-700";
+  }
+  if (normalizzato === "rescheduled") {
+    return "border-slate-200 bg-slate-100 text-slate-600";
+  }
+
+  /* `requested`, e qualunque cosa il dominio aggiunga domani. */
+  return "border-amber-200 bg-amber-50 text-amber-700";
+};
+
 const getStatusClassName = (status: unknown) => {
   const normalized = normalizeText(status);
   if (
@@ -2666,7 +2699,21 @@ export function ParentSecretariatPage() {
                       variant="outline"
                       className={cn(
                         "border",
-                        getStatusClassName(appointment.status),
+                        /*
+                          **Il colore segue l'etichetta, o si contraddicono.**
+
+                          `getStatusClassName` e l'altra meta dello stesso
+                          vocabolario degli eventi da cui l'etichetta e appena
+                          uscita: conosce `"cancelled"`, non
+                          `cancelled_by_family`, `cancelled_by_club`,
+                          `rescheduled` e `no_show`. Tutti e quattro cadevano
+                          sul ripiego azzurro, che e il tono di «in programma»:
+                          chi disdiceva leggeva «Annullato dalla famiglia»
+                          dentro una pastiglia identica a quella di un
+                          appuntamento vivo. Su una lista il colore si legge
+                          prima del testo.
+                        */
+                        classeStatoAppuntamento(appointment.status),
                       )}
                     >
                       {appointment.status_label ||

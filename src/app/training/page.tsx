@@ -879,13 +879,31 @@ const versioneSalvata = (risposta: any): number | null => {
         missingCategoryPanel.references,
       );
 
-      const rimossi =
-        (Array.isArray(result?.removedWeeklyScheduleItems)
-          ? result.removedWeeklyScheduleItems.length
-          : 0) +
-        (Array.isArray(result?.removedUpcomingTrainings)
-          ? result.removedUpcomingTrainings.length
-          : 0);
+      /*
+        **Due conteggi, perche sono due cose.** Una riga del programma
+        settimanale non e un allenamento in programma: sommarle e chiamarle
+        «allenamenti» dava un numero che non torna con cio che si vede sparire
+        dal calendario.
+      */
+      const righeDelProgramma = Array.isArray(
+        result?.removedWeeklyScheduleItems,
+      )
+        ? result.removedWeeklyScheduleItems.length
+        : 0;
+      const allenamentiRimossi = Array.isArray(result?.removedUpcomingTrainings)
+        ? result.removedUpcomingTrainings.length
+        : 0;
+      const rimossi = righeDelProgramma + allenamentiRimossi;
+      const dettaglioRimossi = [
+        allenamentiRimossi
+          ? `${allenamentiRimossi} allenamenti in programma`
+          : "",
+        righeDelProgramma
+          ? `${righeDelProgramma} righe del programma settimanale`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" e ");
       const trattenuti = Array.isArray(result?.keptWithHistory)
         ? result.keptWithHistory.length
         : 0;
@@ -895,14 +913,18 @@ const versioneSalvata = (risposta: any): number | null => {
       if (!rimossi && !trattenuti) {
         showToast("success", "Nessun allenamento programmato da ripulire");
       } else if (trattenuti) {
+        /*
+          Una pulizia che lascia indietro qualcosa non e riuscita: chi legge
+          deve sapere che gli resta del lavoro a mano.
+        */
         showToast(
-          "success",
-          `Ripuliti ${rimossi} allenamenti. ${trattenuti} non si possono cancellare perche hanno gia presenze o risposte: vanno annullati uno per uno.`,
+          "warning",
+          `Rimossi ${dettaglioRimossi}. ${trattenuti} non si possono cancellare perche hanno gia presenze o risposte: vanno annullati uno per uno.`,
         );
       } else {
         showToast(
           "success",
-          `Ripuliti ${rimossi} allenamenti programmati collegati a categorie eliminate`,
+          `Rimossi ${dettaglioRimossi}, collegati a categorie eliminate`,
         );
       }
     } catch (error) {

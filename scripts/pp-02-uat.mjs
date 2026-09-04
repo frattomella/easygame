@@ -2982,6 +2982,50 @@ const sezioneT = async () => {
     (cruscottoFinale?.athlete?.linkedAthletes || [])[0] || {},
   ).sort();
 
+  /* ------- U: il termine scaduto spegne la CTA anche su un gia inviato */
+
+  /*
+    **U1 (Medium).** `chiuso` era consultato solo sul ramo «non inviato»: un
+    modulo con il termine passato, gia mandato da questa famiglia e
+    rimandabile, usciva `submitted` con la CTA accesa. Premendo «Compila di
+    nuovo» si finiva su «Modulo non trovato» — perche la ricerca scarta i
+    moduli chiusi — che non dice nemmeno che il termine e scaduto.
+  */
+  const slugChiuso = await pubblicaT("Chiuso U", "generic");
+  await inviaT(slugChiuso);
+  await prisma.formTemplate.updateMany({
+    where: { organization_id: CLUB, public_slug: slugChiuso },
+    data: {
+      draft: {
+        title: "Chiuso U",
+        description: "",
+        fields: [{ id: "f_nome", type: "short_text", label: "Nome" }],
+        settings: { purpose: "generic", closeAt: "2020-01-01T00:00:00.000Z" },
+      },
+    },
+  });
+  await prisma.formTemplateVersion.updateMany({
+    where: { organization_id: CLUB, template: { public_slug: slugChiuso } },
+    data: {
+      schema_json: {
+        title: "Chiuso U",
+        description: "",
+        fields: [{ id: "f_nome", type: "short_text", label: "Nome" }],
+        settings: { purpose: "generic", closeAt: "2020-01-01T00:00:00.000Z" },
+      },
+    },
+  });
+
+  const elencoU = await moduliFamiglia.listFamilyOnlineForms(ANNA.id, MARCO);
+  const cardChiusa = elencoU.find((m) => m.publicSlug === slugChiuso);
+
+  prova(
+    "U-01 un modulo scaduto non offre «Compila di nuovo»",
+    false,
+    cardChiusa?.canSubmit,
+    "prima: la CTA si accendeva e portava a «Modulo non trovato»",
+  );
+
   prova(
     "T-14 la riga di un fratello porta cinque campi, non venti",
     ["birth_date", "category_name", "id", "name", "organization_id"],
