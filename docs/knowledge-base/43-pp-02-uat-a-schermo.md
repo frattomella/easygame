@@ -163,3 +163,46 @@ le card), Iscrizione, Segreteria, Strutture, Certificato.
 | N-4 | A 375 px il menu si apre e la prima voce e «Cambia figlio» |
 | N-5 | Gli stati vuoti («Nessuna ricevuta disponibile», «Il club non ha pubblicato nessun modulo online») si leggono e non lasciano una card vuota |
 | N-6 | I due orari della prenotazione di un campo si impilano invece di stringersi |
+
+---
+
+## La verifica a schermo, fatta
+
+La checklist qui sopra e cio che deve fare **una persona**. Prima di consegnarla
+il pacchetto e stato guardato **a schermo** su una build vera
+(`NEXT_DIST_DIR=.next-verify npm run build` + `scripts/start-verify-server.mjs`),
+con un genitore seminato sul database di sviluppo e due figli, alle quattro
+larghezze del mandato.
+
+| Larghezza | Cosa e stato guardato | Esito |
+|---|---|---|
+| 1280 | Scelta del figlio, Home, Pagamenti | La scheda porta **«Classe 2013 · Club»** e la categoria; l'intestazione dice **«STAGIONE 2026/2027»** e non «Nessuna stagione attiva» |
+| 375 | Pagamenti, Documenti | Le colonne si impilano, niente scorrimento orizzontale, il motivo del pagamento va a capo sotto il pulsante |
+| 768 | Documenti | La barra si riduce a icone e le tre sezioni restano leggibili |
+| 1440 | Segreteria | «Prenota appuntamento» dice perche non si puo, e offre «Aggiorna» |
+
+Cio che si e visto con gli occhi, e che vale la pena scrivere:
+
+- **§C** — l'intestazione porta la stagione. Era il difetto per cui il riquadro
+  diceva «Nessuna stagione attiva» con una stagione configurata.
+- **§F** — il riquadro del certificato scrive per esteso **«Mancante — Data di
+  scadenza non disponibile»**, con «Aggiungi il certificato». E la forma alla
+  lettera del mandato, ed e anche la correzione R2 del secondo round: senza
+  quella, li ci sarebbe stata la sola frase sulla data.
+- **§D** — «Paga ora» non e un pulsante morto: accanto c'e **«Non ci sono rate
+  da saldare»**, e piu sotto «Il club non ha ancora emesso rate».
+- **§A** — la barra dice «STAI VEDENDO / Bianchi Marco» con «Cambia figlio», e a
+  375 px la stessa voce vive nel menu. Nessuno switch sempre presente.
+- **§G/§J** — «Da fare», «Documenti», «Moduli online», ognuna con il suo stato
+  vuoto onesto; i moduli non pubblicati **non compaiono**.
+- **Link diretto** — `/parent-view/<id-del-figlio>/payments` apre la pagina nel
+  contesto giusto. Un percorso che **non e** un figlio riporta alla scelta,
+  invece di aprire il primo della lista: e la rimozione del ripiego
+  `UUID_PATTERN`, vista da fuori.
+- Nessun errore in console su nessuna delle quattro larghezze.
+
+**Una nota su come si e arrivati qui.** Il primo giro e stato fatto su una build
+di verifica **vecchia**, e l'API dei figli rispondeva senza `birthYear` e senza
+`categories`: sembrava un difetto del codice. Non lo era, era l'artefatto. Vale
+la pena scriverlo perche la prossima volta il sospetto vada prima li:
+`.next-verify` non si ricostruisce da solo.

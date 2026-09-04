@@ -771,3 +771,66 @@ da un segmento di rotta dinamica o da un identificativo reale.
 | Il salvataggio delle strutture **lato club** puo ancora cancellare una prenotazione di famiglia arrivata nel frattempo | E il percorso del `PATCH` generico sul club, cioe il debito D2 (doppia rappresentazione). La transazione nuova protegge un verso solo, e adesso il commento lo dice. Chiuderlo e la tabella di PP02-D3 |
 | `cleanupOrphanScheduledTrainings` guadagna logica in `simplified-db.ts`, che CLAUDE.md §2 dichiara «in riduzione» | La correzione e giusta nel merito e il posto e quello che la regola scoraggia. Spostarla vuol dire portare l'azione lato server, che e un'altra forma della stessa migrazione (WP-07) |
 | Il diff mescola PP-02 con il debito PP-01 e superfici adiacenti | I commit sono separati per tema; il **pacchetto** e largo perche il mandato lo e |
+
+---
+
+## 17. Il secondo round, e la lezione che si e ripetuta
+
+Il primo round si era chiuso. Il pacchetto e passato a una **seconda** revisione
+ostile indipendente, con la stessa consegna, e ha trovato **un High e otto fra
+Medium e Low**.
+
+Il High conta piu del suo contenuto.
+
+### Il difetto che era gia stato «chiuso»
+
+Riprogrammando un appuntamento, la rotta `PATCH` **non leggeva `type_id`**. La
+schermata obbliga a scegliere un motivo, il client lo mandava, il server lo
+buttava via: l'appuntamento conservava il motivo vecchio, senza errore e senza
+avviso.
+
+Era gia stato trovato al primo round — come **R1**, come High — e dichiarato
+chiuso con la sua prova. La prova era `R-01`, e chiamava
+`rescheduleFamilyAppointment` **direttamente**, passandogli `typeId`. Il dominio
+lo onorava. La rotta non glielo dava mai.
+
+> **La prova misurava il vaglio, non la strada che ci arriva.**
+
+E la terza volta che questo repository incontra la stessa forma, e le altre due
+sono nel suo stesso registro: l'RSVP completo e testato che nessuna schermata
+sapeva accendere, `board.read` che era un permesso senza pagina. Ogni volta il
+codice di dominio era giusto, coperto, e **irraggiungibile** — e ogni volta la
+copertura lo confermava, perche partiva da dentro.
+
+Adesso `R-01` costruisce una `Request` con una sessione vera e passa dalla
+rotta. Rimettendo il difetto **diventa rossa**: verificato, non dedotto.
+
+### Cosa cambia nella regola, non solo nel codice
+
+CLAUDE.md §11 dice gia: «prima di dichiarare `COMPLETE`, percorri il flusso dal
+clic del ruolo interessato fino alla riga scritta». Il pacchetto lo aveva
+applicato alle **funzioni** e non alle **prove**. La correzione e questa:
+
+> Quando la proprieta riguarda una rotta, la prova passa dalla rotta. Chiamare
+> il servizio e piu comodo e misura un'altra cosa.
+
+### Gli altri otto
+
+| # | Gravita | Cosa | Come si vedeva |
+|---|---|---|---|
+| F1 | **High** | `PATCH` appuntamenti perdeva `type_id` | Sopra |
+| F7 | Medium | `assertNonGiaCompilato` non filtrava per tipo di soggetto | Il `recordId` di un tutore e un **indice posizionale** (`"0"`, `"1"`): la seconda famiglia che compilava un modulo one-shot si prendeva un 409 falso, «gia compilato», su un modulo che non aveva mai visto |
+| F4 | Medium | Il confronto della fascia era sul **nome** del giorno | Una prenotazione di trenta ore che finiva a mezzanotte due giorni dopo veniva accettata. L'ha introdotta la mia stessa correzione di R6 |
+| F8 | Medium | `bookable` non aveva uno **scrittore** | Il campo esisteva, il server lo onorava, e la schermata della segreteria non aveva la casella per metterlo: nessun club poteva rendere un motivo non prenotabile |
+| F3 | Low | Il ripiego al testo libero guardava i soli tipi **prenotabili** | Un club con tutti i motivi da desk ricadeva sul testo libero invece di chiudere la porta |
+| F5, F6 | Low | Fascia `00:00`-`00:00` letta come giornata intera; `describeInstantForAvailability` non rendeva la data | |
+| F9 | Low | La riprogrammazione passava `siteId: null` invece di ometterlo | |
+| F10 | Low | **L'ora che non esiste cadeva prima del salto**, nei fusi negativi | A New York le 02:30 del 14 marzo 2027 tornavano `01:30`; a Santiago le 00:30 del 5 settembre tornavano le 23:30 **del giorno prima**. Il fuso del club oggi e uno solo, quindi il difetto era latente — ma il **commento prometteva il contrario**, ed e la stessa forma di debito: la promessa scritta accanto al codice che nessuno ha misurato. Adesso e misurata su otto fusi |
+| — | Low | `AppointmentSlot` prometteva quattro campi che il server non manda | `assignedToUserId`, `capacity`, `taken`, `remaining`. Nessuno li leggeva; un tipo che dichiara un campo assente e un invito a leggerlo. Adesso il tipo **e** la proiezione |
+
+### Il terzo round
+
+Il mandato chiede che un round completo torni pulito prima di `DONE`. Dopo le
+correzioni il pacchetto e passato a una **terza** revisione indipendente, su due
+assi separati — correttezza del percorso e sicurezza — condotta da chi non aveva
+visto i due round precedenti.
