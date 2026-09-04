@@ -972,3 +972,93 @@ la riga legge** invece della stringa che li circonda — e' il massimo che quest
 forma di test consente. Il resto lo dovra fare un collaudo a schermo, che per
 questo pacchetto e stato fatto (§ precedente) e va rifatto a ogni cambiamento
 dell'area.
+
+---
+
+## 20. Dal settimo al dodicesimo round: la revoca, e cosa insegna
+
+I round dal settimo in poi hanno lavorato quasi tutti su **un solo difetto**, e
+il modo in cui si e spostato di volta in volta vale piu del difetto stesso.
+
+### Il difetto di partenza
+
+«Scollega account» **non revocava**. Il vaglio dell'accesso accetta quattro
+forme di legame, e la quarta e l'indirizzo di **contatto** che la segreteria
+scrive a mano sulla scheda (ADR-0114: e cosi che una famiglia entra senza
+riscattare un codice). La revoca azzerava le altre tre e quell'indirizzo — che
+al club serve — giustamente lo lasciava.
+
+Risultato: la segreteria premeva il pulsante, leggeva la conferma che promette
+«non vedra piu calendario, pagamenti e documenti del minore», la scheda diceva
+«Account non collegato», e la persona continuava a vedere tutto. Byte del
+certificato medico compresi, e con il potere di revocare i consensi dati
+dall'altro genitore.
+
+Non e un caso limite: e il percorso normale di una separazione o di un affido
+che cambia.
+
+### Cinque stesure, e cosa ha imparato ognuna
+
+| # | Stesura | Cosa ha rotto o non copriva |
+|---|---|---|
+| 1 | Marchio `accessRevokedAt` **sulla riga** | Si aggirava aggiungendone una **sorella** con lo stesso indirizzo — a mano, o lasciando che lo facesse l'approvazione di un modulo, che fa `guardians.push(...)` di un oggetto nuovo |
+| 2 | Riporto del marchio sui salvataggi generici | Un'esenzione che proteggeva un caso **irraggiungibile** («e il riscatto», che scrive per altra strada) e apriva quello reale |
+| 3 | Elenco di **identita** sull'atleta | Sottraeva le revocate da **entrambi** gli insiemi della guardia di crescita, lasciando la differenza identica: piu debole di prima |
+| 4 | Conservazione dell'elenco sul salvataggio generico | Fatta per **unione**, quindi un client poteva **aggiungere** identita e chiudere fuori un tutore legittimo |
+| 5 | `contactOnly` sulle righe senza autore dimostrato | Criterio sul **trasporto** (`source`) invece che sull'autore: il rinnovo che una famiglia manda dall'area famiglia le toglieva l'accesso |
+
+### La diagnosi
+
+Sette volte su dodici round, **la correzione di un round ha creato il difetto
+del successivo**. Il filo e uno solo, e va scritto perche vale oltre PP-02:
+
+> **Una difesa nuova non eredita da sola le protezioni di quella che sostituisce
+> o affianca.**
+
+Le protezioni che ogni difesa su `athletes.data` deve avere, e che vanno
+verificate **una per una** quando se ne aggiunge un'altra:
+
+1. **sopravvivere al salvataggio generico** — quel blob viene sostituito per
+   intero, e nessun file client conosce le chiavi di difesa;
+2. **essere vista dalla guardia della crescita** — o toglierla non risultera una
+   concessione, e non verra vagliata;
+3. **essere letta da tutte e quattro le letture dei tutori** — accesso,
+   solleciti, promemoria del certificato, notifiche documentali;
+4. **non essere scrivibile da chi la deve subire** — una difesa che si puo
+   impugnare e un'arma;
+5. **essere reversibile per una strada dichiarata** — o una revoca diventa
+   definitiva per errore.
+
+Il §21 tiene ferma la terza con una sonda; le altre quattro hanno ciascuna la
+propria.
+
+### Il resto del pacchetto, in breve
+
+Fuori dalla revoca, i round dal settimo al dodicesimo hanno chiuso:
+
+- **un estraneo che si faceva scrivere come tutore di un minore** compilando un
+  modulo pubblico: bastava lo slug che il club diffonde e il nome di un
+  tesserato, e l'approvazione della segreteria faceva il resto;
+- **le pratiche di iscrizione aperte a ogni ruolo di club**: la voce di catalogo
+  dei moduli non aveva chiavi, e su una voce senza chiavi il vaglio dei ruoli
+  personalizzati risponde `true` a chiunque;
+- **l'RSVP che rifiutava la risposta di tutti** — una `select` che non portava
+  la categoria, invisibile ai test perche il doppio di Prisma non proiettava;
+- **la campanella che si accendeva su un pannello vuoto**, e la bacheca del
+  ragazzo che rispondeva 403;
+- **tre perimetri di sede e categoria mancanti**: sulla revoca (che *scrive*),
+  sulla ricevuta, e sulla porta storica dei documenti;
+- **`parent1`/`parent2`**, che concedono e che nessuno poteva revocare.
+
+### I quattro operatori mancanti nel doppio di Prisma
+
+`array_contains`, `isEmpty`, `select`, piu i filtri di relazione che restano
+non implementati (debito **PP02-D12**). Il doppio considera **soddisfatta** ogni
+condizione che non conosce: e la scelta giusta — un test deve fallire
+sull'asserzione vera, non su una finta non-corrispondenza — e ha un prezzo che
+va detto ogni volta.
+
+`select` e stato il piu insidioso dei quattro: gli altri facevano tornare **piu
+righe** del vero, questo faceva tornare **piu campi**. Un campo di troppo non si
+nota fino al giorno in cui qualcuno decide qualcosa su di lui — ed e successo,
+sull'RSVP.

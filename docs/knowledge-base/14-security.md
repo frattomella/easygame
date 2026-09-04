@@ -2572,3 +2572,36 @@ ragione: **un vaglio che gira su un elenco vuoto passa sempre**, e la stessa
 forma potrebbe un domani far passare un controllo invece di farlo fallire. Il
 presidio e sulla classe e non sul caso: nessun file sotto `src/app/api` o
 `src/lib/server` puo importare il dominio del browser.
+
+
+## La revoca di un tutore (PP-02, round 7-12)
+
+L'accesso di un tutore a un atleta si toglie per **identita**, non per riga, e
+la decisione con le sue ragioni sta in
+[ADR-0116](18-decision-log.md#adr-0116--laccesso-di-un-tutore-si-revoca-per-identita-e-una-difesa-nuova-non-eredita-niente).
+
+Tre difese, tutte dentro `athletes.data`:
+
+| difesa | dove | cosa nega | chi la scrive | chi la toglie |
+|---|---|---|---|---|
+| `revokedGuardianIdentities` | sull'**atleta** | ogni ripiego per quell'identita | `unlinkGuardianAccount`, sweep della revoca tessera | il **riscatto** di un invito |
+| `accessRevokedAt` | sulla **riga** | il ripiego sull'indirizzo di quella riga | come sopra | il riscatto |
+| `contactOnly` | sulla **riga** | il ripiego su una riga nata senza autore dimostrato | l'approvazione di un modulo **anonimo** | nessuno: si entra con un invito |
+
+**Cosa deve sapere chi tocca questa zona.**
+
+- Un legame **dichiarato** (`linkedUserId`) vince sul ripiego: e cosi che una
+  persona si ricollega dopo una revoca, e per questo una revoca non e mai
+  definitiva.
+- Le difese si leggono in **quattro** posti — accesso al cruscotto, solleciti e
+  comunicazioni, promemoria del certificato, notifiche documentali — e devono
+  dare tutte la stessa risposta. Per un round non e stato cosi: una riga
+  dichiarata da uno sconosciuto non apriva il cruscotto e intanto riceveva il
+  sollecito con il **collegamento a gettone per pagare**.
+- Dalla rotta generica dell'anagrafica l'elenco e in **sola lettura**. Poterlo
+  scrivere di li vorrebbe dire poter chiudere fuori un tutore legittimo senza
+  audit — e su chi entra per solo indirizzo, senza nemmeno un contrappeso.
+- `parent1`/`parent2` — la coppia storica di un'anagrafica travasata —
+  **concedono** come l'elenco, e vanno trattati insieme a lui: per un round lo
+  sweep spazzava tre chiavi che nessun predicato di accesso legge e lasciava
+  intatta quella che apre la porta.

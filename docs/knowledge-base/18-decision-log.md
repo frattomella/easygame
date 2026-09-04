@@ -6301,3 +6301,49 @@ resta invece del club.
 la stessa cosa — la carta che dimostra di aver pagato — e quale delle due il club
 emetta dipende dal suo regime fiscale, non da lei; il tipo resta scritto sulla
 riga, dove serve a riconoscere il documento che si ha in mano.
+
+---
+
+## ADR-0116 — L'accesso di un tutore si revoca per **identita**, e una difesa nuova non eredita niente
+
+**Contesto.** «Scollega account» non revocava. Il vaglio del legame accetta
+quattro forme, e la quarta e l'indirizzo di **contatto** che la segreteria
+scrive sulla scheda — la strada che ADR-0114 tiene aperta perche una famiglia
+entri senza riscattare un codice. La revoca azzerava le altre tre e
+quell'indirizzo lo lasciava, perche al club serve per scrivere a quella persona.
+La scheda diceva «Account non collegato» e la persona vedeva ancora tutto.
+
+**Decisione.** Tre difese, con proprietari distinti e ruoli distinti:
+
+1. **`athletes.data.revokedGuardianIdentities`** — l'elenco delle identita
+   (indirizzi e identificativi utente, minuscoli) a cui il club ha tolto
+   l'accesso a **quell'atleta**. E la difesa principale, e sta a livello di
+   atleta e non di riga: una riga ha un `id` che si puo cambiare, un'identita
+   no. Lo scrivono `unlinkGuardianAccount` e lo sweep della revoca di tessera;
+   lo toglie il **riscatto** di un invito. Dalla rotta generica e in **sola
+   lettura**: una difesa che si puo impugnare e un'arma.
+2. **`guardians[].accessRevokedAt`** — il marchio sulla singola riga, che
+   racconta la storia di quella riga e nega il **ripiego** sull'indirizzo.
+3. **`guardians[].contactOnly`** — il segno di una riga nata da una
+   compilazione **senza autore dimostrato**. ADR-0114 fa valere l'indirizzo di
+   contatto come legame, e poggia su un presupposto che li non regge: che lo
+   abbia scritto **il club**. Un modulo pubblico lo compila chiunque.
+
+Un legame **dichiarato** (`linkedUserId`) vince sul ripiego, ed e cosi che ci
+si ricollega: una revoca non e definitiva.
+
+**Conseguenza operativa.** Ogni difesa scritta dentro `athletes.data` deve avere
+**cinque** protezioni, e vanno verificate una per una quando se ne aggiunge
+un'altra:
+
+1. sopravvivere al salvataggio generico, che sostituisce il blob per intero;
+2. essere vista dalla guardia della crescita, o toglierla non e una concessione;
+3. essere letta da **tutte e quattro** le letture dei tutori — accesso,
+   solleciti, promemoria del certificato, notifiche documentali;
+4. non essere scrivibile da chi la deve subire;
+5. essere reversibile per una strada dichiarata.
+
+**Perche ADR.** Perche le tre difese hanno cinque stesure alle spalle e sette
+regressioni fra un round e il successivo, e il costo non era nel merito di
+nessuna delle tre: era che ognuna nasceva senza le protezioni della precedente.
+Chi ne aggiungera una quarta deve trovare scritto **cosa deve ereditare**.
