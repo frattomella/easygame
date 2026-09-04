@@ -1348,7 +1348,11 @@ const deliverToFamilies = async ({
             to: recipient.email,
             subject: rendered.subject,
             text: rendered.text,
-            html: renderEmailLayout({ bodyHtml: rendered.html }),
+            /* Marchio del club: la manda la societa, non noi (PP-05B, ADR-0116). */
+            html: renderEmailLayout({
+              bodyHtml: rendered.html,
+              brand: { mode: "club", clubName: audience.clubName },
+            }),
           });
 
           if (result.status !== "sent") {
@@ -1783,7 +1787,15 @@ const deliverDigest = async ({
           to: address,
           subject: digest.subject,
           text: digest.text,
-          html: renderEmailLayout({ bodyHtml: digest.html }),
+          /*
+            Il riepilogo va **al club**, non a una famiglia, e porta comunque
+            il marchio del club: chi lo riceve gestisce piu societa e deve
+            riconoscere di quale sia questo (PP-05B, ADR-0116).
+          */
+          html: renderEmailLayout({
+            bodyHtml: digest.html,
+            brand: { mode: "club", clubName },
+          }),
         });
 
         if (result.status === "sent") {

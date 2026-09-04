@@ -33,7 +33,10 @@ import {
   sendTransactionalEmail,
 } from "./email/email-service";
 import { sendSms } from "./sms/sms-service";
-import { renderEmailLayout } from "./email/layout";
+import {
+  EASYGAME_BRAND,
+  renderEmailDocument,
+} from "./email/template-core";
 
 export {
   canDeliverPhoneOtp,
@@ -101,14 +104,6 @@ const slugify = (value: string) =>
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 
 const asMetadataRecord = (value: unknown): Record<string, any> =>
   value && typeof value === "object" && !Array.isArray(value)
@@ -445,21 +440,49 @@ export const buildPhoneVerificationSmsText = (code: string) =>
  * dall'anteprima di sviluppo (`/private/email-preview`) senza duplicare il
  * markup: la preview deve mostrare esattamente quello che si spedisce.
  */
-export const buildVerificationEmailHtml = ({
+/**
+ * **Marchio EasyGame, e non e una scelta di stile** (PP-05B, ADR-0116).
+ *
+ * La verifica di un recapito la manda EasyGame, non il club: chi la riceve
+ * deve poter distinguere questo messaggio da una comunicazione della propria
+ * societa, perche e l'unico dei due che gli chiede di digitare qualcosa. Un
+ * codice che arriva con il logo di chiunque insegna a fidarsi di chiunque.
+ *
+ * Restituisce **le due forme**: prima il testo semplice si scriveva a mano
+ * accanto all'HTML, in una stringa che gia divergeva — diceva «Il tuo codice
+ * EasyGame e …» dove l'HTML diceva «Verifica accesso EasyGame».
+ */
+export const buildVerificationEmail = ({
   firstName,
   code,
 }: {
   firstName?: string | null;
   code: string;
-}): string =>
-  renderEmailLayout({
-    bodyHtml: `
-      <h2 style="margin:0 0 12px;">Verifica accesso EasyGame</h2>
-      <p>Ciao ${escapeHtml(firstName || "")}, usa questo codice per completare l'accesso:</p>
-      <div style="font-size: 32px; font-weight: 700; letter-spacing: 8px; padding: 16px 0;">${code}</div>
-      <p>Il codice scade tra ${EMAIL_CODE_TTL_MINUTES} minuti.</p>
-    `,
+}) => {
+  const nome = String(firstName || "").trim();
+  return renderEmailDocument({
+    brand: EASYGAME_BRAND,
+    preheader: `Il tuo codice scade tra ${EMAIL_CODE_TTL_MINUTES} minuti.`,
+    blocks: [
+      { kind: "heading", text: "Verifica accesso EasyGame" },
+      {
+        kind: "text",
+        text: nome
+          ? `Ciao ${nome}, usa questo codice per completare l'accesso:`
+          : "Usa questo codice per completare l'accesso:",
+      },
+      { kind: "code", value: code },
+      {
+        kind: "text",
+        text: `Il codice scade tra ${EMAIL_CODE_TTL_MINUTES} minuti e vale una volta sola.`,
+      },
+      {
+        kind: "footnote",
+        text: "Se non hai richiesto tu questo codice, ignora il messaggio: senza il codice non succede niente.",
+      },
+    ],
   });
+};
 
 export const sendEmailVerificationChallenge = async (
   user: {
@@ -477,11 +500,15 @@ export const sendEmailVerificationChallenge = async (
     expiresInMinutes: EMAIL_CODE_TTL_MINUTES,
   });
 
+  const { html, text } = buildVerificationEmail({
+    firstName: user.first_name,
+    code,
+  });
   const delivery = await sendTransactionalEmail({
     to: user.email,
     subject: "Verifica il tuo account EasyGame",
-    text: `Il tuo codice EasyGame è ${code}. Scade tra ${EMAIL_CODE_TTL_MINUTES} minuti.`,
-    html: buildVerificationEmailHtml({ firstName: user.first_name, code }),
+    text,
+    html,
   });
 
   return {
@@ -1486,25 +1513,47 @@ export const findUserByEmailForPasswordReset = async (email: string) => {
   return prisma.user.findUnique({ where: { email: normalizedEmail } });
 };
 
-/** Estratto per la stessa ragione di `buildVerificationEmailHtml`. */
-export const buildPasswordResetEmailHtml = ({
+/**
+ * Estratto per la stessa ragione di `buildVerificationEmail`, e con lo stesso
+ * marchio: chi reimposta una password sta parlando con EasyGame.
+ *
+ * `resetUrl` finiva dentro un `href` **senza passare da niente**: e generato
+ * qui, quindi non era sfruttabile, ma era l'unico punto del prodotto in cui un
+ * URL entrava in un attributo senza controllo. Adesso passa da
+ * `sanitizeEmailUrl` come tutti gli altri, e se un giorno la base dell'URL
+ * arrivera dalla configurazione la difesa sara gia in piedi.
+ */
+export const buildPasswordResetEmail = ({
   firstName,
   resetUrl,
 }: {
   firstName?: string | null;
   resetUrl: string;
-}): string =>
-  renderEmailLayout({
-    bodyHtml: `
-      <h2 style="margin:0 0 12px;">Reimposta la password</h2>
-      <p>Ciao ${escapeHtml(firstName || "")}, hai richiesto di reimpostare la password del tuo account EasyGame.</p>
-      <p style="padding: 20px 0;">
-        <a href="${resetUrl}" style="background:#2563eb;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Scegli una nuova password</a>
-      </p>
-      <p>Il link scade tra ${PASSWORD_RESET_TTL_MINUTES} minuti e può essere usato una sola volta.</p>
-      <p style="color:#64748b;font-size:13px;">Se non hai richiesto tu il reset, ignora questa email: la password resta invariata.</p>
-    `,
+}) => {
+  const nome = String(firstName || "").trim();
+  return renderEmailDocument({
+    brand: EASYGAME_BRAND,
+    preheader: `Il link scade tra ${PASSWORD_RESET_TTL_MINUTES} minuti.`,
+    blocks: [
+      { kind: "heading", text: "Reimposta la password" },
+      {
+        kind: "text",
+        text: nome
+          ? `Ciao ${nome}, hai richiesto di reimpostare la password del tuo account EasyGame.`
+          : "Hai richiesto di reimpostare la password del tuo account EasyGame.",
+      },
+      { kind: "cta", label: "Scegli una nuova password", url: resetUrl },
+      {
+        kind: "text",
+        text: `Il link scade tra ${PASSWORD_RESET_TTL_MINUTES} minuti e può essere usato una sola volta.`,
+      },
+      {
+        kind: "footnote",
+        text: "Se non hai richiesto tu il reset, ignora questa email: la password resta invariata.",
+      },
+    ],
   });
+};
 
 export const sendPasswordResetChallenge = async (user: {
   id: string;
@@ -1543,17 +1592,15 @@ export const sendPasswordResetChallenge = async (user: {
     user.id,
   )}&token=${encodeURIComponent(token)}`;
 
+  const { html, text } = buildPasswordResetEmail({
+    firstName: user.first_name,
+    resetUrl,
+  });
   const delivery = await sendTransactionalEmail({
     to: user.email,
     subject: "Reimposta la password EasyGame",
-    text:
-      `Hai richiesto di reimpostare la password del tuo account EasyGame.\n\n` +
-      `Apri questo link entro ${PASSWORD_RESET_TTL_MINUTES} minuti:\n${resetUrl}\n\n` +
-      `Se non hai richiesto tu il reset, ignora questa email: la password resta invariata.`,
-    html: buildPasswordResetEmailHtml({
-      firstName: user.first_name,
-      resetUrl,
-    }),
+    text,
+    html,
   });
 
   return {

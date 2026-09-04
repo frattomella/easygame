@@ -622,7 +622,19 @@ export const sendCommunication = async (
         to: recipient.email,
         subject: rendered.subject,
         text: rendered.text,
-        html: renderEmailLayout({ bodyHtml: rendered.html }),
+        /*
+          **Marchio del club** (PP-05B, ADR-0116). Una comunicazione che una
+          societa manda alla propria famiglia arrivava con il logotipo di un
+          fornitore che quella famiglia non conosce. Il nome del club e gia in
+          questo ambito: non serve una query in piu. Il logo non si passa
+          perche `clubs.logo_url` e un data URL, che i client di posta
+          bloccano — il core ricade sul nome scritto in lettere, che si legge
+          anche a immagini spente.
+        */
+        html: renderEmailLayout({
+          bodyHtml: rendered.html,
+          brand: { mode: "club", clubName: audience.clubName },
+        }),
       });
 
       if (result.status !== "sent") {

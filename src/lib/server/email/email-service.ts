@@ -16,6 +16,7 @@ import type {
 } from "./provider";
 import { SmtpEmailProvider } from "./smtp-provider";
 import { renderEmailLayout } from "./layout";
+import { renderEmailDocument } from "./template-core";
 
 export type SafeEmailErrorCode =
   | "SMTP_AUTH_FAILED"
@@ -301,13 +302,6 @@ export const buildPaymentReminderLines = (
   return lines;
 };
 
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-
 /**
  * Manda il sollecito a **un** indirizzo.
  *
@@ -316,9 +310,9 @@ const escapeHtml = (value: string) =>
  * addolcirlo — `skipped` quando SMTP non e configurato — perche chi sollecita
  * deve poter dire, per destinatario, se il messaggio e partito davvero.
  */
-export const sendPaymentReminderEmail = async (
+export const buildPaymentReminderEmail = (
   content: PaymentReminderEmailContent,
-): Promise<EmailDeliveryResult> => {
+) => {
   const lines = buildPaymentReminderLines(content);
   const greeting = content.guardianName
     ? `Gentile ${content.guardianName},`
@@ -331,35 +325,54 @@ export const sendPaymentReminderEmail = async (
     esattamente il messaggio di prima, senza righe vuote.
   */
   const paymentLink = String(content.paymentLink || "").trim();
-  const linkLines = paymentLink ? ["", "Puoi pagare da qui:", paymentLink] : [];
 
+  /*
+    **Marchio del club, e blocchi invece di stringhe** (PP-05B, ADR-0116).
+
+    Il sollecito lo manda la societa: e il messaggio in cui il logotipo di
+    EasyGame in cima era piu fuori posto di tutti, perche la famiglia deve
+    riconoscere a chi deve dei soldi.
+
+    Il testo semplice non si scrive piu accanto all'HTML: era la copia che
+    divergeva per prima — il link di pagamento, aggiunto nella Wave 2, c'era in
+    entrambi solo perche qualcuno se ne era ricordato due volte. Adesso e una
+    proiezione degli stessi blocchi.
+  */
+  return renderEmailDocument({
+    brand: { mode: "club", clubName: content.clubName },
+    preheader: `${content.clubName}: quote ancora da versare per ${content.athleteName}`,
+    blocks: [
+      { kind: "text", text: greeting },
+      {
+        kind: "text",
+        text: `${content.clubName} ricorda che risultano quote ancora da versare.`,
+      },
+      { kind: "info", lines },
+      ...(paymentLink
+        ? ([{ kind: "cta", label: "Paga la quota", url: paymentLink }] as const)
+        : []),
+      {
+        kind: "text",
+        text: "Se il pagamento e gia stato effettuato, consideri questo messaggio come non ricevuto.",
+      },
+    ],
+  });
+};
+
+/** L'oggetto, accanto al corpo: anche l'anteprima deve poterlo mostrare. */
+export const buildPaymentReminderSubject = (
+  content: Pick<PaymentReminderEmailContent, "clubName" | "athleteName">,
+) => `${content.clubName}: quote da regolarizzare per ${content.athleteName}`;
+
+export const sendPaymentReminderEmail = async (
+  content: PaymentReminderEmailContent,
+): Promise<EmailDeliveryResult> => {
+  const { html, text } = buildPaymentReminderEmail(content);
   return sendTransactionalEmail({
     to: content.to,
-    subject: `${content.clubName}: quote da regolarizzare per ${content.athleteName}`,
-    text: [
-      greeting,
-      "",
-      `${content.clubName} ricorda che risultano quote ancora da versare.`,
-      "",
-      ...lines,
-      ...linkLines,
-      "",
-      "Se il pagamento e gia stato effettuato, consideri questo messaggio come non ricevuto.",
-      "",
-      content.clubName,
-    ].join("\n"),
-    html: renderEmailLayout({
-      bodyHtml: [
-        `<p>${escapeHtml(greeting)}</p>`,
-        `<p>${escapeHtml(content.clubName)} ricorda che risultano quote ancora da versare.</p>`,
-        `<ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`,
-        paymentLink
-          ? `<p><a href="${escapeHtml(paymentLink)}">Paga la quota</a></p>`
-          : "",
-        "<p>Se il pagamento e gia stato effettuato, consideri questo messaggio come non ricevuto.</p>",
-        `<p>${escapeHtml(content.clubName)}</p>`,
-      ].join(""),
-    }),
+    subject: buildPaymentReminderSubject(content),
+    text,
+    html,
   });
 };
 

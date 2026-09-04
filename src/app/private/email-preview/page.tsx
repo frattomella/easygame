@@ -1,19 +1,11 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import {
   getSessionFromRequest,
   isPlatformAdminSession,
 } from "@/lib/server/auth";
-import {
-  buildPasswordResetEmailHtml,
-  buildVerificationEmailHtml,
-} from "@/lib/server/auth-workflows";
-import { buildAthleteInviteEmailHtml } from "@/lib/server/athlete-accounts";
-import { buildGenericNotificationEmailHtml } from "@/lib/server/email/email-service";
-import { renderMessageTemplate } from "@/lib/messages/templates";
-import { DEFAULT_MESSAGE_TEMPLATES } from "@/lib/messages/defaults";
-import { buildDailyDigest } from "@/lib/automations/digest";
+import { buildEmailPreviewCatalog } from "@/lib/server/email/preview-catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -26,20 +18,44 @@ export const metadata: Metadata = {
 };
 
 /**
- * Anteprima locale dei template email (Branding Pass).
+ * **Anteprima dei template email — superficie amministrativa** (PP-05B).
  *
- * Solo development: in produzione questa pagina non deve esistere, a
- * differenza di `/private/api-docs` che e una funzione reale per
- * l'amministrazione di piattaforma. Chiama le stesse funzioni pure usate
- * dagli invii veri (`buildVerificationEmailHtml` e simili) con dati di
- * esempio: quello che si vede qui e esattamente quello che parte, non un
- * markup reimplementato per l'occasione.
+ * ## Cosa e cambiato, e perche
+ *
+ * Nata nel Branding Pass come pagina di sviluppo (`NODE_ENV === "production"`
+ * → 404), era inutile proprio dove serve: chi configura SMTP per un club vuole
+ * vedere che aspetto avranno i messaggi **sull'installazione che sta
+ * configurando**, non su un portatile. Il 404 in produzione non era una
+ * difesa — la difesa e `isPlatformAdminSession`, che c'era gia — era una
+ * limitazione che si aggirava non usando la pagina.
+ *
+ * ## Le tre proprieta che questa pagina deve avere
+ *
+ * 1. **Non spedisce niente.** Il catalogo (`preview-catalog.ts`) chiama solo
+ *    costruttori di contenuto. Non e una promessa scritta in un commento: e la
+ *    prova di `tests/email/anteprima-non-spedisce.test.mjs`, che monta un
+ *    trasporto SMTP finto e conta gli invii.
+ * 2. **Nessun dato reale.** Il catalogo non legge l'archivio: gli esempi sono
+ *    valori inventati su `esempio.test`.
+ * 3. **`sandbox` sugli iframe.** Un `srcDoc` **eredita l'origine della pagina
+ *    che lo contiene**: senza `sandbox`, il markup di un template — che in un
+ *    riquadro contiene di proposito un nome di club ostile — girerebbe con i
+ *    cookie di sessione di un amministratore di piattaforma. E la superficie
+ *    piu facile da dimenticare in una pagina che «mostra e basta».
+ *
+ * ## Le due larghezze
+ *
+ * `?w=mobile` restringe il riquadro a 375 px, che e la larghezza in cui la
+ * maggior parte di questi messaggi viene letta davvero. La scelta e un
+ * collegamento e non un interruttore perche questa pagina resta un componente
+ * di server: aggiungere uno stato del client per due larghezze significherebbe
+ * spedire JavaScript per una cosa che un `href` fa gia.
  */
-export default async function EmailPreviewPage() {
-  if (process.env.NODE_ENV === "production") {
-    notFound();
-  }
-
+export default async function EmailPreviewPage({
+  searchParams,
+}: {
+  searchParams?: { w?: string; brand?: string };
+}) {
   const session = await getSessionFromRequest(
     new Request("http://easygame.local/private/email-preview", {
       headers: {
@@ -56,113 +72,154 @@ export default async function EmailPreviewPage() {
     redirect("/account");
   }
 
-  const comunicazioneClub = renderMessageTemplate({
-    template: DEFAULT_MESSAGE_TEMPLATES.installment_due,
-    values: {
-      "recipient.name": "Famiglia Rossi",
-      "club.name": "ASD Esempio",
-      "athlete.first_name": "Marco",
-      "athlete.last_name": "Rossi",
-      "installment.description": "Novembre",
-      "installment.due_date": "30/11/2026",
-      "installment.residual_amount": "€ 80,00",
-      "payment.link": "https://esempio.easygame.app/pay/token-di-esempio",
-    },
-    allowEconomic: true,
-  });
+  const mobile = searchParams?.w === "mobile";
+  const brandFiltro =
+    searchParams?.brand === "club"
+      ? "club"
+      : searchParams?.brand === "easygame"
+        ? "easygame"
+        : null;
 
-  const digest = buildDailyDigest({
-    clubName: "ASD Esempio",
-    dayLabel: "03/09/2026",
-    entries: [
-      {
-        triggerKind: "installment_overdue",
-        subjectName: "Marco Rossi",
-        detail: "Rata di novembre, € 80,00",
-        when: "30/11/2026",
-      },
-      {
-        triggerKind: "certificate",
-        subjectName: "Giulia Bianchi",
-        detail: "Certificato medico in scadenza",
-        when: "10/09/2026",
-      },
-    ],
-  });
+  const catalogo = buildEmailPreviewCatalog();
+  const voci = brandFiltro
+    ? catalogo.filter((voce) => voce.brandMode === brandFiltro)
+    : catalogo;
 
-  const templates: Array<{ title: string; note: string; html: string }> = [
-    {
-      title: "1. Verifica accesso / OTP",
-      note: "Platform — auth-workflows.ts",
-      html: buildVerificationEmailHtml({ firstName: "Marco", code: "482913" }),
-    },
-    {
-      title: "2. Recupero password",
-      note: "Platform — auth-workflows.ts",
-      html: buildPasswordResetEmailHtml({
-        firstName: "Marco",
-        resetUrl:
-          "https://esempio.easygame.app/auth/reset-password?uid=demo&token=demo",
-      }),
-    },
-    {
-      title: "3. Invito (attivazione accesso atleta)",
-      note: "Platform/ibrida — athlete-accounts.ts",
-      html: buildAthleteInviteEmailHtml({
-        athleteName: "Marco Rossi",
-        clubName: "ASD Esempio",
-        link: "https://esempio.easygame.app/athlete-invite/demo",
-      }),
-    },
-    {
-      title: "4. Notifica generica (copre anche le richieste di documenti)",
-      note: "Club → utente — email-service.ts, contenuto sempre fisso per privacy",
-      html: buildGenericNotificationEmailHtml(),
-    },
-    {
-      title: "5. Comunicazione del club (rappresentativa)",
-      note: "Club → utente — messages/templates.ts, modello «rata in scadenza»",
-      html: comunicazioneClub.html,
-    },
-    ...(digest
-      ? [
-          {
-            title: "6. Digest giornaliero al club (bonus, non fra i 5 richiesti)",
-            note: "Club → Club — automations/digest.ts",
-            html: digest.html,
-          },
-        ]
-      : []),
-  ];
+  const link = (params: { w?: string; brand?: string }) => {
+    const query = new URLSearchParams();
+    if (params.w) query.set("w", params.w);
+    if (params.brand) query.set("brand", params.brand);
+    const stringa = query.toString();
+    return stringa ? `/private/email-preview?${stringa}` : "/private/email-preview";
+  };
+
+  const brandCorrente = brandFiltro || undefined;
+  const larghezzaCorrente = mobile ? "mobile" : undefined;
+
+  const pill = (attivo: boolean) =>
+    `rounded-full border px-3 py-1 text-xs ${
+      attivo
+        ? "border-slate-900 bg-slate-900 text-white"
+        : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+    }`;
 
   return (
-    <div className="min-h-[100dvh] space-y-8 bg-[var(--eg-paper)] p-6">
-      <div>
-        <h1 className="font-display text-xl font-semibold text-slate-900">
-          Anteprima email EasyGame
-        </h1>
-        <p className="text-sm text-slate-500">
-          Solo development — dati di esempio, nessun invio reale. Ogni
-          riquadro chiama la stessa funzione usata dall&apos;invio vero.
-        </p>
-      </div>
+    <div className="min-h-[100dvh] space-y-6 bg-[var(--eg-paper)] p-4 sm:p-6">
+      <header className="space-y-3">
+        <div>
+          <h1 className="font-display text-xl font-semibold text-slate-900">
+            Anteprima email EasyGame
+          </h1>
+          <p className="text-sm text-slate-500">
+            Dati di esempio, nessun invio reale. Ogni riquadro chiama la stessa
+            funzione usata dall&apos;invio vero.
+          </p>
+        </div>
 
-      {templates.map((item) => (
+        {/*
+          I due assi di lettura: da chi arriva il messaggio, e su quale
+          larghezza si legge. A 375 px i filtri vanno a capo invece di
+          comprimersi, perche questa pagina si guarda anche dal telefono che si
+          sta cercando di simulare.
+        */}
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Marchio</span>
+            <a href={link({ w: larghezzaCorrente })} className={pill(!brandFiltro)}>
+              Tutti
+            </a>
+            <a
+              href={link({ w: larghezzaCorrente, brand: "easygame" })}
+              className={pill(brandFiltro === "easygame")}
+            >
+              EasyGame
+            </a>
+            <a
+              href={link({ w: larghezzaCorrente, brand: "club" })}
+              className={pill(brandFiltro === "club")}
+            >
+              Club
+            </a>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Larghezza</span>
+            <a href={link({ brand: brandCorrente })} className={pill(!mobile)}>
+              Desktop
+            </a>
+            <a
+              href={link({ brand: brandCorrente, w: "mobile" })}
+              className={pill(mobile)}
+            >
+              Mobile 375 px
+            </a>
+          </div>
+        </div>
+      </header>
+
+      {voci.map((voce) => (
         <section
-          key={item.title}
+          key={voce.id}
           className="overflow-hidden rounded-xl border border-slate-200 bg-white"
         >
           <header className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="font-display text-sm font-semibold text-slate-900">
-              {item.title}
+            <div className="flex flex-wrap items-baseline gap-2">
+              <p className="font-display text-sm font-semibold text-slate-900">
+                {voce.title}
+              </p>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] ${
+                  voce.brandMode === "club"
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-blue-100 text-blue-800"
+                }`}
+              >
+                {voce.brandMode === "club" ? "Brand Club" : "Brand EasyGame"}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">
+              <span className="font-medium">Oggetto:</span> {voce.subject}
             </p>
-            <p className="text-xs text-slate-500">{item.note}</p>
+            <p className="text-xs text-slate-500">
+              <span className="font-medium">Sorgente:</span> {voce.source} ·{" "}
+              <span className="font-medium">Destinatario:</span> {voce.recipient}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">{voce.note}</p>
           </header>
-          <iframe
-            title={item.title}
-            srcDoc={item.html}
-            className="h-[420px] w-full"
-          />
+
+          <div className="overflow-x-auto bg-slate-100 p-3">
+            {/*
+              `sandbox` vuoto: nessun permesso. Un `srcDoc` senza sandbox gira
+              nell'origine di questa pagina, cioe con i cookie di chi la sta
+              guardando — e uno dei riquadri contiene di proposito un nome di
+              club ostile.
+            */}
+            <iframe
+              title={voce.title}
+              srcDoc={voce.html}
+              sandbox=""
+              style={mobile ? { width: 375 } : undefined}
+              className={`h-[460px] border border-slate-200 bg-white ${
+                mobile ? "" : "w-full"
+              }`}
+            />
+          </div>
+
+          {voce.text ? (
+            <details className="border-t border-slate-200 px-4 py-3">
+              <summary className="cursor-pointer text-xs font-medium text-slate-600">
+                Testo semplice
+              </summary>
+              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs text-slate-600">
+                {voce.text}
+              </pre>
+            </details>
+          ) : (
+            <p className="border-t border-slate-200 px-4 py-3 text-xs text-slate-400">
+              Questo costruttore produce solo HTML: il testo semplice lo compone
+              ancora chi invia.
+            </p>
+          )}
         </section>
       ))}
     </div>
