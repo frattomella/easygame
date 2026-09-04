@@ -81,11 +81,29 @@ export const HEALTH_PERMISSION_LABELS: Record<HealthPermission, string> = {
 export const listHealthPermissions = (
   role: string | null | undefined,
 ): readonly HealthPermission[] => {
-  const normalized = normalizeAccessRole(role);
-  if (!normalized) return [];
+  /*
+    **Il ruolo si passa intero, non normalizzato** (PP-03).
+
+    Questa funzione chiedeva `roleHasPermission(normalizeAccessRole(role), …)`,
+    e `normalizeAccessRole` di un gettone personalizzato
+    (`custom:collaborator:segreteria#events.read`) restituisce `collaborator`:
+    le chiavi concesse sparivano per strada, e l'elenco rispondeva per il ruolo
+    **base**. Un ruolo personalizzato a cui il club **non** ha dato
+    `clinical.read` se la vedeva elencare comunque.
+
+    La sorella `hasHealthPermission`, tre righe piu in basso, il ruolo lo
+    passava gia intero: due funzioni nello stesso file che rispondevano
+    diversamente alla stessa domanda. `roleHasPermission` sa gia leggere il
+    gettone e applica il tetto del ruolo base — normalizzare prima non
+    aggiungeva una guardia, ne toglieva una.
+
+    Nessun chiamante di produzione era esposto oggi: e una trappola disarmata
+    prima che qualcuno ci passasse sopra.
+  */
+  if (!normalizeAccessRole(role)) return [];
 
   return HEALTH_PERMISSIONS.filter((permission) =>
-    roleHasPermission(normalized, permission),
+    roleHasPermission(role, permission),
   );
 };
 

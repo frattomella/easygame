@@ -189,3 +189,74 @@ difetto dal proprio lato (debito `PP04-D1` nel suo worktree) e lo ha chiuso a
 valle: `findAthleteProfileForUser` onora il legame solo finche la persona
 appartiene ancora al club, quindi l'area atleta era gia al sicuro a prescindere
 da questo sweep.
+
+---
+
+## §4 — Due funzioni sorelle che rispondevano diversamente
+
+**Riprodotto.** Un club crea un ruolo personalizzato basato su `collaborator` e
+**non** gli concede `clinical.read`. `hasHealthPermission(gettone,
+"clinical.read")` risponde `false` — giusto. `listHealthPermissions(gettone)`
+elenca `clinical.read` fra le sue — sbagliato.
+
+**La causa.** Le due funzioni vivono nello stesso file, a tre righe di
+distanza, e passavano il ruolo a `roleHasPermission` in due modi diversi:
+
+```ts
+const normalized = normalizeAccessRole(role);   // ← "collaborator"
+return HEALTH_PERMISSIONS.filter((p) => roleHasPermission(normalized, p));
+```
+
+Il ruolo attivo di una tessera personalizzata e il **gettone**
+(`custom:collaborator:segreteria#events.read`), e `normalizeAccessRole` ne
+estrae la sola **base**: le chiavi concesse sparivano per strada, e l'elenco
+rispondeva per il ruolo base. `roleHasPermission` sa gia leggere il gettone e
+applica per conto proprio il tetto del ruolo base — normalizzare prima non
+aggiungeva una guardia, ne toglieva una.
+
+E la stessa classe che il mandato PP-03 nomina per `narrowDomainPermission`: un
+dominio che decide sul ruolo **base** rende inerti le caselle di un ruolo
+personalizzato. Qui non serviva `narrowDomainPermission`, perche questo modulo
+la matrice propria non ce l'ha: bastava non buttare via il gettone.
+
+**Cosa e cambiato.** `listHealthPermissions` normalizza ancora, ma **solo per
+sapere se il ruolo esiste**; la domanda sul permesso riceve il ruolo intero.
+
+**Portata dichiarata.** Nessun chiamante di produzione era esposto: la funzione
+oggi la chiama solo un test. Era una trappola armata per il prossimo chiamante,
+disarmata prima che qualcuno ci passasse sopra.
+
+**Verificato.**
+`tests/lib/pp-03-permessi-sanitari-ruolo-personalizzato.test.mjs`: l'elenco
+porta le chiavi concesse e non quelle della base; le due funzioni sorelle danno
+la **stessa** risposta su undici ruoli diversi, canonici e personalizzati; e un
+ruolo su `trainer` non guadagna il contenuto clinico che la base non ha.
+Verifica per mutazione: rimessa la normalizzazione, due prove su tre rosse — la
+terza resta verde, perche il tetto lo fa `roleHasPermission` e regge in
+entrambe le stesure.
+
+---
+
+## §5 — Cio che PP-03 ha trovato e non ha corretto
+
+**Il gettone non arriva al browser** (debito `PP03-D2`, dependency registrata
+verso PP-05). `GET /api/v1/auth/memberships` e
+`POST /api/v1/auth/memberships/activate` restituiscono `membership.role`
+**grezzo**, cioe lo slug. Il browser lo salva in `activeClub.role` e chiede
+`roleHasPermission(activeClub.role, chiave)`: uno slug senza `#` porta
+`permissions: []`, quindi ogni ruolo personalizzato riceve `false` su ogni
+chiave **lato interfaccia**. La coda di verifica documenti, la sezione account
+dell'atleta, l'export e la cancellazione dei dati, il registro attivita: tutte
+invisibili a un ruolo personalizzato che le ha concesse.
+
+Due ragioni per cui non e stato chiuso qui.
+
+1. **Ownership.** `src/app/api/v1/auth/**` e di PP-05 nel contratto delle lane
+   parallele. La correzione e una riga — emettere `selectedMembership.token`
+   invece di `membership.role` — ma non e di PP-03 scriverla.
+2. **Non si chiude a valle.** Far accettare a `roleHasPermission` uno slug nudo
+   avrebbe reso quello slug il **ruolo base intero**: la scalata esatta che
+   ADR-0102 esiste per impedire. Il difetto **fallisce chiuso** — il server
+   decide con `scope.activeRole`, che il gettone ce l'ha — quindi nessun dato
+   esce e nessuna scrittura passa. Cio che manca e la superficie, non la
+   difesa.
