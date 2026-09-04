@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { reportServerError } from "./observability";
 import { canonicalResourceName } from "@/lib/resource-aliases";
 import { guardianAccessIdentities } from "./parent-dashboard";
 import {
@@ -4671,7 +4672,60 @@ const TRAINER_DASHBOARD_FILTERED_RESOURCES = new Set([
     del gruppo operativo.
   */
   "athlete_category_memberships",
+  /*
+    **Lo stato del certificato lo vede chi ha `clinical.status_read`, dei
+    **propri** atleti** (PP-03 §7). Le due risorse stavano in
+    `TRAINER_READ_RESOURCES` e **non** qui: il perimetro dell'allenatore non le
+    toccava in nessuna forma, e da `GET /api/v1/medical_certificates` usciva lo
+    stato sanitario di minori di un'altra squadra.
+  */
+  "medical_certificates",
+  "simplified_certificates",
 ]);
+
+/**
+ * Le risorse che si giudicano sulla **persona a cui appartengono**, non sulla
+ * categoria della riga: la riga porta un `athlete_id` e nient'altro con cui
+ * decidere.
+ */
+const RISORSE_PER_ATLETA_DELL_ALLENATORE = new Set([
+  "medical_certificates",
+  "simplified_certificates",
+]);
+
+/**
+ * Tiene solo le righe la cui persona sta nel perimetro dell'allenatore.
+ *
+ * Passa da `athleteIdsWithinTrainerPerimeter`, che e la **stessa** risposta
+ * che compone l'elenco atleti: un secondo giudizio scritto qui sarebbe la
+ * prossima divergenza. Torna le righe intatte quando chi legge non e un
+ * allenatore — `null` non e l'insieme vuoto.
+ */
+const filtraPerAtletaDelPerimetro = async (
+  records: Record<string, any>[],
+  campo: string,
+  scope?: ResourceAccessScope,
+) => {
+  const organizationId = String(scope?.activeOrganizationId || "").trim();
+  if (!organizationId) return records;
+
+  const atletiId = records
+    .map((record) => String(record?.[campo] || "").trim())
+    .filter(Boolean);
+  if (!atletiId.length) return records;
+
+  const ammessi = await athleteIdsWithinTrainerPerimeter(
+    organizationId,
+    atletiId,
+    scope,
+  );
+  if (!ammessi) return records;
+
+  const dentro = new Set(ammessi);
+  return records.filter((record) =>
+    dentro.has(String(record?.[campo] || "").trim()),
+  );
+};
 
 const toArrayValue = (value: unknown): any[] =>
   Array.isArray(value) ? value : [];
@@ -4780,6 +4834,19 @@ const extractRecordCategoryTokens = (
       record.category_name,
       record.categoryName,
       record.categories,
+      /*
+        **Tutte le categorie di un evento, non la sola primaria** (PP-01 §A,
+        ADR-0111). La colonna `club_events.category_ids` esiste proprio perche
+        un allenamento di tre categorie ne dichiarava una sola, e qui non era
+        letta: nel registro generico l'allenatore della **seconda** categoria
+        di un allenamento congiunto non vedeva i partecipanti del proprio
+        stesso allenamento. Falliva chiuso, che e il verso giusto in cui
+        sbagliare, ma resta una superficie rotta.
+      */
+      record.category_ids,
+      record.categoryIds,
+      source.category_ids,
+      source.categoryIds,
       source.category,
       source.category_id,
       source.categoryId,
@@ -5116,7 +5183,19 @@ const filterTrainerDashboardRecords = async (
     Una query sola per l'intera pagina: risolverlo riga per riga
     trasformerebbe l'appello di una giornata in centinaia di letture.
   */
-  if (resource === "club_event_participants") {
+  /*
+    **`resource` grezzo o canonico: il file usava tutti e due** (PP-03 §7).
+
+    La decisione di filtrare, in cima, guarda `canonicalResourceName(resource)`;
+    questo ramo confrontava il nome **grezzo**. `training_attendance` e l'alias
+    storico della stessa tabella: entrava nel filtro e poi cadeva nel ramo degli
+    atleti, dove non trova nessun token di categoria — quindi
+    `GET /club_event_participants` rispondeva con cinque righe e
+    `GET /training_attendance` con **zero**. Falliva chiuso, quindi non era una
+    fuga; era la stessa schermata che a seconda del nome mostrava tutto o
+    niente.
+  */
+  if (canonicalResourceName(resource) === "club_event_participants") {
     const eventiId = Array.from(
       new Set(
         records
@@ -5145,9 +5224,34 @@ const filterTrainerDashboardRecords = async (
         .map((evento: { id: string }) => String(evento.id)),
     );
 
-    return records.filter((record) =>
+    const dentroL_evento = records.filter((record) =>
       ammessi.has(String(record?.event_id || "")),
     );
+
+    /*
+      **L'evento ammesso non ammette le persone dell'evento**, di nuovo e su
+      questa porta: il registro generico serve le stesse righe che
+      `listEventParticipants` gia filtra, e qui il vaglio si fermava
+      all'evento. Su un allenamento congiunto A+B uscivano stato di presenza,
+      stato di convocazione e la **nota in testo libero** su un minore che
+      l'elenco atleti dello stesso allenatore non gli mostra.
+    */
+    return filtraPerAtletaDelPerimetro(dentroL_evento, "athlete_id", scope);
+  }
+
+  /*
+    **Lo stato del certificato e dei propri atleti** (PP-03 §7).
+
+    `medical_certificates` e `simplified_certificates` stanno in
+    `TRAINER_READ_RESOURCES` perche `clinical.status_read` risponde alla
+    domanda operativa «puo scendere in campo?». Quella domanda pero riguarda i
+    **propri** atleti, e qui non c'era nessun perimetro in nessuna forma:
+    usciva lo stato sanitario di minori di un'altra squadra, e con esso
+    l'identificativo della riga — la chiave con cui bussare alle porte
+    successive.
+  */
+  if (RISORSE_PER_ATLETA_DELL_ALLENATORE.has(canonicalResourceName(resource))) {
+    return filtraPerAtletaDelPerimetro(records, "athlete_id", scope);
   }
 
   let appartenenzePerAtleta = new Map<string, any[]>();
@@ -5268,9 +5372,36 @@ export const athleteIdsWithinTrainerPerimeter = async (
   );
   if (!richiesti.length) return [];
 
-  const righe = await prisma.athlete.findMany({
-    where: { organization_id: organizationId, id: { in: richiesti } },
-  });
+  /*
+    **L'errore del driver non esce dalla rete** (PP-03 §7).
+
+    `athletes.id` e una colonna `@db.Uuid`: chiedere `in: ["non-e-un-uuid"]`
+    non e un `where` che non trova niente, e un errore del **driver**. Il route
+    handler della convocazione rimanda al client `error.message`, e da li
+    usciva l'invocazione Prisma per intero — nome del modello, nome del metodo,
+    codice SQLSTATE — cioe esattamente cio che `observability.ts` esiste per
+    non far uscire (CLAUDE.md §2). Su un errore diverso, per esempio di
+    vincolo, lo stesso canale porterebbe fuori il record che si stava
+    scrivendo.
+
+    Non si filtrano gli identificativi per forma: `athletes.id` non e un UUID
+    ovunque nella storia di questo prodotto, e scartare in silenzio direbbe
+    «fuori perimetro» a un atleta che c'e. Si riduce l'errore, che e la
+    risposta che il repository ha gia deciso.
+  */
+  let righe: unknown[];
+  try {
+    righe = await prisma.athlete.findMany({
+      where: { organization_id: organizationId, id: { in: richiesti } },
+    });
+  } catch (errore) {
+    reportServerError(errore, {
+      route: "athleteIdsWithinTrainerPerimeter",
+    });
+    throw new Error(
+      "Accesso negato: uno degli atleti indicati non e un identificativo valido",
+    );
+  }
 
   const ammessi = await filterTrainerDashboardRecords(
     "athletes",

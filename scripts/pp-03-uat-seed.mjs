@@ -107,6 +107,9 @@ const NOMI = [
   ["Ludovica", "Fiorentino Barracchia"],
 ];
 
+const risorse = await import(
+  pathToFileURL(path.resolve("src/lib/server/resources.ts")).href,
+);
 const eventi_dominio = await import(
   pathToFileURL(path.resolve("src/lib/server/events.ts")).href,
 );
@@ -168,24 +171,37 @@ const main = async () => {
         },
       ],
       category_groups: [],
-      trainers: [
-        {
-          id: "trainer-pp03uat-1",
-          first_name: "Gianfranco",
-          last_name: "Allenatore",
-          email: mister.email,
-          linkedUserId: mister.id,
-          /* Il perimetro: **una sola** categoria. */
-          categories: [CAT_U15],
-          groups: [],
-          role: "Allenatore",
-        },
-      ],
+      trainers: [],
       staff_members: [],
       matches: [],
       trainings: [],
     },
   });
+
+  /*
+    **La scheda dell'allenatore passa da `resources.ts`, non da Prisma.**
+
+    La prima stesura la scriveva dentro `clubs.trainers` con la `create` del
+    club, e a schermo compariva «Profilo allenatore non collegato»: il
+    contesto della dashboard legge `GET /api/v1/trainers`, che serve
+    `club_resource_items`, e quella riga non esisteva. E letteralmente
+    l'errore n. 3 di CLAUDE.md §11 — scrivere `clubs.<campo>` aggirando
+    `resources.ts` disallinea `club_resource_items` — colto da un seed invece
+    che da un utente.
+  */
+  await risorse.replaceClubResourceCollection(CLUB, "trainers", [
+    {
+      id: "trainer-pp03uat-1",
+      first_name: "Gianfranco",
+      last_name: "Allenatore",
+      email: mister.email,
+      linkedUserId: mister.id,
+      /* Il perimetro: **una sola** categoria. */
+      categories: [CAT_U15],
+      groups: [],
+      role: "Allenatore",
+    },
+  ]);
 
   await prisma.organizationUser.createMany({
     data: [

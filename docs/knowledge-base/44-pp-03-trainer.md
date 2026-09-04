@@ -358,3 +358,167 @@ l'elenco atleti, quella terza forma non la conosceva. La divergenza falliva
 con il **calendario pieno** e la **squadra vuota**, senza un errore da nessuna
 parte. Si e vista quando il perimetro delle persone e arrivato anche al
 riepilogo RSVP, cioe quando le due risposte hanno cominciato a toccarsi.
+
+---
+
+## §7 — La regola di lettura usata come guardia di scrittura
+
+Secondo round di revisione ostile, con un mandato diverso dal primo: eventi,
+presenze, perimetri di sede e categoria, ruoli personalizzati. Novantadue
+prove contro `easygame_dev_pp03` e le rotte vere.
+
+### 7.1 — L'allenatore che si appropria dell'evento condiviso (CRITICAL)
+
+**Riprodotto.** Allenamento congiunto A+B, con l'appello **gia fatto**
+dall'allenatore di A. L'allenatore della sola B manda
+
+```
+PATCH /api/v1/events/<congiunto>   {"categoryId":"cat-B","categories":["cat-B"]}
+```
+
+e riceve **200**. Da quel momento l'allenatore di A riceve `403` su
+`GET /events/:id` e non trova piu l'allenamento in nessun elenco. La riga resta
+in archivio con le sue presenze — il dato su cui si rendicontano i contributi
+pubblici — e il suo allenatore non ci arriva piu da nessuna porta.
+
+Tre varianti della stessa cosa, tutte misurate: si **sposta** la categoria
+primaria su una squadra di cui non si e allenatori; si **aggiunge** all'evento
+una categoria altrui, purche fra le altre ce ne sia una propria; si **crea** un
+evento per la Prima squadra nominando anche la propria categoria. La creazione
+della **sola** categoria altrui era correttamente respinta: la difesa reggeva
+solo finche l'attaccante non nominava anche qualcosa di suo.
+
+### 7.2 — E lo cancella, o lo annulla (CRITICAL)
+
+Stessa causa. `DELETE /api/v1/events/<congiunto>` risponde 200 e la riga
+sparisce — anche per la squadra A e per le sue famiglie.
+`PATCH {"status":"cancelled"}` lo stesso, e passa perche
+`assertEventoNonConsolidato` lascia deliberatamente annullare un evento con una
+storia: annullare non e modificare.
+
+**La causa, una sola per 7.1 e 7.2.** `eventWithinTrainerPerimeter` chiude con
+`.some(...)`: basta **una** categoria dell'evento nel perimetro. E la regola di
+[ADR-0111](18-decision-log.md), ed e giusta — per la **lettura**. Le chiamate
+di scrittura riusavano il predicato scritto per il calendario. Il doppio
+giudizio «la riga com'e + la riga come diventerebbe», che il codice gia faceva
+ed e giusto, non salvava: entrambe le forme contengono la categoria
+dell'attaccante.
+
+**Cosa e cambiato.** `eventWithinTrainerPerimeter` e il suo gemello per il
+perimetro di ruolo (`assertAccessScopeOnEvent`) prendono un modo: `"lettura"`
+resta `.some`, `"scrittura"` pretende `.every`. Lo passano i quattro atti che
+cambiano l'evento — creazione, modifica, cancellazione, creazione in blocco.
+L'appello e la convocazione restano in **lettura**, perche li il confine sulle
+persone lo fa un secondo recinto, piu stretto.
+
+Un evento senza nessun riferimento di categoria continua a fallire **chiuso**
+in entrambi i modi: `every` su un elenco vuoto risponderebbe vero, e la riga
+che lo impedisce e scritta apposta.
+
+Il messaggio del rifiuto distingue i due casi. «Non e di una tua categoria» su
+un evento che l'allenatore ha davanti nel proprio calendario manderebbe a
+cercare un difetto che non c'e: l'evento e anche suo, ed e proprio per questo
+che non puo cambiarlo da solo.
+
+### 7.3 — Appello e convocazione su un evento annullato (HIGH)
+
+**Riprodotto.** Su un evento con `status = "cancelled"`,
+`POST action:"attendance"` risponde 200 e in archivio resta `present`. Idem su
+uno `archived`. Idem per la convocazione, che fa partire l'invito alla famiglia
+per un allenamento gia annullato.
+
+**La causa.** `assertEventTransition` esisteva e viveva **solo** in
+`updateClubEvent`: `saveEventAttendance` e `saveEventConvocations` lo stato
+dell'evento non lo guardavano affatto.
+
+**Perche conta.** La presenza e la misura di
+`src/lib/funding/attendance-measure.ts`: si poteva gonfiare la rendicontazione
+dei contributi pubblici su allenamenti che non hanno avuto luogo, e la riga in
+archivio diceva «presente» su un evento annullato senza che nessun controllo se
+ne accorgesse.
+
+`completed` resta aperto, ed e deliberato: un allenamento concluso e
+esattamente quello di cui si fa l'appello, e correggerlo il giorno dopo e la
+cosa normale.
+
+### 7.4 — Il registro generico, due porte piu in la (HIGH)
+
+`GET /api/v1/club_event_participants` serve le **stesse righe** che
+`listEventParticipants` filtra, e il vaglio qui si fermava all'evento: su un
+congiunto uscivano stato di presenza, stato di convocazione e la **nota in
+testo libero** su un minore che l'elenco atleti dello stesso allenatore non gli
+mostra.
+
+`GET /api/v1/medical_certificates` non aveva **nessun** perimetro
+dell'allenatore, in nessuna forma: le due risorse stavano in
+`TRAINER_READ_RESOURCES` e non fra quelle filtrate. `clinical.status_read`
+risponde a «puo scendere in campo?» — dei **propri** atleti — e da li usciva lo
+stato sanitario di minori di un'altra squadra, con l'identificativo della riga.
+
+Entrambe passano ora da `athleteIdsWithinTrainerPerimeter`, la stessa risposta
+che compone l'elenco atleti.
+
+Due difetti minori sono emersi scrivendo la prova, e sono chiusi con essa:
+
+- il ramo dei partecipanti confrontava il nome **grezzo** della risorsa mentre
+  la decisione di filtrare guarda quello **canonico**: `training_attendance` —
+  l'alias storico della stessa tabella — rispondeva **zero righe** dove
+  `club_event_participants` ne rispondeva cinque. Falliva chiuso, quindi non
+  era una fuga: era la stessa schermata che, a seconda del nome usato, mostrava
+  tutto o niente;
+- `extractRecordCategoryTokens` non leggeva `category_ids`, cioe la colonna che
+  PP-01 §A ha creato apposta perche un evento di tre categorie ne dichiarava
+  una. Nel registro generico l'allenatore della **seconda** categoria di un
+  congiunto non vedeva i partecipanti del proprio stesso allenamento.
+
+### 7.5 — Lo stato di presenza era testo libero (MEDIUM)
+
+`saveEventAttendance` scriveva
+`asText(entry.status).toLowerCase() || "pending"`: qualunque testo. La
+convocazione, tre metodi piu sopra, passava gia da
+`normalizeConvocationStatus`. Due campi gemelli sulla stessa riga, uno con un
+vocabolario e uno senza.
+
+`isPresentAttendance` conta `present` e `presente`: un appello scritto in una
+**terza** grafia si salvava senza errore e **non contava** per la
+rendicontazione — il club dichiarava all'ente meno ore di quelle fatte, e
+nessuno lo segnalava. La colonna accettava inoltre un payload arbitrario, senza
+lunghezza massima.
+
+`normalizeAttendanceStatus` (`src/lib/events/model.ts`) riconosce le grafie che
+il prodotto ha davvero scritto e **rifiuta** cio che non riconosce. Non
+indovina: un valore silenziosamente riscritto sarebbe un appello che dice una
+cosa diversa da quella che l'allenatore ha segnato.
+
+### 7.6 — L'errore del driver usciva dalla rete (MEDIUM)
+
+Un `athleteId` che non e un UUID arrivava a `prisma.athlete.findMany` su una
+colonna `@db.Uuid`, e il route handler della convocazione rimandava al client
+`error.message`: usciva l'invocazione Prisma per intero, nome del modello, nome
+del metodo, codice SQLSTATE. E cio che [CLAUDE.md §2](../../CLAUDE.md) assegna
+a `observability.ts` per non farlo uscire; su un errore di vincolo lo stesso
+canale porterebbe fuori il record che si stava scrivendo.
+
+L'errore si riduce dove nasce. **Non** si filtrano gli identificativi per
+forma: `athletes.id` non e un UUID ovunque nella storia di questo prodotto, e
+scartare in silenzio direbbe «fuori perimetro» a un atleta che c'e.
+
+### Verificato
+
+| Sonda | Prima | Dopo |
+|---|---|---|
+| `scripts/pp-03-eventi-scope-ruoli-probe.mjs` | 64/77 | **77/77** |
+| `scripts/pp-03-scrittura-evento-condiviso-probe.mjs` | 1/15 | **15/15** |
+| `scripts/pp-03-security-probe.mjs` | 36/36 | **36/36** |
+
+In `npm test`: `tests/server/pp-03-evento-condiviso.test.mjs` (verifica per
+mutazione: 7 prove su 9 rosse senza le correzioni) e
+`tests/server/pp-03-registro-generico-perimetro.test.mjs` (3 su 4 rosse).
+Entrambi misurano anche il **verso opposto**: sul proprio evento l'allenatore
+puo tutto quello che poteva, l'evento congiunto resta leggibile a entrambi, e
+la direzione continua a vedere tutto.
+
+`tests/server/pp-01-perimetro-multi-categoria.test.mjs` e stato corretto, non
+aggirato: il suo caso «l'atto su un evento che tocca il proprio perimetro e
+ammesso» misurava proprio l'attacco di 7.1, e adesso misura la distinzione fra
+leggere e cambiare.

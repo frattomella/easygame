@@ -19,10 +19,12 @@ import {
   recordPermissionDenied,
 } from "./audit";
 import {
+  ATTENDANCE_STATUSES,
   assertEventHasRoom,
   assertEventTransition,
   findEventOverlaps,
   isWithinFieldAvailability,
+  normalizeAttendanceStatus,
   normalizeConvocationStatus,
   normalizeEventKind,
   normalizeEventStatus,
@@ -336,9 +338,34 @@ export type TrainerPerimeterCandidate = {
  *    segretaria a completare una scheda, mentre uno che fallisce aperto non
  *    manda nessuno da nessuna parte.
  */
+/**
+ * **Leggere e cambiare non sono la stessa domanda** (PP-03 §7).
+ *
+ * `"lettura"` e la regola di ADR-0111: basta **una** categoria dell'evento nel
+ * perimetro. E giusta per il calendario e per gli atti che riguardano le
+ * proprie persone — l'appello, la convocazione — perche quelle le vaglia un
+ * secondo recinto, quello sugli atleti.
+ *
+ * `"scrittura"` pretende che l'evento sia **tutto** suo. La differenza si vede
+ * solo sull'evento **condiviso**, ed e li che serve: una revisione ostile ha
+ * misurato che l'allenatore della sola B, su un allenamento congiunto A+B,
+ * poteva riscriverne le categorie a `["B"]` con un `200`. Dopo quel PATCH
+ * l'allenatore di A — che su quell'evento aveva gia fatto l'appello — riceveva
+ * `403` su `GET /events/:id` e non lo trovava piu in nessun elenco. Lo stesso
+ * valeva per `DELETE` e per l'annullamento, e nella direzione opposta: si
+ * poteva **aggiungere** all'evento una categoria di cui non si e allenatori,
+ * purche fra le altre ce ne fosse una propria.
+ *
+ * Non e un difetto di ADR-0111: e la sua regola di lettura usata come guardia
+ * di scrittura. Un evento condiviso lo modifica chi lo vede **per intero** —
+ * la direzione, o un allenatore di tutte le sue categorie.
+ */
+export type TrainerPerimeterMode = "lettura" | "scrittura";
+
 export const eventWithinTrainerPerimeter = (
   perimetro: TrainerEventPerimeter | null,
   evento: TrainerPerimeterCandidate,
+  modo: TrainerPerimeterMode = "lettura",
 ) => {
   if (!perimetro) return false;
 
@@ -350,7 +377,9 @@ export const eventWithinTrainerPerimeter = (
 
   if (gruppiEvento.length && perimetro.groupIds.length) {
     const suoi = new Set(perimetro.groupIds);
-    return gruppiEvento.some((value) => suoi.has(value));
+    return modo === "scrittura"
+      ? gruppiEvento.every((value) => suoi.has(value))
+      : gruppiEvento.some((value) => suoi.has(value));
   }
 
   const categorie = new Set(
@@ -367,10 +396,24 @@ export const eventWithinTrainerPerimeter = (
     ? (evento.category_ids as unknown[])
     : [];
 
-  return [evento.category_id, evento.category_name, ...categorieEvento]
+  const riferimenti = [
+    evento.category_id,
+    evento.category_name,
+    ...categorieEvento,
+  ]
     .map((value) => asText(value).toLowerCase())
-    .filter(Boolean)
-    .some((value) => categorie.has(value));
+    .filter(Boolean);
+
+  /*
+    Un evento senza nessun riferimento non e «di tutti»: e di nessuno, e
+    `every` su un elenco vuoto risponderebbe **vero**. Il caso 3
+    dell'intestazione qui sopra deve restare chiuso in tutti e due i modi.
+  */
+  if (!riferimenti.length) return false;
+
+  return modo === "scrittura"
+    ? riferimenti.every((value) => categorie.has(value))
+    : riferimenti.some((value) => categorie.has(value));
 };
 
 /**
@@ -412,6 +455,7 @@ const assertAccessScopeOnEvent = async (
   */
   candidati: readonly Record<string, any>[],
   permesso: string,
+  modo: TrainerPerimeterMode = "lettura",
 ) => {
   const perimetro = normalizeAccessScopes(
     (scope as { accessScopes?: readonly AccessScopeEntry[] | null })
@@ -449,12 +493,21 @@ const assertAccessScopeOnEvent = async (
       return accessScopeAllows(perimetro, { siteId: sede, categoryId: null });
     }
 
-    return categorie.some((categoria) =>
+    /*
+      **In scrittura vale la stessa distinzione dell'altro recinto** (PP-03 §7):
+      cambiare o cancellare un evento condiviso lo toglie anche a chi lo
+      condivide, quindi lo fa chi lo vede per intero. In lettura basta una
+      categoria, ed e la regola con cui l'elenco lo mostra.
+    */
+    const dentro = (categoria: unknown) =>
       accessScopeAllows(perimetro, {
         siteId: sede,
         categoryId: asText(categoria),
-      }),
-    );
+      });
+
+    return modo === "scrittura"
+      ? categorie.every(dentro)
+      : categorie.some(dentro);
   };
 
   const fuori = candidati.filter((candidato) => !dentroIlPerimetro(candidato));
@@ -475,6 +528,7 @@ const assertTrainerEventPerimeter = async (
   scope: EventsScope,
   candidati: readonly TrainerPerimeterCandidate[],
   permesso: string,
+  modo: TrainerPerimeterMode = "lettura",
 ) => {
   if (normalizeAccessRole(scope.activeRole) !== "trainer") return;
 
@@ -486,7 +540,7 @@ const assertTrainerEventPerimeter = async (
     : null;
 
   const fuori = candidati.filter(
-    (candidato) => !eventWithinTrainerPerimeter(perimetro, candidato),
+    (candidato) => !eventWithinTrainerPerimeter(perimetro, candidato, modo),
   );
   if (!fuori.length) return;
 
@@ -497,16 +551,35 @@ const assertTrainerEventPerimeter = async (
     resourceId: asText(fuori[0]?.id) || null,
     metadata: {
       motivo: perimetro
-        ? "evento fuori dal perimetro dell'allenatore"
+        ? modo === "scrittura"
+          ? "evento condiviso con una squadra fuori dal perimetro dell'allenatore"
+          : "evento fuori dal perimetro dell'allenatore"
         : "nessun profilo allenatore in questo club",
+      modo,
       fuoriPerimetro: fuori.length,
     },
   });
 
+  if (!perimetro) {
+    throw negato("non risulti fra gli allenatori di questo club");
+  }
+
+  /*
+    **Il messaggio dice quale delle due cose e successa.** «Non e di una tua
+    categoria» su un evento che l'allenatore ha davanti nel proprio calendario
+    manderebbe a cercare un difetto che non c'e: l'evento e anche suo, ed e
+    proprio per questo che non puo cambiarlo da solo.
+  */
+  const condiviso =
+    modo === "scrittura" &&
+    fuori.some((candidato) =>
+      eventWithinTrainerPerimeter(perimetro, candidato, "lettura"),
+    );
+
   throw negato(
-    perimetro
-      ? "questo evento non e di una tua categoria ne di un tuo gruppo"
-      : "non risulti fra gli allenatori di questo club",
+    condiviso
+      ? "questo evento e condiviso con una squadra che non e tua: modificarlo o cancellarlo lo toglierebbe anche a lei, e lo puo fare chi lo vede per intero"
+      : "questo evento non e di una tua categoria ne di un tuo gruppo",
   );
 };
 
@@ -840,6 +913,39 @@ const assertNoOverlap = async (
  * segnato si modifica per intero, e correggerne l'ora e una correzione, non una
  * riscrittura della storia.
  */
+/**
+ * **Un evento annullato o archiviato non riceve piu atti** (PP-03 §7).
+ *
+ * `assertEventTransition` esisteva, e viveva **solo** in `updateClubEvent`:
+ * `saveEventAttendance` e `saveEventConvocations` lo stato dell'evento non lo
+ * guardavano affatto. Dopo permesso, club e perimetro, scrivevano.
+ *
+ * Misurato da una revisione ostile: su un allenamento con
+ * `status = "cancelled"` l'appello rispondeva **200** e in archivio restava
+ * `present`. La presenza e la misura di `funding/attendance-measure.ts`: si
+ * poteva gonfiare la rendicontazione dei contributi pubblici su allenamenti
+ * che non hanno avuto luogo, e la riga in archivio diceva «presente» su un
+ * evento annullato senza che nessun controllo se ne accorgesse. La
+ * convocazione, dal canto suo, faceva partire l'invito alla famiglia per un
+ * allenamento gia annullato.
+ *
+ * `completed` resta aperto, ed e deliberato: un allenamento concluso e
+ * esattamente quello di cui si fa l'appello, e correggerlo il giorno dopo e la
+ * cosa normale (ADR-0112 congela i campi che hanno lasciato una traccia, non
+ * la traccia).
+ */
+const assertEventoAperto = (
+  event: { status?: string | null },
+  atto: string,
+) => {
+  const stato = normalizeEventStatus(event?.status);
+  if (stato !== "cancelled" && stato !== "archived") return;
+
+  throw new Error(
+    `Un evento ${stato === "cancelled" ? "annullato" : "archiviato"} non si tocca piu: per ${atto} va prima riaperto`,
+  );
+};
+
 const assertEventoNonConsolidato = (
   esistente: Record<string, any>,
   prossimo: Record<string, any>,
@@ -890,8 +996,8 @@ export const createClubEvent = async (
     funzioni fermava, e che `listClubEvents` avrebbe poi nascosto a chi l'ha
     creato, lasciandolo visibile a tutti gli altri.
   */
-  await assertTrainerEventPerimeter(scope, [colonne], "events.manage");
-  await assertAccessScopeOnEvent(scope, [colonne], "events.manage");
+  await assertTrainerEventPerimeter(scope, [colonne], "events.manage", "scrittura");
+  await assertAccessScopeOnEvent(scope, [colonne], "events.manage", "scrittura");
 
   await assertFieldIsOpen(organizationId, {
     structure_id: colonne.structure_id,
@@ -1024,6 +1130,7 @@ export const updateClubEvent = async (
     scope,
     [existing, colonne],
     "events.manage",
+    "scrittura",
   );
   /*
     Stesso doppio giudizio per il perimetro del ruolo: la riga com e e la riga
@@ -1031,7 +1138,12 @@ export const updateClubEvent = async (
     perche la chiamata sta su piu righe e la sostituzione meccanica non la
     vedeva — che e esattamente il tipo di buco per cui il presidio esiste.
   */
-  await assertAccessScopeOnEvent(scope, [existing, colonne], "events.manage");
+  await assertAccessScopeOnEvent(
+    scope,
+    [existing, colonne],
+    "events.manage",
+    "scrittura",
+  );
 
   await assertFieldIsOpen(organizationId, {
     structure_id: colonne.structure_id,
@@ -1216,6 +1328,7 @@ export const saveEventConvocations = async (
   assertActiveClub(scope, event.organization_id, "l'evento");
   await assertTrainerEventPerimeter(scope, [event], "events.convoke");
   await assertAccessScopeOnEvent(scope, [event], "events.convoke");
+  assertEventoAperto(event, "convocare");
 
   const normalizzate = entries
     .map((entry) => ({
@@ -1371,13 +1484,30 @@ export const saveEventAttendance = async (
   assertActiveClub(scope, event.organization_id, "l'evento");
   await assertTrainerEventPerimeter(scope, [event], "events.attendance");
   await assertAccessScopeOnEvent(scope, [event], "events.attendance");
+  assertEventoAperto(event, "registrare le presenze");
 
   const normalizzate = entries
-    .map((entry) => ({
-      athleteId: asText(entry.athleteId),
-      status: asText(entry.status).toLowerCase() || "pending",
-      notes: asText(entry.notes) || null,
-    }))
+    .map((entry) => {
+      const athleteId = asText(entry.athleteId);
+      /*
+        **Lo stato passa da un vocabolario, come la convocazione** (PP-03 §7).
+        Prima era `asText(entry.status).toLowerCase() || "pending"`: qualunque
+        testo. Un appello scritto in una grafia che
+        `funding/attendance-measure.ts` non riconosce si salvava senza errore e
+        **non contava** per i contributi pubblici.
+      */
+      const status = normalizeAttendanceStatus(entry.status);
+      if (status === null) {
+        throw new Error(
+          `Stato di presenza non ammesso: «${asText(entry.status)}». Sono ammessi ${ATTENDANCE_STATUSES.join(", ")}`,
+        );
+      }
+      return {
+        athleteId,
+        status,
+        notes: asText(entry.notes) || null,
+      };
+    })
     .filter((entry) => entry.athleteId);
 
   await assertAtletiDentroIlPerimetro(
@@ -1557,8 +1687,8 @@ export const deleteClubEvent = async (
   const event = await findClubEvent(organizationId, idOrLegacyId);
   if (!event) throw new Error("Evento non trovato");
   assertActiveClub(scope, event.organization_id, "l'evento");
-  await assertTrainerEventPerimeter(scope, [event], "events.manage");
-  await assertAccessScopeOnEvent(scope, [event], "events.manage");
+  await assertTrainerEventPerimeter(scope, [event], "events.manage", "scrittura");
+  await assertAccessScopeOnEvent(scope, [event], "events.manage", "scrittura");
 
   const partecipanti = await prisma.clubEventParticipant.count({
     where: { organization_id: organizationId, event_id: event.id },
@@ -1624,8 +1754,8 @@ export const createClubEventsBatch = async (
     mese di allenamenti non deve rileggere trenta volte la scheda
     dell'allenatore.
   */
-  await assertTrainerEventPerimeter(scope, righe, "events.manage");
-  await assertAccessScopeOnEvent(scope, righe, "events.manage");
+  await assertTrainerEventPerimeter(scope, righe, "events.manage", "scrittura");
+  await assertAccessScopeOnEvent(scope, righe, "events.manage", "scrittura");
 
   /*
     `skipDuplicates` sulla chiave (club, tipo, identificativo storico): la

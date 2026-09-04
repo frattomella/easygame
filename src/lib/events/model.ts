@@ -700,6 +700,54 @@ export const normalizeConvocationStatus = (
   return null;
 };
 
+/**
+ * **Lo stato di una presenza ha un vocabolario, come la convocazione**
+ * (PP-03 §7).
+ *
+ * Non ce l'aveva. `saveEventAttendance` scriveva
+ * `asText(entry.status).toLowerCase() || "pending"`, cioe **qualunque testo**
+ * il client mandasse — mentre la convocazione, tre metodi piu sopra, passava
+ * gia da `normalizeConvocationStatus`. Due campi gemelli sulla stessa riga,
+ * uno con un vocabolario e uno senza.
+ *
+ * Le due conseguenze, misurate da una revisione ostile:
+ *
+ * - `isPresentAttendance` (`funding/attendance-measure.ts`) conta `present` e
+ *   `presente`. Un appello scritto in una **terza** grafia si salvava senza un
+ *   errore e **non contava** per la rendicontazione dei contributi pubblici:
+ *   il club dichiarava all'ente meno ore di quelle fatte, e nessuno lo
+ *   segnalava.
+ * - la colonna finisce in schermate ed export, e accettava un payload
+ *   arbitrario e senza lunghezza massima.
+ *
+ * Le grafie riconosciute sono quelle che il prodotto ha davvero scritto in
+ * dieci anni di schermate italiane e inglesi. Cio che non e riconosciuto
+ * **non si indovina**: torna `null`, e chi scrive rifiuta. Un valore
+ * silenziosamente riscritto sarebbe un appello che dice una cosa diversa da
+ * quella che l'allenatore ha segnato.
+ */
+export const ATTENDANCE_STATUSES = ["present", "absent", "pending"] as const;
+export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
+
+export const normalizeAttendanceStatus = (
+  value: unknown,
+): AttendanceStatus | null => {
+  const token = asToken(value);
+  if (!token) return "pending";
+  if (["present", "presente", "presenti", "p", "yes", "true", "1"].includes(token)) {
+    return "present";
+  }
+  if (
+    ["absent", "assente", "assenti", "a", "no", "false", "0"].includes(token)
+  ) {
+    return "absent";
+  }
+  if (["pending", "attesa", "in_attesa", "unknown"].includes(token)) {
+    return "pending";
+  }
+  return null;
+};
+
 /* ------------------------- i tre campi dell'RSVP, dal form alle colonne --- */
 
 /**
