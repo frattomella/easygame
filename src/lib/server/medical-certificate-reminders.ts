@@ -190,11 +190,29 @@ export const getGuardianRows = (athlete: any) => {
         record.userId,
         record.user_id,
       ),
-      linkedUserEmail: firstText(
-        record.email,
-        record.linkedUserEmail,
-        record.linked_user_email,
-      ),
+      /*
+        **Un indirizzo revocato non esce nemmeno da una riga superstite.**
+
+        L'uscita «un legame dichiarato vince» tiene in piedi la riga del padre,
+        che pero porta **l'indirizzo di famiglia condiviso** — lo stesso che la
+        revoca della madre ha messo nell'elenco. Da li `resolveGuardianRecipientIds`
+        lo risolveva in un'utenza, e la notifica finiva **nella bacheca della
+        madre revocata**, con il nome del minore e la scadenza del certificato.
+
+        Gli altri due canali il rimedio ce l'hanno, e diverso: uno azzera
+        l'indirizzo in uscita, l'altro filtra gli identificativi alla fine.
+        Tre canali, tre risposte — la forma che ADR-0116 §3 vieta.
+      */
+      linkedUserEmail: (() => {
+        const scritto = firstText(
+          record.email,
+          record.linkedUserEmail,
+          record.linked_user_email,
+        );
+        return scritto && identitaRevocate.has(scritto.trim().toLowerCase())
+          ? ""
+          : scritto;
+      })(),
     };
   });
 
@@ -216,11 +234,17 @@ export const getGuardianRows = (athlete: any) => {
           record.userId,
           record.user_id,
         ),
-        linkedUserEmail: firstText(
-          record.email,
-          record.linkedUserEmail,
-          record.linked_user_email,
-        ),
+        /* Come sopra: la coppia storica non e un'eccezione. */
+        linkedUserEmail: (() => {
+          const scritto = firstText(
+            record.email,
+            record.linkedUserEmail,
+            record.linked_user_email,
+          );
+          return scritto && identitaRevocate.has(scritto.trim().toLowerCase())
+            ? ""
+            : scritto;
+        })(),
       };
     });
 

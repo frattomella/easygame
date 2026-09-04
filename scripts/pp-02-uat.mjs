@@ -3828,6 +3828,139 @@ const sezioneW = async () => {
     "prima: la chiave spariva, e con lei ogni revoca mai fatta",
   );
 
+  /* ---- W-24: il Critical, e le due strade che lo scavalcavano ---- */
+
+  /*
+    **W-24 (Critical).** Le due uscite scritte per il verso «chiude troppo»
+    toglievano **l'intera riga** dall'insieme sorvegliato, con la premessa «se
+    la riga non concede, non porta identita». La premessa era falsa proprio per
+    il campo che concede di piu: il vaglio accetta il legame **dichiarato
+    prima** di guardare quei segni.
+
+    Un ruolo di club con **zero chiavi** poteva quindi scriversi dentro una
+    riga `{ linkedUserId: <se stesso>, accessRevokedAt: <una data> }`: non
+    cresceva niente, nessuna guardia scattava, e da quel momento apriva l'area
+    famiglia di quel minore.
+  */
+  const cruscottoW24 = cruscotto;
+
+  const conSegnoEDichiarato = {
+    guardians: [
+      { id: "vecchio", name: "Anna", email: ANNA.email },
+      {
+        id: "attacco",
+        name: "Intruso",
+        linkedUserId: PRESIDENTE.id,
+        accessRevokedAt: new Date().toISOString(),
+      },
+    ],
+  };
+
+  const identitaConAttacco = cruscottoW24.guardianAccessIdentities(
+    conSegnoEDichiarato,
+  );
+
+  prova(
+    "W-24 una riga che concede porta identita, anche se marchiata",
+    true,
+    identitaConAttacco.has(String(PRESIDENTE.id).toLowerCase()),
+    "prima: l'insieme non cresceva, e la guardia non chiedeva nessun permesso",
+  );
+
+  /*
+    E il verso che la correzione precedente aveva chiuso resta chiuso: dopo una
+    revoca `linkedUserId` e nullo, quindi rimandare la riga invariata non e
+    una crescita e la scheda resta salvabile da chi non ha le due chiavi.
+  */
+  const dopoRevocaVera = {
+    guardians: [
+      {
+        id: "t",
+        name: "Anna",
+        email: ANNA.email,
+        linkedUserId: null,
+        accessRevokedAt: new Date().toISOString(),
+      },
+    ],
+    revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
+  };
+
+  prova(
+    "W-24b e una riga revocata invariata continua a non essere una crescita",
+    [false, false],
+    [
+      cruscottoW24
+        .guardianAccessIdentities(dopoRevocaVera, { escludiRevocate: true })
+        .has(String(ANNA.email).toLowerCase()),
+      cruscottoW24
+        .guardianAccessIdentities(dopoRevocaVera)
+        .has(String(ANNA.email).toLowerCase()),
+    ],
+  );
+
+  /*
+    **W-24c (High).** «Scollega account» ripuliva **solo la riga indicata**. Una
+    seconda riga dichiarata sullo stesso atleta — un secondo invito riscattato,
+    che e la risposta ordinaria a «il link non funziona» — scavalcava la
+    revoca, perche l'elenco delle identita non batte un legame dichiarato.
+  */
+  const FIGLIO_DUE_RIGHE = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_DUE_RIGHE,
+      organization_id: CLUB,
+      first_name: "Due",
+      last_name: "Righe",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "t1", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+          { id: "t2", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+        ],
+      },
+    },
+  });
+
+  await legami.unlinkGuardianAccount(scopeSegreteria, {
+    athleteId: FIGLIO_DUE_RIGHE,
+    guardianId: "t1",
+  });
+
+  prova(
+    "W-24c la revoca raggiunge tutte le righe di quella persona",
+    false,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_DUE_RIGHE),
+    "prima: la seconda riga dichiarata scavalcava la revoca, in silenzio",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_DUE_RIGHE } });
+
+  /*
+    **W-24d (High).** Il promemoria del certificato risolveva **l'indirizzo
+    revocato** in un'utenza, e la notifica finiva nella bacheca della persona
+    revocata — con il nome del minore e la scadenza.
+  */
+  const promemoriaW24 = await carica(
+    "src/lib/server/medical-certificate-reminders.ts",
+  );
+  const righeCondivise = promemoriaW24.getGuardianRows({
+    id: "x",
+    data: {
+      guardians: [
+        { id: "padre", name: "Padre", email: ANNA.email, linkedUserId: BRUNO.id },
+      ],
+      revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
+    },
+  });
+
+  prova(
+    "W-24d la riga superstite non porta l'indirizzo revocato",
+    ["", BRUNO.id],
+    [righeCondivise[0]?.linkedUserEmail, righeCondivise[0]?.linkedUserId],
+    "prima: si risolveva in un'utenza, e la notifica arrivava alla persona revocata",
+  );
+
   /* ------ W-23: il verso opposto — chiudere di troppo e un difetto ------- */
 
   /*

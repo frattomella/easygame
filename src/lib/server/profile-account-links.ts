@@ -586,9 +586,38 @@ export const unlinkGuardianAccount = async (
     parent_access_token_status: "revoked",
   };
 
-  const nextGuardians = guardians.map((entry, position) =>
-    position === index ? nextGuardian : entry,
-  );
+  /*
+    **Si ripuliscono tutte le righe di quella persona, non solo quella
+    indicata.**
+
+    L'elenco delle identita, per progetto, non batte un legame **dichiarato**:
+    e cosi che ci si ricollega dopo una revoca. Ma allora una seconda riga
+    dichiarata sullo stesso atleta — un secondo invito riscattato, che e la
+    risposta ordinaria a «il link non funziona» — **scavalca la revoca**: la
+    scheda mostra «Account non collegato» sulla riga toccata e «Account
+    collegato» sull'altra, e niente dice che l'accesso e rimasto aperto.
+
+    E la forma della «riga sorella» per cui questo elenco e nato, spostata di
+    un livello: li si aggirava il ripiego sull'indirizzo, qui il legame
+    dichiarato.
+  */
+  const nextGuardians = guardians.map((entry, position) => {
+    if (position === index) return nextGuardian;
+    if (!isLinkedToTarget(entry, linkedUserId || "", linkedUserEmail)) {
+      return entry;
+    }
+
+    const { next: ripulita } = clearLinkedFields(
+      entry,
+      linkedUserId || "",
+      linkedUserEmail,
+    );
+    return {
+      ...ripulita,
+      parentAccessTokenStatus: "revoked",
+      parent_access_token_status: "revoked",
+    };
+  });
 
   /*
     **L'accesso si toglie a un'identita, non a una riga.**

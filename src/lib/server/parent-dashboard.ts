@@ -281,12 +281,28 @@ export const guardianAccessIdentities = (
       Le stesse due letture di `isGuardianLinkedToUser`, e con lo stesso
       `firstText`: e li che un array diventa la sua stringa.
     */
-    const perId = firstText(
+    /*
+      **Tutte e quattro le grafie, non la prima non vuota.**
+
+      `firstText` comprime: una riga `{ linkedUserId: <gia presente>, user_id:
+      <un terzo> }` produceva **una sola** identita, quella gia nell'insieme,
+      quindi non cresceva niente e nessun permesso veniva chiesto — mentre
+      `resolveFamilyRecipients` le raccoglie **tutte e quattro** e metteva quel
+      terzo fra i destinatari delle notifiche documentali, che nominano il
+      minore e il documento chiesto.
+
+      La guardia deve guardare cio che i lettori guardano: la stessa
+      asimmetria e gia costata un round, e allora si corresse la proiezione
+      invece del **modo** in cui la guardia la legge.
+    */
+    const identificativi = [
       (guardian as any).linkedUserId,
       (guardian as any).linked_user_id,
       (guardian as any).userId,
       (guardian as any).user_id,
-    );
+    ]
+      .map((valore) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean);
     const perEmail = firstText(
       (guardian as any).linkedUserEmail,
       (guardian as any).linked_user_email,
@@ -294,56 +310,41 @@ export const guardianAccessIdentities = (
     );
 
     /*
-      **Una riga solo-recapito non porta identita.**
+      **Si salta il RIPIEGO, non la riga: la differenza era un Critical.**
 
-      `contactOnly` marca la riga nata da una compilazione **senza autore
-      dimostrato**: vale come recapito e non come chiave, e il vaglio del
-      legame lo onora. Ma la guardia della crescita non lo guardava, quindi
-      l'indirizzo di quella riga stava gia dentro l'insieme sorvegliato:
-      passare `contactOnly: false` non faceva **crescere** niente e non
-      incontrava il vaglio dei due permessi. Un ruolo senza `clinical.read`
-      trasformava una riga inerte in una chiave dell'area famiglia con un
-      `PATCH` sull'anagrafica.
+      Le due stesure precedenti facevano `continue` sull'intera riga quando
+      portava `contactOnly` o `accessRevokedAt`, con la premessa «se la riga
+      non concede, non porta identita». La premessa era **falsa** proprio per
+      il campo che concede di piu: `isGuardianLinkedToUser` accetta il legame
+      **dichiarato prima** di guardare quei due segni, quindi una riga con
+      `linkedUserId` concede **e** non portava identita.
 
-      Se la riga non concede, non porta identita: e da questa riga che
-      toglierle il marchio risulta una **concessione**, e viene vagliata.
+      Conseguenza misurata: un ruolo di club con **zero chiavi** — senza
+      `clinical.read` e senza `accounts.athlete.manage` — poteva aggiungere in
+      un `PATCH` dell'anagrafica una riga
+      `{ linkedUserId: <se stesso>, accessRevokedAt: <una data> }`. L'insieme
+      non cresceva, la guardia non scattava, e da quel momento apriva l'area
+      famiglia di quel minore: allergie, farmaci, byte del certificato,
+      ricevute, e la revoca dei consensi dati dal genitore. Lo stesso scenario
+      che `resources.ts` documenta come misurato e chiuso, riaperto da
+      un'altra porta — e nel verso opposto: scrivere `accessRevokedAt` addosso
+      a un tutore legittimo per chiuderlo fuori non incontrava nessuna guardia.
+
+      Il **ripiego sull'indirizzo** e cio che quei due segni negano, e solo
+      quello va tolto dall'insieme. L'identificativo resta: dopo una revoca
+      `clearLinkedFields` lo azzera, quindi rimandare la riga invariata
+      continua a non essere una crescita — la correzione del round precedente
+      resta chiusa — e la riga d'attacco torna visibile.
     */
-    if (
+    const soloRipiego = Boolean(
       (guardian as any).contactOnly ||
-      (guardian as any).contact_only
-    ) {
-      continue;
-    }
+        (guardian as any).contact_only ||
+        (guardian as any).accessRevokedAt ||
+        (guardian as any).access_revoked_at,
+    );
 
-    /*
-      **E nemmeno una riga marchiata come revocata.**
-
-      Il marchio di riga era visto dalla guardia della crescita solo **di
-      riflesso**: funzionava perche i due scrittori registrano sempre anche
-      l'identita nell'elenco. Una dipendenza non dichiarata, che uno scrittore
-      futuro avrebbe rotto senza accorgersene.
-
-      E c'era un costo immediato. La revoca **conserva di proposito**
-      l'indirizzo di contatto, quindi la riga revocata continuava a portarlo:
-      `prima` lo escludeva (identita revocata) e `dopo` no, quindi
-      **rimandare la riga invariata** risultava una crescita. Dopo una sola
-      revoca, un ruolo senza le due chiavi non poteva piu salvare **niente** su
-      quell'atleta — un documento, una taglia, un numero di telefono — perche
-      la schermata rimanda sempre l'array dei tutori. Per sempre, e con un
-      messaggio che parlava d'altro.
-
-      Se la riga non concede, non porta identita: rimandarla non e una
-      crescita, e toglierle il marchio lo e.
-    */
-    if (
-      (guardian as any).accessRevokedAt ||
-      (guardian as any).access_revoked_at
-    ) {
-      continue;
-    }
-
-    if (perId) identita.add(perId.trim().toLowerCase());
-    if (perEmail) identita.add(perEmail.trim().toLowerCase());
+    for (const valore of identificativi) identita.add(valore);
+    if (perEmail && !soloRipiego) identita.add(perEmail.trim().toLowerCase());
   }
 
   /*
