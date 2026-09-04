@@ -206,3 +206,54 @@ di verifica **vecchia**, e l'API dei figli rispondeva senza `birthYear` e senza
 `categories`: sembrava un difetto del codice. Non lo era, era l'artefatto. Vale
 la pena scriverlo perche la prossima volta il sospetto vada prima li:
 `.next-verify` non si ricostruisce da solo.
+
+---
+
+## P — La revoca di un tutore (round 7-12)
+
+Questa parte non c'era nel mandato originale: e nata da sei round di revisione
+ostile, e **e la piu importante da provare a mano**, perche riguarda chi vede il
+fascicolo sanitario di un minore.
+
+Serve: due account genitore (`A` e `B`), un minore con entrambi come tutori, e
+un ruolo di segreteria.
+
+| # | Cosa fare | Cosa deve succedere |
+|---|---|---|
+| P1 | Con `A` collegato al minore, apri l'area famiglia | Si apre: calendario, pagamenti, documenti, certificato |
+| P2 | Dalla scheda del minore, premi **«Scollega account»** su `A` | La scheda dice «Account non collegato» |
+| P3 | Ricarica l'area famiglia con `A` | **Accesso negato.** Prima di questa correzione `A` continuava a vedere tutto, byte del certificato medico compresi |
+| P4 | Con la segreteria, apri la scheda del minore e **salva una sezione qualunque** (o carica un certificato) | Ricaricando l'area famiglia con `A`: ancora negato. Il salvataggio non deve riaprire l'accesso |
+| P5 | Aggiungi sulla scheda un tutore **nuovo** con lo **stesso indirizzo** di `A` | `A` resta fuori: la revoca vale per l'identita, non per la riga |
+| P6 | Genera un invito per `A` e fallo riscattare | `A` rientra, e **torna a ricevere** i promemoria del certificato: un accesso ridato si ridà per intero |
+| P7 | Controlla che `B` non sia mai stato toccato | `B` entra sempre, in ogni passo qui sopra |
+
+### P8 — Il modulo pubblico (il piu delicato)
+
+| # | Cosa fare | Cosa deve succedere |
+|---|---|---|
+| P8a | Da una finestra **anonima**, apri il link pubblico di iscrizione e compila i campi del **tutore** con un indirizzo tuo di prova | L'invio riesce |
+| P8b | Dalla segreteria approva la pratica, scegliendo il minore proposto fra i duplicati | La riga tutore compare sulla scheda |
+| P8c | Registra un account con quell'indirizzo e apri l'area famiglia | **Accesso negato.** Prima di questa correzione l'area del minore si apriva per intero |
+| P8d | Controlla che quel contatto **non** riceva il sollecito degli insoluti ne i promemoria del certificato | Nessun invio: un indirizzo dichiarato da uno sconosciuto non e una credenziale, e i solleciti portano un link di pagamento |
+
+### P9 — Il rinnovo, che deve continuare a funzionare
+
+| # | Cosa fare | Cosa deve succedere |
+|---|---|---|
+| P9a | Con `B`, dall'area famiglia, invia il **rinnovo** dell'iscrizione | L'invio riesce |
+| P9b | La segreteria approva | `B` **continua a entrare** nell'area famiglia |
+
+> P9 e il verso opposto di P8: per un round intero il rinnovo che una famiglia
+> mandava dalla propria area le toglieva l'accesso, e colpiva proprio le
+> famiglie che entrano con l'indirizzo scritto dalla segreteria.
+
+## Q — L'RSVP e l'area del ragazzo
+
+| # | Cosa fare | Cosa deve succedere |
+|---|---|---|
+| Q1 | Crea un allenamento che **chiede conferma**, per la categoria del figlio | L'invito arriva alla famiglia |
+| Q2 | Con il genitore, premi **«Ci sara»** | La risposta viene registrata. Per un round il prodotto rifiutava **ogni** risposta con «questo evento non riguarda l'atleta» |
+| Q3 | Prova a rispondere su un allenamento di **un'altra categoria** | Rifiutato, ed e giusto |
+| Q4 | Con l'account di un **atleta**, apri la sua bacheca | Si apre. Per un round rispondeva 403 |
+| Q5 | Con l'account dell'atleta, apri il pannello della campanella e segna letta una notifica | Il contatore cala e resta calato dopo un ricaricamento |
