@@ -477,7 +477,44 @@ questa schermata conosce e il modo in cui una pagina cancella i dati di un'altra
 
 ---
 
-## 11. §M — L'audit ostile
+## 11. §H e §I — Una sola verita su tre schermate
+
+La coda della segreteria esiste dalla Wave 6 (W6-39), ha i sei filtri che il
+mandato elenca — Nuovi, Da integrare, Certificati, Identita, Scaduti, Approvati
+— e la scheda atleta ha la sua vista sintetica con i cinque tipi canonici e la
+CTA «Richiedi documento», che scrive davvero in `document_requests`. **Non c'e
+stato niente da costruire.**
+
+Cio che serviva era **provarlo**, e la prova non e leggere il codice: e fare il
+giro. La segreteria chiede, la famiglia consegna, la segreteria rifiuta con il
+motivo — e a ogni passo si guardano le **tre** superfici.
+
+| Passo | Coda del club | Fascicolo della famiglia | Scheda dell'atleta |
+|---|---|---|---|
+| richiesta creata | «missing» | in «Da fare» | «Richiesto» |
+| documento consegnato | «under_review» | **fuori** da «Da fare» | «In verifica» |
+| rifiutato con motivo | «rejected» | di nuovo in «Da fare», **con il motivo** | «Da integrare» |
+
+Se una delle tre divergesse, la duplicazione ci sarebbe **anche se il codice
+sembrasse pulito**. Sono le prove P-110..P-118, piu quella che chiude il
+cerchio: il motivo del rifiuto non finisce nel fascicolo di un'altra famiglia.
+
+### La sola cosa cambiata: «Rifiuta» dice cosa succede
+
+Il mandato elenca «Rifiuta» e «Richiedi integrazione» come due azioni. Nel
+dominio sono **una transizione sola**, e non per pigrizia: cio che succede dopo e
+identico — la richiesta si riapre, la famiglia ritrova la voce in «Da fare» con
+il motivo scritto. Farne due stati vorrebbe dire due parole per lo stesso fatto
+su tre schermate, che e esattamente la duplicazione che questa lane doveva
+evitare.
+
+Quello che mancava non era una seconda azione: era **dirlo**. Chi preme
+«Rifiuta» non sta chiudendo una porta, sta chiedendo un altro file, e adesso il
+pannello lo scrive prima di chiedere il motivo.
+
+---
+
+## 12. §M — L'audit ostile
 
 La regola di questa sezione, e vale la pena scriverla: **ogni prova ha due
 meta.** Che la propria famiglia arrivi dove deve, e che l'altra non ci arrivi.
@@ -518,7 +555,7 @@ sciatteria.
 
 ---
 
-## 12. §N — Cio che deve reggere a 375 px
+## 13. §N — Cio che deve reggere a 375 px
 
 Le superfici che PP-02 ha aggiunto o riscritto entrano nel presidio delle
 invarianti di responsivita (`tests/ui/responsive-invariants.test.mjs`), che
@@ -545,7 +582,7 @@ Cio che e stato cambiato per farle passare:
 
 ---
 
-## 13. §O — I due residui di PP-01
+## 14. §O — I due residui di PP-01
 
 ### O.1 — «Rimuovi allenamenti in programma» falliva sempre
 
@@ -598,14 +635,48 @@ scritto.
 
 ---
 
-## 14. Verifica
+## 15. Verifica
+
+### Gate
+
+| Gate | Esito |
+|---|---|
+| `npm test` | **4.691 / 4.691** (baseline 4.617, + 74 controlli nuovi) |
+| `npm run typecheck` | pulito |
+| `npm run lint` | 0 errori, 34 warning (baseline invariata) |
+| `npm run build` | completa |
+| `npx prisma migrate status` | allineato, **54 migrazioni: PP-02 non ne aggiunge nessuna** |
+| Working tree | pulito prima e dopo |
+
+**Nessuna migrazione**, ed e una proprieta e non un caso: tutto cio che PP-02 ha
+aggiunto vive su strutture che esistevano gia — una chiave in
+`clubs.settings`, una in `settings` di un modulo, una colonna JSON del club —
+oppure e una lettura. Il pilot Fortitudo non deve subire un cambio di schema per
+un pacchetto che corregge il percorso della famiglia.
 
 ### Collaudo di dominio
 
-`scripts/pp-02-uat.mjs` semina **due famiglie nello stesso club** — che e la
-configurazione su cui un errore di perimetro si vede, perche due club diversi si
-separano gia da soli per `organization_id` — piu un tutore senza tessera e un
-club estraneo.
+`scripts/pp-02-uat.mjs` — **95 prove**, contro il database di sviluppo. Semina
+**due famiglie nello stesso club** — che e la configurazione su cui un errore di
+perimetro si vede, perche due club diversi si separano gia da soli per
+`organization_id` — piu un tutore senza tessera e un club estraneo.
+
+| Sezione | Prove | Cosa misura |
+|---|---|---|
+| §A | P-01…P-12 | la scelta del figlio, il legame senza tessera, il confine dell'indirizzo |
+| §B | P-20…P-25 | tutte le categorie, con la sede per nome |
+| §C | P-30…P-34 | la stagione, anche per chi non ha tessera |
+| §D | P-40…P-43 | il canale di incasso, e che il motivo non nomini l'abbonamento |
+| §E | P-50…P-55 | la proiezione chiusa della ricevuta |
+| §G §J | P-60…P-76 | i moduli online e il vincolo «una volta sola» |
+| §H §I | P-110…P-118 | le tre superfici dicono la stessa cosa |
+| §L | P-80…P-87 | strutture, fasce, audit e notifica |
+| §K | P-100…P-108 | come riceve il club |
+| §O | P-90…P-97 | i due residui di PP-01 |
+| §M | M-01…M-14 | l'audit ostile |
+
+Il club — e quello estraneo — vengono cancellati in `finally`, e la semina
+comincia cancellando i residui di un'esecuzione interrotta.
 
 ### Presidi corretti nel modo di guardare
 

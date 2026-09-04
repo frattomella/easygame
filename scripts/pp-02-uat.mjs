@@ -1557,6 +1557,158 @@ const sezioneGJ = async () => {
 };
 
 /* ==================================================================== */
+/*  §H e §I — una sola verita su tre schermate                          */
+/* ==================================================================== */
+
+/**
+ * **La domanda che questa sezione pone e una sola: le tre superfici dicono la
+ * stessa cosa?**
+ *
+ * Il fascicolo della famiglia, la coda della segreteria e la scheda dell'atleta
+ * guardano lo stesso documento da tre lati. Il mandato chiede che non ci sia
+ * «duplicazione di stato fra tre sistemi diversi», e la prova non e leggere il
+ * codice: e **fare il giro** — la segreteria chiede, la famiglia consegna, la
+ * segreteria decide — e guardare le tre superfici dopo ogni passo.
+ *
+ * Se una delle tre divergesse, la duplicazione ci sarebbe **anche se il codice
+ * sembrasse pulito**.
+ */
+const sezioneHI = async () => {
+  console.log("\n§H e §I — la stessa verita su tre schermate\n");
+
+  const fascicolo = await carica("src/lib/server/document-requests.ts");
+  const legacy = await carica("src/lib/server/document-dossier-legacy.ts");
+
+  const scopeClub = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "owner",
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  /* 1. La segreteria chiede. */
+  await fascicolo.createDocumentRequest(scopeClub, {
+    organizationId: CLUB,
+    subjectKind: "athlete",
+    subjectId: MARCO,
+    documentKind: "identity_document",
+    title: "Documento di identita",
+    required: true,
+    dueDate: "2027-01-31",
+  });
+
+  const codaIniziale = await fascicolo.listDocumentReviewQueue(scopeClub);
+  const rigaCoda = codaIniziale.find(
+    (riga) => riga.subjectId === MARCO && riga.documentKind === "identity_document",
+  );
+  prova(
+    "P-110 la richiesta compare nella coda del club",
+    "missing",
+    rigaCoda?.state,
+  );
+
+  const daFare = (
+    await cruscotto.getParentDashboardData(ANNA.id, MARCO)
+  ).documents.required.find((voce) => voce.title === "Documento di identita");
+  prova(
+    "P-111 e nella colonna «Da fare» della famiglia",
+    true,
+    Boolean(daFare),
+  );
+
+  /* 2. La famiglia consegna. */
+  const scopeFamiglia = await fascicolo.resolveLinkedFamilyScope(ANNA.id, MARCO);
+  await fascicolo.submitDocument(scopeFamiglia, {
+    organizationId: CLUB,
+    requestId: rigaCoda?.requestId,
+    subjectKind: "athlete",
+    subjectId: MARCO,
+    documentKind: "identity_document",
+    source: "parent",
+    file: {
+      fileName: "identita.pdf",
+      mimeType: "application/pdf",
+      content: Buffer.from("%PDF-1.4 collaudo pp-02"),
+    },
+  });
+
+  const dopoInvio = await cruscotto.getParentDashboardData(ANNA.id, MARCO);
+  const codaDopoInvio = await fascicolo.listDocumentReviewQueue(scopeClub);
+  const schedaDopoInvio = await legacy.listAthleteDocumentsWithLegacy(
+    scopeClub,
+    MARCO,
+  );
+
+  prova(
+    "P-112 dopo l'invio la coda del club dice «in verifica»",
+    "under_review",
+    codaDopoInvio.find((riga) => riga.subjectId === MARCO)?.state,
+  );
+
+  prova(
+    "P-113 la famiglia non lo vede piu fra le cose da fare",
+    false,
+    dopoInvio.documents.required.some(
+      (voce) => voce.title === "Documento di identita",
+    ),
+    "una voce sta in un'area sola: la regola di W6-40",
+  );
+
+  prova(
+    "P-114 e la scheda atleta dice la stessa cosa",
+    "under_review",
+    schedaDopoInvio.find((voce) => voce.title === "Documento di identita")
+      ?.status,
+  );
+
+  /* 3. La segreteria rifiuta, con il motivo. */
+  const inAttesa = codaDopoInvio.find((riga) => riga.subjectId === MARCO);
+  await fascicolo.decideDocumentSubmission(scopeClub, inAttesa.submissionId, {
+    decision: "rejected",
+    note: "La foto e illeggibile: rifalla con piu luce",
+  });
+
+  const dopoRifiuto = await cruscotto.getParentDashboardData(ANNA.id, MARCO);
+  const vociDaFare = dopoRifiuto.documents.required.find(
+    (voce) => voce.title === "Documento di identita",
+  );
+
+  prova(
+    "P-115 la famiglia lo ritrova fra le cose da fare",
+    true,
+    Boolean(vociDaFare),
+  );
+
+  prova(
+    "P-116 e legge il motivo che la segreteria ha scritto",
+    "La foto e illeggibile: rifalla con piu luce",
+    vociDaFare?.rejectionReason,
+    "un rifiuto senza motivo fa ricaricare lo stesso file",
+  );
+
+  prova(
+    "P-117 la coda del club lo chiama «da integrare»",
+    "rejected",
+    (await fascicolo.listDocumentReviewQueue(scopeClub)).find(
+      (riga) => riga.subjectId === MARCO,
+    )?.state,
+  );
+
+  /*
+    Il motivo del rifiuto e per la **famiglia interessata**: e cio che le dice
+    cosa rifare. Non deve raggiungere l'altra, e questa e la prova.
+  */
+  prova(
+    "P-118 il motivo non finisce nel fascicolo di un'altra famiglia",
+    false,
+    JSON.stringify(
+      await cruscotto.getParentDashboardData(BRUNO.id, LUCA),
+    ).includes("La foto e illeggibile"),
+  );
+};
+
+/* ==================================================================== */
 /*  §L — le strutture non prenotabili                                   */
 /* ==================================================================== */
 
@@ -1683,6 +1835,7 @@ const main = async () => {
     await sezioneC();
     await sezioneDE();
     await sezioneGJ();
+    await sezioneHI();
     await sezioneL();
     await sezioneK();
     await sezioneO();

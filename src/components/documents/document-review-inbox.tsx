@@ -379,6 +379,29 @@ export function DocumentReviewInbox({ canReview, subjectId = null }: Props) {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            {/*
+              **PP-02 §H. «Rifiuta» e «richiedi integrazione» sono lo stesso
+              atto, e va detto.**
+
+              Il mandato li elenca come due azioni. Nel dominio sono una sola
+              transizione — `under_review` → `rejected` — e non per pigrizia:
+              cio che succede dopo e identico, la richiesta si riapre e la
+              famiglia ritrova la voce in «Da fare» con il motivo scritto.
+              Farne due stati vorrebbe dire due parole per lo stesso fatto su
+              tre schermate, che e esattamente la duplicazione che questa lane
+              doveva evitare.
+
+              Quello che mancava non era una seconda azione: era **dire cosa
+              succede**. Chi preme «Rifiuta» non sta chiudendo una porta, sta
+              chiedendo un altro file.
+            */}
+            {decisione.decision === "rejected" ? (
+              <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                La richiesta torna aperta e la famiglia la ritrova fra le cose
+                da fare, con il motivo che scrivi qui sotto. E la stessa cosa
+                che chiedere un&apos;integrazione.
+              </p>
+            ) : null}
             {decisione.decision === "rejected" ? (
               <label className="block text-sm font-medium text-slate-700">
                 Motivo, obbligatorio

@@ -373,3 +373,45 @@ test("§N · la scheda del figlio nella barra non tronca il nome", () => {
     "un nome lungo deve troncarsi, non allargare la barra",
   );
 });
+
+/* ==================================================================== */
+/*  §H — la coda del club: una sola verita, e una sola transizione       */
+/* ==================================================================== */
+
+test("§H · la coda dice cosa succede quando si rifiuta", () => {
+  const coda = senzaCommenti(leggi("components/documents/document-review-inbox.tsx"));
+
+  /*
+    Il mandato elenca «Rifiuta» e «Richiedi integrazione» come due azioni. Nel
+    dominio sono una transizione sola, e farne due vorrebbe dire due parole per
+    lo stesso fatto su tre schermate. Cio che mancava non era una seconda
+    azione: era dire cosa succede dopo la prima.
+  */
+  assert.ok(
+    coda.includes("E la stessa cosa\n                che chiedere un&apos;integrazione.") ||
+      coda.includes("che chiedere un&apos;integrazione"),
+    "chi preme «Rifiuta» non sta chiudendo una porta, sta chiedendo un altro file",
+  );
+  assert.ok(
+    coda.includes("Motivo, obbligatorio"),
+    "un rifiuto senza motivo fa ricaricare lo stesso file",
+  );
+});
+
+test("§H · i filtri della coda sono quelli del lavoro, e stanno nel dominio", () => {
+  const dominio = senzaCommenti(leggi("lib/documents/review-queue.ts"));
+
+  for (const chiave of [
+    '"new"',
+    '"to_fix"',
+    '"certificates"',
+    '"identity"',
+    '"overdue"',
+    '"approved"',
+  ]) {
+    assert.ok(
+      dominio.includes(chiave),
+      `manca il filtro ${chiave}: la stessa domanda deve avere la stessa risposta nel conteggio e nell'elenco`,
+    );
+  }
+});

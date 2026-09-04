@@ -2510,3 +2510,65 @@ questa revisione (correzioni e loro regressioni) e sono stati classificati come
 debito con il loro motivo in [16 — Debito tecnico](16-technical-debt.md)
 (`W6-D30`…`W6-D33`). Nessuno di loro e un accesso cross-tenant, una fuga di
 dato di minore o clinico, o denaro che esce due volte.
+
+---
+
+## PP-02 — l'audit ostile del perimetro famiglia (2026-09-04)
+
+> Il verbale sta in [43 — PP-02](43-pp-02-area-famiglia.md), §12.
+
+### Il metodo, e perche cambia il risultato
+
+Ogni prova ha **due meta**: che la propria famiglia arrivi dove deve, e che
+l'altra non ci arrivi. Una prova sola delle due non dice niente — un perimetro
+che nega tutto passa la seconda e rompe il prodotto; uno che concede tutto passa
+la prima.
+
+E gli attori sono **due famiglie nello stesso club**. Due club diversi si
+separano gia da soli per `organization_id`: misurare li vorrebbe dire misurare
+Prisma, non il perimetro.
+
+Le quattordici prove (`M-01`…`M-14` di `scripts/pp-02-uat.mjs`) girano **contro
+la rotta vera o il servizio vero**, su un database vero. Nessuna e statica.
+
+### Esito
+
+**Nessun Critical e nessun High trovato sul perimetro famiglia ↔ figlio ↔
+club.** Le rotte dedicate risolvono il legame a ogni richiesta e non tengono
+nessuna cache nel token; le rotte generiche del club sono chiuse al ruolo
+`parent` prima ancora di arrivare a un controllo di proprieta.
+
+Un Critical **e stato trovato altrove**, e non era un accesso mancante ma un
+accesso concesso per sbaglio: `getParentDashboardData` ricadeva su
+`linkedAthletes[0]` per ogni identificativo non-UUID. La sonda che lo prova e
+`M-04`, e la sua utilita si vede reintroducendo il difetto — vedi qui sotto.
+
+### La verifica al contrario
+
+Il mandato chiede che una prova diventi **rossa** reintroducendo il difetto. Due
+mutazioni, applicate insieme e poi disfatte:
+
+| Difetto reintrodotto | Prove diventate rosse |
+|---|---|
+| il ripiego `linkedAthletes[0]` | P-07, P-08, P-09 e **M-04**: il cruscotto di un figlio di **un'altra famiglia** torna a rispondere `200` |
+| la ricevuta spanata invece della proiezione chiusa | P-51, P-52, P-53, P-54 |
+
+La riga che conta e `M-04`. Il ripiego non usciva dal perimetro della famiglia
+**finche l'identificativo era malformato**; con quello di un atleta reale di
+un'altra famiglia apriva il suo cruscotto — nome, recapiti, stato del certificato
+medico. Era una fuga di dati, non una sciatteria, ed e sopravvissuta a due
+revisioni perche il caso che si guardava era quello innocuo.
+
+### Un difetto di disponibilita, non di riservatezza
+
+`POST /api/parent-dashboard/:id/structures` leggeva le strutture con il dominio
+del **browser** (`getClubStructures` di `simplified-db.ts`), che fa `fetch` su un
+percorso relativo: dentro un route handler quella chiamata fallisce e la funzione
+restituisce l'elenco vuoto, in silenzio. Ogni prenotazione riceveva «Struttura
+non prenotabile».
+
+Non e una fuga — nessun dato usciva — ma appartiene a questa pagina per una
+ragione: **un vaglio che gira su un elenco vuoto passa sempre**, e la stessa
+forma potrebbe un domani far passare un controllo invece di farlo fallire. Il
+presidio e sulla classe e non sul caso: nessun file sotto `src/app/api` o
+`src/lib/server` puo importare il dominio del browser.

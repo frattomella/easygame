@@ -400,3 +400,49 @@ questo commit (CLAUDE.md §3).
 Le due superfici piu care in giri — home famiglia e matrice degli accessi —
 sono anche le due che nessun test poteva sorvegliare: il conteggio delle
 interrogazioni e identico prima e dopo. Solo la latenza iniettata le distingue.
+
+---
+
+## Le sonde di PP-01 e PP-02, contro un database vero (2026-09-04)
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-01-uat.mjs
+
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-uat.mjs
+```
+
+**Perche esistono accanto a quattromilaseicento test.** Perche i difetti da cui
+i due pacchetti sono cominciati erano **tutti invisibili ai quattro gate**:
+suite verde, typecheck e lint puliti, build completa — e un allenamento di tre
+categorie ne mostrava una, un tutore senza tessera non trovava nessun figlio, e
+la prenotazione di un campo rispondeva sempre «Struttura non prenotabile».
+
+La domanda che ogni prova si pone non e «il servizio risponde», ma **«cio che la
+persona vede e cio che c'e in archivio»**.
+
+### Cosa distingue `pp-02-uat.mjs`
+
+Aggiunge una domanda che PP-01 non faceva, ed e quella che l'area famiglia pone
+piu di ogni altra: **cio che vede questa famiglia e solo suo?** Percio semina
+**due famiglie nello stesso club** — due club diversi si separano gia da soli
+per `organization_id` — e per ogni cosa che la prima legge c'e una prova che la
+seconda non la legge. Novantacinque prove, di cui quattordici di audit ostile.
+
+### La regola dei due file
+
+**La sonda misura, non corregge.** Dove trova un difetto lo dichiara `FAIL` con
+il valore osservato accanto, e non tocca una riga del codice di produzione. Il
+club viene cancellato in `finally`, e la semina comincia cancellando i residui
+di un'esecuzione interrotta.
+
+### Non sono un gate, e vanno lette
+
+Girano su un database e non in integrazione continua: quello che di loro deve
+sopravvivere in CI e stato trasformato in test permanenti sotto `tests/`. Cio
+che resta qui e la parte che **richiede un database vero** — le relazioni
+caricate con `include`, le query grezze, il giro completo di un documento fra
+tre schermate.
