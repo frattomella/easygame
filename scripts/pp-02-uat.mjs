@@ -3819,6 +3819,50 @@ const sezioneW = async () => {
     "prima: la chiave spariva, e con lei ogni revoca mai fatta",
   );
 
+  /* --- W-15d: l'elenco non si puo impugnare come un'arma --- */
+
+  /*
+    **W-15d.** Conservare l'elenco su un salvataggio generico era necessario;
+    farlo con un'**unione** apriva il verso opposto. Da quella rotta un client
+    poteva **aggiungere** identita, cioe togliere l'accesso a un tutore
+    legittimo — senza passare da nessuna delle due strade che revocano davvero,
+    e senza la riga di audit che una revoca lascia.
+
+    Una difesa che si puo impugnare e un'arma.
+  */
+  const D = await nuovoFiglio({
+    guardians: [{ id: "t", name: "Bruno", email: BRUNO.email }],
+  });
+
+  await risorseW.updateResource(
+    "athletes",
+    D,
+    {
+      data: {
+        guardians: [
+          { id: "t", name: "Bruno", email: BRUNO.email },
+        ],
+        revokedGuardianIdentities: [String(BRUNO.email).toLowerCase()],
+      },
+    },
+    scopeSegreteria,
+  );
+
+  prova(
+    "W-15d dalla rotta generica non si puo aggiungere nessuno all'elenco",
+    [],
+    (await letto(D))?.revokedGuardianIdentities || [],
+    "prima: l'unione accettava cio che arrivava, e chiudeva fuori un tutore legittimo",
+  );
+
+  prova(
+    "W-15e e infatti il tutore legittimo continua a entrare",
+    true,
+    await cruscotto.canParentAccessAthlete(BRUNO.id, D),
+  );
+
+  await prisma.athlete.delete({ where: { id: D } });
+
   /* --- W-15c: i due canali di invio leggono l'elenco --- */
   const promemoriaW = await carica(
     "src/lib/server/medical-certificate-reminders.ts",

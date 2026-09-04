@@ -6725,23 +6725,43 @@ const applicaGuardieDiModifica = async (
             .revokedGuardianIdentities as unknown[])
         : [];
 
-      if (revochePrecedenti.length) {
-        const inArrivo = Array.isArray(
-          ((normalized.data as any) ?? {}).revokedGuardianIdentities,
-        )
-          ? (((normalized.data as any) ?? {})
-              .revokedGuardianIdentities as unknown[])
-          : [];
+      /*
+        **Si conserva, non si unisce.**
 
-        const unione = new Set<string>(
-          [...revochePrecedenti, ...inArrivo]
+        La prima stesura faceva l'unione fra l'elenco in archivio e quello in
+        arrivo. Conservava, ma apriva il verso opposto: da questa rotta un
+        client poteva **aggiungere** identita all'elenco, cioe togliere
+        l'accesso a un tutore legittimo — con un `PATCH` sull'anagrafica, senza
+        passare da nessuna delle due strade che revocano davvero e senza
+        lasciare la riga di audit che una revoca lascia.
+
+        Una difesa che si puo **impugnare** e un'arma. Qui l'elenco e in sola
+        lettura: chi vuole toglierlo passa da un riscatto, chi vuole
+        aggiungerci qualcuno passa da «Scollega account» o dalla revoca della
+        tessera, che sono le due strade che lo scrivono e che hanno il loro
+        gate.
+      */
+      const revocheInArchivio = revochePrecedenti
+        .map((valore) => String(valore || "").trim().toLowerCase())
+        .filter(Boolean);
+
+      const revocheInArrivo = Array.isArray(
+        ((normalized.data as any) ?? {}).revokedGuardianIdentities,
+      )
+        ? (((normalized.data as any) ?? {})
+            .revokedGuardianIdentities as unknown[])
             .map((valore) => String(valore || "").trim().toLowerCase())
-            .filter(Boolean),
-        );
+            .filter(Boolean)
+        : [];
 
+      const differiscono =
+        revocheInArchivio.length !== revocheInArrivo.length ||
+        revocheInArchivio.some((voce) => !revocheInArrivo.includes(voce));
+
+      if (revocheInArchivio.length || differiscono) {
         normalized.data = {
           ...(((normalized.data as any) ?? {}) as Record<string, any>),
-          revokedGuardianIdentities: Array.from(unione) as string[],
+          revokedGuardianIdentities: revocheInArchivio as string[],
         };
       }
 
