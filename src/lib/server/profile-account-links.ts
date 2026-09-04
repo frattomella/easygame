@@ -864,7 +864,22 @@ export const unlinkParentGuardians = async (
     where: { organization_id: organizationId },
     select: { id: true, data: true },
   });
+  /*
+    **Le chiavi che si spazzano erano quelle che nessuno legge.**
+
+    L'elenco copriva `parents`, `tutors` e `tutori` — tre forme che nessun
+    predicato di accesso consulta — e **non** `parent1`/`parent2`, che invece
+    concedono: il vaglio del legame ci ricade quando `guardians` e vuoto, e da
+    li passano anche i solleciti degli insoluti e i promemoria del certificato.
+
+    Cioe si spazzava dove non c'era polvere e si lasciava intatto cio che apre
+    la porta. Una anagrafica travasata — che e la ragione per cui quella coppia
+    esiste — restava senza nessuna strada di revoca: il pulsante «Scollega
+    account» non ha una riga da indicare, e la revoca della tessera non la
+    guardava.
+  */
   const collectionKeys = ["guardians", "parents", "tutors", "tutori"];
+  const legacyKeys = ["parent1", "parent2"];
   let updated = 0;
 
   for (const athlete of athletes) {
@@ -881,33 +896,54 @@ export const unlinkParentGuardians = async (
       }
     }
 
-    if (!changed) continue;
+    /*
+      La coppia storica sono **oggetti**, non array: si trattano a parte, con
+      lo stesso `clearLinkedFields` che ripulisce le righe dell'elenco.
+    */
+    for (const key of legacyKeys) {
+      if (!isRecord(data[key])) continue;
+
+      const esito = clearLinkedFields(data[key], userId, userEmail);
+      if (esito.changed) {
+        data[key] = esito.next;
+        changed = true;
+      }
+    }
 
     /*
-      **Anche questa strada registra le identita revocate.**
+      **L'identita si registra anche quando non c'era niente da ripulire.**
 
-      Questo e lo sweep che segue la revoca di una **tessera** — e l'uscita
-      volontaria dal club — e ripuliva le righe senza lasciare traccia
-      dell'identita. Chi era stato tolto poteva quindi rientrare esattamente
-      come dall'altra porta: una riga sorella con lo stesso indirizzo, scritta
-      a mano o creata dall'approvazione di un modulo.
-
-      Due strade per togliere l'accesso, e una sola che lo registrava: e la
-      forma di asimmetria che questo pacchetto ha gia pagato tre volte.
+      `if (!changed) continue` precedeva la registrazione: su un atleta la cui
+      unica riga fosse storica — o gia ripulita da una stesura precedente —
+      l'elenco non veniva mai scritto, e con lui saltava la sola difesa che
+      tutti gli altri lettori consultano. Chi revoca una tessera vuole togliere
+      l'accesso **a quella persona su tutto il club**, non solo dove trova una
+      riga da modificare.
     */
-    const identita = new Set<string>(
+    const identitaDaRegistrare = new Set<string>(
       (Array.isArray((data as any).revokedGuardianIdentities)
-        ? (data as any).revokedGuardianIdentities
+        ? ((data as any).revokedGuardianIdentities as unknown[])
         : []
       )
-        .map((valore: unknown) => String(valore || "").trim().toLowerCase())
-        .filter(Boolean) as string[],
+        .map((valore) => String(valore || "").trim().toLowerCase())
+        .filter(Boolean),
     );
+
+    const primaDellaRegistrazione = identitaDaRegistrare.size;
     for (const valore of [userId, userEmail]) {
       const pulito = String(valore || "").trim().toLowerCase();
-      if (pulito) identita.add(pulito);
+      if (pulito) identitaDaRegistrare.add(pulito);
     }
-    (data as any).revokedGuardianIdentities = Array.from(identita) as string[];
+
+    if (identitaDaRegistrare.size !== primaDellaRegistrazione) {
+      (data as any).revokedGuardianIdentities = Array.from(
+        identitaDaRegistrare,
+      ) as string[];
+      changed = true;
+    }
+
+    if (!changed) continue;
+
 
     await tx.athlete.update({ where: { id: athlete.id }, data: { data } });
     updated += 1;

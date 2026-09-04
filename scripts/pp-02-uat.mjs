@@ -3828,6 +3828,70 @@ const sezioneW = async () => {
     "prima: la chiave spariva, e con lei ogni revoca mai fatta",
   );
 
+  /* ---- W-20: la coppia storica concede, e adesso si puo anche revocare ---- */
+
+  /*
+    **W-20.** `parent1`/`parent2` sono la forma con cui vive un'anagrafica
+    travasata, e **concedono**: il vaglio del legame ci ricade quando
+    `guardians` e vuoto, e da li passano anche i solleciti degli insoluti — che
+    portano il link per pagare — e i promemoria del certificato.
+
+    Revocarli non si poteva. Lo sweep spazzava `parents`, `tutors` e `tutori`
+    — tre forme che nessun predicato di accesso consulta — e non la coppia
+    storica; il pulsante «Scollega account» non ha una riga da indicare. Tre
+    lettori che concedono, zero scrittori che revocano.
+
+    E la registrazione dell'identita stava **dopo** `if (!changed) continue`:
+    su un atleta la cui unica riga fosse storica, l'elenco non veniva mai
+    scritto, e con lui saltava la sola difesa che tutti gli altri consultano.
+  */
+  const FIGLIO_STORICO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_STORICO,
+      organization_id: CLUB,
+      first_name: "Ugo",
+      last_name: "Storico",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        parent1: { name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+      },
+    },
+  });
+
+  prova(
+    "W-20 la coppia storica concede come l'elenco",
+    true,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_STORICO),
+  );
+
+  await prisma.$transaction(async (tx) => {
+    await legami.unlinkParentGuardians(tx, CLUB, ANNA.id, ANNA.email, "parent");
+  });
+
+  prova(
+    "W-20b e adesso la revoca della tessera la raggiunge",
+    false,
+    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_STORICO),
+    "prima: nessuno scrittore la toccava, e nessuna strada la revocava",
+  );
+
+  prova(
+    "W-20c e l'identita resta scritta, anche senza righe da ripulire",
+    true,
+    (
+      (
+        await prisma.athlete.findUnique({
+          where: { id: FIGLIO_STORICO },
+          select: { data: true },
+        })
+      )?.data?.revokedGuardianIdentities || []
+    ).includes(String(ANNA.email).toLowerCase()),
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_STORICO } });
+
   /* ---------- W-19: la revoca ha un perimetro, e non ce l'aveva ---------- */
 
   /*
