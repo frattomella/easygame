@@ -894,7 +894,28 @@ export const getFamilyDocumentAreas = async (
   };
 };
 
-const serializeAthleteCard = (athlete: any) => {
+/**
+ * **Il nome della squadra, e perche non basta la colonna denormalizzata**
+ * (PP-04).
+ *
+ * `athlete_category_memberships.category_name` e nullable, e lo e davvero:
+ * la popola `season-memberships.ts` sul rinnovo di stagione, e non la popola
+ * nessun altro percorso che crei un'appartenenza. Il ripiego era
+ * `membership.category_id`, cioe uno UUID — e la schermata «Le mie squadre»
+ * dell'area atleta stampava, sotto il titolo, due identificativi.
+ *
+ * L'ha trovato **guardando lo schermo**, non un test: e la forma di
+ * incompletezza che CLAUDE.md §11.8 descrive, quella in cui il codice c'e e
+ * dice una cosa che non serve a nessuno.
+ *
+ * Il catalogo del club e l'autorita, e `resolveCategoryLabel` la interroga
+ * gia per gli eventi. L'identificativo resta l'ultimo ripiego: meglio uno
+ * UUID che «Senza categoria» su una squadra che esiste.
+ */
+const serializeAthleteCard = (
+  athlete: any,
+  categoryOptions: NormalizedCategoryOption[] = [],
+) => {
   const data = asRecord(athlete?.data);
 
   return {
@@ -914,7 +935,10 @@ const serializeAthleteCard = (athlete: any) => {
     categories: asArray(athlete.category_memberships).map(
       (membership: any) => ({
         id: membership.category_id,
-        name: membership.category_name || membership.category_id,
+        name:
+          firstText(membership.category_name) ||
+          resolveCategoryLabel(membership.category_id, categoryOptions) ||
+          membership.category_id,
         siteId: membership.site_id || null,
         isPrimary: Boolean(membership.is_primary),
       }),
@@ -1515,7 +1539,7 @@ export const getParentDashboardData = async (
       opening_hours: club.opening_hours,
     },
     athlete: {
-      ...serializeAthleteCard(selectedAthlete),
+      ...serializeAthleteCard(selectedAthlete, categoryOptions),
       user_id: selectedAthlete.user_id,
       /*
         **`data` usciva grezza, accanto ai tutori gia sanificati.**
@@ -1532,7 +1556,9 @@ export const getParentDashboardData = async (
       */
       data: stripGuardianAccessTokens(selectedAthlete.data),
       guardians: getGuardianRows(selectedAthlete),
-      linkedAthletes: linkedAthletes.map(serializeAthleteCard),
+      linkedAthletes: linkedAthletes.map((athlete) =>
+        serializeAthleteCard(athlete, categoryOptions),
+      ),
     },
     health: {
       certificates,
