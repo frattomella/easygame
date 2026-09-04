@@ -21,6 +21,7 @@ import {
   Stethoscope,
   Trophy,
   UserCircle,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/providers/AuthProvider";
@@ -37,7 +38,30 @@ const ParentSidebar = memo(() => {
   const pathname = usePathname() || "";
   const router = useRouter();
   const { signOut } = useAuth();
-  const { athleteRouteId } = useParentDashboard();
+  const { athleteRouteId, data } = useParentDashboard();
+
+  /*
+    PP-02 §A. **Di chi si sta parlando, e come si cambia.**
+
+    W6-12 lo diceva con una fascia bianca in cima al contenuto di ognuna delle
+    tredici pagine. L'informazione era giusta, il posto no: su 375 px quella
+    fascia stava sopra la piega e spingeva sotto cio per cui si era aperta la
+    pagina. Qui sta accanto alle due porte d'uscita, che e la famiglia di
+    gesti a cui «cambia figlio» appartiene, e non toglie una riga a nessuna
+    schermata.
+
+    Il pulsante compare **solo** con piu di un figlio: con uno solo
+    porterebbe a una schermata che reindirizza subito indietro.
+  */
+  const figlio = data?.athlete;
+  const piuFigli = (data?.athlete?.linkedAthletes?.length || 0) > 1;
+  const inizialiFiglio =
+    (figlio?.name || "")
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((parte: string) => parte[0]?.toUpperCase() || "")
+      .join("") || "?";
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
@@ -189,6 +213,39 @@ const ParentSidebar = memo(() => {
 
       {!collapsed ? (
         <div className="mt-auto border-t border-blue-500 p-4">
+          {figlio ? (
+            <div className="mb-3 rounded-xl bg-blue-500/30 p-3">
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/90 text-sm font-semibold text-blue-700">
+                  {figlio.avatar_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={figlio.avatar_url}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    inizialiFiglio
+                  )}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs uppercase tracking-wide text-blue-200">
+                    Stai vedendo
+                  </p>
+                  <p className="truncate font-semibold">{figlio.name}</p>
+                </div>
+              </div>
+              {piuFigli ? (
+                <Link
+                  href="/parent-view"
+                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-md border border-white/30 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-500/50"
+                >
+                  <Users size={16} />
+                  <span>Cambia figlio</span>
+                </Link>
+              ) : null}
+            </div>
+          ) : null}
           <button
             onClick={() => router.push("/account")}
             className="flex w-full items-center justify-center gap-2 rounded-md bg-white px-3 py-2 font-medium text-blue-600 transition-colors hover:bg-blue-50"
@@ -207,7 +264,18 @@ const ParentSidebar = memo(() => {
           </button>
         </div>
       ) : (
-        <div className="mt-auto border-t border-blue-500 p-2">
+        <div className="mt-auto space-y-2 border-t border-blue-500 p-2">
+          {figlio && piuFigli ? (
+            <SidebarItemTooltip label={`Cambia figlio (${figlio.name})`} collapsed>
+              <Link
+                href="/parent-view"
+                aria-label={`Cambia figlio, stai vedendo ${figlio.name}`}
+                className="flex w-full items-center justify-center rounded-md border border-white/30 p-2 text-white transition-colors hover:bg-blue-500/50"
+              >
+                <Users size={18} />
+              </Link>
+            </SidebarItemTooltip>
+          ) : null}
           <button
             onClick={() => router.push("/account")}
             className="flex w-full items-center justify-center rounded-md bg-white p-2 text-blue-600 transition-colors hover:bg-blue-50"

@@ -80,6 +80,7 @@ import { getTrainingStableKey } from "@/lib/training-utils";
   e due copie sarebbero due badge diversi sullo stesso documento.
 */
 import { getFamilyDocumentStateClassName } from "@/lib/documents/family-dossier";
+import { withPayableInstalment } from "@/lib/payments/family-checkout";
 import {
   useParentDashboard,
   type AppointmentSlot,
@@ -556,7 +557,16 @@ export function ParentDashboardHome() {
     dominio: qui c'era una terza scrittura degli stessi tre nomi, e non
     conosceva «in scadenza».
   */
-  const certificateLabel = data.health.statusLabel;
+  /*
+    PP-02 §F. La riga completa — stato **e** data — la compone il dominio.
+    `familySummary` e `familyLabel` restano facoltativi nel tipo perche il
+    payload puo arrivare dalla cache di una sessione aperta prima del
+    rilascio: il ripiego e cio che si leggeva prima, non una stringa inventata.
+  */
+  const certificateLabel = data.health.familyLabel || data.health.statusLabel;
+  const certificateSummary =
+    data.health.familySummary || data.health.statusLabel;
+  const certificateDetail = data.health.familyDetail || null;
   const certificatoDaRifare =
     data.health.status === "expiring" ||
     data.health.status === "expired" ||
@@ -601,10 +611,17 @@ export function ParentDashboardHome() {
               : data.athlete.category_name || "Categoria da assegnare"
           }
         />
+        {/*
+          PP-02 §F. Il riquadro diceva **solo** lo stato: «Certificato valido»,
+          e la data viveva trenta centimetri piu in basso, in un'altra card.
+          Uno stato senza la sua data non risponde alla domanda che una
+          famiglia si fa guardandolo, che non e «va bene?» ma «fino a quando?».
+        */}
         <MetricCard
           icon={HeartPulse}
           title="Certificato"
           value={certificateLabel}
+          note={certificateDetail || undefined}
           tone={data.health.status === "valid" ? "emerald" : "amber"}
         />
         <MetricCard
@@ -668,24 +685,28 @@ export function ParentDashboardHome() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="font-semibold text-slate-950">{certificateLabel}</p>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Certificato medico
+                </p>
                 {/*
-                  W6-17. La data e quella del certificato che **governa**, e
-                  arriva dal server: qui si leggeva `certificates[0]`, cioe la
-                  prima riga di un elenco ordinato per scadenza crescente —
-                  tipicamente il certificato piu vecchio. La Home accostava
-                  «Certificato valido» alla data di uno gia scaduto.
+                  W6-17. La data e quella del certificato che **governa**: qui
+                  si leggeva `certificates[0]`, cioe la prima riga di un elenco
+                  ordinato per scadenza crescente — tipicamente il certificato
+                  piu vecchio. La Home accostava «Certificato valido» alla data
+                  di uno gia scaduto.
 
-                  W6-16. La data si mostra **sempre**, in tutti e quattro gli
-                  stati: e la cosa che una famiglia deve poter leggere per
-                  sapere se ha tempo.
+                  W6-16. La data si mostra **sempre**, in tutti gli stati: e la
+                  cosa che una famiglia deve poter leggere per sapere se ha
+                  tempo.
+
+                  PP-02 §F. Stato e data adesso sono **una riga sola**, e la
+                  compone il dominio: erano due paragrafi, e la resa della data
+                  la faceva questa schermata con il fuso del lettore — in un
+                  fuso positivo un certificato che scade il primo giugno si
+                  leggeva «Scade il 31/05».
                 */}
-                <p className="mt-1 text-sm text-slate-500">
-                  {data.health.expiryDate
-                    ? data.health.status === "expired"
-                      ? `Scaduto il ${formatDate(data.health.expiryDate)}`
-                      : `Scade il ${formatDate(data.health.expiryDate)}`
-                    : "Data di scadenza non disponibile"}
+                <p className="mt-1 font-semibold text-slate-950">
+                  {certificateSummary}
                 </p>
                 {/*
                   W6-18. Sapere che il certificato scade fra dieci giorni e
@@ -1185,6 +1206,38 @@ export function ParentPaymentsPage() {
   );
 
   /*
+    **PP-02 §D. Perche il pulsante e spento, scritto dove si vede.**
+
+    Il motivo esisteva in due posti sbagliati: dentro un `title` del browser —
+    che su un telefono non esiste — e dentro un errore rosso **dopo** il clic,
+    per il caso peggiore, quello del club che gli incassi online non li ha mai
+    configurati. In quel caso il pulsante era **acceso**, e prometteva.
+
+    Adesso il canale arriva dal server insieme al resto (`payments.online`), la
+    domanda «c'e una rata aperta?» la fa il dominio, e le due cose si compongono
+    in un solo dominio puro, cosi le tre schermate che se lo chiedono dicono la
+    stessa frase.
+  */
+  const statoPagamento = useMemo(
+    () => withPayableInstalment(data?.payments.online, Boolean(rataDaPagare)),
+    [data?.payments.online, rataDaPagare],
+  );
+
+  /*
+    PP-02 §E. Un elenco solo, ordinato per data decrescente: una famiglia
+    cerca «l'ultima ricevuta», non «l'ultima ricevuta fra quelle che non sono
+    fatture».
+  */
+  const documentiDiPagamento = useMemo(
+    () =>
+      [...(data?.payments.receipts || []), ...(data?.payments.invoices || [])]
+        .sort((a, b) =>
+          String(b.issueDate || "").localeCompare(String(a.issueDate || "")),
+        ),
+    [data?.payments.receipts, data?.payments.invoices],
+  );
+
+  /*
     Una rata per volta, scelta da chi paga. Il pulsante in cima resta e apre
     la **prima** aperta — e cio che una famiglia intende premendolo — ma con un
     piano a piu rate «la prima» non e sempre quella che si vuole saldare, e
@@ -1237,23 +1290,36 @@ export function ParentPaymentsPage() {
         title="Pagamenti"
         subtitle="Iscrizione, scadenze e ricevute."
         actions={
-          <Button
-            disabled={!rataDaPagare || pagamentoInCorso}
-            /*
-              **Mai `onClick={apriPagamento}`.** `Button` spande le props su un
-              `<button>` nativo, quindi il primo argomento sarebbe l'evento:
-              verrebbe scambiato per la rata scelta e il pulsante uscirebbe
-              senza aprire niente. La rata la sceglie la funzione.
-            */
-            onClick={() => void apriPagamento()}
-            title={
-              rataDaPagare
-                ? "Apre il pagamento sicuro del club"
-                : "Nessuna rata da saldare"
-            }
-          >
-            {pagamentoInCorso ? "Apertura…" : "Paga ora"}
-          </Button>
+          /*
+            PP-02 §D. Il motivo sta **accanto** al pulsante, non dentro un
+            `title` che su un telefono non esiste. Con il canale spento il
+            pulsante e spento e la frase spiega perche; con una rata aperta e
+            il canale acceso non c'e nessuna frase da leggere.
+          */
+          <div className="flex flex-col items-stretch gap-1 sm:items-end">
+            <Button
+              disabled={!statoPagamento.available || pagamentoInCorso}
+              /*
+                **Mai `onClick={apriPagamento}`.** `Button` spande le props su un
+                `<button>` nativo, quindi il primo argomento sarebbe l'evento:
+                verrebbe scambiato per la rata scelta e il pulsante uscirebbe
+                senza aprire niente. La rata la sceglie la funzione.
+              */
+              onClick={() => void apriPagamento()}
+              title={
+                statoPagamento.available
+                  ? "Apre il pagamento sicuro del club"
+                  : statoPagamento.message
+              }
+            >
+              {pagamentoInCorso ? "Apertura…" : "Paga ora"}
+            </Button>
+            {statoPagamento.message ? (
+              <p className="max-w-sm text-xs leading-5 text-slate-500 sm:text-right">
+                {statoPagamento.message}
+              </p>
+            ) : null}
+          </div>
         }
       />
       <div className="grid gap-4 md:grid-cols-3">
@@ -1288,53 +1354,98 @@ export function ParentPaymentsPage() {
             onPayNow={rataDaPagare ? () => void apriPagamento() : undefined}
             onPayInstalment={(rata) => void apriPagamento(rata)}
             payNowPending={pagamentoInCorso}
+            /*
+              PP-02 §D. Solo il motivo che riguarda il **canale**: «non ci sono
+              rate da saldare» il dettaglio del piano lo sa gia dire meglio di
+              qui, perche distingue fra «il club non ne ha ancora emesse» e
+              «risulta tutto saldato», e quelle due frasi non sono la stessa.
+            */
+            payNowUnavailableReason={
+              statoPagamento.blocker &&
+              statoPagamento.blocker !== "nothing_due"
+                ? statoPagamento.message
+                : null
+            }
           />
         </CardContent>
       </Card>
+      {/*
+        **PP-02 §E. Le ricevute e le fatture sono lo stesso elenco.**
+
+        Erano due card con due liste identiche, e la seconda compariva solo se
+        c'era almeno una fattura. Per una famiglia sono la stessa cosa — la
+        carta che dimostra di aver pagato — e quale delle due il club emetta
+        dipende dal suo regime fiscale, non da lei. Distinguerle in due
+        riquadri chiedeva alla famiglia di conoscere una distinzione che non e
+        sua; il tipo resta scritto sulla riga, dove serve a riconoscere il
+        documento che si ha in mano.
+
+        Ogni riga porta le sette cose chieste: data, figlio, causale, importo,
+        stato, visualizza e scarica. «Visualizza» e «Scarica» aprono la stessa
+        rotta — quella che ristampa il documento dallo snapshot congelato — e
+        sono due gesti diversi sullo stesso file: guardarlo adesso, o tenerlo.
+      */}
       <Card className="border-slate-200 shadow-sm">
         <CardHeader>
-          <CardTitle>Ricevute</CardTitle>
+          <CardTitle>Ricevute e documenti di pagamento</CardTitle>
         </CardHeader>
         <CardContent>
-          {data.payments.receipts.length === 0 ? (
+          {documentiDiPagamento.length === 0 ? (
             <EmptyState text="Nessuna ricevuta disponibile." />
           ) : (
             <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              {/*
-                La riga e passata da due blocchi a tre quando «Scarica» si e
-                affiancato all'importo. A 375 px una descrizione con una parola
-                lunga la porta oltre il bordo, e il contenitore ha
-                `overflow-hidden`: il pulsante non sporge, viene **tagliato**.
-                Cioe la ricevuta torna a non essere scaricabile, che e
-                esattamente il difetto appena chiuso.
-              */}
-              {data.payments.receipts.map((receipt) => (
-                <div
-                  key={receipt.id}
-                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-950">
-                      {receipt.description || receipt.receipt_number || "Ricevuta"}
+              {documentiDiPagamento.map((documento) => (
+                <div key={documento.id} className="space-y-2 px-4 py-3">
+                  {/*
+                    A 375 px la riga si impila: la coppia importo/azioni andava
+                    a capo dentro un contenitore con `overflow-hidden`, e il
+                    pulsante non sporgeva — veniva **tagliato**. Cioe la
+                    ricevuta tornava a non essere scaricabile.
+                  */}
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <p className="min-w-0 font-semibold text-slate-950">
+                      {documento.description || documento.number}
                     </p>
-                    <p className="text-sm text-slate-500">
-                      {formatDate(receipt.issue_date)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="font-semibold">
-                      {formatCurrency(receipt.amount)}
+                    <span className="shrink-0 font-semibold text-slate-950">
+                      {formatCurrency(documento.amount)}
                     </span>
-                    {/*
-                      La ricevuta si stampa dalla rotta che la ristampa dallo
-                      snapshot: il gate e adesso il **legame**, non il ruolo.
-                    */}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+                    <span>
+                      {documento.kind === "invoice" ? "Fattura" : "Ricevuta"}
+                    </span>
+                    <span aria-hidden>·</span>
+                    <span>{documento.number}</span>
+                    <span aria-hidden>·</span>
+                    <span>{formatDate(documento.issueDate)}</span>
+                    {documento.athleteName ? (
+                      <>
+                        <span aria-hidden>·</span>
+                        <span>{documento.athleteName}</span>
+                      </>
+                    ) : null}
+                    <span
+                      className={
+                        documento.status === "cancelled"
+                          ? "rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
+                          : "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800"
+                      }
+                    >
+                      {documento.statusLabel}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
                     <Button asChild size="sm" variant="outline">
                       <a
-                        href={`/api/v1/documents/receipt/${receipt.id}`}
+                        href={documento.downloadPath}
                         target="_blank"
                         rel="noreferrer"
                       >
+                        Visualizza
+                      </a>
+                    </Button>
+                    <Button asChild size="sm" variant="outline">
+                      <a href={documento.downloadPath} download>
                         Scarica
                       </a>
                     </Button>
@@ -1345,58 +1456,6 @@ export function ParentPaymentsPage() {
           )}
         </CardContent>
       </Card>
-
-      {/*
-        W6-19. **Le fatture erano nel payload e non le disegnava nessuno.**
-
-        Il server le calcola, il tipo le dichiara, e il controllo di accesso
-        sul documento le prevede gia — `kind === "invoice"` passa dallo stesso
-        gate del legame delle ricevute. Mancava la card: una famiglia che
-        riceve fattura invece di ricevuta vedeva un elenco vuoto e nessuna
-        spiegazione.
-      */}
-      {data.payments.invoices.length > 0 ? (
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle>Fatture</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              {data.payments.invoices.map((invoice) => (
-                <div
-                  key={invoice.id}
-                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-950">
-                      {invoice.description ||
-                        invoice.invoice_number ||
-                        "Fattura"}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      {formatDate(invoice.issue_date)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="font-semibold">
-                      {formatCurrency(invoice.amount)}
-                    </span>
-                    <Button asChild size="sm" variant="outline">
-                      <a
-                        href={`/api/v1/documents/invoice/${invoice.id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Scarica
-                      </a>
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
     </div>
   );
 }

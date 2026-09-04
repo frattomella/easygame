@@ -829,10 +829,23 @@ test("il guscio della famiglia non cresce con il proprio contenuto", () => {
  * A 375 px basta una descrizione con una parola lunga.
  */
 test("la riga di una ricevuta va a capo invece di tagliare «Scarica»", () => {
+  /*
+    PP-02 §E. La riga e passata da tre blocchi a quattro — si sono aggiunti il
+    figlio, il numero e lo stato — e da una riga sola a tre impilate. La
+    proprieta non cambia: dentro un contenitore con `overflow-hidden` niente
+    deve stare su una riga rigida, altrimenti non sporge, viene **tagliato**.
+  */
+  const source = read("components/parent-dashboard/parent-dashboard-pages.tsx");
+
   assert.match(
-    read("components/parent-dashboard/parent-dashboard-pages.tsx"),
-    /className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"/,
-    "descrizione, importo e «Scarica» su una riga fissa non stanno a 375 px",
+    source,
+    /className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"/,
+    "descrizione e importo su una riga fissa non stanno a 375 px",
+  );
+  assert.match(
+    source,
+    /className="flex flex-wrap gap-2"/,
+    "«Visualizza» e «Scarica» devono poter andare a capo",
   );
 });
 

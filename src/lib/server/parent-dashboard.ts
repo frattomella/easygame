@@ -7,10 +7,17 @@ import {
 } from "@/lib/category-utils";
 import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 import { normalizeActiveClubSeason } from "@/lib/club-seasons";
+import { normalizeClubSites } from "@/lib/club-sites";
+import { reportServerError } from "@/lib/server/observability";
+import { resolveCheckoutReadiness } from "@/lib/server/connect-accounts";
+import { normalizePaymentSettings } from "@/lib/payments/payment-config-utils";
+import { resolveFamilyCheckoutChannel } from "@/lib/payments/family-checkout";
 import {
   getLatestMedicalCertificateExpiry,
   getMedicalCertificateAvailability,
   getMedicalCertificateAvailabilityLabel,
+  getMedicalCertificateFamilyState,
+  describeMedicalCertificateForFamily,
 } from "@/lib/medical-certificates";
 import { toFamilyFreeSlot } from "@/lib/appointments/projection";
 import { getAthleteEnrollmentSummary } from "@/lib/athlete-enrollment-summary";
@@ -37,16 +44,15 @@ import {
 } from "@/lib/structures-utils";
 
 /*
-  Mancava il trattino fra la variante e il nodo: `[89ab][0-9a-f]{12}` sono
-  tredici caratteri di fila dove lo UUID ne ha quattro, un trattino e dodici.
-  Nessun identificativo reale corrispondeva mai — e siccome l'unico uso e
-  «se **non** e uno UUID allora ricadi sul primo atleta collegato», la ricaduta
-  scattava sempre: chiedere l'atleta di un altro non otteneva un rifiuto, ma il
-  proprio primo figlio, e un genitore con figli in due club poteva vedersi
-  presentare quello sbagliato. Il ramo del rifiuto era codice morto.
+  **Lo UUID non si controlla piu, perche non c'e piu niente da decidere.**
+
+  Serviva a un ramo solo — «se **non** e uno UUID allora ricadi sul primo
+  atleta collegato» — e la forma del pattern era rotta (mancava il trattino fra
+  la variante e il nodo), quindi la ricaduta scattava sempre. La Wave 6 corresse
+  la forma; PP-02 §A ha tolto la ricaduta, e con lei l'ultimo uso: un
+  identificativo che non e nessuno dei propri figli **non e** una richiesta a
+  cui rispondere con un figlio a caso.
 */
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const isRecord = (value: unknown): value is Record<string, any> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -870,6 +876,56 @@ export const getFamilyDocumentAreas = async (
   };
 };
 
+/**
+ * **I nomi delle sedi di un club, indicizzati per identificativo.**
+ *
+ * PP-02 §B. Si costruisce dalla riga del club che l'atleta gia porta con se
+ * (`include: { organization: true }`), e non da una lettura in piu: un
+ * genitore con figli in due club ne ha due diversi, e prendere «le sedi del
+ * club attivo» avrebbe messo il nome della sede sbagliata accanto alla
+ * categoria del secondo figlio.
+ */
+const buildSiteNameIndex = (club: any) => {
+  const index = new Map<string, string>();
+
+  normalizeClubSites(club?.club_sites).forEach((site) => {
+    const id = String(site?.id || "").trim().toLowerCase();
+    const name = String(site?.name || "").trim();
+    if (id && name) index.set(id, name);
+  });
+
+  return index;
+};
+
+/**
+ * **Le appartenenze di un atleta, con la sede scritta per esteso.**
+ *
+ * Sta fuori da `serializeAthleteCard` perche la schermata di scelta del figlio
+ * ne ha bisogno **senza** il resto della scheda: li deve uscire un elenco
+ * chiuso di campi, e comporlo prendendo una chiave da una scheda intera
+ * significherebbe che un campo nuovo sulla scheda arriva anche li.
+ */
+const serializeAthleteCategories = (athlete: any) => {
+  const siteNames = buildSiteNameIndex(athlete?.organization);
+
+  return asArray(athlete?.category_memberships).map((membership: any) => ({
+    id: membership.category_id,
+    name: membership.category_name || membership.category_id,
+    siteId: membership.site_id || null,
+    /*
+      PP-02 §B. La sede era un identificativo, e un identificativo non e
+      un'informazione: due categorie su due sedi diverse si leggevano come due
+      righe con accanto due UUID. Il nome si risolve dove il club e in mano, e
+      resta `null` quando la riga non dichiara una sede — cioe su ogni club
+      mono-sede, dove nominarla sarebbe rumore.
+    */
+    siteName: membership.site_id
+      ? siteNames.get(String(membership.site_id).trim().toLowerCase()) || null
+      : null,
+    isPrimary: Boolean(membership.is_primary),
+  }));
+};
+
 const serializeAthleteCard = (athlete: any) => {
   const data = asRecord(athlete?.data);
 
@@ -887,15 +943,14 @@ const serializeAthleteCard = (athlete: any) => {
       dedotta. La famiglia deve poterle vedere tutte: e la squadra del
       proprio figlio, non un dettaglio amministrativo.
     */
-    categories: asArray(athlete.category_memberships).map(
-      (membership: any) => ({
-        id: membership.category_id,
-        name: membership.category_name || membership.category_id,
-        siteId: membership.site_id || null,
-        isPrimary: Boolean(membership.is_primary),
-      }),
-    ),
+    categories: serializeAthleteCategories(athlete),
     status: athlete.status,
+    /*
+      PP-02 §A. La foto: la schermata di scelta la mostrava gia — e il modo
+      piu rapido di riconoscere il proprio figlio — e il guscio, che di quello
+      stesso figlio dice il nome su ogni pagina, non l'aveva.
+    */
+    avatar_url: athlete.avatar_url || firstText(data.avatar) || null,
     jersey_number: firstText(athlete.jersey_number, data.jerseyNumber, data.jersey_number),
     email: firstText(data.email, data.athleteEmail, data.athlete_email),
     phone: firstText(data.phone, data.mobile, data.athletePhone, data.athlete_phone),
@@ -907,6 +962,61 @@ const serializeAthleteCard = (athlete: any) => {
     birth_place: firstText(data.birthPlace, data.birth_place),
     nationality: firstText(data.nationality),
     gender: firstText(data.gender),
+  };
+};
+
+/**
+ * **Un documento di pagamento, come lo legge una famiglia.**
+ *
+ * PP-02 §E. Sette campi piu il figlio a cui si riferisce, e nient'altro. Cio
+ * che resta fuori non e un dettaglio di comodo:
+ *
+ * | Campo escluso | Perche |
+ * |---|---|
+ * | `issued_by`, `cancelled_by` | chi in segreteria ha emesso o annullato: e una persona, e non riguarda la famiglia |
+ * | `operation_type_code`, `snapshot` | la classificazione contabile congelata: il club la usa per il proprio rendiconto |
+ * | `transaction_id`, `invoice_id`, `payment_id` | le chiavi con cui il club riconcilia la propria cassa |
+ * | `data`, `file_url` | un JSON libero e un percorso di archivio, entrambi senza contratto |
+ * | `series`, `sequence`, `document_year` | il numero completo c'e gia; questi sono la sua meccanica |
+ *
+ * **Lo stato** invece esce, ed e la ragione per cui `cancelled_at` non e
+ * semplicemente omesso: una ricevuta annullata deve leggersi «Annullata», non
+ * sparire. Una famiglia che ha in mano la copia cartacea di un documento
+ * annullato deve poterlo capire dall'applicazione, non scoprirlo in segreteria.
+ */
+const serializeFamilyFiscalDocument = (
+  kind: "receipt" | "invoice",
+  row: any,
+  athlete: any,
+) => {
+  const annullato = Boolean(row?.cancelled_at);
+
+  return {
+    id: row.id,
+    kind,
+    /** «Ricevuta n. 12/2026» oppure «Fattura n. 4/2026». */
+    number:
+      firstText(row.receipt_number, row.invoice_number) ||
+      (kind === "receipt" ? "Ricevuta" : "Fattura"),
+    issueDate: toIso(row.issue_date),
+    amount: Number(row.amount ?? 0),
+    /** La causale come e stata scritta sul documento, non quella contabile. */
+    description: firstText(row.description),
+    /** `issued` | `cancelled`: e cio che la famiglia deve poter distinguere. */
+    status: annullato ? "cancelled" : firstText(row.status) || "issued",
+    statusLabel: annullato ? "Annullata" : "Emessa",
+    /*
+      Il figlio, per nome. Una famiglia con due figli legge un elenco di
+      ricevute in cui gli importi si somigliano: senza il nome accanto, dire
+      quale riguarda chi e impossibile.
+    */
+    athleteId: row.athlete_id || null,
+    athleteName:
+      row.athlete_id && sameId(row.athlete_id, athlete?.id)
+        ? getAthleteDisplayName(athlete)
+        : null,
+    /** La rotta che ristampa il documento dallo snapshot, gia autorizzata per legame. */
+    downloadPath: `/api/v1/documents/${kind}/${encodeURIComponent(row.id)}`,
   };
 };
 
@@ -949,6 +1059,93 @@ const serializeParentStructureBooking = (
   amount: booking.amount,
   paymentStatus: booking.paymentStatus,
 });
+
+/**
+ * **In quali club questa persona compare come tutore, per identificativo di
+ * utenza.**
+ *
+ * PP-02 §A. Risponde alla sola domanda che serve ad allargare l'insieme dei
+ * candidati, e restituisce **club**, non atleti: chi decide se un atleta e
+ * davvero suo figlio resta `athleteBelongsToParent`, che legge la riga per
+ * intero e conosce anche le forme storiche `parent1` / `parent2`. Questa
+ * ricerca puo solo aggiungere candidati da vagliare, mai concedere.
+ *
+ * ---
+ *
+ * ## Perche l'identificativo si e l'indirizzo no
+ *
+ * Sono due legami di natura diversa, e la differenza e **chi li ha scritti**.
+ *
+ * `linkedUserId` nasce dal **riscatto di un gettone**: e un atto della persona
+ * — ha ricevuto un invito e lo ha aperto — tracciato e revocabile. Vale
+ * ovunque quella riga sia, tessera o non tessera, perche la tessera e la
+ * conseguenza dell'atto e non l'atto.
+ *
+ * L'indirizzo di contatto lo scrive **la segreteria, a mano**. Un indirizzo
+ * scritto per sbaglio — una lettera di troppo su un dominio diffuso — e
+ * l'indirizzo verificato di un'altra persona reale, e farne un legame che
+ * apre da solo vorrebbe dire consegnare a uno sconosciuto il fascicolo
+ * sanitario di un minore per un refuso.
+ *
+ * Percio l'indirizzo continua a valere **solo dove quella persona ha gia una
+ * tessera**, che e il comportamento odierno e la proprieta che
+ * `tests/server/area-famiglia.test.mjs` presidia per nome («un atleta di un
+ * altro club non e un figlio»). Allargarlo e una decisione di prodotto, non
+ * una correzione: sta fra i residui di PP-02.
+ *
+ * ## Perche e SQL grezzo
+ *
+ * La domanda e «esiste, dentro un array JSON, un oggetto con una di queste
+ * quattro chiavi uguale a questo valore», e Prisma non ha un modo di porla che
+ * regga le quattro grafie e il confronto minuscolo insieme. Le quattro grafie
+ * sono le stesse che legge `isGuardianLinkedToUser`: le due domande devono
+ * avere la stessa risposta, altrimenti l'insieme non contiene cio che il
+ * vaglio cercherebbe.
+ *
+ * **Costo**: e una scansione di `athletes`, senza indice che possa aiutarla —
+ * una funzione su ogni riga non e indicizzabile. La pagano solo le famiglie,
+ * una volta per lettura, e restituisce poche righe. La chiusura vera e
+ * materializzare il legame in una tabella con la sua chiave esterna, che e un
+ * lavoro con il suo perimetro (debito PP02-D1).
+ */
+const findClubsWhereUserIsGuardian = async (userId: string) => {
+  const identita = [String(userId || "").trim().toLowerCase()].filter(Boolean);
+  if (!identita.length) return [] as string[];
+
+  try {
+    const righe = await prisma.$queryRaw<Array<{ organization_id: string }>>`
+      SELECT DISTINCT a.organization_id::text AS organization_id
+      FROM athletes a
+      WHERE jsonb_typeof(COALESCE(a.data -> 'guardians', 'null'::jsonb)) = 'array'
+        AND EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(a.data -> 'guardians') AS g
+          WHERE jsonb_typeof(g) = 'object'
+            AND (
+              lower(g ->> 'linkedUserId') = ANY(${identita})
+              OR lower(g ->> 'linked_user_id') = ANY(${identita})
+              OR lower(g ->> 'userId') = ANY(${identita})
+              OR lower(g ->> 'user_id') = ANY(${identita})
+            )
+        )
+    `;
+
+    return righe.map((riga) => String(riga.organization_id));
+  } catch (error) {
+    /*
+      Una ricerca che non riesce non deve **togliere** i figli a chi li
+      raggiungeva gia dalla tessera: chi ha una tessera continua a vederli, e
+      chi non ce l'ha vede l'elenco vuoto che vedeva prima. L'errore si
+      registra, perche un allargamento che smette di funzionare in silenzio e
+      indistinguibile da un club senza tutori.
+    */
+    reportServerError(error, {
+      route: "parent-dashboard/findClubsWhereUserIsGuardian",
+      actorUserId: userId,
+    });
+    return [] as string[];
+  }
+};
 
 export const getParentLinkedAthletes = async (userId: string) => {
   /*
@@ -999,11 +1196,43 @@ export const getParentLinkedAthletes = async (userId: string) => {
     dimostrare di leggere quella casella.
   */
   const verifiedEmail = user?.email_verified_at ? user.email : null;
+
+  /*
+    **PP-02 §A. Il legame di un tutore non e la sua tessera, e la ricerca dei
+    candidati lo dava per scontato.**
+
+    L'insieme dei candidati era «gli atleti di cui sono l'utenza collegata,
+    piu **tutti** gli atleti dei club in cui ho una tessera». Il vaglio vero —
+    `athleteBelongsToParent`, che legge `athletes.data.guardians` — girava
+    **dopo**, in memoria, su quell'insieme: cioe non poteva vedere nessun
+    atleta che l'insieme non contenesse.
+
+    La conseguenza si legge in una riga: **un tutore collegato ma senza
+    tessera non trovava nessun figlio.** E uno stato che esiste — una tessera
+    revocata a mano, una riga cancellata, un travaso di dati che porta il
+    legame e non la tessera — e su cui il prodotto dichiara il contrario:
+    «per genitore e atleta il gate e il legame, non il ruolo».
+
+    Il rimedio non e un secondo scrittore che materializzi la tessera al
+    momento del collegamento — sarebbe un secondo posto in cui il legame vive,
+    da tenere allineato con il primo. E **allargare i candidati**: si chiede al
+    database in quali club questa persona compare come tutore, e i club
+    trovati si uniscono a quelli delle tessere. L'autorita su «e davvero un suo
+    figlio?» resta dove era.
+
+    L'allargamento vale per l'**identificativo dell'utenza** e non per
+    l'indirizzo di contatto: il perche sta su `findClubsWhereUserIsGuardian`,
+    e non e una sfumatura — e la differenza fra un atto della persona e una
+    stringa scritta a mano dalla segreteria.
+  */
+  const guardianClubIds = await findClubsWhereUserIsGuardian(userId);
+
   const organizationIds = Array.from(
     new Set(
       memberships
         .map((membership) => membership.organization_id)
-        .concat(ownedClubs.map((club) => club.id)),
+        .concat(ownedClubs.map((club) => club.id))
+        .concat(guardianClubIds),
     ),
   );
 
@@ -1089,10 +1318,33 @@ export const getParentDashboardData = async (
   });
   const linkedAthletes = await getParentLinkedAthletes(userId);
   const requestedId = String(requestedAthleteOrClubId || "").trim();
+  /*
+    **PP-02 §A. Un identificativo che non si riconosce e una richiesta
+    sbagliata, non una richiesta a cui rispondere con il primo figlio.**
+
+    Il ramo di ripiego — «se non e uno UUID, prendi `linkedAthletes[0]`» —
+    non usciva dal perimetro della famiglia, e per questo era sopravvissuto a
+    due revisioni. Ma dentro il perimetro faceva la cosa peggiore che questa
+    schermata possa fare: **rispondere del figlio sbagliato senza dirlo**. Un
+    segnalibro storto, un indirizzo troncato da un messaggio, un `[id]` che il
+    router non ha ancora risolto, e una madre di due figli leggeva importi,
+    scadenze e stato del certificato **dell'altro**, con il nome giusto scritto
+    accanto solo perche il guscio lo prende dallo stesso payload.
+
+    Adesso non si indovina: chi chiede un atleta che non e nessuno dei propri
+    riceve `null`, e il guscio lo porta alla schermata di scelta — che e il
+    posto in cui la domanda «di quale figlio parliamo» si fa.
+
+    Resta la forma storica `/parent-view/<idClub>`, che e una risposta a una
+    domanda **posta davvero**: quel club e uno dei suoi, e il figlio che ci
+    frequenta e uno solo o il primo per ordine di elenco.
+  */
   const selectedAthlete =
     linkedAthletes.find((athlete) => sameId(athlete.id, requestedId)) ||
-    linkedAthletes.find((athlete) => sameId(athlete.organization_id, requestedId)) ||
-    (!UUID_PATTERN.test(requestedId) ? linkedAthletes[0] : null);
+    linkedAthletes.find((athlete) =>
+      sameId(athlete.organization_id, requestedId),
+    ) ||
+    null;
 
   if (!selectedAthlete) {
     return null;
@@ -1351,6 +1603,19 @@ export const getParentDashboardData = async (
     scadenzaCertificato,
     new Date(now),
   );
+  /*
+    PP-02 §F. La stessa domanda, con un dato in piu: **quanti certificati ci
+    sono**. Senza, «nessuna data» e «nessun certificato» sono indistinguibili,
+    e la famiglia legge «Certificato mancante» dopo averlo consegnato.
+  */
+  const statoFamigliaCertificato = getMedicalCertificateFamilyState(
+    { count: certificates.length, expiryDate: scadenzaCertificato },
+    new Date(now),
+  );
+  const descrizioneCertificato = describeMedicalCertificateForFamily(
+    statoFamigliaCertificato,
+    scadenzaCertificato,
+  );
   const athleteData = asRecord(selectedAthlete.data);
   const enrollmentSummary = getAthleteEnrollmentSummary({
     athlete: selectedAthlete,
@@ -1374,6 +1639,42 @@ export const getParentDashboardData = async (
   const paidPayments = normalizedPayments.filter(
     (payment) => payment.statusKey === "paid",
   );
+
+  /*
+    **PP-02 §D. Il motivo per cui non si puo pagare, conosciuto prima del
+    clic.**
+
+    Il pulsante «Paga ora» era vero — chiama il checkout, che emette un link e
+    lo apre — ma la ragione per cui a volte non funziona si conosceva **dopo**
+    il gesto: se la societa non ha configurato gli incassi online il pulsante
+    restava acceso e il motivo arrivava come errore rosso; se non c'erano rate
+    aperte si spegneva, con il motivo nascosto in un `title` del browser, che
+    su un telefono non esiste.
+
+    Lo stato del canale lo sa gia il server, e lo sa lo **stesso** dominio che
+    poi rifiuterebbe il checkout: chiederglielo qui non e un secondo sistema di
+    pagamento, e leggere una risposta che c'era e non usciva.
+
+    Un guasto nel leggerlo **non** deve spegnere il pulsante: chi puo pagare
+    continua a poterlo fare, e il caso peggiore torna a essere quello di prima
+    — l'errore dopo il clic — invece di diventare «non si paga piu».
+  */
+  const statoPagamentoOnline = await resolveCheckoutReadiness({
+    organizationId,
+    clubEnabled: normalizePaymentSettings(
+      asRecord(club.settings).paymentSettings,
+    ).enabled,
+  })
+    .then(({ readiness }) => resolveFamilyCheckoutChannel(readiness))
+    .catch((error) => {
+      reportServerError(error, {
+        route: "parent-dashboard/checkout-readiness",
+        organizationId,
+        actorUserId: userId,
+      });
+      return { available: true, blocker: null, message: "" } as const;
+    });
+
   const visibleStructures = getVisibleBookableStructures(asArray(club.structures));
   /*
     W6-13. Le prenotazioni erano «del figlio **oppure** fatte da me», e la
@@ -1470,6 +1771,23 @@ export const getParentDashboardData = async (
         disponibilitaCertificato,
       ),
       /*
+        **PP-02 §F. Lo stato che la famiglia legge, e la riga che ne esce.**
+
+        `status` resta com'era — lo leggono il tono del riquadro e la CTA — e
+        accanto compare la distinzione che gli manca: un certificato
+        **consegnato senza scadenza** non e un certificato mancante, e finiva
+        su «Certificato mancante» perche la data e l'unica cosa che il vecchio
+        stato guardava.
+
+        La riga (`Valido — Scade il 01/06/2027`) la compone il dominio e non la
+        schermata: era gia stata riscritta tre volte, e la terza non conosceva
+        «in scadenza».
+      */
+      familyState: statoFamigliaCertificato,
+      familyLabel: descrizioneCertificato.label,
+      familyDetail: descrizioneCertificato.detail,
+      familySummary: descrizioneCertificato.summary,
+      /*
         La data del certificato che governa, non del primo dell'elenco. E
         `null` quando nessun certificato ne dichiara una: la schermata deve
         poter dire «Data di scadenza non disponibile» invece di tacere.
@@ -1491,18 +1809,34 @@ export const getParentDashboardData = async (
       totalPaid: enrollmentSummary.income.recordedPaid,
       remaining: enrollmentSummary.income.residual,
       summary: enrollmentSummary.income,
-      receipts: receipts.map((receipt) => ({
-        ...receipt,
-        issue_date: toIso(receipt.issue_date),
-        created_at: toIso(receipt.created_at),
-        updated_at: toIso(receipt.updated_at),
-      })),
-      invoices: invoices.map((invoice) => ({
-        ...invoice,
-        issue_date: toIso(invoice.issue_date),
-        created_at: toIso(invoice.created_at),
-        updated_at: toIso(invoice.updated_at),
-      })),
+      /**
+       * PP-02 §D. Il canale di incasso online: se c'e, e se non c'e perche.
+       * Sta accanto alle rate e non dentro ognuna: e una proprieta del club,
+       * e ricalcolarla per riga vorrebbe dire chiederla venti volte.
+       */
+      online: statoPagamentoOnline,
+      /*
+        **PP-02 §E. Una ricevuta e un elenco chiuso di campi, non la riga.**
+
+        `{ ...receipt }` mandava al browser di ogni famiglia l'intera riga del
+        documento: `issued_by` e `cancelled_by` — gli identificativi delle
+        persone di segreteria che lo hanno emesso o annullato —,
+        `operation_type_code` e `snapshot`, cioe la classificazione contabile
+        congelata, `transaction_id` e `invoice_id`, che sono le chiavi con cui
+        il club riconcilia la propria cassa, e `data`, un JSON libero in cui
+        nessuno ha promesso di non scrivere niente.
+
+        Nessuno di quei campi veniva **disegnato**: uscivano nella risposta, che
+        e la stessa cosa. La regola e quella della lane 5I e della schermata di
+        scelta del figlio: si dichiara cio che esce, cosi un campo nuovo sulla
+        riga nasce invisibile alla famiglia.
+      */
+      receipts: receipts.map((receipt) =>
+        serializeFamilyFiscalDocument("receipt", receipt, selectedAthlete),
+      ),
+      invoices: invoices.map((invoice) =>
+        serializeFamilyFiscalDocument("invoice", invoice, selectedAthlete),
+      ),
     },
     enrollment: enrollmentSummary,
     /*
@@ -1631,6 +1965,22 @@ export const getParentDashboardData = async (
  * campo nuovo sulla riga dell'atleta nasce cosi **invisibile** a questa
  * schermata, che e la regola con cui la lane 5I ha chiuso l'anagrafica dei
  * colleghi.
+ *
+ * ---
+ *
+ * **PP-02 §A e §B.** Due campi in piu, e nessuno dei due e un dato nuovo:
+ *
+ * * `birthYear` — l'anno, non la data. Due fratelli nella stessa categoria si
+ *   distinguono per l'eta, e su una schermata di **scelta** la data intera e
+ *   una precisione che non aiuta a scegliere;
+ * * `categories` — **tutte** le appartenenze con la loro sede, e non la sola
+ *   `category_name` piatta. Un ragazzo in due squadre si riconosceva a meta,
+ *   e su due sedi diverse non si riconosceva affatto.
+ *
+ * `status` esce perche un figlio **non piu attivo** deve poter essere
+ * distinto prima di entrare, non dopo: la sua area si apre lo stesso — la
+ * storia e sua — ma senza dirlo la schermata prometterebbe un'iscrizione
+ * viva.
  */
 export const listParentChildren = async (userId: string) => {
   const athletes = await getParentLinkedAthletes(userId);
@@ -1642,6 +1992,11 @@ export const listParentChildren = async (userId: string) => {
     clubName: (athlete as any).organization?.name || "",
     clubLogoUrl: (athlete as any).organization?.logo_url || null,
     categoryName: athlete.category_name || null,
+    categories: serializeAthleteCategories(athlete),
+    birthYear: athlete.birth_date
+      ? new Date(athlete.birth_date).getUTCFullYear()
+      : null,
+    status: athlete.status || "active",
     avatarUrl: athlete.avatar_url || null,
   }));
 };

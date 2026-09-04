@@ -718,6 +718,97 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     }
   };
 
+  /**
+   * **Le relazioni che `include` sa risolvere, dichiarate una per una.**
+   *
+   * PP-02. `include` veniva **ignorato**: la riga tornava senza le relazioni, e
+   * un servizio che le legge trovava `undefined`. Non era una bugia comoda come
+   * `hasSome` — che rispondeva «si» a una domanda che non sapeva valutare — ma
+   * il danno e simmetrico: `getParentDashboardData` non era collaudabile
+   * affatto, e la sua copertura viveva **solo** nella sonda contro il database
+   * vero, che in integrazione continua non gira.
+   *
+   * E un elenco chiuso e non un motore: una relazione che non e qui continua a
+   * non essere risolta, e si aggiunge quando serve. Un motore generico
+   * dedurrebbe le chiavi dai nomi, e dedurre e il modo in cui un doppio comincia
+   * a rispondere cose che il database non risponderebbe.
+   */
+  const RELAZIONI = {
+    athlete: {
+      organization: { tipo: "uno", delegato: "club", locale: "organization_id" },
+      category_memberships: {
+        tipo: "molti",
+        delegato: "athleteCategoryMembership",
+        remota: "athlete_id",
+      },
+      payments: {
+        tipo: "molti",
+        delegato: "athletePayment",
+        remota: "athlete_id",
+      },
+      medical_certificates: {
+        tipo: "molti",
+        delegato: "medicalCertificate",
+        remota: "athlete_id",
+      },
+    },
+    documentRequest: {
+      submissions: {
+        tipo: "molti",
+        delegato: "documentSubmission",
+        remota: "request_id",
+      },
+    },
+    appointment: {
+      slot: { tipo: "uno", delegato: "appointmentSlot", locale: "slot_id" },
+      athlete: { tipo: "uno", delegato: "athlete", locale: "athlete_id" },
+    },
+  };
+
+  const applicaInclude = (name, row, include) => {
+    if (!row || !include || typeof include !== "object") return row;
+
+    const mappa = RELAZIONI[name];
+    if (!mappa) return row;
+
+    const arricchita = { ...row };
+
+    for (const [chiave, richiesta] of Object.entries(include)) {
+      if (!richiesta) continue;
+      const relazione = mappa[chiave];
+      if (!relazione) continue;
+
+      /*
+        **Una relazione seminata a mano vince su quella risolta.**
+
+        Prima che `include` sapesse risolvere, i test scrivevano la relazione
+        **dentro la riga** — `athlete.medical_certificates: [...]` — ed e una
+        dichiarazione, non un residuo: quel test ha deciso cosa deve tornare.
+        Risolverla comunque la sovrascriverebbe con l'elenco del delegato, che
+        quei test non hanno seminato affatto: sette presidi sui promemoria dei
+        certificati sono passati da verdi a rossi cosi, su codice non toccato.
+      */
+      if (Object.prototype.hasOwnProperty.call(row, chiave)) continue;
+
+      if (relazione.tipo === "uno") {
+        const riferimento = row[relazione.locale];
+        arricchita[chiave] =
+          (riferimento &&
+            rowsOf(relazione.delegato).find(
+              (candidata) => String(candidata.id) === String(riferimento),
+            )) ||
+          null;
+        continue;
+      }
+
+      arricchita[chiave] = rowsOf(relazione.delegato).filter(
+        (candidata) => String(candidata[relazione.remota]) === String(row.id),
+      );
+    }
+
+    return arricchita;
+  };
+
   const makeDelegate = (name) => ({
     findMany: async (args = {}) => {
       calls.push({ delegate: name, method: "findMany", args });
@@ -774,15 +865,19 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       if (Number.isInteger(args.skip)) rows = rows.slice(args.skip);
       if (Number.isInteger(args.take)) rows = rows.slice(0, args.take);
 
-      return rows;
+      return args.include
+        ? rows.map((row) => applicaInclude(name, row, args.include))
+        : rows;
     },
     findFirst: async (args = {}) => {
       calls.push({ delegate: name, method: "findFirst", args });
-      return rowsOf(name).find((r) => matchesWhere(r, args.where)) || null;
+      const row = rowsOf(name).find((r) => matchesWhere(r, args.where)) || null;
+      return args.include ? applicaInclude(name, row, args.include) : row;
     },
     findUnique: async (args = {}) => {
       calls.push({ delegate: name, method: "findUnique", args });
-      return rowsOf(name).find((r) => matchesWhere(r, args.where)) || null;
+      const row = rowsOf(name).find((r) => matchesWhere(r, args.where)) || null;
+      return args.include ? applicaInclude(name, row, args.include) : row;
     },
     create: async (args = {}) => {
       calls.push({ delegate: name, method: "create", args });
@@ -1051,6 +1146,50 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     const testo = Array.isArray(strings)
       ? strings.join("?")
       : String(strings?.sql ?? strings ?? "");
+
+    /*
+      **PP-02. «In quali club questa persona compare come tutore».**
+
+      Serve implementarla, non ignorarla: la risposta muta di `[]` sarebbe
+      «nessun club», che e la risposta **stretta** — un test sul tutore senza
+      tessera fallirebbe invece di passare per sbaglio, ma fallirebbe su un
+      codice corretto, che e lo stesso disservizio al contrario. E la stessa
+      lezione di `hasSome` in PP-01.
+    */
+    if (/FROM athletes/i.test(testo) && /guardians/i.test(testo)) {
+      const identita = new Set(
+        (Array.isArray(values?.[0]) ? values[0] : [])
+          .map((valore) => String(valore || "").trim().toLowerCase())
+          .filter(Boolean),
+      );
+      const chiavi = [
+        "linkedUserId",
+        "linked_user_id",
+        "userId",
+        "user_id",
+        "linkedUserEmail",
+        "linked_user_email",
+        "email",
+      ];
+      const club = new Set();
+
+      rowsOf("athlete").forEach((riga) => {
+        const tutori = riga?.data?.guardians;
+        if (!Array.isArray(tutori)) return;
+        const combacia = tutori.some(
+          (tutore) =>
+            tutore &&
+            typeof tutore === "object" &&
+            chiavi.some((chiave) =>
+              identita.has(String(tutore[chiave] || "").trim().toLowerCase()),
+            ),
+        );
+        if (combacia && riga.organization_id) club.add(String(riga.organization_id));
+      });
+
+      return Array.from(club).map((organization_id) => ({ organization_id }));
+    }
+
     if (!/INSERT INTO auth_rate_limit_buckets/i.test(testo)) return [];
 
     const [key, scope, nextExpiry, now] = values;

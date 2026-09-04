@@ -110,6 +110,30 @@ const QUICK_ACTIONS = [
   },
 ] as const;
 
+/**
+ * **L'identita del club dichiarata dal chiamante, invece che dedotta dal
+ * browser** (PP-02 §C).
+ *
+ * Nome e stagione della targhetta arrivavano **solo** da `localStorage`, e
+ * quella e una copia: la scrive chi ha appena letto qualcosa dal server, e chi
+ * non ha ancora letto niente legge cio che c'era prima. Per l'area famiglia il
+ * risultato era «Nessuna stagione attiva» su un club che ne ha una — alla
+ * prima pittura, su ogni pagina che non monta il contesto del genitore, e per
+ * sempre su un tutore senza tessera, che quel `localStorage` non lo ha mai
+ * visto scrivere da nessuno.
+ *
+ * Quando questa prop c'e, e lei l'autorita: il `localStorage` non viene
+ * nemmeno consultato per l'identita. `seasonHref` a `null` toglie il rimando
+ * — la targhetta della stagione porta a `/organization`, che per un genitore e
+ * una porta chiusa.
+ */
+export type HeaderClubIdentity = {
+  name: string;
+  seasonLabel: string | null;
+  logoUrl?: string | null;
+  seasonHref?: string | null;
+};
+
 interface HeaderProps {
   title?: string;
   onSearch?: (query: string) => void;
@@ -118,6 +142,7 @@ interface HeaderProps {
   searchQuery?: string;
   mobileNavSections?: MobileNavSection[];
   showMobileHubLink?: boolean;
+  clubIdentity?: HeaderClubIdentity | null;
 }
 
 const Header = memo(
@@ -129,6 +154,7 @@ const Header = memo(
     searchQuery = "",
     mobileNavSections,
     showMobileHubLink = true,
+    clubIdentity = null,
   }: HeaderProps) => {
     const router = useRouter();
     const pathname = usePathname();
@@ -472,11 +498,24 @@ const Header = memo(
             </Tooltip>
           </TooltipProvider>
 
+          {/*
+            PP-02 §C. `clubIdentity` vince sul `localStorage`: quando il
+            chiamante conosce il club dalla risposta del server, la targhetta
+            non deve aspettare che una copia nel browser si aggiorni.
+          */}
           <ClubIdentity
-            clubName={orgName || "EasyGame"}
-            seasonLabel={activeSeasonLabel}
-            logoUrl={clubLogo}
-            onSeasonClick={() => router.push("/organization?tab=stagioni")}
+            clubName={clubIdentity?.name || orgName || "EasyGame"}
+            seasonLabel={
+              clubIdentity ? clubIdentity.seasonLabel : activeSeasonLabel
+            }
+            logoUrl={clubIdentity ? clubIdentity.logoUrl ?? null : clubLogo}
+            onSeasonClick={
+              clubIdentity
+                ? clubIdentity.seasonHref
+                  ? () => router.push(clubIdentity.seasonHref as string)
+                  : undefined
+                : () => router.push("/organization?tab=stagioni")
+            }
             className="min-w-0 flex-1"
           />
 

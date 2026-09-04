@@ -6215,3 +6215,89 @@ futuro senza che nessuno lo avesse piu deciso.
 essere innocuo: il secondo invio non e piu fermato dall'errore e crea il doppione
 che prima l'errore nascondeva. La guardia sul salvataggio in corso e parte di
 questa decisione, non un'aggiunta accanto.
+
+---
+
+## ADR-0114 — Il legame di un tutore non e la sua tessera; il suo indirizzo non e un legame che apre da solo
+
+**Data:** 2026-09-04 · **Contesto:** PP-02 §A
+
+**Il fatto.** `getParentLinkedAthletes` sceglieva i candidati fra «gli atleti di
+cui sono l'utenza collegata, piu **tutti** gli atleti dei club in cui ho una
+tessera», e applicava il vaglio vero — `athleteBelongsToParent`, che legge
+`athletes.data.guardians` — **dopo**, in memoria, su quell'insieme. Un vaglio che
+gira su un insieme non puo trovare cio che l'insieme non contiene.
+
+Conseguenza misurata: **un tutore collegato ma senza riga in `organization_users`
+non trovava nessun figlio**, mentre [08](08-roles-and-permissions.md) dichiara che
+«per genitore e atleta il gate e il legame, non il ruolo». Nessuna sonda lo aveva
+mai chiesto senza dare prima una tessera: `U-06` della Wave 6 misura la
+corrispondenza del legame su un genitore che la tessera ce l'ha.
+
+**La decisione, in due meta.**
+
+**L'identificativo dell'utenza vale ovunque.** Si chiede al database in quali club
+questa persona compare come tutore (`findClubsWhereUserIsGuardian`), e i club
+trovati si uniscono a quelli delle tessere. La ricerca **allarga i candidati e non
+concede niente**: l'autorita su «e davvero un suo figlio?» resta
+`athleteBelongsToParent`, che legge la riga per intero e conosce anche le forme
+storiche `parent1` / `parent2`. Il rimedio non e un secondo scrittore che
+materializzi la tessera al collegamento: sarebbe un secondo posto in cui il legame
+vive, da tenere allineato con il primo.
+
+**L'indirizzo di contatto vale solo dove il tutore e gia entrato.** `linkedUserId`
+nasce dal riscatto di un gettone — un atto della persona, tracciato e revocabile.
+L'indirizzo lo scrive **la segreteria, a mano**, e un refuso su un dominio diffuso
+e l'indirizzo verificato di un'altra persona reale: farne un legame che apre da
+solo vorrebbe dire consegnare a uno sconosciuto il fascicolo sanitario di un
+minore per una lettera sbagliata. Percio la ricerca guarda le quattro grafie
+dell'identificativo e **non** le tre dell'indirizzo, e la proprieta che
+`tests/server/area-famiglia.test.mjs` presidia per nome — «un atleta di un altro
+club non e un figlio» — resta vera.
+
+**Il costo, dichiarato.** La ricerca e una scansione di `athletes`: una funzione su
+ogni riga non e indicizzabile. La pagano solo le famiglie, una volta per lettura, e
+restituisce poche righe. La chiusura vera e materializzare il legame in una tabella
+con la sua chiave esterna (debito PP02-D1).
+
+**Corollario.** `getParentDashboardData` non ricade piu su `linkedAthletes[0]`
+quando l'identificativo non e uno UUID. Non usciva dal perimetro della famiglia, e
+per questo era sopravvissuto a due revisioni; ma dentro il perimetro faceva la cosa
+peggiore che quella schermata possa fare — rispondere del **figlio sbagliato senza
+dirlo**, su pagine che parlano di importi e di certificati medici.
+
+---
+
+## ADR-0115 — Cio che la famiglia legge di un documento di pagamento e un elenco chiuso
+
+**Data:** 2026-09-04 · **Contesto:** PP-02 §E
+
+**Il fatto.** Il cruscotto della famiglia spandeva la riga intera:
+`receipts.map((receipt) => ({ ...receipt, ... }))`. Nel browser di ogni genitore
+finivano `issued_by` e `cancelled_by` — l'identificativo della persona di
+segreteria che ha emesso o annullato —, `operation_type_code` e `snapshot`, cioe
+la classificazione contabile congelata, `transaction_id` e `invoice_id`, che sono
+le chiavi con cui il club riconcilia la propria cassa, e `data`, un JSON libero in
+cui nessuno ha promesso di non scrivere niente.
+
+Nessuno di quei campi veniva **disegnato**, ed e la ragione per cui nessuna
+revisione a schermo lo aveva visto. Uscire nella risposta e la stessa cosa che
+mostrarlo: basta aprire gli strumenti del browser.
+
+**La decisione.** Una ricevuta o una fattura escono come **elenco chiuso di
+campi** (`serializeFamilyFiscalDocument`): data, numero, causale, importo, stato,
+il figlio a cui si riferisce e la strada per aprirla. E la stessa regola della
+lane 5I sull'anagrafica dei colleghi e della schermata di scelta del figlio — si
+dichiara cio che esce, cosi un campo nuovo sulla riga nasce **invisibile** alla
+famiglia.
+
+**Lo stato esce, e per questo `cancelled_at` non e semplicemente omesso.** Una
+ricevuta annullata deve leggersi «Annullata», non sparire: una famiglia che ha in
+mano la copia cartacea di un documento annullato deve poterlo capire
+dall'applicazione, non scoprirlo in segreteria. Il **motivo** dell'annullamento
+resta invece del club.
+
+**Corollario.** Ricevute e fatture diventano un elenco solo. Per una famiglia sono
+la stessa cosa — la carta che dimostra di aver pagato — e quale delle due il club
+emetta dipende dal suo regime fiscale, non da lei; il tipo resta scritto sulla
+riga, dove serve a riconoscere il documento che si ha in mano.

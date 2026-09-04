@@ -1351,6 +1351,15 @@ e `totalPending` / `totalOverdue` che ne ripartiscono il residuo, come fa
 
 ## Debito aperto dal passaggio di stagione e dai giri automatici (W1-A e W1-C, 2026-08-28)
 
+### STAG-01 — ~~Il gemello del validatore troncato vive ancora nella dashboard genitori~~ — CHIUSO (2026-09-04, PP-02 §A)
+
+Chiuso **togliendo il ramo invece di correggerlo**: un identificativo che non e
+nessuno dei propri figli non e una richiesta a cui rispondere con un figlio a
+caso, e con il ripiego e sparito anche l'ultimo uso del validatore. Vedi
+[ADR-0114](18-decision-log.md#adr-0114--il-legame-di-un-tutore-non-e-la-sua-tessera-il-suo-indirizzo-non-e-un-legame-che-apre-da-solo).
+La descrizione storica resta qui sotto perche spiega **come** un controllo puo
+non controllare senza che nessuno se ne accorga.
+
 ### STAG-01 — Il gemello del validatore troncato vive ancora nella dashboard genitori
 
 `src/lib/server/parent-dashboard.ts:17` porta la stessa forma di UUID a
@@ -2310,3 +2319,15 @@ e il posto dove riscrivere un chiamante o cambiare la forma di un elenco.
 | **PP01-D5** | `/permissions` **non** ha l'esclusione dei ruoli personalizzati che `/dashboard/access-management` ha (`access-roles.ts`). Un `custom:*` passa la guardia di rotta; `getClubSettings` **inghiotte il 403** e la pagina mostra tutti i venticinque interruttori accesi a prescindere dalla configurazione reale; il salvataggio poi fallisce. E la divergenza fra cio che si vede e cio che si puo, su una pagina di permessi | E un difetto di autorizzazione su una pagina che PP-01 doveva **analizzare** e non modificare (§M: KEEP PARTIAL). Va corretto con il suo commit e il suo test di ruolo |
 | **PP01-D6** | Il menu `...` di un allenamento e costruito con `innerHTML` a mano invece che con la primitiva del menu, e contiene una voce sola | Riscriverlo e un cambiamento di natura diversa da una correzione di difetto |
 | **PP01-D7** | Ne la barra laterale ne il menu mobile filtrano per ruolo le voci «Permessi allenatore» e «Ruoli e accessi»: `collaborator` e `staff` le vedono e rimbalzano sulla guardia | Vale per l'intera barra — l'unico filtro esistente e `canOpenAccounting` — non per queste due voci |
+
+## Debito aperto da PP-02 (2026-09-04)
+
+Trovato mentre si riproducevano i difetti di
+[43 — PP-02](43-pp-02-area-famiglia.md). Ogni voce dice **perche** non e stata
+chiusa li.
+
+| # | Cosa | Perche non e stato corretto li |
+|---|---|---|
+| **PP02-D1** | `findClubsWhereUserIsGuardian` (`src/lib/server/parent-dashboard.ts`) e una **scansione di `athletes`**: la domanda «in quali club questa persona compare come tutore» attraversa un array JSON con una funzione per riga, e una funzione per riga non e indicizzabile. Costa una scansione per ogni lettura dell'area famiglia | La chiusura vera non e un indice: e **materializzare il legame** in una tabella con la sua chiave esterna, cioe togliere il tutore da `athletes.data.guardians`. E una migrazione che tocca cinque letture diverse dello stesso campo (SOLL-02) e il proprietario del dominio: un WP, non una riga dentro una lane di correzioni. Fino ad allora il costo lo pagano solo le famiglie, una volta per lettura, e restituisce poche righe |
+| **PP02-D2** | **L'indirizzo di contatto di un tutore non apre un club in cui non ha gia una tessera**, ed e una **decisione**, non un difetto ([ADR-0114](18-decision-log.md#adr-0114--il-legame-di-un-tutore-non-e-la-sua-tessera-il-suo-indirizzo-non-e-un-legame-che-apre-da-solo)). Resta pero il fatto che la KB descrive quel percorso come il modo in cui «una famiglia entra senza riscattare un codice», e in un club nuovo quel modo **non funziona**: la segreteria scrive l'indirizzo, la famiglia si registra, e non trova nessun figlio finche non riceve un invito | Allargarlo capovolge una proprieta di sicurezza che la Wave 5 ha chiuso per nome — «un atleta di un altro club non e un figlio» — e con essa il rischio che un refuso su un dominio diffuso consegni a uno sconosciuto il fascicolo sanitario di un minore. **E una scelta del proprietario del prodotto**, e va fatta insieme al percorso di invito, non al posto suo |
+| **PP02-D3** | La prenotazione di una struttura da parte della famiglia vive in `clubs.structures[].bookings`, un array JSON: nessuna riga, nessuna versione, nessun controllo di concorrenza. Due famiglie che prenotano lo stesso campo nello stesso istante si sovrascrivono, e il conflitto lo cerca un `filter` in memoria | E la stessa famiglia di D2 (doppia rappresentazione dei dati di club) e la stessa che ADR-0098 ha chiuso per gli eventi e ADR-0101 per gli appuntamenti. La chiusura e una tabella `structure_bookings` con l'indice unico parziale: un WP con la sua migrazione |
