@@ -322,13 +322,28 @@ export async function POST(request: Request, context: Context) {
     await createClubNotifications({
       clubId: dashboard.club.id,
       title: "Nuova richiesta di prenotazione",
-      message: `${parentName} ha chiesto ${field.name} (${structure.name}) per ${booking.athleteName || "un atleta"}.`,
+      /*
+        **L'avviso dice dove si va a rispondere.**
+
+        La richiesta nasce `pending`, e `pending` **blocca** lo slot per
+        chiunque altro finche la data non passa: un avviso che non dice dove
+        confermarla o rifiutarla lascia il campo occupato e la famiglia in
+        attesa. Il posto c'e — la scheda della struttura elenca le prenotazioni
+        e ne cambia lo stato — ma la schermata che elenca le strutture mostra
+        solo un contatore, quindi da li non lo si trova.
+
+        Il modello delle notifiche non ha un campo per il collegamento: il
+        percorso viaggia in `data`, per chi lo sapra rendere, e intanto il
+        testo lo nomina.
+      */
+      message: `${parentName} ha chiesto ${field.name} (${structure.name}) per ${booking.athleteName || "un atleta"}. Confermala o rifiutala dalla scheda della struttura.`,
       type: "structure_booking",
       data: {
         structureId: structure.id,
         fieldId: field.id,
         bookingId: booking.id,
         athleteId: linkedAthlete.id,
+        link: `/structures/${structure.id}`,
       },
       audience: (role) => isManagementAccessRole(role),
     }).catch(() => 0);

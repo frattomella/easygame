@@ -78,6 +78,7 @@ const PRISMA_FILTER_KEYS = new Set([
   "has",
   "hasSome",
   "array_contains",
+  "isEmpty",
 ]);
 
 const matchesWhere = (record, where) => {
@@ -232,6 +233,26 @@ const matchesWhere = (record, where) => {
         doppio che lo ignora fa passare un test sul perimetro **restituendo
         tutte le righe** — che e il contrario di cio che quel test prova.
       */
+      /*
+        `isEmpty`, cioe «questa colonna array e vuota».
+
+        Terzo operatore trovato mancante, e la terza volta con la stessa
+        conseguenza: senza il ramo la condizione cadeva nel ripiego «non
+        supportata, quindi soddisfatta». Qui il costo era preciso — il filtro
+        della bacheca e
+        `OR: [{ athlete_ids: { isEmpty: true } }, { athlete_ids: { has: id } }]`,
+        e con il primo membro sempre vero l'`OR` intero era sempre vero: **la
+        bacheca non filtrava per figlio**. Nel verso opposto, su una fixture
+        senza la colonna, la condizione finiva nel ramo della chiave composta e
+        rispondeva falso, nascondendo una consegna che Postgres avrebbe
+        mostrato. Sbagliava in tutti e due i sensi.
+      */
+      if ("isEmpty" in condition) {
+        const lista = Array.isArray(value) ? value : [];
+        if (Boolean(condition.isEmpty) !== (lista.length === 0)) return false;
+        continue;
+      }
+
       if ("hasSome" in condition) {
         const lista = Array.isArray(value) ? value : [];
         const cercati = Array.isArray(condition.hasSome)

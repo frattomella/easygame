@@ -138,3 +138,52 @@ test("un array vuoto in archivio non corrisponde a niente", async () => {
     false,
   );
 });
+
+/* ==================================================================== */
+/*  `isEmpty` — il terzo operatore trovato mancante                      */
+/* ==================================================================== */
+
+const consegne = () => ({
+  communicationDelivery: [
+    { id: "a-tutti", organization_id: "club", athlete_ids: [] },
+    { id: "solo-marco", organization_id: "club", athlete_ids: ["marco"] },
+    { id: "solo-giulia", organization_id: "club", athlete_ids: ["giulia"] },
+  ],
+});
+
+const bacheca = async (athleteId) => {
+  const fake = createFakePrisma(consegne());
+  const righe = await fake.client.communicationDelivery.findMany({
+    where: {
+      organization_id: "club",
+      OR: [{ athlete_ids: { isEmpty: true } }, { athlete_ids: { has: athleteId } }],
+    },
+  });
+  return righe.map((r) => r.id).sort();
+};
+
+test("isEmpty distingue l'array vuoto da quello pieno", async () => {
+  /*
+    E il filtro vero della bacheca (W6-13): «gli avvisi per tutti, piu quelli
+    che nominano **questo** figlio». Senza il ramo `isEmpty` il primo membro
+    dell'OR era sempre vero — condizione non supportata, quindi soddisfatta —
+    e l'OR intero con lui: la bacheca **non filtrava per figlio**, e la
+    famiglia con due figli vedeva su entrambi gli avvisi dell'altro.
+
+    Nessun test comportamentale esercitava questa proprieta: l'unico presidio
+    cercava la stringa `athlete_ids: { isEmpty: true }` nel sorgente.
+  */
+  assert.deepEqual(await bacheca("marco"), ["a-tutti", "solo-marco"]);
+  assert.deepEqual(await bacheca("giulia"), ["a-tutti", "solo-giulia"]);
+});
+
+test("isEmpty: false vuole l'array pieno", async () => {
+  const fake = createFakePrisma(consegne());
+  const righe = await fake.client.communicationDelivery.findMany({
+    where: { athlete_ids: { isEmpty: false } },
+  });
+  assert.deepEqual(
+    righe.map((r) => r.id).sort(),
+    ["solo-giulia", "solo-marco"],
+  );
+});

@@ -33,10 +33,29 @@ export function AccessAreaGuard({ children }: { children: React.ReactNode }) {
     () => (linkedAthleteKey ? linkedAthleteKey.split(",") : []),
     [linkedAthleteKey],
   );
+  /*
+    **La schermata di scelta del figlio non chiede una tessera.**
+
+    PP-02 §A ha aperto l'area famiglia a chi e **tutore collegato** anche senza
+    riga in `organization_users`: e la situazione di chi ha ricevuto un invito
+    e non ne ha mai riscattato uno, o di chi la tessera l'ha persa in un
+    travaso. Il server risponde correttamente — `/api/v1/family/children` e
+    autorizzata dal **legame**, non dal ruolo — ma nessuna di quelle risposte
+    arrivava a una persona: senza tessera non c'e `activeClub`, questa guardia
+    negava, e il tutore veniva depositato su `/account` senza club e senza
+    figli. Nemmeno la schermata «Nessun figlio collegato» riusciva a comparire.
+
+    Qui la porta si apre alla sola schermata di **scelta**, che di suo non
+    mostra niente: chiede al server quali figli ci sono, e se non ce ne sono lo
+    dice. Le tredici pagine dentro l'area continuano a passare da
+    `canAccessPath`, e ognuna dal legame con quel figlio.
+  */
+  const scegliFiglio = pathname === "/parent-view";
+
   const allowed = Boolean(
     user &&
-      activeClub?.id &&
-      canAccessPath(role, pathname, { linkedAthleteIds }),
+      (scegliFiglio ||
+        (activeClub?.id && canAccessPath(role, pathname, { linkedAthleteIds }))),
   );
 
   useEffect(() => {

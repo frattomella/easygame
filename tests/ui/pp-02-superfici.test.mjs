@@ -588,3 +588,27 @@ test("§V · la schermata del club dice quando ha chiuso la porta senza volerlo"
     "chi chiude la porta deve vederla chiusa",
   );
 });
+
+test("§W · la schermata di scelta del figlio non chiede una tessera", () => {
+  const guardia = senzaCommenti(leggi("components/auth/access-area-guard.tsx"));
+
+  /*
+    §A ha aperto l'area famiglia a chi e tutore collegato **anche senza riga in
+    `organization_users`**, e il server risponde correttamente. Ma nessuna di
+    quelle risposte arrivava a una persona: senza tessera non c'e
+    `activeClub`, la guardia negava, e il tutore finiva su `/account` senza
+    club e senza figli — nemmeno la schermata «Nessun figlio collegato»
+    riusciva a comparire.
+
+    La sonda di §A chiamava `listParentChildren` direttamente: e la stessa
+    lezione, applicata al dominio e non al percorso del browser.
+  */
+  assert.ok(
+    guardia.includes('pathname === "/parent-view"'),
+    "la scelta del figlio e l'ingresso, e non puo chiedere cio che l'ingresso deve procurare",
+  );
+  assert.ok(
+    guardia.includes("scegliFiglio ||"),
+    "la porta si apre alla sola schermata di scelta, non alle tredici pagine dentro",
+  );
+});
