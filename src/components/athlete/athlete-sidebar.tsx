@@ -9,13 +9,16 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Dumbbell,
   FileText,
+  History,
   Home,
   LogOut,
   Megaphone,
   Stethoscope,
   Trophy,
   UserCircle,
+  Users,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -36,15 +39,18 @@ import {
  * Un menu che elenca cio che non si puo fare non e un menu: e un elenco di
  * porte chiuse, e dice a chi lo legge che il prodotto non e per lui.
  *
- * Qui ci sono nove voci, e sono tutte cose che un atleta puo davvero fare.
+ * Qui ci sono tredici voci, e sono tutte cose che un atleta puo davvero fare.
  */
 
 export const ATHLETE_NAV_ITEMS = [
   { href: "/athlete-dashboard", label: "Home", icon: Home },
+  { href: "/athlete-dashboard/squadre", label: "Le mie squadre", icon: Users },
   { href: "/athlete-dashboard/calendario", label: "Calendario", icon: CalendarDays },
+  { href: "/athlete-dashboard/allenamenti", label: "Allenamenti", icon: Dumbbell },
   { href: "/athlete-dashboard/convocazioni", label: "Convocazioni", icon: ClipboardCheck },
   { href: "/athlete-dashboard/gare", label: "Gare", icon: Trophy },
   { href: "/athlete-dashboard/presenze", label: "Presenze", icon: ClipboardCheck },
+  { href: "/athlete-dashboard/storico", label: "Storico", icon: History },
   { href: "/athlete-dashboard/bacheca", label: "Bacheca", icon: Megaphone },
   { href: "/athlete-dashboard/notifiche", label: "Notifiche", icon: Bell },
   { href: "/athlete-dashboard/documenti", label: "Documenti", icon: FileText },

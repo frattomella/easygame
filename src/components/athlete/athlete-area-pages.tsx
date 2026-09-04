@@ -6,10 +6,12 @@ import {
   CheckCircle2,
   ClipboardCheck,
   FileText,
+  History,
   Megaphone,
   ShieldAlert,
   Stethoscope,
   Trophy,
+  Users,
   XCircle,
 } from "lucide-react";
 
@@ -76,7 +78,68 @@ function Vuoto({ testo }: { testo: string }) {
   );
 }
 
-function EventoRiga({ evento }: { evento: any }) {
+/**
+ * **Le etichette, in italiano, e solo quando dicono qualcosa.**
+ *
+ * `attendanceStatus` e `participationStatus` sono identificativi tecnici —
+ * `present`, `not_called`, `unknown` — e la riga li stampava tali e quali su una
+ * schermata che spesso legge un ragazzino. E lo stesso difetto che l'area aveva
+ * gia sugli appuntamenti (`cancelled_by_family`) e sui documenti
+ * (`under_review`), corretto li e rimasto qui.
+ *
+ * `unknown` non e uno stato: e l'assenza di una risposta. Un riquadro grigio che
+ * dice «Sconosciuto» accanto a ogni allenamento non informa nessuno, e nasconde
+ * quelli che invece una risposta ce l'hanno. Non si mostra.
+ */
+const ETICHETTA_PRESENZA: Record<string, string> = {
+  present: "Presente",
+  absent: "Assente",
+};
+
+const ETICHETTA_PARTECIPAZIONE: Record<string, string> = {
+  participated: "Hai giocato",
+  called: "Convocato",
+  not_called: "Non convocato",
+};
+
+/**
+ * Le squadre **dell'atleta** che questo evento riguarda.
+ *
+ * L'evento porta gli identificativi di tutte le sue categorie
+ * (`club_events.category_ids`, ADR-0111); qui si tengono quelle che sono anche
+ * sue, che e la risposta alla domanda vera — «con quale delle mie squadre ci
+ * vado?». Un allenamento congiunto dichiarava il nome della sola categoria
+ * **primaria**, che sull'atleta della seconda e il nome di una squadra che non
+ * e la sua.
+ *
+ * Se l'incrocio e vuoto si ricade su `categoryName`: meglio l'etichetta della
+ * primaria che nessuna etichetta.
+ */
+const squadreDellEvento = (
+  evento: any,
+  mie: AthleteAreaData["categories"],
+): string[] => {
+  const ids = Array.isArray(evento?.categories) ? evento.categories : [];
+  const nomi = (mie || [])
+    .filter((categoria) => ids.includes(categoria.id))
+    .map((categoria) => categoria.name);
+
+  if (nomi.length) return nomi;
+  return evento?.categoryName ? [String(evento.categoryName)] : [];
+};
+
+function EventoRiga({
+  evento,
+  categorie = [],
+}: {
+  evento: any;
+  categorie?: AthleteAreaData["categories"];
+}) {
+  const squadre = squadreDellEvento(evento, categorie);
+  const presenza = ETICHETTA_PRESENZA[String(evento.attendanceStatus || "")];
+  const partecipazione =
+    ETICHETTA_PARTECIPAZIONE[String(evento.participationStatus || "")];
+
   return (
     <li className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
@@ -90,11 +153,22 @@ function EventoRiga({ evento }: { evento: any }) {
         </p>
       </div>
       <div className="flex shrink-0 flex-wrap gap-2">
-        {evento.categoryName ? (
-          <Badge variant="secondary">{evento.categoryName}</Badge>
+        {squadre.map((nome) => (
+          <Badge key={nome} variant="secondary">
+            {nome}
+          </Badge>
+        ))}
+        {presenza ? (
+          <Badge
+            variant={
+              evento.attendanceStatus === "present" ? "default" : "outline"
+            }
+          >
+            {presenza}
+          </Badge>
         ) : null}
-        {evento.attendanceStatus ? (
-          <Badge variant="outline">{evento.attendanceStatus}</Badge>
+        {partecipazione ? (
+          <Badge variant="outline">{partecipazione}</Badge>
         ) : null}
         {evento.status === "cancelled" ? (
           <Badge variant="destructive">Annullato</Badge>
@@ -223,7 +297,11 @@ export function AthleteHome() {
             {prossimi.length ? (
               <ul className="space-y-2">
                 {prossimi.map((evento: any) => (
-                  <EventoRiga key={String(evento.id)} evento={evento} />
+                  <EventoRiga
+                    key={String(evento.id)}
+                    evento={evento}
+                    categorie={data.categories}
+                  />
                 ))}
               </ul>
             ) : (
@@ -265,6 +343,273 @@ export function AthleteHome() {
   );
 }
 
+/* ------------------------------------------------------- le mie squadre - */
+
+/**
+ * **«Le mie squadre».**
+ *
+ * Un atleta puo stare in piu categorie — la tabella
+ * `athlete_category_memberships` esiste da W6-14, con `is_primary` e `site_id`
+ * — e l'area gliene mostrava i nomi **in un riquadro della home**, come
+ * decorazione sotto il saluto. Non c'era nessun posto in cui rispondere a «in
+ * quali squadre sono, dove si allenano, e per quale stagione»: la sola domanda
+ * che un ragazzo si fa quando apre il prodotto per la prima volta.
+ *
+ * La sede esce come identificativo (`siteId`) e non come nome — la proiezione
+ * non porta il catalogo delle sedi del club, e portarcelo per un'etichetta
+ * vorrebbe dire far uscire l'organigramma della societa da un elenco chiuso.
+ * Dove il nome non c'e, non si stampa un identificativo: si tace.
+ */
+export function AthleteTeams() {
+  const { data } = useAthleteArea();
+  if (!data) return null;
+
+  const categorie = data.categories || [];
+  const conteggio = (ids: string[]) =>
+    [
+      ...(data.trainings.upcoming || []),
+      ...(data.trainings.history || []),
+      ...(data.matches.upcoming || []),
+      ...(data.matches.history || []),
+    ].filter((evento: any) =>
+      Array.isArray(evento.categories)
+        ? evento.categories.some((id: string) => ids.includes(id))
+        : false,
+    ).length;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Users className="h-4 w-4" />
+            Le mie squadre
+          </CardTitle>
+          <CardDescription>
+            {data.club.name}
+            {data.club.seasonLabel
+              ? ` · stagione ${data.club.seasonLabel}`
+              : ""}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {categorie.length ? (
+            <ul className="space-y-2">
+              {categorie.map((categoria) => (
+                <li
+                  key={categoria.id}
+                  className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-slate-900">
+                      {categoria.name}
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      {conteggio([categoria.id])} fra allenamenti e gare in
+                      questa stagione
+                    </p>
+                  </div>
+                  {categoria.isPrimary ? (
+                    <Badge className="shrink-0">Squadra principale</Badge>
+                  ) : (
+                    <Badge variant="secondary" className="shrink-0">
+                      Anche in questa
+                    </Badge>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Vuoto testo="La tua societa non ti ha ancora assegnato a una squadra." />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">La mia societa</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-1 text-sm text-slate-700">
+          <p className="font-medium text-slate-900">{data.club.name}</p>
+          {data.club.city ? (
+            <p>
+              {data.club.city}
+              {data.club.province ? ` (${data.club.province})` : ""}
+            </p>
+          ) : null}
+          {data.club.contactEmail ? <p>{data.club.contactEmail}</p> : null}
+          {data.club.contactPhone ? <p>{data.club.contactPhone}</p> : null}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------- allenamenti - */
+
+/**
+ * **«Allenamenti».**
+ *
+ * Erano divisi in due meta che nessuna schermata teneva insieme: i prossimi nel
+ * calendario, quelli svolti sotto le presenze. Un atleta che voglia guardare i
+ * **propri allenamenti** — e non il calendario, e non la propria frequenza —
+ * doveva aprire due pagine e sapere che erano due.
+ */
+export function AthleteTrainings() {
+  const { data } = useAthleteArea();
+  if (!data) return null;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CalendarDays className="h-4 w-4" />
+            In programma
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data.trainings.upcoming?.length ? (
+            <ul className="space-y-2">
+              {data.trainings.upcoming.map((evento: any) => (
+                <EventoRiga
+                  key={String(evento.id)}
+                  evento={evento}
+                  categorie={data.categories}
+                />
+              ))}
+            </ul>
+          ) : (
+            <Vuoto testo="Nessun allenamento in programma." />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Gia svolti</CardTitle>
+          <CardDescription>
+            Accanto a ognuno c&apos;e come sei stato segnato all&apos;appello.
+            Se qualcosa non torna, parlane con il tuo allenatore.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {data.trainings.history?.length ? (
+            <ul className="space-y-2">
+              {data.trainings.history.map((evento: any) => (
+                <EventoRiga
+                  key={String(evento.id)}
+                  evento={evento}
+                  categorie={data.categories}
+                />
+              ))}
+            </ul>
+          ) : (
+            <Vuoto testo="Nessun allenamento registrato." />
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------- storico - */
+
+/**
+ * **«Storico», nella forma minima che V1 puo davvero sostenere.**
+ *
+ * Non e uno storico per stagione, e la pagina lo **dice** invece di lasciarlo
+ * credere: la proiezione dell'area porta la stagione **attiva** e nient'altro,
+ * perche `getParentDashboardData` legge gli eventi del club senza partizionarli
+ * per stagione. Una pagina che disegnasse un selettore di stagioni mostrando
+ * sempre gli stessi numeri sarebbe peggio di una che non ce l'ha: direbbe una
+ * cosa falsa con piu convinzione.
+ *
+ * Quello che c'e e vero: la stagione in corso, le squadre, quanto si e fatto e
+ * con che frequenza.
+ */
+export function AthleteHistory() {
+  const { data } = useAthleteArea();
+  if (!data) return null;
+
+  const squadre = (data.categories || []).map((c) => c.name).join(", ");
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <History className="h-4 w-4" />
+            {data.club.seasonLabel
+              ? `Stagione ${data.club.seasonLabel}`
+              : "Questa stagione"}
+          </CardTitle>
+          <CardDescription>
+            {squadre || "Nessuna squadra assegnata"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
+          <div>
+            <p className="text-2xl font-semibold text-slate-900">
+              {data.season.trainingsPlayed}
+            </p>
+            <p className="text-xs text-slate-500">Allenamenti svolti</p>
+          </div>
+          <div>
+            <p className="text-2xl font-semibold text-slate-900">
+              {data.season.matchesPlayed}
+            </p>
+            <p className="text-xs text-slate-500">Gare giocate</p>
+          </div>
+          <div>
+            <p className="text-2xl font-semibold text-emerald-700">
+              {data.attendance.present}
+            </p>
+            <p className="text-xs text-slate-500">Presenze</p>
+          </div>
+          <div>
+            <p className="text-2xl font-semibold text-slate-900">
+              {data.attendance.rate}%
+            </p>
+            <p className="text-xs text-slate-500">Frequenza</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Le gare che hai giocato</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data.matches.history?.length ? (
+            <ul className="space-y-2">
+              {data.matches.history.map((evento: any) => (
+                <EventoRiga
+                  key={String(evento.id)}
+                  evento={evento}
+                  categorie={data.categories}
+                />
+              ))}
+            </ul>
+          ) : (
+            <Vuoto testo="Nessuna gara giocata in questa stagione." />
+          )}
+        </CardContent>
+      </Card>
+
+      {/*
+        Dichiarare il limite e parte della pagina, non una nota a pie'.
+        Un ragazzo al secondo anno si aspetta di trovare il primo, e senza
+        questa riga penserebbe che il prodotto l'abbia perso.
+      */}
+      <p className="px-1 text-xs text-slate-500">
+        Qui c&apos;e la stagione in corso. Le stagioni precedenti le conserva la
+        tua societa: chiedile in segreteria.
+      </p>
+    </div>
+  );
+}
+
 /* --------------------------------------------------------- calendario --- */
 
 export function AthleteCalendar() {
@@ -284,7 +629,11 @@ export function AthleteCalendar() {
           {data.trainings.upcoming?.length ? (
             <ul className="space-y-2">
               {data.trainings.upcoming.map((evento: any) => (
-                <EventoRiga key={String(evento.id)} evento={evento} />
+                <EventoRiga
+                  key={String(evento.id)}
+                  evento={evento}
+                  categorie={data.categories}
+                />
               ))}
             </ul>
           ) : (
@@ -304,7 +653,11 @@ export function AthleteCalendar() {
           {data.matches.upcoming?.length ? (
             <ul className="space-y-2">
               {data.matches.upcoming.map((evento: any) => (
-                <EventoRiga key={String(evento.id)} evento={evento} />
+                <EventoRiga
+                  key={String(evento.id)}
+                  evento={evento}
+                  categorie={data.categories}
+                />
               ))}
             </ul>
           ) : (
@@ -330,7 +683,11 @@ export function AthleteMatches() {
           {data.matches.upcoming?.length ? (
             <ul className="space-y-2">
               {data.matches.upcoming.map((evento: any) => (
-                <EventoRiga key={String(evento.id)} evento={evento} />
+                <EventoRiga
+                  key={String(evento.id)}
+                  evento={evento}
+                  categorie={data.categories}
+                />
               ))}
             </ul>
           ) : (
@@ -346,7 +703,11 @@ export function AthleteMatches() {
           {data.matches.history?.length ? (
             <ul className="space-y-2">
               {data.matches.history.map((evento: any) => (
-                <EventoRiga key={String(evento.id)} evento={evento} />
+                <EventoRiga
+                  key={String(evento.id)}
+                  evento={evento}
+                  categorie={data.categories}
+                />
               ))}
             </ul>
           ) : (
@@ -520,7 +881,11 @@ export function AthleteAttendance() {
           {data.trainings.history?.length ? (
             <ul className="space-y-2">
               {data.trainings.history.map((evento: any) => (
-                <EventoRiga key={String(evento.id)} evento={evento} />
+                <EventoRiga
+                  key={String(evento.id)}
+                  evento={evento}
+                  categorie={data.categories}
+                />
               ))}
             </ul>
           ) : (

@@ -775,6 +775,32 @@ const proveArea = async () => {
     JSON.stringify(presenze).includes("SEGRETO-PRESENZA-B"),
   );
 
+  /*
+    P-19 — **Le categorie dell'evento arrivano fino allo schermo.**
+
+    ADR-0111 ha messo tutte le categorie in colonna, ma l'area atleta proiettava
+    la sola `categoryName`, cioe l'etichetta della **primaria**. Sull'atleta
+    della seconda categoria quella etichetta e il nome di una squadra che non e
+    la sua. La riga della schermata incrocia `categories` con le proprie: qui si
+    verifica che l'incrocio abbia di che lavorare.
+  */
+  const congiunto = (dati.trainings?.upcoming || []).find((evento) =>
+    String(evento.title || "").includes("congiunto"),
+  );
+  prova(
+    "P-19 l'evento porta l'elenco delle sue categorie, non solo la primaria",
+    true,
+    Array.isArray(congiunto?.categories) && congiunto.categories.includes(CAT_C),
+    JSON.stringify(congiunto?.categories),
+  );
+  prova(
+    "P-19b e una di quelle categorie e una squadra di Aldo",
+    true,
+    (dati.categories || []).some((categoria) =>
+      (congiunto?.categories || []).includes(categoria.id),
+    ),
+  );
+
   /* P-18: le notifiche sono quelle indirizzate a lui. */
   const notifiche = (dati.notifications || []).map((n) => n.title);
   prova(

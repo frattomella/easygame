@@ -1296,6 +1296,22 @@ export const CAMPI_AREA_ATLETA = {
     "location",
     "status",
     "categoryName",
+    /*
+      **Le altre categorie dell'evento** (PP-04, sopra ADR-0111).
+
+      `categoryName` e l'etichetta della sola **primaria**. Su un allenamento
+      congiunto — che e il caso in cui questa domanda si pone — l'atleta ci
+      entra spesso per la **seconda** categoria, e leggeva il nome di una
+      squadra che non e la sua.
+
+      Qui escono gli **identificativi**, che e cio che la colonna
+      `club_events.category_ids` contiene; i nomi li mette la schermata
+      incrociandoli con `categories`, cioe con le squadre **di questo atleta**.
+      Portare qui il catalogo delle categorie del club vorrebbe dire far uscire
+      dall'elenco chiuso l'organigramma della societa per stampare
+      un'etichetta.
+    */
+    "categories",
     "opponent",
     "attendanceStatus",
   ],
@@ -1307,6 +1323,7 @@ export const CAMPI_AREA_ATLETA = {
     "location",
     "status",
     "categoryName",
+    "categories",
     "opponent",
     "participationStatus",
   ],

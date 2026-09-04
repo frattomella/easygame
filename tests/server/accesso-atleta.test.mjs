@@ -1177,3 +1177,97 @@ test("ogni rotta dell'accesso atleta chiede la sessione, tranne il riscatto", ()
     );
   }
 });
+
+/* ==================================================================== *
+ *  PP-04: il menu, le rotte e i titoli devono dire la stessa cosa
+ * ==================================================================== */
+
+/**
+ * **Il difetto tipico non e il codice mancante, e il codice irraggiungibile**
+ * (CLAUDE.md §11 punto 8).
+ *
+ * Una pagina nuova dell'area atleta vive in tre posti che nessuno tiene
+ * insieme: il file di rotta sotto `app/athlete-dashboard/`, la voce in
+ * `ATHLETE_NAV_ITEMS` — che alimenta **sia** la sidebar del desktop **sia** il
+ * menu del telefono — e il titolo in `TITOLI` dentro il guscio. Chi ne dimentica
+ * uno ottiene, nell'ordine: una pagina che esiste e non si raggiunge; una voce
+ * di menu che porta a 404; un'intestazione che dice «La mia area» su ogni
+ * pagina.
+ *
+ * La Wave 6 ha trovato tre volte la prima forma. Qui i tre elenchi si
+ * confrontano fra loro: aggiungere una pagina senza cablarla fa fallire il
+ * test invece di passare inosservato.
+ *
+ * L'unica eccezione dichiarata e `/athlete-dashboard/attiva`, che **non e
+ * dentro l'area**: e la porta di chi ha appena ricevuto l'invito e non ha
+ * ancora una password, e per questo il layout la lascia fuori dalla guardia.
+ */
+test("PP-04 · ogni pagina dell'area atleta e nel menu, e ogni voce di menu ha la sua pagina", () => {
+  const FUORI_DALL_AREA = new Set(["/athlete-dashboard/attiva"]);
+
+  const cartella = path.join(RADICE, "app", "athlete-dashboard");
+  const rotte = new Set();
+  const visita = (corrente, prefisso) => {
+    for (const voce of readdirSync(corrente)) {
+      const completo = path.join(corrente, voce);
+      if (statSync(completo).isDirectory()) {
+        visita(completo, `${prefisso}/${voce}`);
+      } else if (voce === "page.tsx") {
+        rotte.add(prefisso);
+      }
+    }
+  };
+  visita(cartella, "/athlete-dashboard");
+
+  const sidebar = readFileSync(
+    path.join(RADICE, "components", "athlete", "athlete-sidebar.tsx"),
+    "utf8",
+  );
+  const elenco = sidebar.slice(
+    sidebar.indexOf("export const ATHLETE_NAV_ITEMS"),
+    sidebar.indexOf("] as const;"),
+  );
+  const voci = [...elenco.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]);
+
+  assert.ok(voci.length >= 10, "il menu dell'atleta ha le sue voci");
+
+  const guscio = readFileSync(
+    path.join(RADICE, "components", "athlete", "athlete-area-shell.tsx"),
+    "utf8",
+  );
+  const titoli = guscio.slice(
+    guscio.indexOf("const TITOLI"),
+    guscio.indexOf("const mobileNavSections"),
+  );
+
+  /* 1. Ogni voce di menu porta a una pagina che esiste davvero. */
+  for (const href of voci) {
+    assert.ok(
+      rotte.has(href),
+      `la voce di menu ${href} non ha un page.tsx: porta a 404`,
+    );
+    assert.ok(
+      titoli.includes(`"${href}"`),
+      `la voce di menu ${href} non ha un titolo nel guscio`,
+    );
+  }
+
+  /* 2. Ogni pagina dell'area e raggiungibile da quel menu. */
+  for (const rotta of rotte) {
+    if (FUORI_DALL_AREA.has(rotta)) continue;
+    assert.ok(
+      voci.includes(rotta),
+      `${rotta} esiste e nessun menu la raggiunge`,
+    );
+  }
+
+  /*
+    3. Il menu del telefono e **lo stesso elenco**, non una seconda copia.
+    Una copia diverge, e diverge in silenzio: e la forma con cui il difetto
+    si e ripresentato ogni volta.
+  */
+  assert.ok(
+    guscio.includes("ATHLETE_NAV_ITEMS.map("),
+    "il menu del telefono deve derivare da ATHLETE_NAV_ITEMS, non riscriverlo",
+  );
+});

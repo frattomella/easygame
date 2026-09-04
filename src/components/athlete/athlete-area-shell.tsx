@@ -20,16 +20,19 @@ import { useAthleteArea } from "./athlete-area-context";
  * **Non monta la sidebar gestionale** (W6-33), e non e una differenza estetica:
  * la sidebar del club elenca trenta voci che per un atleta rimbalzano sulla
  * guardia. Qui il menu del desktop e quello del telefono mostrano **le stesse**
- * dieci voci, che e il difetto che la Wave 6 ha trovato tre volte — una pagina
+ * tredici voci, che e il difetto che la Wave 6 ha trovato tre volte — una pagina
  * raggiungibile da un menu e non dall'altro.
  */
 
 const TITOLI: Record<string, string> = {
   "/athlete-dashboard": "La mia area",
+  "/athlete-dashboard/squadre": "Le mie squadre",
   "/athlete-dashboard/calendario": "Calendario",
+  "/athlete-dashboard/allenamenti": "Allenamenti",
   "/athlete-dashboard/convocazioni": "Convocazioni",
   "/athlete-dashboard/gare": "Gare",
   "/athlete-dashboard/presenze": "Presenze",
+  "/athlete-dashboard/storico": "Storico",
   "/athlete-dashboard/bacheca": "Bacheca",
   "/athlete-dashboard/notifiche": "Notifiche",
   "/athlete-dashboard/documenti": "Documenti",
