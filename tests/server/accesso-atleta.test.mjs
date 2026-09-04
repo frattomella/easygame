@@ -69,6 +69,16 @@ const seed = () => ({
     { id: "m2", organization_id: CLUB, user_id: ALLENATORE, role: "trainer" },
     { id: "m3", organization_id: CLUB, user_id: GENITORE, role: "parent" },
   ],
+  /*
+    **Tutti e tre maggiorenni, e la data c'e.**
+
+    Non e un dettaglio della fixture: da ADR-0116 un atleta minorenne — o
+    senza data di nascita, che si tratta allo stesso modo — non riceve un
+    invito senza la conferma esplicita sulla responsabilita genitoriale.
+    Questi test misurano l'invito, il reinvio, il cambio di indirizzo e la
+    revoca, non quella conferma: il minore ha il suo file,
+    `pp-04-minori.test.mjs`, dove la conferma e il soggetto.
+  */
   athlete: [
     {
       id: ATLETA,
@@ -76,6 +86,7 @@ const seed = () => ({
       user_id: null,
       first_name: "Luca",
       last_name: "Rossi",
+      birth_date: new Date("1998-04-12T00:00:00.000Z"),
       status: "active",
       created_at: new Date("2026-01-01T00:00:00.000Z"),
       data: { email: "luca@famiglia.it", phone: "3330000000" },
@@ -86,6 +97,7 @@ const seed = () => ({
       user_id: null,
       first_name: "Sara",
       last_name: "Bianchi",
+      birth_date: new Date("1999-07-03T00:00:00.000Z"),
       status: "active",
       created_at: new Date("2026-01-02T00:00:00.000Z"),
       data: {},
@@ -96,6 +108,7 @@ const seed = () => ({
       user_id: null,
       first_name: "Marco",
       last_name: "Verdi",
+      birth_date: new Date("1997-11-21T00:00:00.000Z"),
       status: "active",
       created_at: new Date("2026-01-03T00:00:00.000Z"),
       data: {},

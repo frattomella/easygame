@@ -1073,6 +1073,27 @@ dallo stato «invitato» quel ramo e nullo, e con esso sparivano «a chi» e
 «quando». Nessuno di questi campi e una colonna: si derivano dalle righe
 d'invito, come lo stato di una rata.
 
+Porta inoltre `isMinor`
+([ADR-0116](18-decision-log.md#adr-0116--un-accesso-a-nome-di-un-minore-si-dichiara-non-si-clicca)),
+vero anche quando la data di nascita **manca del tutto**. Non esce la data:
+la domanda e «serve la conferma?», e la risposta e un booleano.
+
+### `acknowledgeMinor`, sull'invito e sul cambio di indirizzo
+
+`POST /api/v1/athlete-accounts/:athleteId` e
+`POST /api/v1/athlete-accounts/:athleteId/email` accettano
+`acknowledgeMinor: boolean`. Quando l'atleta risulta minorenne — o non ha una
+data di nascita — il valore **deve essere esattamente `true`**: `"true"`,
+`"false"`, `1` e `"on"` sono rifiutati, perche una stringa non vuota e truthy
+ed e cio che arriva da una form mal serializzata.
+
+Il rifiuto e un **400**, non un 403, e il messaggio **non contiene «Accesso
+negato»**: il ruolo puo compiere questa azione, e la dichiarazione a mancare.
+
+`POST /api/v1/athlete-accounts/:athleteId/resend` **non** lo chiede: rimanda lo
+stesso link alla stessa casella, e la dichiarazione e gia nell'audit
+dell'invito che sta sostituendo.
+
 ## Un parametro di vista invece di una rotta nuova
 
 `GET /api/v1/document-submissions?view=queue` restituisce la coda operativa del

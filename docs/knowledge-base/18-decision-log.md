@@ -6313,3 +6313,82 @@ non datare. Adesso la revoca scrive `revoked_at` sull'invito **accettato**, e
 non ne tocca lo `status`: quell'invito e stato accettato davvero, e le due
 colonne dicono due cose diverse — quando e stato accolto, e quando cio che ne
 era nato e stato tolto.
+
+---
+
+## ADR-0116 — Un accesso a nome di un minore si dichiara, non si clicca
+
+**Data:** 2026-09-04 · **Lane:** PP-04 · **Stato:** adottata
+
+**Il fatto.** `sendAthleteAccountInvite` non guardava la data di nascita. La
+segreteria scriveva un indirizzo, e un dodicenne aveva un accesso EasyGame a
+suo nome — con la propria area, i propri allenamenti, le proprie presenze,
+lo stato del proprio certificato e i propri recapiti modificabili — senza che
+nulla, da nessuna parte, registrasse che qualcuno lo avesse autorizzato.
+
+Nel repository non esiste una policy che risponda a: **un minore di quale eta
+puo avere un account proprio? chi lo autorizza? come si prova che l'ha
+autorizzato?** Non c'e una definizione di consenso per l'accesso digitale in
+`src/lib/consents/catalog.ts` — le quattro standard sono privacy, marketing,
+immagini e terzi — e non c'era nessun controllo sull'eta in
+`src/lib/server/athlete-accounts.ts`.
+
+Ma l'assenza di controllo **non e** l'assenza di una policy: e la policy «si
+puo sempre», presa da nessuno e scritta in nessun posto. E la peggiore delle
+tre possibili, perche e l'unica che nessuno ha deciso.
+
+**La decisione.** Il codice **non decide** quale sia la regola giusta: non
+vieta — vietare deciderebbe una policy tanto quanto permettere — e non inventa
+una soglia di eta diversa da quella che il prodotto usa gia. Pretende che la
+decisione sia **presa da una persona e registrata**.
+
+- `athleteIsMinor(birth_date, now)`: diciotto anni, e **una data assente o
+  illeggibile conta come minore**. Sono la soglia e la regola di lettura di
+  `src/lib/server/data-subject.ts` (ADR-0105): in una societa sportiva
+  un'anagrafica senza data di nascita e quasi sempre un ragazzo inserito in
+  fretta, e il default prudente costa una conferma in piu.
+- `sendAthleteAccountInvite` e `changeAthleteAccountEmail` chiedono
+  `acknowledgeMinor: true` — **esattamente `true`**, non un truthy: `"false"` e
+  una stringa non vuota, ed e cio che arriva da una form mal serializzata.
+- Il rifiuto **non porta la stringa «Accesso negato»** e non e un 403: il ruolo
+  puo fare questa cosa, e la dichiarazione a mancare. Il route handler generico
+  lo mappa su 400, che e cio che e.
+- Il rifiuto sta **prima** di `risolviUtenza`: un rifiuto piu tardi lascerebbe
+  in archivio un'utenza senza credenziali nata da un gesto che il dominio ha
+  poi respinto — e sarebbe l'utenza di un minore.
+- L'audit dell'invito porta `minor` e `guardian_acknowledged`. Sul maggiorenne
+  il secondo vale `null` e non `false`: chi legge il registro fra un anno deve
+  distinguere «non era un minore» da «era un minore e nessuno ha confermato»,
+  che non puo esistere.
+- `readAthleteAccountState` espone `isMinor`, e **non** la data di nascita: la
+  domanda e «serve la conferma?», e la risposta e un booleano.
+
+**Il reinvio non la richiede una seconda volta.** La decisione e gia stata
+presa e registrata quando l'invito che si sta rimandando e nato, e il link va
+alla **stessa** casella. Chiederla a ogni clic trasformerebbe una dichiarazione
+in una casella da spuntare, che e il modo in cui una dichiarazione smette di
+significare qualcosa. Il **cambio di indirizzo** la richiede eccome: quel link
+va a una casella diversa.
+
+**E la stessa forma di ADR-0105**, la cancellazione di un minore, che vive due
+pannelli piu sotto sulla stessa scheda: non un divieto, ma una conferma
+separata che lascia un nome, un'ora e un club accanto alla scelta. Il giorno in
+cui la policy vera arriva, questa e la riga che dice **chi** aveva deciso
+prima.
+
+### Le tre domande che restano aperte, e cosa fa il codice nel frattempo
+
+Sono decisioni legali e di prodotto: il repository le **registra**, non le
+prende. Il comportamento adottato e in ogni caso il piu conservativo, e
+dichiarato.
+
+| Domanda | Comportamento adottato | Perche |
+|---|---|---|
+| Un minore di N anni puo avere un accesso proprio? | **Si, se una persona lo dichiara autorizzato** dalla responsabilita genitoriale, e la dichiarazione resta nell'audit | Un divieto per eta sceglierebbe un N che nessuno ha scritto. La dichiarazione non sceglie nulla e conserva la prova |
+| Il tutore vede cosa scrive il minore nella propria area? | **No.** L'area atleta e di chi la apre; l'area famiglia mostra la scheda dell'atleta come il club la conosce, non le sue schermate | Nessuna schermata nuova, nessun dato nuovo verso il tutore: il piu conservativo e non aggiungere una sorveglianza che nessuno ha chiesto |
+| La revoca dell'accesso del tutore revoca anche quello dell'atleta? | **No.** I due accessi restano indipendenti (`revokeAthleteAccess` non tocca le tessere altrui, e lo sweep del genitore non tocca `athletes.user_id`) | Un accesso tolto per sbaglio si rimette con un invito; un accesso lasciato per sbaglio si toglie con un clic. I due errori non costano uguale a chi li subisce, e la revoca a catena non e reversibile con un gesto |
+
+**Se la policy vera dira il contrario**, il posto in cui scriverla e
+`revokeClubAccess` per la terza domanda e questo modulo per la prima; i test
+che le presidiano stanno in `tests/server/pp-04-minori.test.mjs` e sono le
+righe che verranno cambiate **di proposito** invece che per caso.

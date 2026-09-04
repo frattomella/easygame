@@ -135,6 +135,73 @@ const assertEmail = (value: string) => {
   }
 };
 
+/* ========================================================================= *
+ *  Il minorenne (PP-04, ADR-0116)
+ * ========================================================================= */
+
+/**
+ * **La maggiore eta, e perche la data mancante conta come minore.**
+ *
+ * Il numero e lo stesso di `src/lib/server/data-subject.ts` e la regola di
+ * lettura pure: una data assente o illeggibile **si tratta come minore**. In
+ * una societa sportiva un'anagrafica senza data di nascita e quasi sempre un
+ * ragazzo inserito in fretta, e il default prudente costa una conferma in piu
+ * (ADR-0105).
+ *
+ * I due valori sono ripetuti qui invece che importati, e non e una svista:
+ * `data-subject.ts` e il proprietario dei diritti dell'interessato e non
+ * esporta questa domanda — esporta un inventario polimorfo su sei indici che
+ * qui non serve a niente. Se la soglia cambiasse per legge, i due posti vanno
+ * cambiati insieme, ed e scritto in tutti e due.
+ */
+const ETA_MAGGIORE = 18;
+
+export const athleteIsMinor = (birthDate: unknown, now = new Date()) => {
+  if (!birthDate) return true;
+  const nato = new Date(birthDate as any);
+  if (Number.isNaN(nato.getTime())) return true;
+
+  const diciotto = new Date(nato);
+  diciotto.setFullYear(diciotto.getFullYear() + ETA_MAGGIORE);
+  return diciotto.getTime() > now.getTime();
+};
+
+/**
+ * **Dare un accesso proprio a un minore e una decisione, non un clic.**
+ *
+ * EasyGame non ha — e questa lane non se la inventa — una policy che dica se
+ * un tredicenne possa avere un accesso proprio, chi debba autorizzarlo, e come
+ * lo si prova. Finche quella policy non esiste, il comportamento e il piu
+ * conservativo che il prodotto sappia gia esprimere: **il gesto non passa in
+ * silenzio**. Chi lo compie dichiara, in modo esplicito e registrato
+ * nell'audit, che chi ha la responsabilita genitoriale lo ha autorizzato.
+ *
+ * E la stessa forma della cancellazione di un minore (ADR-0105): non un
+ * divieto — vietare deciderebbe una policy tanto quanto permettere — ma una
+ * conferma separata che lascia un nome, un'ora e un club accanto alla scelta.
+ * Il giorno in cui la policy vera arriva, questa e la riga che dice **chi**
+ * aveva deciso prima.
+ *
+ * Non e un errore di autorizzazione e **non porta la stringa «Accesso
+ * negato»**: il ruolo puo fare questa cosa, e la dichiarazione a mancare. Il
+ * route handler generico lo mappa quindi su 400, che e cio che e.
+ */
+const assertMinoreAutorizzato = (
+  atleta: { birth_date?: Date | string | null },
+  acknowledgeMinor: unknown,
+  now = new Date(),
+) => {
+  const minore = athleteIsMinor(atleta.birth_date, now);
+  if (minore && acknowledgeMinor !== true) {
+    throw new Error(
+      "Questo atleta risulta minorenne, o non ha una data di nascita in anagrafica: " +
+        "per aprirgli un accesso EasyGame serve la conferma esplicita che chi ne ha la " +
+        "responsabilita genitoriale lo ha autorizzato.",
+    );
+  }
+  return minore;
+};
+
 /*
   **Il token esiste in chiaro solo qui dentro.**
 
@@ -215,6 +282,8 @@ const caricaAtletaDelClubAttivo = async (
       user_id: true,
       first_name: true,
       last_name: true,
+      /* La data di nascita: e cio a cui `athleteIsMinor` risponde (ADR-0116). */
+      birth_date: true,
       data: true,
     },
   });
@@ -262,6 +331,15 @@ export type AthleteAccountState = {
    * in testa era falso.
    */
   status: "none" | "invited" | "active" | "revoked";
+  /**
+   * **Vero quando l'anagrafica dice minorenne, e anche quando non dice
+   * niente** (ADR-0116). Non e una decorazione della schermata: e il campo su
+   * cui il pannello sa di dover chiedere la conferma che il dominio pretende.
+   *
+   * Non esce la data di nascita, che qui non serve a niente: la domanda e
+   * «serve la conferma?», e la risposta e un booleano.
+   */
+  isMinor: boolean;
   /** L'utenza collegata, quando l'accesso e attivo. Mai l'hash, mai il token. */
   account: {
     userId: string;
@@ -390,6 +468,7 @@ export const readAthleteAccountState = async (
         : revocato
           ? "revoked"
           : "none",
+    isMinor: athleteIsMinor(atleta.birth_date, adesso),
     lastInviteEmail: ultimo?.email ?? null,
     lastInviteAt: iso(ultimo?.sent_at),
     revokedAt: revocato
@@ -553,7 +632,16 @@ export type AthleteInviteResult = {
  */
 export const sendAthleteAccountInvite = async (
   scope: AthleteAccountsScope,
-  input: { athleteId: string; email: string },
+  input: {
+    athleteId: string;
+    email: string;
+    /**
+     * Obbligatoriamente `true` quando l'atleta e minorenne, o quando la data
+     * di nascita manca (ADR-0116). Dichiara che chi ha la responsabilita
+     * genitoriale ha autorizzato l'accesso, e finisce nell'audit.
+     */
+    acknowledgeMinor?: boolean;
+  },
 ): Promise<AthleteInviteResult> => {
   await assertPuoGestireAccessi(scope, input.athleteId);
   const atleta = await caricaAtletaDelClubAttivo(scope, input.athleteId);
@@ -563,6 +651,14 @@ export const sendAthleteAccountInvite = async (
       "Questo atleta ha gia un accesso EasyGame attivo: revocalo prima di invitarne un altro",
     );
   }
+
+  /*
+    **Prima dell'email, e prima di creare l'utenza.** Un rifiuto che arrivasse
+    dopo `risolviUtenza` lascerebbe in archivio un'utenza senza credenziali
+    nata da un gesto che il dominio ha poi rifiutato: e un residuo, ed e per un
+    minore.
+  */
+  const minore = assertMinoreAutorizzato(atleta, input.acknowledgeMinor);
 
   const email = normalizeEmail(input.email);
   assertEmail(email);
@@ -666,6 +762,14 @@ export const sendAthleteAccountInvite = async (
       /* Un'utenza nuova o una che esisteva gia: e la domanda che si fa dopo. */
       account_created: creata,
       delivered,
+      /*
+        **Chi ha aperto un accesso a un minore, e quando** (ADR-0116). L'audit
+        porta gia attore, ruolo, club e ora: qui si aggiunge il fatto che
+        rende quella riga interessante, cioe che il soggetto era un minore e
+        che la responsabilita genitoriale e stata dichiarata.
+      */
+      minor: minore,
+      guardian_acknowledged: minore ? true : null,
     },
   });
 
@@ -741,9 +845,21 @@ export const resendAthleteAccountInvite = async (
 
   await chiudiInvitoVivo(atleta.organization_id, atleta.id, "revoked");
 
+  /*
+    **Il reinvio non chiede di nuovo la conferma sul minore**, e non e una
+    scappatoia: la decisione e gia stata presa e registrata quando l'invito che
+    stiamo rimandando e nato — stessa persona, stesso indirizzo, stesso link
+    verso la stessa casella. Chiederla di nuovo trasformerebbe una conferma in
+    una casella da spuntare a ogni clic, che e il modo in cui una conferma
+    smette di significare qualcosa.
+
+    Il cambio di indirizzo, che manda il link a una casella **diversa**, la
+    richiede eccome: vedi `changeAthleteAccountEmail`.
+  */
   return sendAthleteAccountInvite(scope, {
     athleteId: atleta.id,
     email: vivo.email,
+    acknowledgeMinor: true,
   });
 };
 
@@ -757,7 +873,16 @@ export const resendAthleteAccountInvite = async (
  */
 export const changeAthleteAccountEmail = async (
   scope: AthleteAccountsScope,
-  input: { athleteId: string; email: string },
+  input: {
+    athleteId: string;
+    email: string;
+    /**
+     * Come per il primo invito, e per la stessa ragione: il link va a una
+     * casella **diversa** da quella su cui la decisione era stata presa
+     * (ADR-0116).
+     */
+    acknowledgeMinor?: boolean;
+  },
 ): Promise<AthleteInviteResult> => {
   await assertPuoGestireAccessi(scope, input.athleteId);
   const atleta = await caricaAtletaDelClubAttivo(scope, input.athleteId);
@@ -773,7 +898,11 @@ export const changeAthleteAccountEmail = async (
 
   await chiudiInvitoVivo(atleta.organization_id, atleta.id, "revoked");
 
-  return sendAthleteAccountInvite(scope, { athleteId: atleta.id, email });
+  return sendAthleteAccountInvite(scope, {
+    athleteId: atleta.id,
+    email,
+    acknowledgeMinor: input.acknowledgeMinor,
+  });
 };
 
 /* ========================================================================= *

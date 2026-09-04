@@ -425,6 +425,8 @@ const proveInvito = async () => {
   const esito = await dominio.sendAthleteAccountInvite(scopeGestione(), {
     athleteId: ATLETA_A,
     email: UTENTE_A.email,
+    /* Aldo e nato nel 2012: da ADR-0116 serve la dichiarazione. Vedi P-60. */
+    acknowledgeMinor: true,
   });
   const serializzato = JSON.stringify(esito);
   prova(
@@ -451,6 +453,7 @@ const proveInvito = async () => {
       dominio.sendAthleteAccountInvite(scopeGestione(), {
         athleteId: ATLETA_A,
         email: "altro@pp04.invalid",
+        acknowledgeMinor: true,
       }),
     /gia un invito in corso/i,
   );
@@ -1541,6 +1544,211 @@ const proveRevoca = async () => {
 };
 
 /* ==================================================================== */
+/*  P-60…P-66 — il minore, dalla rotta vera                              */
+/* ==================================================================== */
+
+/**
+ * **La conferma sulla responsabilita genitoriale, misurata sulla rotta**
+ * (ADR-0116).
+ *
+ * Il test a fake Prisma — `tests/server/pp-04-minori.test.mjs` — misura il
+ * dominio. Qui si chiama `POST /api/v1/athlete-accounts/:id` con una sessione
+ * vera di chi ha il permesso, perche la lezione di PP-01 e che un servizio
+ * verde non implica una rotta corretta: il campo puo non essere letto dal
+ * corpo, o esserlo come truthy.
+ *
+ * Il club di questa sonda e gia stato cancellato dalle prove sulla revoca?
+ * No: `pulisci()` gira nel `finally` di `main`, e questa sezione ci arriva
+ * prima. Ma le prove sulla revoca hanno lasciato Aldo **senza tessera**, e la
+ * sonda semina qui i propri atleti invece di riusare i loro stati.
+ */
+const proveMinore = async () => {
+  console.log("\n— Il minore, e la decisione che nessuna policy scrive —");
+
+  const SESSIONE_GESTIONE = await sessionePer(PRESIDENTE);
+  const comePresidente = (url, opzioni = {}) =>
+    richiesta(url, {
+      token: SESSIONE_GESTIONE,
+      club: CLUB,
+      ruolo: "owner",
+      ...opzioni,
+    });
+
+  const nuovoAtleta = async (nome, birthDate) => {
+    const id = randomUUID();
+    await prisma.athlete.create({
+      data: {
+        id,
+        organization_id: CLUB,
+        first_name: nome,
+        last_name: "Minori",
+        status: "active",
+        category_id: CAT_A,
+        category_name: "Under 12",
+        birth_date: birthDate,
+        data: {},
+        updated_at: new Date(),
+      },
+    });
+    return id;
+  };
+
+  const anniFa = (anni) => {
+    const data = new Date();
+    data.setFullYear(data.getFullYear() - anni);
+    return data;
+  };
+
+  const MINORENNE = await nuovoAtleta("Nina", anniFa(12));
+  const SENZA_DATA = await nuovoAtleta("Ignoto", null);
+  const ADULTO = await nuovoAtleta("Adulto", anniFa(25));
+
+  /* P-60: la rotta rifiuta l'invito a un minore senza la dichiarazione. */
+  const senzaConferma = await leggi(
+    await rotte.accountAtleta.POST(
+      comePresidente(`/api/v1/athlete-accounts/${MINORENNE}`, {
+        method: "POST",
+        body: { email: "nina@pp04.invalid" },
+      }),
+      { params: { athleteId: MINORENNE } },
+    ),
+  );
+  prova("P-60 invitare un minore senza conferma: 400", 400, senzaConferma.status);
+  prova(
+    "P-60b e non resta nessun invito in archivio",
+    0,
+    await prisma.athleteAccountInvite.count({
+      where: { athlete_id: MINORENNE },
+    }),
+  );
+  prova(
+    "P-60c ne nessuna utenza nata dal gesto rifiutato",
+    0,
+    await prisma.user.count({ where: { email: "nina@pp04.invalid" } }),
+  );
+
+  /*
+    P-61: **il truthy**. `"false"` e una stringa non vuota, quindi truthy: e la
+    forma esatta con cui una casella mal serializzata autorizzerebbe da sola.
+  */
+  for (const finta of ["true", "false", 1, "on"]) {
+    const truthy = await leggi(
+      await rotte.accountAtleta.POST(
+        comePresidente(`/api/v1/athlete-accounts/${MINORENNE}`, {
+          method: "POST",
+          body: { email: "nina@pp04.invalid", acknowledgeMinor: finta },
+        }),
+        { params: { athleteId: MINORENNE } },
+      ),
+    );
+    prova(
+      `P-61 \`acknowledgeMinor: ${JSON.stringify(finta)}\` non e una dichiarazione: 400`,
+      400,
+      truthy.status,
+    );
+  }
+
+  /* P-62: con la dichiarazione vera l'invito parte. */
+  const conConferma = await leggi(
+    await rotte.accountAtleta.POST(
+      comePresidente(`/api/v1/athlete-accounts/${MINORENNE}`, {
+        method: "POST",
+        body: { email: "nina@pp04.invalid", acknowledgeMinor: true },
+      }),
+      { params: { athleteId: MINORENNE } },
+    ),
+  );
+  prova("P-62 con la dichiarazione l'invito parte: 201", 201, conConferma.status);
+  prova(
+    "P-62b e la risposta non porta ne token ne password",
+    true,
+    !/token|password/i.test(JSON.stringify(conConferma.corpo)),
+  );
+
+  /* P-63: la dichiarazione e nell'audit, con il nome di chi l'ha fatta. */
+  const rigaAudit = await prisma.auditLog.findFirst({
+    where: {
+      organization_id: CLUB,
+      resource: "athlete_account_invites",
+    },
+    orderBy: { created_at: "desc" },
+  });
+  prova(
+    "P-63 l'audit registra che il soggetto era un minore",
+    true,
+    rigaAudit?.metadata?.minor === true,
+    JSON.stringify(rigaAudit?.metadata),
+  );
+  prova(
+    "P-63b e che la responsabilita genitoriale e stata dichiarata",
+    true,
+    rigaAudit?.metadata?.guardian_acknowledged === true,
+  );
+  prova(
+    "P-63c accanto a chi l'ha fatta",
+    PRESIDENTE.id,
+    rigaAudit?.actor_user_id,
+  );
+
+  /* P-64: un'anagrafica senza data di nascita si tratta come minore. */
+  const senzaData = await leggi(
+    await rotte.accountAtleta.POST(
+      comePresidente(`/api/v1/athlete-accounts/${SENZA_DATA}`, {
+        method: "POST",
+        body: { email: "ignoto@pp04.invalid" },
+      }),
+      { params: { athleteId: SENZA_DATA } },
+    ),
+  );
+  prova(
+    "P-64 nessuna data di nascita si tratta come minore: 400",
+    400,
+    senzaData.status,
+  );
+
+  /* P-65: **la guardia non fa troppo.** Il maggiorenne non deve dichiarare. */
+  const adulto = await leggi(
+    await rotte.accountAtleta.POST(
+      comePresidente(`/api/v1/athlete-accounts/${ADULTO}`, {
+        method: "POST",
+        body: { email: "adulto@pp04.invalid" },
+      }),
+      { params: { athleteId: ADULTO } },
+    ),
+  );
+  prova(
+    "P-65 il maggiorenne non deve dichiarare niente: 201",
+    201,
+    adulto.status,
+  );
+
+  const auditAdulto = await prisma.auditLog.findFirst({
+    where: { organization_id: CLUB, resource: "athlete_account_invites" },
+    orderBy: { created_at: "desc" },
+  });
+  prova(
+    "P-65b e l'audit non gli attribuisce una responsabilita genitoriale",
+    null,
+    auditAdulto?.metadata?.guardian_acknowledged ?? null,
+  );
+
+  /* P-66: lo stato che il pannello legge porta `isMinor`, non la data. */
+  const stato = await leggi(
+    await rotte.accountAtleta.GET(
+      comePresidente(`/api/v1/athlete-accounts/${MINORENNE}`),
+      { params: { athleteId: MINORENNE } },
+    ),
+  );
+  prova("P-66 lo stato risponde 200", 200, stato.status);
+  prova("P-66b e dichiara il minore", true, stato.corpo?.data?.isMinor);
+  prova(
+    "P-66c senza far uscire la data di nascita",
+    false,
+    /birth_?[Dd]ate/.test(JSON.stringify(stato.corpo)),
+  );
+};
+
+/* ==================================================================== */
 
 const main = async () => {
   console.log("PP-04 — collaudo dell'area atleta contro un database vero\n");
@@ -1553,6 +1761,7 @@ const main = async () => {
     await proveAttacco();
     await proveFamiglia();
     await proveRevoca();
+    await proveMinore();
   } finally {
     await pulisci();
     await prisma.$disconnect();

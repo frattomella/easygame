@@ -2088,6 +2088,17 @@ invito e senza audit. Lo stesso ramo cancellava i contenitori clinici.
 > cui slug non e fra i tre di `ATHLETE_ROLES`. Vedi PP04-D1 e PP04-D2 in
 > [16](16-technical-debt.md).
 
+> **Aggiornamento PP-04 (2026-09-04, [ADR-0116](18-decision-log.md#adr-0116--un-accesso-a-nome-di-un-minore-si-dichiara-non-si-clicca)).**
+> Aprire un accesso EasyGame **a nome di un minore** era un gesto senza attrito
+> e senza traccia: nessun controllo sull'eta, e nessuna riga che dicesse che
+> qualcuno lo aveva autorizzato. Adesso l'invito a un atleta minorenne — o
+> senza data di nascita, che si tratta allo stesso modo — pretende
+> `acknowledgeMinor === true`, e l'audit dell'invito porta `minor` e
+> `guardian_acknowledged`. **Non e un controllo di autorizzazione**: risponde
+> 400 e non 403, perche il ruolo puo compiere l'azione. E la registrazione di
+> una decisione che il repository non e in grado di prendere da solo — le tre
+> domande legali ancora aperte sono elencate nell'ADR.
+
 Non era la prima volta che questa coppia si divideva: il perimetro di sede era
 gia stato aggiunto all'`upsert` una revisione fa. Le guardie ora stanno in
 **una funzione sola** che entrambi i rami chiamano, e il presidio pretende le

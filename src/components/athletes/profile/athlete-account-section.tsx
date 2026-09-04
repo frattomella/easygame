@@ -13,6 +13,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -62,6 +63,8 @@ import { roleHasPermission } from "@/lib/permissions/catalog";
 type StatoAccesso = {
   athleteId: string;
   status: "none" | "invited" | "active" | "revoked";
+  /** Vero anche quando la data di nascita manca del tutto (ADR-0116). */
+  isMinor: boolean;
   account: {
     userId: string;
     email: string;
@@ -192,6 +195,14 @@ export function AthleteAccountSection({
   const [errore, setErrore] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [inCorso, setInCorso] = useState(false);
+  /*
+    **La conferma sulla responsabilita genitoriale** (ADR-0116). Non e uno
+    stato del server: e la dichiarazione che si sta facendo adesso, e riparte
+    da spenta a ogni apertura del pannello e dopo ogni gesto riuscito. Una
+    casella che restasse spuntata fra un atleta e l'altro sarebbe una
+    dichiarazione che nessuno ha piu fatto.
+  */
+  const [tutoreAutorizza, setTutoreAutorizza] = useState(false);
 
   /*
     La stessa chiave che il server chiede. Nasconderla a chi non ce l'ha non e
@@ -253,6 +264,7 @@ export function AthleteAccountSection({
         const risposta = await apiRequest(percorso, opzioni as any);
         if (risposta.error) throw new Error(risposta.error.message);
         showToast("success", successo);
+        setTutoreAutorizza(false);
         await carica();
       } catch (caught: any) {
         showToast("error", caught?.message || "Operazione non riuscita");
@@ -264,6 +276,14 @@ export function AthleteAccountSection({
   );
 
   if (!puoGestire) return null;
+
+  /*
+    Il pulsante resta spento finche la dichiarazione non c'e. Non e il
+    presidio — il presidio e il dominio, che rifiuta comunque — ma un pulsante
+    acceso che risponde 400 e il difetto che questa Wave ha trovato dieci
+    volte.
+  */
+  const mancaLaConferma = Boolean(stato?.isMinor) && !tutoreAutorizza;
 
   const corpo = (
     <div className="space-y-4">
@@ -384,6 +404,43 @@ export function AthleteAccountSection({
                   />
                 </div>
 
+                {/*
+                  **La conferma sul minore** (ADR-0116).
+
+                  EasyGame non ha una policy che dica se un minore possa avere
+                  un accesso proprio, chi lo autorizzi e come lo si provi: e una
+                  decisione legale che il repository non puo prendere. Finche
+                  non c'e, il gesto non passa in silenzio — chi lo compie
+                  dichiara, e la dichiarazione finisce nell'audit con il suo
+                  nome e la sua ora.
+
+                  La casella e qui perche la conferma la deve dare una persona,
+                  non il codice che compone la richiesta: il server la pretende
+                  comunque, e nasconderla soltanto lascerebbe un pulsante che
+                  risponde 400. E la stessa forma della cancellazione di un
+                  minore (ADR-0105), che sta due pannelli piu sotto sulla
+                  stessa scheda.
+                */}
+                {stato.isMinor ? (
+                  <label className="flex max-w-2xl items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <Checkbox
+                      className="mt-0.5"
+                      checked={tutoreAutorizza}
+                      onCheckedChange={(valore) =>
+                        setTutoreAutorizza(valore === true)
+                      }
+                      aria-label="Confermo che chi ha la responsabilita genitoriale ha autorizzato l'accesso"
+                    />
+                    <span>
+                      Questo atleta risulta <strong>minorenne</strong>, o non ha
+                      una data di nascita in anagrafica. Confermo che chi ne ha
+                      la <strong>responsabilita genitoriale</strong> ha
+                      autorizzato l&apos;apertura di un accesso EasyGame a suo
+                      nome.
+                    </span>
+                  </label>
+                ) : null}
+
                 <div className="flex flex-wrap gap-2">
                   {stato.status === "invited" ? (
                     <>
@@ -404,11 +461,17 @@ export function AthleteAccountSection({
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={inCorso || !email.trim()}
+                        disabled={inCorso || !email.trim() || mancaLaConferma}
                         onClick={() => {
                           void agisci(
                             `/api/v1/athlete-accounts/${athleteId}/email`,
-                            { method: "POST", body: { email } },
+                            {
+                              method: "POST",
+                              body: {
+                                email,
+                                acknowledgeMinor: tutoreAutorizza,
+                              },
+                            },
                             "Invito mandato al nuovo indirizzo",
                           );
                         }}
@@ -435,11 +498,14 @@ export function AthleteAccountSection({
                   ) : (
                     <Button
                       size="sm"
-                      disabled={inCorso || !email.trim()}
+                      disabled={inCorso || !email.trim() || mancaLaConferma}
                       onClick={() => {
                         void agisci(
                           `/api/v1/athlete-accounts/${athleteId}`,
-                          { method: "POST", body: { email } },
+                          {
+                            method: "POST",
+                            body: { email, acknowledgeMinor: tutoreAutorizza },
+                          },
                           "Invito inviato",
                         );
                       }}

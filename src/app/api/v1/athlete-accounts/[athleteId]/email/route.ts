@@ -31,6 +31,8 @@ export async function POST(request: Request, context: ContestoAtleta) {
       await changeAthleteAccountEmail(risolto.scope, {
         athleteId: context.params.athleteId,
         email: String(corpo.email ?? ""),
+        /* Vedi la POST del primo invito: `=== true`, non un truthy. */
+        acknowledgeMinor: corpo.acknowledgeMinor === true,
       }),
     );
   } catch (error: any) {
