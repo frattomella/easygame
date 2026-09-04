@@ -19,8 +19,8 @@ Classificazione:
 |-----------|-------|------|
 | Registrazione utente | COMPLETE | `/register`, rate limit, policy password 12 caratteri |
 | Login email + password | COMPLETE | Rate limit su IP e identita, hash fittizio anti-enumerazione |
-| Verifica email OTP | PARTIAL | Obbligatoria e senza bypass, ma **dipende da SMTP configurato**: senza SMTP l'utente non verificato non entra |
-| Verifica telefono OTP | PARTIAL | Codice completo, attiva solo con Twilio configurato. Non configurata in staging |
+| Verifica email OTP | COMPLETE | Da PP-05 l'indirizzo e **obbligatorio** e si verifica **dopo**: non blocca piu l'accesso. L'avviso «Email non verificata» e la casella del codice stanno sulla pagina Account, percorso completo dal clic alla riga scritta. L'unica limitazione di un indirizzo non verificato e che **non vale come prova di identita** (ADR-0115/0117). Senza SMTP il pulsante fallisce e lo dice, invece di rendere l'account inutilizzabile |
+| Verifica telefono OTP | PARTIAL | **Flusso completo e raggiungibile** da PP-05: numero obbligatorio alla registrazione, normalizzato in E.164, OTP monouso con impronta HMAC, scadenza 5 min, 5 tentativi, cooldown 60 s, tre assi di rate limit, una challenge viva per canale garantita dal database. Resta PARTIAL per una ragione sola: **nessun operatore SMS e cablato** — c'e l'astrazione piu il provider `noop` che non spedisce. La scelta dell'operatore e una decisione commerciale aperta (ADR-0114). Con `AUTH_ALLOW_TEST_CODES` il flusso si percorre per intero |
 | OAuth Google / Microsoft | PARTIAL | Flusso completo (`start`/`callback`, `external_accounts`), disattivato senza credenziali |
 | Reset password | COMPLETE | `/api/v1/auth/password/forgot` e `/reset`, token monouso 30 min via SMTP, revoca di tutte le sessioni, nessuna enumerazione account. Dipende da SMTP configurato |
 | Sessioni | COMPLETE | Opache su DB, 14 giorni, cookie + Bearer |
@@ -200,10 +200,12 @@ funzionava e non si vedeva.
 | Capability | Stato | Note |
 |-----------|-------|------|
 | Notifiche in-app | COMPLETE | Modello `Notification`, `/notifications` |
-| Email transazionali | COMPLETE | SMTP configurabile da dashboard admin, password cifrata AES-GCM, test invio |
+| Email transazionali | COMPLETE | SMTP configurabile da dashboard admin, password cifrata AES-GCM, test invio. Da PP-05B tutte le email passano dall'**Email Template Core** (`template-core.ts`): blocchi invece di stringhe, escaping non aggirabile, link e colori filtrati, HTML e testo semplice come due proiezioni degli stessi blocchi, due brand mode (ADR-0116) |
+| Marchio del club nelle email | COMPLETE | Comunicazioni massive, automazioni, riepilogo giornaliero e sollecito partono con nome del club e piede **`Powered by EasyGame` non rimovibile in V1**. Il logo di un club diventa un `<img>` solo se servito dalla nostra origine: un'immagine remota in una email e un tracciatore, e `clubs.logo_url` e comunque un data URL che i client bloccano. Ripiego: il nome scritto in lettere |
+| Anteprima dei template email | COMPLETE | `/private/email-preview`, solo `platform_admin`. Otto template su dati inventati, filtri per marchio e per larghezza (375 px), testo semplice a fianco, iframe in `sandbox=""`. **Non spedisce niente**, e lo prova un test che monta un trasporto finto e conta zero invii |
 | Email su notifica | COMPLETE | `POST /api/v1/notifications` invia anche email |
-| Email di sollecito pagamento | COMPLETE | `sendPaymentReminderEmail` in `src/lib/server/email/email-service.ts`: contenuto proprio con residuo, rate scadute e prossima scadenza. **Nessun link di pagamento** (Wave 2). Stesso e unico punto di invio delle altre |
-| SMS | PARTIAL | Solo OTP via Twilio; nessun SMS applicativo |
+| Email di sollecito pagamento | COMPLETE | `sendPaymentReminderEmail` in `src/lib/server/email/email-service.ts`: residuo, rate scadute, prossima scadenza e link di pagamento. Da PP-05B passa dall'Email Template Core a **marchio club** — la famiglia deve riconoscere a chi deve dei soldi — con testo semplice generato dagli stessi blocchi |
+| SMS | PARTIAL | Astrazione di trasporto (`src/lib/server/sms/`), unico punto di invio `sendSms`, provider `noop` che non spedisce. **Nessun operatore reale cablato**: decisione commerciale aperta (ADR-0114). Nessun SMS applicativo oltre all'OTP |
 | Push mobile | MISSING | Nessuna integrazione push |
 | Chat | PARTIAL | `src/components/ui/chat.tsx` (41 KB), montata da `dashboard/Header.tsx`. Non ha modello dati dedicato: verificare la persistenza prima di considerarla completa |
 

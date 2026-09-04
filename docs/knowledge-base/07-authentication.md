@@ -54,42 +54,136 @@ dell'account tramite timing. Il messaggio d'errore e sempre
 | POST | `/api/v1/auth/password/reset` | Imposta la nuova password |
 | GET | `/api/v1/auth/oauth/[provider]/start` · `/callback` | OAuth |
 
-## Flusso di login (stato reale)
+## Flusso di login (stato reale, da PP-05)
 
 ```
 POST /api/v1/auth/login { email, password }
   1. rate limit  IP (30 / 15 min)  +  identita (10 / 15 min)
   2. utente inesistente        → 401 "Email o password non corretti" (con bcrypt fittizio)
   3. password errata           → 401 "Email o password non corretti"
-  4. email non verificata      → 403 EMAIL_NOT_VERIFIED  (+ invio OTP se SMTP configurato)
-  5. telefono da verificare    → 403 PHONE_NOT_VERIFIED  (+ invio OTP)
-  6. finalizeVerifiedSession   → crea sessione, imposta cookie, 200
+  4. telefono da verificare    → 403 PHONE_NOT_VERIFIED  (+ invio OTP, tre assi di rate limit)
+  5. finalizeVerifiedSession   → crea sessione, imposta cookie, 200
 ```
 
-### Dipendenza critica da SMTP
+**Il passaggio «email non verificata → 403» non esiste piu** (ADR-0115). Era il
+punto 4 fino a PP-05, e su un'installazione senza SMTP era un blocco totale:
+l'account si creava, non poteva entrare, e la schermata che gli chiedeva di
+confermare l'indirizzo era irraggiungibile. Oggi l'indirizzo e **obbligatorio**
+ma si verifica **dopo**, dalla pagina Account.
 
-`resolveEmailVerificationPolicy` restituisce sempre
-`{ required: true, allowUnverifiedSession: false }`.
+### L'unica cosa che blocca: `isPhoneVerificationBlocking`
 
-Conseguenza: **se il provider SMTP non e configurato, un utente con email non
-verificata non puo entrare** — riceve 403 e nessun codice, perche
-`canSendOtp = false`. Non esiste bypass.
+```ts
+isPhoneVerificationRequired() &&
+  Boolean(user.phone_verification_required && user.phone) &&
+  !user.phone_verified_at
+```
 
-Prima di considerare un ambiente utilizzabile end-to-end occorre quindi che la
-configurazione SMTP sia presente. Vedi [12 — Integrazioni](12-integrations.md).
+Vive in `auth-workflows.ts` ed e **l'unica definizione** di «account non
+pienamente attivato». L'unica limitazione che ne discende e che **non nasce una
+sessione**: chi e gia dentro resta dentro. La condizione era scritta due volte
+— nella rotta di login e in `finalizeVerifiedSession` — e poteva divergere.
+
+`isPhoneVerificationRequired()` e falsa quando non esiste un trasporto SMS
+**che consegni** e non ci sono i codici di prova: pretendere cio che non si puo
+consegnare chiuderebbe fuori ogni account nuovo. Il ripiego e dichiarato, non
+silenzioso: `/api/v1/auth/providers` restituisce `phoneVerificationRequired` e
+la schermata di registrazione lo scrive sotto il campo.
+
+### SMTP non e piu una dipendenza critica per entrare
+
+`resolveEmailVerificationPolicy` restituisce ancora
+`{ required: true, allowUnverifiedSession: false }`, ma `finalizeVerifiedSession`
+**non lo usa piu per bloccare**. Senza SMTP un account si crea, entra, e vede
+sulla pagina Account l'avviso «Email non verificata» con il pulsante che manda
+il codice: il pulsante fallira finche SMTP non e configurato, e lo dira. Vedi
+[12 — Integrazioni](12-integrations.md).
 
 ## Verifica email e telefono (OTP)
 
 - Modello `AuthVerificationChallenge`: `code_hash`, `expires_at`, `attempts`,
-  `consumed_at`, `channel` (`email` | `phone`), `purpose` (`login`,
-  `verify_email`, `verify_phone`, ...).
-- Massimo **5 tentativi** per challenge (`MAX_OTP_ATTEMPTS`).
-- La verifica telefono e attiva **solo** se Twilio e configurato
-  (`isPhoneVerificationEnabled`, `src/lib/auth/provider-policy.ts`). Senza
-  Twilio il passaggio viene saltato.
+  `consumed_at`, `channel` (`email` | `phone`), `purpose` (`signup`, `login`,
+  `verify_email`, `verify_phone`, `reset_password`).
+- **Una sola challenge viva per utente e canale**, e a farlo rispettare sono
+  due **indici unici parziali** del database (migrazione
+  `20260904120000_pp05_una_challenge_viva_per_canale`), non una promessa del
+  codice: la sonda contro Postgres aveva misurato **dodici challenge vive** —
+  dodici codici validi insieme, con cinque tentativi ciascuno — a fronte di
+  dodici reinvii simultanei. Chi perde la corsa riceve un `P2002`, tradotto in
+  «attendi prima di richiedere un altro codice», che e la risposta vera: un
+  codice valido esiste gia ed e gia partito.
+- Codice a **6 cifre uniformi su tutto l'intervallo**, zeri iniziali compresi.
+  `randomInt(100000, 1_000_000)` — la forma di prima — non produceva mai un
+  codice che comincia per zero: novecentomila valori invece di un milione.
+- Scadenza: **5 minuti** il telefono, **15 minuti** l'email. Cooldown sul
+  reinvio: **60 secondi**. Massimo **5 tentativi** per challenge
+  (`MAX_OTP_ATTEMPTS`), consumati in una scrittura condizionata sola.
+- **L'impronta e un HMAC con pepe, e lega canale, scopo e utente.** Uno SHA-256
+  nudo di un codice a sei cifre non e un'impronta: un milione di valori, una
+  tabella precalcolata, e chi legge `code_hash` legge il codice. Il pepe vive
+  nell'ambiente (`AUTH_OTP_SECRET`) e non nel database. Il legame rende inutile
+  spostare una riga: un `code_hash` copiato dalla challenge email di un account
+  sulla challenge telefono di un altro non corrisponde piu a niente.
+- **La challenge e legata al destinatario corrente.** `verifyInternalChallenge`
+  filtra per `target`, cioe l'indirizzo o il numero in forma canonica. Senza,
+  un codice emesso per il proprio numero confermava il numero di un altro, e
+  l'azzeramento di `phone_verified_at` al cambio recapito era teatro.
+- **La scrittura di «verificato» e condizionata**: `updateMany` con il `where`
+  sull'indirizzo o sul numero, non `update` per id. Fra l'emissione e la
+  conferma il recapito puo cambiare da un'altra sessione.
+- **Un codice apre una sessione solo se la porta era gia stata aperta**
+  (ADR-0117): `challengePurposeCanMintSession` ammette solo `signup` e `login`.
+  Un codice chiesto da `/verify/<canale>/send` ha scopo `verify_email` o
+  `verify_phone`: conferma il recapito e restituisce `session: null`.
 - `AUTH_ALLOW_TEST_CODES=true` espone il codice OTP nella risposta
-  (`previewCode`) — **solo fuori produzione**, vedi
-  `shouldExposeVerificationPreviewCode` in `src/lib/auth/otp-policy.ts`.
+  (`previewCode`) — **mai in produzione**. `shouldExposeVerificationPreviewCode`
+  nega anche su `staging` e `preview`, e con `NODE_ENV` **assente** chiede
+  `EASYGAME_DB_ENV=development`: una difesa che si apre quando una variabile
+  manca e scritta al contrario.
+
+### Il numero di cellulare ha una forma sola
+
+`src/lib/auth/phone-number.ts` (modulo puro) normalizza in **E.164**. Finche le
+quattro forme in cui una persona scrive lo stesso numero restano quattro
+stringhe diverse succedono quattro cose sbagliate insieme: il contatore per
+numero conta quattro secchielli, la challenge legata al `target` non si
+ritrova, il provider consegna a caso, e due account occupano lo stesso numero
+senza che nessuno se ne accorga.
+
+Conosce **una** regola nazionale, quella italiana (cellulari: `3` piu 8 o 9
+cifre), e per ogni altro prefisso applica il solo vincolo E.164 dichiarando
+`mobileChecked: false`. Lo zero interurbano italiano **non** si toglie:
+toglierlo dava «troppo corto» al posto di «serve un cellulare», cioe il rifiuto
+giusto con il motivo falso.
+
+**Nelle risposte senza sessione il numero esce mascherato** (prefisso e ultime
+tre cifre), sia in `verification.phone` sia in `user_metadata.phone`
+(`serializeAuthUserWithoutSession`). Il ramo «indirizzo gia occupato» della
+registrazione risponde identico a quello di un indirizzo libero, per non
+rivelare l'occupazione: restituire il numero per intero avrebbe reso quel ramo
+il modo piu comodo per farsi dire il cellulare di qualcun altro.
+
+### Cambio recapito
+
+Cambiare **email, cellulare o password** richiede la **password attuale**
+(`CURRENT_PASSWORD_REQUIRED`, chiude il debito W4-R13). Con i recapiti
+diventati un fattore, una sessione presa in prestito diventava altrimenti
+proprieta definitiva del conto. Il tentativo ha un tetto (10 per account in un
+quarto d'ora) e lascia una riga di audit: senza, la sessione rubata poteva
+semplicemente indovinare la password.
+
+Cambiare il recapito azzera la verifica corrispondente e obbliga a rifarla.
+
+### Lo sfratto di un occupante (ADR-0117)
+
+Un account registrato con l'indirizzo di un'altra persona e **il numero di chi
+lo registra** era raggiungibile all'occupante anche dopo che la vittima aveva
+dimostrato di possedere l'indirizzo. `sfrattaOccupante` azzera **tutti** i
+canali insieme — password casuale, sessioni cancellate, `phone`,
+`phone_verified_at` e `token_verification_id` azzerati — e vale nei due punti
+in cui quella prova arriva: l'adozione da accesso esterno, e la conferma di un
+reset password su un account mai verificato. Confermare un reset **verifica
+l'indirizzo**: il token e stato consegnato a quella casella e consumato.
 
 ## Reset password
 
@@ -179,6 +273,36 @@ con piu istanze serverless. Chiave = SHA-256 di
 | `registerIp` | 10 | 60 min |
 | `otpSend` | 3 | 10 min |
 | `otpConfirm` | 5 | 15 min |
+| `otpSendAccount` | 5 | 60 min |
+| `otpSendTarget` | 5 | 60 min |
+| `otpSendIp` | 20 | 60 min |
+| `otpConfirmIp` | 30 | 15 min |
+| `credentialChangeAccount` | 10 | 15 min |
+| `credentialChangeIp` | 30 | 15 min |
+
+**Gli OTP contano su tre assi, non su uno solo (PP-05).** La chiave era
+`canale:utente:indirizzoIP`: chi cambia rete cambia chiave, e con una manciata
+di indirizzi in uscita si facevano partire tutti gli SMS che si volevano
+**verso il numero di un altro**, invalidandogli ogni volta il codice appena
+ricevuto. Costava soldi al club e rendeva l'account inverificabile.
+
+- **per account** — ferma chi martella un identificativo che ha scoperto, da
+  qualunque rete;
+- **per destinatario** — il numero in E.164 o l'indirizzo email, sempre come
+  **impronta** e mai in chiaro: i secchielli non devono diventare un secondo
+  archivio da cui leggere i recapiti. E l'asse che ferma il pompaggio di SMS
+  anche quando l'attaccante si crea account nuovi, e per questo lo consumano
+  **anche la registrazione e il ramo `PHONE_NOT_VERIFIED` del login**, non
+  solo `/verify/*/send`;
+- **per indirizzo IP** — ferma chi prova tanti account diversi.
+
+Il **cooldown** di `otp-policy.ts` (60 secondi) e una cosa diversa e vive
+accanto a questi: dice «non adesso», non «non piu».
+
+`credentialChange*` conta i tentativi di indovinare la **password attuale** su
+`PATCH /api/v1/auth/user`: la richiesta della password e nata contro la
+sessione rubata, e senza contatore la sessione rubata poteva semplicemente
+indovinarla. Il tentativo sbagliato lascia anche una riga di audit.
 
 Se `AUTH_RATE_LIMIT_SECRET` manca, il fallback e `CRON_SECRET`, poi
 `DATABASE_URL`, poi la costante `"easygame-local"`. **Impostare sempre il

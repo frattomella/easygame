@@ -2171,3 +2171,46 @@ difesa esisteva e non arrivava fino alla superficie piu larga.**
   W6-09, superficie nuova.
 
 Il dettaglio del primo sta in [14](14-security.md).
+
+---
+
+## PP-05 · Onboarding, SMS OTP e sistema email — `DONE con una decisione aperta` (2026-09-04)
+
+Lane parallela su base `0d66921`. Verbale completo:
+[46 — PP-05](46-pp-05-onboarding-comunicazioni.md).
+
+### PP-05A — registrazione e OTP telefono — `DONE`
+
+Email e cellulare obbligatori (ADR-0115); Twilio Verify rimosso e sostituito da
+un'astrazione di trasporto (ADR-0114); il flusso OTP, che esisteva completo ed
+era **irraggiungibile**, e ora percorribile dal clic alla riga scritta. Una sola
+challenge viva per canale, garantita da un indice unico parziale del database.
+
+### PP-05B — Email Template Core — `DONE`
+
+Un solo posto in cui si scrive markup per la posta, due brand mode, `Powered by
+EasyGame` non rimovibile in V1, anteprima amministrativa che non spedisce
+(ADR-0116). Inventario delle nove email nella scheda 46.
+
+### Cosa aspetta una persona, non un commit
+
+**La scelta dell'operatore SMS.** La lane si e fermata prima
+dell'integrazione irreversibile: c'e l'astrazione, il provider `noop` che non
+spedisce, il doppio dei test. Aggiungere l'operatore scelto e un file piu tre
+righe, e **niente della sicurezza dell'OTP cambia**, perche non e delegata.
+
+Servono: contratto, tetto di spesa presso l'operatore (che e la protezione vera
+contro l'SMS pumping e non si scrive nel codice), DPA con la clausola sulla
+conservazione del contenuto dei messaggi, e la decisione sul mittente
+alfanumerico — che per la delibera AGCOM 12/23/CIR **ogni club deve registrare
+per conto proprio**, perche il fornitore ha l'obbligo di rigettare la richiesta
+presentata da un terzo anche con delega espressa. Raccomandazione tecnica e
+comparazione verificata in [ADR-0114](18-decision-log.md).
+
+### Debito aperto
+
+PP05-D1 (solo-OAuth senza cellulare), PP05-D2 (pepe OTP), PP05-D3 (logo club
+come data URL), PP05-D4 (invito atleta a marchio EasyGame — dependency verso
+PP-04), PP05-D5 (`getRequestIp` dietro proxy non fidato, precedente a PP-05),
+PP05-D6 (`npm run lint` e il conflitto di configurazione fra worktree e
+radice). Vedi [16 — Debito tecnico](16-technical-debt.md).

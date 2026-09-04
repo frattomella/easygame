@@ -6215,3 +6215,380 @@ futuro senza che nessuno lo avesse piu deciso.
 essere innocuo: il secondo invio non e piu fermato dall'errore e crea il doppione
 che prima l'errore nascondeva. La guardia sul salvataggio in corso e parte di
 questa decisione, non un'aggiunta accanto.
+
+---
+
+## ADR-0114 — Il codice OTP e di EasyGame; l'operatore SMS e **solo un trasporto**
+
+**Data:** 2026-09-04 · **Stato:** accettato, con **una decisione commerciale
+aperta** (scelta e contratto dell'operatore) · **Lane:** PP-05
+
+**Contesto.** Il repository conteneva un'integrazione con **Twilio Verify**:
+con le tre variabili `TWILIO_*` configurate, il codice lo generava, lo
+consegnava e lo verificava Twilio; senza, lo faceva `auth-workflows.ts`. Due
+implementazioni della stessa cosa, con proprieta diverse — il tetto dei
+tentativi, la scadenza, il consumo monouso e le scritture condizionate che
+B-H1 e B-H2 hanno pagato valgono **solo** nella seconda — e con la piu debole
+attiva esattamente dove le tre variabili esistono, cioe in produzione. Nessun
+test poteva vederlo: nei test Twilio non c'e mai.
+
+In piu, l'intero concetto di «numero di cellulare» era acceso da quelle tre
+variabili: senza, il campo non compariva nemmeno nel modulo di registrazione.
+Un fornitore decideva una regola di prodotto.
+
+**La decisione.**
+
+1. **L'OTP e di EasyGame, sempre.** Generazione, impronta, scadenza, tetto dei
+   tentativi, consumo monouso e cooldown restano in `auth-workflows.ts`, con le
+   stesse scritture condizionate per tutti i canali. Nessuna Verify API.
+2. **Il provider e un trasporto e basta**: `SmsProvider.send({ to, text })`,
+   in `src/lib/server/sms/`, con la stessa forma di `src/lib/server/email/`.
+   L'unico punto di invio e `sendSms`.
+3. **Nessun operatore reale e cablato.** Ci sono l'astrazione, il provider
+   `noop` che non spedisce, e il doppio dei test. L'elenco dei nomi vive in un
+   modulo puro, `src/lib/auth/sms-transport.ts`, e porta con se la proprieta
+   che conta: **consegna, o non consegna**. `SMS_PROVIDER` con un nome
+   sconosciuto **non** ricade su `noop` e **non** spegne in silenzio la
+   verifica: lo dice una volta dal punto unico degli errori.
+
+**Perche il trasporto e non la Verify API.** Il premio di una Verify API compra
+soprattutto **l'anti-frode**, non la logica OTP — che qui esiste gia. A questi
+volumi l'anti-frode efficace e il rate limiting su tre assi piu una allow-list
+di prefissi, che sono nostri e provabili. E delegare significherebbe legare il
+**modello di sicurezza** al fornitore, contro ADR-0007 (vincolo Cedi Platform):
+cambiare operatore deve essere cambiare una chiamata HTTP, non cambiare cosa si
+puo dimostrare.
+
+### La comparazione
+
+Rilevata il 2026-09-04 e **verificata alla fonte**, con l'esito della verifica
+scritto accanto a ogni voce. Nessuna pagina di listino consultata riporta una
+data di pubblicazione: le cifre vanno riconfermate al preventivo.
+
+| Operatore | OTP gestita | €/SMS Italia | Listino pubblico | Entita che firma | Residenza UE |
+|---|---|---|---|---|---|
+| **Smshosting** | si, `verify/send` + `verify/check` | **0,073 → 0,056** (IVA escl.) | si, nel centro assistenza | **LINK Mobility Italia S.r.l.** (IT, gruppo norvegese) | dichiarata UE, DPA non pubblicato |
+| **Skebby** (Commify) | si, 2FA | 0,098 → 0,075 (IVA escl.) | si | Commify Italia S.r.l. (IT) | IT |
+| **Esendex Italia** (Commify) | si, stessa piattaforma | «da 0,0475», IVA non dichiarata | parziale | Commify Italia S.r.l. (IT) | IT |
+| **Twilio** | si, Verify v2 | **$ 0,0927 USD** (unico che pubblica, e in valuta propria) | si | US | **Verify NON e in IE1** |
+| **Vonage** | si, Verify v2 | **non pubblicato** | no | US | non documentata |
+| **Sinch** | si | **non pubblicato** | no | SE (UE) | non confermata per Verify |
+| **Infobip** | si, 2FA API | **non pubblicato** | no | **Infobip LTD (UK)** sul DPA online; esiste un template Italia | UE predefinita, region-lock **su richiesta** |
+| **AWS End User Messaging** | **no** | non pubblicato | no | US | eu-south-1 si, **ma non per l'OTP** |
+| **Aruba SMS** | si | non rilevato | — | Aruba S.p.A. | IT |
+
+**Cinque fatti che pesano piu del prezzo.**
+
+- **Twilio Verify non e disponibile nella regione di data residency UE (IE1).**
+  Verificato sulla documentazione Twilio: in IE1 e disponibile solo il canale
+  *Silent Network Auth* di Verify, e l'integrazione Verify-Messaging non e
+  supportata. Programmable Messaging invece c'e — ma la stessa pagina dichiara
+  che i vettori telefonici possono archiviare fuori UE, che il routing puo
+  attraversare piu regioni e che personale non-UE puo accedere ai dati per il
+  supporto. Per un gestionale che tratta dati di minori tesserati e un
+  argomento concreto, non una formalita.
+- **Skebby ed Esendex Italia sono la stessa societa** (Commify Italia S.r.l.,
+  P.IVA 01648790382, soggetta a Commify Limited): sceglierne uno e una
+  decisione commerciale, non tecnica. **Che anche Aruba SMS sia la stessa
+  piattaforma e un'ipotesi, non un fatto**: nessuna dichiarazione ufficiale lo
+  conferma; l'indizio e che le due API condividono path di versione, nomi degli
+  header e schema di autenticazione. Va confermato contrattualmente.
+- **Il Garante ha sanzionato Commify Italia per 80.000 euro** (provvedimento
+  dell'11 gennaio 2023, doc. web 9864063): la societa conservava fino a 24 mesi
+  il **contenuto integrale** degli SMS di circa 7.250 utenze, **codici OTP
+  compresi**, qualificandolo come dato di traffico. Il Garante ha stabilito che
+  nessuna norma impone la conservazione del contenuto. Non risulta pubblica
+  l'esistenza o l'esito di un'opposizione, quindi **non si scriva
+  «definitiva»**. Per un canale OTP la clausola di **retention del contenuto**
+  nel DPA e la singola clausola piu importante da leggere, **con qualunque
+  operatore**.
+- **AWS non ha una OTP gestita utilizzabile.** In *End User Messaging*
+  (`pinpoint-sms-voice-v2`) le operazioni `SendOTPMessage` / `VerifyOTPMessage`
+  **non esistono**: vivono solo sull'API legacy Amazon Pinpoint, che va in
+  end-of-support il **30 ottobre 2026** e **non e disponibile in eu-south-1
+  (Milano)**. Un argomento di residenza italiana costruito su Milano piu OTP
+  gestita da AWS **non regge**. Milano resta disponibile se il codice lo si
+  genera e verifica da soli — che e esattamente cio che questo ADR decide.
+- **Infobip firma il DPA online come entita britannica** (INFOBIP LTD, CRN
+  7085757, Londra), non croata; esiste pero un catalogo di nove template
+  pre-firmati per altrettante entita, **Italia compresa**, e quale si applichi
+  dipende da chi eroga il servizio. Da chiarire in fase commerciale. La
+  residenza UE e predefinita ma il **region-lock e opt-in su richiesta**, e il
+  supporto opera «follow the sun» accedendo ai dati da fuori UE.
+
+### Il mittente alfanumerico in Italia — e il vincolo che riguarda il disegno
+
+Delibera **AGCOM 12/23/CIR**, Allegato A. Tre punti verificati sul testo:
+
+- **chi registra l'alias e il fornitore** (art. 6 c.8), per conto dell'utente
+  mittente. E — questo e il punto che tocca l'architettura di un gestionale
+  multi-tenant — **l'art. 6 c.2 impone al fornitore di rigettare qualsiasi
+  richiesta di registrazione effettuata da un terzo per conto del titolare,
+  anche in presenza di delega espressa.** EasyGame **non puo** registrare gli
+  alias dei propri club al posto loro: ogni ASD deve avere un rapporto diretto
+  con il fornitore, oppure accettare il mittente numerico;
+- **la partita IVA non e obbligatoria** (art. 6 c.4, «Partita IVA, qualora
+  esistente»; le premesse dichiarano l'intento di rimuovere quella condizione).
+  Serve **codice fiscale** e una **PEC intestata all'utente e iscritta in
+  INI-PEC** (art. 5 c.4). Molti fornitori chiedono comunque la P.IVA: e loro
+  policy, non la delibera. Per un'ASD senza P.IVA la strada esiste;
+- **un alias non registrato viene bloccato** dal fornitore per norma (art. 6
+  c.11). Gli aggregatori esteri, in pratica, lo **sostituiscono** con un numero
+  italiano. Il TAR Lazio (sentenza 1692/2024, ricorso Agile Telecom) ha
+  annullato l'obbligo di bloccare il traffico alias di provenienza estera.
+  **Attenzione:** quella sentenza e stata verificata solo su cronaca
+  giornalistica, non sul testo; e lo **stato di attuazione del registro AGCOM
+  al 2026 non e stato verificato** — le date «marzo/settembre 2026» che
+  circolano in rete appartengono al registro **spagnolo** della CNMC, non a
+  quello italiano.
+
+**Raccomandazione tecnica.** Prima scelta **Smshosting**: societa italiana, API
+HTTPS con Basic Auth utilizzabile con `fetch` puro (gli SDK esistono ma non
+sono obbligatori, quindi nessun accoppiamento), rapporti di consegna inclusi,
+costo piu basso fra quelli con listino pubblico. **Il suo punto debole va detto:
+non pubblica ne un DPA scaricabile ne certificazioni ISO**, e per un canale OTP
+quello e proprio il documento da leggere per primo. Seconda scelta la
+piattaforma **Commify**, chiedendo preventivi Skebby ed Esendex insieme e
+mettendo per iscritto la retention del contenuto.
+
+**Cosa resta al proprietario del prodotto — ed e la ragione per cui questa lane
+si e fermata prima dell'integrazione irreversibile.**
+
+1. Scelta dell'operatore e firma del contratto.
+2. Budget mensile e **tetto di spesa** presso l'operatore: e la protezione vera
+   contro l'SMS pumping, e non si scrive nel codice.
+3. Firma del **DPA** con la clausola sulla conservazione del contenuto dei
+   messaggi, e verifica di **quale entita giuridica** firma.
+4. Decisione sul mittente: alias registrato **da ciascun club** (CF piu PEC in
+   INI-PEC), oppure mittente numerico accettato.
+5. Aggiornamento di informativa privacy e registro dei trattamenti.
+
+**Cosa non e stato verificato** e va chiesto al fornitore prima di firmare:
+prezzo Italia di Vonage, Sinch, Infobip e AWS (nessuno dei quattro pubblica un
+listino per paese); DPA e certificazioni di Smshosting; entita firmataria per i
+clienti UE di Infobip, Twilio, Vonage, Sinch e AWS; supporto di Vonage Verify
+all'alias italiano; stato di attuazione del registro alias AGCOM; testo della
+sentenza TAR 1692/2024; esito di un'eventuale opposizione di Commify.
+
+**Conseguenza operativa.** Aggiungere l'operatore scelto e: un file
+`src/lib/server/sms/<nome>-provider.ts`, una riga in `SMS_TRANSPORTS` con
+`delivers: true`, un ramo in `resolveSmsProvider`, le variabili in
+`.env.example`, la riga in `13-environments.md`. **Niente della sicurezza
+dell'OTP cambia**, perche non e delegata.
+
+---
+
+## ADR-0115 — Email **e** cellulare sono obbligatori; il telefono si verifica prima, l'email dopo
+
+**Data:** 2026-09-04 · **Stato:** accettato · **Lane:** PP-05
+
+**Contesto.** Prima di PP-05 lo stato era l'opposto di quello utile:
+
+- il **cellulare** non si chiedeva, perche il campo compariva solo con Twilio
+  configurato. Su ogni installazione reale la colonna `phone` restava nulla,
+  `phone_verification_required` restava falso, e tutto il flusso OTP — rotte,
+  challenge, contatori, il test sui tentativi atomici — era **codice
+  irraggiungibile** (CLAUDE.md §11, punto 8);
+- l'**email** bloccava tutto: `finalizeVerifiedSession` sollevava «Email non
+  verificata» e nessun account senza indirizzo confermato poteva entrare,
+  **nemmeno per vedere la schermata che gli chiedeva di confermarlo**. Senza
+  SMTP configurato l'account si creava e non si poteva usare.
+
+**La decisione.**
+
+1. **Entrambi i recapiti sono obbligatori alla registrazione.** Il numero si
+   chiede sempre, si normalizza in **E.164** (`src/lib/auth/phone-number.ts`) e
+   si rifiuta se non e un cellulare. Non dipende da nessun fornitore:
+   raccogliere un dato non richiede un contratto.
+2. **«Account non pienamente attivato» ha una definizione sola**, e sta in
+   `isPhoneVerificationBlocking`: l'account **richiede** la verifica del
+   telefono e non l'ha ottenuta. **L'unica limitazione che ne discende e che
+   non si crea una sessione.** Non ce ne sono altre e non se ne inventano: chi
+   e gia dentro resta dentro, chi deve entrare verifica prima. Il blocco vive
+   in un punto solo — la funzione che fa nascere le sessioni — e non e piu
+   riscritto anche nella rotta di login, dove poteva divergere.
+3. **L'email si verifica dopo.** Non impedisce l'accesso. La pagina Account
+   mostra «Email non verificata» con il pulsante che manda il codice e la
+   casella in cui scriverlo, **sulla pagina stessa**: non si rimanda a
+   `/token-verification`, che e la schermata del gettone di accesso a un club e
+   non sa niente di OTP.
+4. **L'unica limitazione di un'email non verificata** e che quell'indirizzo
+   **non vale come prova di identita**. In concreto: quando un accesso esterno
+   che certifica quell'indirizzo adotta un account che non lo aveva mai
+   verificato, la credenziale dell'occupante **decade**. Senza questa regola,
+   permettere la sessione a un'email non verificata avrebbe reso utilizzabile
+   l'**occupazione** di un indirizzo altrui: registro con l'indirizzo della
+   vittima, uso il prodotto, e quando la vittima arriva con Google entra
+   **dentro** il mio conto mentre io ci resto. Che cosa significhi esattamente
+   «decade» lo definisce ADR-0117, che chiude il buco lasciato aperto qui.
+5. **Cambio recapito, nuova verifica — e la regola e fatta valere.** Le righe
+   che azzerano `email_verified_at` e `phone_verified_at` c'erano gia; cio che
+   mancava era il legame fra la challenge e il **destinatario corrente**.
+   Senza, un codice emesso per il proprio numero confermava il numero di un
+   altro, e l'azzeramento era teatro.
+6. **Cambiare email, cellulare o password richiede la password attuale**
+   (chiude il debito W4-R13). Con i recapiti diventati un fattore, una sessione
+   presa in prestito poteva altrimenti diventare proprieta definitiva del
+   conto.
+
+**Il ripiego dichiarato.** Se non esiste un trasporto SMS **che consegni** e
+non ci sono i codici di prova, la verifica del telefono **non blocca**:
+pretendere cio che non si puo consegnare chiuderebbe fuori ogni account nuovo
+di un'installazione senza contratto SMS. Non e un bypass silenzioso:
+`/api/v1/auth/providers` restituisce `phoneVerificationRequired`, e la
+schermata di registrazione lo scrive sotto il campo.
+
+**Corollario sui recapiti nelle risposte.** Le rotte di registrazione, login e
+verifica rispondono **senza sessione**. Il numero vi compare **mascherato**
+(prefisso e ultime tre cifre): chi si sta verificando lo riconosce, chi e
+arrivato con il riferimento di un altro non lo puo leggere. Prima usciva in
+chiaro, e il ramo «indirizzo gia occupato» — nato per non rivelare
+l'occupazione — era il modo piu comodo per farsi dire il cellulare di qualcun
+altro. Il mascheramento vale **anche per `user_metadata`**: la prima stesura lo
+applicava a `verification.phone` e lasciava il numero in chiaro tre righe piu
+sotto, nello stesso corpo.
+
+**Corollario sull'unicita della challenge.** Una sola challenge viva per utente
+e canale, e a farlo rispettare e un **indice unico parziale** del database
+(migrazione `20260904120000_pp05_una_challenge_viva_per_canale`), non una
+promessa del codice: la sonda contro Postgres ha misurato **dodici challenge
+vive** — quindi dodici codici validi insieme — a fronte di dodici reinvii
+simultanei, con il cooldown scavalcato semplicemente mandando le richieste
+insieme invece che in fila.
+
+**Cosa questa decisione non copre, e che si e scoperto dopo.** Il numero e un
+**canale di accesso**, non solo un dato: vedi ADR-0117.
+
+---
+
+## ADR-0116 — Un solo posto in cui si scrive HTML per la posta, e due marchi
+
+**Data:** 2026-09-04 · **Stato:** accettato · **Lane:** PP-05
+
+**Contesto.** L'HTML delle email nasceva in tre posti: `layout.ts` metteva un
+guscio, e dentro ci finiva una stringa composta a mano dai chiamanti —
+`auth-workflows.ts`, `athlete-accounts.ts`, `email-service.ts` — ognuna con il
+proprio markup, il proprio pulsante finto e il proprio `escapeHtml`, o senza.
+Tre conseguenze: **l'escaping era una scelta di chi chiamava**; **il guscio era
+sempre EasyGame**, anche quando il messaggio partiva da un club; **il testo
+semplice** si scriveva a mano accanto all'HTML e divergeva alla prima modifica.
+
+**La decisione.**
+
+1. **`src/lib/server/email/template-core.ts` e l'unico posto in cui si scrive
+   markup per la posta.** Un'email si compone di **blocchi**, e un blocco
+   prende **testo**, non markup: non esiste un modo di comporre un messaggio
+   dimenticandosi di sfuggire il nome di un club o di un atleta, perche non si
+   ha in mano una stringa da concatenare. `renderEmailDocument` restituisce
+   sempre **le due forme**, che sono due proiezioni degli stessi blocchi.
+2. **Due brand mode.** `easygame` per cio che manda EasyGame — account,
+   sicurezza, verifica dei recapiti, reimpostazione della password, servizi di
+   piattaforma: chi riceve un codice deve poterlo distinguere da una
+   comunicazione del club, perche e l'unico dei due che gli chiede di digitare
+   qualcosa. `club` per cio che parte dalla societa — comunicazioni, solleciti,
+   promemoria, riepiloghi: il destinatario ha un rapporto con il club, non con
+   noi.
+3. **`Powered by EasyGame` nel piede in modalita club, non rimovibile in V1.**
+   Non e un parametro: non esiste una chiamata che lo ometta. E la sola riga
+   che dice a una famiglia da dove arriva davvero il messaggio, cioe a chi
+   rivolgersi se e sospetto: serve a lei prima che a noi.
+4. **Formato email-safe, e provato riga per riga**: tabelle, stili in linea,
+   `width="600"` piu `max-width`, nessun `<style>`, nessun `flex`, nessun
+   `grid`, nessuna classe. E la proprieta che si perde per prima quando
+   qualcuno «sistema» il markup con l'occhio del browser, quindi e un test.
+5. **Nessuna informazione dentro un'immagine.** Le immagini partono spente in
+   quasi tutti i client: cio che si vede a immagini spente deve bastare.
+
+**Il logo di un club diventa un `<img>` solo se e servito dalla nostra
+origine.** Tre ragioni, in ordine di gravita: un'immagine remota in una email e
+un **tracciatore** — dice all'host di chi compone quando il messaggio e stato
+aperto, da quale indirizzo IP e con quale client, verso le famiglie di un club
+e quindi spesso verso minori, e nessuno ha dichiarato quel trasferimento; oggi
+`clubs.logo_url` e comunque un **data URL**, che Gmail e Outlook bloccano; e un
+URL esterno che smette di rispondere lascia un rettangolo vuoto in cima a ogni
+messaggio. Il ripiego non e un buco: e il **nome del club scritto in lettere**,
+che si legge anche a immagini spente. Quando i loghi avranno un archivio
+servito dalla nostra origine, la stessa funzione li lascera passare senza che
+cambi nient'altro.
+
+**Colori: solo esadecimale.** `red` funzionerebbe, ma il valore arriva dalla
+configurazione di un club e l'elenco dei nomi CSS validi e lungo quanto la
+superficie da controllare. Tre o sei cifre esadecimali sono un insieme che si
+legge in una riga e che non contiene ne `;` ne `)`, cioe i due caratteri con
+cui si esce da uno stile in linea. **Oggi nessun campo colore di club esiste**:
+il ripiego sull'accento EasyGame e il caso normale, non l'eccezione.
+
+**Link: solo `http`, `https`, `mailto`.** I link arrivano dai segnaposto dei
+modelli di messaggio (`payment.link`), cioe da contenuto compilato in
+interfaccia. Un link rifiutato non tace: resta l'etichetta come testo, perche
+un pulsante che sembra un pulsante e non porta da nessuna parte e la forma
+peggiore di questo errore.
+
+**La via d'uscita, dichiarata.** Il blocco `raw` esiste per il solo caso in cui
+l'HTML e gia stato reso da un altro dominio che se ne assume la
+responsabilita — i modelli di messaggio del club e il riepilogo giornaliero,
+che sfuggono i valori dei segnaposto per conto proprio. `renderEmailLayout`
+conserva la firma e diventa un adattatore su quel blocco: i chiamanti che
+esistevano non cambiano una riga e guadagnano il parametro `brand`.
+
+**Nessun secondo provider email.** SMTP configurabile resta l'unico canale:
+niente Resend, niente API di terzi.
+
+---
+
+## ADR-0117 — Un recapito verificato e un **canale di accesso**: sfrattare significa chiuderli tutti
+
+**Data:** 2026-09-04 · **Stato:** accettato · **Lane:** PP-05
+
+**Contesto.** ADR-0115 ha deciso che un'email non verificata non vale come
+identita, e che chi dimostra di possedere l'indirizzo **sfratta** chi lo aveva
+solo scritto in un modulo. Lo sfratto, come scritto la prima volta, azzerava la
+password e cancellava le sessioni. Una revisione ostile indipendente, misurando
+contro PostgreSQL reale, ha mostrato che non bastava e che il difetto era piu
+grave del buco che chiudeva.
+
+**Il fatto misurato.** Un occupante registra un account con l'indirizzo di
+un'altra persona e **il proprio numero di cellulare**, e lo verifica. Quando la
+vittima arriva con Google, l'adozione azzera la password dell'occupante — e
+lascia il suo numero sulla riga. L'occupante chiede allora un codice a
+`/verify/phone/send`, lo riceve sul proprio telefono, e `/verify/phone/confirm`
+gli **restituisce una sessione**: presa di possesso completa, senza password.
+La vittima, nel frattempo, e **chiusa fuori**, perche il numero altrui le
+blocca la creazione della sessione. Lo stesso valeva dopo un «Password
+dimenticata»: il reset cancellava le sessioni e non toccava il canale che le
+faceva rinascere.
+
+**La decisione.**
+
+1. **Un recapito verificato e un canale di accesso, e va trattato come una
+   credenziale.** Lo sfratto di un occupante azzera la password, cancella le
+   sessioni **e** azzera `phone`, `phone_verified_at` e il riferimento pubblico
+   di verifica. Vale nei due punti in cui si dimostra il possesso
+   dell'indirizzo: l'adozione da accesso esterno, e la conferma di un reset
+   password su un account che non era mai stato verificato.
+2. **Il numero azzerato non blocca la vittima**, perche
+   `isPhoneVerificationBlocking` pretende che un numero ci sia.
+   `phone_verification_required` resta acceso: e una proprieta dell'account, e
+   deve tornare a valere il giorno in cui la vittima scrive il proprio numero.
+3. **Un codice apre una sessione solo se la porta era gia stata aperta.**
+   Seconda difesa, indipendente dalla prima: `challengePurposeCanMintSession`
+   ammette solo gli scopi `signup` — l'account e appena nato da una richiesta
+   che portava una password — e `login`, dove la password e appena stata
+   verificata. Un codice chiesto da `/verify/<canale>/send` ha scopo
+   `verify_email` o `verify_phone`: conferma il recapito e basta. Chi lo chiede
+   dall'area Account una sessione ce l'ha gia.
+4. **Confermare un reset password verifica l'indirizzo.** Il token e stato
+   consegnato a quella casella e consumato: e la stessa prova che da un OTP
+   email, e non riconoscerla lasciava l'account in uno stato «mai verificato»
+   permanente, cioe eternamente sfrattabile.
+
+**Il prezzo, dichiarato.** Un utente legittimo che non aveva mai verificato il
+proprio indirizzo e che dimentica la password perde il numero e lo riscrive: un
+SMS in piu, una volta sola. Non si applica a chi l'indirizzo l'aveva gia
+verificato — li nessuna occupazione era possibile, e il numero resta.
+
+**La regola generale che se ne ricava.** Ogni volta che si aggiunge un modo di
+entrare — un recapito, un gettone, un accesso esterno — bisogna chiedersi
+**dove lo si chiude**. Un elenco di canali di accesso senza un punto unico che
+li revochi tutti insieme e un elenco che prima o poi ne dimentica uno; qui il
+punto unico e `sfrattaOccupante`.

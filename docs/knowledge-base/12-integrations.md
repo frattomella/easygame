@@ -148,17 +148,69 @@ Codici di errore normalizzati: `IMAP_AUTH_FAILED`, `IMAP_CONNECTION_FAILED`,
 chiedeva la configurazione, non un client di posta. E il presupposto per una
 futura ricezione (protocolli, ricevute di lettura, risposte automatiche).
 
-## Twilio Verify — SMS OTP, opzionale
+## SMS OTP — il codice e nostro, l'operatore e un trasporto (PP-05, ADR-0114)
 
-Variabili: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
-`TWILIO_VERIFY_SERVICE_SID`.
+**Stato: astrazione pronta, nessun operatore cablato.** La scelta dell'operatore
+e una decisione commerciale aperta (contratto, DPA, tetto di spesa,
+registrazione del mittente alfanumerico): la comparazione fra nove operatori,
+con la verifica delle fonti e l'elenco di cio che non e stato possibile
+verificare, sta in [ADR-0114](18-decision-log.md).
 
-`isPhoneVerificationProviderConfigured()` e `isPhoneVerificationEnabled()`
-(`src/lib/auth/provider-policy.ts`) decidono se il passaggio telefono e attivo.
-Senza le tre variabili la verifica telefono viene **saltata**, anche se
-`users.phone_verification_required` e `true`.
+**Fino a PP-05 c'era Twilio Verify, ed e stato rimosso.** Con le tre variabili
+`TWILIO_*` configurate il codice lo generava, lo consegnava e lo verificava
+Twilio; senza, lo faceva `auth-workflows.ts`. Erano due implementazioni della
+stessa cosa con proprieta diverse — tetto dei tentativi, scadenza, consumo
+monouso e corsa fra invio e conferma valgono solo nella seconda — e la piu
+debole era attiva **esattamente dove le tre variabili esistono**, cioe in
+produzione. Nessun test poteva vederlo, perche nei test Twilio non c'era mai.
 
-Non configurata su staging.
+### Come e fatto oggi
+
+| Cosa | Dove |
+|---|---|
+| Contratto del trasporto | `src/lib/server/sms/provider.ts` — `SmsProvider.send({ to, text })` |
+| Unico punto di invio | `src/lib/server/sms/sms-service.ts` — `sendSms` |
+| Elenco dei nomi riconosciuti | `src/lib/auth/sms-transport.ts` (modulo **puro**) |
+| Generazione, impronta, scadenza, tentativi, cooldown | `src/lib/server/auth-workflows.ts` + `src/lib/auth/otp-policy.ts` |
+
+Il provider **non genera** il codice e **non lo verifica**: riceve un testo gia
+scritto e un numero gia in E.164. Nessuna Verify API.
+
+### Le variabili
+
+| Variabile | Effetto |
+|---|---|
+| `SMS_PROVIDER=""` | Nessun trasporto. La verifica del telefono **non blocca** l'accesso; il numero si chiede comunque |
+| `SMS_PROVIDER="noop"` | Trasporto di sviluppo che **non spedisce** e non registra niente, nemmeno il numero. Da solo non fa bloccare la verifica: `delivers: false` |
+| `SMS_PROVIDER="<ignoto>"` | **Non** ricade su `noop` e **non** spegne in silenzio la verifica: viene segnalato una volta dal punto unico degli errori, e l'invio resta spento |
+| `AUTH_REQUIRE_PHONE_VERIFICATION` | `"true"` se non detto altrimenti. Si spegne solo per scelta esplicita |
+| `AUTH_DEFAULT_COUNTRY_CODE` | Prefisso usato quando chi si registra non ne scrive uno. Predefinito `+39` |
+| `AUTH_OTP_SECRET` | Pepe delle impronte OTP. Vedi [14 — Sicurezza](14-security.md) |
+
+**`delivers` e la proprieta che conta**, non «e configurato qualcosa»: un
+trasporto che accetta il messaggio e non lo porta a nessuno non deve far
+pretendere una verifica, perche pretendere cio che non si puo consegnare
+chiude fuori ogni account nuovo.
+
+### Aggiungere l'operatore scelto
+
+1. `src/lib/server/sms/<nome>-provider.ts` che implementa `SmsProvider`;
+2. una riga in `SMS_TRANSPORTS` con `delivers: true`;
+3. un ramo in `resolveSmsProvider`;
+4. le variabili in `.env.example` e la riga in [13](13-environments.md).
+
+**Niente della sicurezza dell'OTP cambia**, perche non e delegata.
+
+### Il mittente alfanumerico in Italia
+
+Delibera AGCOM 12/23/CIR: l'alias lo registra **il fornitore** per conto del
+titolare, e l'art. 6 c.2 gli impone di **rigettare la richiesta presentata da
+un terzo per conto del titolare, anche con delega espressa**. EasyGame non puo
+quindi registrare gli alias dei propri club: ogni ASD deve avere un rapporto
+diretto con il fornitore, oppure accettare il mittente numerico. Serve codice
+fiscale e PEC in INI-PEC; la partita IVA **non** e richiesta dalla delibera
+(molti fornitori la chiedono comunque, per policy propria). Dettagli e limiti
+della verifica in ADR-0114.
 
 ## OAuth Google e Microsoft — opzionale
 

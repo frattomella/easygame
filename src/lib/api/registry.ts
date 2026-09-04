@@ -1613,21 +1613,24 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     name: "auth.verify.email.confirm",
     method: "POST",
     path: "/api/v1/auth/verify/email/confirm",
-    description: "Conferma verifica email e finalizzazione sessione",
+    description:
+      "Conferma verifica email. Apre una sessione **solo** se la challenge era di registrazione o di login (PP-05, ADR-0117); un codice chiesto da /verify/email/send conferma l'indirizzo e risponde session: null",
     mobile_ready: true,
   },
   {
     name: "auth.verify.phone.send",
     method: "POST",
     path: "/api/v1/auth/verify/phone/send",
-    description: "Invio codice verifica telefono",
+    description:
+      "Invio codice verifica telefono via SMS. Risposta opaca: riferimento ignoto, utente senza numero, numero gia verificato e invio riuscito rispondono tutti { sent: true }. Rate limit su tre assi: account, destinatario (per impronta) e indirizzo IP",
     mobile_ready: true,
   },
   {
     name: "auth.verify.phone.confirm",
     method: "POST",
     path: "/api/v1/auth/verify/phone/confirm",
-    description: "Conferma verifica telefono e finalizzazione sessione",
+    description:
+      "Conferma verifica telefono. Apre una sessione **solo** se la challenge era di registrazione o di login (PP-05, ADR-0117); un codice chiesto da /verify/phone/send conferma il numero e risponde session: null",
     mobile_ready: true,
   },
   {

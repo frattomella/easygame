@@ -43,11 +43,10 @@ condivisi si conservano fuori dal repository.
 2. Inserisci la tua `DATABASE_URL` PostgreSQL
 3. Configura SMTP dalla dashboard platform admin. La password viene cifrata con
    `SMTP_CREDENTIALS_SECRET` o, in fallback, `AUTH_RATE_LIMIT_SECRET`.
-4. Se vuoi SMS e OAuth reali, compila anche:
+4. Se vuoi OAuth reale, compila anche:
    - `AUTH_BASE_URL`
-   - `TWILIO_ACCOUNT_SID`
-   - `TWILIO_AUTH_TOKEN`
-   - `TWILIO_VERIFY_SERVICE_SID`
+   - `SMS_PROVIDER` (oggi solo `noop`, che non spedisce: nessun operatore
+     reale e cablato, vedi ADR-0114)
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`
    - `MICROSOFT_CLIENT_ID`

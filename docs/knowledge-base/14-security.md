@@ -2510,3 +2510,133 @@ questa revisione (correzioni e loro regressioni) e sono stati classificati come
 debito con il loro motivo in [16 — Debito tecnico](16-technical-debt.md)
 (`W6-D30`…`W6-D33`). Nessuno di loro e un accesso cross-tenant, una fuga di
 dato di minore o clinico, o denaro che esce due volte.
+
+## PP-05 — un recapito verificato e un canale di accesso (2026-09-04)
+
+Revisione ostile indipendente sulla lane PP-05A, misurata contro PostgreSQL
+reale: **1 Critical, 2 High, 5 Medium, 3 Low**. Tutte le prove stanno in
+`scripts/pp-05-sicurezza-probe.mjs` e sono state verificate **per mutazione**
+(rimossa la guardia, la riga torna rossa). Il verbale completo della lane e in
+[46](46-pp-05-onboarding-comunicazioni.md).
+
+### CRITICAL — la presa di possesso che sopravviveva a entrambi gli sfratti
+
+**Come si faceva.** Registro un account con l'indirizzo email di un'altra
+persona e **il mio numero di cellulare**, e verifico il numero. Uso il prodotto.
+Quando la vittima arriva davvero — con Google, che l'indirizzo lo certifica —
+l'adozione azzera la mia password e cancella le mie sessioni, **e lascia il mio
+numero sulla sua riga**. Chiedo allora un codice a `/verify/phone/send`, lo
+ricevo sul mio telefono, e `/verify/phone/confirm` mi **restituisce una
+sessione**. La vittima, nel frattempo, e chiusa fuori: il mio numero le blocca
+la creazione della sessione, e la sua password e appena stata azzerata.
+
+Lo stesso valeva per l'altro meccanismo di sfratto: il reset password
+cancellava le sessioni e non toccava il canale che le faceva rinascere.
+
+**La lezione, che vale oltre questo caso.** Un elenco di modi per entrare —
+password, recapito verificato, gettone, accesso esterno — senza **un punto
+unico che li revochi tutti insieme** e un elenco che prima o poi ne dimentica
+uno. La correzione non e stata «aggiungere il telefono allo sfratto»: e stata
+dare allo sfratto un nome e un posto, `sfrattaOccupante`, cosi che la prossima
+credenziale che si aggiunge abbia una casa evidente dove essere chiusa.
+
+**Le due difese, indipendenti.**
+
+1. `sfrattaOccupante` azzera password, sessioni, `phone`, `phone_verified_at` e
+   `token_verification_id`. Il numero azzerato **non** blocca la vittima:
+   `isPhoneVerificationBlocking` pretende che un numero ci sia.
+2. `challengePurposeCanMintSession`: un codice apre una sessione solo se lo
+   scopo della challenge e `signup` o `login`, cioe solo se una password e
+   appena stata presentata. Un codice chiesto da `/verify/<canale>/send`
+   conferma il recapito e risponde `session: null`.
+
+Vedi [ADR-0117](18-decision-log.md).
+
+### HIGH — l'elenco dei trasporti SMS in due copie, divergenti
+
+`provider-policy.ts` e `sms-service.ts` conoscevano ciascuno per conto proprio
+i nomi validi di `SMS_PROVIDER`, e sbagliavano in **direzioni opposte**:
+
+- `SMS_PROVIDER=noop` — l'unico valore riconosciuto — faceva **bloccare**
+  l'accesso in attesa di un codice che `NoopSmsProvider` per contratto non
+  spedisce: ogni account nuovo restava fuori per sempre, con la challenge
+  scritta in archivio e nessuno a riceverla;
+- il nome di un operatore vero non era riconosciuto, quindi la verifica **si
+  spegneva in silenzio**. E il verso peggiore in assoluto, perche succede
+  esattamente quando qualcuno crede di aver completato la configurazione.
+
+Ora l'elenco e uno, puro (`src/lib/auth/sms-transport.ts`), e porta la
+proprieta che decide: **`delivers`**. Un nome sconosciuto viene segnalato una
+volta dal punto unico degli errori, senza il valore dentro.
+
+### HIGH — pompaggio di SMS verso un numero altrui dalla registrazione
+
+`rate-limit-policy.ts` prometteva che `otpSendTarget` fermasse il pompaggio
+«anche quando l'attaccante si crea account nuovi». La registrazione consumava
+solo `registerIp` e `registerIdentity`, cioe i due assi che l'attaccante
+sceglie. Misurati **dieci SMS all'ora verso un numero scelto** da un solo
+indirizzo IP, moltiplicabili cambiando rete; ogni invio invalidava alla vittima
+il codice appena ricevuto.
+
+Il contatore per destinatario si consuma ora **prima** di sapere se l'indirizzo
+email esista gia — cosi i due rami costano uguale e non diventano un oracolo —
+e quando e esaurito **l'SMS non parte**, senza cambiare la risposta.
+
+### MEDIUM — il numero mascherato accanto al numero in chiaro
+
+`verification.phone` usciva mascherato, e `user_metadata.phone` usciva **in
+chiaro nello stesso corpo, tre righe piu sotto**. Un controllo che c'e ed e
+inefficace e peggio di un controllo che manca, perche chi legge il codice lo
+conta come fatto. `serializeAuthUserWithoutSession` per le tre risposte senza
+sessione.
+
+### MEDIUM — indovinare la password attuale, senza tetto e senza traccia
+
+`PATCH /api/v1/auth/user` chiede la password attuale per cambiare un fattore, ed
+e la difesa introdotta **contro la sessione rubata**. Non contava i tentativi:
+misurati venticinque di fila senza un 429, e nessun evento di audit. Chi aveva
+la sessione poteva rendere permanente un accesso temporaneo — esattamente cio
+che quella richiesta doveva impedire. Ora dieci per account in un quarto d'ora,
+e il tentativo sbagliato lascia una riga di audit che dice **quale porta** e
+stata provata.
+
+### LOW — una difesa che si apriva quando una variabile mancava
+
+`shouldExposeVerificationPreviewCode` chiedeva `NODE_ENV !== "production"`:
+`NODE_ENV` **assente** apriva. Su Vercel vale sempre `production` e il rischio
+pratico era basso, ma la forma era sbagliata — quando un ambiente non si
+dichiara, non lo si indovina. Ora nega anche su `staging` e `preview`, e senza
+`NODE_ENV` chiede `EASYGAME_DB_ENV=development`.
+
+### Rischio residuo dichiarato
+
+- **Il pepe delle impronte OTP ricade su `DATABASE_URL`** se nessuna delle tre
+  variabili dedicate e impostata. Chi ha estratto un dump ha quasi certamente
+  anche la stringa di connessione con cui l'ha estratto, e in quel caso il
+  milione di codici a sei cifre torna enumerabile. `AUTH_OTP_SECRET` va
+  impostato negli ambienti condivisi ([13](13-environments.md)). Il ripiego
+  resta perche un'installazione locale deve funzionare senza segreti.
+- **Un utente solo-OAuth non puo aggiungere il cellulare** (debito PP05-D1):
+  ha una password casuale che nessuno conosce, e `CURRENT_PASSWORD_REQUIRED`
+  gli chiude email, numero e password. La strada esiste ed e «Password
+  dimenticata».
+- **`maskPhoneNumber` rivela la lunghezza** del numero: e un mascheramento, non
+  un segreto.
+
+### Sull'email (PP-05B)
+
+- **L'escaping non e piu una scelta di chi chiama**: i blocchi del template
+  core prendono testo, non markup. Il blocco `raw` e l'unica via d'uscita, e ha
+  due soli utenti dichiarati — i modelli di messaggio del club e il riepilogo
+  giornaliero — che sfuggono i valori dei segnaposto per conto proprio.
+- **Nessuna immagine remota** in una email a marchio club: sarebbe un
+  tracciatore verso le famiglie di un club, spesso minori, e nessuno ha
+  dichiarato quel trasferimento. Un logo diventa `<img>` solo se e servito
+  dalla nostra origine.
+- **`sandbox=""` sugli iframe dell'anteprima**: un `srcDoc` eredita l'origine
+  della pagina che lo contiene, quindi il markup di un template girava con i
+  cookie di un amministratore di piattaforma. E la superficie piu facile da
+  dimenticare in una pagina che «mostra e basta».
+- **L'anteprima non spedisce**, e non e un commento: un test monta un trasporto
+  finto, costruisce l'intero catalogo, conta zero invii, e poi manda un
+  messaggio con lo stesso doppio per provare che il primo zero non e vacuo.
