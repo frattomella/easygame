@@ -296,9 +296,25 @@ export const readAthleteGuardianContacts = (
     (guardian) => ({
       id: String(guardian.id),
       name: getGuardianDisplayName(guardian),
-      email: String(firstValue(guardian, GUARDIAN_EMAIL_KEYS) || "")
-        .trim()
-        .toLowerCase(),
+      /*
+        **Un indirizzo revocato non esce, nemmeno da una riga viva.**
+
+        L'uscita «un legame dichiarato vince» tiene in piedi la riga — ed e
+        giusto: madre e padre con l'indirizzo di famiglia condiviso, uno solo
+        revocato. Ma se la riga sopravvive portandosi dietro **quell'indirizzo**,
+        l'invio ci arriva lo stesso, e la revoca vale per il cruscotto e non per
+        la posta.
+
+        La riga resta, l'indirizzo revocato no: chi ha un legame dichiarato ha
+        anche un'utenza, e `buildAudienceContacts` sa ripiegare sul suo
+        indirizzo vero.
+      */
+      email: (() => {
+        const scritto = String(firstValue(guardian, GUARDIAN_EMAIL_KEYS) || "")
+          .trim()
+          .toLowerCase();
+        return scritto && identitaRevocate.has(scritto) ? "" : scritto;
+      })(),
       linkedUserId: String(
         firstValue(guardian, GUARDIAN_ACCOUNT_KEYS) || "",
       ).trim(),

@@ -3901,6 +3901,29 @@ const sezioneW = async () => {
   );
 
   /*
+    **W-23e.** L'uscita «un legame dichiarato vince» tiene in piedi la riga, ed
+    e giusto. Ma se la riga sopravvive portandosi dietro **l'indirizzo
+    revocato**, l'invio ci arriva lo stesso: la revoca varrebbe per il
+    cruscotto e non per la posta.
+  */
+  const conIndirizzoRevocato = contattiW23.readAthleteGuardianContacts({
+    id: "x",
+    data: {
+      guardians: [
+        { id: "madre", name: "Madre", email: ANNA.email, linkedUserId: BRUNO.id },
+      ],
+      revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
+    },
+  });
+
+  prova(
+    "W-23e la riga vive, ma l'indirizzo revocato non esce",
+    ["", BRUNO.id],
+    [conIndirizzoRevocato[0]?.email, conIndirizzoRevocato[0]?.linkedUserId],
+    "l'utenza collegata ha il proprio indirizzo: si ripiega su quello",
+  );
+
+  /*
     **W-23c.** Le notifiche documentali leggevano solo `guardians`: una
     famiglia con anagrafica travasata non riceveva **mai** una richiesta di
     documento, ne il promemoria, ne l'esito.
