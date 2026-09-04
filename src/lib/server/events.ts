@@ -3,6 +3,7 @@ import {
   athleteIdsWithinAccessScope,
   buildAthleteAccessScopeConditions,
 } from "./access-scope-query";
+import { athleteIdsWithinTrainerPerimeter } from "./resources";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { normalizeAccessRole } from "@/lib/access-roles";
 import { roleHasPermission } from "@/lib/permissions/catalog";
@@ -1148,12 +1149,40 @@ const assertAtletiDentroIlPerimetro = async (
     new Set(athleteIds.map((id) => asText(id)).filter(Boolean)),
   );
   if (!richiesti.length) return;
-  if (!buildAthleteAccessScopeConditions(scope)) return;
 
-  const ammessi = new Set(
-    await athleteIdsWithinAccessScope(organizationId, scope),
+  const fuori: string[] = [];
+
+  /*
+    **Primo recinto: sede e categoria** (`club_access_scopes`). Vale per
+    chiunque lo abbia, allenatore compreso.
+  */
+  if (buildAthleteAccessScopeConditions(scope)) {
+    const ammessi = new Set(
+      await athleteIdsWithinAccessScope(organizationId, scope),
+    );
+    fuori.push(...richiesti.filter((id) => !ammessi.has(id)));
+  }
+
+  /*
+    **Secondo recinto: la scheda dell'allenatore.** Un allenatore ordinario non
+    ha nessuna riga in `club_access_scopes`, quindi il primo recinto non lo
+    tocca: guardare solo quello equivaleva a non recintarlo affatto. Il suo
+    perimetro vive nelle categorie e nei gruppi della sua scheda, e la risposta
+    la da `resources.ts`, che e lo stesso posto da cui esce il suo elenco
+    atleti — non una seconda copia della regola.
+
+    I due recinti si sommano: chi ha entrambi deve stare dentro entrambi.
+  */
+  const dentroLaScheda = await athleteIdsWithinTrainerPerimeter(
+    organizationId,
+    richiesti,
+    scope as any,
   );
-  const fuori = richiesti.filter((id) => !ammessi.has(id));
+  if (dentroLaScheda) {
+    const ammessi = new Set(dentroLaScheda);
+    fuori.push(...richiesti.filter((id) => !ammessi.has(id)));
+  }
+
   if (!fuori.length) return;
 
   await recordPermissionDenied({
@@ -1208,6 +1237,32 @@ export const saveEventConvocations = async (
   );
   assertEventHasRoom(event.capacity, 0, convocati.length);
 
+  /*
+    **La ripulitura non puo uscire dal perimetro di chi la esegue.**
+
+    `assertAtletiDentroIlPerimetro` guarda cio che l'elenco **nomina**. La
+    ripulitura qui sotto agisce invece su cio che l'elenco **non** nomina, e
+    quindi non passava da nessun vaglio. Su un allenamento congiunto A+B
+    l'allenatore della sola B mandava un elenco **vuoto** — che non nomina
+    nessuno, supera il vaglio senza toccarlo, e in SQL `notIn: []` non esclude
+    niente — e la ripulitura cancellava la convocazione dei minori della
+    categoria A. Una scrittura distruttiva su persone fuori perimetro, senza
+    nemmeno bisogno di conoscerne l'identificativo.
+
+    Si limita percio la ripulitura alle persone che chi agisce potrebbe
+    convocare. Chi non ha recinto (`null`) continua a ripulire tutto l'evento,
+    che e cio che la segreteria deve poter fare.
+  */
+  const partecipantiEsistenti = await prisma.clubEventParticipant.findMany({
+    where: { organization_id: organizationId, event_id: event.id },
+    select: { athlete_id: true },
+  });
+  const ripulibili = await insiemeAmmessoPerPerimetro(
+    scope,
+    organizationId,
+    partecipantiEsistenti.map((riga) => asText(riga.athlete_id)),
+  );
+
   const now = new Date();
 
   await prisma.$transaction(async (tx) => {
@@ -1220,7 +1275,10 @@ export const saveEventConvocations = async (
       where: {
         organization_id: organizationId,
         event_id: event.id,
-        athlete_id: { notIn: normalizzate.map((entry) => entry.athleteId) },
+        athlete_id: {
+          notIn: normalizzate.map((entry) => entry.athleteId),
+          ...(ripulibili ? { in: [...ripulibili] } : {}),
+        },
       },
       data: { convocation_status: null, convocated_at: null, convocated_by: null },
     });
@@ -1369,6 +1427,28 @@ export const saveEventAttendance = async (
   });
 };
 
+/**
+ * **Ammettere l'evento non ammette le persone dell'evento.**
+ *
+ * ADR-0111 fa passare un evento se **almeno una** delle sue categorie sta nel
+ * perimetro di chi guarda, e la scelta e giusta: un evento che compare nel
+ * calendario e su cui poi ogni atto viene rifiutato e la divergenza fra cio
+ * che si vede e cio che si puo. Ma da quella scelta discende un caso che qui
+ * non era coperto: su un allenamento **congiunto** A+B l'allenatore della sola
+ * B e legittimamente ammesso all'evento, e riceveva l'elenco completo dei
+ * partecipanti — cioe i minori della categoria A, che il suo stesso elenco
+ * atleti non gli mostra.
+ *
+ * Il commento di `assertAccessScopeOnEvent` lo diceva gia — l'ammissione
+ * dell'evento «non ammette le persone fuori dal perimetro» — ma solo le due
+ * scritture lo applicavano. La lettura no, ed e la lettura che porta via il
+ * dato.
+ *
+ * Le righe fuori perimetro si **tolgono**, non si rifiuta la chiamata:
+ * rifiutare renderebbe illeggibile un evento che chi guarda ha tutto il
+ * diritto di vedere, ed e la stessa scelta che `listClubEvents` fa gia con il
+ * perimetro dell'allenatore — li un filtro, qui un filtro.
+ */
 export const listEventParticipants = async (
   scope: EventsScope,
   idOrLegacyId: string,
@@ -1382,10 +1462,76 @@ export const listEventParticipants = async (
   await assertTrainerEventPerimeter(scope, [event], "events.read");
   await assertAccessScopeOnEvent(scope, [event], "events.read");
 
-  return prisma.clubEventParticipant.findMany({
+  const righe = await prisma.clubEventParticipant.findMany({
     where: { organization_id: organizationId, event_id: event.id },
     orderBy: { athlete_id: "asc" },
   });
+
+  return filtraPartecipantiPerPerimetro(scope, organizationId, righe);
+};
+
+/**
+ * Toglie dalle righe di partecipazione le persone fuori dal perimetro di chi
+ * legge. I due recinti sono gli stessi di `assertAtletiDentroIlPerimetro`, e
+ * per la stessa ragione: se una scrittura su quell'atleta viene rifiutata,
+ * leggerne il nome nell'elenco non e un permesso in piu, e una perdita.
+ */
+const filtraPartecipantiPerPerimetro = async <T extends { athlete_id: string | null }>(
+  scope: EventsScope,
+  organizationId: string,
+  righe: readonly T[],
+): Promise<T[]> => {
+  if (!righe.length) return [...righe];
+
+  const identificativi = righe
+    .map((riga) => asText(riga.athlete_id))
+    .filter(Boolean);
+
+  const ammessi = await insiemeAmmessoPerPerimetro(
+    scope,
+    organizationId,
+    identificativi,
+  );
+  if (!ammessi) return [...righe];
+
+  return righe.filter((riga) => ammessi.has(asText(riga.athlete_id)));
+};
+
+/**
+ * Gli identificativi, fra quelli dati, che chi agisce puo toccare.
+ *
+ * `null` significa **nessun recinto**: chi legge non deve confonderlo con
+ * «recinto vuoto», che e l'errore da cui nasceva il difetto originale.
+ * I due recinti — sede/categoria e scheda dell'allenatore — si intersecano:
+ * chi ne ha due deve stare dentro entrambi.
+ */
+const insiemeAmmessoPerPerimetro = async (
+  scope: EventsScope,
+  organizationId: string,
+  athleteIds: readonly string[],
+): Promise<Set<string> | null> => {
+  const identificativi = Array.from(new Set(athleteIds.filter(Boolean)));
+  if (!identificativi.length) return null;
+
+  let ammessi: Set<string> | null = null;
+
+  if (buildAthleteAccessScopeConditions(scope)) {
+    ammessi = new Set(await athleteIdsWithinAccessScope(organizationId, scope));
+  }
+
+  const dentroLaScheda = await athleteIdsWithinTrainerPerimeter(
+    organizationId,
+    identificativi,
+    scope as any,
+  );
+  if (dentroLaScheda) {
+    const insieme = new Set(dentroLaScheda);
+    ammessi = ammessi
+      ? new Set([...ammessi].filter((id) => insieme.has(id)))
+      : insieme;
+  }
+
+  return ammessi;
 };
 
 /**

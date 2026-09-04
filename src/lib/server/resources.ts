@@ -42,6 +42,7 @@ import {
   stripGuardianAccessTokens,
   stripPersonCredentials,
 } from "@/lib/health/permissions";
+import { isReminderVisibleToTrainer } from "@/lib/reminder-targeting";
 import { Prisma } from "@prisma/client";
 import { hashPassword } from "./auth";
 import {
@@ -4656,6 +4657,7 @@ const applyListView = (
  * appartiene.
  */
 const TRAINER_DASHBOARD_FILTERED_RESOURCES = new Set([
+  "secretariat_notes",
   "athletes",
   "simplified_athletes",
   "club_events",
@@ -4951,6 +4953,7 @@ const resolveTrainerDashboardFilterContext = async (
       trainerTokens: new Set<string>(),
       assignedGroups: [] as CategoryGroup[],
       siteIndex,
+      trainerProfile: null as Record<string, any> | null,
     };
   }
 
@@ -5014,6 +5017,12 @@ const resolveTrainerDashboardFilterContext = async (
       ? clubGroups.filter((group) => assignedGroupIds.has(group.id))
       : [],
     siteIndex,
+    /*
+      La scheda serve al vaglio delle note di segreteria, che non si decide
+      per categoria ma per **destinatario**: e la sola regola del perimetro
+      dell'allenatore che guarda la persona e non la squadra.
+    */
+    trainerProfile,
   };
 };
 
@@ -5144,6 +5153,26 @@ const filterTrainerDashboardRecords = async (
     }
   }
 
+  /*
+    **Le note di segreteria hanno un destinatario, e non lo guardava il
+    server.**
+
+    `secretariat_notes` sta in `TRAINER_READ_RESOURCES` — l'allenatore deve
+    poterle leggere — ma la rotta le serviva **tutte**: la nota interna della
+    segreteria («la famiglia non paga da tre mesi»), e la nota indirizzata per
+    nome a un **altro** allenatore. Il vaglio esisteva, e viveva solo nel
+    browser (`isReminderVisibleToTrainer` nel contesto della dashboard): un
+    filtro che sta dopo la rete non e un confine, il dato e gia uscito.
+
+    La regola non viene riscritta qui: e la stessa funzione pura che il
+    browser usa gia, applicata dove decide.
+  */
+  if (canonicalResourceName(resource) === "secretariat_notes") {
+    return records.filter((record) =>
+      isReminderVisibleToTrainer(record, context.trainerProfile as any),
+    );
+  }
+
   return records.filter((record) => {
     if (perGruppo) {
       const conAppartenenze = {
@@ -5176,6 +5205,61 @@ const filterTrainerDashboardRecords = async (
 
     return false;
   });
+};
+
+/**
+ * **Quali atleti l'allenatore puo toccare** — la stessa risposta dell'elenco,
+ * chiesta dal dominio degli eventi.
+ *
+ * Esiste perche il recinto dell'allenatore ha **due** forme e finora solo una
+ * arrivava alle persone. Il perimetro di sede e categoria vive in
+ * `club_access_scopes` e lo traduce `access-scope-query.ts`; il perimetro di
+ * un allenatore vive invece nella **scheda** dentro `clubs.trainers` /
+ * `clubs.staff_members`, e lo sa solo questo file. Un allenatore ordinario non
+ * ha nessuna riga in `club_access_scopes`: per chi guardava solo quelle, il suo
+ * recinto era **assente**, cioe «tutto il club».
+ *
+ * Misurato: l'allenatore della categoria B, su un allenamento congiunto A+B
+ * che ADR-0111 gli fa legittimamente vedere, segnava la presenza di un minore
+ * della categoria A — un atleta che il suo stesso elenco non gli mostra — e la
+ * convocazione manda un invito alla famiglia di quel minore.
+ *
+ * Torna `null` quando il lettore **non** e un allenatore: nessun recinto di
+ * scheda da applicare, e il chiamante non deve confondere «nessun recinto» con
+ * «recinto vuoto». Altrimenti torna il sottoinsieme ammesso, calcolato
+ * passando le righe vere per lo **stesso** filtro che compone l'elenco: una
+ * seconda implementazione della stessa regola sarebbe la prossima divergenza.
+ */
+export const athleteIdsWithinTrainerPerimeter = async (
+  organizationId: string,
+  athleteIds: readonly string[],
+  scope?: ResourceAccessScope,
+): Promise<string[] | null> => {
+  if (
+    normalizeAccessRole(scope?.activeRole) !== "trainer" ||
+    !scope?.userId ||
+    !scope.activeOrganizationId
+  ) {
+    return null;
+  }
+
+  const richiesti = Array.from(
+    new Set(athleteIds.map((id) => String(id || "").trim()).filter(Boolean)),
+  );
+  if (!richiesti.length) return [];
+
+  const righe = await prisma.athlete.findMany({
+    where: { organization_id: organizationId, id: { in: richiesti } },
+  });
+
+  const ammessi = await filterTrainerDashboardRecords(
+    "athletes",
+    righe as Record<string, any>[],
+    new URLSearchParams(),
+    scope,
+  );
+
+  return ammessi.map((riga) => String(riga.id));
 };
 
 export type ListResourceResult = {
