@@ -87,7 +87,26 @@ const normalizeEmail = (value: unknown) =>
  */
 export const getGuardianRows = (athlete: any) => {
   const data = asRecord(athlete?.data);
-  const guardians = asArray(data.guardians).map((guardian) => {
+  const guardians = asArray(data.guardians)
+    /*
+      **Chi e stato scollegato non riceve piu avvisi sul minore.**
+
+      Questa e la **seconda** definizione di «tutore collegato» del
+      repository, e come la prima accettava l'indirizzo di **contatto** — che
+      la revoca giustamente non cancella, perche al club serve per scrivere a
+      quella persona. Da qui pero non si scrive alla persona: si risolve il suo
+      **account** e gli si manda un avviso sul certificato medico di un minore.
+      Dopo «Scollega account» quegli avvisi continuavano ad arrivare.
+
+      La prima definizione e stata chiusa con il marchio `accessRevokedAt`;
+      questa lo legge, o la revoca resterebbe vera per l'accesso e falsa per
+      cio che si riceve.
+    */
+    .filter((guardian) => {
+      const record = asRecord(guardian);
+      return !firstText(record.accessRevokedAt, record.access_revoked_at);
+    })
+    .map((guardian) => {
     const record = asRecord(guardian);
     return {
       linkedUserId: firstText(

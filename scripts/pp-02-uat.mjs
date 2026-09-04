@@ -3384,6 +3384,41 @@ const sezioneW = async () => {
     where: { id: { in: [FIGLIO_REVOCA, FIGLIO_SOLO_EMAIL] } },
   });
 
+  /*
+    **W-10.** La seconda definizione di «tutore collegato»: quella che decide
+    **chi riceve** gli avvisi sul certificato medico. Come la prima accettava
+    l'indirizzo di contatto, e da li risolveva l'account della persona. Dopo
+    «Scollega account» gli avvisi sulla salute di un minore continuavano ad
+    arrivare a chi era stato scollegato.
+  */
+  const promemoria = await carica("src/lib/server/medical-certificate-reminders.ts");
+
+  const rigaRevocata = {
+    data: {
+      guardians: [
+        {
+          id: "t1",
+          name: "Anna",
+          email: ANNA.email,
+          accessRevokedAt: new Date().toISOString(),
+        },
+      ],
+    },
+  };
+  const rigaViva = {
+    data: { guardians: [{ id: "t1", name: "Anna", email: ANNA.email }] },
+  };
+
+  prova(
+    "W-10 un tutore scollegato non e piu destinatario degli avvisi sul certificato",
+    [0, 1],
+    [
+      promemoria.getGuardianRows(rigaRevocata).length,
+      promemoria.getGuardianRows(rigaViva).length,
+    ],
+    "prima: l'indirizzo di contatto lo teneva fra i destinatari",
+  );
+
   /* ------------- W7: un ragazzo non e tutore di se stesso --------------- */
 
   /*
