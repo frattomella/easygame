@@ -82,6 +82,10 @@ import { getTrainingStableKey } from "@/lib/training-utils";
 import { getFamilyDocumentStateClassName } from "@/lib/documents/family-dossier";
 import { withPayableInstalment } from "@/lib/payments/family-checkout";
 import {
+  describeFieldAvailability,
+  isWithinFieldAvailability,
+} from "@/lib/structures-utils";
+import {
   useParentDashboard,
   type AppointmentSlot,
 } from "./parent-dashboard-context";
@@ -2437,6 +2441,29 @@ export function ParentStructuresPage() {
     }
     if (start.getTime() >= end.getTime()) {
       showToast("error", "L'orario di fine deve essere successivo all'inizio");
+      return;
+    }
+
+    /*
+      **PP-02 §L. La fascia si controlla anche qui, e non solo qui.**
+
+      Il presidio vero e sulla rotta — chi conosce gli identificativi non passa
+      dal modulo — ma farlo dire **prima** al browser evita alla famiglia un
+      giro sulla rete per sentirsi rifiutare un orario che la stessa schermata
+      le stava mostrando come fuori fascia. Le due domande usano la stessa
+      funzione: due implementazioni sarebbero due risposte diverse.
+    */
+    const campoScelto = currentFields.find(
+      (item: any) => String(item.id) === form.fieldId,
+    );
+    if (campoScelto && !isWithinFieldAvailability(campoScelto, start, end)) {
+      const fasce = describeFieldAvailability(campoScelto);
+      showToast(
+        "error",
+        fasce
+          ? `Il campo non e disponibile in quell'orario. Fasce aperte: ${fasce}`
+          : "Il campo non e disponibile in quell'orario",
+      );
       return;
     }
 

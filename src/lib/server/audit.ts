@@ -289,6 +289,15 @@ export const AUDIT_ACTIONS = {
   appointmentSlotChanged: "appointment.slot.changed",
 
   /*
+    **La prenotazione di una struttura da parte della famiglia** (PP-02 §L).
+
+    Era l'unica azione della famiglia che non lasciava nessuna traccia: finiva
+    dentro `clubs.structures[].bookings`, un array JSON senza storia, e la
+    domanda «chi ha chiesto questo campo, e quando» non era rispondibile.
+  */
+  structureBookingRequested: "structure_booking.requested",
+
+  /*
     L'accesso EasyGame di un atleta (Wave 6, lane 6C). Sono **tre** azioni e
     non una `athlete_account.updated`, per la stessa ragione degli
     appuntamenti: sono le righe che si vanno a cercare, e le domande sono

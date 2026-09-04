@@ -359,3 +359,121 @@ export function getVisibleBookableStructures(structures: ClubStructure[]) {
     .filter((structure) => structure.fields.length > 0);
 }
 
+
+/* ==================================================================== */
+/*  PP-02 §L — la fascia dichiarata vale anche sulla rotta              */
+/* ==================================================================== */
+
+/**
+ * Il fuso in cui si leggono le fasce di disponibilita di un campo.
+ *
+ * Una fascia e scritta `18:00`-`22:00`: e un orario **locale**, non un istante.
+ * La prenotazione arriva invece come istante assoluto, perche il browser
+ * compone `new Date("2027-03-01T18:00")` e lo manda in ISO. Per confrontarle
+ * serve dichiarare in che fuso «18:00» e le diciotto — ed e lo stesso fuso che
+ * il dominio degli appuntamenti dichiara da sempre.
+ */
+export const DEFAULT_STRUCTURE_TIMEZONE = "Europe/Rome";
+
+/** Il giorno della settimana come lo scrive `WEEK_DAYS`, e l'ora locale. */
+const WEEKDAY_KEY_BY_EN: Record<string, string> = {
+  Mon: "Lun",
+  Tue: "Mar",
+  Wed: "Mer",
+  Thu: "Gio",
+  Fri: "Ven",
+  Sat: "Sab",
+  Sun: "Dom",
+};
+
+export function describeInstantForAvailability(
+  value: Date,
+  timeZone: string = DEFAULT_STRUCTURE_TIMEZONE,
+) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(value);
+
+  const read = (type: string) =>
+    parts.find((part) => part.type === type)?.value || "";
+
+  return {
+    dayKey: WEEKDAY_KEY_BY_EN[read("weekday")] || "",
+    minutes: Number(read("hour")) * 60 + Number(read("minute")),
+  };
+}
+
+const toMinutes = (value: string) => {
+  const [hours, minutes] = String(value || "")
+    .split(":")
+    .map((part) => Number(part));
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+};
+
+/**
+ * **La prenotazione sta dentro una fascia dichiarata?**
+ *
+ * PP-02 §L. Il divieto sulla prenotabilita esisteva gia sulla rotta (W6-54); la
+ * **disponibilita** no: la schermata mostrava le fasce e il modulo lasciava
+ * scegliere data e ora libere, con due `<input>`. Una famiglia poteva chiedere
+ * il campo alle tre di notte, e il server accettava — poi qualcuno in segreteria
+ * avrebbe dovuto rifiutare a mano una richiesta che non doveva potersi fare.
+ *
+ * **Un campo che non dichiara nessuna fascia non e vincolato**, e non e una
+ * dimenticanza: e la lezione di W6-D03. Chi non ha mai compilato quel riquadro
+ * non ha espresso una scelta, e trasformare il silenzio in «chiuso sempre»
+ * spegnerebbe le prenotazioni di ogni club che non lo ha configurato — cioe
+ * romperebbe una funzione per farne rispettare una che nessuno ha impostato. La
+ * conseguenza va detta ai club: finche le fasce non ci sono, l'orario non e
+ * vincolato.
+ *
+ * **Una prenotazione che scavalca la mezzanotte e fuori**, perche una fascia
+ * appartiene a un giorno e non ce n'e nessuna che possa contenerla.
+ */
+export function isWithinFieldAvailability(
+  field: Pick<StructureField, "availability">,
+  start: Date,
+  end: Date,
+  timeZone: string = DEFAULT_STRUCTURE_TIMEZONE,
+): boolean {
+  const availability = normalizeAvailability(field?.availability);
+  const fasce = Object.values(availability).flat();
+  if (!fasce.length) return true;
+
+  const inizio = describeInstantForAvailability(start, timeZone);
+  const fine = describeInstantForAvailability(end, timeZone);
+
+  if (!inizio.dayKey || inizio.dayKey !== fine.dayKey) return false;
+
+  return (availability[inizio.dayKey] || []).some((slot) => {
+    const da = toMinutes(slot.start);
+    const a = toMinutes(slot.end);
+    if (da === null || a === null) return false;
+    return inizio.minutes >= da && fine.minutes <= a;
+  });
+}
+
+/**
+ * Le fasce di un campo, scritte come le legge una persona.
+ *
+ * Serve al messaggio di rifiuto: «fuori dagli orari» senza dire **quali** e un
+ * rifiuto che non si puo correggere.
+ */
+export function describeFieldAvailability(
+  field: Pick<StructureField, "availability">,
+): string {
+  const availability = normalizeAvailability(field?.availability);
+
+  return WEEK_DAYS.map((day) => {
+    const slots = availability[day.key] || [];
+    if (!slots.length) return "";
+    return `${day.key} ${slots.map((slot) => `${slot.start}-${slot.end}`).join(", ")}`;
+  })
+    .filter(Boolean)
+    .join(" · ");
+}

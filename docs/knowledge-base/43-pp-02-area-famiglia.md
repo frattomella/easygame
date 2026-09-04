@@ -277,7 +277,85 @@ poter giocare e no. La resa dichiara il fuso.
 
 ---
 
-## 7. §O — I due residui di PP-01
+## 7. §L — Le strutture: il difetto non era quello segnalato
+
+La segnalazione diceva «una struttura con `bookable=false` compare al Parent
+come prenotabile a zero euro». **Non e riproducibile**, e le due meta sono gia
+chiuse dalla Wave 6: `getVisibleBookableStructures` filtra
+`isBookableByMembers` e toglie le tariffe a zero, la rotta rifiuta la
+prenotazione su una struttura chiusa, e le sonde P-80..P-82 e P-85 lo misurano
+contro un database vero.
+
+**Quello che si e trovato cercandolo e peggio: la prenotazione non funzionava
+mai.**
+
+### L.1 — Il dominio del browser dentro un route handler
+
+`POST /api/parent-dashboard/:id/structures` leggeva le strutture con
+`getClubStructures` di `src/lib/simplified-db.ts`. Quel modulo e il dominio che
+gira **nel browser**: passa da `apiRequest`, che fa
+`fetch("/api/v1/clubs?…")` — un percorso **relativo**.
+
+Dentro un route handler non c'e nessuna pagina da cui risolverlo. Node risponde
+`Failed to parse URL from /api/v1/clubs`, e la funzione ha un `catch` che
+restituisce `[]`.
+
+Effetto misurato: **ogni** richiesta di prenotazione riceveva
+`404 Struttura non prenotabile`, su qualunque struttura, di qualunque club.
+Non per un divieto: perche il divieto veniva applicato a un elenco vuoto, e un
+elenco vuoto supera qualunque vaglio.
+
+E la ragione per cui nessun test lo vedeva: cio che era coperto — «questa
+struttura e prenotabile?» — funziona; a non essere coperto era **da dove arriva
+l'elenco**.
+
+**Correzione.** Un modulo server con il suo proprietario,
+`src/lib/server/structure-bookings.ts`: legge e scrive `clubs.structures` con
+Prisma — le strutture non hanno un mirror in `club_resource_items`, non stanno
+in `CLUB_RESOURCE_TYPES` — e aggiunge la prenotazione **rileggendo dentro la
+transazione**, cosi la scrittura non parte da una fotografia vecchia.
+
+Non e un controllo di concorrenza e non va scambiato per tale: le prenotazioni
+vivono in un array JSON senza versione, e due famiglie che premono nello stesso
+istante possono ancora sovrascriversi. La chiusura vera e una tabella con
+l'indice unico parziale, come per eventi e appuntamenti: sta fra i residui
+(PP02-D3).
+
+**E un presidio sulla classe, non sul caso.** Nessun file sotto `src/app/api` o
+`src/lib/server` puo importare `@/lib/simplified-db` o `@/lib/supabase`: era
+l'unica occorrenza rimasta, e adesso un ritorno fa fallire un test.
+
+### L.2 — La fascia dichiarata non valeva niente
+
+Il divieto sulla **prenotabilita** era sulla rotta da W6-54; la
+**disponibilita** no. La schermata mostrava le fasce del campo e poi lasciava
+scegliere data e ora con due campi liberi: una famiglia poteva chiedere il campo
+alle tre di notte, e la richiesta arrivava in segreteria — dove qualcuno avrebbe
+dovuto rifiutare a mano una cosa che non doveva potersi chiedere.
+
+Adesso `isWithinFieldAvailability` decide, e la stessa funzione la usano il
+browser (per dirlo prima) e la rotta (perche e li che si decide). Il rifiuto
+**nomina le fasce**: «fuori dagli orari» senza dire quali e un rifiuto che non si
+puo correggere.
+
+**Un campo che non dichiara nessuna fascia non e vincolato**, ed e deliberato:
+e la lezione di W6-D03. Chi non ha mai compilato quel riquadro non ha espresso
+una scelta, e trasformare il silenzio in «chiuso sempre» spegnerebbe le
+prenotazioni di ogni club che non lo ha configurato. **Va detto ai club al
+rilascio**: finche le fasce non ci sono, l'orario non e vincolato.
+
+### L.3 — La richiesta non la vedeva nessuno
+
+Era l'unica azione della famiglia senza audit e senza notifica: la prenotazione
+finiva in un array JSON, e in segreteria nessuno lo sapeva a meno di aprire la
+scheda della struttura. Adesso lascia una riga
+(`structure_booking.requested`) e avvisa chi puo vederla. Nessuna delle due puo
+far fallire la prenotazione, che a quel punto e gia scritta: un avviso mancato e
+un difetto, una prenotazione persa dopo il salvataggio e un difetto peggiore.
+
+---
+
+## 8. §O — I due residui di PP-01
 
 ### O.1 — «Rimuovi allenamenti in programma» falliva sempre
 
@@ -330,7 +408,7 @@ scritto.
 
 ---
 
-## 8. Verifica
+## 9. Verifica
 
 ### Collaudo di dominio
 

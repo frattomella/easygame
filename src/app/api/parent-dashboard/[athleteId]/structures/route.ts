@@ -1,13 +1,21 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getParentDashboardData } from "@/lib/server/parent-dashboard";
-import { getClubStructures, saveClubStructures } from "@/lib/simplified-db";
 import {
+  appendFamilyStructureBooking,
+  readClubStructures,
+} from "@/lib/server/structure-bookings";
+import {
+  describeFieldAvailability,
   hasBookingConflict,
-  normalizeStructure,
+  isWithinFieldAvailability,
   uid,
   type StructureBooking,
 } from "@/lib/structures-utils";
+import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { createClubNotifications } from "@/lib/server/club-notifications";
+import { isManagementAccessRole } from "@/lib/access-roles";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 
 type Context = {
   params: {
@@ -89,13 +97,20 @@ export async function POST(request: Request, context: Context) {
       );
     }
 
-    const structures = (await getClubStructures(dashboard.club.id)).map(
-      normalizeStructure,
+    /*
+      **PP-02 §L. Le strutture si leggono dal server.**
+
+      Qui c'era `getClubStructures` di `simplified-db.ts`, che e il dominio del
+      **browser**: fa `fetch("/api/v1/clubs?…")` con un percorso relativo, che
+      dentro un route handler non si risolve, e restituisce `[]` inghiottendo
+      l'errore. Ogni richiesta di prenotazione riceveva
+      «Struttura non prenotabile» — non per un divieto, ma perche l'elenco su
+      cui il divieto veniva applicato era vuoto.
+    */
+    const structures = await readClubStructures(dashboard.club.id);
+    const structure = structures.find((item) =>
+      sameText(item.id, structureId),
     );
-    const structureIndex = structures.findIndex((structure) =>
-      sameText(structure.id, structureId),
-    );
-    const structure = structures[structureIndex];
 
     /*
       W6-54. Il divieto vale sulla rotta e non solo nella schermata: se vivesse
@@ -121,6 +136,35 @@ export async function POST(request: Request, context: Context) {
         {
           data: null,
           error: { message: "Campo non prenotabile" },
+        },
+        { status: 400 },
+      );
+    }
+
+    /*
+      **PP-02 §L. La fascia dichiarata vale anche qui.**
+
+      Il divieto sulla prenotabilita era gia sulla rotta (W6-54); la
+      **disponibilita** no. La schermata mostrava le fasce e il modulo lasciava
+      scegliere data e ora con due campi liberi: una famiglia poteva chiedere il
+      campo alle tre di notte, e la richiesta arrivava in segreteria, dove
+      qualcuno avrebbe dovuto rifiutare a mano una cosa che non doveva potersi
+      chiedere.
+
+      Il rifiuto **nomina le fasce**: «fuori dagli orari» senza dire quali e un
+      rifiuto che non si puo correggere. Un campo che non ne dichiara nessuna
+      resta senza vincolo, ed e deliberato: vedi `isWithinFieldAvailability`.
+    */
+    if (!isWithinFieldAvailability(field, startDate, endDate)) {
+      const fasce = describeFieldAvailability(field);
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message: fasce
+              ? `Il campo non e disponibile in quell'orario. Fasce aperte: ${fasce}`
+              : "Il campo non e disponibile in quell'orario",
+          },
         },
         { status: 400 },
       );
@@ -163,30 +207,88 @@ export async function POST(request: Request, context: Context) {
       );
     }
 
-    const nextStructure = {
-      ...structure,
-      bookings: [...(structure.bookings || []), booking],
-    };
-    const nextStructures = structures.map((item, index) =>
-      index === structureIndex ? nextStructure : item,
-    );
-    const ok = await saveClubStructures(dashboard.club.id, nextStructures);
+    const esito = await appendFamilyStructureBooking({
+      organizationId: dashboard.club.id,
+      structureId: structure.id,
+      booking,
+    });
 
-    if (!ok) {
-      return NextResponse.json(
-        { data: null, error: { message: "Salvataggio prenotazione fallito" } },
-        { status: 500 },
-      );
+    if (!esito.ok) {
+      return esito.reason === "conflict"
+        ? NextResponse.json(
+            {
+              data: null,
+              error: { message: "Slot gia occupato per questo campo" },
+            },
+            { status: 409 },
+          )
+        : NextResponse.json(
+            {
+              data: null,
+              error: { message: "Struttura non prenotabile" },
+            },
+            { status: 404 },
+          );
     }
+
+    /*
+      **PP-02 §L. La richiesta lascia una traccia e avvisa qualcuno.**
+
+      Era l'unica azione della famiglia che non produceva ne audit ne notifica:
+      la prenotazione finiva dentro un array JSON e nessuno in segreteria lo
+      sapeva, a meno che non aprisse la scheda della struttura. Una richiesta
+      che nessuno vede e una richiesta che non e stata fatta.
+
+      Nessuna delle due deve poter far fallire la prenotazione, che a questo
+      punto e gia scritta: un avviso mancato e un difetto, una prenotazione
+      persa dopo il salvataggio e un difetto peggiore.
+    */
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.structureBookingRequested,
+      organizationId: dashboard.club.id,
+      actorUserId: session.db.user_id,
+      resource: "structure_bookings",
+      resourceId: booking.id,
+      request,
+      metadata: {
+        structureId: structure.id,
+        fieldId: field.id,
+        athleteId: linkedAthlete.id,
+        startsAt: booking.start,
+        endsAt: booking.end,
+      },
+    }).catch(() => false);
+
+    await createClubNotifications({
+      clubId: dashboard.club.id,
+      title: "Nuova richiesta di prenotazione",
+      message: `${parentName} ha chiesto ${field.name} (${structure.name}) per ${booking.athleteName || "un atleta"}.`,
+      type: "structure_booking",
+      data: {
+        structureId: structure.id,
+        fieldId: field.id,
+        bookingId: booking.id,
+        athleteId: linkedAthlete.id,
+      },
+      audience: (role) => isManagementAccessRole(role),
+    }).catch(() => 0);
 
     return NextResponse.json({ data: booking, error: null });
   } catch (error: any) {
+    /*
+      Il messaggio del server non esce grezzo: un identificativo malformato
+      faceva arrivare al browser il testo interno di Prisma — nome del modello,
+      operazione, codice Postgres. E la classe W4-R14, e questa rotta e una
+      delle sei che PP-02 tocca.
+    */
     return NextResponse.json(
       {
         data: null,
         error: {
-          message:
-            error?.message || "Errore richiesta prenotazione struttura",
+          message: publicErrorMessage(
+            error,
+            "Errore richiesta prenotazione struttura",
+          ),
         },
       },
       { status: 500 },

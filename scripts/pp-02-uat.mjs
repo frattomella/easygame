@@ -232,6 +232,11 @@ const semina = async () => {
               name: "Campo A",
               isVisible: true,
               isBookable: true,
+              /* Lunedi e martedi, 18:00-20:00 nel fuso del club. */
+              availability: {
+                Lun: [{ start: "18:00", end: "20:00" }],
+                Mar: [{ start: "18:00", end: "20:00" }],
+              },
               pricing: [{ id: "p1", durationMinutes: 60, price: 25 }],
             },
           ],
@@ -1010,6 +1015,89 @@ const sezioneL = async () => {
     "P-82 nessuna tariffa a zero raggiunge la famiglia",
     [25],
     tariffe,
+  );
+
+  /* --------------------------------------------- la rotta, non la schermata */
+
+  const rotta = await carica(
+    "src/app/api/parent-dashboard/[athleteId]/structures/route.ts",
+  );
+  const auth = await carica("src/lib/server/auth.ts");
+  const sessioneAnna = await auth.createSessionForUser(ANNA);
+
+  const prenota = async (corpo) => {
+    const risposta = await rotta.POST(
+      new Request("http://collaudo.invalid/api/parent-dashboard/x/structures", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${sessioneAnna.access_token}`,
+        },
+        body: JSON.stringify(corpo),
+      }),
+      { params: { athleteId: MARCO } },
+    );
+    return { stato: risposta.status, corpo: await risposta.json() };
+  };
+
+  /* Lunedi 1 marzo 2027: la fascia dichiarata e 18:00-20:00. */
+  const dentro = await prenota({
+    structureId: STRUTTURA_APERTA,
+    fieldId: CAMPO_APERTO,
+    start: "2027-03-01T17:00:00.000Z",
+    end: "2027-03-01T18:00:00.000Z",
+  });
+  prova(
+    "P-83 dentro la fascia dichiarata la prenotazione passa",
+    200,
+    dentro.stato,
+    dentro.corpo?.error?.message,
+  );
+
+  const fuori = await prenota({
+    structureId: STRUTTURA_APERTA,
+    fieldId: CAMPO_APERTO,
+    start: "2027-03-02T01:00:00.000Z",
+    end: "2027-03-02T02:00:00.000Z",
+  });
+  prova(
+    "P-84 alle tre di notte il server rifiuta, e nomina le fasce",
+    true,
+    fuori.stato === 400 &&
+      /Fasce aperte/.test(String(fuori.corpo?.error?.message || "")),
+    fuori.corpo?.error?.message,
+  );
+
+  const chiusa = await prenota({
+    structureId: STRUTTURA_CHIUSA,
+    fieldId: CAMPO_CHIUSO,
+    start: "2027-03-01T17:00:00.000Z",
+    end: "2027-03-01T18:00:00.000Z",
+  });
+  prova(
+    "P-85 la struttura non prenotabile e rifiutata dalla rotta, non solo nascosta",
+    404,
+    chiusa.stato,
+    chiusa.corpo?.error?.message,
+  );
+
+  prova(
+    "P-86 la prenotazione riuscita lascia una riga di audit",
+    1,
+    await prisma.auditLog.count({
+      where: {
+        organization_id: CLUB,
+        action: "structure_booking.requested",
+      },
+    }),
+  );
+
+  prova(
+    "P-87 e avvisa chi in segreteria puo vederla",
+    true,
+    (await prisma.notification.count({
+      where: { organization_id: CLUB, type: "structure_booking" },
+    })) > 0,
   );
 };
 

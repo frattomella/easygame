@@ -395,6 +395,7 @@ di sessione vero: 72 controlli, 72 verdi.
 | Stato della domanda | COMPLETE | `/parent-view/[id]/enrollment` |
 | Fascicolo documentale | COMPLETE | Dal dominio 5D, con l'upload multipart |
 | Appuntamenti su slot | COMPLETE | Dal dominio 5E |
+| Prenotazione di una struttura | COMPLETE | **PP-02 §L**. Il divieto su una struttura non prenotabile c'era dalla Wave 6, e regge; cio che **non funzionava mai** era la prenotazione stessa: la rotta leggeva le strutture con `getClubStructures` di `simplified-db.ts` — il dominio del browser, che fa `fetch` su un percorso relativo — e dentro un route handler quella chiamata fallisce e restituisce `[]`, quindi ogni richiesta riceveva «Struttura non prenotabile». Adesso legge e scrive `src/lib/server/structure-bookings.ts`, la fascia dichiarata dal club **vincola anche la rotta** (con il rifiuto che nomina gli orari aperti), e la richiesta lascia una riga di audit e avvisa la segreteria. Un campo che non dichiara nessuna fascia resta senza vincolo, come W6-D03 |
 | Push mobile | ASSENTE | G-59, differito da ADR-0025 |
 
 ### Dashboard Trainer
