@@ -2674,18 +2674,20 @@ export function ParentStructuresPage() {
   const { showToast } = useToast();
   const structures = data?.structures?.items || [];
   const bookings = data?.structures?.bookings || [];
-  const linkedAthletes = data?.athlete.linkedAthletes?.length
-    ? data.athlete.linkedAthletes
-    : data?.athlete
-      ? [data.athlete]
-      : [];
+  /*
+    **Il figlio non e una scelta di questo modulo**, ed e W6-13 che lo ha
+    deciso: il contesto lo porta la rotta. Restavano pero `linkedAthletes`,
+    calcolato e mai letto, e `form.athleteId`, che nessun controllo scriveva e
+    che l'invio non usava — sotto lo si legge da `data.athlete.id`. Uno stato
+    che nessuno aggiorna e un invito a fidarsene: e cosi che il corpo della
+    prenotazione era arrivato a poter sovrascrivere il figlio.
+  */
   const [form, setForm] = useState({
     structureId: "",
     fieldId: "",
     date: new Date().toISOString().split("T")[0],
     startTime: "18:00",
     endTime: "19:00",
-    athleteId: data?.athlete.id || "",
     notes: "",
   });
   if (!data) return null;

@@ -1010,9 +1010,16 @@ const serializeFamilyFiscalDocument = (
     status: annullato ? "cancelled" : firstText(row.status) || "issued",
     statusLabel: annullato ? "Annullata" : "Emessa",
     /*
-      Il figlio, per nome. Una famiglia con due figli legge un elenco di
-      ricevute in cui gli importi si somigliano: senza il nome accanto, dire
-      quale riguarda chi e impossibile.
+      Il figlio, per nome — e per **cio che la riga porta con se**, non per
+      distinguerla dalle altre: l'elenco e gia letto con
+      `where: { athlete_id: selectedAthlete.id }`, quindi contiene un figlio
+      solo e questo nome e sempre lo stesso.
+
+      Serve a chi scarica il documento e lo ritrova in una cartella sei mesi
+      dopo, e a chi legge la riga fuori dal contesto della schermata che l'ha
+      chiesta. La prima stesura lo motivava con una famiglia di due figli che
+      confronta importi simili: quello scenario, con questa query, non puo
+      verificarsi.
     */
     athleteId: row.athlete_id || null,
     athleteName:
@@ -1594,8 +1601,22 @@ export const getParentDashboardData = async (
     club,
     { now: new Date(now) },
   );
+  /*
+    **Un elenco chiuso, come le ricevute e gli slot.**
+
+    Era uno spread della riga Prisma, e portava fuori `notes` — la nota che la
+    segreteria scrive per se — piu `data`, che e JSON libero, e `file_url`. Il
+    contenuto clinico ha un proprietario (`src/lib/health/permissions.ts`) e
+    non e questo. Ma il difetto vero non e cosa usciva ieri: e che **un campo
+    nuovo su `medical_certificates` nascerebbe visibile alla famiglia**, e
+    nessuno se ne accorgerebbe. La stessa regola che questo file dichiara
+    trenta righe piu sotto per le ricevute, qui non valeva.
+  */
   const certificates = medicalCertificates.map((certificate) => ({
-    ...certificate,
+    id: certificate.id,
+    athlete_id: certificate.athlete_id,
+    type: certificate.type,
+    status: certificate.status,
     issue_date: toIso(certificate.issue_date),
     expiry_date: toIso(certificate.expiry_date),
     created_at: toIso(certificate.created_at),
@@ -1895,8 +1916,28 @@ export const getParentDashboardData = async (
       all: matches,
     },
     attendance: {
+      /*
+        **Elenco chiuso**, e cio che ne resta fuori sono i due identificativi:
+        `convocated_by` e `rsvp_by_user_id` sono persone del **club**, e la
+        famiglia deve sapere se il figlio c'era e cosa ha risposto, non chi lo
+        ha scritto a registro.
+
+        `notes` invece **resta**, e non per inerzia: e la nota sull'appello di
+        quel ragazzo, e l'area atleta la dichiara fra i quattro campi che
+        mostra a lui di se stesso (`CAMPI_AREA_ATLETA.presenza`), leggendola
+        proprio da qui. Toglierla avrebbe spento quella schermata di
+        rimbalzo — una decisione di prodotto presa altrove, che non si
+        capovolge in una lane di correzioni.
+      */
       items: attendance.map((item) => ({
-        ...item,
+        id: item.id,
+        event_id: item.event_id,
+        athlete_id: item.athlete_id,
+        status: item.status,
+        notes: item.notes ?? "",
+        rsvp_status: item.rsvp_status ?? null,
+        rsvp_note: item.rsvp_note ?? "",
+        rsvp_at: toIso(item.rsvp_at),
         created_at: toIso(item.created_at),
         updated_at: toIso(item.updated_at),
       })),
@@ -1967,8 +2008,18 @@ export const getParentDashboardData = async (
       items: visibleStructures.map(serializeParentStructure),
       bookings: parentStructureBookings,
     },
+    /*
+      Elenco chiuso. Lo spread faceva uscire `data` per intero, e fra queste
+      righe ci sono anche le notifiche **di club** (`user_id: null`), che il
+      filtro lascia passare quando non nominano un atleta: cio che il club si
+      scrive dentro `data` non e detto sia scritto per una famiglia.
+    */
     notifications: notificheDelFiglio.slice(0, 20).map((notification) => ({
-      ...notification,
+      id: notification.id,
+      title: notification.title,
+      message: notification.message,
+      type: notification.type,
+      read: Boolean(notification.read),
       created_at: toIso(notification.created_at),
       updated_at: toIso(notification.updated_at),
     })),
