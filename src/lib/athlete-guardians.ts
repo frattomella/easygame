@@ -225,6 +225,24 @@ export const readAthleteGuardianContacts = (
     if (revocataPerIdentita) return false;
 
     /*
+      **E il segno di solo-recapito.**
+
+      Da qui escono i solleciti degli insoluti — che portano il nome del
+      minore, l'importo e un **collegamento a gettone per pagare** — e le
+      comunicazioni di gruppo. Una riga `contactOnly` e un indirizzo che
+      **uno sconosciuto ha dichiarato** compilando un modulo pubblico: il
+      ragionamento scritto per l'accesso vale parola per parola anche qui, e
+      per un link di pagamento vale di piu.
+
+      Finora questo segno lo onorava **solo** il percorso di accesso: la riga
+      non apriva il cruscotto e intanto riceveva le email. Tre difese e quattro
+      letture, ognuna che ne guardava un sottoinsieme diverso.
+    */
+    if ((identita as any).contactOnly || (identita as any).contact_only) {
+      return false;
+    }
+
+    /*
       **Chi e stato scollegato non riceve piu avvisi su quel minore.**
 
       Da qui passano i solleciti di pagamento e le comunicazioni di gruppo, che

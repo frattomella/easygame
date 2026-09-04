@@ -107,6 +107,15 @@ export const getGuardianRows = (athlete: any) => {
       .filter(Boolean),
   );
 
+  /*
+    **Il segno di solo-recapito vale anche qui.**
+
+    Un avviso sulla scadenza del certificato medico di un minore non va a un
+    indirizzo che uno sconosciuto ha dichiarato su un modulo pubblico.
+  */
+  const soloRecapito = (record: Record<string, any>) =>
+    Boolean(record.contactOnly || record.contact_only);
+
   const revocataPerIdentita = (record: Record<string, any>) =>
     [
       record.linkedUserId,
@@ -136,7 +145,7 @@ export const getGuardianRows = (athlete: any) => {
     */
     .filter((guardian) => {
       const record = asRecord(guardian);
-      if (revocataPerIdentita(record)) return false;
+      if (revocataPerIdentita(record) || soloRecapito(record)) return false;
       return !firstText(record.accessRevokedAt, record.access_revoked_at);
     })
     .map((guardian) => {
@@ -161,7 +170,7 @@ export const getGuardianRows = (athlete: any) => {
     /* Il marchio vale anche sulla coppia storica, o la revoca ha un buco. */
     .filter((guardian) => {
       const record = asRecord(guardian);
-      if (revocataPerIdentita(record)) return false;
+      if (revocataPerIdentita(record) || soloRecapito(record)) return false;
       return !firstText(record.accessRevokedAt, record.access_revoked_at);
     })
     .map((guardian) => {

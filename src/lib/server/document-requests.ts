@@ -556,7 +556,26 @@ const resolveFamilyRecipients = (athlete: any): string[] => {
       .map((valore: unknown) => String(valore || "").trim().toLowerCase())
       .filter(Boolean),
   );
-  const collegati = tutori
+  /*
+    **Le tre difese, non una sola.**
+
+    Questa lettura si difendeva con il solo elenco a livello atleta, e
+    ignorava il marchio di riga e il segno di solo-recapito. Le notifiche che
+    scrive **nominano il minore** e il documento chiesto: una riga revocata
+    per marchio, o dichiarata da uno sconosciuto su un modulo pubblico,
+    continuava a riceverle.
+
+    Quattro letture dei tutori, ognuna con un sottoinsieme diverso delle tre
+    difese, e ogni sottoinsieme diverso e un buco che si scopre un round dopo.
+  */
+  const tutoriVivi = tutori.filter((guardian: any) => {
+    const record = asRecord(guardian);
+    if (record.contactOnly || record.contact_only) return false;
+    if (record.accessRevokedAt || record.access_revoked_at) return false;
+    return true;
+  });
+
+  const collegati = tutoriVivi
     .flatMap((guardian: any) => [
       asRecord(guardian).linkedUserId,
       asRecord(guardian).linked_user_id,

@@ -3828,6 +3828,64 @@ const sezioneW = async () => {
     "prima: la chiave spariva, e con lei ogni revoca mai fatta",
   );
 
+  /* ------ W-21: le tre difese, lette da tutti i canali allo stesso modo ---- */
+
+  /*
+    **W-21.** Un censimento sistematico di ogni funzione che decide se una
+    persona **vede o riceve** qualcosa su un atleta ha prodotto una tabella, e
+    la tabella diceva che le quattro letture dei tutori onoravano
+    **sottoinsiemi diversi** delle tre difese:
+
+        lettura                      revocate  marchio  solo-recapito
+        accesso al cruscotto            si       si         si
+        solleciti e comunicazioni       si       si         NO
+        promemoria del certificato      si       si         NO
+        notifiche documentali           si       NO         NO
+
+    Cioe una riga dichiarata da uno sconosciuto su un modulo pubblico non
+    apriva il cruscotto — la difesa funzionava — e intanto riceveva l'avviso
+    sulla scadenza del certificato del minore, la notifica documentale che lo
+    nomina, e il **sollecito con il collegamento a gettone per pagare**.
+
+    Ogni sottoinsieme diverso e un buco che si scopre un round dopo. Qui si
+    tiene ferma la tabella: quattro letture, tre difese, una sola risposta.
+  */
+  const contattiW21 = await carica("src/lib/athlete-guardians.ts");
+  const promemoriaW21 = await carica(
+    "src/lib/server/medical-certificate-reminders.ts",
+  );
+
+  const rigaConSegno = (segno) => ({
+    id: "x",
+    data: {
+      guardians: [{ id: "t", name: "Ignoto", email: ANNA.email, ...segno }],
+    },
+  });
+
+  for (const [nome, segno] of [
+    ["solo-recapito", { contactOnly: true }],
+    ["marchio di revoca", { accessRevokedAt: new Date().toISOString() }],
+  ]) {
+    prova(
+      `W-21 ${nome}: nessun canale di invio lo raggiunge`,
+      [0, 0],
+      [
+        contattiW21.readAthleteGuardianContacts(rigaConSegno(segno)).length,
+        promemoriaW21.getGuardianRows(rigaConSegno(segno)).length,
+      ],
+    );
+  }
+
+  /* E una riga viva li raggiunge tutti: il filtro non e una porta chiusa. */
+  prova(
+    "W-21b una riga viva raggiunge i canali come prima",
+    [1, 1],
+    [
+      contattiW21.readAthleteGuardianContacts(rigaConSegno({})).length,
+      promemoriaW21.getGuardianRows(rigaConSegno({})).length,
+    ],
+  );
+
   /* ---- W-20: la coppia storica concede, e adesso si puo anche revocare ---- */
 
   /*
