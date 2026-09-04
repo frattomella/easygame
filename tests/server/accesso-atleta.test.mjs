@@ -695,9 +695,29 @@ test("il legame e `athletes.user_id`, non l'indirizzo email", async () => {
   assert.equal(profilo, null);
 });
 
-test("i propri recapiti si correggono, l'anagrafica della societa no", async () => {
+/**
+ * **Il legame da solo non apre piu niente** (PP-04).
+ *
+ * Da PP-04 `findAthleteProfileForUser` chiede, oltre al legame, che la persona
+ * sia **ancora un atleta di quel club**: una tessera il cui ruolo risolto e
+ * `athlete`, oppure l'essere il fondatore. La fixture scriveva solo
+ * `athletes.user_id`, cioe uno stato che nella vita vera non esiste —
+ * `acceptAthleteAccountInvite` scrive il legame **e** la tessera nella stessa
+ * transazione, proprio perche l'uno senza l'altra e la porta che PP-04 chiude.
+ */
+const collegaAtleta = () => {
   fake.rows("athlete").find((riga) => riga.id === ATLETA).user_id =
     UTENTE_ATLETA;
+  fake.rows("organizationUser").push({
+    id: "m-atleta",
+    organization_id: CLUB,
+    user_id: UTENTE_ATLETA,
+    role: "athlete",
+  });
+};
+
+test("i propri recapiti si correggono, l'anagrafica della societa no", async () => {
+  collegaAtleta();
 
   const esito = await dominio.updateOwnAthleteContacts(UTENTE_ATLETA, {
     phone: "3339999999",
@@ -727,8 +747,7 @@ test("i propri recapiti si correggono, l'anagrafica della societa no", async () 
 });
 
 test("un indirizzo di contatto malformato non entra in anagrafica", async () => {
-  fake.rows("athlete").find((riga) => riga.id === ATLETA).user_id =
-    UTENTE_ATLETA;
+  collegaAtleta();
 
   await assert.rejects(
     () =>

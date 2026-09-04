@@ -2071,10 +2071,22 @@ PATCH  /api/v1/athletes/<id> {user_id}      -> 403
 upsert /api/v1/athletes      {id, user_id}  -> 200, legame scritto
 ```
 
-e da li `GET /api/v1/athlete-accounts/me`, che non chiede ne ruolo ne tessera
-perche risolve la scheda **da quel campo**, consegnava a un'utenza senza alcuna
+e da li `GET /api/v1/athlete-accounts/me`, che non chiedeva ne ruolo ne tessera
+perche risolveva la scheda **da quel campo**, consegnava a un'utenza senza alcuna
 tessera nel club l'area completa di un minore, dato sanitario compreso, senza
 invito e senza audit. Lo stesso ramo cancellava i contenitori clinici.
+
+> **Aggiornamento PP-04 (2026-09-04, [ADR-0114](18-decision-log.md#adr-0114--larea-di-un-atleta-si-apre-sulla-tessera-non-sul-legame-superstite)).**
+> Quella rotta adesso **chiede anche la tessera**: `findAthleteProfileForUser`
+> onora `athletes.user_id` solo se la persona ha ancora, in quel club, una
+> tessera il cui ruolo risolto e `athlete` — oppure e `clubs.creator_id`. E la
+> seconda linea sulla stessa porta: la prima chiude chi scrive il legame senza
+> averne diritto, questa chiude chi lo **conserva** dopo che la tessera e
+> sparita. Due strade producevano quel legame superstite, entrambe misurate
+> contro il database vero: il cambio di ruolo (`assignClubRole` cancella le
+> tessere sostituite senza chiamare nessuno sweep) e la revoca di una tessera il
+> cui slug non e fra i tre di `ATHLETE_ROLES`. Vedi PP04-D1 e PP04-D2 in
+> [16](16-technical-debt.md).
 
 Non era la prima volta che questa coppia si divideva: il perimetro di sede era
 gia stato aggiunto all'`upsert` una revisione fa. Le guardie ora stanno in

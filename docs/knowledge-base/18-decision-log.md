@@ -6215,3 +6215,101 @@ futuro senza che nessuno lo avesse piu deciso.
 essere innocuo: il secondo invio non e piu fermato dall'errore e crea il doppione
 che prima l'errore nascondeva. La guardia sul salvataggio in corso e parte di
 questa decisione, non un'aggiunta accanto.
+
+---
+
+## ADR-0114 — L'area di un atleta si apre sulla tessera, non sul legame superstite
+
+**Data:** 2026-09-04 · **Lane:** PP-04 · **Stato:** adottata
+
+**Il fatto.** `readAthleteAreaOverview` risolveva l'atleta corrente con
+`findAthleteProfileForUser`, che chiedeva **una cosa sola**:
+`athletes.user_id = <utenza>`. Nessun controllo che quella persona fosse ancora
+un atleta di quel club. Il legame era, da solo, la porta.
+
+Il legame pero puo restare indietro rispetto alla tessera, e due strade lo
+producono. Entrambe misurate contro PostgreSQL e contro le rotte vere
+(`scripts/pp-04-atleta-probe.mjs`), entrambe con l'area che rispondeva **200**:
+
+| Strada | Cosa succede | Sonda |
+|---|---|---|
+| **Il cambio di ruolo** | `assignClubRole` applica «un ruolo alla volta per persona e per club»: assegnarne uno nuovo **cancella** le altre tessere (`organizationUser.delete`, `reason: "replaced_by_new_role"`). Quel ramo non chiama nessuno sweep — `unlinkDirectAthleteProfile` vive solo dentro `revokeClubAccess` e dentro `memberships/delete`. La segreteria cambia a un atleta il ruolo in «Collaboratore»: la tessera `athlete` sparisce, il legame resta | P-45 |
+| **La revoca della tessera** | `unlinkDirectAthleteProfile` riconosce **lo slug**: `ATHLETE_ROLES` e `{athlete, atleta, player}`, e da li mancano `giocatore` e `giocatrice`, che sono alias legittimi in `ROLE_ALIASES`. La tessera se ne va, il legame resta, e la persona non appartiene piu al club | P-52 |
+
+Cosa usciva, in entrambi i casi: allenamenti, gare, presenze, appuntamenti,
+documenti, notifiche, stato del certificato, recapiti, anagrafica della societa.
+
+**La decisione.** La domanda che apre l'area non e piu «questo legame esiste» ma
+**«questa persona e ancora un atleta di quel club?»**.
+
+Risponde di si una tessera `organization_users` il cui ruolo **risolto** —
+`normalizeAccessRole(custom_role?.base_role || role)`, quindi alias e ruoli
+personalizzati compresi — vale `athlete`. Risponde di si anche l'essere
+`clubs.creator_id`: la proprieta del fondatore non nasce da una tessera, e
+chiuderlo fuori dalla propria area sarebbe un difetto nuovo al posto di quello
+tolto. Tutto il resto risponde di no.
+
+**Il verso opposto, nello stesso atto.** `revokeAthleteAccess` cancellava
+`organization_users` con `role: "athlete"` **letterale**: una tessera con lo
+slug italiano, o quella di un ruolo personalizzato, sopravviveva alla revoca. Le
+tessere da togliere si scelgono adesso con lo stesso criterio di identita, e con
+loro se ne vanno le righe `club_access_scopes` che vi pendevano.
+
+**Perche non un secondo elenco di slug.** Perche il difetto **e** un elenco di
+slug: `ATHLETE_ROLES` ne e uno, `ROLE_ALIASES` e un altro, e i due divergono. Un
+terzo elenco divergerebbe dai primi due il giorno in cui qualcuno aggiunge un
+alias. `normalizeAccessRole` e il vocabolario unico del repository, e la domanda
+passa da li.
+
+**Conseguenza dichiarata.** Un atleta che perde ogni tessera nel club non entra
+piu, **ma la riga `athletes.user_id` resta scritta**: questa decisione chiude la
+porta, non ripulisce l'archivio. Il difetto dello sweep resta aperto e vale
+identicamente per `PARENT_ROLES`, `TRAINER_ROLES` e `STAFF_ROLES` — vedi
+**PP04-D1** in [16](16-technical-debt.md). Ogni altro lettore che si fidi del
+solo legame (`getParentLinkedAthletes`, `findDirectAthleteIdForUser`) e ancora
+esposto a un legame dangling.
+
+**E la stessa forma della lezione di PP-02**: una revoca vale sull'identita, non
+sulla riga che si e guardata.
+
+---
+
+## ADR-0115 — Un accesso revocato non e un accesso mai aperto
+
+**Data:** 2026-09-04 · **Lane:** PP-04 · **Stato:** adottata
+
+**Il fatto.** `readAthleteAccountState` derivava tre stati: `none`, `invited`,
+`active`. Un accesso revocato ricadeva su `none`, cioe **la stessa scritta** che
+la scheda mostra a un atleta mai invitato. La storia degli inviti, in fondo al
+pannello, lo diceva; ma uno stato che si legge solo scorrendo un elenco non e lo
+stato, e cio che il pannello dichiarava in testa era falso.
+
+Nello stesso stato spariva dallo schermo anche il ramo `invite` — che per
+costruzione porta **solo l'invito vivo** — e con esso «a chi» e «quando»: le due
+domande che ci si fa esattamente dopo una revoca o una scadenza.
+
+**La decisione.** Un quarto stato, **derivato come gli altri tre**, senza nessuna
+colonna nuova:
+
+| Stato | Quando |
+|---|---|
+| `active` | c'e un'utenza collegata |
+| `invited` | c'e un invito vivo e non scaduto |
+| `revoked` | non c'e ne l'uno ne l'altro, **e** esiste un invito accettato in passato oppure un invito revocato |
+| `none` | tutto il resto |
+
+Accanto allo stato escono `lastInviteEmail`, `lastInviteAt` e `revokedAt`, che
+vivono fuori da `invite` proprio perche `invite` e solo quello vivo.
+
+**Un invito solo scaduto non e una revoca.** Nessuno ha deciso niente: e passato
+del tempo. Resta `none`, e la data dell'ultimo invito dice perche quel link non
+funziona piu. Confondere i due farebbe telefonare per una decisione che nessuno
+ha preso.
+
+**Corollario sulla data.** Revocare un accesso **attivo** non lasciava nessun
+segno sulle righe d'invito: `chiudiInvitoVivo` chiude solo un invito `sent`, e
+quando l'accesso e attivo un invito vivo non c'e. Lo stato si poteva dedurre ma
+non datare. Adesso la revoca scrive `revoked_at` sull'invito **accettato**, e
+non ne tocca lo `status`: quell'invito e stato accettato davvero, e le due
+colonne dicono due cose diverse — quando e stato accolto, e quando cio che ne
+era nato e stato tolto.

@@ -7,6 +7,7 @@ import { prisma } from "./prisma";
 import { hashPassword } from "./auth";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { roleHasPermission } from "@/lib/permissions/catalog";
+import { normalizeAccessRole } from "@/lib/access-roles";
 import {
   AUDIT_ACTIONS,
   recordAuditEvent,
@@ -246,8 +247,21 @@ const caricaAtletaDelClubAttivo = async (
 
 export type AthleteAccountState = {
   athleteId: string;
-  /** `none` | `invited` | `active`. Si **deriva**, non si scrive. */
-  status: "none" | "invited" | "active";
+  /**
+   * `none` | `invited` | `active` | `revoked`. Si **deriva**, non si scrive.
+   *
+   * **Il quarto stato e stato aggiunto da PP-04**, e non e una sfumatura.
+   * Prima, un accesso revocato tornava indistinguibile da un accesso mai
+   * aperto: entrambi «Nessun account». La segreteria che riapriva la scheda il
+   * giorno dopo non aveva modo di sapere se quell'atleta non era mai stato
+   * invitato o se qualcuno gli aveva **tolto** l'accesso — che sono la stessa
+   * schermata e due fatti opposti, e il secondo e quello su cui si telefona.
+   *
+   * La storia lo diceva gia, in fondo al pannello; ma uno stato che si legge
+   * solo scorrendo un elenco non e lo stato, e cio che il pannello dichiarava
+   * in testa era falso.
+   */
+  status: "none" | "invited" | "active" | "revoked";
   /** L'utenza collegata, quando l'accesso e attivo. Mai l'hash, mai il token. */
   account: {
     userId: string;
@@ -263,6 +277,18 @@ export type AthleteAccountState = {
     expiresAt: string;
     expired: boolean;
   } | null;
+  /**
+   * L'indirizzo a cui l'ultima cosa e stata mandata, e quando.
+   *
+   * Vivono fuori da `invite` perche `invite` e **solo quello vivo**: dopo una
+   * revoca o una scadenza quel ramo e nullo, e con esso spariva dallo schermo
+   * anche «a chi» e «quando», che sono le due domande che si fanno proprio in
+   * quel momento.
+   */
+  lastInviteEmail: string | null;
+  lastInviteAt: string | null;
+  /** Quando l'accesso e stato tolto, se e stato tolto. */
+  revokedAt: string | null;
   /** La storia: ogni invito, con il suo esito. Nessun token, in nessuna riga. */
   history: {
     id: string;
@@ -327,9 +353,48 @@ export const readAthleteAccountState = async (
       (riga) => riga.status === "sent" && new Date(riga.expires_at) > adesso,
     ) || null;
 
+  /*
+    **«Revocato» si deriva, come tutto il resto** (PP-04).
+
+    Non c'e una colonna da tenere allineata, e non ne va aggiunta una: la
+    revoca ha gia lasciato due tracce diverse, e sono queste due che vanno
+    lette insieme.
+
+    - un invito **accettato** e la prova che un accesso e esistito. Se adesso
+      non c'e nessuna utenza collegata, qualcuno gliel'ha tolto: e la revoca
+      dell'**accesso**;
+    - un invito **revocato** e la revoca di un invito che non era ancora
+      diventato un accesso.
+
+    Sono due fatti diversi e la scheda li distingue nella storia; qui contano
+    per la stessa cosa — «l'accesso c'era o stava per esserci, e non c'e piu» —
+    perche la domanda a cui lo stato deve rispondere e «devo rimandarlo?».
+
+    **Un invito solo scaduto non e una revoca**: nessuno ha deciso niente,
+    e semplicemente passato del tempo. Resta `none`, e la data dell'ultimo
+    invito dice perche.
+  */
+  const accettatoInPassato = inviti.find((riga) => riga.accepted_at) || null;
+  const revocatoPiuRecente = inviti.find((riga) => riga.revoked_at) || null;
+  const ultimo = inviti[0] || null;
+
+  const revocato =
+    !utente && !vivo && Boolean(accettatoInPassato || revocatoPiuRecente);
+
   return {
     athleteId: atleta.id,
-    status: utente ? "active" : vivo ? "invited" : "none",
+    status: utente
+      ? "active"
+      : vivo
+        ? "invited"
+        : revocato
+          ? "revoked"
+          : "none",
+    lastInviteEmail: ultimo?.email ?? null,
+    lastInviteAt: iso(ultimo?.sent_at),
+    revokedAt: revocato
+      ? iso(revocatoPiuRecente?.revoked_at ?? accettatoInPassato?.revoked_at)
+      : null,
     account: utente
       ? {
           userId: utente.id,
@@ -735,6 +800,42 @@ export const revokeAthleteAccess = async (
 
   const utenteCollegato = asText(atleta.user_id) || null;
 
+  /*
+    **Le tessere da togliere si scelgono per identita, non per slug** (PP-04).
+
+    `role: "athlete"` toglieva **solo** la riga scritta con quella parola. Una
+    tessera con lo slug italiano, o quella di un **ruolo personalizzato** il cui
+    `base_role` e `athlete` (ADR-0102), sopravviveva alla revoca: la persona
+    restava dentro il club come atleta, con il ruolo che le era stato dato,
+    dopo che il club aveva letto «Accesso revocato».
+
+    `normalizeAccessRole` e il vocabolario del repository e conosce gli alias;
+    per il ruolo personalizzato la risposta sta su `club_roles.base_role`, che
+    si legge — non si scrive — dal proprietario di quel dominio.
+  */
+  const tessereDaTogliere = utenteCollegato
+    ? (
+        await prisma.organizationUser.findMany({
+          where: {
+            organization_id: atleta.organization_id,
+            user_id: utenteCollegato,
+          },
+          select: {
+            id: true,
+            role: true,
+            custom_role: { select: { base_role: true } },
+          },
+        })
+      )
+        .filter(
+          (tessera) =>
+            normalizeAccessRole(
+              tessera.custom_role?.base_role || tessera.role,
+            ) === "athlete",
+        )
+        .map((tessera) => tessera.id)
+    : [];
+
   await prisma.$transaction(async (tx) => {
     if (utenteCollegato) {
       await tx.athlete.update({
@@ -742,13 +843,14 @@ export const revokeAthleteAccess = async (
         data: { user_id: null },
       });
 
-      await tx.organizationUser.deleteMany({
-        where: {
-          organization_id: atleta.organization_id,
-          user_id: utenteCollegato,
-          role: "athlete",
-        },
-      });
+      if (tessereDaTogliere.length) {
+        await tx.clubAccessScope.deleteMany({
+          where: { organization_user_id: { in: tessereDaTogliere } },
+        });
+        await tx.organizationUser.deleteMany({
+          where: { id: { in: tessereDaTogliere } },
+        });
+      }
     }
 
     const vivo = await tx.athleteAccountInvite.findFirst({
@@ -765,6 +867,34 @@ export const revokeAthleteAccess = async (
         where: { id: vivo.id },
         data: { status: "revoked", revoked_at: new Date() },
       });
+    } else if (utenteCollegato) {
+      /*
+        **Quando si revoca un accesso attivo non c'e nessun invito vivo**: c'e
+        un invito **accettato**, e finora la revoca non lasciava su di lui
+        nessun segno. Conseguenza: lo stato «Accesso revocato» si poteva
+        dedurre, ma non si poteva dire **quando**.
+
+        Lo `status` resta `accepted` — quell'invito e stato accettato davvero, e
+        riscriverlo cancellerebbe un fatto — e si scrive solo `revoked_at`, che
+        e la data in cui l'accesso nato da quell'invito e stato tolto. Le due
+        colonne dicono due cose diverse e adesso le dicono entrambe.
+      */
+      const accettato = await tx.athleteAccountInvite.findFirst({
+        where: {
+          organization_id: atleta.organization_id,
+          athlete_id: atleta.id,
+          status: "accepted",
+          revoked_at: null,
+        },
+        orderBy: { sent_at: "desc" },
+      });
+
+      if (accettato) {
+        await tx.athleteAccountInvite.update({
+          where: { id: accettato.id },
+          data: { revoked_at: new Date() },
+        });
+      }
     }
   });
 
@@ -1352,19 +1482,94 @@ export type AthleteAreaOverview = ReturnType<typeof proiettaAreaAtleta>;
 /**
  * L'atleta di questa utenza, o `null`.
  *
- * **La domanda e `athletes.user_id`, e nient'altro.** Non l'indirizzo email,
- * che un utente puo cambiarsi da solo, e non il legame di tutela, che apre
- * l'area famiglia e non questa: un atleta e se stesso, non i propri fratelli.
+ * **La domanda e `athletes.user_id`**, e non l'indirizzo email — che un utente
+ * puo cambiarsi da solo — ne il legame di tutela, che apre l'area famiglia e
+ * non questa: un atleta e se stesso, non i propri fratelli.
+ *
+ * ## Ma il legame da solo non basta (PP-04)
+ *
+ * Perche un legame puo **restare indietro rispetto alla tessera**, e allora
+ * apre una porta che nessuno crede piu aperta. Due strade, misurate contro
+ * PostgreSQL vero e contro le rotte vere con
+ * `scripts/pp-04-atleta-probe.mjs`:
+ *
+ * **P-45, il cambio di ruolo.** `assignClubRole` applica «un ruolo alla volta
+ * per persona e per club»: assegnare un ruolo nuovo **cancella** le altre
+ * tessere, con `organizationUser.delete` e `reason: "replaced_by_new_role"`.
+ * Quel ramo non chiama nessuno sweep — `unlinkDirectAthleteProfile` vive solo
+ * dentro `revokeClubAccess` e dentro `memberships/delete`. Quindi: la
+ * segreteria cambia a un atleta il ruolo in «Collaboratore», la tessera
+ * `athlete` sparisce, `athletes.user_id` resta, e l'area atleta rispondeva
+ * **200** — allenamenti, presenze, documenti, stato del certificato, recapiti.
+ *
+ * **P-52, la revoca della tessera.** `unlinkDirectAthleteProfile` riconosce
+ * **lo slug** (`ATHLETE_ROLES` = `athlete`, `atleta`, `player`) e non
+ * l'identita: `giocatore` e `giocatrice` sono alias legittimi in
+ * `ROLE_ALIASES` e da quell'insieme mancano. La tessera se ne va, il legame
+ * resta, e la persona che non appartiene piu al club apre ancora la sua area.
+ *
+ * La correzione non e un secondo elenco di slug — ne nascerebbe un terzo il
+ * giorno dopo. E cambiare la **domanda**: non «questo legame esiste», ma
+ * **«questa persona e ancora un atleta di quel club?»**. Risponde di si una
+ * tessera il cui ruolo — risolto, alias e ruoli personalizzati compresi —
+ * e `athlete`; oppure l'essere il fondatore del club, la cui appartenenza non
+ * nasce da una tessera ma da `clubs.creator_id` e che percio non si potrebbe
+ * chiudere fuori da casa propria.
+ *
+ * E la stessa forma della lezione di PP-02: **una revoca vale sull'identita,
+ * non sulla riga che si e guardata.**
+ *
+ * ## Perche il primo atleta «ancora in essere», e non il primo
+ *
+ * Perche altrimenti un legame morto in un club **nasconderebbe** un legame
+ * vivo in un altro: la funzione tornava la riga piu vecchia e si fermava li, e
+ * chi fosse stato atleta in due societa avrebbe visto la porta chiusa invece
+ * dell'area della societa in cui gioca ancora.
  */
 export const findAthleteProfileForUser = async (userId: string) => {
   const id = asText(userId);
   if (!id) return null;
 
-  return prisma.athlete.findFirst({
+  const candidati = await prisma.athlete.findMany({
     where: { user_id: id },
     select: { id: true, organization_id: true },
     orderBy: { created_at: "asc" },
   });
+  if (!candidati.length) return null;
+
+  const organizzazioni = Array.from(
+    new Set(candidati.map((riga) => riga.organization_id)),
+  );
+
+  const [tessere, fondati] = await Promise.all([
+    prisma.organizationUser.findMany({
+      where: { user_id: id, organization_id: { in: organizzazioni } },
+      select: {
+        organization_id: true,
+        role: true,
+        custom_role: { select: { base_role: true } },
+      },
+    }),
+    prisma.club.findMany({
+      where: { id: { in: organizzazioni }, creator_id: id },
+      select: { id: true },
+    }),
+  ]);
+
+  const eAncoraAtleta = new Set([
+    ...tessere
+      .filter(
+        (tessera) =>
+          normalizeAccessRole(tessera.custom_role?.base_role || tessera.role) ===
+          "athlete",
+      )
+      .map((tessera) => tessera.organization_id),
+    ...fondati.map((riga) => riga.id),
+  ]);
+
+  return (
+    candidati.find((riga) => eAncoraAtleta.has(riga.organization_id)) || null
+  );
 };
 
 /**

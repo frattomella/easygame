@@ -1055,6 +1055,24 @@ e non esiste un valore da cambiare per farla diventare l'area di un altro.
 **diversa** da `sport_work.read`: quest'ultima vede i compensi di tutto il club,
 e usarla qui avrebbe reso «i miei compensi» una funzione della direzione.
 
+**Togliere il parametro non toglie il bisogno di un gate** (PP-04,
+[ADR-0114](18-decision-log.md#adr-0114--larea-di-un-atleta-si-apre-sulla-tessera-non-sul-legame-superstite)).
+`GET|PATCH /api/v1/athlete-accounts/me` non ha niente da confrontare con la
+sessione, ma ha qualcosa da **verificare**: che chi chiede sia ancora un atleta
+di quel club. Il legame `athletes.user_id` da solo non basta, perche puo
+sopravvivere alla tessera; la rotta risponde `403 Accesso negato` a chi ha il
+legame e non la tessera, con la stessa frase di chi non e mai entrato.
+
+### `GET /api/v1/athlete-accounts/:athleteId` — quattro stati, non tre
+
+Il payload di stato porta adesso `status: "none" | "invited" | "active" |
+"revoked"` piu `lastInviteEmail`, `lastInviteAt` e `revokedAt`
+([ADR-0115](18-decision-log.md#adr-0115--un-accesso-revocato-non-e-un-accesso-mai-aperto)).
+`invite` resta **solo l'invito vivo**: i tre campi nuovi esistono perche fuori
+dallo stato «invitato» quel ramo e nullo, e con esso sparivano «a chi» e
+«quando». Nessuno di questi campi e una colonna: si derivano dalle righe
+d'invito, come lo stato di una rata.
+
 ## Un parametro di vista invece di una rotta nuova
 
 `GET /api/v1/document-submissions?view=queue` restituisce la coda operativa del

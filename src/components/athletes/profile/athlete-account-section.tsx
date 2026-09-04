@@ -43,9 +43,16 @@ import { roleHasPermission } from "@/lib/permissions/catalog";
  * che non era successa, e l'atleta restava senza accesso senza che nessuno lo
  * sapesse.
  *
- * La sezione dice **tre stati** e non uno: nessun account, invito inviato,
- * accesso attivo. E mostra la **storia**, perche la domanda che arriva dopo —
- * «ma glielo abbiamo mandato?» — non la risponde nessuno stato corrente.
+ * La sezione dice **quattro stati** e non uno: nessun account, invito inviato,
+ * accesso attivo, **accesso revocato**. E mostra la **storia**, perche la
+ * domanda che arriva dopo — «ma glielo abbiamo mandato?» — non la risponde
+ * nessuno stato corrente.
+ *
+ * Il quarto e di PP-04. Un accesso revocato diceva «Nessun account»: la stessa
+ * scritta di un atleta mai invitato, per il fatto opposto. Accanto allo stato
+ * ci sono adesso anche **a chi** e stato mandato l'ultimo invito e **quando** —
+ * che fuori dallo stato «invitato» sparivano dallo schermo proprio nel momento
+ * in cui qualcuno se lo chiede.
  *
  * **Nessuna password compare in questa schermata, in nessun ramo**, e non e
  * una scelta di interfaccia: non ne esiste una da mostrare. Il server manda un
@@ -54,7 +61,7 @@ import { roleHasPermission } from "@/lib/permissions/catalog";
 
 type StatoAccesso = {
   athleteId: string;
-  status: "none" | "invited" | "active";
+  status: "none" | "invited" | "active" | "revoked";
   account: {
     userId: string;
     email: string;
@@ -67,6 +74,9 @@ type StatoAccesso = {
     sentAt: string;
     expiresAt: string;
   } | null;
+  lastInviteEmail: string | null;
+  lastInviteAt: string | null;
+  revokedAt: string | null;
   history: {
     id: string;
     email: string;
@@ -222,8 +232,15 @@ export function AthleteAccountSection({
   }, [carica, puoGestire]);
 
   useEffect(() => {
-    setEmail(stato?.invite?.email || suggestedEmail || "");
-  }, [stato?.invite?.email, suggestedEmail]);
+    /*
+      Dopo una revoca l'indirizzo giusto da riproporre e **quello a cui si era
+      gia mandato**, non quello in anagrafica: se differiscono, e perche
+      qualcuno aveva gia corretto il primo.
+    */
+    setEmail(
+      stato?.invite?.email || stato?.lastInviteEmail || suggestedEmail || "",
+    );
+  }, [stato?.invite?.email, stato?.lastInviteEmail, suggestedEmail]);
 
   const agisci = useCallback(
     async (
@@ -257,6 +274,12 @@ export function AthleteAccountSection({
         ) : stato ? (
           <>
             {/* ------------------------------------------------ lo stato -- */}
+            {/*
+              **Quattro stati, non tre** (PP-04). «Accesso revocato» era
+              indistinguibile da «Nessun account»: la stessa scritta per un
+              atleta mai invitato e per uno a cui l'accesso e stato **tolto**,
+              che sono i due fatti opposti su cui la segreteria telefona.
+            */}
             <div className="flex flex-wrap items-center gap-2">
               {stato.status === "active" ? (
                 <Badge className="bg-emerald-600 hover:bg-emerald-600">
@@ -267,6 +290,11 @@ export function AthleteAccountSection({
                 <Badge variant="secondary">
                   <Mail className="mr-1 h-3 w-3" />
                   Invito inviato
+                </Badge>
+              ) : stato.status === "revoked" ? (
+                <Badge variant="destructive">
+                  <ShieldOff className="mr-1 h-3 w-3" />
+                  Accesso revocato
                 </Badge>
               ) : (
                 <Badge variant="outline">Nessun account</Badge>
@@ -282,8 +310,30 @@ export function AthleteAccountSection({
                   {stato.invite.email} · inviato il {quando(stato.invite.sentAt)}
                   , scade il {quando(stato.invite.expiresAt)}
                 </span>
+              ) : stato.lastInviteEmail ? (
+                /*
+                  Fuori dallo stato «invitato» il ramo `invite` e nullo, e con
+                  lui sparivano dallo schermo «a chi» e «quando» — che sono
+                  esattamente le due domande che ci si fa **dopo** una revoca o
+                  una scadenza.
+                */
+                <span className="text-sm text-slate-600">
+                  {stato.lastInviteEmail} · ultimo invito il{" "}
+                  {quando(stato.lastInviteAt)}
+                  {stato.revokedAt
+                    ? `, revocato il ${quando(stato.revokedAt)}`
+                    : ""}
+                </span>
               ) : null}
             </div>
+
+            {stato.status === "revoked" ? (
+              <p className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-900">
+                Questo atleta aveva un accesso a EasyGame e non ce l&apos;ha
+                piu. Se deve rientrare, mandagli un invito nuovo: il vecchio
+                link non funziona.
+              </p>
+            ) : null}
 
             {/* ----------------------------------------------- le azioni -- */}
             {stato.status === "active" ? (
@@ -395,7 +445,9 @@ export function AthleteAccountSection({
                       }}
                     >
                       <UserPlus className="mr-2 h-4 w-4" />
-                      Invita l&apos;atleta
+                      {stato.status === "revoked"
+                        ? "Invita di nuovo"
+                        : "Invita l’atleta"}
                     </Button>
                   )}
                 </div>
