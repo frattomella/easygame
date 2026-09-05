@@ -7579,6 +7579,257 @@ const sezioneW = async () => {
 
   await prisma.athlete.delete({ where: { id: FIGLIO_DUE_REVOCHE } });
 
+  /* ---------- W-69..W-72: il ventiquattresimo round ---------- */
+
+  /*
+    **W-69 (High).** Il quinto scrittore di `athletes.data`, che il blocco non
+    lo prendeva: l'atleta che corregge da se il proprio telefono. Legge il blob,
+    fonde sei campi e lo riscrive per intero — e il verso e deterministico e
+    sfavorevole, perche il self-service non ha guardie ed e sempre il piu veloce
+    a leggere e il piu lento a scrivere.
+
+    Misurato tre volte su tre: «Scollega account» in parallelo a un salvataggio
+    del proprio numero, e la revoca spariva **per intero**. La segreteria aveva
+    la conferma a schermo e la riga di audit.
+  */
+  const accessiW69 = await carica("src/lib/server/athlete-accounts.ts");
+
+  const provaCorsaSelfService = async (giro) => {
+    const atleta = randomUUID();
+    await prisma.athlete.create({
+      data: {
+        id: atleta,
+        organization_id: CLUB,
+        first_name: "Self",
+        last_name: "Service" + giro,
+        status: "active",
+        user_id: UTENTE_RAGAZZO.id,
+        updated_at: new Date(),
+        data: {
+          guardians: [
+            { id: "g0", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+          ],
+          phone: "3330000000",
+        },
+      },
+    });
+
+    /*
+      **Quello che questa sonda misura, e quello che non riesce a misurare.**
+
+      Misura che le due scritture non si cancellino: il blocco le mette in
+      fila, e otto giri lo confermano.
+
+      Non riesce a forzare la finestra piu stretta — il self-service **legge**
+      prima che la revoca committi e **scrive** dopo — perche quella lettura
+      avviene all'inizio della funzione e dall'esterno non si puo tenerla
+      ferma. Il controllo di mutazione lo conferma: rimettendo la fusione
+      sullo snapshot vecchio la sonda resta verde. La rilettura dentro il
+      blocco e percio una difesa **non provata da qui**, e vale la pena dirlo
+      invece di far finta che una sonda verde la copra.
+    */
+    await Promise.allSettled([
+      legamiW25.unlinkGuardianAccount(scopeClubW29, {
+        athleteId: atleta,
+        guardianId: "g0",
+      }),
+      accessiW69.updateOwnAthleteContacts(UTENTE_RAGAZZO.id, {
+        phone: "3331112222",
+      }),
+    ]);
+
+    const accesso = await cruscottoW25.canParentAccessAthlete(ANNA.id, atleta);
+    await prisma.athlete.update({ where: { id: atleta }, data: { user_id: null } });
+    await prisma.athlete.delete({ where: { id: atleta } });
+    return accesso;
+  };
+
+  /*
+    Otto giri e non tre: la corsa si risolve nei due versi a seconda di chi
+    prende il blocco per primo, e con tre giri un difetto poteva restare
+    invisibile per fortuna — il controllo di mutazione lo ha mostrato. Una
+    sonda di concorrenza che non ripete abbastanza non misura la proprieta:
+    misura un ordine.
+  */
+  const esitiSelfService = [];
+  for (let giro = 0; giro < 8; giro += 1) {
+    esitiSelfService.push(await provaCorsaSelfService(giro));
+  }
+
+  prova(
+    "W-69 una revoca non si perde contro il self-service dell'atleta",
+    true,
+    esitiSelfService.every((dentro) => dentro === false),
+    JSON.stringify(esitiSelfService) +
+      " — prima: 3 giri su 3 con la revoca sparita e il registro vuoto",
+  );
+
+  /*
+    **W-70 (High).** Una cancellazione dell'interessato si annullava con un
+    salvataggio ordinario della scheda: bastava una pagina lasciata aperta in
+    un'altra scheda del browser. Nome, allergie e righe dei tutori tornavano, e
+    il genitore che la cancellazione aveva staccato **rientrava** nell'area
+    famiglia. Non serve una corsa: basta la sequenza.
+  */
+  const FIGLIO_CANCELLATO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_CANCELLATO,
+      organization_id: CLUB,
+      first_name: "Da",
+      last_name: "Cancellare",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [{ id: "g", name: "Anna", linkedUserId: ANNA.id }],
+        allergie: "arachidi",
+      },
+    },
+  });
+
+  const copiaDelBrowser = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_CANCELLATO },
+      select: { data: true },
+    })
+  )?.data;
+
+  /* La cancellazione, come la scrive il dominio dei diritti dell'interessato. */
+  await prisma.athlete.update({
+    where: { id: FIGLIO_CANCELLATO },
+    data: {
+      first_name: "Anonimizzato",
+      last_name: "",
+      status: "inactive",
+      data: { anonymizedAt: new Date().toISOString() },
+    },
+  });
+
+  const risurrezione = await risorseW26
+    .updateResource(
+      "athletes",
+      FIGLIO_CANCELLATO,
+      { data: copiaDelBrowser },
+      scopeClubW29,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-70 una cancellazione dell'interessato non si riscrive",
+    [true, false],
+    [
+      risurrezione !== "riuscita",
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_CANCELLATO),
+    ],
+    risurrezione,
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_CANCELLATO } });
+
+  /*
+    **W-71 (High).** Lo sweep della revoca di tessera prendeva il blocco e
+    continuava a lavorare sullo snapshot letto **prima** del ciclo: il blocco
+    serializzava e basta, e il lost update restava intatto. Due revoche di
+    tessera in parallelo, e una spariva per intero su ogni scheda del club.
+  */
+  const FIGLIO_SWEEP = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_SWEEP,
+      organization_id: CLUB,
+      first_name: "Sweep",
+      last_name: "Concorrente",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "ga", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+          { id: "gb", name: "Bruno", linkedUserId: BRUNO.id, email: BRUNO.email },
+        ],
+      },
+    },
+  });
+
+  await Promise.allSettled([
+    prisma.$transaction((tx) =>
+      legamiW25.unlinkParentGuardians(tx, CLUB, ANNA.id, ANNA.email, "parent"),
+    ),
+    prisma.$transaction((tx) =>
+      legamiW25.unlinkParentGuardians(tx, CLUB, BRUNO.id, BRUNO.email, "parent"),
+    ),
+  ]);
+
+  prova(
+    "W-71 due sweep concorrenti entrano tutti e due",
+    [false, false],
+    [
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_SWEEP),
+      await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_SWEEP),
+    ],
+    "prima: una delle due spariva, su ogni scheda del club",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_SWEEP } });
+
+  /*
+    **W-72.** E lo sweep non distrugge il salvataggio che gli corre accanto: il
+    dato clinico appena scritto non deve tornare com'era.
+  */
+  const FIGLIO_SWEEP_DATO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_SWEEP_DATO,
+      organization_id: CLUB,
+      first_name: "Sweep",
+      last_name: "Dato",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [{ id: "ga", name: "Anna", linkedUserId: ANNA.id }],
+        allergie: "prima",
+      },
+    },
+  });
+
+  const datiSweep = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_SWEEP_DATO },
+      select: { data: true },
+    })
+  )?.data;
+
+  await Promise.allSettled([
+    prisma.$transaction((tx) =>
+      legamiW25.unlinkParentGuardians(tx, CLUB, ANNA.id, ANNA.email, "parent"),
+    ),
+    risorseW26.updateResource(
+      "athletes",
+      FIGLIO_SWEEP_DATO,
+      { data: { ...datiSweep, allergie: "dopo" } },
+      scopeClubW29,
+    ),
+  ]);
+
+  const dopoLoSweep = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_SWEEP_DATO },
+      select: { data: true },
+    })
+  )?.data;
+
+  prova(
+    "W-72 lo sweep non riscrive il dato clinico appena salvato",
+    ["dopo", false],
+    [
+      dopoLoSweep?.allergie,
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_SWEEP_DATO),
+    ],
+    "la revoca deve entrare e il salvataggio non deve tornare indietro",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_SWEEP_DATO } });
+
   await prisma.athlete.update({
     where: { id: MARCO },
     data: { user_id: null },

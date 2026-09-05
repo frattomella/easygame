@@ -6409,6 +6409,27 @@ generica, «Scollega account», lo sweep della revoca di tessera e il riscatto.
 > Una proprieta di concorrenza non si legge nel codice: si **misura** con due
 > richieste in parallelo. Fino ad allora e un'ipotesi, per quanto ben scritta.
 
+**E prima di misurare si conta chi scrive.** Il round che ha introdotto il
+blocco lo ha fatto prendere a «i quattro scrittori di `athletes.data`». Erano
+**sei**, e il censimento non era stato fatto: mancavano
+`updateOwnAthleteContacts` — l'atleta che corregge da se il proprio telefono, e
+che riscrive il blob per intero — e `eraseDataSubject`. Dei quattro censiti,
+inoltre, lo sweep prendeva il blocco e continuava a lavorare sullo snapshot
+letto **prima** del ciclo: il blocco serializzava e basta, e il lost update
+restava intatto.
+
+> Chi scrive un blob condiviso si **elenca** — con un `grep` su tutte le forme
+> di scrittura, non a memoria — prima di dire che una difesa e chiusa.
+
+**E il diritto all'oblio ha due versi.** `assertPersonalDataDisposed` presidiava
+la **cancellazione della riga** di una persona i cui dati non erano stati
+smaltiti. Mancava l'altro: una riga gia cancellata su richiesta dell'interessato
+si **riscriveva** con un salvataggio ordinario della scheda, e bastava una
+pagina lasciata aperta in un'altra scheda del browser. Nome, allergie e righe
+dei tutori tornavano, e il genitore staccato dalla cancellazione rientrava
+nell'area famiglia, con un `anagrafica.updated` in audit. Non serviva una corsa:
+bastava la sequenza.
+
 E la lezione sul metodo, che vale piu della protezione: «si rilegge la difesa
 che si sta copiando» era stata applicata al suo **elenco di proprieta**, non al
 suo **codice**. Se la si fosse applicata al codice, la differenza fra una

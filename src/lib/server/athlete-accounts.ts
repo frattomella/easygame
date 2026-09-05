@@ -4,6 +4,7 @@ import { athleteWithinAccessScope } from "./access-scope-query";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
 import { prisma } from "./prisma";
+import { lockAthleteRow } from "./resources";
 import { hashPassword } from "./auth";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { roleHasPermission } from "@/lib/permissions/catalog";
@@ -1499,9 +1500,47 @@ export const updateOwnAthleteContacts = async (
 
   if (!modificati.length) return { athleteId: atleta.id, updated: [] };
 
-  await prisma.athlete.update({
-    where: { id: atleta.id },
-    data: { data: prossimo as never },
+  /*
+    **Il quinto scrittore di `athletes.data`, che il blocco non lo prendeva.**
+
+    Questa strada — il ragazzo che corregge da se telefono, indirizzo o email —
+    legge il blob, ne fonde sei campi e lo riscrive **per intero**. Senza blocco
+    e senza rilettura era un lost update come gli altri, e il verso era
+    deterministico e sfavorevole: il self-service non ha guardie, quindi e
+    sempre il piu veloce a leggere e il piu lento a scrivere.
+
+    Misurato tre volte su tre: «Scollega account» in parallelo a un salvataggio
+    del proprio numero di telefono, e la revoca **spariva per intero** —
+    registro vuoto, riga tutore intatta, persona revocata di nuovo dentro il
+    fascicolo del minore. La segreteria aveva la conferma a schermo e la riga di
+    audit.
+
+    Un censimento dichiarava «quattro scrittori»; erano sei. Adesso questo
+    prende lo stesso blocco degli altri e rifonde i sei campi su cio che legge
+    **dentro**: cio che un altro ha scritto nel frattempo resta scritto.
+  */
+  await prisma.$transaction(async (client: any) => {
+    await lockAthleteRow(client, atleta.id);
+
+    const fresca = await client.athlete.findUnique({
+      where: { id: atleta.id },
+      select: { data: true },
+    });
+
+    const base =
+      fresca?.data && typeof fresca.data === "object" && !Array.isArray(fresca.data)
+        ? (fresca.data as Record<string, unknown>)
+        : {};
+
+    const aggiornato: Record<string, unknown> = { ...base };
+    for (const campo of modificati) {
+      aggiornato[campo] = prossimo[campo];
+    }
+
+    await client.athlete.update({
+      where: { id: atleta.id },
+      data: { data: aggiornato as never },
+    });
   });
 
   await recordAuditEvent({

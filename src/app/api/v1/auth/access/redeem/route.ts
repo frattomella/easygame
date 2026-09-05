@@ -823,7 +823,22 @@ export async function POST(request: Request) {
     }
 
     if (parentTarget?.guardian) {
-      const updatedGuardians = parentTarget.guardians.map((guardian: any) =>
+      /*
+        **La riga si riscrive su cio che si legge dentro il blocco.**
+
+        Questa mappa nasceva da `parentTarget.guardians`, letto a inizio
+        richiesta, e veniva scritta tale e quale dentro la transazione: i due
+        registri erano riletti freschi, l'array delle righe no. Una revoca
+        committata nel frattempo si vedeva la propria riga **risuscitata** —
+        `linkedUserId` di nuovo scritto, `accessRevokedAt` azzerato.
+
+        L'accesso restava negato dal registro delle identita, che e la difesa
+        che ADR-0116 chiama sufficiente; ma riga e registro divergevano, e la
+        scheda mostrava «Account collegato» a chi collegato non era. Una difesa
+        che regge e una scheda che mente sono due cose diverse.
+      */
+      const applicaRiscatto = (righe: any[]) =>
+        righe.map((guardian: any) =>
         String(guardian?.id || "").trim() === guardianId
           ? {
               ...guardian,
@@ -1000,7 +1015,11 @@ export async function POST(request: Request) {
           data: {
             data: {
               ...dataFresca,
-              guardians: updatedGuardians,
+              guardians: applicaRiscatto(
+                Array.isArray((dataFresca as any).guardians)
+                  ? ((dataFresca as any).guardians as any[])
+                  : parentTarget.guardians,
+              ),
               revokedGuardianIdentities: Array.from(revocateFresche) as string[],
               contactOnlyIdentities: Array.from(recapitiFreschi) as string[],
             },

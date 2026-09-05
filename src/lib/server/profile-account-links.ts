@@ -1073,9 +1073,27 @@ export const unlinkParentGuardians = async (
 ) => {
   if (!PARENT_ROLES.has(normalizeToken(accessRole))) return 0;
 
+  /*
+    **Qui si prendono solo gli identificativi: il contenuto si rilegge dopo.**
+
+    Questa lettura serviva anche a portarsi dietro `data`, e il ciclo lavorava
+    su quello: prendere il blocco piu sotto serializzava le scritture e non
+    cambiava il valore scritto, che restava lo snapshot di **prima** del blocco.
+    Il lost update era intatto.
+
+    Misurato dalla porta del prodotto — due revoche di tessera in parallelo su un
+    club di sei atleti, tre esecuzioni su tre: le due schermate dicevano
+    «revocato», l'audit registrava entrambe, e su **sei schede su sei** uno dei
+    due genitori continuava ad aprire l'area famiglia. Nella versione
+    sequenziale, con gli stessi dati, tutte e due le revoche entravano.
+
+    Adesso l'elenco porta solo gli `id`, e ogni scheda si rilegge **dentro** il
+    proprio blocco.
+  */
   const athletes = await tx.athlete.findMany({
     where: { organization_id: organizationId },
-    select: { id: true, data: true },
+    select: { id: true },
+    orderBy: { id: "asc" },
   });
   /*
     **Le chiavi che si spazzano erano quelle che nessuno legge.**
@@ -1096,7 +1114,21 @@ export const unlinkParentGuardians = async (
   let updated = 0;
 
   for (const athlete of athletes) {
-    const data = isRecord(athlete.data) ? { ...athlete.data } : {};
+    /*
+      Il blocco viene **prima** della lettura, e la lettura sta dentro: e
+      l'ordine che rende il ciclo una sequenza di scritture atomiche invece di
+      una sequenza di sovrascritture. L'`orderBy` sopra da a due sweep
+      concorrenti lo stesso ordine di acquisizione, che e cio che tiene lontano
+      un abbraccio mortale.
+    */
+    await lockAthleteRow(tx, athlete.id);
+
+    const fresca = await tx.athlete.findUnique({
+      where: { id: athlete.id },
+      select: { data: true },
+    });
+
+    const data = isRecord(fresca?.data) ? { ...(fresca!.data as any) } : {};
     let changed = false;
 
     for (const key of collectionKeys) {
@@ -1159,13 +1191,6 @@ export const unlinkParentGuardians = async (
       });
 
     if (!compareSuQuestaScheda) continue;
-
-    /*
-      Dentro una transazione, ma senza blocco di riga: sotto READ COMMITTED
-      due scritture su `athletes.data` si cancellano lo stesso. Si prende lo
-      stesso blocco degli altri tre scrittori.
-    */
-    await lockAthleteRow(tx, athlete.id);
 
     const identitaDaRegistrare = new Set<string>(
       (Array.isArray((data as any).revokedGuardianIdentities)

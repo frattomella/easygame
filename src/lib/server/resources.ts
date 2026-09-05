@@ -7830,6 +7830,37 @@ export const updateResource = async (
             where: { id },
           });
 
+          /*
+            **Una cancellazione dell'interessato non si riscrive.**
+
+            `eraseDataSubject` azzera `athletes.data` per intero e lascia un
+            solo campo, `anonymizedAt`: la riga resta come segnaposto perche
+            rate, incassi e ricevute la nominano, ma la persona non c'e piu.
+
+            Bastava pero una scheda atleta lasciata aperta in un'altra scheda
+            del browser: il salvataggio ordinario rimandava la copia che il
+            client aveva in memoria e **ricostruiva tutto** — nome, allergie,
+            righe dei tutori — e il genitore che la cancellazione aveva
+            staccato rientrava nell'area famiglia. In audit restava un
+            `anagrafica.updated`. Non serviva nemmeno una corsa: bastava la
+            sequenza.
+
+            La guardia gemella esiste da tempo (`assertPersonalDataDisposed`)
+            ma presidia la **cancellazione della riga**, cioe l'altro verso.
+            Il diritto all'oblio ha bisogno di tutti e due: non si cancella una
+            riga che ha ancora dati addosso, e non si rimettono dati su una
+            riga che e stata cancellata.
+          */
+          const giaCancellata = Boolean(
+            ((fresca as any)?.data as any)?.anonymizedAt,
+          );
+
+          if (giaCancellata) {
+            throw new Error(
+              "Questa anagrafica e stata cancellata su richiesta dell'interessato: non si puo riscriverla",
+            );
+          }
+
           await applicaGuardieDiModifica(
             resource,
             normalized,

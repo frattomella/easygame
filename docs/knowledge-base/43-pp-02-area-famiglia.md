@@ -1778,3 +1778,59 @@ Le due sonde nuove (`W-67`, `W-68`) fanno esattamente questo, e i controlli di
 mutazione le hanno viste diventare rosse togliendo il blocco. Sono le prime
 sonde di questo pacchetto che misurano una proprieta di concorrenza invece di
 cercare una parola nel sorgente.
+
+
+## 30. Il ventiquattresimo round: gli scrittori erano sei
+
+Il round precedente ha introdotto il blocco di riga e lo ha fatto prendere a
+«i quattro scrittori di `athletes.data`». Il censimento non era stato fatto: gli
+scrittori sono **sei**, e dei quattro censiti uno prendeva il blocco in modo
+inefficace.
+
+### Lo sweep, che bloccava e non rileggeva
+
+`unlinkParentGuardians` prendeva `lockAthleteRow` dentro il ciclo, ma `data`
+veniva da una `findMany` eseguita novanta righe piu su, **fuori** dal blocco. Il
+blocco serializzava le scritture e non cambiava il valore scritto.
+
+Misurato dalla porta del prodotto — due revoche di tessera in parallelo su un
+club di sei atleti, tre esecuzioni su tre: le due schermate dicevano «revocato»,
+l'audit registrava entrambe con `unlinked_profiles_count: 6`, le tessere
+sparivano — e su **sei schede su sei** uno dei due genitori continuava ad aprire
+l'area famiglia. Nella versione sequenziale, con gli stessi dati, entrambe le
+revoche entravano: la differenza era solo la concorrenza.
+
+### Il quinto scrittore, che non era nell'elenco
+
+`updateOwnAthleteContacts` — il ragazzo che corregge da se telefono, indirizzo
+o email — legge il blob, fonde sei campi e lo riscrive per intero, senza blocco.
+Il verso e deterministico e sfavorevole: il self-service non ha guardie, quindi
+e sempre il piu veloce a leggere e il piu lento a scrivere. Tre giri su tre,
+«Scollega account» in parallelo a un salvataggio del proprio numero, e la revoca
+spariva per intero.
+
+### Il sesto, e il verso mancante del diritto all'oblio
+
+`eraseDataSubject` azzera `athletes.data` e lascia un solo campo. Bastava pero
+una scheda atleta aperta in un'altra scheda del browser: il salvataggio
+ordinario rimandava la copia che il client aveva in memoria e **ricostruiva
+tutto** — nome, allergie, righe dei tutori — e il genitore che la cancellazione
+aveva staccato rientrava. Non serviva una corsa: bastava la sequenza.
+
+La guardia gemella esisteva e presidiava l'altro verso. Adesso ci sono tutti e
+due: non si cancella una riga che ha ancora dati addosso, e non si rimettono
+dati su una riga che e stata cancellata.
+
+### Una sonda che non riesce a misurare, e lo dice
+
+`W-69` misura che le due scritture non si cancellino, e otto giri lo
+confermano. Non riesce pero a forzare la finestra piu stretta — il self-service
+**legge** prima che la revoca committi e **scrive** dopo — perche quella lettura
+avviene all'inizio della funzione e dall'esterno non si puo tenerla ferma: il
+controllo di mutazione lo conferma, rimettendo la fusione sullo snapshot vecchio
+la sonda resta verde.
+
+Sta scritto **nella sonda**, e non e un dettaglio: la rilettura dentro il blocco
+e una difesa che quel collaudo non prova. Tre volte in questo pacchetto una
+sonda verde non misurava niente; l'unica cosa peggiore di non avere una prova e
+crederla di avere.
