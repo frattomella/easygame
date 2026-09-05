@@ -14,6 +14,7 @@ import {
   challengePurposeCanMintSession,
   confirmEmailVerification,
   finalizeVerifiedSession,
+  findUserByVerificationReference,
 } from "@/lib/server/auth-workflows";
 import {
   AUTH_RATE_LIMITS,
@@ -21,6 +22,7 @@ import {
   getRequestIp,
   rateLimitHeaders,
 } from "@/lib/server/auth-rate-limit";
+import type { AuthRateLimitResult } from "@/lib/auth/rate-limit-policy";
 
 export async function POST(request: Request) {
   try {
@@ -39,18 +41,8 @@ export async function POST(request: Request) {
     }
 
     /* Due assi, come sulla conferma del telefono (PP-05). */
-    const rateLimit = await consumeRequestRateLimits([
-      {
-        policy: AUTH_RATE_LIMITS.otpConfirmIp,
-        identifier: `email:ip:${getRequestIp(request)}`,
-      },
-      {
-        policy: AUTH_RATE_LIMITS.otpConfirm,
-        identifier: `email:account:${userId}`,
-      },
-    ]);
-    if (rateLimit) {
-      return NextResponse.json(
+    const troppiTentativi = (esito: AuthRateLimitResult) =>
+      NextResponse.json(
         {
           data: null,
           error: {
@@ -58,9 +50,16 @@ export async function POST(request: Request) {
             code: "RATE_LIMITED",
           },
         },
-        { status: 429, headers: rateLimitHeaders(rateLimit) },
+        { status: 429, headers: rateLimitHeaders(esito) },
       );
-    }
+
+    const perRete = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.otpConfirmIp,
+        identifier: `email:ip:${getRequestIp(request)}`,
+      },
+    ]);
+    if (perRete) return troppiTentativi(perRete);
 
     /*
       **L'UUID nudo vale solo per chi ha gia una sessione su quell'account**
@@ -70,6 +69,23 @@ export async function POST(request: Request) {
       su un account che non e suo.
     */
     const sessioneCorrente = await getSessionFromRequest(request);
+
+    /*
+      **L'asse «per account» si consuma sull'account, non sulla stringa**
+      (quinto round della revisione ostile, MEDIUM). Vedi la rotta gemella del
+      telefono per la ragione per esteso.
+    */
+    const utente = await findUserByVerificationReference(
+      userId,
+      sessioneCorrente?.db.user_id,
+    );
+    const perAccount = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.otpConfirm,
+        identifier: `email:account:${utente?.id || userId}`,
+      },
+    ]);
+    if (perAccount) return troppiTentativi(perAccount);
 
     const { user: verifiedUser, purpose } = await confirmEmailVerification(
       userId,

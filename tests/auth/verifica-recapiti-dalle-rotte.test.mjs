@@ -657,3 +657,127 @@ test("la sessione di un altro account non apre le rotte di verifica di questo", 
     "una sessione vale per il proprio account e per nessun altro",
   );
 });
+
+/**
+ * **Un account, un secchiello — anche se lo si chiama in due modi** (quinto
+ * round della revisione ostile PP-05, MEDIUM).
+ *
+ * L'asse «per account» dei contatori si consumava sulla stringa che arrivava
+ * nel corpo, e lo stesso account si nomina in piu modi: il riferimento opaco
+ * corrente, l'UUID nudo per chi ha la sessione, e un riferimento **appena
+ * ruotato** — cosa che il prodotto fa da se, in tre punti. Un secchiello per
+ * nome vuol dire un asse azzerabile su richiesta.
+ *
+ * Pesa piu sulla **conferma** che sull'invio: li il contatore e cio che limita
+ * i tentativi di indovinare un codice a sei cifre oltre i cinque della
+ * challenge, e non c'e nessun asse per destinatario che copra l'errore.
+ *
+ * L'asse per **rete** resta prima della risoluzione del riferimento, cosi
+ * provare un riferimento a caso costa quanto provarne uno valido.
+ */
+const contaPassate = async (POST, chiavi, extra = {}) => {
+  let passate = 0;
+  for (const chiave of chiavi) {
+    for (let i = 0; i < 6; i += 1) {
+      const risposta = await POST(
+        richiestaConSessione({ userId: chiave, ...extra }),
+      );
+      const corpo = await risposta.json().catch(() => ({}));
+      /*
+        Anche il cooldown («RESEND_TOO_SOON») e un 429, e vuol dire che la
+        richiesta ha **superato** i contatori: va contata fra le passate.
+      */
+      const fermata =
+        risposta.status === 429 && corpo?.error?.code === "RATE_LIMITED";
+      if (!fermata) passate += 1;
+    }
+  }
+  return passate;
+};
+
+for (const [nome, quale] of [
+  ["del telefono", () => confermaTelefono],
+  ["dell'indirizzo", () => confermaEmail],
+]) {
+  test(`la conferma del codice ${nome} conta l'account, non la stringa che gli arriva`, async () => {
+    const passate = await contaPassate(quale(), [RIFERIMENTO, UTENTE], {
+      code: "000000",
+    });
+    assert.ok(
+      passate <= 5,
+      `il tetto per account e cinque: passate ${passate} richieste su dodici, ` +
+        "cioe i due nomi dello stesso account hanno aperto due secchielli",
+    );
+  });
+}
+
+/**
+ * **Sull'invio la prova e un'altra, e va detto perche.**
+ *
+ * Sulle rotte di invio l'asse per account e coperto da un secondo asse — quello
+ * per **destinatario**, con lo stesso tetto — che nel caso comune arriva alla
+ * stessa conclusione. Contare i nomi invece dell'account, li, non si vedeva:
+ * una prova costruita come quelle della conferma resterebbe verde anche
+ * togliendo la correzione, cioe non proverebbe niente.
+ *
+ * Si vede nel caso in cui i due assi si separano: **cambiare recapito**. Il
+ * secchiello per destinatario e nuovo perche il destinatario e nuovo, ed e
+ * giusto che lo sia; quello per account no, e il riferimento opaco ruotato non
+ * deve azzerarlo. Altrimenti il budget di invio di un account si rinnova
+ * cambiando numero — che e un gesto che il prodotto offre dalla pagina Account.
+ */
+test("cambiare numero e ruotare il riferimento non azzera il budget del proprio account", async () => {
+  await contaPassate(inviaTelefono, [RIFERIMENTO]);
+
+  const anna = fake.rows("user").find((riga) => riga.id === UTENTE);
+  anna.phone = "+393331112223";
+  anna.token_verification_id = "verify_ruotato_1111222233334444555566667777";
+
+  const risposta = await confermaSaturo(inviaTelefono, anna.token_verification_id);
+  assert.equal(
+    risposta,
+    true,
+    "il secchiello dell'account regge il cambio di recapito e la rotazione",
+  );
+});
+
+test("cambiare indirizzo e ruotare il riferimento non azzera il budget del proprio account", async () => {
+  await contaPassate(inviaEmail, [RIFERIMENTO]);
+
+  const anna = fake.rows("user").find((riga) => riga.id === UTENTE);
+  anna.email = "anna-nuova@example.invalid";
+  anna.token_verification_id = "verify_ruotato_8888999900001111222233334444";
+
+  const risposta = await confermaSaturo(inviaEmail, anna.token_verification_id);
+  assert.equal(
+    risposta,
+    true,
+    "il secchiello dell'account regge il cambio di recapito e la rotazione",
+  );
+});
+
+/** Una richiesta sola: dice se il contatore per account l'ha fermata. */
+const confermaSaturo = async (POST, chiave) => {
+  const risposta = await POST(richiestaConSessione({ userId: chiave }));
+  const corpo = await risposta.json().catch(() => ({}));
+  return risposta.status === 429 && corpo?.error?.code === "RATE_LIMITED";
+};
+
+test("due account diversi restano due secchielli diversi", async () => {
+  const saturato = await contaPassate(inviaTelefono, [RIFERIMENTO]);
+  assert.ok(saturato >= 1, "il primo account ha potuto chiedere almeno un codice");
+
+  /*
+    Il controspecchio delle prove qui sopra: stringere l'asse sull'account non
+    deve stringerlo su **tutti** gli account. Senza questa riga, una correzione
+    che consumasse una chiave costante passerebbe tutte le altre prove.
+  */
+  const altro = await confermaTelefono(
+    richiesta({ userId: RIFERIMENTO_ALTRO, code: "000000" }),
+  );
+  assert.notEqual(
+    altro.status,
+    429,
+    "un account diverso non eredita il secchiello di un altro",
+  );
+});

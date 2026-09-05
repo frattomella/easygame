@@ -17,6 +17,7 @@ import {
   getRequestIp,
   rateLimitHeaders,
 } from "@/lib/server/auth-rate-limit";
+import type { AuthRateLimitResult } from "@/lib/auth/rate-limit-policy";
 
 /**
  * **La risposta non dice se il numero esiste.**
@@ -65,15 +66,8 @@ export async function POST(request: Request) {
       il costo di provare un riferimento a caso e lo stesso di provarne uno
       valido — e il **numero** subito dopo, quando lo si conosce.
     */
-    const primoGiro = await consumeRequestRateLimits([
-      { policy: AUTH_RATE_LIMITS.otpSendIp, identifier: `phone:ip:${ip}` },
-      {
-        policy: AUTH_RATE_LIMITS.otpSendAccount,
-        identifier: `phone:account:${userId}`,
-      },
-    ]);
-    if (primoGiro) {
-      return NextResponse.json(
+    const troppeRichieste = (esito: AuthRateLimitResult) =>
+      NextResponse.json(
         {
           data: null,
           error: {
@@ -81,9 +75,13 @@ export async function POST(request: Request) {
             code: "RATE_LIMITED",
           },
         },
-        { status: 429, headers: rateLimitHeaders(primoGiro) },
+        { status: 429, headers: rateLimitHeaders(esito) },
       );
-    }
+
+    const primoGiro = await consumeRequestRateLimits([
+      { policy: AUTH_RATE_LIMITS.otpSendIp, identifier: `phone:ip:${ip}` },
+    ]);
+    if (primoGiro) return troppeRichieste(primoGiro);
 
     /*
       **L'UUID nudo vale solo per chi ha gia una sessione su quell'account**
@@ -97,6 +95,29 @@ export async function POST(request: Request) {
       userId,
       sessioneCorrente?.db.user_id,
     );
+
+    /*
+      **L'asse «per account» si consuma sull'account, non sulla stringa**
+      (quinto round della revisione ostile, MEDIUM). Lo stesso account si nomina
+      in tre modi — il riferimento opaco corrente, l'UUID nudo per chi ha la
+      sessione, e un riferimento appena ruotato — e contarli come chiavi diverse
+      dava **tre secchielli** allo stesso account: misurati quindici passaggi su
+      un tetto dichiarato di cinque. Il prodotto ruota il riferimento da se, in
+      tre punti, quindi era un asse **azzerabile su richiesta**.
+
+      Un riferimento che non risolve nessuno ricade sulla stringa grezza, e non
+      per pigrizia: chi pesca riferimenti a caso deve pagare lo stesso prezzo di
+      chi ne ha uno valido, altrimenti la differenza fra i due 429 direbbe quali
+      riferimenti esistono. L'asse per rete resta **prima** della risoluzione, e
+      copre il costo della lettura.
+    */
+    const secondoGiro = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.otpSendAccount,
+        identifier: `phone:account:${user?.id || userId}`,
+      },
+    ]);
+    if (secondoGiro) return troppeRichieste(secondoGiro);
 
     if (!user || !user.phone || user.phone_verified_at) {
       return rispostaOpaca();

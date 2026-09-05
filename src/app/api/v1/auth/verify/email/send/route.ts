@@ -16,6 +16,7 @@ import {
   getRequestIp,
   rateLimitHeaders,
 } from "@/lib/server/auth-rate-limit";
+import type { AuthRateLimitResult } from "@/lib/auth/rate-limit-policy";
 import {
   EmailDeliveryError,
   getEmailErrorMessage,
@@ -54,20 +55,14 @@ export async function POST(request: Request) {
     }
 
     /*
-      Tre assi come sull'invio del codice al telefono (PP-05): indirizzo IP e
-      account **prima** di sapere chi sia il riferimento — cosi provare un
-      riferimento a caso costa quanto provarne uno valido — e destinatario
-      subito dopo, per impronta e mai in chiaro.
+      Tre assi come sull'invio del codice al telefono (PP-05): la **rete**
+      prima di sapere chi sia il riferimento — cosi provare un riferimento a
+      caso costa quanto provarne uno valido, e l'asse per rete copre il costo
+      della lettura — poi l'**account**, e infine il **destinatario**, per
+      impronta e mai in chiaro.
     */
-    const primoGiro = await consumeRequestRateLimits([
-      { policy: AUTH_RATE_LIMITS.otpSendIp, identifier: `email:ip:${ip}` },
-      {
-        policy: AUTH_RATE_LIMITS.otpSendAccount,
-        identifier: `email:account:${userId}`,
-      },
-    ]);
-    if (primoGiro) {
-      return NextResponse.json(
+    const troppeRichieste = (esito: AuthRateLimitResult) =>
+      NextResponse.json(
         {
           data: null,
           error: {
@@ -75,9 +70,13 @@ export async function POST(request: Request) {
             code: "RATE_LIMITED",
           },
         },
-        { status: 429, headers: rateLimitHeaders(primoGiro) },
+        { status: 429, headers: rateLimitHeaders(esito) },
       );
-    }
+
+    const primoGiro = await consumeRequestRateLimits([
+      { policy: AUTH_RATE_LIMITS.otpSendIp, identifier: `email:ip:${ip}` },
+    ]);
+    if (primoGiro) return troppeRichieste(primoGiro);
 
     /*
       **L'UUID nudo vale solo per chi ha gia una sessione su quell'account**
@@ -91,6 +90,24 @@ export async function POST(request: Request) {
       userId,
       sessioneCorrente?.db.user_id,
     );
+
+    /*
+      **L'asse «per account» si consuma sull'account, non sulla stringa**
+      (quinto round della revisione ostile, MEDIUM). Vedi la rotta gemella del
+      telefono per la ragione per esteso: lo stesso account si nomina in piu
+      modi — il riferimento opaco corrente, l'UUID nudo per chi ha la sessione,
+      e un riferimento appena ruotato — e contarli come chiavi diverse dava un
+      secchiello per nome. Un riferimento che non risolve nessuno ricade sulla
+      stringa grezza, cosi chi pesca riferimenti a caso paga lo stesso prezzo
+      di chi ne ha uno valido.
+    */
+    const secondoGiro = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.otpSendAccount,
+        identifier: `email:account:${user?.id || userId}`,
+      },
+    ]);
+    if (secondoGiro) return troppeRichieste(secondoGiro);
 
     if (!user || user.email_verified_at) {
       return NextResponse.json({

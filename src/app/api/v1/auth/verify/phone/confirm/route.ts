@@ -14,6 +14,7 @@ import {
   challengePurposeCanMintSession,
   confirmPhoneVerification,
   finalizeVerifiedSession,
+  findUserByVerificationReference,
 } from "@/lib/server/auth-workflows";
 import {
   AUTH_RATE_LIMITS,
@@ -21,6 +22,7 @@ import {
   getRequestIp,
   rateLimitHeaders,
 } from "@/lib/server/auth-rate-limit";
+import type { AuthRateLimitResult } from "@/lib/auth/rate-limit-policy";
 
 export async function POST(request: Request) {
   try {
@@ -46,18 +48,8 @@ export async function POST(request: Request) {
       emettere challenge nuove per avere tentativi nuovi, e per farlo devono
       contare l'account **indipendentemente** dalla rete da cui arriva.
     */
-    const rateLimit = await consumeRequestRateLimits([
-      {
-        policy: AUTH_RATE_LIMITS.otpConfirmIp,
-        identifier: `phone:ip:${getRequestIp(request)}`,
-      },
-      {
-        policy: AUTH_RATE_LIMITS.otpConfirm,
-        identifier: `phone:account:${userId}`,
-      },
-    ]);
-    if (rateLimit) {
-      return NextResponse.json(
+    const troppiTentativi = (esito: AuthRateLimitResult) =>
+      NextResponse.json(
         {
           data: null,
           error: {
@@ -65,9 +57,16 @@ export async function POST(request: Request) {
             code: "RATE_LIMITED",
           },
         },
-        { status: 429, headers: rateLimitHeaders(rateLimit) },
+        { status: 429, headers: rateLimitHeaders(esito) },
       );
-    }
+
+    const perRete = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.otpConfirmIp,
+        identifier: `phone:ip:${getRequestIp(request)}`,
+      },
+    ]);
+    if (perRete) return troppiTentativi(perRete);
 
     /*
       **L'UUID nudo vale solo per chi ha gia una sessione su quell'account**
@@ -77,6 +76,34 @@ export async function POST(request: Request) {
       su un account che non e suo.
     */
     const sessioneCorrente = await getSessionFromRequest(request);
+
+    /*
+      **L'asse «per account» si consuma sull'account, non sulla stringa**
+      (quinto round della revisione ostile, MEDIUM). Qui pesa piu che
+      sull'invio: e il contatore che limita i tentativi di indovinare un codice
+      a sei cifre **oltre** i cinque della challenge, e contarlo su una stringa
+      scelta da chi chiama ne apriva uno per nome — misurate dieci prove su un
+      tetto dichiarato di cinque, con i due nomi dello stesso account. Il
+      prodotto ruota il riferimento da se, in tre punti, quindi era un asse
+      **azzerabile su richiesta** proprio dove serve di piu.
+
+      Un riferimento che non risolve nessuno ricade sulla stringa grezza: chi
+      pesca riferimenti a caso deve pagare lo stesso prezzo di chi ne ha uno
+      valido, altrimenti la differenza fra i due 429 direbbe quali riferimenti
+      esistono. L'asse per rete resta **prima** della risoluzione, e copre il
+      costo della lettura.
+    */
+    const utente = await findUserByVerificationReference(
+      userId,
+      sessioneCorrente?.db.user_id,
+    );
+    const perAccount = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.otpConfirm,
+        identifier: `phone:account:${utente?.id || userId}`,
+      },
+    ]);
+    if (perAccount) return troppiTentativi(perAccount);
 
     const { user: verifiedUser, purpose } = await confirmPhoneVerification(
       userId,

@@ -3130,4 +3130,42 @@ dimenticarsi di aggiornarla.
 
 ### MEDIUM-2 — l'asse «per account» dei contatori si consumava su una stringa scelta dal chiamante
 
-Vedi il paragrafo dedicato piu sotto, nella sezione del giro conclusivo.
+Le quattro rotte di verifica accettano nel corpo un `userId` che **non e**
+l'identificativo dell'account: e il riferimento opaco, oppure l'UUID nudo per
+chi ha gia una sessione su quell'account. Il contatore «per account» si
+consumava su **quella stringa**, e lo stesso account si nomina in piu modi — il
+riferimento corrente, l'UUID, e un riferimento **appena ruotato**, cosa che il
+prodotto fa da se in tre punti. Un secchiello per nome vuol dire un asse
+azzerabile su richiesta.
+
+**Misurato contro PostgreSQL con le rotte vere**, due nomi dello stesso account,
+sei richieste per nome, tetto dichiarato cinque:
+
+| rotta | prima | dopo |
+|---|---|---|
+| `POST /auth/verify/phone/confirm` | **10 passate su 12** | 5 |
+| `POST /auth/verify/email/confirm` | **10 passate su 12** | 5 |
+| `POST /auth/verify/phone/send` | 5 (mascherato) | 5 |
+| `POST /auth/verify/email/send` | 5 (mascherato) | 5 |
+
+**Dove pesa davvero e la conferma**, e non e un caso: li quel contatore e cio
+che limita i tentativi di indovinare un codice a sei cifre **oltre** i cinque
+della challenge, e non c'e nessun secondo asse che copra l'errore. Sulle due
+rotte di invio l'asse per **destinatario** — stesso tetto, chiave l'impronta del
+recapito — arriva nel caso comune alla stessa conclusione, ed e la ragione per
+cui li il difetto non si vedeva. Si separano quando il recapito cambia: il
+secchiello per destinatario e nuovo perche il destinatario e nuovo, e quello per
+account non deve esserlo. E la forma in cui la prova di regressione lo misura.
+
+**La correzione**: l'asse per **rete** resta prima della risoluzione del
+riferimento — cosi provare un riferimento a caso costa quanto provarne uno
+valido, e copre il costo della lettura — e l'asse per account si consuma
+**dopo**, su `utente?.id || userId`. Il ripiego sulla stringa grezza non e
+pigrizia: senza, la differenza fra i due 429 direbbe quali riferimenti esistono.
+
+**Nessun secondo esemplare altrove.** Passati in rassegna tutti i chiamanti di
+`consumeRequestRateLimits`: gli altri assi per identita sono consumati su
+`session.db.user_id` (cambio credenziali), sull'indirizzo normalizzato
+(login, registrazione, reset) o sull'impronta di un gettone che **e** il
+segreto (link di pagamento, riscatto accesso, stato iscrizione) — cioe su
+valori che il chiamante non puo moltiplicare a piacere.
