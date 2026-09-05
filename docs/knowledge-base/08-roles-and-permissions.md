@@ -410,6 +410,31 @@ guarda il fascicolo **di qualcun altro**.
 > un indirizzo che e gia il recapito di un tutore di quella stessa scheda, o
 > che risolve a un'utenza gia legata come tutore. Un accesso che vive nella
 > casella del tutore non e l'accesso dell'atleta.
+>
+> **Quinta regola ([ADR-0125](18-decision-log.md), 2026-09-05): l'esclusione e
+> durevole, l'ammissione e viva.** La stessa condizione faceva due lavori
+> opposti. Come **esclusione** dal ramo del tutore deve durare — senza durata,
+> il gesto che toglie l'accesso lo riapre (ADR-0123). Come **ammissione** alle
+> superfici proprie dell'atleta — la bacheca, l'RSVP — vuole il legame **vivo**,
+> perche e esattamente cio che lo scollegamento toglie. Vinceva la durata: dopo
+> «Scollega account» l'area atleta rispondeva 403 e la bacheca 200, e la
+> vecchia utenza continuava a leggere una scheda **ceduta a un'altra persona**,
+> senza che nessun gesto del pannello la chiudesse fuori. In codice sono due
+> espressioni: `eLaPersonaStessa` (durevole) esclude, `legameVivo` ammette.
+>
+> **Sesta regola (stesso ADR): un'utenza e l'accesso di una scheda sola.** La
+> guardia esisteva e interrogava `athletes.user_id`, che lo scrive il
+> **riscatto**: fra due inviti quel campo e vuoto, e due fratelli su una casella
+> di famiglia sola finivano a condividere un'identita. Adesso il rifiuto sta
+> **in due punti**: sull'invito, con un 400 che parla a chi lo ha appena
+> mandato; e dentro la transazione del riscatto, che e l'unico posto che possa
+> davvero garantirlo.
+>
+> **E i lettori di `athletes.user_id` sono tre, non due.** ADR-0117 ne aveva
+> contati due; `GET /api/v1/auth/athlete-profile/:athleteId` era il terzo, e
+> consegnava il fascicolo **clinico intero** su un legame che poteva
+> sopravvivere alla tessera. Adesso chiama `clubsWhereStillAthlete` come gli
+> altri due.
 
 
 **Dove le tre chiavi vengono applicate** (2026-09-01, dopo la sonda di

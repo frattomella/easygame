@@ -2171,6 +2171,30 @@ invito e senza audit. Lo stesso ramo cancellava i contenitori clinici.
 > con una tessera residua nel club continua a leggere e a scrivere del minore.
 > Preesistente a PP-04, in dominio PP-02/PP-03: debito **PP04-D8**, con la
 > riproduzione.
+>
+> **Aggiornamento PP-04 (2026-09-05, [ADR-0125](18-decision-log.md), round
+> conclusivo).** L'identita durevole qui sopra ha poi fatto **un lavoro di
+> troppo**. Serviva a **escludere** dal ramo del tutore; e finita anche ad
+> **ammettere** alle superfici proprie dell'atleta — la bacheca, l'RSVP — che
+> invece vogliono il legame **vivo**, perche e esattamente cio che lo
+> scollegamento toglie. Dopo «Scollega account» l'area atleta rispondeva 403 e
+> `GET .../board` **200**, con la scrittura «l'ho letto»; e quando il club
+> affidava la scheda a **un'altra persona**, la vecchia utenza continuava a
+> leggerne la bacheca, senza che nessun gesto del pannello la chiudesse fuori.
+>
+> Regola generale, seconda meta di quella qui sopra: **una condizione di
+> accesso che risponde a due domande risponde male ad almeno una.** Se una
+> guardia serve a escludere e ad ammettere, sono due espressioni, non una.
+>
+> Nello stesso round, altre due dello stesso ceppo. I lettori di
+> `athletes.user_id` erano **tre**, non due: `athlete-profile/[athleteId]`
+> consegnava il fascicolo **clinico intero** su un legame sopravvissuto alla
+> tessera, e con un legame ereditato (PP04-D6) quel fascicolo era di **un'altra
+> persona**. E la guardia «due atleti non finiscono sulla stessa utenza»
+> interrogava `athletes.user_id`, che lo scrive il **riscatto**: fra due inviti
+> quel campo e vuoto, quindi due fratelli su una casella di famiglia sola
+> condividevano un'identita e quell'identita apriva la bacheca di entrambe le
+> schede. Riproduzione: `scripts/pp-04-round-conclusivo-probe.mjs`, 112 prove.
 > **Aggiornamento PP-04 (2026-09-04, [ADR-0119](18-decision-log.md#adr-0119--il-token-dinvito-si-consuma-dentro-la-transazione-e-a-condizione)).**
 > Il riscatto dell'invito atleta leggeva la riga **fuori** dalla transazione e
 > dentro la aggiornava per identificativo: due riscatti simultanei dello stesso
