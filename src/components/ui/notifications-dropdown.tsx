@@ -178,6 +178,32 @@ export function NotificationsDropdown({
   };
 
   const markAsRead = async (id: string) => {
+    /*
+      **Chi fornisce le notizie sa dove vivono.**
+
+      `onMarkRead` era **dichiarata** nel tipo, documentata, e propagata da
+      tre gusci fino a qui — e mai invocata: nel file compariva due volte,
+      tutte e due nella firma. Il clic restava sulla scrittura generica qui
+      sotto, che e il registro del club: a un genitore risponde 403 e lascia
+      in audit un `resource.access_denied` a ogni notifica aperta.
+
+      Cosa vedeva chi usa il prodotto: lo sfondo azzurro spariva a schermo,
+      il contatore non calava, e al ricaricamento la notifica tornava da
+      leggere. Vale per il genitore e per il ragazzo con il proprio accesso,
+      cioe per le due bacheche che questa Wave ha acceso.
+    */
+    if (onMarkRead) {
+      onMarkRead(id);
+      setNotifications(
+        notifications.map((notification) =>
+          notification.id === id
+            ? { ...notification, read: true }
+            : notification,
+        ),
+      );
+      return;
+    }
+
     try {
       await supabase
         .from('simplified_notifications')

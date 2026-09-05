@@ -7,7 +7,10 @@ import {
   type NormalizedCategoryOption,
 } from "@/lib/category-utils";
 import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
-import { normalizeActiveClubSeason } from "@/lib/club-seasons";
+import {
+  normalizeActiveClubSeason,
+  normalizeClubSeasons,
+} from "@/lib/club-seasons";
 import { normalizeClubSites } from "@/lib/club-sites";
 import { reportServerError } from "@/lib/server/observability";
 import { resolveCheckoutReadiness } from "@/lib/server/connect-accounts";
@@ -253,6 +256,45 @@ export const guardianDeclaredIds = (guardian: unknown): string[] => {
  * ha misurato la divergenza — la guardia sorvegliava due campi, il predicato
  * ne leggeva cinque — e da quella distanza si passava.
  */
+/**
+ * **Chi e la persona di questa riga: l'identificativo se c'e, l'indirizzo se
+ * no.**
+ *
+ * E la stessa regola con cui la revoca decide quali righe sorelle toccare
+ * (`stessaPersona` in `profile-account-links.ts`), e ha la stessa ragione:
+ * madre e padre condividono quasi sempre **un solo indirizzo di famiglia**, e
+ * confondere il recapito con l'identita chiude fuori l'altro genitore. Dove un
+ * identificativo non c'e, invece, l'indirizzo **e** l'identita: due righe senza
+ * identificativo allo stesso indirizzo non sono distinguibili nemmeno in
+ * principio (debito PP02-D13).
+ *
+ * Serve a `resources.ts` per riportare le difese **senza abbinare le righe**.
+ * L'abbinamento per posizione che questa funzione sostituisce era scelto da
+ * chi chiama — bastava riordinare l'array, o cambiarne la lunghezza — e da li
+ * un ruolo a zero chiavi scriveva il marchio di una riga addosso a un'altra.
+ */
+export const guardianIdentityTokens = (guardian: unknown): string[] => {
+  const dichiarati = guardianDeclaredIds(guardian);
+  if (dichiarati.length) return dichiarati;
+
+  const record = asRecord(guardian);
+  const indirizzi = new Set<string>();
+  for (const valore of [
+    record.linkedUserEmail,
+    record.linked_user_email,
+    record.email,
+    record.linkedUserEmails,
+    record.linked_user_emails,
+  ]) {
+    for (const voce of Array.isArray(valore) ? valore : [valore]) {
+      const pulito = normalizeToken(voce);
+      if (pulito) indirizzi.add(pulito);
+    }
+  }
+
+  return [...indirizzi];
+};
+
 export const GUARDIAN_LINK_FIELDS: readonly string[] = [
   "linkedUserId",
   "linked_user_id",
@@ -307,6 +349,29 @@ export const GUARDIAN_LINK_FIELDS: readonly string[] = [
  * riscrive il legame **dichiarato**, che vince sul ripiego, e toglie
  * l'identita da questo elenco.
  */
+/**
+ * **Questa notifica parla di questo figlio.**
+ *
+ * Una notifica che **nomina** un atleta (`data.athleteId`) e di quel figlio;
+ * una che non ne nomina nessuno parla del club, e vale per tutti.
+ *
+ * Vive qui, esportata, perche due posti devono dare la stessa risposta: la
+ * lettura che riempie la bacheca e il conteggio della pastiglia, e la rotta
+ * che segna letto. Non lo davano: la pastiglia contava le notifiche **del
+ * figlio scelto**, e «segna tutte come lette» ne chiudeva **tutte** quelle del
+ * genitore in quel club. Un genitore con due figli apriva la schermata di uno,
+ * leggeva «(3)», premeva, e spegneva anche le sei dell'altro — che nessuno
+ * aveva letto e che nessuna schermata avrebbe piu mostrato come nuove.
+ */
+export const notificationBelongsToAthlete = (
+  notification: unknown,
+  athleteId: string,
+) => {
+  const citato = asRecord(asRecord(notification).data).athleteId;
+  if (!citato) return true;
+  return sameId(String(citato), athleteId);
+};
+
 export const revokedGuardianIdentities = (data: unknown): Set<string> => {
   const record = asRecord(data);
   const elenco = Array.isArray((record as any).revokedGuardianIdentities)
@@ -1757,11 +1822,9 @@ export const getParentDashboardData = async (
     dell'altro figlio, parlano del club. Nasconderle scegliendo un figlio
     sarebbe una perdita, non un filtro.
   */
-  const notificheDelFiglio = notifications.filter((notification) => {
-    const citato = asRecord(notification.data).athleteId;
-    if (!citato) return true;
-    return sameId(String(citato), selectedAthlete.id);
-  });
+  const notificheDelFiglio = notifications.filter((notification) =>
+    notificationBelongsToAthlete(notification, selectedAthlete.id),
+  );
 
   const club = selectedAthlete.organization;
 
@@ -1973,6 +2036,28 @@ export const getParentDashboardData = async (
     scadenzaCertificato,
   );
   const athleteData = asRecord(selectedAthlete.data);
+  /*
+    **Il periodo della stagione, che e il ripiego del pro-rata.**
+
+    Il dato era gia in questo file — `normalizeActiveClubSeason` legge le
+    stagioni poche righe piu sotto — ma ne uscivano solo id ed etichetta, non
+    le date, e il ponte verso il riepilogo non aveva nemmeno il parametro. Cosi
+    l'area famiglia mostrava il totale **non ripartito** mentre il club vedeva
+    quello ripartito: due numeri per lo stesso atleta, e quello sbagliato era
+    quello che vede chi deve pagare.
+  */
+  const stagioneAttiva = normalizeClubSeasons(
+    typeof club?.settings === "object" && club.settings ? club.settings : {},
+  ).activeSeason;
+
+  const periodoStagione =
+    stagioneAttiva?.startDate && stagioneAttiva?.endDate
+      ? {
+          startDate: stagioneAttiva.startDate,
+          endDate: stagioneAttiva.endDate,
+        }
+      : null;
+
   const enrollmentSummary = getAthleteEnrollmentSummary({
     athlete: selectedAthlete,
     athleteId: selectedAthlete.id,
@@ -1981,6 +2066,7 @@ export const getParentDashboardData = async (
     payments: asArray(athleteData.payments),
     athletePayments: payments,
     expectedIncomeEntries: asArray(club.expected_income),
+    seasonPeriod: periodoStagione,
   });
   const normalizedPayments = enrollmentSummary.payments.map((payment) => ({
     ...payment,

@@ -3,6 +3,7 @@ import { canonicalResourceName } from "@/lib/resource-aliases";
 import {
   guardianAccessIdentities,
   guardianDeclaredIds,
+  guardianIdentityTokens,
 } from "./parent-dashboard";
 import {
   customRoleReachesResource,
@@ -6647,94 +6648,166 @@ const applicaGuardieDiModifica = async (
         revoca e il registro delle identita, entrambi conservati qui sotto.
       */
       /*
-        **Le righe si abbinano per identita, e quando non si puo per posizione.**
+        **Le difese seguono la persona, non la riga: abbinare era il difetto.**
 
-        I tre riporti si agganciavano a `record.id`, e le righe che proteggono
-        piu spesso un id **non ce l'hanno**: quelle nate da `guardians.push`
-        dell'approvazione di un modulo, che sono proprio quelle marcate
-        `contactOnly`. Misurato su 128 combinazioni: tre riaperture silenziose,
-        tutte su righe senza id, con una segreteria canonica e nessuna
-        malafede. E dove l'id c'era ma era **duplicato** — succede da solo,
-        perche la scheda salva gli id sintetici e cancellare una riga fa scalare
-        le altre — il marchio veniva copiato sulla riga sbagliata, togliendo
-        l'accesso a un tutore legittimo.
+        Tre stesure. La prima agganciava i riporti a `record.id`, e le righe
+        che proteggono piu spesso un id **non ce l'hanno** — nascono da
+        `guardians.push` dell'approvazione di un modulo, cioe sono proprio le
+        `contactOnly`. La seconda ha aggiunto un ripiego **posizionale**, e ha
+        fatto peggio: la posizione la sceglie chi chiama. Misurato, con un
+        ruolo di club a **zero chiavi**, tre strade indipendenti — riordinare
+        le righe, mandare id diversi da quelli in archivio, duplicare un id in
+        arrivo — scrivevano il marchio di una riga **addosso a un'altra**,
+        azzerandole il legame in tutte le grafie. Un tutore legittimo perdeva
+        calendario, rate, ricevute, documenti e certificato, e in audit restava
+        un `anagrafica.updated`. E se lo stesso salvataggio cambiava la
+        **lunghezza** dell'elenco, il ripiego non si applicava affatto: il
+        segno `contactOnly` spariva, definitivamente, perche il riporto
+        successivo copia da un archivio che non ce l'ha piu.
 
-        L'abbinamento vive percio in un posto solo: l'id quando e presente e
-        **univoco da tutte e due le parti**, la posizione altrimenti. La
-        posizione non e una bella chiave, ma e quella che il client usa senza
-        saperlo — rimanda l'array come lo aveva — ed e sempre meglio di
-        «nessuna».
+        L'errore era il presupposto. Una difesa non protegge una **riga**:
+        protegge una **persona**, e le persone hanno un'identita che
+        sopravvive al riordino, alla rinumerazione e all'inserimento in mezzo.
+        `guardianIdentityTokens` la dice — l'identificativo se c'e,
+        l'indirizzo se no — con la stessa regola con cui la revoca decide quali
+        righe sorelle toccare, quindi madre e padre allo stesso indirizzo di
+        famiglia restano due persone.
+
+        Cosi il riporto non ha piu niente da abbinare: si guarda **chi** porta
+        la riga, e le difese che quella persona aveva le ritrova.
       */
       const tutoriEsistenti = toArrayValue(
         ((existing?.data as any) ?? {}).guardians,
       );
       const tutoriInArrivo = toArrayValue(((normalized.data as any) ?? {}).guardians);
 
-      const conta = (elenco: any[]) => {
-        const quante = new Map<string, number>();
-        for (const riga of elenco) {
-          const chiave = String((riga || {}).id || "").trim();
-          if (chiave) quante.set(chiave, (quante.get(chiave) || 0) + 1);
+      const revocateInArchivio = new Set<string>();
+      const soloRecapitoInArchivio = new Set<string>();
+      const identitaInArchivio = new Set<string>();
+
+      for (const riga of tutoriEsistenti) {
+        const record = (riga || {}) as Record<string, any>;
+        const identita = guardianIdentityTokens(record);
+        const marchio = String(
+          record.accessRevokedAt || record.access_revoked_at || "",
+        ).trim();
+
+        for (const voce of identita) {
+          identitaInArchivio.add(voce);
+          if (marchio) revocateInArchivio.add(voce);
+          if (record.contactOnly || record.contact_only) {
+            soloRecapitoInArchivio.add(voce);
+          }
         }
-        return quante;
-      };
+      }
 
-      const quanteEsistenti = conta(tutoriEsistenti);
-      const quanteInArrivo = conta(tutoriInArrivo);
-
-      const abbinata = (riga: any, posizione: number) => {
-        const chiave = String((riga || {}).id || "").trim();
-        if (
-          chiave &&
-          quanteEsistenti.get(chiave) === 1 &&
-          quanteInArrivo.get(chiave) === 1
-        ) {
-          return tutoriEsistenti.find(
-            (voce: any) => String((voce || {}).id || "").trim() === chiave,
-          );
+      /* Il marchio con la sua data, per la persona che lo porta. */
+      const dataDellaRevoca = new Map<string, string>();
+      for (const riga of tutoriEsistenti) {
+        const record = (riga || {}) as Record<string, any>;
+        const marchio = String(
+          record.accessRevokedAt || record.access_revoked_at || "",
+        ).trim();
+        if (!marchio) continue;
+        for (const voce of guardianIdentityTokens(record)) {
+          if (!dataDellaRevoca.has(voce)) dataDellaRevoca.set(voce, marchio);
         }
-
-        return tutoriInArrivo.length === tutoriEsistenti.length
-          ? tutoriEsistenti[posizione]
-          : undefined;
-      };
+      }
 
       /*
-        **I due marchi sono in sola lettura da questa rotta, nei due versi.**
+        **Un marchio che arriva vale solo su una persona che il club non
+        conosce.**
 
-        Erano conservati quando c'erano e **accettati** quando arrivavano nuovi:
-        cioe una revoca si poteva **eseguire** da qui. Misurato con un ruolo
-        personalizzato a **zero chiavi**: scrivere `accessRevokedAt` sulla riga
-        di un tutore che entra per indirizzo — la capability ADR-0114 — gli
-        toglieva cruscotto, solleciti, promemoria e notifiche, **senza una riga
-        di audit**. La guardia sopra sorveglia solo la **crescita**, e chiudere
-        fuori qualcuno non fa crescere niente.
+        I due marchi **negano** qualcosa, quindi metterli e un atto di
+        chiusura: dalla rotta generica un ruolo senza nessuna chiave chiudeva
+        cosi fuori un tutore legittimo, senza audit, perche la guardia
+        sorveglia la **crescita** e togliere non fa crescere niente.
 
-        Una difesa che si puo impugnare e un'arma: e la stessa frase gia scritta
-        per il registro delle identita, e questi due marchi non l'avevano.
-        Adesso valgono esattamente cio che diceva l'archivio — non si tolgono e
-        non si mettono — e chi vuole revocare passa da «Scollega account», che
-        ha il suo permesso e lascia l'audit.
-
-        Un marchio su una riga **nuova** invece passa, ed e voluto: e cosi che
-        l'approvazione di un modulo scrive `contactOnly` sulla riga che nasce.
-        Una riga nuova non toglie niente a nessuno.
+        Restano pero scrivibili su una riga che porta un'identita **nuova**, e
+        serve: e cosi che l'approvazione di un modulo marca `contactOnly` la
+        riga che nasce. Su una persona sconosciuta un marchio non toglie niente
+        a nessuno — non aveva accesso — mentre su una persona gia in archivio
+        e una revoca travestita da salvataggio.
       */
       let riportato = false;
 
-      const conDifese = tutoriInArrivo.map((riga: any, posizione: number) => {
+      /*
+        **Chi e questa riga, quando torna con un legame dichiarato.**
+
+        Dopo una revoca la riga in archivio ha gli identificativi **azzerati** —
+        li toglie `clearLinkedFields` — quindi la sua identita e l'indirizzo.
+        Una riga in arrivo che si ridichiara con `linkedUserId` avrebbe allora,
+        con la regola secca «l'identificativo se c'e», un'identita che con quel
+        marchio non combacia: il marchio cadrebbe, ed e la strada con cui una
+        scheda aperta **prima** della revoca la annulla salvando.
+
+        Un identificativo dichiarato vale percio come identita solo se il club
+        lo **riconosce gia**, cioe se compare su una riga in archivio che un
+        marchio non ce l'ha. Sono due casi che si somigliano e non sono la
+        stessa cosa:
+
+        - il **padre** che condivide l'indirizzo di famiglia con la madre
+          revocata: il suo identificativo sta sulla sua riga, viva, quindi e
+          lui — e l'indirizzo marchiato dell'altra non lo tocca;
+        - la **madre** che si ripresenta con il proprio: in archivio quel
+          numero non c'e piu, la revoca lo ha tolto, quindi resta l'indirizzo —
+          e l'indirizzo porta il marchio.
+
+        Si guarda l'archivio e non il registro delle identita perche il
+        registro dice cio che e stato revocato **quando** lo si e revocato: se
+        quella riga un identificativo non ce l'aveva, il registro porta il solo
+        indirizzo, e da quel buco si rientrava.
+
+        Ridare un accesso resta possibile, e per la strada che ha il suo gate:
+        un riscatto, che scrive il legame con una `update` diretta e ripulisce
+        il registro. Non un salvataggio dell'anagrafica.
+      */
+      const identificativiRiconosciuti = new Set<string>();
+      for (const riga of tutoriEsistenti) {
         const record = (riga || {}) as Record<string, any>;
-        const prima = (abbinata(riga, posizione) || null) as Record<
-          string,
-          any
-        > | null;
-
-        if (!prima) return riga;
-
         const marchio = String(
-          prima.accessRevokedAt || prima.access_revoked_at || "",
+          record.accessRevokedAt || record.access_revoked_at || "",
         ).trim();
-        const soloRecapito = Boolean(prima.contactOnly || prima.contact_only);
+        if (marchio) continue;
+        for (const voce of guardianDeclaredIds(record)) {
+          identificativiRiconosciuti.add(voce);
+        }
+      }
+
+      const soloIndirizzi = (record: Record<string, any>) =>
+        guardianIdentityTokens({
+          ...record,
+          linkedUserId: null,
+          linked_user_id: null,
+          userId: null,
+          user_id: null,
+          linkedUserIds: null,
+          linked_user_ids: null,
+        });
+
+      const identitaEffettiva = (record: Record<string, any>) => {
+        const riconosciuti = guardianDeclaredIds(record).filter((voce) =>
+          identificativiRiconosciuti.has(voce),
+        );
+
+        return riconosciuti.length ? riconosciuti : soloIndirizzi(record);
+      };
+
+      const conDifese = tutoriInArrivo.map((riga: any) => {
+        const record = (riga || {}) as Record<string, any>;
+        const identita = identitaEffettiva(record);
+
+        const eraRevocata = identita.some((voce) => revocateInArchivio.has(voce));
+        const eraSoloRecapito = identita.some((voce) =>
+          soloRecapitoInArchivio.has(voce),
+        );
+        const conosciuta = identita.some((voce) => identitaInArchivio.has(voce));
+
+        const marchio = eraRevocata
+          ? identita
+              .map((voce) => dataDellaRevoca.get(voce))
+              .find(Boolean) || new Date().toISOString()
+          : "";
 
         const marchioInArrivo = String(
           record.accessRevokedAt || record.access_revoked_at || "",
@@ -6743,32 +6816,38 @@ const applicaGuardieDiModifica = async (
           record.contactOnly || record.contact_only,
         );
 
+        /* Cio che vale alla fine, per questa persona. */
+        const revocataDopo = eraRevocata || (!conosciuta && Boolean(marchioInArrivo));
+        const soloRecapitoDopo =
+          eraSoloRecapito || (!conosciuta && recapitoInArrivo);
+
         /*
           **E il legame dichiarato si toglie con il marchio.**
 
-          Il riporto spogliava **due** grafie e il vaglio ne legge sei: un
-          salvataggio con `userId`, `user_id` o `linkedUserIds` restituiva
-          l'accesso a una persona revocata, senza audit. Una scheda aperta
-          **prima** della revoca ha ancora il legame in memoria, e basta
-          salvarla.
+          Una scheda aperta **prima** della revoca ha ancora il legame in
+          memoria, e basta salvarla per riscriverlo. Il vaglio ne legge sei
+          grafie, quindi si azzerano tutte e sei.
         */
         const dichiarati = guardianDeclaredIds(record);
 
+        const marchioFinale = revocataDopo
+          ? marchio || marchioInArrivo || new Date().toISOString()
+          : "";
+
         if (
-          marchio === marchioInArrivo &&
-          soloRecapito === recapitoInArrivo &&
-          !(marchio && dichiarati.length)
+          marchioFinale === marchioInArrivo &&
+          soloRecapitoDopo === recapitoInArrivo &&
+          !(marchioFinale && dichiarati.length)
         ) {
           return riga;
         }
 
         riportato = true;
-
         const successivo: Record<string, any> = { ...record };
 
-        if (marchio) {
-          successivo.accessRevokedAt = marchio;
-          successivo.access_revoked_at = marchio;
+        if (marchioFinale) {
+          successivo.accessRevokedAt = marchioFinale;
+          successivo.access_revoked_at = marchioFinale;
           successivo.linkedUserId = null;
           successivo.linked_user_id = null;
           successivo.userId = null;
@@ -6780,7 +6859,7 @@ const applicaGuardieDiModifica = async (
           delete successivo.access_revoked_at;
         }
 
-        if (soloRecapito) {
+        if (soloRecapitoDopo) {
           successivo.contactOnly = true;
           successivo.contact_only = true;
         } else {

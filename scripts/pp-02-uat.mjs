@@ -5961,6 +5961,420 @@ const sezioneW = async () => {
     fasciaStorta,
   );
 
+  /* ---------- W-39..W-41: il sedicesimo round ---------- */
+
+  const scopeZeroChiaviW39 = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "trainer",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  /*
+    **W-39 (High).** Il riporto abbinava le righe per `id` e, quando l'id non
+    era univoco da tutte e due le parti, **per posizione** — e la posizione la
+    sceglie chi chiama. Tre strade indipendenti scrivevano cosi il marchio di
+    una riga addosso a un'altra: riordinare le righe, mandare id diversi da
+    quelli in archivio, duplicare un id in arrivo. Un ruolo a zero chiavi
+    chiudeva fuori un tutore legittimo, senza audit.
+  */
+  const provaSpostamento = async (titolo, righeInArrivo, nota) => {
+    const atleta = randomUUID();
+    await prisma.athlete.create({
+      data: {
+        id: atleta,
+        organization_id: CLUB,
+        first_name: "Marchio",
+        last_name: "Spostato",
+        status: "active",
+        updated_at: new Date(),
+        data: {
+          guardians: [
+            {
+              name: "Revocata",
+              email: BRUNO.email,
+              linkedUserId: null,
+              accessRevokedAt: new Date().toISOString(),
+            },
+            { name: "Madre", email: ANNA.email, linkedUserId: ANNA.id },
+          ],
+        },
+      },
+    });
+
+    const prima = await cruscottoW25.canParentAccessAthlete(ANNA.id, atleta);
+
+    const esito = await risorseW26
+      .updateResource(
+        "athletes",
+        atleta,
+        { data: { guardians: righeInArrivo() } },
+        scopeZeroChiaviW39,
+      )
+      .then(() => "riuscita")
+      .catch((errore) => String(errore?.message || errore));
+
+    /*
+      **Il salvataggio deve anche riuscire.**
+
+      La prima stesura di questa prova chiedeva soltanto che la madre restasse
+      dentro, e un **rifiuto** la soddisfaceva: con l'abbinamento posizionale
+      rimesso, la scrittura veniva negata dalla guardia della crescita e la
+      prova restava verde. Cioe non discriminava il difetto che esiste per
+      misurare.
+
+      Rifiutare un riordino ordinario a un ruolo che non concede niente e a sua
+      volta un difetto — e il verso «troppo chiuso» che questo pacchetto ha
+      gia pagato quattro volte. Le due meta si chiedono percio insieme.
+    */
+    prova(
+      titolo,
+      ["riuscita", true, true],
+      [
+        esito,
+        prima,
+        await cruscottoW25.canParentAccessAthlete(ANNA.id, atleta),
+      ],
+      nota,
+    );
+
+    await prisma.athlete.delete({ where: { id: atleta } });
+  };
+
+  await provaSpostamento(
+    "W-39 riordinare le righe non sposta il marchio sulla madre",
+    () => [
+      { name: "Madre", email: ANNA.email, linkedUserId: ANNA.id },
+      { name: "Revocata", email: BRUNO.email },
+    ],
+    "prima: la madre perdeva tutto, senza audit",
+  );
+
+  await provaSpostamento(
+    "W-39b ne mandare id che in archivio non esistono",
+    () => [
+      { id: "x1", name: "Revocata", email: BRUNO.email },
+      { id: "x2", name: "Madre", email: ANNA.email, linkedUserId: ANNA.id },
+    ],
+    "prima: l'abbinamento cadeva sulla posizione",
+  );
+
+  await provaSpostamento(
+    "W-39c ne duplicare un id per forzare l'abbinamento posizionale",
+    () => [
+      { id: "uguale", name: "Revocata", email: BRUNO.email },
+      { id: "uguale", name: "Madre", email: ANNA.email, linkedUserId: ANNA.id },
+    ],
+    "prima: l'id duplicato disattivava il confronto per identita",
+  );
+
+  /*
+    **W-40 (High).** Il ripiego posizionale valeva solo ad array di **pari
+    lunghezza**, e le righe che portano `contactOnly` sono proprio quelle senza
+    `id`: aggiungere o togliere un tutore nello stesso salvataggio le lasciava
+    senza abbinamento, e il segno spariva. Definitivamente, perche il riporto
+    successivo copia da un archivio che non ce l'ha piu — e per `contactOnly`
+    non esiste nessun secondo registro.
+  */
+  const FIGLIO_LUNGHEZZA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_LUNGHEZZA,
+      organization_id: CLUB,
+      first_name: "Lunghezza",
+      last_name: "Diversa",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [{ name: "Zio", email: BRUNO.email, contactOnly: true }],
+      },
+    },
+  });
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_LUNGHEZZA,
+    {
+      data: {
+        guardians: [
+          { name: "Zio", email: BRUNO.email },
+          { name: "Madre", email: ANNA.email, linkedUserId: ANNA.id },
+        ],
+      },
+    },
+    scopeClubW29,
+  );
+
+  const dopoLunghezza = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_LUNGHEZZA },
+      select: { data: true },
+    })
+  )?.data;
+
+  prova(
+    "W-40 il segno sopravvive a un salvataggio che allunga l'elenco",
+    [true, false],
+    [
+      Boolean((dopoLunghezza?.guardians || [])[0]?.contactOnly),
+      await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_LUNGHEZZA),
+    ],
+    "prima: spariva, e l'indirizzo di uno sconosciuto diventava una chiave",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_LUNGHEZZA } });
+
+  /*
+    **W-41.** E le due proprieta che il riporto per identita deve tenere
+    insieme, misurate accanto: il padre che condivide l'indirizzo di famiglia
+    con la madre revocata **resta dentro**, e la madre che si ripresenta con il
+    proprio identificativo **resta fuori**.
+  */
+  const FIGLIO_DUE_VERSI = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_DUE_VERSI,
+      organization_id: CLUB,
+      first_name: "Due",
+      last_name: "Versi",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          {
+            id: "madre",
+            name: "Anna",
+            email: ANNA.email,
+            linkedUserId: null,
+            accessRevokedAt: new Date().toISOString(),
+          },
+          { id: "padre", name: "Bruno", email: ANNA.email, linkedUserId: BRUNO.id },
+        ],
+        revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
+      },
+    },
+  });
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_DUE_VERSI,
+    {
+      data: {
+        guardians: [
+          { id: "madre", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+          { id: "padre", name: "Bruno", email: ANNA.email, linkedUserId: BRUNO.id },
+        ],
+      },
+    },
+    scopeClubW29,
+  );
+
+  prova(
+    "W-41 il padre resta dentro, la madre revocata resta fuori",
+    [true, false],
+    [
+      await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_DUE_VERSI),
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_DUE_VERSI),
+    ],
+    "le due meta della stessa regola: l'indirizzo condiviso non e un'identita",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_DUE_VERSI } });
+
+  /* ---------- W-42..W-46: il resto del sedicesimo round ---------- */
+
+  /*
+    **W-42 (Critical).** L'area famiglia non applicava il pro-rata. Il ponte
+    verso il riepilogo non aveva il parametro del periodo di stagione, che e il
+    ripiego usato quando il piano accende il pro-rata senza dichiarare il
+    proprio. Misurato: la scheda atleta calcolava 300, l'area famiglia 600, e
+    la famiglia leggeva «Totale dovuto 600,00 EUR» sopra un elenco di rate che
+    somma 300 — un residuo che non sarebbe mai sceso a zero.
+  */
+  const riepilogoW42 = await carica("src/lib/athlete-enrollment-summary.ts");
+  const pianoW42 = [
+    {
+      id: "piano-prorata",
+      name: "Stagionale",
+      amount: 600,
+      proration: { enabled: true, method: "months" },
+    },
+  ];
+  const atletaW42 = {
+    id: randomUUID(),
+    data: {
+      selectedPlanId: "piano-prorata",
+      enrollmentDate: "2026-02-01",
+      enrollmentStartDate: "2026-02-01",
+    },
+  };
+
+  const senzaPeriodo = riepilogoW42.getAthleteEnrollmentSummary({
+    athlete: atletaW42,
+    athleteId: atletaW42.id,
+    paymentPlans: pianoW42,
+  });
+  const conPeriodo = riepilogoW42.getAthleteEnrollmentSummary({
+    athlete: atletaW42,
+    athleteId: atletaW42.id,
+    paymentPlans: pianoW42,
+    seasonPeriod: { startDate: "2025-09-01", endDate: "2026-08-31" },
+  });
+
+  prova(
+    "W-42 il riepilogo della famiglia sa applicare il pro-rata",
+    true,
+    Number(conPeriodo?.income?.expectedTotal || 0) <
+      Number(senzaPeriodo?.income?.expectedTotal || 0),
+    "con periodo: " +
+      conPeriodo?.income?.expectedTotal +
+      " — senza: " +
+      senzaPeriodo?.income?.expectedTotal,
+  );
+
+  /*
+    E il cruscotto lo passa davvero: il dato era gia nel file, ne uscivano solo
+    id ed etichetta della stagione.
+  */
+  const cruscottoSorgente = await import("node:fs").then((fs) =>
+    fs.readFileSync("src/lib/server/parent-dashboard.ts", "utf8"),
+  );
+
+  prova(
+    "W-42b e il cruscotto della famiglia lo passa",
+    true,
+    cruscottoSorgente.includes("seasonPeriod: periodoStagione"),
+    "prima: il parametro non esisteva nemmeno in firma",
+  );
+
+  /*
+    **W-43 (High).** La ripartizione in rate produceva rate da 0,00 —
+    impagabili, perche lo stato «pagata» chiede un dovuto maggiore di zero e
+    nessun canale la puo chiudere — e rate negative su un piano configurato
+    male.
+  */
+  const rateW43 = await carica("src/lib/payment-plan-utils.ts");
+  const distribuzioni = [
+    rateW43.roundInstallmentsToFive(Array(3).fill(4), 12),
+    rateW43.roundInstallmentsToFive(Array(4).fill(6), 10),
+    rateW43.roundInstallmentsToFive(Array(12).fill(100 / 12), 100),
+  ];
+
+  prova(
+    "W-43 nessuna rata a zero, nessuna negativa, e la somma torna",
+    [true, true, true],
+    [
+      distribuzioni.every((righe) => righe.every((valore) => valore > 0)),
+      distribuzioni.every((righe) => righe.every((valore) => valore >= 0)),
+      distribuzioni.every(
+        (righe, indice) =>
+          Math.abs(
+            righe.reduce((somma, valore) => somma + valore, 0) -
+              [12, 10, 100][indice],
+          ) < 0.01,
+      ),
+    ],
+    JSON.stringify(distribuzioni),
+  );
+
+  /*
+    **W-44 (M1).** La fascia notturna accettava le sue due meta separate e
+    rifiutava la prenotazione che le usa insieme — citando nel messaggio la
+    fascia che la conteneva.
+  */
+  prova(
+    "W-44 una prenotazione che scavalca la mezzanotte sta nella sua fascia",
+    true,
+    struttureW37.isWithinFieldAvailability(
+      { availability: { Ven: [{ start: "22:00", end: "02:00" }] } },
+      struttureW37.instantFromLocalTime("2026-09-11", "23:00"),
+      struttureW37.instantFromLocalTime("2026-09-12", "01:00"),
+    ),
+    "prima: rifiutata, e il messaggio elencava «Ven 22:00-02:00»",
+  );
+
+  /*
+    **W-45 (M2).** Il ripiego sulla coppia storica scattava su «nessuna
+    corrispondenza nell'elenco», non su «elenco vuoto»: con `guardians` pieno e
+    un id inesistente, la chiamata revocava `parent1` — una riga che la scheda
+    non mostra — e ne metteva l'indirizzo nel registro, che vale per tutto
+    l'atleta.
+  */
+  const FIGLIO_MISTO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_MISTO,
+      organization_id: CLUB,
+      first_name: "Misto",
+      last_name: "Storico",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [{ id: "nonna", name: "Nonna", email: BRUNO.email }],
+        parent1: { name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+      },
+    },
+  });
+
+  /*
+    L'id e quello che la coppia storica **porta**: e cosi che il ripiego
+    scattava, e con `guardians` pieno revocava una riga che la scheda non
+    mostra. Un id inventato non avrebbe misurato niente.
+  */
+  const esitoMisto = await legamiW25
+    .unlinkGuardianAccount(scopeClubW29, {
+      athleteId: FIGLIO_MISTO,
+      guardianId: ANNA.email,
+    })
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  const dopoMisto = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_MISTO },
+      select: { data: true },
+    })
+  )?.data;
+
+  prova(
+    "W-45 un id inesistente non revoca una riga che la scheda non mostra",
+    [true, false],
+    [
+      esitoMisto !== "riuscita",
+      Array.isArray(dopoMisto?.revokedGuardianIdentities) &&
+        dopoMisto.revokedGuardianIdentities.length > 0,
+    ],
+    esitoMisto,
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_MISTO } });
+
+  /*
+    **W-46 (M4).** «Segna tutte come lette» chiudeva anche le notifiche
+    dell'**altro** figlio: la pastiglia contava quelle del figlio scelto, la
+    scrittura filtrava solo per genitore e club.
+  */
+  const cruscottoW46 = await carica("src/lib/server/parent-dashboard.ts");
+
+  prova(
+    "W-46 il predicato del figlio e uno solo, e lo usano tutte e due",
+    [true, false, true],
+    [
+      cruscottoW46.notificationBelongsToAthlete(
+        { data: { athleteId: MARCO } },
+        MARCO,
+      ),
+      cruscottoW46.notificationBelongsToAthlete(
+        { data: { athleteId: LUCA } },
+        MARCO,
+      ),
+      cruscottoW46.notificationBelongsToAthlete({ data: {} }, MARCO),
+    ],
+    "una che nomina un altro figlio non e di questo; una che non nomina nessuno e del club",
+  );
+
   await prisma.athlete.update({
     where: { id: MARCO },
     data: { user_id: null },

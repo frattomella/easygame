@@ -1539,14 +1539,30 @@ const writeInAppCopy = async ({
         },
       });
     }
-    await settleDelivery({ id: claim.id, organizationId: claim.organizationId, status: "sent", now });
+    /*
+      **Un invio che non parte non si registra «inviato».**
+
+      Senza un destinatario la riga in bacheca non si scrive piu — e giusto
+      — ma il rendiconto continuava a dire «in app, inviato» al club, per
+      famiglie che non hanno un account e che quella notizia non l'hanno mai
+      vista. `DeliveryStatus` ha gia `skipped`, ed e usato altrove: era
+      disponibile, e diceva la verita.
+    */
+    const consegnato = Boolean(recipientUserId);
+
+    await settleDelivery({
+      id: claim.id,
+      organizationId: claim.organizationId,
+      status: consegnato ? "sent" : "skipped",
+      now,
+    });
     deliveries.push({
       trigger: rule.trigger,
       channel: "in_app",
       recipient: recipientEmail,
       athleteName,
-      status: "sent",
-      reason: null,
+      status: consegnato ? "sent" : "skipped",
+      reason: consegnato ? null : "nessun account a cui recapitarla",
     });
   } catch {
     await settleDelivery({

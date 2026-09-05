@@ -2574,7 +2574,7 @@ presidio e sulla classe e non sul caso: nessun file sotto `src/app/api` o
 `src/lib/server` puo importare il dominio del browser.
 
 
-## La revoca di un tutore (PP-02, round 7-15)
+## La revoca di un tutore (PP-02, round 7-16)
 
 L'accesso di un tutore a un atleta si toglie per **identita**, non per riga, e
 la decisione con le sue ragioni sta in
@@ -2626,6 +2626,18 @@ Tre difese, tutte dentro `athletes.data`:
   e blocca la scheda: 1.079 combinazioni su 1.536 risultavano una crescita
   rimandate invariate, e da li in poi nessun ruolo senza `clinical.read`
   riusciva piu a cambiare una taglia.
+- Le difese seguono la **persona**, non la riga. Due stesure precedenti
+  abbinavano le righe per `id` e, quando l'id non era univoco, **per
+  posizione** — e la posizione la sceglie chi chiama: riordinare l'elenco,
+  mandare id che in archivio non esistono o duplicarne uno scriveva il marchio
+  di una riga **addosso a un'altra**, con un ruolo a zero chiavi e senza audit.
+  E se il salvataggio cambiava la **lunghezza** dell'elenco il riporto non si
+  applicava affatto, quindi `contactOnly` spariva per sempre — per quel segno
+  non esiste un secondo registro. L'identita e l'identificativo quando il club
+  lo **riconosce gia** (compare su una riga in archivio non marchiata), e
+  l'indirizzo altrimenti: cosi il padre che condivide l'indirizzo di famiglia
+  con la madre revocata resta dentro, e la madre che si ripresenta con il
+  proprio resta fuori.
 - I due marchi sono in **sola lettura** dalla rotta generica nei **due** versi:
   non si tolgono e non si mettono. Toglierli era gia impedito; metterli no, e
   un ruolo di club a **zero chiavi** revocava cosi un tutore legittimo — niente

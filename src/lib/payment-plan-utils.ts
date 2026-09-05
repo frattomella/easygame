@@ -979,19 +979,65 @@ export const roundInstallmentsToFive = (
     return [total];
   }
 
-  let assigned = 0;
-  const preserveIndexes = new Set(options.preserveIndexes || []);
-  return amounts.map((amount, index) => {
-    if (index === amounts.length - 1) {
-      return roundCurrency(total - assigned);
-    }
+  /*
+    **Arrotondare a cinque non deve produrre una rata da zero.**
 
-    const rounded = preserveIndexes.has(index)
-      ? roundCurrency(Math.min(total - assigned, toPaymentPlanAmount(amount)))
-      : Math.max(0, Math.floor(toPaymentPlanAmount(amount) / 5) * 5);
-    assigned = roundCurrency(assigned + rounded);
-    return rounded;
+    La stesura precedente troncava ogni rata al multiplo di cinque inferiore e
+    faceva assorbire **tutto il resto all'ultima**. Su importi che non si
+    dividono bene ne uscivano bollettini che nessuno avrebbe scritto a mano —
+    `100` in 12 rate diventava undici da 5 e una da 45 — e, quando la quota
+    naturale stava sotto i cinque euro, rate da **0,00**: `12` in 3 rate
+    diventava `[0, 0, 12]`.
+
+    Una rata da zero non e un'anteprima innocua: viene scritta in archivio, e
+    li non si chiude piu. `resolveLedgerState` chiede `dueCents > 0` per dire
+    «pagata», quindi la riga resta **per sempre** scaduta; il pagamento online
+    risponde «Questa rata e gia saldata» e l'incasso manuale «L'importo supera
+    il residuo della rata (0.00 EUR)». Nessuno dei due canali la puo chiudere,
+    e il conto degli insoluti della famiglia non torna a zero.
+
+    Adesso: si riporta la somma richiesta dentro il totale quando la supera
+    (un piano le cui percentuali sommano piu di cento e configurato male, e non
+    deve produrre una rata **negativa**), si arrotonda a cinque **solo dove
+    resta qualcosa**, e il residuo si distribuisce a passi di cinque su tutte
+    invece di cadere sull'ultima. I centesimi che avanzano restano sull'ultima,
+    che e l'unico posto dove non si vedono.
+  */
+  const PASSO = 5;
+  const preserveIndexes = new Set(options.preserveIndexes || []);
+  const naturali = amounts.map((amount) =>
+    Math.max(0, toPaymentPlanAmount(amount)),
+  );
+
+  const sommaNaturale = naturali.reduce((somma, valore) => somma + valore, 0);
+  const scala =
+    sommaNaturale > total && sommaNaturale > 0 ? total / sommaNaturale : 1;
+
+  const base = naturali.map((valore, index) => {
+    if (preserveIndexes.has(index)) return roundCurrency(valore);
+
+    const richiesto = valore * scala;
+    const arrotondato = Math.floor(richiesto / PASSO) * PASSO;
+    return arrotondato > 0 ? arrotondato : roundCurrency(richiesto);
   });
+
+  let residuo = roundCurrency(
+    total - base.reduce((somma, valore) => somma + valore, 0),
+  );
+
+  for (let giro = 0; residuo >= PASSO && giro < base.length * 40; giro += 1) {
+    const indice = giro % base.length;
+    if (preserveIndexes.has(indice)) continue;
+    base[indice] = roundCurrency(base[indice] + PASSO);
+    residuo = roundCurrency(residuo - PASSO);
+  }
+
+  if (residuo !== 0) {
+    const ultima = base.length - 1;
+    base[ultima] = roundCurrency(Math.max(0, base[ultima] + residuo));
+  }
+
+  return base;
 };
 
 export const generateInstallmentPreview = (

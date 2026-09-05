@@ -1302,3 +1302,100 @@ Non e stato corretto in questo commit, ed e giusto dire perche: la suite non ha
 misura, non una riga dentro una lane di correzioni. Le proprieta che vivono sul
 server sono provate dalle sonde contro PostgreSQL; quelle che vivono nel
 browser oggi non sono provate da nessuno, e adesso e scritto (**PP02-D16**).
+
+
+## 23. Il sedicesimo round: gli importi, e la terza stesura dei riporti
+
+Il quindicesimo round aveva lasciato scritto che gli **importi** non erano
+stati verificati. Il sedicesimo e andato li e ha trovato la cosa piu grave del
+pacchetto; e intanto ha riaperto, per la terza volta, la stessa ferita nei
+riporti delle difese.
+
+### Il Critical: la famiglia leggeva il doppio
+
+`calculateAthleteExpectedIncome` accetta il periodo della stagione come
+ripiego del pro-rata, e serve **sempre**, perche un piano che accende il
+pro-rata senza dichiarare il proprio periodo e la configurazione ordinaria.
+`getAthleteEnrollmentSummary` — l'unica strada verso l'area famiglia — quel
+parametro non lo aveva ne in firma ne nel tipo.
+
+Misurato su un piano da 600 EUR con iscrizione al 1° febbraio: la scheda
+atleta calcolava **300**, l'area famiglia **600**. La famiglia leggeva «Totale
+dovuto 600,00 EUR» e «Residuo 600,00 EUR» sopra un elenco di rate che somma
+300, e quel residuo non sarebbe mai sceso a zero. Il dato per correggerlo era
+gia nello stesso file: ne uscivano id ed etichetta della stagione, non le date.
+
+### Le rate impagabili
+
+La ripartizione troncava ogni rata al multiplo di cinque inferiore e faceva
+assorbire tutto il resto all'ultima: `100` in 12 rate diventava undici da 5 e
+una da 45, e `12` in 3 rate diventava `[0, 0, 12]`.
+
+Una rata da zero non e un'anteprima innocua. Viene scritta in archivio, e li
+non si chiude piu: `resolveLedgerState` chiede un dovuto maggiore di zero per
+dire «pagata», il pagamento online risponde «Questa rata e gia saldata» e
+l'incasso manuale «L'importo supera il residuo della rata (0.00 EUR)». Resta
+scaduta per sempre, e il conto degli insoluti della famiglia non torna a zero.
+
+### La terza stesura dei riporti, e cosa insegna
+
+I riporti delle difese hanno avuto tre stesure, e ognuna ha chiuso il difetto
+della precedente aprendone uno nuovo:
+
+1. **per `id`** — e le righe che il segno `contactOnly` protegge un id non
+   ce l'hanno, perche nascono da `guardians.push`;
+2. **per id, o per posizione** — e la posizione la sceglie chi chiama. Tre
+   strade indipendenti, misurate con un ruolo a **zero chiavi**, scrivevano il
+   marchio di una riga addosso a un'altra: riordinare le righe, mandare id che
+   in archivio non esistono, duplicarne uno in arrivo. E se il salvataggio
+   cambiava la **lunghezza** dell'elenco il riporto non si applicava affatto:
+   `contactOnly` spariva, e per quel segno non c'e un secondo registro che lo
+   rimetta;
+3. **per identita** — che e la risposta giusta, e si vede solo dicendola:
+   *una difesa non protegge una riga, protegge una persona*, e le persone
+   sopravvivono al riordino, alla rinumerazione e all'inserimento in mezzo.
+
+La definizione di identita non e pero «l'identificativo se c'e»: dopo una
+revoca la riga in archivio ha gli identificativi **azzerati**, quindi una riga
+che si ridichiara con `linkedUserId` avrebbe un'identita che con quel marchio
+non combacia — ed e esattamente la strada con cui una scheda aperta prima della
+revoca la annulla salvando. Un identificativo vale come identita solo se il
+club lo **riconosce gia**, cioe se compare su una riga in archivio che un
+marchio non ce l'ha. Le due meta si tengono insieme:
+
+- il **padre** che condivide l'indirizzo di famiglia con la madre revocata ha
+  il proprio identificativo sulla propria riga, viva: e lui, e il marchio
+  dell'altra non lo tocca;
+- la **madre** che si ripresenta con il proprio: in archivio quel numero non
+  c'e piu, quindi resta l'indirizzo, e l'indirizzo porta il marchio.
+
+### Le altre quattro
+
+- **La campanella non si spegneva.** `onMarkRead` era dichiarata nel tipo,
+  documentata e propagata da tre gusci — e mai invocata: nel file compariva due
+  volte, tutte e due nella firma. Il clic restava sulla scrittura generica, che
+  a un genitore risponde 403 e lascia una riga di audit a ogni notifica aperta.
+- **«Segna tutte come lette (N)»**: N contava le notifiche del figlio scelto,
+  la scrittura ne chiudeva **tutte** quelle del genitore in quel club. Un
+  genitore con due figli spegneva anche quelle dell'altro.
+- **`/documenti` apriva con una chiave e la rotta ne chiedeva due.** La
+  seconda (`documents.read_dossier`) e deselezionabile nell'editor dei ruoli,
+  quindi la configurazione si raggiunge dall'interfaccia: chi la incontrava
+  trovava un riquadro rosso sopra una coda vuota, e una riga di audit a ogni
+  apertura.
+- **La fascia notturna, di nuovo.** Il quindicesimo round aveva aperto la
+  fascia `22:00-02:00`; la finestra della prenotazione si fermava pero alla
+  mezzanotte, quindi la richiesta `23:00 → 01:00` — quella che quella fascia
+  esiste per accogliere — restava rifiutata, citando nel messaggio la fascia
+  che la conteneva. Chiuso a meta e' come chiuso male.
+
+### Una prova che non discriminava
+
+Vale la pena scriverlo perche e successo **misurando le proprie correzioni**.
+La prima stesura di `W-39` chiedeva soltanto che la madre restasse dentro dopo
+un riordino, e un **rifiuto** la soddisfaceva: rimettendo l'abbinamento
+posizionale, la scrittura veniva negata dalla guardia e la prova restava verde.
+
+Una prova sull'accesso deve chiedere anche che il salvataggio **riesca**, o non
+distingue «ho protetto» da «ho bloccato tutto» — che e il verso opposto, e in
+questo pacchetto e costato quattro volte.

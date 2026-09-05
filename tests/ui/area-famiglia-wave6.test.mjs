@@ -180,9 +180,28 @@ test("W6-13 · notifiche, bacheca e prenotazioni parlano del figlio scelto", () 
     server.includes("const notificheDelFiglio = notifications.filter("),
     "le notifiche che nominano un atleta devono nominare questo",
   );
+
+  /*
+    **La stessa domanda, una risposta sola.**
+
+    L'attribuzione (`data.athleteId`, che i promemoria sui certificati
+    scrivono) era letta a mano qui, e la rotta che segna letto non la leggeva
+    affatto: la pastiglia contava le notifiche del figlio scelto e «segna tutte
+    come lette» ne chiudeva tutte quelle del genitore in quel club. Un genitore
+    con due figli spegneva le notifiche dell'altro senza saperlo.
+
+    Adesso il predicato e esportato, e le due parti lo **chiamano**: e questa
+    la proprieta da tenere ferma, non il modo in cui e scritta.
+  */
   assert.ok(
-    server.includes('asRecord(notification.data).athleteId'),
-    "l'attribuzione esiste gia nel dato: i promemoria sui certificati la scrivono",
+    server.includes("export const notificationBelongsToAthlete"),
+    "il predicato vive dove vive la lettura che riempie la bacheca",
+  );
+  assert.ok(
+    leggi("app/api/parent-dashboard/[athleteId]/notifications/route.ts").includes(
+      "notificationBelongsToAthlete(notification, athleteId)",
+    ),
+    "e la rotta che segna letto chiama lo stesso, invece di riscriverlo",
   );
 
   const consegne = leggi("lib/server/communication-deliveries.ts");

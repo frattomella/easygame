@@ -43,7 +43,24 @@ import { roleHasPermission } from "@/lib/permissions/catalog";
 export default function DocumentiPage() {
   const { activeClub, userRole } = useAuth();
   const role = activeClub?.role || userRole || null;
-  const canReview = roleHasPermission(role, "documents.review");
+  /*
+    **La pagina apriva con una chiave e la rotta ne chiedeva due.**
+
+    La coda dei documenti chiede `documents.review` e poi, per leggere il
+    fascicolo della persona a cui il documento appartiene,
+    `documents.read_dossier`. Questa seconda **non** e in
+    `LINK_GATED_PERMISSION_KEYS`: e una casella deselezionabile nell'editor
+    dei ruoli di club, quindi la configurazione «puo esaminare, non puo
+    leggere i fascicoli» si raggiunge dall'interfaccia.
+
+    Chi la incontrava trovava la voce nel menu, apriva la pagina, e leggeva
+    un riquadro rosso sopra una coda vuota — con una riga di audit a ogni
+    apertura. E il presidio che questa pagina rivendica, applicato alla
+    chiave sbagliata: una voce che si apre deve aprire su qualcosa.
+  */
+  const canReview =
+    roleHasPermission(role, "documents.review") &&
+    roleHasPermission(role, "documents.read_dossier");
 
   return (
     <div className="flex h-[100dvh] bg-slate-50">

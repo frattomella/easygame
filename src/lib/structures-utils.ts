@@ -512,11 +512,25 @@ export function isWithinFieldAvailability(
   */
   const dataSeguente = giornoSuccessivo(inizio.date);
 
-  const stessoGiorno = fine.date === inizio.date;
-  const mezzanotteSeguente = fine.date === dataSeguente && fine.minutes === 0;
+  /*
+    **E la prenotazione che scavalca, non solo la fascia.**
 
-  if (!stessoGiorno && !mezzanotteSeguente) return false;
-  const fineMinuti = mezzanotteSeguente ? 24 * 60 : fine.minutes;
+    La finestra si fermava alla **mezzanotte** del giorno seguente
+    (`fine.minutes === 0`), quindi su un campo aperto `Ven 22:00-02:00` la
+    richiesta `23:00 → 01:00` — cioe quella che quella fascia esiste per
+    accogliere — veniva rifiutata elencando nel messaggio la fascia stessa. Le
+    due meta separate passavano, quella che le usa insieme no: la fascia era
+    stata aperta e la prenotazione restava chiusa.
+
+    Una prenotazione puo percio finire **nella notte** del giorno seguente. Non
+    piu in la: le fasce di un campo non durano piu di ventiquattr'ore, e
+    accettare oltre vorrebbe dire non guardare piu niente.
+  */
+  const stessoGiorno = fine.date === inizio.date;
+  const notteSeguente = fine.date === dataSeguente;
+
+  if (!stessoGiorno && !notteSeguente) return false;
+  const fineMinuti = notteSeguente ? 24 * 60 + fine.minutes : fine.minutes;
 
   /*
     **Una fascia notturna vale, e prima veniva stampata e rifiutata.**

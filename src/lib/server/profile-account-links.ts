@@ -585,8 +585,22 @@ export const unlinkGuardianAccount = async (
     Gli id sono gli stessi che proietta `getGuardianRows`, o la scheda
     manderebbe un id che qui non esiste.
   */
+  /*
+    **Il ripiego storico vale dove la coppia storica e cio che c'e.**
+
+    Scattava su «nessuna corrispondenza nell'elenco», che e una condizione piu
+    larga: con un `guardians` **pieno** e un id che nessuna delle sue righe
+    porta, la chiamata scendeva su `parent1` e revocava **una riga che la
+    scheda non mostra** — rispondendo 200 e mettendo quell'indirizzo nel
+    registro delle identita, che vale per tutto l'atleta. Prima l'errore era
+    esplicito, ed era la risposta giusta.
+
+    `getGuardianRows` legge la coppia storica **solo** quando l'elenco e
+    vuoto: qui vale la stessa condizione, o il pulsante revocherebbe qualcosa
+    che nessuna schermata ha mai disegnato.
+  */
   const CHIAVI_STORICHE = ["parent1", "parent2"] as const;
-  const chiaveStorica = !trovate.length
+  const chiaveStorica = !trovate.length && !guardians.length
     ? CHIAVI_STORICHE.find((chiave, posizione) => {
         const record = data[chiave];
         if (!isRecord(record)) return false;
