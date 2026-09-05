@@ -239,9 +239,13 @@ in Prisma e vivono solo nella migrazione.
 | Strumento | Cosa misura |
 |---|---|
 | `scripts/pp-05-otp-probe.mjs` | 7 proprieta contro PostgreSQL reale: tetto dei tentativi sotto concorrenza, monouso, cooldown, legame col destinatario, scadenza calcolata dal database, contatore per numero attraverso reti diverse |
-| `scripts/pp-05-sicurezza-probe.mjs` | 10 prove dei difetti chiusi dalla revisione ostile, ognuna verificata **per mutazione** |
+| `scripts/pp-05-sicurezza-probe.mjs` | **12** prove dei difetti chiusi dalla revisione ostile (S1-S10), ognuna verificata **per mutazione**. S10 lo e in **due varianti**, perche le due difese contro il Critical del terzo round sono indipendenti e ciascuna doveva reggere da sola |
+| `scripts/pp-05-gettone-tessera-probe.mjs` | 5 prove che il ruolo emesso dalle rotte delle tessere **accende i permessi** — la dependency di PP-03 — e che un gettone contraffatto non ne aggiunge nessuno |
 | `tests/auth/numero-di-cellulare.test.mjs` | Normalizzazione, mascheramento, messaggi |
-| `tests/auth/verifica-recapiti-dalle-rotte.test.mjs` | Prove sulle **rotte reali**, non su helper interni |
+| `tests/auth/verifica-recapiti-dalle-rotte.test.mjs` | 19 prove sulle **rotte reali**, non su helper interni: invio, conferma, replay, scadenza, cooldown, legame col destinatario, anti-enumeration, e il vincolo «UUID nudo solo con la propria sessione» |
+| `tests/auth/registrazione-dalla-rotta.test.mjs` | La **porta d'ingresso della lane**, che fino al terzo round era coperta dai soli controlli statici sul sorgente: normalizzazione in E.164, le due challenge verso i destinatari giusti, il riferimento opaco e il numero mascherato nella risposta, e l'indistinguibilita del ramo «indirizzo gia occupato» |
+| `tests/auth/gettone-tessera-dalle-rotte.test.mjs` | Che il gettone emesso dalle due rotte delle tessere non torni allo slug in silenzio |
+| `tests/auth/active-club-boundary.test.mjs` | Che una **proiezione calcolata** non si scriva, e che le preferenze vere restino scrivibili |
 | `tests/email/template-core.test.mjs` | Escaping, link, colori, ripieghi, formato email-safe, i due marchi |
 | `tests/email/anteprima-non-spedisce.test.mjs` | L'anteprima non spedisce, e la prova non e vacua |
 | `tests/server/email-builders.test.mjs` | I costruttori mostrano il dato che devono mostrare, in HTML e in testo |
@@ -256,7 +260,11 @@ costruzione**.
 
 ## La revisione ostile
 
-Due round, condotti da revisori indipendenti con il mandato di rompere.
+Tre round che hanno trovato qualcosa, piu un quarto conclusivo, condotti da
+revisori **indipendenti** — uno diverso per round — col mandato di rompere, non
+di approvare. Ogni Critical e ogni High ha una
+prova che **fallisce senza il fix**, e ogni prova e verificata **per
+mutazione**: rimossa la guardia, la riga torna rossa.
 
 **Primo round: 1 Critical, 2 High, 5 Medium, 3 Low.**
 
@@ -288,35 +296,156 @@ Due round, condotti da revisori indipendenti con il mandato di rompere.
 
 **MEDIUM-6 non e stato corretto** ed e registrato come debito: vedi sotto.
 
+**Secondo round: 1 Critical, 1 High, 2 Medium, 3 Low.** Rilanciato **dopo** le
+correzioni del primo, ed e il round che ha insegnato di piu.
+
+- **C-1 — il legame con l'accesso esterno sopravviveva allo sfratto.** Il primo
+  round aveva concluso «serve un punto unico che li revochi tutti insieme». Il
+  punto unico era stato creato, e gli era stato dato un elenco **incompleto**:
+  un `external_accounts` superstite riapre l'account al prossimo accesso
+  dell'occupante **senza passare da nessuna challenge**, perche
+  `findOrCreateOAuthUser` risolve per `provider_account_id` prima di ogni altra
+  cosa. Un punto unico non e una garanzia: e **un posto dove guardare**.
+- **H-1 — l'amministratore di piattaforma su un indirizzo mai verificato.**
+  `isPlatformAdminUser` era sicura per una ragione che non stava in quella
+  funzione: prima di PP-05 un indirizzo non provato non produceva **nessuna
+  sessione**. ADR-0115 ha tolto quel cancello, e la riga e rimasta a decidere
+  sul solo indirizzo — che vive in una variabile `NEXT_PUBLIC_*`, cioe e
+  pubblicato a ogni browser. Quando si toglie un cancello, si cerca **chi si
+  appoggiava a quel cancello**.
+- **M-1 — l'UUID di un account non e un segreto, e apriva le rotte di
+  verifica.** La rotazione del riferimento fatta dallo sfratto era **teatro**
+  finche `findUserByVerificationReference` accettava anche l'UUID, che non
+  cambia mai e che l'occupante aveva gia. In piu gli UUID utente circolano in
+  molte proiezioni club-scoped: chi ne avesse raccolti poteva pilotare le rotte
+  di verifica su account altrui e **distinguere un identificativo vero da uno
+  inventato** — l'enumerazione chiusa altrove, riaperta da una porta laterale.
+- **M-2 — il contatore per destinatario contava meta**, perche `3401234567` e
+  `+393401234567` producevano due secchielli. Il tetto raddoppiava esattamente
+  sulle righe scritte prima di PP-05.
+- **L-1** `Object.hasOwn` nella risoluzione del trasporto SMS; **L-2** il
+  `P2002` del reset si evita oltre che catturarlo; **L-3** l'elenco degli
+  ambienti con anteprima diventa di **ammissione** — negarne tre lasciava
+  passare `NODE_ENV=prod`; **L-5** un `console.error` residuo passa dal punto
+  unico.
+
+**Terzo round: 1 Critical, 3 minori.** Ed e il round in cui il pattern si e
+visto per intero: **e stato il fix del round precedente ad aprire il difetto.**
+
+- **CRITICAL — l'indirizzo si dichiarava verificato da solo.** Il fix di H-1
+  accettava come prova due sorgenti in `OR`: la colonna `email_verified_at` e la
+  chiave `user_metadata.emailVerified`. La seconda e una colonna JSON **libera,
+  scritta dal suo stesso soggetto** — la stessa che una Wave precedente aveva
+  gia dovuto disinnescare per `role` — e la blocklist di `PATCH /auth/user` non
+  la conosceva. Bastava `{"data":{"emailVerified":true}}`, che non cambia nessun
+  fattore e quindi non passa nemmeno dal cancello della password attuale.
+  Chiuso con due difese indipendenti, ciascuna misurata da sola: la funzione
+  **distingue le due forme** che riceve (chi porta la colonna e giudicato su
+  quella e su nient'altro), e la blocklist rifiuta **tutte** le proiezioni
+  calcolate, non solo quella trovata.
+- Tre minori **non** chiusi, con la ragione scritta: le righe `prisma:error`
+  sotto concorrenza vera (PP05-D7 — la correzione e nella configurazione del
+  logger, e vale su tutto il prodotto); l'`href` dell'invito atleta fuori da
+  `sanitizeEmailUrl` (PP05-D4 allargato — `athlete-accounts.ts` e di PP-04); la
+  saturazione del secchiello SMS per destinatario (PP05-D8 — **in parte
+  intrinseca** a un tetto per destinatario: toglierlo riaprirebbe HIGH-3, che e
+  molto peggio).
+
+### Le tre regole che questi round lasciano
+
+1. **Un punto unico non e una garanzia, e un posto dove guardare.** Quando si
+   aggiunge un modo di entrare, ci si va.
+2. **Quando si toglie un cancello, si cerca chi si appoggiava a quel cancello.**
+   H-1 e nato cosi, e non era una svista di chi ha scritto ADR-0115: era una
+   dipendenza che nessuno aveva scritto da nessuna parte.
+3. **Un `OR` fra due sorgenti vale quanto la piu debole delle due.** Il
+   Critical del terzo round e stato aggiunto **per irrobustire** una decisione,
+   e l'ha indebolita. La risposta giusta a «due chiamanti portano due forme» e
+   **distinguerle**, non accettarle entrambe.
+
+### Coverage gaps dichiarati dai reviewer
+
+Nessuno dei round dichiara di aver coperto tutto, e le lacune sono le stesse in
+due round su tre — il che le rende un limite del metodo, non di un reviewer:
+
+- **enumerazione per tempi**: verificata sull'uguaglianza di corpi e stati, mai
+  su un campionamento statistico delle latenze. Un oracolo temporale resterebbe
+  invisibile a tutte le prove di questa lane;
+- **OAuth vivo**: nessun provider configurato, quindi il consenso presso Google
+  e Microsoft non e stato esercitato end-to-end. Attaccato il solo ramo di
+  **adozione**, che e quello che PP-05 cambia;
+- **operatore SMS reale**: l'invio e sempre passato da un doppio, e non puo
+  essere altrimenti finche la scelta del fornitore e aperta. Nessuna proprieta
+  di consegna, stato di recapito o alias mittente e misurata;
+- **fuzzing dei segnaposto** dei modelli di messaggio: verificati il percorso di
+  escaping e i sanificatori, non fatto un fuzzing esaustivo con carichi
+  avversari.
+
+---
+
+## Le due dependency di altre lane, e cosa ne e stato
+
+| Da | Cosa chiedeva | Esito |
+|---|---|---|
+| **PP-03** | Che `GET /auth/memberships` e `POST /auth/memberships/activate` emettano il **gettone** invece dello slug nudo: uno slug senza chiavi spegne **ogni** permesso lato interfaccia per **ogni** ruolo personalizzato | **Implementata** (commit `c31d613`). Le due rotte gia chiamavano `risolviTessere` per scartare le tessere incoerenti, e ne buttavano via il `token`. Non concede niente in piu, ed e misurato: G5 manda un gettone **contraffatto** con una chiave aggiunta a mano e verifica che il risolutore non ne aggiunga nessuna |
+| **PP-04** | Che la firma di `sendPasswordResetChallenge` non cambi | **Soddisfatta senza modifiche**: la firma e invariata. Due cose sono cambiate **dentro** — la transazione, e il corpo che passa dal template core — e nessuna tocca il contratto |
+
+**Uno sconfinamento ricevuto e non anticipabile.** PP-04 ha scritto una riga in
+`src/app/api/v1/auth/memberships/route.ts`, che e di PP-05:
+`allowSelfAthleteLink: true`. E **giusta nel merito** — chi inverte un
+predefinito deve adeguare i chiamanti nello stesso commit — e PP-05 **non puo
+anticiparla**, perche quell'opzione nel branch di PP-05 non esiste ancora:
+passarla oggi sarebbe un errore di compilazione. Le due modifiche allo stesso
+file stanno in punti diversi della stessa funzione e in integrazione si tengono
+entrambe.
+
 ---
 
 ## Debito e limiti dichiarati
 
-- **PP05-D1 — un utente solo-OAuth non puo aggiungere il cellulare.**
-  `createOAuthBootstrapUser` scrive una password casuale che nessuno conosce, e
-  `CURRENT_PASSWORD_REQUIRED` gli impedisce di cambiare email, numero o
-  password. La regola «il numero e obbligatorio» **non si applica** a
-  quell'intera popolazione, e non c'e modo di rimediare dall'interfaccia.
-  Servirebbe distinguere «non ha mai avuto una password» da «ha una password
-  che non ricorda» — una colonna, quindi una migrazione, quindi una decisione
-  che merita il suo ADR. Nel frattempo la strada esiste ed e «Password
-  dimenticata».
-- **Il pepe delle impronte OTP ricade su `DATABASE_URL`** quando nessuna delle
-  tre variabili dedicate e impostata. Chi ha estratto un dump ha quasi
-  certamente anche la stringa di connessione con cui l'ha estratto, e in quel
-  caso il milione di codici torna enumerabile. `AUTH_OTP_SECRET` e ora in
-  `.env.example` e in [13](13-environments.md): **va impostato negli ambienti
-  condivisi**. Il ripiego resta perche un'installazione locale deve funzionare
-  senza configurare segreti.
+Otto voci, tutte in [16](16-technical-debt.md) con la forma per esteso. Qui
+stanno nell'ordine in cui sono nate, con **cosa manca davvero** — che e la sola
+cosa che serve a chi le riprendera.
+
+**Due sono chiuse dentro la lane stessa**, e restano scritte perche il modo in
+cui si sono chiuse e piu istruttivo del difetto:
+
+| | Difetto | Come si e chiuso |
+|---|---|---|
+| ~~**PP05-D1**~~ | **Un utente solo-OAuth non poteva aggiungere il cellulare**, ne cambiare email, ne impostare una password: `createOAuthBootstrapUser` scrive una password casuale che nessuno conosce, e `CURRENT_PASSWORD_REQUIRED` chiudeva tutti e tre i campi. Valeva anche per chi aveva appena subito uno **sfratto** (ADR-0117), che e l'altra popolazione senza password | **Senza la colonna e senza l'ADR** che la prima stesura riteneva necessari. La distinzione «non ha mai avuto una password» / «ne ha una che non ricorda» resta indecidibile dal client, e **non serve deciderla**: la strada esisteva gia ed era «Password dimenticata». Mancava il **pulsante**, che ora sta nella pagina Account accanto agli avvisi di verifica. Non apre nessuna strada nuova: quel link chiunque puo chiederlo dalla pagina di accesso |
+| ~~**PP05-D6**~~ | **`npm run lint` usciva con codice 1 in ogni worktree parallelo**, per un conflitto del plugin `@next/next` fra `.eslintrc.json` del worktree e quello identico della radice — che ESLint trova risalendo l'albero, perche i worktree vivono sotto `.claude/` | `"root": true` in `.eslintrc.json`. La prima stesura la rimandava all'integrazione; e stata applicata qui perche il gate e reale e questa e l'unica correzione possibile. **Conflitto previsto in integrazione**, sotto |
+
+**Sei restano aperte**, e nessuna e un difetto sfruttabile della lane:
+
+| | Cosa resta | Perche non si chiude qui |
+|---|---|---|
+| **PP05-D2** | **Il pepe delle impronte OTP ricade su `DATABASE_URL`** quando `AUTH_OTP_SECRET`, `AUTH_RATE_LIMIT_SECRET` e `CRON_SECRET` mancano tutti e tre. Chi ha estratto un dump ha quasi certamente anche la stringa di connessione con cui l'ha estratto: in quel caso il milione di codici a sei cifre torna enumerabile. E una rotazione della password del database invalida in silenzio tutte le impronte vive | Togliere il ripiego significa che un'installazione locale non parte senza configurare un segreto. La correzione giusta e **rifiutare l'avvio** con `NODE_ENV=production` e nessun segreto dichiarato: una guardia di avvio, che oggi **non esiste per nessuna variabile** e va disegnata una volta per tutte, non inventata qui. Nel frattempo `AUTH_OTP_SECRET` e in `.env.example` e in [13](13-environments.md), e **va impostato negli ambienti condivisi** |
+| **PP05-D3** | **`clubs.logo_url` e un data URL**, quindi il marchio club nelle email e sempre il nome scritto in lettere: nessun logo compare mai. Il core lo accetterebbe gia, se fosse un URL sulla nostra origine (`resolveBrandLogo`) | Serve un archivio di loghi servito dalla nostra origine, cioe toccare `attachments.ts` e la scheda club, che PP-05 non possiede. Il ripiego e leggibile e onesto, non un difetto visibile |
+| **PP05-D4** | **L'invito ad attivare l'accesso atleta resta a marchio EasyGame** anche se lo manda il club, compone HTML a mano invece di passare dai blocchi del core, e — **allargamento del terzo round** — il suo `href` non passa da `sanitizeEmailUrl`: e l'**unico** URL-in-attributo del sistema email rimasto fuori dal filtro | `src/lib/server/athlete-accounts.ts` e di **PP-04**: la frontiera non si attraversa. Registrato come dependency. Non sfruttabile oggi — link composto dal server, base da variabile d'ambiente, gettone casuale — ma e l'ultima eccezione a una regola che vale ovunque |
+| **PP05-D5** | **`getRequestIp` dietro un proxy non fidato**: con `AUTH_RATE_LIMIT_TRUSTED_PROXIES=1` e una catena `X-Forwarded-For` lunga 1, l'indice cade sulla voce scritta dal client | Codice **precedente** a PP-05 (Wave 6), non toccato dalla lane. E la ragione per cui e un fastidio e non una chiave rotta: i due assi introdotti da PP-05 — per account e per destinatario — **non passano di li**, e sono quelli che l'attaccante non sceglie |
+| **PP05-D7** | **Le righe `prisma:error Unique constraint failed` sfuggono al punto unico degli errori** sotto concorrenza vera: il logger interno di Prisma stampa l'invocazione **prima** che il codice applicativo veda l'eccezione, quindi il `catch` ferma l'eccezione ma non la riga. Contenuto: i soli **nomi** dei campi (`user_id`, `channel`), nessun valore — igiene di osservabilita, non riservatezza | La correzione e nella **configurazione del logger** in `src/lib/server/prisma.ts`, che e il punto unico del client: spegnere `log: ["error"]` toglie rumore qui e **segnale altrove**. E una decisione su tutto il prodotto. Il pre-read del secondo round toglie gia il caso comune, che e il secondo clic sul pulsante |
+| **PP05-D8** | **Il secchiello SMS per destinatario si puo saturare a danno di terzi**: registrando account con indirizzi usa-e-getta e **il numero di un'altra persona** si consuma il contatore condiviso di quel numero, e per quell'ora l'SMS legittimo di quella persona non parte | **In parte intrinseco** a un tetto per destinatario. Toglierlo riaprirebbe HIGH-3 del primo round — dieci SMS all'ora verso un numero scelto — che e molto peggio. La correzione vera pretende di distinguere «chi sta registrando davvero quel numero» da «chi lo sta pompando», e l'unico segnale che le separa e il **possesso**, cioe proprio cio che l'SMS deve ancora provare |
+
+### Due limiti che non sono debito, perche sono scelte
+
 - **`maskPhoneNumber` rivela la lunghezza** del numero oltre a prefisso e
   ultime tre cifre. Su un cellulare italiano restano alcuni milioni di
-  combinazioni, non dieci milioni: e un mascheramento, non un segreto.
-- **Il logo di un club non e mai un'immagine, oggi.** Finche `clubs.logo_url` e
-  un data URL, il brand club e il nome scritto in lettere. Servirebbe un
-  archivio di loghi servito dalla nostra origine — fuori scope PP-05.
-- **L'invito atleta (#3) resta a marchio EasyGame** anche se lo manda il club:
-  `athlete-accounts.ts` e di PP-04 e la frontiera non si attraversa. Vedi
-  dependency.
+  combinazioni, non dieci milioni: e un **mascheramento**, non un segreto, e
+  serve a far riconoscere il proprio numero a chi lo possiede gia.
+- **Il codice OTP e visibile nella risposta** solo negli ambienti dell'elenco di
+  **ammissione** di `shouldExposeVerificationPreviewCode`, che dopo L-3 del
+  secondo round e un elenco di cio che si ammette e non di cio che si nega: un
+  `NODE_ENV` sconosciuto, assente o inventato **non passa**. Senza quella
+  finestra un'installazione locale senza SMTP e senza operatore SMS non
+  potrebbe completare nessun flusso.
+
+### Conflitti previsti in integrazione
+
+| File | Chi altro lo tocca | Come si risolve |
+|---|---|---|
+| `.eslintrc.json` | PP-03 e PP-04 hanno lo **stesso** gate rosso e l'**unica** correzione possibile | Se aggiungono `"root": true`, e la stessa riga nello stesso posto: se ne tiene una |
+| `src/app/api/v1/auth/memberships/route.ts` | PP-04 ha scritto `allowSelfAthleteLink: true` sulla chiamata a `getParentLinkedAthletes` (~riga 169); PP-05 tocca la risoluzione delle tessere (~100-145) e il campo `role` emesso (~185) | Punti diversi della stessa funzione: un merge a tre vie le prende entrambe. Se il conflitto si presenta **si tengono tutte e due** — non c'e nessuna scelta da fare fra loro |
+| `docs/knowledge-base/16-technical-debt.md`, `18-decision-log.md` | Tutte e tre le lane vi aggiungono voci | Aggiunte in coda, non riscritture. Sulla numerazione degli ADR: PP-05 usa `0114`-`0117`, PP-04 `0122`-`0123`, PP-03 e partita da `0125` lasciando un varco. Un numero e un'etichetta: in integrazione si puo stringere senza conseguenze |
 
 ---
 
