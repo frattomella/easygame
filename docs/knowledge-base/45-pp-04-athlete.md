@@ -353,7 +353,7 @@ solo. Un fake Prisma non l'avrebbe mai mostrato.
 
 ---
 
-## 4. §4 — I minori: tre domande che il repository non puo decidere
+## 4. §4 — I minori: cinque domande che il repository non puo decidere
 
 > Decisione: [ADR-0116](18-decision-log.md#adr-0116--un-accesso-a-nome-di-un-minore-si-dichiara-non-si-clicca).
 
@@ -388,9 +388,55 @@ stessa scheda.
 | La revoca dell'accesso del tutore revoca anche quello dell'atleta? | **No.** I due accessi restano indipendenti | Un accesso tolto per sbaglio si rimette con un invito; uno lasciato per sbaglio si toglie con un clic. I due errori non costano uguale a chi li subisce |
 | Un minore puo avere un accesso che vive nella **casella del tutore**? | **No, dal 2026-09-05** ([ADR-0124](18-decision-log.md#adr-0124--unidentita-puo-portare-due-cappelli-e-il-ramo-esclusivo-deve-saperlo)): l'invito su quell'indirizzo e rifiutato con 400, e il messaggio dice cosa fare | Non e un accesso del minore: la mail di riscatto e ogni notifica arrivano al tutore, e l'account nasce sulla **sua** utenza. Il gesto che ADR-0116 fa dichiarare non e il gesto che avveniva. Se la policy vera dira che va permesso, la riga da cambiare e la guardia di `sendAthleteAccountInvite`, e va cambiata **di proposito** |
 
+| Due fratelli minorenni possono avere **la stessa casella** come accesso atleta? | **No, dal 2026-09-05** ([ADR-0125](18-decision-log.md)): il secondo invito e rifiutato con 400, e il riscatto rifiuta comunque | Un indirizzo e un'**identita**, e due persone non possono averne una sola: prima del rifiuto due schede portavano la stessa `user_id`, il prodotto ne sceglieva una e l'altro ragazzo restava senza accesso mentre il club leggeva «Accesso attivo». La strada per la famiglia con una casella sola resta il cruscotto del **tutore**, che e fatto per questo. Se la policy vera dira che due fratelli devono condividere una casella, serve un modello di account diverso — non una riga tolta |
+
 Se la policy vera dira il contrario, i test che le presidiano stanno in
-`tests/server/pp-04-minori.test.mjs`: sono le righe che verranno cambiate **di
-proposito** invece che per caso.
+`tests/server/pp-04-minori.test.mjs` e in
+`tests/server/pp-04-porta-di-servizio.test.mjs`: sono le righe che verranno
+cambiate **di proposito** invece che per caso.
+
+### Le due cose che una persona deve decidere, e che nessun codice puo
+
+Il round conclusivo ne ha misurate due che **non** sono difetti da correggere
+di iniziativa. Sono scelte, e vanno prese da chi risponde della societa.
+
+**1. Il genitore che perde il figlio, e nessuno glielo dice.** La guardia di
+ADR-0124 e **sequenziale**: guarda i tutori **al momento dell'invito**. Due
+gesti di segreteria nell'ordine sbagliato la aggirano senza malizia — la
+scheda del minore non ha ancora tutori, si invita l'accesso sulla casella di
+famiglia (la guardia non vede nessun tutore e passa), il riscatto scrive
+`athletes.user_id` = il genitore, e **piu tardi** la segreteria compila i
+tutori con quella stessa casella. Da quel momento il ramo diretto e esclusivo e
+il genitore riceve **403** sul cruscotto del proprio figlio, mentre il fratello
+si apre 200. Ne la revoca ne lo scollegamento rimediano: l'invito accettato
+resta per costruzione (ADR-0123).
+
+Un rimedio **esiste e funziona** — il club conia un gettone di accesso genitore
+per quella riga tutore, il genitore lo riscatta, il riscatto scrive
+`guardians[].linkedUserId` e il cruscotto torna 200 (misurato: sonda di lane
+P-84). Ma **nessuna riga del prodotto, del pannello o della KB collega il
+sintomo al rimedio**, e chi lo subisce vede solo un figlio sparito con un 403
+muto su una pagina di famiglia.
+
+Le tre strade, in ordine di costo: (a) rendere la guardia **simmetrica**,
+rifiutando anche la scrittura di un recapito tutore che coincide con l'identita
+dell'account atleta **vivo** di quella scheda — sta in `resources.ts`, dove la
+guardia sulle identita dei tutori gia esiste, ed e una superficie di segreteria
+che cambia; (b) far cadere il ramo esclusivo quando la scheda e di un **minore**
+e quella identita e l'unica famiglia rimasta — piu comodo e meno prudente, ed e
+esattamente il Critical di ADR-0122 riaperto per una classe di casi;
+(c) lasciare il comportamento e **scrivere il rimedio** dove il sintomo si
+vede. Non e stata presa qui perche e una decisione di prodotto sui minori, non
+una guardia mancante.
+
+**2. `collaborator` e `staff` leggono il clinico di tutti.** Misurato:
+`isManagementAccessRole` e `hasHealthPermission(…, "clinical.read")` valgono
+**entrambe vero** per `collaborator` e `staff` (per `trainer` no). Cambiare a
+una persona il ruolo in «Collaboratore» le concede quindi allergie, patologie,
+farmaci e il file del certificato di **tutti** gli atleti del club, dentro il
+proprio perimetro. Puo essere voluto — un collaboratore di segreteria che
+gestisce le visite ne ha bisogno — e puo non esserlo. Il dominio proprietario e
+`src/lib/health/permissions.ts`, e la matrice si cambia li, di proposito.
 
 ---
 
@@ -453,6 +499,23 @@ round`, ripetuto finche un round intero e uscito pulito.
 | 2 | Il Critical del round 1 era stato **spostato**, non chiuso: il ramo del tutore si apriva con `guardians[].email` (ADR-0122) | chiuso |
 | 3 | Critical: la guardia di ADR-0122 stava sul campo che la revoca cancella (ADR-0123). Piu un Critical e un Medium **preesistenti e fuori perimetro**: il genitore revocato (PP04-D8) e lo sweep per slug (PP04-D9) | il primo chiuso; gli altri due registrati come dependency e debito |
 | 4 | Il verso opposto dei tre precedenti: il ramo esclusivo toglieva il figlio al **genitore**, e ne la revoca ne lo scollegamento glielo rendevano (ADR-0124). Piu quattro High **preesistenti e fuori perimetro**: il perimetro di sede e categoria non vale sui **byte** dei documenti ne sulla stampa delle ricevute (PP04-D10) | il primo chiuso; gli altri registrati come dependency e debito |
+| **5 — conclusivo** | Tre High, tutti sulla superficie che i fix precedenti avevano appena creato: il **terzo lettore** di `athletes.user_id` (il fascicolo clinico per identificativo, che ADR-0117 non aveva contato); **due schede su una sola utenza** (la guardia dell'invito arrivava prima che il legame esistesse); lo **scollegamento che non scollegava** bacheca e RSVP, e la scheda **ceduta a un altro** che la vecchia utenza continuava a leggere. Piu un Medium e un Low registrati, e due decisioni di prodotto portate a una persona | i tre chiusi (ADR-0125), con verifica per mutazione su ognuna delle quattro guardie |
+
+> **Il quinto round e stato eseguito in prima persona, non delegato**, dopo che
+> due agenti si erano fermati ad attendere il verdetto di un reviewer. La sonda
+> e `scripts/pp-04-round-conclusivo-probe.mjs`: **112 prove** contro
+> PostgreSQL e le rotte vere.
+>
+> Due verdetti di reviewer indipendenti, arrivati **dopo** l'avvio di questo
+> giro, sono stati trattati come **dato da verificare** e non come mandato:
+> ogni tesi e stata rimisurata in proprio prima di toccare una riga. Le tre che
+> reggevano sono qui sopra; quelle che non sono state corroborate non sono
+> state recepite.
+>
+> **Due dei tre difetti sono nati dal rimedio a un altro difetto**, ed e la
+> lezione che vale oltre PP-04: la superficie piu pericolosa di una lane non e
+> quella vecchia, e quella che l'ultimo fix ha appena creato — e nessuno l'ha
+> ancora battuta.
 
 ### A schermo
 
@@ -490,8 +553,17 @@ spuntata — che e ADR-0116 vista dal clic.
 
 ### Gate
 
-`npm test` **4.673/4.673** · `npm run typecheck` senza output · `eslint`
+`npm test` **4.680/4.680** · `npm run typecheck` senza output · `eslint`
 **0 errori** (34 warning preesistenti, invariati) · `npm run build` completa.
+Misurati dopo l'ultimo commit della lane.
+
+Le tre sonde, allo stesso commit:
+
+| Sonda | Esito |
+|---|---|
+| `scripts/pp-04-atleta-probe.mjs` | **123/123** |
+| `scripts/pp-04-round-conclusivo-probe.mjs` | **112/112** |
+| `scripts/pp-04-perimetro-byte-probe.mjs` | **12/17, codice 1** — e la riproduzione di PP04-D10/D11, e resta rossa di proposito |
 
 > **Nota sull'ambiente:** `npm run lint` (cioe `next lint`) esce 1 in questo
 > worktree con «Plugin "@next/next" was conflitto fra .eslintrc.json e
@@ -500,6 +572,54 @@ spuntata — che e ADR-0116 vista dal clic.
 > Non dipende dal codice della lane. La misura equivalente e
 > `npx eslint --no-eslintrc -c .eslintrc.json --resolve-plugins-relative-to . src`,
 > che esce **0 errori**.
+
+### Coverage gap dichiarati del round conclusivo
+
+Un gap dichiarato vale piu di una copertura affermata. Questi sono i miei, e
+non quelli di qualcun altro.
+
+1. **La concorrenza sul riscatto non e misurata.** La guardia «una utenza, una
+   scheda» sta dentro la transazione, ma e una **lettura seguita da una
+   scrittura**: con l'isolamento predefinito di PostgreSQL due riscatti davvero
+   simultanei, di due token diversi su due schede diverse per la stessa utenza,
+   potrebbero vedere entrambi `altraScheda = null`. La finestra e di
+   millisecondi e la sequenza realistica — quella della segreteria — e chiusa a
+   monte dal rifiuto sull'invito. Chiuderla del tutto vuole un **indice unico
+   parziale** su `athletes.user_id`, cioe una migrazione, che questa lane non
+   ha. E il caso simmetrico di ADR-0119, dove la stessa domanda si e risolta
+   con `updateMany` perche li la riga da difendere era gia quella scritta.
+2. **Ruoli personalizzati: non sintetizzati.** Il perimetro e i dinieghi sono
+   misurati con i ruoli **base** (`owner`, `club_manager`, `trainer`, `parent`,
+   `athlete`). Non ho costruito una tessera con `custom_role_id` da mandare in
+   `x-active-access-role` per verificare che le chiavi ristrette arrivino fino a
+   `assertPuoGestireAccessi`.
+3. **Perimetro: solo l'asse categoria.** Misurato `scope_kind: "category"`
+   scritto su `club_access_scopes`. L'asse **sede** non e stato provato, ne il
+   comportamento in AND fra i due assi.
+4. **RSVP: misurato il cancello, non la scrittura.** So che una risposta per
+   l'atleta sbagliato viene rifiutata; non ho verificato che una risposta
+   legittima scriva la propria riga (il seme di un allenamento non e stato
+   fatto passare da `events.ts`).
+5. **Non attaccati in questo round:** il checkout oltre il cancello, i pagamenti
+   online, la scrittura dei consensi oltre il cancello, gli appuntamenti in
+   scrittura, `enrollment-requests`, `data-subject` (export e cancellazione), la
+   risoluzione del pubblico delle comunicazioni, `form-submissions`. Alcuni sono
+   dominio di PP-02 e PP-05.
+6. **Byte dei documenti e stampa ricevute:** misurati solo dalla sonda
+   preesistente (PP04-D10/D11), che resta rossa di proposito. Nessuna rotta
+   nuova che consegni byte e stata introdotta da questo round.
+7. **Nessuna pagina React aperta in questo round.** La verifica a schermo — le
+   tredici pagine a 375 / 768 / 1280 / 1440 — e quella del round precedente, ed
+   e ancora valida perche il round conclusivo **non tocca nessun file di
+   interfaccia**: le tre correzioni stanno in due moduli di `src/lib/server/` e
+   in una rotta API.
+8. **La rotta corretta non ha consumatori client** (debito W6-D08): il fascicolo
+   clinico per identificativo e stato misurato **per rotta**, con una sessione
+   vera, e non da una schermata — perche oggi nessuna schermata lo chiama. Resta
+   raggiungibile da chiunque abbia una sessione, ed e la ragione per cui la
+   correzione serve comunque.
+9. **Consegna di email e SMS: non misurata.** Le sonde guardano la riga in
+   archivio e la risposta della rotta, non la casella.
 
 ---
 
@@ -513,7 +633,30 @@ esistono gia.
 
 ## 7. Debito aperto da PP-04
 
-Vedi [16 — Debito tecnico](16-technical-debt.md), voci **PP04-D1…D9**.
+Vedi [16 — Debito tecnico](16-technical-debt.md), voci **PP04-D1…D11**.
+
+**In evidenza, perche sono i due che nessuna lane possiede.** Il perimetro di
+sede e categoria **non vale sui byte** dei documenti ne sulla stampa di una
+ricevuta (**PP04-D10**, High): un ruolo di staff recintato scarica l'archivio
+storico e il **certificato medico** di un atleta di un'altra categoria. E un
+diniego di perimetro che funziona esce come **500** invece che 403
+(**PP04-D11**, Low). Riproduzione:
+`scripts/pp-04-perimetro-byte-probe.mjs`, che esce **12/17 e codice 1** per
+questa ragione. Entrambi **preesistenti alla base `0d66921`** — i file sono
+byte-identici — e riconfermati preesistenti dal round conclusivo. Le due
+correzioni vanno **insieme**: la mappatura del `catch` serve proprio perche la
+guardia nuova solleva «Accesso negato», e chiuderne una sola produce un file
+che risponde 403 per una guardia che non c'e, piu un conflitto d'integrazione
+su un file conteso. Il contratto richiesto e in `deps/PP-04-DEPENDENCIES.md`.
+
+**Nuovo dal round conclusivo, e ancora di PP-03:** il legame superstite di
+PP04-D1/D9 continua a **indirizzare le notifiche**. `resolveFamilyRecipients`
+(`document-requests.ts`) e `resolveGuardianRecipientIds`
+(`medical-certificate-reminders.ts`) mettono `athletes.user_id` fra i
+destinatari senza chiedere la tessera: un ex membro continua a ricevere
+richieste documentali e promemoria di scadenza certificato, con il nome
+dell'atleta. **Low**, letto nel codice e non misurato end-to-end. La causa e la
+stessa — lo sweep che riconosce lo slug — e la correzione e la stessa.
 
 In dominio **PP-03**: lo sweep dei legami di profilo riconosce lo slug invece
 del ruolo risolto (D1), e la sua forma misurata — il pannello «Accesso
@@ -541,7 +684,8 @@ commenti del dominio dichiarino il contrario (D7).
 
 | File | Con chi | Perche |
 |---|---|---|
-| `src/lib/server/parent-dashboard.ts` | **PP-02** (area famiglia, nella radice) | PP-04 vi cambia tre cose: il ramo diretto diventa esclusivo e poggia sull'identita (ADR-0122/0123), il predefinito di `allowSelfAthleteLink` si inverte, e l'opzione viaggia fino al fascicolo |
+| `src/lib/server/parent-dashboard.ts` | **PP-02** (area famiglia, nella radice) | PP-04 vi cambia **cinque** cose: il ramo diretto diventa esclusivo e poggia sull'identita (ADR-0122/0123), il predefinito del ramo diretto si inverte, l'opzione viaggia fino al fascicolo, il tutore **provato** non e piu escluso dal proprio ramo (ADR-0124), e l'esclusione durevole si separa dall'ammissione viva (ADR-0125). Tutte in `athleteBelongsToParent` e nella firma delle opzioni: un merge a tre vie non dovrebbe avere niente da scegliere |
+| `src/app/api/v1/auth/athlete-profile/[athleteId]/route.ts` | **PP-05** (perimetro `api/v1/auth/**`) | Sconfinamento consapevole del round conclusivo, **una riga piu il commento**: `directAthleteAccess` chiama `clubsWhereStillAthlete`. Non e una dependency Auth — non c'e nessun flusso di sessione, e la funzione appartiene all'invariante di ADR-0117, che e di PP-04. Registrato in `deps/PP-04-DEPENDENCIES.md` |
 | `src/app/api/parent-dashboard/**` | **PP-02** | sei rotte: cinque perdono l'argomento esplicito (adesso e il predefinito), la bacheca lo acquista |
 | `src/lib/server/document-requests.ts` | nessuno dei tre, conteso | `assertSubjectAccess` e `getDocumentDossier` ricevono il legame da chi chiama invece di fissarlo |
 | `src/lib/server/rsvp.ts` | **PP-03** | una riga di opzione, registrata in `deps/PP-04-DEPENDENCIES.md` |
