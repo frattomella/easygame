@@ -118,16 +118,32 @@ il codice: il pulsante fallira finche SMTP non e configurato, e lo dira. Vedi
 - Scadenza: **5 minuti** il telefono, **15 minuti** l'email. Cooldown sul
   reinvio: **60 secondi**. Massimo **5 tentativi** per challenge
   (`MAX_OTP_ATTEMPTS`), consumati in una scrittura condizionata sola.
-- **L'impronta e un HMAC con pepe, e lega canale, scopo e utente.** Uno SHA-256
-  nudo di un codice a sei cifre non e un'impronta: un milione di valori, una
-  tabella precalcolata, e chi legge `code_hash` legge il codice. Il pepe vive
-  nell'ambiente (`AUTH_OTP_SECRET`) e non nel database. Il legame rende inutile
-  spostare una riga: un `code_hash` copiato dalla challenge email di un account
-  sulla challenge telefono di un altro non corrisponde piu a niente.
-- **La challenge e legata al destinatario corrente.** `verifyInternalChallenge`
-  filtra per `target`, cioe l'indirizzo o il numero in forma canonica. Senza,
-  un codice emesso per il proprio numero confermava il numero di un altro, e
-  l'azzeramento di `phone_verified_at` al cambio recapito era teatro.
+- **L'impronta e un HMAC con pepe, e lega canale, scopo, utente e
+  destinatario.** Uno SHA-256 nudo di un codice a sei cifre non e un'impronta:
+  un milione di valori, una tabella precalcolata, e chi legge `code_hash` legge
+  il codice. Il pepe vive nell'ambiente (`AUTH_OTP_SECRET`) e non nel database.
+  Il legame rende inutile spostare una riga: un `code_hash` copiato dalla
+  challenge email di un account sulla challenge telefono di un altro non
+  corrisponde piu a niente.
+- **La challenge e legata al destinatario corrente**, e in **due** modi
+  indipendenti. `verifyInternalChallenge` e `confirmPasswordReset` filtrano per
+  `target` — l'indirizzo o il numero in forma canonica — e il destinatario e
+  **anche** dentro l'impronta. Senza il filtro, un codice emesso per il proprio
+  numero confermava il numero di un altro e l'azzeramento di
+  `phone_verified_at` al cambio recapito era teatro; senza il legame
+  nell'impronta bastava che **un solo chiamante** dimenticasse il filtro — ed e
+  successo alla rotta di reset, dove e costato il Critical del quarto round
+  della revisione ostile (ADR-0117 §8). Chi verifica passa il destinatario
+  **corrente**, mai quello salvato sulla riga: leggerlo dalla riga renderebbe
+  il legame vero per costruzione.
+
+  La regola dietro: **un token dimostra il possesso del recapito a cui e stato
+  consegnato, e di nessun altro.** Finche un indirizzo non poteva cambiare
+  sotto un token vivo la differenza non si vedeva; da quando puo (ADR-0115),
+  «legato all'account» ha smesso di significare «legato alla casella».
+- **Uno sfratto spegne anche le challenge vive**, sue e di chiunque le tenesse
+  gia in mano: una challenge viva e un canale di accesso come una sessione
+  (ADR-0117 §7). Lo stesso fa un reset password su tutte le **altre**.
 - **La scrittura di «verificato» e condizionata**: `updateMany` con il `where`
   sull'indirizzo o sul numero, non `update` per id. Fra l'emissione e la
   conferma il recapito puo cambiare da un'altra sessione.
