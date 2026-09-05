@@ -431,9 +431,8 @@ export default function AthleteProfilePage() {
     Periodo della stagione attiva: e il ripiego del pro-rata quando il piano
     lo accende senza dichiarare il proprio periodo (RC Fix 1, punto 4).
   */
-  /* Il registro decide quanto il segno di riga: il badge deve vederlo. */
   const recapitiSoloContatto: string[] =
-    (athlete as any)?.data?.contactOnlyIdentities || [];
+    (athlete as any)?.contactOnlyIdentities || [];
 
   const [activeSeasonPeriod, setActiveSeasonPeriod] = useState<{
     startDate: string;
@@ -758,6 +757,8 @@ export default function AthleteProfilePage() {
           clothingSizes: resolvedClothingSizes,
           identityDocuments: normalizedCollections.identityDocuments,
           enrollmentDocuments: normalizedCollections.enrollmentDocuments,
+          /* Il registro decide chi entra: senza, il badge non lo sa dire. */
+          contactOnlyIdentities: athletePayload?.contactOnlyIdentities || [],
         });
         setClubCategoryOptions(normalizedCategoryOptions);
         setAthleteCategoryAnalytics(categoryAnalytics);

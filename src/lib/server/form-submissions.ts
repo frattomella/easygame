@@ -2274,30 +2274,53 @@ const eseguiDecisione = async (
       scrittura diretta, come `unlinkGuardianAccount` fa per le revoche.
     */
     if (contactOnlyDaScrivere) {
-      const rilettura = await prisma.athlete.findUnique({
-        where: { id: athleteId },
-        select: { data: true },
-      });
+      /*
+        **La scrittura del registro e atomica con il fatto che registra.**
 
-      const registro = new Set<string>(
-        (Array.isArray((rilettura?.data as any)?.contactOnlyIdentities)
-          ? ((rilettura!.data as any).contactOnlyIdentities as unknown[])
-          : []
-        )
-          .map((valore) => String(valore || "").trim().toLowerCase())
-          .filter(Boolean),
-      );
+        E l'ottava protezione, quella che ADR-0116 non aveva mai messo per
+        iscritto e che e la ragione per cui il registro **gemello** non e mai
+        caduto: `unlinkGuardianAccount` scrive le righe e le identita revocate
+        nella **stessa** `update`, e lo sweep della revoca lo fa dentro una
+        transazione.
 
-      for (const voce of contactOnlyDaScrivere) registro.add(voce);
+        Questa scriveva le righe con `updateResource` e poi, separatamente e
+        fuori transazione, rileggeva e scriveva il registro. Misurato: cinque
+        approvazioni concorrenti sullo stesso atleta, **sei giri su sei** con
+        una riga tutore presente e la sua voce **persa**, piu voci nel registro
+        di righe che non esistevano piu. La riga scoperta restava difesa dal
+        solo marchio di riga, che e esattamente la difesa che ADR-0116 dichiara
+        non sufficiente da sola — e per cui il registro esiste.
 
-      const aggiornato = await prisma.athlete.update({
-        where: { id: athleteId },
-        data: {
+        La rilettura e la scrittura stanno adesso nella stessa transazione, e
+        la fusione avviene sul valore **appena letto** li dentro: due
+        approvazioni concorrenti si serializzano invece di sovrascriversi.
+      */
+      const aggiornato = await prisma.$transaction(async (client: any) => {
+        const rilettura = await client.athlete.findUnique({
+          where: { id: athleteId },
+          select: { data: true },
+        });
+
+        const registro = new Set<string>(
+          (Array.isArray((rilettura?.data as any)?.contactOnlyIdentities)
+            ? ((rilettura!.data as any).contactOnlyIdentities as unknown[])
+            : []
+          )
+            .map((valore: unknown) => String(valore || "").trim().toLowerCase())
+            .filter(Boolean),
+        );
+
+        for (const voce of contactOnlyDaScrivere!) registro.add(voce);
+
+        return client.athlete.update({
+          where: { id: athleteId },
           data: {
-            ...((rilettura?.data as any) || {}),
-            contactOnlyIdentities: Array.from(registro) as string[],
+            data: {
+              ...((rilettura?.data as any) || {}),
+              contactOnlyIdentities: Array.from(registro) as string[],
+            },
           },
-        },
+        });
       });
 
       athleteRecord = aggiornato as any;

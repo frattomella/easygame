@@ -7273,6 +7273,178 @@ const sezioneW = async () => {
     JSON.stringify(anteprima?.installments?.map((r) => r.amount)),
   );
 
+  /* ---------- W-62..W-66: il ventiduesimo round ---------- */
+
+  /*
+    **W-62 (High).** Il badge «Solo recapito», aggiunto due round fa, **non
+    girava**: la scheda atleta gli passava `athlete.data.contactOnlyIdentities`,
+    e lo stato di quella pagina e un oggetto **chiuso** costruito campo per
+    campo, senza nessuna chiave `data`. Il terzo argomento era sempre vuoto e la
+    funzione tornava a leggere il solo marchio di riga.
+
+    Cioe: un tutore che il cancello rifiuta **per via del registro** compariva
+    con il badge grigio «Account non collegato», e alla segreteria non veniva
+    detto ne perche ne come rimediare. La correzione c'era e non si vedeva — il
+    quinto caso di codice irraggiungibile di questo pacchetto, e stavolta
+    l'irraggiungibile era la **spiegazione**.
+
+    Qui si misura il **cablaggio**, non la funzione: la sonda del round
+    precedente chiamava la funzione con oggetti letterali e non passava mai
+    dalla pagina.
+  */
+  const paginaScheda = await import("node:fs").then((fs) =>
+    fs.readFileSync("src/app/athletes/[id]/page.tsx", "utf8"),
+  );
+
+  prova(
+    "W-62 la scheda passa davvero il registro al badge",
+    [true, true, false],
+    [
+      paginaScheda.includes(
+        "contactOnlyIdentities: athletePayload?.contactOnlyIdentities || []",
+      ),
+      paginaScheda.includes(
+        "(athlete as any)?.contactOnlyIdentities || []",
+      ),
+      paginaScheda.includes("(athlete as any)?.data?.contactOnlyIdentities"),
+    ],
+    "prima: leggeva una chiave che quello stato non ha, e passava sempre []",
+  );
+
+  /*
+    **W-63 (Medium).** Il riscatto lasciava il segno `contactOnly` sulla riga.
+    La regola che protegge un indirizzo «gia in uso» salta le righe marchiate,
+    quindi l'indirizzo di una famiglia che aveva seguito il percorso dichiarato
+    — modulo, invito, riscatto — restava avvelenabile da qualunque modulo
+    approvato in seguito.
+  */
+  const riscattoSorgenteW63 = await import("node:fs").then((fs) =>
+    fs.readFileSync("src/app/api/v1/auth/access/redeem/route.ts", "utf8"),
+  );
+
+  prova(
+    "W-63 il riscatto toglie tutti e due i marchi, non uno solo",
+    [true, true],
+    [
+      riscattoSorgenteW63.includes("accessRevokedAt: null"),
+      riscattoSorgenteW63.includes("contactOnly: false"),
+    ],
+    "un accesso ridato si rida per intero, e vale per i due marchi",
+  );
+
+  /*
+    **W-64 (Medium).** La quarta lettura dei tutori leggeva **due** grafie del
+    legame dichiarato, e le altre tre ne leggono quattro: un tutore legato con
+    `userId` smetteva di ricevere **solo** le notifiche documentali, mentre
+    calendario, solleciti e promemoria continuavano ad arrivare.
+  */
+  const FIGLIO_QUARTA_LETTURA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_QUARTA_LETTURA,
+      organization_id: CLUB,
+      first_name: "Quarta",
+      last_name: "Lettura",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [{ id: "t", name: "Anna", userId: ANNA.id, email: ANNA.email }],
+        contactOnlyIdentities: [String(ANNA.email).toLowerCase()],
+      },
+    },
+  });
+
+  const schedaQuarta = await prisma.athlete.findUnique({
+    where: { id: FIGLIO_QUARTA_LETTURA },
+    select: { id: true, data: true, user_id: true, organization_id: true },
+  });
+
+  /*
+    La quarta lettura si misura dalla **strada**, non dalla funzione: quella non
+    e esportata, e una sonda che la chiama direttamente misurerebbe zero senza
+    dirlo. Si chiede un documento e si guarda a chi arriva la notifica.
+  */
+  const fascicoloW64 = await carica("src/lib/server/document-requests.ts");
+
+  /*
+    Si parte da una bacheca vuota: le sezioni precedenti hanno gia scritto
+    notifiche documentali per questa stessa persona, e senza questa riga la
+    sonda leggeva quelle e passava comunque.
+  */
+  await prisma.notification.deleteMany({
+    where: { organization_id: CLUB, user_id: ANNA.id },
+  });
+
+  await fascicoloW64.createDocumentRequest(scopeClubW29, {
+    organizationId: CLUB,
+    subjectKind: "athlete",
+    subjectId: FIGLIO_QUARTA_LETTURA,
+    documentKind: "identity_document",
+    title: "Documento di identita",
+    required: true,
+    dueDate: "2027-01-31",
+  });
+
+  const destinatariW64 = await prisma.notification.findMany({
+    where: { organization_id: CLUB, user_id: ANNA.id },
+    orderBy: { created_at: "desc" },
+    take: 5,
+  });
+
+  prova(
+    "W-64 le quattro letture dei tutori danno la stessa risposta",
+    [true, 1, 1, true],
+    [
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_QUARTA_LETTURA),
+      contattiW25.readAthleteGuardianContacts(schedaQuarta).length,
+      promemoriaW25.getGuardianRows(schedaQuarta).length,
+      destinatariW64.some((riga) =>
+        String(riga?.title || "").includes("Documento richiesto"),
+      ),
+    ],
+    "prima: tre si e un no sulla stessa persona, sulla stessa riga",
+  );
+
+  await prisma.notification.deleteMany({
+    where: { organization_id: CLUB, user_id: ANNA.id },
+  });
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_QUARTA_LETTURA } });
+
+  /*
+    **W-65 (Low).** Il badge leggeva **due** grafie dell'identificativo: una riga
+    collegata con `userId` mostrava «Account non collegato» mentre apriva l'area
+    famiglia. Un badge che contraddice il cancello e peggio di nessun badge.
+  */
+  prova(
+    "W-65 il badge riconosce le quattro grafie del legame",
+    ["linked", "linked"],
+    [
+      contattiW25.getGuardianAccessStatus({ name: "A", linkedUserId: ANNA.id })
+        .state,
+      contattiW25.getGuardianAccessStatus({ name: "A", userId: ANNA.id }).state,
+    ],
+    "prima: la seconda diceva «Account non collegato»",
+  );
+
+  /*
+    **W-66.** La scrittura del registro e **atomica** con il fatto che registra:
+    e l'ottava protezione, quella che ADR-0116 non aveva mai messo per iscritto e
+    che e la ragione per cui il registro gemello non e mai caduto. Cinque
+    approvazioni concorrenti perdevano voci in sei giri su sei.
+  */
+  const moduliSorgente = await import("node:fs").then((fs) =>
+    fs.readFileSync("src/lib/server/form-submissions.ts", "utf8"),
+  );
+
+  prova(
+    "W-66 il registro si scrive dentro una transazione, come il suo gemello",
+    true,
+    moduliSorgente.includes("await prisma.$transaction(async (client: any) => {") &&
+      moduliSorgente.includes("contactOnlyIdentities: Array.from(registro)"),
+    "prima: rilettura e scrittura separate, fuori transazione",
+  );
+
   await prisma.athlete.update({
     where: { id: MARCO },
     data: { user_id: null },

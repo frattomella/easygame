@@ -843,6 +843,22 @@ export async function POST(request: Request) {
               */
               accessRevokedAt: null,
               access_revoked_at: null,
+              /*
+                **E anche il segno di solo-recapito, per la stessa ragione.**
+
+                Restava sulla riga dopo il riscatto, e la conseguenza si vedeva
+                un round dopo: la regola che protegge un indirizzo «gia in uso»
+                salta le righe marchiate, quindi l'indirizzo di una famiglia che
+                aveva seguito il percorso dichiarato — modulo, invito, riscatto —
+                restava avvelenabile da qualunque modulo approvato in seguito, e
+                il secondo genitore che la segreteria scriveva li trovava
+                «Accesso negato».
+
+                Un accesso ridato si rida per intero: vale per i due marchi.
+              */
+              contactOnly: false,
+              contact_only: false,
+
               parentAccessTokenRecordId: accessToken.id,
               parent_access_token_record_id: accessToken.id,
               parentAccessTokenStatus:
@@ -902,7 +918,23 @@ export async function POST(request: Request) {
           .map((valore: unknown) => String(valore || "").trim().toLowerCase())
           .filter(Boolean) as string[],
       );
-      recapiti.delete(String(session.db.user.email || "").trim().toLowerCase());
+      /*
+        **Si toglie l'indirizzo della RIGA, non solo quello dell'utenza.**
+
+        Il registro e indicizzato sull'indirizzo che la riga porta — quello che
+        il club ha scritto — e chi riscatta puo avere un account con un altro
+        indirizzo: togliere il secondo lasciava dentro il primo, cioe non
+        toglieva niente nel caso ordinario.
+      */
+      for (const valore of [
+        session.db.user.email,
+        (parentTarget.guardian as any)?.email,
+        (parentTarget.guardian as any)?.linkedUserEmail,
+        (parentTarget.guardian as any)?.linked_user_email,
+      ]) {
+        const pulito = String(valore || "").trim().toLowerCase();
+        if (pulito) recapiti.delete(pulito);
+      }
 
       await prisma.athlete.update({
         where: { id: parentTarget.athlete.id },

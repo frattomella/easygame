@@ -106,7 +106,19 @@ const TOKEN_GENERATED_KEYS = [
   "accessTokenGeneratedAt",
 ];
 
-const LINKED_USER_KEYS = ["linkedUserId", "linked_user_id"];
+/*
+  **Quattro grafie: il badge deve dire cio che il cancello decide.**
+
+  Ne leggeva due, e una riga collegata con `userId` mostrava «Account non
+  collegato» mentre apriva l'area famiglia. Un badge che contraddice il cancello
+  e peggio di nessun badge.
+*/
+const LINKED_USER_KEYS = [
+  "linkedUserId",
+  "linked_user_id",
+  "userId",
+  "user_id",
+];
 
 export const getGuardianDisplayName = (guardian: GuardianLike): string =>
   [guardian?.name, guardian?.surname].filter(Boolean).join(" ").trim() ||
@@ -336,6 +348,11 @@ export const readAthleteGuardianContacts = (
     ha righe da abbinare, e sopravvive al salvataggio che sostituisce il blob.
     Il segno sulla riga cadeva, e con lui l'unica difesa di questo canale.
   */
+    /*
+      Il registro vale come il marchio: da qui escono i solleciti degli
+      insoluti, che portano il nome del minore e un **collegamento a gettone
+      per pagare**.
+    */
     if (recapitiSoli.size) {
       const suoIndirizzo = String(
         (identita as any).email ||
@@ -469,6 +486,16 @@ export const getGuardianAccessStatus = (
    * modo di capire perche.
    */
   contactOnlyIdentities: Iterable<string> = [],
+  /*
+    **E chi chiama deve avere quel registro davvero.**
+
+    La prima stesura del cablaggio lo leggeva da `athlete.data` nella scheda
+    atleta, dove lo stato e un oggetto **chiuso** costruito campo per campo e
+    una chiave `data` non esiste: il terzo argomento era sempre vuoto e questa
+    funzione tornava a leggere il solo marchio di riga. La correzione c'era e
+    non girava — un tutore rifiutato dal cancello compariva come «Account non
+    collegato», e alla segreteria non veniva detto ne perche ne come rimediare.
+  */
 ): GuardianAccessStatus => {
   const recapitiSoli = new Set(
     [...contactOnlyIdentities]

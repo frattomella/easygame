@@ -1650,3 +1650,64 @@ solo quando un avviso c'e. Adesso l'avviso guarda cio che esce.
 E il badge, che il ventesimo round aveva aggiunto leggendo il **marchio di
 riga**: dopo che a decidere e diventato il registro, tornava a dire «Account non
 collegato» a un tutore che il cancello sta rifiutando. Adesso legge tutte e due.
+
+
+## 28. Il ventiduesimo round: la correzione che non girava, e l'ottava protezione
+
+Un High e quattro Medium, e questa volta la revisione ha risposto anche a una
+domanda che valeva quanto i reperti.
+
+### Il badge che non girava
+
+La correzione del round precedente — il badge «Solo recapito», che doveva
+spiegare alla segreteria perche un tutore non entra — **non e mai entrata in
+funzione**. La scheda atleta gli passava `athlete.data.contactOnlyIdentities`, e
+lo stato di quella pagina e un oggetto **chiuso** costruito campo per campo:
+una chiave `data` non ce l'ha. Il terzo argomento era sempre vuoto.
+
+E il quinto caso di codice irraggiungibile di questo pacchetto, e stavolta
+l'irraggiungibile era la **spiegazione** che il prodotto doveva dare a chi si
+trova davanti un genitore chiuso fuori. La sonda del round precedente chiamava
+la funzione con oggetti letterali: la funzione era giusta, il cablaggio non
+esisteva, e nessuno lo misurava.
+
+### L'ottava protezione, che nessuno aveva scritto
+
+La domanda posta alla revisione era: il registro dei soli recapiti e **davvero**
+equivalente a quello delle revoche in tutte e sette le protezioni di ADR-0116?
+
+La risposta e stata che tre non erano pari — e che **ne mancava un'ottava che
+l'elenco non nomina**: lo scrittore del gemello e **atomico con il fatto che
+registra**. `unlinkGuardianAccount` scrive righe e identita nella stessa
+`update`; il registro nuovo scriveva le righe con `updateResource` e poi, fuori
+transazione, rileggeva e scriveva se stesso. Cinque approvazioni concorrenti,
+sei giri su sei con una voce persa.
+
+La revisione ha anche detto **come** l'ha trovata, ed e la parte che vale: «si
+rilegge la difesa che si sta copiando» era stato applicato al suo elenco di
+proprieta, non al suo **codice**. Guardando il codice, la differenza fra una
+`update` e due con una rilettura in mezzo si vede alla prima occhiata.
+
+### Le altre tre
+
+- **Il riscatto lasciava il segno sulla riga.** La regola che protegge un
+  indirizzo «gia in uso» salta le righe marchiate: l'indirizzo di una famiglia
+  che aveva seguito il percorso dichiarato — modulo, invito, riscatto — restava
+  avvelenabile da qualunque modulo approvato in seguito. Adesso il riscatto
+  toglie tutti e due i marchi: un accesso ridato si rida per intero.
+- **La quarta lettura dei tutori** leggeva due grafie del legame dichiarato, e le
+  altre tre ne leggono quattro: un tutore legato con `userId` smetteva di
+  ricevere **solo** le notifiche documentali. Tre si e un no sulla stessa
+  persona, sulla stessa riga.
+- **Il badge** leggeva due grafie: una riga collegata con `userId` diceva
+  «Account non collegato» mentre apriva l'area famiglia. Un badge che
+  contraddice il cancello e peggio di nessun badge.
+
+### E una sonda che non discriminava, di nuovo
+
+`W-64` misurava i destinatari di una notifica documentale leggendo la bacheca
+del genitore — e le sezioni precedenti gliene avevano gia scritte. Passava
+comunque. Adesso parte da una bacheca vuota.
+
+E la terza volta in questo pacchetto che una sonda verde non misurava niente:
+vale la pena tenerlo a mente ogni volta che si legge «239/239».

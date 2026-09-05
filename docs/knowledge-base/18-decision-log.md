@@ -6368,6 +6368,29 @@ sopra non basta a farsi ricordare di applicarla: quando si aggiunge una difesa
 si **rilegge quella che si sta copiando, riga per riga**, e per ognuna delle sue
 protezioni si dice dove sta nella nuova.
 
+**Ottava protezione: lo scrittore e atomico con il fatto che registra.**
+Non era nell'elenco, e una revisione l'ha trovata guardando **il codice** del
+registro gemello invece del suo elenco di proprieta. E la ragione per cui quello
+non e mai caduto: `unlinkGuardianAccount` scrive le righe e le identita revocate
+nella **stessa** `update`, e lo sweep della revoca di tessera lo fa dentro una
+transazione.
+
+Il registro nuovo invece scriveva le righe con `updateResource` e poi,
+separatamente e fuori transazione, rileggeva e scriveva se stesso. Misurato:
+cinque approvazioni concorrenti sullo stesso atleta, **sei giri su sei** con una
+riga tutore presente e la sua voce persa dal registro — e voci nel registro di
+righe che non esistevano piu. La riga scoperta restava difesa dal solo marchio
+di riga, cioe da quella che questo ADR dichiara non sufficiente da sola.
+
+> Se una difesa registra un fatto, la si scrive **insieme** al fatto. Due
+> scritture con una rilettura in mezzo sono una difesa che si perde da sola,
+> senza che nessuno la attacchi.
+
+E la lezione sul metodo, che vale piu della protezione: «si rilegge la difesa
+che si sta copiando» era stata applicata al suo **elenco di proprieta**, non al
+suo **codice**. Se la si fosse applicata al codice, la differenza fra una
+`update` e due con una rilettura in mezzo si sarebbe vista alla prima occhiata.
+
 **E si controlla che i propri commenti dicano il vero.** «Lo toglie il riscatto
 di un invito» era scritto in quattro file, e nessuna riga lo faceva: un `grep`
 lo ha mostrato in un secondo. Un commento che descrive un comportamento che non

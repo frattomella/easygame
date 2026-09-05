@@ -601,12 +601,30 @@ const resolveFamilyRecipients = (athlete: any): string[] => {
       garante di quella riga, e chi condivide un indirizzo di famiglia con
       qualcuno che e stato revocato non deve perdere i propri avvisi.
     */
-    const dichiarato = String(
-      record.linkedUserId || record.linked_user_id || "",
-    )
-      .trim()
-      .toLowerCase();
-    if (dichiarato && !revocate.has(dichiarato)) return true;
+    /*
+      **Quattro grafie, come le altre tre letture.**
+
+      Questa ne leggeva due, e le altre tre — il vaglio dell'accesso, i
+      solleciti, i promemoria del certificato — quattro. Misurato su una riga
+      `{ userId, email }` con l'indirizzo nel registro: accesso si, solleciti
+      si, promemoria si, notifiche documentali **no**. Un tutore legato smetteva
+      di ricevere **solo** gli avvisi sui documenti che il club gli chiede,
+      mentre tutto il resto continuava ad arrivare: invisibile da tutte e due le
+      parti.
+
+      E il «sottoinsieme diverso» che il commento qui sopra dichiara di aver
+      chiuso, sopravvissuto in una riga.
+    */
+    const dichiarati = [
+      record.linkedUserId,
+      record.linked_user_id,
+      record.userId,
+      record.user_id,
+    ]
+      .map((valore: unknown) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    if (dichiarati.some((voce) => !revocate.has(voce))) return true;
 
     if (record.contactOnly || record.contact_only) return false;
     if (record.accessRevokedAt || record.access_revoked_at) return false;
