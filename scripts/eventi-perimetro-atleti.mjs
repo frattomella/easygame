@@ -225,6 +225,29 @@ const semina = async () => {
   await atleta(B1, ALTRO_CLUB, "AltroClub", CAT_EVENTO);
 };
 
+/**
+ * **La gestione, che non ha recinti di nessun tipo.**
+ *
+ * Serve alla meta «la porta resta usabile». Il perimetro di **categoria** di
+ * un allenatore non e lo stesso su tutte le lane: PP-03 lo ha chiuso, facendolo
+ * nascere dalle categorie della sua scheda invece che dalle sole righe di
+ * `club_access_scopes` — e ha ragione, perche un allenatore ordinario non ne
+ * ha nessuna e guardare solo quelle equivaleva a non recintarlo affatto.
+ *
+ * La domanda di questa sonda e un'altra, e non cambia mai: **l'atleta e di
+ * questo club?** Misurare la larghezza con un attore recintato legherebbe la
+ * sonda a una decisione che non e sua, e la farebbe diventare rossa su un ramo
+ * in cui il prodotto e piu corretto, non meno.
+ */
+const scopeGestione = () => ({
+  userId: PRESIDENTE.id,
+  activeOrganizationId: CLUB,
+  activeRole: "owner",
+  activeMembershipId: null,
+  allowedOrganizationIds: [CLUB],
+  accessScopes: [],
+});
+
 const scopeAllenatore = () => ({
   userId: ALLENATORE.id,
   activeOrganizationId: CLUB,
@@ -285,7 +308,18 @@ const main = async () => {
     );
 
   prova("E-01 un atleta del club, nella categoria dell'evento", "accettata", await esito(convoca(A1)));
-  prova("E-02 un atleta del club, altra categoria (fuori categoria e lecito)", "accettata", await esito(convoca(A2)));
+  prova(
+    "E-02 dalla gestione, un atleta del club di un'altra categoria",
+    "accettata",
+    await esito(() =>
+      eventi.saveEventConvocations(
+        scopeGestione(),
+        evento.id,
+        [{ athleteId: A2, status: "convocated" }],
+        { userId: PRESIDENTE.id },
+      ),
+    ),
+  );
   prova("E-03 un atleta del club con tesseramento non attivo", "accettata", await esito(convoca(A3)));
   prova(
     "E-04 CRITICO — un atleta di un ALTRO club",
@@ -334,17 +368,21 @@ const main = async () => {
   */
   const insieme = await esito(() =>
     eventi.saveEventConvocations(
-      scopeAllenatore(),
+      scopeGestione(),
       evento.id,
       [
         { athleteId: A1, status: "convocated" },
         { athleteId: A2, status: "convocated", isExtraCategory: true },
         { athleteId: A3, status: "convocated" },
       ],
-      { userId: ALLENATORE.id },
+      { userId: PRESIDENTE.id },
     ),
   );
-  prova("E-20 tre atleti del club, in una chiamata sola", "accettata", insieme);
+  prova(
+    "E-20 dalla gestione, tre atleti del club in una chiamata sola",
+    "accettata",
+    insieme,
+  );
   prova(
     "E-21 e le tre righe ci sono",
     [1, 1, 1],
