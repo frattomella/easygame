@@ -84,6 +84,7 @@ let U_GENITORE = null;
 let U_ESTRANEO = null;
 let U_TUTORE = null;
 let U_ESTRANEO2 = null;
+let U_ATLETA2 = null;
 
 const utente = async (email, nome, verificata = true) =>
   prisma.user.create({
@@ -127,6 +128,7 @@ const semina = async () => {
   U_ESTRANEO = await utente("riscatto-estraneo@example.invalid", "Elena");
   U_TUTORE = await utente("riscatto-tutore@example.invalid", "Teresa");
   U_ESTRANEO2 = await utente("riscatto-estraneo2@example.invalid", "Enzo");
+  U_ATLETA2 = await utente("riscatto-atleta2@example.invalid", "Aldo2", false);
 
   const club = (id, slug, nome) => ({
     id,
@@ -308,8 +310,8 @@ const invitoAtleta = async (token, opzioni = {}) =>
       id: randomUUID(),
       organization_id: CLUB,
       athlete_id: opzioni.athleteId || ATLETA,
-      user_id: U_ATLETA.id,
-      email: U_ATLETA.email,
+      user_id: (opzioni.utente || U_ATLETA).id,
+      email: (opzioni.utente || U_ATLETA).email,
       token_hash: hashToken(token),
       status: opzioni.status || "sent",
       expires_at:
@@ -688,7 +690,15 @@ const main = async () => {
     domanda che una sonda sequenziale non pone, e la sola in cui la protezione
     contro il replay puo cedere.
   */
-  await invitoAtleta("ATLTOKENGARA", { athleteId: ATLETA_ALTRA_SEDE });
+  /*
+    Un'utenza **nuova**: quella di §1 e gia l'account di un altro atleta, e
+    una lane che rifiuta la seconda associazione ha ragione — «una utenza,
+    una scheda». Riusarla qui misurerebbe quella regola invece della corsa.
+  */
+  await invitoAtleta("ATLTOKENGARA", {
+    athleteId: ATLETA_ALTRA_SEDE,
+    utente: U_ATLETA2,
+  });
   const gara = await Promise.allSettled([
     conti.acceptAthleteAccountInvite("ATLTOKENGARA"),
     conti.acceptAthleteAccountInvite("ATLTOKENGARA"),
@@ -701,7 +711,7 @@ const main = async () => {
   );
 
   const tessereGara = await prisma.organizationUser.count({
-    where: { organization_id: CLUB, user_id: U_ATLETA.id, role: "athlete" },
+    where: { organization_id: CLUB, user_id: U_ATLETA2.id, role: "athlete" },
   });
   prova("R-71 e la tessera resta una sola", 1, tessereGara);
 
