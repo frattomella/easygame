@@ -1223,3 +1223,216 @@ cosa che si e smesso di usare. Usano nomi **inventati nel test**, che e l'unico
 modo di misurare un default. E ognuna misura il verso opposto: la nota legittima
 arriva ancora da entrambe le porte, la famiglia legge il proprio figlio come
 prima, l'allenatore continua a vedere la scadenza del certificato.
+
+---
+
+## §16 — Il sesto round riapre §15.4 da due lati
+
+Mandato: «riattacca le quattro correzioni del quinto round». Tre sonde nuove
+contro `easygame_dev_pp03` e le rotte vere. Verdetto sul dato clinico:
+**Critical 0 / High 2**, ed entrambi erano `PP03-D5` riaperto — non da una
+svista, ma dalla **stessa forma** del difetto originale un livello piu sotto.
+
+### §16.1 — Togliere una casella dava piu dato
+
+§15.4 aveva scritto il lettore di `athletes.data` come `readerSeesStatusOnly`:
+
+```ts
+hasHealthPermission(role, "clinical.status_read") &&
+  !hasHealthPermission(role, "clinical.read")
+```
+
+La congiunzione sembra innocua e apre il verso opposto. Un ruolo di club
+derivato da `trainer` a cui la societa **toglie anche** la chiave dello stato
+non ha nessuna delle due, quindi non e «questo lettore», quindi legge `data`
+**intera** — piu dell'allenatore canonico.
+
+Un **privilegio invertito**: la casella che dovrebbe togliere dava. E la terza
+volta in due round che questa lane trova una regola giusta applicata a una
+fonte sbagliata, e la prima in cui la fonte sbagliata e il **predicato stesso**.
+
+La domanda giusta ha un solo termine — *hai titolo al contenuto clinico?* — e
+chi non ce l'ha legge per elenco di ammessi, qualunque sia la ragione per cui
+non ce l'ha. `readerReadsDeclaredAthleteFieldsOnly` fallisce **chiuso** anche
+su un ruolo assente, nullo o vuoto.
+
+`readerSeesStatusOnly` resta e non decide piu la proiezione: dice una cosa vera
+e **diversa** — «questa persona vede lo stato» — che e la domanda a cui
+rispondono le schede sanitarie.
+
+### §16.2 — Un contenitore ammesso non e un lasciapassare
+
+§15.4 ammetteva `guardians`, `clothingSizes`, `categories` e `payments` **per
+nome** e li lasciava passare **interi**. Il round ci ha scritto dentro quattro
+referti e li ha letti tutti da un allenatore canonico:
+
+```
+data.guardians[].note        = "nota: …, terapia in corso"
+data.clothingSizes.referto   = "esito visita: …"
+data.categories[].anamnesi   = …
+data.payments[].note         = …
+```
+
+Un contenitore ammesso per nome era di nuovo il posto in cui il testo libero si
+nasconde, cioe **la ragione stessa** per cui i contenitori erano stati messi su
+un elenco di ammessi. La regola vale adesso un livello piu sotto: di una voce
+escono i campi dichiarati, e **solo se semplici**. Un valore composto dentro un
+contenitore non esce mai — e il secondo posto in cui nascondere un referto, ed
+e la stessa forma di `medical_certificates.data.source`.
+
+**La trappola della correzione, e vale piu del difetto.** La prima stesura
+dell'elenco per `categories` non aveva `site_id`. `filterTrainerDashboardRecords`
+gira sulla riga **gia proiettata** e per il ramo dei gruppi ricade su
+`record.category_memberships`: il mister dei «Pulcini · Scauri» ha smesso di
+vedere **i propri** atleti, perche la proiezione gli aveva tolto di mano il
+campo con cui il suo stesso recinto lo riconosce. Non un dato che esce, un
+atleta che sparisce — e una prova che guardasse solo i segreti avrebbe detto
+«chiuso».
+
+---
+
+## §17 — Il giro conclusivo: tre HIGH, un Medium, e cosa resta fuori
+
+Le stesse tre sonde, lette fino in fondo, hanno prodotto altri quattro rilievi
+oltre ai due di §16. Tutti chiusi qui.
+
+### §17.1 — Un perimetro senza gruppi non e un perimetro su tutti i gruppi (HIGH)
+
+```
+Carlo   categorie {alfa}, gruppi {}      (nessun gruppo assegnato)
+Bruno   categorie {beta}, gruppi {beta}
+
+POST /api/v1/events   come Carlo
+  {"groupIds":["grp-beta"], "categoryId":"cat-alfa"}   -> 200
+```
+
+e la riga compare nel **calendario di Bruno**, con il `created_by` di Carlo.
+Aldo, che i gruppi ce li ha, riceve **403** per lo stesso identico atto: la
+difesa valeva contro chi era gia recintato su quell'asse, cioe contro tutti
+tranne chi non lo era affatto.
+
+E Bruno non se la toglie di mezzo: in scrittura le categorie stanno in AND,
+`cat-alfa` non e sua, quindi riceve 403 su modifica e annullamento. Un evento
+che entra nel suo calendario, che lui non ha scritto e non puo togliere — e
+`assertNoOverlap` gira su quella riga, quindi ci si occupa anche un campo.
+
+La condizione era `!gruppiEvento.length || !perimetro.groupIds.length`: quando
+**il perimetro** taceva, l'asse spariva e restavano le sole categorie.
+
+**Perche «zero righe = tutto il club» non si applica qui.** Quella e la regola
+di [ADR-0103](18-decision-log.md) per l'`access_scope`, dove una riga assente
+significa «non ristretto». Questo perimetro non e quello: nasce da
+`clubs.trainers[].data`, cioe da cio che l'allenatore ha **assegnato**, e un
+elenco vuoto li vuol dire «nessun gruppo», non «tutti». E la stessa lettura che
+`readTrainerEventPerimeter` fa gia sull'assenza di profilo, dove `null`
+significa «nessun evento» e non «tutto il club».
+
+In **lettura** non cambia niente ([ADR-0055](18-decision-log.md)); in
+**scrittura** l'asse che l'evento dichiara e che il perimetro non copre
+fallisce chiuso.
+
+### §17.2 — La grafia che finisce in colonna la detta il registro (Medium)
+
+```
+PATCH /api/v1/events/<proprio>  {"categoryId":"", "categoryName":"Under 15"}
+  -> 200, e la riga resta category_id = "cat-alfa"
+     con category_name = "Under 15", che e il nome della squadra di un altro
+```
+
+§15.1 aveva tolto il `category_name` del client dal **giudizio** di perimetro.
+Restava che quel testo, pur non decidendo piu niente, andava **in colonna** come
+arrivava. Nessun perimetro attraversato — l'evento non entra nel calendario di
+nessun altro, e la sonda lo misura — ma la riga adesso **mente**: ogni schermata
+che stampa il nome mostra l'evento come se fosse dell'altra squadra, e le due
+colonne della stessa riga si contraddicono.
+
+Quando l'identificativo c'e ed e nel registro, il nome si **deriva**. Un
+identificativo che il registro non conosce lascia passare il nome dichiarato:
+togliere l'etichetta a un evento storico sarebbe una perdita di dato, non una
+difesa. La riconciliazione gira sulle **tre** porte della stessa scrittura —
+creazione, modifica e creazione in blocco — perche coprirne due era la forma di
+difetto che questa lane ha gia trovato quattro volte.
+
+### §17.3 — Il contenitore ha la sua riga singola (HIGH)
+
+```
+GET /api/v1/discounts/<id>              403
+GET /api/v1/club_resource_items/<id>    200   (la stessa riga)
+```
+
+e lo stesso per `procure`, `sponsors`, `payment_plans`, `clothing_inventory` e
+`opening_hours` — gli sconti concessi alle famiglie, le deleghe legali e i piani
+di pagamento. `buildWhereFromSearchParams` toglieva gia dall'**elenco** i tipi
+che il ruolo non puo leggere; la lettura **per identificativo** non passa di li.
+
+E la **quinta** volta che `resources.ts` sbaglia nella stessa direzione: la
+correzione va nell'elenco e la porta accanto resta aperta. Per questo la guardia
+sta in `assertRecordAccess`, che e il punto comune dei tre verbi, e non dentro
+ciascuno di essi. `read` e il **pavimento**: chi non puo leggere un tipo non puo
+riscriverlo ne cancellarlo.
+
+**E un elenco di negati non sa niente di cio che non conosce.** La sonda ha
+scritto una nota di segreteria con il tipo al **singolare**:
+
+```
+GET /api/v1/club_resource_items?resource_type=secretariat_note
+  -> 200, e l'allenatore legge il promemoria interno della direzione
+```
+
+`riservate` si costruisce filtrando `CLUB_RESOURCE_TYPES`, cioe i tipi
+**dichiarati**: una grafia che quell'elenco non contiene non e fra i negati,
+quindi passa. La forma giusta e quella che [ADR-0125](18-decision-log.md) e
+§16.2 hanno gia imposto sul dato clinico — **si dichiara cosa passa**. Chi legge
+un sottoinsieme dei tipi dichiarati legge solo quello; la direzione canonica,
+che li legge tutti, tiene l'elenco dei negati, perche li un tipo sconosciuto e
+una riga storica da non far sparire a chi ha titolo a vederla.
+
+### §17.4 — La terza porta clinica, che il ruolo lo aveva in mano (HIGH)
+
+`GET /api/v1/auth/athlete-profile/<id>` chiamava `stripClinicalAthleteFields`
+**senza ruolo**, quindi applicava il solo elenco dei vietati. Misurato con un
+ruolo di club a cui la societa aveva **tolto** `clinical.read`: nel corpo
+`data.diagnosi`, `data.referto` e il testo libero dentro i quattro contenitori —
+cioe cio che il registro generico nega alle stesse chiavi. Una permission che ha
+effetto su una porta e non sull'altra non e una permission.
+
+Il legame resta intatto e non passa di qui: l'atleta sul proprio fascicolo entra
+da `directAthleteAccess`, dove non si taglia niente; la famiglia a questa rotta
+non arriva affatto, perche `managementAccess` chiede un ruolo gestionale.
+
+**Le altre due porte della stessa classe restano aperte e sono dichiarate**:
+`data-subject.ts` e `form-submissions.ts` chiamano anch'esse senza ruolo, e li
+la correzione non e «passare il ruolo» — quei due moduli servono anche la
+famiglia, che arriva con `activeRole` `parent`. Sono `PP03-D17`. **Nessun
+allenatore ci arriva**, misurato: `data_subject.export` non e fra le chiavi di
+`trainer` ne di un ruolo che ne deriva.
+
+### §17.5 — Un rosso che non era un difetto
+
+`A-06 · GET /sport-work/scheduler negato` era rosso da tre round. Non e una
+rotta d'attore: e la porta che invoca Vercel Cron, e dove `CRON_SECRET` non e
+configurato risponde **503**, che e il piu chiuso dei dinieghi. La sonda
+chiedeva un 403 o un 404. Contato come diniego, che e cio che era.
+
+### Verificato
+
+| Prova | Esito |
+|---|---|
+| `scripts/pp-03-round6-anagrafica-contenitori-probe.mjs` | **40/40** (era 38/42) |
+| `scripts/pp-03-round6-contenitore-altri-tipi-probe.mjs` | **58/58** (era 49/58) |
+| `scripts/pp-03-round6-grafie-e-assi-probe.mjs` | **33/33** (era 31/34) |
+| `tests/lib/pp-03-lettore-ristretto-e-contenitori.test.mjs` | 7/7 |
+| `tests/server/pp-03-assi-e-seconda-porta.test.mjs` | 7/7 |
+| Regressione, sonde invariate | `security` 36/36, `eventi-scope-ruoli` 77/77, `scrittura-evento-condiviso` 15/15, `round4-perimetro-eventi` 19/19, `round4-destinatario-clinico-conteggio` 48/48, `round5-registro-secondaporta` 14/14, `rsvp-perimetro` 5/5, `rsvp-accensione` 10/10, `allegati-perimetro` 4/4, `revoca-sweep` 9/9, `notifiche-e-clinico` 15/15 |
+
+**Verifica per mutazione**, una per correzione, tutte eseguite:
+
+| Correzione rimossa | Cosa diventa rosso |
+|---|---|
+| §16.1, rimesso `readerSeesStatusOnly` | 1 prova su 7 |
+| §16.2, disattivato il ramo dei contenitori | 2 prove su 7 |
+| §17.1, l'asse dei gruppi torna a tacere | 1 prova su 7 |
+| §17.2, la grafia torna quella della richiesta | `A-12` della sonda |
+| §17.3, tolta la guardia sulla riga singola | **7 righe** della sonda |
+| §17.3, l'elenco torna ai soli negati | `G-01` e `G` della sonda |
+| §17.4, il ruolo non viene piu passato | `C-01` e `C-01b` della sonda |

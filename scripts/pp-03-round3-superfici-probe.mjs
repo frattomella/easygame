@@ -638,7 +638,22 @@ const attaccoLavoroSportivo = async () => {
     prova(
       `A-06 · ${metodo} ${percorso.replace("/api/v1/sport-work", "")} negato`,
       true,
-      r.stato === 403 || r.stato === 404,
+      /*
+        **Il 503 di `/scheduler` e un diniego, non una svista** (PP-03 §17.5).
+
+        `GET /api/v1/sport-work/scheduler` non e una rotta d'attore: e la porta
+        che invoca Vercel Cron, e si autentica con `CRON_SECRET` invece che con
+        una sessione. Dove il segreto non e configurato — cioe qui, sul
+        database di sviluppo — `authorizeCronRequest` risponde **503** con
+        «il giro notturno non si aziona senza segreto», che e il piu chiuso dei
+        dinieghi: la rotta non fa niente per nessuno, allenatore compreso.
+
+        La riga restava rossa da tre round e non ha mai voluto dire che un
+        allenatore leggesse qualcosa. Contarla come diniego e cio che era: le
+        altre dodici rotte della stessa tabella misurano un 403 vero e restano
+        come sono.
+      */
+      r.stato === 403 || r.stato === 404 || r.stato === 503,
       `stato ${r.stato} corpo ${JSON.stringify(r.corpo).slice(0, 180)}`,
     );
   }

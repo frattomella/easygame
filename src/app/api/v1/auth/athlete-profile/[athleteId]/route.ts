@@ -141,11 +141,35 @@ export async function GET(request: Request, context: Context) {
       : stripClinicalCertificateFields(certificato as Record<string, any>),
   );
 
+  /*
+    **Il taglio si fa con il ruolo in mano** (PP-03 §17.4).
+
+    `stripClinicalAthleteFields` si chiamava qui **senza ruolo**, e senza ruolo
+    applica il solo elenco dei **vietati** — la difesa che §15.4 ha smesso di
+    usare, perche una colonna JSON libera si vince con un nome inventato. Il
+    sesto round l'ha rifatto da questa porta, con un ruolo di club a cui la
+    societa aveva **tolto** `clinical.read`:
+
+        GET /api/v1/auth/athlete-profile/<id>
+          -> 200, e nel corpo data.diagnosi, data.referto e il testo libero
+             scritto dentro guardians, clothingSizes, categories e payments
+
+    cioe esattamente cio che il registro generico nega alle stesse chiavi,
+    perche li il ruolo viene passato (`resources.ts`). Una permission che ha
+    effetto su una porta e non sull'altra non e una permission.
+
+    **Il legame resta intatto, e non passa di qui.** L'atleta sul proprio
+    fascicolo entra da `directAthleteAccess`, dove `contenutoClinicoConsentito`
+    e gia vero e non si taglia niente. La famiglia non arriva affatto a questa
+    rotta: `managementAccess` chiede un ruolo gestionale, e `parent` non lo e.
+    Chi resta e chi guarda il fascicolo **di qualcun altro**, che e l'unico
+    lettore per cui la domanda ha senso.
+  */
   const anagrafica = contenutoClinicoConsentito
     ? athlete
     : {
         ...athlete,
-        data: stripClinicalAthleteFields(athlete.data),
+        data: stripClinicalAthleteFields(athlete.data, ruoloEffettivo),
       };
 
   /*

@@ -2646,3 +2646,40 @@ esistente l'ha fatto fallire nello stesso commit.
 
 `PP03-D5` — il debito che teneva `athletes.data` sull'elenco dei vietati — e
 **chiuso** da questa correzione.
+
+### Le tre regole che il sesto round ha aggiunto alle tre di sopra
+
+Il round successivo ha riattaccato le tre regole qui sopra e le ha vinte due
+volte. Le due riaperture non hanno trovato una svista: hanno trovato la
+**stessa forma** del difetto un livello piu sotto. Quello che segue e cio che
+mancava, e vale oltre il dato clinico.
+
+4. **Un predicato di sicurezza ha un solo termine, o il verso si inverte.**
+   Il lettore ristretto era «ha la chiave dello stato **e non** quella del
+   contenuto». Un ruolo a cui la societa toglie **anche** la chiave dello stato
+   non ha nessuna delle due, quindi non era «quel lettore», quindi leggeva la
+   colonna **intera**: togliere una casella dava **piu** dato. La domanda giusta
+   nomina la cosa che si protegge — *hai titolo al contenuto?* — e chi non ce
+   l'ha sta dalla parte stretta, qualunque sia la ragione per cui non ce l'ha.
+   Una congiunzione dentro un predicato di sicurezza va letta due volte: la
+   seconda chiedendosi chi cade **fuori** da entrambi i termini.
+
+5. **Un contenitore ammesso non e un lasciapassare per cio che ha dentro.**
+   Ammettere `guardians` per nome e lasciarlo passare intero riporta il testo
+   libero esattamente dove lo si era tolto. Di una voce di contenitore escono i
+   campi dichiarati, e **solo se semplici**: un valore composto sotto un nome
+   ammesso e il secondo posto in cui si nasconde un referto.
+
+6. **Un elenco di negati non sa niente di cio che non conosce.** Chi filtra
+   togliendo i nomi vietati da un elenco di nomi **dichiarati** lascia passare
+   tutto cio che quell'elenco non contiene — una grafia al singolare, un tipo
+   scritto a mano, una colonna di testo libero su cui hanno scritto in quindici.
+   Chi ha titolo a un **sottoinsieme** va servito per elenco di ammessi; l'elenco
+   dei negati resta valido solo per chi ha titolo a **tutto**, dove un nome
+   sconosciuto e una riga storica da non far sparire.
+
+**E una regola che non riguarda gli elenchi ma le porte**, e questa lane l'ha
+trovata cinque volte nello stesso file: quando una risorsa si raggiunge sia per
+**elenco** sia per **identificativo**, la guardia va nel punto comune ai verbi,
+non nell'elenco. Un filtro di elenco corretto e una lettura per id senza guardia
+sono la stessa risorsa con due risposte diverse, e chi attacca prova la seconda.

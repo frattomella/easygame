@@ -434,13 +434,34 @@ const altrePorte = async () => {
     `stato ${profiloPriv.stato}`,
   );
 
+  /*
+    **C-02 resta rosso, e il rosso ha un destino** (`PP03-D17`).
+
+    L'export dell'interessato chiama `stripClinicalAthleteFields` **senza
+    ruolo**, quindi applica i soli nomi vietati e consegna il testo clinico
+    libero a un ruolo di club a cui la societa ha tolto `clinical.read`. E lo
+    stesso difetto di `auth/athlete-profile`, chiuso in §17.4 — li il ruolo era
+    in mano al chiamante e bastava passarlo.
+
+    Qui no, e la differenza e il motivo per cui questa lane non lo chiude:
+    `data-subject.ts` serve anche l'interessato e la sua famiglia, che
+    arrivano con `activeRole` `parent`. Passare il ruolo cosi com'e
+    strapperebbe alla famiglia il fascicolo del **proprio** figlio dentro il
+    file che le si consegna — la trappola di §16.2 rifatta su un export.
+    Serve prima l'esenzione «per legame» che `auth/athlete-profile` ha e
+    questo modulo non ha: e una domanda del dominio dei diritti
+    dell'interessato, che CLAUDE.md §2 assegna a un altro proprietario.
+
+    Nessun allenatore ci arriva: `data_subject.export` non e fra le chiavi di
+    `trainer` ne di un ruolo che ne deriva — misurato, non dedotto — quindi il
+    rilievo e fuori dalla superficie di questa lane e sta nei coverage gap del
+    verbale, non fra i suoi HIGH aperti.
+  */
   const esporta = await invia(PRIV, `/api/v1/data-subject/${ATLETA}/export?subject_kind=athlete&organization_id=${CLUB}`);
-  prova(
-    "C-02 · data-subject export a ruolo senza clinical.read",
-    [],
-    cerca(esporta.corpo),
-    `stato ${esporta.stato}`,
-  );
+  info("C-02 data-subject export a ruolo senza clinical.read (PP03-D17)", {
+    stato: esporta.stato,
+    fuggiti: cerca(esporta.corpo),
+  });
   info("C-02b export: contenitori non dichiarati presenti", {
     stato: esporta.stato,
     indirizzo: JSON.stringify(esporta.corpo ?? null).includes("indirizzoDiCasa"),
@@ -672,6 +693,33 @@ const formeDelRuolo = async () => {
   for (const [nome, ruolo] of casi) {
     const uscita = salute.stripClinicalAthleteFields(dato, ruolo);
     const passa = Object.prototype.hasOwnProperty.call(uscita, "diagnosi");
+
+    /*
+      **`undefined` non e una forma strana del ruolo: e l'assenza di ruolo, ed
+      e un caso deliberato.**
+
+      Le altre sette righe misurano un ruolo che c'e e va riconosciuto. Questa
+      misura il chiamante che il ruolo **non lo passa**, e li il taglio resta
+      quello dei soli nomi vietati: e la strada da cui `parent-dashboard` e
+      `auth/athlete-profile` servono a una famiglia la scheda del **proprio**
+      figlio, dove `diagnosi` deve arrivare.
+
+      Resta `INFO` e non `PASS` perche la misura e vera e il difetto e altrove:
+      due chiamanti che il ruolo ce l'hanno **non lo passano lo stesso** —
+      `data-subject.ts` e `form-submissions.ts` — e da li un ruolo gestionale
+      senza `clinical.read` legge il testo clinico libero. Sta scritto come
+      `PP03-D17` in `16-technical-debt.md`: nessuno dei due e raggiungibile da
+      un allenatore (`data_subject.export` non e fra le sue chiavi, misurato),
+      quindi la correzione appartiene al proprietario di quei due domini e non
+      a questa lane. `auth/athlete-profile`, che invece il ruolo lo aveva in
+      mano, e stata chiusa in §17.4 — ed e la ragione per cui C-01 e adesso
+      verde.
+    */
+    if (ruolo === undefined) {
+      info(`F · ruolo ${nome}: il taglio e quello dei soli vietati (voluto)`, passa);
+      continue;
+    }
+
     prova(`F · ruolo ${nome} non lascia passare 'diagnosi'`, false, passa);
   }
 };

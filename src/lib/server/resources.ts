@@ -854,6 +854,58 @@ const assertRecordAccess = (
     }
   }
 
+  /*
+    **E il contenitore ha la sua riga singola, esattamente come l'elenco**
+    (PP-03 §17.3).
+
+    `buildWhereFromSearchParams` toglie gia dall'**elenco** di
+    `/api/v1/club_resource_items` i tipi che il ruolo attivo non puo leggere:
+    «la domanda giusta non e "questo tipo e riservato alla direzione", e
+    "questo ruolo lo puo leggere"». Vero, e scritto solo per l'elenco. La
+    lettura **per identificativo** non passa di li, e il sesto round l'ha
+    misurata su sei tipi verso un allenatore canonico:
+
+        GET /api/v1/discounts/<id>                 403
+        GET /api/v1/club_resource_items/<id>       200   (la stessa riga)
+
+    e lo stesso per `procure`, `sponsors`, `payment_plans`,
+    `clothing_inventory` e `opening_hours` — cioe gli sconti concessi alle
+    famiglie, le deleghe legali e i piani di pagamento. La porta per nome dava
+    403, quella per contenitore consegnava.
+
+    E la **quinta** volta che questo file sbaglia nella stessa direzione, ed e
+    la forma che il commento di `assertRecordAccess` piu su gia nomina per
+    esteso: la correzione va nell'elenco e la porta accanto resta aperta. Per
+    questo la guardia sta **qui**, che e il punto comune dei tre verbi, e non
+    dentro ciascuno di essi.
+
+    **`read` e il pavimento, non il soffitto.** Chi non puo leggere un tipo non
+    puo nemmeno riscriverlo o cancellarlo; le scritture hanno gia in piu
+    `assertPuoScrivereIlTipoDellaRiga`, che giudica il tipo **dichiarato** nel
+    corpo. Le due si sommano: quella guarda cio che la richiesta chiede di
+    diventare, questa cio che la riga in archivio gia e.
+
+    **E un tipo che il registro non conosce fallisce chiuso.** La sonda ha
+    scritto una nota di segreteria con il tipo al **singolare** —
+    `secretariat_note` — e quella grafia non sta in `CLUB_RESOURCE_TYPES`,
+    quindi non entrava nell'elenco dei negati e passava. `canAccessClubResource`
+    risponde per allenatore, collaboratore e segreteria su un elenco di
+    **ammessi**, quindi a una grafia che non conosce risponde «no»: la
+    correzione chiude anche quella senza inseguire le grafie una per una, che
+    e la cosa che questo repository ha gia smesso di fare due volte.
+  */
+  if (resource === "club_resource_items") {
+    const tipoDellaRiga = String(record.resource_type || "").trim();
+    if (
+      tipoDellaRiga &&
+      !canAccessClubResource(scope.activeRole, tipoDellaRiga, "read")
+    ) {
+      throw new Error(
+        `Accesso negato: il ruolo attivo non puo leggere ${tipoDellaRiga}`,
+      );
+    }
+  }
+
   const suoClub = resolveRecordOrganizationId(resource, record);
 
   /*
@@ -3914,10 +3966,50 @@ export const buildWhereFromSearchParams = (
       (tipo) => !canAccessClubResource(scope?.activeRole, tipo, "read"),
     );
 
-    where.resource_type = {
-      ...(where.resource_type ? { equals: where.resource_type } : {}),
-      notIn: [...DOMAIN_OWNED_RESOURCE_ITEM_TYPES, ...riservate],
-    };
+    /*
+      **E un elenco di negati non sa niente di cio che non conosce**
+      (PP-03 §17.3).
+
+      `riservate` si costruisce filtrando `CLUB_RESOURCE_TYPES`, cioe i tipi
+      **dichiarati**. Una riga con un tipo che quell'elenco non contiene non e
+      in `riservate`, quindi non e in `notIn`, quindi passa — a chiunque. Il
+      sesto round l'ha misurato scrivendo una nota di segreteria con il tipo al
+      **singolare**:
+
+          GET /api/v1/club_resource_items?resource_type=secretariat_note
+            -> 200, e l'allenatore legge il promemoria interno della direzione
+
+      e la stessa riga usciva anche dall'elenco senza filtro. Non e una grafia
+      inventata dalla sonda per il gusto di inventarla: e come si comporta una
+      colonna di **testo libero** su cui quindici collezioni hanno scritto in
+      momenti diversi, e questo file conosce gia il prezzo di inseguire le
+      grafie una per una.
+
+      La forma giusta e la stessa che ADR-0125 e §16.2 hanno gia imposto sul
+      dato clinico: **si dichiara cosa passa**. Chi legge un sottoinsieme dei
+      tipi dichiarati legge **solo** quello, e un tipo che il registro non
+      conosce resta fuori.
+
+      La direzione canonica — per cui `riservate` e vuoto, cioe chi legge
+      **tutti** i tipi dichiarati — tiene l'elenco dei negati: li un tipo
+      sconosciuto e una riga storica da non far sparire a chi ha comunque
+      titolo a vederla tutta. Sbagliare in un verso nasconde una riga a chi la
+      possiede; nell'altro consegna un promemoria interno a un allenatore.
+    */
+    where.resource_type = riservate.length
+      ? {
+          ...(where.resource_type ? { equals: where.resource_type } : {}),
+          in: CLUB_RESOURCE_TYPES.filter(
+            (tipo) =>
+              !(DOMAIN_OWNED_RESOURCE_ITEM_TYPES as readonly string[]).includes(
+                tipo,
+              ) && canAccessClubResource(scope?.activeRole, tipo, "read"),
+          ),
+        }
+      : {
+          ...(where.resource_type ? { equals: where.resource_type } : {}),
+          notIn: [...DOMAIN_OWNED_RESOURCE_ITEM_TYPES, ...riservate],
+        };
   }
 
   if (RESOURCE_CONFIG[resource]?.kind === "club_resource") {

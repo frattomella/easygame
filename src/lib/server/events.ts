@@ -470,7 +470,51 @@ export const eventWithinTrainerPerimeter = (
     dichiara.
   */
   const gruppiInPerimetro = () => {
-    if (!gruppiEvento.length || !perimetro.groupIds.length) return null;
+    if (!gruppiEvento.length) return null;
+
+    /*
+      **E un perimetro senza gruppi non e un perimetro su tutti i gruppi**
+      (PP-03 §17.1).
+
+      Qui la condizione era `!gruppiEvento.length || !perimetro.groupIds.length`:
+      quando **il perimetro** non dichiarava gruppi, l'asse taceva e restavano
+      le sole categorie. Il sesto round l'ha misurato, ed e la stessa asimmetria
+      che §15.2 aveva chiuso dall'altro lato:
+
+          Carlo   categorie {alfa}, gruppi {}      (nessun gruppo assegnato)
+          Bruno   categorie {beta}, gruppi {beta}
+
+          POST /api/v1/events            come Carlo
+            {"groupIds":["grp-beta"], "categoryId":"cat-alfa"}   -> 200
+
+      e la riga compare nel **calendario di Bruno**, con il `created_by` di
+      Carlo. Aldo, che i gruppi ce li ha, riceve 403 per lo stesso identico
+      atto (C-07): la difesa valeva solo contro chi era gia recintato su
+      quell'asse, cioe contro tutti tranne chi non lo era affatto.
+
+      E Bruno non se la toglie di mezzo: in scrittura le categorie stanno in
+      AND, `cat-alfa` non e sua, quindi riceve 403 su modifica e annullamento.
+      Un evento che entra nel suo calendario, che lui non ha scritto e non puo
+      togliere — e `assertNoOverlap` gira su quella riga, quindi ci si occupa
+      anche un campo.
+
+      **Perche «zero righe = tutto il club» non si applica qui.** Quella e la
+      regola di ADR-0103 per l'`access_scope`, dove una riga assente significa
+      «non ristretto». Questo perimetro non e quello: nasce da
+      `clubs.trainers[].data`, cioe da cio che l'allenatore ha **assegnato**, e
+      un elenco vuoto li vuol dire «nessun gruppo», non «tutti». E la stessa
+      lettura che `readTrainerEventPerimeter` fa gia sull'assenza di profilo,
+      dove `null` significa «nessun evento» e non «tutto il club».
+
+      In **lettura** non cambia niente: `null` fa ricadere sulle categorie, che
+      e il modo in cui un allenatore senza gruppi legge il proprio calendario
+      (ADR-0055). In **scrittura** l'asse che l'evento dichiara e che il
+      perimetro non copre fallisce **chiuso**.
+    */
+    if (!perimetro.groupIds.length) {
+      return modo === "scrittura" ? false : null;
+    }
+
     const suoi = new Set(perimetro.groupIds);
     return modo === "scrittura"
       ? gruppiEvento.every((value) => suoi.has(value))
@@ -1116,6 +1160,57 @@ const assertEventoNonConsolidato = (
   );
 };
 
+/**
+ * **La grafia che finisce in colonna la detta il registro** (PP-03 §17.2).
+ *
+ * §15.1 ha tolto il `category_name` del client dal **giudizio** di perimetro:
+ * il confronto sta sugli identificativi, e il nome parla solo quando
+ * l'identificativo tace. Restava che quel testo, pur non decidendo piu niente,
+ * andava **in colonna** come arrivava. Misurato dal sesto round:
+ *
+ *     PATCH /api/v1/events/<proprio>  {"categoryId":"", "categoryName":"Under 15"}
+ *       -> 200, e la riga resta category_id = "cat-alfa" con
+ *          category_name = "Under 15", che e il nome della squadra di un altro
+ *
+ * Nessun perimetro attraversato — l'evento non entra nel calendario di
+ * nessun altro, e la sonda lo misura — ma la riga adesso **mente**: ogni
+ * schermata che stampa il nome invece dell'identificativo mostra l'evento come
+ * se fosse dell'altra squadra, e le due colonne della stessa riga si
+ * contraddicono. E la forma del difetto di causale gia chiusa altrove: due
+ * campi che dicono la stessa cosa, e solo uno dei due controllato.
+ *
+ * Quando l'identificativo c'e ed e nel registro, il nome si **deriva**. Un
+ * identificativo che il registro non conosce — una categoria cancellata, un
+ * club che non ha mai riempito `clubs.categories` — lascia passare il nome
+ * dichiarato: togliere l'etichetta a un evento storico sarebbe una perdita di
+ * dato, non una difesa.
+ */
+const riconciliaGrafiaDellaCategoria = async <T extends { category_id?: string | null; category_name?: string | null }>(
+  organizationId: string,
+  colonne: T,
+): Promise<T> => {
+  const identificativo = asText(colonne.category_id);
+  if (!identificativo) return colonne;
+
+  const club = await prisma.club.findUnique({
+    where: { id: organizationId },
+    select: { categories: true },
+  });
+  const registro = Array.isArray(club?.categories)
+    ? (club.categories as unknown[])
+    : [];
+
+  const voce = registro
+    .filter((riga): riga is Record<string, unknown> => Boolean(riga) && typeof riga === "object")
+    .find((riga) => asText(riga.id).toLowerCase() === identificativo.toLowerCase());
+  if (!voce) return colonne;
+
+  const nome = asText(voce.name ?? voce.label);
+  if (!nome || nome === asText(colonne.category_name)) return colonne;
+
+  return { ...colonne, category_name: nome };
+};
+
 export const createClubEvent = async (
   scope: EventsScope,
   kind: EventKind,
@@ -1162,13 +1257,16 @@ export const createClubEvent = async (
     consenteSovrapposizione,
   );
 
+  /* La grafia in colonna la detta il registro, non la richiesta (§17.2). */
+  const daScrivere = await riconciliaGrafiaDellaCategoria(organizationId, colonne);
+
   const row = await prisma.clubEvent.create({
     data: {
       organization_id: organizationId,
-      ...colonne,
-      group_ids: colonne.group_ids ?? undefined,
-      trainer_ids: colonne.trainer_ids ?? undefined,
-      payload: colonne.payload as any,
+      ...daScrivere,
+      group_ids: daScrivere.group_ids ?? undefined,
+      trainer_ids: daScrivere.trainer_ids ?? undefined,
+      payload: daScrivere.payload as any,
       created_by: attore.userId || null,
     },
   });
@@ -1314,14 +1412,17 @@ export const updateClubEvent = async (
       ? existing.version
       : Number(options.expectedVersion);
 
+  /* La grafia in colonna la detta il registro, non la richiesta (§17.2). */
+  const daScrivere = await riconciliaGrafiaDellaCategoria(organizationId, colonne);
+
   const aggiornati = await prisma.clubEvent.updateMany({
     where: { id: existing.id, version: attesa },
     data: {
-      ...colonne,
+      ...daScrivere,
       legacy_id: existing.legacy_id,
-      group_ids: colonne.group_ids ?? undefined,
-      trainer_ids: colonne.trainer_ids ?? undefined,
-      payload: colonne.payload as any,
+      group_ids: daScrivere.group_ids ?? undefined,
+      trainer_ids: daScrivere.trainer_ids ?? undefined,
+      payload: daScrivere.payload as any,
       version: { increment: 1 },
     },
   });
@@ -1908,7 +2009,17 @@ export const createClubEventsBatch = async (
     `Set` di chiavi costruita nel browser, e valeva finche nessun altro
     salvava nello stesso momento.
   */
-  await prisma.clubEvent.createMany({ data: righe, skipDuplicates: true });
+  /*
+    La grafia in colonna la detta il registro anche qui (§17.2): la creazione
+    in blocco e la terza porta sulla stessa scrittura, e una correzione che
+    coprisse le prime due lascerebbe aperta questa — che e esattamente la
+    forma di difetto che questa lane ha gia trovato quattro volte.
+  */
+  const daScrivere = await Promise.all(
+    righe.map((riga) => riconciliaGrafiaDellaCategoria(organizationId, riga)),
+  );
+
+  await prisma.clubEvent.createMany({ data: daScrivere, skipDuplicates: true });
   await projectEventsToClubColumn(organizationId, kind);
 
   await recordAuditEvent({

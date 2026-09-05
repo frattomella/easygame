@@ -2352,3 +2352,34 @@ grafia in **maiuscolo** e con **spazi**, la categoria omonima di un'altra, e il
 `PATCH` che spostava il proprio evento sotto la categoria di un altro erano
 quattro righe distinte della sonda del round 4 e sono cadute tutte con §15.1 —
 perche erano lo stesso difetto detto in quattro modi.
+
+### Il sesto round e il giro conclusivo di PP-03 (2026-09-05)
+
+Il sesto round ha riattaccato le correzioni del quinto e ha trovato **cinque**
+difetti, tutti chiusi dentro la lane ([44](44-pp-03-trainer.md) §16 e §17).
+Quello che segue e cio che il round ha misurato e che la lane **non** chiude,
+piu i due rilievi che vivono fuori dalla sua superficie.
+
+| ID | Cosa | Perche non e stato chiuso qui |
+|---|---|---|
+| **PP03-D17** | Due chiamanti di `stripClinicalAthleteFields` hanno il ruolo in mano e **non lo passano**, quindi applicano il solo elenco dei **vietati** — la difesa che §15.4 ha smesso di usare perche una colonna JSON libera si vince con un nome inventato. Sono `src/lib/server/data-subject.ts:932` (l'export dell'interessato) e `src/lib/server/form-submissions.ts:1095` e `:2264` (la precompilazione di un modulo). Misurato: un ruolo di club basato su `club_manager` a cui la societa ha **tolto** `clinical.read` riceve dall'export `data.diagnosi`, `data.referto` e il testo libero scritto dentro `guardians`, `clothingSizes`, `categories` e `payments` — cioe cio che il registro generico nega alle stesse chiavi. La terza porta della stessa classe, `auth/athlete-profile`, e stata chiusa da §17.4 | La correzione non e «passare il ruolo», ed e il motivo per cui questa lane si ferma. `data-subject.ts` serve **anche l'interessato e la sua famiglia**, che arrivano con `activeRole` `parent`: passare il ruolo cosi com'e strapperebbe alla famiglia il fascicolo del **proprio** figlio dentro il file che le si consegna — la trappola di §16.2 rifatta su un export. Serve prima l'esenzione «per legame» che `auth/athlete-profile` ha e questi due moduli non hanno, e i diritti dell'interessato hanno un **proprietario dichiarato** ([CLAUDE.md §2](../../CLAUDE.md)). **Nessun allenatore ci arriva**: `data_subject.export` non e fra le chiavi di `trainer` ne di un ruolo che ne deriva — misurato con `roleHasPermission`, non dedotto |
+| **PP03-D18** | `club_sites` non e leggibile da un allenatore (`TRAINER_READ_RESOURCES` non lo contiene), eppure la **sede** e uno dei due assi del suo perimetro: la riconosce solo di riflesso, da `data.categoryMemberships[].site_id` sulla riga dell'atleta — che e la ragione per cui quel campo e dovuto entrare nell'elenco di ammessi di §16.2 dopo averlo tolto una volta. Un'area che filtra per sede e non puo leggere il registro delle sedi mostra identificativi dove servirebbero etichette | Non e una falla e non e nato in questa lane: e una scelta di `TRAINER_READ_RESOURCES` che precede PP-03. Allargarla vuol dire decidere se il registro delle sedi sia configurazione del club (come `opening_hours`, negato) o anagrafica di servizio (come `categories`, concesso), e la risposta vale per tutti i ruoli non gestionali insieme, non per il solo allenatore |
+
+**Rilievi fuori dalla superficie di PP-03, registrati perche il verbale li
+dichiara fra i coverage gap:** `PP04-D8` (il genitore revocato continua a
+leggere e a scrivere l'area famiglia: la strada che tocca `clearLinkedFields` e
+una **perdita di dato** — l'indirizzo con cui la segreteria scrive alla
+famiglia — e nessuna lane e nella posizione di deciderla da sola) e `PP04-D10`
+(il perimetro di sede e categoria **non vale sui byte** dei documenti, quindi un
+allenatore recintato scarica l'archivio storico e il **certificato medico** di un
+atleta di un'altra categoria). Il secondo e un difetto **del ruolo allenatore**,
+ed e il complemento esatto del vincolo che questa lane presidia, preso dall'unica
+porta che la lane non ha chiuso: PP-04 e chiusa, il file non e di nessuna lane
+viva, e il mandato di questa fase lo assegna all'integrazione.
+
+**Chiuso dal giro conclusivo**: `PP03-D5` era gia stato chiuso dal quinto round
+e il sesto lo ha **riaperto da due lati** — la definizione del lettore e la
+profondita del taglio — e richiuso entrambi (§16.1, §16.2). Vale la pena
+scriverlo: una correzione che regge tre round non e per questo finita, e le due
+riaperture non hanno trovato una svista ma la **stessa forma** del difetto
+originale, un livello piu sotto.
