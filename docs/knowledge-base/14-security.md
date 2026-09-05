@@ -3328,7 +3328,7 @@ nascere.
 
 **Il difetto.** Le due strade del riscatto creavano una tessera e **non
 scrivevano nessuna riga di perimetro**. Per
-[ADR-0103](18-decision-log.md#adr-0103) zero righe non significa «nessun
+[ADR-0103](18-decision-log.md#adr-0103--il-perimetro-e-dellassegnazione-e-zero-righe-significano-tutto-il-club) zero righe non significa «nessun
 accesso»: significa **tutto il club**.
 
 | strada | dove | cosa scriveva |
