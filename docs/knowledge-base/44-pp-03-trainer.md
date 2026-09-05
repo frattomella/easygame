@@ -926,3 +926,54 @@ laterale compare (`hidden md:block`) e occupa 264 px: al contenuto ne restano
 — ed e stretto. La barra si puo richiudere a 80 px, e questa e la mitigazione
 che esiste; allargare il punto di rottura a `lg` e una decisione di layout per
 tutta l'applicazione, non per l'area allenatore, e non e stata presa qui.
+
+---
+
+## §13 — Un menu intitolato «ALLENATORE» che vedeva un gestore
+
+`mobile-header.tsx` sceglieva quale menu mostrare con
+`pathname?.includes("trainer")`. Ci finiscono dentro `/trainers` e
+`/trainers/<id>`, che sono schermate **gestionali**: su un telefono, chi apriva
+la scheda di un allenatore dall'area di gestione si vedeva comparire un menu
+intitolato «ALLENATORE».
+
+Dentro c'erano quattro voci, e tre — `/training`, `/matches`, `/athletes` —
+stanno in `MANAGEMENT_PATH_PREFIXES`: a un allenatore vero avrebbero promesso
+pagine che `canAccessPath("trainer", …)` gli nega.
+
+Non si vedevano quasi mai, perche `mobile-layout-wrapper` esclude
+`/trainer-dashboard` da questa intestazione: erano codice inerte tenuto in vita
+da un'esclusione altrove, e l'unica strada per cui uscivano era proprio il
+difetto del prefisso.
+
+**Le due meta si tengono.** Il confine si chiede per **prefisso d'area** — lo
+stesso confronto che `mobile-layout-wrapper` fa tre file piu in la per decidere
+se mostrare l'intestazione, e due modi di rispondere alla stessa domanda erano
+gia la causa — e le voci del menu allenatore spariscono, con lo stesso
+trattamento che W6-21 ha dato a quelle dell'area famiglia. L'area allenatore ha
+il proprio guscio, con la propria navigazione mobile costruita dalle stesse
+chiavi di permesso della barra laterale.
+
+`tests/ui/pp-03-intestazione-mobile-aree.test.mjs`, tre prove. La terza e una
+sentinella: se domani `/trainer-dashboard` uscisse dall'elenco delle esclusioni,
+fallisce e chiede di **ricostruire** il menu con le chiavi giuste, invece di
+lasciare l'area senza navigazione.
+
+---
+
+## §14 — Cosa PP-03 ha misurato e non ha chiuso
+
+Oltre a `PP03-D1`..`PP03-D6` gia registrati, il terzo round ha lasciato due
+righe in [16 — Debito tecnico](16-technical-debt.md):
+
+- **`PP03-D7`** — `POST /api/v1/notifications` verso un altro membro del club
+  risponde 200 a un allenatore, e fa partire un'email. Le tre guardie che
+  contano ci sono (niente `user_id` nullo, niente chiave mancante, niente utente
+  di un altro club) e sono state misurate; resta un canale uno-a-uno di testo
+  libero da un ruolo senza `communications.send`, senza registro consegne e
+  senza audit. La domanda — «una notifica indirizzata e una comunicazione?» — e
+  del dominio comunicazioni, cioe di PP-05.
+- **`PP03-D8`** — `GET /api/v1/appointment-slots` risponde 200 a un allenatore:
+  esce la configurazione di ricevimento del club. Non e dato personale, ed e il
+  contrario di cio che la guardia di scrittura dichiara. Stringerlo senza aver
+  percorso il flusso di prenotazione della famiglia rischia di spegnerlo.
