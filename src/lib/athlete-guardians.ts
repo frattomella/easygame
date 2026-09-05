@@ -459,7 +459,22 @@ const ACCESS_STATUS: Record<GuardianAccessState, GuardianAccessStatus> = {
 export const getGuardianAccessStatus = (
   guardian: GuardianLike,
   nowMs: number = Date.now(),
+  /**
+   * **Il registro dell'atleta, quando chi chiama ce l'ha.**
+   *
+   * Il segno vive sulla riga **e** in un registro a livello di atleta, e a
+   * decidere e il registro: una riga puo quindi essere «solo recapito» senza
+   * portarne traccia. Senza questo argomento il badge diceva «Account non
+   * collegato» a un tutore che il cancello sta rifiutando, e il club non aveva
+   * modo di capire perche.
+   */
+  contactOnlyIdentities: Iterable<string> = [],
 ): GuardianAccessStatus => {
+  const recapitiSoli = new Set(
+    [...contactOnlyIdentities]
+      .map((valore) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
   if (firstValue(guardian, LINKED_USER_KEYS)) return ACCESS_STATUS.linked;
 
   /*
@@ -479,9 +494,19 @@ export const getGuardianAccessStatus = (
     accendere — applicata a una **difesa** invece che a una funzione, ed e per
     questo che il difetto e rimasto vivo cinque round.
   */
+  const suoIndirizzo = String(
+    (guardian as any)?.email ||
+      (guardian as any)?.linkedUserEmail ||
+      (guardian as any)?.linked_user_email ||
+      "",
+  )
+    .trim()
+    .toLowerCase();
+
   if (
     (guardian as any)?.contactOnly ||
-    (guardian as any)?.contact_only
+    (guardian as any)?.contact_only ||
+    (suoIndirizzo && recapitiSoli.has(suoIndirizzo))
   ) {
     return ACCESS_STATUS["contact-only"];
   }

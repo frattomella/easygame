@@ -1192,6 +1192,37 @@ export const generateInstallmentPreview = (
       )
       .filter((index) => index >= 0 && index < schedule.length - 1),
   });
+  /*
+    **L'avviso guarda il risultato, non i pezzi.**
+
+    I due controlli qui sopra guardano le percentuali e gli importi fissi
+    **separatamente**, e mai la loro somma: un piano «acconto fisso 300 +
+    prima rata 60% + saldo + rata finale fissa 150» su 500 EUR non li tocca
+    nessuno dei due, e produce `[200, 200, 0, 100]` con `warnings: []`.
+
+    Una rata da 0,00 in archivio non si chiude piu — `resolveLedgerState`
+    chiede un dovuto maggiore di zero — e le due schermate che chiamano questa
+    funzione bloccano il salvataggio **solo** quando c'e un avviso: senza,
+    salvano. Su 40.000 piani casuali con un solo «saldo» e nessun avviso, 217
+    producevano una rata impagabile.
+
+    La funzione che ripartisce e a prova di fuzz; era il **chiamante** a non
+    avere la stessa disciplina. Si guarda percio cio che esce, che e l'unica
+    cosa che dice la verita su tutte le combinazioni.
+  */
+  if (roundedAmounts.some((importo) => importo <= 0) && total > 0) {
+    warnings.push(
+      "Una rata resterebbe a zero: correggi gli importi, o togli una rata.",
+    );
+  }
+
+  const sommaRate = roundedAmounts.reduce((somma, importo) => somma + importo, 0);
+  if (Math.abs(sommaRate - total) > 0.01) {
+    warnings.push(
+      "La somma delle rate non corrisponde al totale del piano.",
+    );
+  }
+
   const parsedStartDate = parseDate(options.startDate);
 
   return {

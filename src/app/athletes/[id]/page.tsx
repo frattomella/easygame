@@ -431,6 +431,10 @@ export default function AthleteProfilePage() {
     Periodo della stagione attiva: e il ripiego del pro-rata quando il piano
     lo accende senza dichiarare il proprio periodo (RC Fix 1, punto 4).
   */
+  /* Il registro decide quanto il segno di riga: il badge deve vederlo. */
+  const recapitiSoloContatto: string[] =
+    (athlete as any)?.data?.contactOnlyIdentities || [];
+
   const [activeSeasonPeriod, setActiveSeasonPeriod] = useState<{
     startDate: string;
     endDate: string;
@@ -3796,7 +3800,7 @@ export default function AthleteProfilePage() {
                             </div>
                             {(() => {
                               const accessStatus =
-                                getGuardianAccessStatus(guardian);
+                                getGuardianAccessStatus(guardian, Date.now(), recapitiSoloContatto);
                               const tokenValue =
                                 guardian.parentAccessTokenValue ||
                                 guardian.parent_access_token_value ||

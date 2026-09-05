@@ -1578,3 +1578,75 @@ E dove resta fragile: nei **chiamanti** dei domini induriti, non nei domini. La
 funzione che ripartisce le rate e a prova di fuzz; e `generateInstallmentPreview`
 a produrre una rata da zero, e la schermata a salvarla (PP02-D31). Si indurisce
 la funzione e il difetto si sposta di un anello.
+
+
+## 27. Il ventunesimo round: la difesa nuova non eredita niente, di nuovo
+
+Il ventesimo aveva cambiato forma alla difesa e chiuso una classe che cinque
+stesure non avevano chiuso. Il ventunesimo ha misurato la difesa nuova e ne ha
+trovati **tre** difetti, tutti suoi, tutti nati nel round che l'aveva scritta.
+
+E la quarta volta che questo pacchetto paga la stessa forma: **una difesa nuova
+nasce senza le protezioni di quella che affianca.** ADR-0116 la descrive dal
+quattordicesimo round, con una checklist di sette protezioni — e averla scritta
+non e bastato a farsela applicare.
+
+### Il registro si poteva riempire
+
+Era conservato in «sola aggiunta» invece che in sola lettura, perche
+l'approvazione di un modulo ci passava attraverso. Da quella fessura, misurato:
+un ruolo di club a **zero chiavi** — che non riesce ad aggiungere un tutore,
+perche la guardia della crescita lo nega — mandava
+`contactOnlyIdentities: ["<indirizzo della madre>"]` e la chiudeva fuori dal
+proprio figlio, con i canali di invio spenti, nessuna schermata che lo
+spiegasse e un `anagrafica.updated` in audit.
+
+La guardia non poteva vederlo: misura la **crescita**, e iniettare nel registro
+**restringe**. Venti righe piu sotto, nello stesso file, il registro gemello e in
+sola lettura per questa identica ragione, scritta a lettere — «una difesa che si
+puo impugnare e un'arma». Due difese gemelle per progetto, due discipline
+opposte.
+
+Adesso lo scrive il dominio dei moduli con una scrittura diretta, come fa
+`unlinkGuardianAccount` per le revoche, e la rotta generica lo conserva e basta.
+
+### Il registro non conosceva le righe
+
+Il marchio di riga ha una regola che il registro non aveva: **non si declassa un
+tutore che la segreteria aveva scritto**. Il registro nega per identita, da
+qualunque riga.
+
+Misurato con il flusso ordinario: un atleta la cui unica riga e
+`{ Anna, famiglia@… }` senza legame dichiarato — la capability di ADR-0114 — e
+un modulo che dichiara un secondo tutore **allo stesso indirizzo di famiglia**.
+La segreteria approva, legge «Genitore aggiunto», e la madre perde accesso e
+invii.
+
+Adesso un indirizzo che su quella scheda **e gia una chiave** non si avvelena:
+la riga nuova la governa il suo marchio di riga, e chi entrava continua a
+entrare.
+
+### La strada di ritorno era scritta e non esisteva
+
+«Lo toglie il riscatto di un invito» compariva nel messaggio di commit e in tre
+file. Un `grep` sul file del riscatto restituiva **zero**. Un indirizzo di
+famiglia avvelenato una volta restava chiuso per sempre, per ogni persona futura
+che la segreteria avesse scritto su quella scheda senza un invito nominale.
+
+Vale la pena dire come e successo: la patch che avrebbe scritto quella riga e
+uscita a meta per un altro errore, e io non ho verificato che cosa fosse
+atterrato. Il commento pero l'avevo gia scritto in quattro punti, e da quel
+momento descriveva un comportamento inesistente. **Un commento che promette e
+peggio di nessun commento**, perche il round dopo lo legge e non controlla.
+
+### E i chiamanti, che il round prima aveva indicato
+
+La revisione precedente aveva detto: il dominio e indurito, i **chiamanti** no.
+Confermato, e corretto: l'anteprima delle rate produceva una rata da 0,00
+**senza avviso** — i due controlli guardavano percentuali e importi fissi
+separatamente, mai il risultato — e le due schermate bloccano il salvataggio
+solo quando un avviso c'e. Adesso l'avviso guarda cio che esce.
+
+E il badge, che il ventesimo round aveva aggiunto leggendo il **marchio di
+riga**: dopo che a decidere e diventato il registro, tornava a dire «Account non
+collegato» a un tutore che il cancello sta rifiutando. Adesso legge tutte e due.

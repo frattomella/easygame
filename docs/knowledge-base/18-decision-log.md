@@ -6341,6 +6341,39 @@ riga resta, e serve — racconta la storia di quella riga, e adesso la scheda lo
 > subire non e una difesa: e un'annotazione. Se serve che regga, le si da una
 > chiave propria e un solo scrittore.
 
+**E la difesa nuova non eredita niente: e successo di nuovo, al primo giro.** Il
+registro dei soli recapiti e nato copiando la forma di quello delle revoche, e
+non ne ha copiato le protezioni. Nello stesso round in cui e stato scritto, una
+revisione ha misurato tre difetti, tutti e tre suoi:
+
+- era conservato in **sola aggiunta** invece che in sola lettura, perche
+  l'approvazione di un modulo ci passava attraverso: da quella fessura un ruolo
+  di club a **zero chiavi** ci infilava l'indirizzo di un genitore legittimo e
+  lo chiudeva fuori, senza audit. La guardia della crescita non lo vede perche
+  misura solo la **crescita**, e iniettare nel registro restringe. Adesso lo
+  scrive il dominio dei moduli con una scrittura diretta, come
+  `unlinkGuardianAccount` fa per l'altro, e la rotta generica lo **conserva e
+  basta**;
+- negava **per identita da qualunque riga** e non aveva la regola che protegge
+  il marchio di riga — «non si declassa un tutore che il club aveva scritto». Un
+  modulo che dichiarava un secondo tutore **allo stesso indirizzo di famiglia**
+  chiudeva fuori il primo. Adesso un indirizzo che su quella scheda e gia una
+  chiave non si avvelena;
+- la **strada di ritorno** era dichiarata in quattro punti del codice e non
+  esisteva in nessuno: il riscatto non toglieva l'indirizzo dal registro, e un
+  indirizzo di famiglia avvelenato una volta restava chiuso per sempre.
+
+Questa e la quarta volta che il conto torna. La checklist delle protezioni piu
+sopra non basta a farsi ricordare di applicarla: quando si aggiunge una difesa
+si **rilegge quella che si sta copiando, riga per riga**, e per ognuna delle sue
+protezioni si dice dove sta nella nuova.
+
+**E si controlla che i propri commenti dicano il vero.** «Lo toglie il riscatto
+di un invito» era scritto in quattro file, e nessuna riga lo faceva: un `grep`
+lo ha mostrato in un secondo. Un commento che descrive un comportamento che non
+esiste e peggio di nessun commento, perche il round successivo lo legge e non
+controlla.
+
 **Decisione.** Tre difese, con proprietari distinti e ruoli distinti:
 
 1. **`athletes.data.revokedGuardianIdentities`** — l'elenco delle identita

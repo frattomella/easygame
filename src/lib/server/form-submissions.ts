@@ -2197,7 +2197,40 @@ const eseguiDecisione = async (
         .trim()
         .toLowerCase();
 
-      if (indirizzoDichiarato) {
+      /*
+        **Un indirizzo che il club usa gia non si avvelena.**
+
+        Il registro nega **per identita, da qualunque riga**, e quella forza e
+        anche il suo pericolo: la regola `rigaNuova` che protegge il marchio di
+        riga — «non si declassa un tutore che la segreteria aveva scritto mesi
+        prima» — il registro non ce l'ha, perche di righe non ne conosce.
+
+        Misurato: un atleta con una sola riga `{ Anna, famiglia@… }` **senza**
+        legame dichiarato, cioe la capability di ADR-0114; un rinnovo dichiara
+        un secondo tutore con **lo stesso indirizzo di famiglia**; la segreteria
+        approva e legge «Genitore aggiunto». Da quel momento la madre trova
+        «Accesso negato» sul proprio figlio e i canali di invio si chiudono.
+
+        Il registro si scrive quindi solo per un indirizzo che su questa scheda
+        **non e gia una chiave**: se una riga scritta dal club lo porta senza
+        marchio, quell'indirizzo apre gia, e la riga nuova la governa il suo
+        marchio di riga. Non si guadagna niente ad avvelenarlo, e si perde un
+        genitore.
+      */
+      const indirizzoGiaInUso = guardians.some((riga: any) => {
+        const record = (riga || {}) as Record<string, any>;
+        if (record.contactOnly || record.contact_only) return false;
+
+        const suo = String(
+          record.email || record.linkedUserEmail || record.linked_user_email || "",
+        )
+          .trim()
+          .toLowerCase();
+
+        return Boolean(suo) && suo === indirizzoDichiarato;
+      });
+
+      if (indirizzoDichiarato && !indirizzoGiaInUso) {
         const registro = new Set<string>(
           (Array.isArray((athleteRecord?.data as any)?.contactOnlyIdentities)
             ? ((athleteRecord!.data as any).contactOnlyIdentities as unknown[])
@@ -2222,18 +2255,53 @@ const eseguiDecisione = async (
     const updated = await updateResource(
       "athletes",
       athleteId,
-      {
-        data: {
-          ...(athleteRecord?.data || {}),
-          guardians,
-          ...(contactOnlyDaScrivere
-            ? { contactOnlyIdentities: contactOnlyDaScrivere }
-            : {}),
-        },
-      },
+      { data: { ...(athleteRecord?.data || {}), guardians } },
       scope,
     );
     athleteRecord = updated as any;
+
+    /*
+      **Il registro lo scrive questo dominio, non la rotta generica.**
+
+      Passava da `updateResource`, e per farlo la rotta doveva accettare le
+      **aggiunte** che arrivano dal corpo della richiesta: da li un ruolo a zero
+      chiavi ci infilava l'indirizzo di un genitore legittimo e lo chiudeva
+      fuori, senza audit di revoca e senza che la guardia della crescita — che
+      misura solo la crescita — vedesse niente.
+
+      La disciplina e quella del registro gemello: la rotta generica lo
+      **conserva** e basta, e chi lo scrive lo fa dal proprio dominio con una
+      scrittura diretta, come `unlinkGuardianAccount` fa per le revoche.
+    */
+    if (contactOnlyDaScrivere) {
+      const rilettura = await prisma.athlete.findUnique({
+        where: { id: athleteId },
+        select: { data: true },
+      });
+
+      const registro = new Set<string>(
+        (Array.isArray((rilettura?.data as any)?.contactOnlyIdentities)
+          ? ((rilettura!.data as any).contactOnlyIdentities as unknown[])
+          : []
+        )
+          .map((valore) => String(valore || "").trim().toLowerCase())
+          .filter(Boolean),
+      );
+
+      for (const voce of contactOnlyDaScrivere) registro.add(voce);
+
+      const aggiornato = await prisma.athlete.update({
+        where: { id: athleteId },
+        data: {
+          data: {
+            ...((rilettura?.data as any) || {}),
+            contactOnlyIdentities: Array.from(registro) as string[],
+          },
+        },
+      });
+
+      athleteRecord = aggiornato as any;
+    }
   }
 
   /*

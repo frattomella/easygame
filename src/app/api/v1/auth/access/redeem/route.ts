@@ -879,6 +879,31 @@ export async function POST(request: Request) {
       identita.delete(String(session.db.user_id || "").trim().toLowerCase());
       identita.delete(String(session.db.user.email || "").trim().toLowerCase());
 
+      /*
+        **E toglie l'indirizzo dal registro dei soli recapiti.**
+
+        Quattro punti del codice dichiaravano che «lo toglie il riscatto di un
+        invito», e nessuno lo faceva: una revisione lo ha misurato con un
+        `grep` che su questo file restituiva zero. Chi riscattava era salvo per
+        un'altra ragione — le quattro letture hanno l'uscita «un legame
+        dichiarato vince» — ma l'indirizzo restava nel registro **per sempre**,
+        e nessuno scrittore lo toglieva: un indirizzo di famiglia avvelenato
+        una volta restava chiuso per ogni persona futura che la segreteria
+        avesse scritto su quella scheda senza un invito nominale.
+
+        Il riscatto e il club che si fa garante di quella riga: e la strada
+        dichiarata per trasformare un recapito in una chiave, e adesso lo e.
+      */
+      const recapiti = new Set<string>(
+        (Array.isArray((parentTarget.data as any)?.contactOnlyIdentities)
+          ? (parentTarget.data as any).contactOnlyIdentities
+          : []
+        )
+          .map((valore: unknown) => String(valore || "").trim().toLowerCase())
+          .filter(Boolean) as string[],
+      );
+      recapiti.delete(String(session.db.user.email || "").trim().toLowerCase());
+
       await prisma.athlete.update({
         where: { id: parentTarget.athlete.id },
         data: {
@@ -886,6 +911,7 @@ export async function POST(request: Request) {
             ...parentTarget.data,
             guardians: updatedGuardians,
             revokedGuardianIdentities: Array.from(identita) as string[],
+            contactOnlyIdentities: Array.from(recapiti) as string[],
           },
         },
       });

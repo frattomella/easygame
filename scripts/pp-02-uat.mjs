@@ -7100,6 +7100,179 @@ const sezioneW = async () => {
     "prima: «Account non collegato» in tutti e due i casi, e nessuna differenza a schermo",
   );
 
+  /* ---------- W-58..W-61: il ventunesimo round ---------- */
+
+  /*
+    **W-58 (High).** Il registro nuovo si poteva **impugnare**. Era conservato
+    in «sola aggiunta» perche l'approvazione di un modulo ci passava attraverso,
+    e da quella fessura un ruolo di club a **zero chiavi** ci infilava
+    l'indirizzo di un genitore legittimo: lui trovava «Accesso negato» sul
+    proprio figlio e smetteva di ricevere solleciti e promemoria, con un
+    `anagrafica.updated` in audit e nessuna schermata che lo spiegasse.
+
+    La guardia della crescita non lo vede perche misura **solo la crescita**, e
+    iniettare nel registro restringe. E la stessa arma che il registro gemello
+    rifiuta a lettere venti righe piu sotto, nello stesso file.
+  */
+  const FIGLIO_INIEZIONE = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_INIEZIONE,
+      organization_id: CLUB,
+      first_name: "Registro",
+      last_name: "Impugnato",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [{ id: "madre", name: "Anna", email: ANNA.email }],
+      },
+    },
+  });
+
+  const primaIniezione = await cruscottoW25.canParentAccessAthlete(
+    ANNA.id,
+    FIGLIO_INIEZIONE,
+  );
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_INIEZIONE,
+    {
+      data: {
+        guardians: [{ id: "madre", name: "Anna", email: ANNA.email }],
+        contactOnlyIdentities: [String(ANNA.email).toLowerCase()],
+      },
+    },
+    scopeAllenatoreW29,
+  );
+
+  const dopoIniezione = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_INIEZIONE },
+      select: { data: true },
+    })
+  )?.data;
+
+  prova(
+    "W-58 dalla rotta generica il registro non si puo nemmeno riempire",
+    [true, 0, true],
+    [
+      primaIniezione,
+      (dopoIniezione?.contactOnlyIdentities || []).length,
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_INIEZIONE),
+    ],
+    "prima: un ruolo a zero chiavi chiudeva fuori un genitore, senza audit",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_INIEZIONE } });
+
+  /*
+    **W-59 (High).** Il registro nega **per identita, da qualunque riga**, e non
+    conosce la regola «non si declassa un tutore che il club aveva scritto» che
+    protegge il marchio di riga. Su un atleta la cui unica riga e
+    `{ Anna, famiglia@… }` senza legame dichiarato — la capability di ADR-0114 —
+    l'approvazione di un modulo che dichiara un secondo tutore **allo stesso
+    indirizzo** avvelenava quell'indirizzo, e la madre restava fuori.
+  */
+  const FIGLIO_INDIRIZZO_CONDIVISO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_INDIRIZZO_CONDIVISO,
+      organization_id: CLUB,
+      first_name: "Indirizzo",
+      last_name: "Condiviso",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [{ id: "madre", name: "Anna", email: ANNA.email }],
+      },
+    },
+  });
+
+  const primaCondiviso = await cruscottoW25.canParentAccessAthlete(
+    ANNA.id,
+    FIGLIO_INDIRIZZO_CONDIVISO,
+  );
+
+  const inviatoCondiviso = await inviiW29.submitRenewalForm(ANNA.id, {
+    athleteId: FIGLIO_INDIRIZZO_CONDIVISO,
+    publicSlug: moduloTutore.slug,
+    answers: { f_nome_tutore: "Papa", f_email_tutore: ANNA.email },
+    files: [],
+    respondentEmail: ANNA.email,
+  });
+
+  await inviiW29
+    .decideFormSubmission(scopeClubW29, inviatoCondiviso.submissionId, {
+      decision: "approved",
+    })
+    .catch(() => null);
+
+  const schedaCondivisa = await prisma.athlete.findUnique({
+    where: { id: FIGLIO_INDIRIZZO_CONDIVISO },
+    select: { id: true, data: true },
+  });
+
+  prova(
+    "W-59 approvare un tutore allo stesso indirizzo non chiude fuori la madre",
+    [true, true, 1],
+    [
+      primaCondiviso,
+      await cruscottoW25.canParentAccessAthlete(
+        ANNA.id,
+        FIGLIO_INDIRIZZO_CONDIVISO,
+      ),
+      contattiW25.readAthleteGuardianContacts(schedaCondivisa).length,
+    ],
+    "prima: «Genitore aggiunto», e la madre perdeva accesso e invii",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_INDIRIZZO_CONDIVISO } });
+
+  /*
+    **W-60 (High).** «Lo toglie il riscatto di un invito» era scritto in quattro
+    punti del codice e non lo faceva nessuno: `grep` sul file del riscatto
+    restituiva zero. Un indirizzo di famiglia avvelenato una volta restava
+    chiuso **per sempre**, per ogni persona futura che la segreteria scrivesse
+    su quella scheda senza un invito nominale.
+  */
+  const riscattoSorgente = await import("node:fs").then((fs) =>
+    fs.readFileSync("src/app/api/v1/auth/access/redeem/route.ts", "utf8"),
+  );
+
+  prova(
+    "W-60 il riscatto toglie davvero l'indirizzo dal registro",
+    true,
+    riscattoSorgente.includes("contactOnlyIdentities: Array.from(recapiti)"),
+    "prima: quattro commenti lo dichiaravano e nessuna riga lo faceva",
+  );
+
+  /*
+    **W-61 (Medium).** L'anteprima delle rate produceva una rata da 0,00 **senza
+    avviso**, e le due schermate bloccano il salvataggio solo quando un avviso
+    c'e. I due controlli guardavano percentuali e importi fissi separatamente,
+    mai il risultato.
+  */
+  const rateW61 = await carica("src/lib/payment-plan-utils.ts");
+  const anteprima = rateW61.generateInstallmentPreview(
+    {
+      installments: [
+        { label: "Acconto", amountType: "fixed", amount: 300 },
+        { label: "Prima", amountType: "percentage", amount: 60 },
+        { label: "Saldo", amountType: "remaining" },
+        { label: "Finale", amountType: "fixed", amount: 150 },
+      ],
+    },
+    500,
+  );
+
+  prova(
+    "W-61 una rata che resterebbe a zero adesso porta un avviso",
+    true,
+    (anteprima?.warnings || []).some((avviso) => /zero/i.test(avviso)),
+    JSON.stringify(anteprima?.installments?.map((r) => r.amount)),
+  );
+
   await prisma.athlete.update({
     where: { id: MARCO },
     data: { user_id: null },

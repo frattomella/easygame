@@ -7001,9 +7001,24 @@ const applicaGuardieDiModifica = async (
         la deve subire non deve poterla togliere. La scrive l'approvazione di un
         modulo, la toglie il riscatto di un invito.
 
-        Una **aggiunta** che arriva da qui passa, ed e voluto: e cosi che
-        l'approvazione scrive, perche passa da `updateResource`. Cio che non
-        passa e la **rimozione**, che e l'unico verso da cui viene il danno.
+        La prima stesura lasciava passare le **aggiunte** — «e cosi che
+        l'approvazione scrive, perche passa da `updateResource`» — e si e
+        rivelata la stessa arma che il registro gemello venti righe piu sotto
+        rifiuta a lettere: «una difesa che si puo impugnare e un'arma».
+
+        Misurato: un ruolo personalizzato a **zero chiavi** non riesce ad
+        aggiungere un tutore (la guardia della crescita lo nega) e riesce a
+        mandare `contactOnlyIdentities: ["<indirizzo della madre>"]`. Da quel
+        momento lei trova «Accesso negato» sul proprio figlio e smette di
+        ricevere solleciti e promemoria del certificato, senza che niente lo
+        spieghi e con un `anagrafica.updated` in audit. La guardia non lo vede
+        perche misura solo la **crescita**, e iniettare nel registro
+        **restringe**.
+
+        Le due difese sono gemelle per progetto e adesso hanno la stessa
+        disciplina: da questa rotta il registro si **conserva e basta**. Chi lo
+        scrive lo fa dal proprio dominio, con una scrittura diretta, come fa
+        `unlinkGuardianAccount` per l'altro.
       */
       const recapitiPrecedenti = Array.isArray(
         ((existing?.data as any) ?? {}).contactOnlyIdentities,
@@ -7015,23 +7030,22 @@ const applicaGuardieDiModifica = async (
         .map((valore) => String(valore || "").trim().toLowerCase())
         .filter(Boolean);
 
-      if (recapitiInArchivio.length) {
-        const recapitiInArrivo = Array.isArray(
-          ((normalized.data as any) ?? {}).contactOnlyIdentities,
-        )
-          ? (((normalized.data as any) ?? {}).contactOnlyIdentities as unknown[])
-              .map((valore) => String(valore || "").trim().toLowerCase())
-              .filter(Boolean)
-          : [];
+      const recapitiInArrivo = Array.isArray(
+        ((normalized.data as any) ?? {}).contactOnlyIdentities,
+      )
+        ? (((normalized.data as any) ?? {}).contactOnlyIdentities as unknown[])
+            .map((valore) => String(valore || "").trim().toLowerCase())
+            .filter(Boolean)
+        : [];
 
-        const uniti = new Set<string>([
-          ...recapitiInArchivio,
-          ...recapitiInArrivo,
-        ]);
+      const recapitiDiscordano =
+        recapitiInArchivio.length !== recapitiInArrivo.length ||
+        recapitiInArchivio.some((voce) => !recapitiInArrivo.includes(voce));
 
+      if (recapitiInArchivio.length || recapitiDiscordano) {
         normalized.data = {
           ...(((normalized.data as any) ?? {}) as Record<string, any>),
-          contactOnlyIdentities: Array.from(uniti) as string[],
+          contactOnlyIdentities: recapitiInArchivio as string[],
         };
       }
 
