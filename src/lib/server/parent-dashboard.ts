@@ -130,6 +130,8 @@ const getGuardianRows = (athlete: any) => {
       guardian?.userId,
       guardian?.user_id,
     ),
+    /* Tutti, per chi decide: vedi `guardianDeclaredIds`. */
+    linkedUserIds: guardianDeclaredIds(guardian),
     linkedUserEmail: firstText(
       guardian?.linkedUserEmail,
       guardian?.linked_user_email,
@@ -178,6 +180,7 @@ const getGuardianRows = (athlete: any) => {
         guardian?.userId,
         guardian?.user_id,
       ),
+      linkedUserIds: guardianDeclaredIds(guardian),
       linkedUserEmail: firstText(
         guardian?.linkedUserEmail,
         guardian?.linked_user_email,
@@ -192,6 +195,53 @@ const getGuardianRows = (athlete: any) => {
     }));
 
   return guardians.length > 0 ? guardians : legacyParents;
+};
+
+/**
+ * **Gli identificativi che una riga tutore dichiara — tutti, non il primo.**
+ *
+ * Esiste perche cinque letture facevano la stessa domanda e ne davano due
+ * risposte. `firstText` **comprime**: su una riga
+ * `{ linkedUserId: A, user_id: B }` restituisce solo `A`, e da li discendeva
+ * tutto. La proiezione di `getGuardianRows` comprimeva, quindi il vaglio del
+ * legame e l'insieme sorvegliato vedevano **una** identita; intanto
+ * `resolveFamilyRecipients` in `document-requests.ts` le raccoglie tutte e
+ * quattro dalla riga **grezza** e mandava a `B` ogni notifica documentale su
+ * quel minore — nome del bambino e documento chiesto — mentre la scheda
+ * continuava a dire «Account non collegato», perche anche quel badge
+ * comprimeva.
+ *
+ * Un round precedente aveva gia provato a chiudere questo: aveva allargato
+ * `guardianAccessIdentities` a quattro letture, ma su una riga **gia
+ * compressa**, quindi tre delle quattro erano codice morto. Il difetto non era
+ * l'elenco dei campi: era che l'elenco veniva applicato a valle di chi li
+ * fondeva.
+ *
+ * Adesso la domanda ha una risposta sola, e la usano il vaglio, l'insieme
+ * sorvegliato dalla guardia e la deroga dopo una revoca. Un valore in array
+ * conta per tutti i suoi elementi: `String(["a","b"])` non e un
+ * identificativo.
+ */
+export const guardianDeclaredIds = (guardian: unknown): string[] => {
+  const record = asRecord(guardian);
+  const grezzi = [
+    record.linkedUserId,
+    record.linked_user_id,
+    record.userId,
+    record.user_id,
+    record.linkedUserIds,
+    record.linked_user_ids,
+  ];
+
+  const identita = new Set<string>();
+  for (const valore of grezzi) {
+    for (const voce of Array.isArray(valore) ? valore : [valore]) {
+      const pulito = normalizeToken(voce);
+      if (pulito) identita.add(pulito);
+    }
+  }
+
+  return [...identita];
 };
 
 /**
@@ -270,39 +320,16 @@ export const revokedGuardianIdentities = (data: unknown): Set<string> => {
   );
 };
 
-export const guardianAccessIdentities = (
-  data: unknown,
-  opzioni?: { escludiRevocate?: boolean },
-): Set<string> => {
+export const guardianAccessIdentities = (data: unknown): Set<string> => {
   const identita = new Set<string>();
+  const revocate = revokedGuardianIdentities(data);
 
   for (const guardian of getGuardianRows({ data })) {
     /*
-      Le stesse due letture di `isGuardianLinkedToUser`, e con lo stesso
-      `firstText`: e li che un array diventa la sua stringa.
+      Le stesse letture di `isGuardianLinkedToUser`, perche sono **la stessa
+      funzione**: la guardia deve guardare cio che i lettori guardano.
     */
-    /*
-      **Tutte e quattro le grafie, non la prima non vuota.**
-
-      `firstText` comprime: una riga `{ linkedUserId: <gia presente>, user_id:
-      <un terzo> }` produceva **una sola** identita, quella gia nell'insieme,
-      quindi non cresceva niente e nessun permesso veniva chiesto — mentre
-      `resolveFamilyRecipients` le raccoglie **tutte e quattro** e metteva quel
-      terzo fra i destinatari delle notifiche documentali, che nominano il
-      minore e il documento chiesto.
-
-      La guardia deve guardare cio che i lettori guardano: la stessa
-      asimmetria e gia costata un round, e allora si corresse la proiezione
-      invece del **modo** in cui la guardia la legge.
-    */
-    const identificativi = [
-      (guardian as any).linkedUserId,
-      (guardian as any).linked_user_id,
-      (guardian as any).userId,
-      (guardian as any).user_id,
-    ]
-      .map((valore) => String(valore || "").trim().toLowerCase())
-      .filter(Boolean);
+    const identificativi = guardianDeclaredIds(guardian);
     const perEmail = firstText(
       (guardian as any).linkedUserEmail,
       (guardian as any).linked_user_email,
@@ -344,33 +371,35 @@ export const guardianAccessIdentities = (
     );
 
     for (const valore of identificativi) identita.add(valore);
-    if (perEmail && !soloRipiego) identita.add(perEmail.trim().toLowerCase());
-  }
 
-  /*
-    **L'esclusione vale su «prima», non su «dopo», e la differenza e tutto.**
+    /*
+      **Il ripiego cade anche su un'identita revocata, e da tutte e due i
+      lati.**
 
-    `resources.ts` nega una scrittura che fa **crescere** questo insieme senza
-    i due permessi. L'idea e giusta: un'identita revocata non deve contare come
-    «gia presente», o rimetterla non sarebbe crescita e passerebbe un ruolo che
-    non puo ne vedere ne concedere.
+      Questa e la riga che il quattordicesimo round ha misurato: 1.079
+      combinazioni su 1.536 in cui **rimandare la scheda invariata** risultava
+      una crescita. Nasce da sola, senza malafede — la segreteria revoca la
+      madre e poi aggiunge la nonna con l'indirizzo di famiglia — e da quel
+      momento un ruolo senza `clinical.read` non salvava piu **niente** su
+      quell'atleta: ne una taglia, ne un telefono, ne un documento, con un
+      messaggio che parlava di legami di famiglia.
 
-    La prima stesura pero sottraeva le revocate **da tutti e due** gli insiemi
-    — il blob in arrivo si porta dietro l'elenco, e tutti gli scrittori reali
-    lo conservano — quindi la differenza restava identica e la guardia era
-    **piu debole di prima**: scrivere un legame dichiarato verso un'identita
-    revocata non incontrava piu niente, mentre prima veniva rifiutato.
+      La causa era un'asimmetria: lo stato di partenza sottraeva le identita
+      revocate, quello in arrivo no. L'idea che la giustificava — «cosi
+      rimettere una persona revocata risulta una crescita» — resta vera, ma
+      **non serve questa asimmetria** per ottenerla: cio che rimette dentro una
+      persona revocata e il legame **dichiarato**, che vince sull'elenco
+      (`athleteBelongsToParent`), e gli identificativi non si sottraggono mai.
+      Il ripiego sull'indirizzo invece, su un'identita revocata, non concede
+      niente a nessuno: ne il cruscotto, ne un invio.
 
-    Perversa anche nel modo: era piu debole quanto piu il client era fedele.
-    Uno che rimandava il blob intero la spegneva; uno che mandava solo
-    `guardians` la faceva scattare.
-
-    Adesso il parametro c'e, e lo chiede **solo** chi misura lo stato di
-    partenza.
-  */
-  if (opzioni?.escludiRevocate) {
-    for (const revocata of revokedGuardianIdentities(data)) {
-      identita.delete(revocata);
+      Cosi l'insieme torna a essere una cosa sola e dicibile: **le identita a
+      cui questa scheda concede qualcosa**. La guardia confronta due stati
+      calcolati allo stesso modo, e una crescita e una persona nuova che entra.
+    */
+    const indirizzo = normalizeToken(perEmail);
+    if (indirizzo && !soloRipiego && !revocate.has(indirizzo)) {
+      identita.add(indirizzo);
     }
   }
 
@@ -382,12 +411,6 @@ const isGuardianLinkedToUser = (
   userId: string,
   userEmail?: string | null,
 ) => {
-  const linkedUserId = firstText(
-    guardian.linkedUserId,
-    guardian.linked_user_id,
-    guardian.userId,
-    guardian.user_id,
-  );
   /*
     **L'email di contatto vale come legame, ed e voluto.**
 
@@ -414,7 +437,9 @@ const isGuardianLinkedToUser = (
     questa persona, il legame c'e, anche dopo una revoca seguita da un nuovo
     riscatto — che e proprio il modo in cui si ricollega.
   */
-  if (sameId(linkedUserId, userId)) return true;
+  if (guardianDeclaredIds(guardian).includes(normalizeToken(userId))) {
+    return true;
+  }
 
   /*
     **E cade anche su una riga che il club non ha scritto.**
@@ -508,13 +533,7 @@ const athleteBelongsToParent = (
     if (!ioRevocato) return true;
 
     /* Revocato: passa solo un legame dichiarato, cioe un nuovo riscatto. */
-    return sameId(
-      firstText(
-        (guardian as any).linkedUserId,
-        (guardian as any).linked_user_id,
-      ),
-      userId,
-    );
+    return guardianDeclaredIds(guardian).includes(normalizeToken(userId));
   });
 };
 

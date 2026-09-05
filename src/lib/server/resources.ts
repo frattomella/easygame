@@ -6607,19 +6607,6 @@ const applicaGuardieDiModifica = async (
         Entrambi spariscono chiedendo l'insieme a chi lo usa per decidere.
       */
       /*
-        **Lo stato di partenza esclude le identita revocate, quello in arrivo
-        no**: e cosi che rimettere una persona revocata risulta una crescita, e
-        la guardia la vede. Sottrarle da tutti e due lasciava la differenza
-        identica, cioe non serviva a niente.
-      */
-      const prima = guardianAccessIdentities(existing?.data ?? {}, {
-        escludiRevocate: true,
-      });
-
-      const dopo = guardianAccessIdentities(normalized.data ?? {});
-      const cresciute = [...dopo].filter((id) => !prima.has(id));
-
-      /*
         **Il marchio della revoca non si toglie da qui, e si riporta da se.**
 
         `athletes.data` e un blob JSON che questa rotta **sostituisce per
@@ -6830,6 +6817,28 @@ const applicaGuardieDiModifica = async (
         };
       }
 
+      /*
+        **Si misura cio che verra scritto, non cio che e arrivato.**
+
+        Il confronto stava **prima** dei tre riporti qui sopra, e cioe
+        guardava un `data` a cui mancavano le difese che questa rotta sta per
+        rimettere. Il costo era misurato e nasceva da solo: il client della
+        scheda atleta non conosce `accessRevokedAt`, `contactOnly` ne
+        l'elenco delle identita revocate, quindi li lascia cadere a ogni
+        salvataggio; l'insieme «in arrivo» risultava percio piu largo dello
+        stato reale, e un ruolo senza le due chiavi si vedeva rifiutare il
+        cambio di una taglia con un messaggio sui legami di famiglia.
+
+        Spostarlo qui rende la domanda quella giusta: **dopo** che le difese
+        sono tornate al loro posto, questa scrittura fa entrare qualcuno che
+        prima non entrava? I riporti non possono aprire niente — riscrivono
+        cio che era in archivio — quindi misurare a valle non indebolisce la
+        guardia, la rende esatta.
+      */
+
+      const prima = guardianAccessIdentities(existing?.data ?? {});
+      const dopo = guardianAccessIdentities(normalized.data ?? {});
+      const cresciute = [...dopo].filter((id) => !prima.has(id));
       /*
         **Un'identita che non appartiene a nessuno non concede niente.**
 

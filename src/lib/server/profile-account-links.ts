@@ -1,4 +1,6 @@
 import { athleteWithinAccessScope } from "./access-scope-query";
+import { guardianDeclaredIds } from "./parent-dashboard";
+import { normalizeGuardianRows } from "@/lib/athlete-guardians";
 import { prisma } from "./prisma";
 import { reportServerError } from "./observability";
 import {
@@ -532,7 +534,29 @@ export const unlinkGuardianAccount = async (
   const data = isRecord(atleta.data) ? (atleta.data as Record<string, any>) : {};
   const guardians = toArray(data.guardians);
   const guardianId = testo(input.guardianId);
-  const index = guardians.findIndex((entry) => testo(entry?.id) === guardianId);
+  let index = guardians.findIndex((entry) => testo(entry?.id) === guardianId);
+
+  /*
+    **L'id che la scheda manda puo non esistere in archivio.**
+
+    `normalizeGuardianRows` costruisce un id **sintetico** — `guardian-<n>-
+    <indirizzo a trattini>` — per le righe che non ne portano uno, ed e quello
+    che finisce nel `key` di React e nel corpo della richiesta. Una riga nata
+    dall'approvazione di un modulo non ha id: `buildGuardianPatch` copia i soli
+    binding del modulo e `form-submissions.ts` fa `guardians.push` di
+    quell'oggetto. Il pulsante «Scollega account» rispondeva quindi «Genitore
+    non trovato nella scheda atleta» su un genitore che era li sullo schermo, e
+    la persona restava collegata — proprio sulla classe di righe attorno a cui
+    e nata tutta la difesa `contactOnly`.
+
+    Si ricade percio sullo **stesso** id sintetico, calcolato con la stessa
+    funzione che lo mostra: non una seconda regola da tenere allineata.
+  */
+  if (index < 0 && guardianId) {
+    index = normalizeGuardianRows(guardians as any[]).findIndex(
+      (entry) => testo((entry as any)?.id) === guardianId,
+    );
+  }
 
   if (index < 0) {
     throw new Error("Genitore non trovato nella scheda atleta");
@@ -601,11 +625,40 @@ export const unlinkGuardianAccount = async (
     un livello: li si aggirava il ripiego sull'indirizzo, qui il legame
     dichiarato.
   */
+  /*
+    **La riga sorella e la stessa persona, non lo stesso indirizzo.**
+
+    La prima stesura di questo blocco filtrava con `isLinkedToTarget`, che
+    combacia **anche sul solo indirizzo**. Su una configurazione ordinaria —
+    madre e padre, ognuno con il proprio `linkedUserId`, e l'unico indirizzo
+    di famiglia su tutte e due le righe — revocare la madre azzerava il legame
+    dichiarato **del padre** e gli scriveva addosso il marchio. Al caricamento
+    successivo lui trovava «Accesso negato»: calendario, rate, ricevute,
+    documenti e certificato del figlio spariti, e con loro solleciti,
+    promemoria e notifiche. La scheda diceva «Account non collegato» anche
+    sulla sua riga, nessuno aveva premuto quel pulsante, e l'audit registrava
+    un `guardian_id` solo. Per rientrare gli serviva un invito nuovo.
+
+    Una riga che porta un **proprio** identificativo, diverso da quello che si
+    sta revocando, e un'altra persona: l'indirizzo condiviso non la rende la
+    stessa. Percio si spazza per identificativo, e si cade sull'indirizzo solo
+    quando la riga un identificativo non ce l'ha — li l'indirizzo **e**
+    l'identita, e due righe senza identificativo allo stesso indirizzo non
+    sono distinguibili nemmeno in principio.
+  */
+  const stessaPersona = (entry: any) => {
+    const suoi = guardianDeclaredIds(entry);
+    if (suoi.length) {
+      const bersaglio = String(linkedUserId || "").trim().toLowerCase();
+      return Boolean(bersaglio) && suoi.includes(bersaglio);
+    }
+
+    return isLinkedToTarget(entry, "", linkedUserEmail);
+  };
+
   const nextGuardians = guardians.map((entry, position) => {
     if (position === index) return nextGuardian;
-    if (!isLinkedToTarget(entry, linkedUserId || "", linkedUserEmail)) {
-      return entry;
-    }
+    if (!stessaPersona(entry)) return entry;
 
     const { next: ripulita } = clearLinkedFields(
       entry,

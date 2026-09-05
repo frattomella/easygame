@@ -5,15 +5,17 @@ import { readFileSync } from "node:fs";
 import { createFakePrisma } from "../helpers/fake-prisma.mjs";
 
 let canParentAccessAthlete;
+let guardianAccessIdentities;
 let clearLinkedFields;
+let unlinkGuardianAccount;
 let setPrismaClientForTests;
 
 before(async () => {
   process.env.DATABASE_URL ||= "postgresql://test:test@127.0.0.1:5432/test";
-  ({ canParentAccessAthlete } = await import(
+  ({ canParentAccessAthlete, guardianAccessIdentities } = await import(
     "../../src/lib/server/parent-dashboard.ts"
   ));
-  ({ clearLinkedFields } = await import(
+  ({ clearLinkedFields, unlinkGuardianAccount } = await import(
     "../../src/lib/server/profile-account-links.ts"
   ));
   ({ __setPrismaClientForTests: setPrismaClientForTests } = await import(
@@ -46,11 +48,26 @@ const ANNA = "22222222-0000-4000-8000-000000000002";
 const RAGAZZO = "33333333-0000-4000-8000-000000000003";
 const FIGLIO = "44444444-0000-4000-8000-000000000004";
 
+const BRUNO = "55555555-0000-4000-8000-000000000005";
+const PRESIDENTE = "66666666-0000-4000-8000-000000000006";
+
 const EMAIL_ANNA = "anna@famiglia.invalid";
+/*
+  **Un solo indirizzo per due genitori**: e la configurazione ordinaria di una
+  famiglia, non un caso limite, ed e quella su cui il quattordicesimo round ha
+  misurato che revocare la madre revocava anche il padre.
+*/
+const EMAIL_FAMIGLIA = "famiglia@rossi.invalid";
 
 const seme = (guardiano) => ({
   user: [
     { id: ANNA, email: EMAIL_ANNA, email_verified_at: new Date() },
+    { id: BRUNO, email: "bruno@famiglia.invalid", email_verified_at: new Date() },
+    {
+      id: PRESIDENTE,
+      email: "presidente@asd.invalid",
+      email_verified_at: new Date(),
+    },
     {
       id: RAGAZZO,
       email: "ragazzo@famiglia.invalid",
@@ -60,6 +77,8 @@ const seme = (guardiano) => ({
   club: [{ id: CLUB, name: "ASD Prova" }],
   organizationUser: [
     { id: "m1", organization_id: CLUB, user_id: ANNA, role: "parent" },
+    { id: "m3", organization_id: CLUB, user_id: BRUNO, role: "parent" },
+    { id: "m4", organization_id: CLUB, user_id: PRESIDENTE, role: "owner" },
     { id: "m2", organization_id: CLUB, user_id: RAGAZZO, role: "athlete" },
   ],
   athlete: [
@@ -74,6 +93,14 @@ const seme = (guardiano) => ({
     },
   ],
 });
+
+const conRighe = (...guardiani) => {
+  const base = seme(guardiani[0]);
+  base.athlete[0].data = { guardians: guardiani };
+  const fake = createFakePrisma(base);
+  setPrismaClientForTests(fake.client);
+  return fake;
+};
 
 const conSeme = (guardiano) => {
   const fake = createFakePrisma(seme(guardiano));
@@ -320,4 +347,96 @@ test("il marchio non declassa una riga che il club aveva gia scritto", async () 
     sorgente.includes("if (senzaAutore && rigaNuova) {"),
     "e vale solo sulla riga che nasce adesso",
   );
+});
+
+/* --------------------------------- il quattordicesimo round ------------- */
+
+test("il marchio di una riga non chiude l'altro genitore allo stesso indirizzo", async () => {
+  /*
+    **La regressione piu cara del pacchetto, e l'ha aperta una correzione.**
+
+    Per raggiungere una seconda riga **della stessa persona** — un secondo
+    invito riscattato, che scavalcava la revoca — la ripulitura filtrava con
+    `isLinkedToTarget`, che combacia **anche sul solo indirizzo**. Su madre e
+    padre con un unico indirizzo di famiglia, revocare la madre azzerava il
+    legame dichiarato **del padre** e gli scriveva addosso il marchio: al
+    caricamento successivo trovava «Accesso negato», e nessuno aveva premuto
+    quel pulsante.
+
+    Qui si tiene fermo il confine giusto: la riga sorella e la stessa
+    **persona**, non lo stesso recapito.
+  */
+  conRighe(
+    { id: "madre", name: "Anna", email: EMAIL_FAMIGLIA, linkedUserId: ANNA },
+    { id: "padre", name: "Bruno", email: EMAIL_FAMIGLIA, linkedUserId: BRUNO },
+  );
+
+  assert.equal(await canParentAccessAthlete(BRUNO, FIGLIO), true, "prima");
+
+  await unlinkGuardianAccount(
+    {
+      userId: PRESIDENTE,
+      activeOrganizationId: CLUB,
+      activeRole: "owner",
+      activeMembershipId: null,
+      allowedOrganizationIds: [CLUB],
+      accessScopes: [],
+    },
+    { athleteId: FIGLIO, guardianId: "madre" },
+  );
+
+  assert.equal(
+    await canParentAccessAthlete(ANNA, FIGLIO),
+    false,
+    "la madre e stata revocata",
+  );
+  assert.equal(
+    await canParentAccessAthlete(BRUNO, FIGLIO),
+    true,
+    "e il padre no: la riga sorella e la stessa persona, non lo stesso recapito",
+  );
+});
+
+test("una riga porta tutte le grafie dell'identificativo, non la prima", async () => {
+  /*
+    `getGuardianRows` comprime le quattro grafie con `firstText`, quindi
+    l'insieme sorvegliato dalla guardia ne vedeva **una**: una riga
+    `{ linkedUserId: <gia dentro>, user_id: <un terzo> }` non faceva crescere
+    niente e nessun permesso veniva chiesto. Intanto
+    `resolveFamilyRecipients` le raccoglie tutte e quattro dalla riga grezza e
+    metteva quel terzo fra i destinatari delle notifiche documentali, che
+    nominano il minore e il documento chiesto.
+
+    La guardia deve guardare cio che i lettori guardano.
+  */
+  const identita = guardianAccessIdentities({
+    guardians: [{ id: "t", name: "Tutore", linkedUserId: ANNA, user_id: BRUNO }],
+  });
+
+  assert.ok(identita.has(ANNA.toLowerCase()), "la prima grafia");
+  assert.ok(identita.has(BRUNO.toLowerCase()), "e la terza, che concede un canale");
+});
+
+test("un indirizzo revocato non entra nell'insieme, da nessuno dei due lati", async () => {
+  /*
+    La guardia confrontava uno stato di partenza **senza** le identita revocate
+    con uno stato in arrivo che le conteneva: rimandare la scheda invariata
+    risultava percio una crescita, e un ruolo senza `clinical.read` non
+    salvava piu niente su quell'atleta — ne una taglia, ne un telefono.
+
+    Una riga che porta solo un indirizzo **revocato** non concede niente a
+    nessuno: non deve contare da nessuno dei due lati.
+  */
+  const dati = {
+    guardians: [{ id: "nonna", name: "Nonna", email: EMAIL_ANNA }],
+    revokedGuardianIdentities: [EMAIL_ANNA],
+  };
+
+  assert.equal(
+    guardianAccessIdentities(dati).has(EMAIL_ANNA),
+    false,
+    "l'indirizzo revocato non e un'identita che questa scheda concede",
+  );
+
+  conRighe(dati.guardians[0]);
 });

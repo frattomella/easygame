@@ -139,14 +139,20 @@ export const getGuardianRows = (athlete: any) => {
         qui e non li voleva dire che la stessa domanda, sulla stessa persona,
         aveva due risposte.
       */
-  const legameDichiaratoVivo = (record: Record<string, any>) => {
-    const dichiarato = String(
-      record.linkedUserId || record.linked_user_id || "",
-    )
-      .trim()
-      .toLowerCase();
-    return Boolean(dichiarato) && !identitaRevocate.has(dichiarato);
-  };
+      /*
+        **Le quattro grafie, come chiunque altro le legga.**
+
+        Questa uscita ne leggeva due. Il vaglio dell'accesso, la guardia della
+        crescita e la revoca ne leggono quattro, quindi una riga scritta con
+        `userId`/`user_id` apriva il cruscotto e **non** teneva in piedi il
+        canale: la stessa persona, la stessa domanda, due risposte — che e la
+        forma esatta che ADR-0116 §3 vieta.
+      */
+  const legameDichiaratoVivo = (record: Record<string, any>) =>
+    [record.linkedUserId, record.linked_user_id, record.userId, record.user_id]
+      .map((valore) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean)
+      .some((voce) => !identitaRevocate.has(voce));
 
   const revocataPerIdentita = (record: Record<string, any>) =>
     [

@@ -3618,10 +3618,27 @@ const sezioneW = async () => {
     .then(() => "riuscita")
     .catch((errore) => String(errore?.message || errore));
 
+  /*
+    **Cosa deve essere rifiutato, misurato invece che presunto.**
+
+    La stesura precedente chiedeva che **anche** rimettere il solo indirizzo
+    fosse rifiutato. Il quattordicesimo round ha misurato il prezzo di quella
+    pretesa — 1.079 combinazioni su 1.536 in cui rimandare la scheda invariata
+    risultava una crescita — e la sua inutilita: una riga che porta solo un
+    indirizzo **revocato** non concede niente a nessuno, ne il cruscotto (la
+    deroga dopo una revoca chiede un legame **dichiarato**) ne un invio (tutti
+    e tre i canali filtrano sull'elenco). Rifiutarla non proteggeva: impediva
+    alla segreteria di aggiungere la nonna con l'indirizzo di famiglia, e da
+    quel momento nessun ruolo senza `clinical.read` salvava piu niente su
+    quell'atleta.
+
+    Cio che concede — e che resta rifiutato — e il legame **dichiarato**: e
+    quello che batte l'elenco, ed e la strada del riscatto.
+  */
   prova(
-    "W-13c rimettere un'identita revocata e una crescita, e la guardia la rifiuta",
-    true,
-    rientroNegato !== "riuscita",
+    "W-13c la riga col solo indirizzo revocato passa, e non concede niente",
+    [true, false],
+    [rientroNegato === "riuscita", await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_AGGIRO)],
     rientroNegato,
   );
 
@@ -3890,7 +3907,7 @@ const sezioneW = async () => {
     [false, false],
     [
       cruscottoW24
-        .guardianAccessIdentities(dopoRevocaVera, { escludiRevocate: true })
+        .guardianAccessIdentities(dopoRevocaVera)
         .has(String(ANNA.email).toLowerCase()),
       cruscottoW24
         .guardianAccessIdentities(dopoRevocaVera)
@@ -4510,10 +4527,34 @@ const sezioneW = async () => {
     .then(() => "riuscita")
     .catch((errore) => String(errore?.message || errore));
 
+  /*
+    **Il segno non si toglie da qui: si riporta.**
+
+    La stesura precedente chiedeva che togliere `contactOnly` fosse
+    **rifiutato**. Nessun file client conosce quel campo, quindi «toglierlo» e
+    indistinguibile da un salvataggio ordinario — che e esattamente lo scenario
+    di `W-17b` — e rifiutare voleva dire negare la scheda a chi non ha le due
+    chiavi. Il riporto e la difesa piu forte: il segno e **immutabile** da
+    questa rotta, e la sola strada che lo scioglie e un riscatto, che ha il suo
+    gate. Si misura percio l'esito, non il codice di errore.
+  */
   prova(
-    "W-17d togliere il segno e una concessione, e la guardia la vaglia",
-    true,
-    toglieIlSegno !== "riuscita",
+    "W-17d togliere il segno esplicitamente non lo toglie, e non apre niente",
+    ["riuscita", true, false],
+    [
+      /*
+        **E il salvataggio riesce.** E la meta che il quattordicesimo round ha
+        misurato: il confronto della crescita stava **prima** dei riporti,
+        quindi guardava un `data` a cui il client aveva lasciato cadere le
+        difese che questa rotta sta per rimettere — cioe sempre, perche nessun
+        file client le conosce. Un ruolo senza le due chiavi si vedeva percio
+        rifiutare il cambio di una taglia con un messaggio sui legami di
+        famiglia. Rifiutare non e la difesa: il riporto lo e.
+      */
+      toglieIlSegno,
+      Boolean(((await letto(E))?.guardians || [])[0]?.contactOnly),
+      await cruscotto.canParentAccessAthlete(ANNA.id, E),
+    ],
     toglieIlSegno,
   );
 
@@ -4781,6 +4822,403 @@ const sezioneW = async () => {
     !suaArea?.errore && Boolean(suaArea?.me?.id),
     suaArea?.errore || "aperta",
   );
+
+  /* ---------- W-25..W-28: il quattordicesimo round ---------- */
+
+  const cruscottoW25 = await carica("src/lib/server/parent-dashboard.ts");
+  const legamiW25 = await carica("src/lib/server/profile-account-links.ts");
+  const scopeSegreteriaW25 = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "owner",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  /*
+    **W-25 (High).** Revocare la madre revocava anche il padre.
+
+    Configurazione ordinaria, e quella che ADR-0114 descrive: madre e padre,
+    ognuno con il proprio `linkedUserId`, e **un solo indirizzo di famiglia**
+    su tutte e due le righe. La ripulitura delle righe sorelle filtrava con
+    `isLinkedToTarget`, che combacia anche sul solo indirizzo: al padre
+    venivano azzerati il legame dichiarato e scritto addosso il marchio. Al
+    caricamento successivo trovava «Accesso negato» — calendario, rate,
+    ricevute, documenti, certificato — e nessuno aveva premuto quel pulsante.
+
+    Regressione aperta dalla correzione di `W-24c`, che resta verde accanto a
+    questa: le due proprieta sono complementari e vanno misurate insieme.
+  */
+  const FIGLIO_DUE_GENITORI = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_DUE_GENITORI,
+      organization_id: CLUB,
+      first_name: "Due",
+      last_name: "Genitori",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "madre", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+          { id: "padre", name: "Bruno", linkedUserId: BRUNO.id, email: ANNA.email },
+        ],
+      },
+    },
+  });
+
+  const padrePrima = await cruscottoW25.canParentAccessAthlete(
+    BRUNO.id,
+    FIGLIO_DUE_GENITORI,
+  );
+
+  await legamiW25.unlinkGuardianAccount(scopeSegreteriaW25, {
+    athleteId: FIGLIO_DUE_GENITORI,
+    guardianId: "madre",
+  });
+
+  prova(
+    "W-25 revocare la madre non revoca il padre che condivide l'indirizzo",
+    [true, false, true],
+    [
+      padrePrima,
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_DUE_GENITORI),
+      await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_DUE_GENITORI),
+    ],
+    "prima: il padre perdeva tutto, e l'audit nominava solo la madre",
+  );
+
+  /*
+    E i canali di invio dicono la stessa cosa: il padre continua a ricevere, la
+    madre no. Tre letture, una risposta.
+  */
+  const contattiW25 = await carica("src/lib/athlete-guardians.ts");
+  const promemoriaW25 = await carica(
+    "src/lib/server/medical-certificate-reminders.ts",
+  );
+  const schedaW25 = await prisma.athlete.findUnique({
+    where: { id: FIGLIO_DUE_GENITORI },
+    select: { id: true, data: true },
+  });
+
+  prova(
+    "W-25b e i canali di invio restano aperti per lui, chiusi per lei",
+    [1, 1],
+    [
+      contattiW25.readAthleteGuardianContacts(schedaW25).length,
+      promemoriaW25.getGuardianRows(schedaW25).length,
+    ],
+    "prima: zero e zero, perche la sua riga era stata marchiata",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_DUE_GENITORI } });
+
+  /*
+    **W-26 (High).** «Tutte e quattro le grafie» non era mai entrato in
+    funzione: `guardianAccessIdentities` le leggeva su una riga che
+    `getGuardianRows` aveva **gia compressa** con `firstText`. Una riga
+    `{ linkedUserId: <gia dentro>, user_id: <un terzo> }` portava quindi una
+    sola identita, l'insieme non cresceva e nessun permesso veniva chiesto —
+    mentre `resolveFamilyRecipients` raccoglie tutte e quattro le grafie dalla
+    riga grezza e metteva quel terzo fra i destinatari delle notifiche
+    documentali, che nominano il minore e il documento chiesto.
+  */
+  const dueIdentificativi = {
+    guardians: [
+      { id: "t", name: "Tutore", linkedUserId: ANNA.id, user_id: BRUNO.id },
+    ],
+  };
+
+  const insiemeW26 = cruscottoW25.guardianAccessIdentities(dueIdentificativi);
+
+  prova(
+    "W-26 una riga con due identificativi le porta entrambe",
+    [true, true],
+    [
+      insiemeW26.has(String(ANNA.id).toLowerCase()),
+      insiemeW26.has(String(BRUNO.id).toLowerCase()),
+    ],
+    "prima: la seconda cadeva, e la guardia non chiedeva niente",
+  );
+
+  /* E si passa dalla guardia, non dal calcolo. */
+  const FIGLIO_GRAFIE = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_GRAFIE,
+      organization_id: CLUB,
+      first_name: "Grafie",
+      last_name: "Quattro",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "t", name: "Tutore", linkedUserId: ANNA.id, email: ANNA.email },
+        ],
+      },
+    },
+  });
+
+  const risorseW26 = await carica("src/lib/server/resources.ts");
+  const scopeAllenatoreW26 = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "trainer",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  const terzaGrafia = await risorseW26
+    .updateResource(
+      "athletes",
+      FIGLIO_GRAFIE,
+      {
+        data: {
+          guardians: [
+            {
+              id: "t",
+              name: "Tutore",
+              linkedUserId: ANNA.id,
+              email: ANNA.email,
+              user_id: BRUNO.id,
+            },
+          ],
+        },
+      },
+      scopeAllenatoreW26,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-26b e la rotta rifiuta a chi non ha le due chiavi di scriversi la terza grafia",
+    true,
+    terzaGrafia !== "riuscita",
+    terzaGrafia,
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_GRAFIE } });
+
+  /*
+    **W-27 (High).** Il falso positivo della crescita che bloccava la scheda per
+    sempre. Stato ordinario: la madre e stata revocata (il suo indirizzo e
+    nell'elenco delle identita), e poi la segreteria — che le due chiavi ce le
+    ha — aggiunge la nonna con lo stesso indirizzo di famiglia. Da quel momento
+    un ruolo **senza** `clinical.read` non salvava piu niente su quell'atleta:
+    ne una taglia, ne un telefono, con un messaggio che parlava di legami di
+    famiglia mentre l'operatore stava cambiando una maglia.
+  */
+  const FIGLIO_NONNA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_NONNA,
+      organization_id: CLUB,
+      first_name: "Con",
+      last_name: "Nonna",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          {
+            id: "madre",
+            name: "Anna",
+            email: ANNA.email,
+            linkedUserId: null,
+            accessRevokedAt: new Date().toISOString(),
+          },
+        ],
+        revokedGuardianIdentities: [
+          String(ANNA.email).toLowerCase(),
+          String(ANNA.id).toLowerCase(),
+        ],
+      },
+    },
+  });
+
+  /*
+    Prima meta: **aggiungere** la riga. L'indirizzo e revocato, quindi quella
+    riga non concede niente a nessuno — ne il cruscotto, che dopo una revoca
+    chiede un legame **dichiarato**, ne un invio, che tutti e tre i canali
+    filtrano sull'elenco. Contarla come una concessione era il falso positivo:
+    da li in poi la scheda restava bloccata.
+  */
+  const datiMadre = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_NONNA },
+      select: { data: true },
+    })
+  )?.data;
+
+  const aggiungiNonna = await risorseW26
+    .updateResource(
+      "athletes",
+      FIGLIO_NONNA,
+      {
+        data: {
+          ...datiMadre,
+          guardians: [
+            ...(datiMadre?.guardians || []),
+            { id: "nonna", name: "Nonna", email: ANNA.email },
+          ],
+        },
+      },
+      scopeAllenatoreW26,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-27b aggiungere una riga all'indirizzo revocato passa, e non concede niente",
+    ["riuscita", false],
+    [
+      aggiungiNonna,
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_NONNA),
+    ],
+    "prima: rifiutata, perche l'insieme «dopo» contava un indirizzo revocato",
+  );
+
+  const datiNonna = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_NONNA },
+      select: { data: true },
+    })
+  )?.data;
+
+  const salvaTaglia = await risorseW26
+    .updateResource(
+      "athletes",
+      FIGLIO_NONNA,
+      { data: { ...datiNonna, size: "M" } },
+      scopeAllenatoreW26,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-27 con una riga superstite all'indirizzo revocato la scheda resta salvabile",
+    ["riuscita", false],
+    [salvaTaglia, await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_NONNA)],
+    "prima: rifiutata per sempre, e senza nessuna schermata che lo sciogliesse",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_NONNA } });
+
+  /*
+    **W-27c.** L'altra meta della stessa correzione: lo stato di partenza non
+    sottrae piu le identita revocate.
+
+    Lo stato e raggiungibile e non richiede malafede — la segreteria revoca
+    Anna e poi la **rimette a mano**, scrivendole il legame dichiarato senza
+    passare da un riscatto: l'elenco delle identita resta com'era, perche solo
+    il riscatto lo ripulisce. Anna entra (il legame dichiarato vince
+    sull'elenco), ma `prima` la sottraeva e `dopo` no, quindi **qualunque**
+    salvataggio da un ruolo senza le due chiavi risultava una crescita.
+
+    Sottrarre da un lato solo serviva a far risultare crescita il rientro di
+    una persona revocata; quel rientro pero non passa da qui — lo scrive il
+    riscatto con una `update` diretta — e cio che passa di qui, il ripiego
+    sull'indirizzo, e gia escluso dai due lati.
+  */
+  const FIGLIO_RIMESSA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_RIMESSA,
+      organization_id: CLUB,
+      first_name: "Anna",
+      last_name: "Rimessa",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "t", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+        ],
+        revokedGuardianIdentities: [
+          String(ANNA.email).toLowerCase(),
+          String(ANNA.id).toLowerCase(),
+        ],
+      },
+    },
+  });
+
+  const datiRimessa = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_RIMESSA },
+      select: { data: true },
+    })
+  )?.data;
+
+  const salvaSuRimessa = await risorseW26
+    .updateResource(
+      "athletes",
+      FIGLIO_RIMESSA,
+      { data: { ...datiRimessa, size: "L" } },
+      scopeAllenatoreW26,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-27c un tutore rimesso a mano non blocca la scheda a chi non ha le due chiavi",
+    ["riuscita", true],
+    [
+      salvaSuRimessa,
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_RIMESSA),
+    ],
+    "prima: ogni salvataggio risultava una crescita, per sempre",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_RIMESSA } });
+
+  /*
+    **W-28 (Medium).** «Scollega account» non trovava un tutore nato
+    dall'approvazione di un modulo. Quelle righe un `id` non ce l'hanno —
+    `form-submissions.ts` fa `guardians.push` di un oggetto che porta i soli
+    binding del modulo — e la scheda mostra l'id **sintetico** di
+    `normalizeGuardianRows`. La rotta cercava per `entry.id` e rispondeva
+    «Genitore non trovato nella scheda atleta» su un genitore che era li sullo
+    schermo: la revoca non era disponibile proprio sulla classe di righe
+    attorno a cui e nata la difesa `contactOnly`.
+  */
+  const FIGLIO_SENZA_ID = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_SENZA_ID,
+      organization_id: CLUB,
+      first_name: "Senza",
+      last_name: "Identificativo",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [{ name: "Anna", email: ANNA.email, linkedUserId: ANNA.id }],
+      },
+    },
+  });
+
+  const idSintetico = contattiW25.normalizeGuardianRows([
+    { name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+  ])[0].id;
+
+  const esitoScollega = await legamiW25
+    .unlinkGuardianAccount(scopeSegreteriaW25, {
+      athleteId: FIGLIO_SENZA_ID,
+      guardianId: idSintetico,
+    })
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-28 «Scollega account» trova un tutore nato da un modulo, e lo revoca",
+    ["riuscita", false],
+    [
+      esitoScollega,
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_SENZA_ID),
+    ],
+    "prima: «Genitore non trovato», e la persona restava collegata",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_SENZA_ID } });
 
   await prisma.athlete.update({
     where: { id: MARCO },

@@ -2574,7 +2574,7 @@ presidio e sulla classe e non sul caso: nessun file sotto `src/app/api` o
 `src/lib/server` puo importare il dominio del browser.
 
 
-## La revoca di un tutore (PP-02, round 7-12)
+## La revoca di un tutore (PP-02, round 7-14)
 
 L'accesso di un tutore a un atleta si toglie per **identita**, non per riga, e
 la decisione con le sue ragioni sta in
@@ -2605,3 +2605,28 @@ Tre difese, tutte dentro `athletes.data`:
   **concedono** come l'elenco, e vanno trattati insieme a lui: per un round lo
   sweep spazzava tre chiavi che nessun predicato di accesso legge e lasciava
   intatta quella che apre la porta.
+- La revoca raggiunge **tutte le righe di quella persona** e **nessun'altra**.
+  Le due meta vanno lette insieme: per raggiungere la prima si e filtrato per
+  indirizzo, e su madre e padre con un unico indirizzo di famiglia — la
+  configurazione ordinaria — revocare l'una chiudeva fuori l'altro, azzerandogli
+  il legame dichiarato. Si riconosce la **persona**, e si cade sull'indirizzo
+  solo dove la riga un identificativo non ce l'ha.
+- «Quali identita dichiara questa riga» ha **una** risposta,
+  `guardianDeclaredIds`, e legge tutte e quattro le grafie
+  (`linkedUserId`, `linked_user_id`, `userId`, `user_id`). Prima la
+  proiezione le **comprimeva** con `firstText`: chi decideva ne vedeva una,
+  chi mandava le notifiche documentali tutte e quattro, e da quella distanza un
+  allenatore si abbonava in silenzio al traffico documentale di un minore
+  scrivendosi `user_id: <se stesso>`.
+- L'insieme che la guardia sorveglia sono **le identita a cui la scheda concede
+  qualcosa**: gli identificativi sempre, l'indirizzo solo se la riga non porta
+  un marchio e non e un'identita revocata. Si calcola allo stesso modo sui due
+  stati, e **dopo** che i riporti hanno rimesso le difese che ogni client lascia
+  cadere. Calcolarlo prima, o con regole diverse sui due lati, non chiude nulla
+  e blocca la scheda: 1.079 combinazioni su 1.536 risultavano una crescita
+  rimandate invariate, e da li in poi nessun ruolo senza `clinical.read`
+  riusciva piu a cambiare una taglia.
+- Il segno `contactOnly` e il marchio `accessRevokedAt` non si tolgono da
+  quella rotta: si **riportano**. E una difesa piu forte del rifiuto — rifiutare
+  avrebbe negato il salvataggio ordinario, perche nessun file client conosce
+  quei campi — e li rende immutabili da li, con una sola strada che li scioglie.

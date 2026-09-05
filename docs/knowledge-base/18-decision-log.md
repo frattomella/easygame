@@ -6347,3 +6347,40 @@ un'altra:
 regressioni fra un round e il successivo, e il costo non era nel merito di
 nessuna delle tre: era che ognuna nasceva senza le protezioni della precedente.
 Chi ne aggiungera una quarta deve trovare scritto **cosa deve ereditare**.
+
+**Sesta protezione, aggiunta dal quattordicesimo round.** Una difesa deve
+riconoscere la **persona**, non il suo recapito, ogni volta che il recapito puo
+essere condiviso — e in una famiglia lo e quasi sempre. La ripulitura delle
+righe sorelle filtrava per indirizzo: revocare la madre azzerava il legame
+dichiarato del padre e lo chiudeva fuori, senza che nessuno avesse premuto quel
+pulsante. Si spazza percio per identificativo, e si cade sull'indirizzo solo
+quando la riga un identificativo non ce l'ha — li l'indirizzo **e** l'identita,
+e due righe senza identificativo allo stesso indirizzo non sono distinguibili
+nemmeno in principio.
+
+**E una regola sulle correzioni, non sulle difese.** Otto difetti su quattordici
+round sono stati aperti dalla correzione del round precedente. Sette volte la
+forma era quella qui sopra; l'ottava e questa, e vale in generale:
+
+> Una correzione che **allarga un predicato per raggiungere di piu** va misurata
+> anche su chi **non** doveva raggiungere. La proprieta complementare — «e non
+> tocca nessun altro» — non se la chiede nessuno, e li e passata la regressione
+> piu cara del pacchetto.
+
+**Dove vive la nozione di identita.** `guardianDeclaredIds` in
+`src/lib/server/parent-dashboard.ts`, una funzione sola: la usano il vaglio
+dell'accesso, la guardia della crescita, la deroga dopo una revoca e i due
+canali di invio. Prima ognuno leggeva un sottoinsieme diverso delle quattro
+grafie dell'identificativo (`linkedUserId`, `linked_user_id`, `userId`,
+`user_id`), e la proiezione le **comprimeva** con `firstText` prima ancora
+che qualcuno le contasse: chi decideva ne vedeva una, chi mandava le notifiche
+documentali tutte e quattro.
+
+**E l'insieme sorvegliato dalla guardia ha una definizione dicibile**: sono
+**le identita a cui questa scheda concede qualcosa**. Si calcola allo stesso
+modo sui due stati, e sullo stato **come verra scritto** — cioe dopo che i
+riporti hanno rimesso le difese che il client lascia sempre cadere. Una crescita
+e allora una persona nuova che entra, e niente altro. Calcolarlo prima dei
+riporti, o con una regola diversa sui due lati, produce falsi positivi che si
+manifestano come una scheda che nessun ruolo senza `clinical.read` riesce piu
+a salvare — misurati, 1.079 combinazioni su 1.536.

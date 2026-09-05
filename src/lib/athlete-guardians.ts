@@ -245,13 +245,25 @@ export const readAthleteGuardianContacts = (
         qui e non li voleva dire che la stessa domanda, sulla stessa persona,
         aveva due risposte.
       */
-    const dichiarato = String(
-      (identita as any).linkedUserId || (identita as any).linked_user_id || "",
-    )
-      .trim()
-      .toLowerCase();
+      /*
+        **Le quattro grafie, come chiunque altro le legga.**
 
-    if (dichiarato && !identitaRevocate.has(dichiarato)) return true;
+        Questa uscita ne leggeva due. Il vaglio dell'accesso, la guardia della
+        crescita e la revoca ne leggono quattro, quindi una riga scritta con
+        `userId`/`user_id` apriva il cruscotto e **non** teneva in piedi il
+        canale: la stessa persona, la stessa domanda, due risposte — che e la
+        forma esatta che ADR-0116 §3 vieta.
+      */
+    const dichiarati = [
+      (identita as any).linkedUserId,
+      (identita as any).linked_user_id,
+      (identita as any).userId,
+      (identita as any).user_id,
+    ]
+      .map((valore) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    if (dichiarati.some((voce) => !identitaRevocate.has(voce))) return true;
 
     if (revocataPerIdentita) return false;
 

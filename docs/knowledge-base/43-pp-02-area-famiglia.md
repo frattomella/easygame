@@ -1062,3 +1062,134 @@ va detto ogni volta.
 righe** del vero, questo faceva tornare **piu campi**. Un campo di troppo non si
 nota fino al giorno in cui qualcuno decide qualcosa su di lui — ed e successo,
 sull'RSVP.
+
+
+## 21. Il quattordicesimo round: la guardia guardava la cosa sbagliata
+
+Il tredicesimo round aveva chiuso un Critical che una correzione mia aveva
+aperto. Il quattordicesimo ha misurato che quella chiusura era **corretta** —
+8.748 forme di riga passate una per una attraverso `canParentAccessAthlete` e
+confrontate con l'insieme sorvegliato: zero righe che concedono senza portare
+identita, zero che portano senza concedere — e ha trovato altrove due High, uno
+dei quali di nuovo aperto dal commit precedente.
+
+### A — Revocare la madre revocava anche il padre
+
+Configurazione ordinaria: madre e padre, ognuno con il proprio
+`linkedUserId`, e **un solo indirizzo di famiglia** su tutte e due le righe.
+
+Per raggiungere una seconda riga **della stessa persona** — un secondo invito
+riscattato, che e la risposta ordinaria a «il link non funziona» e che
+scavalcava la revoca — la ripulitura filtrava le righe sorelle con
+`isLinkedToTarget`, che combacia **anche sul solo indirizzo**. Al padre
+venivano quindi azzerati il legame dichiarato e scritto addosso il marchio.
+
+Al caricamento successivo lui trovava «Accesso negato»: calendario, rate,
+ricevute, documenti e certificato del figlio, e con loro solleciti, promemoria
+e notifiche. La scheda diceva «Account non collegato» anche sulla sua riga,
+nessuno aveva premuto quel pulsante, e l'audit registrava un `guardian_id`
+solo — quello della madre. Per rientrare gli serviva un invito nuovo.
+
+La correzione distingue **persona** e **recapito**: si spazza per
+identificativo, e si cade sull'indirizzo solo quando la riga un identificativo
+non ce l'ha. Li l'indirizzo **e** l'identita, e due righe senza identificativo
+allo stesso indirizzo non sono distinguibili nemmeno in principio — quel caso
+resta, dichiarato, e non e un difetto ma il limite del dato.
+
+### B — «Tutte e quattro le grafie» non era mai entrato in funzione
+
+Un round precedente aveva allargato `guardianAccessIdentities` a leggere le
+quattro grafie dell'identificativo. Le leggeva pero su una riga che
+`getGuardianRows` aveva **gia compressa** con `firstText`: tre letture su
+quattro erano codice morto, e la misura lo ha mostrato in tre righe.
+
+Effetto: un allenatore — nessuna chiave sugli accessi, nessuna vista clinica —
+si scriveva `user_id: <se stesso>` in un `PATCH` dell'anagrafica, l'insieme
+non cresceva, nessuna guardia scattava, e da quel momento riceveva ogni
+notifica documentale su quel minore, con il nome del bambino e il documento
+chiesto. Il cruscotto no; la campanella si. E la scheda continuava a dire
+«Account non collegato», perche anche quel badge comprimeva.
+
+Adesso la domanda «quali identita dichiara questa riga» ha **una** risposta,
+`guardianDeclaredIds`, e la usano il vaglio dell'accesso, la guardia della
+crescita, la deroga dopo una revoca e i due canali di invio.
+
+### C — Il falso positivo che bloccava la scheda per sempre
+
+La guardia confrontava uno stato di partenza calcolato **sottraendo** le
+identita revocate con uno stato in arrivo che non le sottraeva. Su 1.536
+combinazioni, 1.079 risultavano una crescita **rimandate invariate**.
+
+Nasceva da solo, senza malafede, in due modi entrambi ordinari: la segreteria
+revoca la madre e poi aggiunge la nonna con lo stesso indirizzo di famiglia;
+oppure rimette la madre a mano, scrivendole il legame dichiarato senza passare
+da un riscatto. Da quel momento un ruolo senza `clinical.read` non salvava
+piu **niente** su quell'atleta — ne una taglia, ne un telefono, ne un documento
+— con un messaggio che parlava di legami di famiglia mentre l'operatore stava
+cambiando una maglia. Nessuna schermata scioglieva quello stato.
+
+Due correzioni, e insieme rendono l'insieme una cosa sola e dicibile — **le
+identita a cui questa scheda concede qualcosa**:
+
+1. il ripiego sull'indirizzo cade anche su un'identita revocata, e da **tutti e
+   due** i lati. Una riga con solo un indirizzo revocato non apre il cruscotto
+   (dopo una revoca la deroga chiede un legame **dichiarato**) e non apre un
+   invio (tutti e tre i canali filtrano sull'elenco): non deve contare;
+2. l'asimmetria sparisce. Serviva a far risultare crescita il rientro di una
+   persona revocata, ma quel rientro **non passa di qui** — lo scrive il
+   riscatto con una `update` diretta — e cio che passa di qui, il ripiego, e
+   ormai escluso dai due lati. Gli identificativi invece non si sottraggono
+   mai: scriversi un legame **dichiarato** verso un'identita revocata resta una
+   crescita, e resta rifiutato.
+
+### E la guardia misura cio che verra scritto, non cio che e arrivato
+
+Il confronto stava **prima** dei tre riporti (`accessRevokedAt`,
+`contactOnly`, l'elenco delle identita), cioe guardava un `data` a cui
+mancavano le difese che la rotta stava per rimettere. Non e un caso limite: e
+il caso **normale**, perche nessun file client conosce quei tre campi e ogni
+salvataggio li lascia cadere.
+
+Spostato a valle, la domanda diventa quella giusta: dopo che le difese sono
+tornate al loro posto, questa scrittura fa entrare qualcuno che prima non
+entrava? I riporti non possono aprire niente — riscrivono cio che era in
+archivio — quindi misurare dopo non indebolisce la guardia, la rende esatta.
+
+Due sonde hanno cambiato asserzione per questo, ed e giusto dirlo:
+
+- **W-13c** chiedeva che rimettere il solo indirizzo revocato fosse rifiutato.
+  Adesso chiede che passi **e non conceda niente**. Rifiutarlo non proteggeva
+  nessuno: era il falso positivo;
+- **W-17d** chiedeva che togliere `contactOnly` fosse rifiutato. Adesso chiede
+  che il salvataggio **riesca** e che il segno sia comunque li. Il riporto e la
+  difesa piu forte del rifiuto: il segno diventa **immutabile** da questa rotta,
+  e la sola strada che lo scioglie e un riscatto, che ha il suo gate.
+
+### D — «Scollega account» non trovava un tutore nato da un modulo
+
+Quelle righe un `id` non ce l'hanno: `form-submissions.ts` fa
+`guardians.push` di un oggetto che porta i soli binding del modulo. La scheda
+mostra allora l'id **sintetico** di `normalizeGuardianRows`, e la rotta
+cercava per `entry.id`: rispondeva «Genitore non trovato nella scheda atleta»
+su un genitore che era li sullo schermo, e la persona restava collegata —
+proprio sulla classe di righe attorno a cui e nata tutta la difesa
+`contactOnly`.
+
+Si ricade percio sullo stesso id sintetico, calcolato con la **stessa**
+funzione che lo mostra.
+
+### Cosa insegna, di nuovo
+
+Il conto di questo pacchetto e ormai una regola: **otto** difetti su quattordici
+round sono stati aperti dalla correzione del round precedente. Sette volte la
+forma era «una difesa nuova non eredita le protezioni di quella che affianca»
+(ADR-0116). L'ottava, qui, e nuova e vale scriverla:
+
+> Una correzione che **allarga un predicato per raggiungere di piu** va
+> misurata anche su chi **non** doveva raggiungere.
+
+La ripulitura delle righe sorelle e stata scritta per una proprieta vera — «la
+revoca vale per la persona, non per la riga» — e provata con due righe **della
+stessa persona**. La proprieta complementare, «e non raggiunge nessun altro»,
+non la chiedeva nessuno. Le due adesso stanno accanto, `W-24c` e `W-25`, e
+si leggono insieme.
