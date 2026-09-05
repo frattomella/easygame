@@ -100,6 +100,14 @@ const seed = () => ({
   organizationUser: [
     { id: "ou-a", organization_id: CLUB_A, user_id: SEGRETERIA_A, role: "owner" },
     { id: "ou-b", organization_id: CLUB_B, user_id: SEGRETERIA_B, role: "owner" },
+    /*
+      **La tessera del genitore, che il prodotto scrive davvero** (PP-04,
+      ADR-0122, debito PP04-D6). Il riscatto del token genitore scrive insieme
+      la tessera `parent` e `guardians[].linkedUserId`: e quello lo stato che
+      esiste in archivio, ed e da li che `getParentLinkedAthletes` trova gli
+      atleti candidati del club.
+    */
+    { id: "ou-genitore", organization_id: CLUB_A, user_id: GENITORE, role: "parent" },
   ],
   club: [
     club(CLUB_A, "ASD Alfa", SEGRETERIA_A),
@@ -111,8 +119,15 @@ const seed = () => ({
       organization_id: CLUB_A,
       first_name: "Mario",
       last_name: "Rossi",
-      /* Il legame vero: e questo, e non una membership, a fare il genitore. */
-      user_id: GENITORE,
+      /*
+        **Il genitore e un tutore, non l'utenza della scheda** (PP-04,
+        ADR-0122). `athletes.user_id` e l'account **dell'atleta**: scriverci il
+        genitore modellava uno stato che nella vita vera non esiste, e da
+        ADR-0122 il ramo diretto e esclusivo — chi ci compare e quella scheda, e
+        gli si chiede una tessera di atleta viva. Il legame di tutela e
+        `guardians[].linkedUserId`, ed e questo.
+      */
+      user_id: null,
       data: { guardians: [{ name: "Anna Rossi", linkedUserId: GENITORE }] },
     },
     {

@@ -6551,3 +6551,71 @@ colonne le clausole di ADR-0115 restano intere: `accepted_at` dice che un
 accesso e esistito e adesso non c'e piu; `revoked_at` dice che l'invito e stato
 tolto prima di diventarlo. Una riga solo `expired` non dice ne l'una ne
 l'altra, e resta `none`.
+
+---
+
+## ADR-0122 — Chi e l'atleta non e anche la propria famiglia
+
+**Data:** 2026-09-05 · **Lane:** PP-04 · **Stato:** adottata
+
+**Il fatto.** [ADR-0117](#adr-0117--la-stessa-domanda-per-i-due-lettori-dello-stesso-campo)
+aveva chiuso `athleteBelongsToParent` sulla tessera viva e
+[ADR-0118](#adr-0118--il-cruscotto-della-famiglia-lo-apre-un-tutore) aveva fatto
+dichiarare `allowSelfAthleteLink: false` alle cinque rotte del cruscotto di
+famiglia. Una **seconda** revisione ostile ha misurato che nessuna delle due
+guardie veniva raggiunta.
+
+`athleteBelongsToParent` prova prima il ramo diretto e poi quello del tutore, e
+`isGuardianLinkedToUser` accetta `guardians[].email` come ripiego di
+`linkedUserEmail`. La casella di famiglia e pero scritta **due volte**, e non
+per errore: la segreteria la mette nel tutore, e su quella stessa casella
+invita il ragazzo. Con quella coincidenza — che il flusso dell'invito
+**produce da se** — l'utenza dell'atleta usciva dal ramo del tutore, dove non
+esistono ne `ancoraAtleta` ne `allowSelfAthleteLink`, e il cruscotto tornava a
+consegnare quote, ricevute, codice fiscale del tutore, diagnosi e indirizzo del
+file del certificato. Anche a chi nel club non aveva piu **nessuna** tessera.
+
+Il Critical del primo round non era stato chiuso: era stato **spostato** su una
+precondizione che il prodotto crea da solo.
+
+**La decisione, in due mosse.**
+
+1. **Il ramo diretto e esclusivo.** Chi porta `athletes.user_id` **e** quella
+   scheda, non la sua famiglia: per lui vale il ramo diretto e solo quello,
+   qualunque cosa dica l'elenco dei tutori. Il tutore vero — un'altra persona —
+   non e toccato, e continua a entrare per `linkedUserId` o per il proprio
+   indirizzo verificato.
+
+2. **Il predefinito si inverte.** `allowSelfAthleteLink` vale `false` se non lo
+   si chiede. La forma precedente — predefinito permissivo, deroghe negative
+   sparse sulle rotte — vale finche ognuno si ricorda, e la rotta che se ne
+   dimentica apre il payload della famiglia senza dirlo a nessuno. Adesso
+   dimenticarsene **chiude** una porta invece di aprirla: e il verso in cui
+   l'errore si vede, perche una porta chiusa qualcuno la segnala.
+
+**Chi dichiara il ramo diretto** — quattro chiamanti, e un test li conta:
+
+| Chiamante | Perche |
+|---|---|
+| `readAthleteAreaOverview` (`athlete-accounts.ts`) | e la sorgente dell'area atleta, che ne proietta `CAMPI_AREA_ATLETA` |
+| `GET /api/parent-dashboard/:id/board` | la bacheca, che l'area atleta legge dalla rotta che gia esiste |
+| `authorizeAnsweringUser` (`rsvp.ts`) | l'atleta risponde alla **propria** convocazione |
+| `GET /api/v1/auth/memberships` | `linked_athlete_ids` del ruolo `athlete`: senza, il rientro nell'area finisce su `/account` |
+
+**E una decisione che viaggia, non una che si fissa.** Dentro
+`getParentDashboardData` il payload chiama `getFamilyDocumentAreas`, che chiama
+`getDocumentDossier`, che si richiude con la **propria** guardia: il fascicolo
+non si fida di chi lo chiama. Quella guardia ha ora lo stesso predefinito
+restrittivo, e riceve la risposta gia data da chi ha aperto il cruscotto invece
+di fissarla a «si». Fissarla sarebbe stato il predefinito permissivo appena
+tolto, spostato di un file — cioe esattamente il modo in cui questo Critical si
+era gia spostato una volta.
+
+**Cosa non cambia.** Un tutore entra come prima. Un atleta apre la propria area
+come prima. Cio che non esiste piu e la **terza** strada: entrare nel cruscotto
+della famiglia perche il proprio indirizzo compare fra quelli dei tutori.
+
+**Misurato.** `scripts/pp-04-atleta-probe.mjs` P-70…P-76, contro PostgreSQL e
+contro le rotte vere. Verifica per mutazione: rimessa la guardia precedente,
+sei prove tornano rosse e i **sette** segreti riappaiono nel corpo, compreso
+per l'ex atleta senza nessuna tessera.

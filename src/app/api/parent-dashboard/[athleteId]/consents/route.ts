@@ -63,11 +63,7 @@ const scopeFor = async (userId: string, athleteId: string) => {
     responsabilita. Il dominio ha poi il proprio `assertSubjectMayDecide`:
     due controlli, e nessuno dei due e ridondante.
   */
-  if (
-    !(await canParentAccessAthlete(userId, athleteId, {
-      allowSelfAthleteLink: false,
-    }))
-  ) {
+  if (!(await canParentAccessAthlete(userId, athleteId))) {
     throw new Error("Accesso negato: atleta non collegato");
   }
 
@@ -103,11 +99,7 @@ export async function GET(request: Request, context: Context) {
     }
 
     const athleteId = String(context.params.athleteId || "").trim();
-    if (
-      !(await canParentAccessAthlete(session.db.user_id, athleteId, {
-        allowSelfAthleteLink: false,
-      }))
-    ) {
+    if (!(await canParentAccessAthlete(session.db.user_id, athleteId))) {
       return NextResponse.json(
         {
           data: [],

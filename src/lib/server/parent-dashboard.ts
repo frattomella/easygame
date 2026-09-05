@@ -256,9 +256,10 @@ const isGuardianLinkedToUser = (
  * e lo calcola `clubsWhereStillAthlete`: **una funzione sola per i due
  * lettori**, perche due elenchi separati divergono ed e il difetto di partenza.
  *
- * Il ramo del **tutore** non e toccato: un tutore puo legittimamente non avere
- * nessuna tessera nel club, ed e la ragione per cui questa area non gira su un
- * permesso di ruolo.
+ * Il ramo del **tutore** resta senza tessera: un tutore puo legittimamente non
+ * averne nessuna nel club, ed e la ragione per cui questa area non gira su un
+ * permesso di ruolo. Quel ramo non e pero piu una **seconda strada** per chi
+ * porta gia `athletes.user_id`: vedi ADR-0122 nel corpo.
  */
 const athleteBelongsToParent = (
   athlete: any,
@@ -266,11 +267,29 @@ const athleteBelongsToParent = (
   userEmail: string | null | undefined,
   ancoraAtleta: ReadonlySet<string>,
 ) => {
-  if (
-    sameId(athlete?.user_id, userId) &&
-    ancoraAtleta.has(String(athlete?.organization_id || ""))
-  ) {
-    return true;
+  /*
+    **Chi e l'atleta non e anche la propria famiglia** (ADR-0122).
+
+    Una seconda revisione ostile ha misurato che la guardia qui sopra si
+    aggirava con un dato che il prodotto **produce da se**: `linkedUserEmail`
+    ricade su `guardian.email`, e un minore lo si invita sulla casella di
+    famiglia — la stessa che la segreteria ha scritto nel tutore. Con quella
+    coincidenza `athleteBelongsToParent` usciva dal ramo del tutore e non
+    vedeva mai ne `ancoraAtleta` ne `allowSelfAthleteLink`: l'ex atleta senza
+    piu nessuna tessera riceveva di nuovo quote, codice fiscale del tutore,
+    diagnosi e l'indirizzo del file del certificato.
+
+    Il Critical del primo round non era stato chiuso: era stato spostato su una
+    precondizione che il flusso stesso dell'invito crea.
+
+    Chi porta `athletes.user_id` **e** quella scheda, non la sua famiglia:
+    per lui vale il ramo diretto e solo quello, qualunque cosa dica l'elenco
+    dei tutori. Il tutore vero — un'altra persona — non e toccato.
+  */
+  const eLaPersonaStessa = sameId(athlete?.user_id, userId);
+
+  if (eLaPersonaStessa) {
+    return ancoraAtleta.has(String(athlete?.organization_id || ""));
   }
 
   return getGuardianRows(athlete).some((guardian) =>
@@ -821,7 +840,17 @@ export const getFamilyDocumentAreas = async (
   userId: string,
   athlete: { id: string; organization_id: string },
   club: any,
-  options: { now?: Date } = {},
+  /*
+    **`allowSelfAthleteLink` arriva da chi ha aperto il cruscotto** (ADR-0122).
+
+    Il fascicolo si richiude da se, con la sua guardia e il suo predefinito
+    restrittivo: senza questo passaggio l'area atleta — che di ogni carta
+    mostra il titolo e lo stato — riceveva un `Accesso negato` da dentro il
+    proprio payload. Ripassare qui la stessa risposta che il dominio ha gia
+    dato evita l'alternativa peggiore: due idee di chi sia una famiglia, in due
+    file, che il giorno che una cambia dicono cose diverse.
+  */
+  options: { now?: Date; allowSelfAthleteLink?: boolean } = {},
 ): Promise<FamilyDocumentAreas> => {
   const organizationId = String(athlete?.organization_id || "");
   const scope = {
@@ -836,7 +865,10 @@ export const getFamilyDocumentAreas = async (
   const entries = (await getDocumentDossier(
     scope,
     { subjectKind: "athlete", subjectId: athlete.id },
-    { now: options.now },
+    {
+      now: options.now,
+      allowSelfAthleteLink: options.allowSelfAthleteLink === true,
+    },
   )) as unknown as FamilyDossierInput[];
 
   /*
@@ -1016,11 +1048,31 @@ const serializeParentStructureBooking = (
  * del file del certificato, l'anagrafica dei tutori. Il commento che dice
  * «fuori dall'elenco, e non per dimenticanza» era vero su una rotta sola.
  *
- * `allowSelfAthleteLink: false` chiude il ramo diretto: quella rotta pretende
- * un legame di **tutela**. Il valore predefinito resta `true` perche i
- * chiamanti che servono davvero l'atleta — `readAthleteAreaOverview`, la
- * bacheca, l'RSVP, gli appuntamenti — passano dallo stesso dominio e ne
- * proiettano il poco che gli spetta.
+ * `allowSelfAthleteLink` messo a vero apre il ramo diretto: senza di lui
+ * questo dominio serve **solo** chi entra come tutela.
+ *
+ * ## Il predefinito e restrittivo, e non lo e sempre stato (ADR-0122)
+ *
+ * Il primo giro l'aveva lasciato permissivo, e le cinque rotte del cruscotto
+ * di famiglia dichiaravano `false`. Una seconda revisione ostile ha misurato
+ * che quella forma non chiudeva niente: bastava dimenticarsi la dichiarazione
+ * su **una** rotta perche la porta si riaprisse, e la rotta che se ne
+ * dimenticava non lo diceva a nessuno.
+ *
+ * Il verso e adesso l'altro: **dimenticarsene chiude una porta invece di
+ * aprirla**. Un chiamante nuovo nasce servendo la tutela, e chi serve davvero
+ * l'atleta lo dichiara — oggi sono quattro, ognuno con il suo commento:
+ *
+ * | Chiamante | Perche |
+ * |---|---|
+ * | `readAthleteAreaOverview` (`athlete-accounts.ts`) | e la sorgente dell'area atleta, che ne proietta `CAMPI_AREA_ATLETA` |
+ * | `GET /api/parent-dashboard/:id/board` | la bacheca dell'area atleta |
+ * | `authorizeAnsweringUser` (`rsvp.ts`) | l'atleta risponde alla propria convocazione |
+ * | `GET /api/v1/auth/memberships` | `linked_athlete_ids` del ruolo `athlete`, da cui dipende il rientro nell'area |
+ *
+ * Tutto il resto — il payload intero, i **byte** dei documenti, le strutture,
+ * il checkout, i consensi, gli appuntamenti, il fascicolo, le pratiche
+ * d'iscrizione — resta di chi ha la responsabilita.
  */
 export type ParentAccessOptions = {
   allowSelfAthleteLink?: boolean;
@@ -1028,7 +1080,7 @@ export type ParentAccessOptions = {
 
 export const getParentLinkedAthletes = async (
   userId: string,
-  { allowSelfAthleteLink = true }: ParentAccessOptions = {},
+  { allowSelfAthleteLink = false }: ParentAccessOptions = {},
 ) => {
   /*
     **Tre domande su `userId`, e nessuna dipende dall'altra.**
@@ -1412,7 +1464,11 @@ export const getParentDashboardData = async (
     userId,
     selectedAthlete,
     club,
-    { now: new Date(now) },
+    {
+      now: new Date(now),
+      /* Vedi ADR-0122: il legame con cui si e entrati viaggia con la richiesta. */
+      allowSelfAthleteLink: opzioni.allowSelfAthleteLink === true,
+    },
   );
   const certificates = medicalCertificates.map((certificate) => ({
     ...certificate,

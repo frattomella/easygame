@@ -203,6 +203,20 @@ const assertSubjectAccess = async (
   subjectKind: unknown,
   subjectId: unknown,
   spiegazione: string,
+  /*
+    **Il legame diretto non lo decide questo file** (PP-04, ADR-0122).
+
+    `canParentAccessAthlete` ha un predefinito restrittivo: il fascicolo lo
+    apre chi ha la **responsabilita**. C'e pero un chiamante per cui il
+    soggetto e chi chiede — `getFamilyDocumentAreas`, quando a leggere e
+    l'area atleta, che di ogni carta mostra il titolo e lo stato e non i byte.
+
+    Quella decisione appartiene alla richiesta, non alla guardia: arriva da
+    chi chiama e viaggia con lei, cosi il dominio dei documenti non tiene una
+    seconda idea di chi sia una famiglia. Fissarla qui a «si» sarebbe il
+    predefinito permissivo che ADR-0122 ha appena tolto, spostato di un file.
+  */
+  allowSelfAthleteLink = false,
 ) => {
   if (roleHasPermission(scope?.activeRole, key)) {
     await assertSubjectWithinAccessScope(scope, subjectKind, subjectId);
@@ -211,7 +225,11 @@ const assertSubjectAccess = async (
 
   const kind = String(subjectKind ?? "").trim().toLowerCase();
   if (kind === "athlete" && asText(subjectId)) {
-    const legato = await canParentAccessAthlete(scope.userId, asText(subjectId));
+    const legato = await canParentAccessAthlete(
+      scope.userId,
+      asText(subjectId),
+      { allowSelfAthleteLink },
+    );
     if (legato) return;
   }
 
@@ -1312,7 +1330,12 @@ export type DossierFilter = {
 export const getDocumentDossier = async (
   scope: DocumentDossierScope,
   filter: DossierFilter,
-  options: { now?: Date } = {},
+  /*
+    `allowSelfAthleteLink` non e un'opzione di lettura: e **da quale legame si
+    sta entrando** (ADR-0122), e la porta con se chi chiama. Vedi
+    `assertSubjectAccess`.
+  */
+  options: { now?: Date; allowSelfAthleteLink?: boolean } = {},
 ): Promise<DocumentDossierEntry[]> => {
   const organizationId = resolveActiveClubId(
     scope,
@@ -1329,6 +1352,7 @@ export const getDocumentDossier = async (
     subjectKind,
     subjectId,
     "il fascicolo di una persona lo vede chi lavora nel club, o la famiglia collegata all'atleta",
+    options.allowSelfAthleteLink === true,
   );
 
   const where: Record<string, any> = { organization_id: organizationId };

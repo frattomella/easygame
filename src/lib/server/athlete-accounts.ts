@@ -1780,7 +1780,14 @@ export const readAthleteAreaOverview = async (
     throw negato("nessuna scheda atleta collegata a questo account");
   }
 
-  const dati = await getParentDashboardData(userId, profilo.id);
+  const dati = await getParentDashboardData(userId, profilo.id, {
+    /*
+      **Questa e una superficie che l'atleta usa davvero** (ADR-0122): il
+      predefinito e restrittivo, e chi serve l'atleta lo dichiara. E il verso
+      giusto — dimenticarsene chiude una porta invece di aprirla.
+    */
+    allowSelfAthleteLink: true,
+  });
   if (!dati) {
     throw negato("nessuna scheda atleta collegata a questo account");
   }

@@ -151,6 +151,14 @@ const preparaRotte = async () => {
       "src/app/api/v1/auth/athlete-profile/[athleteId]/route.ts",
     ),
     rsvp: await carica("src/app/api/v1/rsvp/route.ts"),
+    famiglia: await carica("src/app/api/parent-dashboard/[athleteId]/route.ts"),
+    notifiche: await carica(
+      "src/app/api/parent-dashboard/[athleteId]/notifications/route.ts",
+    ),
+    consensi: await carica(
+      "src/app/api/parent-dashboard/[athleteId]/consents/route.ts",
+    ),
+    tessere: await carica("src/app/api/v1/auth/memberships/route.ts"),
     risorsaElenco: await carica("src/app/api/v1/[resource]/route.ts"),
     risorsaRiga: await carica("src/app/api/v1/[resource]/[id]/route.ts"),
   };
@@ -1749,6 +1757,324 @@ const proveMinore = async () => {
 };
 
 /* ==================================================================== */
+/*  P-70…P-78 — il ramo del tutore non e una seconda strada (ADR-0122)   */
+/* ==================================================================== */
+
+/**
+ * **Il Critical che il primo giro aveva spostato invece di chiudere.**
+ *
+ * ADR-0117 ha chiuso il ramo diretto sulla tessera viva; ADR-0118 lo ha chiuso
+ * sulle rotte del cruscotto di famiglia. Nessuno dei due guardava
+ * `isGuardianLinkedToUser`, che accetta `guardians[].email` come ripiego di
+ * `linkedUserEmail`.
+ *
+ * Quella coincidenza il prodotto **la produce da se**: la segreteria scrive la
+ * casella dei genitori nel tutore, e su quella stessa casella invita il
+ * ragazzo. Da li `athleteBelongsToParent` usciva dal ramo del tutore, dove non
+ * c'e ne `ancoraAtleta` ne `allowSelfAthleteLink`, e il cruscotto tornava a
+ * consegnare quote, ricevute, codice fiscale del tutore, diagnosi e indirizzo
+ * del file del certificato — anche a chi nel club non aveva piu niente.
+ *
+ * La sezione semina **la coincidenza**, non un caso limite: un club, un
+ * dodicenne, la casella di famiglia in tutti e due i posti.
+ */
+const proveRamoTutore = async () => {
+  console.log("\n— Il ramo del tutore (ADR-0122) —");
+
+  const ATLETA_D = randomUUID();
+  const CASA = "casa-dominici@pp04.invalid";
+  const UTENTE_D = await utente(CASA, "Dodo");
+  /*
+    Il tutore **vero**: un'altra persona, con un'altra casella, e con la
+    tessera `parent` che il riscatto del token genitore scrive insieme al
+    legame. Modellarlo senza tessera non sarebbe piu severo, sarebbe **falso**:
+    `getParentLinkedAthletes` cerca gli atleti candidati nei club in cui la
+    persona ha una tessera o di cui e fondatrice, e senza nessuna delle due
+    l'elenco esce vuoto per una ragione che non c'entra con questa sezione
+    (annotato come PP04-D7).
+  */
+  const TUTORE_D = await utente("tutore-d@pp04.invalid", "Delia");
+  await prisma.organizationUser.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      user_id: TUTORE_D.id,
+      role: "parent",
+      is_primary: true,
+      updated_at: new Date(),
+    },
+  });
+
+  await prisma.athlete.create({
+    data: {
+      id: ATLETA_D,
+      organization_id: CLUB,
+      first_name: "Dodo",
+      last_name: "Dominici",
+      status: "active",
+      category_id: CAT_A,
+      category_name: "Under 12",
+      birth_date: new Date("2013-04-04"),
+      data: {
+        email: CASA,
+        allergies: "SEGRETO-D-ALLERGIA",
+        medical_notes: "SEGRETO-D-NOTA-MEDICA",
+        guardians: [
+          {
+            id: "g-casa",
+            first_name: "Delia",
+            last_name: "Dominici",
+            /* La casella di famiglia, scritta due volte. */
+            email: CASA,
+            fiscal_code: "SEGRETO-D-CF-TUTORE",
+          },
+          {
+            id: "g-delia",
+            first_name: "Delia",
+            last_name: "Dominici",
+            email: TUTORE_D.email,
+          },
+        ],
+      },
+      updated_at: new Date(),
+    },
+  });
+  await prisma.organizationUser.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      user_id: UTENTE_D.id,
+      role: "athlete",
+      is_primary: true,
+      updated_at: new Date(),
+    },
+  });
+  await prisma.athlete.update({
+    where: { id: ATLETA_D },
+    data: { user_id: UTENTE_D.id },
+  });
+
+  const quota = await prisma.athletePayment.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      athlete_id: ATLETA_D,
+      description: "SEGRETO-D-QUOTA",
+      amount: 320,
+      status: "pending",
+      due_date: new Date(Date.now() + 864e5),
+      updated_at: new Date(),
+    },
+  });
+  await prisma.receipt.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      athlete_id: ATLETA_D,
+      payment_id: quota.id,
+      receipt_number: "SEGRETO-D-RICEVUTA",
+      description: "quota",
+      amount: 320,
+      issue_date: new Date(),
+      updated_at: new Date(),
+    },
+  });
+  await prisma.medicalCertificate.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      athlete_id: ATLETA_D,
+      type: "agonistico",
+      status: "valid",
+      issue_date: new Date(),
+      expiry_date: new Date(Date.now() + 200 * 864e5),
+      file_url: "/api/v1/attachments/SEGRETO-D-FILE-CERT",
+      notes: "SEGRETO-D-DIAGNOSI",
+      updated_at: new Date(),
+    },
+  });
+  await prisma.notification.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      user_id: UTENTE_D.id,
+      title: "Avviso per Dodo",
+      message: "visibile",
+      type: "info",
+      read: false,
+      updated_at: new Date(),
+    },
+  });
+
+  const SEGRETI = [
+    "SEGRETO-D-QUOTA",
+    "SEGRETO-D-RICEVUTA",
+    "SEGRETO-D-CF-TUTORE",
+    "SEGRETO-D-DIAGNOSI",
+    "SEGRETO-D-FILE-CERT",
+    "SEGRETO-D-NOTA-MEDICA",
+    "SEGRETO-D-ALLERGIA",
+  ];
+  const nessunSegreto = (risposta) =>
+    SEGRETI.filter((segreto) =>
+      JSON.stringify(risposta.corpo ?? "").includes(segreto),
+    );
+
+  const sessioneD = await sessionePer(
+    await prisma.user.findUnique({ where: { id: UTENTE_D.id } }),
+  );
+  const comeD = (url, extra) =>
+    richiesta(url, { token: sessioneD, club: CLUB, ruolo: "athlete", ...extra });
+  const suD = { params: { athleteId: ATLETA_D } };
+
+  /*
+    P-70 — **La prova che senza il fix e rossa.** L'utenza dell'atleta apre il
+    cruscotto della **propria** scheda, e la casella coincide con quella del
+    tutore. Prima di ADR-0122: 200, con tutto dentro.
+  */
+  const cruscotto = await leggi(
+    await rotte.famiglia.GET(comeD(`/api/parent-dashboard/${ATLETA_D}`), suD),
+  );
+  prova(
+    "P-70 la casella di famiglia coincidente non apre il cruscotto: 403",
+    403,
+    cruscotto.status,
+    "il ramo del tutore accettava `guardians[].email` e scavalcava le due guardie",
+  );
+  prova(
+    "P-70b e nel corpo non resta nessuno dei sette segreti",
+    [],
+    nessunSegreto(cruscotto),
+  );
+
+  /* P-71: e nemmeno le scritture che il cruscotto porta con se. */
+  const segnaLetta = await leggi(
+    await rotte.notifiche.PATCH(
+      comeD(`/api/parent-dashboard/${ATLETA_D}/notifications`, {
+        method: "PATCH",
+        body: { all: true },
+      }),
+      suD,
+    ),
+  );
+  prova(
+    "P-71 ne la scrittura sulle notifiche della famiglia: 403",
+    403,
+    segnaLetta.status,
+  );
+
+  /* P-72: ne i consensi, che sono decisioni di chi ha la responsabilita. */
+  const consensi = await leggi(
+    await rotte.consensi.GET(
+      comeD(`/api/parent-dashboard/${ATLETA_D}/consents`),
+      suD,
+    ),
+  );
+  prova("P-72 ne i consensi della famiglia: 403", 403, consensi.status);
+
+  /*
+    P-73 — **E l'area atleta si apre lo stesso.** Senza questa riga «403
+    sempre» supererebbe P-70, P-71 e P-72 a pieni voti: il fix e la
+    **distinzione**, non la chiusura.
+  */
+  const area = await leggi(
+    await rotte.me.GET(comeD("/api/v1/athlete-accounts/me")),
+  );
+  prova("P-73 la propria area resta aperta: 200", 200, area.status);
+  prova(
+    "P-73b e non contiene nessuno dei sette segreti",
+    [],
+    nessunSegreto(area),
+  );
+  const bacheca = await leggi(
+    await rotte.bacheca.GET(
+      comeD(`/api/parent-dashboard/${ATLETA_D}/board`),
+      suD,
+    ),
+  );
+  prova("P-73c e la bacheca risponde: 200", 200, bacheca.status);
+
+  /*
+    P-74 — **Le tessere: `linked_athlete_ids` del ruolo atleta.**
+
+    E la ragione per cui `GET /api/v1/auth/memberships` dichiara il ramo
+    diretto. Senza, l'elenco esce vuoto e `getAccessRedirectPath("athlete", …)`
+    rimanda su `/account` chi era dov'era autorizzato a stare.
+  */
+  const tessere = await leggi(
+    await rotte.tessere.GET(comeD("/api/v1/auth/memberships")),
+  );
+  const rigaAtleta = (
+    Array.isArray(tessere.corpo?.data) ? tessere.corpo.data : []
+  ).find((riga) => riga.organization_id === CLUB && riga.role === "athlete");
+  prova(
+    "P-74 la tessera di atleta porta la propria scheda in `linked_athlete_ids`",
+    [ATLETA_D],
+    rigaAtleta?.linked_athlete_ids ?? null,
+    "senza, il rientro nell'area atleta finisce su /account",
+  );
+
+  /*
+    P-75 — **Il punto in cui il Critical era stato spostato**: tolta ogni
+    tessera, il legame resta e la casella resta fra i tutori. Prima di
+    ADR-0122 questa era la porta che riapriva tutto a un ex atleta.
+  */
+  await prisma.organizationUser.deleteMany({
+    where: { organization_id: CLUB, user_id: UTENTE_D.id },
+  });
+  const areaEx = await leggi(
+    await rotte.me.GET(comeD("/api/v1/athlete-accounts/me")),
+  );
+  prova("P-75 l'ex atleta non apre piu la propria area: 403", 403, areaEx.status);
+  const cruscottoEx = await leggi(
+    await rotte.famiglia.GET(comeD(`/api/parent-dashboard/${ATLETA_D}`), suD),
+  );
+  prova(
+    "P-75b e nemmeno il cruscotto, che era la porta rimasta aperta: 403",
+    403,
+    cruscottoEx.status,
+  );
+  prova(
+    "P-75c con zero segreti nel corpo",
+    [],
+    nessunSegreto(cruscottoEx),
+  );
+
+  /*
+    P-76 — **Il tutore vero entra, e non e un atleta di nessuno.**
+
+    Delia e una persona diversa: sulla riga di Dodo `user_id` non punta a lei, il
+    ramo diretto non la riguarda, e il ramo del tutore vale come prima — per
+    email, che e come un club registra un tutore prima che ne redima uno
+    proprio, e con la tessera `parent` che le da un club di appartenenza.
+    Questo e il controllo sul **non fare troppo**.
+  */
+  const sessioneTutore = await sessionePer(
+    await prisma.user.findUnique({ where: { id: TUTORE_D.id } }),
+  );
+  const cruscottoTutore = await leggi(
+    await rotte.famiglia.GET(
+      richiesta(`/api/parent-dashboard/${ATLETA_D}`, {
+        token: sessioneTutore,
+        club: CLUB,
+        ruolo: "parent",
+      }),
+      suD,
+    ),
+  );
+  prova(
+    "P-76 il tutore vero, che e un'altra persona, entra come prima: 200",
+    200,
+    cruscottoTutore.status,
+  );
+  prova(
+    "P-76b e ci trova cio per cui l'area e stata scritta",
+    true,
+    JSON.stringify(cruscottoTutore.corpo ?? "").includes("SEGRETO-D-QUOTA"),
+  );
+};
+
+/* ==================================================================== */
 
 const main = async () => {
   console.log("PP-04 — collaudo dell'area atleta contro un database vero\n");
@@ -1762,6 +2088,7 @@ const main = async () => {
     await proveFamiglia();
     await proveRevoca();
     await proveMinore();
+    await proveRamoTutore();
   } finally {
     await pulisci();
     await prisma.$disconnect();

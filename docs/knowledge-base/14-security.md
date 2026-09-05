@@ -2123,6 +2123,29 @@ invito e senza audit. Lo stesso ramo cancellava i contenitori clinici.
 > `grep` sul nome della colonna costa un minuto; qui la differenza fra i due
 > lettori valeva un payload intero.
 
+> **Aggiornamento PP-04 (2026-09-05, [ADR-0122](18-decision-log.md#adr-0122--chi-e-latleta-non-e-anche-la-propria-famiglia)).**
+> **Il fix qui sopra aveva solo spostato il difetto.** Una seconda revisione
+> ostile ha misurato che ne `ancoraAtleta` (ADR-0117) ne
+> `allowSelfAthleteLink` (ADR-0118) venivano raggiunti:
+> `athleteBelongsToParent` prova prima il ramo diretto e **poi** quello del
+> tutore, e `isGuardianLinkedToUser` accetta `guardians[].email` come ripiego
+> di `linkedUserEmail`. La casella di famiglia e scritta due volte per come il
+> prodotto funziona — la segreteria la mette nel tutore e su quella stessa
+> casella invita il ragazzo — quindi l'utenza dell'atleta usciva dal ramo del
+> tutore e riceveva di nuovo il payload intero. Anche con **zero** tessere.
+>
+> Due mosse. Il ramo diretto e ora **esclusivo**: chi porta `athletes.user_id`
+> e quella scheda, non la sua famiglia, e per lui il ramo del tutore non viene
+> nemmeno valutato. E il predefinito di `allowSelfAthleteLink` si **inverte**:
+> vale `false` se non lo si chiede, cosi dimenticarsene chiude una porta
+> invece di aprirla. Lo dichiarano quattro chiamanti — l'area atleta, la
+> bacheca, l'RSVP e `GET /api/v1/auth/memberships` — e un test li conta.
+>
+> Regola generale, e vale oltre questo caso: **una guardia posta su un ramo non
+> difende gli altri rami della stessa funzione**, e un predefinito permissivo
+> con deroghe negative sparse vale quanto la memoria di chi scrive la prossima
+> rotta. Il verso giusto e quello in cui l'errore chiude.
+
 > **Aggiornamento PP-04 (2026-09-04, [ADR-0119](18-decision-log.md#adr-0119--il-token-dinvito-si-consuma-dentro-la-transazione-e-a-condizione)).**
 > Il riscatto dell'invito atleta leggeva la riga **fuori** dalla transazione e
 > dentro la aggiornava per identificativo: due riscatti simultanei dello stesso

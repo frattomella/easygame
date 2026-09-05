@@ -4,7 +4,8 @@ import test, { before, beforeEach } from "node:test";
 import { createFakePrisma } from "../helpers/fake-prisma.mjs";
 
 /**
- * **La porta di servizio dell'area atleta** (PP-04, ADR-0117 e ADR-0118).
+ * **La porta di servizio dell'area atleta** (PP-04, ADR-0117, ADR-0118 e
+ * ADR-0122).
  *
  * ---
  *
@@ -103,7 +104,27 @@ const seed = (tessera = "athlete") => ({
       first_name: "Aldo",
       last_name: "Atleta",
       status: "active",
-      data: {},
+      /*
+        **La casella di famiglia e scritta due volte, e nella vita vera lo e
+        quasi sempre** (ADR-0122).
+
+        La segreteria scrive l'indirizzo dei genitori nel tutore, e su quello
+        stesso indirizzo invita il ragazzo: `guardians[].email` finisce cosi a
+        coincidere con l'indirizzo dell'utenza dell'atleta. E la precondizione
+        che il prodotto **produce da se**, ed e su di essa che il primo fix del
+        Critical si era spostato invece di chiuderlo.
+      */
+      data: {
+        guardians: [
+          {
+            id: "tutore-di-aldo",
+            name: "Mamma",
+            surname: "Atleta",
+            relationship: "Madre",
+            email: "aldo@atleti.it",
+          },
+        ],
+      },
     },
     {
       id: FIGLIO,
@@ -139,9 +160,12 @@ beforeEach(() => monta("athlete"));
  *  1. Il ramo diretto pretende una tessera di atleta viva
  * ==================================================================== */
 
+/** Il legame diretto va **chiesto**: e il predefinito restrittivo di ADR-0122. */
+const COME_ATLETA = { allowSelfAthleteLink: true };
+
 test("con la tessera di atleta il legame diretto vale, e le due porte concordano", async () => {
   assert.equal(
-    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA, COME_ATLETA),
     true,
   );
   const profilo = await accessi.findAthleteProfileForUser(UTENTE_ATLETA);
@@ -157,7 +181,7 @@ test("senza nessuna tessera le due porte si chiudono insieme", async () => {
     "la porta d'ingresso (ADR-0114)",
   );
   assert.equal(
-    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA, COME_ATLETA),
     false,
     "e la porta di servizio (ADR-0117): era questa a restare aperta",
   );
@@ -179,7 +203,7 @@ test("cambiato il ruolo, il legame diretto non vale piu: ne di qua ne di la", as
       `${ruolo} non e un atleta`,
     );
     assert.equal(
-      await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+      await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA, COME_ATLETA),
       false,
       `${ruolo} non deve aprire il cruscotto sulla scheda che ha lasciato`,
     );
@@ -195,7 +219,7 @@ test("lo slug italiano e un alias, non un ruolo diverso", async () => {
   for (const slug of ["atleta", "giocatore", "player"]) {
     monta(slug);
     assert.equal(
-      await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+      await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA, COME_ATLETA),
       true,
       `${slug} e un atleta`,
     );
@@ -258,15 +282,121 @@ test("ma la stessa opzione non tocca il tutore: la famiglia entra come prima", a
   );
 });
 
-test("il valore predefinito resta permissivo: l'area atleta legge da questo dominio", async () => {
+test("il valore predefinito e restrittivo: il ramo diretto va chiesto (ADR-0122)", async () => {
   /*
-    `readAthleteAreaOverview` chiama `getParentDashboardData` e poi ne proietta
-    l'elenco chiuso. Se il predefinito fosse restrittivo, l'area atleta si
-    spegnerebbe: la chiusura e delle **rotte** del cruscotto, non del dominio.
+    **Il verso conta piu del valore.**
+
+    Il primo giro aveva lasciato il predefinito permissivo e faceva dichiarare
+    `false` alle cinque rotte del cruscotto. Con quella forma la difesa vale
+    finche ognuno si ricorda: la rotta che se ne dimentica apre il payload
+    intero, e non lo dice a nessuno.
+
+    Adesso e il contrario, e questa e la riga che lo presidia: chi non chiede
+    niente **non** entra sul legame diretto. Sono quattro i chiamanti che lo
+    chiedono, ognuno con il suo commento accanto.
   */
   assert.equal(
     await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+    false,
+  );
+  assert.equal(
+    await famiglia.getParentDashboardData(UTENTE_ATLETA, ATLETA),
+    null,
+    "e la rotta che non dichiara niente riceve `null`, che e il suo 403",
+  );
+
+  /* E chi lo chiede entra: la chiusura non spegne l'area atleta. */
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA, COME_ATLETA),
     true,
+  );
+});
+
+/* ==================================================================== *
+ *  3-bis. Il Critical vero: il ramo del tutore non e una seconda strada
+ * ==================================================================== */
+
+test("la casella di famiglia coincidente non riapre il cruscotto all'atleta", async () => {
+  /*
+    **Qui il primo fix aveva soltanto spostato il Critical.**
+
+    ADR-0117 aveva chiuso il ramo diretto sulla tessera viva, e ADR-0118 lo
+    aveva chiuso sulle rotte di famiglia. Nessuno dei due guardava
+    `isGuardianLinkedToUser`, che accetta `guardians[].email` come ripiego di
+    `linkedUserEmail`: e la casella su cui la segreteria invita il minore e la
+    stessa che ha scritto nel tutore. Con quella coincidenza —
+    che il flusso dell'invito **produce da se** — l'utenza dell'atleta usciva
+    dal ramo del tutore e non incontrava piu ne `ancoraAtleta` ne
+    `allowSelfAthleteLink`.
+
+    Chi porta `athletes.user_id` **e** quella scheda, non la sua famiglia.
+  */
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+    false,
+    "il cruscotto pretende una tutela, e l'atleta non e il tutore di se stesso",
+  );
+  assert.equal(
+    await famiglia.getParentDashboardData(UTENTE_ATLETA, ATLETA),
+    null,
+  );
+});
+
+test("e non la riapre nemmeno all'ex atleta senza piu nessuna tessera", async () => {
+  monta(null);
+
+  /*
+    Il caso che la revisione ha misurato contro PostgreSQL: revocata la
+    tessera, `/api/v1/athlete-accounts/me` rispondeva 403 e
+    `/api/parent-dashboard/<la stessa scheda>` rispondeva 200 — quote,
+    codice fiscale del tutore, diagnosi, indirizzo del file del certificato.
+  */
+  assert.equal(await accessi.findAthleteProfileForUser(UTENTE_ATLETA), null);
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA, COME_ATLETA),
+    false,
+    "nemmeno dichiarando il ramo diretto: la tessera non c'e piu",
+  );
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+    false,
+  );
+});
+
+test("ma un tutore vero con la stessa casella resta dentro: la guardia non fa troppo", async () => {
+  /*
+    **Il controllo sul non fare troppo, e qui e il piu importante di tutti.**
+
+    Il tutore vero e un'**altra persona**: sulla sua riga `athletes.user_id`
+    non punta a lui, quindi il ramo diretto non lo riguarda e il ramo del
+    tutore vale come prima — anche quando la scheda porta il suo indirizzo
+    invece di `linkedUserId`, che e il modo normale in cui un club registra
+    un tutore prima che questo ne redima uno proprio.
+  */
+  fake = createFakePrisma({
+    ...seed("athlete"),
+    athlete: [
+      {
+        id: FIGLIO,
+        organization_id: CLUB,
+        user_id: null,
+        first_name: "Nina",
+        last_name: "Piccoli",
+        status: "active",
+        data: {
+          guardians: [
+            { id: "g1", name: "Bianca", email: "tutore@famiglia.it" },
+          ],
+        },
+      },
+    ],
+  });
+  setPrismaClientForTests(fake.client);
+
+  assert.equal(
+    await famiglia.canParentAccessAthlete(TUTORE, FIGLIO),
+    true,
+    "per email, senza tessera di atleta e senza dichiarare niente",
   );
 });
 
@@ -301,4 +431,62 @@ test("le due porte chiamano la stessa funzione, non due elenchi che divergono", 
     false,
     "nessun elenco di slug: il difetto e un elenco di slug",
   );
+});
+
+/* ==================================================================== *
+ *  5. Chi dichiara il ramo diretto e un elenco corto, e si vede
+ * ==================================================================== */
+
+test("solo quattro chiamanti aprono il ramo diretto, e sono quelli dichiarati", async () => {
+  /*
+    **Il predefinito restrittivo vale quanto e corto l'elenco delle deroghe**
+    (ADR-0122).
+
+    Un `allowSelfAthleteLink: true` in piu e una rotta che consegna all'atleta
+    il payload della famiglia: qui non si chiede se sia giusto — si chiede che
+    **compaia in questa riga**, cioe che qualcuno lo abbia scritto di
+    proposito. Una deroga nuova fa diventare rosso questo controllo, che e
+    esattamente il momento in cui va discussa.
+  */
+  const { readFileSync } = await import("node:fs");
+  const { execFileSync } = await import("node:child_process");
+
+  const ATTESI = [
+    "src/lib/server/athlete-accounts.ts",
+    "src/lib/server/rsvp.ts",
+    "src/app/api/parent-dashboard/[athleteId]/board/route.ts",
+    "src/app/api/v1/auth/memberships/route.ts",
+  ];
+
+  /*
+    `git grep` invece di una scansione a mano: cerca nell'albero tracciato e
+    non nei `node_modules`, e non ha bisogno di sapere come e fatto `src/`.
+  */
+  const uscita = execFileSync(
+    "git",
+    ["grep", "-l", "allowSelfAthleteLink: true", "--", "src"],
+    { cwd: process.cwd(), encoding: "utf8" },
+  );
+  const trovati = uscita
+    .split("\n")
+    .map((riga) => riga.trim().replace(/\\/g, "/"))
+    .filter(Boolean)
+    .sort();
+
+  assert.deepEqual(
+    trovati,
+    [...ATTESI].sort(),
+    "chi apre il ramo diretto deve essere solo l'area atleta e cio che la serve",
+  );
+
+  /* E ognuno porta accanto la ragione: un `true` muto e un `true` dimenticato. */
+  for (const file of ATTESI) {
+    const sorgente = readFileSync(file, "utf8");
+    const posizione = sorgente.indexOf("allowSelfAthleteLink: true");
+    const contesto = sorgente.slice(Math.max(0, posizione - 900), posizione);
+    assert.ok(
+      contesto.includes("ADR-0122"),
+      `${file} deve dire perche apre il ramo diretto`,
+    );
+  }
 });
