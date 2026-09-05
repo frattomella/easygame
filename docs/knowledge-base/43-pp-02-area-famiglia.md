@@ -2022,3 +2022,58 @@ Due dei tre difetti di questo round vivono esattamente in quello spazio.
 
 Un «pulito» costruito su quelle sonde poggia su una superficie che non
 contiene la porta che il prodotto usa.
+
+## 34. Il ventottesimo round, e perche ci si ferma
+
+Due High e un Medium. Il round non e pulito, e la condizione di arresto
+fissata dal committente scatta: **niente piu correzioni incrementali**.
+
+L'analisi completa sta in
+[44 — analisi della causa e proposta architetturale](44-pp-02-root-cause-analysis.md).
+Qui il minimo indispensabile per capire cosa e stato trovato.
+
+### La revoca conosce quattro grafie di ruolo su ventidue
+
+I quattro sweep di `revokeClubAccess` decidono se lavorare confrontando
+`organization_users.role` con quattro insiemi di **letterali** scritti a mano.
+Il resto del prodotto decide con `normalizeAccessRole`, che di alias ne
+conosce trentasei. Quattordici grafie — `tutor`, `giocatore`, `club_manager`,
+`segreteria`, `allenatrice` fra le altre — sono invisibili agli sweep, e con
+esse **tutte** le forme di slug personalizzato `custom:<base>:<nome>`, che
+sono quelle che `assignClubRole` scrive da se.
+
+Misurato dalle porte vere: la schermata dice «Accesso revocato», la tessera
+sparisce davvero, l'audit registra la revoca — e il genitore continua ad
+aprire il fascicolo del minore, dato sanitario compreso. Con `giocatore`,
+l'atleta continua ad aprire la propria area. Con `club_manager` o con un
+ruolo personalizzato, la scheda mostra «Account collegato» a un accesso che
+non esiste piu: cioe il difetto Fortitudo Scauri che lo sweep e stato scritto
+per chiudere, riaperto per ogni club che usa i ruoli personalizzati.
+
+### La finestra che avevo chiamato «rara»
+
+PP02-D34 la dichiarava «una scheda in una corsa rara». Misurata dalle due
+porte vere in parallelo, con venti millisecondi di sfasamento: **cinque giri
+su cinque**, su un club da quaranta tesserati e su uno da quattrocento. La
+finestra e l'intera durata dello sweep, e cresce con i tesserati.
+
+Il debito era dichiarato; la sua misura era sbagliata di un ordine di
+grandezza, e su quella misura poggiava la decisione di lasciarlo aperto.
+
+### E la forma che le tiene insieme
+
+Tre round di fila, tre difetti gravi, **la stessa forma**: una difesa vera,
+corretta e provata, che copre un valore su N di un'enumerazione ricopiata a
+mano. Un verbo su tre. Una risorsa su due. Una grafia su ventidue.
+
+E ogni volta la chiusura e stata allungare l'elenco — al punto che la
+correzione del round 27 e essa stessa il quinto elenco scritto a mano.
+
+Le sonde non lo vedono perche esercitano **il valore che chi ha scritto la
+difesa aveva in mente**: duecentosessantasei sonde contro PostgreSQL, e
+quattro valori di ruolo su ventidue. La copertura e alta; la **varieta** e
+bassa. Ed e la varieta che qui decide.
+
+Aggiungere una sonda non chiude questa classe, perche la classe non e finita.
+Per questo il documento successivo non propone una correzione: ne propone
+tre, piu la regola che impedisce alla forma di tornare.
