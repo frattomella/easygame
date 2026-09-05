@@ -1094,44 +1094,122 @@ export const unlinkParentGuardians = async (
   const legacyKeys = ["parent1", "parent2"];
 
   /*
-    **Si legge tutto una volta per **scegliere**, e si blocca solo cio che si
-    cambia.**
+    **Si restringe nel database, e si decide dentro il blocco.**
 
-    La stesura precedente leggeva i soli `id` e poi, dentro il ciclo, prendeva
-    il blocco e rileggeva **ogni** atleta del club: due viaggi in archivio per
-    tesserato, tutti dentro una sola transazione interattiva. La correttezza era
-    giusta e il costo no — misurato: 1.200 atleti in 4,6 s, e a **1.600 la
-    transazione scade** (il tetto di Prisma e 5 s). Sotto contesa peggiora: con
-    800 atleti e due revoche in parallelo una delle due falliva, e dopo il
-    fallimento la tessera era ancora li e il genitore apriva ancora la scheda.
-    Il repository dichiara la propria scala altrove — 200, 1.000, 2.000
-    tesserati — quindi il difetto sta **dentro** la taglia che il progetto si e
-    dato. E mentre lo sweep girava, un salvataggio ordinario aspettava secondi,
-    perche il blocco era tenuto su ogni riga del club fino al commit.
+    Tre stesure, e ognuna ha rotto cio che l'altra aveva aggiustato.
 
-    Questa lettura non decide niente: serve solo a **restringere**. Le schede
-    che quella persona non la nominano non hanno niente da revocare, e su un
-    club di mille tesserati sono quasi tutte. Cio che decide e la rilettura
-    **dentro** il blocco, che resta.
+    1. `select: { id, data }` e la scelta fatta **fuori** dal blocco: il blocco
+       serializzava e il valore scritto restava lo snapshot vecchio;
+    2. `select: { id }` con blocco e rilettura per **ogni** tesserato: corretto,
+       e due viaggi in archivio per atleta dentro una transazione da cinque
+       secondi — a 1.600 la revoca scadeva;
+    3. di nuovo `select: { id, data }` per restringere prima di bloccare:
+       veloce, e la scelta e tornata fuori dal blocco. Misurato: una scheda a cui
+       il tutore viene **aggiunto** mentre la revoca gira viene scartata dal
+       filtro e la revoca non la vede — cinque giri su cinque, con la schermata
+       che dice «Accesso revocato» e quel genitore che continua ad aprire il
+       fascicolo del secondo figlio. E la lettura ampia porta in Node l'intero
+       blob di ogni tesserato: con la forma di anagrafica che il repository
+       stesso dichiara realistica sono **175 MB** a duemila tesserati, dentro la
+       transazione.
+
+    Le tre cose che servono sono separabili, e finora erano state impastate:
+    **restringere** si fa nel database e non deve essere esatto, **decidere** si
+    fa dentro il blocco sulla riga riletta, e **non portare byte** si ottiene
+    chiedendo solo gli identificativi.
+
+    Il predicato qui sotto sovrastima di proposito — cerca il testo in tutto il
+    blob — perche una scheda in piu costa un blocco e una rilettura, mentre una
+    scheda in meno e una revoca persa. Se la sovrastima non bastasse, il costo
+    sarebbe comunque solo di lavoro inutile: chi decide e la rilettura.
   */
-  const candidati = await tx.athlete.findMany({
-    where: { organization_id: organizationId },
-    select: { id: true, data: true },
-    orderBy: { id: "asc" },
-  });
+  const aghi = [userId, userEmail]
+    .map((valore) => String(valore || "").trim().toLowerCase())
+    .filter(Boolean);
 
-  const athletes = candidati.filter((riga: any) => {
-    const contenuto = isRecord(riga?.data) ? (riga.data as Record<string, any>) : {};
-    return [...collectionKeys, ...legacyKeys].some((key) => {
-      const valore = contenuto[key];
-      const righe = Array.isArray(valore)
-        ? valore
-        : isRecord(valore)
-          ? [valore]
-          : [];
-      return righe.some((voce) => isLinkedToTarget(voce, userId, userEmail));
-    });
-  });
+  /*
+    **Se la restrizione non si puo fare, si lavora su tutti: mai su nessuno.**
+
+    Il predicato gira in SQL, e il doppio di Prisma dei test unitari SQL grezzo
+    non ne esegue. Il ripiego non e «nessun candidato» — sarebbe una revoca che
+    non revoca niente, cioe il difetto peggiore di tutti travestito da
+    ottimizzazione — ma **tutti gli atleti del club**, che e esattamente cio che
+    faceva la stesura precedente: piu lenta, mai sbagliata.
+
+    E la regola che rende sicura la restrizione: chi decide e la rilettura
+    dentro il blocco, e questa scelta puo solo togliere lavoro inutile.
+  */
+  /*
+    **Prima si chiede se SQL grezzo esista davvero, e non lo si deduce.**
+
+    Il doppio di Prisma dei test unitari ha un `$queryRaw` che **non solleva**:
+    restituisce un elenco vuoto. Un ripiego agganciato all'errore non sarebbe
+    quindi mai scattato, e la restrizione avrebbe risposto «nessun candidato» —
+    cioe una revoca che non revoca niente, il difetto peggiore di tutti
+    travestito da ottimizzazione. Un test unitario lo ha preso.
+
+    Si fa percio una domanda a cui **si conosce la risposta**: se non torna
+    indietro una riga, SQL grezzo non c'e, e si lavora su tutti gli atleti del
+    club — piu lento, mai sbagliato. Chi decide resta la rilettura dentro il
+    blocco: questa scelta puo solo togliere lavoro inutile.
+  */
+  const sondaSql = await tx
+    .$queryRaw`SELECT 1 AS uno`
+    .catch(() => null);
+
+  const sqlGrezzoDisponibile = Array.isArray(sondaSql) && sondaSql.length === 1;
+
+  /*
+    **Si blocca il club in una istruzione sola, prima di scegliere.**
+
+    Restringere prima di bloccare lascia scoperta una scheda che il tutore lo
+    **acquista mentre la revoca gira**: il filtro l'ha gia scartata, e la revoca
+    non la vede piu. Misurato cinque giri su cinque, con la schermata che dice
+    «Accesso revocato» e quel genitore che continua ad aprire il fascicolo del
+    secondo figlio.
+
+    Bloccare **ogni** scheda una per una lo chiudeva, e costava due viaggi in
+    archivio per tesserato dentro una transazione da cinque secondi: a 1.600 la
+    revoca scadeva. Le due proprieta sembravano escludersi.
+
+    Non si escludono: quello che le opponeva era **il numero di istruzioni**, non
+    il numero di righe. Un solo `FOR UPDATE` sull'intero club le prende tutte in
+    un viaggio — chi scrive un atleta di questo club aspetta la revoca, che dura
+    poco piu di un secondo su trecento tesserati — e da quel momento la scelta
+    puo avvenire in pace: nessuno puo piu aggiungere quel tutore a una scheda che
+    stiamo per scartare.
+
+    Se SQL grezzo non c'e (il doppio dei test unitari), si ricade sul blocco per
+    riga dentro il ciclo, che e piu lento e altrettanto corretto.
+  */
+  if (sqlGrezzoDisponibile) {
+    await tx.$queryRaw`
+      SELECT id FROM athletes
+      WHERE organization_id = ${organizationId}::uuid
+      ORDER BY id ASC
+      FOR UPDATE
+    `;
+  }
+
+  const athletes: Array<{ id: string }> =
+    sqlGrezzoDisponibile && aghi.length
+      ? (
+          (await tx.$queryRaw`
+            SELECT id
+            FROM athletes
+            WHERE organization_id = ${organizationId}::uuid
+              AND EXISTS (
+                SELECT 1 FROM unnest(${aghi}::text[]) AS ago
+                WHERE lower(data::text) LIKE '%' || ago || '%'
+              )
+            ORDER BY id ASC
+          `) as Array<{ id: string }>
+        ).map((riga) => ({ id: String(riga.id) }))
+      : await tx.athlete.findMany({
+          where: { organization_id: organizationId },
+          select: { id: true },
+          orderBy: { id: "asc" },
+        });
   /*
     **Le chiavi che si spazzano erano quelle che nessuno legge.**
 

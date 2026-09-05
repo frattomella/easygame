@@ -1897,3 +1897,68 @@ a raggiungere.
 
 > Una sonda di concorrenza che prova un solo ritardo misura un ordine, non una
 > proprieta.
+
+## 32. Il ventiseiesimo round: una rotta con tre verbi
+
+Un Critical e due High. Due dei tre nascono dal round precedente.
+
+### La porta che nessuno aveva guardato
+
+La rotta generica ha **tre verbi**, e le difese dell'atleta erano attaccate a
+uno. `POST` con `mode: "upsert"` su una riga che esiste e una modifica a tutti
+gli effetti, e saltava il blocco, la rilettura, il riporto delle difese e la
+guardia sulla cancellazione.
+
+Misurato con uno scope **Segreteria**, non con un attaccante: riscriveva una
+scheda cancellata su richiesta dell'interessato; scriveva `anonymizedAt`
+bloccandola per sempre; cambiava l'importo di una rata **saldata**; e la
+spostava **su un altro atleta**, cosi che una famiglia vedesse nella propria
+area la quota del figlio di un'altra. In corsa con «Scollega account» perdeva
+la revoca quattro volte su quattro.
+
+E la terza volta che questa funzione paga la stessa forma — il file ne
+racconta gia due — ed e sempre la stessa: **una rotta con tre verbi, e la
+difesa attaccata a uno**. Adesso il ramo che aggiorna non riscrive la
+modifica: la fa fare a chi la sa fare.
+
+### Le due proprieta che sembravano escludersi
+
+Lo sweep aveva due requisiti in apparenza incompatibili, ognuno dei quali era
+stato ottenuto rompendo l'altro:
+
+- **correttezza**: se la scelta di quali schede toccare avviene fuori dal
+  blocco, una scheda che acquista il tutore mentre la revoca gira le sfugge —
+  cinque giri su cinque, con la schermata che dice «Accesso revocato»;
+- **scala**: bloccare e rileggere **ogni** tesserato costa due viaggi in
+  archivio per riga dentro una transazione da cinque secondi, e a 1.600 la
+  revoca scade.
+
+Non si escludevano: quello che le opponeva era **il numero di istruzioni**, non
+il numero di righe. Un solo `FOR UPDATE` sull'intero club le prende tutte in un
+viaggio; la restrizione poi avviene in SQL, senza portare in Node l'anagrafica
+di nessuno — che alla taglia dichiarata dal progetto sarebbe 175 MB dentro la
+transazione.
+
+### E una sonda che chiedeva la cosa sbagliata
+
+La prima stesura di `W-79` chiedeva che il genitore restasse fuori. Con il
+blocco sul club le due scritture si serializzano, e se il salvataggio arriva
+**dopo** la revoca allora sta ridichiarando un legame: un atto deliberato di
+chi ha le due chiavi, che per progetto vince sul registro. Chiedere che non
+conceda vorrebbe dire chiedere che una revoca sia definitiva, che ADR-0116
+esclude.
+
+Cio che deve essere vero in **tutti e due** gli ordini e che la revoca abbia
+**visto** quella scheda. E questo che la sonda chiede adesso.
+
+### Il ripiego che rispondeva «nessuno»
+
+La restrizione gira in SQL, e il doppio di Prisma dei test unitari SQL grezzo
+non ne esegue — ma non solleva: restituisce un elenco **vuoto**. Un ripiego
+agganciato all'errore non sarebbe mai scattato, e la restrizione avrebbe
+risposto «nessun candidato»: una revoca che non revoca niente, travestita da
+ottimizzazione. Un test unitario lo ha preso.
+
+Adesso si fa una domanda a cui **si conosce la risposta** — `SELECT 1` — e se
+non torna una riga si lavora su tutti. Il ripiego di una restrizione non e
+«nessuno»: e «tutti».

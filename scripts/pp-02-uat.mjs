@@ -8112,6 +8112,246 @@ const sezioneW = async () => {
   await prisma.athlete.deleteMany({ where: { organization_id: CLUB_GRANDE } });
   await prisma.club.delete({ where: { id: CLUB_GRANDE } });
 
+  /* ---------- W-78..W-81: il ventiseiesimo round ---------- */
+
+  /*
+    **W-78 (Critical).** La rotta generica ha **tre verbi**, e le difese
+    dell'atleta erano attaccate a uno. `POST` con `mode: "upsert"` su una riga
+    che esiste e una modifica a tutti gli effetti, e saltava il blocco, la
+    rilettura, il riporto delle difese e la guardia sulla cancellazione.
+
+    Misurato con uno scope **Segreteria**, non con un attaccante: riscriveva una
+    scheda cancellata su richiesta dell'interessato — nome, stato e dati clinici
+    tornati, e il tutore staccato di nuovo dentro il fascicolo del minore.
+  */
+  const FIGLIO_UPSERT = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_UPSERT,
+      organization_id: CLUB,
+      first_name: "Anonimizzato",
+      last_name: "",
+      status: "inactive",
+      updated_at: new Date(),
+      data: { anonymizedAt: new Date().toISOString() },
+    },
+  });
+
+  const risurrezioneUpsert = await risorseW26
+    .createResource(
+      "athletes",
+      {
+        id: FIGLIO_UPSERT,
+        organization_id: CLUB,
+        first_name: "Mario",
+        last_name: "Tornato",
+        status: "active",
+        data: { guardians: [{ id: "g", name: "Anna", linkedUserId: ANNA.id }] },
+      },
+      "upsert",
+      scopeClubW29,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  const dopoUpsert = await prisma.athlete.findUnique({
+    where: { id: FIGLIO_UPSERT },
+    select: { first_name: true, status: true },
+  });
+
+  prova(
+    "W-78 la porta upsert non riscrive una scheda cancellata",
+    [true, "Anonimizzato", false],
+    [
+      risurrezioneUpsert !== "riuscita",
+      dopoUpsert?.first_name,
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_UPSERT),
+    ],
+    risurrezioneUpsert,
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_UPSERT } });
+
+  /*
+    **W-78b.** E la stessa porta non aggira la guardia della crescita: un ruolo
+    senza le due chiavi non si scrive un legame addosso nemmeno da li.
+  */
+  const FIGLIO_UPSERT_CRESCITA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_UPSERT_CRESCITA,
+      organization_id: CLUB,
+      first_name: "Upsert",
+      last_name: "Crescita",
+      status: "active",
+      updated_at: new Date(),
+      data: { guardians: [] },
+    },
+  });
+
+  const crescitaUpsert = await risorseW26
+    .createResource(
+      "athletes",
+      {
+        id: FIGLIO_UPSERT_CRESCITA,
+        organization_id: CLUB,
+        first_name: "Upsert",
+        last_name: "Crescita",
+        data: { guardians: [{ id: "g", name: "Io", linkedUserId: ANNA.id }] },
+      },
+      "upsert",
+      scopeAllenatoreW29,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-78b e nemmeno da li ci si scrive un legame addosso senza le due chiavi",
+    [true, false],
+    [
+      crescitaUpsert !== "riuscita",
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_UPSERT_CRESCITA),
+    ],
+    crescitaUpsert,
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_UPSERT_CRESCITA } });
+
+  /*
+    **W-79 (High).** Lo sweep sceglieva le schede su cui lavorare da una lettura
+    fatta **fuori** dal blocco: una scheda a cui il tutore viene **aggiunto**
+    mentre la revoca gira veniva scartata dal filtro, e la revoca non la vedeva.
+    Cinque giri su cinque, con la schermata che diceva «Accesso revocato».
+  */
+  const FIGLIO_AGGIUNTO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_AGGIUNTO,
+      organization_id: CLUB,
+      first_name: "Aggiunto",
+      last_name: "Durante",
+      status: "active",
+      updated_at: new Date(),
+      data: { guardians: [] },
+    },
+  });
+
+  /*
+    Il tutore viene aggiunto **prima**, e la sua scrittura e conclusa: da quel
+    momento la revoca deve vederlo, qualunque cosa le corra accanto. Se invece
+    l'aggiunta arrivasse dopo, sarebbe una ridichiarazione deliberata e non un
+    difetto — vedi sotto.
+  */
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_AGGIUNTO,
+    {
+      data: {
+        guardians: [{ id: "g", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email }],
+      },
+    },
+    scopeClubW29,
+  );
+
+  await Promise.allSettled([
+    prisma.$transaction((tx) =>
+      legamiW25.unlinkParentGuardians(tx, CLUB, ANNA.id, ANNA.email, "parent"),
+    ),
+    risorseW26.updateResource(
+      "athletes",
+      FIGLIO_AGGIUNTO,
+      { data: { size: "M" } },
+      scopeClubW29,
+    ),
+  ]);
+
+  /*
+    **Cosa deve essere vero, e cosa invece dipende dall'ordine.**
+
+    La prima stesura di questa sonda chiedeva che il genitore restasse fuori.
+    Non e la proprieta giusta: con il blocco sull'intero club le due scritture
+    si serializzano, e se il salvataggio arriva **dopo** la revoca allora sta
+    ridichiarando un legame — un atto deliberato di chi ha le due chiavi, che
+    per progetto vince sul registro (e cosi che ci si ricollega). Chiedere che
+    non conceda vorrebbe dire chiedere che una revoca sia definitiva, che
+    ADR-0116 esclude.
+
+    Cio che **deve** essere vero in tutti e due gli ordini e che la revoca
+    abbia **visto** quella scheda: il registro dell'atleta porta l'identita.
+    Prima non la portava, perche il filtro l'aveva scartata leggendo fuori dal
+    blocco — e quella era una revoca che diceva «fatto» e non aveva toccato
+    niente.
+  */
+  const registroAggiunto = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_AGGIUNTO },
+      select: { data: true },
+    })
+  )?.data?.revokedGuardianIdentities;
+
+  prova(
+    "W-79 la revoca vede anche una scheda toccata mentre gira",
+    true,
+    Array.isArray(registroAggiunto) &&
+      registroAggiunto.includes(String(ANNA.email).toLowerCase()),
+    JSON.stringify(registroAggiunto) +
+      " — prima: il filtro la scartava, e la revoca non la vedeva mai",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_AGGIUNTO } });
+
+  /*
+    **W-80 (Medium).** La guardia sulla cancellazione contava le rate con un
+    importo, qualunque fosse lo stato: una scheda creata per sbaglio, a cui il
+    piano quote si aggancia da solo, non si cancellava piu — e nemmeno una con
+    una rata **annullata**. La domanda giusta e «ha toccato denaro».
+  */
+  const provaCancellazione = async (stato) => {
+    const atleta = randomUUID();
+    await prisma.athlete.create({
+      data: {
+        id: atleta,
+        organization_id: CLUB,
+        first_name: "Rata",
+        last_name: String(stato),
+        status: "active",
+        updated_at: new Date(),
+        data: {},
+      },
+    });
+
+    await prisma.athletePayment.create({
+      data: {
+        id: randomUUID(),
+        organization_id: CLUB,
+        athlete_id: atleta,
+        amount: 250,
+        description: "Quota",
+        status: stato,
+      },
+    });
+
+    const esito = await risorseW26
+      .deleteResource("athletes", atleta, scopeClubW29)
+      .then(() => "cancellata")
+      .catch((errore) => String(errore?.message || errore));
+
+    await prisma.athletePayment.deleteMany({ where: { athlete_id: atleta } });
+    await prisma.athlete.deleteMany({ where: { id: atleta } });
+    return esito;
+  };
+
+  prova(
+    "W-80 si blocca il denaro che si e mosso, non una riga di piano",
+    ["cancellata", "cancellata", true],
+    [
+      await provaCancellazione("pending"),
+      await provaCancellazione("cancelled"),
+      (await provaCancellazione("paid")) !== "cancellata",
+    ],
+    "prima: una rata mai incassata, o annullata, bloccava la scheda per sempre",
+  );
+
   await prisma.athlete.update({
     where: { id: MARCO },
     data: { user_id: null },

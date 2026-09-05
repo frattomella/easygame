@@ -5960,6 +5960,44 @@ export const createResource = async (
             visitato. Anche la sonda U-39 esercitava tre porte su quattro.
           */
           await assertRecordWithinAccessScope(resource, esistente, scope);
+
+          /*
+            **Un `upsert` su una riga che esiste e una modifica: la fa fare a chi
+            la sa fare.**
+
+            Questo ramo eseguiva le guardie a mano e poi scriveva per conto suo.
+            Andava bene finche la modifica di un atleta era «le guardie piu una
+            `update`»; da tre round non lo e piu: c'e un blocco sulla riga, una
+            rilettura dentro il blocco, il riporto delle difese sulla riga
+            fresca, la guardia sulla cancellazione dell'interessato e lo strip
+            del suo marchio. Tutto in `updateResource`, e niente qui.
+
+            Misurato, con uno scope **Segreteria** e non un attaccante:
+            `POST` con `mode: "upsert"` riscriveva una scheda cancellata su
+            richiesta dell'interessato — nome, stato e dati clinici tornati, e il
+            tutore staccato dalla cancellazione di nuovo dentro il fascicolo del
+            minore; scriveva `anonymizedAt` bloccando la scheda per sempre;
+            cambiava l'importo di una rata **saldata**; e spostava una rata
+            saldata **su un altro atleta**, cosi che la famiglia di uno vedesse
+            la quota del figlio di un'altra. E in corsa con «Scollega account»
+            perdeva la revoca 4 volte su 4.
+
+            E la terza volta che questa funzione paga la stessa forma — il
+            commento qui sotto ne racconta gia due — e la ragione e sempre la
+            stessa: **una rotta con tre verbi, e la difesa attaccata a uno**. Qui
+            si smette di riscriverla: il ramo che aggiorna **e** la modifica, e
+            passa da li.
+          */
+          if (RISORSE_CON_SCHEDA_ATLETA.has(resource)) {
+            return (await updateResource(
+              resource,
+              String(esistente.id),
+              input,
+              scope,
+              options,
+            )) as any;
+          }
+
           /*
             **E le stesse guardie della modifica**, perche questo ramo modifica.
           */
@@ -8025,13 +8063,26 @@ const assertAthleteHasNoMoneyTrail = async (
   if (!id) return;
 
   /*
-    Si guarda il denaro che c'e **davvero**: una rata da zero non intesta
-    niente a nessuno, e bloccare su quella vorrebbe dire non poter piu
-    togliere una scheda creata per sbaglio.
+    **La domanda e «ha toccato denaro», non «ha una riga di piano».**
+
+    La prima stesura contava le rate con un importo maggiore di zero,
+    qualunque fosse lo stato: una scheda creata per sbaglio, a cui il piano
+    quote si aggancia da solo, non si cancellava piu — e nemmeno una scheda
+    con una rata **annullata**, cioe un fatto contabile che questo stesso file
+    dichiara altrove come non contabile (`isPaymentExcludedFromTotals`).
+
+    La guardia gemella dice il principio: «un atleta senza liquidazioni resta
+    cancellabile, perche correggere un'anagrafica sbagliata non e cancellare
+    denaro». Cio che non si puo perdere e l'**intestatario di un movimento**:
+    un incasso, o una rata che un incasso lo ha gia visto.
   */
   const [rate, incassi] = await Promise.all([
     (prisma as any).athletePayment.count({
-      where: { athlete_id: id, amount: { gt: 0 } },
+      where: {
+        athlete_id: id,
+        amount: { gt: 0 },
+        status: { in: ["paid", "partial", "settled", "refunded"] },
+      },
     }),
     (prisma as any).paymentTransaction.count({ where: { athlete_id: id } }),
   ]);
