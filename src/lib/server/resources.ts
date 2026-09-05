@@ -818,6 +818,42 @@ const assertRecordAccess = (
     return;
   }
 
+  /*
+    **Una riga indirizzata a qualcuno e di chi la riceve, non di chi e nel
+    club.**
+
+    `applyRecipientScope` chiude l'**elenco** e lo chiude bene: da
+    `GET /api/v1/notifications` escono solo la propria e quelle di tutti. Ma la
+    riga singola non passava di li. `getResourceById`, `updateResource` e
+    `deleteResource` chiamano questa funzione, che guardava soltanto il club:
+    con l'identificativo in mano, un qualunque membro del club **leggeva,
+    riscriveva e cancellava** la notifica indirizzata a un altro — compreso il
+    riepilogo economico di una famiglia in arretrato, che e esattamente il dato
+    per cui `RECIPIENT_SCOPED_RESOURCES` esiste.
+
+    E la stessa forma dell'errore che questo file ha gia commesso due volte, e
+    che il commento di `assertNotAdminOnlyFromGenericRoute` nomina per esteso:
+    la correzione era andata **nell'elenco**, e la porta accanto — la lettura
+    per identificativo — era rimasta aperta. Il verso della guardia e lo stesso
+    di `applyRecipientScope`, e non e una seconda regola: `user_id` nullo vuol
+    dire «di tutti», qualunque altro valore vuol dire «di quella persona».
+
+    La cancellazione e la parte peggiore: una lettura si ripara chiudendola,
+    una riga cancellata non torna.
+  */
+  if (RECIPIENT_SCOPED_RESOURCES.has(resource) && scope.userId) {
+    const destinatario = record.user_id;
+    if (
+      destinatario !== null &&
+      destinatario !== undefined &&
+      String(destinatario) !== String(scope.userId)
+    ) {
+      throw new Error(
+        "Accesso negato: le notifiche si leggono per il proprio destinatario",
+      );
+    }
+  }
+
   const suoClub = resolveRecordOrganizationId(resource, record);
 
   /*

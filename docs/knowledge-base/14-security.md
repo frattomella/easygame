@@ -2510,3 +2510,45 @@ questa revisione (correzioni e loro regressioni) e sono stati classificati come
 debito con il loro motivo in [16 — Debito tecnico](16-technical-debt.md)
 (`W6-D30`…`W6-D33`). Nessuno di loro e un accesso cross-tenant, una fuga di
 dato di minore o clinico, o denaro che esce due volte.
+
+---
+
+## PP-03 — Le due porte del terzo round (2026-09-05)
+
+Verbale completo in [44 — PP-03 Trainer](44-pp-03-trainer.md) §9. Qui restano
+le due regole che valgono oltre l'area allenatore.
+
+### Una riga indirizzata a qualcuno non e protetta dal confine del club
+
+`applyRecipientScope` filtrava l'elenco delle notifiche per destinatario e
+`assertRecordAccess` — che e il punto comune di `getResourceById`,
+`updateResource` e `deleteResource` — guardava soltanto il club. Con
+l'identificativo in mano, un qualunque membro **leggeva, riscriveva e
+cancellava** la notifica di un altro, riepilogo economico di una famiglia in
+arretrato compreso.
+
+**La regola generale.** Quando una risorsa dichiara un destinatario, il
+destinatario e parte del confine, e va verificato **su ogni verbo**, non solo
+sull'elenco. Una correzione che chiude la lista e lascia aperta la lettura per
+identificativo non e una correzione: e uno spostamento.
+
+Vale per `RECIPIENT_SCOPED_RESOURCES` (`notifications`,
+`simplified_notifications`) e per ogni risorsa che vi si aggiungera: la guardia
+sta nell'insieme, non nel nome.
+
+### Su una colonna JSON libera il dato clinico si dichiara per ammissione
+
+[ADR-0125](18-decision-log.md). Il taglio del contenuto clinico dentro
+`medical_certificates.data` era un elenco di campi **vietati**, e una revisione
+ostile lo ha aggirato scrivendo il campo con un nome italiano: `diagnosi`,
+`referto`, `terapia` uscivano interi a chi ha soltanto `clinical.status_read`.
+
+**La regola generale.** Un elenco di vietati e sostenibile solo dove l'insieme
+dei campi e **chiuso**, cioe su uno schema fisso. Dentro una colonna `data`
+l'insieme non e chiuso, e la difesa va invertita: si dichiara cosa passa.
+
+Il costo e dichiarato e va nella direzione giusta — un campo dimenticato manca
+a schermo, e si nota; un campo dimenticato nell'altro verso e un referto che
+esce, e non se ne accorge nessuno. `athletes.data` resta sull'elenco di
+vietati per una ragione misurata, non per inerzia: e annotata come `PP03-D5` in
+[16 — Debito tecnico](16-technical-debt.md).

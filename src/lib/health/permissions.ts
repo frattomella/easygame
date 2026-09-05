@@ -317,58 +317,89 @@ export const stripClinicalCertificateFields = (
       continue;
     }
     /*
-      **Dentro `data` valeva l'elenco sbagliato.**
+      **Il primo livello ha colonne, `data` no.**
 
-      Il primo livello si filtrava con `CLINICAL_CERTIFICATE_FIELDS`, e per la
-      chiave `data` si chiamava `stripClinicalAthleteFields`, cioe l'elenco
-      dell'**anagrafica**. `attachment_id`, `file_url`, `doctor` e
-      `data_base64` non stanno in quell'elenco: al secondo livello
-      sopravvivevano tutti.
+      Qui l'elenco di vietati regge: `medical_certificates` ha uno schema
+      fisso, quindi enumerare le colonne di contenuto e enumerare un insieme
+      chiuso. Dentro `data` la stessa forma non regge affatto, ed e il motivo
+      per cui quel ramo e passato a un elenco di **ammessi**: vedi
+      `onlyNonClinicalCertificateData` qui sotto.
 
-      Non era teorico: `promoteMedicalCertificate` scrive esattamente
-      `data: { source, submissionId, requestId, attachmentId }`. Misurato con
-      uno scope da allenatore, `file_url` e `notes` venivano tolti al primo
-      livello e `data.attachmentId` usciva — cioe, con le parole del presidio
-      di questo repository, «la chiave per bussare ai byte».
-
-      Adesso a `data` si applicano **entrambi** gli elenchi: e un certificato,
-      e ci sta dentro un'anagrafica.
+      Due tappe precedenti dello stesso difetto, per memoria: il ramo `data`
+      ha chiamato prima l'elenco dell'**anagrafica** (e `data.attachmentId`
+      usciva — la chiave per bussare ai byte), poi entrambi gli elenchi, e
+      nessuna delle due stesure copriva un nome che non fosse gia previsto.
     */
     next[chiave] =
-      chiave === "data"
-        ? stripClinicalAthleteFields(stripCertificateFieldsDeep(valore))
-        : valore;
+      chiave === "data" ? onlyNonClinicalCertificateData(valore) : valore;
   }
 
   return next;
 };
 
 /**
- * I campi di **certificato** tolti da un oggetto annidato.
+ * Le sole chiavi che possono uscire da `medical_certificates.data` verso chi
+ * **non** ha `clinical.read`.
  *
- * Esiste per una ragione sola: `stripClinicalCertificateFields` filtra il primo
- * livello con il proprio elenco e poi delegava a quello dell'anagrafica. Le due
- * liste rispondono a domande diverse, e dentro `data` serve la prima.
+ * `source` dice da dove arriva la riga — un deposito documentale, un
+ * caricamento manuale — ed e cio che il dominio scrive
+ * (`promoteMedicalCertificate`, `document-requests.ts`). Non e un dato
+ * sanitario e non lo diventa.
  */
-const stripCertificateFieldsDeep = (valore: unknown) => {
+export const NON_CLINICAL_CERTIFICATE_DATA_FIELDS: readonly string[] = [
+  "source",
+] as const;
+
+const NON_CLINICAL_CERTIFICATE_DATA_FIELD_SET = new Set(
+  NON_CLINICAL_CERTIFICATE_DATA_FIELDS,
+);
+
+/**
+ * **Dentro `data` si dichiara cosa passa, non cosa si ferma.**
+ *
+ * Qui c'era un elenco di **vietati**, applicato due volte — quello del
+ * certificato e quello dell'anagrafica — su una colonna JSON **libera**. Un
+ * elenco di vietati su un contenitore libero non e una difesa: e una
+ * scommessa sui nomi che qualcuno usera. E una revisione ostile l'ha vinta
+ * senza sforzo, misurando la catena intera sulle rotte vere: il proprietario
+ * scrive `data: { diagnosi, referto }` da `POST /api/v1/medical_certificates`,
+ * e l'allenatore — che ha solo `clinical.status_read` — se li rilegge interi
+ * dall'elenco e dalla riga. Passavano anche `patologia`, `terapia`,
+ * `farmaci`, `anamnesi`, `esenzione`, `limitazioni`, `gruppoSanguigno`: ogni
+ * nome italiano, e ogni nome che un club o un'importazione inventera domani.
+ *
+ * La regola del dominio e scritta in [CLAUDE.md §2](../../../CLAUDE.md):
+ * **default negato sul contenuto**. Un elenco di vietati e il default
+ * opposto, e su una colonna a schema fisso lo si poteva ancora sostenere
+ * enumerando le colonne; dentro `data` no, perche `data` non ha colonne.
+ *
+ * Il prezzo di questa inversione e dichiarato: se il prodotto comincera a
+ * scrivere in `data` un campo davvero non clinico che serve a chi legge lo
+ * stato, quel campo va **aggiunto qui**, e finche non lo e sparisce. E il
+ * verso giusto in cui sbagliare — si nota un campo che manca, non un referto
+ * che esce.
+ */
+const onlyNonClinicalCertificateData = (valore: unknown) => {
   if (!valore || typeof valore !== "object" || Array.isArray(valore)) {
-    return valore;
+    /*
+      Un `data` che non e un oggetto non si puo ispezionare campo per campo, e
+      una stringa libera puo essere qualunque cosa: non passa.
+    */
+    return valore === null || valore === undefined ? valore : {};
   }
 
   const source = valore as Record<string, unknown>;
-  let toccato = false;
   const next: Record<string, unknown> = {};
 
   for (const [chiave, contenuto] of Object.entries(source)) {
-    if (CLINICAL_CERTIFICATE_FIELD_SET.has(chiave)) {
-      toccato = true;
-      continue;
+    if (NON_CLINICAL_CERTIFICATE_DATA_FIELD_SET.has(chiave)) {
+      next[chiave] = contenuto;
     }
-    next[chiave] = contenuto;
   }
 
-  return toccato ? next : source;
+  return next;
 };
+
 
 /**
  * I campi di un tutore che sono una **credenziale**, non un recapito.

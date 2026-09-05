@@ -609,3 +609,112 @@ corrisponde piu a niente.
 Verifica per mutazione: rimesse le due stesure precedenti, tre prove su quattro
 tornano rosse. La quarta — «ogni qualifica del vocabolario ha un'etichetta» —
 resta verde, ed e giusto: misura il vocabolario, non la schermata.
+
+---
+
+## §9 — Terzo round di revisione ostile
+
+Mandato diverso dai primi due: i round 1 e 2 avevano battuto eventi, presenze,
+perimetri e allegati, e questo e stato lanciato **su quello che era rimasto
+fuori** — lavoro sportivo, comunicazioni, documenti, appuntamenti, bacheca,
+notifiche, ruoli personalizzati — con l'aggiunta esplicita della domanda al
+contrario: *dove si interrompe la catena `DB → dominio → rotta → proiezione →
+componente`?*
+
+156 asserzioni contro `easygame_dev_pp03` e le rotte vere. Due falle di
+sicurezza, e altrettante incoerenze fra cio che un permesso promette e cio che
+un ruolo puo davvero fare.
+
+### 9.1 — La notifica di un altro, per identificativo (CRITICAL)
+
+`applyRecipientScope` chiude l'**elenco**, e lo chiude bene: da
+`GET /api/v1/notifications` escono la propria e quelle di tutti, e un
+`?user_id=` altrui viene respinto. Ma la **riga singola** non passava di li.
+
+`getResourceById`, `updateResource` e `deleteResource` chiamano
+`assertRecordAccess`, che guardava soltanto il club. Con l'identificativo in
+mano, un allenatore — o qualunque altro membro, perche il difetto non dipendeva
+dal ruolo — otteneva:
+
+```
+GET    /api/v1/notifications/<id-del-genitore>      → 200  "INSOLUTO 480,00 EUR — famiglia …"
+GET    /api/v1/simplified_notifications/<id>        → 200  (stessa cosa dall'alias)
+PATCH  /api/v1/notifications/<id>  {"title":"…"}    → 200, titolo riscritto
+DELETE /api/v1/notifications/<id>                   → 200, riga sparita dall'archivio
+```
+
+Il confine multi-tenant reggeva: la notifica di un **altro club** restava
+negata. Quello che mancava era il confine fra due persone dello stesso club.
+
+E la terza volta che questo file sbaglia nella stessa direzione — la correzione
+va nell'elenco, la porta accanto resta aperta — e per questo la guardia sta in
+`assertRecordAccess`, che e il punto comune dei tre verbi, e non in ciascuno di
+essi. Il verso e lo stesso di `applyRecipientScope`, e non e una seconda regola:
+`user_id` nullo vuol dire «di tutti», qualunque altro valore vuol dire «di
+quella persona».
+
+La cancellazione e la parte peggiore, ed e la ragione per cui la prova copre
+tutti e tre i verbi: una lettura si ripara chiudendola, una riga cancellata non
+torna.
+
+### 9.2 — Il contenuto clinico dentro `data` (HIGH)
+
+Misurato end-to-end sulle rotte vere: il proprietario registra un certificato
+con `data: { diagnosi, referto, terapia, campoInventatoDaUnClub }`, e
+l'allenatore — che ha soltanto `clinical.status_read` — se lo rilegge **intero**
+dall'elenco e dalla riga.
+
+La causa e strutturale, non un nome dimenticato: il taglio era un elenco di
+**campi vietati** applicato a una colonna JSON **libera**. Sono passati tutti i
+nomi italiani (`diagnosi`, `referto`, `patologia`, `terapia`, `farmaci`,
+`anamnesi`, `esenzione`, `limitazioni`, `gruppoSanguigno`) e ogni nome che un
+club o un'importazione inventera domani.
+
+Dentro `data` si dichiara adesso **cosa passa**: [ADR-0125](18-decision-log.md).
+Oggi l'elenco degli ammessi contiene una chiave sola, `source`. Il primo livello
+del certificato resta su un elenco di vietati, e non e un'incoerenza — li lo
+schema e fisso e l'insieme e chiuso.
+
+Onesta sull'esposizione: non e dimostrato che il prodotto scriva **oggi** quei
+nomi da solo — `promoteMedicalCertificate` scrive `{source, submissionId,
+requestId, attachmentId}`, tutti gia coperti. La porta era pero aperta a
+chiunque abbia `clinical.manage`, alla rotta generica e a qualunque
+importazione.
+
+### 9.3 — Cosa il round ha misurato **chiuso**
+
+Vale quanto le due falle, perche dice dove la difesa regge: nessun IDOR sui
+compensi (`person_id`, `personId`, `worker_id` in query non spostano la persona;
+dodici rotte di direzione del lavoro sportivo tutte negate); bacheca e
+comunicazioni in scrittura negate; anagrafica dei colleghi — IBAN, telefono,
+note sul rapporto — non esce ne da `/trainers` ne da `/staff_members`;
+appuntamenti in scrittura e slot negati; nove porte documentali chiuse o vuote;
+atleti e certificati di un'altra squadra negati per elenco **e** per
+identificativo, anche fra club diversi; tredici scritture di dominio fuori
+perimetro tutte negate; e la falsificazione del gettone di ruolo — `owner`,
+`club_manager`, `custom:owner:…`, `custom:club_manager:…` — che non allarga
+niente, perche `resolveOrganizationScopeForUser` ricostruisce il gettone
+dall'archivio.
+
+### 9.4 — Le incoerenze non chiuse qui, e perche
+
+| Cosa | Perche non qui |
+|---|---|
+| Il riquadro «Avvisi del club» della bacheca non puo riempirsi per un allenatore: i dieci criteri di `resolveAudience` selezionano **atleti**, e nessuno nomina lo staff | Audience e Communication Core sono di **PP-05**: dependency registrata, debito `PP03-D3` |
+| `PATCH /api/v1/[resource]/[id]` scarta il corpo quando la risorsa ha una colonna `data`: risponde 200 e non scrive niente | La rotta generica e la porta di ogni risorsa e di ogni ruolo, con tre lane in parallelo sullo stesso ramo: debito `PP03-D4` |
+| `meta.total` della paginazione conta il club e non il perimetro: a un allenatore con 3 atleti dichiara il totale del club | Corretto in §10 |
+| `appointments.manage` promette «e configurare la disponibilita» e il server la nega | Corretto in §10 |
+| `events.manage` e concesso all'allenatore, il server lo esegue, e nessuna schermata ha il pulsante | Vedi §11 |
+
+### Verificato
+
+`scripts/pp-03-notifiche-e-clinico-probe.mjs` 15/15 contro `easygame_dev_pp03`
+e le rotte vere. Verifica per mutazione: rimesse le due stesure precedenti,
+tornano rosse esattamente N-02..N-05 e C-01..C-02.
+
+In `npm test`: `tests/server/pp-03-notifica-per-identificativo.test.mjs` (sei
+prove, tre verbi piu il verso opposto) e
+`tests/lib/pp-03-clinico-dentro-data.test.mjs` (cinque prove, di cui la prima
+usa un nome **inventato sul momento** — un test che elencasse i nomi noti
+verificherebbe l'elenco, cioe proprio la cosa che si e smesso di usare).
+Verifica per mutazione: 7 prove su 11 rosse.
