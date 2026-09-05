@@ -36,6 +36,7 @@ model User {
   created_clubs               Club[]                      @relation("ClubCreator")
   club_access                 OrganizationUser[]
   athlete_profiles            Athlete[]
+  guardian_of                 AthleteGuardian[]
   notifications               Notification[]
   external_accounts           ExternalAccount[]
   verification_challenges     AuthVerificationChallenge[]
@@ -228,6 +229,7 @@ model Club {
   dashboards                   Dashboard[]
   organization_users           OrganizationUser[]
   athletes                     Athlete[]
+  athlete_guardians            AthleteGuardian[]
   medical_certificates         MedicalCertificate[]
   payment_methods              PaymentMethod[]
   payments                     AthletePayment[]
@@ -419,6 +421,14 @@ model Athlete {
   avatar_url           String?
   jersey_number        String?
   data                 Json?
+  /// **Il marchio della cancellazione dell'interessato, come colonna.**
+  ///
+  /// Viveva come chiave dentro `data`, cioe dentro un blob che sedici
+  /// scrittori riscrivono per intero: `resources.ts` doveva rimetterlo a mano
+  /// dopo ogni salvataggio, perche un `PATCH` ordinario dalla scheda aperta lo
+  /// avrebbe cancellato — cioe **annullato una cancellazione GDPR**. Una
+  /// colonna non si perde riscrivendo il blob accanto.
+  anonymized_at        DateTime?
   created_at           DateTime                    @default(now())
   updated_at           DateTime                    @updatedAt
   organization         Club                        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
@@ -432,6 +442,7 @@ model Athlete {
   category_memberships AthleteCategoryMembership[]
   appointments         Appointment[]
   account_invites      AthleteAccountInvite[]
+  guardians            AthleteGuardian[]
 
   @@index([organization_id])
   @@index([user_id])
@@ -461,6 +472,92 @@ model Athlete {
 ///     e il clic quell'indirizzo puo essere cambiato o rioccupato: il token
 ///     finirebbe per legare l'atleta a un'utenza diversa da quella invitata.
 ///     L'invito porta con se **chi** ha invitato, e non solo dove.
+/// **Un tutore e una riga** (AC-1 della RCA, KB 44 §4).
+///
+/// Prima viveva dentro `athletes.data.guardians[]`, un JSON libero senza
+/// chiave che **sedici scrittori** riscrivevano per intero. Dentro quel blob
+/// c'era la decisione se un genitore vede o non vede il fascicolo di un
+/// minore, e da li discendeva tutto il resto, in catena:
+///
+///   * la **perdita di aggiornamento** era la modalita di guasto normale, non
+///     l'anomalia — chi legge, modifica e riscrive un blob cancella cio che un
+///     altro ha scritto nel mezzo;
+///   * il **blocco per riga** (`lockAthleteRow`) e stato necessario perche non
+///     c'era una chiave su cui l'archivio potesse fare il lavoro da se;
+///   * il **ciclo** dello sweep e stato necessario perche una revoca non era un
+///     `UPDATE` ma una scansione che riapre e riscrive N blob;
+///   * il **deadlock** (PP02-D34) e nato dal blocco che serviva al ciclo;
+///   * il **riporto delle difese** in `resources.ts` — cinque stesure — esiste
+///     solo perche la rotta generica riceve un blob che ha perso le difese e
+///     deve rimetterle dentro a mano.
+///
+/// Nessuno di quei cinque problemi esiste se un tutore e una riga.
+///
+/// **La chiave.** `identity_key` e cio su cui la riga e unica dentro
+/// l'atleta: l'identificativo dell'utenza se c'e, altrimenti l'indirizzo in
+/// minuscolo, altrimenti la chiave che la riga portava nel blob. Non e un
+/// campo che qualcuno sceglie: la calcola `athlete-guardians.ts`, che e
+/// l'unico scrittore. Sostituisce gli id sintetici `guardian-<indice>-<dato>`,
+/// che **collidevano**: bastava cancellare una riga perche le altre scalassero
+/// di posto e due tutori diversi si ritrovassero lo stesso id — misurato, il
+/// clic su «Scollega account» della nonna revocava il padre.
+///
+/// **I due registri di scheda spariscono.** `revokedGuardianIdentities` e
+/// `contactOnlyIdentities` erano il surrogato di una chiave: servivano a dire
+/// «questa identita e revocata» quando la riga poteva perdersi. Adesso lo dice
+/// la riga, con `revoked_at` e `contact_only`.
+model AthleteGuardian {
+  id              String @id @default(uuid()) @db.Uuid
+  organization_id String @db.Uuid
+  athlete_id      String @db.Uuid
+
+  /// L'identita su cui la riga e unica dentro l'atleta. La calcola il modulo
+  /// proprietario; nessuna rotta la riceve dal client.
+  identity_key String
+
+  user_id      String? @db.Uuid
+  email        String?
+  first_name   String?
+  last_name    String?
+  phone        String?
+  relationship String?
+
+  /// **Un recapito a cui scrivere, non una chiave dell'area famiglia.**
+  /// ADR-0114 fa valere l'indirizzo di contatto come legame, e quella regola
+  /// poggia sul presupposto che lo scriva la segreteria: un indirizzo arrivato
+  /// da un modulo pubblico vale come recapito e basta.
+  contact_only Boolean @default(false)
+
+  linked_at DateTime?
+
+  /// **La revoca e un fatto sulla riga**, non una voce in un registro a parte.
+  revoked_at DateTime?
+
+  /// Il gettone di invito del tutore, com'e oggi. Che debba diventare
+  /// un'impronta come per l'atleta (ADR-0104) e vero e resta debito: qui si
+  /// travasa cio che esiste, non si cambia il meccanismo.
+  access_token_value        String?
+  access_token_status       String?
+  access_token_expires_at   DateTime?
+  access_token_generated_at DateTime?
+
+  /// La chiave che la riga portava dentro il blob, per ricucire i riferimenti
+  /// storici durante la doppia scrittura.
+  legacy_id String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  athlete      Athlete @relation(fields: [athlete_id], references: [id], onDelete: Cascade)
+  organization Club    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  user         User?   @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@unique([athlete_id, identity_key])
+  @@index([organization_id, user_id])
+  @@index([athlete_id])
+  @@map("athlete_guardians")
+}
+
 model AthleteAccountInvite {
   id              String    @id @default(uuid()) @db.Uuid
   organization_id String    @db.Uuid
@@ -1336,11 +1433,11 @@ model ClubEvent {
   @@index([organization_id, season_id, starts_at])
   @@index([organization_id, site_id, starts_at])
   @@index([organization_id, category_id, starts_at])
-  /*
-    Indice GIN sulla sola colonna: un GIN multicolonna che comprenda uno
-    scalare richiede `btree_gin`, cioe un'estensione, e un'estensione e una
-    dipendenza dell'ambiente. Il filtro per club resta il btree che c'e gia.
-  */
+  /**
+   * Indice GIN sulla sola colonna: un GIN multicolonna che comprenda uno
+   * scalare richiede `btree_gin`, cioe un'estensione, e un'estensione e una
+   * dipendenza dell'ambiente. Il filtro per club resta il btree che c'e gia.
+   */
   @@index([category_ids], type: Gin)
   @@map("club_events")
 }

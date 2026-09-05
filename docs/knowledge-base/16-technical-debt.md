@@ -2411,3 +2411,53 @@ censimento.
 **Cosa NON chiude WP-A.** `PP02-D33`, `PP02-D34` e la ricaratterizzazione di
 R-2 restano intatti: si chiudono solo quando un tutore diventa **una riga**
 (AC-1, cioe WP-B/C/D). WP-A e indipendente da quel lavoro e non lo anticipa.
+
+### D-MIG-1 — la storia delle migrazioni non riproduce il modello (scoperto in WP-B, 2026-09-05)
+
+**Come si e visto.** Validando la migrazione di WP-B: creato un database vuoto
+e applicato `prisma migrate deploy`, tutte e 55 le migrazioni passano. Ma il
+confronto fra il risultato e il modello
+
+```bash
+npx prisma migrate diff --from-url <db-vuoto-migrato> \
+  --to-schema-datamodel prisma/schema.prisma --script
+```
+
+produce **39 istruzioni** di scarto. Nessuna riguarda `athlete_guardians` o
+`anonymized_at` — la migrazione nuova produce esattamente il suo pezzo di
+modello — ma il resto dello scarto era gia li:
+
+- indici con nomi non canonici, che il modello vorrebbe rinominare
+  (`accounting_entries_org_account_date_idx`,
+  `club_event_participants_org_athlete_rsvp_idx`,
+  `membership_events_org_type_idx`, e altri undici);
+- vincoli di chiave esterna con nome proprio scritto a mano
+  (`..._conto_dello_stesso_club` su quattro tabelle);
+- `DEFAULT` su `id` e `updated_at` presenti nel database e assenti nel modello,
+  su una dozzina di tabelle;
+- un indice unico su `document_templates_v2` che il modello dichiara e le
+  migrazioni non creano.
+
+**Perche conta.** Non e cosmesi. `prisma migrate deploy` gira **a ogni deploy**
+(`vercel-build`), e staging e produzione nascono da quella storia. Se lo schema
+che la storia produce non e quello che il modello dichiara, allora:
+
+- il client Prisma e generato su un modello che il database non ha esattamente;
+- una migrazione futura generata da `prisma migrate dev` conterra anche questo
+  scarto accumulato, mescolando la correzione voluta con dodici modifiche non
+  volute — che e il modo in cui una migrazione diventa rischiosa senza che
+  nessuno l'abbia decisa;
+- oggi non si puo dire «lo schema di staging e quello del modello», e nessuno
+  se ne accorge finche un indice mancante non diventa una query lenta o un
+  vincolo mancante non lascia entrare una riga.
+
+**Come si chiude.** Non dentro una lane di correzioni: e una migrazione di
+riconciliazione con la sua misura, che porti la storia a produrre il modello e
+riduca lo scarto a zero, piu un gate che lo verifichi (`migrate diff` fra la
+storia e il modello deve essere vuoto). Va aperto come WP con il suo censimento
+delle 39 istruzioni, decidendo per ognuna se vince il database o il modello.
+
+**Mitigazione oggi**: nessuna necessaria in emergenza — lo scarto e fatto di
+nomi e di default, non di colonne mancanti, e il prodotto gira. Ma va sanato
+prima che qualcuno generi una migrazione con `prisma migrate dev` su questo
+schema.

@@ -1316,3 +1316,56 @@ disattivata resta disattivata, perche la riga c'e e `skipDuplicates` la salta.
 E una classe di difetto che vale oltre questo caso: **un seme condizionato alla
 tabella vuota e un seme che smette di funzionare al primo dato**, e il giorno in
 cui il vocabolario di sistema si allunga nessuno se ne accorge.
+
+
+---
+
+## `athlete_guardians` — un tutore e una riga (WP-B, 2026-09-05)
+
+Migrazione `20260905120000_pp02_tutore_e_una_riga`.
+[AC-1 della RCA](44-pp-02-root-cause-analysis.md).
+
+Fino a qui un tutore viveva dentro `athletes.data.guardians[]`: JSON libero,
+senza chiave, riscritto **per intero** da sedici scrittori. Dentro quel blob
+non c'erano solo i recapiti: c'era la decisione **se un genitore vede o non
+vede il fascicolo di un minore**. Da li discendeva, in catena e senza
+eccezioni, tutto quello che PP-02 ha passato ventotto round a tamponare.
+
+| colonna | che cosa dice |
+|---------|----------------|
+| `identity_key` | l'identita su cui la riga e **unica dentro l'atleta**: `user_id` se c'e, altrimenti l'indirizzo in minuscolo, altrimenti `riga:<chiave del blob>`. La calcola il modulo proprietario; nessuna rotta la riceve dal client |
+| `user_id` | l'utenza collegata, quando esiste. `SET NULL` se l'utenza sparisce |
+| `email` | il recapito. Sopravvive alla revoca: il club deve poter continuare a scrivere a quella persona |
+| `contact_only` | un recapito a cui scrivere, **non** una chiave dell'area famiglia |
+| `revoked_at` | la revoca, come fatto sulla riga |
+| `linked_at`, `access_token_*` | il ciclo di vita dell'invito, com'era nel blob |
+| `legacy_id` | la chiave che la riga portava nel blob, per ricucire i riferimenti storici |
+
+**La chiave unica `(athlete_id, identity_key)` e il punto.** E cio che rende
+inutili, uno dopo l'altro:
+
+- `lockAthleteRow` sui percorsi del tutore — la chiave fa il lavoro che il
+  blocco faceva a mano;
+- il **ciclo** dello sweep della revoca — diventa un `UPDATE ... WHERE
+  organization_id = $1 AND user_id = $2`, una istruzione;
+- il **riporto delle difese** in `resources.ts`, cinque stesure, che esisteva
+  solo perche la rotta generica riceveva un blob che aveva perso le difese;
+- i due **registri di scheda** `revokedGuardianIdentities` e
+  `contactOnlyIdentities`, che erano il surrogato di una chiave.
+
+E chiude anche un difetto che non riguardava la concorrenza: gli id sintetici
+`guardian-<indice>-<dato>` **collidevano** per costruzione — bastava cancellare
+una riga perche le altre scalassero di posto e due tutori diversi si
+ritrovassero lo stesso identificativo. Misurato: il clic su «Scollega account»
+della nonna revocava il padre.
+
+**`athletes.anonymized_at` e adesso una colonna.** Viveva come chiave dentro
+`data`, e `resources.ts` doveva rimetterla a mano dopo ogni salvataggio perche
+un `PATCH` ordinario dalla scheda aperta l'avrebbe cancellata — cioe **annullato
+una cancellazione GDPR**. Una colonna non si perde riscrivendo il blob accanto.
+
+**Stato del travaso.** WP-B ha creato la tabella e travasato il contenuto;
+`athletes.data` e ancora **intatto** ed e ancora la fonte di lettura. WP-C
+sposta gli scrittori sul modulo proprietario, WP-D svuota il blob. Finche i due
+esistono insieme, il proprietario e uno solo:
+`src/lib/server/athlete-guardians.ts`.
