@@ -110,6 +110,26 @@ const NOMI = [
 const risorse = await import(
   pathToFileURL(path.resolve("src/lib/server/resources.ts")).href,
 );
+const CATEGORIE = [
+  { id: CAT_U15, name: "Under 15 maschile — girone provinciale B" },
+  { id: CAT_U17, name: "Under 17 femminile — girone regionale" },
+  { id: CAT_PRIMA, name: "Prima squadra — serie C silver" },
+];
+
+const SEDI = [
+  { id: SEDE_NORD, name: "Palestra comunale di via dei Tigli", active: true },
+  { id: SEDE_SUD, name: "Centro sportivo Sud", active: true },
+];
+
+const STRUTTURE = [
+  {
+    id: STRUTTURA,
+    name: "Palestra comunale di via dei Tigli — campo 1",
+    siteId: SEDE_NORD,
+    fields: [{ id: "campo-1", name: "Campo 1" }],
+  },
+];
+
 const eventi_dominio = await import(
   pathToFileURL(path.resolve("src/lib/server/events.ts")).href,
 );
@@ -153,23 +173,9 @@ const main = async () => {
           },
         ],
       },
-      categories: [
-        { id: CAT_U15, name: "Under 15 maschile — girone provinciale B" },
-        { id: CAT_U17, name: "Under 17 femminile — girone regionale" },
-        { id: CAT_PRIMA, name: "Prima squadra — serie C silver" },
-      ],
-      club_sites: [
-        { id: SEDE_NORD, name: "Palestra comunale di via dei Tigli", active: true },
-        { id: SEDE_SUD, name: "Centro sportivo Sud", active: true },
-      ],
-      structures: [
-        {
-          id: STRUTTURA,
-          name: "Palestra comunale di via dei Tigli — campo 1",
-          siteId: SEDE_NORD,
-          fields: [{ id: "campo-1", name: "Campo 1" }],
-        },
-      ],
+      categories: CATEGORIE,
+      club_sites: SEDI,
+      structures: STRUTTURE,
       category_groups: [],
       trainers: [],
       staff_members: [],
@@ -189,18 +195,32 @@ const main = async () => {
     `resources.ts` disallinea `club_resource_items` — colto da un seed invece
     che da un utente.
   */
-  await risorse.replaceClubResourceCollection(CLUB, "trainers", [
+  await risorse.replaceClubResourceCollections(CLUB, [
     {
-      id: "trainer-pp03uat-1",
-      first_name: "Gianfranco",
-      last_name: "Allenatore",
-      email: mister.email,
-      linkedUserId: mister.id,
-      /* Il perimetro: **una sola** categoria. */
-      categories: [CAT_U15],
-      groups: [],
-      role: "Allenatore",
+      resource_type: "trainers",
+      items: [
+        {
+          id: "trainer-pp03uat-1",
+          first_name: "Gianfranco",
+          last_name: "Allenatore",
+          email: mister.email,
+          linkedUserId: mister.id,
+          /* Il perimetro: **una sola** categoria. */
+          categories: [CAT_U15],
+          groups: [],
+          role: "Allenatore",
+        },
+      ],
     },
+    /*
+      Categorie, sedi e strutture passano di qui **anche loro**, e non solo la
+      scheda dell'allenatore. Scritte nella sola colonna JSON del club, il
+      registro generico non le trovava: l'allenatore riceveva `[]` da
+      `/api/v1/categories` e a schermo compariva l'**identificativo** della
+      categoria al posto del nome, ovunque servisse un'etichetta.
+    */
+    { resource_type: "categories", items: CATEGORIE },
+    { resource_type: "club_sites", items: SEDI },
   ]);
 
   await prisma.organizationUser.createMany({
