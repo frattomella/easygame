@@ -2552,3 +2552,97 @@ a schermo, e si nota; un campo dimenticato nell'altro verso e un referto che
 esce, e non se ne accorge nessuno. `athletes.data` resta sull'elenco di
 vietati per una ragione misurata, non per inerzia: e annotata come `PP03-D5` in
 [16 — Debito tecnico](16-technical-debt.md).
+
+## PP-03 — Le quattro porte del quinto round (2026-09-05)
+
+Verbale completo in [44 — PP-03 Trainer](44-pp-03-trainer.md) §15. Qui restano
+le quattro regole che valgono oltre l'area allenatore. Nessuna delle quattro e
+un difetto di ruolo: sono tutte **una regola giusta applicata a una fonte
+sbagliata**, o applicata a una porta sola.
+
+### Una grafia che arriva con la richiesta non e una grafia
+
+Il perimetro dell'allenatore ammetteva una categoria se **una qualunque** delle
+sue grafie — identificativo o nome — stava nell'insieme. La regola e giusta: sono
+la stessa cosa detta in due modi. La fonte no: `category_name` arriva **con il
+corpo della richiesta**, quindi bastava dichiarare come nome l'identificativo di
+una categoria propria per scrivere sotto la categoria di un altro.
+
+**La regola generale.** Due grafie sono la stessa cosa solo se lo dice un
+**registro**, non se lo dice chi chiama. Le grafie si risolvono lato server, una
+volta, contro il registro del club; il confronto resta poi sugli
+identificativi, cioe su cio che va in colonna.
+
+E un registro puo essere ambiguo: se un nome coincide con l'identificativo di
+un'altra riga, o appartiene a due righe, non risolve niente — la voce resta se
+stessa e fallisce chiuso. Un'ambiguita risolta a favore di chi chiede e la
+contraffazione rifatta dal registro invece che dalla richiesta.
+
+### Due assi di perimetro: uno decide in lettura, tutti e due in scrittura
+
+Dove un perimetro ha piu assi (gruppo e categoria, sede e categoria), un ramo che
+`return`-a sul primo asse **spegne** il secondo. Misurato: un evento con un
+gruppo proprio e la categoria di un altro veniva accettato in scrittura, perche
+il ramo dei gruppi usciva prima.
+
+**La regola generale.** In *lettura* un asse piu preciso puo decidere da solo
+(ADR-0055: il gruppo distingue due squadre che condividono la categoria). Su un
+**atto** gli assi stanno in **AND**, che e gia la regola di ADR-0103. E l'asse che
+l'oggetto **non dichiara** non conta: un evento di soli gruppi, tutti propri,
+resta suo — l'AND si fa fra gli assi dichiarati, non fra tutti quelli esistenti.
+
+### Il perimetro segue la riga anche dalla porta del contenitore
+
+Le risorse di club non hanno una tabella propria: sono righe di
+`club_resource_items`, e il registro le serve **per nome** e **per contenitore**.
+La proiezione risolveva gia il tipo della riga e proiettava come se fosse stata
+chiesta per nome; il **perimetro** no — arrivava col nome del contenitore, che
+negli insiemi filtrati non c'e. Da li uscivano le note di segreteria interne alla
+direzione e quelle indirizzate a un altro allenatore, in elenco, per
+identificativo, e nel conteggio di `meta.total`.
+
+**La regola generale.** Ogni difesa che si accende su un **nome di risorsa** deve
+risolvere il nome allo stesso modo in cui lo risolve la proiezione. Se un file
+dichiara per iscritto che esiste una seconda porta — e `resources.ts` lo
+dichiarava — quella dichiarazione vale per **tutte** le guardie, non per la prima
+che qualcuno ha corretto.
+
+E il corollario che la correzione ha imparato a sue spese: un vaglio si applica
+alla **forma** su cui e stato scritto. Filtrare la riga grezza con una funzione
+scritta per la riga proiettata non fa uscire niente e fa sparire tutto — una nota
+legittima che scompare e un difetto tanto quanto un segreto che esce, e una prova
+che guarda solo i segreti direbbe «chiuso».
+
+### Chi vede lo stato e non il contenuto legge l'anagrafica per elenco di ammessi
+
+L'inversione di [ADR-0125](18-decision-log.md) valeva per
+`medical_certificates.data`; `athletes.data` — la stessa colonna libera — era
+rimasta sull'elenco dei vietati, e il quinto round l'ha vinta con contenitori dal
+nome nuovo (`schedaSanitaria`, `anamnesi[]`) e campi dal nome italiano.
+
+**Le tre regole generali.**
+
+1. **Un contenitore si dichiara.** Dentro una colonna libera, un valore composto
+   — oggetto o elenco — esce solo se il suo nome e nell'elenco degli ammessi: un
+   contenitore e il posto in cui il testo libero si nasconde, e nessun elenco di
+   divieti ne indovina il nome.
+2. **Si dichiara anche la forma, non solo il nome.** Un nome ammesso senza una
+   forma dichiarata e l'elenco dei vietati che rientra dalla finestra: `source`
+   e una provenienza, cioe una parola, e con un oggetto dentro portava fuori un
+   referto.
+3. **L'anagrafica di un altro si serve per elenco di ammessi.** Chi ha
+   `clinical.status_read` e **non** `clinical.read` legge `athletes.data` per
+   ammissione, come gia legge la scheda di un collega
+   (`CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE`). Il lettore si definisce con un
+   **predicato sulle chiavi**, non con un nome di ruolo, cosi la regola vale
+   anche per i ruoli di club che derivano da `trainer`. La famiglia non ha
+   nessuna delle due chiavi e resta fuori: legge la scheda del proprio figlio.
+
+Il prezzo di ogni inversione e lo stesso e va dichiarato: un campo dimenticato
+**manca a schermo**, e si nota. Nell'altro verso e un referto che esce, e non se
+ne accorge nessuno. In questa lane il prezzo si e pagato subito — una delle
+cinque grafie della scadenza del certificato mancava dall'elenco, e un test
+esistente l'ha fatto fallire nello stesso commit.
+
+`PP03-D5` — il debito che teneva `athletes.data` sull'elenco dei vietati — e
+**chiuso** da questa correzione.

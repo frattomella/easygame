@@ -1057,3 +1057,169 @@ righe in [16 — Debito tecnico](16-technical-debt.md):
   esce la configurazione di ricevimento del club. Non e dato personale, ed e il
   contrario di cio che la guardia di scrittura dichiara. Stringerlo senza aver
   percorso il flusso di prenotazione della famiglia rischia di spegnerlo.
+
+---
+
+## §15 — Il quinto round: quattro HIGH, e nessuno era un ruolo
+
+Round condotto da un revisore indipendente col mandato di **rompere**, con in
+mano le nove sonde dei round 3 e 4 perche non rifacesse lavoro gia fatto.
+Verdetto: **Critical 0 / High 4 / Medium 5 / Low 5**.
+
+Lo zero sui CRITICAL non e un'assoluzione: i tre dei round precedenti —
+appropriazione dell'evento condiviso, notifica altrui per identificativo,
+contenuto clinico dentro `data` — sono stati **ribattuti da angolazioni nuove** e
+hanno retto. Due dei quattro HIGH erano gia stati **misurati dal round 4 e mai
+consegnati**, perche quel round e stato interrotto prima del verdetto: stavano in
+una sonda non tracciata, che e la ragione per cui adesso le sonde si committano.
+
+Nessuno dei quattro e un difetto di ruolo. Tutti e quattro sono la stessa forma:
+**una regola giusta applicata a una fonte sbagliata**, oppure applicata a una
+porta sola.
+
+### 15.1 — La grafia della categoria la sceglieva chi chiama (HIGH)
+
+§11.2 aveva introdotto il livello delle **grafie**: una categoria dell'evento e
+dentro il perimetro se una qualunque delle sue grafie ci sta, identificativo o
+nome, perche sono la stessa cosa detta in due modi. La forma era giusta e la
+fonte no — `category_name` arriva **con la richiesta**.
+
+    POST /api/v1/events {"categoryId":"cat-B","categoryName":"cat-A", …}
+      -> 200, riga scritta con category_id = "cat-B"
+    GET  /api/v1/events   (come allenatore di B)
+      -> ["FORGIATO da Aldo nella categoria di Bruno"]
+
+Bastava dichiarare come nome l'identificativo di una categoria propria per
+scrivere sotto la categoria di un altro: l'evento finiva nel calendario di quella
+squadra, con il proprio `created_by`, e `assertNoOverlap` girava su quella riga —
+quindi si poteva anche occupare un campo e far rifiutare la prenotazione vera. E
+§7.1 riaperta nel verso opposto: quella impediva di **portarsi via** l'evento
+altrui, questa permetteva di **metterne dentro** uno.
+
+Il contenimento misurato — ed e la ragione per cui non era CRITICAL: sull'evento
+forgiato l'appello e la convocazione dei minori di B restavano **negati**, la
+lettura non portava le sue persone, e nessun invito RSVP raggiungeva quelle
+famiglie. Il secondo recinto, quello sulle persone di §1, ha retto.
+
+**Cosa cambia.** Le grafie di una categoria le compone il **server**, una volta,
+dal registro del club (`clubs.categories`), dentro `readTrainerEventPerimeter`:
+ogni voce del perimetro si allarga a identificativo **e** nome della categoria
+che le corrisponde, e viaggia in `categoryTokens`. Il confronto lato evento resta
+sugli **identificativi**, cioe su cio che va in colonna. Il nome dell'evento
+parla solo quando l'identificativo tace — un evento storico, di quando la colonna
+non c'era — e li non c'e nessun identificativo da contraddire.
+
+Un registro puo essere **ambiguo**, e il round lo ha provato: un club che chiama
+una categoria con l'identificativo di un'altra. Un nome vale come grafia solo se
+non e l'identificativo di un'altra categoria e non appartiene a due; altrimenti
+la voce resta se stessa e fallisce chiuso, che davanti a un registro ambiguo e
+l'unica risposta onesta.
+
+### 15.2 — Il ramo dei gruppi usciva prima di guardare le categorie (HIGH)
+
+Seconda porta sulla stessa scrittura, e una correzione sulle sole grafie non
+l'avrebbe chiusa:
+
+    POST /api/v1/events {"groupIds":["grp-proprio"],"categoryId":"cat-altrui"}
+      -> 200, riga {"category_id":"cat-altrui","group_ids":["grp-proprio"]}
+
+Se l'evento dichiarava gruppi e l'allenatore ne aveva, la funzione **ritornava**
+sui soli gruppi: le categorie non venivano guardate affatto, in nessuno dei due
+modi.
+
+In **lettura** la scorciatoia resta, ed e ADR-0055: un club multi-sede distingue
+i `Pulcini · Scauri` dai `Pulcini · Santi Cosma`, e il gruppo e la risposta piu
+precisa; un calendario piu lungo non e un atto. In **scrittura** i due assi
+stanno in **AND**, che e la stessa regola di ADR-0103. Un evento che dichiara
+**solo** gruppi, tutti propri, resta scrivibile: li l'asse dichiarato e uno solo
+ed e tutto dentro — e la riga che lo distingue da «un evento senza categoria e di
+nessuno».
+
+### 15.3 — La seconda porta sul registro, che il file aveva gia nominato (HIGH)
+
+`secretariat_notes` non ha una tabella propria: e una riga di
+`club_resource_items`. §1 aveva chiuso la porta **per nome**; quella per
+**contenitore** arrivava al filtro col nome del contenitore, che in
+`TRAINER_DASHBOARD_FILTERED_RESOURCES` non c'e.
+
+    GET /secretariat_notes                                    1 riga
+    GET /club_resource_items?resource_type=secretariat_notes  3 righe
+    GET /club_resource_items/<id della nota interna>          200
+    meta.total sulla seconda porta                            3 invece di 1
+
+Uscivano il promemoria interno della direzione sulla morosita di una famiglia e
+la nota nominale su un procedimento disciplinare verso un collega. E la **quarta**
+volta che `resources.ts` sbaglia nella stessa direzione — la correzione va
+nell'elenco, la porta accanto resta aperta — ed e la porta che il file aveva gia
+**nominato per iscritto**: `serializeRecord` ci faceva passare la proiezione, e
+non il perimetro.
+
+Il vaglio non e stato riscritto: le righe si smistano per il tipo che portano con
+se e si rimandano alla **stessa** funzione, che le giudica come se fossero state
+chieste per nome.
+
+**La trappola della correzione, e vale piu del difetto.** La riga grezza tiene i
+propri campi dentro `payload`, e `isReminderVisibleToTrainer` e scritta sulla
+forma **piatta**, quella che esce dalla rotta. La prima stesura filtrava la forma
+sbagliata: zero righe fuori — e zero righe anche per la nota legittima. Non un
+dato che esce, una nota che sparisce, e una prova che avesse guardato solo i
+segreti avrebbe detto «chiuso». Le due porte appiattiscono ora con la stessa
+funzione, `serializeClubResourceItem`, che e la proiezione vera.
+
+### 15.4 — `athletes.data` era rimasta sull'elenco dei vietati (HIGH)
+
+ADR-0125 ha invertito la regola dentro `medical_certificates.data`.
+`athletes.data` e la stessa colonna libera, ed era rimasta dall'altra parte. Il
+round l'ha vinta come si vince sempre, e da sette porte (`/athletes`,
+`/athletes/:id`, `/simplified_athletes`, `?view=summary` e i loro alias), verso un
+allenatore con il solo `clinical.status_read`:
+
+    data.schedaSanitaria.allergies      contenitore dal nome nuovo, usciva intero
+    data.anamnesi[].patologia           idem
+    data.diagnosi / referto / terapia   campi semplici, nomi italiani
+    data.source = { diagnosi: … }       sul certificato: nome ammesso, forma no
+
+Tre correzioni, tre livelli.
+
+1. **I contenitori sono per elenco di ammessi, per chiunque.** Un valore composto
+   esce solo se il suo nome e dichiarato: sono i contenitori che il prodotto
+   scrive davvero, meno quelli gia tolti perche clinici o documentali. Un
+   contenitore e il posto in cui il testo libero si nasconde.
+2. **Chi vede lo stato e non il contenuto legge tutta `data` per elenco di
+   ammessi.** Non e una forma nuova: e la stessa di
+   `CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE`, che decide da due Wave cosa un
+   allenatore vede della scheda di un **collega**. Il lettore e definito da un
+   predicato e non da un nome di ruolo — `clinical.status_read` **e non**
+   `clinical.read` — quindi vale anche per i ruoli di club che derivano da
+   `trainer`. La **famiglia** non ha nessuna delle due chiavi e non ci rientra:
+   legge la scheda del proprio figlio, e per lei non cambia niente.
+3. **Dentro `medical_certificates.data` si dichiara anche la forma.** `source` e
+   una provenienza, cioe una parola: passa un valore semplice. Un contenitore
+   sotto un nome ammesso e l'elenco dei vietati che rientra dalla finestra.
+
+Il prezzo e dichiarato ed e quello di ADR-0125: un campo nuovo che serve
+all'allenatore va **aggiunto**, e finche non lo e non si vede. Si e gia pagato una
+volta durante questa stessa correzione — `medicalCertificateExpiry`, una delle
+cinque grafie con cui il prodotto ha scritto la stessa data, mancava dall'elenco,
+e un test di `tests/auth/` l'ha fatto fallire. E il modo giusto in cui questo
+errore si manifesta: rosso, subito, invece che silenzioso per mesi.
+
+### Verificato
+
+| Prova | Esito |
+|---|---|
+| `scripts/pp-03-round4-perimetro-eventi-probe.mjs` | **19/19** (era 12/19) |
+| `scripts/pp-03-round5-registro-secondaporta-probe.mjs` | **14/14** (era 10/14) |
+| `scripts/pp-03-round4-destinatario-clinico-conteggio-probe.mjs` | **48/48** (era 41/48) |
+| `scripts/pp-03-round3-proiezioni-probe.mjs` | 35/36; il rosso e `L-04` = `PP03-D7` |
+| `tests/server/pp-03-perimetro-scrittura-grafie.test.mjs` | 12/12 |
+| `tests/server/pp-03-registro-seconda-porta.test.mjs` | 6/6; per mutazione, 3 rosse |
+| `tests/lib/pp-03-anagrafica-per-elenco-di-ammessi.test.mjs` | 6/6; per mutazione, 3 rosse |
+| Regressione invariata | `security` 36/36, `eventi-scope-ruoli` 77/77, `scrittura-evento-condiviso` 15/15, `rsvp-perimetro` 5/5, `allegati-perimetro` 4/4, `revoca-sweep` 9/9, `notifiche-e-clinico` 15/15, `rsvp-accensione` 10/10 |
+| `npm test` | 4.717/4.717 |
+
+Le prove nuove non elencano i nomi noti — sarebbe verificare l'elenco, cioe la
+cosa che si e smesso di usare. Usano nomi **inventati nel test**, che e l'unico
+modo di misurare un default. E ognuna misura il verso opposto: la nota legittima
+arriva ancora da entrambe le porte, la famiglia legge il proprio figlio come
+prima, l'allenatore continua a vedere la scadenza del certificato.

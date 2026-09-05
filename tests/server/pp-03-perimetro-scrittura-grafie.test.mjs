@@ -49,13 +49,23 @@ test("PP-03 §11.2 · il nome della categoria e una grafia della primaria, non u
   );
 });
 
-test("PP-03 §11.2 · e vale anche quando il perimetro conosce il nome e non l'identificativo", () => {
+test("PP-03 §15.1 · e vale anche quando il perimetro conosce il nome e non l'identificativo", () => {
   /*
     Il caso simmetrico, e non e teorico: un club che non ha mai normalizzato le
-    categorie tiene nella scheda dell'allenatore il **nome**. Se una sola delle
-    due grafie combacia, la categoria e sua.
+    categorie tiene nella scheda dell'allenatore il **nome**.
+
+    Cambia **dove** le due grafie si mettono insieme. §11.2 le prendeva dalla
+    richiesta — l'evento portava `category_name`, e bastava che una delle due
+    combaciasse. Da §15.1 le compone il server: `readTrainerEventPerimeter`
+    allarga ogni voce del perimetro alle grafie che il **registro del club** le
+    riconosce, e le consegna in `categoryTokens`. Il giudizio lato evento resta
+    sugli identificativi, cioe su cio che va in colonna.
   */
-  const perimetroPerNome = { categoryIds: ["under 15"], groupIds: [] };
+  const perimetroPerNome = {
+    categoryIds: ["under 15"],
+    categoryTokens: ["under 15", "cat-u15"],
+    groupIds: [],
+  };
   const evento = {
     category_id: "cat-u15",
     category_name: "Under 15",
@@ -63,6 +73,67 @@ test("PP-03 §11.2 · e vale anche quando il perimetro conosce il nome e non l'i
   };
 
   assert.equal(dentro(perimetroPerNome, evento, "scrittura"), true);
+});
+
+/* ------------------------------ §15.1 la contraffazione della grafia, chiusa */
+
+test("PP-03 §15.1 · un `categoryName` inventato non fa passare la categoria di un altro", () => {
+  /*
+    La riproduzione del quinto round, ridotta al predicato:
+
+        POST /api/v1/events {"categoryId":"cat-prima","categoryName":"cat-u15"}
+
+    `category_name` e testo che **sceglie chi chiama**. Finche stava insieme
+    all'identificativo sotto un `some`, dichiarare come nome l'identificativo di
+    una categoria propria faceva passare qualunque categoria altrui: l'evento
+    nasceva nel calendario di quella squadra, con il proprio `created_by`.
+  */
+  const evento = {
+    category_id: "cat-prima",
+    category_name: "cat-u15",
+    category_ids: ["cat-prima"],
+  };
+
+  assert.equal(dentro(PERIMETRO, evento, "scrittura"), false);
+  assert.equal(
+    dentro(PERIMETRO, evento, "lettura"),
+    false,
+    "non passa nemmeno in lettura: era `some` su una grafia scelta da chi chiama",
+  );
+});
+
+test("PP-03 §15.1 · il nome parla solo quando l'identificativo tace", () => {
+  /*
+    Il ripiego che resta, e il suo confine. Un evento storico senza
+    identificativo di categoria si giudica sul nome — li non c'e nessun
+    identificativo da contraddire. Appena l'identificativo c'e, il nome non
+    entra piu nel giudizio, in **nessuno** dei due versi: ne per aprire, ne per
+    chiudere.
+  */
+  const perimetroPerNome = {
+    categoryIds: ["under 15"],
+    categoryTokens: ["under 15", "cat-u15"],
+    groupIds: [],
+  };
+
+  assert.equal(
+    dentro(
+      perimetroPerNome,
+      { category_id: null, category_name: "Under 15", category_ids: [] },
+      "scrittura",
+    ),
+    true,
+    "l'evento storico senza identificativo resta suo",
+  );
+  assert.equal(
+    dentro(
+      PERIMETRO,
+      { category_id: "cat-u15", category_name: "Prima squadra", category_ids: ["cat-u15"] },
+      "scrittura",
+    ),
+    true,
+    "un nome che non combacia non toglie l'evento a chi ne ha l'identificativo",
+  );
 });
 
 /* ------------------------------------------------ cio che deve restare chiuso */
@@ -153,5 +224,88 @@ test("PP-03 §11.2 · i gruppi restano la regola che vince quando entrambi li di
       "lettura",
     ),
     true,
+  );
+});
+
+/* ------------------ §15.2 il ramo dei gruppi non salta piu le categorie */
+
+test("PP-03 §15.2 · in scrittura i due assi stanno in AND, e il gruppo proprio non apre la categoria altrui", () => {
+  /*
+    La riproduzione del quinto round:
+
+        POST /api/v1/events {"groupIds":["grp-proprio"],"categoryId":"cat-altrui"}
+          -> 200
+
+    Il ramo dei gruppi **usciva**: se l'evento dichiarava gruppi e l'allenatore
+    ne aveva, le categorie non venivano guardate affatto. Bastava quindi
+    nominare un gruppo proprio per scrivere sotto la categoria di un altro, e
+    una correzione sulle sole grafie (§15.1) non l'avrebbe chiusa: e una
+    seconda porta.
+  */
+  const perimetroConGruppi = {
+    categoryIds: ["cat-u15"],
+    categoryTokens: ["cat-u15"],
+    groupIds: ["gruppo-nord"],
+  };
+
+  assert.equal(
+    dentro(
+      perimetroConGruppi,
+      { category_id: "cat-prima", category_ids: ["cat-prima"], group_ids: ["gruppo-nord"] },
+      "scrittura",
+    ),
+    false,
+    "il gruppo proprio non e un lasciapassare sulla categoria di un altro",
+  );
+
+  assert.equal(
+    dentro(
+      perimetroConGruppi,
+      { category_id: "cat-u15", category_ids: ["cat-u15"], group_ids: ["gruppo-nord"] },
+      "scrittura",
+    ),
+    true,
+    "il verso opposto: sul proprio, con entrambi gli assi dentro, si scrive come prima",
+  );
+
+  assert.equal(
+    dentro(
+      perimetroConGruppi,
+      { category_id: "cat-prima", category_ids: ["cat-prima"], group_ids: ["gruppo-nord"] },
+      "lettura",
+    ),
+    true,
+    "in lettura la scorciatoia di ADR-0055 resta: il gruppo e la risposta piu precisa, e un calendario piu lungo non e un atto",
+  );
+});
+
+test("PP-03 §15.2 · un evento di soli gruppi, tutti propri, resta scrivibile", () => {
+  /*
+    Il rischio della correzione, misurato: mettendo i due assi in AND, un
+    evento che dichiara **solo** gruppi non deve finire nella regola «un evento
+    senza categoria e di nessuno». Li l'asse dichiarato e uno solo, ed e tutto
+    dentro.
+  */
+  const perimetroConGruppi = {
+    categoryIds: ["cat-u15"],
+    categoryTokens: ["cat-u15"],
+    groupIds: ["gruppo-nord"],
+  };
+
+  assert.equal(
+    dentro(
+      perimetroConGruppi,
+      { category_id: null, category_ids: [], group_ids: ["gruppo-nord"] },
+      "scrittura",
+    ),
+    true,
+  );
+  assert.equal(
+    dentro(
+      perimetroConGruppi,
+      { category_id: null, category_ids: [], group_ids: ["gruppo-sud"] },
+      "scrittura",
+    ),
+    false,
   );
 });

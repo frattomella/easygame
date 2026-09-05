@@ -1262,6 +1262,27 @@ const serializeClubResourceItem = (record: Record<string, any>) =>
   });
 
 /**
+ * **La riga di club nella forma in cui esce dalla rotta** (PP-03 §15.3).
+ *
+ * Una risorsa di club vive in `club_resource_items` con i propri campi dentro
+ * `payload`, e ogni funzione di vaglio — `isReminderVisibleToTrainer` prima di
+ * tutte — e scritta sulla forma **piatta**, quella che il client riceve. Le due
+ * porte pero consegnavano due forme diverse: l'elenco per nome filtra dopo la
+ * proiezione, il contenitore e la lettura per identificativo prima.
+ *
+ * Sulla forma grezza il vaglio non trovava i campi e negava tutto — non un dato
+ * che esce, una nota legittima che sparisce. Qui si appiattisce, e resta una
+ * funzione sola: `serializeClubResourceItem`, cioe la proiezione vera.
+ *
+ * Una riga gia piatta (nessun `payload`) si restituisce identica: e la stessa
+ * riga, non una copia, perche chi chiama torna all'originale per riferimento.
+ */
+const comeEsceDalRegistro = (record: Record<string, any>) =>
+  record && typeof record === "object" && "payload" in record
+    ? serializeClubResourceItem(record)
+    : record;
+
+/**
  * **Le colonne del club che escono comunque, e quelle che non escono mai.**
  *
  * `payment_pin` e stato tolto dalle colonne **proiettabili** — quelle che un
@@ -1601,7 +1622,14 @@ const proiettaSenzaDatoClinico = (
   }
 
   if (resource === "athletes" || resource === "simplified_athletes") {
-    const data = stripClinicalAthleteFields(record.data);
+    /*
+      Il ruolo si passa perche `athletes.data` si legge **al contrario** per chi
+      vede lo stato e non il contenuto (PP-03 §15.4): li escono i campi
+      dichiarati e nient'altro, che e la stessa forma di
+      `proiettaPersonaPerAllenatore` per la scheda di un collega. La famiglia
+      non ha nessuna delle due chiavi sanitarie e non ci rientra.
+    */
+    const data = stripClinicalAthleteFields(record.data, scope.activeRole);
     return data === record.data ? record : { ...record, data };
   }
 
@@ -5169,13 +5197,111 @@ const filterTrainerDashboardRecords = async (
   records: Record<string, any>[],
   searchParams: URLSearchParams,
   scope?: ResourceAccessScope,
-) => {
+  /** Le righe sono gia nella forma piatta con cui escono dalla rotta. */
+  giaPiatte = false,
+): Promise<Record<string, any>[]> => {
   if (
     normalizeAccessRole(scope?.activeRole) !== "trainer" ||
     !scope?.userId ||
-    !scope.activeOrganizationId ||
-    !TRAINER_DASHBOARD_FILTERED_RESOURCES.has(canonicalResourceName(resource))
+    !scope.activeOrganizationId
   ) {
+    return records;
+  }
+
+  /*
+    **La seconda porta sulle stesse righe vale anche per il perimetro**
+    (PP-03 §15.3).
+
+    `serializeRecord` gia risolve il **tipo della riga** quando la si chiede dal
+    contenitore, e proietta come se fosse stata chiesta per nome: il commento in
+    testa a quella funzione dichiara per esteso che «`club_resource_items` e la
+    seconda porta sulle stesse righe». Ci passava la **proiezione**, e non il
+    **perimetro**.
+
+    Misurato dal quinto round: `secretariat_notes` non ha una tabella propria —
+    e una riga di `club_resource_items` — e il nome canonico che arrivava qui
+    era quello del **contenitore**, che in `TRAINER_DASHBOARD_FILTERED_RESOURCES`
+    non c'e.
+
+        GET /api/v1/secretariat_notes                              1 riga
+        GET /api/v1/club_resource_items?resource_type=secretariat_notes   3 righe
+        GET /api/v1/club_resource_items/<id della nota interna>    200
+
+    Uscivano il promemoria interno della direzione sulla morosita di una
+    famiglia e la nota nominale su un procedimento disciplinare verso un
+    collega. E la **quarta** volta che questo file sbaglia nella stessa
+    direzione — la correzione va nell'elenco, la porta accanto resta aperta — ed
+    e la porta che il file aveva gia nominato.
+
+    Il vaglio non viene riscritto: le righe si smistano per il tipo che portano
+    con se e si rimandano alla **stessa** funzione, che le giudica come se
+    fossero state chieste per nome. Le righe di un tipo che il perimetro non
+    tocca passano come prima.
+  */
+  if (canonicalResourceName(resource) === "club_resource_items") {
+    const perTipo = new Map<string, Record<string, any>[]>();
+    const origine = new Map<Record<string, any>, Record<string, any>>();
+    for (const record of records) {
+      const tipo = canonicalResourceName(String(record?.resource_type || ""));
+      if (!TRAINER_DASHBOARD_FILTERED_RESOURCES.has(tipo)) continue;
+      const giudicabile = comeEsceDalRegistro(record);
+      origine.set(giudicabile, record);
+      const gruppo = perTipo.get(tipo);
+      if (gruppo) gruppo.push(giudicabile);
+      else perTipo.set(tipo, [giudicabile]);
+    }
+    if (!perTipo.size) return records;
+
+    const ammesse = new Set<Record<string, any>>();
+    for (const [tipo, righe] of perTipo) {
+      for (const riga of await filterTrainerDashboardRecords(
+        tipo,
+        righe,
+        searchParams,
+        scope,
+        true,
+      )) {
+        const originale = origine.get(riga);
+        if (originale) ammesse.add(originale);
+      }
+    }
+    return records.filter((record) => {
+      const tipo = canonicalResourceName(String(record?.resource_type || ""));
+      return !TRAINER_DASHBOARD_FILTERED_RESOURCES.has(tipo) || ammesse.has(record);
+    });
+  }
+
+  /*
+    **Una riga di club si giudica nella forma in cui esce** (PP-03 §15.3).
+
+    Le risorse di club vivono in `club_resource_items` con i propri campi dentro
+    `payload`, e ogni funzione di vaglio — `isReminderVisibleToTrainer` prima di
+    tutte — e scritta sulla forma **piatta**, quella che esce dalla rotta. Le
+    due porte pero consegnavano due forme diverse: l'elenco per nome filtrava
+    dopo la proiezione, il contenitore e la lettura per identificativo prima.
+
+    Sulla forma grezza il vaglio non trovava i campi e negava **tutto**: non un
+    dato che esce, ma una nota legittima che sparisce. Si appiattisce qui, una
+    volta, e la riga che si restituisce resta quella d'origine.
+  */
+  if (
+    !giaPiatte &&
+    RESOURCE_CONFIG[canonicalResourceName(resource)]?.kind === "club_resource"
+  ) {
+    const piatte = records.map(comeEsceDalRegistro);
+    const ammesse = new Set(
+      await filterTrainerDashboardRecords(
+        resource,
+        piatte,
+        searchParams,
+        scope,
+        true,
+      ),
+    );
+    return records.filter((_, indice) => ammesse.has(piatte[indice]));
+  }
+
+  if (!TRAINER_DASHBOARD_FILTERED_RESOURCES.has(canonicalResourceName(resource))) {
     return records;
   }
 
@@ -5608,7 +5734,15 @@ export const listResourcePage = async (
     normalizeAccessRole(scope?.activeRole) === "trainer" &&
     Boolean(scope?.userId) &&
     Boolean(scope?.activeOrganizationId) &&
-    TRAINER_DASHBOARD_FILTERED_RESOURCES.has(canonicalResourceName(resource));
+    /*
+      Il contenitore entra insieme alle risorse che contiene (PP-03 §15.3):
+      qui le righe non ci sono ancora, quindi il loro tipo non si puo leggere, e
+      dichiarare che il perimetro **non** si applica farebbe contare al database
+      le righe che il filtro toglie subito dopo — cioe `meta.total` 3 dove ne
+      escono 1, che e lo stesso difetto di §10.1 da un'altra porta.
+    */
+    (canonicalResourceName(resource) === "club_resource_items" ||
+      TRAINER_DASHBOARD_FILTERED_RESOURCES.has(canonicalResourceName(resource)));
 
   const hasPostQueryFilters =
     Boolean(season) ||
@@ -5635,7 +5769,29 @@ export const listResourcePage = async (
     canPaginateInDatabase ? delegate.count({ where }) : Promise.resolve(null),
   ]);
 
-  const serializedRecords = records
+  /*
+    **Il perimetro del contenitore si applica sulla riga grezza** (PP-03 §15.3).
+
+    Il tipo di una riga di `club_resource_items` sta in `resource_type`, e la
+    proiezione qui sotto non lo porta con se: passa alla forma della risorsa che
+    la riga **e**, non del contenitore da cui e stata chiesta. Filtrare dopo
+    vorrebbe dire non sapere piu cosa si sta filtrando.
+
+    Si fa quindi prima, sulla riga come sta in archivio — che e esattamente cio
+    che `getResourceById` gia fa da questa stessa porta, e due ordini diversi
+    per la stessa domanda sono la prossima divergenza.
+  */
+  const recordsDentroIlPerimetro =
+    canonicalResourceName(resource) === "club_resource_items"
+      ? await filterTrainerDashboardRecords(
+          resource,
+          records as Record<string, any>[],
+          searchParams,
+          scope,
+        )
+      : (records as Record<string, any>[]);
+
+  const serializedRecords = recordsDentroIlPerimetro
     .map((record: Record<string, any>) => serializeRecord(resource, record, scope))
     .filter(Boolean) as Record<string, any>[];
 

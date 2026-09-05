@@ -146,7 +146,15 @@ export type ListEventsFilters = {
 };
 
 export type TrainerEventPerimeter = {
+  /** Le categorie **dichiarate** nella scheda, nella grafia in cui stanno li. */
   categoryIds: string[];
+  /**
+   * Le stesse categorie, allargate a **tutte** le loro grafie dal registro del
+   * club (identificativo e nome). E l'insieme su cui si giudica, e si compone
+   * dal registro proprio perche il client non ci possa mettere una grafia sua
+   * (PP-03 §15.1).
+   */
+  categoryTokens: string[];
   groupIds: string[];
 };
 
@@ -286,12 +294,81 @@ export const readTrainerEventPerimeter = async (
           .filter(Boolean)
       : [];
 
+  const dichiarate = Array.from(
+    new Set([...raccogli(profilo?.categories), ...raccogli(source?.categories)]),
+  );
+
+  /*
+    **Le grafie di una categoria le detta il registro del club, non il client**
+    (PP-03 §15.1).
+
+    Il perimetro di un allenatore, dentro `clubs.trainers`, puo portare
+    l'**identificativo** della categoria oppure il suo **nome**: sono due
+    grafie della stessa cosa, e la storia di questo prodotto contiene club di
+    entrambe le forme. §11.2 aveva risolto la cosa dal lato sbagliato — teneva
+    per buono il `category_name` che arrivava **con la richiesta** — e da li
+    passava una contraffazione: bastava dichiarare come nome l'identificativo
+    di una categoria propria per scrivere sotto la categoria di un altro.
+
+    Le grafie si risolvono qui, una volta, contro `clubs.categories`, che e il
+    registro: ogni voce del perimetro si allarga a identificativo **e** nome
+    della categoria che le corrisponde. Il confronto lato evento puo cosi
+    restare sugli **identificativi**, cioe su cio che sta in colonna, e il
+    testo libero del client non entra piu nel giudizio.
+
+    Una voce che nel registro non c'e resta se stessa: fallisce chiuso, che e
+    il verso giusto per una categoria cancellata.
+  */
+  const registro = Array.isArray(club.categories)
+    ? (club.categories as unknown[])
+    : [];
+  const voci = registro
+    .filter((voce): voce is Record<string, unknown> => Boolean(voce) && typeof voce === "object")
+    .map((voce) => ({
+      id: asText(voce.id).toLowerCase(),
+      nome: asText(voce.name ?? voce.label).toLowerCase(),
+    }))
+    .filter((voce) => voce.id || voce.nome);
+
+  /*
+    **L'identificativo vince, e una grafia ambigua non allarga niente.**
+
+    Il quinto round ha misurato anche il caso storto: un club che chiama una
+    categoria **con l'identificativo di un'altra**. Se una grafia del genere
+    entrasse nell'insieme, il perimetro di chi allena la prima si allargherebbe
+    alla seconda — la contraffazione rifatta dal registro invece che dalla
+    richiesta, e la difesa varrebbe meno del difetto.
+
+    Un nome vale come grafia solo se **non e** l'identificativo di un'altra
+    categoria e **non appartiene a due** categorie. Altrimenti la voce del
+    perimetro resta se stessa: fallisce chiuso, che davanti a un registro
+    ambiguo e l'unica risposta onesta.
+  */
+  const identificativi = new Set(voci.map((voce) => voce.id).filter(Boolean));
+  const quanteVolte = new Map<string, number>();
+  for (const voce of voci) {
+    if (!voce.nome) continue;
+    quanteVolte.set(voce.nome, (quanteVolte.get(voce.nome) ?? 0) + 1);
+  }
+  const nomeUtile = (nome: string) =>
+    Boolean(nome) && !identificativi.has(nome) && quanteVolte.get(nome) === 1;
+
+  const grafieDiCategoria = new Map<string, string[]>();
+  for (const voce of voci) {
+    const grafie = [voce.id, nomeUtile(voce.nome) ? voce.nome : ""].filter(Boolean);
+    if (!grafie.length) continue;
+    for (const chiave of grafie) grafieDiCategoria.set(chiave, grafie);
+  }
+
   return {
-    categoryIds: Array.from(
-      new Set([
-        ...raccogli(profilo?.categories),
-        ...raccogli(source?.categories),
-      ]),
+    categoryIds: dichiarate,
+    categoryTokens: Array.from(
+      new Set(
+        dichiarate.flatMap((value) => {
+          const chiave = value.toLowerCase();
+          return grafieDiCategoria.get(chiave) ?? [chiave];
+        }),
+      ),
     ),
     groupIds: Array.from(
       new Set([
@@ -375,15 +452,39 @@ export const eventWithinTrainerPerimeter = (
     .map(asText)
     .filter(Boolean);
 
-  if (gruppiEvento.length && perimetro.groupIds.length) {
+  /*
+    **In lettura il gruppo decide; in scrittura i due assi stanno in AND**
+    (PP-03 §15.2).
+
+    Qui il ramo dei gruppi **usciva**: se l'evento dichiarava gruppi e
+    l'allenatore ne aveva, le categorie non venivano guardate affatto, in
+    nessuno dei due modi. Misurato dal quinto round: `POST /api/v1/events`
+    con `{groupIds:["grp-proprio"], categoryId:"cat-altrui"}` rispondeva 200, e
+    la riga nasceva sotto la categoria di un altro.
+
+    In **lettura** la scorciatoia resta, ed e ADR-0055: un club multi-sede
+    distingue i `Pulcini · Scauri` dai `Pulcini · Santi Cosma`, e il gruppo e
+    la risposta piu precisa. In **scrittura** no: e la stessa regola dei due
+    assi di ADR-0103 — in AND fra loro, in OR dentro se stessi — e un atto che
+    cambia l'evento deve stare dentro **entrambi** i recinti che l'evento
+    dichiara.
+  */
+  const gruppiInPerimetro = () => {
+    if (!gruppiEvento.length || !perimetro.groupIds.length) return null;
     const suoi = new Set(perimetro.groupIds);
     return modo === "scrittura"
       ? gruppiEvento.every((value) => suoi.has(value))
       : gruppiEvento.some((value) => suoi.has(value));
-  }
+  };
+
+  const esitoGruppi = gruppiInPerimetro();
+  if (modo === "lettura" && esitoGruppi !== null) return esitoGruppi;
+  if (esitoGruppi === false) return false;
 
   const categorie = new Set(
-    perimetro.categoryIds.map((value) => value.toLowerCase()),
+    (perimetro.categoryTokens ?? perimetro.categoryIds).map((value) =>
+      value.toLowerCase(),
+    ),
   );
 
   /*
@@ -397,31 +498,37 @@ export const eventWithinTrainerPerimeter = (
     : [];
 
   /*
-    **Una categoria, non una grafia** (PP-03 §11).
+    **Il nome parla solo quando l'identificativo tace** (PP-03 §15.1).
 
-    Qui c'era un elenco piatto di riferimenti — identificativo primario, **nome**
-    primario, e tutte le categorie — su cui `scrittura` chiedeva `every`. In
-    lettura non faceva danno: `some` su una grafia in piu e sempre `some`. In
-    scrittura si, e in una direzione che nessuno vedeva perche il pulsante non
-    esisteva ancora: il perimetro dell'allenatore e fatto di **identificativi**,
-    quindi il nome della categoria non ci sta dentro, quindi `every` falliva su
-    **ogni** evento che portasse anche il nome.
+    §11 aveva messo qui un livello di «grafie»: una categoria dell'evento e
+    dentro il perimetro se **una qualunque** delle sue grafie ci sta,
+    identificativo o nome, perche sono la stessa cosa detta in due modi. La
+    forma era giusta e la **fonte** no: `category_name` arriva con la
+    richiesta, cioe e testo che sceglie chi chiama.
 
-    Misurato a schermo appena il pulsante e comparso: un allenatore che creava
-    l'allenamento della propria e unica squadra riceveva «questo evento e
-    condiviso con una squadra che non e tua», sul proprio evento, con una
-    categoria sola. La guardia falliva chiusa — quindi non era una falla — ma
-    rendeva `events.manage` inutilizzabile per il ruolo che la possiede.
+    Misurato dal quinto round:
 
-    La forma giusta e a due livelli. Una **categoria** dell'evento e dentro il
-    perimetro se **una qualunque** delle sue grafie ci sta (l'identificativo o
-    il nome: sono la stessa cosa detta in due modi, ed e la ragione per cui il
-    nome e nell'elenco). Poi vale la regola dei modi: `lettura` chiede che
-    **almeno una** categoria sia dentro, `scrittura` che ci siano **tutte**.
+        POST /api/v1/events {"categoryId":"cat-B","categoryName":"cat-A", …}
+          -> 200, riga scritta con category_id = "cat-B"
+
+    Bastava dichiarare come **nome** l'identificativo di una categoria propria
+    per scrivere sotto la categoria di un altro: l'evento finiva nel calendario
+    di quella squadra, con il proprio `created_by`, e `assertNoOverlap` girava
+    su quella riga. E §7.1 riaperta nel verso opposto — quella impediva di
+    **portarsi via** l'evento altrui, questa permetteva di **metterne dentro**
+    uno.
+
+    Adesso le grafie del **perimetro** le compone il server dal registro del
+    club (`readTrainerEventPerimeter`), e il confronto lato evento sta sugli
+    **identificativi**, cioe su cio che va in colonna. Il nome resta come
+    ripiego per il solo caso in cui l'identificativo manchi — un evento
+    storico, di quando la colonna non c'era — e in quel caso non c'e nessun
+    identificativo da contraddire.
   */
-  const primaria = [evento.category_id, evento.category_name]
-    .map((value) => asText(value).toLowerCase())
-    .filter(Boolean);
+  const identificativoPrimario = asText(evento.category_id).toLowerCase();
+  const primaria = identificativoPrimario
+    ? [identificativoPrimario]
+    : [asText(evento.category_name).toLowerCase()].filter(Boolean);
 
   const altre = categorieEvento
     .map((value) => asText(value).toLowerCase())
@@ -433,19 +540,24 @@ export const eventWithinTrainerPerimeter = (
     ...altre.map((value) => [value]),
   ];
 
-  /*
-    Un evento senza nessuna categoria non e «di tutti»: e di nessuno, e `every`
-    su un elenco vuoto risponderebbe **vero**. Il caso 3 dell'intestazione qui
-    sopra deve restare chiuso in tutti e due i modi.
-  */
-  if (!categorieDellEvento.length) return false;
-
   const dentro = (grafie: readonly string[]) =>
     grafie.some((value) => categorie.has(value));
 
-  return modo === "scrittura"
-    ? categorieDellEvento.every(dentro)
-    : categorieDellEvento.some(dentro);
+  /*
+    Un evento senza nessuna categoria non e «di tutti»: e di nessuno, e `every`
+    su un elenco vuoto risponderebbe **vero**. Il caso 3 dell'intestazione qui
+    sopra deve restare chiuso — a meno che l'evento non dichiari **l'altro**
+    asse e quello sia tutto dentro: un evento di soli gruppi, propri, non e
+    l'evento di nessuno.
+  */
+  const esitoCategorie = categorieDellEvento.length
+    ? modo === "scrittura"
+      ? categorieDellEvento.every(dentro)
+      : categorieDellEvento.some(dentro)
+    : null;
+
+  if (esitoCategorie === null) return esitoGruppi === true;
+  return esitoCategorie;
 };
 
 /**

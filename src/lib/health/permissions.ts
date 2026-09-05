@@ -241,7 +241,163 @@ const CLINICAL_ATHLETE_FIELD_SET = new Set(CLINICAL_ATHLETE_FIELDS);
  * presente e vuoto dice comunque che quel campo esiste, e un client scritto
  * male lo riscriverebbe a vuoto sul primo salvataggio.
  */
-export const stripClinicalAthleteFields = (data: unknown) => {
+/**
+ * **I contenitori di `athletes.data` che non sono clinici, dichiarati per nome**
+ * (PP-03 §15.4).
+ *
+ * ADR-0125 ha invertito la regola dentro `medical_certificates.data`: su una
+ * colonna JSON **libera** si dichiara cosa passa, perche un elenco di vietati e
+ * una scommessa sui nomi che qualcuno usera. `athletes.data` e la stessa
+ * colonna libera, ed era rimasta sui vietati.
+ *
+ * Il quinto round l'ha vinta come si vince sempre, con due nomi inventati:
+ *
+ *     data.schedaSanitaria.allergies      -> usciva intero
+ *     data.anamnesi[].patologia           -> usciva intero
+ *
+ * su sette porte su sette (`/athletes`, `/athletes/:id`, `/simplified_athletes`,
+ * `?view=summary`) verso un allenatore con il solo `clinical.status_read`. Il
+ * taglio guardava i nomi di **primo livello**: un contenitore con un nome nuovo
+ * passava, e con lui tutto quello che aveva dentro.
+ *
+ * **La riga che cambia e questa**: un valore **composto** — oggetto o elenco —
+ * esce solo se il suo nome e qui. I campi semplici restano sull'elenco dei
+ * vietati, perche li lo schema dell'anagrafica e enumerabile e la schermata ne
+ * legge una ventina per nome; un contenitore no, e un contenitore e il posto in
+ * cui il testo libero si nasconde.
+ *
+ * L'elenco non e stato immaginato: sono i contenitori che il prodotto **scrive
+ * davvero** (`persistAthleteCollections` e i consumatori dell'anagrafica),
+ * meno quelli che l'elenco dei vietati qui sopra toglie gia perche clinici o
+ * documentali.
+ *
+ * Il prezzo e dichiarato, ed e lo stesso di ADR-0125: un contenitore non
+ * clinico che il prodotto comincera a scrivere va **aggiunto qui**, e finche
+ * non lo e sparisce per chi non ha `clinical.read`. Si nota un contenitore che
+ * manca, non un referto che esce.
+ */
+export const NON_CLINICAL_ATHLETE_CONTAINERS: readonly string[] = [
+  "guardians",
+  "clothingSizes",
+  "clothing_sizes",
+  "categories",
+  "categoryIds",
+  "category_ids",
+  "categoryNames",
+  "category_names",
+  "categoryMemberships",
+  "category_memberships",
+  /*
+    I pagamenti non sono un dato sanitario e non passano di qui: toglierli
+    adesso cambierebbe cosa vede la **famiglia** sul proprio figlio, che e
+    l'altro chiamante di questa funzione. Che un allenatore non debba vedere la
+    contabilita della famiglia e vero e resta scritto come debito: e una
+    domanda del dominio pagamenti, non di questo modulo.
+  */
+  "payments",
+] as const;
+
+const NON_CLINICAL_ATHLETE_CONTAINER_SET = new Set(NON_CLINICAL_ATHLETE_CONTAINERS);
+
+/**
+ * **Cosa di `athletes.data` vede chi vede lo stato e non il contenuto**
+ * (PP-03 §15.4).
+ *
+ * L'elenco dei vietati toglie i nomi noti; i nomi **inventati** li ha vinti il
+ * quinto round scrivendo `diagnosi`, `referto`, `terapia`, `anamnesi`,
+ * `noteDelMedico` — cinque parole italiane che nessun elenco di divieti avrebbe
+ * previsto, e che uscivano intere da sette porte verso un allenatore.
+ *
+ * Per **questo** lettore — e solo per lui — la colonna si legge al contrario:
+ * escono i campi dichiarati qui, e nient'altro. Non e una forma nuova, e la
+ * stessa di `CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE`, che decide da due Wave
+ * cosa un allenatore vede della scheda di un **collega**: un'anagrafica altrui
+ * si serve per elenco di ammessi, non per elenco di divieti.
+ *
+ * **Chi e questo lettore.** Chi ha `clinical.status_read` e non ha
+ * `clinical.read`: oggi il ruolo `trainer` e i ruoli di club che ne derivano.
+ * La famiglia — genitore e atleta — **non** ci rientra: non ha nessuna delle
+ * due chiavi, legge la scheda del proprio figlio, e per lei non cambia niente.
+ *
+ * L'elenco non e immaginato: sono i campi che le schermate dell'area allenatore
+ * leggono davvero da `data`, piu le grafie alternative con cui il prodotto ha
+ * scritto gli stessi campi nel tempo. Il prezzo e dichiarato ed e lo stesso di
+ * ADR-0125: un campo nuovo che serve all'allenatore va **aggiunto qui**, e
+ * finche non lo e non si vede. Si nota un campo che manca, non un referto che
+ * esce.
+ *
+ * Fuori dall'elenco resta di proposito `notes`: una nota in testo libero su un
+ * minore e esattamente il posto in cui «allergia arachidi» e gia stata trovata
+ * una volta (§6.1).
+ */
+export const ATHLETE_DATA_FIELDS_FOR_STATUS_READER: readonly string[] = [
+  /* identita */
+  "id",
+  "name",
+  "surname",
+  "firstName",
+  "first_name",
+  "lastName",
+  "last_name",
+  "displayName",
+  "avatar",
+  "avatar_url",
+  "avatarUrl",
+  "gender",
+  "birthDate",
+  "birth_date",
+  /* recapiti: chi allena deve poter chiamare una famiglia */
+  "phone",
+  "email",
+  "emergencyPhone",
+  "emergency_phone",
+  /* squadra */
+  "category",
+  "categoryId",
+  "category_id",
+  "categoryName",
+  "category_name",
+  "jerseyNumber",
+  "jersey_number",
+  "status",
+  /*
+    Lo **stato** del certificato, che e cio che questo lettore ha titolo di
+    vedere. Sono cinque grafie e non una per la ragione che questo repository
+    conosce bene: la stessa informazione e stata scritta con nomi diversi in
+    momenti diversi, e un elenco di ammessi che ne conosce una sola le fa
+    sparire le altre. Il conto e stato fatto sul sorgente, non a memoria.
+  */
+  "medicalCertExpiry",
+  "medical_cert_expiry",
+  "medicalCertificateExpiry",
+  "medical_certificate_expiry",
+  "medicalCertStatus",
+  "medical_cert_status",
+  "certificateStatus",
+  "certificate_status",
+  /* tesseramento */
+  "enrolled",
+  "registered",
+  "isRegistered",
+  "enrollmentStatus",
+  "membershipType",
+] as const;
+
+const ATHLETE_DATA_FIELDS_FOR_STATUS_READER_SET = new Set([
+  ...ATHLETE_DATA_FIELDS_FOR_STATUS_READER,
+  ...NON_CLINICAL_ATHLETE_CONTAINERS,
+]);
+
+/**
+ * Vede lo **stato** e non il **contenuto**: e la frase di CLAUDE.md §2, scritta
+ * come predicato. Oggi vale per `trainer` e per i ruoli di club che ne
+ * derivano; la famiglia non ha nessuna delle due chiavi e non ci rientra.
+ */
+export const readerSeesStatusOnly = (role: unknown) =>
+  hasHealthPermission(role as any, "clinical.status_read") &&
+  !hasHealthPermission(role as any, "clinical.read");
+
+export const stripClinicalAthleteFields = (data: unknown, role?: unknown) => {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     return data;
   }
@@ -250,8 +406,28 @@ export const stripClinicalAthleteFields = (data: unknown) => {
   let toccato = false;
   const next: Record<string, unknown> = {};
 
+  const soloDichiarati = role !== undefined && readerSeesStatusOnly(role);
+
   for (const [chiave, valore] of Object.entries(source)) {
+    if (soloDichiarati) {
+      if (!ATHLETE_DATA_FIELDS_FOR_STATUS_READER_SET.has(chiave)) {
+        toccato = true;
+        continue;
+      }
+      /*
+        Un campo dichiarato resta soggetto all'elenco dei vietati e alla regola
+        dei contenitori: le due difese si sommano, non si sostituiscono.
+      */
+    }
     if (CLINICAL_ATHLETE_FIELD_SET.has(chiave)) {
+      toccato = true;
+      continue;
+    }
+    if (
+      valore !== null &&
+      typeof valore === "object" &&
+      !NON_CLINICAL_ATHLETE_CONTAINER_SET.has(chiave)
+    ) {
       toccato = true;
       continue;
     }
@@ -392,9 +568,31 @@ const onlyNonClinicalCertificateData = (valore: unknown) => {
   const next: Record<string, unknown> = {};
 
   for (const [chiave, contenuto] of Object.entries(source)) {
-    if (NON_CLINICAL_CERTIFICATE_DATA_FIELD_SET.has(chiave)) {
-      next[chiave] = contenuto;
-    }
+    if (!NON_CLINICAL_CERTIFICATE_DATA_FIELD_SET.has(chiave)) continue;
+    /*
+      **Si dichiara la chiave e anche la sua forma** (PP-03 §15.4).
+
+      L'inversione di ADR-0125 elencava i nomi ammessi e non diceva niente su
+      cosa ci potesse stare dentro. `source` e una **provenienza** — «da un
+      deposito documentale», «caricato a mano» — cioe una parola; e il quinto
+      round ci ha messo dentro un oggetto e un elenco:
+
+          data.source = { diagnosi: "…" }        usciva intero
+          data.source = ["referto: …"]           usciva intero
+
+      Un contenitore sotto un nome ammesso e l'elenco dei vietati che rientra
+      dalla finestra: il nome e chiuso, il contenuto no. Passa quindi solo un
+      valore **semplice**, che e cio che il dominio scrive
+      (`promoteMedicalCertificate`, `document-requests.ts`).
+    */
+    const semplice =
+      contenuto === null ||
+      contenuto === undefined ||
+      typeof contenuto === "string" ||
+      typeof contenuto === "number" ||
+      typeof contenuto === "boolean";
+    if (!semplice) continue;
+    next[chiave] = contenuto;
   }
 
   return next;
