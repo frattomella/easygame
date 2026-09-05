@@ -430,7 +430,18 @@ reviewer:
 - **l'anteprima come pagina**: la proprieta «non spedisce» e misurata da un
   test che monta un trasporto finto e conta zero invii, ma la pagina di server
   non e mai stata esercitata con una richiesta vera; le sue due guardie —
-  sessione e `isPlatformAdminSession` — sono verificate per lettura;
+  sessione e `isPlatformAdminSession` — sono verificate per lettura.
+
+  **E non e una svista, e un limite dell'infrastruttura**, verificato provando:
+  il runner del progetto e `node --experimental-strip-types`, che toglie i tipi
+  ma **non compila JSX**, e `page.tsx` non si puo importare. Nessuna pagina o
+  componente React di questo repository e mai stato esercitato da un test —
+  per questo i test di superficie sono statici sul sorgente (vedi
+  [15](15-testing.md)). Cio che si e potuto misurare della catena
+  dell'anteprima **e stato misurato**: il catalogo si costruisce per intero
+  senza un invio, nessun indirizzo dell'archivio vi compare, e nelle otto voci
+  non c'e uno `<script>` vivo mentre i segni di escaping ci sono. Restano
+  fuori solo i due `redirect` della pagina;
 - **il flusso OAuth completo**: attaccato `findOrCreateOAuthUser`
   direttamente, mai lo scambio del codice ne il giro `state`/CSRF/redirect.
 
