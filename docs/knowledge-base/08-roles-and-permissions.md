@@ -389,6 +389,27 @@ guarda il fascicolo **di qualcun altro**.
 > stata, l'account di questa scheda?» — vivono nello stesso modulo,
 > `src/lib/server/athlete-membership.ts`, perche due elenchi separati
 > divergono: e il difetto di ADR-0117.
+>
+> **Quarta regola ([ADR-0124](18-decision-log.md#adr-0124--unidentita-puo-portare-due-cappelli-e-il-ramo-esclusivo-deve-saperlo), 2026-09-05): un'identita puo portare due cappelli.**
+> Le prime tre guardano tutte in una direzione — chi non deve entrare, entra.
+> Nella direzione opposta erano troppo larghe: invitare un minore sulla casella
+> di famiglia lega `athletes.user_id` **all'utenza del genitore**, perche
+> `risolviUtenza` trova l'utenza che quell'indirizzo ha gia. Il genitore
+> perdeva il figlio dal proprio cruscotto, e ne la revoca ne lo scollegamento
+> glielo restituivano.
+>
+> Il ramo diretto resta esclusivo verso chi e **soltanto** quella scheda. Chi e
+> anche un tutore **provato** passa dal ramo del tutore. «Provato» vale
+> `guardians[].linkedUserId` — una decisione che qualcuno ha preso e che il
+> riscatto del token registra — e **non** `guardians[].email`, che e un
+> recapito e che e precisamente il vettore del Critical di ADR-0122. In codice
+> sono due predicati distinti: `isGuardianLinkedById` per questa domanda,
+> `isGuardianLinkedToUser` per far entrare una famiglia.
+>
+> E il caso si smette di crearlo: `sendAthleteAccountInvite` rifiuta con **400**
+> un indirizzo che e gia il recapito di un tutore di quella stessa scheda, o
+> che risolve a un'utenza gia legata come tutore. Un accesso che vive nella
+> casella del tutore non e l'accesso dell'atleta.
 
 
 **Dove le tre chiavi vengono applicate** (2026-09-01, dopo la sonda di

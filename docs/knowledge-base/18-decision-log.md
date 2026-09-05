@@ -6699,3 +6699,92 @@ Un genitore a cui il club ha tolto l'accesso, e che nel club conserva una
 tessera qualunque, continua a leggere e a scrivere. E un difetto **preesistente
 a PP-04** e in dominio altrui: registrato come PP04-D8 e come dependency verso
 PP-02 e PP-03, con la sua riproduzione.
+
+---
+
+## ADR-0124 — Un'identita puo portare due cappelli, e il ramo esclusivo deve saperlo
+
+**Data:** 2026-09-05 · **Stato:** accettata · **Lane:** PP-04
+
+**Il contesto.**
+[ADR-0122](#adr-0122--chi-e-latleta-non-e-anche-la-propria-famiglia) e
+[ADR-0123](#adr-0123--essere-una-scheda-non-e-un-campo-e-unidentita-che-la-revoca-non-cancella)
+hanno reso **esclusivo** il ramo diretto di `athleteBelongsToParent`: chi e, o
+e stato, l'account di una scheda non passa dal ramo del tutore. I tre round
+ostili che le hanno prodotte guardavano tutti nella stessa direzione — **chi
+non deve entrare, entra**.
+
+Un quarto round ha guardato nella direzione opposta, e ha trovato che **chi
+deve entrare non entrava piu**.
+
+**Riprodotto** (sonda del reviewer, T5-2/T5-4/T5-5; la forma stabile e ora `scripts/pp-04-atleta-probe.mjs` P-80…P-87; contro PostgreSQL e
+contro le rotte vere). Il flusso che ADR-0122 descrive come normale — il minore
+invitato sulla **casella di famiglia** — non crea l'account del minore.
+`risolviUtenza` non crea una seconda utenza per un indirizzo che ne ha gia una:
+la **trova**. Quindi `athletes.user_id` finisce a puntare all'utenza **del
+genitore**, e da quel momento:
+
+```
+il genitore apre il cruscotto del proprio figlio      -> 403
+apre quello dell'altro figlio, non invitato           -> 200
+dopo la REVOCA dell'accesso dell'atleta               -> 403
+dopo lo SCOLLEGAMENTO                                 -> 403
+```
+
+Il figlio spariva dal cruscotto del padre nel momento in cui il club gli apriva
+un accesso, e **nessuno dei due gesti che tolgono l'accesso glielo
+restituiva**: l'invito accettato su cui ADR-0123 poggia resta in archivio per
+sempre, per costruzione. Il rimedio non rimediava.
+
+**La decisione, in due mosse.**
+
+**1. Il ramo diretto resta esclusivo verso chi e *soltanto* quella scheda.**
+Chi e anche un tutore **provato** di quella scheda passa dal ramo del tutore,
+come vi passerebbe se non fosse mai stato invitato.
+
+«Provato» vale `guardians[].linkedUserId`, e **non** la casella:
+`isGuardianLinkedById`, non `isGuardianLinkedToUser`. La differenza e tutta
+qui, ed e quella che regge i tre Critical precedenti — l'ex atleta di
+ADR-0122/0123 ha la coincidenza dell'indirizzo e **non** ha nessuna decisione
+registrata accanto, quindi resta al cancello. `linkedUserId` lo scrive il
+riscatto del token di collegamento, cioe un atto: il club invita quell'indirizzo
+come tutore e quella persona riscatta. Chi ce l'ha, aveva gia quell'accesso — e
+il legame con la scheda dell'atleta non puo toglierglielo.
+
+**2. E la domanda si smette di crearla.** `sendAthleteAccountInvite` — e per
+delega `changeAthleteAccountEmail` — rifiuta un indirizzo che e gia il
+**recapito di un tutore di quella stessa scheda**, o che risolve a un'utenza
+gia legata come tutore. Perche cio che nascerebbe non e l'accesso del ragazzo:
+
+- la mail con il link di riscatto, e da li in poi ogni notifica dell'«atleta»,
+  arrivano nella casella del genitore. Il minore non riceve **nessuna
+  credenziale propria**: il gesto che
+  [ADR-0116](#adr-0116--un-accesso-a-nome-di-un-minore-si-dichiara-non-si-clicca)
+  fa dichiarare — «gli apro un accesso suo» — non e il gesto che avviene;
+- e quell'identita diventa insieme l'account della scheda e un tutore, cioe la
+  domanda a cui la mossa 1 deve rispondere. La risposta migliore e non porla.
+
+Il rifiuto **non e un errore di autorizzazione** e non porta «Accesso negato»:
+il ruolo puo compiere l'azione, e l'indirizzo a essere sbagliato. Il route
+handler generico lo mappa su **400**, con la stessa forma di ADR-0116, e il
+messaggio dice cosa fare.
+
+**Perche la mossa 1 serve lo stesso, con la mossa 2 in piedi.** La mossa 2
+chiude la sequenza da un lato solo. Il club puo collegare l'utenza del tutore
+**dopo** che l'accesso dell'atleta esiste, e li la coincidenza nasce di nuovo —
+piu tutti gli archivi in cui e gia nata.
+
+**Misurato.** `scripts/pp-04-atleta-probe.mjs` P-80…P-87, contro PostgreSQL:
+l'invito rifiutato e non come 403, il cambio di indirizzo rifiutato per delega,
+un indirizzo dell'atleta che passa come prima, il tutore provato che rivede il
+figlio prima e dopo i due gesti, e — il controllo che regge il Critical —
+tolto `linkedUserId`, la stessa identita che torna al cancello con zero segreti
+nel corpo. Verifica per mutazione: rimessa la condizione precedente, quattro
+prove della sonda e due test tornano rossi; neutralizzata la guardia
+sull'invito, P-81 torna verde-come-riuscita e un terzo test diventa rosso.
+
+**Cosa resta da validare fuori dal codice.** Che un minore **non** debba avere
+un accesso che vive nella casella del tutore e una lettura conservativa, non
+una policy scritta da nessuno: e la quarta domanda aperta di ADR-0116. Se la
+policy vera dira che quel flusso va permesso, la riga da cambiare e la guardia
+di `sendAthleteAccountInvite`, e va cambiata **di proposito**.

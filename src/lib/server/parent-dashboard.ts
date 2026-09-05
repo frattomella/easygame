@@ -206,6 +206,33 @@ export const guardianAccessIdentities = (data: unknown): Set<string> => {
   return identita;
 };
 
+/**
+ * **Il legame del tutore, ma solo nella forma che qualcuno ha deciso**
+ * (PP-04, ADR-0124).
+ *
+ * `linkedUserId` non nasce da una coincidenza: lo scrive il riscatto del token
+ * di collegamento, cioe un atto — il club invita quell'indirizzo come tutore e
+ * quella persona riscatta. `guardians[].email` invece e un **recapito**, e la
+ * segreteria lo scrive per poter telefonare.
+ *
+ * I due si equivalgono quando si tratta di far entrare una famiglia
+ * (`isGuardianLinkedToUser` li tiene insieme, ed e voluto). Non si equivalgono
+ * quando la domanda e l'opposto: «questa identita, che e anche l'account di
+ * questa scheda, e **anche** un tutore?». Li la coincidenza di casella e
+ * esattamente il vettore del Critical di ADR-0122, e la decisione registrata
+ * e esattamente cio che lo distingue.
+ */
+const isGuardianLinkedById = (guardian: Record<string, any>, userId: string) =>
+  sameId(
+    firstText(
+      guardian.linkedUserId,
+      guardian.linked_user_id,
+      guardian.userId,
+      guardian.user_id,
+    ),
+    userId,
+  );
+
 const isGuardianLinkedToUser = (
   guardian: Record<string, any>,
   userId: string,
@@ -312,12 +339,49 @@ const athleteBelongsToParent = (
     sameId(athlete?.user_id, userId) ||
     schedeProprie.has(String(athlete?.id || ""));
 
-  if (eLaPersonaStessa) {
+  /*
+    **Ma un'identita sola puo portare due cappelli** (ADR-0124).
+
+    Un quarto giro di revisione ostile ha misurato il verso opposto dei tre
+    precedenti. Il flusso che ADR-0122 descrive come normale — il minore
+    invitato sulla casella di famiglia — non crea un account del minore: crea
+    **il secondo cappello dell'account del genitore**, perche `risolviUtenza`
+    trova l'utenza che quell'indirizzo ha gia. Da quel momento
+    `athletes.user_id` e l'identita del padre, `eLaPersonaStessa` risponde di
+    si, e il cortocircuito lo mandava sul cancello dell'atleta: il padre
+    perdeva il figlio dal proprio cruscotto di famiglia.
+
+    E non lo riprendeva piu. Revoca e scollegamento azzerano il campo, ma
+    l'invito accettato di ADR-0123 resta: **il gesto che avrebbe dovuto
+    rimediare non rimediava**, e il figlio spariva per sempre. Misurato:
+    `scripts/pp-04-atleta-probe.mjs`, P-83…P-86.
+
+    Il ramo diretto resta esclusivo verso chi e **soltanto** quella scheda. Chi
+    e anche un tutore **provato** di quella scheda passa dal ramo del tutore,
+    come vi passerebbe se non fosse mai stato invitato.
+
+    «Provato» vale `linkedUserId`, e non la casella: `isGuardianLinkedById`,
+    non `isGuardianLinkedToUser`. La differenza e tutta qui, e regge il
+    Critical — l'ex atleta di ADR-0122/0123 ha la coincidenza dell'indirizzo e
+    **non** ha nessuna decisione registrata accanto, quindi resta al cancello.
+    Chi invece ha `linkedUserId` sulla riga del tutore ce l'ha perche il club
+    ha invitato quell'indirizzo come tutore e quella persona ha riscattato: un
+    accesso che quella identita aveva gia, e che il legame con la scheda
+    dell'atleta non puo toglierle.
+  */
+  const tutoreProvato = getGuardianRows(athlete).some((guardian) =>
+    isGuardianLinkedById(guardian, userId),
+  );
+
+  if (eLaPersonaStessa && !tutoreProvato) {
     return ancoraAtleta.has(String(athlete?.organization_id || ""));
   }
 
-  return getGuardianRows(athlete).some((guardian) =>
-    isGuardianLinkedToUser(guardian, userId, userEmail),
+  return (
+    tutoreProvato ||
+    getGuardianRows(athlete).some((guardian) =>
+      isGuardianLinkedToUser(guardian, userId, userEmail),
+    )
   );
 };
 

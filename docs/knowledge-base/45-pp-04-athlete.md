@@ -287,6 +287,60 @@ Non e correggibile dal lato del lettore: un tutore revocato e un tutore mai
 collegato hanno la **stessa** riga in archivio. Serve una scrittura, e quella
 scrittura e una decisione del dominio che la possiede. Registrato come
 **PP04-D8** e come dependency verso PP-02 e PP-03, con la riproduzione.
+### Il quarto round: la stessa porta, guardata dall'altro lato
+
+> Decisione: [ADR-0124](18-decision-log.md#adr-0124--unidentita-puo-portare-due-cappelli-e-il-ramo-esclusivo-deve-saperlo).
+
+I tre round precedenti guardavano tutti nella stessa direzione: **chi non deve
+entrare, entra**. Il quarto ha guardato nell'altra, e ha trovato che chi doveva
+entrare non entrava piu.
+
+Il flusso che ADR-0122 chiama normale — il minore invitato sulla casella di
+famiglia — **non crea l'account del minore**. `risolviUtenza` non crea una
+seconda utenza per un indirizzo che ne ha gia una: la trova. Quindi
+`athletes.user_id` finisce a puntare all'utenza del genitore, `eLaPersonaStessa`
+risponde di si, e il cortocircuito mandava il padre sul cancello dell'atleta:
+
+```
+il genitore apre il cruscotto del proprio figlio    -> 403
+apre quello dell'altro figlio, non invitato         -> 200
+dopo la REVOCA dell'accesso dell'atleta             -> 403
+dopo lo SCOLLEGAMENTO                               -> 403
+```
+
+Le ultime due righe sono la parte che pesa: l'invito accettato su cui ADR-0123
+poggia resta in archivio per costruzione, quindi **il gesto che avrebbe dovuto
+rimediare non rimediava** e il figlio spariva per sempre.
+
+La correzione e in due mosse, e la seconda vale piu della prima. Il ramo diretto
+resta esclusivo verso chi e **soltanto** quella scheda: chi e anche un tutore
+**provato** — `guardians[].linkedUserId`, una decisione registrata, non la
+coincidenza di una casella — passa dal ramo del tutore come vi passerebbe se non
+fosse mai stato invitato. E la domanda si smette di crearla:
+`sendAthleteAccountInvite` rifiuta con **400** un indirizzo che e gia il
+recapito di un tutore di quella scheda, perche cio che nascerebbe non e
+l'accesso del ragazzo — la mail di riscatto e tutte le notifiche arrivano nella
+casella del genitore, e il minore non riceve nessuna credenziale propria.
+
+Misurato con P-80…P-87, contro PostgreSQL. Verifica per mutazione: rimessa la
+condizione precedente, quattro prove della sonda e due test tornano rossi;
+neutralizzata la guardia sull'invito, un terzo test diventa rosso.
+
+#### E cio che il quarto round ha trovato fuori perimetro
+
+Quattro **High preesistenti**, in file che nessuna delle tre lane possiede: il
+perimetro di sede e categoria (ADR-0103) **non vale sui byte**. Un ruolo di
+staff recintato su una categoria scarica i byte dell'archivio storico e del
+**certificato medico** di un atleta fuori dal proprio recinto, e stampa la
+ricevuta di quell'atleta. L'elenco dei documenti e chiuso correttamente — la
+guardia c'e in `document-requests.ts` — le due rotte dei byte e della stampa non
+la chiamano. Piu un quinto difetto minore: un diniego di perimetro esce come
+**500** invece che come 403, contro CLAUDE.md §8.
+
+Nessuna riga di PP-04 li causa o li aggrava: i file coinvolti sono byte-identici
+alla base `0d66921`. Registrati come **PP04-D10** e **PP04-D11** e come
+dependency, con la riproduzione e il contratto chiesto.
+
 ### Il token dell'invito
 
 > Decisione: [ADR-0119](18-decision-log.md#adr-0119--il-token-dinvito-si-consuma-dentro-la-transazione-e-a-condizione).
@@ -332,6 +386,7 @@ stessa scheda.
 | Un minore di N anni puo avere un accesso proprio? | **Si, se una persona lo dichiara autorizzato** dalla responsabilita genitoriale, e la dichiarazione resta nell'audit | Un divieto per eta sceglierebbe un N che nessuno ha scritto |
 | Il tutore vede cosa scrive il minore nella propria area? | **No.** Nessuna schermata nuova, nessun dato nuovo verso il tutore | Il piu conservativo e non aggiungere una sorveglianza che nessuno ha chiesto |
 | La revoca dell'accesso del tutore revoca anche quello dell'atleta? | **No.** I due accessi restano indipendenti | Un accesso tolto per sbaglio si rimette con un invito; uno lasciato per sbaglio si toglie con un clic. I due errori non costano uguale a chi li subisce |
+| Un minore puo avere un accesso che vive nella **casella del tutore**? | **No, dal 2026-09-05** ([ADR-0124](18-decision-log.md#adr-0124--unidentita-puo-portare-due-cappelli-e-il-ramo-esclusivo-deve-saperlo)): l'invito su quell'indirizzo e rifiutato con 400, e il messaggio dice cosa fare | Non e un accesso del minore: la mail di riscatto e ogni notifica arrivano al tutore, e l'account nasce sulla **sua** utenza. Il gesto che ADR-0116 fa dichiarare non e il gesto che avveniva. Se la policy vera dira che va permesso, la riga da cambiare e la guardia di `sendAthleteAccountInvite`, e va cambiata **di proposito** |
 
 Se la policy vera dira il contrario, i test che le presidiano stanno in
 `tests/server/pp-04-minori.test.mjs`: sono le righe che verranno cambiate **di
@@ -344,7 +399,7 @@ proposito** invece che per caso.
 ### La sonda della lane
 
 `scripts/pp-04-atleta-probe.mjs`, contro `easygame_dev_pp04` e contro i route
-handler veri con una sessione in archivio: **111 prove su 111**. Percorre
+handler veri con una sessione in archivio: **123 prove su 123**. Percorre
 `DB -> dominio -> rotta -> proiezione` e domanda **cosa riceve quella persona**.
 
 Copre: l'invito e il token (nessuna password in nessun ramo, impronta a 64
@@ -355,7 +410,7 @@ verso tutto il resto (bacheca, profilo, RSVP, rotta generica degli atleti,
 gestione dell'accesso altrui e proprio, scrittura di campi protetti); il
 tutore, il fratello, la carta, l'avviso; le cinque forme della revoca; i
 minori dalla rotta vera (P-60…P-66); il ramo del tutore e i suoi tre
-aggiramenti (P-70…P-79).
+aggiramenti (P-70…P-79); i due cappelli di una sola identita, e la porta che non si apre piu (P-80…P-87).
 
 **Le sonde seminano ora il legame dal riscatto vero.** Seminarlo con una
 `update` su `athletes.user_id` modellava uno stato che il prodotto non
@@ -364,7 +419,7 @@ e la ragione per cui il difetto di ADR-0123 non si vedeva da qui.
 
 ### I test
 
-`npm test` **4.668** verdi. Nuovi in questa lane:
+`npm test` **4.673** verdi. Nuovi in questa lane:
 
 | File | Cosa presidia |
 |---|---|
@@ -397,7 +452,7 @@ round`, ripetuto finche un round intero e uscito pulito.
 | 1 | Critical: i due lettori di `athletes.user_id` (ADR-0117); High: l'elenco chiuso valeva sulla proiezione e non sulla rotta (ADR-0118); due Medium (ADR-0119, ADR-0121); un Low (ADR-0120) | chiusi |
 | 2 | Il Critical del round 1 era stato **spostato**, non chiuso: il ramo del tutore si apriva con `guardians[].email` (ADR-0122) | chiuso |
 | 3 | Critical: la guardia di ADR-0122 stava sul campo che la revoca cancella (ADR-0123). Piu un Critical e un Medium **preesistenti e fuori perimetro**: il genitore revocato (PP04-D8) e lo sweep per slug (PP04-D9) | il primo chiuso; gli altri due registrati come dependency e debito |
-| 4 | — | vedi sotto |
+| 4 | Il verso opposto dei tre precedenti: il ramo esclusivo toglieva il figlio al **genitore**, e ne la revoca ne lo scollegamento glielo rendevano (ADR-0124). Piu quattro High **preesistenti e fuori perimetro**: il perimetro di sede e categoria non vale sui **byte** dei documenti ne sulla stampa delle ricevute (PP04-D10) | il primo chiuso; gli altri registrati come dependency e debito |
 
 ### A schermo
 
@@ -435,7 +490,7 @@ spuntata — che e ADR-0116 vista dal clic.
 
 ### Gate
 
-`npm test` **4.668/4.668** · `npm run typecheck` senza output · `eslint`
+`npm test` **4.673/4.673** · `npm run typecheck` senza output · `eslint`
 **0 errori** (34 warning preesistenti, invariati) · `npm run build` completa.
 
 > **Nota sull'ambiente:** `npm run lint` (cioe `next lint`) esce 1 in questo

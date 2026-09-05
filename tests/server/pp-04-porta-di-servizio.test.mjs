@@ -655,3 +655,156 @@ test("la domanda sull'identita vive nel modulo che la possiede, non copiata", as
     "e il lettore la chiama invece di rifarla",
   );
 });
+
+/* ==================================================================== *
+ *  5. Un'identita, due cappelli (ADR-0124)
+ * ==================================================================== */
+
+/*
+  **Il verso opposto dei tre round precedenti.**
+
+  ADR-0122 e ADR-0123 hanno chiuso il ramo del tutore a chi e, o e stato,
+  l'account di quella scheda. Un quarto round ha misurato cosa succede quando
+  quella persona **e davvero il tutore**: il flusso che ADR-0122 descrive come
+  normale — il minore invitato sulla casella di famiglia — non crea l'account
+  del minore, perche `risolviUtenza` trova l'utenza che quell'indirizzo ha
+  gia. Crea il secondo cappello dell'account del genitore, e il genitore
+  spariva dal proprio cruscotto. Ne la revoca ne lo scollegamento glielo
+  restituivano: l'invito accettato di ADR-0123 resta in archivio per sempre.
+
+  La distinzione e `linkedUserId` — una decisione registrata — contro
+  `guardians[].email`, che e una coincidenza di recapito.
+*/
+
+/** La stessa utenza e l'account della scheda **e** un tutore provato di essa. */
+const dueCappelli = (tessera = "parent") => {
+  const semi = seed(tessera);
+  semi.athlete[0].data.guardians[0].linkedUserId = UTENTE_ATLETA;
+  return semi;
+};
+
+test("il tutore PROVATO passa anche quando e l'account della scheda", async () => {
+  fake = createFakePrisma(dueCappelli());
+  setPrismaClientForTests(fake.client);
+
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+    true,
+    "senza ADR-0124 il genitore perdeva il figlio dal proprio cruscotto",
+  );
+});
+
+test("e continua a passare dopo la revoca, che azzera il legame", async () => {
+  /*
+    E il punto che fa piu male senza il fix: `revokeAthleteAccess` e
+    `unlinkAthleteAccount` azzerano `athletes.user_id`, ma l'invito accettato
+    resta, quindi `schedeProprie` continua a contenere la scheda. Il gesto che
+    avrebbe dovuto rimediare non rimediava, e il figlio spariva per sempre.
+  */
+  const semi = dueCappelli();
+  semi.athlete[0].user_id = null;
+  fake = createFakePrisma(semi);
+  setPrismaClientForTests(fake.client);
+
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+    true,
+  );
+});
+
+test("ma la sola casella coincidente non basta: e il Critical di ADR-0122", async () => {
+  /*
+    **Il controllo che regge le tre decisioni precedenti.** Il seme base ha gia
+    `guardians[].email` uguale all'indirizzo dell'utenza dell'atleta, e non ha
+    `linkedUserId`. Se ADR-0124 avesse guardato `isGuardianLinkedToUser`
+    invece di `isGuardianLinkedById`, questa riga tornerebbe `true` e il
+    Critical sarebbe riaperto.
+  */
+  const semi = seed(null);
+  semi.athlete[0].user_id = null;
+  semi.organizationUser.push({
+    id: "ou-residua",
+    organization_id: CLUB,
+    user_id: UTENTE_ATLETA,
+    role: "trainer",
+  });
+  fake = createFakePrisma(semi);
+  setPrismaClientForTests(fake.client);
+
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+    false,
+    "una coincidenza di recapito non e una decisione di nessuno",
+  );
+});
+
+test("e la distinzione e scritta come tale: `linkedUserId`, non la casella", async () => {
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const sorgente = readFileSync(
+    path.join(process.cwd(), "src", "lib", "server", "parent-dashboard.ts"),
+    "utf8",
+  );
+  assert.ok(
+    sorgente.includes("isGuardianLinkedById"),
+    "esiste un predicato che guarda solo il legame deciso",
+  );
+  const corpo = sorgente.slice(
+    sorgente.indexOf("const isGuardianLinkedById"),
+    sorgente.indexOf("const isGuardianLinkedToUser"),
+  );
+  assert.ok(
+    !corpo.includes("guardian.email"),
+    "e non ricade sulla casella di contatto: e li che vive il Critical",
+  );
+});
+
+/* ==================================================================== *
+ *  6. La porta che non si apre piu (ADR-0124)
+ * ==================================================================== */
+
+test("l'invito sulla casella di un tutore della stessa scheda e respinto", async () => {
+  fake = createFakePrisma(seed("athlete"));
+  setPrismaClientForTests(fake.client);
+
+  const scope = {
+    userId: TUTORE,
+    activeOrganizationId: CLUB,
+    activeRole: "owner",
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  await assert.rejects(
+    () =>
+      accessi.sendAthleteAccountInvite(scope, {
+        /*
+          La scheda di Nina porta un tutore legato per `linkedUserId`, e
+          l'indirizzo qui sotto e quello di **quella** utenza: `risolviUtenza`
+          la trova invece di crearne una, ed e la meta della guardia che
+          guarda l'identita risolta e non la casella scritta.
+        */
+        athleteId: FIGLIO,
+        email: "tutore@famiglia.it",
+        acknowledgeMinor: true,
+      }),
+    (errore) => {
+      /*
+        La scheda di Nina ha un tutore legato per `linkedUserId`: invitare
+        l'atleta su quell'identita farebbe nascere l'accesso sull'utenza del
+        tutore. Il rifiuto **non** e un errore di autorizzazione — il ruolo puo
+        compiere l'azione — quindi non porta «Accesso negato» e la rotta
+        generica lo mappa su 400, come per ADR-0116.
+      */
+      assert.ok(
+        /tutore/i.test(errore.message),
+        `messaggio inatteso: ${errore.message}`,
+      );
+      assert.ok(
+        !errore.message.includes("Accesso negato"),
+        "un 403 direbbe che il ruolo non puo: e falso",
+      );
+      return true;
+    },
+  );
+});

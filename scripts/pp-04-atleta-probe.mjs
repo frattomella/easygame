@@ -2321,6 +2321,292 @@ const proveRamoTutore = async () => {
   );
 };
 
+/* ==================================================================== *
+ *  P-80…P-87 — un'identita, due cappelli (ADR-0124)
+ * ==================================================================== */
+
+/**
+ * **Il verso opposto dei tre round precedenti.**
+ *
+ * ADR-0122 e ADR-0123 hanno chiuso il ramo del tutore a chi e, o e stato,
+ * l'account di quella scheda. Un quarto giro di revisione ostile ha misurato
+ * cosa succede quando quella persona **e davvero** il tutore: il flusso che
+ * ADR-0122 descrive come normale — il minore invitato sulla casella di
+ * famiglia — non crea l'account del minore, crea il secondo cappello
+ * dell'account del genitore, perche `risolviUtenza` trova l'utenza che
+ * quell'indirizzo ha gia. Il padre perdeva il figlio dal proprio cruscotto, e
+ * ne la revoca ne lo scollegamento glielo restituivano.
+ *
+ * Qui si misurano le due meta della correzione: la porta che non si apre piu
+ * (l'invito rifiutato) e il tutore provato che passa lo stesso.
+ */
+const proveDueCappelli = async () => {
+  console.log("\n— Un'identita, due cappelli (ADR-0124) —");
+
+  const ATLETA_E = randomUUID();
+  const CASA_E = "casa-esposito@pp04.invalid";
+  const PROPRIA_E = "enrico-esposito@pp04.invalid";
+  const UTENTE_CASA = await utente(CASA_E, "Elena");
+
+  await prisma.organizationUser.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      user_id: UTENTE_CASA.id,
+      role: "parent",
+      is_primary: true,
+      updated_at: new Date(),
+    },
+  });
+
+  await prisma.athlete.create({
+    data: {
+      id: ATLETA_E,
+      organization_id: CLUB,
+      first_name: "Enrico",
+      last_name: "Esposito",
+      status: "active",
+      category_id: CAT_A,
+      category_name: "Under 12",
+      birth_date: new Date("2013-05-05"),
+      data: {
+        email: PROPRIA_E,
+        guardians: [
+          {
+            id: "g-elena",
+            first_name: "Elena",
+            last_name: "Esposito",
+            /* La casella di famiglia: e il recapito del tutore, e basta. */
+            email: CASA_E,
+            fiscal_code: "SEGRETO-E-CF-TUTORE",
+          },
+        ],
+      },
+      updated_at: new Date(),
+    },
+  });
+
+  await prisma.athletePayment.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      athlete_id: ATLETA_E,
+      description: "SEGRETO-E-QUOTA",
+      amount: 210,
+      status: "pending",
+      due_date: new Date(Date.now() + 864e5),
+      updated_at: new Date(),
+    },
+  });
+
+  const sessioneCasa = await sessionePer(
+    await prisma.user.findUnique({ where: { id: UTENTE_CASA.id } }),
+  );
+  const suE = { params: { athleteId: ATLETA_E } };
+  const cruscottoDiElena = async () =>
+    leggi(
+      await rotte.famiglia.GET(
+        richiesta(`/api/parent-dashboard/${ATLETA_E}`, {
+          token: sessioneCasa,
+          club: CLUB,
+          ruolo: "parent",
+        }),
+        suE,
+      ),
+    );
+
+  prova(
+    "P-80 il tutore vede il figlio prima di qualunque invito: 200",
+    200,
+    (await cruscottoDiElena()).status,
+  );
+
+  /*
+    P-81 — **La porta che non si apre piu.** Invitare l'atleta sulla casella
+    che e gia il recapito di un tutore di questa scheda manderebbe il link di
+    riscatto al tutore e farebbe nascere l'accesso sulla **sua** utenza. Si
+    rifiuta, e il rifiuto non e un errore di autorizzazione: non porta
+    «Accesso negato», quindi la rotta generica lo mappa su 400.
+  */
+  await respinta(
+    "P-81 l'invito sulla casella di un tutore della stessa scheda e respinto",
+    () =>
+      dominio.sendAthleteAccountInvite(scopeGestione(), {
+        athleteId: ATLETA_E,
+        email: CASA_E,
+        acknowledgeMinor: true,
+      }),
+    /recapito di un tutore/i,
+  );
+  {
+    let messaggio = "";
+    try {
+      await dominio.sendAthleteAccountInvite(scopeGestione(), {
+        athleteId: ATLETA_E,
+        email: CASA_E,
+        acknowledgeMinor: true,
+      });
+    } catch (errore) {
+      messaggio = String(errore?.message || errore);
+    }
+    prova(
+      "P-81b e non e un 403: il messaggio non porta «Accesso negato»",
+      false,
+      messaggio.includes("Accesso negato"),
+      "il ruolo puo compiere l'azione: e l'indirizzo a essere sbagliato",
+    );
+  }
+
+  /*
+    P-82 — **E la guardia non fa troppo.** Un indirizzo dell'atleta, che non e
+    il recapito di nessun tutore, passa come prima: il fix e la distinzione,
+    non la chiusura.
+  */
+  const invito = await dominio.sendAthleteAccountInvite(scopeGestione(), {
+    athleteId: ATLETA_E,
+    email: PROPRIA_E,
+    acknowledgeMinor: true,
+  });
+  prova(
+    "P-82 l'invito su una casella dell'atleta passa come prima",
+    true,
+    Boolean(invito?.email === PROPRIA_E),
+  );
+  /* E il cambio di indirizzo passa dalla stessa guardia, perche delega. */
+  await respinta(
+    "P-82b anche il cambio di indirizzo verso la casella del tutore e respinto",
+    () =>
+      dominio.changeAthleteAccountEmail(scopeGestione(), {
+        athleteId: ATLETA_E,
+        email: CASA_E,
+        acknowledgeMinor: true,
+      }),
+    /recapito di un tutore/i,
+  );
+
+  /*
+    P-83…P-86 — **Il legame che resta, e il tutore provato.**
+
+    La guardia di P-81 chiude la strada dal lato dell'accesso atleta. Non
+    chiude l'altra: il club puo collegare l'utenza del tutore **dopo** che
+    l'accesso dell'atleta esiste gia, e allora la coincidenza c'e lo stesso.
+    Da qui in avanti si semina proprio quella sequenza, e si misura che il
+    tutore **provato** — `linkedUserId`, non la casella — continua a vedere
+    il figlio, prima e dopo i due gesti che tolgono l'accesso.
+  */
+  /*
+    P-82b ha revocato l'invito vivo prima di delegare (`chiudiInvitoVivo`), che
+    e cio che deve fare: se ne manda un altro sulla casella dell'atleta.
+  */
+  await dominio.sendAthleteAccountInvite(scopeGestione(), {
+    athleteId: ATLETA_E,
+    email: PROPRIA_E,
+    acknowledgeMinor: true,
+  });
+
+  const gettoneE = randomUUID().replace(/-/g, "").repeat(2);
+  await prisma.athleteAccountInvite.updateMany({
+    where: { organization_id: CLUB, athlete_id: ATLETA_E, status: "sent" },
+    data: {
+      token_hash: createHash("sha256").update(gettoneE).digest("hex"),
+      user_id: UTENTE_CASA.id,
+    },
+  });
+  await dominio.acceptAthleteAccountInvite(gettoneE);
+
+  const primaDelLegame = await cruscottoDiElena();
+  prova(
+    "P-83 finche il tutore vale solo per la casella, il ramo diretto vince: 403",
+    403,
+    primaDelLegame.status,
+    "e ADR-0122/0123: la coincidenza di casella non e una decisione",
+  );
+
+  const rigaE = await prisma.athlete.findUnique({
+    where: { id: ATLETA_E },
+    select: { data: true },
+  });
+  await prisma.athlete.update({
+    where: { id: ATLETA_E },
+    data: {
+      data: {
+        ...rigaE.data,
+        guardians: [
+          {
+            ...rigaE.data.guardians[0],
+            /* Il club collega l'utenza del tutore: e un atto, ed e registrato. */
+            linkedUserId: UTENTE_CASA.id,
+          },
+        ],
+      },
+    },
+  });
+
+  prova(
+    "P-84 il tutore PROVATO rivede il figlio, malgrado i due cappelli: 200",
+    200,
+    (await cruscottoDiElena()).status,
+    "senza ADR-0124 il genitore perdeva il figlio dal proprio cruscotto",
+  );
+  prova(
+    "P-84b e ci trova cio per cui l'area e stata scritta",
+    true,
+    JSON.stringify((await cruscottoDiElena()).corpo ?? "").includes(
+      "SEGRETO-E-QUOTA",
+    ),
+  );
+
+  await dominio.revokeAthleteAccess(scopeGestione(), { athleteId: ATLETA_E });
+  prova(
+    "P-85 dopo la REVOCA il tutore provato vede ancora il figlio: 200",
+    200,
+    (await cruscottoDiElena()).status,
+    "il gesto che toglie l'accesso dell'atleta non toglie la famiglia al tutore",
+  );
+
+  await prisma.athlete.update({
+    where: { id: ATLETA_E },
+    data: { user_id: UTENTE_CASA.id },
+  });
+  await dominio.unlinkAthleteAccount(scopeGestione(), { athleteId: ATLETA_E });
+  prova(
+    "P-86 e dopo lo SCOLLEGAMENTO: 200",
+    200,
+    (await cruscottoDiElena()).status,
+  );
+
+  /*
+    P-87 — **Il controllo che regge il Critical.** La distinzione e tutta
+    `linkedUserId`. Tolto quello e lasciata la sola casella, la stessa
+    identita — che resta l'account accettato di quella scheda — torna al
+    cancello, ed e esattamente l'ex atleta di ADR-0122/0123.
+  */
+  const rigaE2 = await prisma.athlete.findUnique({
+    where: { id: ATLETA_E },
+    select: { data: true },
+  });
+  await prisma.athlete.update({
+    where: { id: ATLETA_E },
+    data: {
+      data: {
+        ...rigaE2.data,
+        guardians: [{ ...rigaE2.data.guardians[0], linkedUserId: null }],
+      },
+    },
+  });
+  const senzaProva = await cruscottoDiElena();
+  prova(
+    "P-87 senza `linkedUserId` la stessa identita torna fuori: 403",
+    403,
+    senzaProva.status,
+  );
+  prova(
+    "P-87b e il segreto della famiglia non esce",
+    false,
+    JSON.stringify(senzaProva.corpo ?? "").includes("SEGRETO-E-QUOTA"),
+  );
+};
+
 /* ==================================================================== */
 
 const main = async () => {
@@ -2336,6 +2622,7 @@ const main = async () => {
     await proveRevoca();
     await proveMinore();
     await proveRamoTutore();
+    await proveDueCappelli();
   } finally {
     await pulisci();
     await prisma.$disconnect();

@@ -17,7 +17,10 @@ import {
 import { sendTransactionalEmail } from "./email/email-service";
 import { renderEmailLayout } from "./email/layout";
 import { sendPasswordResetChallenge } from "./auth-workflows";
-import { getParentDashboardData } from "./parent-dashboard";
+import {
+  getParentDashboardData,
+  guardianAccessIdentities,
+} from "./parent-dashboard";
 import { readAthleteRsvpInvitations } from "./rsvp";
 import { escapeHtml } from "@/lib/documents/document-view";
 
@@ -682,6 +685,39 @@ export const sendAthleteAccountInvite = async (
   const email = normalizeEmail(input.email);
   assertEmail(email);
 
+  /*
+    **Un accesso mandato alla casella del tutore non e l'accesso dell'atleta**
+    (ADR-0124).
+
+    `risolviUtenza` non crea una seconda utenza per un indirizzo che ne ha gia
+    una: la **trova**. Se quell'indirizzo e il recapito di un tutore di questa
+    stessa scheda, cio che nasce da qui non e l'account del ragazzo — e un
+    secondo cappello sull'account del genitore. Le conseguenze sono due, e
+    nessuna delle due e cio che la segreteria crede di fare:
+
+    1. la mail con il link di riscatto, e da li in poi ogni notifica
+       dell'«atleta», arrivano nella casella del genitore. Il minore non
+       riceve nessuna credenziale propria: il gesto che ADR-0116 fa dichiarare
+       — «gli apro un accesso suo» — non e il gesto che avviene;
+    2. quella identita diventa insieme l'account della scheda e un tutore, e
+       `athleteBelongsToParent` deve poi decidere quale dei due e. ADR-0124 le
+       da una risposta, ma la risposta migliore e non creare la domanda.
+
+    Percio si rifiuta, e si dice cosa fare. **Non e un errore di
+    autorizzazione** e non porta «Accesso negato»: il ruolo puo compiere
+    l'azione, e l'indirizzo a essere quello sbagliato. Il route handler
+    generico lo mappa su 400, come per la dichiarazione mancante di ADR-0116.
+  */
+  const identitaDeiTutori = guardianAccessIdentities(atleta.data);
+  if (identitaDeiTutori.has(email)) {
+    throw new Error(
+      "Questo indirizzo e gia il recapito di un tutore di questa scheda: l'invito " +
+        "arriverebbe nella casella del tutore e l'accesso nascerebbe sulla sua utenza, " +
+        "non su una dell'atleta. Usa un indirizzo dell'atleta, oppure togli quel " +
+        "recapito dai tutori.",
+    );
+  }
+
   const club = await prisma.club.findUnique({
     where: { id: atleta.organization_id },
     select: { id: true, name: true },
@@ -704,6 +740,27 @@ export const sendAthleteAccountInvite = async (
   if (giaAtleta && giaAtleta.id !== atleta.id) {
     throw new Error(
       "Questo indirizzo e gia collegato alla scheda di un altro atleta",
+    );
+  }
+
+  /*
+    **La stessa domanda dall'altro capo** (ADR-0124).
+
+    La guardia sull'indirizzo copre il caso in cui il recapito del tutore e
+    scritto per esteso. Ma un tutore puo essere legato per `linkedUserId` a
+    un'utenza il cui indirizzo e cambiato, e allora la coincidenza non si vede
+    dalla casella: si vede dall'utenza risolta.
+
+    Qui `risolviUtenza` e gia passata, e va bene: se l'indirizzo non aveva
+    un'utenza, quella appena creata non puo essere il tutore di nessuno, e
+    questo ramo non scatta. Scatta solo su un'utenza **preesistente**, quindi
+    non lascia nessun residuo.
+  */
+  if (identitaDeiTutori.has(String(user.id).trim().toLowerCase())) {
+    throw new Error(
+      "Questa utenza e gia collegata come tutore di questa scheda: l'accesso " +
+        "dell'atleta nascerebbe sulla stessa identita del tutore. Usa un'utenza " +
+        "dell'atleta.",
     );
   }
 
