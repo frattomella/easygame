@@ -134,6 +134,14 @@ const eventi_dominio = await import(
   pathToFileURL(path.resolve("src/lib/server/events.ts")).href,
 );
 
+const appuntamenti_dominio = await import(
+  pathToFileURL(path.resolve("src/lib/server/appointments.ts")).href,
+);
+
+const lavoro_sportivo = await import(
+  pathToFileURL(path.resolve("src/lib/server/sport-work.ts")).href,
+);
+
 const main = async () => {
   const presidente = await utente(
     "pp03-uat-presidente@example.invalid",
@@ -154,7 +162,17 @@ const main = async () => {
     await prisma.club.delete({ where: { id: vecchio.id } });
   }
 
-  const CLUB = randomUUID();
+  /*
+    **L'identificativo del club e fisso.**
+
+    Con un `randomUUID()` ogni riesecuzione dava un club nuovo, e la sessione
+    aperta nel browser restava appesa a quello vecchio: la verifica di
+    responsivita si interrompeva a ogni ritocco del seed per rifare
+    «Home account → entra nel club». Lo slug e gia unico e il club viene
+    comunque cancellato e rifatto: un identificativo stabile non cambia cosa
+    fa il seed, cambia solo quante volte bisogna ricominciare a guardarlo.
+  */
+  const CLUB = "3ff03a11-0000-4000-8000-000000000001";
 
   await prisma.club.create({
     data: {
@@ -221,6 +239,41 @@ const main = async () => {
     */
     { resource_type: "categories", items: CATEGORIE },
     { resource_type: "club_sites", items: SEDI },
+    /*
+      **Le note della segreteria, con il loro canarino.**
+
+      Il riquadro «Note della segreteria» della bacheca legge
+      `GET /api/v1/secretariat_notes` e le passa per
+      `isReminderVisibleToTrainer`. Senza righe non si vede ne che il vaglio
+      funziona ne quanto e larga una nota lunga: qui ce ne sono tre, e la
+      terza — `club_dashboard` — **non deve comparire**. E il canarino della
+      correzione §1 del verbale, letto a schermo invece che da una sonda.
+    */
+    {
+      resource_type: "secretariat_notes",
+      items: [
+        {
+          id: "nota-pp03uat-tutti",
+          content: "Riconsegnare i moduli di iscrizione firmati entro venerdi in segreteria, insieme alla copia del documento di chi accompagna in trasferta.",
+          targetType: "all_trainers",
+          expiryDate: iso(giorno(3)),
+        },
+        {
+          id: "nota-pp03uat-mio",
+          content: "Gianfranco, la palestra di via dei Tigli e occupata giovedi: l'allenamento dell'Under 15 si sposta al Centro sportivo Sud.",
+          targetType: "trainer",
+          targetId: "trainer-pp03uat-1",
+          targetLabel: "Gianfranco Allenatore",
+          expiryDate: iso(giorno(1)),
+        },
+        {
+          id: "nota-pp03uat-canarino",
+          content: "CANARINO: promemoria interno della direzione, non deve comparire nella bacheca dell'allenatore.",
+          targetType: "club_dashboard",
+          expiryDate: iso(giorno(2)),
+        },
+      ],
+    },
   ]);
 
   await prisma.organizationUser.createMany({
@@ -259,7 +312,15 @@ const main = async () => {
       data: {
         categoryIds: [categoria],
         siteId: indice % 3 === 0 ? SEDE_SUD : SEDE_NORD,
-        medicalCertificateExpiry: iso(giorno(indice * 7 - 30)),
+        /*
+          **La chiave e `medicalCertExpiry`**, non un suo sinonimo: e quella
+          che `getAthleteMedicalExpiry` legge in `trainer-dashboard-shared.tsx`,
+          quindi l'unica che a schermo diventa una data. Con il nome sbagliato
+          la colonna «Certificato Medico» mostrava un trattino per tutti e
+          venti, e una colonna sempre vuota non misura ne la larghezza ne il
+          permesso sanitario.
+        */
+        medicalCertExpiry: iso(giorno(indice * 7 - 30)),
         allergies: "arachidi",
         bloodType: "0+",
         medicalNotes: "riservato: non deve uscire verso l'allenatore",
@@ -356,6 +417,106 @@ const main = async () => {
       );
     }
   }
+
+  /*
+    **Gli appuntamenti assegnati all'allenatore.**
+
+    `listAppointments` per chi non ha `appointments.read` filtra su
+    `assigned_to_user_id = <chi chiede>`: senza una riga assegnata a lui la
+    pagina resta sull'insieme vuoto, che e proprio la forma che non fa
+    traboccare niente. Uno confermato e uno ancora da confermare, cosi si
+    vedono a schermo i due stati e i comandi che li accompagnano.
+  */
+  for (const appuntamento of [
+    {
+      giorni: 2,
+      ora: "17:00",
+      motivo:
+        "Colloquio con la famiglia di Alessandro Della Valle Buonocore sul rientro dopo l'infortunio",
+      confermato: true,
+    },
+    {
+      giorni: 6,
+      ora: "19:15",
+      motivo: "Riunione tecnica di categoria e consegna del programma mensile",
+      confermato: false,
+    },
+  ]) {
+    await appuntamenti_dominio.createAppointment(
+      owner,
+      {
+        assignedToUserId: mister.id,
+        siteId: SEDE_NORD,
+        date: iso(giorno(appuntamento.giorni)),
+        time: appuntamento.ora,
+        durationMinutes: 45,
+        reason: appuntamento.motivo,
+        confirmed: appuntamento.confermato,
+        outsideAvailability: true,
+      },
+      attore,
+    );
+  }
+
+  /*
+    **Il rapporto di lavoro sportivo dell'allenatore.**
+
+    `readOwnCompensationStatement` riconosce la persona del registro dalla
+    coppia `origin_type` + `origin_id`, che qui e la scheda dentro
+    `clubs.trainers`. Senza questa parte la pagina «I miei compensi» dice —
+    correttamente — «Nessun compenso registrato», e la tabella delle rate, che
+    porta un `min-w-[560px]` dentro un contenitore scorrevole, non viene mai
+    disegnata: cioe l'unico punto della dashboard allenatore in cui la
+    larghezza minima e dichiarata a mano resta **non misurato**.
+
+    Il piano e mensile su dieci mesi: dieci righe bastano a far scorrere la
+    tabella e a riempire il riepilogo.
+  */
+  const persona_compensi = await lavoro_sportivo.createSportWorkPerson(
+    {
+      organizationId: CLUB,
+      originType: "trainer",
+      originId: "trainer-pp03uat-1",
+      firstName: "Gianfranco",
+      lastName: "Allenatore",
+      email: mister.email,
+      fiscalProfile: "AMATEUR",
+    },
+    owner,
+  );
+
+  const rapporto = await lavoro_sportivo.createRelationship(
+    {
+      personId: persona_compensi.id,
+      seasonId: "2026-27",
+      /*
+        `role` e `relationshipType` sono **vocabolari**, non testo libero:
+        `normalizeRole` ricade su `OTHER` e `normalizeRelationshipType` su
+        `SPORT_COCOCO` davanti a un valore che non riconosce. La prima stesura
+        scriveva la qualifica per esteso e a schermo compariva «OTHER».
+      */
+      role: "COACH",
+      relationshipType: "SPORT_COCOCO",
+      startDate: "2026-09-01",
+      endDate: "2027-06-30",
+      contractAmount: 4800,
+      compensationFrequency: "MONTHLY",
+      weeklyHours: 6,
+    },
+    owner,
+  );
+
+  await lavoro_sportivo.saveCompensationPlan(
+    {
+      relationshipId: rapporto.id,
+      kind: "MONTHLY",
+      monthlyAmount: 480,
+      startMonth: "2026-09",
+      endMonth: "2027-06",
+      dueDayOfMonth: 10,
+    },
+    owner,
+  );
 
   console.log("");
   console.log("  Club di collaudo PP-03 seminato.");

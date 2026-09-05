@@ -125,10 +125,28 @@ export default function TrainerBoardDashboardPage() {
                     </Badge>
                   ) : null}
                 </div>
+                {/*
+                  **Il corpo della nota si chiama `content`.**
+
+                  Qui si leggevano `description`, `note` e `data.description`, e
+                  nessuna delle tre e la grafia che il club scrive: chi compone
+                  la nota e `/secretariat` (riga ~706), che salva `content`, ed
+                  e la stessa chiave che rileggono la sua schermata e la
+                  dashboard del club. Il vaglio dei destinatari funzionava, la
+                  nota arrivava, e all'allenatore compariva un riquadro con
+                  l'intestazione «Promemoria», la scadenza, il destinatario —
+                  **e nessun testo**. La nota c'era e non diceva niente.
+
+                  Le altre grafie restano dietro: una colonna JSON conserva
+                  cio che ci e stato scritto in passato, e toglierle
+                  svuoterebbe le note vecchie invece di riempire quelle nuove.
+                */}
                 <p className="mt-2 whitespace-pre-line text-sm text-slate-700">
                   {String(
-                    reminder?.description ||
+                    reminder?.content ||
+                      reminder?.description ||
                       reminder?.note ||
+                      reminder?.data?.content ||
                       reminder?.data?.description ||
                       "",
                   )}

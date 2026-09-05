@@ -522,3 +522,90 @@ la direzione continua a vedere tutto.
 aggirato: il suo caso «l'atto su un evento che tocca il proprio perimetro e
 ammesso» misurava proprio l'attacco di 7.1, e adesso misura la distinzione fra
 leggere e cambiare.
+
+---
+
+## §8 — Il riquadro che compare e non dice niente
+
+I primi sette paragrafi hanno chiuso falle di **perimetro**: dati che uscivano
+a chi non doveva vederli. Questo paragrafo e il verso opposto, e nasce dal
+collaudo a schermo — quello che [CLAUDE.md §11](../../CLAUDE.md) chiama il
+codice **irraggiungibile**, nella sua forma piu silenziosa. Nessun errore,
+nessun elenco vuoto, nessun 403: una schermata che si apre, disegna il
+contenitore e lascia dentro il vuoto.
+
+Entrambi sono stati trovati aprendo le pagine con un club seminato, non
+leggendo il sorgente. Non li avrebbe visti nessuna sonda sulle rotte: le rotte
+rispondevano correttamente.
+
+### 8.1 — La bacheca leggeva un campo che nessuno scrive
+
+`TrainerBoardDashboardPage` disegna le note della segreteria che riguardano
+l'allenatore, e prendeva il corpo della nota cosi:
+
+```tsx
+{String(reminder?.description || reminder?.note || reminder?.data?.description || "")}
+```
+
+Nessuna delle tre grafie e quella che il prodotto scrive. Chi compone una nota
+e `/secretariat` (`src/app/secretariat/page.tsx`, ~riga 706), che salva
+**`content`**, ed e la stessa chiave che rileggono la sua schermata e la
+dashboard del club.
+
+L'effetto e stato riprodotto a schermo: il vaglio dei destinatari funzionava —
+la nota indirizzata all'allenatore e quella «a tutti gli allenatori» comparivano
+entrambe, e il promemoria interno della direzione **no**, che e la correzione
+di §1 vista dall'interfaccia — e ogni riquadro portava intestazione, scadenza e
+destinatario. E nessun testo. La nota c'era, era arrivata alla persona giusta,
+e non diceva niente.
+
+`content` entra **in testa** alla catena e le grafie storiche restano dietro:
+una colonna JSON conserva cio che ci e stato scritto in passato, e toglierle
+svuoterebbe le note vecchie invece di riempire quelle nuove.
+
+### 8.2 — «I miei compensi» stampava il gettone al posto della qualifica
+
+`sport_work_relationships.role` porta un valore del vocabolario di
+`src/lib/sport-work/model.ts` — `COACH`, `ATHLETIC_TRAINER`, `OTHER` — e la
+scheda del rapporto lo stampava grezzo. All'allenatore compariva «COACH», e
+«OTHER» quando il club non aveva saputo classificarlo. Lo **stato** accanto
+passava gia da una tabella di etichette: delle due informazioni della stessa
+riga, una era leggibile e l'altra no.
+
+L'etichetta si prende da `SPORT_WORK_ROLE_LABELS`, cioe dal proprietario del
+vocabolario, e non da una quarta copia locale: `model.ts` e un modulo puro e le
+altre schermate del lavoro sportivo lo importano gia.
+
+### 8.3 — Il collaudo che li ha fatti vedere
+
+`scripts/pp-03-uat-seed.mjs` semina il club di collaudo, e non e un dettaglio
+di comodo: **una tabella senza righe non trabocca mai**, e una pagina vuota non
+mostra ne una larghezza sbagliata ne un campo letto con il nome sbagliato.
+
+Il seed e cresciuto durante la verifica, e ogni aggiunta corrisponde a una
+superficie che senza di essa restava non misurata:
+
+| Cosa semina | Superficie che accende |
+|---|---|
+| Categorie e sedi **dal registro** (`replaceClubResourceCollections`) | ovunque serva un'etichetta: senza, a schermo compariva l'identificativo |
+| `data.medicalCertExpiry` con la grafia canonica | la colonna «Certificato Medico» dell'elenco atleti e i certificati del gruppo |
+| Tre note di segreteria, di cui una `club_dashboard` | la bacheca, **e il canarino del vaglio di §1** |
+| Due appuntamenti assegnati, uno confermato e uno no | «Appuntamenti», che filtra su `assigned_to_user_id` |
+| Persona, rapporto e piano di lavoro sportivo | «I miei compensi», e con essa l'unica tabella della dashboard allenatore che dichiara a mano un `min-w-[560px]` |
+
+L'identificativo del club e **fisso**: con un `randomUUID()` ogni riesecuzione
+del seed dava un club nuovo e la sessione aperta nel browser restava appesa a
+quello vecchio, cioe la verifica di responsivita ricominciava da capo a ogni
+ritocco.
+
+### Verificato
+
+`tests/ui/pp-03-bacheca-e-compensi-allenatore.test.mjs`, quattro prove. La
+grafia del campo **non e scritta a mano** nel test: si ricava dal produttore
+(`/secretariat`), cosi una rinomina futura fa fallire la prova chiedendo di
+allineare il lettore, invece di restare verde su una costante che non
+corrisponde piu a niente.
+
+Verifica per mutazione: rimesse le due stesure precedenti, tre prove su quattro
+tornano rosse. La quarta — «ogni qualifica del vocabolario ha un'etichetta» —
+resta verde, ed e giusto: misura il vocabolario, non la schermata.
