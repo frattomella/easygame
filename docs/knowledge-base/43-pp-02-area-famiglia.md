@@ -1962,3 +1962,63 @@ ottimizzazione. Un test unitario lo ha preso.
 Adesso si fa una domanda a cui **si conosce la risposta** — `SELECT 1` — e se
 non torna una riga si lavora su tutti. Il ripiego di una restrizione non e
 «nessuno»: e «tutti».
+
+## 33. Il ventisettesimo round: la stessa porta, l'altra risorsa
+
+Un Critical e due High. Due dei tre nati dal round precedente.
+
+### La correzione applicata a una risorsa su due
+
+Il round 26 aveva chiuso il ramo `upsert` che saltava tutte le difese, e lo
+aveva agganciato all'insieme delle **schede atleta**. Le rate non ci sono.
+
+Stessa rotta, stesso verbo, altra risorsa: un `POST` con `mode: "upsert"` da
+una Segreteria cambiava l'importo di una rata **saldata**, ne spostava la
+scadenza, e la spostava **su un altro atleta** — cosi che una famiglia
+trovasse nella propria area la quota del figlio di un'altra, mentre
+l'incasso restava intestato alla prima.
+
+Il messaggio di quel commit dichiarava chiuso proprio questo caso, e la
+sonda scritta accanto non lo ha mai chiesto: esercitava `upsert` sugli atleti
+e non sulle rate. L'insieme adesso ha un nome che dice **perche** una
+risorsa gli appartiene, perche il difetto non era l'elenco: era che
+l'elenco non diceva a cosa serviva.
+
+### Il blocco che ho tolto
+
+Il `FOR UPDATE` sull'intero club, introdotto un round fa per chiudere una
+finestra stretta, prende un'impronta di blocco su **ogni** riga in ordine di
+`id`. Il rollover di stagione prende le stesse righe in ordine di scansione,
+e gli `id` sono UUID: i due ordini sono scorrelati per costruzione.
+
+Misurato cinque giri su cinque dalla porta del prodotto, con l'istruzione
+vittima letta dal log di PostgreSQL: «Revoca dell'accesso non riuscita»,
+tessera ancora li, genitore ancora dentro, e **niente in audit** — perche
+l'audit sta dopo la transazione.
+
+Il blocco e stato tolto. La finestra che chiudeva lascia fuori una scheda in
+una corsa rara; il deadlock faceva fallire **ogni** revoca durante un
+passaggio di stagione. Fra i due si sceglie il meno dannoso — ma la scelta
+non e una vittoria, ed e scritta come debito (**PP02-D34**): in questa forma
+le due proprieta non si ottengono insieme.
+
+### Due porte, due stati
+
+«Revoca accesso» dalla Gestione accessi lasciava vivo l'invito dell'atleta:
+la porta gemella, quella della scheda, lo chiude. Il ragazzo apriva l'email
+che aveva gia ricevuto, `athletes.user_id` tornava al suo posto, nasceva una
+tessera nuova, e da li l'area atleta completa.
+
+Due porte per lo stesso fatto devono lasciare lo stesso stato, o quella piu
+debole diventa la strada che si prende.
+
+### E una cosa che il revisore ha detto, che vale piu dei tre reperti
+
+Le 263 sonde misuravano lo **sweep**, non la **revoca**: chiamavano
+`unlinkParentGuardians` dentro una transazione costruita dalla sonda, quindi
+non avevano mai visto la transazione vera — con la cancellazione della
+tessera, l'aggiornamento del club e le altre funzioni di ripulitura dentro.
+Due dei tre difetti di questo round vivono esattamente in quello spazio.
+
+Un «pulito» costruito su quelle sonde poggia su una superficie che non
+contiene la porta che il prodotto usa.

@@ -8257,10 +8257,20 @@ const sezioneW = async () => {
     prisma.$transaction((tx) =>
       legamiW25.unlinkParentGuardians(tx, CLUB, ANNA.id, ANNA.email, "parent"),
     ),
+    /*
+      Il salvataggio che corre accanto rimanda i tutori, come fa il client
+      vero: `athletes.data` e un blob sostituito per intero, e una sonda che
+      mandasse il solo campo nuovo cancellerebbe le righe che sta misurando.
+    */
     risorseW26.updateResource(
       "athletes",
       FIGLIO_AGGIUNTO,
-      { data: { size: "M" } },
+      {
+        data: {
+          guardians: [{ id: "g", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email }],
+          size: "M",
+        },
+      },
       scopeClubW29,
     ),
   ]);
@@ -8351,6 +8361,204 @@ const sezioneW = async () => {
     ],
     "prima: una rata mai incassata, o annullata, bloccava la scheda per sempre",
   );
+
+  /* ---------- W-81..W-84: il ventisettesimo round ---------- */
+
+  /*
+    **W-81 (Critical).** Il reinstradamento di `upsert` del round precedente era
+    agganciato all'insieme delle **schede atleta**, e le rate non ci sono. La
+    stessa porta, sulla stessa rotta, con lo stesso verbo: un `POST` con
+    `mode: "upsert"` da una Segreteria cambiava l'importo di una rata **saldata**,
+    ne spostava la scadenza, e la spostava **su un altro atleta** — cosi che una
+    famiglia trovasse nella propria area la quota del figlio di un'altra, mentre
+    l'incasso restava intestato alla prima.
+
+    E la forma che il commit precedente dichiara chiusa — «una rotta con tre
+    verbi, e la difesa attaccata a uno» — applicata a una risorsa su due.
+  */
+  const FIGLIO_RATA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_RATA,
+      organization_id: CLUB,
+      first_name: "Rata",
+      last_name: "Saldata",
+      status: "active",
+      updated_at: new Date(),
+      data: {},
+    },
+  });
+
+  const RATA_SALDATA = randomUUID();
+  await prisma.athletePayment.create({
+    data: {
+      id: RATA_SALDATA,
+      organization_id: CLUB,
+      athlete_id: FIGLIO_RATA,
+      amount: 130,
+      description: "Quota saldata",
+      status: "paid",
+    },
+  });
+
+  const upsertImporto = await risorseW26
+    .createResource(
+      "payments",
+      {
+        id: RATA_SALDATA,
+        organization_id: CLUB,
+        athlete_id: FIGLIO_RATA,
+        amount: 500,
+        description: "Quota saldata",
+      },
+      "upsert",
+      scopeClubW29,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  const upsertIntestatario = await risorseW26
+    .createResource(
+      "payments",
+      {
+        id: RATA_SALDATA,
+        organization_id: CLUB,
+        athlete_id: MARCO,
+        amount: 130,
+        description: "Quota saldata",
+      },
+      "upsert",
+      scopeClubW29,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  const rataDopo = await prisma.athletePayment.findUnique({
+    where: { id: RATA_SALDATA },
+    select: { amount: true, athlete_id: true },
+  });
+
+  prova(
+    "W-81 dalla porta upsert non si tocca una rata saldata, ne il suo intestatario",
+    [true, true, 130, FIGLIO_RATA],
+    [
+      upsertImporto !== "riuscita",
+      upsertIntestatario !== "riuscita",
+      rataDopo?.amount,
+      rataDopo?.athlete_id,
+    ],
+    upsertImporto + " | " + upsertIntestatario,
+  );
+
+  await prisma.athletePayment.delete({ where: { id: RATA_SALDATA } });
+  await prisma.athlete.delete({ where: { id: FIGLIO_RATA } });
+
+  /*
+    **W-82 (Medium).** Il ramo `upsert` toglieva `created_at` dal corpo — «vale
+    per ogni risorsa che un upsert puo raggiungere» — e il reinstradamento ha
+    saltato quella riga; `updateResource` lo strip non lo aveva mai avuto. La
+    data di iscrizione di un tesserato si riportava al 1999 da tutte e due le
+    porte, e su quella poggiano l'anzianita di un socio e la ricostruzione di un
+    audit.
+  */
+  const FIGLIO_DATA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_DATA,
+      organization_id: CLUB,
+      first_name: "Data",
+      last_name: "Creazione",
+      status: "active",
+      updated_at: new Date(),
+      data: {},
+    },
+  });
+
+  const creataPrima = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_DATA },
+      select: { created_at: true },
+    })
+  )?.created_at;
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_DATA,
+    { first_name: "Data", created_at: new Date("1999-01-01") },
+    scopeClubW29,
+  );
+
+  const creataDopo = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_DATA },
+      select: { created_at: true },
+    })
+  )?.created_at;
+
+  prova(
+    "W-82 la data di creazione non si riscrive dal corpo della richiesta",
+    true,
+    Number(creataPrima) === Number(creataDopo),
+    String(creataPrima) + " -> " + String(creataDopo),
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_DATA } });
+
+  /*
+    **W-83 (High).** «Revoca accesso» dalla Gestione accessi lasciava vivo
+    l'invito dell'atleta: lui apriva l'email che aveva gia ricevuto,
+    `athletes.user_id` tornava al suo posto e nasceva una tessera nuova. La
+    porta gemella, quella della scheda atleta, l'invito lo chiude.
+
+    Due porte per lo stesso fatto devono lasciare lo stesso stato, o quella piu
+    debole diventa la strada che si prende.
+  */
+  const FIGLIO_INVITO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_INVITO,
+      organization_id: CLUB,
+      first_name: "Invito",
+      last_name: "Vivo",
+      status: "active",
+      user_id: UTENTE_RAGAZZO.id,
+      updated_at: new Date(),
+      data: {},
+    },
+  });
+
+  const INVITO = randomUUID();
+  await prisma.athleteAccountInvite.create({
+    data: {
+      id: INVITO,
+      organization_id: CLUB,
+      athlete_id: FIGLIO_INVITO,
+      status: "sent",
+      email: UTENTE_RAGAZZO.email,
+      sent_at: new Date(),
+      token_hash: "x".repeat(64),
+      expires_at: new Date(Date.now() + 86400000),
+    },
+  });
+
+  await prisma.$transaction((tx) =>
+    legamiW25.unlinkDirectAthleteProfile(tx, CLUB, UTENTE_RAGAZZO.id, "athlete"),
+  );
+
+  const invitoDopo = await prisma.athleteAccountInvite.findUnique({
+    where: { id: INVITO },
+    select: { status: true },
+  });
+
+  prova(
+    "W-83 revocando l'accesso dell'atleta si chiude anche il suo invito",
+    "revoked",
+    invitoDopo?.status,
+    "prima: restava «sent», e il vecchio link lo faceva rientrare",
+  );
+
+  await prisma.athleteAccountInvite.delete({ where: { id: INVITO } });
+  await prisma.athlete.delete({ where: { id: FIGLIO_INVITO } });
 
   await prisma.athlete.update({
     where: { id: MARCO },

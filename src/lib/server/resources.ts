@@ -585,6 +585,33 @@ const RISORSE_CLINICHE = new Set([
 const RISORSE_CON_SCHEDA_ATLETA = new Set(["athletes", "simplified_athletes"]);
 
 /**
+ * **Le risorse le cui difese vivono dentro `updateResource`, e solo li.**
+ *
+ * La rotta generica ha tre verbi e le difese sono cresciute su uno: il blocco
+ * di riga, la rilettura, il riporto delle difese del tutore, la guardia sulla
+ * cancellazione dell'interessato, il vaglio degli importi di una rata gia
+ * saldata e il ricalcolo del ledger stanno **tutti** nella modifica.
+ *
+ * Un `upsert` su una riga che esiste e una modifica, e deve passare di li. La
+ * prima stesura di questa regola nominava le **schede atleta**, e le rate no:
+ * misurato subito dopo, un `POST` con `mode: "upsert"` da una Segreteria
+ * cambiava l'importo di una rata **saldata**, ne spostava la scadenza, e la
+ * spostava **su un altro atleta** — cosi che una famiglia trovasse nella propria
+ * area la quota del figlio di un'altra, mentre l'incasso restava intestato alla
+ * prima. Nessun ricalcolo, nessun blocco.
+ *
+ * L'elenco sta qui, con un nome che dice **perche** una risorsa ci appartiene:
+ * chi aggiunge una guardia alla modifica di una risorsa nuova deve aggiungerla
+ * anche a questo insieme, o la sua difesa nasce con una porta aperta.
+ */
+const RISORSE_CHE_SI_MODIFICANO_DA_UN_POSTO_SOLO = new Set([
+  "athletes",
+  "simplified_athletes",
+  "payments",
+  "simplified_payments",
+]);
+
+/**
  * Vero se il valore e «niente»: assente, nullo, testo vuoto, elenco vuoto,
  * oggetto senza chiavi.
  *
@@ -5988,7 +6015,7 @@ export const createResource = async (
             si smette di riscriverla: il ramo che aggiorna **e** la modifica, e
             passa da li.
           */
-          if (RISORSE_CON_SCHEDA_ATLETA.has(resource)) {
+          if (RISORSE_CHE_SI_MODIFICANO_DA_UN_POSTO_SOLO.has(resource)) {
             return (await updateResource(
               resource,
               String(esistente.id),
@@ -7795,6 +7822,20 @@ export const updateResource = async (
       options,
     );
   }
+
+  /*
+    **La data di creazione non si riscrive, da nessuna delle porte.**
+
+    Il ramo `upsert` toglieva `created_at` dal corpo, con il commento «vale per
+    **ogni** risorsa che un upsert puo raggiungere». Il reinstradamento a
+    `updateResource` ha saltato quella riga, e `updateResource` lo strip non lo
+    aveva mai avuto: misurato, la data di iscrizione di un tesserato si
+    riportava al 1999 da tutte e due le porte.
+
+    Una data di creazione che si riscrive non e una data di creazione:
+    l'anzianita di un socio e la ricostruzione di un audit poggiano su quella.
+  */
+  delete (normalized as any).created_at;
 
   assertAnagraficaIsValid(resource, normalized, existing);
   normalizeAnagraficaText(resource, normalized);

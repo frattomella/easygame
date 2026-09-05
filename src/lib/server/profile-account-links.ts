@@ -1160,36 +1160,28 @@ export const unlinkParentGuardians = async (
   const sqlGrezzoDisponibile = Array.isArray(sondaSql) && sondaSql.length === 1;
 
   /*
-    **Si blocca il club in una istruzione sola, prima di scegliere.**
+    **Il blocco sull'intero club e stato tolto: prendeva un'impronta che si
+    incrocia con il passaggio di stagione.**
 
-    Restringere prima di bloccare lascia scoperta una scheda che il tutore lo
-    **acquista mentre la revoca gira**: il filtro l'ha gia scartata, e la revoca
-    non la vede piu. Misurato cinque giri su cinque, con la schermata che dice
-    «Accesso revocato» e quel genitore che continua ad aprire il fascicolo del
-    secondo figlio.
+    Era stato messo per chiudere una finestra stretta — una scheda che acquista
+    il tutore **mentre** la revoca gira viene scartata dal filtro e la revoca non
+    la vede. La chiudeva davvero, e ne ha aperta una peggiore: bloccando **ogni**
+    riga del club in ordine di `id`, e prendendo il rollover di stagione le
+    stesse righe in ordine di scansione, i due ordini sono scorrelati per
+    costruzione (gli `id` sono UUID). Misurato cinque giri su cinque dalla porta
+    del prodotto: «Revoca dell'accesso non riuscita», tessera ancora li, il
+    genitore ancora dentro, e **niente in audit** — perche l'audit sta dopo la
+    transazione. Piu il tetto: oltre ~1.100 schede toccate la transazione scade.
 
-    Bloccare **ogni** scheda una per una lo chiudeva, e costava due viaggi in
-    archivio per tesserato dentro una transazione da cinque secondi: a 1.600 la
-    revoca scadeva. Le due proprieta sembravano escludersi.
+    Il difetto che il blocco chiudeva vale meno di quello che apriva: la finestra
+    stretta lascia fuori una scheda in una corsa rara, il deadlock fa fallire
+    **ogni** revoca durante un passaggio di stagione.
 
-    Non si escludono: quello che le opponeva era **il numero di istruzioni**, non
-    il numero di righe. Un solo `FOR UPDATE` sull'intero club le prende tutte in
-    un viaggio — chi scrive un atleta di questo club aspetta la revoca, che dura
-    poco piu di un secondo su trecento tesserati — e da quel momento la scelta
-    puo avvenire in pace: nessuno puo piu aggiungere quel tutore a una scheda che
-    stiamo per scartare.
-
-    Se SQL grezzo non c'e (il doppio dei test unitari), si ricade sul blocco per
-    riga dentro il ciclo, che e piu lento e altrettanto corretto.
+    E la scelta fra i due non e una vittoria: e la prova che in questa forma le
+    due proprieta non si ottengono insieme. Sta in ADR-0116 e nel debito
+    (PP02-D34), ed e la ragione per cui la revoca dovrebbe essere una riga da
+    aggiornare e non un ciclo su un blob.
   */
-  if (sqlGrezzoDisponibile) {
-    await tx.$queryRaw`
-      SELECT id FROM athletes
-      WHERE organization_id = ${organizationId}::uuid
-      ORDER BY id ASC
-      FOR UPDATE
-    `;
-  }
 
   const athletes: Array<{ id: string }> =
     sqlGrezzoDisponibile && aghi.length
@@ -1353,10 +1345,51 @@ export const unlinkDirectAthleteProfile = async (
 ) => {
   if (!ATHLETE_ROLES.has(normalizeToken(accessRole))) return 0;
 
+  const schede = await tx.athlete.findMany({
+    where: { organization_id: organizationId, user_id: userId },
+    select: { id: true },
+  });
+
   const result = await tx.athlete.updateMany({
     where: { organization_id: organizationId, user_id: userId },
     data: { user_id: null },
   });
+
+  /*
+    **Un invito ancora vivo e una strada di ritorno, e va chiusa con la porta.**
+
+    Le due porte che revocano l'accesso di un atleta facevano due cose diverse:
+    quella della scheda (`revokeAthleteAccess`) marca «revocato» l'invito
+    ancora in piedi, questa no. E `acceptAthleteAccountInvite` guarda soltanto
+    stato, scadenza e `athletes.user_id` — che questa funzione ha appena
+    azzerato.
+
+    Misurato in sequenza, senza nessuna concorrenza: revoca dalla Gestione
+    accessi, schermata «revocato», riga di audit — e il ragazzo apre l'email che
+    aveva gia ricevuto, `user_id` torna al suo posto e nasce una tessera nuova.
+    Da li `/api/v1/athlete-accounts/me`, che per progetto non chiede ne ruolo ne
+    tessera, riapre l'area atleta completa.
+
+    Due porte per lo stesso fatto devono lasciare lo stesso stato, o quella piu
+    debole diventa la strada che si prende.
+  */
+  for (const scheda of schede) {
+    const vivo = await tx.athleteAccountInvite.findFirst({
+      where: {
+        organization_id: organizationId,
+        athlete_id: scheda.id,
+        status: "sent",
+      },
+      orderBy: { sent_at: "desc" },
+    });
+
+    if (vivo) {
+      await tx.athleteAccountInvite.update({
+        where: { id: vivo.id },
+        data: { status: "revoked", revoked_at: new Date() },
+      });
+    }
+  }
 
   return result.count || 0;
 };
