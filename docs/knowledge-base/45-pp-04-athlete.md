@@ -344,7 +344,7 @@ proposito** invece che per caso.
 ### La sonda della lane
 
 `scripts/pp-04-atleta-probe.mjs`, contro `easygame_dev_pp04` e contro i route
-handler veri con una sessione in archivio: **88 prove su 88**. Percorre
+handler veri con una sessione in archivio: **111 prove su 111**. Percorre
 `DB -> dominio -> rotta -> proiezione` e domanda **cosa riceve quella persona**.
 
 Copre: l'invito e il token (nessuna password in nessun ramo, impronta a 64
@@ -353,45 +353,90 @@ scaduto, revocato, replay); l'area e cio che non contiene (segreti clinici,
 presenze e notifiche di un altro atleta, chiavi proibite); l'attacco di Aldo
 verso tutto il resto (bacheca, profilo, RSVP, rotta generica degli atleti,
 gestione dell'accesso altrui e proprio, scrittura di campi protetti); il
-tutore, il fratello, la carta, l'avviso; le cinque forme della revoca; i minori
-dalla rotta vera (P-60…P-66).
+tutore, il fratello, la carta, l'avviso; le cinque forme della revoca; i
+minori dalla rotta vera (P-60…P-66); il ramo del tutore e i suoi tre
+aggiramenti (P-70…P-79).
+
+**Le sonde seminano ora il legame dal riscatto vero.** Seminarlo con una
+`update` su `athletes.user_id` modellava uno stato che il prodotto non
+produce — `acceptAthleteAccountInvite` e l'unico scrittore di quel campo — ed
+e la ragione per cui il difetto di ADR-0123 non si vedeva da qui.
 
 ### I test
 
-`npm test` **4.660** verdi. Nuovi in questa lane:
+`npm test` **4.668** verdi. Nuovi in questa lane:
 
 | File | Cosa presidia |
 |---|---|
 | `tests/server/pp-04-revoca-identita.test.mjs` | la revoca vale sull'identita, e quattro controlli sul **non** fare troppo |
 | `tests/server/pp-04-minori.test.mjs` | il gate sui minori, con tre controlli sul non fare troppo |
-| `tests/server/pp-04-porta-di-servizio.test.mjs` | i due lettori dello stesso campo, e `allowSelfAthleteLink` |
+| `tests/server/pp-04-porta-di-servizio.test.mjs` | i due lettori dello stesso campo, `allowSelfAthleteLink` e il suo verso, i quattro chiamanti che lo dichiarano, e l'identita che sopravvive alla revoca |
 | in `tests/server/accesso-atleta.test.mjs` | ogni pagina dell'area e nel menu, e ogni voce di menu ha pagina e titolo |
 | in `tests/server/area-atleta-campi-sorgente.test.mjs` | il nome della squadra, e le categorie che escono |
 
+Corrette anche cinque **fixture** che modellavano il genitore dentro
+`athletes.user_id` (PP04-D6): tre del fascicolo famiglia nel secondo commit,
+piu `iscrizione-servizio` e `moduli-rinnovo-filtrato` nel terzo. Adesso il
+genitore e un tutore con la sua tessera `parent`, che e lo stato che il
+riscatto del token scrive davvero.
+
 **Ogni correzione di sicurezza e stata verificata per mutazione**: rimossa la
-guardia, la prova torna rossa.
+guardia, la prova torna rossa. Per ADR-0122 e ADR-0123 la mutazione e stata
+fatta due volte — sui test e sulla sonda contro PostgreSQL — e la seconda
+mostra i **segreti seminati che riappaiono nel corpo della risposta**, che e
+la sola forma in cui una prova di sicurezza dice qualcosa.
+
+### I round di revisione ostile
+
+Quattro reviewer indipendenti, ognuno con il mandato di **rompere**. Il ciclo
+e stato `fix -> prova comportamentale -> verifica per mutazione -> nuovo
+round`, ripetuto finche un round intero e uscito pulito.
+
+| Round | Trovato | Esito |
+|---|---|---|
+| 1 | Critical: i due lettori di `athletes.user_id` (ADR-0117); High: l'elenco chiuso valeva sulla proiezione e non sulla rotta (ADR-0118); due Medium (ADR-0119, ADR-0121); un Low (ADR-0120) | chiusi |
+| 2 | Il Critical del round 1 era stato **spostato**, non chiuso: il ramo del tutore si apriva con `guardians[].email` (ADR-0122) | chiuso |
+| 3 | Critical: la guardia di ADR-0122 stava sul campo che la revoca cancella (ADR-0123). Piu un Critical e un Medium **preesistenti e fuori perimetro**: il genitore revocato (PP04-D8) e lo sweep per slug (PP04-D9) | il primo chiuso; gli altri due registrati come dependency e debito |
+| 4 | — | vedi sotto |
 
 ### A schermo
 
-Dev server vero, sessione di un atleta seminato, quattro larghezze:
+Dev server vero sul DB della lane, sessione di un atleta seminato, e le
+**tredici** pagine dell'area percorse una per una a quattro larghezze,
+misurando `scrollWidth > clientWidth` sull'elemento radice:
 
 | Larghezza | Esito |
 |---|---|
-| 375 | nessun overflow orizzontale su squadre, allenamenti, storico e sul pannello «Accesso EasyGame»; menu del telefono con **le stesse tredici voci** |
-| 768 | idem, sidebar montata |
-| 1280 | tredici voci nella sidebar, nessun overflow |
-| 1440 | idem |
+| 375 | nessun overflow su nessuna delle tredici pagine; il menu del telefono porta le stesse tredici voci |
+| 768 | idem, sidebar montata, 13 voci |
+| 1280 | idem, 13 voci |
+| 1440 | idem, 13 voci |
 
-Verificato anche il pannello del club: sull'atleta **minorenne** compare la
-casella sulla responsabilita genitoriale e «Invita l'atleta» resta **spento**
-finche non e spuntata; sul **maggiorenne** la casella non c'e e il pulsante e
-acceso.
+Con dati veri sullo schermo: «Le mie squadre» stampa *Under 14 maschile* e
+*Prima squadra* invece di due UUID; l'allenamento congiunto porta **le due
+etichette dell'atleta** e l'evento della sola prima squadra non compare; il
+certificato mostra stato e scadenza e nient'altro; «I miei dati» dichiara
+quali campi tiene la societa.
+
+Il pannello **«Accesso EasyGame»** del club, aperto dal presidente sulla
+scheda dell'atleta, alle stesse quattro larghezze e senza overflow: mostra
+*Accesso attivo* con l'indirizzo collegato, «Scollega account» e «Revoca
+l'accesso»; dopo la revoca torna allo stato senza account, con la **casella
+sulla responsabilita genitoriale** e «Invita l'atleta» **spento** finche non e
+spuntata — che e ADR-0116 vista dal clic.
+
+> Una nota sulla lettura di quella schermata: lo stato **«Accesso revocato»**
+> si deriva dall'ultimo **invito** (ADR-0115/0121). Un account seminato a mano,
+> senza riga d'invito, dopo la revoca torna percio a «Nessun account» invece
+> che a «Accesso revocato». Non e un difetto della derivazione: e uno stato
+> d'archivio che il prodotto non produce, perche `acceptAthleteAccountInvite`
+> e l'unico scrittore di `athletes.user_id`. E la stessa constatazione che ha
+> fatto correggere le fixture e le sonde.
 
 ### Gate
 
-`npm test` verde · `npm run typecheck` senza output · `eslint` 0 errori (34
-warning preesistenti, invariati) · `npm run build` completa con le tre rotte
-nuove.
+`npm test` **4.668/4.668** · `npm run typecheck` senza output · `eslint`
+**0 errori** (34 warning preesistenti, invariati) · `npm run build` completa.
 
 > **Nota sull'ambiente:** `npm run lint` (cioe `next lint`) esce 1 in questo
 > worktree con «Plugin "@next/next" was conflitto fra .eslintrc.json e
@@ -413,14 +458,27 @@ esistono gia.
 
 ## 7. Debito aperto da PP-04
 
-Vedi [16 — Debito tecnico](16-technical-debt.md), voci **PP04-D1…D6**. In
-sintesi: lo sweep dei legami di profilo riconosce lo slug invece del ruolo
-risolto (D1) e `assignClubRole` non lo chiama affatto (D2) — entrambi in
-dominio PP-03; non esiste una policy di club su cosa l'atleta vede (D3);
-`athlete` non e clonabile come ruolo personalizzato (D4); un atleta
-**maggiorenne** non ha una strada per gestire da se quote e consensi (D5);
-`athletes.user_id` aveva due letture nel repository, e PP-04 ne sceglie una
-(D6).
+Vedi [16 — Debito tecnico](16-technical-debt.md), voci **PP04-D1…D9**.
+
+In dominio **PP-03**: lo sweep dei legami di profilo riconosce lo slug invece
+del ruolo risolto (D1), e la sua forma misurata — il pannello «Accesso
+EasyGame» che dichiara `active` una scheda senza piu nessuna tessera, e la
+manda in vicolo cieco (D9); `assignClubRole` non chiama nessuno sweep (D2);
+`athlete` non e clonabile come ruolo personalizzato (D4).
+
+In dominio **PP-02 / PP-03**: il **genitore revocato** continua a leggere e a
+scrivere finche gli resta una tessera qualunque nel club, perche
+`clearLinkedFields` non azzera `guardians[].email` (D8). E **Critical**, e
+**preesistente a PP-04**: nessuna riga di questa lane lo causa o lo aggrava, e
+non e correggibile dal lato del lettore — un tutore revocato e uno mai
+collegato hanno la stessa riga in archivio. La riproduzione e in
+`deps/PP-04-DEPENDENCIES.md`.
+
+Di prodotto: non esiste una policy di club su cosa l'atleta vede (D3); un
+atleta **maggiorenne** non ha una strada per gestire da se quote e consensi
+(D5); `athletes.user_id` aveva due letture e PP-04 ne sceglie una (D6); un
+tutore **senza nessuna tessera** nel club non vede niente, malgrado tre
+commenti del dominio dichiarino il contrario (D7).
 
 ---
 
@@ -428,7 +486,10 @@ dominio PP-03; non esiste una policy di club su cosa l'atleta vede (D3);
 
 | File | Con chi | Perche |
 |---|---|---|
-| `src/lib/server/parent-dashboard.ts` | **PP-02** (area famiglia, nella radice) | PP-04 vi aggiunge il gate del legame diretto e `allowSelfAthleteLink`. Le modifiche sono additive e localizzate in tre punti |
-| `src/app/api/parent-dashboard/**` | **PP-02** | cinque rotte ricevono un argomento in piu |
-| tre file di fixture del fascicolo famiglia | **PP-02** | il genitore vi e ora modellato come tutore con la sua tessera, invece che dentro `athletes.user_id` |
+| `src/lib/server/parent-dashboard.ts` | **PP-02** (area famiglia, nella radice) | PP-04 vi cambia tre cose: il ramo diretto diventa esclusivo e poggia sull'identita (ADR-0122/0123), il predefinito di `allowSelfAthleteLink` si inverte, e l'opzione viaggia fino al fascicolo |
+| `src/app/api/parent-dashboard/**` | **PP-02** | sei rotte: cinque perdono l'argomento esplicito (adesso e il predefinito), la bacheca lo acquista |
+| `src/lib/server/document-requests.ts` | nessuno dei tre, conteso | `assertSubjectAccess` e `getDocumentDossier` ricevono il legame da chi chiama invece di fissarlo |
+| `src/lib/server/rsvp.ts` | **PP-03** | una riga di opzione, registrata in `deps/PP-04-DEPENDENCIES.md` |
+| `src/app/api/v1/auth/memberships/route.ts` | **PP-05** | una riga di opzione, registrata; senza, l'atleta rientra su `/account` |
+| cinque file di fixture | **PP-02** | il genitore vi e ora modellato come tutore con la sua tessera, invece che dentro `athletes.user_id` |
 | `docs/knowledge-base/18-decision-log.md` | tutte e tre le lane | ognuna aggiunge ADR in coda |

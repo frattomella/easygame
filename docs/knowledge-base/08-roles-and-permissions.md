@@ -357,6 +357,40 @@ campo (ADR-0058).
 risolvono il legame e sono l'unico controllo. Questo modulo decide cosa vede chi
 guarda il fascicolo **di qualcun altro**.
 
+> **Aggiornamento PP-04 (2026-09-05, [ADR-0122](18-decision-log.md#adr-0122--chi-e-latleta-non-e-anche-la-propria-famiglia) e [ADR-0123](18-decision-log.md#adr-0123--essere-una-scheda-non-e-un-campo-e-unidentita-che-la-revoca-non-cancella)).**
+> **Genitore e atleta hanno lo stesso gate ma non lo stesso legame**, e la
+> distinzione non era scritta da nessuna parte.
+>
+> `getParentLinkedAthletes` risolve **due** legami: il **tutore**, che e
+> `guardians[].linkedUserId` o l'indirizzo verificato, e l'**atleta stesso**,
+> che e `athletes.user_id`. Dal primo esce il cruscotto della famiglia — quote,
+> ricevute, anagrafica dei tutori, contenuto clinico; dal secondo l'area
+> atleta, che di quello stesso dominio proietta l'elenco chiuso
+> `CAMPI_AREA_ATLETA`. Non danno diritto alle stesse cose.
+>
+> Tre regole ne governano oggi il confine:
+>
+> 1. **il ramo diretto e esclusivo.** Chi e quella scheda non passa dal ramo
+>    del tutore, nemmeno quando il proprio indirizzo compare fra quelli dei
+>    tutori — cioe nel caso normale del minore invitato sulla casella di
+>    famiglia;
+> 2. **il ramo diretto e chiuso per predefinito.** `allowSelfAthleteLink` vale
+>    `false` se non lo si chiede: lo dichiarano quattro chiamanti soli
+>    (`readAthleteAreaOverview`, la bacheca, `authorizeAnsweringUser` in
+>    `rsvp.ts`, `GET /api/v1/auth/memberships`), e un test li conta. Una rotta
+>    nuova che se ne dimentichi **chiude** una porta invece di aprirla;
+> 3. **«essere quella scheda» e un'identita, non un campo.** La risposta
+>    poggia su `athletes.user_id` **piu** gli inviti accettati in
+>    `athlete_account_invites`, perche la revoca e lo scollegamento azzerano il
+>    campo e senza la seconda meta il gesto che toglie l'accesso lo riapriva
+>    dal ramo accanto.
+>
+> Le due meta della domanda — «e ancora un atleta di questo club?» e «e, o e
+> stata, l'account di questa scheda?» — vivono nello stesso modulo,
+> `src/lib/server/athlete-membership.ts`, perche due elenchi separati
+> divergono: e il difetto di ADR-0117.
+
+
 **Dove le tre chiavi vengono applicate** (2026-09-01, dopo la sonda di
 sicurezza). Fino a 5J erano dichiarate e mai chieste: si registrava un
 certificato medico senza passare da nessuna di esse. Adesso il registro generico
