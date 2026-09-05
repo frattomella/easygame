@@ -1496,6 +1496,82 @@ export type ConvocationInput = {
  * `assertMembershipWithinAccessScope`, «il perimetro non si allarga da
  * dentro» — mancante sul lato atleta della convocazione.
  */
+/**
+ * **Un atleta di questo club, e nessun altro.**
+ *
+ * E la guardia grossolana che mancava, e mancava per intero: le due porte che
+ * scrivono `club_event_participants` verificavano **l'evento** — che
+ * appartenesse al club attivo, che stesse nel perimetro dell'allenatore, che
+ * il ruolo avesse il permesso — e non verificavano **gli atleti**.
+ *
+ * L'unica guardia sul lato atleta, `assertAtletiDentroIlPerimetro` qui sotto,
+ * esce alla prima riga quando il ruolo attivo non dichiara un perimetro di
+ * sede o categoria. Un `trainer` ordinario, un `owner`, la segreteria: nessuno
+ * di loro ha righe di perimetro, quindi per **tutti** loro non veniva eseguito
+ * nessun controllo sull'atleta. E `club_event_participants.athlete_id` non e
+ * nemmeno una chiave esterna: e una colonna di testo libero.
+ *
+ * Misurato dalle porte vere, con un allenatore ordinario del club A:
+ * convocare l'atleta del club B **riusciva**, e la riga entrava in archivio;
+ * lo stesso per la presenza; e un identificativo che non nominava nessun
+ * atleta entrava allo stesso modo.
+ *
+ * Non e un errore di visualizzazione, e una **scrittura cross-tenant**.
+ * Convocare fa partire l'invito alla famiglia di quel minore; la presenza e il
+ * dato su cui `funding.ts` rendiconta i contributi pubblici.
+ *
+ * **Rifiuta l'elenco intero, non filtra.** Una guardia che scartasse gli
+ * estranei e scrivesse il resto direbbe «riuscito» a chi ha chiesto una cosa
+ * diversa da quella che e stata fatta: e la stessa forma del 200 muto chiuso
+ * altrove. Se un nome e fuori, non entra nessuno.
+ *
+ * **Che cosa NON e questa guardia.** Non e il perimetro di categoria: un
+ * atleta del club convocato fuori dalla propria categoria e lecito, e
+ * `isExtraCategory` esiste per dichiararlo. Non e lo stato del tesseramento:
+ * un atleta non attivo resta un atleta di questo club. Qui si chiede una cosa
+ * sola, ed e la piu grossa: **e di questo club?**
+ */
+const assertAtletiDelClub = async (
+  scope: EventsScope,
+  organizationId: string,
+  athleteIds: readonly string[],
+  permesso: string,
+) => {
+  const richiesti = Array.from(
+    new Set(athleteIds.map((id) => asText(id)).filter(Boolean)),
+  );
+  if (!richiesti.length) return;
+
+  const esistenti = await prisma.athlete.findMany({
+    where: { organization_id: organizationId, id: { in: richiesti } },
+    select: { id: true },
+  });
+  const ammessi = new Set(esistenti.map((riga) => riga.id));
+  const fuori = richiesti.filter((id) => !ammessi.has(id));
+  if (!fuori.length) return;
+
+  await recordPermissionDenied({
+    scope: {
+      userId: scope.userId,
+      activeRole: scope.activeRole,
+      activeOrganizationId: organizationId,
+    },
+    permission: permesso,
+    resource: "club_event_participants",
+    resourceId: fuori[0],
+    /*
+      Si registra **quanti**, non quali: l'identificativo di un atleta di un
+      altro club non e un dato di questo club, e l'audit di questo club non e
+      il posto dove scriverlo. Il primo resta come riferimento dell'atto.
+    */
+    metadata: { fuori_dal_club: fuori.length },
+  });
+
+  throw new Error(
+    "Accesso negato: uno degli atleti indicati non appartiene a questo club",
+  );
+};
+
 const assertAtletiDentroIlPerimetro = async (
   scope: EventsScope,
   organizationId: string,
@@ -1582,6 +1658,13 @@ export const saveEventConvocations = async (
       isExtraCategory: Boolean(entry.isExtraCategory),
     }))
     .filter((entry) => entry.athleteId && entry.status);
+
+  await assertAtletiDelClub(
+    scope,
+    organizationId,
+    normalizzate.map((entry) => entry.athleteId),
+    "events.convoke",
+  );
 
   await assertAtletiDentroIlPerimetro(
     scope,
@@ -1754,6 +1837,13 @@ export const saveEventAttendance = async (
       };
     })
     .filter((entry) => entry.athleteId);
+
+  await assertAtletiDelClub(
+    scope,
+    organizationId,
+    normalizzate.map((entry) => entry.athleteId),
+    "events.attendance",
+  );
 
   await assertAtletiDentroIlPerimetro(
     scope,

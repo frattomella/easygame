@@ -2683,3 +2683,79 @@ trovata cinque volte nello stesso file: quando una risorsa si raggiunge sia per
 **elenco** sia per **identificativo**, la guardia va nel punto comune ai verbi,
 non nell'elenco. Un filtro di elenco corretto e una lettura per id senza guardia
 sono la stessa risorsa con due risposte diverse, e chi attacca prova la seconda.
+
+---
+
+## Un atleta di questo club, e nessun altro (Critical, 2026-09-05)
+
+**Il difetto.** `saveEventConvocations` e `saveEventAttendance`
+(`src/lib/server/events.ts`) verificavano **l'evento** — che appartenesse al
+club attivo (`assertActiveClub`), che stesse nel perimetro dell'allenatore
+(`assertTrainerEventPerimeter`), che il ruolo avesse il permesso — e **non
+verificavano gli atleti**.
+
+L'unica guardia sul lato atleta, `assertAtletiDentroIlPerimetro`, esce alla
+prima riga quando il ruolo attivo non dichiara un perimetro di sede o categoria:
+
+```ts
+if (!buildAthleteAccessScopeConditions(scope)) return;
+```
+
+Quel perimetro nasce dalle righe di `club_access_scopes`, che **solo un ruolo
+personalizzato ristretto possiede**. Un `trainer` ordinario, un `owner`, la
+segreteria: nessuno di loro ne ha, quindi per **tutti** loro non veniva
+eseguito nessun controllo sull'atleta. E
+`club_event_participants.athlete_id` non e nemmeno una chiave esterna — e una
+colonna di testo libero (`prisma/schema.prisma`, `model ClubEventParticipant`).
+
+**La gravita.** Non e un errore di visualizzazione: e una **scrittura
+cross-tenant**. Misurato dalle porte vere, con un allenatore ordinario del club
+A, contro PostgreSQL:
+
+| atto | prima | dopo |
+|------|-------|------|
+| convocare l'atleta del club **B** | **accettato**, riga scritta | negato, 0 righe |
+| segnarne la **presenza** | **accettato**, riga scritta | negato, 0 righe |
+| un identificativo che non nomina nessun atleta | **accettato**, riga scritta | negato, 0 righe |
+| un elenco misto (uno dentro, uno fuori) | **accettato per intero** | negato per intero, 0 righe |
+
+Le due conseguenze che rendono il difetto Critical e non High: **convocare fa
+partire l'invito alla famiglia** di quel minore — quindi il difetto esce dal
+sistema e raggiunge una persona — e **la presenza e il dato su cui
+`src/lib/server/funding.ts` rendiconta i contributi pubblici**, quindi entra in
+una dichiarazione verso un ente.
+
+**La regola, adesso.** `assertAtletiDelClub` gira su **entrambe** le porte,
+prima di ogni altra guardia sul lato atleta e senza condizioni sul ruolo:
+
+> Ogni identificativo di atleta che arriva da un client deve esistere in
+> `athletes` **con l'`organization_id` del club attivo**. Se anche uno solo non
+> c'e, la chiamata e negata.
+
+**Rifiuta l'elenco intero, non filtra.** Una guardia che scartasse gli estranei
+e scrivesse il resto risponderebbe «riuscito» a chi ha chiesto una cosa diversa
+da quella che e stata fatta: e la stessa forma del 200 muto chiuso altrove
+(KB 09). Se un nome e fuori, non entra nessuno.
+
+**Che cosa questa guardia NON e**, e va detto perche una guardia troppo stretta
+non e piu sicura, e rotta:
+
+- **non e il perimetro di categoria** — convocare un atleta del club fuori
+  dalla propria categoria e lecito, e `isExtraCategory` esiste per dichiararlo;
+- **non e lo stato del tesseramento** — un atleta non piu attivo resta un
+  atleta di questo club;
+- **non sostituisce** `assertAtletiDentroIlPerimetro`, che resta e continua a
+  restringere per sede e categoria i ruoli che dichiarano un perimetro.
+
+**Le prove.** `scripts/eventi-perimetro-atleti.mjs` (14 sonde contro PostgreSQL
+vero, dalle porte vere, con un allenatore ordinario) piu cinque test in
+`tests/server/eventi-servizio.test.mjs`. Entrambi **verificati per mutazione**:
+togliendo la guardia la sonda passa da 14/14 a 6/14 e quattro dei cinque test
+diventano rossi. Il quinto — «la guardia non e il perimetro di categoria ne lo
+stato del tesseramento» — resta verde, ed e giusto cosi: e la meta che dice se
+la correzione e stretta al punto sbagliato.
+
+**`rsvp.ts` non era colpito**, ed e stato verificato: risolve
+l'`organization_id` **dall'atleta** (`athlete.organization_id`) e rifiuta un
+club dichiarato che non coincida, quindi da li una riga cross-tenant non puo
+nascere.
