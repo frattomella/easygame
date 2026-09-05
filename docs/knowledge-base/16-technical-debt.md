@@ -2364,3 +2364,44 @@ atterrare. Le due correzioni vanno insieme: la mappatura del `catch` serve
 proprio perche la guardia nuova solleva «Accesso negato», e separarle
 produrrebbe prima un file che risponde 403 per una guardia che non c'e, e poi
 un conflitto d'integrazione su un file conteso.
+### D-EV-1 — `club_event_participants.athlete_id` non ha una chiave esterna
+
+`prisma/schema.prisma`, `model ClubEventParticipant`: `athlete_id String` —
+senza `@db.Uuid` e **senza relazione**. E una colonna di testo libero, quindi
+l'archivio non rifiuta da se un identificativo che non nomina nessun atleta, ne
+uno che nomina l'atleta di un altro club.
+
+Oggi la porta e chiusa in applicazione (`assertAtletiDelClub`, KB 14), e le
+sonde lo verificano. Ma la difesa e **una sola**, ed e in codice: il giorno in
+cui nasce una quinta strada che scrive quella tabella, la difesa va ricordata a
+mano. Una chiave esterna verso `athletes(id)` la renderebbe strutturale.
+
+Non si chiude in questa correzione perche va misurato prima **che cosa c'e gia
+in archivio**: righe orfane o cross-tenant scritte prima della guardia
+farebbero fallire la migrazione. Serve un censimento, una bonifica dichiarata e
+poi il vincolo — cioe un WP, non una riga.
+
+### D-EV-2 — il perimetro di categoria dell'allenatore vale sull'evento, non sull'atleta
+
+`assertAtletiDentroIlPerimetro` restringe per sede e categoria **solo** i ruoli
+che dichiarano righe in `club_access_scopes`, cioe i ruoli personalizzati
+ristretti. Per un `trainer` ordinario il perimetro e verificato
+sull'**evento** (`assertTrainerEventPerimeter`: «questo evento e di una tua
+categoria?») e non sull'**atleta**.
+
+Conseguenza: un allenatore di Under 12, su un evento che gli compete, puo
+convocare o segnare presente **qualunque atleta del club**, anche di categorie
+che non allena.
+
+Non e la stessa classe del Critical chiuso oggi — resta dentro il club, quindi
+non e una scrittura cross-tenant — e non e ovvio che sia un difetto: la
+convocazione fuori categoria e una **capability dichiarata**
+(`isExtraCategory`), e un allenatore che prepara un'amichevole con due ragazzi
+della categoria sopra sta usando il prodotto come previsto.
+
+Va deciso come **prodotto**, non come sicurezza: se la convocazione fuori
+categoria debba restare libera, o richiedere una chiave di permesso propria.
+Finche non e deciso, non si stringe: una guardia messa qui per prudenza
+romperebbe un uso legittimo, e sarebbe la sesta volta in questo perimetro che
+una correzione allarga un predicato senza misurare chi **non** doveva
+raggiungere.
