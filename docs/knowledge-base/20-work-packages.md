@@ -2207,10 +2207,28 @@ per conto proprio**, perche il fornitore ha l'obbligo di rigettare la richiesta
 presentata da un terzo anche con delega espressa. Raccomandazione tecnica e
 comparazione verificata in [ADR-0114](18-decision-log.md).
 
-### Debito aperto
+### Debito
 
-PP05-D1 (solo-OAuth senza cellulare), PP05-D2 (pepe OTP), PP05-D3 (logo club
-come data URL), PP05-D4 (invito atleta a marchio EasyGame — dependency verso
-PP-04), PP05-D5 (`getRequestIp` dietro proxy non fidato, precedente a PP-05),
-PP05-D6 (`npm run lint` e il conflitto di configurazione fra worktree e
-radice). Vedi [16 — Debito tecnico](16-technical-debt.md).
+Otto voci, **due chiuse dentro la lane stessa**: PP05-D1 (un utente solo-OAuth
+non poteva aggiungere il cellulare — chiuso senza la colonna e senza l'ADR che
+sembravano necessari: la strada esisteva ed era «Password dimenticata», mancava
+il pulsante) e PP05-D6 (`npm run lint` rosso in ogni worktree parallelo per un
+conflitto di configurazione ESLint — chiuso con `"root": true`, che e la riga
+giusta a prescindere dai worktree).
+
+**Sei restano aperte**: PP05-D2 (il pepe delle impronte OTP ricade su
+`DATABASE_URL`: serve una guardia di avvio, che oggi non esiste per nessuna
+variabile), PP05-D3 (il logo di un club e un data URL, quindi il marchio club
+nelle email e sempre il nome scritto in lettere), PP05-D4 (l'invito atleta resta
+a marchio EasyGame e il suo `href` e l'unico URL-in-attributo fuori da
+`sanitizeEmailUrl` — **dependency verso PP-04**), PP05-D5 (`getRequestIp` dietro
+un proxy non fidato, **precedente** a PP-05 e non toccato dalla lane), PP05-D7
+(le righe `prisma:error` sotto concorrenza sfuggono al punto unico degli errori:
+la correzione e nella configurazione del logger Prisma, che vale su tutto il
+prodotto) e PP05-D8 (il secchiello SMS per destinatario si puo saturare a danno
+di terzi — **in parte intrinseco** a un tetto per destinatario: toglierlo
+riaprirebbe un difetto molto peggiore).
+
+Vedi [16 — Debito tecnico](16-technical-debt.md) per la forma per esteso, e
+[46](46-pp-05-onboarding-comunicazioni.md) per il perche ognuna non si chiude
+qui.
