@@ -6681,3 +6681,60 @@ il confine di cio che conta**, e cio che conta va poi riguardato tutto. ADR-0115
 ha reso mutabile un indirizzo che prima era di fatto immutabile, e da quel
 momento «il token e legato all'account» ha smesso di significare «il token e
 legato alla casella» — senza che una sola riga di quel codice fosse cambiata.
+
+---
+
+**Emendamento del 2026-09-05 (quinto round della revisione ostile).** I quattro
+round precedenti hanno guardato **una porta sola**: `/api/v1/auth/**`. Le
+colonne che governano i canali di accesso ne avevano una seconda.
+
+9. **Il registro generico scriveva gli stessi recapiti, senza nessuna delle
+   difese.** `PATCH /api/v1/users/<la propria riga>` filtra il corpo sullo
+   schema Prisma e negava tre nomi — `role`, `app_metadata`,
+   `is_platform_admin`. Ogni **altra** colonna scalare di `User` sopravviveva:
+   `email`, `email_verified_at`, `phone`, `phone_verified_at`,
+   `phone_verification_required`, `password_hash`, `token_verification_id`,
+   `is_club_creator`.
+
+   Nel frattempo `/api/v1/auth/user` aveva accumulato in quattro round sette
+   difese sulle **stesse** colonne — la password attuale come cancello, il tetto
+   ai tentativi con la traccia di audit, l'azzeramento della verifica al cambio
+   recapito, la normalizzazione dell'indirizzo, la chiusura delle altre
+   sessioni, la blocklist delle proiezioni calcolate, il rifiuto di un indirizzo
+   gia in uso. Nessuna di quelle sette girava sull'altra porta.
+
+   Le tre catene misurate:
+
+   - **amministratore di piattaforma con una richiesta sola.** L'elenco degli
+     indirizzi vive in `NEXT_PUBLIC_*`. Ci si registra, si verifica il
+     **proprio** numero, e si manda `{"email":"<indirizzo dell'elenco>",
+     "email_verified_at":"<adesso>"}`. Il punto 8 aveva appena reso sicura la
+     colonna `email_verified_at` — «la colonna un utente non se la scrive» — e
+     si scriveva da qui;
+   - **un'occupazione che sopravvive allo sfratto OAuth.** Ci si scrive
+     `email_verified_at` addosso e **poi** si cambia `email`: `eraOccupatoSenza
+     Prova` e falso, `sfrattaOccupante` non viene chiamato, e le cinque difese
+     dei punti 1-7 diventano irraggiungibili. Non aggirate: **non eseguite**;
+   - **l'area famiglia di un minore**, che lega per indirizzo di contatto
+     **provato**: intestarsi quello di un tutore apriva diagnosi, allergie,
+     terapie e anagrafica.
+
+   La correzione e un elenco di **ammissione** e non di negazione:
+   `WRITABLE_USER_FIELDS` in `src/lib/server/resources.ts`, cinque nomi, tutti
+   anagrafici. Un elenco di negazione va aggiornato contro ogni colonna futura,
+   e in quattro round questo repository ha dimostrato tre volte che non succede.
+
+10. **Due difese contro lo stesso privilegio si tengono uguali solo se sono la
+    stessa riga.** Le chiavi proibite dentro `user_metadata` vivevano in **due**
+    elenchi, uno per porta: sette nomi contro tre. Il terzo round ne aveva
+    corretto uno, lasciando scritto nel commento «due difese per lo stesso
+    privilegio, perche una sola prima o poi si dimentica» — e la seconda era gia
+    dimenticata mentre quella frase veniva scritta. Ora l'elenco sta in
+    `src/lib/auth/user-metadata-policy.ts`, modulo puro, e le due porte lo
+    importano.
+
+**La regola generale, terza correzione.** Non basta che un dominio abbia un
+punto di ingresso unico: bisogna **verificare che sia l'unico**. Un motore
+generico che serve una cinquantina di risorse e, per ogni colonna che nomina,
+una seconda porta silenziosa — e non compare in nessuna ricerca fatta partendo
+dal dominio, perche non nomina il dominio.

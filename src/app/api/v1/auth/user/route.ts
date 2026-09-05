@@ -22,6 +22,7 @@ import {
   rateLimitHeaders,
 } from "@/lib/server/auth-rate-limit";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { stripProtectedUserMetadata } from "@/lib/auth/user-metadata-policy";
 
 export async function GET(request: Request) {
   const session = await getSessionFromRequest(request);
@@ -55,56 +56,41 @@ export async function PATCH(request: Request) {
             .toLowerCase()
         : undefined;
     /*
-      **Le chiavi che il soggetto di un dato non puo scrivere su se stesso.**
+      **Le chiavi che il soggetto di un dato non puo scrivere su se stesso**
+      — e l'elenco **non e piu qui**, che e il punto.
 
       `user_metadata` e una colonna JSON libera, e va bene che lo sia: e il
       posto dove una persona tiene le sue preferenze. Ma da qui si scriveva
       **qualunque** chiave, e `isPlatformAdminUser` ne leggeva una: `role`.
-      Da un account qualunque — un genitore, un atleta, uno appena registrato
-      e senza club — bastava
-      `{"user_metadata":{"role":"platform_admin"}}` per diventare
-      amministratore della piattaforma alla richiesta successiva.
+      Bastava `{"user_metadata":{"role":"platform_admin"}}` da un account
+      qualunque. Poi il lettore ne ha imparata una quarta, `emailVerified`, e
+      l'elenco non e stato aggiornato: il terzo round della revisione ostile ha
+      rifatto la stessa strada con un nome diverso.
 
-      Il controllo di `platform-admin.ts` non legge piu quel campo, e questa
-      lista e la seconda meta della stessa correzione: due difese per lo stesso
-      privilegio, perche una sola prima o poi si dimentica.
-
-      **E infatti se n'e dimenticata una** (terzo round della revisione ostile,
-      CRITICAL). La lista aveva tre nomi, e nel frattempo `isPlatformAdminUser`
-      aveva imparato a leggerne un quarto: `emailVerified`. Un elenco di nomi
-      proibiti va tenuto aggiornato contro ogni lettore futuro, e questo non lo
-      e stato per la durata di un commit.
-
-      **La regola che lo chiude in generale**, e non solo per quel nome: le
+      **La regola che lo chiude in generale**, e non solo per un nome: le
       chiavi che `buildUserMetadata` **calcola** non si scrivono. Sono una
-      **proiezione** di colonne vere — `email_verified_at`, `phone_verified_at`,
-      `phone_verification_required`, `role`, `is_club_creator` — e a ogni
-      serializzazione vengono ricalcolate e sovrascritte. Persisterle in
-      archivio non cambia quindi cio che il browser legge: cambia solo cio che
-      leggono i **chiamanti lato server**, che hanno in mano la riga grezza e
-      la sua colonna JSON. Una scrittura senza effetto visibile e con un
-      effetto invisibile e la forma peggiore che possa avere.
-    */
-    const CHIAVI_NON_SCRIVIBILI = [
-      "role",
-      "app_metadata",
-      "is_platform_admin",
-      /* Le proiezioni calcolate da `buildUserMetadata`: si leggono, non si scrivono. */
-      "emailVerified",
-      "phoneVerified",
-      "phoneVerificationRequired",
-      "isClubCreator",
-    ];
+      proiezione di colonne vere, ricalcolate e sovrascritte a ogni
+      serializzazione: persisterle non cambia cio che il browser legge, e
+      cambia **solo** cio che leggono i chiamanti lato server. Una scrittura
+      senza effetto visibile e con un effetto invisibile e la forma peggiore che
+      possa avere.
 
+      **E la ragione per cui l'elenco e emigrato** (quinto round, MEDIUM). Il
+      commento che stava qui prometteva «due difese per lo stesso privilegio,
+      perche una sola prima o poi si dimentica». Erano davvero due — questa e
+      quella del registro generico, che scrive la **stessa colonna** su
+      `PATCH /api/v1/users/<la propria riga>` — ma erano due elenchi
+      **diversi**, sette nomi contro tre, e nessuno li confrontava. Due difese
+      si tengono uguali solo se sono la stessa riga: ora stanno in
+      `src/lib/auth/user-metadata-policy.ts` e le importano entrambe.
+    */
     const metadataGrezzo =
       (typeof body?.data === "object" && body.data) ||
       (typeof body?.user_metadata === "object" && body.user_metadata) ||
       {};
 
-    const metadata = Object.fromEntries(
-      Object.entries(metadataGrezzo).filter(
-        ([chiave]) => !CHIAVI_NON_SCRIVIBILI.includes(chiave),
-      ),
+    const metadata = stripProtectedUserMetadata(
+      metadataGrezzo as Record<string, unknown>,
     ) as Record<string, any>;
     const phone =
       metadata.phone !== undefined

@@ -186,6 +186,99 @@ test("un utente non si promuove amministratore della piattaforma", async () => {
   );
 });
 
+/**
+ * **Il registro generico non scrive recapiti ne credenziali** (quinto round
+ * della revisione ostile PP-05, CRITICAL).
+ *
+ * La difesa precedente era un elenco di **negazione** di tre nomi — `role`,
+ * `app_metadata`, `is_platform_admin` — e tutto il resto passava, perche il
+ * corpo e filtrato sullo schema Prisma: ogni colonna scalare di `User`
+ * sopravviveva. Restavano scrivibili da `PATCH /api/v1/users/<la propria
+ * riga>` l'indirizzo, la sua data di verifica, il numero, la sua data di
+ * verifica, l'impronta della password e il riferimento opaco — cioe **tutti i
+ * recapiti e tutte le credenziali**, dalla porta che non ha nessuna delle
+ * sette difese accumulate su `PATCH /api/v1/auth/user`.
+ *
+ * La catena piu corta era una richiesta sola: `{"email":"<un indirizzo
+ * dell'elenco degli amministratori>","email_verified_at":"<adesso>"}`.
+ * `isPlatformAdminUser` giudica sulla **colonna**, e la giudica sicura perche
+ * «la colonna un utente non se la scrive».
+ *
+ * La correzione e un elenco di **ammissione**, perche vale anche per la
+ * colonna che qualcuno aggiungera domani: da qui si scrive anagrafica, e i
+ * recapiti si scrivono dal loro punto di ingresso unico (CLAUDE.md §2).
+ */
+test("dal registro generico non si scrivono recapiti, credenziali ne verifiche", async () => {
+  const ADESSO = new Date("2026-09-05T10:00:00.000Z");
+
+  await risorse.updateResource(
+    "users",
+    IO,
+    {
+      email: "presidente@altrasocieta.it",
+      email_verified_at: ADESSO,
+      phone: "+393401234567",
+      phone_verified_at: ADESSO,
+      phone_verification_required: false,
+      password_hash: "$2b$SCELTO-DA-ME",
+      token_verification_id: "verify_scelto_da_me",
+      is_club_creator: true,
+    },
+    scopeAttaccante(),
+  );
+
+  const io = fake.rows("user").find((riga) => riga.id === IO);
+  assert.equal(io.email, "io@example.it", "l'indirizzo non si cambia da qui");
+  assert.equal(
+    io.email_verified_at ?? null,
+    null,
+    "e soprattutto non ci si dichiara verificati da soli",
+  );
+  assert.equal(io.phone ?? null, null, "il numero non si cambia da qui");
+  assert.equal(io.phone_verified_at ?? null, null, "ne si dichiara verificato");
+  assert.notEqual(
+    io.password_hash,
+    "$2b$SCELTO-DA-ME",
+    "l'impronta della password non si scrive dal registro",
+  );
+  assert.notEqual(
+    io.token_verification_id,
+    "verify_scelto_da_me",
+    "ne il riferimento opaco, che e cio che pilota le rotte di verifica",
+  );
+  assert.notEqual(io.is_club_creator, true, "ne il segno di chi ha fondato un club");
+});
+
+/**
+ * Il contrappunto: un elenco di ammissione che ammettesse troppo poco
+ * spegnerebbe la correzione della propria anagrafica, che e cio per cui questa
+ * porta esiste.
+ */
+test("dal registro generico l'anagrafica e le preferenze restano scrivibili", async () => {
+  await risorse.updateResource(
+    "users",
+    IO,
+    {
+      first_name: "Anna",
+      last_name: "Rossi",
+      organization_name: "ASD Esempio",
+      user_metadata: { tema: "scuro", emailVerified: true },
+    },
+    scopeAttaccante(),
+  );
+
+  const io = fake.rows("user").find((riga) => riga.id === IO);
+  assert.equal(io.first_name, "Anna");
+  assert.equal(io.last_name, "Rossi");
+  assert.equal(io.organization_name, "ASD Esempio");
+  assert.equal(io.user_metadata?.tema, "scuro", "le preferenze vere passano");
+  assert.equal(
+    io.user_metadata?.emailVerified,
+    undefined,
+    "le proiezioni che il server calcola no, e le due rotte usano la stessa lista",
+  );
+});
+
 test("gli allegati non passano dal registro generico", async () => {
   /*
     `assets` non ha un `organization_id`: il club sta dentro `path`, e dedurlo

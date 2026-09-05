@@ -3057,3 +3057,77 @@ Dichiarati dal reviewer:
 - **Enumerazione per tempi**: misurata sui corpi, sugli stati e su un delta di
   latenza, **non** con un campionamento statistico. E il gap che si ripete in
   tre round su quattro, e a questo punto e un limite del metodo.
+
+---
+
+## PP-05 — quinto round della revisione ostile (2026-09-05)
+
+Round intero sulla lane, con le correzioni dei quattro round precedenti gia
+dentro. Esito: **1 Critical, 0 High, 2 Medium**.
+
+I quattro round precedenti avevano guardato **una porta sola**, e con
+crescente attenzione: `/api/v1/auth/**`. Il Critical di questo round non e
+dentro quella porta. E la stessa colonna, dall'altra parte.
+
+### CRITICAL — il registro generico scriveva i recapiti, e nessuna delle sette difese girava li
+
+`PATCH /api/v1/users/<la propria riga>` filtra il corpo sullo **schema Prisma**
+e negava tre nomi: `role`, `app_metadata`, `is_platform_admin`. Ogni altra
+colonna scalare di `User` passava — `email`, `email_verified_at`, `phone`,
+`phone_verified_at`, `phone_verification_required`, `password_hash`,
+`token_verification_id`, `is_club_creator` — cioe **tutti i recapiti e tutte le
+credenziali**.
+
+Le tre catene, misurate contro PostgreSQL con le rotte vere
+(`sonda A-1…A-10`, poi `tests/server/platform-boundary.test.mjs`):
+
+1. **amministratore di piattaforma con una richiesta sola.** L'elenco degli
+   indirizzi vive in `NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS`, cioe e
+   pubblicato a ogni browser. Ci si registra, si verifica il **proprio** numero
+   — del tutto legittimo — e si manda
+   `{"email":"<indirizzo dell'elenco>","email_verified_at":"<adesso>"}`.
+   `isPlatformAdminUser` giudica sulla colonna, che il quarto round aveva
+   appena reso la fonte sicura;
+2. **un'occupazione che sopravvive allo sfratto OAuth.** Ci si scrive
+   `email_verified_at` addosso e **poi** si cambia `email` in quello della
+   vittima: `eraOccupatoSenzaProva` e falso, quindi `sfrattaOccupante` **non
+   viene chiamato**. Le cinque difese accumulate dentro lo sfratto non sono
+   state aggirate: non sono state eseguite;
+3. **l'area famiglia di un minore.** Il legame per indirizzo di contatto si fida
+   di un indirizzo **provato**: intestarsi quello di un tutore apriva diagnosi,
+   allergie, terapie e anagrafica del minore.
+
+**La correzione e un elenco di ammissione**, `WRITABLE_USER_FIELDS`
+(`src/lib/server/resources.ts`): `first_name`, `last_name`,
+`organization_name`, `user_metadata`, `updated_at`. Da qui si scrive
+**anagrafica**; recapiti e credenziali si scrivono dal loro punto di ingresso
+unico, `/api/v1/auth/**` (CLAUDE.md §2). Un elenco di negazione va aggiornato
+contro ogni colonna che qualcuno aggiungera domani, e in quattro round questo
+repository ha dimostrato **tre volte** che non succede.
+
+Nello stesso commit sparisce dal registro generico anche la traduzione
+`password` → `password_hash`: era la riga che aveva reso sfruttabile
+l'`upsert` per email di una revisione precedente, ed era rimasta viva senza
+nessun chiamante.
+
+### MEDIUM-1 — due difese contro lo stesso privilegio, tenute in due elenchi diversi
+
+Le chiavi proibite dentro `user_metadata` vivevano in due liste, una per porta:
+
+    auth/user  = [app_metadata, emailVerified, isClubCreator, is_platform_admin,
+                  phoneVerificationRequired, phoneVerified, role]
+    resources  = [app_metadata, is_platform_admin, role]
+
+Il terzo round ne aveva corretta **una**, lasciando scritto nel commento «due
+difese per lo stesso privilegio, perche una sola prima o poi si dimentica». La
+seconda era gia dimenticata mentre quella frase veniva scritta.
+
+L'elenco sta ora in `src/lib/auth/user-metadata-policy.ts` — modulo puro,
+nessun Prisma, nessuna rete — e le due porte importano `stripProtectedUser
+Metadata`. Un test presidia che nessuna delle due **dichiari** una lista
+propria: duplicare una difesa non la raddoppia, raddoppia i posti in cui
+dimenticarsi di aggiornarla.
+
+### MEDIUM-2 — l'asse «per account» dei contatori si consumava su una stringa scelta dal chiamante
+
+Vedi il paragrafo dedicato piu sotto, nella sezione del giro conclusivo.

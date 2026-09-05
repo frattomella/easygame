@@ -248,15 +248,8 @@ test("con l'elenco configurato vale l'indirizzo, e nient'altro", async () => {
  * `platform-admin.ts`, e la sonda `pp-05-sicurezza-probe.mjs` (S10) misura che
  * ciascuna delle due, da sola, chiude la catena.
  */
-test("PATCH /auth/user non lascia scrivere le proiezioni che il server calcola", async () => {
-  const { readFileSync } = await import("node:fs");
-  const sorgente = readFileSync("src/app/api/v1/auth/user/route.ts", "utf8");
-
-  const blocco = sorgente.slice(
-    sorgente.indexOf("const CHIAVI_NON_SCRIVIBILI"),
-    sorgente.indexOf("const metadataGrezzo"),
-  );
-  assert.ok(blocco, "la lista deve esistere");
+test("le proiezioni che il server calcola non si scrivono, e la lista e una sola", async () => {
+  const politica = await import("../../src/lib/auth/user-metadata-policy.ts");
 
   for (const chiave of [
     "role",
@@ -267,22 +260,50 @@ test("PATCH /auth/user non lascia scrivere le proiezioni che il server calcola",
     "phoneVerificationRequired",
     "isClubCreator",
   ]) {
-    assert.match(
-      blocco,
-      new RegExp(`"${chiave}"`),
+    assert.equal(
+      politica.isProtectedUserMetadataKey(chiave),
+      true,
       `\`${chiave}\` e una proiezione o un privilegio: il suo soggetto non la scrive`,
     );
   }
 
+  const ripulito = politica.stripProtectedUserMetadata({
+    tema: "scuro",
+    emailVerified: true,
+    role: "platform_admin",
+  });
+  assert.deepEqual(ripulito, { tema: "scuro" }, "la lista si applica davvero");
+
   /*
-    E la lista si **applica**: senza il filtro, tenerla aggiornata non
-    servirebbe a niente.
+    **E le due porte che scrivono quella colonna importano la stessa riga.**
+
+    Il terzo round aveva corretto **una** delle due, lasciando scritto nel
+    commento «due difese per lo stesso privilegio, perche una sola prima o poi
+    si dimentica». Erano davvero due, ma erano due **elenchi diversi** — sette
+    nomi contro tre — e nessuno li confrontava. Due difese si tengono uguali
+    solo se sono la stessa riga: questa prova e cio che impedisce a un terzo
+    elenco di nascere.
   */
-  assert.match(
-    sorgente,
-    /CHIAVI_NON_SCRIVIBILI\.includes\(chiave\)/,
-    "la lista dev'essere quella su cui il filtro decide",
-  );
+  const { readFileSync } = await import("node:fs");
+  for (const file of [
+    "src/app/api/v1/auth/user/route.ts",
+    "src/lib/server/resources.ts",
+  ]) {
+    const sorgente = readFileSync(file, "utf8");
+    assert.match(
+      sorgente,
+      /stripProtectedUserMetadata/,
+      `${file} deve passare dal punto unico, non tenere una lista propria`,
+    );
+    /*
+      La **dichiarazione**, non la menzione: i commenti raccontano l'elenco che
+      c'era, ed e giusto che lo facciano.
+    */
+    assert.ok(
+      !/const\s+(CHIAVI_NON_SCRIVIBILI|PROTECTED_USER_FIELDS)\s*=/.test(sorgente),
+      `${file} non deve dichiarare un secondo elenco proprio`,
+    );
+  }
 });
 
 /**
@@ -292,16 +313,12 @@ test("PATCH /auth/user non lascia scrivere le proiezioni che il server calcola",
  * cresce senza un criterio finisce per bloccare tutto.
  */
 test("le preferenze di una persona restano scrivibili: la lista non e un divieto generale", async () => {
-  const { readFileSync } = await import("node:fs");
-  const sorgente = readFileSync("src/app/api/v1/auth/user/route.ts", "utf8");
-  const blocco = sorgente.slice(
-    sorgente.indexOf("const CHIAVI_NON_SCRIVIBILI"),
-    sorgente.indexOf("const metadataGrezzo"),
-  );
+  const politica = await import("../../src/lib/auth/user-metadata-policy.ts");
 
-  for (const chiave of ["firstName", "lastName", "phone", "name"]) {
-    assert.ok(
-      !new RegExp(`"${chiave}"`).test(blocco),
+  for (const chiave of ["firstName", "lastName", "phone", "name", "tema"]) {
+    assert.equal(
+      politica.isProtectedUserMetadataKey(chiave),
+      false,
       `\`${chiave}\` e un dato della persona, non una proiezione: deve restare scrivibile`,
     );
   }
