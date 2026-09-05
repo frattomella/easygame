@@ -14,6 +14,7 @@ import {
 } from "@/lib/access-roles";
 import { assertMayGrantRole } from "@/lib/roles/custom-role";
 import { prisma } from "@/lib/server/prisma";
+import { lockAthleteRow } from "@/lib/server/resources";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getResourceById, updateResource } from "@/lib/server/resources";
 
@@ -936,16 +937,75 @@ export async function POST(request: Request) {
         if (pulito) recapiti.delete(pulito);
       }
 
-      await prisma.athlete.update({
-        where: { id: parentTarget.athlete.id },
-        data: {
+      /*
+        **Anche il riscatto prende il blocco sulla riga.**
+
+        E il terzo scrittore di `athletes.data`, e scrive **tutti e due** i
+        registri partendo da `parentTarget.data`, letto a inizio richiesta: un
+        riscatto concorrente con una revoca, o con l'approvazione di un modulo,
+        cancellava cio che l'altro aveva appena scritto. La stessa corsa che ha
+        fatto perdere una revoca intera, misurata tre volte su tre.
+
+        I due registri si rifondono percio su cio che si legge **dentro** il
+        blocco: un'identita revocata da qualcun altro un istante prima non
+        sparisce perche questo riscatto aveva in mano una copia vecchia.
+      */
+      await prisma.$transaction(async (client: any) => {
+        await lockAthleteRow(client, parentTarget.athlete.id);
+
+        const fresca = await client.athlete.findUnique({
+          where: { id: parentTarget.athlete.id },
+          select: { data: true },
+        });
+
+        const dataFresca =
+          fresca?.data && typeof fresca.data === "object"
+            ? (fresca.data as Record<string, any>)
+            : (parentTarget.data as Record<string, any>);
+
+        const revocateFresche = new Set<string>(
+          (Array.isArray((dataFresca as any).revokedGuardianIdentities)
+            ? ((dataFresca as any).revokedGuardianIdentities as unknown[])
+            : []
+          )
+            .map((valore: unknown) => String(valore || "").trim().toLowerCase())
+            .filter(Boolean),
+        );
+
+        const recapitiFreschi = new Set<string>(
+          (Array.isArray((dataFresca as any).contactOnlyIdentities)
+            ? ((dataFresca as any).contactOnlyIdentities as unknown[])
+            : []
+          )
+            .map((valore: unknown) => String(valore || "").trim().toLowerCase())
+            .filter(Boolean),
+        );
+
+        /* Cio che questo riscatto riammette, sullo stato appena letto. */
+        for (const insieme of [revocateFresche, recapitiFreschi]) {
+          for (const valore of [
+            session.db.user_id,
+            session.db.user.email,
+            (parentTarget.guardian as any)?.email,
+            (parentTarget.guardian as any)?.linkedUserEmail,
+            (parentTarget.guardian as any)?.linked_user_email,
+          ]) {
+            const pulito = String(valore || "").trim().toLowerCase();
+            if (pulito) insieme.delete(pulito);
+          }
+        }
+
+        await client.athlete.update({
+          where: { id: parentTarget.athlete.id },
           data: {
-            ...parentTarget.data,
-            guardians: updatedGuardians,
-            revokedGuardianIdentities: Array.from(identita) as string[],
-            contactOnlyIdentities: Array.from(recapiti) as string[],
+            data: {
+              ...dataFresca,
+              guardians: updatedGuardians,
+              revokedGuardianIdentities: Array.from(revocateFresche) as string[],
+              contactOnlyIdentities: Array.from(recapitiFreschi) as string[],
+            },
           },
-        },
+        });
       });
     }
 

@@ -7240,10 +7240,21 @@ const sezioneW = async () => {
     fs.readFileSync("src/app/api/v1/auth/access/redeem/route.ts", "utf8"),
   );
 
+  /*
+    Questa e una asserzione sul **sorgente**, e va detto: la rotta del riscatto
+    non e raggiungibile da questo collaudo — vuole un gettone in archivio e una
+    sessione — e le altre sonde che parlano di riscatto ne simulano lo stato
+    scrivendolo a mano. Cio che si tiene fermo qui e che le due righe esistano
+    davvero: erano dichiarate in quattro commenti e non le faceva nessuno.
+  */
   prova(
-    "W-60 il riscatto toglie davvero l'indirizzo dal registro",
-    true,
-    riscattoSorgente.includes("contactOnlyIdentities: Array.from(recapiti)"),
+    "W-60 il riscatto toglie l'indirizzo dal registro, e sotto blocco",
+    [true, true, true],
+    [
+      riscattoSorgente.includes("contactOnlyIdentities: Array.from("),
+      riscattoSorgente.includes("lockAthleteRow(client, parentTarget.athlete.id)"),
+      riscattoSorgente.includes("contactOnly: false"),
+    ],
     "prima: quattro commenti lo dichiaravano e nessuna riga lo faceva",
   );
 
@@ -7444,6 +7455,129 @@ const sezioneW = async () => {
       moduliSorgente.includes("contactOnlyIdentities: Array.from(registro)"),
     "prima: rilettura e scrittura separate, fuori transazione",
   );
+
+  /* ---------- W-67..W-68: il ventitreesimo round ---------- */
+
+  /*
+    **W-67 (High).** Una revoca si perdeva **per intero** contro un salvataggio
+    ordinario della scheda.
+
+    ADR-0116 chiamava «atomico» lo scrittore della revoca perche scrive righe e
+    registro nella **stessa** `update`. La forma era giusta e il comportamento
+    no: `data` viene letto duecento righe prima, e fra la lettura e la scrittura
+    ci sta un'altra richiesta. Misurato tre volte su tre contro PostgreSQL:
+    registro vuoto, riga intatta, e la persona revocata che continua a leggere
+    allergie, farmaci e i byte del certificato del minore — con la conferma a
+    schermo e la riga di audit gia scritte.
+
+    Non serve un attaccante: il client della scheda manda **sempre** l'array dei
+    tutori, quindi bastano due persone in segreteria sulla stessa scheda.
+
+    E il registro «non era mai caduto» non perche fosse protetto: perche nessuno
+    lo aveva mai messo sotto concorrenza. Questa sonda e quella prova, e misura
+    il **comportamento**, non la presenza di una parola nel sorgente.
+  */
+  const provaCorsaRevoca = async (giro) => {
+    const atleta = randomUUID();
+    await prisma.athlete.create({
+      data: {
+        id: atleta,
+        organization_id: CLUB,
+        first_name: "Corsa",
+        last_name: "Revoca" + giro,
+        status: "active",
+        updated_at: new Date(),
+        data: {
+          guardians: [
+            { id: "g0", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+          ],
+        },
+      },
+    });
+
+    const datiPrima = (
+      await prisma.athlete.findUnique({
+        where: { id: atleta },
+        select: { data: true },
+      })
+    )?.data;
+
+    /* La revoca e un salvataggio ordinario, insieme. */
+    await Promise.allSettled([
+      legamiW25.unlinkGuardianAccount(scopeClubW29, {
+        athleteId: atleta,
+        guardianId: "g0",
+      }),
+      risorseW26.updateResource(
+        "athletes",
+        atleta,
+        { data: { ...datiPrima, size: "M" } },
+        scopeClubW29,
+      ),
+    ]);
+
+    const accesso = await cruscottoW25.canParentAccessAthlete(ANNA.id, atleta);
+    await prisma.athlete.delete({ where: { id: atleta } });
+    return accesso;
+  };
+
+  const esitiCorsa = [];
+  for (let giro = 0; giro < 3; giro += 1) {
+    esitiCorsa.push(await provaCorsaRevoca(giro));
+  }
+
+  prova(
+    "W-67 una revoca non si perde contro un salvataggio in parallelo",
+    [false, false, false],
+    esitiCorsa,
+    "prima: 3 giri su 3 con la revoca sparita, e l'audit che la dichiarava fatta",
+  );
+
+  /*
+    **W-68.** E due revoche simultanee su due tutori diversi si scrivono
+    tutte e due: prima ne entrava **una sola** in archivio, e l'altra rispondeva
+    «ok» lasciando quella persona dentro.
+  */
+  const FIGLIO_DUE_REVOCHE = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_DUE_REVOCHE,
+      organization_id: CLUB,
+      first_name: "Due",
+      last_name: "Revoche",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "g1", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+          { id: "g2", name: "Bruno", linkedUserId: BRUNO.id, email: BRUNO.email },
+        ],
+      },
+    },
+  });
+
+  await Promise.allSettled([
+    legamiW25.unlinkGuardianAccount(scopeClubW29, {
+      athleteId: FIGLIO_DUE_REVOCHE,
+      guardianId: "g1",
+    }),
+    legamiW25.unlinkGuardianAccount(scopeClubW29, {
+      athleteId: FIGLIO_DUE_REVOCHE,
+      guardianId: "g2",
+    }),
+  ]);
+
+  prova(
+    "W-68 due revoche simultanee entrano tutte e due",
+    [false, false],
+    [
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_DUE_REVOCHE),
+      await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_DUE_REVOCHE),
+    ],
+    "prima: una sola entrava, e l'altra rispondeva «ok» lasciando dentro",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_DUE_REVOCHE } });
 
   await prisma.athlete.update({
     where: { id: MARCO },

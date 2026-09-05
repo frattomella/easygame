@@ -10,7 +10,7 @@ import {
 } from "./audit";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { roleHasPermission } from "@/lib/permissions/catalog";
-import { syncClubAggregateField } from "./resources";
+import { lockAthleteRow, syncClubAggregateField } from "./resources";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
 /**
@@ -760,17 +760,87 @@ export const unlinkGuardianAccount = async (
     if (pulito) identitaRevocate.add(pulito);
   }
 
-  await prisma.athlete.update({
-    where: { id: atleta.id },
-    data: {
+  /*
+    **Una `update` sola non e atomicita: lo e il blocco.**
+
+    ADR-0116 chiamava «atomico» questo scrittore perche scrive le righe e il
+    registro nella **stessa** `update`. La forma era giusta e il comportamento
+    no: `data` e stato letto ~230 righe piu su, e fra la lettura e questa
+    scrittura ci sta un'altra richiesta. Misurato tre volte su tre contro
+    PostgreSQL — una revoca e un salvataggio ordinario della scheda in
+    parallelo — la revoca **spariva per intero**: registro vuoto, riga intatta,
+    e la persona revocata continuava a leggere allergie, farmaci e i byte del
+    certificato del minore. La segreteria aveva la conferma a schermo e la riga
+    di audit.
+
+    Non serviva un attaccante: il client della scheda manda **sempre** l'array
+    dei tutori, quindi bastano due persone in segreteria sulla stessa scheda.
+
+    E il registro «non e mai caduto» non perche fosse protetto: perche nessuno
+    lo aveva mai messo sotto concorrenza.
+
+    Adesso si blocca la riga, si **rilegge dentro il blocco**, e si riapplica su
+    quella: chi arriva secondo vede cio che il primo ha scritto.
+  */
+  await prisma.$transaction(async (client: any) => {
+    await lockAthleteRow(client, atleta.id);
+
+    const fresca = await client.athlete.findUnique({
+      where: { id: atleta.id },
+      select: { data: true },
+    });
+
+    const dataFresca = isRecord(fresca?.data)
+      ? (fresca!.data as Record<string, any>)
+      : data;
+
+    const guardianiFreschi = toArray(dataFresca.guardians);
+
+    /*
+      Le righe si riscrivono su quelle **appena lette**: si rifa la stessa
+      ripulitura, per identita, invece di rimandare l'array di prima.
+    */
+    const righeAggiornate = chiaveStorica
+      ? guardianiFreschi
+      : guardianiFreschi.map((entry: any, position: number) => {
+          if (position === index) return nextGuardian;
+          if (!stessaPersona(entry)) return entry;
+
+          const { next: ripulita } = clearLinkedFields(
+            entry,
+            linkedUserId || "",
+            linkedUserEmail,
+          );
+          return {
+            ...ripulita,
+            parentAccessTokenStatus: "revoked",
+            parent_access_token_status: "revoked",
+          };
+        });
+
+    const registroFresco = new Set<string>(
+      (Array.isArray((dataFresca as any).revokedGuardianIdentities)
+        ? ((dataFresca as any).revokedGuardianIdentities as unknown[])
+        : []
+      )
+        .map((valore) => String(valore || "").trim().toLowerCase())
+        .filter(Boolean),
+    );
+
+    for (const valore of identitaRevocate) registroFresco.add(valore);
+
+    await client.athlete.update({
+      where: { id: atleta.id },
       data: {
-        ...data,
-        ...(chiaveStorica
-          ? { [chiaveStorica]: nextGuardian }
-          : { guardians: nextGuardians }),
-        revokedGuardianIdentities: Array.from(identitaRevocate) as string[],
+        data: {
+          ...dataFresca,
+          ...(chiaveStorica
+            ? { [chiaveStorica]: nextGuardian }
+            : { guardians: righeAggiornate }),
+          revokedGuardianIdentities: Array.from(registroFresco) as string[],
+        },
       },
-    },
+    });
   });
 
   const tokenRecordId = testo(
@@ -1089,6 +1159,13 @@ export const unlinkParentGuardians = async (
       });
 
     if (!compareSuQuestaScheda) continue;
+
+    /*
+      Dentro una transazione, ma senza blocco di riga: sotto READ COMMITTED
+      due scritture su `athletes.data` si cancellano lo stesso. Si prende lo
+      stesso blocco degli altri tre scrittori.
+    */
+    await lockAthleteRow(tx, athlete.id);
 
     const identitaDaRegistrare = new Set<string>(
       (Array.isArray((data as any).revokedGuardianIdentities)

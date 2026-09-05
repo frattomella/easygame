@@ -2560,6 +2560,35 @@ export const syncClubAggregateField = async (
   });
 };
 
+/**
+ * **Il blocco sulla riga di un atleta, per chi scrive `athletes.data`.**
+ *
+ * `athletes.data` e un blob che ogni scrittore legge, modifica e riscrive per
+ * intero. Finche lo si fa su uno **snapshot letto prima**, due scritture
+ * concorrenti si cancellano a vicenda — ed e la forma con cui una revoca si
+ * perde: la segreteria preme «Scollega account», l'audit la registra, e un
+ * salvataggio ordinario della scheda partito un istante prima riscrive
+ * `guardians` com'erano. La persona revocata continua a leggere allergie,
+ * farmaci e i byte del certificato del minore.
+ *
+ * Misurato tre volte su tre contro PostgreSQL, con una revoca e un salvataggio
+ * dell'anagrafica in parallelo.
+ *
+ * ADR-0116 chiama «atomico» lo scrittore che scrive il fatto e la difesa nella
+ * **stessa** `update`. Non basta: una `update` sola su un valore letto prima e
+ * un lost update classico. L'atomicita si ottiene qui — si blocca la riga, si
+ * **rilegge** dentro il blocco, e si scrive cio che si e appena letto.
+ *
+ * Chi scrive `athletes.data` prende questo blocco. Sono quattro: la rotta
+ * generica, «Scollega account», lo sweep della revoca di tessera e il riscatto.
+ */
+export const lockAthleteRow = async (client: any, athleteId: string) => {
+  const id = String(athleteId || "").trim();
+  if (!id) return;
+
+  await client.$queryRaw`SELECT id FROM athletes WHERE id = ${id}::uuid FOR UPDATE`;
+};
+
 const newResourceItemId = () =>
   typeof globalThis.crypto?.randomUUID === "function"
     ? globalThis.crypto.randomUUID()
@@ -4254,6 +4283,18 @@ const resolvePagination = (
         : 0;
 
   return { limit, offset };
+};
+
+/** Lo stesso delegato, ma legato al client di una transazione. */
+const clientDelegate = (client: any, resource: string) => {
+  const config = RESOURCE_CONFIG[resource];
+  if (!config) {
+    throw new Error(`Unsupported resource: ${resource}`);
+  }
+
+  return config.kind === "club_resource"
+    ? client.clubResourceItem
+    : client[config.delegate as string];
 };
 
 const getDelegate = (resource: string) => {
@@ -7738,7 +7779,25 @@ export const updateResource = async (
     );
   }
 
-  await applicaGuardieDiModifica(resource, normalized, existing, scope);
+  /*
+    **Per un atleta il vaglio si rifa dentro il blocco.**
+
+    Le guardie qui sotto confrontano cio che arriva con cio che c'e in
+    archivio, e `existing` e stato letto **prima**: fra la lettura e la
+    scrittura ci sta un'altra richiesta, e le difese che questa rotta riporta —
+    i due marchi e i due registri — verrebbero riportate da uno stato gia
+    vecchio. E la stessa corsa che fa perdere una revoca, vista dall'altro lato.
+
+    Si blocca percio la riga, la si rilegge, e si rifa il vaglio su quella:
+    chi arriva secondo vede cio che il primo ha scritto.
+  */
+  const atletaConData =
+    (resource === "athletes" || resource === "simplified_athletes") &&
+    "data" in normalized;
+
+  if (!atletaConData) {
+    await applicaGuardieDiModifica(resource, normalized, existing, scope);
+  }
 
   const record = importi.ricalcola
     ? await (prisma as any).$transaction(async (client: any) => {
@@ -7763,11 +7822,32 @@ export const updateResource = async (
           include: getModelInclude(resource),
         });
       })
-    : await delegate.update({
-        where: { id },
-        data: normalized,
-        include: getModelInclude(resource),
-      });
+    : atletaConData
+      ? await (prisma as any).$transaction(async (client: any) => {
+          await lockAthleteRow(client, id);
+
+          const fresca = await clientDelegate(client, resource).findUnique({
+            where: { id },
+          });
+
+          await applicaGuardieDiModifica(
+            resource,
+            normalized,
+            fresca || existing,
+            scope,
+          );
+
+          return clientDelegate(client, resource).update({
+            where: { id },
+            data: normalized,
+            include: getModelInclude(resource),
+          });
+        })
+      : await delegate.update({
+          where: { id },
+          data: normalized,
+          include: getModelInclude(resource),
+        });
 
   if (resource === "users") {
     await syncUserClubAccess(record.id, input.club_access, scope);

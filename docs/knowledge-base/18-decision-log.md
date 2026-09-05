@@ -6386,6 +6386,29 @@ di riga, cioe da quella che questo ADR dichiara non sufficiente da sola.
 > scritture con una rilettura in mezzo sono una difesa che si perde da sola,
 > senza che nessuno la attacchi.
 
+**E «insieme» vuol dire sotto blocco, non nella stessa `update`.** La stesura
+precedente di questa riga diceva che `unlinkGuardianAccount` e atomico perche
+scrive righe e registro nella stessa `update`. Descriveva la **forma** del
+codice, non il suo comportamento: una `update` sola su un valore letto
+duecento righe prima e un lost update classico, e il round successivo lo ha
+misurato — **tre giri su tre**, una revoca annullata da un salvataggio ordinario
+della scheda partito un istante prima. Registro vuoto, riga intatta, conferma a
+schermo e riga di audit gia scritte, e la persona revocata dentro il fascicolo
+sanitario del minore.
+
+Il registro «non era mai caduto» non perche fosse protetto: perche **nessuno lo
+aveva mai messo sotto concorrenza**. Cinque round lo hanno indicato come il
+modello da copiare, e nessuno dei cinque lo aveva misurato.
+
+`athletes.data` e un blob che ogni scrittore legge, modifica e riscrive per
+intero: l'atomicita si ottiene bloccando la riga, **rileggendola dentro il
+blocco** e scrivendo cio che si e appena letto. `lockAthleteRow` in
+`resources.ts` e quel blocco, e lo prendono i quattro scrittori: la rotta
+generica, «Scollega account», lo sweep della revoca di tessera e il riscatto.
+
+> Una proprieta di concorrenza non si legge nel codice: si **misura** con due
+> richieste in parallelo. Fino ad allora e un'ipotesi, per quanto ben scritta.
+
 E la lezione sul metodo, che vale piu della protezione: «si rilegge la difesa
 che si sta copiando» era stata applicata al suo **elenco di proprieta**, non al
 suo **codice**. Se la si fosse applicata al codice, la differenza fra una

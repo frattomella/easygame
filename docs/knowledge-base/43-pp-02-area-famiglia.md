@@ -1711,3 +1711,70 @@ comunque. Adesso parte da una bacheca vuota.
 
 E la terza volta in questo pacchetto che una sonda verde non misurava niente:
 vale la pena tenerlo a mente ogni volta che si legge «239/239».
+
+
+## 29. Il ventitreesimo round: la difesa modello non era mai stata misurata
+
+Il round precedente aveva scoperto l'ottava protezione — «lo scrittore e atomico
+con il fatto che registra» — guardando il **codice** del registro gemello invece
+del suo elenco di proprieta. Questo round ha fatto il passo successivo, e ha
+misurato: quel codice **non era atomico**, e non lo e mai stato.
+
+### La revoca che spariva
+
+`unlinkGuardianAccount` scrive righe e registro nella stessa `update`, ed e per
+questo che cinque round lo hanno indicato come il modello da copiare. Ma `data`
+viene letto duecento righe prima, e fra la lettura e la scrittura ci sta
+un'altra richiesta.
+
+Misurato tre volte su tre contro PostgreSQL, con una revoca e un salvataggio
+ordinario della scheda in parallelo: **la revoca spariva per intero**. Registro
+vuoto, riga intatta, e la persona revocata che continua a leggere allergie,
+farmaci, i byte del certificato del minore, rate e ricevute — mentre la
+segreteria ha avuto la conferma a schermo e l'audit ha registrato la revoca.
+
+Non serve un attaccante. Il client della scheda atleta manda **sempre** l'array
+dei tutori: bastano due persone in segreteria sulla stessa scheda, o una
+segreteria e un allenatore.
+
+E con tre revoche simultanee su tre tutori diversi, tutte e tre rispondevano
+«ok» e **una sola** entrava in archivio.
+
+### Perche nessuno se n'era accorto
+
+Il registro delle revoche e stato chiamato «l'unica difesa che non e mai
+caduta» per cinque round. Era vero, e la ragione non era quella che credevamo:
+**nessuno lo aveva mai messo sotto concorrenza.** Le 248 sonde lo esercitano una
+richiesta per volta; la sonda che il round prima aveva scritto per l'ottava
+protezione (`W-66`) verifica che nel sorgente compaia la stringa
+`prisma.$transaction` — misura la presenza di una parola.
+
+E la correzione del round precedente aveva avvolto in transazione **la coppia
+sbagliata**: si serializzava la scrittura del registro, mentre a distruggere le
+voci era l'`updateResource` dell'altra approvazione, che stava fuori.
+
+### La correzione
+
+`lockAthleteRow` — `SELECT … FOR UPDATE` sulla riga dell'atleta — e il blocco
+che prendono i **quattro** scrittori di `athletes.data`: la rotta generica,
+«Scollega account», lo sweep della revoca di tessera e il riscatto. Ognuno
+rilegge **dentro** il blocco e riapplica su cio che ha appena letto, invece di
+rimandare lo snapshot che aveva in mano.
+
+Per la rotta generica questo significa anche che il vaglio delle difese — i due
+marchi e i due registri — si rifa sullo stato fresco: chi arriva secondo vede
+cio che il primo ha scritto.
+
+### Cosa insegna
+
+La regola del round precedente era «si rilegge il **codice** della difesa che si
+sta copiando, non il suo elenco di proprieta». Andava spinta un passo piu in la,
+e adesso e in ADR-0116:
+
+> Una proprieta di concorrenza non si legge nel codice: si **misura** con due
+> richieste in parallelo.
+
+Le due sonde nuove (`W-67`, `W-68`) fanno esattamente questo, e i controlli di
+mutazione le hanno viste diventare rosse togliendo il blocco. Sono le prime
+sonde di questo pacchetto che misurano una proprieta di concorrenza invece di
+cercare una parola nel sorgente.
