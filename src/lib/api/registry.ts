@@ -1578,14 +1578,16 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     name: "auth.memberships",
     method: "GET",
     path: "/api/v1/auth/memberships",
-    description: "Elenco club dell'account con ruoli e proprieta",
+    description:
+      "Elenco club dell'account con ruoli e proprieta. Il campo `role` di ogni riga e il **gettone** della tessera (`custom:<base>:<nome>#<chiavi>`) per un ruolo personalizzato, e lo slug canonico altrimenti: e lo stesso valore di `scope.activeRole`, e serve al browser per chiedere `roleHasPermission` — lo slug nudo direbbe «nessuna chiave». Rimandato come `x-active-access-role` non viene creduto: le chiavi si ricostruiscono dall'archivio",
     mobile_ready: true,
   },
   {
     name: "auth.memberships.activate",
     method: "POST",
     path: "/api/v1/auth/memberships/activate",
-    description: "Imposta il club attivo dell'account",
+    description:
+      "Imposta il club attivo dell'account. Il campo `role` di ogni riga e il **gettone** della tessera (`custom:<base>:<nome>#<chiavi>`) per un ruolo personalizzato, e lo slug canonico altrimenti: e lo stesso valore di `scope.activeRole`, e serve al browser per chiedere `roleHasPermission` — lo slug nudo direbbe «nessuna chiave». Rimandato come `x-active-access-role` non viene creduto: le chiavi si ricostruiscono dall'archivio; `resolved_role` resta il **ruolo base**",
     mobile_ready: true,
   },
   {

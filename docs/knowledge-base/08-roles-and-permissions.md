@@ -693,6 +693,31 @@ Un gettone **senza chiavi** — per esempio lo slug letto dall'archivio, che le
 chiavi non le porta — nega tutto. E il verso giusto in cui sbagliare: chi non ha
 risolto la riga non concede niente.
 
+**E per questo le rotte delle tessere emettono il gettone e non lo slug**
+(PP-05, dependency di PP-03). `GET /api/v1/auth/memberships` e
+`POST /api/v1/auth/memberships/activate` restituivano
+`organization_users.role` grezzo. Il browser lo salva in `activeClub.role` e poi
+chiede `roleHasPermission(activeClub.role, chiave)`: uno slug nudo nega tutto —
+ed e giusto che neghi — quindi **ogni** ruolo personalizzato riceveva `false` su
+**ogni** chiave lato interfaccia. Le caselle spuntate nella schermata dei ruoli
+non accendevano niente: la coda di verifica documenti restava invisibile, e con
+lei le altre superfici che un permesso governa.
+
+Il difetto **falliva chiuso** — il server decide sempre con `scope.activeRole`,
+che il gettone ce l'ha — quindi non usciva nessun dato e non passava nessuna
+scrittura: mancava la superficie, non la difesa. Le due rotte chiamano ora
+`risolviTessere`, che e la stessa funzione da cui esce il ruolo attivo, e ne
+prendono il `token`. Le tessere canoniche non hanno gettone e restano al proprio
+nome.
+
+**Non concede niente in piu**, e per tre ragioni distinte: il gettone porta le
+chiavi **ristrette**, cioe un sottoinsieme di quelle del ruolo base; e lo stesso
+valore che `GET /api/v1/auth/session` gia restituiva, quindi non e una
+divulgazione nuova ma la fine di un'incoerenza fra due rotte; e rimandato al
+server come `x-active-access-role` **non viene creduto** — il risolutore ne
+tiene lo slug stabile, ritrova la tessera in archivio e ricostruisce le chiavi
+dalle proprie righe. Misurato: `scripts/pp-05-gettone-tessera-probe.mjs` G5.
+
 ### Le quattro caselle che non facevano niente, e `narrowDomainPermission`
 
 Il gettone funziona per le guardie che passano dal catalogo. **Non tutti i

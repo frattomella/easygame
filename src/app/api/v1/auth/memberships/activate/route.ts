@@ -5,7 +5,7 @@ import {
   normalizeAccessRole,
 } from "@/lib/access-roles";
 import { prisma } from "@/lib/server/prisma";
-import { requireAuthenticatedUser } from "@/lib/server/auth";
+import { requireAuthenticatedUser, risolviTessere } from "@/lib/server/auth";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { getParentLinkedAthletes } from "@/lib/server/parent-dashboard";
 
@@ -299,6 +299,16 @@ export async function POST(request: Request) {
       role: updatedMembership.role,
     });
 
+    /*
+      Il gettone della tessera appena attivata, dalla stessa funzione che
+      decide il ruolo attivo. Vedi la nota estesa in
+      `src/app/api/v1/auth/memberships/route.ts`: la rotta gemella emetteva lo
+      slug nudo, e uno slug senza chiavi spegne **ogni** permesso lato
+      interfaccia per **ogni** ruolo personalizzato.
+    */
+    const gettoneTessera =
+      (await risolviTessere([updatedMembership]))[0]?.token || null;
+
     await recordAuditEvent({
       action: AUDIT_ACTIONS.membershipActivated,
       actorUserId: session.db.user_id,
@@ -314,7 +324,7 @@ export async function POST(request: Request) {
       data: {
         ...updatedMembership,
         /*
-          **`role` resta lo slug della tessera, e `resolved_role` la sua base.**
+          **`role` e il gettone della tessera, e `resolved_role` la sua base.**
 
           Qui si sovrascriveva `role` con il ruolo **normalizzato**, e il
           browser salvava quello: da li in poi mandava `club_manager` come
@@ -323,12 +333,21 @@ export async function POST(request: Request) {
           con quello slug e risolve `activeRole: null` — cioe 403 su ogni
           rotta, con il menu intero a schermo.
 
-          I due campi rispondono a due domande diverse e servono entrambi: lo
-          **slug** dice quale tessera si sta usando, la **base** dice cosa quel
-          ruolo e in astratto. Farne uno solo, e farlo essere il secondo, era la
-          meta della capability che non arrivava a destinazione.
+          I due campi rispondono a due domande diverse e servono entrambi: il
+          **gettone** dice quale tessera si sta usando **e con quali chiavi**,
+          la **base** dice cosa quel ruolo e in astratto. Farne uno solo, e
+          farlo essere il secondo, era la meta della capability che non
+          arrivava a destinazione.
+
+          Lo slug nudo — la forma precedente — era l'altra meta: portava la
+          tessera giusta e **nessuna chiave**, quindi il server rispondeva bene
+          e il browser spegneva tutto (dependency di PP-03). Il gettone e lo
+          stesso valore che `/api/v1/auth/session` gia restituisce, porta le
+          chiavi **ristrette**, e rimandato indietro non viene creduto: il
+          risolutore ne tiene lo slug stabile e ricostruisce le chiavi
+          dall'archivio.
         */
-        role: updatedMembership.role,
+        role: gettoneTessera || updatedMembership.role,
         access_kind: "membership",
         is_ownership_record: false,
         redirect_path: accessTarget.redirectPath,
