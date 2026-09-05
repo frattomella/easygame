@@ -245,7 +245,7 @@ const CLINICAL_ATHLETE_FIELD_SET = new Set(CLINICAL_ATHLETE_FIELDS);
  * **I contenitori di `athletes.data` che non sono clinici, dichiarati per nome**
  * (PP-03 §15.4).
  *
- * ADR-0125 ha invertito la regola dentro `medical_certificates.data`: su una
+ * ADR-0126 ha invertito la regola dentro `medical_certificates.data`: su una
  * colonna JSON **libera** si dichiara cosa passa, perche un elenco di vietati e
  * una scommessa sui nomi che qualcuno usera. `athletes.data` e la stessa
  * colonna libera, ed era rimasta sui vietati.
@@ -271,7 +271,7 @@ const CLINICAL_ATHLETE_FIELD_SET = new Set(CLINICAL_ATHLETE_FIELDS);
  * meno quelli che l'elenco dei vietati qui sopra toglie gia perche clinici o
  * documentali.
  *
- * Il prezzo e dichiarato, ed e lo stesso di ADR-0125: un contenitore non
+ * Il prezzo e dichiarato, ed e lo stesso di ADR-0126: un contenitore non
  * clinico che il prodotto comincera a scrivere va **aggiunto qui**, e finche
  * non lo e sparisce per chi non ha `clinical.read`. Si nota un contenitore che
  * manca, non un referto che esce.
@@ -322,7 +322,7 @@ const NON_CLINICAL_ATHLETE_CONTAINER_SET = new Set(NON_CLINICAL_ATHLETE_CONTAINE
  * L'elenco non e immaginato: sono i campi che le schermate dell'area allenatore
  * leggono davvero da `data`, piu le grafie alternative con cui il prodotto ha
  * scritto gli stessi campi nel tempo. Il prezzo e dichiarato ed e lo stesso di
- * ADR-0125: un campo nuovo che serve all'allenatore va **aggiunto qui**, e
+ * ADR-0126: un campo nuovo che serve all'allenatore va **aggiunto qui**, e
  * finche non lo e non si vede. Si nota un campo che manca, non un referto che
  * esce.
  *
@@ -448,7 +448,7 @@ export const readerReadsDeclaredAthleteFieldsOnly = (role: unknown) =>
  * L'elenco non e immaginato: e stato contato sui consumatori dell'area
  * allenatore (`trainer-athlete-profile-page.tsx`), piu le grafie alternative
  * con cui il prodotto ha scritto gli stessi campi. Il prezzo e lo stesso di
- * ADR-0125 e si nota subito: un campo che manca lascia un trattino in una
+ * ADR-0126 e si nota subito: un campo che manca lascia un trattino in una
  * scheda, un referto che esce non lo vede nessuno.
  *
  * Un contenitore che qui non compare — `categoryIds`, `category_names` — e un
@@ -785,7 +785,7 @@ const onlyNonClinicalCertificateData = (valore: unknown) => {
     /*
       **Si dichiara la chiave e anche la sua forma** (PP-03 §15.4).
 
-      L'inversione di ADR-0125 elencava i nomi ammessi e non diceva niente su
+      L'inversione di ADR-0126 elencava i nomi ammessi e non diceva niente su
       cosa ci potesse stare dentro. `source` e una **provenienza** — «da un
       deposito documentale», «caricato a mano» — cioe una parola; e il quinto
       round ci ha messo dentro un oggetto e un elenco:

@@ -965,7 +965,7 @@ In PP-03 e successo su `/trainer-dashboard/appointments` a 375 px: `main`
 il pulsante «Rifiuta» — una transizione che il dominio dichiarava ammessa e che
 da un telefono era irraggiungibile. Il `min-w-0` sul blocco di testo dentro la
 scheda c'era gia: **non copre** la casella della griglia. Servono entrambi. Vedi
-[44 §12.1](44-pp-03-trainer.md).
+[47 §12.1](47-pp-03-trainer.md).
 
 ### La riga di comandi di un elenco va a capo
 

@@ -889,7 +889,7 @@ ruolo passa da `normalizeAccessRole`, la sola funzione che conosce gli alias e
 che davanti a uno slug ne estrae la **base**. Regola generale: **nessuna
 guardia confronta `organization_users.role` con una stringa**, perche quella
 colonna porta uno slug ogni volta che il club ha un ruolo suo. Verbale in
-[44 — PP-03](44-pp-03-trainer.md) §3.
+[47 — PP-03](47-pp-03-trainer.md) §3.
 
 `/audit` sta fra i percorsi **gestionali** e non fra quelli amministrativi, ed e
 deliberato: a decidere e la chiave, non il prefisso. Metterlo fra gli
@@ -960,7 +960,7 @@ che tenta di concedere una chiave di direzione.
 
 ## PP-03 — Un lettore si definisce con un predicato, non con un nome di ruolo (2026-09-05)
 
-Verbale in [44 — PP-03 Trainer](44-pp-03-trainer.md) §15.4.
+Verbale in [47 — PP-03 Trainer](47-pp-03-trainer.md) §15.4.
 
 `athletes.data` si legge adesso **per elenco di ammessi** da chi ha
 `clinical.status_read` e **non** `clinical.read` — cioe da chi vede lo *stato* del

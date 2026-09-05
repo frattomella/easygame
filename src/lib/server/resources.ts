@@ -3985,7 +3985,7 @@ export const buildWhereFromSearchParams = (
       momenti diversi, e questo file conosce gia il prezzo di inseguire le
       grafie una per una.
 
-      La forma giusta e la stessa che ADR-0125 e §16.2 hanno gia imposto sul
+      La forma giusta e la stessa che ADR-0126 e §16.2 hanno gia imposto sul
       dato clinico: **si dichiara cosa passa**. Chi legge un sottoinsieme dei
       tipi dichiarati legge **solo** quello, e un tipo che il registro non
       conosce resta fuori.

@@ -1,4 +1,4 @@
-# 44 — PP-03: Trainer production ready
+# 47 — PP-03: Trainer production ready
 
 > Verbale della lane **PP-03**, base `0d66921` (tip di PP-01), branch
 > `feat/pp-03-trainer`. Stile di [42 — PP-01](42-pp-01-club-atleti-allenamenti.md):
@@ -670,7 +670,7 @@ nomi italiani (`diagnosi`, `referto`, `patologia`, `terapia`, `farmaci`,
 `anamnesi`, `esenzione`, `limitazioni`, `gruppoSanguigno`) e ogni nome che un
 club o un'importazione inventera domani.
 
-Dentro `data` si dichiara adesso **cosa passa**: [ADR-0125](18-decision-log.md).
+Dentro `data` si dichiara adesso **cosa passa**: [ADR-0126](18-decision-log.md).
 Oggi l'elenco degli ammessi contiene una chiave sola, `source`. Il primo livello
 del certificato resta su un elenco di vietati, e non e un'incoerenza — li lo
 schema e fisso e l'insieme e chiuso.
@@ -1168,7 +1168,7 @@ funzione, `serializeClubResourceItem`, che e la proiezione vera.
 
 ### 15.4 — `athletes.data` era rimasta sull'elenco dei vietati (HIGH)
 
-ADR-0125 ha invertito la regola dentro `medical_certificates.data`.
+ADR-0126 ha invertito la regola dentro `medical_certificates.data`.
 `athletes.data` e la stessa colonna libera, ed era rimasta dall'altra parte. Il
 round l'ha vinta come si vince sempre, e da sette porte (`/athletes`,
 `/athletes/:id`, `/simplified_athletes`, `?view=summary` e i loro alias), verso un
@@ -1197,7 +1197,7 @@ Tre correzioni, tre livelli.
    una provenienza, cioe una parola: passa un valore semplice. Un contenitore
    sotto un nome ammesso e l'elenco dei vietati che rientra dalla finestra.
 
-Il prezzo e dichiarato ed e quello di ADR-0125: un campo nuovo che serve
+Il prezzo e dichiarato ed e quello di ADR-0126: un campo nuovo che serve
 all'allenatore va **aggiunto**, e finche non lo e non si vede. Si e gia pagato una
 volta durante questa stessa correzione — `medicalCertificateExpiry`, una delle
 cinque grafie con cui il prodotto ha scritto la stessa data, mancava dall'elenco,
@@ -1381,7 +1381,7 @@ GET /api/v1/club_resource_items?resource_type=secretariat_note
 
 `riservate` si costruisce filtrando `CLUB_RESOURCE_TYPES`, cioe i tipi
 **dichiarati**: una grafia che quell'elenco non contiene non e fra i negati,
-quindi passa. La forma giusta e quella che [ADR-0125](18-decision-log.md) e
+quindi passa. La forma giusta e quella che [ADR-0126](18-decision-log.md) e
 §16.2 hanno gia imposto sul dato clinico — **si dichiara cosa passa**. Chi legge
 un sottoinsieme dei tipi dichiarati legge solo quello; la direzione canonica,
 che li legge tutti, tiene l'elenco dei negati, perche li un tipo sconosciuto e

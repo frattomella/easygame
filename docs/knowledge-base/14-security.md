@@ -2515,7 +2515,7 @@ dato di minore o clinico, o denaro che esce due volte.
 
 ## PP-03 — Le due porte del terzo round (2026-09-05)
 
-Verbale completo in [44 — PP-03 Trainer](44-pp-03-trainer.md) §9. Qui restano
+Verbale completo in [47 — PP-03 Trainer](47-pp-03-trainer.md) §9. Qui restano
 le due regole che valgono oltre l'area allenatore.
 
 ### Una riga indirizzata a qualcuno non e protetta dal confine del club
@@ -2538,7 +2538,7 @@ sta nell'insieme, non nel nome.
 
 ### Su una colonna JSON libera il dato clinico si dichiara per ammissione
 
-[ADR-0125](18-decision-log.md). Il taglio del contenuto clinico dentro
+[ADR-0126](18-decision-log.md). Il taglio del contenuto clinico dentro
 `medical_certificates.data` era un elenco di campi **vietati**, e una revisione
 ostile lo ha aggirato scrivendo il campo con un nome italiano: `diagnosi`,
 `referto`, `terapia` uscivano interi a chi ha soltanto `clinical.status_read`.
@@ -2555,7 +2555,7 @@ vietati per una ragione misurata, non per inerzia: e annotata come `PP03-D5` in
 
 ## PP-03 — Le quattro porte del quinto round (2026-09-05)
 
-Verbale completo in [44 — PP-03 Trainer](44-pp-03-trainer.md) §15. Qui restano
+Verbale completo in [47 — PP-03 Trainer](47-pp-03-trainer.md) §15. Qui restano
 le quattro regole che valgono oltre l'area allenatore. Nessuna delle quattro e
 un difetto di ruolo: sono tutte **una regola giusta applicata a una fonte
 sbagliata**, o applicata a una porta sola.
@@ -2615,7 +2615,7 @@ che guarda solo i segreti direbbe «chiuso».
 
 ### Chi vede lo stato e non il contenuto legge l'anagrafica per elenco di ammessi
 
-L'inversione di [ADR-0125](18-decision-log.md) valeva per
+L'inversione di [ADR-0126](18-decision-log.md) valeva per
 `medical_certificates.data`; `athletes.data` — la stessa colonna libera — era
 rimasta sull'elenco dei vietati, e il quinto round l'ha vinta con contenitori dal
 nome nuovo (`schedaSanitaria`, `anamnesi[]`) e campi dal nome italiano.

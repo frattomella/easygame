@@ -6218,12 +6218,15 @@ questa decisione, non un'aggiunta accanto.
 
 ---
 
-## ADR-0125 — Su una colonna JSON libera il dato clinico si dichiara per ammissione
+## ADR-0126 — Su una colonna JSON libera il dato clinico si dichiara per ammissione
 
-> **Numero.** PP-03 prende `0125` lasciando un varco: PP-04 e PP-05 stanno
-> scrivendo in parallelo su `0114`–`0121`, e un numero contiguo si sarebbe
-> scontrato in integrazione. Se al momento del merge il varco resta vuoto, il
-> numero si stringe: e un'etichetta, non un identificativo.
+> **Numero.** Questa decisione era nata come `0125`, scelto lasciando un varco
+> perche PP-04 e PP-05 stavano scrivendo in parallelo poco sotto. In
+> integrazione il varco si e rivelato troppo stretto: anche PP-04 aveva preso
+> `0125`, e la sua catena di riferimenti incrociati (`0117`→`0122`→`0123`→
+> `0124`→`0125`) e la piu costosa da spostare. PP-04 tiene `0114`–`0125`, e
+> questa decisione si sposta a `0126`. Un numero e un'etichetta, non un
+> identificativo.
 
 **Contesto.** [CLAUDE.md §2](../../CLAUDE.md) assegna il dato sanitario a
 `src/lib/health/permissions.ts` con una regola sola: *chi vede lo **stato** del

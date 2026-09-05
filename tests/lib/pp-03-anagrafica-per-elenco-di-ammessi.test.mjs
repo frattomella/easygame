@@ -4,7 +4,7 @@ import test, { before } from "node:test";
 /**
  * **`athletes.data` era rimasta sull'elenco dei vietati** (PP-03 §15.4).
  *
- * ADR-0125 ha invertito la regola dentro `medical_certificates.data`: su una
+ * ADR-0126 ha invertito la regola dentro `medical_certificates.data`: su una
  * colonna JSON **libera** si dichiara cosa passa, perche un elenco di vietati e
  * una scommessa sui nomi che qualcuno usera. `athletes.data` e la stessa
  * colonna libera, ed era rimasta dall'altra parte.
