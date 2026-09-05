@@ -16,6 +16,13 @@ import {
 } from "@/components/ui/dialog";
 import { createEvent, updateEvent } from "@/lib/events/client";
 import {
+  EMPTY_EVENT_RSVP,
+  EventRsvpFields,
+  fromEventRsvpPayload,
+  toEventRsvpPayload,
+  type EventRsvpValue,
+} from "@/components/events/event-rsvp-fields";
+import {
   buildTrainingLocationOptions,
   type TrainingLocationOption,
 } from "@/lib/training-location-options";
@@ -151,6 +158,22 @@ export function TrainerEventEditorDialog({
   );
 
   const [campi, setCampi] = useState(() => vuoto(categorieAmmesse[0]?.id || ""));
+  /*
+    **La casella che accendeva l'RSVP viveva solo nei moduli della segreteria.**
+
+    `rsvp.read` e dell'allenatore, il riquadro «Hanno risposto» c'e ed e
+    montato — e `rsvpRequired` si poteva scrivere soltanto da `AddTrainingForm`
+    e `AddMatchForm`, cioe da pagine che l'allenatore non apre. Il riquadro era
+    quindi **strutturalmente vuoto** salvo che la segreteria spuntasse la
+    casella al posto suo: una funzione completa che nessuno di quelli che la
+    usano sa accendere.
+
+    Il componente e **quello che esiste gia**, `EventRsvpFields`, con le sue
+    due regole di dominio: la scadenza senza la richiesta non si scrive, e la
+    capienza e un numero e non una coda. Una seconda copia sarebbe divergente
+    entro una Wave.
+  */
+  const [rsvp, setRsvp] = useState<EventRsvpValue>(EMPTY_EVENT_RSVP);
   const [salvataggio, setSalvataggio] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
 
@@ -162,6 +185,7 @@ export function TrainerEventEditorDialog({
         ? dallEvento(event, opzioniLuogo)
         : vuoto(categorieAmmesse[0]?.id || ""),
     );
+    setRsvp(event ? fromEventRsvpPayload(event) : EMPTY_EVENT_RSVP);
   }, [open, event, opzioniLuogo, categorieAmmesse]);
 
   const aggiorna = (chiave: string, valore: string) =>
@@ -234,6 +258,7 @@ export function TrainerEventEditorDialog({
       siteId: luogo?.siteId || undefined,
       location: luogo?.name || undefined,
       notes: campi.notes || undefined,
+      ...toEventRsvpPayload(rsvp),
       ...(kind === "match"
         ? { opponent: campi.opponent, homeAway: campi.homeAway }
         : {}),
@@ -396,6 +421,12 @@ export function TrainerEventEditorDialog({
               onChange={(evento) => aggiorna("title", evento.target.value)}
             />
           </div>
+
+          <EventRsvpFields
+            value={rsvp}
+            onChange={setRsvp}
+            idPrefix="trainer-evento"
+          />
 
           {errore ? (
             <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">

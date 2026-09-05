@@ -131,3 +131,28 @@ test("PP-03 §11.1 · la leva del club dice cosa governa davvero", () => {
     "la descrizione parlava solo di annullare e ripristinare, e adesso la chiave governa quattro verbi",
   );
 });
+
+test("PP-03 §11.3 · l'allenatore puo accendere l'RSVP sui propri eventi", () => {
+  /*
+    `rsvp.read` e dell'allenatore, il riquadro «Hanno risposto» c'e ed e
+    montato — e `rsvpRequired` si poteva scrivere soltanto da `AddTrainingForm`
+    e `AddMatchForm`, cioe da pagine che l'allenatore non apre. Il riquadro era
+    strutturalmente vuoto salvo che la segreteria spuntasse la casella al posto
+    suo: una funzione completa che nessuno di quelli che la usano sa accendere.
+  */
+  const editor = senzaCommenti(leggi(EDITOR));
+
+  assert.ok(
+    editor.includes("EventRsvpFields"),
+    "la casella dell'RSVP deve comparire nel modulo dell'allenatore",
+  );
+  assert.ok(
+    editor.includes("toEventRsvpPayload") &&
+      editor.includes("fromEventRsvpPayload"),
+    "le due regole di dominio — la scadenza senza richiesta non si scrive, la capienza e un numero — stanno nei convertitori, e vanno usati quelli",
+  );
+  assert.ok(
+    /from "@\/components\/events\/event-rsvp-fields"/.test(editor),
+    "il componente e quello che esiste gia: una seconda copia divergerebbe entro una Wave",
+  );
+});

@@ -862,14 +862,41 @@ Il verso opposto e intatto, e le due sonde di §7 lo dicono senza cambiare una
 riga: `pp-03-scrittura-evento-condiviso-probe.mjs` resta **15/15** e
 `pp-03-eventi-scope-ruoli-probe.mjs` **77/77**.
 
+### 11.3 — E l'RSVP, che l'allenatore poteva leggere e non accendere
+
+`rsvp.read` e dell'allenatore, il riquadro «Hanno risposto» esiste ed e montato
+in `AttendanceSheet` — e `rsvpRequired` si scriveva soltanto da
+`AddTrainingForm` e `AddMatchForm`, cioe da pagine che l'allenatore non apre.
+Il riquadro era quindi **strutturalmente vuoto** salvo che la segreteria
+spuntasse la casella al posto suo: la stessa forma di §11.1, spostata di un
+passo.
+
+Il modulo nuovo monta `EventRsvpFields`, che e il componente **gia esistente**
+con le sue due regole di dominio — la scadenza senza la richiesta non si
+scrive, la capienza e un numero e non una coda — e i suoi convertitori. Una
+seconda copia sarebbe divergente entro una Wave.
+
+Misurato a schermo e poi sulle rotte vere: l'allenatore ha creato «Amichevole
+con RSVP», e in archivio la riga porta `rsvp_required: true`, `rsvp_deadline` e
+`capacity: 14`, con il suo `created_by`.
+
+La prova statica dice che il modulo **monta** il componente; non direbbe che il
+valore arriva in colonna, perche fra la casella e la riga ci sono il
+convertitore, il client, la rotta e `events.ts`.
+`scripts/pp-03-rsvp-accensione-probe.mjs` percorre quel tratto — creazione,
+rilettura del modulo su un evento esistente, modifica — e misura anche il verso
+opposto: a casella spenta la scadenza **non** si scrive, che e la regola di
+dominio del convertitore.
+
 ### Verificato
 
 | Prova | Esito |
 |---|---|
 | `tests/server/pp-03-perimetro-scrittura-grafie.test.mjs` | 8/8; per mutazione, rimesso l'elenco piatto, 2 rosse |
-| `tests/ui/pp-03-calendario-allenatore-raggiungibile.test.mjs` | 6/6 |
+| `tests/ui/pp-03-calendario-allenatore-raggiungibile.test.mjs` | 7/7 |
 | `scripts/pp-03-scrittura-evento-condiviso-probe.mjs` | 15/15, invariato |
 | `scripts/pp-03-eventi-scope-ruoli-probe.mjs` | 77/77, invariato |
+| `scripts/pp-03-rsvp-accensione-probe.mjs` | 10/10 contro `easygame_dev_pp03` e le rotte vere |
 
 A schermo, sul club di collaudo: l'allenatore ha creato l'allenamento del
 12 settembre e in archivio la riga porta il suo `created_by`; sull'allenamento
