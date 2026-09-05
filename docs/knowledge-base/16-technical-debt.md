@@ -2405,3 +2405,63 @@ Finche non e deciso, non si stringe: una guardia messa qui per prudenza
 romperebbe un uso legittimo, e sarebbe la sesta volta in questo perimetro che
 una correzione allarga un predicato senza misurare chi **non** doveva
 raggiungere.
+### D-RIS-1 — «zero righe di perimetro» significa tutto il club, e non e stato cambiato
+
+`accessScopeAllows` (`src/lib/roles/access-scope.ts`) esce con `true` quando
+l'assegnazione non ha righe. E la semantica dichiarata da ADR-0103 — «zero
+righe = tutto il club, mai *nessun accesso*» — e vale per **ogni** consumatore
+di quel predicato: i filtri di `resources.ts`, il perimetro degli eventi, la
+lettura dell'anagrafica.
+
+P0-2 ha reso **esplicito il riscatto** invece di cambiare quel significato: chi
+entra da un gettone porta adesso il perimetro del proprio profilo di origine,
+mai piu largo di quello di chi ha coniato. La semantica globale e intatta.
+
+**Cosa resta aperto.** Un caso in cui zero righe si scrivono ancora, ed e
+voluto perche l'alternativa sarebbe peggio:
+
+- un atleta **senza nessuna appartenenza** — il club non lo ha ancora messo in
+  una categoria — riscatta il proprio invito, e la derivazione non trova
+  niente. Se anche l'emittente non e recintato, restano zero righe, cioe tutto
+  il club. Rifiutare il riscatto bloccherebbe un ragazzo per un dato che la
+  segreteria non ha ancora inserito; inventare un recinto vorrebbe dire
+  scegliere al posto del club.
+
+La chiusura durevole non e in questo perimetro: e decidere se il modello debba
+avere un **terzo stato** — «nessun perimetro dichiarato» distinto da «tutto il
+club» — e quella e una modifica che tocca ogni lettore di `accessScopeAllows`.
+Va aperta come WP, con il censimento dei consumatori e la loro misura, non
+dentro una correzione di sicurezza.
+
+Mitigazione oggi: il ruolo `athlete` limita da se cio che quella persona
+raggiunge, perche la sua area nasce dal legame con la propria scheda e non dal
+perimetro.
+
+### D-RIS-2 — la rotta pubblica del riscatto dell'atleta non ha un tetto di tentativi
+
+`POST /api/v1/athlete-accounts/accept` e pubblica per progetto — chi apre il
+link una sessione non ce l'ha — e **non chiama `consumeRequestRateLimits`**. La
+gemella (`/api/v1/auth/access/redeem`) ne ha due, per utenza e per indirizzo.
+
+Il rischio e contenuto: il gettone e opaco di 32 byte, in archivio ne resta il
+solo SHA-256, e la risposta e identica per token sconosciuto, scaduto, revocato
+o gia usato — quindi non c'e un oracolo da interrogare. Ma e l'unica scrittura
+non autenticata di questa forma, e un tetto per indirizzo va messo.
+
+Non e stato messo in P0-2 per non mescolare una modifica di trasporto con una
+correzione di perimetro, e perche va scelta la politica: quella del riscatto
+generico e per utenza **e** per indirizzo, e qui l'utenza non c'e ancora.
+
+### D-RIS-3 — il riscatto generico non e transazionale
+
+`POST /api/v1/auth/access/redeem` fa in sequenza, senza `$transaction`: crea o
+aggiorna la tessera, scrive il perimetro, collega il profilo
+(`updateResource`), aggiorna lo stato del gettone, scrive l'audit. Un guasto a
+meta lascia stati incoerenti — la tessera concessa e il profilo non collegato,
+oppure il gettone consumato e nessuna tessera.
+
+P0-2 ha ridotto la finestra ma non l'ha chiusa: la scrittura del perimetro e
+adesso subito dopo la tessera, e un suo rifiuto solleva **prima** che il
+gettone venga consumato. Chiuderla davvero vuol dire portare le cinque
+scritture sotto la stessa transazione, e `updateResource` non accetta oggi un
+client di transazione: e un WP, non una riga.

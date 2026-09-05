@@ -13,6 +13,14 @@ import {
   normalizeAccessRole,
 } from "@/lib/access-roles";
 import { assertMayGrantRole } from "@/lib/roles/custom-role";
+import {
+  applyRedeemAccessScopes,
+  deriveAthleteAccessScopes,
+} from "@/lib/server/club-roles";
+import {
+  normalizeAccessScopes,
+  type AccessScopeEntry,
+} from "@/lib/roles/access-scope";
 import { prisma } from "@/lib/server/prisma";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getResourceById, updateResource } from "@/lib/server/resources";
@@ -463,7 +471,31 @@ export async function POST(request: Request) {
       );
     }
 
-    if (accessToken.status === "redeemed" && payload.one_time !== false) {
+    const trainerId = String(payload.trainer_id || "").trim();
+    const athleteId = String(payload.athlete_id || "").trim();
+    const guardianId = String(payload.guardian_id || "").trim();
+
+    /*
+      **Un gettone multiuso senza un profilo a cui legarsi non e multiuso: e
+      illimitato** (P0-2, invariante D).
+
+      `one_time: false` lasciava lo stato su `active` per sempre. Su un gettone
+      legato a un profilo la cardinalita c'e lo stesso, ed e quella giusta: lo
+      chiude `alreadyLinkedUserId`, perche la seconda persona trova la scheda
+      gia collegata a un altro account. Su un gettone che non nomina nessun
+      profilo quel freno **non esiste**, e lo riscattano utenti illimitati:
+      misurato, due utenti diversi con lo stesso codice, due tessere.
+
+      Nessuna schermata del prodotto conia gettoni multiuso — le due che li
+      coniano scrivono `one_time: true` — quindi il caso non ha un uso
+      legittimo da difendere. Il multiuso resta ammesso **solo** dove ha un
+      freno: legato a un profilo. Altrimenti vale una volta.
+    */
+    const multiUsoLecito =
+      payload.one_time === false &&
+      Boolean(trainerId || athleteId || guardianId);
+
+    if (accessToken.status === "redeemed" && !multiUsoLecito) {
       await tracciaRiscatto({
         esito: "denied",
         userId: session.db.user_id,
@@ -483,9 +515,6 @@ export async function POST(request: Request) {
 
     const tokenType = String(payload.token_type || payload.tokenType || "").trim();
     let role = normalizeAccessRole(payload.role || "member") || "member";
-    const trainerId = String(payload.trainer_id || "").trim();
-    const athleteId = String(payload.athlete_id || "").trim();
-    const guardianId = String(payload.guardian_id || "").trim();
 
     if (
       tokenType === "parent_access" ||
@@ -778,12 +807,114 @@ export async function POST(request: Request) {
         );
       }
     }
+    /*
+      **La tessera nasce con il suo perimetro** (P0-2, invarianti A e B).
+
+      Fino a qui questa rotta non scriveva **nessuna** riga di perimetro, e per
+      ADR-0103 zero righe non significa «nessun accesso»: significa **tutto il
+      club**. Misurato: un gestore recintato sulla sede A conia un gettone di
+      allenatore, la persona lo riscatta, e da quel momento legge anche la
+      sede B — cioe il gestore ha allargato il proprio recinto per interposta
+      persona. E la stessa lezione che `accessScopeContains` aveva gia
+      imparato sulla Gestione accessi, e che qui non arrivava.
+
+      Due ingredienti: cio che il **profilo di origine** dichiara, e cio che
+      **chi ha coniato** poteva concedere. Il secondo e un soffitto, mai un
+      pavimento.
+    */
+    const perimetroEmittente = await (async (): Promise<AccessScopeEntry[]> => {
+      /*
+        Il conio di oggi timbra il perimetro sul gettone. I gettoni coniati
+        prima non lo portano: per quelli si guarda il recinto **attuale** di
+        chi li ha coniati, che e la cosa piu vicina al vero che l archivio
+        sappia dire — e sbaglia dal lato stretto se quel recinto e stato
+        ristretto nel frattempo.
+      */
+      const timbrato = normalizeAccessScopes(
+        (payload.minted_by_scopes || payload.mintedByScopes) as any,
+      );
+      if (timbrato.length) return timbrato;
+
+      const coniatore = String(payload.minted_by_user_id || "").trim();
+      if (!coniatore) return [];
+
+      const tessereConiatore = await prisma.organizationUser.findMany({
+        where: {
+          organization_id: accessToken.organization_id,
+          user_id: coniatore,
+        },
+        select: { id: true },
+      });
+      if (!tessereConiatore.length) return [];
+
+      const righe = await prisma.clubAccessScope.findMany({
+        where: {
+          organization_user_id: { in: tessereConiatore.map((r) => r.id) },
+        },
+        select: { scope_kind: true, scope_value: true },
+      });
+
+      return normalizeAccessScopes(
+        righe.map((r) => ({ kind: r.scope_kind, value: r.scope_value })),
+      );
+    })();
+
+    const perimetroProfilo = await (async (): Promise<AccessScopeEntry[]> => {
+      /*
+        L allenatore porta le **categorie** della sua scheda; il tutore porta
+        le appartenenze del minore a cui il gettone lo lega. Un gettone di
+        solo ruolo non porta niente, e allora comanda il soffitto.
+      */
+      if (trainerTarget?.record) {
+        const categorie = Array.isArray(trainerTarget.record.categories)
+          ? trainerTarget.record.categories
+          : [];
+        return normalizeAccessScopes(
+          categorie
+            .map((voce: any) =>
+              String(voce?.id || voce?.value || voce || "").trim(),
+            )
+            .filter(Boolean)
+            .map((value: string) => ({ kind: "category", value })),
+        );
+      }
+
+      if (athleteId) {
+        return deriveAthleteAccessScopes(
+          prisma,
+          accessToken.organization_id,
+          athleteId,
+        );
+      }
+
+      return [];
+    })();
+
+    try {
+      await applyRedeemAccessScopes(
+        prisma,
+        membership.id,
+        perimetroProfilo,
+        perimetroEmittente,
+      );
+    } catch (errore: any) {
+      await tracciaRiscatto({
+        esito: "denied",
+        userId: session.db.user_id,
+        email: session.db.user?.email,
+        organizationId: accessToken.organization_id,
+        tokenRecordId: accessToken.id,
+        motivo: String(errore?.message || "perimetro oltre il soffitto"),
+      });
+      throw errore;
+    }
+
     const nowIso = new Date().toISOString();
 
     await prisma.clubResourceItem.update({
       where: { id: accessToken.id },
       data: {
-        status: payload.one_time === false ? accessToken.status || "active" : "redeemed",
+        status: multiUsoLecito ? accessToken.status || "active" : "redeemed",
         payload: {
           ...payload,
           redeemed_at: nowIso,
@@ -810,11 +941,11 @@ export async function POST(request: Request) {
         linked_at: nowIso,
         accessTokenRecordId: accessToken.id,
         access_token_record_id: accessToken.id,
-        accessTokenStatus: payload.one_time === false ? "active" : "redeemed",
-        access_token_status: payload.one_time === false ? "active" : "redeemed",
+        accessTokenStatus: multiUsoLecito ? "active" : "redeemed",
+        access_token_status: multiUsoLecito ? "active" : "redeemed",
         accessTokenRedeemedAt: nowIso,
         access_token_redeemed_at: nowIso,
-        accessTokenValue: payload.one_time === false ? String(accessToken.name || "") : "",
+        accessTokenValue: multiUsoLecito ? String(accessToken.name || "") : "",
         access_token_value:
           payload.one_time === false ? String(accessToken.name || "") : "",
         token: payload.one_time === false ? String(accessToken.name || "") : "",

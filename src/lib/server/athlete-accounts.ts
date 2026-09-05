@@ -5,6 +5,10 @@ import { clubsWhereStillAthlete } from "./athlete-membership";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
 import { prisma } from "./prisma";
+import {
+  applyMembershipAccessScopes,
+  deriveAthleteAccessScopes,
+} from "./club-roles";
 import { hashPassword } from "./auth";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { roleHasPermission } from "@/lib/permissions/catalog";
@@ -1357,7 +1361,7 @@ export const acceptAthleteAccountInvite = async (
       data: { user_id: utente.id },
     });
 
-    const tessera = await tx.organizationUser.findFirst({
+    let tessera = await tx.organizationUser.findFirst({
       where: {
         organization_id: atleta.organization_id,
         user_id: utente.id,
@@ -1372,17 +1376,52 @@ export const acceptAthleteAccountInvite = async (
         select: { id: true },
       });
 
-      await tx.organizationUser.create({
+      tessera = await tx.organizationUser.create({
         data: {
           organization_id: atleta.organization_id,
           user_id: utente.id,
           role: "athlete",
           is_primary: !haGiaUnaPrimaria,
         },
+        select: { id: true },
       });
     }
 
     /*
+      **La tessera nasce con il suo perimetro** (P0-2).
+
+      Fino a qui non ne nasceva con nessuno, e per ADR-0103 zero righe di
+      perimetro non significa «nessun accesso»: significa **tutto il club**.
+      Un ragazzo che riscattava il proprio invito usciva percio con il
+      perimetro piu largo che il modello preveda, sedi e categorie in cui non
+      ha mai messo piede comprese. Misurato: `accessScopeAllows` rispondeva
+      `true` su ogni sede.
+
+      Il perimetro di un atleta non ha bisogno di essere dichiarato da
+      nessuno: **e dove si allena**, cioe le sue appartenenze. Si deriva da li
+      e si scrive dal proprietario di quella tabella (`club-roles.ts`), non
+      da qui: questo file resta il proprietario di `athletes.user_id` e di
+      nient altro.
+
+      Se le appartenenze non dicono niente — un atleta che il club non ha
+      ancora messo in nessuna categoria — non si inventa un recinto e non si
+      rifiuta il riscatto: restano zero righe, che significano tutto il club.
+      E il residuo dichiarato di questa correzione, ed e registrato come
+      debito: la semantica di «zero righe» non si cambia in un riscatto senza
+      prima misurarne tutti i lettori.
+    */
+    const perimetri = await deriveAthleteAccessScopes(
+      tx,
+      atleta.organization_id,
+      atleta.id,
+    );
+    await applyMembershipAccessScopes(tx, tessera.id, perimetri);
+
+    /*
+      *(La stessa corsa e stata trovata in modo indipendente dal closeout
+      P0-2, con la stessa chiusura: `updateMany` condizionato sullo stato. Le
+      due misure concordano.)*
+
       **Il consumo e qui, ed e condizionato** (PP-04, ADR-0119).
 
       La lettura che ha deciso «questo invito e `sent`» sta **fuori** dalla
@@ -1405,6 +1444,7 @@ export const acceptAthleteAccountInvite = async (
       where: { id: invito.id, status: "sent" },
       data: { status: "accepted", accepted_at: new Date() },
     });
+    if (consumato.count !== 1) throw nonValido();
 
     if (consumato.count !== 1) throw nonValido();
 

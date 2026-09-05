@@ -2715,3 +2715,88 @@ la correzione e stretta al punto sbagliato.
 l'`organization_id` **dall'atleta** (`athlete.organization_id`) e rifiuta un
 club dichiarato che non coincida, quindi da li una riga cross-tenant non puo
 nascere.
+## Il riscatto di un gettone consegnava tutto il club (P0-2, 2026-09-06)
+
+**Il difetto.** Le due strade del riscatto creavano una tessera e **non
+scrivevano nessuna riga di perimetro**. Per
+[ADR-0103](18-decision-log.md#adr-0103) zero righe non significa «nessun
+accesso»: significa **tutto il club**.
+
+| strada | dove | cosa scriveva |
+|--------|------|----------------|
+| gettone dell'atleta | `acceptAthleteAccountInvite` (`athlete-accounts.ts`) | tessera `athlete`, **zero** righe di perimetro |
+| gettone generico (allenatore, tutore, ruolo) | `POST /api/v1/auth/access/redeem` | tessera con il ruolo del gettone, **zero** righe di perimetro |
+
+`club_access_scopes` era scritto **solo** da `club-roles.ts`, cioe solo dalla
+Gestione accessi. Nessuno dei due riscatti lo toccava.
+
+**La gravita.** Misurato dalle porte vere contro PostgreSQL, con un gestore
+recintato sulla **sola sede A** che conia il gettone:
+
+| | prima | dopo |
+|---|---|---|
+| atleta che riscatta il proprio invito | `accessScopeAllows` **true su ogni sede** | solo le sedi e le categorie delle sue appartenenze |
+| allenatore, gettone di un gestore recintato | **true su ogni sede** — il recinto del gestore evaporava | il perimetro del profilo, dentro quello dell'emittente |
+| tutore, gettone di un gestore recintato | **true su ogni sede** | il perimetro del minore, dentro quello dell'emittente |
+
+E la stessa lezione che `accessScopeContains` aveva **gia** imparato
+sull'altro lato — «un `club_manager` recintato concedeva a una seconda utenza
+un `club_manager` senza perimetro, e da quel momento leggeva tutto il club per
+interposta persona» — ma quella regola valeva solo sulla Gestione accessi. Il
+gettone era la porta che la aggirava.
+
+L'asimmetria rende il difetto inequivocabile: `AthleteAccountsScope.accessScopes`
+esiste **apposta** perche un operatore recintato non possa invitare un atleta
+fuori dal proprio perimetro. Quel perimetro era applicato a **chi manda**
+l'invito e non arrivava mai alla tessera che il riscatto creava.
+
+**La regola, adesso.** Due ingredienti e un ordine preciso:
+
+1. cio che il **profilo di origine** dichiara — le categorie della scheda di un
+   allenatore, le appartenenze di un atleta, quelle del minore a cui un gettone
+   lega un tutore;
+2. cio che **chi ha coniato** poteva concedere.
+
+La risposta non e mai piu larga del secondo, e quando il primo non dice niente
+**e** il secondo e ristretto si consegna il secondo — perche consegnare zero
+righe li dentro vorrebbe dire consegnare tutto il club. Un asse che l'emittente
+restringe e che il profilo non nomina prende i valori dell'emittente: lasciarlo
+vuoto lo renderebbe «tutte».
+
+Il calcolo e `resolveRedeemAccessScopes`; la scrittura e
+`applyRedeemAccessScopes`, che **rimisura il calcolato** con
+`accessScopeContains` e rifiuta se uscisse dal recinto. Le due funzioni vivono
+in `club-roles.ts`, che resta l'unico scrittore di `club_access_scopes`: il
+riscatto non ne diventa un settimo.
+
+**Il conio timbra il perimetro.** `payload.minted_by_scopes` si affianca a
+`minted_by_role`, con la stessa disciplina: lo scrive il server, il client non
+lo puo dettare, e su una modifica non si riscrive. Per i gettoni coniati prima
+di questa correzione il riscatto ricade sul recinto **attuale** di chi li ha
+firmati — che sbaglia dal lato stretto se quel recinto e stato ristretto nel
+frattempo.
+
+**Un gettone multiuso senza profilo non e multiuso: e illimitato.**
+`one_time: false` lasciava lo stato su `active` per sempre. Su un gettone legato
+a un profilo la cardinalita c'e comunque — la seconda persona trova la scheda
+gia collegata — ma su un gettone che non nomina nessun profilo quel freno non
+esiste: misurato, due utenti diversi con lo stesso codice, due tessere. Nessuna
+schermata del prodotto conia gettoni multiuso, quindi il caso non ha un uso
+legittimo da difendere: il multiuso resta ammesso **solo** dove ha un freno.
+
+**Il gettone si consuma con una condizione.** Lo stato dell'invito era letto
+prima della transazione e riscritto senza ricontrollarlo: due riscatti
+simultanei leggevano entrambi `sent` e passavano **entrambi** (misurato, due
+successi su due). Adesso la condizione sta dentro l'istruzione — `updateMany`
+con `status: "sent"` nel `where` e il conteggio verificato — e il secondo fa
+rotolare indietro la transazione. Stessa forma di ADR-0109.
+
+**Le prove.** `scripts/riscatto-perimetro.mjs` — 31 sonde contro PostgreSQL
+vero, dalle porte vere, su tre tipi di gettone, con un emittente recintato, due
+categorie **omonime su due sedi**, replay, scadenza, revoca, concorrenza,
+cross-club e profilo inesistente. Piu `tests/lib/riscatto-perimetro.test.mjs`,
+che misura la regola su **tutto** il dominio dei due assi generato (sedici
+perimetri per sedici) invece che su casi scelti a mano.
+
+**Verificate per mutazione**: togliendo la propagazione del perimetro dalle due
+strade, **sette** asserzioni diventano rosse su tutti e tre i tipi di gettone.
