@@ -954,6 +954,59 @@ laterale compare (`hidden md:block`) e occupa 264 px: al contenuto ne restano
 che esiste; allargare il punto di rottura a `lg` e una decisione di layout per
 tutta l'applicazione, non per l'area allenatore, e non e stata presa qui.
 
+### 12.1 — La misura era giusta e insufficiente: si taglia, non trabocca
+
+La tabella qui sopra dice zero su quaranta caselle, ed e vero. **Non basta**, e
+il round conclusivo lo ha dimostrato riaprendo le stesse pagine con una misura
+diversa.
+
+Il guscio dell'applicazione dichiara `overflow-x-hidden` sul `<main>`. Un
+contenuto piu largo dello schermo quindi **non fa traboccare il documento**: lo
+si ritaglia, e sparisce senza lasciare traccia nella misura che §12 usava. La
+domanda giusta e la seconda — esiste un contenitore che ritaglia il cui
+`scrollWidth` supera il proprio `clientWidth`?
+
+Su `/trainer-dashboard/appointments`, a 375 px, la risposta era sì:
+
+    main   375 / 671
+    scheda appuntamento   634 px
+
+Di ogni scheda sparivano lo **stato** dell'appuntamento e il **terzo pulsante**,
+«Rifiuta». Non un dettaglio estetico: `transitions` — la macchina a stati del
+dominio — dichiarava quella transizione ammessa, e la schermata la disegnava
+fuori dallo schermo. Su un telefono l'allenatore poteva confermare e
+riprogrammare, e non rifiutare. E ancora l'errore n. 8 di CLAUDE.md §11 in
+un'altra forma: non codice mancante, codice **irraggiungibile** — questa volta
+per una regola di CSS.
+
+La causa e la larghezza minima automatica di una **casella di griglia**, che
+vale `min-content`. Dentro la scheda c'e il titolo `truncate`, cioe
+`white-space: nowrap`, e il suo `min-content` e l'intera riga di testo: la
+colonna non poteva scendere sotto quella misura. Il `min-w-0` sul blocco di
+testo **c'era gia** e non poteva bastare — quello lascia scendere il figlio
+flex, non la casella della griglia. Serve su entrambi, ed e la stessa regola che
+`responsive-invariants.test.mjs` difendeva gia due volte, applicata un livello
+piu su.
+
+Dopo: `main` 375/375, la scheda 301 px, il titolo tronca con i puntini, e i tre
+pulsanti vanno a capo dentro la scheda.
+
+**Le altre nove pagine sono state rimisurate con il criterio nuovo e sono
+pulite.** Gli unici contenitori che ritagliano sono elementi `truncate`, cioe
+esattamente cio che il troncamento e; le due tabelle larghe restano dentro il
+proprio `overflow-x-auto` e scorrono, che e un'altra cosa.
+
+| Pagina | 375, criterio «taglia» |
+|---|---|
+| Home, Allenamenti, Gare, Atleti, Squadre, Bacheca, Documenti, Notifiche, I miei compensi | nessun contenitore taglia |
+| Appuntamenti | `main` 375/671 **prima**, 375/375 **dopo** |
+
+Il modulo di §11 e stato rimisurato aperto alle quattro larghezze, con la casella
+RSVP montata: a 375 px e largo 333 px su 375 e alto 1.022 px di contenuto in 694
+visibili, quindi **adesso scorre dentro il proprio riquadro** — a differenza di
+quanto §12 diceva prima della casella — e nessuno dei suoi elementi esce dal
+modulo. A 768/1280/1440 px e 486 px su 760 di contenuto.
+
 ---
 
 ## §13 — Un menu intitolato «ALLENATORE» che vedeva un gestore
