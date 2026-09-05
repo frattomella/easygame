@@ -61,7 +61,25 @@ export const isRefundTransaction = (
   transaction: NormalizedPaymentTransaction,
 ) =>
   asText(transaction?.data?.kind) === "refund" &&
-  !transaction?.reversesTransactionId;
+  !transaction?.reversesTransactionId &&
+  /*
+    **E un rimborso stornato non e piu un rimborso.**
+
+    Questa riga escludeva la **riga di storno** e non il rimborso che lo storno
+    ha annullato: un fatto morto continuava a consumare la capienza. Il suo
+    corrispettivo sul server la condizione ce l'ha da sempre
+    (`payment-transactions.ts`, `reversed_at: null`, «un fatto vale fra le sue
+    rappresentazioni vive»), e le due definizioni divergevano.
+
+    Misurato: 130 EUR incassati, 130 rimborsati, il rimborso stornato — la rata
+    dice «pagata 130/130» e la finestra del rimborso dice «gia rimborsato per
+    intero», con il pulsante morto e la rotta che risponde 400. E la strada che
+    il prodotto **consiglia**: `reversePaymentTransaction` rifiuta di stornare
+    un incasso con rimborsi vivi e suggerisce di stornare prima il rimborso.
+    Chi la seguiva restava senza strada, tranne il pannello di Stripe — cioe
+    esattamente cio che questo modulo esiste per non far fare.
+  */
+  !transaction?.reversedAt;
 
 /** I rimborsi gia registrati su un incasso, dal piu vecchio al piu recente. */
 export const refundsOfTransaction = (

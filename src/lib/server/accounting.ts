@@ -1,4 +1,8 @@
 import { prisma } from "./prisma";
+import {
+  resolveInboundClassification,
+  resolveOutboundClassification,
+} from "./fiscal-config";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import {
   assertAccountingEntryInvariants,
@@ -835,7 +839,28 @@ const resolveOperationType = async (
   client: any,
   organizationId: string,
   code: string,
+  direction: "IN" | "OUT",
 ) => {
+  /*
+    **La regola sul verso sta dove sta il dominio, e qui non veniva chiesta.**
+
+    ADR-0106: una causale che **contraddice il verso del fatto** e un errore,
+    non un avviso, e vale nei due sensi. Il vaglio esiste, e corretto, e vive in
+    `fiscal-config.ts` — ma lo attraversano solo i due percorsi **dedotti**
+    (lavoro sportivo e contributi). Questa e l'unica schermata in cui la causale
+    la **digita una persona**, cioe quella con l'esposizione piu alta, ed era
+    l'unica senza vaglio.
+
+    Misurato: un movimento in **entrata** da 735 EUR accettato con causale
+    «Compenso sportivo», e un'uscita accettata con «Quota associativa». I totali
+    per verso restano giusti, la **voce** no — esattamente il danno che l'ADR
+    descrive: «gonfia una voce dal lato sbagliato e sposta il movimento sotto un
+    capitolo che non gli appartiene».
+
+    Si chiede percio al proprietario invece di riscrivere il confronto: se la
+    causale contraddice il verso, o e disattivata, solleva lui, con il suo
+    messaggio.
+  */
   const causale = await client.fiscalOperationType.findFirst({
     where: { organization_id: organizationId, code },
   });
@@ -845,6 +870,16 @@ const resolveOperationType = async (
   if (causale.is_active === false) {
     throw new Error(`La causale «${causale.label}» e disattivata`);
   }
+
+  /*
+    Le due risposte qui sopra questa rotta le dava gia, con le sue parole, e
+    restano sue. Cio che mancava e la **terza**: si chiede al proprietario, e
+    solleva lui se il verso non torna.
+  */
+  await (direction === "IN"
+    ? resolveInboundClassification
+    : resolveOutboundClassification)({ organizationId, code });
+
   return causale;
 };
 
@@ -1071,7 +1106,12 @@ export const createAccountingEntry = async (
   const scrivi = async () =>
     (prisma as any).$transaction(async (client: any) => {
     await ensureAccountBelongsToClub(client, organizationId, accountId);
-    const causale = await resolveOperationType(client, organizationId, code);
+    const causale = await resolveOperationType(
+      client,
+      organizationId,
+      code,
+      direction === "OUT" ? "OUT" : "IN",
+    );
 
     return client.accountingEntry.create({
       data: {
@@ -1382,7 +1422,16 @@ export const updateAccountingEntry = async (
         "Un movimento senza causale nasce gia sbagliato: scegliere la causale e la prima cosa",
       );
     }
-    causaleDopo = await resolveOperationType(prisma, originale.organization_id, code);
+    /*
+      La riclassificazione non cambia il **verso** del movimento: si vaglia
+      quindi contro quello che la riga ha gia.
+    */
+    causaleDopo = await resolveOperationType(
+      prisma,
+      originale.organization_id,
+      code,
+      normalizeDirection(originale.direction) === "OUT" ? "OUT" : "IN",
+    );
     dati.operation_type_id = causaleDopo.id;
     dati.operation_type_code = causaleDopo.code;
     /*
