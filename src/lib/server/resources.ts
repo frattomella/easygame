@@ -74,7 +74,10 @@ import { toBirthDateIso } from "../birth-date";
 import { withPlatformOwnedSettings } from "../entitlements/ownership";
 import { hasSeasonPermission } from "@/lib/seasons/permissions";
 import { assertPersonalDataDisposed } from "./data-subject";
-import type { AccessScopeEntry } from "@/lib/roles/access-scope";
+import {
+  normalizeAccessScopes,
+  type AccessScopeEntry,
+} from "@/lib/roles/access-scope";
 import {
   athleteStatusQueryValues,
   normalizeAthleteStatus,
@@ -3129,6 +3132,8 @@ const guardaIlConioDiUnGettone = async (
   delete payload.minted_by_user_id;
   delete payload.mintedByRole;
   delete payload.mintedByUserId;
+  delete payload.minted_by_scopes;
+  delete payload.mintedByScopes;
 
   if (!scope) return;
 
@@ -3169,6 +3174,21 @@ const guardaIlConioDiUnGettone = async (
 
   payload.minted_by_role = scope.activeRole || null;
   payload.minted_by_user_id = scope.userId || null;
+  /*
+    **E il suo perimetro, non solo il suo ruolo** (P0-2).
+
+    Il soffitto del ruolo era gia timbrato; quello del **recinto** no, e il
+    riscatto non aveva modo di sapere che chi ha coniato vedeva una sede sola.
+    Misurato: un gestore recintato sulla sede A consegnava un accesso che
+    legge anche la sede B — cioe allargava il proprio recinto per interposta
+    persona, che e esattamente cio che `accessScopeContains` vieta sulla
+    Gestione accessi.
+
+    Si timbra il perimetro **del momento del conio**: e la cosa che il
+    gettone promette. Per i gettoni gia coniati il riscatto ricade sul
+    recinto attuale di chi li ha firmati.
+  */
+  payload.minted_by_scopes = normalizeAccessScopes(scope.accessScopes);
 };
 
 const findClubResourceRecord = async (
