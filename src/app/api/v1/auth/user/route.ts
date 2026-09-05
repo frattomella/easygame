@@ -68,8 +68,33 @@ export async function PATCH(request: Request) {
       Il controllo di `platform-admin.ts` non legge piu quel campo, e questa
       lista e la seconda meta della stessa correzione: due difese per lo stesso
       privilegio, perche una sola prima o poi si dimentica.
+
+      **E infatti se n'e dimenticata una** (terzo round della revisione ostile,
+      CRITICAL). La lista aveva tre nomi, e nel frattempo `isPlatformAdminUser`
+      aveva imparato a leggerne un quarto: `emailVerified`. Un elenco di nomi
+      proibiti va tenuto aggiornato contro ogni lettore futuro, e questo non lo
+      e stato per la durata di un commit.
+
+      **La regola che lo chiude in generale**, e non solo per quel nome: le
+      chiavi che `buildUserMetadata` **calcola** non si scrivono. Sono una
+      **proiezione** di colonne vere — `email_verified_at`, `phone_verified_at`,
+      `phone_verification_required`, `role`, `is_club_creator` — e a ogni
+      serializzazione vengono ricalcolate e sovrascritte. Persisterle in
+      archivio non cambia quindi cio che il browser legge: cambia solo cio che
+      leggono i **chiamanti lato server**, che hanno in mano la riga grezza e
+      la sua colonna JSON. Una scrittura senza effetto visibile e con un
+      effetto invisibile e la forma peggiore che possa avere.
     */
-    const CHIAVI_NON_SCRIVIBILI = ["role", "app_metadata", "is_platform_admin"];
+    const CHIAVI_NON_SCRIVIBILI = [
+      "role",
+      "app_metadata",
+      "is_platform_admin",
+      /* Le proiezioni calcolate da `buildUserMetadata`: si leggono, non si scrivono. */
+      "emailVerified",
+      "phoneVerified",
+      "phoneVerificationRequired",
+      "isClubCreator",
+    ];
 
     const metadataGrezzo =
       (typeof body?.data === "object" && body.data) ||

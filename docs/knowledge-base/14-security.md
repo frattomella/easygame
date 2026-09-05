@@ -2791,3 +2791,114 @@ Dichiarati dal reviewer e **non** chiusi in questa lane:
 - la superficie di anteprima e provata su **chi puo entrare** e su **cosa non
   spedisce**; non e stata attaccata come applicazione (per esempio con un
   catalogo manomesso), perche il catalogo e un valore del sorgente e non un dato.
+
+---
+
+## PP-05 — terzo round della revisione ostile (2026-09-05)
+
+Terzo reviewer indipendente, sulla lane **intera** e con le correzioni dei due
+round precedenti gia dentro. Esito: **1 Critical, 3 Low/Osservazione**. Il
+Critical e istruttivo piu del difetto in se, perche e **il fix del round
+precedente ad averlo aperto**.
+
+### CRITICAL — l'indirizzo si dichiarava verificato da solo, e il fix di H-1 cadeva
+
+Il secondo round aveva chiuso H-1 pretendendo un **indirizzo provato** prima di
+concedere l'amministrazione di piattaforma. La funzione accettava come prova
+**due sorgenti in `OR`**:
+
+```
+Boolean(user?.email_verified_at) || Boolean(user?.user_metadata?.emailVerified)
+```
+
+La prima e una colonna scritta solo da qualcosa che ha attraversato la casella.
+**La seconda e una colonna JSON libera, scritta dal suo stesso soggetto** — la
+stessa colonna che una Wave precedente aveva gia dovuto disinnescare per
+`role`, e per la stessa ragione. La blocklist di `PATCH /api/v1/auth/user`
+conosceva tre nomi (`role`, `app_metadata`, `is_platform_admin`) e non
+`emailVerified`: nel frattempo il lettore ne aveva imparato un quarto, e nessuno
+ha aggiornato la lista.
+
+**La catena misurata.** L'elenco degli amministratori vive in
+`NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS`, cioe e **pubblicato a ogni
+browser**. Si occupa un indirizzo di quell'elenco non ancora registrato — la
+casella non serve, perche l'indirizzo non si verifica — e si manda
+`PATCH /auth/user {"data":{"emailVerified":true}}`. **Non cambia nessun
+fattore**, quindi non passa nemmeno dal cancello della password attuale. Alla
+richiesta successiva: `/api/v1/admin/*`, `/api/v1/platform/payments`,
+`/api/v1/maintenance`, il profilo fiscale e i conti Stripe di ogni societa, e le
+due pagine `private/`.
+
+**Le due difese, indipendenti** — e la sonda misura che **ciascuna da sola**
+chiude la catena (S10, verificata per mutazione in due varianti):
+
+1. **`isPlatformAdminUser` distingue le due forme che riceve.** Chi porta la
+   **colonna** — i chiamanti lato server, che hanno in mano la riga — viene
+   giudicato su quella e su nient'altro. Solo chi non ce l'ha, cioe la
+   proiezione verso il client (`/auth/complete` e le due pagine `private/`),
+   ricade su `user_metadata.emailVerified`; e li quel campo non e quello
+   dell'archivio, perche `buildUserMetadata` lo **ricalcola dalla colonna** a
+   ogni serializzazione. La distinzione non e una supposizione sulla forma
+   dell'oggetto: e la presenza della colonna.
+2. **La blocklist del `PATCH` rifiuta tutte le proiezioni calcolate**, non solo
+   quella trovata: `emailVerified`, `phoneVerified`,
+   `phoneVerificationRequired`, `isClubCreator`, oltre a `role`, `app_metadata`
+   e `is_platform_admin`. Le preferenze vere di una persona restano scrivibili,
+   e un test lo presidia: una blocklist che cresce senza un criterio finisce per
+   bloccare tutto.
+
+**Le due lezioni, e la seconda e piu utile della prima.**
+
+- Una **proiezione calcolata non si scrive**. `buildUserMetadata` ricostruisce
+  quei campi da colonne vere a ogni serializzazione, quindi persisterli non
+  cambia cio che il browser legge — viene sovrascritto — e cambia **solo** cio
+  che leggono i chiamanti lato server. Una scrittura senza effetto visibile e
+  con un effetto invisibile e la forma peggiore che possa avere: non c'e niente,
+  nell'interfaccia, che segnali che e successa.
+- **Un `OR` fra due sorgenti vale quanto la piu debole delle due.** Il fix
+  aggiungeva una condizione per irrobustire una decisione, e l'ha indebolita,
+  perche la condizione ammetteva una sorgente che l'interessato controlla. La
+  comodita che l'ha motivata era vera — tre chiamanti vedono la forma
+  serializzata — ma la risposta giusta a «due chiamanti portano due forme» e
+  **distinguerle**, non accettarle entrambe.
+
+### LOW / Osservazione — non chiusi, e perche
+
+- **`prisma:error Unique constraint failed (user_id, channel)` sotto
+  concorrenza vera.** Il logger interno di Prisma stampa prima che il codice
+  applicativo veda l'errore, quindi quelle righe escono fuori dal punto unico.
+  Il pre-read aggiunto al ramo reset (L-2 del secondo round) toglie il caso
+  comune — il secondo clic — non la corsa vera. Contenuto: i soli **nomi** dei
+  campi, nessun valore e nessun dato personale. E igiene di osservabilita, e la
+  correzione giusta e la configurazione del logger, che non appartiene a questa
+  lane. Annotato come debito **PP05-D7**.
+- **L'`href` dell'invito atleta non passa da `sanitizeEmailUrl`.**
+  Non sfruttabile oggi — il link e composto dal server, base da variabile
+  d'ambiente e gettone casuale — ma e l'unico URL-in-attributo del sistema email
+  rimasto fuori dal filtro, ed e anche reso nell'anteprima.
+  `src/lib/server/athlete-accounts.ts` e di **PP-04** nel contratto di ownership
+  parallelo: la frontiera non si attraversa. Gia registrato come dependency
+  verso PP-04 e come debito **PP05-D4**, che ne esce allargato.
+- **Saturazione del secchiello SMS per destinatario.** Registrando account con
+  indirizzi usa-e-getta e **il numero della vittima** si consuma il contatore
+  condiviso di quel numero (5 all'ora), e per quell'ora l'SMS legittimo della
+  vittima non parte. E in parte **intrinseco** a un tetto per destinatario:
+  toglierlo riaprirebbe HIGH-3 del primo round, che e molto peggio. Reversibile,
+  limitato, nessun dato esposto. Annotato come debito **PP05-D8**.
+
+### Coverage gaps del terzo round
+
+Dichiarati dal reviewer:
+
+- **OAuth vivo**: nessun provider configurato, quindi Google e Microsoft non
+  sono stati esercitati end-to-end; il ramo del tenant Microsoft condiviso e
+  verificato per lettura e dalla sonda S1.
+- **Concorrenza sui tre assi di rate limit**: il reviewer si e appoggiato alle
+  sonde del repository invece di scriverne una propria e indipendente.
+- **Riscatto del gettone di club**: non attaccato in profondita.
+- **SMTP/IMAP amministrativi**: letti, non sottoposti a fuzzing.
+- **Segnaposto dei modelli di messaggio**: verificato il percorso di escaping e
+  i sanificatori, non fatto fuzzing esaustivo dei blocchi con carichi avversari.
+- **Enumerazione per tempi**: valutata per lettura — `bcrypt` gira sui due rami
+  — e **non** misurata con un campionamento statistico. E lo stesso gap del
+  secondo round, e resta aperto.

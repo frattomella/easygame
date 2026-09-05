@@ -25,7 +25,10 @@
  * - **S8** — sei richieste di reset simultanee non producono violazioni
  *   `P2002` non gestite (LOW-9);
  * - **S9** — senza sessione l'UUID nudo di un account non pilota le rotte di
- *   verifica, e non si distingue da uno inventato (MEDIUM-1).
+ *   verifica, e non si distingue da uno inventato (MEDIUM-1);
+ * - **S10** — un indirizzo dell'elenco degli amministratori, mai verificato, non
+ *   si concede la piattaforma scrivendosi `emailVerified` addosso (CRITICAL del
+ *   terzo round).
  *
  * **La sonda misura, non corregge.** Scrive righe proprie con identificativi
  * casuali e le cancella alla fine.
@@ -515,6 +518,111 @@ const main = async () => {
         JSON.stringify(conUuid.body) === JSON.stringify(inventato.body)
       } · con riferimento = ${conIlRiferimento} · con sessione = ${conLaSessione}`,
     );
+  }
+
+
+  /* ---------------- S10: la piattaforma non si concede da se ------------- */
+  {
+    /*
+      **CRITICAL del terzo round.** Il fix di H-1 pretendeva un indirizzo
+      provato, e accettava come prova **due** sorgenti in `OR`: la colonna
+      `email_verified_at` e la chiave `user_metadata.emailVerified`. La seconda
+      e una colonna JSON **libera, scritta dal suo stesso soggetto**, e la
+      blocklist di `PATCH /auth/user` non la conosceva: tre nomi proibiti, e
+      nel frattempo il lettore ne aveva imparato un quarto.
+
+      La catena: l'elenco degli amministratori vive in una variabile
+      `NEXT_PUBLIC_*`, cioe e pubblicato a ogni browser. Si occupa un indirizzo
+      di quell'elenco non ancora registrato — la casella non serve, perche
+      l'indirizzo non si verifica — e si manda
+      `PATCH /auth/user {"data":{"emailVerified":true}}`. Non cambia nessun
+      fattore, quindi non passa nemmeno dal cancello della password attuale.
+      Alla richiesta successiva: dati di pagamento di ogni societa, piani,
+      profilo fiscale, conti Stripe, e le due pagine `private/`.
+    */
+    const aggiorna = (await carica("src/app/api/v1/auth/user/route.ts")).PATCH;
+    const { createSessionForUser } = await carica("src/lib/server/auth.ts");
+    const { isPlatformAdminUser } = await carica("src/lib/platform-admin.ts");
+
+    const indirizzoDellElenco = `capo-${marchio}@easygame.invalid`;
+    const elencoPrecedente = process.env.EASYGAME_PLATFORM_ADMIN_EMAILS;
+    const elencoPubblicoPrecedente =
+      process.env.NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS;
+    process.env.EASYGAME_PLATFORM_ADMIN_EMAILS = indirizzoDellElenco;
+    process.env.NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS = indirizzoDellElenco;
+
+    try {
+      const occupante = await creaUtente({
+        email: indirizzoDellElenco,
+        /* Mai verificato: l'attaccante non possiede quella casella. */
+        email_verified_at: null,
+      });
+      const sessione = await createSessionForUser(occupante);
+
+      const prima = isPlatformAdminUser(
+        await prisma.user.findUnique({ where: { id: occupante.id } }),
+      );
+
+      const esito = await aggiorna(
+        new Request("http://easygame.local/api/v1/auth/user", {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            cookie: `easygame_session=${sessione.access_token}`,
+          },
+          body: JSON.stringify({ data: { emailVerified: true } }),
+        }),
+      );
+
+      const dopoLaRiga = await prisma.user.findUnique({
+        where: { id: occupante.id },
+      });
+      const dopo = isPlatformAdminUser(dopoLaRiga);
+      const persistito = Boolean(dopoLaRiga?.user_metadata?.emailVerified);
+
+      /*
+        **Il controspecchio, senza il quale la riga non misura niente.** Con la
+        colonna valorizzata — cioe con un indirizzo davvero provato — la stessa
+        funzione deve rispondere `true`: altrimenti si starebbe misurando una
+        funzione che nega sempre, e un amministratore vero resterebbe fuori.
+      */
+      const provato = isPlatformAdminUser({
+        ...dopoLaRiga,
+        email_verified_at: new Date(),
+      });
+      /*
+        E la **proiezione** verso il client continua a valere, perche li
+        `emailVerified` lo scrive `buildUserMetadata` dalla colonna, non il suo
+        soggetto: `/auth/complete` e le due pagine `private/` chiamano con
+        questa forma, che la colonna non ce l'ha.
+      */
+      const serializzato = isPlatformAdminUser({
+        email: indirizzoDellElenco,
+        user_metadata: { emailVerified: true },
+      });
+
+      segna(
+        "S10 — un indirizzo mai verificato non si concede la piattaforma scrivendosi un campo addosso",
+        prima === false &&
+          dopo === false &&
+          persistito === false &&
+          provato === true &&
+          serializzato === true,
+        `stato PATCH = ${esito.status} · flag persistito = ${persistito} · admin prima = ${prima}, dopo = ${dopo} · controspecchi: con la colonna = ${provato}, forma serializzata = ${serializzato}`,
+      );
+    } finally {
+      if (elencoPrecedente === undefined) {
+        delete process.env.EASYGAME_PLATFORM_ADMIN_EMAILS;
+      } else {
+        process.env.EASYGAME_PLATFORM_ADMIN_EMAILS = elencoPrecedente;
+      }
+      if (elencoPubblicoPrecedente === undefined) {
+        delete process.env.NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS;
+      } else {
+        process.env.NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS =
+          elencoPubblicoPrecedente;
+      }
+    }
   }
 
   __setSmsProviderForTests(undefined);

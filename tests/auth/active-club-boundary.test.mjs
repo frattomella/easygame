@@ -198,10 +198,111 @@ test("con l'elenco configurato vale l'indirizzo, e nient'altro", async () => {
         user_metadata: { emailVerified: true },
       }),
       true,
-      "vale anche la forma serializzata, che e quella che vede il client",
+      "vale anche la forma serializzata, che e quella che vede il client: li `emailVerified` lo scrive `buildUserMetadata` dalla colonna",
+    );
+
+    /*
+      **E le due forme non sono equivalenti** (PP-05, CRITICAL del terzo round).
+
+      La stesura precedente accettava le due sorgenti in `OR`, e quell'`OR`
+      riapriva per intero il difetto che questa funzione era stata scritta per
+      chiudere: `user_metadata` e una colonna JSON **libera, scritta dal suo
+      stesso soggetto**, quindi bastava un `PATCH /auth/user` con
+      `{"data":{"emailVerified":true}}` — che non cambia nessun fattore, e non
+      passa nemmeno dal cancello della password attuale — per farsi la prova da
+      soli.
+
+      Chi porta la **colonna** viene giudicato su quella e su nient'altro. Solo
+      chi non ce l'ha — cioe chi non puo averla, perche la colonna non
+      attraversa la serializzazione — ricade sulla proiezione, che a quel punto
+      l'ha scritta il server.
+    */
+    assert.equal(
+      isPlatformAdminUser({
+        email: "capo@easygame.it",
+        email_verified_at: null,
+        user_metadata: { emailVerified: true },
+      }),
+      false,
+      "con la colonna presente e vuota, un campo che il soggetto si scrive addosso non e una prova",
     );
   } finally {
     if (originale === undefined) delete process.env.EASYGAME_PLATFORM_ADMIN_EMAILS;
     else process.env.EASYGAME_PLATFORM_ADMIN_EMAILS = originale;
+  }
+});
+
+/**
+ * **Le proiezioni calcolate non si scrivono** (PP-05, CRITICAL del terzo round).
+ *
+ * `buildUserMetadata` **ricalcola** `emailVerified`, `phoneVerified`,
+ * `phoneVerificationRequired`, `role` e `isClubCreator` da colonne vere a ogni
+ * serializzazione. Persisterli nella colonna JSON non cambia quindi cio che il
+ * browser legge — viene sovrascritto — e cambia solo cio che leggono i
+ * chiamanti **lato server**, che hanno in mano la riga grezza. Una scrittura
+ * senza effetto visibile e con un effetto invisibile e la forma peggiore che
+ * possa avere: era la strada con cui un indirizzo dell'elenco degli
+ * amministratori, **mai verificato**, si concedeva la piattaforma.
+ *
+ * La blocklist e la seconda di due difese indipendenti; la prima e in
+ * `platform-admin.ts`, e la sonda `pp-05-sicurezza-probe.mjs` (S10) misura che
+ * ciascuna delle due, da sola, chiude la catena.
+ */
+test("PATCH /auth/user non lascia scrivere le proiezioni che il server calcola", async () => {
+  const { readFileSync } = await import("node:fs");
+  const sorgente = readFileSync("src/app/api/v1/auth/user/route.ts", "utf8");
+
+  const blocco = sorgente.slice(
+    sorgente.indexOf("const CHIAVI_NON_SCRIVIBILI"),
+    sorgente.indexOf("const metadataGrezzo"),
+  );
+  assert.ok(blocco, "la lista deve esistere");
+
+  for (const chiave of [
+    "role",
+    "app_metadata",
+    "is_platform_admin",
+    "emailVerified",
+    "phoneVerified",
+    "phoneVerificationRequired",
+    "isClubCreator",
+  ]) {
+    assert.match(
+      blocco,
+      new RegExp(`"${chiave}"`),
+      `\`${chiave}\` e una proiezione o un privilegio: il suo soggetto non la scrive`,
+    );
+  }
+
+  /*
+    E la lista si **applica**: senza il filtro, tenerla aggiornata non
+    servirebbe a niente.
+  */
+  assert.match(
+    sorgente,
+    /CHIAVI_NON_SCRIVIBILI\.includes\(chiave\)/,
+    "la lista dev'essere quella su cui il filtro decide",
+  );
+});
+
+/**
+ * Il contrappunto della prova precedente: le chiavi che **non** sono
+ * proiezioni restano scrivibili, perche `user_metadata` e il posto dove una
+ * persona tiene le sue preferenze e va bene che lo sia. Una blocklist che
+ * cresce senza un criterio finisce per bloccare tutto.
+ */
+test("le preferenze di una persona restano scrivibili: la lista non e un divieto generale", async () => {
+  const { readFileSync } = await import("node:fs");
+  const sorgente = readFileSync("src/app/api/v1/auth/user/route.ts", "utf8");
+  const blocco = sorgente.slice(
+    sorgente.indexOf("const CHIAVI_NON_SCRIVIBILI"),
+    sorgente.indexOf("const metadataGrezzo"),
+  );
+
+  for (const chiave of ["firstName", "lastName", "phone", "name"]) {
+    assert.ok(
+      !new RegExp(`"${chiave}"`).test(blocco),
+      `\`${chiave}\` e un dato della persona, non una proiezione: deve restare scrivibile`,
+    );
   }
 });

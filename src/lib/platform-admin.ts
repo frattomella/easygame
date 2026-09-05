@@ -67,16 +67,39 @@ export const isPlatformAdminEmail = (email?: string | null) => {
 /**
  * **L'indirizzo vale come identita solo se e stato provato** (PP-05).
  *
- * Accetta le due forme in cui una persona arriva qui: la riga del database
- * (`email_verified_at`) e la sua proiezione verso il client
- * (`user_metadata.emailVerified`, scritta da `buildUserMetadata`). Non e una
- * comodita: `/auth/complete` e le due pagine `private/` chiamano
- * `isPlatformAdminUser` con la forma serializzata, e pretendere solo la prima
- * le farebbe rispondere «no» a un amministratore vero.
+ * Qui arrivano **due forme** della stessa persona, e non sono equivalenti:
+ *
+ * - la **riga del database**, che i chiamanti lato server hanno in mano. Porta
+ *   `email_verified_at`, che e una colonna scritta solo dalla conferma di un
+ *   OTP, dall'adozione OAuth o dal consumo di un token di reset — cioe da
+ *   qualcosa che ha attraversato la casella. Porta **anche** `user_metadata`,
+ *   che e una colonna JSON **libera, scritta dal suo stesso soggetto**;
+ * - la **proiezione verso il client**, che `/auth/complete` e le due pagine
+ *   `private/` ricevono. Non ha la colonna, e porta `user_metadata.emailVerified`
+ *   che pero **non e** quello dell'archivio: `buildUserMetadata` lo ricalcola
+ *   dalla colonna a ogni serializzazione, sovrascrivendo cio che c'era.
+ *
+ * **La prima forma decide con la colonna e con nient'altro.** La stesura
+ * precedente accettava le due sorgenti in `OR`, e quell'`OR` riapriva per
+ * intero il difetto che questa funzione era stata scritta per chiudere
+ * (terzo round della revisione ostile, CRITICAL): un `PATCH /auth/user` con
+ * `{"data":{"emailVerified":true}}` — che non cambia nessun fattore, quindi non
+ * passa nemmeno dal cancello della password attuale — persisteva il valore in
+ * `user_metadata`, e alla richiesta successiva un indirizzo dell'elenco **mai
+ * verificato** valeva come amministratore di piattaforma.
+ *
+ * La distinzione fra le due forme non e una supposizione sulla loro forma: e
+ * la presenza della colonna. Chi ce l'ha viene giudicato su quella; solo chi
+ * non ce l'ha — cioe chi non puo averla, perche la colonna non attraversa la
+ * serializzazione — ricade sulla proiezione, che a quel punto e stata scritta
+ * dal server.
  */
-const indirizzoProvato = (user: any) =>
-  Boolean(user?.email_verified_at) ||
-  Boolean(user?.user_metadata?.emailVerified);
+const indirizzoProvato = (user: any) => {
+  if (user && "email_verified_at" in user) {
+    return Boolean(user.email_verified_at);
+  }
+  return Boolean(user?.user_metadata?.emailVerified);
+};
 
 export const isPlatformAdminUser = (user: any) => {
   const email = String(user?.email || "").trim().toLowerCase();
