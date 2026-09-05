@@ -957,3 +957,37 @@ in `tests/server/ruoli-personalizzati-rotte.test.mjs`. La seconda esiste perche
 la guardia nuova rende il soffitto irraggiungibile per la strada che lo provava:
 va esercitato dove **resta** raggiungibile, cioe su un `club_manager` canonico
 che tenta di concedere una chiave di direzione.
+
+## PP-03 — Un lettore si definisce con un predicato, non con un nome di ruolo (2026-09-05)
+
+Verbale in [44 — PP-03 Trainer](44-pp-03-trainer.md) §15.4.
+
+`athletes.data` si legge adesso **per elenco di ammessi** da chi ha
+`clinical.status_read` e **non** `clinical.read` — cioe da chi vede lo *stato* del
+certificato e non il suo *contenuto*, che e la frase con cui
+[CLAUDE.md §2](../../CLAUDE.md) descrive il dominio del dato sanitario.
+
+**La forma conta quanto la regola.** Scrivere quel lettore come
+`normalizeAccessRole(role) === "trainer"` sarebbe stato piu breve e sbagliato per
+tre ragioni che questo repository ha gia pagato:
+
+- un **ruolo personalizzato** basato su `trainer` normalizza sulla base, quindi
+  sarebbe stato incluso per caso e non per decisione — e se domani il club gli
+  concedesse `clinical.read`, il taglio resterebbe acceso su chi ha titolo di
+  leggere (e la forma opposta del difetto di §4, dove la normalizzazione toglieva
+  le chiavi concesse);
+- un ruolo **nuovo** che vede lo stato e non il contenuto nascerebbe senza il
+  taglio, e nessuno se ne accorgerebbe: e esattamente cio che e successo a
+  `stripPersonCredentials`, scritto per `trainer` e non applicato a
+  `collaborator`;
+- la **famiglia** non ha nessuna delle due chiavi, quindi non e questo lettore, e
+  il predicato lo dice da solo: non serve un'eccezione con il nome del ruolo
+  dentro.
+
+La regola generale: **quando una proiezione dipende da cosa un ruolo puo vedere,
+la condizione si scrive sulle chiavi, non sul nome.** Il nome del ruolo e un
+riassunto; le chiavi sono la decisione.
+
+Il predicato vive in `src/lib/health/permissions.ts` (`readerSeesStatusOnly`),
+che e il proprietario del dominio: non e stato riscritto in `resources.ts`, che
+si limita a passargli il ruolo attivo dello scope.
