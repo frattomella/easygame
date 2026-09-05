@@ -433,6 +433,20 @@ Fonte ufficiale da mantenere aggiornata:
 - `GET /api/v1/auth/session`
 - `GET|PATCH /api/v1/auth/user`
 - `GET /api/v1/auth/memberships`
+- `POST /api/v1/auth/memberships/activate`
+
+  Il campo `role` di ogni riga e il **gettone** della tessera
+  (`custom:<base>:<nome>#<chiavi separate da virgola>`) quando il ruolo e
+  personalizzato, e lo slug canonico (`trainer`, `club_manager`, …) altrimenti.
+  E lo stesso valore che `GET /api/v1/auth/session` gia emette come
+  `scope.activeRole`, e serve al browser per chiedere `roleHasPermission`: uno
+  slug nudo porta `permissions: []`, cioe **nessuna chiave** per **ogni** ruolo
+  personalizzato. Non concede niente in piu — le chiavi del gettone sono un
+  sottoinsieme di quelle del ruolo base (ADR-0102) — e rimandato al server come
+  `x-active-access-role` **non viene creduto**: il risolutore ne tiene il solo
+  slug stabile e ricostruisce le chiavi da `club_role_permissions`. Su
+  `activate`, `resolved_role` resta il **ruolo base**: i due campi rispondono a
+  due domande diverse.
 - `GET /api/v1/auth/providers`
 - `POST /api/v1/auth/verify/email/send`
 - `POST /api/v1/auth/verify/email/confirm`

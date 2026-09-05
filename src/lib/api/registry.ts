@@ -1609,7 +1609,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "POST",
     path: "/api/v1/auth/verify/email/send",
     description:
-      "Invio codice verifica email." +
+      "Invio codice verifica email. " +
       "Il campo `userId` accetta il **riferimento opaco** (`token_verification_id`, emesso come `verification.userId` dalle risposte senza sessione), e l'UUID nudo dell'account **solo** da chi ha gia una sessione su quel medesimo account (ADR-0117 §6)",
     mobile_ready: true,
   },
