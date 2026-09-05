@@ -991,3 +991,56 @@ riassunto; le chiavi sono la decisione.
 Il predicato vive in `src/lib/health/permissions.ts` (`readerSeesStatusOnly`),
 che e il proprietario del dominio: non e stato riscritto in `resources.ts`, che
 si limita a passargli il ruolo attivo dello scope.
+
+### E un predicato sulle chiavi ha **un solo termine** (PP-03 §16.1)
+
+La regola qui sopra e giusta e non basta: conta anche **quante** chiavi entrano
+nella condizione. Il lettore ristretto del dato clinico era scritto cosi:
+
+```ts
+hasHealthPermission(role, "clinical.status_read") && !hasHealthPermission(role, "clinical.read")
+```
+
+cioe «vede lo stato **e non** il contenuto». Sembra la trascrizione fedele della
+frase, e apre il verso opposto: un ruolo di club a cui la societa **toglie
+anche** `clinical.status_read` non ha nessuna delle due chiavi, quindi non e
+«questo lettore», quindi cade nel ramo largo e legge **piu** dell'allenatore
+canonico. Togliere una casella dava piu dato — **un privilegio invertito**.
+
+Un predicato che decide una **proiezione** deve nominare la cosa che protegge, e
+una sola:
+
+```ts
+!hasHealthPermission(role, "clinical.read")
+```
+
+*Hai titolo al contenuto?* Chi non ce l'ha sta dalla parte stretta, qualunque sia
+la ragione per cui non ce l'ha — chiave mai concessa, chiave revocata, ruolo
+sconosciuto, ruolo assente. Cosi il predicato fallisce **chiuso** anche su
+`null`, `""` e un nome che il dizionario non riconosce.
+
+`readerSeesStatusOnly` resta in `src/lib/health/permissions.ts` e non decide piu
+la proiezione: risponde a una domanda vera e **diversa** — «questa persona vede
+lo stato del certificato?» — che e quella delle schede sanitarie. Due domande,
+due predicati; erano uno solo, e faceva male il secondo mestiere.
+
+**Come si controlla, in generale.** Ogni volta che una condizione di sicurezza
+contiene una congiunzione, va letta due volte: la seconda chiedendosi **chi cade
+fuori da entrambi i termini**, e in quale ramo finisce.
+
+### Un elenco di negati non sa niente di cio che non conosce (PP-03 §17.3)
+
+Stessa forma, sui **tipi** invece che sui ruoli. `club_resource_items` toglieva
+dall'elenco i tipi che il ruolo attivo non puo leggere, filtrando l'elenco dei
+tipi **dichiarati**: una riga con un tipo che quell'elenco non contiene — una
+grafia al singolare, un tipo scritto a mano su una colonna di testo libero — non
+era fra i negati, quindi passava a chiunque.
+
+Chi ha titolo a un **sottoinsieme** si serve per elenco di **ammessi**. L'elenco
+dei negati resta valido solo per chi ha titolo a **tutto**, dove un nome
+sconosciuto e una riga storica da non far sparire a chi la possiede.
+
+E la guardia va nel **punto comune ai verbi**: quando una risorsa si raggiunge
+sia per elenco sia per identificativo, un filtro d'elenco corretto e una lettura
+per id senza guardia sono la stessa risorsa con due risposte diverse — e chi
+attacca prova la seconda.

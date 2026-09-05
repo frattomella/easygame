@@ -1584,3 +1584,153 @@ schermo. Le due correzioni che avevano prodotto quella lezione sono state
   `sport-work/model.ts` invece del gettone grezzo, e la tabella delle rate — la
   sola dell'area allenatore che dichiari a mano un `min-w-[560px]` — sta dentro
   il proprio contenitore che scorre.
+
+---
+
+## §20 — Chiusura della lane
+
+### Il conto dei round
+
+Sette round di revisione ostile, ciascuno con il mandato di **rompere** e non
+di approvare, e ciascuno con in mano le sonde del precedente.
+
+| Round | Verdetto | Chiuso |
+|---|---|---|
+| 1–2 | Critical 2 / High 3 | §1, §6, §7 |
+| 3 | Critical 1 / High 1 | §9, §10 |
+| 4 | (interrotto; due HIGH consegnati dal round 5) | §11.2 |
+| 5 | Critical 0 / High 4 / Medium 5 / Low 5 | §15.1–§15.4 |
+| 6 | Critical 0 / High 5 / Medium 1 | §16.1–§16.2 (dato clinico) e §17.1–§17.5 |
+| **7 (giro conclusivo)** | **Critical 0 / High 0** | §18 — niente di proprio da chiudere |
+
+Il giro conclusivo si chiude a **Critical 0 / High 0**: l'ultima passata —
+quella che ha attaccato le due superfici che non sono una riga, e ha
+riattaccato le correzioni di §17 da angolazioni nuove — non ha trovato nulla di
+proprio, ed e la condizione che il mandato chiedeva.
+
+Vale la pena scrivere **come** si sono chiusi i tre HIGH non clinici del round
+6, perche
+sono la stessa cosa detta tre volte: una difesa scritta per **una porta** e non
+per la sua gemella. L'asse dei gruppi valeva contro chi era gia recintato e non
+contro chi non lo era; la guardia sul tipo della riga viveva nell'elenco e non
+nella lettura per identificativo; il taglio clinico si applicava col ruolo in
+mano su una rotta e senza ruolo sull'altra. Quando questo repository sbaglia,
+sbaglia quasi sempre cosi.
+
+### Il vincolo della lane, e dove regge
+
+L'allenatore **non** vede diagnosi, documenti sanitari, note cliniche,
+fascicolo medico; vede — se autorizzato — idoneo/non idoneo,
+valido/scaduto/in scadenza e la data di scadenza. Misurato su:
+
+- sette porte dell'anagrafica (`/athletes`, `/athletes/:id`,
+  `/simplified_athletes`, `?view=summary`, e le tre grafie del registro);
+- `medical_certificates` per elenco, per identificativo e dentro `data.source`
+  nelle sue forme esotiche;
+- i **byte** di un certificato medico, su entrambi i rami della rotta dei file
+  — fascicolo e archivio storico;
+- `auth/athlete-profile`, che era la terza porta e passava senza ruolo;
+- **con ruolo personalizzato**, in tutte e tre le configurazioni che contano:
+  con `clinical.status_read`, **senza** (il privilegio invertito di §16.1), e
+  con `clinical.read` concesso dal club;
+- **con perimetro**, sia quello di `clubs.trainers` sia le righe di
+  `club_access_scopes` con i due assi in AND.
+
+Dove **non** regge, e dichiarato: `PP04-D10`, i byte di un documento **non
+clinico** fuori dal recinto. Vedi i coverage gap.
+
+### Coverage gap dichiarati
+
+1. **`PP04-D10` — e un difetto del ruolo allenatore, e questa lane non lo
+   copre.** Il perimetro di sede e categoria non scende sui **byte**
+   dell'archivio storico dei documenti: un allenatore recintato — sia per
+   `clubs.trainers`, sia per righe di `club_access_scopes` — scarica il
+   documento **non clinico** di un atleta di un'altra categoria e di un'altra
+   sede. Misurato in §18.1, non ereditato da una descrizione: e la misura
+   **corregge** il registro di PP-04 in un punto che conta, perche il
+   **certificato medico non esce** — lo ferma la guardia clinica di §6.2 di
+   questa lane. E il complemento esatto del vincolo che PP-03 presidia: dove la
+   lane ha chiuso il contenuto clinico su sette porte, resta aperta la sola
+   porta in cui il confine non e clinico ma di perimetro. **Non corretto**: PP-04
+   e chiusa, il file non e di nessuna lane viva, e il mandato assegna il caso
+   all'integrazione.
+2. **`PP03-D17` — le altre due porte cliniche senza ruolo.** `data-subject.ts` e
+   `form-submissions.ts` chiamano `stripClinicalAthleteFields` senza ruolo. Non
+   raggiungibili da un allenatore (`data_subject.export` non e fra le sue
+   chiavi, misurato), e la correzione chiede prima l'esenzione «per legame» che
+   quei due moduli non hanno.
+3. **`PP04-D8` — il genitore revocato.** Fuori dalla superficie di questa lane
+   (area famiglia), e la strada che passa da `clearLinkedFields` e una perdita
+   di dato che nessuna lane e nella posizione di decidere da sola.
+4. **`PP03-D9` — le dieci caselle applicate solo nel browser.** Non allargano il
+   perimetro, ma sono una promessa che il server non mantiene. Portarle sul
+   server e una decisione sul **modello dei permessi**, che ha un proprietario.
+5. **`PP03-D10` — lo stato dell'evento scelto dal client.** La catena «crea un
+   allenamento nel passato, dichiaralo concluso, segna i presenti» produce ore
+   rendicontabili. Tocca il dominio `funding`.
+6. **Il mobile.** `easygamemobile/` ha una copia di fatto dei permessi
+   allenatore (CLAUDE.md §6). Questa lane non l'ha toccata e non l'ha misurata:
+   lo sviluppo mobile e differito (ADR-0025), ma le correzioni di §16 e §17
+   **non** sono state riportate li e la divergenza va dichiarata a chi
+   riprendera quell'albero.
+
+### Debito lasciato
+
+Diciotto voci: `PP03-D1`..`PP03-D4` e `PP03-D6`..`PP03-D19`. Manca `PP03-D5`,
+che il quinto round ha chiuso, il sesto ha riaperto da due lati e ha richiuso
+entrambi. Ogni voce porta scritto **perche** non e stata
+chiusa dentro la lane: ownership di un altro dominio, una decisione sul modello
+dei permessi, una bonifica di dati, o una scelta che si paga con una perdita di
+dato e va presa da una persona.
+
+Nessun rilievo dei sette round e senza destino: o e chiuso con la sua prova, o
+ha un identificativo in `16-technical-debt.md`.
+
+### Decisioni che chiedono una validazione umana
+
+1. **`PP04-D8`, la strada da scegliere.** Azzerare `guardians[].email` insieme
+   al legame chiude il buco e **perde l'indirizzo** con cui la segreteria scrive
+   alla famiglia. L'alternativa preferibile — promuovere il legame per indirizzo
+   a `linkedUserId` una volta sola, con una migrazione — costa una migrazione e
+   tocca PP-02. Nessuna delle due si prende dentro una lane.
+2. **`PP03-D9`, cosa sono le dieci caselle.** Chiavi del catalogo con la loro
+   matrice per ruolo, o configurazione di club che le guardie leggono? Le due
+   risposte portano a prodotti diversi.
+3. **`PP03-D10`, due domande insieme.** Uno stato si puo dichiarare alla
+   nascita? Una presenza si puo scrivere su un evento datato nel passato? La
+   seconda tocca la rendicontazione dei contributi pubblici.
+4. **Il prezzo degli elenchi di ammessi.** Questa lane ne ha introdotti tre
+   (`athletes.data` per il lettore ristretto, i campi dentro i contenitori, i
+   tipi di `club_resource_items` per chi ne legge un sottoinsieme). Ognuno
+   sbaglia nel verso prudente — un campo che manca lascia un trattino, un
+   referto che esce non lo vede nessuno — ma **ognuno va allargato a mano**
+   quando il prodotto comincia a scrivere qualcosa di nuovo. E una scelta di
+   manutenzione, ed e scritta accanto a ciascun elenco.
+
+### Migrazioni introdotte
+
+**Nessuna.** Questa lane non ha toccato `prisma/schema.prisma` ne aggiunto
+cartelle in `prisma/migrations/`.
+
+### Conflitti previsti in integrazione
+
+| File | Con chi | Cosa |
+|---|---|---|
+| `.eslintrc.json` | **PP-05** | La commit `2a244f9` aggiunge `"root": true`; PP-05 ha fatto una commit analoga per lo stesso motivo — nel worktree di lane ESLint risale ai padri, trova l'altro `.eslintrc.json` tre livelli piu su e si ferma prima di leggere un file. **Stessa riga, stessa ragione**: si risolve tenendone una |
+| `src/lib/server/resources.ts` | PP-02, PP-04 | Non assegnato a nessuna lane e toccato da piu di una. Le modifiche di PP-03 sono tre e localizzate: la guardia sul destinatario in `assertRecordAccess` (§9.1), la guardia sul tipo della riga nello stesso punto (§17.3), e il ramo dell'elenco di ammessi in `buildWhereFromSearchParams` (§17.3) |
+| `src/lib/health/permissions.ts` | — | Di PP-03 per ownership, ma il modulo lo legge mezzo prodotto. Le due funzioni nuove — `readerReadsDeclaredAthleteFieldsOnly` e la proiezione dei contenitori — cambiano cosa vede **chi non ha `clinical.read`**: qualunque lane che passi un ruolo a `stripClinicalAthleteFields` va riletta dopo il merge |
+| `src/lib/server/profile-account-links.ts` | PP-04 (chiusa) | La commit `7c26262` soddisfa `PP04-D1` e `PP04-D9`; annotato nel registro `deps/PP-04-DEPENDENCIES.md` |
+| `src/lib/server/events.ts` | PP-01 | Base comune; PP-01 e la base di questa lane, quindi in linea |
+| `src/app/api/v1/auth/athlete-profile/[athleteId]/route.ts` | PP-05 | Sta sotto `src/app/api/v1/auth/**`, che il contratto assegna a **PP-05**. La modifica di PP-03 e **un argomento in una chiamata** (§17.4) piu il commento: dichiarata qui perche il difetto era clinico e dell'area allenatore, ma va segnalata a PP-05 in integrazione |
+
+### I quattro gate, dopo l'ultimo commit
+
+| Gate | Esito |
+|---|---|
+| `npm test` | **4.731 / 4.731** |
+| `npm run typecheck` | pulito, exit 0 |
+| `npm run lint` | exit 0 — **0 errori, 34 warning** (lo stesso numero di inizio lane) |
+| `npm run build` | completa, exit 0 |
+
+E le ventiquattro sonde contro `easygame_dev_pp03` e le rotte vere: tutte verdi
+salvo i rossi che portano scritto un identificativo di debito.
