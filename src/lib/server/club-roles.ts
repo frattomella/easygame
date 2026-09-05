@@ -936,6 +936,162 @@ export const updateAssignmentScopes = async (
  * lasciare da sola il club: qui si applica anche quando e il proprietario a
  * cacciarla.
  */
+/* ========================================================================= *
+ *  Il perimetro di una tessera nata da un gettone (P0-2)
+ * ========================================================================= */
+
+/**
+ * **Zero righe di perimetro non vuol dire «nessun accesso»: vuol dire tutto il
+ * club** (ADR-0103). E la regola giusta per una tessera che la Gestione accessi
+ * ha creato di proposito senza recinti — ma e la risposta sbagliata per una
+ * tessera nata da un **gettone**, dove nessuno ha deciso niente: nessuno dei
+ * due percorsi di riscatto scriveva una sola riga di perimetro.
+ *
+ * Misurato: un gestore recintato sulla sede A conia un gettone di allenatore,
+ * la persona lo riscatta, e da quel momento vede anche la sede B. E la stessa
+ * lezione che `accessScopeContains` ha gia imparato sull'altro lato — «un
+ * `club_manager` recintato concedeva a una seconda utenza un `club_manager`
+ * senza perimetro, e da quel momento leggeva tutto il club per interposta
+ * persona» — ma quella regola valeva solo sulla Gestione accessi.
+ *
+ * **Non si e cambiata la semantica di «zero righe».** Quel significato lo legge
+ * `accessScopeAllows` e ogni filtro che ne discende, e cambiarlo globalmente
+ * senza misurare tutti i consumer sposterebbe il difetto invece di chiuderlo
+ * (debito registrato). Si e reso **esplicito il riscatto**: chi entra da un
+ * gettone porta il perimetro che il suo profilo di origine dichiara, e mai piu
+ * largo di quello di chi ha coniato.
+ */
+export const applyMembershipAccessScopes = async (
+  client: any,
+  membershipId: string,
+  perimetri: readonly AccessScopeEntry[],
+) => {
+  const righe = normalizeAccessScopes(perimetri);
+
+  await client.clubAccessScope.deleteMany({
+    where: { organization_user_id: membershipId },
+  });
+
+  if (righe.length) {
+    await client.clubAccessScope.createMany({
+      data: righe.map((perimetro) => ({
+        organization_user_id: membershipId,
+        scope_kind: perimetro.kind,
+        scope_value: perimetro.value,
+      })),
+    });
+  }
+
+  return righe;
+};
+
+/**
+ * **Il perimetro che un atleta si porta dietro**: le sedi e le categorie delle
+ * sue appartenenze.
+ *
+ * E la derivazione piu stretta che esista per quel profilo, e non ha bisogno di
+ * nessuna dichiarazione: la scheda dice gia dove quel ragazzo si allena.
+ */
+export const deriveAthleteAccessScopes = async (
+  client: any,
+  organizationId: string,
+  athleteId: string,
+): Promise<AccessScopeEntry[]> => {
+  const appartenenze = await client.athleteCategoryMembership.findMany({
+    where: { organization_id: organizationId, athlete_id: athleteId },
+    select: { site_id: true, category_id: true },
+  });
+
+  const perimetri: AccessScopeEntry[] = [];
+  for (const riga of appartenenze) {
+    const sede = String(riga.site_id || "").trim();
+    const categoria = String(riga.category_id || "").trim();
+    if (sede) perimetri.push({ kind: "site", value: sede });
+    if (categoria) perimetri.push({ kind: "category", value: categoria });
+  }
+
+  return normalizeAccessScopes(perimetri);
+};
+
+/**
+ * **Il perimetro consegnato da un riscatto**, con la regola che lo rende sicuro.
+ *
+ * Due ingredienti e un ordine preciso:
+ *
+ * 1. cio che il **profilo di origine** dichiara — le categorie di un
+ *    allenatore, le appartenenze di un atleta, quelle dei figli di un tutore;
+ * 2. cio che **chi ha coniato** poteva concedere.
+ *
+ * La risposta non e mai piu larga del secondo. E quando il primo non dice
+ * niente **e** il secondo e ristretto, si consegna il secondo: e la sola
+ * risposta che non allarga. Consegnare zero righe li dentro vorrebbe dire
+ * consegnare tutto il club, cioe esattamente il difetto.
+ *
+ * Quando **nessuno dei due** dice niente — profilo senza dichiarazioni,
+ * emittente senza recinti — il risultato e zero righe, e zero righe significa
+ * tutto il club. E il comportamento di oggi, ed e voluto: chi non ha un
+ * perimetro non ne impone uno.
+ */
+export const resolveRedeemAccessScopes = (
+  daProfilo: readonly AccessScopeEntry[] | null | undefined,
+  daEmittente: readonly AccessScopeEntry[] | null | undefined,
+): AccessScopeEntry[] => {
+  const profilo = normalizeAccessScopes(daProfilo);
+  const emittente = normalizeAccessScopes(daEmittente);
+
+  if (!emittente.length) return profilo;
+  if (!profilo.length) return emittente;
+
+  /*
+    Il profilo dice qualcosa e l'emittente pure: si tiene il profilo, ma solo
+    per la parte che l'emittente poteva concedere. Un asse che l'emittente
+    restringe e che il profilo non nomina prende i valori dell'emittente —
+    altrimenti quell'asse resterebbe scoperto, e un asse scoperto e «tutte».
+  */
+  const risultato: AccessScopeEntry[] = [];
+  for (const kind of ["site", "category"] as const) {
+    const suoi = emittente.filter((e) => e.kind === kind).map((e) => e.value);
+    const nostri = profilo.filter((e) => e.kind === kind).map((e) => e.value);
+
+    if (!suoi.length) {
+      for (const valore of nostri) risultato.push({ kind, value: valore });
+      continue;
+    }
+
+    const ammessi = nostri.filter((valore) => suoi.includes(valore));
+    for (const valore of ammessi.length ? ammessi : suoi) {
+      risultato.push({ kind, value: valore });
+    }
+  }
+
+  return normalizeAccessScopes(risultato);
+};
+
+/**
+ * Scrive il perimetro di una tessera nata da un riscatto, e **rifiuta** se il
+ * risultato uscisse dal recinto di chi ha coniato.
+ *
+ * La verifica finale non e ridondante rispetto al calcolo qui sopra: quella
+ * calcola, questa **misura il calcolato**. Se un giorno la derivazione cambia e
+ * sbaglia, qui si ferma invece di consegnare un accesso piu largo.
+ */
+export const applyRedeemAccessScopes = async (
+  client: any,
+  membershipId: string,
+  daProfilo: readonly AccessScopeEntry[] | null | undefined,
+  daEmittente: readonly AccessScopeEntry[] | null | undefined,
+) => {
+  const perimetri = resolveRedeemAccessScopes(daProfilo, daEmittente);
+
+  if (!accessScopeContains(daEmittente, perimetri)) {
+    throw roleDenied(
+      "il perimetro che questo gettone consegnerebbe e piu largo di quello di chi lo ha coniato",
+    );
+  }
+
+  return applyMembershipAccessScopes(client, membershipId, perimetri);
+};
+
 export const revokeClubAccess = async (
   scope: ClubRolesScope,
   membershipId: string,

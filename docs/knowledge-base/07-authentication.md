@@ -538,3 +538,35 @@ per attiva» aprirebbe domani una pagina che nessuno ha valutato.
 errore. Il dominio e generalizzabile, ma `athlete_account_invites` e modellata
 sull'atleta: estenderla richiede una decisione sul soggetto (colonna polimorfa o
 seconda tabella). Vedi `W6-D05` in [16 — Debito tecnico](16-technical-debt.md).
+
+---
+
+## Che cosa consegna un riscatto (P0-2, 2026-09-06)
+
+Riscattare un gettone non e solo «collegare un account»: e **concedere una
+tessera**, e una tessera ha un perimetro. Fino a questa correzione nessuna
+delle due strade ne scriveva uno, e zero righe di perimetro significano tutto
+il club (ADR-0103): il dettaglio, la misura e le prove stanno in
+[14 — Sicurezza](14-security.md).
+
+Quello che chi legge questo file deve sapere e la forma finale:
+
+| gettone | profilo collegato | ruolo | perimetro |
+|---------|-------------------|-------|-----------|
+| invito dell'atleta | `athletes.user_id` | `athlete` | le sedi e le categorie delle sue appartenenze |
+| gettone dell'allenatore | `linkedUserId` sulla scheda | `trainer` | le categorie della scheda, dentro il recinto di chi ha coniato |
+| gettone del tutore | la riga tutore indicata | `parent` | le appartenenze del minore, dentro il recinto di chi ha coniato |
+| gettone di solo ruolo | nessuno | il ruolo del gettone, sotto il soffitto di `minted_by_role` | il recinto di chi ha coniato |
+
+Tre regole che valgono per tutti e quattro:
+
+1. **il perimetro non si allarga** — mai piu largo di quello di chi ha coniato,
+   verificato due volte: una volta calcolandolo e una volta rimisurandolo prima
+   di scriverlo;
+2. **un gettone vale una volta**, a meno che non sia legato a un profilo, che e
+   l'unica forma in cui il multiuso ha un freno;
+3. **si consuma con una condizione**, non con una scrittura: due riscatti
+   simultanei dello stesso invito ne fanno entrare uno solo.
+
+Dopo il riscatto lo stato e utilizzabile subito: non serve passare dalla
+Gestione accessi, che resta amministrazione successiva e non onboarding.
