@@ -2383,3 +2383,31 @@ profondita del taglio — e richiuso entrambi (§16.1, §16.2). Vale la pena
 scriverlo: una correzione che regge tre round non e per questo finita, e le due
 riaperture non hanno trovato una svista ma la **stessa forma** del difetto
 originale, un livello piu sotto.
+
+### Il round 7 di PP-03 (2026-09-05)
+
+| ID | Cosa | Perche non e stato chiuso qui |
+|---|---|---|
+| **PP03-D19** | `GET /api/athletes/<id>/documents/<documentId>/file` risponde **500** quando `documentId` e l'**identificativo logico** del documento invece del suo `assetId`. La rotta prova prima il ramo dei depositi documentali, che filtra su una colonna `uuid`: `doc-r7-normale` — cioe la grafia che il prodotto stesso scrive dentro `data.sharedDocuments` — fa fallire la query con `invalid input syntax for type uuid` prima che si arrivi al ramo dell'archivio storico. Misurato: succede **anche alla direzione**, quindi non e un perimetro ne un ruolo. E la stessa forma gia riconosciuta su `club_resource_items`, dove un id logico confrontato con una colonna `uuid` non «non trova niente» ma rompe la query | Non esce nessun dato: la porta si chiude sbagliando il codice, non aprendosi. La correzione giusta non e un `try/catch` su questa rotta: e riconoscere che **due identificativi diversi arrivano nello stesso segmento di percorso**, e decidere una volta per tutte se il ramo dei depositi debba filtrare solo su valori che sono UUID — che e la forma gia scelta per `club_resource_items` — oppure se le due porte vadano separate. Vale per tutte le rotte che accettano l'una o l'altra grafia, non per questa sola |
+
+**Misura aggiornata di `PP04-D10`, che questa lane dichiara e non corregge.**
+Il registro di PP-04 scriveva che un allenatore recintato scarica «l'archivio
+storico **e il certificato medico**» di un atleta di un'altra categoria.
+Misurato adesso con due attori — un allenatore base con perimetro in
+`clubs.trainers` e un ruolo di club con due righe di `club_access_scopes` in AND
+(categoria **e** sede) — il fatto e piu stretto e va scritto per intero:
+
+```
+GET /api/athletes/<atleta fuori recinto>/documents/<assetId>/file
+  documento NON clinico     200, byte consegnati     <-- esce, per entrambi
+  certificato medico        403                      <-- fermato, per entrambi
+```
+
+Il **certificato medico non esce**: lo ferma la guardia clinica che PP-03 ha
+messo su entrambi i rami della rotta ([44](44-pp-03-trainer.md) §6.2). Esce il
+documento **non clinico** — contratti, documenti d'identita, moduli firmati di
+un minore di un'altra squadra — perche il perimetro di sede e categoria non
+scende sui **byte** dell'archivio storico. Resta un difetto **del ruolo
+allenatore**, ed e il complemento esatto del vincolo che PP-03 presidia: dove la
+lane ha chiuso il contenuto clinico su sette porte, resta aperta la sola porta in
+cui il confine non e clinico ma di perimetro. Assegnato all'integrazione.

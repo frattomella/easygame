@@ -1436,3 +1436,97 @@ chiedeva un 403 o un 404. Contato come diniego, che e cio che era.
 | §17.3, tolta la guardia sulla riga singola | **7 righe** della sonda |
 | §17.3, l'elenco torna ai soli negati | `G-01` e `G` della sonda |
 | §17.4, il ruolo non viene piu passato | `C-01` e `C-01b` della sonda |
+
+---
+
+## §18 — Il round 7: le due superfici che non sono una riga
+
+Le altre sonde di questa lane misurano il perimetro sulle **righe**: chi compare
+in un elenco, chi si raggiunge per identificativo, chi si scrive. Restavano due
+cose che una riga non e — i **byte** di un documento e i **destinatari** di una
+comunicazione — e il giro conclusivo non si poteva dichiarare chiuso senza
+averle misurate direttamente.
+
+`scripts/pp-03-round7-byte-e-destinatari-probe.mjs`, **16/16** su cio che
+giudica, piu quattro righe di misura su cio che dichiara e non corregge.
+
+### §18.1 — I byte: `PP04-D10` misurato, e piu preciso di come era scritto
+
+Due attori, entrambi fuori dal recinto dell'atleta bersaglio (categoria `beta`,
+sede «Santi Cosma»):
+
+- **Aldo**, allenatore **base**, perimetro in `clubs.trainers[].categories = [alfa]`;
+- **Rea**, ruolo di club su base `trainer` con due righe di `club_access_scopes`
+  — categoria `alfa` **e** sede «Scauri», i due assi in AND di ADR-0103. Il suo
+  profilo in `clubs.trainers` dichiara di proposito **entrambe** le categorie:
+  se il perimetro reggesse solo grazie a quella colonna, la sonda non
+  misurerebbe l'asse che vuole misurare.
+
+```
+GET /api/athletes/<atleta di beta>/documents/<assetId>/file
+
+  Aldo · documento NON clinico     200, 31 byte      <-- esce
+  Aldo · certificato medico        403               <-- fermato
+  Rea  · documento NON clinico     200, 31 byte      <-- esce
+  Rea  · certificato medico        403               <-- fermato
+```
+
+Il perimetro di sede e categoria **non vale sui byte** dell'archivio storico.
+La rotta chiede il ruolo (`medical_certificates` in lettura), l'appartenenza al
+club e — per un certificato — `clinical.read`, e non chiede mai se **questo**
+atleta e dentro il recinto di **questo** allenatore.
+
+**La misura corregge il registro di PP-04 in un punto che conta.** Li stava
+scritto che un allenatore recintato scarica «l'archivio storico **e il
+certificato medico**». Il certificato **non esce**: lo ferma la guardia clinica
+di §6.2 di questa lane, che vale su entrambi i rami della rotta. Esce il
+documento **non clinico**, ed e gia abbastanza — contratti, documenti
+d'identita, moduli firmati di un minore di un'altra squadra.
+
+**PP-03 non lo corregge**, ed e una scelta dichiarata: PP-04 e chiusa, il file
+non e di nessuna lane viva, il mandato di questa fase lo assegna
+all'integrazione, e la correzione — far scendere `athleteIdsWithinAccessScope`
+anche sul ramo dell'archivio — tocca una rotta che serve anche la famiglia. Sta
+nei coverage gap, con la misura di sopra invece della descrizione.
+
+E il **complemento esatto** del vincolo che questa lane presidia: dove la lane
+ha chiuso il contenuto clinico su sette porte, resta aperta la sola porta in cui
+il confine non e clinico ma di perimetro.
+
+### §18.2 — I destinatari: chiusi, e la porta che resta e gia scritta
+
+```
+POST /api/v1/announcements           {"audience":{"categoryIds":["beta"]}}   negato
+POST /api/v1/communications          {"audience":{"kind":"all_families"}}    negato
+POST /api/v1/communications/preview  {"audience":{"categoryIds":["beta"]}}   negato
+```
+
+Nessuna escalation di audience: un allenatore non compone un insieme di
+destinatari, ne dentro ne fuori dal proprio recinto. La porta che **ha** — la
+notifica uno-a-uno di `PP03-D7` — regge i due confini che le restano: un
+destinatario fuori dal club e negato, e «a tutto il club» (`user_id` nullo) pure.
+
+### §18.3 — Il riattacco a §17 tiene
+
+- §17.1 dal verso opposto: chi ha **gruppi** e non ha **categorie** non scrive
+  nella categoria di un altro, e il suo evento di soli gruppi resta scrivibile.
+  La correzione non ha spostato il difetto sull'altro asse.
+- §17.3 su una riga creata **dalla rotta** e non dal seed: uno sconto scritto
+  dalla direzione resta negato all'allenatore da tutte e tre le grafie del
+  percorso — per contenitore, per nome, e per contenitore con `?fields=`.
+- §17.4: il fascicolo di un atleta di un'altra categoria resta chiuso, e il
+  proprio si legge.
+
+### §18.4 — Una porta che si rompe invece di rispondere
+
+`GET /api/athletes/<id>/documents/<identificativo logico>/file` risponde **500**.
+La rotta prova prima il ramo dei depositi documentali, che filtra su una colonna
+`uuid`: un identificativo logico — `doc-r7-normale`, cioe la grafia che il
+prodotto stesso scrive dentro `data.sharedDocuments` — fa fallire la query con
+`invalid input syntax for type uuid` prima che si arrivi al ramo dell'archivio
+storico.
+
+Non e un perimetro e non e un ruolo: succede **anche alla direzione**, ed e la
+stessa forma gia vista su `club_resource_items`, dove un id logico confrontato
+con una colonna `uuid` non «non trova niente» ma fa fallire la query. Debito
+`PP03-D19`.
