@@ -347,3 +347,59 @@ che **eseguito**. E la stessa forma del §3: «il caso che ho in mano» diverso 
 dei due registri. Chiudono `PP02-D33`, `PP02-D34` e R-2, che WP-A **non**
 tocca. Finche non sono fatti, PP-02 non e FINAL: resta un High aperto (R-2),
 misurato 5 giri su 5 su due taglie di club.
+
+### WP-C — la forma giusta non e la doppia scrittura (rilievo, 2026-09-06)
+
+Il §4 di questo documento propone, per la transizione, «doppia scrittura per
+una release». Provando a scriverla e emerso che **quella forma ricrea la Causa
+B**, ed e bene dirlo prima che qualcuno la implementi.
+
+**Il ragionamento.** Una doppia scrittura significa: ogni posto che scrive
+`athletes.data.guardians[]` scrive **anche** la tabella. Ma «ogni posto che
+scrive i tutori» e un'enumerazione scritta a mano, che deve restare d'accordo
+con la realta senza che nulla lo verifichi — cioe esattamente la forma che il
+§3 descrive e che ADR-0117 esiste per rendere impossibile.
+
+E non e un rischio teorico: **il conteggio degli scrittori e stato rifatto
+quattro volte in questo perimetro, e ogni volta cresceva** (4 → 6 → 8 → 9 →
+16). Un sedicesimo scrittore dimenticato, in un mondo in cui la **decisione di
+accesso** vive nella tabella, non e una riga che manca in una schermata: e un
+tutore che la revoca non vede.
+
+**Il censimento, rifatto.** Gli scrittori del blob che contano si riducono
+pero a meno di quanto sembra, ed e il rilievo utile:
+
+| dove | quanti punti di scrittura | nota |
+|------|---------------------------|------|
+| `resources.ts` | **6 istruzioni, dentro 2 sole funzioni** — `createResource` (4) e `updateResource` (2) | e l'anagrafica, cioe la via maestra |
+| `profile-account-links.ts` | 2 — `unlinkGuardianAccount`, `unlinkParentGuardians` | scollegamento e sweep |
+| `form-submissions.ts` | 1 — l'approvazione del modulo pubblico | |
+| `access/redeem/route.ts` | 1 — il riscatto del gettone | |
+| `data-subject.ts` | 1 — la cancellazione dell'interessato | |
+
+Sono **cinque file e undici istruzioni**, non sedici scrittori sparsi: la
+stima di 600–900 righe del §4 regge, e la parte di `resources.ts` si aggancia
+in due punti soli invece che in sei.
+
+**La forma corretta, allora, e quella che il §4 gia dice** e che la doppia
+scrittura contraddiceva: `resources.ts` **toglie** `guardians` da
+`athletes.data` in scrittura, e la rotta generica non puo piu ne perdere ne
+riportare una difesa **perche non la vede**. Non due fonti tenute in accordo da
+una lista di chiamanti: una fonte sola, e le altre quattro strade che passano
+dal modulo proprietario.
+
+**Conseguenza sulla sequenza.** WP-C non si puo spezzare in «prima la tabella
+si popola, poi i lettori la guardano»: nell'intervallo la tabella sarebbe vera
+per alcune strade e falsa per altre, e la prima cosa che la guardera e la
+**revoca**. O si spostano scrittori e lettori insieme, o non si sposta niente.
+
+**Stato.** Il modulo proprietario e scritto — chiave d'identita, riporto
+conservativo sulle difese, sweep in una istruzione, anonimizzazione — ma **non
+e stato committato**, perche senza i suoi chiamanti sarebbe codice
+irraggiungibile (CLAUDE.md §11.8), che e il difetto che questo stesso documento
+elenca fra quelli da non ripetere. Va ripreso insieme al suo cablaggio, in un
+commit solo.
+
+**Cosa resta vero, misurato**: `PP02-D33`, `PP02-D34` e R-2 sono ancora aperti,
+e la finestra della revoca e ancora l'intera durata dello sweep. Finche WP-C e
+WP-D non sono fatti, **PP-02 non e FINAL**.
