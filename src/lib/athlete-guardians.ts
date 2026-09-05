@@ -228,6 +228,22 @@ export const readAthleteGuardianContacts = (
     aggirava aggiungendone una sorella con lo stesso indirizzo; questa lettura
     era rimasta indietro, quindi la riga sorella riapriva questo canale.
   */
+  /*
+    **Il registro dei soli recapiti, che il segno di riga non regge da solo.**
+
+    Il segno vive dentro il blob che la rotta generica sostituisce per intero;
+    il registro sta sull'atleta, come quello delle revoche qui sotto, e non ha
+    righe da abbinare.
+  */
+  const recapitiSoli = new Set(
+    (Array.isArray((record as any).contactOnlyIdentities)
+      ? ((record as any).contactOnlyIdentities as unknown[])
+      : []
+    )
+      .map((valore) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+
   const identitaRevocate = new Set(
     (Array.isArray((record as any).revokedGuardianIdentities)
       ? ((record as any).revokedGuardianIdentities as unknown[])
@@ -313,6 +329,25 @@ export const readAthleteGuardianContacts = (
       return false;
     }
 
+  /*
+    **E il registro dei soli recapiti, che il segno di riga non regge da solo.**
+
+    Stessa forma del registro delle revoche qui sopra: vive sull'atleta, non
+    ha righe da abbinare, e sopravvive al salvataggio che sostituisce il blob.
+    Il segno sulla riga cadeva, e con lui l'unica difesa di questo canale.
+  */
+    if (recapitiSoli.size) {
+      const suoIndirizzo = String(
+        (identita as any).email ||
+          (identita as any).linkedUserEmail ||
+          (identita as any).linked_user_email ||
+          "",
+      )
+        .trim()
+        .toLowerCase();
+      if (suoIndirizzo && recapitiSoli.has(suoIndirizzo)) return false;
+    }
+
     /*
       **Chi e stato scollegato non riceve piu avvisi su quel minore.**
 
@@ -366,6 +401,14 @@ export type GuardianAccessState =
   | "linked"
   | "token-active"
   | "token-expired"
+  /**
+   * **Un recapito dichiarato da chi ha compilato un modulo, non dal club.**
+   *
+   * Vale come indirizzo a cui scrivere e **non** come chiave dell'area
+   * famiglia: ADR-0114 fa valere l'indirizzo di contatto come legame, e quella
+   * regola poggia sul presupposto che lo scriva la segreteria.
+   */
+  | "contact-only"
   | "not-linked";
 
 export type GuardianAccessStatus = {
@@ -391,6 +434,11 @@ const ACCESS_STATUS: Record<GuardianAccessState, GuardianAccessStatus> = {
     label: "Token scaduto",
     className: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50",
   },
+  "contact-only": {
+    state: "contact-only",
+    label: "Solo recapito",
+    className: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50",
+  },
   "not-linked": {
     state: "not-linked",
     label: "Account non collegato",
@@ -413,6 +461,30 @@ export const getGuardianAccessStatus = (
   nowMs: number = Date.now(),
 ): GuardianAccessStatus => {
   if (firstValue(guardian, LINKED_USER_KEYS)) return ACCESS_STATUS.linked;
+
+  /*
+    **La difesa che governa l'accesso al dato sanitario di un minore era
+    invisibile in ogni schermata.**
+
+    `contactOnly` decide se un indirizzo apra o no l'area famiglia — allergie,
+    farmaci, byte del certificato — e non compariva da nessuna parte: una
+    revisione lo ha misurato con un `grep` su tutto `src/components` e
+    `src/app`, zero occorrenze. Prima e dopo che quel segno cadesse, la scheda
+    mostrava **la stessa riga e lo stesso badge**, mentre il vaglio dell'accesso
+    passava da «no» a «si».
+
+    Il club non aveva modo di vedere che una riga e solo un recapito, ne di
+    accorgersi che il segno era caduto. E la forma dell'errore n. 8 di
+    CLAUDE.md — un dato che decide un accesso e che nessuna schermata sa
+    accendere — applicata a una **difesa** invece che a una funzione, ed e per
+    questo che il difetto e rimasto vivo cinque round.
+  */
+  if (
+    (guardian as any)?.contactOnly ||
+    (guardian as any)?.contact_only
+  ) {
+    return ACCESS_STATUS["contact-only"];
+  }
 
   const status = String(firstValue(guardian, TOKEN_STATUS_KEYS) || "")
     .trim()

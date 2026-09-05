@@ -1507,3 +1507,74 @@ giustificazione scritta un round prima — «tanto lo copre la guardia della
 crescita» — era falsa proprio per chi quel gesto lo fa di mestiere.
 
 La seconda: **l'identita di una riga non e un campo che sceglie chi chiama.**
+
+
+## 26. Il ventesimo round: smettere di riscrivere la stessa correzione
+
+Il round che ha chiuso la classe, e non per averla corretta meglio.
+
+### Il difetto, per la sesta volta
+
+Un salvataggio **ordinario** della segreteria — una taglia — faceva cadere il
+segno di solo-recapito, e l'area famiglia del minore si apriva a chi aveva solo
+compilato un modulo pubblico: 3.782 byte di cruscotto con note mediche e
+farmaci, byte del certificato, rate, ricevute, e la revoca dei consensi dati dal
+genitore vero. In audit, un `anagrafica.updated`.
+
+Il payload che lo produce e quello **vero** della scheda atleta: id sintetici
+che in archivio non esistono, e le righe **senza** `contactOnly`, perche nessun
+file client conosce quel campo. Con due tutori sullo stesso indirizzo di
+famiglia l'abbinamento e ambiguo per costruzione, la riga risulta «nuova», e il
+segno si butta.
+
+Non era una regressione dell'ultimo commit: era il **residuo** dello stesso
+difetto che l'ultimo commit dichiarava chiuso. Cinque stesure avevano spostato
+il confine senza mai attraversarlo.
+
+### Perche cinque stesure non erano bastate
+
+Perche il problema, nella forma in cui era posto, **non ha soluzione**.
+
+Far sopravvivere un marchio di riga a un salvataggio richiede di sapere quale
+riga in arrivo corrisponda a quale riga in archivio. Quella domanda non ha
+risposta: due righe senza identificativo allo stesso indirizzo non sono
+distinguibili nemmeno in principio, e l'unico campo che le distingue — l'`id` —
+arriva dal corpo della richiesta, cioe da chi si vorrebbe controllare.
+
+L'indizio era nei dati da quattro round: delle tre difese, l'unica mai caduta e
+`revokedGuardianIdentities`. Non perche sia scritta meglio: perche vive a
+livello di **atleta**, ha una chiave propria e un solo scrittore, e **non ha
+niente da abbinare**.
+
+### La correzione: cambiare forma, non stesura
+
+`contactOnlyIdentities` e un registro sull'atleta, con la stessa disciplina
+dell'altro: lo scrive l'approvazione di un modulo, lo toglie il riscatto di un
+invito, e dalla rotta generica si puo solo **aggiungere**, mai togliere. Il
+marchio sulla riga resta — racconta la storia di quella riga — ma non decide
+piu.
+
+E la scheda adesso lo **mostra**. Il badge diceva «Account non collegato» tanto
+per un recapito quanto per una riga qualunque; la difesa che governa l'accesso
+al dato sanitario di un minore non compariva in nessuna schermata, misurato con
+un `grep` su tutto `src/components` e `src/app`. Un club che non puo vedere
+una difesa non puo accorgersi che e caduta, ed e questa la ragione per cui il
+difetto e sopravvissuto cinque round senza che nessuno lo segnalasse.
+
+### Cio che la revisione dichiara converso
+
+Vale la pena riportarlo, perche dice dove **non** conviene piu cercare — ed e
+misurato, non dedotto:
+
+- **il registro delle identita revocate**: nessun modo di impugnarlo trovato in
+  quattro round;
+- **la guardia della crescita**: distingue un refuso da una concessione, non si
+  aggira con array, maiuscole o le sei grafie dell'identificativo;
+- **`roundInstallmentsToFive`**: 200.000 giri di fuzz dal lato della revisione,
+  50.000 dal mio, zero difetti su quattro proprieta;
+- **`stessaPersona` nella revoca**: ha retto ogni configurazione di ADR-0114.
+
+E dove resta fragile: nei **chiamanti** dei domini induriti, non nei domini. La
+funzione che ripartisce le rate e a prova di fuzz; e `generateInstallmentPreview`
+a produrre una rata da zero, e la schermata a salvarla (PP02-D31). Si indurisce
+la funzione e il difetto si sposta di un anello.

@@ -372,6 +372,44 @@ export const notificationBelongsToAthlete = (
   return sameId(String(citato), athleteId);
 };
 
+/**
+ * **Gli indirizzi che valgono come recapito e non come chiave.**
+ *
+ * Nasce dopo cinque stesure fallite della stessa correzione, e la ragione per
+ * cui esiste vale piu della funzione.
+ *
+ * `contactOnly` e stato scritto **sulla riga**, dentro `athletes.data`, che e
+ * il blob che la rotta generica sostituisce per intero e che nessun file client
+ * conosce. Per farlo sopravvivere a un salvataggio bisogna sapere **quale riga
+ * in arrivo corrisponde a quale riga in archivio**, e quella domanda non ha
+ * risposta: due righe senza identificativo allo stesso indirizzo non sono
+ * distinguibili nemmeno in principio (PP02-D13), e l'unico campo che le
+ * distingue — l'`id` — arriva dal corpo della richiesta, cioe da chi si
+ * vorrebbe controllare. Cinque round, cinque forme diverse dello stesso
+ * difetto, e ogni volta l'esito era che una persona che aveva **solo compilato
+ * un modulo pubblico** si trovava dentro l'area famiglia di un minore.
+ *
+ * L'unica delle tre difese che non e mai caduta e `revokedGuardianIdentities`,
+ * e non per merito: perche vive a livello di **atleta**, ha una chiave propria e
+ * un solo scrittore, e non ha niente da abbinare. Questo registro e la stessa
+ * cosa per il solo-recapito.
+ *
+ * Il segno sulla riga resta — racconta la storia di quella riga, e serve alle
+ * schermate — ma non e piu lui a decidere.
+ */
+export const contactOnlyIdentities = (data: unknown): Set<string> => {
+  const record = asRecord(data);
+  const elenco = Array.isArray((record as any).contactOnlyIdentities)
+    ? (record as any).contactOnlyIdentities
+    : [];
+
+  return new Set(
+    elenco
+      .map((valore: unknown) => normalizeToken(valore))
+      .filter(Boolean),
+  );
+};
+
 export const revokedGuardianIdentities = (data: unknown): Set<string> => {
   const record = asRecord(data);
   const elenco = Array.isArray((record as any).revokedGuardianIdentities)
@@ -388,6 +426,7 @@ export const revokedGuardianIdentities = (data: unknown): Set<string> => {
 export const guardianAccessIdentities = (data: unknown): Set<string> => {
   const identita = new Set<string>();
   const revocate = revokedGuardianIdentities(data);
+  const soloRecapiti = contactOnlyIdentities(data);
 
   for (const guardian of getGuardianRows({ data })) {
     /*
@@ -463,7 +502,12 @@ export const guardianAccessIdentities = (data: unknown): Set<string> => {
       calcolati allo stesso modo, e una crescita e una persona nuova che entra.
     */
     const indirizzo = normalizeToken(perEmail);
-    if (indirizzo && !soloRipiego && !revocate.has(indirizzo)) {
+    if (
+      indirizzo &&
+      !soloRipiego &&
+      !revocate.has(indirizzo) &&
+      !soloRecapiti.has(indirizzo)
+    ) {
       identita.add(indirizzo);
     }
   }
@@ -587,14 +631,39 @@ const athleteBelongsToParent = (
     Un legame **dichiarato** resta piu forte: e cosi che ci si ricollega dopo
     una revoca, e il riscatto toglie anche l'identita dall'elenco.
   */
+  /*
+    **Il solo-recapito si chiede al registro, non alla riga.**
+
+    Il segno sulla riga sopravviveva a un salvataggio solo se il riporto
+    riusciva ad abbinare le righe, e su due tutori allo stesso indirizzo di
+    famiglia non ci riusciva: la segreteria salvava una taglia e chi aveva
+    compilato un modulo pubblico si trovava dentro il fascicolo del minore.
+    Il registro vive sull'atleta e non ha niente da abbinare.
+  */
+  const soloRecapiti = contactOnlyIdentities(athlete?.data);
   const revocate = revokedGuardianIdentities(athlete?.data);
   const ioRevocato =
     revocate.size > 0 &&
     (revocate.has(String(userId || "").trim().toLowerCase()) ||
       (!!userEmail && revocate.has(String(userEmail).trim().toLowerCase())));
 
+  const indirizzoSoloRecapito =
+    !!userEmail && soloRecapiti.has(String(userEmail).trim().toLowerCase());
+
   return getGuardianRows(athlete).some((guardian) => {
     if (!isGuardianLinkedToUser(guardian, userId, userEmail)) return false;
+
+    /*
+      Un indirizzo nel registro vale come recapito e non come chiave: passa
+      solo un legame **dichiarato**, cioe un invito riscattato — che e la
+      strada che toglie l'indirizzo dal registro.
+    */
+    if (
+      indirizzoSoloRecapito &&
+      !guardianDeclaredIds(guardian).includes(normalizeToken(userId))
+    ) {
+      return false;
+    }
     if (!ioRevocato) return true;
 
     /* Revocato: passa solo un legame dichiarato, cioe un nuovo riscatto. */

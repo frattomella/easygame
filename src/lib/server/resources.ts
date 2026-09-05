@@ -6955,18 +6955,83 @@ const applicaGuardieDiModifica = async (
         due righe sono la stessa. Quello sintetico che la scheda costruisce per
         React continua a valere finche la scheda non salva; dopo, vale questo.
       */
+      /*
+        **E un id che nomina due righe non e un id.**
+
+        L'assegnazione toccava solo le righe che un id non ce l'avevano, e due
+        righe potevano quindi restare in archivio con lo **stesso**: da quel
+        momento l'abbinamento per id era spento per sempre, e su un indirizzo
+        condiviso si ricadeva nell'ambiguita che l'id doveva togliere.
+
+        Peggio, il rimedio che «Scollega account» suggerisce a chi incontra un
+        id ambiguo — «salva la scheda e riprova» — non era vero: la scheda si
+        salvava e gli id restavano uguali. Un messaggio che manda in un vicolo
+        cieco e peggio di nessun messaggio.
+      */
+      const idVisti = new Set<string>();
+
       const conIdentificatore = conDifese.map((riga: any) => {
         const record = (riga || {}) as Record<string, any>;
-        if (idDi(record)) return riga;
+        const suo = idDi(record);
+
+        if (suo && !idVisti.has(suo)) {
+          idVisti.add(suo);
+          return riga;
+        }
 
         riportato = true;
-        return { ...record, id: newResourceItemId() };
+        const nuovo = newResourceItemId();
+        idVisti.add(nuovo);
+        return { ...record, id: nuovo };
       });
 
       if (riportato) {
         normalized.data = {
           ...(((normalized.data as any) ?? {}) as Record<string, any>),
           guardians: conIdentificatore,
+        };
+      }
+
+      /*
+        **E il registro dei soli recapiti, che e la difesa che ha sostituito il
+        segno di riga.**
+
+        Stessa disciplina dell'elenco delle revoche qui sotto, e per la stessa
+        ragione: e una difesa che vive in un blob «sostituito per intero», e chi
+        la deve subire non deve poterla togliere. La scrive l'approvazione di un
+        modulo, la toglie il riscatto di un invito.
+
+        Una **aggiunta** che arriva da qui passa, ed e voluto: e cosi che
+        l'approvazione scrive, perche passa da `updateResource`. Cio che non
+        passa e la **rimozione**, che e l'unico verso da cui viene il danno.
+      */
+      const recapitiPrecedenti = Array.isArray(
+        ((existing?.data as any) ?? {}).contactOnlyIdentities,
+      )
+        ? (((existing?.data as any) ?? {}).contactOnlyIdentities as unknown[])
+        : [];
+
+      const recapitiInArchivio = recapitiPrecedenti
+        .map((valore) => String(valore || "").trim().toLowerCase())
+        .filter(Boolean);
+
+      if (recapitiInArchivio.length) {
+        const recapitiInArrivo = Array.isArray(
+          ((normalized.data as any) ?? {}).contactOnlyIdentities,
+        )
+          ? (((normalized.data as any) ?? {}).contactOnlyIdentities as unknown[])
+              .map((valore) => String(valore || "").trim().toLowerCase())
+              .filter(Boolean)
+          : [];
+
+        const uniti = new Set<string>([
+          ...recapitiInArchivio,
+          ...recapitiInArrivo,
+        ]);
+
+        normalized.data = {
+          ...(((normalized.data as any) ?? {}) as Record<string, any>),
+          contactOnlyIdentities: Array.from(uniti) as string[],
         };
       }
 

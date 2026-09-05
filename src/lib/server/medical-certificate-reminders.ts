@@ -113,8 +113,34 @@ export const getGuardianRows = (athlete: any) => {
     Un avviso sulla scadenza del certificato medico di un minore non va a un
     indirizzo che uno sconosciuto ha dichiarato su un modulo pubblico.
   */
-  const soloRecapito = (record: Record<string, any>) =>
-    Boolean(record.contactOnly || record.contact_only);
+  /*
+    **Il segno di riga, e il registro che lo regge.**
+
+    Il segno vive dentro il blob che la rotta generica sostituisce per intero e
+    non sopravviveva a un salvataggio ordinario. Il registro sta sull'atleta,
+    come quello delle revoche, e non ha niente da abbinare.
+  */
+  const recapitiSoli = new Set<string>(
+    (Array.isArray((data as any).contactOnlyIdentities)
+      ? ((data as any).contactOnlyIdentities as unknown[])
+      : []
+    )
+      .map((valore) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  const soloRecapito = (record: Record<string, any>) => {
+    if (record.contactOnly || record.contact_only) return true;
+    if (!recapitiSoli.size) return false;
+
+    const suoIndirizzo = String(
+      record.email || record.linkedUserEmail || record.linked_user_email || "",
+    )
+      .trim()
+      .toLowerCase();
+
+    return Boolean(suoIndirizzo && recapitiSoli.has(suoIndirizzo));
+  };
 
       /*
         **Un legame dichiarato e non revocato vince, come per l'accesso.**

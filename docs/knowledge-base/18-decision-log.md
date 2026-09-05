@@ -6313,6 +6313,34 @@ entri senza riscattare un codice. La revoca azzerava le altre tre e
 quell'indirizzo lo lasciava, perche al club serve per scrivere a quella persona.
 La scheda diceva «Account non collegato» e la persona vedeva ancora tutto.
 
+**Aggiornamento dopo venti round: le difese di riga sono diventate due
+registri.** `contactOnly` e nato come marchio **sulla riga**, dentro
+`athletes.data`, ed e caduto cinque volte di seguito — cinque stesure del
+riporto, cinque round, ogni volta con una forma diversa e ogni volta con lo
+stesso esito: una persona che aveva **solo compilato un modulo pubblico** si
+trovava dentro il fascicolo sanitario di un minore.
+
+La ragione non era nessuna delle cinque stesure: era che il problema **non ha
+soluzione nella forma in cui era posto**. Per far sopravvivere un marchio di
+riga a un salvataggio bisogna sapere quale riga in arrivo corrisponda a quale
+riga in archivio, e quella domanda non ha risposta — due righe senza
+identificativo allo stesso indirizzo non sono distinguibili nemmeno in principio
+(PP02-D13), e l'unico campo che le distingue, l'`id`, arriva dal corpo della
+richiesta, cioe da chi si vorrebbe controllare.
+
+L'indizio era gia nei dati: delle tre difese, l'unica che **non e mai caduta** e
+`revokedGuardianIdentities`, e non per merito di chi l'ha scritta — perche vive
+a livello di **atleta**, ha una chiave propria, un solo scrittore, e non ha
+niente da abbinare.
+
+`contactOnlyIdentities` e la stessa cosa per il solo-recapito. Il marchio sulla
+riga resta, e serve — racconta la storia di quella riga, e adesso la scheda lo
+**mostra** — ma non e piu lui a decidere.
+
+> Una difesa che vive in un contenitore sostituito per intero da chi la deve
+> subire non e una difesa: e un'annotazione. Se serve che regga, le si da una
+> chiave propria e un solo scrittore.
+
 **Decisione.** Tre difese, con proprietari distinti e ruoli distinti:
 
 1. **`athletes.data.revokedGuardianIdentities`** — l'elenco delle identita

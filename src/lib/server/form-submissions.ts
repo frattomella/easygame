@@ -2071,6 +2071,8 @@ const eseguiDecisione = async (
     );
   }
 
+  let contactOnlyDaScrivere: string[] | null = null;
+
   const guardianChange = review.changeSet.subjects.find(
     (subject) => subject.subject === "guardian",
   );
@@ -2172,6 +2174,41 @@ const eseguiDecisione = async (
     if (!compilataDalClub && rigaNuova) {
       patch.contactOnly = true;
       patch.contact_only = true;
+
+      /*
+        **E l'indirizzo entra nel registro dell'atleta.**
+
+        Il segno sulla riga da solo non regge: `athletes.data` e il blob che la
+        rotta generica sostituisce per intero, e per farlo sopravvivere bisogna
+        sapere quale riga in arrivo corrisponda a quale riga in archivio — una
+        domanda che su due tutori allo stesso indirizzo di famiglia non ha
+        risposta. Cinque stesure del riporto, e ogni volta il segno cadeva e
+        l'area famiglia del minore si apriva a chi aveva **solo compilato un
+        modulo**.
+
+        Il registro sta sull'atleta, come quello delle revoche: non ha niente da
+        abbinare, e la rotta generica lo conserva in sola lettura. Lo toglie il
+        riscatto di un invito, che e la strada dichiarata per trasformare un
+        recapito in una chiave.
+      */
+      const indirizzoDichiarato = String(
+        patch.email || patch.linkedUserEmail || "",
+      )
+        .trim()
+        .toLowerCase();
+
+      if (indirizzoDichiarato) {
+        const registro = new Set<string>(
+          (Array.isArray((athleteRecord?.data as any)?.contactOnlyIdentities)
+            ? ((athleteRecord!.data as any).contactOnlyIdentities as unknown[])
+            : []
+          )
+            .map((valore) => String(valore || "").trim().toLowerCase())
+            .filter(Boolean),
+        );
+        registro.add(indirizzoDichiarato);
+        contactOnlyDaScrivere = Array.from(registro);
+      }
     }
 
     if (Number.isInteger(index) && index >= 0 && index < guardians.length) {
@@ -2185,7 +2222,15 @@ const eseguiDecisione = async (
     const updated = await updateResource(
       "athletes",
       athleteId,
-      { data: { ...(athleteRecord?.data || {}), guardians } },
+      {
+        data: {
+          ...(athleteRecord?.data || {}),
+          guardians,
+          ...(contactOnlyDaScrivere
+            ? { contactOnlyIdentities: contactOnlyDaScrivere }
+            : {}),
+        },
+      },
       scope,
     );
     athleteRecord = updated as any;

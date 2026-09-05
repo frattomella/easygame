@@ -583,6 +583,15 @@ const resolveFamilyRecipients = (athlete: any): string[] => {
     Quattro letture dei tutori, ognuna con un sottoinsieme diverso delle tre
     difese, e ogni sottoinsieme diverso e un buco che si scopre un round dopo.
   */
+  const recapitiSoli = new Set<string>(
+    (Array.isArray((data as any).contactOnlyIdentities)
+      ? ((data as any).contactOnlyIdentities as unknown[])
+      : []
+    )
+      .map((valore: unknown) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
+
   const tutoriVivi = tutori.filter((guardian: any) => {
     const record = asRecord(guardian);
 
@@ -601,6 +610,25 @@ const resolveFamilyRecipients = (athlete: any): string[] => {
 
     if (record.contactOnly || record.contact_only) return false;
     if (record.accessRevokedAt || record.access_revoked_at) return false;
+
+    /*
+      **E il registro dei soli recapiti, che il segno di riga non regge da
+      solo.**
+
+      Il segno vive dentro il blob che la rotta generica sostituisce per
+      intero, e non sopravvive a un salvataggio ordinario dell'anagrafica. Il
+      registro sta sull'atleta — stessa forma dell'elenco delle revoche che
+      questa lettura gia consulta — e non ha righe da abbinare.
+    */
+    if (recapitiSoli.size) {
+      const suoIndirizzo = String(
+        record.email || record.linkedUserEmail || record.linked_user_email || "",
+      )
+        .trim()
+        .toLowerCase();
+      if (suoIndirizzo && recapitiSoli.has(suoIndirizzo)) return false;
+    }
+
     return true;
   });
 

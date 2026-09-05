@@ -2574,7 +2574,7 @@ presidio e sulla classe e non sul caso: nessun file sotto `src/app/api` o
 `src/lib/server` puo importare il dominio del browser.
 
 
-## La revoca di un tutore (PP-02, round 7-16)
+## La revoca di un tutore (PP-02, round 7-20)
 
 L'accesso di un tutore a un atleta si toglie per **identita**, non per riga, e
 la decisione con le sue ragioni sta in
@@ -2586,7 +2586,8 @@ Tre difese, tutte dentro `athletes.data`:
 |---|---|---|---|---|
 | `revokedGuardianIdentities` | sull'**atleta** | ogni ripiego per quell'identita | `unlinkGuardianAccount`, sweep della revoca tessera | il **riscatto** di un invito |
 | `accessRevokedAt` | sulla **riga** | il ripiego sull'indirizzo di quella riga | come sopra | il riscatto |
-| `contactOnly` | sulla **riga** | il ripiego su una riga nata senza autore dimostrato | l'approvazione di un modulo **anonimo** | nessuno: si entra con un invito |
+| `contactOnly` | sulla **riga** | il ripiego su una riga nata senza autore dimostrato | l'approvazione di un modulo **non interno** | il riscatto di un invito |
+| `contactOnlyIdentities` | sull'**atleta** | lo stesso, per **identita** e non per riga | come sopra | il riscatto di un invito |
 
 **Cosa deve sapere chi tocca questa zona.**
 
@@ -2626,6 +2627,20 @@ Tre difese, tutte dentro `athletes.data`:
   e blocca la scheda: 1.079 combinazioni su 1.536 risultavano una crescita
   rimandate invariate, e da li in poi nessun ruolo senza `clinical.read`
   riusciva piu a cambiare una taglia.
+- **Il solo-recapito vive in un registro sull'atleta, non solo sulla riga.** Il
+  marchio di riga e caduto cinque volte in cinque round, sempre con lo stesso
+  esito: chi aveva compilato un modulo pubblico entrava nel fascicolo di un
+  minore. Non era colpa delle cinque stesure — un marchio di riga dentro un blob
+  che il client sostituisce per intero richiede di sapere **quale riga e quale**,
+  e su due tutori allo stesso indirizzo di famiglia quella domanda non ha
+  risposta. Il registro non ha righe da abbinare, ed e la ragione per cui
+  `revokedGuardianIdentities` non e mai caduto.
+- **E adesso la scheda lo mostra.** Il badge di un tutore diceva «Account non
+  collegato» tanto per un recapito quanto per una riga qualunque: la difesa che
+  governa l'accesso al dato sanitario di un minore non compariva in **nessuna**
+  schermata (misurato con un `grep` su `src/components` e `src/app`: zero
+  occorrenze). Un club che non puo vedere una difesa non puo accorgersi che e
+  caduta — ed e per questo che il difetto e sopravvissuto cinque round.
 - Le difese seguono la **persona**, non la riga. Due stesure precedenti
   abbinavano le righe per `id` e, quando l'id non era univoco, **per
   posizione** — e la posizione la sceglie chi chiama: riordinare l'elenco,

@@ -6859,6 +6859,247 @@ const sezioneW = async () => {
 
   await prisma.athlete.delete({ where: { id: FIGLIO_REFUSO } });
 
+  /* ---------- W-53..W-56: il ventesimo round ---------- */
+
+  /*
+    **W-53 (High).** Il segno di solo-recapito cadeva a un salvataggio ordinario
+    della segreteria, e l'area famiglia del minore si apriva.
+
+    Il payload e quello **vero** della scheda atleta: id **sintetici** che in
+    archivio non esistono, e le righe **senza** `contactOnly`, perche nessun
+    file client conosce quel campo. Con due tutori sullo stesso indirizzo di
+    famiglia — ADR-0114, la configurazione ordinaria — l'abbinamento e ambiguo
+    per costruzione, la riga risulta «nuova» e il segno si perde.
+
+    Cinque stesure del riporto hanno spostato questo confine senza
+    attraversarlo. La difesa e stata percio tolta dal blob: vive adesso in un
+    **registro sull'atleta**, come quello delle revoche, che e l'unica delle tre
+    che non e mai caduta.
+  */
+  const FIGLIO_SALVATAGGIO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_SALVATAGGIO,
+      organization_id: CLUB,
+      first_name: "Salvataggio",
+      last_name: "Ordinario",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { name: "Zio", email: BRUNO.email, contactOnly: true },
+          { name: "Zia", email: BRUNO.email, contactOnly: true },
+        ],
+        contactOnlyIdentities: [String(BRUNO.email).toLowerCase()],
+      },
+    },
+  });
+
+  const primaDelSalvataggio = await cruscottoW25.canParentAccessAthlete(
+    BRUNO.id,
+    FIGLIO_SALVATAGGIO,
+  );
+
+  /* Cio che manda la scheda atleta: id sintetici, e niente segno. */
+  const righeDallaScheda = contattiW25
+    .normalizeGuardianRows([
+      { name: "Zio", email: BRUNO.email },
+      { name: "Zia", email: BRUNO.email },
+    ])
+    .map((riga) => ({ id: riga.id, name: riga.name, email: riga.email }));
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_SALVATAGGIO,
+    { data: { guardians: righeDallaScheda, size: "M" } },
+    scopeClubW29,
+  );
+
+  prova(
+    "W-53 un salvataggio della scheda non apre l'area famiglia a un estraneo",
+    [false, false],
+    [
+      primaDelSalvataggio,
+      await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_SALVATAGGIO),
+    ],
+    "prima: la segreteria salvava una taglia e il minore si apriva",
+  );
+
+  /*
+    E il registro sopravvive al salvataggio: e la proprieta che lo rende una
+    difesa invece di un'annotazione.
+  */
+  const dopoSalvataggio = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_SALVATAGGIO },
+      select: { data: true },
+    })
+  )?.data;
+
+  prova(
+    "W-53b il registro dei soli recapiti sopravvive al blob sostituito",
+    true,
+    (dopoSalvataggio?.contactOnlyIdentities || []).includes(
+      String(BRUNO.email).toLowerCase(),
+    ),
+    "prima: la difesa viveva nella riga, e la riga la rotta la sostituisce",
+  );
+
+  /*
+    **W-54.** E non si puo togliere dalla rotta generica, come l'altro registro:
+    una difesa che chi la subisce puo cancellare non e una difesa.
+  */
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_SALVATAGGIO,
+    { data: { guardians: righeDallaScheda, contactOnlyIdentities: [] } },
+    scopeClubW29,
+  );
+
+  prova(
+    "W-54 dalla rotta generica il registro non si svuota",
+    [true, false],
+    [
+      (
+        (
+          await prisma.athlete.findUnique({
+            where: { id: FIGLIO_SALVATAGGIO },
+            select: { data: true },
+          })
+        )?.data?.contactOnlyIdentities || []
+      ).includes(String(BRUNO.email).toLowerCase()),
+      await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_SALVATAGGIO),
+    ],
+    "stessa disciplina dell'elenco delle revoche",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_SALVATAGGIO } });
+
+  /*
+    **W-55.** Il verso opposto, che vale quanto l'altro: un invito **riscattato**
+    toglie l'indirizzo dal registro, e la famiglia torna a vedere **e** a
+    ricevere. Meta accesso e la forma di difetto che questo pacchetto ha gia
+    pagato due volte.
+  */
+  const FIGLIO_RISCATTO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_RISCATTO,
+      organization_id: CLUB,
+      first_name: "Riscatto",
+      last_name: "Completo",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          {
+            id: "t",
+            name: "Anna",
+            email: ANNA.email,
+            contactOnly: true,
+            linkedUserId: ANNA.id,
+          },
+        ],
+        contactOnlyIdentities: [],
+      },
+    },
+  });
+
+  const schedaRiscatto = await prisma.athlete.findUnique({
+    where: { id: FIGLIO_RISCATTO },
+    select: { id: true, data: true },
+  });
+
+  prova(
+    "W-55 dopo un riscatto la famiglia vede e riceve, non una meta sola",
+    [true, 1, 1],
+    [
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_RISCATTO),
+      contattiW25.readAthleteGuardianContacts(schedaRiscatto).length,
+      promemoriaW25.getGuardianRows(schedaRiscatto).length,
+    ],
+    "un legame dichiarato vince sul segno, e vale per tutti e tre i canali",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_RISCATTO } });
+
+  /*
+    **W-56 (Medium).** Due righe potevano restare in archivio con lo **stesso**
+    id: l'assegnazione toccava solo le righe che un id non ce l'avevano, e da
+    quel momento l'abbinamento per id era spento per sempre. Il rimedio scritto
+    nel messaggio di «Scollega account» — «salva la scheda e riprova» — non era
+    vero, e mandava chi lo leggeva in un vicolo cieco.
+  */
+  const FIGLIO_ID_DOPPIO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_ID_DOPPIO,
+      organization_id: CLUB,
+      first_name: "Id",
+      last_name: "Doppio",
+      status: "active",
+      updated_at: new Date(),
+      data: { guardians: [{ id: "x", name: "Uno" }, { id: "x", name: "Due" }] },
+    },
+  });
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_ID_DOPPIO,
+    { data: { guardians: [{ id: "x", name: "Uno" }, { id: "x", name: "Due" }] } },
+    scopeClubW29,
+  );
+
+  const idDopo = (
+    (
+      await prisma.athlete.findUnique({
+        where: { id: FIGLIO_ID_DOPPIO },
+        select: { data: true },
+      })
+    )?.data?.guardians || []
+  ).map((riga) => String(riga?.id || ""));
+
+  prova(
+    "W-56 salvare la scheda disambigua davvero gli id, come il messaggio promette",
+    [2, true],
+    [new Set(idDopo).size, idDopo.every((voce) => voce)],
+    JSON.stringify(idDopo),
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_ID_DOPPIO } });
+
+  /*
+    **W-57 (Medium).** La difesa che governa l'accesso al dato sanitario di un
+    minore non compariva in nessuna schermata: `grep` su tutto `src/components`
+    e `src/app`, zero occorrenze. Prima e dopo che il segno cadesse, la scheda
+    mostrava la stessa riga e lo stesso badge mentre il vaglio dell'accesso
+    passava da «no» a «si». E la forma dell'errore n. 8 di CLAUDE.md applicata
+    a una difesa: il club non poteva vedere ne che una riga e solo un recapito,
+    ne che il segno era caduto.
+  */
+  prova(
+    "W-57 la scheda distingue un recapito da un account collegato",
+    ["contact-only", "Solo recapito", "linked"],
+    [
+      contattiW25.getGuardianAccessStatus({
+        name: "Zio",
+        email: BRUNO.email,
+        contactOnly: true,
+      }).state,
+      contattiW25.getGuardianAccessStatus({
+        name: "Zio",
+        email: BRUNO.email,
+        contactOnly: true,
+      }).label,
+      contattiW25.getGuardianAccessStatus({
+        name: "Anna",
+        email: ANNA.email,
+        linkedUserId: ANNA.id,
+      }).state,
+    ],
+    "prima: «Account non collegato» in tutti e due i casi, e nessuna differenza a schermo",
+  );
+
   await prisma.athlete.update({
     where: { id: MARCO },
     data: { user_id: null },
