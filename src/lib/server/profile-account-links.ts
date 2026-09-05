@@ -1090,10 +1090,47 @@ export const unlinkParentGuardians = async (
     Adesso l'elenco porta solo gli `id`, e ogni scheda si rilegge **dentro** il
     proprio blocco.
   */
-  const athletes = await tx.athlete.findMany({
+  const collectionKeys = ["guardians", "parents", "tutors", "tutori"];
+  const legacyKeys = ["parent1", "parent2"];
+
+  /*
+    **Si legge tutto una volta per **scegliere**, e si blocca solo cio che si
+    cambia.**
+
+    La stesura precedente leggeva i soli `id` e poi, dentro il ciclo, prendeva
+    il blocco e rileggeva **ogni** atleta del club: due viaggi in archivio per
+    tesserato, tutti dentro una sola transazione interattiva. La correttezza era
+    giusta e il costo no — misurato: 1.200 atleti in 4,6 s, e a **1.600 la
+    transazione scade** (il tetto di Prisma e 5 s). Sotto contesa peggiora: con
+    800 atleti e due revoche in parallelo una delle due falliva, e dopo il
+    fallimento la tessera era ancora li e il genitore apriva ancora la scheda.
+    Il repository dichiara la propria scala altrove — 200, 1.000, 2.000
+    tesserati — quindi il difetto sta **dentro** la taglia che il progetto si e
+    dato. E mentre lo sweep girava, un salvataggio ordinario aspettava secondi,
+    perche il blocco era tenuto su ogni riga del club fino al commit.
+
+    Questa lettura non decide niente: serve solo a **restringere**. Le schede
+    che quella persona non la nominano non hanno niente da revocare, e su un
+    club di mille tesserati sono quasi tutte. Cio che decide e la rilettura
+    **dentro** il blocco, che resta.
+  */
+  const candidati = await tx.athlete.findMany({
     where: { organization_id: organizationId },
-    select: { id: true },
+    select: { id: true, data: true },
     orderBy: { id: "asc" },
+  });
+
+  const athletes = candidati.filter((riga: any) => {
+    const contenuto = isRecord(riga?.data) ? (riga.data as Record<string, any>) : {};
+    return [...collectionKeys, ...legacyKeys].some((key) => {
+      const valore = contenuto[key];
+      const righe = Array.isArray(valore)
+        ? valore
+        : isRecord(valore)
+          ? [valore]
+          : [];
+      return righe.some((voce) => isLinkedToTarget(voce, userId, userEmail));
+    });
   });
   /*
     **Le chiavi che si spazzano erano quelle che nessuno legge.**
@@ -1109,8 +1146,6 @@ export const unlinkParentGuardians = async (
     account» non ha una riga da indicare, e la revoca della tessera non la
     guardava.
   */
-  const collectionKeys = ["guardians", "parents", "tutors", "tutori"];
-  const legacyKeys = ["parent1", "parent2"];
   let updated = 0;
 
   for (const athlete of athletes) {

@@ -321,8 +321,26 @@ test("delete: un record di un altro club non e cancellabile", async () => {
 });
 
 test("delete: il record del proprio club e cancellabile", async () => {
-  await resources.deleteResource("athletes", ATHLETE_A, scopeA());
-  assert.ok(!fake.rows("athlete").some((r) => r.id === ATHLETE_A));
+  /*
+    L'atleta di questa prova non deve avere **denaro addosso**: un atleta con
+    una storia di pagamenti non si cancella piu, si disattiva — cancellarlo
+    lascerebbe rate e incassi senza intestatario, che e cio che la
+    cancellazione dell'interessato dichiara di voler evitare tenendo la riga
+    come segnaposto. Qui si misura l'**isolamento fra club**, non quella
+    regola: si usa percio una scheda pulita.
+  */
+  const SENZA_DENARO = "a0000000-0000-4000-8000-00000000000f";
+  fake.rows("athlete").push({
+    id: SENZA_DENARO,
+    organization_id: CLUB_A,
+    first_name: "Senza",
+    last_name: "Denaro",
+    status: "active",
+    data: {},
+  });
+
+  await resources.deleteResource("athletes", SENZA_DENARO, scopeA());
+  assert.ok(!fake.rows("athlete").some((r) => r.id === SENZA_DENARO));
 });
 
 test("delete: una risorsa di club altrui non e cancellabile", async () => {

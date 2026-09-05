@@ -7830,6 +7830,288 @@ const sezioneW = async () => {
 
   await prisma.athlete.delete({ where: { id: FIGLIO_SWEEP_DATO } });
 
+  /* ---------- W-73..W-77: il venticinquesimo round ---------- */
+
+  /*
+    **W-73 (Critical).** Il settimo scrittore di `athletes.data` — il registro
+    dei soli recapiti scritto dall'approvazione di un modulo — apriva una
+    transazione e rileggeva, ma **non prendeva il blocco**. Una transazione con
+    rilettura e senza blocco non serializza: e la forma che ADR-0116 aveva gia
+    dichiarato insufficiente, ripetuta.
+
+    Misurato dalla porta del prodotto: un rinnovo approvato mentre la segreteria
+    preme «Scollega account», e in tre giri su otto la revoca spariva — conferma
+    a schermo, riga di audit, e il genitore ancora dentro il fascicolo.
+  */
+  const provaCorsaModulo = async (giro) => {
+    const atleta = randomUUID();
+    await prisma.athlete.create({
+      data: {
+        id: atleta,
+        organization_id: CLUB,
+        first_name: "Corsa",
+        last_name: "Modulo" + giro,
+        status: "active",
+        updated_at: new Date(),
+        data: {
+          guardians: [
+            { id: "g0", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+          ],
+        },
+      },
+    });
+
+    const inviato = await inviiW29.submitRenewalForm(ANNA.id, {
+      athleteId: atleta,
+      publicSlug: moduloTutore.slug,
+      answers: { f_nome_tutore: "Terzo", f_email_tutore: "terzo" + giro + "@estraneo.invalid" },
+      files: [],
+      respondentEmail: ANNA.email,
+    });
+
+    /*
+      **Il ritardo si spazza, o la corsa non arriva mai dove fa danno.**
+
+      Lanciate insieme, le due richieste finiscono sempre nello stesso ordine
+      e la revoca vince: il controllo di mutazione lo ha mostrato — togliendo
+      il blocco la sonda restava verde. La finestra pericolosa e quella in cui
+      l'approvazione ha gia **letto** e la revoca committa prima che scriva,
+      e la si raggiunge dando alla revoca un vantaggio crescente.
+
+      Una sonda di concorrenza che prova un solo ritardo misura un ordine, non
+      una proprieta.
+    */
+    const approvazione = inviiW29.decideFormSubmission(
+      scopeClubW29,
+      inviato.submissionId,
+      { decision: "approved" },
+    );
+
+    await new Promise((risolvi) => setTimeout(risolvi, 4 + giro * 3));
+
+    await Promise.allSettled([
+      approvazione,
+      legamiW25.unlinkGuardianAccount(scopeClubW29, {
+        athleteId: atleta,
+        guardianId: "g0",
+      }),
+    ]);
+
+    const accesso = await cruscottoW25.canParentAccessAthlete(ANNA.id, atleta);
+    await prisma.athlete.delete({ where: { id: atleta } });
+    return accesso;
+  };
+
+  const esitiModulo = [];
+  for (let giro = 0; giro < 8; giro += 1) {
+    esitiModulo.push(await provaCorsaModulo(giro));
+  }
+
+  prova(
+    "W-73 una revoca non si perde contro l'approvazione di un modulo",
+    true,
+    esitiModulo.every((dentro) => dentro === false),
+    JSON.stringify(esitiModulo),
+  );
+
+  /*
+    **W-74 (High).** Una cancellazione dell'interessato si riscriveva con un
+    `PATCH` che **non porta `data`**: il blocco, la rilettura e la guardia
+    stavano tutti dentro il ramo «con data», e `eraseDataSubject` azzera otto
+    colonne piu il blob. La guardia ne difendeva una.
+  */
+  const FIGLIO_SCALARI = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_SCALARI,
+      organization_id: CLUB,
+      first_name: "Anonimizzato",
+      last_name: "",
+      status: "inactive",
+      updated_at: new Date(),
+      data: { anonymizedAt: new Date().toISOString() },
+    },
+  });
+
+  const risurrezioneScalare = await risorseW26
+    .updateResource(
+      "athletes",
+      FIGLIO_SCALARI,
+      { first_name: "Mario", status: "active" },
+      scopeClubW29,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  const dopoScalare = await prisma.athlete.findUnique({
+    where: { id: FIGLIO_SCALARI },
+    select: { first_name: true, status: true },
+  });
+
+  prova(
+    "W-74 una cancellazione non si riscrive nemmeno dalle colonne scalari",
+    [true, "Anonimizzato", "inactive"],
+    [
+      risurrezioneScalare !== "riuscita",
+      dopoScalare?.first_name,
+      dopoScalare?.status,
+    ],
+    risurrezioneScalare,
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_SCALARI } });
+
+  /*
+    **W-75 (Medium).** Il marchio della cancellazione si poteva **scrivere** da
+    un salvataggio ordinario, e da quel momento la scheda non si salvava piu —
+    con un messaggio che parla di una cancellazione che nessuno ha chiesto e
+    nessuna strada per toglierlo. Il client rimanda `{...datiCorrenti}`, quindi
+    la chiave si ripropagava da sola.
+  */
+  const FIGLIO_MARCHIO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_MARCHIO,
+      organization_id: CLUB,
+      first_name: "Marchio",
+      last_name: "Iniettato",
+      status: "active",
+      updated_at: new Date(),
+      data: { guardians: [] },
+    },
+  });
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_MARCHIO,
+    { data: { guardians: [], anonymizedAt: "2020-01-01T00:00:00.000Z" } },
+    scopeClubW29,
+  );
+
+  const dopoMarchio = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_MARCHIO },
+      select: { data: true },
+    })
+  )?.data;
+
+  const salvataggioSuccessivo = await risorseW26
+    .updateResource(
+      "athletes",
+      FIGLIO_MARCHIO,
+      { data: { guardians: [], size: "M" } },
+      scopeClubW29,
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-75 il marchio della cancellazione non si scrive dalla rotta generica",
+    [false, "riuscita"],
+    [Boolean(dopoMarchio?.anonymizedAt), salvataggioSuccessivo],
+    "prima: si iniettava, e la scheda non si salvava mai piu",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_MARCHIO } });
+
+  /*
+    **W-76 (Medium).** Il segnaposto di una cancellazione era cancellabile, e
+    con lui il denaro perdeva l'intestatario: `athlete_id` e `SetNull` su rate,
+    incassi, fatture e ricevute. E la cosa che `data-subject.ts` dichiara di
+    voler evitare tenendo la riga.
+  */
+  const FIGLIO_CON_DENARO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_CON_DENARO,
+      organization_id: CLUB,
+      first_name: "Con",
+      last_name: "Denaro",
+      status: "active",
+      updated_at: new Date(),
+      data: {},
+    },
+  });
+
+  await prisma.athletePayment.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      athlete_id: FIGLIO_CON_DENARO,
+      amount: 250,
+      description: "Quota",
+      status: "paid",
+    },
+  });
+
+  const cancellazione = await risorseW26
+    .deleteResource("athletes", FIGLIO_CON_DENARO, scopeClubW29)
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-76 un atleta con una storia di pagamenti non si cancella",
+    true,
+    cancellazione !== "riuscita",
+    cancellazione,
+  );
+
+  await prisma.athletePayment.deleteMany({
+    where: { athlete_id: FIGLIO_CON_DENARO },
+  });
+  await prisma.athlete.delete({ where: { id: FIGLIO_CON_DENARO } });
+
+  /*
+    **W-77 (High).** Lo sweep della revoca di tessera faceva due viaggi in
+    archivio **per ogni atleta del club**, dentro una sola transazione
+    interattiva con un tetto di cinque secondi: a 1.600 tesserati la revoca
+    falliva, e sotto contesa gia a 800. La scala che il progetto si e dato
+    arriva a 2.000.
+
+    Qui si misura il **tempo**, che e la proprieta rotta: la lettura ampia serve
+    solo a restringere, e si blocca soltanto cio che si cambia.
+  */
+  const CLUB_GRANDE = randomUUID();
+  await prisma.club.create({
+    data: {
+      id: CLUB_GRANDE,
+      slug: `pp02-grande-${Date.now()}`,
+      name: "ASD Grande",
+      creator_id: PRESIDENTE.id,
+      updated_at: new Date(),
+    },
+  });
+
+  const molti = Array.from({ length: 400 }, () => ({
+    id: randomUUID(),
+    organization_id: CLUB_GRANDE,
+    first_name: "Tesserato",
+    last_name: "Molti",
+    status: "active",
+    updated_at: new Date(),
+    data: {},
+  }));
+  await prisma.athlete.createMany({ data: molti });
+
+  const inizioSweep = Date.now();
+  const esitoSweep = await prisma
+    .$transaction((tx) =>
+      legamiW25.unlinkParentGuardians(tx, CLUB_GRANDE, ANNA.id, ANNA.email, "parent"),
+    )
+    .then(() => "riuscito")
+    .catch((errore) => String(errore?.message || errore));
+  const durataSweep = Date.now() - inizioSweep;
+
+  prova(
+    "W-77 lo sweep su un club di 400 tesserati resta ben dentro il tetto",
+    [true, true],
+    [esitoSweep === "riuscito", durataSweep < 2000],
+    durataSweep + " ms — prima: due viaggi per ogni tesserato, e a 1.600 scadeva",
+  );
+
+  await prisma.athlete.deleteMany({ where: { organization_id: CLUB_GRANDE } });
+  await prisma.club.delete({ where: { id: CLUB_GRANDE } });
+
   await prisma.athlete.update({
     where: { id: MARCO },
     data: { user_id: null },

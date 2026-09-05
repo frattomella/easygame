@@ -6421,6 +6421,20 @@ restava intatto.
 > Chi scrive un blob condiviso si **elenca** — con un `grep` su tutte le forme
 > di scrittura, non a memoria — prima di dire che una difesa e chiusa.
 
+Il censimento e stato rifatto due volte e ha dato **quattro**, poi **sei**,
+poi **otto**. La terza volta l'ha fatto un revisore, da zero, con i propri
+criteri; le prime due le avevo fatte io guardando cio che avevo appena
+toccato. Un elenco scritto da chi ha appena corretto qualcosa contiene i
+posti in cui ha guardato, non quelli che esistono.
+
+**E una transazione non e un blocco.** Il settimo scrittore — il registro dei
+soli recapiti, scritto dall'approvazione di un modulo — apriva
+`prisma.$transaction`, rileggeva, e scriveva: la stessa forma che questo ADR
+aveva gia dichiarato insufficiente per la revoca, ripetuta da me due round
+dopo averla dichiarata insufficiente. Sotto READ COMMITTED due transazioni
+leggono lo stesso valore e la seconda vince. Misurato: tre revoche perse su
+otto giri, con la conferma a schermo e la riga di audit gia scritte.
+
 **E il diritto all'oblio ha due versi.** `assertPersonalDataDisposed` presidiava
 la **cancellazione della riga** di una persona i cui dati non erano stati
 smaltiti. Mancava l'altro: una riga gia cancellata su richiesta dell'interessato

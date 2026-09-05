@@ -1834,3 +1834,66 @@ Sta scritto **nella sonda**, e non e un dettaglio: la rilettura dentro il blocco
 e una difesa che quel collaudo non prova. Tre volte in questo pacchetto una
 sonda verde non misurava niente; l'unica cosa peggiore di non avere una prova e
 crederla di avere.
+
+
+## 31. Il venticinquesimo round: otto scrittori, e il costo di una correzione
+
+Un Critical e due High. Il Critical e della stessa famiglia degli ultimi tre
+round — un lost update su `athletes.data` — su uno scrittore che il censimento
+«sei» non aveva visto. Sono **otto**.
+
+### Il settimo scrittore
+
+Il registro dei soli recapiti, scritto dall'approvazione di un modulo, apriva
+una transazione e rileggeva **senza prendere il blocco**. E la forma che
+ADR-0116 dichiara insufficiente da due round, ripetuta nel round che quella
+lezione l'aveva scritta. Il commento sopra il codice affermava il contrario.
+
+Misurato dalla porta del prodotto: un rinnovo approvato mentre la segreteria
+preme «Scollega account» — tre revoche perse su otto giri, con conferma a
+schermo e riga di audit. Il controllo di isolamento attribuisce la colpa: con
+un indirizzo gia in uso, dove quel ramo non gira, la revoca tiene 8 su 8.
+
+### Il costo della correzione precedente
+
+Lo sweep, reso corretto nel round prima, era diventato due viaggi in archivio
+**per ogni tesserato del club** dentro una sola transazione da cinque secondi:
+a 1.600 atleti la revoca falliva, e sotto contesa gia a 800 — con la tessera
+ancora li e il genitore ancora dentro. E mentre girava, un salvataggio
+ordinario aspettava secondi.
+
+La scala non e ipotetica: il repository si misura su 200, 1.000 e 2.000
+tesserati in `scripts/measure-web-v1-performance.mjs`. Il difetto stava dentro
+la taglia che il progetto si e dato.
+
+Adesso la lettura ampia serve solo a **restringere** — le schede che quella
+persona non la nominano non hanno niente da revocare — e si blocca soltanto
+cio che si cambia. Quattrocento tesserati: sotto i due secondi.
+
+### Il diritto all'oblio, e i due versi di nuovo
+
+La guardia sulla cancellazione dell'interessato copriva **solo** `data`: un
+`PATCH` che non lo porta cadeva su una scrittura nuda, e `eraseDataSubject`
+azzera otto colonne piu il blob. Nome e stato di una persona che ha esercitato
+il diritto all'oblio tornavano in archivio.
+
+E il marchio si poteva **scrivere**: un salvataggio ordinario con
+`anonymizedAt` valorizzato passava, e da quel momento la scheda non si salvava
+piu — con un messaggio che parla di una cancellazione che nessuno ha chiesto e
+nessuna strada per toglierlo. Il client rimanda `{...datiCorrenti}`, quindi la
+chiave si ripropagava da sola.
+
+Infine il segnaposto era cancellabile, e `data-subject.ts` spiega da sempre
+perche non deve esserlo: rate e incassi lo nominano con una chiave `SetNull`.
+Adesso un atleta con una storia di pagamenti non si cancella, si disattiva.
+
+### Due sonde che misuravano un ordine
+
+`W-73` e `W-69` lanciavano le due richieste insieme, e insieme finiscono
+sempre nello stesso ordine — quello innocuo. Il controllo di mutazione lo ha
+mostrato: togliendo il blocco restavano verdi. Adesso `W-73` **spazza il
+ritardo** e arriva dove fa danno; `W-69` dichiara in chiaro cio che non riesce
+a raggiungere.
+
+> Una sonda di concorrenza che prova un solo ritardo misura un ordine, non una
+> proprieta.

@@ -7791,9 +7791,21 @@ export const updateResource = async (
     Si blocca percio la riga, la si rilegge, e si rifa il vaglio su quella:
     chi arriva secondo vede cio che il primo ha scritto.
   */
+  /*
+    **Il ramo protetto vale per la riga, non per il campo.**
+
+    La condizione chiedeva anche `"data" in normalized`, e con lei ci stavano
+    dentro il blocco, la rilettura e la guardia sulla cancellazione: un `PATCH`
+    che non porta `data` cadeva su una `update` nuda. `eraseDataSubject` azzera
+    otto colonne piu il blob, e la guardia ne difendeva **una**.
+
+    Misurato: `PATCH /api/v1/athletes/<id>` con `{"first_name":"Mario"}` su una
+    scheda cancellata su richiesta dell'interessato — riuscito, nome e stato
+    tornati. La porta e aperta a segreteria e collaboratore, non al solo
+    proprietario.
+  */
   const atletaConData =
-    (resource === "athletes" || resource === "simplified_athletes") &&
-    "data" in normalized;
+    resource === "athletes" || resource === "simplified_athletes";
 
   if (!atletaConData) {
     await applicaGuardieDiModifica(resource, normalized, existing, scope);
@@ -7851,9 +7863,34 @@ export const updateResource = async (
             riga che ha ancora dati addosso, e non si rimettono dati su una
             riga che e stata cancellata.
           */
-          const giaCancellata = Boolean(
-            ((fresca as any)?.data as any)?.anonymizedAt,
-          );
+          /*
+            **E il marchio non si scrive da qui.**
+
+            La guardia legge il marchio dalla riga fresca, e niente impediva a
+            un client di **metterlo**: un salvataggio ordinario con
+            `data.anonymizedAt` valorizzato passava, e da quel momento la scheda
+            non si salvava piu — con un messaggio che parla di una cancellazione
+            che nessuno ha chiesto, e senza nessuna strada per toglierlo.
+            Peggio: il client della scheda rimanda `{...datiCorrenti}`, quindi
+            se la chiave finisce li dentro una volta si ripropaga da sola.
+
+            Il marchio lo scrive `eraseDataSubject` e nessun altro: qui si
+            conserva quello che c'e in archivio, come i due registri.
+          */
+          const marchioInArchivio = ((fresca as any)?.data as any)?.anonymizedAt;
+
+          if ("data" in normalized) {
+            const inArrivo = (normalized as any).data;
+            if (inArrivo && typeof inArrivo === "object") {
+              if (marchioInArchivio) {
+                (inArrivo as any).anonymizedAt = marchioInArchivio;
+              } else {
+                delete (inArrivo as any).anonymizedAt;
+              }
+            }
+          }
+
+          const giaCancellata = Boolean(marchioInArchivio);
 
           if (giaCancellata) {
             throw new Error(
@@ -7962,6 +7999,50 @@ export const updateResource = async (
  * denaro. Il vincolo `RESTRICT` sul database e l'altra meta: questa frase
  * spiega, quello vale anche per chi non passa dall'applicazione.
  */
+/**
+ * **Il segnaposto di una cancellazione non si cancella: il denaro lo nomina.**
+ *
+ * `eraseDataSubject` **non** toglie la riga dell'atleta, e lo scrive: rate,
+ * incassi, fatture e ricevute la nominano con una chiave `SetNull`, e portarla
+ * via lascerebbe movimenti di denaro **senza beneficiario** — cio che le guardie
+ * fiscali di questo file esistono per impedire.
+ *
+ * Nessuna guardia lo impediva pero davvero: dopo la cancellazione le tabelle
+ * che `assertPersonalDataDisposed` conta sono vuote, quindi quella guardia
+ * lascia passare. Misurato — riga anonimizzata piu una rata da 250 EUR gia
+ * pagata: la cancellazione riusciva e la rata restava con `athlete_id` nullo.
+ *
+ * La regola giusta non e sulla cancellazione dell'interessato, ed e piu larga:
+ * un atleta che ha una storia di denaro non si cancella, si disattiva. Qui si
+ * guarda percio il denaro, non il marchio.
+ */
+const assertAthleteHasNoMoneyTrail = async (
+  resource: string,
+  athleteId?: string | null,
+) => {
+  if (resource !== "athletes" && resource !== "simplified_athletes") return;
+  const id = String(athleteId || "").trim();
+  if (!id) return;
+
+  /*
+    Si guarda il denaro che c'e **davvero**: una rata da zero non intesta
+    niente a nessuno, e bloccare su quella vorrebbe dire non poter piu
+    togliere una scheda creata per sbaglio.
+  */
+  const [rate, incassi] = await Promise.all([
+    (prisma as any).athletePayment.count({
+      where: { athlete_id: id, amount: { gt: 0 } },
+    }),
+    (prisma as any).paymentTransaction.count({ where: { athlete_id: id } }),
+  ]);
+
+  if (rate > 0 || incassi > 0) {
+    throw new Error(
+      "Questo atleta ha una storia di pagamenti: si disattiva, non si cancella — cancellarlo lascerebbe movimenti di denaro senza intestatario",
+    );
+  }
+};
+
 const assertAthleteHasNoSettledFunding = async (
   resource: string,
   athleteId: string,
@@ -8210,6 +8291,7 @@ export const deleteResource = async (
   await assertPaymentHasNoEconomicHistory(resource, existing?.id);
   await assertDocumentNotIssued(resource, existing);
   await assertAthleteHasNoSettledFunding(resource, existing?.id);
+  await assertAthleteHasNoMoneyTrail(resource, existing?.id);
   /*
     ADR-0019. Le guardie qui sopra sono tutte **fiscali**: proteggono il denaro
     e i documenti emessi. Nessuna proteggeva la **persona**, e cancellare un

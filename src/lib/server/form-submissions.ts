@@ -11,7 +11,7 @@ import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
 import { createAttachment, deleteAttachment } from "./attachments";
 import { parseAttachmentReference } from "@/lib/attachments";
-import { createResource, updateResource } from "./resources";
+import { createResource, lockAthleteRow, updateResource } from "./resources";
 import { sendNotificationEmails } from "./email/email-service";
 import {
   findPublicFormBySlug,
@@ -2296,6 +2296,24 @@ const eseguiDecisione = async (
         approvazioni concorrenti si serializzano invece di sovrascriversi.
       */
       const aggiornato = await prisma.$transaction(async (client: any) => {
+        /*
+          **Una transazione con rilettura, ma senza blocco, non serializza.**
+
+          Il commento della stesura precedente diceva «due approvazioni
+          concorrenti si serializzano invece di sovrascriversi». Falso: sotto
+          READ COMMITTED due transazioni leggono lo stesso valore e la seconda
+          sovrascrive. E la forma esatta che ADR-0116 aveva gia dichiarato
+          insufficiente per la revoca, ripetuta qui.
+
+          Misurato dalla porta del prodotto: un rinnovo approvato mentre la
+          segreteria preme «Scollega account», e in **3 giri su 8** la revoca
+          spariva — conferma a schermo, riga di audit, e il genitore ancora
+          dentro il fascicolo del minore. Il controllo di isolamento lo
+          attribuisce a questa scrittura: con un indirizzo gia in uso, dove
+          questo ramo non gira, la revoca tiene 8 giri su 8.
+        */
+        await lockAthleteRow(client, athleteId);
+
         const rilettura = await client.athlete.findUnique({
           where: { id: athleteId },
           select: { data: true },
