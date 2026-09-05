@@ -1450,3 +1450,60 @@ Un fuzz su 4.000 piani con importi fissi casuali: zero somme sbagliate, zero
 rate a zero, zero negative. Le tre sonde che il round precedente aveva scritto
 chiamavano la funzione **senza** `preserveIndexes`, cioe non toccavano il ramo
 in cui il difetto viveva.
+
+
+## 25. Il diciannovesimo round: misurato contro PostgreSQL, e due High
+
+Il primo round condotto **contro il database vero** invece che contro il doppio.
+Due High, tutti e due dentro `resources.ts`, tutti e due nati dalla correzione
+del round precedente: il conto sale a quattordici su diciannove. E le 230 sonde
+esistenti erano **tutte verdi** mentre i due difetti erano vivi.
+
+### Il segno cancellato dalla rotta, senza nessun attaccante
+
+Il vaglio che decide se una riga in arrivo sia «nuova» guardava se la sua
+**identita** fosse gia in archivio. Su una riga `contactOnly` l'identita e
+l'indirizzo — gli identificativi non ci sono — quindi due tutori sulla stessa
+email di famiglia, che ADR-0114 chiama la configurazione ordinaria, e la seconda
+riga risultava «conosciuta». La rotta le cancellava allora il segno che il
+dominio dei moduli le aveva appena scritto.
+
+Misurato contro PostgreSQL, con il flusso di prodotto e basta: due moduli
+pubblici approvati dalla segreteria, e al secondo il minore si apriva. Chi ha
+compilato un modulo pubblico dichiarandosi tutore — senza dimostrare niente —
+entrava in allergie, farmaci, byte del certificato, rate e ricevute.
+
+E la diagnosi che il commit precedente aveva scritto nel proprio messaggio:
+l'identita che collassa sull'indirizzo. Corretta in un punto e lasciata
+nell'altro, dodici righe piu sotto.
+
+### L'identita presa da un campo che sceglie chi chiama
+
+L'`id` stabile era stato introdotto per togliere l'ambiguita. Arriva pero dal
+corpo della richiesta, e vinceva su `linkedUserId` e sull'indirizzo: mandando
+la riga della madre con l'`id` della riga revocata, il marchio le finiva
+addosso. Perdeva calendario, rate, ricevute, documenti e certificato, con un
+`anagrafica.updated` in audit invece di una revoca.
+
+La superficie cresceva con il proprio rimedio. La quinta stesura corrobora
+l'`id` invece di fidarsene: vale finche cio che la riga porta non indica
+un'altra riga — e questo chiude anche il verso opposto, perche correggere un
+refuso nell'indirizzo di un tutore adesso **non** gli fa perdere il segno.
+
+### Cio che ha tenuto, e vale dirlo
+
+La ripartizione in rate ha retto un fuzz di 60.000 piani dal lato del revisore e
+50.000 dal mio: nessuna somma sbagliata, nessuna rata negativa. L'id stabile non
+ha rotto «Scollega account», l'approvazione di un modulo, ne la scheda atleta.
+Il registro delle identita revocate tiene: un modulo approvato che ridichiara
+l'indirizzo di una persona revocata **non** riapre l'accesso.
+
+### Cosa insegna
+
+Due lezioni, e sono in ADR-0116 perche valgono oltre questo caso.
+
+La prima: **una seconda difesa e tale solo se ha un gate diverso**. La
+giustificazione scritta un round prima — «tanto lo copre la guardia della
+crescita» — era falsa proprio per chi quel gesto lo fa di mestiere.
+
+La seconda: **l'identita di una riga non e un campo che sceglie chi chiama.**

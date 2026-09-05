@@ -6399,6 +6399,28 @@ senza audit e senza strada di ritorno.
 > Fra due errori possibili si sceglie quello che una **seconda** difesa copre,
 > non quello che lascia una persona fuori in silenzio.
 
+**E una seconda difesa e tale solo se ha un gate diverso.** Il round successivo
+ha misurato il prezzo di aver dato per buona questa frase senza verificarla: la
+«seconda difesa» che copriva un `contactOnly` caduto era la **guardia della
+crescita**, che chiede le due chiavi — e chi approva i moduli quelle due chiavi
+le ha. Non era una seconda porta: era la stessa, aperta da chi la usa tutti i
+giorni. Il risultato e che due moduli pubblici approvati dalla segreteria
+aprivano l'area famiglia di un minore, senza nessun attaccante.
+
+Quando si scrive «tanto lo copre X», si va a leggere **chi puo passare da X**.
+
+**E l'identita di una riga non e il suo `id`.** L'`id` arriva dal corpo della
+richiesta: nella quarta stesura vinceva su `linkedUserId` e sull'indirizzo,
+cioe sui due dati che dicono davvero di chi si tratta, e bastava mandare la riga
+di un tutore con l'`id` di una riga revocata per scrivergli addosso il marchio.
+La superficie di quell'attacco **cresceva con il proprio rimedio**, perche l'id
+stabile assegnato per togliere l'ambiguita ne creava di piu.
+
+La quinta stesura tiene l'`id` come primo criterio — e comodo e quasi sempre
+giusto — ma lo **corrobora**: vale finche cio che la riga porta non indica
+un'altra riga. Se i suoi identificativi o i suoi indirizzi puntano altrove,
+l'`id` ha torto.
+
 E perche il dubbio diventi raro, ogni riga tutore che passa da `resources.ts`
 esce con un **id stabile**: chi non ne ha uno lo riceve li, e i salvataggi
 successivi non hanno piu niente da indovinare.

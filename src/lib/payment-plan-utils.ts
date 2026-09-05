@@ -1068,9 +1068,59 @@ export const roundInstallmentsToFive = (
     residuo = roundCurrency(residuo - PASSO);
   }
 
+  /*
+    **Il resto cade su una rata che si puo muovere, e non sparisce.**
+
+    Cadeva sull'**ultima** anche quando l'ultima era fra gli importi **fissi**:
+    `[50, 50, 50]` su 300 con tutte e tre preservate usciva `[50, 50, 200]`,
+    cioe un importo che il club aveva scritto a mano riscritto in silenzio. E un
+    resto **negativo** veniva ingoiato da `Math.max(0, …)`, quindi la somma non
+    tornava piu: misurato 134,51 contro un totale di 134,50.
+
+    Oggi `generateInstallmentPreview` non ci arriva — esclude l'ultimo indice, e
+    le due schermate che la chiamano bloccano il salvataggio quando c'e un
+    avviso — ma la funzione e esportata, e una funzione che restituisce una
+    somma diversa dal totale e una trappola per il prossimo chiamante.
+
+    Si cerca percio una rata **libera**, dall'ultima verso la prima; se non ce
+    n'e nessuna, il resto va comunque distribuito invece di essere perso.
+  */
   if (residuo !== 0) {
-    const ultima = base.length - 1;
-    base[ultima] = roundCurrency(Math.max(0, base[ultima] + residuo));
+    let destinazione = -1;
+    for (let index = base.length - 1; index >= 0; index -= 1) {
+      if (!preserveIndexes.has(index) && base[index] + residuo >= 0) {
+        destinazione = index;
+        break;
+      }
+    }
+
+    /*
+      Se **nessuna** rata e libera, il resto non si scarica su una sola: si
+      ripartisce in proporzione. Tre rate fisse da 50 su un piano da 300 sono
+      una configurazione incoerente, e la risposta meno sorprendente e
+      `[100, 100, 100]` — non `[50, 50, 200]`, che riscrive in silenzio un
+      importo che il club aveva scritto a mano.
+    */
+    if (destinazione < 0) {
+      const sommaBase = base.reduce((somma, valore) => somma + valore, 0);
+      if (sommaBase > 0) {
+        let distribuito = 0;
+        for (let index = 0; index < base.length - 1; index += 1) {
+          const quota = roundCurrency((base[index] / sommaBase) * residuo);
+          base[index] = roundCurrency(base[index] + quota);
+          distribuito = roundCurrency(distribuito + quota);
+        }
+        const ultima = base.length - 1;
+        base[ultima] = roundCurrency(
+          Math.max(0, base[ultima] + roundCurrency(residuo - distribuito)),
+        );
+      }
+      destinazione = -1;
+    }
+
+    if (destinazione >= 0) {
+      base[destinazione] = roundCurrency(base[destinazione] + residuo);
+    }
   }
 
   return base;

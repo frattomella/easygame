@@ -6752,42 +6752,95 @@ const applicaGuardieDiModifica = async (
 
       const idEsistenti = contaId(tutoriEsistenti);
       const idInArrivo = contaId(tutoriInArrivo);
-      const indirizziEsistenti = contaIndirizzi(tutoriEsistenti);
-      const indirizziInArrivo = contaIndirizzi(tutoriInArrivo);
+      /*
+        **Un `id` non dice chi e una riga: lo dice cio che la riga porta.**
 
-      const identitaInArchivio = new Set<string>();
-      for (const riga of tutoriEsistenti) {
-        for (const voce of guardianIdentityTokens(
+        La stesura precedente si fidava dell'`id` quando era univoco da tutte e
+        due le parti. L'`id` pero arriva dal **corpo della richiesta**, e li
+        vinceva su `linkedUserId` e sull'indirizzo, che sono i due dati che
+        dicono davvero di chi si tratta. Misurato contro PostgreSQL: mandando la
+        riga della madre con l'`id` della riga revocata, il marchio le finiva
+        addosso e lei perdeva l'accesso al figlio — un `anagrafica.updated` in
+        audit, nessuna revoca, nessuna schermata che lo spieghi. E la stessa
+        classe che l'`id` stabile doveva chiudere, riaperta dalla riga aggiunta
+        per chiuderla: la superficie **cresceva con il proprio rimedio**.
+
+        L'`id` resta il modo piu comodo di abbinare, e resta il primo: ma vale
+        solo finche **cio che la riga porta non indica un'altra riga**. Se i
+        suoi identificativi o i suoi indirizzi puntano a una riga diversa da
+        quella che l'`id` nomina, l'`id` ha torto.
+      */
+      const tuttiToken = (record: Record<string, any>) => {
+        const insieme = new Set<string>(guardianDeclaredIds(record));
+        for (const voce of soloIndirizzi(record)) insieme.add(voce);
+        return [...insieme];
+      };
+
+      const indiciPerToken = new Map<string, number[]>();
+      tutoriEsistenti.forEach((riga: any, posizione: number) => {
+        for (const voce of tuttiToken((riga || {}) as Record<string, any>)) {
+          const elenco = indiciPerToken.get(voce) || [];
+          elenco.push(posizione);
+          indiciPerToken.set(voce, elenco);
+        }
+      });
+
+      const candidatiPerIdentita = (record: Record<string, any>) => {
+        const insieme = new Set<number>();
+        for (const voce of tuttiToken(record)) {
+          for (const posizione of indiciPerToken.get(voce) || []) {
+            insieme.add(posizione);
+          }
+        }
+        return [...insieme];
+      };
+
+      /*
+        Quante righe **in arrivo** rivendicano una certa riga in archivio: se
+        sono due, non si sa quale sia, e vale la regola di ADR-0116 — quando non
+        si sa, non si eredita.
+      */
+      const rivendicazioni = new Map<number, number>();
+      for (const riga of tutoriInArrivo) {
+        for (const posizione of candidatiPerIdentita(
           (riga || {}) as Record<string, any>,
         )) {
-          identitaInArchivio.add(voce);
+          rivendicazioni.set(posizione, (rivendicazioni.get(posizione) || 0) + 1);
         }
       }
 
       const rigaInArchivio = (record: Record<string, any>) => {
+        const candidati = candidatiPerIdentita(record);
         const chiave = idDi(record);
+
         if (
           chiave &&
           idEsistenti.get(chiave) === 1 &&
           idInArrivo.get(chiave) === 1
         ) {
-          return (
-            tutoriEsistenti.find((voce: any) => idDi(voce) === chiave) || null
+          const posizione = tutoriEsistenti.findIndex(
+            (voce: any) => idDi(voce) === chiave,
           );
+
+          /*
+            L'`id` vale se nessuna identita della riga contraddice: o non ne
+            porta nessuna che il club conosca, o quelle che porta indicano
+            **quella stessa** riga.
+          */
+          if (
+            posizione >= 0 &&
+            (candidati.length === 0 || candidati.includes(posizione))
+          ) {
+            return tutoriEsistenti[posizione];
+          }
         }
 
-        for (const indirizzo of soloIndirizzi(record)) {
-          if (
-            indirizziEsistenti.get(indirizzo) === 1 &&
-            indirizziInArrivo.get(indirizzo) === 1
-          ) {
-            const trovata = tutoriEsistenti.find((voce: any) =>
-              soloIndirizzi((voce || {}) as Record<string, any>).includes(
-                indirizzo,
-              ),
-            );
-            if (trovata) return trovata;
-          }
+        /*
+          Altrimenti decide cio che la riga porta, e solo quando la risposta e
+          **una sola** in tutte e due le direzioni.
+        */
+        if (candidati.length === 1 && rivendicazioni.get(candidati[0]) === 1) {
+          return tutoriEsistenti[candidati[0]];
         }
 
         return null;
@@ -6806,12 +6859,27 @@ const applicaGuardieDiModifica = async (
         const eraSoloRecapito = Boolean(
           prima && (prima.contactOnly || prima.contact_only),
         );
-        const conosciuta = Boolean(
-          prima ||
-            guardianIdentityTokens(record).some((voce) =>
-              identitaInArchivio.has(voce),
-            ),
-        );
+        /*
+          **Una riga senza corrispondenza e una riga nuova, e basta.**
+
+          Questo vaglio guardava se l'**identita** fosse gia in archivio, e su
+          una riga `contactOnly` l'identita e l'indirizzo: due tutori sulla
+          stessa email di famiglia — la configurazione che ADR-0114 chiama
+          ordinaria — e la seconda risultava «conosciuta». Il ramo qui sotto le
+          cancellava allora il segno che il dominio dei moduli le aveva appena
+          scritto, e quell'indirizzo diventava una chiave dell'area famiglia.
+
+          Misurato contro PostgreSQL, senza nessun attaccante: due moduli
+          pubblici approvati dalla segreteria, e al secondo il minore si apriva.
+          La «seconda difesa» che avrebbe dovuto coprire — la guardia della
+          crescita — non copre, perche chi approva i moduli le due chiavi ce le
+          ha: non e una seconda porta, e la stessa.
+
+          Cio che conta non e se il club conosca quell'indirizzo, ma se questa
+          riga **corrisponda a una riga che c'era**. Se non corrisponde e nuova,
+          e un marchio su una riga nuova non toglie niente a nessuno.
+        */
+        const conosciuta = Boolean(prima);
 
         const marchioInArrivo = String(
           record.accessRevokedAt || record.access_revoked_at || "",

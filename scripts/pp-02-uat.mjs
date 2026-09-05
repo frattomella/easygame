@@ -6653,6 +6653,212 @@ const sezioneW = async () => {
     JSON.stringify(distribuzioniW49),
   );
 
+  /* ---------- W-50..W-52: il diciannovesimo round ---------- */
+
+  /*
+    **W-50 (High).** Il segno di solo-recapito veniva **cancellato** dalla rotta
+    su una riga nuova che porta un indirizzo gia noto — e la configurazione
+    ordinaria di ADR-0114, due tutori sulla stessa email di famiglia.
+
+    Non serve nessun attaccante: due moduli pubblici approvati dalla segreteria.
+    Il dominio dei moduli scrive `contactOnly` sulla riga che nasce; la rotta,
+    vedendo l'indirizzo gia in archivio, la trattava come «conosciuta» e le
+    toglieva il segno. Da quel momento chi ha compilato un modulo pubblico
+    dichiarandosi tutore — senza dimostrare niente — apriva l'area famiglia del
+    minore: allergie, farmaci, byte del certificato, rate, ricevute.
+
+    La «seconda difesa» non copriva: la guardia della crescita chiede le due
+    chiavi, e chi approva i moduli le ha. Non e una seconda porta, e la stessa.
+  */
+  const FIGLIO_DUE_MODULI = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_DUE_MODULI,
+      organization_id: CLUB,
+      first_name: "Due",
+      last_name: "Moduli",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "zio", name: "Zio", email: BRUNO.email, contactOnly: true },
+        ],
+      },
+    },
+  });
+
+  const primaDelSecondo = await cruscottoW25.canParentAccessAthlete(
+    BRUNO.id,
+    FIGLIO_DUE_MODULI,
+  );
+
+  /* Cio che fa `form-submissions.ts`: `guardians.push` di una riga marcata. */
+  const datiDueModuli = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_DUE_MODULI },
+      select: { data: true },
+    })
+  )?.data;
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_DUE_MODULI,
+    {
+      data: {
+        ...datiDueModuli,
+        guardians: [
+          ...(datiDueModuli?.guardians || []),
+          {
+            name: "Nonna",
+            email: BRUNO.email,
+            contactOnly: true,
+            contact_only: true,
+          },
+        ],
+      },
+    },
+    scopeClubW29,
+  );
+
+  const dopoDueModuli = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_DUE_MODULI },
+      select: { data: true },
+    })
+  )?.data;
+
+  prova(
+    "W-50 il segno di una riga nuova non si cancella perche l'indirizzo e noto",
+    [false, true, false],
+    [
+      primaDelSecondo,
+      (dopoDueModuli?.guardians || []).every((riga) => Boolean(riga?.contactOnly)),
+      await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_DUE_MODULI),
+    ],
+    "prima: il segno spariva e l'area famiglia del minore si apriva",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_DUE_MODULI } });
+
+  /*
+    **W-51 (High).** L'`id` arriva dal corpo della richiesta, e vinceva su
+    `linkedUserId` e sull'indirizzo — cioe sui due dati che dicono davvero di
+    chi e quella riga. Mandando la riga della madre con l'`id` di una riga
+    revocata, il marchio le finiva addosso: perdeva calendario, rate, ricevute,
+    documenti e certificato, con un `anagrafica.updated` in audit e nessuna
+    schermata che lo spiegasse.
+
+    E la stessa classe che l'id stabile doveva chiudere, riaperta dalla riga
+    aggiunta per chiuderla: la superficie cresceva con il proprio rimedio.
+  */
+  const FIGLIO_ID_RUBATO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_ID_RUBATO,
+      organization_id: CLUB,
+      first_name: "Id",
+      last_name: "Rubato",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          {
+            id: "ra",
+            name: "Revocata",
+            email: BRUNO.email,
+            linkedUserId: null,
+            accessRevokedAt: new Date().toISOString(),
+          },
+          { id: "rb", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+        ],
+      },
+    },
+  });
+
+  const primaIdRubato = await cruscottoW25.canParentAccessAthlete(
+    ANNA.id,
+    FIGLIO_ID_RUBATO,
+  );
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_ID_RUBATO,
+    {
+      data: {
+        guardians: [
+          { id: "ra", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+        ],
+      },
+    },
+    scopeClubW29,
+  );
+
+  prova(
+    "W-51 un id preso da un'altra riga non sposta il marchio sulla madre",
+    [true, true],
+    [
+      primaIdRubato,
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_ID_RUBATO),
+    ],
+    "prima: la madre perdeva tutto, e in audit restava un salvataggio anagrafica",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_ID_RUBATO } });
+
+  /*
+    **W-52.** E il verso opposto della stessa regola: correggere un refuso
+    nell'indirizzo di un tutore **non** deve fargli perdere il segno. La riga
+    resta la stessa — l'`id` lo dice, e nessun'altra identita lo contraddice.
+  */
+  const FIGLIO_REFUSO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_REFUSO,
+      organization_id: CLUB,
+      first_name: "Refuso",
+      last_name: "Corretto",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "t", name: "Zio", email: "zioo@estraneo.invalid", contactOnly: true },
+        ],
+      },
+    },
+  });
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_REFUSO,
+    {
+      data: {
+        guardians: [
+          { id: "t", name: "Zio", email: "zio@estraneo.invalid" },
+        ],
+      },
+    },
+    scopeClubW29,
+  );
+
+  const dopoRefuso = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_REFUSO },
+      select: { data: true },
+    })
+  )?.data;
+
+  prova(
+    "W-52 correggere un refuso nell'indirizzo non toglie il segno alla riga",
+    ["zio@estraneo.invalid", true],
+    [
+      (dopoRefuso?.guardians || [])[0]?.email,
+      Boolean((dopoRefuso?.guardians || [])[0]?.contactOnly),
+    ],
+    "il lavoro di tutti i giorni di una segreteria non deve aprire un accesso",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_REFUSO } });
+
   await prisma.athlete.update({
     where: { id: MARCO },
     data: { user_id: null },
