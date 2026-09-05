@@ -101,21 +101,30 @@ test("PP-03 §15.4 · chi vede lo stato e non il contenuto legge per elenco di a
 
 test("PP-03 §15.4 · la famiglia non ci rientra, e la sua scheda non cambia", () => {
   /*
-    Il rischio della correzione, misurato. Genitore e atleta non hanno nessuna
-    delle due chiavi sanitarie: leggono la scheda del **proprio** figlio, e per
-    loro il taglio resta quello di prima — i nomi vietati e i contenitori non
-    dichiarati, non l'elenco di ammessi.
+    Il rischio della correzione, misurato. Genitore e atleta leggono la scheda
+    del **proprio** figlio, e per loro il taglio resta quello di prima — i nomi
+    vietati e i contenitori non dichiarati, non l'elenco di ammessi.
+
+    **La prova e cambiata nel sesto round, e vale la pena dire come.** Fin qui
+    elencava `["parent", "athlete", undefined]`, cioe misurava il ruolo. §16.1
+    ha spostato il predicato su «non hai `clinical.read`», che a un ruolo
+    `parent` passato per nome risponde adesso «leggi per elenco di ammessi».
+    Non e una regressione per la famiglia: la famiglia **non arriva mai** qui
+    con un ruolo. `canAccessClubResource` risponde `false` a `parent` e
+    `athlete` su ogni risorsa, quindi il registro generico — l'unico chiamante
+    che passa `scope.activeRole` — li respinge con 403 prima della proiezione;
+    la scheda del proprio figlio la servono `parent-dashboard` e
+    `auth/athlete-profile`, che chiamano questa funzione **senza ruolo**. E il
+    caso senza ruolo e quello che questa prova continua a misurare.
   */
   const data = { name: "Marco", campoDelClub: "VALORE-DEL-CLUB" };
 
-  for (const ruolo of ["parent", "athlete", undefined]) {
-    const uscito = permessi.stripClinicalAthleteFields(data, ruolo);
-    assert.equal(
-      uscito.campoDelClub,
-      "VALORE-DEL-CLUB",
-      `il ruolo ${String(ruolo)} non legge per elenco di ammessi`,
-    );
-  }
+  const uscito = permessi.stripClinicalAthleteFields(data, undefined);
+  assert.equal(
+    uscito.campoDelClub,
+    "VALORE-DEL-CLUB",
+    "senza un ruolo dichiarato il taglio resta quello dei soli nomi vietati",
+  );
 });
 
 test("PP-03 §15.4 · il predicato dice esattamente «lo stato si, il contenuto no»", () => {
