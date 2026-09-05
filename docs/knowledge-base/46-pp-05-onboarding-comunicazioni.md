@@ -239,7 +239,7 @@ in Prisma e vivono solo nella migrazione.
 | Strumento | Cosa misura |
 |---|---|
 | `scripts/pp-05-otp-probe.mjs` | 7 proprieta contro PostgreSQL reale: tetto dei tentativi sotto concorrenza, monouso, cooldown, legame col destinatario, scadenza calcolata dal database, contatore per numero attraverso reti diverse |
-| `scripts/pp-05-sicurezza-probe.mjs` | **12** prove dei difetti chiusi dalla revisione ostile (S1-S10), ognuna verificata **per mutazione**. S10 lo e in **due varianti**, perche le due difese contro il Critical del terzo round sono indipendenti e ciascuna doveva reggere da sola |
+| `scripts/pp-05-sicurezza-probe.mjs` | **14** prove dei difetti chiusi dalla revisione ostile (S1-S12), ognuna verificata **per mutazione**. S10 lo e in **due varianti**, perche le due difese contro il Critical del terzo round sono indipendenti e ciascuna doveva reggere da sola |
 | `scripts/pp-05-gettone-tessera-probe.mjs` | 5 prove che il ruolo emesso dalle rotte delle tessere **accende i permessi** — la dependency di PP-03 — e che un gettone contraffatto non ne aggiunge nessuno |
 | `tests/auth/numero-di-cellulare.test.mjs` | Normalizzazione, mascheramento, messaggi |
 | `tests/auth/verifica-recapiti-dalle-rotte.test.mjs` | 19 prove sulle **rotte reali**, non su helper interni: invio, conferma, replay, scadenza, cooldown, legame col destinatario, anti-enumeration, e il vincolo «UUID nudo solo con la propria sessione» |
@@ -260,11 +260,11 @@ costruzione**.
 
 ## La revisione ostile
 
-Tre round che hanno trovato qualcosa, piu un quarto conclusivo, condotti da
+Quattro round che hanno trovato qualcosa, piu un quinto conclusivo, condotti da
 revisori **indipendenti** — uno diverso per round — col mandato di rompere, non
-di approvare. Ogni Critical e ogni High ha una
-prova che **fallisce senza il fix**, e ogni prova e verificata **per
-mutazione**: rimossa la guardia, la riga torna rossa.
+di approvare. Ogni Critical e ogni High ha una prova che **fallisce senza il
+fix**, e ogni prova e verificata **per mutazione**: rimossa la guardia, la riga
+torna rossa.
 
 **Primo round: 1 Critical, 2 High, 5 Medium, 3 Low.**
 
@@ -351,7 +351,38 @@ visto per intero: **e stato il fix del round precedente ad aprire il difetto.**
   intrinseca** a un tetto per destinatario: toglierlo riaprirebbe HIGH-3, che e
   molto peggio).
 
-### Le tre regole che questi round lasciano
+**Quarto round: 2 Critical, 0 High, 1 Medium, 1 Low.** I due Critical hanno
+**la stessa radice**, che nessuno dei tre round precedenti aveva nominata: un
+token era legato all'**account** e non al **recapito**, e lo sfratto toglieva
+le righe dell'occupante ma non cio che l'occupante teneva gia in mano.
+
+- **C-1 — un token nasce per un recapito, e valeva per l'account.**
+  `confirmPasswordReset` cercava la challenge per utente, canale, scopo e vita
+  della riga; **non per destinatario**, mentre la strada degli OTP il
+  destinatario lo filtrava da sempre. La colonna `target` c'era ed era scritta
+  correttamente: nessuno la leggeva. Ci si registra con un indirizzo proprio,
+  si chiede il reset **sul proprio** indirizzo, si cambia l'indirizzo in uno
+  dell'elenco pubblicato in `NEXT_PUBLIC_*` — passando dal cancello della
+  password attuale, ed e **giusto che passi** — e si consuma il token: il
+  consumo scriveva `email_verified_at` sulla teoria «chi apre il link controlla
+  la casella», che dopo il cambio non e piu vera. Il difetto non e il cambio di
+  indirizzo: e la **teoria del token**.
+- **C-2 — lo sfratto toglieva le righe, non cio che l'altro aveva in mano.**
+  Password, numero, riferimento, sessioni, legami esterni: tutte e quattro le
+  difese dei round precedenti, e nessuna toccava le challenge. Un token vive
+  trenta minuti e lo si chiede **prima**: si occupa un indirizzo libero, ci si
+  chiede un reset, si aspetta che la vittima arrivi davvero dal proprio Google.
+  Lo sfratto le restituisce l'account, e a quel punto l'indirizzo risulta
+  verificato — l'ha verificato lei — quindi il ramo di sfratto del reset non
+  scatta nemmeno: il token dell'occupante **sovrascrive la password** della
+  persona a cui l'account e appena stato restituito.
+- **Il Medium e il Low non sono chiusi**, con la ragione scritta. PP05-D9: le
+  risposte HTTP della registrazione sono indistinguibili — corpo, stato e
+  tempi, misurati — ma la **consegna dell'SMS** no, e le tre correzioni
+  possibili sono peggiori del difetto. PP05-D7 si allarga al percorso OTP
+  invece di moltiplicarsi.
+
+### Le quattro regole che questi round lasciano
 
 1. **Un punto unico non e una garanzia, e un posto dove guardare.** Quando si
    aggiunge un modo di entrare, ci si va.
@@ -362,11 +393,27 @@ visto per intero: **e stato il fix del round precedente ad aprire il difetto.**
    Critical del terzo round e stato aggiunto **per irrobustire** una decisione,
    e l'ha indebolita. La risposta giusta a «due chiamanti portano due forme» e
    **distinguerle**, non accettarle entrambe.
+4. **Un `where` e una riga che un chiamante puo dimenticare; un legame
+   crittografico no.** La regola «la challenge e legata al destinatario»
+   esisteva, era scritta nella KB, ed era vera in **uno** dei due chiamanti. Una
+   proprieta che vale solo se ogni chiamante se la ricorda non e una proprieta
+   del sistema: e una convenzione. Il quarto round l'ha pagata due volte.
+
+**E la regola che le contiene tutte e quattro**, visibile solo guardandole
+insieme: **ogni difesa nuova sposta il confine di cio che conta, e cio che
+conta va poi riguardato tutto.** Tre Critical su quattro sono nati dal fix del
+round precedente, e nessuno per distrazione. ADR-0115 ha reso mutabile un
+indirizzo che prima era di fatto immutabile: da quel momento «il token e legato
+all'account» ha smesso di significare «il token e legato alla casella», e
+`isPlatformAdminUser` ha smesso di essere sicura — **senza che una riga di quei
+due file cambiasse**. Il rischio non sta nel codice che si scrive: sta nel
+codice che si e smesso di guardare perche non lo si e toccato.
 
 ### Coverage gaps dichiarati dai reviewer
 
 Nessuno dei round dichiara di aver coperto tutto, e le lacune sono le stesse in
-due round su tre — il che le rende un limite del metodo, non di un reviewer:
+tre round su quattro — il che le rende un limite del metodo, non di un
+reviewer:
 
 - **enumerazione per tempi**: verificata sull'uguaglianza di corpi e stati, mai
   su un campionamento statistico delle latenze. Un oracolo temporale resterebbe
@@ -379,7 +426,13 @@ due round su tre — il che le rende un limite del metodo, non di un reviewer:
   di consegna, stato di recapito o alias mittente e misurata;
 - **fuzzing dei segnaposto** dei modelli di messaggio: verificati il percorso di
   escaping e i sanificatori, non fatto un fuzzing esaustivo con carichi
-  avversari.
+  avversari;
+- **l'anteprima come pagina**: la proprieta «non spedisce» e misurata da un
+  test che monta un trasporto finto e conta zero invii, ma la pagina di server
+  non e mai stata esercitata con una richiesta vera; le sue due guardie —
+  sessione e `isPlatformAdminSession` — sono verificate per lettura;
+- **il flusso OAuth completo**: attaccato `findOrCreateOAuthUser`
+  direttamente, mai lo scambio del codice ne il giro `state`/CSRF/redirect.
 
 ---
 
