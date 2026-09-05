@@ -562,6 +562,13 @@ test("il testo dell'SMS non finisce mai nell'impronta, e l'impronta non e uno SH
       userId: UTENTE,
       channel: "phone",
       purpose: "verify_phone",
+      /*
+        **Il destinatario e parte dell'impronta** (PP-05, CRITICAL del quarto
+        round della revisione ostile). Si prende dalla riga perche e li che il
+        codice di produzione l'ha scritto: se lo scrivesse il test, questa
+        prova direbbe solo che due copie della stessa costante sono uguali.
+      */
+      target: riga.target,
     }),
   );
 });

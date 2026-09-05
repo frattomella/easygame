@@ -193,6 +193,7 @@ const main = async () => {
           userId: occupato.id,
           channel: "email",
           purpose: "reset_password",
+          target: occupato.email,
         }),
         expires_at: new Date(Date.now() + 30 * 60_000),
       },
@@ -623,6 +624,203 @@ const main = async () => {
           elencoPubblicoPrecedente;
       }
     }
+  }
+
+
+  /* --- S11: un token nasce per un recapito, e vale solo per quello --- */
+  {
+    /*
+      **CRITICAL del quarto round.** `confirmPasswordReset` cercava la
+      challenge per utente, canale, scopo e vita della riga — e **non** per
+      destinatario, mentre le rotte OTP il destinatario lo filtravano da
+      sempre. La differenza fra le due era invisibile finche l'indirizzo di un
+      account non poteva cambiare sotto un token vivo; da PP-05 puo.
+
+      La catena, misurata: ci si registra con un indirizzo proprio, si chiede
+      il reset **sul proprio** indirizzo, si cambia l'indirizzo in uno
+      dell'elenco `NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS` — che e
+      pubblicato a ogni browser — e si consuma il token. Il consumo scriveva
+      `email_verified_at` sulla teoria «chi apre il link controlla la casella»,
+      che dopo il cambio non e piu vera: l'indirizzo dell'amministratore
+      risultava provato senza che nessuna email lo avesse mai raggiunto.
+
+      Due difese indipendenti, e la verifica per mutazione ha misurato che
+      **ciascuna da sola** chiude la catena: il destinatario entra nel `where`,
+      e entra nel legame crittografico dell'impronta.
+    */
+    const indirizzoDellElenco = `capo2-${marchio}@easygame.invalid`;
+    const elencoPrecedente = process.env.EASYGAME_PLATFORM_ADMIN_EMAILS;
+    const elencoPubblicoPrecedente =
+      process.env.NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS;
+    process.env.EASYGAME_PLATFORM_ADMIN_EMAILS = indirizzoDellElenco;
+    process.env.NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS = indirizzoDellElenco;
+
+    try {
+      const { isPlatformAdminUser } = await carica("src/lib/platform-admin.ts");
+
+      const attaccante = await creaUtente({ email_verified_at: null });
+
+      /* Il token nasce per l'indirizzo dell'attaccante. */
+      const token = randomBytes(32).toString("hex");
+      await prisma.authVerificationChallenge.create({
+        data: {
+          user_id: attaccante.id,
+          channel: "email",
+          purpose: "reset_password",
+          target: attaccante.email,
+          code_hash: flussi.hashOtpCode(token, {
+            userId: attaccante.id,
+            channel: "email",
+            purpose: "reset_password",
+            target: attaccante.email,
+          }),
+          expires_at: new Date(Date.now() + 30 * 60_000),
+        },
+      });
+
+      /* L'account passa all'indirizzo dell'elenco, mai verificato. */
+      await prisma.user.update({
+        where: { id: attaccante.id },
+        data: { email: indirizzoDellElenco, email_verified_at: null },
+      });
+
+      let consumato = false;
+      try {
+        await flussi.confirmPasswordReset({
+          userId: attaccante.id,
+          token,
+          password: "NuovaPasswordVera!2026",
+        });
+        consumato = true;
+      } catch {
+        consumato = false;
+      }
+
+      const dopo = await prisma.user.findUnique({
+        where: { id: attaccante.id },
+      });
+      const admin = isPlatformAdminUser(dopo);
+
+      /*
+        Il controspecchio: **senza** il cambio di indirizzo lo stesso token
+        deve funzionare, o questa prova misurerebbe solo che il reset e rotto.
+      */
+      const onesto = await creaUtente({ email_verified_at: null });
+      const tokenOnesto = randomBytes(32).toString("hex");
+      await prisma.authVerificationChallenge.create({
+        data: {
+          user_id: onesto.id,
+          channel: "email",
+          purpose: "reset_password",
+          target: onesto.email,
+          code_hash: flussi.hashOtpCode(tokenOnesto, {
+            userId: onesto.id,
+            channel: "email",
+            purpose: "reset_password",
+            target: onesto.email,
+          }),
+          expires_at: new Date(Date.now() + 30 * 60_000),
+        },
+      });
+      let resetOnesto = false;
+      try {
+        await flussi.confirmPasswordReset({
+          userId: onesto.id,
+          token: tokenOnesto,
+          password: "NuovaPasswordVera!2026",
+        });
+        resetOnesto = true;
+      } catch {
+        resetOnesto = false;
+      }
+
+      segna(
+        "S11 — un token di reset nato per un indirizzo non verifica l'indirizzo successivo",
+        consumato === false &&
+          dopo.email_verified_at === null &&
+          admin === false &&
+          resetOnesto === true,
+        `token consumato = ${consumato} · indirizzo provato = ${
+          dopo.email_verified_at !== null
+        } · admin = ${admin} · controspecchio (nessun cambio) = ${resetOnesto}`,
+      );
+    } finally {
+      if (elencoPrecedente === undefined) {
+        delete process.env.EASYGAME_PLATFORM_ADMIN_EMAILS;
+      } else {
+        process.env.EASYGAME_PLATFORM_ADMIN_EMAILS = elencoPrecedente;
+      }
+      if (elencoPubblicoPrecedente === undefined) {
+        delete process.env.NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS;
+      } else {
+        process.env.NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS =
+          elencoPubblicoPrecedente;
+      }
+    }
+  }
+
+  /* --- S12: lo sfratto spegne anche cio che l'occupante ha gia in mano --- */
+  {
+    /*
+      **CRITICAL del quarto round, secondo.** `sfrattaOccupante` toglieva tutto
+      cio che esisteva **come riga sull'account** — password, numero, sessioni,
+      legami esterni — e non cio che l'occupante **teneva gia in mano**. Un
+      token di reset vive trenta minuti e lo si chiede prima dello sfratto: si
+      occupa un indirizzo libero, ci si chiede un reset, si aspetta che la
+      vittima arrivi davvero dal proprio Google, e si consuma il token dopo.
+
+      Una challenge viva **e** un canale di accesso, e ADR-0117 dice che
+      sfrattare significa chiuderli tutti: l'elenco dei canali si allunga di
+      uno ogni volta che qualcuno guarda.
+    */
+    const occupante = await creaUtente({ email_verified_at: null });
+
+    const token = randomBytes(32).toString("hex");
+    await prisma.authVerificationChallenge.create({
+      data: {
+        user_id: occupante.id,
+        channel: "email",
+        purpose: "reset_password",
+        target: occupante.email,
+        code_hash: flussi.hashOtpCode(token, {
+          userId: occupante.id,
+          channel: "email",
+          purpose: "reset_password",
+          target: occupante.email,
+        }),
+        expires_at: new Date(Date.now() + 30 * 60_000),
+      },
+    });
+
+    /* La vittima arriva davvero da Google, sullo stesso indirizzo. */
+    await flussi.findOrCreateOAuthUser({
+      providerId: "google",
+      providerAccountId: `sonda-${marchio}-${randomUUID().slice(0, 8)}`,
+      email: occupante.email,
+      emailVerified: true,
+    });
+
+    const viveDopoLoSfratto = await prisma.authVerificationChallenge.count({
+      where: { user_id: occupante.id, consumed_at: null },
+    });
+
+    let riuscito = false;
+    try {
+      await flussi.confirmPasswordReset({
+        userId: occupante.id,
+        token,
+        password: "PasswordDellAttaccante!2026",
+      });
+      riuscito = true;
+    } catch {
+      riuscito = false;
+    }
+
+    segna(
+      "S12 — lo sfratto spegne le challenge vive: un token chiesto prima non vale dopo",
+      viveDopoLoSfratto === 0 && riuscito === false,
+      `challenge vive dopo lo sfratto = ${viveDopoLoSfratto} · reset riuscito = ${riuscito}`,
+    );
   }
 
   __setSmsProviderForTests(undefined);

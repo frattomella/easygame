@@ -149,22 +149,48 @@ const otpPepper = () =>
  * quella strada: chi porta via un dump non ha il pepe, e senza il pepe il
  * milione di valori non si puo enumerare.
  *
- * L'impronta lega anche **canale, scopo e utente**. Serve a rendere inutile lo
- * spostamento di una riga: un `code_hash` copiato dalla challenge email di un
- * account sulla challenge telefono di un altro non corrisponde piu a niente.
+ * L'impronta lega **canale, scopo, utente e destinatario**. Serve a rendere
+ * inutile lo spostamento di una riga: un `code_hash` copiato dalla challenge
+ * email di un account sulla challenge telefono di un altro non corrisponde piu
+ * a niente.
+ *
+ * ## Perche il destinatario, e perche non bastava il `where`
+ *
+ * Il destinatario e entrato nel legame al **quarto round** della revisione
+ * ostile, che lo ha usato per diventare amministratore di piattaforma. Un
+ * codice — o un token di reset — nasce **per un recapito**, non per un
+ * account: se l'account cambia indirizzo fra l'emissione e il consumo, quel
+ * codice non prova piu niente su chi lo porta. Le rotte OTP lo sapevano e
+ * mettevano il destinatario nel `where`; la rotta di reset **no**, ed e stata
+ * la porta.
+ *
+ * La difesa e nel legame e non solo nel `where` perche le due sono
+ * **indipendenti**: un `where` e una riga che si puo dimenticare in uno dei
+ * chiamanti — ed e esattamente cio che era successo — mentre un legame
+ * crittografico vale per chiunque chiami, anche per chi lo dimentica. Chi
+ * verifica passa il destinatario **corrente**, mai `challenge.target`: usare il
+ * valore salvato sulla riga renderebbe il legame vero per costruzione, cioe
+ * vacuo.
  *
  * ## Cosa succede alle challenge gia emesse
  *
- * Diventano inverificabili, e va bene: vivono cinque o quindici minuti, e chi
- * si trova a cavallo del rilascio richiede il codice. Non c'e migrazione,
- * perche non c'e niente da conservare.
+ * Diventano inverificabili, e va bene: vivono cinque o quindici minuti — il
+ * token di reset trenta — e chi si trova a cavallo del rilascio richiede il
+ * codice. Non c'e migrazione, perche non c'e niente da conservare.
  */
 export const hashOtpCode = (
   code: string,
-  binding: { userId: string; channel: string; purpose: string },
+  binding: {
+    userId: string;
+    channel: string;
+    purpose: string;
+    target: string;
+  },
 ) =>
   createHmac("sha256", otpPepper())
-    .update(`${binding.channel}:${binding.purpose}:${binding.userId}:${code}`)
+    .update(
+      `${binding.channel}:${binding.purpose}:${binding.userId}:${binding.target}:${code}`,
+    )
     .digest("hex");
 
 /** Il destinatario, come impronta: i contatori non tengono numeri in chiaro. */
@@ -451,7 +477,12 @@ const createInternalChallenge = async ({
           channel,
           purpose,
           target,
-          code_hash: hashOtpCode(code, { userId, channel, purpose }),
+          code_hash: hashOtpCode(code, {
+            userId,
+            channel,
+            purpose,
+            target,
+          }),
           /*
             **`created_at` si scrive, non si lascia al database.** Il cooldown lo
             confronta con `new Date()` dell'applicazione: mescolare l'orologio di
@@ -705,6 +736,16 @@ const verifyInternalChallenge = async ({
       userId,
       channel,
       purpose: challenge.purpose,
+      /*
+        Il destinatario **chiesto**, non `challenge.target`. Il `where` qui
+        sopra li ha gia dichiarati uguali, quindi il valore e lo stesso — ma
+        prenderlo dalla riga renderebbe il legame vero per costruzione, cioe
+        una seconda difesa che non difende da niente. Preso dal parametro, se
+        un giorno il `where` perdesse `target` — che e esattamente cio che era
+        successo alla rotta di reset — l'impronta non corrisponderebbe lo
+        stesso.
+      */
+      target,
     }),
     "hex",
   );
@@ -878,6 +919,30 @@ const sfrattaOccupante = async (userId: string) => {
     che non era di chi ha appena dimostrato di possedere l'indirizzo.
   */
   await prisma.externalAccount.deleteMany({ where: { user_id: userId } });
+  /*
+    **E le challenge gia emesse**, che erano il canale rimasto (quarto round
+    della revisione ostile, CRITICAL).
+
+    Uno sfratto toglieva all'occupante tutto cio che **esisteva come riga sul
+    suo account** — password, numero, sessioni, legami esterni — e non cio che
+    l'occupante **teneva gia in mano**. Un token di reset vive trenta minuti e
+    lo si chiede prima: la catena misurata e occupare un indirizzo libero,
+    chiedersi un reset, aspettare che la vittima arrivi davvero da Google, e
+    consumare il token **dopo** lo sfratto. A quel punto l'indirizzo risulta
+    verificato — l'ha verificato la vittima — quindi il ramo di sfratto del
+    reset non scatta nemmeno, e la password dell'attaccante sovrascrive quella
+    della persona a cui l'account e appena stato restituito.
+
+    Il legame col destinatario chiude anche questa catena quando l'indirizzo e
+    cambiato; qui non e cambiato — occupante e vittima hanno lo stesso — e
+    percio serve la seconda mano. Una challenge viva **e** un canale di
+    accesso: ADR-0117 dice che sfrattare significa chiuderli tutti, e l'elenco
+    dei canali si allunga di uno ogni volta che qualcuno guarda.
+  */
+  await prisma.authVerificationChallenge.updateMany({
+    where: { user_id: userId, consumed_at: null },
+    data: { consumed_at: new Date() },
+  });
 };
 
 export const confirmEmailVerification = async (
@@ -1786,6 +1851,7 @@ export const sendPasswordResetChallenge = async (user: {
             userId: user.id,
             channel: "email",
             purpose: "reset_password",
+            target: user.email,
           }),
           created_at: adesso,
           expires_at: new Date(
@@ -1853,11 +1919,36 @@ export const confirmPasswordReset = async ({
     throw new Error("Link di reset non valido o scaduto");
   }
 
+  /*
+    **Il token e nato per un indirizzo, e vale solo per quell'indirizzo**
+    (CRITICAL del quarto round della revisione ostile).
+
+    Questo `where` filtrava utente, canale, scopo e vita della riga, e **non il
+    destinatario** — mentre `verifyInternalChallenge`, per gli OTP, lo faceva
+    da sempre. La differenza fra i due era invisibile finche l'indirizzo di un
+    account non poteva cambiare sotto un token vivo; da PP-05 puo, e la catena
+    misurata era questa: ci si registra con un indirizzo proprio, si chiede il
+    reset **sul proprio** indirizzo, si cambia l'indirizzo in uno dell'elenco
+    `NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS` — che e pubblicato a ogni
+    browser — e si consuma il token. Il consumo scrive `email_verified_at`
+    sulla teoria «chi apre il link controlla la casella», che dopo il cambio
+    **non e piu vera**: l'indirizzo dell'amministratore risultava provato senza
+    che nessuna email lo avesse mai raggiunto.
+
+    Il difetto non e il cambio di indirizzo, che e legittimo e passa dalla
+    password attuale. E la **teoria del token**: un token dimostra il possesso
+    del recapito a cui e stato consegnato, e di nessun altro.
+
+    Due difese indipendenti, e ciascuna chiude la catena da sola: il
+    destinatario entra in questo `where`, e — per chi un giorno lo togliesse di
+    nuovo — entra nel legame crittografico dell'impronta (`hashOtpCode`).
+  */
   const challenge = await prisma.authVerificationChallenge.findFirst({
     where: {
       user_id: user.id,
       channel: "email",
       purpose: "reset_password",
+      target: user.email,
       consumed_at: null,
       expires_at: { gt: new Date() },
     },
@@ -1885,6 +1976,8 @@ export const confirmPasswordReset = async ({
       userId: user.id,
       channel: "email",
       purpose: "reset_password",
+      // L'indirizzo **corrente**, non `challenge.target`: vedi `hashOtpCode`.
+      target: user.email,
     }),
     "hex",
   );
@@ -1974,6 +2067,23 @@ export const confirmPasswordReset = async ({
     }),
     // Un reset invalida ogni sessione aperta, ovunque.
     prisma.session.deleteMany({ where: { user_id: user.id } }),
+    /*
+      **E ogni altra challenge viva**, per la stessa ragione per cui invalida
+      le sessioni: un codice `login` o `signup` gia emesso e una porta gia
+      aperta, e `challengePurposeCanMintSession` la lascia coniare una
+      sessione. Chi ha appena cambiato la password perche sospetta di essere
+      stato compromesso non deve trovarsi in casa un codice altrui ancora
+      valido — e il caso simmetrico del CRITICAL del quarto round, dove era lo
+      sfratto a lasciare vivo un token.
+    */
+    prisma.authVerificationChallenge.updateMany({
+      where: {
+        user_id: user.id,
+        id: { not: challenge.id },
+        consumed_at: null,
+      },
+      data: { consumed_at: new Date() },
+    }),
     /*
       **E, sullo sfratto, anche i legami con gli accessi esterni** (C-1 del
       secondo round). Cancellare le sole sessioni lasciava all'occupante il

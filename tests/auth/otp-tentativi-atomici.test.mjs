@@ -26,6 +26,7 @@ const UTENTE = "11111111-0000-4000-8000-000000000aaa";
   il riferimento, non l'identificativo.
 */
 const RIFERIMENTO = "verify_0123456789abcdef0123456789abcdef";
+const DESTINATARIO = "persona@example.invalid";
 const CODICE = "654321";
 const TOKEN_RESET = "token-di-reset-lungo-e-imprevedibile";
 
@@ -50,7 +51,7 @@ const challenge = (over = {}) => ({
   user_id: UTENTE,
   channel: "email",
   purpose: "verify_email",
-  target: "persona@example.invalid",
+  target: DESTINATARIO,
   code_hash: impronta(CODICE),
   expires_at: new Date(Date.now() + 10 * 60_000),
   consumed_at: null,
@@ -63,7 +64,7 @@ const seed = () => ({
   user: [
     {
       id: UTENTE,
-      email: "persona@example.invalid",
+      email: DESTINATARIO,
       first_name: "Anna",
       last_name: "Rossi",
       password_hash: "x",
@@ -78,8 +79,19 @@ const seed = () => ({
 before(async () => {
   process.env.DATABASE_URL ||= "postgresql://test:test@127.0.0.1:5432/test";
   flussi = await import("../../src/lib/server/auth-workflows.ts");
-  impronta = (valore, purpose = "verify_email", channel = "email") =>
-    flussi.hashOtpCode(valore, { userId: UTENTE, channel, purpose });
+  /*
+    **Il destinatario entra nell'impronta** (PP-05, CRITICAL del quarto round
+    della revisione ostile): un codice nasce per un recapito, e se l'account
+    cambia recapito fra l'emissione e il consumo quel codice non prova piu
+    niente. Qui il destinatario e sempre l'indirizzo dell'utente della
+    fixture, che e anche il `target` della riga.
+  */
+  impronta = (
+    valore,
+    purpose = "verify_email",
+    channel = "email",
+    target = DESTINATARIO,
+  ) => flussi.hashOtpCode(valore, { userId: UTENTE, channel, purpose, target });
   ({ MAX_OTP_ATTEMPTS } = await import("../../src/lib/auth/otp-policy.ts"));
   ({ __setPrismaClientForTests: setPrismaClientForTests } = await import(
     "../../src/lib/server/prisma.ts"

@@ -6634,3 +6634,50 @@ unico c'era, e gli era stato dato un elenco **incompleto**: mancava
 insieme» era giusta e insufficiente. Un punto unico non e una garanzia: e **un
 posto dove guardare**. E una rotazione vale solo quanto vale il piu debole degli
 identificativi che la aggirano.
+
+---
+
+**Emendamento del 2026-09-05 (quarto round della revisione ostile).** L'elenco
+dei canali era ancora incompleto, e stavolta per una ragione **diversa dalle
+due precedenti**: mancava non una riga che esisteva sull'account, ma cio che
+l'occupante **teneva gia in mano**.
+
+7. **Lo sfratto spegne le challenge vive, e cosi il reset password.** Un token
+   di reset vive trenta minuti, e lo si chiede **prima**. La catena misurata:
+   si occupa un indirizzo libero, ci si chiede subito un reset, e si aspetta.
+   La vittima arriva davvero dal proprio Google, lo sfratto scatta e le
+   restituisce l'account — con la password azzerata, il numero tolto, le
+   sessioni cancellate e i legami esterni rimossi, cioe tutte e quattro le
+   difese dei punti precedenti. A quel punto l'indirizzo risulta verificato
+   (l'ha verificato lei), quindi il ramo di sfratto di `confirmPasswordReset`
+   non scatta nemmeno: il token dell'occupante **sovrascrive la password** della
+   persona a cui l'account e appena stato restituito, e le lascia intatto il
+   legame Google. L'attaccante entra con la propria password.
+
+   Si spengono tutte, dentro `sfrattaOccupante` e dentro il reset — dove vale il
+   caso simmetrico: chi cambia la password perche sospetta di essere stato
+   compromesso non deve trovarsi in casa un codice altrui ancora valido, e un
+   codice di scopo `login` gia emesso e una porta gia aperta (punto 3).
+
+8. **Un token e legato al recapito per cui e nato, non all'account.** Difesa
+   indipendente dalla precedente, e ciascuna delle due chiude la catena da
+   sola: `confirmPasswordReset` filtra ora anche per `target`, come le rotte
+   OTP facevano da sempre, e il destinatario entra nel **legame crittografico**
+   dell'impronta (`hashOtpCode`). La seconda esiste perche un `where` e una riga
+   che si puo dimenticare in uno dei chiamanti — ed e esattamente cio che era
+   successo — mentre un legame crittografico vale anche per chi lo dimentica.
+
+   La forma peggiore della stessa cosa era l'escalation ad **amministratore di
+   piattaforma**: si chiede il reset sul proprio indirizzo, si cambia
+   l'indirizzo in uno dell'elenco pubblicato in `NEXT_PUBLIC_*`, e si consuma il
+   token. Il consumo scriveva `email_verified_at` sulla teoria «chi apre il link
+   controlla la casella», che dopo il cambio non e piu vera.
+
+**La regola generale, di nuovo corretta, e questa e la formulazione che tiene.**
+L'elenco dei canali si allunga di uno **ogni volta che qualcuno guarda**:
+password, telefono, sessioni, legami esterni, challenge. Non perche chi lo ha
+scritto sia stato distratto quattro volte, ma perche **ogni difesa nuova sposta
+il confine di cio che conta**, e cio che conta va poi riguardato tutto. ADR-0115
+ha reso mutabile un indirizzo che prima era di fatto immutabile, e da quel
+momento «il token e legato all'account» ha smesso di significare «il token e
+legato alla casella» — senza che una sola riga di quel codice fosse cambiata.

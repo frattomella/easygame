@@ -2909,3 +2909,151 @@ Dichiarati dal reviewer:
 - **Enumerazione per tempi**: valutata per lettura — `bcrypt` gira sui due rami
   — e **non** misurata con un campionamento statistico. E lo stesso gap del
   secondo round, e resta aperto.
+
+---
+
+## PP-05 — quarto round della revisione ostile (2026-09-05)
+
+Quarto reviewer indipendente, sulla lane intera e con le correzioni dei tre
+round precedenti gia dentro. Esito: **2 Critical, 0 High, 1 Medium, 1 Low**.
+
+I due Critical hanno **la stessa radice**, che nessuno dei tre round precedenti
+aveva nominata: **un token di reset non era legato al recapito per cui era
+nato, e nessuna delle logiche di sfratto spegneva cio che l'occupante teneva
+gia in mano.**
+
+E la terza volta di fila che il difetto nasce **dal fix del round prima** — non
+per una svista di chi lo ha scritto, ma per una ragione strutturale che a
+questo punto vale la pena scrivere per esteso: **ogni difesa nuova sposta il
+confine di cio che conta, e cio che conta va poi riguardato tutto.** ADR-0115
+ha reso mutabile un indirizzo che prima era di fatto immutabile, e da quel
+momento «il token e legato all'account» ha smesso di significare «il token e
+legato alla casella».
+
+### CRITICAL-1 — un token nasce per un recapito, e valeva per l'account
+
+`confirmPasswordReset` cercava la challenge per `user_id`, `channel`,
+`purpose`, `consumed_at` ed `expires_at`. **Non per `target`** — mentre
+`verifyInternalChallenge`, cioe la strada degli OTP, il destinatario lo aveva
+nel `where` da sempre. La colonna `target` sulla riga c'era ed era scritta
+correttamente: nessuno la leggeva.
+
+La catena misurata, e l'attaccante e chiunque sappia registrarsi:
+
+1. l'elenco degli amministratori vive in
+   `NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS`, cioe e **pubblicato a ogni
+   browser**. Si sceglie un indirizzo di quell'elenco non ancora registrato;
+2. ci si registra con un **indirizzo proprio** e il proprio numero, si verifica
+   il telefono (scopo `signup`, quindi una sessione si apre), e l'indirizzo
+   resta non verificato;
+3. `POST /password/forgot` **sul proprio indirizzo**: il token arriva nella
+   propria casella, legittimamente;
+4. `PATCH /auth/user` cambia l'indirizzo in quello dell'amministratore. Passa
+   dal cancello della password attuale, che l'attaccante ha, ed e giusto che
+   passi: cambiare il proprio indirizzo e una funzione del prodotto. Il cambio
+   azzera `email_verified_at`, com'e giusto;
+5. `POST /password/reset` consuma il token. Nessun controllo sul destinatario,
+   e il consumo scrive `email_verified_at` **sull'indirizzo nuovo**, sulla
+   teoria «chi apre il link controlla la casella» — che dopo il passo 4 **non e
+   piu vera**;
+6. `isPlatformAdminUser` risponde `true`. Alla richiesta successiva: dati di
+   pagamento di ogni societa, piani, profilo fiscale, conti Stripe.
+
+Il difetto **non e** il cambio di indirizzo, ed e importante dirlo: e la
+**teoria del token**. Un token dimostra il possesso del recapito a cui e stato
+consegnato, e di nessun altro.
+
+**Due difese indipendenti**, e la sonda misura che **ciascuna da sola** chiude
+la catena:
+
+1. il destinatario entra nel `where` di `confirmPasswordReset`, come lo era da
+   sempre per gli OTP;
+2. il destinatario entra nel **legame crittografico** dell'impronta
+   (`hashOtpCode`, che ora lega canale, scopo, utente **e destinatario**). Chi
+   verifica passa il destinatario **corrente**, mai `challenge.target`: prendere
+   il valore dalla riga renderebbe il legame vero per costruzione, cioe vacuo.
+
+La seconda esiste perche le due sono davvero indipendenti: un `where` e una
+riga che si puo dimenticare **in uno dei chiamanti** — ed e esattamente cio che
+era successo — mentre un legame crittografico vale per chiunque chiami, anche
+per chi lo dimentica.
+
+### CRITICAL-2 — lo sfratto toglieva le righe, non cio che l'occupante aveva in mano
+
+`sfrattaOccupante` azzerava password e numero, ruotava il riferimento pubblico,
+cancellava sessioni e legami `external_accounts` — quest'ultimo aggiunto dal
+secondo round, proprio per la stessa ragione. Non toccava
+`auth_verification_challenges`: **un token gia emesso sopravviveva allo
+sfratto**, e ne vive trenta.
+
+La catena: si occupa un indirizzo libero, ci si chiede subito un reset, e si
+**aspetta**. La vittima arriva davvero dal proprio Google, lo sfratto scatta e
+le restituisce l'account. A quel punto l'indirizzo risulta verificato — l'ha
+verificato lei — quindi il ramo di sfratto di `confirmPasswordReset` non scatta
+nemmeno, e il token dell'occupante **sovrascrive la password** della persona a
+cui l'account e appena stato restituito, lasciandole intatto il legame Google.
+L'attaccante entra con la propria password.
+
+Chiuso spegnendo tutte le challenge vive dentro lo sfratto, e — caso simmetrico
+— dentro il reset password: chi cambia la password perche sospetta di essere
+stato compromesso non deve trovarsi in casa un codice altrui ancora valido, e
+un codice `login` gia emesso e una porta gia aperta.
+
+**Una challenge viva e un canale di accesso.** ADR-0117 dice che sfrattare
+significa chiuderli tutti, e questo e il terzo canale che si aggiunge a
+quell'elenco in tre round: password, telefono, sessioni, legami esterni,
+challenge. L'elenco si allunga di uno **ogni volta che qualcuno guarda** — che
+e il modo giusto di leggere «un punto unico non e una garanzia, e un posto dove
+guardare».
+
+### MEDIUM — l'SMS della registrazione e un oracolo di enumerazione
+
+Le risposte HTTP della registrazione sono indistinguibili — stesso corpo,
+stesso stato, tempi entro pochi millisecondi, tutto misurato — ma la
+**consegna dell'SMS** no: sul ramo dell'indirizzo gia occupato l'SMS parte solo
+se la password coincide, mentre per un indirizzo libero parte sempre. Chi
+registra un indirizzo candidato **col proprio numero** scopre dall'arrivo o
+meno del messaggio se quell'indirizzo esista gia.
+
+Registrato come **PP05-D9** e non chiuso, con la ragione scritta: le tre
+correzioni possibili sono peggiori del difetto. Mandare comunque un SMS
+significherebbe spedire verso un numero che nessuno ha ancora provato, cioe
+riaprire HIGH-3 del primo round; non mandarlo mai spegnerebbe la ripresa di una
+registrazione interrotta, che e un caso reale; e distinguere «chi sta
+registrando davvero quel numero» da «chi lo sta sondando» pretende il
+**possesso**, cioe proprio cio che l'SMS deve ancora provare. Il tetto per
+destinatario limita comunque la misura a cinque tentativi l'ora **per numero**,
+e il numero e quello dell'attaccante.
+
+### LOW — le righe `prisma:error` anche sul percorso OTP
+
+Stessa forma gia registrata come PP05-D7 per il reset: sotto reinvii simultanei
+il logger interno di Prisma stampa la violazione dell'indice unico parziale
+**prima** che il `catch` la veda. La proprieta di sicurezza regge — una sola
+challenge viva, misurato — ed e igiene di osservabilita. PP05-D7 si allarga
+invece di moltiplicarsi.
+
+### Coverage gaps del quarto round
+
+Dichiarati dal reviewer:
+
+- **`/private/email-preview` e «invio da anteprima»**: verificati per **lettura**
+  (guardia di sessione piu `isPlatformAdminSession`, `sandbox=""`, catalogo che
+  non chiama il punto di invio). Non esercitata la pagina con una richiesta
+  reale; la proprieta «non spedisce» resta misurata da
+  `tests/email/anteprima-non-spedisce.test.mjs`, che passa.
+- **OAuth**: esercitato `findOrCreateOAuthUser` direttamente, **non** il flusso
+  completo `state`/CSRF/redirect ne lo scambio del codice.
+- **Leak di segreti SMTP**: solo lettura. Non iniettato un errore SMTP reale
+  per ispezionare l'uscita del logger.
+- **Manipolazione di `X-Forwarded-For`**: solo lettura di `getRequestIp`. E lo
+  stesso perimetro di PP05-D5, che resta aperto.
+- **Corsa reset-contro-sfratto sotto concorrenza vera**: CRITICAL-2 dimostrato
+  in sequenza deterministica e non come corsa parallela — e non serve, perche
+  la finestra e l'intera vita del token.
+- **Gettone dei ruoli personalizzati**: letto, non montato contraffatto contro
+  una rotta protetta. Lo misura pero `scripts/pp-05-gettone-tessera-probe.mjs`
+  (prova G5), scritta per la dependency di PP-03.
+- **Enumerazione per tempi**: misurata sui corpi, sugli stati e su un delta di
+  latenza, **non** con un campionamento statistico. E il gap che si ripete in
+  tre round su quattro, e a questo punto e un limite del metodo.
