@@ -2325,3 +2325,44 @@ e il posto dove riscrivere un chiamante o cambiare la forma di un elenco.
 | **PP05-D8** | **Il secchiello SMS per destinatario si puo saturare a danno di terzi.** Registrando account con indirizzi usa-e-getta e **il numero di un'altra persona** si consuma il contatore condiviso di quel numero (`otpSendTarget`, 5 all'ora), e per quell'ora l'SMS di verifica legittimo di quella persona non parte. Trovato dalla revisione ostile (terzo round), gravita bassa: reversibile, limitato, nessun dato esposto | **In parte intrinseco** a un tetto per destinatario, e toglierlo riaprirebbe HIGH-3 del primo round — dieci SMS all'ora verso un numero scelto — che e molto peggio. La correzione vera pretende di distinguere «chi sta registrando davvero quel numero» da «chi lo sta pompando», e l'unico segnale che le separa e il **possesso**, cioe proprio cio che l'SMS deve ancora provare. Va disegnata, non improvvisata |
 | **PP05-D9** | **L'invio dell'SMS nella registrazione e un oracolo di enumerazione.** Le risposte HTTP dei due rami sono indistinguibili — corpo, stato e tempi, tutti misurati dal quarto round — ma la **consegna del messaggio** no: con un indirizzo gia occupato l'SMS parte solo se la password coincide, con un indirizzo libero parte sempre. Chi registra un indirizzo candidato **col proprio numero** scopre dall'arrivo del messaggio se quell'indirizzo esista. Richiede un operatore che consegna davvero, e costa un SMS al club per ogni tentativo | **Le tre correzioni possibili sono peggiori del difetto.** Mandare comunque l'SMS significa spedire verso un numero che nessuno ha ancora provato, cioe riaprire HIGH-3 del primo round; non mandarlo mai spegne la ripresa di una registrazione interrotta, che e un caso reale del prodotto; distinguere «chi sta registrando davvero quel numero» da «chi lo sta sondando» pretende il **possesso**, cioe proprio cio che l'SMS deve ancora provare. Nel frattempo il tetto per destinatario limita la misura a cinque tentativi l'ora **per numero**, e il numero e quello di chi sonda. Gemello di PP05-D8: hanno la stessa radice e la stessa correzione mancante. **E la quarta correzione, quella che sembra piu ovvia, va scartata per iscritto**: consumare `otpSendTarget` sul numero del **corpo** anche nel ramo dell'indirizzo occupato non chiude l'oracolo — l'SMS continua a non arrivare, e l'attaccante lo misura lo stesso — e apre una **seconda porta a PP05-D8**, perche si potrebbe saturare il secchiello del numero di un'altra persona registrando un indirizzo occupato qualunque, senza nemmeno possedere una password. Rende peggiore un difetto per attenuarne un altro |
 | **PP05-D10** | **L'oggetto di un'email non passa da nessuna normalizzazione nostra.** Un oggetto puo portare contenuto di un utente — il titolo di un avviso di club, il nome del club nell'invito atleta, i segnaposto risolti di una comunicazione — e nessuna riga di EasyGame gli toglie CR/LF prima di consegnarlo al trasporto. Oggi non e sfruttabile: misurato sul MIME vero (`scripts/pp-05-giro-conclusivo-probe.mjs`, C4), il compositore di `nodemailer` piega il valore su **una riga sola** e non nasce nessuna intestazione nuova, nessun `Bcc`. Ma e una difesa che **appartiene alla libreria**, non al prodotto | Metterla dentro vorrebbe dire scegliere dove: nel punto unico di invio (`sendTransactionalEmail`) e la scelta giusta, e tocca **tutte** le email del prodotto, comprese quelle di domini che PP-05 non possiede. E una riga, ma va decisa una volta per tutte insieme alla normalizzazione dei destinatari — che oggi non arrivano mai dal client, e per questo il rischio resta teorico. La prova C4 esiste proprio per accorgersi del giorno in cui la proprieta della libreria smettesse di valere |
+### D-EV-1 — `club_event_participants.athlete_id` non ha una chiave esterna
+
+`prisma/schema.prisma`, `model ClubEventParticipant`: `athlete_id String` —
+senza `@db.Uuid` e **senza relazione**. E una colonna di testo libero, quindi
+l'archivio non rifiuta da se un identificativo che non nomina nessun atleta, ne
+uno che nomina l'atleta di un altro club.
+
+Oggi la porta e chiusa in applicazione (`assertAtletiDelClub`, KB 14), e le
+sonde lo verificano. Ma la difesa e **una sola**, ed e in codice: il giorno in
+cui nasce una quinta strada che scrive quella tabella, la difesa va ricordata a
+mano. Una chiave esterna verso `athletes(id)` la renderebbe strutturale.
+
+Non si chiude in questa correzione perche va misurato prima **che cosa c'e gia
+in archivio**: righe orfane o cross-tenant scritte prima della guardia
+farebbero fallire la migrazione. Serve un censimento, una bonifica dichiarata e
+poi il vincolo — cioe un WP, non una riga.
+
+### D-EV-2 — il perimetro di categoria dell'allenatore vale sull'evento, non sull'atleta
+
+`assertAtletiDentroIlPerimetro` restringe per sede e categoria **solo** i ruoli
+che dichiarano righe in `club_access_scopes`, cioe i ruoli personalizzati
+ristretti. Per un `trainer` ordinario il perimetro e verificato
+sull'**evento** (`assertTrainerEventPerimeter`: «questo evento e di una tua
+categoria?») e non sull'**atleta**.
+
+Conseguenza: un allenatore di Under 12, su un evento che gli compete, puo
+convocare o segnare presente **qualunque atleta del club**, anche di categorie
+che non allena.
+
+Non e la stessa classe del Critical chiuso oggi — resta dentro il club, quindi
+non e una scrittura cross-tenant — e non e ovvio che sia un difetto: la
+convocazione fuori categoria e una **capability dichiarata**
+(`isExtraCategory`), e un allenatore che prepara un'amichevole con due ragazzi
+della categoria sopra sta usando il prodotto come previsto.
+
+Va deciso come **prodotto**, non come sicurezza: se la convocazione fuori
+categoria debba restare libera, o richiedere una chiave di permesso propria.
+Finche non e deciso, non si stringe: una guardia messa qui per prudenza
+romperebbe un uso legittimo, e sarebbe la sesta volta in questo perimetro che
+una correzione allarga un predicato senza misurare chi **non** doveva
+raggiungere.

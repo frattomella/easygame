@@ -116,6 +116,19 @@ const seed = () => ({
       payload: { id: "match-1" },
     },
   ],
+  /*
+    Gli atleti mancavano dal seme: le porte della convocazione e della
+    presenza non li guardavano, quindi non servivano. Adesso li guardano.
+  */
+  athlete: [
+    { id: "atleta-1", organization_id: CLUB, first_name: "Uno", last_name: "Club", status: "active" },
+    { id: "atleta-2", organization_id: CLUB, first_name: "Due", last_name: "Club", status: "active" },
+    { id: "a1", organization_id: CLUB, first_name: "A1", last_name: "Club", status: "active" },
+    { id: "a2", organization_id: CLUB, first_name: "A2", last_name: "Club", status: "active" },
+    { id: "a3", organization_id: CLUB, first_name: "A3", last_name: "Club", status: "active" },
+    { id: "a4", organization_id: CLUB, first_name: "A4", last_name: "Club", status: "active" },
+    { id: "atleta-altrui", organization_id: ALTRO_CLUB, first_name: "Estraneo", last_name: "Altrove", status: "active" },
+  ],
   clubEventParticipant: [],
   auditLog: [],
 });
@@ -372,4 +385,76 @@ test("lo stesso orario su un campo diverso passa", async () => {
   });
 
   assert.equal(riga.legacy_id, "training-3");
+});
+
+/* ============================= l'atleta e di questo club, o non entra === */
+
+test("un atleta di un altro club non si convoca", async () => {
+  await assert.rejects(
+    () =>
+      eventi.saveEventConvocations(scope("owner"), EVENTO, [
+        { athleteId: "atleta-altrui" },
+      ]),
+    negato,
+    "scrivere qui una riga e una scrittura cross-tenant, e fa partire l'invito alla famiglia di quel minore",
+  );
+
+  assert.equal(fake.rows("clubEventParticipant").length, 0);
+});
+
+test("ne se ne registra la presenza", async () => {
+  await assert.rejects(
+    () =>
+      eventi.saveEventAttendance(scope("owner"), EVENTO, [
+        { athleteId: "atleta-altrui", status: "present" },
+      ]),
+    negato,
+    "la presenza e il dato su cui si rendicontano i contributi pubblici",
+  );
+
+  assert.equal(fake.rows("clubEventParticipant").length, 0);
+});
+
+test("un identificativo che non nomina nessun atleta non entra", async () => {
+  await assert.rejects(
+    () =>
+      eventi.saveEventConvocations(scope("owner"), EVENTO, [
+        { athleteId: "non-esiste" },
+      ]),
+    negato,
+    "`club_event_participants.athlete_id` non ha una chiave esterna: e testo libero",
+  );
+});
+
+test("un elenco misto e rifiutato per intero, non per meta", async () => {
+  await assert.rejects(
+    () =>
+      eventi.saveEventConvocations(scope("owner"), EVENTO, [
+        { athleteId: "atleta-1" },
+        { athleteId: "atleta-altrui" },
+      ]),
+    negato,
+  );
+
+  assert.equal(
+    fake.rows("clubEventParticipant").length,
+    0,
+    "una guardia che scartasse l'estraneo e scrivesse il resto direbbe riuscito a chi ha chiesto altro",
+  );
+});
+
+test("la guardia non e il perimetro di categoria ne lo stato del tesseramento", async () => {
+  /*
+    La meta che dice se la correzione e giusta e non solo stretta: convocare
+    fuori categoria e lecito — `isExtraCategory` esiste per dichiararlo — e un
+    atleta non piu attivo resta un atleta di questo club.
+  */
+  fake.rows("athlete").find((riga) => riga.id === "a2").status = "inactive";
+
+  await eventi.saveEventConvocations(scope("owner"), EVENTO, [
+    { athleteId: "a1", isExtraCategory: true },
+    { athleteId: "a2" },
+  ]);
+
+  assert.equal(fake.rows("clubEventParticipant").length, 2);
 });
