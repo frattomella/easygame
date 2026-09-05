@@ -5587,8 +5587,32 @@ export const listResourcePage = async (
     options,
   );
 
+  /*
+    **Il perimetro dell'allenatore e un filtro dopo la query, e non ha un
+    parametro.**
+
+    Questa riga elencava i due parametri storici — `trainer_scope` e
+    `trainer_id` — ed era giusta quando il filtro si chiedeva. Dal momento in
+    cui il perimetro e diventato **implicito sul ruolo** (D-5: «non c'e nessun
+    parametro da omettere per uscirne») la domanda non e piu «e stato chiesto
+    un filtro?», ma «ne verra applicato uno?».
+
+    Finche guardava i parametri, `take/skip` e `count` giravano **prima** di
+    `filterTrainerDashboardRecords`: a un allenatore con tre atleti nel
+    perimetro `meta.total` dichiarava i quindici del club, e `hasMore` gli
+    offriva pagine che non contenevano niente. La cardinalita di un insieme che
+    non si puo vedere e comunque un'informazione su quell'insieme, e le pagine
+    vuote sono il modo in cui l'interfaccia lo mette per iscritto.
+  */
+  const trainerPerimeterApplies =
+    normalizeAccessRole(scope?.activeRole) === "trainer" &&
+    Boolean(scope?.userId) &&
+    Boolean(scope?.activeOrganizationId) &&
+    TRAINER_DASHBOARD_FILTERED_RESOURCES.has(canonicalResourceName(resource));
+
   const hasPostQueryFilters =
     Boolean(season) ||
+    trainerPerimeterApplies ||
     Boolean(searchParams.get("trainer_scope") || searchParams.get("trainer_id"));
 
   const canPaginateInDatabase = Boolean(pagination) && !hasPostQueryFilters;

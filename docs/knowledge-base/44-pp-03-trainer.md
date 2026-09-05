@@ -718,3 +718,62 @@ prove, tre verbi piu il verso opposto) e
 usa un nome **inventato sul momento** — un test che elencasse i nomi noti
 verificherebbe l'elenco, cioe proprio la cosa che si e smesso di usare).
 Verifica per mutazione: 7 prove su 11 rosse.
+
+---
+
+## §10 — Due incoerenze che il round ha misurato, e questa lane chiude
+
+### 10.1 — La paginazione contava il club, il perimetro tagliava dopo
+
+`hasPostQueryFilters` elencava i due parametri storici `trainer_scope` e
+`trainer_id`. Era giusto quando il filtro dell'allenatore si **chiedeva**; da
+quando e diventato implicito sul ruolo — D-5, «non c'e nessun parametro da
+omettere per uscirne» — la domanda non e piu «e stato chiesto un filtro?» ma
+«ne verra applicato uno?».
+
+Finche guardava i parametri, `take/skip` e `count` giravano **prima** di
+`filterTrainerDashboardRecords`:
+
+```
+GET /api/v1/athletes?club_id=…&limit=1&offset=0
+  → meta = { total: 15, hasMore: true }      con 3 atleti nel perimetro
+```
+
+Non e una fuga di righe — le righe restavano tagliate, e percorrendo tutte le
+pagine si ritrovano tutti e soli i propri atleti. E la **cardinalita** di un
+insieme che non si puo vedere, piu un `hasMore` che offre pagine vuote:
+l'interfaccia metteva per iscritto quanto e grande cio che nasconde.
+
+La correzione dichiara il perimetro fra i filtri applicati dopo la query, con
+la stessa condizione che `filterTrainerDashboardRecords` usa per accendersi:
+una seconda formulazione della stessa domanda sarebbe la prossima divergenza.
+
+### 10.2 — Un'etichetta di permesso che il server smentisce
+
+`appointments.manage` diceva «Confermare, rifiutare, riprogrammare o annullare
+un appuntamento, **e configurare la disponibilita**». La seconda meta e vera per
+chi amministra il club; ma la chiave e concessa anche a `trainer`, e
+`assertPuoConfigurareLaDisponibilita` gli nega gli slot con un 403 — giustamente,
+perche gli orari in cui la societa riceve non sono la riga di nessuno.
+
+Un club che spuntava quella casella per un ruolo personalizzato basato su
+`trainer` leggeva una promessa che il prodotto non mantiene: la casella che non
+fa cio che dice, vietata da [CLAUDE.md §11.5](../../CLAUDE.md). **La chiave non
+cambia, ne cambia il suo elenco di ruoli**: cambia l'etichetta, che era la sola
+cosa falsa — e dice adesso anche a chi tocca quella funzione, perche togliere
+una promessa senza mettere una risposta lascia chi amministra a cercare la
+casella giusta.
+
+### Verificato
+
+`tests/server/pp-03-paginazione-perimetro.test.mjs`, cinque prove: il totale, il
+`hasMore`, il percorso completo delle pagine (che non deve perdere ne ripetere
+righe), il caso senza paginazione, e il **verso opposto** — alla direzione il
+conteggio resta quello del club, perche spegnere la paginazione sul database per
+tutti era la strada facile e sbagliata. Verifica per mutazione: 2 prove su 5
+rosse.
+
+`tests/lib/pp-03-etichetta-appuntamenti.test.mjs`, due prove. Non controllano il
+testo esatto — sarebbe un test sull'ortografia — ma la relazione: se la chiave e
+concessa a un ruolo **non** gestionale, la sua etichetta non puo promettere di
+configurare il club.
