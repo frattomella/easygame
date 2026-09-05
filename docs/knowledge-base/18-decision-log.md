@@ -6621,3 +6621,95 @@ e allora una persona nuova che entra, e niente altro. Calcolarlo prima dei
 riporti, o con una regola diversa sui due lati, produce falsi positivi che si
 manifestano come una scheda che nessun ruolo senza `clinical.read` riesce piu
 a salvare — misurati, 1.079 combinazioni su 1.536.
+
+---
+
+## ADR-0117 — Una difesa che dipende da un'enumerazione ha un test che **enumera il dominio**
+
+**Contesto.** Ventotto round di revisione ostile su PP-02. Dal quattordicesimo
+in poi ogni round ha trovato almeno un High, e tre round consecutivi hanno
+trovato **lo stesso difetto in tre posti diversi**:
+
+| Round | L'enumerazione scritta a mano | Copriva | Su |
+|-------|-------------------------------|---------|-----|
+| 26 | i verbi della rotta generica | 1 (`PATCH`) | 3 |
+| 27 | le risorse con guardie nella modifica | 2 | 4 |
+| 28 | le grafie del ruolo negli sweep della revoca | 4 | 22 |
+
+Ogni volta la chiusura e stata **allungare l'elenco**, e ogni volta l'elenco
+allungato e diventato il quinto elenco da tenere d'accordo con gli altri
+quattro senza che nulla lo verificasse.
+
+Il tratto comune e preciso: **due elenchi in due file diversi devono restare
+d'accordo, e non esiste niente che lo controlli.** Un elenco che deve restare
+d'accordo con un altro elenco divergera: e una questione di tempo, non di
+attenzione.
+
+E i gate non lo vedevano. Non per pigrizia: 4.742 test verdi, 266 sonde
+comportamentali contro PostgreSQL. La **copertura** era alta; la **varieta**
+era bassa. La sonda esercitava il valore che chi aveva scritto la difesa aveva
+in mente — quattro grafie di ruolo su ventidue, e nessuno slug personalizzato,
+che e la forma che il prodotto scrive **da se**.
+
+**Decisione.**
+
+> Ogni enumerazione che governa una difesa deve avere un test che **enumera il
+> dominio canonico** e fallisce quando compare un valore non coperto. Non un
+> test che prova i valori a cui l'autore ha pensato: un test che **deriva** i
+> valori dalla fonte unica e li prova tutti.
+
+Ne discendono tre obblighi operativi:
+
+1. **La fonte unica si esporta.** Se un dominio governa una difesa, deve essere
+   enumerabile da un test. `ACCESS_ROLE_ALIASES` in `src/lib/access-roles.ts`
+   esiste per questo, e non per il prodotto: e le chiavi di `ROLE_ALIASES`, non
+   una loro copia. Chi aggiunge un alias estende la prova senza toccarla.
+2. **Il test non contiene l'elenco.** Un elenco scritto nel test e il sesto
+   elenco da tenere d'accordo, e fallisce nello stesso modo degli altri cinque.
+3. **La prova si misura anche al contrario.** Un test di totalita da solo passa
+   anche per una «correzione» che scollega tutto. Accanto alla totalita si
+   misura la **specificita**: per ogni valore del dominio, cade il legame che
+   compete a quel ruolo e **non cadono gli altri**. Senza questa meta, revocare
+   la tessera di allenatore a un padre gli toglierebbe l'accesso ai figli e il
+   gate sarebbe verde.
+
+**Come si verifica che la prova serva.** Una sonda che non e mai stata vista
+rossa non e una prova: e una speranza. Un test di totalita si accompagna alla
+**verifica per mutazione** — si riporta la difesa allo stato precedente e si
+mostra il rosso, con l'elenco dei valori scoperti. Le due sonde introdotte con
+questa decisione sono state verificate cosi:
+
+| sonda | dominio | esito sulla difesa vecchia |
+|-------|---------|-----------------------------|
+| `scripts/pp-02-totalita-ruoli.mjs` | 36 alias + 4 forme `custom:` | rossa su **23 grafie su 40** |
+| `scripts/pp-02-totalita-corpo.mjs` | le risorse aperte di `RESOURCE_CONFIG` x 3 verbi | rossa su **22 risorse su 22** esercitate |
+
+**Due cose che la verifica per mutazione ha corretto nell'analisi stessa.**
+
+- La RCA dichiarava **quattordici** grafie invisibili agli sweep. Sono
+  diciannove: mancavano anche le cinque forme di `owner`, che il vecchio
+  `STAFF_ROLES` non conteneva. Con le quattro forme `custom:` fanno ventitre.
+- La RCA classificava R-3 come **Medium**, con la nota «oggi nessun client e
+  colpito». La sonda lo ha misurato: sulla difesa vecchia, **ventidue risorse
+  su ventidue** accettavano un `PATCH` con il corpo non incartato, rispondevano
+  200 e **non scrivevano niente**. Non era una particolarita di `athletes`: era
+  qualunque corpo della forma `{ ...campi, data: {...} }`, su qualunque risorsa.
+  La caratterizzazione era sbagliata perche era stata dedotta, non misurata.
+
+E la ragione per cui questa decisione sta in un ADR e non in una nota di
+stile: **la classe non si chiude aggiungendo sonde**, perche la classe non e
+finita. E il prodotto cartesiano fra i valori di un'enumerazione e i punti in
+cui quell'enumerazione e ricopiata. Serve un cambio di forma della prova.
+
+**Conseguenze.** Un test di totalita costa piu di una sonda: semina un soggetto
+per ogni valore del dominio e ne osserva quattro proprieta. In cambio non prova
+un caso — **rende impossibile la classe**. Le due sonde sono fuori da
+`npm test` perche vogliono PostgreSQL vero: girano con gli altri collaudi di
+PP-02 (KB 15).
+
+**Alternative scartate.** Allungare gli elenchi e aggiungere sonde sui valori
+mancanti: e cio che i round 26, 27 e 28 hanno gia fatto, tre volte, e ogni volta
+il difetto piu grave del round successivo e nato li.
+
+**Vedi anche.** KB 44 (l'analisi della causa), ADR-0102 (lo slug e le chiavi si
+scrivono insieme), ADR-0110 (scollegare non e revocare).

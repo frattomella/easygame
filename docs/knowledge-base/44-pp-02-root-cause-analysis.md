@@ -289,3 +289,61 @@ R-2, che si chiude solo con WP-C).
   questo round non lo e.
 - I tre reperti sono registrati come debito: **PP02-D35**, **PP02-D36**,
   **PP02-D37**; **PP02-D34** e stato ricaratterizzato con la misura vera.
+
+---
+
+## 7. Stato dell'esecuzione
+
+### WP-A — **FATTO** (2026-09-05)
+
+AC-2, AC-3 e i due test di totalita
+([ADR-0117](18-decision-log.md#adr-0117--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)).
+Nessuna migrazione, nessun cambio di modello, 4 file di prodotto toccati.
+
+| | Prima | Dopo |
+|---|---|---|
+| il vocabolario del ruolo negli sweep | 4 `Set` di letterali, 19 grafie | i predicati canonici di `access-roles.ts`, 36 alias + gli slug `custom:` |
+| la lettura del corpo della rotta generica | 2 regole, una per verbo | `src/lib/server/resource-request-payload.ts`, una per tre verbi |
+| una scrittura che non scrive niente | 200 | 400 |
+| il dominio, nelle prove | i valori a cui l'autore aveva pensato | derivato dalla fonte unica, esercitato tutto |
+
+Gate a questo commit: **4.742 test verdi**, typecheck silenzioso, 0 errori di
+lint, **266/266** sonde PP-02 contro PostgreSQL, **6/6** totalita dei ruoli
+(40 grafie), **10/10** totalita del corpo (22 risorse esercitate, 27 dichiarate
+non esercitate con il motivo).
+
+**Verificate per mutazione**, che e la sola ragione per cui contano:
+riportando la difesa vecchia, `pp-02-totalita-ruoli.mjs` diventa rossa su
+**23 grafie su 40** e `pp-02-totalita-corpo.mjs` su **22 risorse su 22**.
+
+### Due correzioni a questo documento, che la misura ha imposto
+
+Sono qui e non solo nel debito perche in entrambi i casi **questo file** era
+piu ottimista del vero, e un'analisi della causa che sbaglia la misura e
+esattamente il difetto che descrive al §3.
+
+1. **§2, R-1 diceva «quattordici grafie».** Sono **diciannove**: al vecchio
+   `STAFF_ROLES` mancavano anche le cinque forme di `owner`. Revocare la
+   tessera di un proprietario **non** scollegava la sua scheda staff. Con le
+   quattro forme `custom:` fanno **ventitre** su quaranta.
+
+2. **§2, R-3 era classificato Medium**, con la nota «oggi nessun client e
+   colpito (incartano tutti)». Misurato: sulla difesa vecchia, **ventidue
+   risorse su ventidue** fra quelle scrivibili dalla rotta generica accettavano
+   un `PATCH` della forma `{ ...campi, data: {...} }`, rispondevano 200 e **non
+   scrivevano niente**. Non era una particolarita di `athletes` — era
+   `categories`, `club_sites`, `trainers`, `staff_members`, `sponsors`,
+   `payment_plans`, `document_templates`, `weekly_schedule` e le altre. La
+   gravita vera e perdita di dati silenziosa sull'intera superficie di
+   scrittura generica.
+
+In tutti e due i casi il numero era stato **dedotto** leggendo il codice invece
+che **eseguito**. E la stessa forma del §3: «il caso che ho in mano» diverso da
+«il caso».
+
+### WP-B, WP-C, WP-D — da fare
+
+`athlete_guardians`, il modulo proprietario unico, la rimozione del riporto e
+dei due registri. Chiudono `PP02-D33`, `PP02-D34` e R-2, che WP-A **non**
+tocca. Finche non sono fatti, PP-02 non e FINAL: resta un High aperto (R-2),
+misurato 5 giri su 5 su due taglie di club.

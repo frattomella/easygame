@@ -446,3 +446,44 @@ sopravvivere in CI e stato trasformato in test permanenti sotto `tests/`. Cio
 che resta qui e la parte che **richiede un database vero** — le relazioni
 caricate con `include`, le query grezze, il giro completo di un documento fra
 tre schermate.
+
+### I due test di totalita di PP-02 (WP-A, 2026-09-05)
+
+```bash
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-totalita-ruoli.mjs
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-totalita-corpo.mjs
+```
+
+Non sono due sonde in piu. Sono la forma di prova che
+[ADR-0117](18-decision-log.md#adr-0117--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)
+prescrive, e la differenza dalle altre e una sola: **il dominio non e scritto
+nel file**.
+
+| sonda | il dominio, e da dove viene | che cosa chiede |
+|-------|------------------------------|-----------------|
+| `pp-02-totalita-ruoli.mjs` | `ACCESS_ROLE_ALIASES` + `CUSTOM_ROLE_BASE_ROLES`, importati da `src/lib/access-roles.ts` (40 valori) | per **ogni** grafia: `revokeClubAccess` fa cadere il legame della famiglia canonica di quel ruolo (**totalita**) e **non** fa cadere gli altri tre (**specificita**) |
+| `pp-02-totalita-corpo.mjs` | le risorse aperte di `RESOURCE_CONFIG`, importate da `src/lib/server/resources.ts` | per **ogni** risorsa raggiungibile: un `PATCH` con il corpo non incartato scrive davvero, e un corpo senza campi e 400 e non 200 |
+
+Chi domani aggiunge un alias di ruolo, o una risorsa, **estende la prova senza
+toccare i due file**. Se la difesa non copre il valore nuovo, la sonda diventa
+rossa da sola. E la proprieta per cui esistono: un elenco scritto nel test
+sarebbe il sesto elenco da tenere d'accordo con gli altri cinque, e
+divergerebbe come gli altri.
+
+**La specificita non e un ornamento.** Un test di totalita da solo e verde
+anche per una «correzione» che scollega tutto: senza la seconda meta, revocare
+la tessera di allenatore a un padre gli toglierebbe l'accesso ai figli e il
+gate non se ne accorgerebbe.
+
+**La copertura si dichiara, anche quando manca.** `pp-02-totalita-corpo.mjs`
+stampa in coda le risorse che **non** ha potuto esercitare e il motivo per cui
+il dominio le rifiuta (27 su 49 alla data: `athletes`, `club_events`,
+`transactions`, `receipts`, ... — ognuna con la sua rotta di dominio). Un buco
+di copertura fa parte del verbale, non del silenzio.
+
+**Sono state verificate per mutazione**, che e la sola ragione per cui si puo
+dire che servono: riportando la difesa allo stato precedente, la prima diventa
+rossa su **23 grafie su 40** e la seconda su **22 risorse su 22**. Una sonda
+mai vista rossa non e una prova.

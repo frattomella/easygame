@@ -944,3 +944,58 @@ in `tests/server/ruoli-personalizzati-rotte.test.mjs`. La seconda esiste perche
 la guardia nuova rende il soffitto irraggiungibile per la strada che lo provava:
 va esercitato dove **resta** raggiungibile, cioe su un `club_manager` canonico
 che tenta di concedere una chiave di direzione.
+
+
+---
+
+## Gli sweep della revoca non hanno un vocabolario proprio (WP-A, 2026-09-05)
+
+`revokeClubAccess` cancella la tessera e poi chiama quattro sweep, che
+ripuliscono i riferimenti rimasti: la scheda allenatore, la scheda staff, le
+righe tutore degli atleti del club, e `athletes.user_id`
+([ADR-0110](18-decision-log.md#adr-0110--scollegare-un-profilo-non-e-revocare-una-tessera)).
+
+Ognuno dei quattro deve prima decidere **se gli compete**, e per farlo guarda
+`organization_users.role`. Fino a WP-A lo faceva confrontando quella stringa
+con quattro insiemi di letterali dichiarati in `profile-account-links.ts` —
+diciannove grafie in tutto — mentre ogni altro controllo del prodotto passa da
+`normalizeAccessRole`, che di grafie ne conosce **trentasei**, piu le quattro
+forme di `custom:<base>:<nome>` che `assignClubRole` scrive da se.
+
+I due elenchi dovevano restare d'accordo, e nulla lo verificava. Non lo erano:
+**ventitre valori su quaranta** erano invisibili agli sweep. Misurato dalle
+porte vere — tessera con `role: "tutor"`, revoca dalla Gestione accessi,
+schermata «Accesso revocato», tessera cancellata, riga di audit scritta — e
+`canParentAccessAthlete` rispondeva **ancora true**.
+
+**La regola, adesso.** Nessuno sweep, nessuna guardia e nessun ramo di
+dominio decide un ruolo confrontando lo **slug** con un insieme di stringhe.
+Si chiede ai predicati canonici, che sono gia esportati e passano tutti dallo
+stesso funnel:
+
+| domanda | predicato |
+|---------|-----------|
+| e un allenatore? | `isTrainerAccessRole(role)` |
+| e un genitore o tutore? | `isParentAccessRole(role)` |
+| e un atleta? | `isAthleteAccessRole(role)` |
+| e uno della gestione? (`owner`, `club_manager`, `collaborator`, `staff`) | `isManagementAccessRole(role)` |
+
+Tutti e quattro risolvono **anche** uno slug personalizzato, perche
+`normalizeAccessRole` ne restituisce il ruolo **base** — che e l'invariante di
+ADR-0102: un ruolo di club risponde al massimo quanto il suo ruolo base, mai di
+piu, e quindi va sorvegliato come il suo ruolo base.
+
+**Un allargamento voluto.** Il vecchio insieme gestionale non conteneva
+nessuna delle cinque grafie di `owner`: revocare la tessera di un proprietario
+**non** scollegava la sua scheda staff. `isManagementAccessRole` la include, e
+il legame adesso cade. Il fondatore del club resta un caso a parte e non si
+revoca affatto: lo nega `revokeClubAccess` prima di arrivare qui, perche la sua
+proprieta non nasce dalla tessera ma da `clubs.creator_id`.
+
+**Come si difende la regola.** `scripts/pp-02-totalita-ruoli.mjs` deriva il
+dominio da `ACCESS_ROLE_ALIASES` e lo esercita tutto, e chiede due proprieta
+per ogni grafia: che il legame che compete a quel ruolo cada, e che gli altri
+tre **non** cadano
+([ADR-0117](18-decision-log.md#adr-0117--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)).
+Un alias nuovo in `ROLE_ALIASES` entra nella prova senza che nessuno tocchi la
+prova.

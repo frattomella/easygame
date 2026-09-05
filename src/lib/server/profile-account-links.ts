@@ -8,6 +8,12 @@ import {
   recordAuditEvent,
   recordPermissionDenied,
 } from "./audit";
+import {
+  isAthleteAccessRole,
+  isManagementAccessRole,
+  isParentAccessRole,
+  isTrainerAccessRole,
+} from "@/lib/access-roles";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { roleHasPermission } from "@/lib/permissions/catalog";
 import { lockAthleteRow, syncClubAggregateField } from "./resources";
@@ -890,19 +896,32 @@ export const unlinkGuardianAccount = async (
  *  scopa sono la duplicazione che CLAUDE.md §2 vieta.
  * ========================================================================= */
 
-export const TRAINER_ROLES = new Set(["trainer", "allenatore", "coach"]);
-export const PARENT_ROLES = new Set(["parent", "genitore", "guardian", "tutore"]);
-export const ATHLETE_ROLES = new Set(["athlete", "atleta", "player"]);
-export const STAFF_ROLES = new Set([
-  "admin",
-  "manager",
-  "gestore",
-  "staff",
-  "member",
-  "socio",
-  "collaborator",
-  "collaboratore",
-]);
+/* ------------------------------------------------------------------- *
+ *  Il vocabolario del ruolo e uno solo (AC-2 della RCA, KB 44)
+ *
+ *  Qui vivevano quattro `Set` di letterali — diciannove grafie in tutto —
+ *  che dovevano restare d'accordo con `ROLE_ALIASES` di `access-roles.ts`,
+ *  che di grafie ne conosce trentasei, piu le quattro forme di
+ *  `custom:<base>:<nome>` che `assignClubRole` scrive **da se**.
+ *
+ *  Non restavano d'accordo, e nulla lo verificava: **diciannove** grafie
+ *  (`tutor`, `giocatore`, `giocatrice`, `club_manager`, `administrator`,
+ *  `amministratore`, `segreteria`, `secretary`, `membro`, `allenatrice`,
+ *  piu le cinque forme di `owner`) e **tutti** gli slug personalizzati erano
+ *  invisibili ai quattro sweep — ventitre valori su quaranta. La revoca
+ *  riusciva, la tessera spariva, l'audit la registrava — e il profilo
+ *  restava collegato a un'utenza senza tessera.
+ *
+ *  Il conteggio e misurato, non dedotto: la RCA ne dichiarava quattordici
+ *  perche aveva confrontato i due elenchi a vista, e le cinque grafie di
+ *  `owner` mancavano da entrambe le letture. Le conta
+ *  `scripts/pp-02-totalita-ruoli.mjs` riportando la difesa vecchia.
+ *
+ *  Gli sweep non hanno piu un vocabolario proprio: chiedono ai predicati
+ *  canonici, che passano tutti da `normalizeAccessRole` e risolvono percio
+ *  sia gli alias sia il ruolo base di uno slug personalizzato. Un'unica
+ *  fonte, e il test di totalita la enumera tutta.
+ * ------------------------------------------------------------------- */
 
 const getProfileRole = (record: any) => {
   const data = isRecord(record?.data) ? record.data : {};
@@ -914,15 +933,14 @@ const shouldUnlinkProfileForRole = (
   accessRole: string,
   resourceType: "trainers" | "staff_members",
 ) => {
-  const normalizedRole = normalizeToken(accessRole);
   const profileRole = getProfileRole(record);
 
-  if (TRAINER_ROLES.has(normalizedRole)) {
-    return resourceType === "trainers" || TRAINER_ROLES.has(profileRole);
+  if (isTrainerAccessRole(accessRole)) {
+    return resourceType === "trainers" || isTrainerAccessRole(profileRole);
   }
 
-  if (STAFF_ROLES.has(normalizedRole)) {
-    return resourceType === "staff_members" && !TRAINER_ROLES.has(profileRole);
+  if (isManagementAccessRole(accessRole)) {
+    return resourceType === "staff_members" && !isTrainerAccessRole(profileRole);
   }
 
   return false;
@@ -957,8 +975,8 @@ export const unlinkProfileResources = async (
   userEmail: string | null,
   accessRole: string,
 ) => {
-  const normalizedRole = normalizeToken(accessRole);
-  if (!TRAINER_ROLES.has(normalizedRole) && !STAFF_ROLES.has(normalizedRole)) {
+  const trainerRole = isTrainerAccessRole(accessRole);
+  if (!trainerRole && !isManagementAccessRole(accessRole)) {
     return 0;
   }
 
@@ -967,9 +985,7 @@ export const unlinkProfileResources = async (
     where: {
       organization_id: organizationId,
       resource_type: {
-        in: TRAINER_ROLES.has(normalizedRole)
-          ? ["trainers", "staff_members"]
-          : ["staff_members"],
+        in: trainerRole ? ["trainers", "staff_members"] : ["staff_members"],
       },
     },
     select: { id: true, payload: true, resource_type: true },
@@ -1007,8 +1023,8 @@ export const unlinkClubJsonProfiles = async (
   userEmail: string | null,
   accessRole: string,
 ) => {
-  const normalizedRole = normalizeToken(accessRole);
-  if (!TRAINER_ROLES.has(normalizedRole) && !STAFF_ROLES.has(normalizedRole)) {
+  const trainerRole = isTrainerAccessRole(accessRole);
+  if (!trainerRole && !isManagementAccessRole(accessRole)) {
     return 0;
   }
 
@@ -1018,7 +1034,7 @@ export const unlinkClubJsonProfiles = async (
   });
   if (!club) return 0;
 
-  const trainers = TRAINER_ROLES.has(normalizedRole)
+  const trainers = trainerRole
     ? unlinkProfileCollection(club.trainers, userId, userEmail, accessRole, "trainers")
     : { next: club.trainers, changed: false };
   const staffMembers = unlinkProfileCollection(
@@ -1071,7 +1087,7 @@ export const unlinkParentGuardians = async (
   userEmail: string | null,
   accessRole: string,
 ) => {
-  if (!PARENT_ROLES.has(normalizeToken(accessRole))) return 0;
+  if (!isParentAccessRole(accessRole)) return 0;
 
   /*
     **Qui si prendono solo gli identificativi: il contenuto si rilegge dopo.**
@@ -1343,7 +1359,7 @@ export const unlinkDirectAthleteProfile = async (
   userId: string,
   accessRole: string,
 ) => {
-  if (!ATHLETE_ROLES.has(normalizeToken(accessRole))) return 0;
+  if (!isAthleteAccessRole(accessRole)) return 0;
 
   const schede = await tx.athlete.findMany({
     where: { organization_id: organizationId, user_id: userId },

@@ -2362,6 +2362,52 @@ chiusa li.
 | **PP02-D32** | La coppia storica `parent1`/`parent2` non entra nel riporto delle difese: `resources.ts` legge e riscrive solo `data.guardians`, quindi un marchio `accessRevokedAt` scritto su `parent1` da «Scollega account» sparisce al primo salvataggio dell'anagrafica | L'accesso resta chiuso — il registro delle identita revocate lo tiene, e i quattro lettori di notifiche lo onorano — quindi oggi si perde solo la ridondanza. E la stessa asimmetria che il registro dei soli recapiti ha appena chiuso per l'altra difesa, su un contenitore che il riporto non guarda affatto: la chiusura coerente e portare la coppia storica dentro il riporto, o completare la migrazione verso `guardians` |
 | **PP02-D33** | Cinque approvazioni concorrenti di moduli sullo stesso atleta perdono righe tutore: tutte rispondono «Genitore aggiunto», e in anagrafica ne arrivano due o tre. Misurato sei giri su sei prima del blocco di riga | Il blocco introdotto in questo round mette in fila le scritture su `athletes.data`, quindi la corsa non si perde piu **fra** i quattro scrittori che lo prendono. Resta pero che `decideFormSubmission` legge l array dei tutori **prima** della transazione e lo rimanda: due approvazioni serializzate scrivono ognuna il proprio snapshot, e la seconda non vede la riga della prima. La chiusura e leggere i tutori **dentro** il blocco, cioe portare l intera decisione sotto la stessa transazione della scrittura: e un cambio di forma di `eseguiDecisione`, non una riga |
 | **PP02-D34** | Lo sweep della revoca non puo avere insieme **correttezza** e **assenza di deadlock**: scegliere le schede fuori dal blocco fa sfuggire quella che acquista il tutore mentre la revoca gira (5 giri su 5); bloccarle tutte con un `FOR UPDATE` sul club chiude quella finestra e va in abbraccio mortale con il rollover di stagione, che prende le stesse righe in ordine di scansione (5 giri su 5, misurato dal log di PostgreSQL) | **Ricaratterizzato al round 28**: la finestra non e «stretta». Misurata dalle due porte vere in parallelo con 20 ms di sfasamento, il tutore revocato legge ancora il secondo figlio **5 giri su 5** sia su un club da 40 tesserati (revoca in 49 ms) sia su uno da 400 (222 ms): la finestra e **l'intera durata dello sweep** e cresce con i tesserati. La scelta fatta resta la meno dannosa, il deadlock fa fallire **ogni** revoca durante un passaggio di stagione, con un messaggio generico e nulla in audit. Non si chiude con una terza stesura del ciclo: si chiude quando la revoca diventa **una riga da aggiornare** invece di un ciclo su un blob — nessuna scansione, nessun blocco per riga, nessun ordine di acquisizione da incrociare |
-| **PP02-D35** | I quattro sweep di `revokeClubAccess` decidono se lavorare confrontando `organization_users.role` con quattro **insiemi di letterali** (`profile-account-links.ts:893-896`), mentre il resto del prodotto decide con `normalizeAccessRole`, che di alias ne conosce **36**. Quattordici grafie canoniche — fra cui `tutor`, `giocatore`, `club_manager`, `segreteria` — e **tutte** le forme di slug personalizzato `custom:<base>:<nome>` sono invisibili agli sweep. Misurato dalle porte vere: revoca riuscita, tessera cancellata, audit scritto, e il genitore apre ancora il fascicolo del minore | Non si chiude allungando i quattro elenchi — sarebbe la quinta volta. Si chiude togliendoli: gli sweep chiedono `normalizeAccessRole` e `parseCustomRoleValue`. Vedi [44 — AC-2](44-pp-02-root-cause-analysis.md) |
-| **PP02-D36** | `PATCH /api/v1/[resource]/[id]` legge il corpo con `body?.data ?? body`; il `POST` della stessa rotta ha `resolveCreatePayload`, con una euristica scritta apposta per non confondere l'involucro con il contenuto. Su `athletes`, che ha una colonna `data`, un `PATCH` con il corpo non incartato risponde **200 senza scrivere niente**. Nessun client del prodotto e colpito oggi (incartano tutti), ma un salvataggio che *toglie* un tutore diventerebbe un no-op silenzioso | Un corpo, una regola, tre verbi: `resolveCreatePayload` sale in un modulo condiviso dalle due rotte. Vedi [44 — AC-3](44-pp-02-root-cause-analysis.md) |
-| **PP02-D37** | **La classe, non il caso.** Tre round consecutivi hanno trovato il difetto piu grave nella stessa forma: una difesa vera e provata che copre **un valore su N** di un'enumerazione ricopiata a mano — un verbo su tre (round 26), una risorsa su due (round 27), una grafia di ruolo su ventidue (round 28). Ogni volta la chiusura e stata allungare l'elenco, e la correzione del round 27 ha introdotto il quinto elenco. Le sonde non lo vedono perche esercitano il valore che chi ha scritto la difesa aveva in mente: la copertura e alta, la **varieta** e bassa | Regola proposta: ogni enumerazione che governa una difesa ha un test che **enumera il dominio canonico** derivandolo dalla fonte unica, e fallisce quando compare un valore non coperto. Vedi [44](44-pp-02-root-cause-analysis.md) |
+| **PP02-D35** — **CHIUSO** (WP-A) | I quattro sweep di `revokeClubAccess` decidono se lavorare confrontando `organization_users.role` con quattro **insiemi di letterali** (`profile-account-links.ts:893-896`), mentre il resto del prodotto decide con `normalizeAccessRole`, che di alias ne conosce **36**. Quattordici grafie canoniche — fra cui `tutor`, `giocatore`, `club_manager`, `segreteria` — e **tutte** le forme di slug personalizzato `custom:<base>:<nome>` sono invisibili agli sweep. Misurato dalle porte vere: revoca riuscita, tessera cancellata, audit scritto, e il genitore apre ancora il fascicolo del minore | Non si chiude allungando i quattro elenchi — sarebbe la quinta volta. Si chiude togliendoli: gli sweep chiedono `normalizeAccessRole` e `parseCustomRoleValue`. Vedi [44 — AC-2](44-pp-02-root-cause-analysis.md) |
+| **PP02-D36** — **CHIUSO** (WP-A) | `PATCH /api/v1/[resource]/[id]` legge il corpo con `body?.data ?? body`; il `POST` della stessa rotta ha `resolveCreatePayload`, con una euristica scritta apposta per non confondere l'involucro con il contenuto. Su `athletes`, che ha una colonna `data`, un `PATCH` con il corpo non incartato risponde **200 senza scrivere niente**. Nessun client del prodotto e colpito oggi (incartano tutti), ma un salvataggio che *toglie* un tutore diventerebbe un no-op silenzioso | Un corpo, una regola, tre verbi: `resolveCreatePayload` sale in un modulo condiviso dalle due rotte. Vedi [44 — AC-3](44-pp-02-root-cause-analysis.md) |
+| **PP02-D37** — **CHIUSO** (WP-A) | **La classe, non il caso.** Tre round consecutivi hanno trovato il difetto piu grave nella stessa forma: una difesa vera e provata che copre **un valore su N** di un'enumerazione ricopiata a mano — un verbo su tre (round 26), una risorsa su due (round 27), una grafia di ruolo su ventidue (round 28). Ogni volta la chiusura e stata allungare l'elenco, e la correzione del round 27 ha introdotto il quinto elenco. Le sonde non lo vedono perche esercitano il valore che chi ha scritto la difesa aveva in mente: la copertura e alta, la **varieta** e bassa | Regola proposta: ogni enumerazione che governa una difesa ha un test che **enumera il dominio canonico** derivandolo dalla fonte unica, e fallisce quando compare un valore non coperto. Vedi [44](44-pp-02-root-cause-analysis.md) |
+
+### WP-A — cosa si e chiuso, e con quale misura (2026-09-05)
+
+Il primo dei quattro interventi di [44 — l'analisi della causa](44-pp-02-root-cause-analysis.md):
+AC-2, AC-3 e i due test di totalita che ne discendono
+([ADR-0117](18-decision-log.md#adr-0117--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)).
+Nessuna migrazione, nessun cambio di modello.
+
+| Debito | Esito | Come e stato misurato |
+|--------|-------|------------------------|
+| **PP02-D35** (R-1, High) | **CHIUSO** | I quattro `Set` di letterali sono spariti da `profile-account-links.ts`: i quattro sweep chiedono `isTrainerAccessRole` / `isManagementAccessRole` / `isParentAccessRole` / `isAthleteAccessRole`, che passano tutti da `normalizeAccessRole` e risolvono percio i 36 alias **e** il ruolo base di uno slug personalizzato. `scripts/pp-02-totalita-ruoli.mjs`: 6/6 su 40 grafie, e **rosso su 23 grafie** riportando la difesa vecchia |
+| **PP02-D36** (R-3) | **CHIUSO** | `src/lib/server/resource-request-payload.ts` e l'unico lettore del corpo per i tre verbi. `scripts/pp-02-totalita-corpo.mjs`: 10/10, e **rosso su 22 risorse su 22** riportando la difesa vecchia |
+| **PP02-D37** (la classe) | **CHIUSO come regola** | La regola e scritta in ADR-0117 e ha due esecutori veri. Resta aperto il lavoro di **applicarla alle altre enumerazioni** del prodotto: qui sotto |
+
+**Due cose che la misura ha corretto nell'analisi.** Vale la pena scriverle
+perche in entrambi i casi il numero della KB era piu ottimista del vero, ed e
+la seconda volta in questo perimetro (vedi la nota in coda ad ADR-0116).
+
+- **PP02-D35 diceva «quattordici grafie».** Sono **diciannove**: il vecchio
+  `STAFF_ROLES` non conteneva nessuna delle cinque forme di `owner`
+  (`owner`, `proprietario`, `proprietaria`, `club_creator`, `club-creator`),
+  quindi revocare la tessera di un proprietario **non** scollegava la sua
+  scheda staff. Con le quattro forme `custom:` fanno ventitre. Il conteggio
+  della RCA era stato dedotto leggendo i due elenchi, non eseguendoli.
+- **PP02-D36 era classificato Medium, con la nota «nessun client e colpito
+  oggi, incartano tutti».** La sonda dice altro: sulla difesa vecchia,
+  **ventidue risorse su ventidue** accettavano un `PATCH` con il corpo non
+  incartato, rispondevano **200 e non scrivevano niente**. Non era una
+  particolarita di `athletes`: era **qualunque** corpo della forma
+  `{ ...campi, data: {...} }` su **qualunque** risorsa — `categories`,
+  `club_sites`, `trainers`, `staff_members`, `sponsors`, `payment_plans`,
+  `document_templates`, `weekly_schedule` e le altre. La gravita reale e
+  perdita di dati silenziosa sull'intera superficie di scrittura generica; era
+  stata sottostimata perche dedotta dalla forma del codice invece che
+  eseguita.
+
+**Cosa resta aperto di PP02-D37.** La regola ha due esecutori; le enumerazioni
+del prodotto sono di piu. Non e stato fatto il censimento delle altre — a
+partire da `RISORSE_CHE_SI_MODIFICANO_DA_UN_POSTO_SOLO`, che la RCA nomina
+come il quinto elenco scritto a mano e che oggi **non ha** un test che lo
+derivi dalle guardie di `updateResource`. E un WP, e va aperto con il suo
+censimento.
+
+**Cosa NON chiude WP-A.** `PP02-D33`, `PP02-D34` e la ricaratterizzazione di
+R-2 restano intatti: si chiudono solo quando un tutore diventa **una riga**
+(AC-1, cioe WP-B/C/D). WP-A e indipendente da quel lavoro e non lo anticipa.
