@@ -10,6 +10,7 @@ import {
 } from "@/components/dashboard/dashboard-page-container";
 import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { parseCustomRoleValue } from "@/lib/access-roles";
 import { DocumentReviewInbox } from "@/components/documents/document-review-inbox";
 import { roleHasPermission } from "@/lib/permissions/catalog";
 
@@ -58,9 +59,34 @@ export default function DocumentiPage() {
     apertura. E il presidio che questa pagina rivendica, applicato alla
     chiave sbagliata: una voce che si apre deve aprire su qualcosa.
   */
+  /*
+    **E su un ruolo di club il browser non ha di che decidere.**
+
+    `roleHasPermission` nega tutto quando riceve uno **slug senza chiavi**, ed
+    e il verso giusto in cui sbagliare per il server. Il client pero ha
+    **soltanto** lo slug: le rotte delle tessere lo tengono cosi per scelta
+    dichiarata, mentre il server risolve la riga e lavora sul gettone con le
+    chiavi dentro.
+
+    Il vaglio qui sopra era percio **falso per ogni ruolo di club**, comprese
+    le configurazioni che l'editor degli accessi offre proprio per questa
+    schermata: la voce compariva nel menu, la pagina si apriva, e sopra una
+    coda vuota c'era un riquadro rosso — mentre la rotta le righe le avrebbe
+    restituite. Aggiungere la seconda chiave lo ha reso piu stretto, non piu
+    giusto.
+
+    Quando le chiavi non sono risolte non si finge di sapere: si lascia
+    rispondere la rotta, che il vaglio ce l'ha per davvero. Il riquadro rosso
+    resta, e adesso compare solo quando qualcuno e stato negato sul serio.
+  */
+  const personalizzato = parseCustomRoleValue(role);
+  const chiaviNonRisolte =
+    Boolean(personalizzato) && personalizzato!.permissions.length === 0;
+
   const canReview =
-    roleHasPermission(role, "documents.review") &&
-    roleHasPermission(role, "documents.read_dossier");
+    chiaviNonRisolte ||
+    (roleHasPermission(role, "documents.review") &&
+      roleHasPermission(role, "documents.read_dossier"));
 
   return (
     <div className="flex h-[100dvh] bg-slate-50">

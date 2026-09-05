@@ -209,11 +209,30 @@ export function ParentNotificationsPage() {
     notifica che non si puo chiudere e rumore, e il rumore insegna a
     ignorare anche cio che conta.
   */
+  /*
+    **L'id nella barra dell'indirizzo puo essere quello del club.**
+
+    `/parent-view/<idClub>` e una forma viva e non un caso limite: e dove
+    `token-verification` manda **ogni** genitore e ogni atleta dopo la verifica,
+    e il guscio ci pianta sopra il `basePath` per tutta la sessione. Il
+    cruscotto la risolve — cerca fra i figli quello di quel club — ma la rotta
+    delle notifiche no: `canParentAccessAthlete(utente, idClub)` e falso, e
+    risponde 403.
+
+    Ogni altra chiamata di questo file e del contesto usa la forma con il
+    ripiego, `data?.athlete.id || athleteRouteId`; questa era rimasta con il
+    parametro grezzo. Risultato: il pulsante «Segna tutte come lette» —
+    l'unico comando che la campanella della famiglia ha — rispondeva «Accesso
+    negato: atleta non collegato» proprio sul percorso da cui quasi tutti
+    entrano.
+  */
+  const idAtleta = data?.athlete.id || athleteRouteId;
+
   const segnaTutteLette = async () => {
     setInCorso(true);
     try {
       const esito = await apiRequest<unknown>(
-        `/api/parent-dashboard/${athleteRouteId}/notifications`,
+        `/api/parent-dashboard/${idAtleta}/notifications`,
         { method: "PATCH", body: { all: true } },
       );
       if (esito?.error) {
