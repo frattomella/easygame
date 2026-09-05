@@ -396,24 +396,56 @@ export const eventWithinTrainerPerimeter = (
     ? (evento.category_ids as unknown[])
     : [];
 
-  const riferimenti = [
-    evento.category_id,
-    evento.category_name,
-    ...categorieEvento,
-  ]
+  /*
+    **Una categoria, non una grafia** (PP-03 §11).
+
+    Qui c'era un elenco piatto di riferimenti — identificativo primario, **nome**
+    primario, e tutte le categorie — su cui `scrittura` chiedeva `every`. In
+    lettura non faceva danno: `some` su una grafia in piu e sempre `some`. In
+    scrittura si, e in una direzione che nessuno vedeva perche il pulsante non
+    esisteva ancora: il perimetro dell'allenatore e fatto di **identificativi**,
+    quindi il nome della categoria non ci sta dentro, quindi `every` falliva su
+    **ogni** evento che portasse anche il nome.
+
+    Misurato a schermo appena il pulsante e comparso: un allenatore che creava
+    l'allenamento della propria e unica squadra riceveva «questo evento e
+    condiviso con una squadra che non e tua», sul proprio evento, con una
+    categoria sola. La guardia falliva chiusa — quindi non era una falla — ma
+    rendeva `events.manage` inutilizzabile per il ruolo che la possiede.
+
+    La forma giusta e a due livelli. Una **categoria** dell'evento e dentro il
+    perimetro se **una qualunque** delle sue grafie ci sta (l'identificativo o
+    il nome: sono la stessa cosa detta in due modi, ed e la ragione per cui il
+    nome e nell'elenco). Poi vale la regola dei modi: `lettura` chiede che
+    **almeno una** categoria sia dentro, `scrittura` che ci siano **tutte**.
+  */
+  const primaria = [evento.category_id, evento.category_name]
     .map((value) => asText(value).toLowerCase())
     .filter(Boolean);
 
+  const altre = categorieEvento
+    .map((value) => asText(value).toLowerCase())
+    .filter(Boolean)
+    .filter((value) => !primaria.includes(value));
+
+  const categorieDellEvento: string[][] = [
+    ...(primaria.length ? [primaria] : []),
+    ...altre.map((value) => [value]),
+  ];
+
   /*
-    Un evento senza nessun riferimento non e «di tutti»: e di nessuno, e
-    `every` su un elenco vuoto risponderebbe **vero**. Il caso 3
-    dell'intestazione qui sopra deve restare chiuso in tutti e due i modi.
+    Un evento senza nessuna categoria non e «di tutti»: e di nessuno, e `every`
+    su un elenco vuoto risponderebbe **vero**. Il caso 3 dell'intestazione qui
+    sopra deve restare chiuso in tutti e due i modi.
   */
-  if (!riferimenti.length) return false;
+  if (!categorieDellEvento.length) return false;
+
+  const dentro = (grafie: readonly string[]) =>
+    grafie.some((value) => categorie.has(value));
 
   return modo === "scrittura"
-    ? riferimenti.every((value) => categorie.has(value))
-    : riferimenti.some((value) => categorie.has(value));
+    ? categorieDellEvento.every(dentro)
+    : categorieDellEvento.some(dentro);
 };
 
 /**

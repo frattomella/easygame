@@ -777,3 +777,152 @@ rosse.
 testo esatto — sarebbe un test sull'ortografia — ma la relazione: se la chiave e
 concessa a un ruolo **non** gestionale, la sua etichetta non puo promettere di
 configurare il club.
+
+---
+
+## §11 — La chiave che aveva il server e non aveva il pulsante
+
+### 11.1 — `events.manage` era completa e irraggiungibile
+
+Il terzo round ha misurato sulle rotte vere, come allenatore della sola
+categoria `c1`:
+
+```
+POST  /api/v1/events            (categoria c1)            → 200, evento creato
+PATCH /api/v1/events/<id>       {"time":"20:00"}          → 200, spostato
+POST  /api/v1/events            (categoria c2)            → 403
+PATCH /api/v1/events/<id>       {"categories":["c2"]}     → 403
+```
+
+Il perimetro regge — e la conferma indipendente della correzione di §7 — e la
+chiave e concessa a `trainer` nel catalogo. Ma l'area allenatore offriva
+soltanto **«Annulla»** e **«Ripristina»**: `AddTrainingForm` e `AddMatchForm`
+sono montati in `/training` e `/matches`, che stanno in
+`MANAGEMENT_PATH_PREFIXES`, e `canAccessPath("trainer", "/training")` e `false`.
+
+Due dei tre verbi erano irraggiungibili per il ruolo che li possiede: un
+allenatore non poteva spostare di mezz'ora un proprio allenamento. E l'errore
+n. 8 di [CLAUDE.md §11](../../CLAUDE.md) nella sua forma canonica — la
+capability e completa, e nessuna schermata sa accenderla.
+
+**Cosa e stato aggiunto.** `TrainerEventEditorDialog`, montato dalle due pagine
+del calendario dell'allenatore, con «Nuovo allenamento» / «Nuova gara»
+nell'intestazione e «Modifica» su ogni evento in calendario.
+
+Non e una seconda implementazione della creazione di un evento: la scrittura
+resta l'unica che c'e — `createEvent` / `updateEvent`, cioe
+`POST`/`PATCH /api/v1/events`, cioe `src/lib/server/events.ts` (ADR-0098).
+Quello che cambia e il **modulo**, perche le due domande sono diverse:
+`AddTrainingForm` e il modulo della segreteria — tutte le categorie del club,
+ricorrenze, RSVP, allenatori, capienza — e un allenatore in palestra, sul
+telefono, ne usa cinque campi e non ha il diritto di toccarne la meta.
+Montarlo qui vorrebbe dire disegnare comandi spenti.
+
+**Il gate e `manageTrainingStatus`**, la chiave che governava gia annullamento
+e ripristino: e la stessa domanda — questo allenatore tocca il calendario? — e
+non ne e stata aggiunta una nuova, che sarebbe stata la sesta casella che
+promette un divieto e lo applica solo nel browser (W6-28). Il **nome** della
+chiave non cambia perche vive dentro `clubs.settings`: rinominarlo azzererebbe
+la scelta gia fatta da ogni club che l'ha spenta. Cambia la sua etichetta, che
+adesso dice i quattro verbi invece di due.
+
+Due limiti deliberati: la modifica non compare su un evento **annullato**
+(prima si ripristina), e sulle gare non compare su una gara **gia giocata** —
+spostare l'orario di cio che e successo non e una correzione del calendario, e
+per quella c'e la strada della segreteria (ADR-0112).
+
+### 11.2 — E il pulsante ha trovato subito un difetto della guardia di §7
+
+La prima creazione fatta a schermo — categoria propria, unica, futura — e stata
+**rifiutata**:
+
+> Accesso negato: questo evento e condiviso con una squadra che non e tua
+
+Su un evento con una categoria sola, la sua.
+
+`eventWithinTrainerPerimeter` costruiva un elenco **piatto** di riferimenti —
+identificativo primario, **nome** primario e tutte le categorie insieme — e §7
+ci aveva messo sopra `every` per il modo `"scrittura"`. Il perimetro
+dell'allenatore e pero fatto di **identificativi**: il nome della categoria non
+ci sta dentro, quindi `every` falliva su **ogni** evento che portasse anche il
+nome — cioe su ogni creazione fatta da un modulo che il nome lo manda.
+
+In lettura non faceva danno, perche `some` su una grafia in piu resta `some`.
+In scrittura rendeva `events.manage` inutilizzabile, e **falliva chiuso**:
+nessun dato usciva, nessuna scrittura passava. Per questo non si e visto per
+due Wave — non c'era un pulsante da premere.
+
+**La forma giusta e a due livelli.** Una *categoria* dell'evento e dentro il
+perimetro se **una qualunque** delle sue grafie ci sta: l'identificativo o il
+nome sono la stessa cosa detta in due modi, ed e la ragione per cui il nome era
+nell'elenco. Poi vale la regola dei modi: `lettura` chiede che almeno una
+categoria sia dentro, `scrittura` che ci siano tutte.
+
+Il verso opposto e intatto, e le due sonde di §7 lo dicono senza cambiare una
+riga: `pp-03-scrittura-evento-condiviso-probe.mjs` resta **15/15** e
+`pp-03-eventi-scope-ruoli-probe.mjs` **77/77**.
+
+### Verificato
+
+| Prova | Esito |
+|---|---|
+| `tests/server/pp-03-perimetro-scrittura-grafie.test.mjs` | 8/8; per mutazione, rimesso l'elenco piatto, 2 rosse |
+| `tests/ui/pp-03-calendario-allenatore-raggiungibile.test.mjs` | 6/6 |
+| `scripts/pp-03-scrittura-evento-condiviso-probe.mjs` | 15/15, invariato |
+| `scripts/pp-03-eventi-scope-ruoli-probe.mjs` | 77/77, invariato |
+
+A schermo, sul club di collaudo: l'allenatore ha creato l'allenamento del
+12 settembre e in archivio la riga porta il suo `created_by`; sull'allenamento
+**congiunto** la modifica riceve dal server il rifiuto di ADR-0112 — «questo
+evento ha gia una storia… annullalo e creane uno nuovo» — e il modulo lo mostra
+per intero, che e l'unica informazione utile a chi sta compilando.
+
+---
+
+## §12 — La verifica di responsivita, e cosa ha trovato
+
+Fatta con un browser vero contro il dev server della lane, con la sessione
+dell'allenatore del club di collaudo, a **375 / 768 / 1280 / 1440 px**. La
+misura non e «sembra a posto»: per ogni pagina si legge
+`documentElement.scrollWidth - clientWidth` e si elencano gli elementi il cui
+bordo destro supera la larghezza del documento.
+
+| Pagina | 375 | 768 | 1280 | 1440 |
+|---|---|---|---|---|
+| Home | 0 | 0 | 0 | 0 |
+| Allenamenti | 0 | 0 | 0 | 0 |
+| Gare | 0 | 0 | 0 | 0 |
+| Atleti | 0 | 0 | 0 | 0 |
+| Squadre | 0 | 0 | 0 | 0 |
+| Bacheca | 0 | 0 | 0 | 0 |
+| Documenti | 0 | 0 | 0 | 0 |
+| Appuntamenti | 0 | 0 | 0 | 0 |
+| Notifiche | 0 | 0 | 0 | 0 |
+| I miei compensi | 0 | 0 | 0 | 0 |
+
+Nessun traboccamento orizzontale del documento a nessuna delle quattro
+larghezze. **Non e un risultato banale e non e un caso**: le due tabelle larghe
+dell'area — l'elenco atleti e le rate dei compensi — dichiarano una larghezza
+minima (`min-w-[560px]` sulle rate) e stanno dentro un contenitore
+`overflow-x-auto`. A 375 px la tabella dei compensi misura 597 px e quella degli
+atleti 459: scorrono **dentro il proprio riquadro**, e il documento resta fermo.
+E la distinzione che conta su un telefono — si scorre la tabella, non la pagina.
+
+Il modulo nuovo di §11 e stato misurato aperto: a 375 px occupa da 21 a 354 px
+in larghezza e 690 px in altezza su 812 di viewport, quindi ci sta senza
+scorrere, e dichiara comunque `max-h-[90dvh] overflow-y-auto` per il telefono
+piu corto.
+
+**Cosa la verifica ha trovato, e che nessuna sonda avrebbe trovato.** Le tre
+correzioni di §8 e la §11.2 sono nate tutte qui: due riquadri che si aprivano
+senza contenuto, una qualifica stampata come gettone, e la guardia di scrittura
+che rifiutava l'evento proprio. Il mandato chiedeva di verificare la
+responsivita; quello che ha prodotto e un elenco di cose che a schermo non
+funzionavano e che dal sorgente sembravano a posto.
+
+**Un'osservazione dichiarata e non corretta.** A esattamente 768 px la barra
+laterale compare (`hidden md:block`) e occupa 264 px: al contenuto ne restano
+504. Funziona — nessun traboccamento, l'elenco atleti mostra le sue dieci righe
+— ed e stretto. La barra si puo richiudere a 80 px, e questa e la mitigazione
+che esiste; allargare il punto di rottura a `lg` e una decisione di layout per
+tutta l'applicazione, non per l'area allenatore, e non e stata presa qui.

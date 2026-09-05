@@ -65,7 +65,19 @@ const giorno = (delta) => {
   return data;
 };
 
-const iso = (data) => data.toISOString().slice(0, 10);
+/*
+  **Il giorno locale, non quello UTC.**
+
+  `toISOString()` su una mezzanotte locale in fuso `+02:00` restituisce le 22:00
+  del giorno **prima**: il seed diceva «fra un giorno» e seminava oggi, e a
+  schermo il calendario della settimana mostrava gli allenamenti spostati
+  indietro di uno. Un collaudo che sbaglia il giorno non e un collaudo del
+  calendario.
+*/
+const iso = (data) =>
+  `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}-${String(
+    data.getDate(),
+  ).padStart(2, "0")}`;
 
 const utente = async (email, first_name, last_name) => {
   const password_hash = await bcrypt.hash(PASSWORD, 10);

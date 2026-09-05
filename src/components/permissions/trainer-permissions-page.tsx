@@ -151,9 +151,27 @@ const ACTION_OPTIONS: Array<{
     description: "Abilita le funzioni operative relative alle presenze allenamento.",
   },
   {
+    /*
+      **La chiave non cambia nome, l'etichetta si**  (PP-03 §11).
+
+      `manageTrainingStatus` governava annullamento e ripristino, ed erano gli
+      unici due verbi che l'area allenatore offriva sul calendario. Adesso ne
+      governa quattro: `events.manage` e concessa all'allenatore e il server la
+      esegue da sempre — creare e spostare un evento di una propria categoria
+      rispondono 200 — e mancava soltanto il pulsante.
+
+      Il **nome della chiave** resta quello perche vive dentro
+      `clubs.settings.trainerDashboardPermissions`: rinominarlo azzererebbe la
+      scelta gia fatta da ogni club che l'ha spenta, cioe accenderebbe una
+      funzione nuova a chi aveva detto di no. Non e stata aggiunta una chiave
+      nuova perche sarebbe la sesta casella che promette un divieto e lo applica
+      solo nel browser (W6-28): il divieto vero e
+      `assertTrainerEventPerimeter`, e una leva in piu non lo rende piu vero.
+    */
     key: "manageTrainingStatus",
-    label: "Stato allenamento",
-    description: "Consente di annullare o ripristinare gli allenamenti assegnati.",
+    label: "Calendario di allenamenti e gare",
+    description:
+      "Consente di creare, spostare, annullare e ripristinare gli eventi delle squadre assegnate. Il perimetro resta quello del ruolo: su una categoria non assegnata il server rifiuta comunque.",
   },
   {
     key: "viewMatchDetails",
