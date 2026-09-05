@@ -1009,14 +1009,50 @@ export const roundInstallmentsToFive = (
     Math.max(0, toPaymentPlanAmount(amount)),
   );
 
+  /*
+    **Una rata a importo fisso non puo prendere piu di quello che resta.**
+
+    La stesura precedente aveva questo vincolo — `Math.min(total - assigned,
+    …)` — e riscrivendo la distribuzione l'ho perso: un importo fisso tornava
+    **intero**, non scalato e non limitato. Misurato: acconto fisso di 200 EUR
+    su un totale ripartito di 150 produceva `[200, 25, 0]`, cioe una somma di
+    225 sotto un «Totale dovuto 180,00 EUR» e una rata da **0,00** — quella che
+    nessun canale puo chiudere, e che questa stessa riscrittura era nata per
+    non produrre piu.
+
+    Gli importi fissi si servono percio per primi, ognuno limitato a cio che
+    resta: e la stessa disciplina del resto della funzione, applicata al ramo
+    che ne era rimasto fuori. Che poi la somma degli importi fissi superi il
+    totale del piano e una configurazione sbagliata, e ha gia il suo avviso;
+    ma un avviso non e un motivo per scrivere in archivio una rata impagabile.
+  */
+  /*
+    **Quando il piano chiede piu del totale, si stringe tutto, non si azzera
+    qualcuno.**
+
+    Due tentativi, e il secondo era mio. La stesura precedente lasciava
+    l'importo **fisso** intero e non limitato: un acconto di 200 EUR su un
+    totale ripartito di 150 produceva `[200, 25, 0]` — somma 225 sotto un
+    «Totale dovuto 180,00 EUR», e una rata da **0,00**, cioe quella che nessun
+    canale puo chiudere. Limitarlo a cio che resta corregge la somma e lascia
+    lo zero: `[150, 0, 0]`.
+
+    Uno zero non e mai una risposta. Se le rate chiedono piu del totale, il
+    piano e configurato male — e ha gia il suo avviso — ma cio che si scrive in
+    archivio deve restare pagabile: si stringono **tutte** in proporzione,
+    importi fissi compresi. Il numero delle rate lo ha scelto il club, e non e
+    questa funzione a doverlo cambiare in silenzio.
+
+    Una rata resta a zero solo se a zero l'ha chiesta chi chiama.
+  */
   const sommaNaturale = naturali.reduce((somma, valore) => somma + valore, 0);
   const scala =
     sommaNaturale > total && sommaNaturale > 0 ? total / sommaNaturale : 1;
 
   const base = naturali.map((valore, index) => {
-    if (preserveIndexes.has(index)) return roundCurrency(valore);
-
     const richiesto = valore * scala;
+    if (preserveIndexes.has(index)) return roundCurrency(richiesto);
+
     const arrotondato = Math.floor(richiesto / PASSO) * PASSO;
     return arrotondato > 0 ? arrotondato : roundCurrency(richiesto);
   });

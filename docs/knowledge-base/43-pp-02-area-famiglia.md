@@ -1399,3 +1399,54 @@ posizionale, la scrittura veniva negata dalla guardia e la prova restava verde.
 Una prova sull'accesso deve chiedere anche che il salvataggio **riesca**, o non
 distingue «ho protetto» da «ho bloccato tutto» — che e il verso opposto, e in
 questo pacchetto e costato quattro volte.
+
+
+## 24. Il diciottesimo round: la quarta stesura, e una rata da zero
+
+Due High, **tutti e due riaperti dal commit precedente**. Il conto sale a dodici
+difetti su diciotto nati dalla correzione del round prima, ed e ormai una
+proprieta del pacchetto piu che una serie di sfortune.
+
+### La revoca che si propagava all'altro genitore
+
+Configurazione ordinaria: la madre ha riscattato un invito, il padre entra per
+l'**indirizzo di famiglia** — la capability che ADR-0114 tiene aperta — e quello
+stesso indirizzo sta su tutte e due le righe.
+
+Dopo la revoca, `clearLinkedFields` azzera gli identificativi della madre e le
+lascia l'indirizzo, perche al club serve per scriverle. La sua identita
+**collassa** quindi sull'indirizzo di famiglia, che e esattamente l'identita del
+padre. Al primo salvataggio ordinario — la segreteria cambia una taglia — il
+riporto per identita gli scriveva addosso il marchio: calendario, rate,
+ricevute, documenti e certificato spariti, nessuno aveva premuto niente, e in
+audit restava un `anagrafica.updated`.
+
+Il commento della stesura precedente prometteva **proprio questo caso**. Era
+vero solo per il padre che porta un identificativo gia riconosciuto, cioe non
+per quello per cui ADR-0114 esiste. Una promessa scritta in un commento non e
+una proprieta misurata: qui la distanza fra le due e costata un round.
+
+La quarta stesura e in ADR-0116, con la regola che ne esce — «fra due errori
+possibili si sceglie quello che una seconda difesa copre» — e con l'id stabile
+che rende raro il dubbio.
+
+### La rata da zero, di nuovo
+
+La riscrittura della ripartizione aveva chiuso le rate a zero e la somma
+sbagliata, e le aveva riaperte sul ramo degli importi **fissi**: il vincolo
+«non piu di quello che resta» c'era nella stesura vecchia e si e perso in
+quella nuova. Un acconto fisso di 200 EUR su un totale ripartito di 150
+produceva `[200, 25, 0]` — somma 225 sotto un «Totale dovuto 180,00 EUR», e una
+rata da 0,00 che nessun canale puo chiudere.
+
+Limitare l'importo fisso a cio che resta corregge la somma e lascia lo zero
+(`[150, 0, 0]`). Uno zero pero non e mai una risposta: se le rate chiedono piu
+del totale il piano e configurato male — e ha gia il suo avviso — ma cio che si
+scrive in archivio deve restare **pagabile**, quindi si stringono tutte in
+proporzione, importi fissi compresi. Il numero delle rate lo ha scelto il club,
+e non e una funzione di arrotondamento a doverlo cambiare in silenzio.
+
+Un fuzz su 4.000 piani con importi fissi casuali: zero somme sbagliate, zero
+rate a zero, zero negative. Le tre sonde che il round precedente aveva scritto
+chiamavano la funzione **senza** `preserveIndexes`, cioe non toccavano il ramo
+in cui il difetto viveva.

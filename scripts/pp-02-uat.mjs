@@ -6375,6 +6375,284 @@ const sezioneW = async () => {
     "una che nomina un altro figlio non e di questo; una che non nomina nessuno e del club",
   );
 
+  /* ---------- W-47..W-49: il diciottesimo round ---------- */
+
+  /*
+    **W-47 (High).** La revoca di un genitore si propagava all'altro al primo
+    salvataggio dell'anagrafica.
+
+    Configurazione ordinaria e prevista da ADR-0114: la madre ha riscattato un
+    invito (identificativo e indirizzo suoi), il padre entra **per l'indirizzo
+    di famiglia**, che sta su tutte e due le righe. Dopo la revoca della madre
+    `clearLinkedFields` le azzera gli identificativi e le lascia l'indirizzo —
+    al club serve — quindi la sua identita **collassa** su quell'indirizzo, che
+    e la stessa del padre. Il riporto per identita gli scriveva addosso il
+    marchio: calendario, rate, ricevute, documenti e certificato spariti, senza
+    che nessuno avesse premuto niente, e con un `anagrafica.updated` in audit.
+
+    Il commento della stesura precedente prometteva proprio questo caso; era
+    vero solo per il padre che porta un **identificativo riconosciuto**, cioe
+    non per quello per cui ADR-0114 esiste.
+  */
+  const FIGLIO_DUE_STRADE = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_DUE_STRADE,
+      organization_id: CLUB,
+      first_name: "Due",
+      last_name: "Strade",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          {
+            id: "madre",
+            name: "Anna",
+            linkedUserId: ANNA.id,
+            linkedUserEmail: ANNA.email,
+            email: BRUNO.email,
+          },
+          { id: "padre", name: "Bruno", email: BRUNO.email },
+        ],
+      },
+    },
+  });
+
+  const partenzaW47 = [
+    await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_DUE_STRADE),
+    await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_DUE_STRADE),
+  ];
+
+  await legamiW25.unlinkGuardianAccount(scopeClubW29, {
+    athleteId: FIGLIO_DUE_STRADE,
+    guardianId: "madre",
+  });
+
+  const dopoRevocaW47 = [
+    await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_DUE_STRADE),
+    await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_DUE_STRADE),
+  ];
+
+  /* Un salvataggio ordinario: la segreteria cambia una taglia. */
+  const datiW47 = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_DUE_STRADE },
+      select: { data: true },
+    })
+  )?.data;
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_DUE_STRADE,
+    { data: { ...datiW47, size: "M" } },
+    scopeClubW29,
+  );
+
+  prova(
+    "W-47 un salvataggio ordinario non propaga la revoca all'altro genitore",
+    [true, true, false, true, false, true],
+    [
+      partenzaW47[0],
+      partenzaW47[1],
+      dopoRevocaW47[0],
+      dopoRevocaW47[1],
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_DUE_STRADE),
+      await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_DUE_STRADE),
+    ],
+    "prima: il padre perdeva tutto al primo salvataggio, senza audit",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_DUE_STRADE } });
+
+  /*
+    **W-47b.** Lo stesso, su righe che un id **non ce l'hanno** — che e lo stato
+    in cui arrivano da un'anagrafica travasata o dall'approvazione di un modulo,
+    cioe proprio dove l'abbinamento e costretto a indovinare.
+
+    Qui l'indirizzo di famiglia compare su **due** righe: non si sa quale sia
+    quale, e allora non si eredita niente. Non e un buco — la madre resta fuori
+    per il **registro delle identita**, che nega per identita da qualunque riga
+    — ed e la scelta giusta fra i due errori possibili: non riportare un marchio
+    lascia in piedi una difesa che vive altrove, riportarlo alla persona
+    sbagliata la chiude fuori senza audit e senza strada di ritorno.
+  */
+  const FIGLIO_SENZA_CHIAVI = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_SENZA_CHIAVI,
+      organization_id: CLUB,
+      first_name: "Senza",
+      last_name: "Chiavi",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          {
+            name: "Anna",
+            linkedUserId: ANNA.id,
+            linkedUserEmail: ANNA.email,
+            email: BRUNO.email,
+          },
+          { name: "Bruno", email: BRUNO.email },
+        ],
+      },
+    },
+  });
+
+  const idSinteticoMadre = contattiW25.normalizeGuardianRows([
+    {
+      name: "Anna",
+      linkedUserId: ANNA.id,
+      linkedUserEmail: ANNA.email,
+      email: BRUNO.email,
+    },
+    { name: "Bruno", email: BRUNO.email },
+  ])[0].id;
+
+  await legamiW25.unlinkGuardianAccount(scopeClubW29, {
+    athleteId: FIGLIO_SENZA_CHIAVI,
+    guardianId: idSinteticoMadre,
+  });
+
+  const dopoRevocaSenzaId = [
+    await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_SENZA_CHIAVI),
+    await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_SENZA_CHIAVI),
+  ];
+
+  const datiSenzaId = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_SENZA_CHIAVI },
+      select: { data: true },
+    })
+  )?.data;
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_SENZA_CHIAVI,
+    { data: { ...datiSenzaId, size: "S" } },
+    scopeClubW29,
+  );
+
+  prova(
+    "W-47b e nemmeno su righe senza id, dove non si sa quale sia quale",
+    [false, true, false, true],
+    [
+      dopoRevocaSenzaId[0],
+      dopoRevocaSenzaId[1],
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_SENZA_CHIAVI),
+      await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_SENZA_CHIAVI),
+    ],
+    "prima: il padre ereditava il marchio della madre e restava fuori",
+  );
+
+  /* E da adesso quelle righe un id ce l'hanno: la prossima volta non si indovina. */
+  const conIdW47 = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_SENZA_CHIAVI },
+      select: { data: true },
+    })
+  )?.data;
+
+  prova(
+    "W-47c ogni riga tutore esce dal salvataggio con un id stabile",
+    true,
+    (conIdW47?.guardians || []).every((riga) => String(riga?.id || "").trim()),
+    "prima: restavano senza, e ogni salvataggio doveva indovinare di nuovo",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_SENZA_CHIAVI } });
+
+  /*
+    **W-48.** E il segno di solo-recapito non si spalma sul genitore vero che
+    condivide l'indirizzo: e la stessa radice, dall'altro lato.
+  */
+  const FIGLIO_SEGNO_CONDIVISO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_SEGNO_CONDIVISO,
+      organization_id: CLUB,
+      first_name: "Segno",
+      last_name: "Condiviso",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "sconosciuto", name: "Tizio", email: ANNA.email, contactOnly: true },
+          { id: "madre", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+        ],
+      },
+    },
+  });
+
+  const datiSegno = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_SEGNO_CONDIVISO },
+      select: { data: true },
+    })
+  )?.data;
+
+  await risorseW26.updateResource(
+    "athletes",
+    FIGLIO_SEGNO_CONDIVISO,
+    { data: { ...datiSegno, size: "L" } },
+    scopeClubW29,
+  );
+
+  const dopoSegno = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_SEGNO_CONDIVISO },
+      select: { data: true },
+    })
+  )?.data;
+
+  prova(
+    "W-48 il segno resta sulla riga che lo aveva, e non passa all'altra",
+    [true, false, true],
+    [
+      Boolean(
+        (dopoSegno?.guardians || []).find((r) => r.id === "sconosciuto")
+          ?.contactOnly,
+      ),
+      Boolean(
+        (dopoSegno?.guardians || []).find((r) => r.id === "madre")?.contactOnly,
+      ),
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_SEGNO_CONDIVISO),
+    ],
+    "prima: la madre ereditava il segno di uno sconosciuto allo stesso indirizzo",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_SEGNO_CONDIVISO } });
+
+  /*
+    **W-49 (High).** La ripartizione in rate con un importo **fisso**: il
+    vincolo «non piu di quello che resta» era andato perso nella riscrittura, e
+    un acconto fisso maggiore del totale ripartito produceva una somma diversa
+    dal totale e una rata da 0,00 — quella che nessun canale puo chiudere.
+  */
+  const rateW49 = await carica("src/lib/payment-plan-utils.ts");
+  const distribuzioniW49 = [
+    rateW49.roundInstallmentsToFive([200, 25, 25], 150, { preserveIndexes: [0] }),
+    rateW49.roundInstallmentsToFive([500, 25, 25], 100, { preserveIndexes: [0] }),
+    rateW49.roundInstallmentsToFive([200, 200, 200], 600, { preserveIndexes: [0] }),
+  ];
+  const totaliW49 = [150, 100, 600];
+
+  prova(
+    "W-49 con un acconto fisso la somma resta il totale, e nessuna rata e zero",
+    [true, true],
+    [
+      distribuzioniW49.every(
+        (righe, indice) =>
+          Math.abs(
+            righe.reduce((somma, valore) => somma + valore, 0) -
+              totaliW49[indice],
+          ) < 0.01,
+      ),
+      distribuzioniW49.every((righe) => righe.every((valore) => valore > 0)),
+    ],
+    JSON.stringify(distribuzioniW49),
+  );
+
   await prisma.athlete.update({
     where: { id: MARCO },
     data: { user_id: null },

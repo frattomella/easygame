@@ -6367,6 +6367,42 @@ sopra erano scritte come acquisite. Non lo erano:
   scrivibili solo su una riga che **nasce**, che e come l'approvazione di un
   modulo marca la propria.
 
+**Settima protezione, e la piu costosa da imparare: quando non si sa, non si
+eredita.** Il riporto delle difese ha avuto **quattro** stesure, e le prime tre
+sbagliavano tutte la stessa domanda — «quale riga in arrivo corrisponde a quale
+riga in archivio»:
+
+1. **per `id`**, e le righe che `contactOnly` protegge un id non ce l'hanno,
+   perche nascono da `guardians.push`;
+2. **per posizione**, che la sceglie chi chiama: riordinare l'elenco scriveva il
+   marchio di una riga addosso a un'altra;
+3. **per identita**, dove l'identita di una riga revocata **collassa
+   sull'indirizzo** — la revoca azzera gli identificativi e l'indirizzo lo
+   lascia, perche al club serve. Su madre e padre con un unico indirizzo di
+   famiglia (ADR-0114, la configurazione ordinaria) il padre finiva per avere la
+   **stessa identita** della madre revocata, e al primo salvataggio ereditava il
+   suo marchio.
+
+La quarta smette di indovinare: si abbina per `id` quando l'id e presente e
+**univoco da tutte e due le parti**, si cade sull'indirizzo solo quando quello
+compare su **una sola** riga di qua e una sola di la, e se resta un dubbio non
+si eredita niente.
+
+Che non ereditare sia sostenibile non e un'opinione, ed e la ragione per cui
+questa e una regola e non un ripiego: la revoca vera vive nel **registro delle
+identita** dell'atleta, che nega per identita da qualunque riga e che la rotta
+generica conserva in sola lettura; e un `contactOnly` che cadesse renderebbe
+quell'indirizzo una chiave, cioe una **crescita**, che la guardia rifiuta a chi
+non ha le due chiavi. Ereditare per errore, invece, chiude fuori una persona
+senza audit e senza strada di ritorno.
+
+> Fra due errori possibili si sceglie quello che una **seconda** difesa copre,
+> non quello che lascia una persona fuori in silenzio.
+
+E perche il dubbio diventi raro, ogni riga tutore che passa da `resources.ts`
+esce con un **id stabile**: chi non ne ha uno lo riceve li, e i salvataggi
+successivi non hanno piu niente da indovinare.
+
 **Sesta protezione, aggiunta dal quattordicesimo round.** Una difesa deve
 riconoscere la **persona**, non il suo recapito, ogni volta che il recapito puo
 essere condiviso — e in una famiglia lo e quasi sempre. La ripulitura delle

@@ -6681,98 +6681,44 @@ const applicaGuardieDiModifica = async (
       );
       const tutoriInArrivo = toArrayValue(((normalized.data as any) ?? {}).guardians);
 
-      const revocateInArchivio = new Set<string>();
-      const soloRecapitoInArchivio = new Set<string>();
-      const identitaInArchivio = new Set<string>();
-
-      for (const riga of tutoriEsistenti) {
-        const record = (riga || {}) as Record<string, any>;
-        const identita = guardianIdentityTokens(record);
-        const marchio = String(
-          record.accessRevokedAt || record.access_revoked_at || "",
-        ).trim();
-
-        for (const voce of identita) {
-          identitaInArchivio.add(voce);
-          if (marchio) revocateInArchivio.add(voce);
-          if (record.contactOnly || record.contact_only) {
-            soloRecapitoInArchivio.add(voce);
-          }
-        }
-      }
-
-      /* Il marchio con la sua data, per la persona che lo porta. */
-      const dataDellaRevoca = new Map<string, string>();
-      for (const riga of tutoriEsistenti) {
-        const record = (riga || {}) as Record<string, any>;
-        const marchio = String(
-          record.accessRevokedAt || record.access_revoked_at || "",
-        ).trim();
-        if (!marchio) continue;
-        for (const voce of guardianIdentityTokens(record)) {
-          if (!dataDellaRevoca.has(voce)) dataDellaRevoca.set(voce, marchio);
-        }
-      }
-
       /*
-        **Un marchio che arriva vale solo su una persona che il club non
-        conosce.**
+        **Le difese si riportano sulla riga da cui vengono, e solo quando si sa
+        quale sia.**
 
-        I due marchi **negano** qualcosa, quindi metterli e un atto di
-        chiusura: dalla rotta generica un ruolo senza nessuna chiave chiudeva
-        cosi fuori un tutore legittimo, senza audit, perche la guardia
-        sorveglia la **crescita** e togliere non fa crescere niente.
+        Quarta stesura, e le tre precedenti sbagliavano tutte la stessa domanda:
+        «quale riga in arrivo corrisponde a quale riga in archivio».
 
-        Restano pero scrivibili su una riga che porta un'identita **nuova**, e
-        serve: e cosi che l'approvazione di un modulo marca `contactOnly` la
-        riga che nasce. Su una persona sconosciuta un marchio non toglie niente
-        a nessuno — non aveva accesso — mentre su una persona gia in archivio
-        e una revoca travestita da salvataggio.
+        1. **per `id`** — e le righe che `contactOnly` protegge un id non ce
+           l'hanno, perche nascono da `guardians.push`;
+        2. **per posizione** — che la sceglie chi chiama: riordinare l'elenco
+           scriveva il marchio di una riga addosso a un'altra;
+        3. **per identita** — dove l'identita di una riga revocata **collassa
+           sull'indirizzo**, perche la revoca azzera gli identificativi e
+           l'indirizzo lo lascia (al club serve). Su madre e padre con un unico
+           indirizzo di famiglia — ADR-0114, la configurazione ordinaria — il
+           padre finiva per **avere la stessa identita** della madre revocata, e
+           al primo salvataggio ereditava il suo marchio: perdeva calendario,
+           rate, ricevute, documenti e certificato senza che nessuno avesse
+           premuto niente.
+
+        La quarta smette di indovinare. Si abbina per `id` quando l'id e
+        presente e **univoco da tutte e due le parti**; si cade sull'indirizzo
+        solo quando quell'indirizzo compare su **una sola** riga di qua e una
+        sola di la. Se resta un dubbio, non si eredita niente.
+
+        Non ereditare non apre un buco, ed e questa la ragione per cui la scelta
+        e sostenibile: la revoca vera vive nel **registro delle identita**
+        dell'atleta, che questa rotta conserva in sola lettura e che nega per
+        identita da qualunque riga; e un `contactOnly` che cadesse renderebbe
+        quell'indirizzo una chiave, cioe una **crescita**, che la guardia qui
+        sotto rifiuta a chi non ha le due chiavi. Ereditare per errore, invece,
+        chiude fuori una persona senza audit e senza strada di ritorno.
+
+        E perche il dubbio diventi raro, ogni riga che passa di qui esce con un
+        id stabile: chi non ne ha uno lo riceve adesso, e i salvataggi
+        successivi non hanno piu niente da indovinare.
       */
-      let riportato = false;
-
-      /*
-        **Chi e questa riga, quando torna con un legame dichiarato.**
-
-        Dopo una revoca la riga in archivio ha gli identificativi **azzerati** —
-        li toglie `clearLinkedFields` — quindi la sua identita e l'indirizzo.
-        Una riga in arrivo che si ridichiara con `linkedUserId` avrebbe allora,
-        con la regola secca «l'identificativo se c'e», un'identita che con quel
-        marchio non combacia: il marchio cadrebbe, ed e la strada con cui una
-        scheda aperta **prima** della revoca la annulla salvando.
-
-        Un identificativo dichiarato vale percio come identita solo se il club
-        lo **riconosce gia**, cioe se compare su una riga in archivio che un
-        marchio non ce l'ha. Sono due casi che si somigliano e non sono la
-        stessa cosa:
-
-        - il **padre** che condivide l'indirizzo di famiglia con la madre
-          revocata: il suo identificativo sta sulla sua riga, viva, quindi e
-          lui — e l'indirizzo marchiato dell'altra non lo tocca;
-        - la **madre** che si ripresenta con il proprio: in archivio quel
-          numero non c'e piu, la revoca lo ha tolto, quindi resta l'indirizzo —
-          e l'indirizzo porta il marchio.
-
-        Si guarda l'archivio e non il registro delle identita perche il
-        registro dice cio che e stato revocato **quando** lo si e revocato: se
-        quella riga un identificativo non ce l'aveva, il registro porta il solo
-        indirizzo, e da quel buco si rientrava.
-
-        Ridare un accesso resta possibile, e per la strada che ha il suo gate:
-        un riscatto, che scrive il legame con una `update` diretta e ripulisce
-        il registro. Non un salvataggio dell'anagrafica.
-      */
-      const identificativiRiconosciuti = new Set<string>();
-      for (const riga of tutoriEsistenti) {
-        const record = (riga || {}) as Record<string, any>;
-        const marchio = String(
-          record.accessRevokedAt || record.access_revoked_at || "",
-        ).trim();
-        if (marchio) continue;
-        for (const voce of guardianDeclaredIds(record)) {
-          identificativiRiconosciuti.add(voce);
-        }
-      }
+      const idDi = (riga: any) => String((riga || {}).id || "").trim();
 
       const soloIndirizzi = (record: Record<string, any>) =>
         guardianIdentityTokens({
@@ -6785,29 +6731,87 @@ const applicaGuardieDiModifica = async (
           linked_user_ids: null,
         });
 
-      const identitaEffettiva = (record: Record<string, any>) => {
-        const riconosciuti = guardianDeclaredIds(record).filter((voce) =>
-          identificativiRiconosciuti.has(voce),
-        );
-
-        return riconosciuti.length ? riconosciuti : soloIndirizzi(record);
+      const contaId = (elenco: any[]) => {
+        const quante = new Map<string, number>();
+        for (const riga of elenco) {
+          const chiave = idDi(riga);
+          if (chiave) quante.set(chiave, (quante.get(chiave) || 0) + 1);
+        }
+        return quante;
       };
+
+      const contaIndirizzi = (elenco: any[]) => {
+        const quante = new Map<string, number>();
+        for (const riga of elenco) {
+          for (const voce of soloIndirizzi((riga || {}) as Record<string, any>)) {
+            quante.set(voce, (quante.get(voce) || 0) + 1);
+          }
+        }
+        return quante;
+      };
+
+      const idEsistenti = contaId(tutoriEsistenti);
+      const idInArrivo = contaId(tutoriInArrivo);
+      const indirizziEsistenti = contaIndirizzi(tutoriEsistenti);
+      const indirizziInArrivo = contaIndirizzi(tutoriInArrivo);
+
+      const identitaInArchivio = new Set<string>();
+      for (const riga of tutoriEsistenti) {
+        for (const voce of guardianIdentityTokens(
+          (riga || {}) as Record<string, any>,
+        )) {
+          identitaInArchivio.add(voce);
+        }
+      }
+
+      const rigaInArchivio = (record: Record<string, any>) => {
+        const chiave = idDi(record);
+        if (
+          chiave &&
+          idEsistenti.get(chiave) === 1 &&
+          idInArrivo.get(chiave) === 1
+        ) {
+          return (
+            tutoriEsistenti.find((voce: any) => idDi(voce) === chiave) || null
+          );
+        }
+
+        for (const indirizzo of soloIndirizzi(record)) {
+          if (
+            indirizziEsistenti.get(indirizzo) === 1 &&
+            indirizziInArrivo.get(indirizzo) === 1
+          ) {
+            const trovata = tutoriEsistenti.find((voce: any) =>
+              soloIndirizzi((voce || {}) as Record<string, any>).includes(
+                indirizzo,
+              ),
+            );
+            if (trovata) return trovata;
+          }
+        }
+
+        return null;
+      };
+
+      let riportato = false;
 
       const conDifese = tutoriInArrivo.map((riga: any) => {
         const record = (riga || {}) as Record<string, any>;
-        const identita = identitaEffettiva(record);
+        const prima = rigaInArchivio(record) as Record<string, any> | null;
 
-        const eraRevocata = identita.some((voce) => revocateInArchivio.has(voce));
-        const eraSoloRecapito = identita.some((voce) =>
-          soloRecapitoInArchivio.has(voce),
-        );
-        const conosciuta = identita.some((voce) => identitaInArchivio.has(voce));
-
-        const marchio = eraRevocata
-          ? identita
-              .map((voce) => dataDellaRevoca.get(voce))
-              .find(Boolean) || new Date().toISOString()
+        const marchio = prima
+          ? String(prima.accessRevokedAt || prima.access_revoked_at || "").trim()
           : "";
+        const eraRevocata = Boolean(marchio);
+        const eraSoloRecapito = Boolean(
+          prima && (prima.contactOnly || prima.contact_only),
+        );
+        const conosciuta = Boolean(
+          prima ||
+            guardianIdentityTokens(record).some((voce) =>
+              identitaInArchivio.has(voce),
+            ),
+        );
 
         const marchioInArrivo = String(
           record.accessRevokedAt || record.access_revoked_at || "",
@@ -6870,10 +6874,31 @@ const applicaGuardieDiModifica = async (
         return successivo;
       });
 
+      /*
+        **Ogni riga tutore esce di qui con un id stabile.**
+
+        L'abbinamento qui sopra e costretto a indovinare quando le righe non
+        hanno un id — e sono proprio quelle che portano le difese, perche
+        nascono da `guardians.push` dell'approvazione di un modulo. Un id lo
+        assegna percio questa rotta, che e l'unico scrittore per cui passano
+        tutte: da qui in avanti «quale riga era» non e piu una domanda.
+
+        L'id non e una credenziale e non concede niente: serve solo a dire che
+        due righe sono la stessa. Quello sintetico che la scheda costruisce per
+        React continua a valere finche la scheda non salva; dopo, vale questo.
+      */
+      const conIdentificatore = conDifese.map((riga: any) => {
+        const record = (riga || {}) as Record<string, any>;
+        if (idDi(record)) return riga;
+
+        riportato = true;
+        return { ...record, id: newResourceItemId() };
+      });
+
       if (riportato) {
         normalized.data = {
           ...(((normalized.data as any) ?? {}) as Record<string, any>),
-          guardians: conDifese,
+          guardians: conIdentificatore,
         };
       }
 

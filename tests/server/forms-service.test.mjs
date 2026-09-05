@@ -595,9 +595,21 @@ test("approvare crea l'atleta con i valori mostrati nell'anteprima", async () =>
     Approvare una pratica non deve poter concedere un accesso: chi la compie
     non ha modo di sapere che quella riga sarebbe una chiave.
   */
-  assert.deepEqual(atleta.data.guardians, [
-    { phone: "3331234567", contactOnly: true, contact_only: true },
-  ]);
+  /*
+    L'id lo assegna `resources.ts` a ogni riga tutore che ne e priva: senza,
+    il riporto delle difese sarebbe costretto a indovinare quale riga sia
+    quale, ed e da li che una revoca si propagava all'altro genitore. Qui si
+    verifica che ci sia e che il resto della riga non cambi.
+  */
+  const [tutoreCreato] = atleta.data.guardians;
+  assert.ok(String(tutoreCreato.id || "").trim(), "la riga nasce con un id");
+
+  const { id: _idTutore, ...restoTutore } = tutoreCreato;
+  assert.deepEqual(restoTutore, {
+    phone: "3331234567",
+    contactOnly: true,
+    contact_only: true,
+  });
   assert.equal(esito.submission.status, "approved");
   assert.ok(esito.applied.length > 0);
 });
