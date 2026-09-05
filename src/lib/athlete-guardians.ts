@@ -124,18 +124,46 @@ export const getGuardianDisplayName = (guardian: GuardianLike): string =>
 export const normalizeGuardianRows = (
   items: GuardianLike[],
   fallbackSeed: string | number = "senza-dati",
-): GuardianLike[] =>
-  (Array.isArray(items) ? items : []).map((guardian, index) => ({
-    ...guardian,
-    id:
+): GuardianLike[] => {
+  /*
+    **Un id deve nominare una persona sola, e questo poteva nominarne due.**
+
+    L'id nasce dal dato piu l'indice, e sembra percio unico. Non lo e, per due
+    ragioni che si incontrano: la scheda atleta **salva** le righe cosi
+    normalizzate, quindi l'id sintetico finisce in archivio; e
+    `form-submissions.ts` fa `guardians.push` di righe **senza** id. Basta
+    allora cancellare una riga — le altre scalano di posto — perche una riga
+    gia salvata come `guardian-1-<indirizzo>` si ritrovi accanto a una riga
+    senza id che a quel posto genera **lo stesso** identificativo.
+
+    Misurato: due righe con lo stesso id, il clic su «Scollega account» della
+    nonna che revoca il **padre**, l'audit che nomina il padre, e la schermata
+    che segna «Account non collegato» su tutte e due. Lo stesso id collidente
+    faceva copiare il marchio della revoca sulla riga sbagliata al primo
+    salvataggio dell'anagrafica.
+
+    Un id gia visto viene percio disambiguato con la sua posizione. Resta
+    stabile fra due montaggi della stessa scheda — che e la ragione per cui
+    non e un contatore — e smette di essere ambiguo.
+  */
+  const visti = new Set<string>();
+
+  return (Array.isArray(items) ? items : []).map((guardian, index) => {
+    const base =
       guardian?.id ||
       `guardian-${index}-${String(
         guardian?.email || guardian?.phone || guardian?.name || fallbackSeed,
       )
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")}`,
-  }));
+        .replace(/^-+|-+$/g, "")}`;
+
+    const id = visti.has(String(base)) ? `${base}--${index}` : String(base);
+    visti.add(id);
+
+    return { ...guardian, id };
+  });
+};
 
 /**
  * Un tutore visto come **recapito**: chi e, dove lo si raggiunge, e se ha un

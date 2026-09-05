@@ -518,20 +518,82 @@ export function isWithinFieldAvailability(
   if (!stessoGiorno && !mezzanotteSeguente) return false;
   const fineMinuti = mezzanotteSeguente ? 24 * 60 : fine.minutes;
 
-  return (availability[inizio.dayKey] || []).some((slot) => {
+  /*
+    **Una fascia notturna vale, e prima veniva stampata e rifiutata.**
+
+    `22:00`-`02:00` e una fascia che una persona scrive senza pensarci — la
+    palestra chiude alle due — e l'editor la salva. `fineFascia <= da` la
+    scartava pero **tutta**, e intanto `describeFieldAvailability` continuava a
+    elencarla: la richiesta delle 22:30 veniva rifiutata con «Fasce aperte: Ven
+    22:00-02:00», cioe citando la fascia che la conteneva. Non correggibile da
+    nessuno dei due lati.
+
+    Una fascia che scavalca si legge come cio che e: dalle 22:00 fino alle 02:00
+    del **giorno dopo**. Le sue due meta si guardano percio da due giorni
+    diversi — la sera dal proprio giorno, la notte dal giorno seguente,
+    traslata di ventiquattro ore — e una prenotazione le trova da tutte e due.
+  */
+  const giornoPrima = (chiave: string) => {
+    const indice = WEEK_DAYS.findIndex((giorno) => giorno.key === chiave);
+    if (indice < 0) return "";
+    return WEEK_DAYS[(indice + WEEK_DAYS.length - 1) % WEEK_DAYS.length].key;
+  };
+
+  const fasceApplicabili: Array<{ da: number; a: number }> = [];
+
+  for (const slot of availability[inizio.dayKey] || []) {
     const da = toMinutes(slot.start);
     const a = toMinutes(slot.end);
-    if (da === null || a === null) return false;
+    if (da === null || a === null) continue;
+
     /*
       Una fascia che finisce a `00:00` chiude a mezzanotte — tranne quando
       **comincia** a mezzanotte: `00:00`-`00:00` e come si scrive una fascia
       lasciata a zero, e leggerla «aperto tutto il giorno» aprirebbe il campo
       alle tre di notte a chi non ha configurato niente.
     */
-    const fineFascia = a === 0 && da > 0 ? 24 * 60 : a;
-    if (fineFascia <= da) return false;
-    return inizio.minutes >= da && fineMinuti <= fineFascia;
-  });
+    const fineFascia = a <= da ? (da > 0 ? a + 24 * 60 : a) : a;
+    if (fineFascia <= da) continue;
+    fasceApplicabili.push({ da, a: fineFascia });
+  }
+
+  /* La coda notturna della fascia di ieri, riportata su oggi. */
+  for (const slot of availability[giornoPrima(inizio.dayKey)] || []) {
+    const da = toMinutes(slot.start);
+    const a = toMinutes(slot.end);
+    if (da === null || a === null || a >= da || da === 0) continue;
+    fasceApplicabili.push({ da: da - 24 * 60, a });
+  }
+
+  /*
+    **Due fasce contigue coprono la loro unione.**
+
+    Il vaglio chiedeva che la prenotazione stesse **dentro una sola** fascia:
+    un campo aperto `09:00-11:00` e `11:00-13:00` — che e come si scrive un
+    orario spezzato da un turno — rifiutava le 10:00 → 12:00 elencando nel
+    messaggio le due fasce che insieme la contengono. Un rifiuto che cita la
+    ragione per cui non doveva esserci.
+
+    Le fasce che si toccano o si sovrappongono si uniscono percio prima del
+    confronto. Quelle separate restano separate, ed e giusto: fra le 11 e le 15
+    il campo e chiuso davvero.
+  */
+  const unite = fasceApplicabili
+    .slice()
+    .sort((sinistra, destra) => sinistra.da - destra.da)
+    .reduce<Array<{ da: number; a: number }>>((elenco, fascia) => {
+      const ultima = elenco[elenco.length - 1];
+      if (ultima && fascia.da <= ultima.a) {
+        ultima.a = Math.max(ultima.a, fascia.a);
+        return elenco;
+      }
+      elenco.push({ ...fascia });
+      return elenco;
+    }, []);
+
+  return unite.some(
+    (fascia) => inizio.minutes >= fascia.da && fineMinuti <= fascia.a,
+  );
 }
 
 /**

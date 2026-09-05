@@ -1,6 +1,9 @@
 import { prisma } from "./prisma";
 import { canonicalResourceName } from "@/lib/resource-aliases";
-import { guardianAccessIdentities } from "./parent-dashboard";
+import {
+  guardianAccessIdentities,
+  guardianDeclaredIds,
+} from "./parent-dashboard";
 import {
   customRoleReachesResource,
   roleHasPermission,
@@ -6643,118 +6646,156 @@ const applicaGuardieDiModifica = async (
         senza le protezioni di quella che affianca — dopo il marchio della
         revoca e il registro delle identita, entrambi conservati qui sotto.
       */
-      const soloRecapitoDaConservare = new Set<string>();
-      for (const riga of toArrayValue(((existing?.data as any) ?? {}).guardians)) {
-        const record = (riga || {}) as Record<string, any>;
-        const chiave = String(record.id || "").trim();
-        if (chiave && (record.contactOnly || record.contact_only)) {
-          soloRecapitoDaConservare.add(chiave);
-        }
-      }
+      /*
+        **Le righe si abbinano per identita, e quando non si puo per posizione.**
 
-      const revocheDaConservare = new Map<string, string>();
-      for (const riga of toArrayValue(((existing?.data as any) ?? {}).guardians)) {
+        I tre riporti si agganciavano a `record.id`, e le righe che proteggono
+        piu spesso un id **non ce l'hanno**: quelle nate da `guardians.push`
+        dell'approvazione di un modulo, che sono proprio quelle marcate
+        `contactOnly`. Misurato su 128 combinazioni: tre riaperture silenziose,
+        tutte su righe senza id, con una segreteria canonica e nessuna
+        malafede. E dove l'id c'era ma era **duplicato** — succede da solo,
+        perche la scheda salva gli id sintetici e cancellare una riga fa scalare
+        le altre — il marchio veniva copiato sulla riga sbagliata, togliendo
+        l'accesso a un tutore legittimo.
+
+        L'abbinamento vive percio in un posto solo: l'id quando e presente e
+        **univoco da tutte e due le parti**, la posizione altrimenti. La
+        posizione non e una bella chiave, ma e quella che il client usa senza
+        saperlo — rimanda l'array come lo aveva — ed e sempre meglio di
+        «nessuna».
+      */
+      const tutoriEsistenti = toArrayValue(
+        ((existing?.data as any) ?? {}).guardians,
+      );
+      const tutoriInArrivo = toArrayValue(((normalized.data as any) ?? {}).guardians);
+
+      const conta = (elenco: any[]) => {
+        const quante = new Map<string, number>();
+        for (const riga of elenco) {
+          const chiave = String((riga || {}).id || "").trim();
+          if (chiave) quante.set(chiave, (quante.get(chiave) || 0) + 1);
+        }
+        return quante;
+      };
+
+      const quanteEsistenti = conta(tutoriEsistenti);
+      const quanteInArrivo = conta(tutoriInArrivo);
+
+      const abbinata = (riga: any, posizione: number) => {
+        const chiave = String((riga || {}).id || "").trim();
+        if (
+          chiave &&
+          quanteEsistenti.get(chiave) === 1 &&
+          quanteInArrivo.get(chiave) === 1
+        ) {
+          return tutoriEsistenti.find(
+            (voce: any) => String((voce || {}).id || "").trim() === chiave,
+          );
+        }
+
+        return tutoriInArrivo.length === tutoriEsistenti.length
+          ? tutoriEsistenti[posizione]
+          : undefined;
+      };
+
+      /*
+        **I due marchi sono in sola lettura da questa rotta, nei due versi.**
+
+        Erano conservati quando c'erano e **accettati** quando arrivavano nuovi:
+        cioe una revoca si poteva **eseguire** da qui. Misurato con un ruolo
+        personalizzato a **zero chiavi**: scrivere `accessRevokedAt` sulla riga
+        di un tutore che entra per indirizzo — la capability ADR-0114 — gli
+        toglieva cruscotto, solleciti, promemoria e notifiche, **senza una riga
+        di audit**. La guardia sopra sorveglia solo la **crescita**, e chiudere
+        fuori qualcuno non fa crescere niente.
+
+        Una difesa che si puo impugnare e un'arma: e la stessa frase gia scritta
+        per il registro delle identita, e questi due marchi non l'avevano.
+        Adesso valgono esattamente cio che diceva l'archivio — non si tolgono e
+        non si mettono — e chi vuole revocare passa da «Scollega account», che
+        ha il suo permesso e lascia l'audit.
+
+        Un marchio su una riga **nuova** invece passa, ed e voluto: e cosi che
+        l'approvazione di un modulo scrive `contactOnly` sulla riga che nasce.
+        Una riga nuova non toglie niente a nessuno.
+      */
+      let riportato = false;
+
+      const conDifese = tutoriInArrivo.map((riga: any, posizione: number) => {
         const record = (riga || {}) as Record<string, any>;
+        const prima = (abbinata(riga, posizione) || null) as Record<
+          string,
+          any
+        > | null;
+
+        if (!prima) return riga;
+
         const marchio = String(
+          prima.accessRevokedAt || prima.access_revoked_at || "",
+        ).trim();
+        const soloRecapito = Boolean(prima.contactOnly || prima.contact_only);
+
+        const marchioInArrivo = String(
           record.accessRevokedAt || record.access_revoked_at || "",
         ).trim();
-        const chiave = String(record.id || "").trim();
-        if (marchio && chiave) revocheDaConservare.set(chiave, marchio);
-      }
-
-      if (revocheDaConservare.size) {
-        const tutoriInArrivo = toArrayValue(((normalized.data as any) ?? {}).guardians);
-        let riportato = false;
-
-        const conMarchio = tutoriInArrivo.map((riga: any) => {
-          const record = (riga || {}) as Record<string, any>;
-          const chiave = String(record.id || "").trim();
-          const marchio = chiave ? revocheDaConservare.get(chiave) : "";
-          const dichiarato = String(
-            record.linkedUserId || record.linked_user_id || "",
-          ).trim();
-
-          /*
-            **Nessuna esenzione, e il legame dichiarato si toglie con lei.**
-
-            La prima stesura esentava le righe che tornavano con un
-            `linkedUserId`, «perche e il caso del riscatto». Il riscatto **non
-            passa di qui**: scrive con una `prisma.athlete.update` diretta.
-            L'esenzione proteggeva un caso irraggiungibile e ne apriva uno
-            reale — una scheda aperta **prima** della revoca ha ancora il
-            legame in memoria, e basta salvarla per riscriverlo. La guardia
-            della crescita non la ferma, perche una segreteria canonica i due
-            permessi ce li ha.
-
-            Percio qui si riporta il marchio **e** si toglie il legame che
-            arriva: chi vuole ridarlo passa da un riscatto, che e la strada che
-            ha il suo gate e che ripulisce anche l'elenco delle identita.
-          */
-          if (!marchio) return riga;
-
-          /*
-            **La bandiera si alza qui, su tutti e due i rami che cambiano.**
-
-            La prima stesura la alzava solo sul ramo finale, e `conMarchio`
-            veniva **buttato via** quando nessuna riga passava di li — cioe
-            proprio nel caso per cui il ramo del legame dichiarato era stato
-            scritto. Peggio: non era inerte, era **non deterministico**. Se
-            nello stesso salvataggio c'era un'altra riga revocata che passava
-            dal ramo finale, la bandiera si alzava e allora anche il primo ramo
-            si applicava: il comportamento di sicurezza di una riga dipendeva
-            da righe scorrelate.
-          */
-          if (dichiarato) {
-            riportato = true;
-            return {
-              ...record,
-              linkedUserId: null,
-              linked_user_id: null,
-              userId: null,
-              user_id: null,
-              accessRevokedAt: marchio,
-              access_revoked_at: marchio,
-            };
-          }
-          if (record.accessRevokedAt || record.access_revoked_at) {
-            return riga;
-          }
-
-          riportato = true;
-          return { ...record, accessRevokedAt: marchio, access_revoked_at: marchio };
-        });
-
-        if (riportato) {
-          normalized.data = {
-            ...(((normalized.data as any) ?? {}) as Record<string, any>),
-            guardians: conMarchio,
-          };
-        }
-      }
-
-      if (soloRecapitoDaConservare.size) {
-        const tutoriInArrivo = toArrayValue(
-          ((normalized.data as any) ?? {}).guardians,
+        const recapitoInArrivo = Boolean(
+          record.contactOnly || record.contact_only,
         );
-        let riportatoRecapito = false;
 
-        const conRecapito = tutoriInArrivo.map((riga: any) => {
-          const record = (riga || {}) as Record<string, any>;
-          const chiave = String(record.id || "").trim();
+        /*
+          **E il legame dichiarato si toglie con il marchio.**
 
-          if (!chiave || !soloRecapitoDaConservare.has(chiave)) return riga;
-          if (record.contactOnly || record.contact_only) return riga;
+          Il riporto spogliava **due** grafie e il vaglio ne legge sei: un
+          salvataggio con `userId`, `user_id` o `linkedUserIds` restituiva
+          l'accesso a una persona revocata, senza audit. Una scheda aperta
+          **prima** della revoca ha ancora il legame in memoria, e basta
+          salvarla.
+        */
+        const dichiarati = guardianDeclaredIds(record);
 
-          riportatoRecapito = true;
-          return { ...record, contactOnly: true, contact_only: true };
-        });
-
-        if (riportatoRecapito) {
-          normalized.data = {
-            ...(((normalized.data as any) ?? {}) as Record<string, any>),
-            guardians: conRecapito,
-          };
+        if (
+          marchio === marchioInArrivo &&
+          soloRecapito === recapitoInArrivo &&
+          !(marchio && dichiarati.length)
+        ) {
+          return riga;
         }
+
+        riportato = true;
+
+        const successivo: Record<string, any> = { ...record };
+
+        if (marchio) {
+          successivo.accessRevokedAt = marchio;
+          successivo.access_revoked_at = marchio;
+          successivo.linkedUserId = null;
+          successivo.linked_user_id = null;
+          successivo.userId = null;
+          successivo.user_id = null;
+          successivo.linkedUserIds = null;
+          successivo.linked_user_ids = null;
+        } else {
+          delete successivo.accessRevokedAt;
+          delete successivo.access_revoked_at;
+        }
+
+        if (soloRecapito) {
+          successivo.contactOnly = true;
+          successivo.contact_only = true;
+        } else {
+          delete successivo.contactOnly;
+          delete successivo.contact_only;
+        }
+
+        return successivo;
+      });
+
+      if (riportato) {
+        normalized.data = {
+          ...(((normalized.data as any) ?? {}) as Record<string, any>),
+          guardians: conDifese,
+        };
       }
 
       /*

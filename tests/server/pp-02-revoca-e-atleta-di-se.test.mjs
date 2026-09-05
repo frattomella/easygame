@@ -323,16 +323,33 @@ test("il rinnovo che la famiglia invia non le toglie l'accesso", async () => {
   );
 });
 
-test("il marchio non declassa una riga che il club aveva gia scritto", async () => {
+test("il criterio del marchio e chi ha scritto l'indirizzo, non chi ha compilato", () => {
   /*
-    Applicarlo anche al ramo che **aggiorna** una riga esistente declassava a
-    solo-recapito un tutore scritto dalla segreteria mesi prima, perche uno
-    sconosciuto aveva compilato il modulo pubblico su quel minore e
-    l'anagrafica proposta era stata approvata. Nessuna schermata mostra o
-    toglie quel marchio: quel genitore restava fuori in silenzio.
+    **Tre stesure, e le prime due si vedono solo insieme.**
 
-    Qui si tiene fermo il confine: il marchio appartiene alla riga che **nasce**
-    da una compilazione senza autore, non a quella che viene aggiornata.
+    `contactOnly` marca la riga tutore nata da una compilazione di cui il club
+    non e l'autore, perche ADR-0114 fa valere l'indirizzo come **chiave** e
+    quella regola poggia sul presupposto che lo scriva la segreteria.
+
+    - `source !== "internal"`, applicato anche al ramo che **aggiorna**,
+      declassava il genitore che rinnovava: al caricamento dopo trovava
+      «Accesso negato» sul proprio figlio;
+    - `!submitted_by` curava quel sintomo e ne apriva uno peggiore.
+      `submitRenewalForm` scrive `submittedBy: userId`, quindi **ogni riga
+      nuova nata da un rinnovo usciva senza marchio**: un tutore legittimo
+      dichiarava un terzo con un indirizzo qualunque, la segreteria leggeva
+      «Genitore aggiunto» e approvava, e quell'indirizzo apriva allergie,
+      farmaci, i byte del certificato, rate e ricevute.
+
+    La domanda giusta e **chi ha scritto quell'indirizzo**, e l'unica
+    compilazione di cui «il club» e la risposta e quella interna. Il ripiego
+    che la prima stesura aveva rotto resta intatto perche il criterio vale
+    **solo sulla riga che nasce**: quella del genitore che rinnova esiste gia.
+
+    La prova end-to-end — rinnovo, approvazione, e l'accesso del terzo — vive
+    in `scripts/pp-02-uat.mjs` (`W-29`), che percorre le rotte vere contro
+    PostgreSQL. Qui si tiene fermo il **criterio**, che e la riga che le tre
+    stesure hanno cambiato.
   */
   const sorgente = readFileSync(
     new URL("../../src/lib/server/form-submissions.ts", import.meta.url),
@@ -340,12 +357,18 @@ test("il marchio non declassa una riga che il club aveva gia scritto", async () 
   );
 
   assert.ok(
-    sorgente.includes("const senzaAutore = !asText(row.submitted_by);"),
-    "il criterio e chi ha compilato, non da quale porta",
+    sorgente.includes(
+      'const compilataDalClub = asText(row.source) === "internal";',
+    ),
+    "il criterio e chi ha scritto l'indirizzo",
   );
   assert.ok(
-    sorgente.includes("if (senzaAutore && rigaNuova) {"),
+    sorgente.includes("if (!compilataDalClub && rigaNuova) {"),
     "e vale solo sulla riga che nasce adesso",
+  );
+  assert.ok(
+    !sorgente.includes("const senzaAutore ="),
+    "il criterio dell'autore dimostrato non deve sopravvivere accanto al nuovo",
   );
 });
 

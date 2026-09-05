@@ -749,17 +749,29 @@ const writeInAppCopy = async ({
   if (!claim.claimed) return;
 
   try {
-    await (prisma as any).notification.create({
-      data: {
-        organization_id: organizationId,
-        user_id: recipient.userId,
-        title: subject,
-        message: text,
-        type: "club_communication",
-        read: false,
-        data: { source: "communication", communicationId: sourceId },
-      },
-    });
+    /*
+      **Stessa regola dell'automazione**: senza un destinatario la riga in
+      bacheca non e di tutti, e di nessuno — e finiva sotto gli occhi di ogni
+      genitore del club. Chi non ha un account riceve per email, che e la
+      strada che questo invio sta gia percorrendo.
+    */
+    if (recipient.userId) {
+      await (prisma as any).notification.create({
+        data: {
+          organization_id: organizationId,
+          user_id: recipient.userId,
+          title: subject,
+          message: text,
+          type: "club_communication",
+          read: false,
+          data: {
+            source: "communication",
+            communicationId: sourceId,
+            ...(athleteIds.length === 1 ? { athleteId: athleteIds[0] } : {}),
+          },
+        },
+      });
+    }
     await settleDelivery({ id: claim.id, organizationId: claim.organizationId, status: "sent", now });
   } catch {
     await settleDelivery({

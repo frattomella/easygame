@@ -2121,23 +2121,37 @@ const eseguiDecisione = async (
       segreteria — a mano, o da una compilazione interna — vale come prima.
     */
     /*
-      **Il criterio e «chi ha compilato», non «da quale porta».**
+      **Il criterio e «l'ha scritto il club», e ci sono voluti tre giri.**
 
-      La prima stesura guardava `source !== "internal"`, che e l'etichetta del
-      **trasporto**: `submitRenewalForm` — la strada con cui una famiglia
-      **autenticata** rinnova dall'area famiglia, dopo che
-      `resolveLinkedFamilyScope` ha **dimostrato il legame** — salva anche lei
-      `source: "public"`. Il genitore rinnovava, la segreteria approvava, e al
-      caricamento dopo lui trovava «Accesso negato»: perdeva calendario, rate,
-      ricevute, documenti e certificato del proprio figlio. E colpiva
-      **esattamente** le famiglie che entrano nel modo che ADR-0114 prevede,
-      cioe senza aver riscattato un gettone.
+      Prima stesura: `source !== "internal"`. Applicata anche al ramo che
+      **aggiorna**, declassava il genitore che rinnovava — perche
+      `submitRenewalForm` salva `source: "public"` — e al caricamento dopo lui
+      trovava «Accesso negato» sul proprio figlio.
 
-      Cio che distingue lo sconosciuto non e la porta: e che la sua
-      compilazione **non ha un autore dimostrato**. `submitPublicForm` scrive
-      `submittedBy: null`; le altre due strade scrivono chi ha compilato.
+      Seconda stesura: `!asText(row.submitted_by)`, cioe «compilazione senza
+      autore dimostrato». Curava il sintomo e apriva un buco piu largo di
+      quello che chiudeva: `submitRenewalForm` scrive `submittedBy: userId`,
+      quindi **ogni riga tutore nuova nata da un rinnovo usciva senza marchio**.
+      Misurato: la madre legata rinnova dichiarando un tutore nuovo con un
+      indirizzo qualunque, la segreteria legge «Genitore aggiunto: Zio» e
+      approva, e da quel momento quell'indirizzo apre allergie, farmaci, i
+      **byte** del certificato, rate e ricevute, e puo revocare i consensi dati
+      dall'altro genitore. Nessun audit di concessione, e
+      `accounts.athlete.manage` — la chiave che governa proprio questo — non
+      viene mai chiesta a chi concede.
+
+      La domanda giusta non e «chi ha compilato» ne «da quale porta»: e **chi
+      ha scritto quell'indirizzo**. ADR-0114 fa valere l'indirizzo come chiave
+      poggiando su un presupposto — che lo scriva **il club** — e l'unica
+      compilazione di cui questo e vero e quella interna. Un genitore
+      autenticato ha dimostrato il **proprio** legame, non quello di un terzo
+      che dichiara.
+
+      Il ripiego che la prima stesura aveva rotto resta intatto, perche adesso
+      il criterio vale **solo sulla riga che nasce**: la riga del genitore che
+      rinnova esiste gia e viene aggiornata, non creata.
     */
-    const senzaAutore = !asText(row.submitted_by);
+    const compilataDalClub = asText(row.source) === "internal";
 
     /*
       **E vale solo sulla riga che nasce adesso.**
@@ -2155,7 +2169,7 @@ const eseguiDecisione = async (
       index < guardians.length
     );
 
-    if (senzaAutore && rigaNuova) {
+    if (!compilataDalClub && rigaNuova) {
       patch.contactOnly = true;
       patch.contact_only = true;
     }

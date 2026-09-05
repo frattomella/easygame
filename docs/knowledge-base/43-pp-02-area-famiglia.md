@@ -1193,3 +1193,112 @@ revoca vale per la persona, non per la riga» — e provata con due righe **dell
 stessa persona**. La proprieta complementare, «e non raggiunge nessun altro»,
 non la chiedeva nessuno. Le due adesso stanno accanto, `W-24c` e `W-25`, e
 si leggono insieme.
+
+
+## 22. Il quindicesimo round: fuori dalla revoca
+
+I quattordici round precedenti hanno lavorato quasi tutti sullo stesso
+perimetro. Al quindicesimo la revisione e andata dove le liste dei «non
+verificati» indicavano da tre round — moduli, strutture, appuntamenti,
+notifiche, il contesto del browser — e ha trovato **dieci High**, cinque dei
+quali aperti o allargati dalle correzioni dei due round precedenti.
+
+Vale la pena dire cosa significa: il perimetro della revoca **ha** converso —
+il fuzz su 8.748 forme di riga non trova piu discordanze fra cancello e
+guardia — e cio che restava aperto era tutto il resto. Un pacchetto non e
+pulito perche la sua parte piu guardata lo e.
+
+### Le due che concedevano
+
+**Un rinnovo regalava l'area famiglia a un indirizzo qualunque.** Il segno
+`contactOnly` era agganciato a «compilazione senza autore dimostrato», cioe al
+solo modulo pubblico. `submitRenewalForm` scrive pero `submittedBy: userId`:
+un tutore legittimo dichiarava un terzo con un indirizzo qualsiasi, la
+segreteria leggeva «Genitore aggiunto: Zio» e approvava, e quell'indirizzo
+apriva allergie, farmaci, i byte del certificato, rate e ricevute — e la revoca
+dei consensi dati dall'altro genitore. Nessun audit di concessione, e
+`accounts.athlete.manage` non veniva mai chiesta a chi concedeva.
+
+Il criterio giusto non e «chi ha compilato» ne «da quale porta»: e **chi ha
+scritto quell'indirizzo**. ADR-0114 fa valere l'indirizzo come chiave poggiando
+sul presupposto che lo scriva il club, e l'unica compilazione di cui questo e
+vero e quella interna.
+
+**«Scollega account» revocava la persona sbagliata.** L'id sintetico di
+`normalizeGuardianRows` nasce dal dato **piu l'indice**, e sembra unico. Non lo
+e: la scheda atleta lo **salva**, quindi cancellare una riga fa scalare le
+altre e una riga senza id genera a quel posto un id gia in archivio. Misurato:
+il clic su «Scollega» della nonna che toglie l'accesso al padre, con l'audit
+intestato al padre e la schermata che segna scollegate tutte e due. Lo stesso
+id collidente faceva copiare il marchio della revoca sulla riga sbagliata al
+primo salvataggio dell'anagrafica.
+
+### La difesa che era diventata un'arma
+
+Un ruolo di club con **zero chiavi** chiudeva fuori un tutore legittimo
+scrivendogli `accessRevokedAt` addosso dalla rotta generica. Nessun audit. La
+guardia sorveglia la **crescita**, e togliere l'accesso a qualcuno non fa
+crescere niente.
+
+E la stessa frase gia scritta per il registro delle identita — «una difesa che
+si puo impugnare e un'arma» — che ai due marchi di riga non era stata
+applicata. Adesso valgono esattamente cio che dice l'archivio: non si mettono e
+non si tolgono da li, e chi vuole revocare passa da «Scollega account», che ha
+il suo permesso e lascia la riga di audit.
+
+### Il blob che usciva nel browser
+
+`athletes.data` viaggiava quasi intera nel payload della famiglia. Il taglio
+era un **elenco di cio che si toglie** — sei nomi di campo credenziale — su un
+contenitore che la segreteria riempie a mano: ogni campo nuovo nasce visibile,
+e nessuno se ne accorge. Misurato dentro la risposta: una nota «famiglia
+morosa», una «relazione-servizi-sociali», il codice fiscale dell'altro tutore,
+una nota che lo riguarda, e — nuovo di questa serie —
+`revokedGuardianIdentities`, cioe il cruscotto che dichiara a chi legge che il
+club ha revocato l'altro genitore. Il contesto conserva tutto anche in
+`sessionStorage`.
+
+Le schermate della famiglia leggono di quel blob **due** chiavi. Adesso escono
+quelle, e la proiezione dei tutori porta nome, rapporto e recapiti invece dei
+campi con cui si **decide** l'accesso.
+
+### La notifica di nessuno
+
+Una riga di notifica con `user_id` nullo finiva nella bacheca di **ogni**
+genitore del club, e non si poteva spegnere: segnare letto filtra per
+`user_id`. Misurato dal contenuto — «Rata scaduta: <nome del minore>», con
+indirizzo, telefono e importo della famiglia.
+
+Nessun produttore la scrive cosi di proposito: nasce quando il destinatario non
+ha un account. Chi non ha un account non ha una bacheca — la sua strada e
+l'email, che quello stesso invio percorre gia.
+
+### Le tre della stessa domanda
+
+- **L'interruttore «si compila una volta sola» non arrivava mai in
+  produzione**: il confronto fra due schemi elencava a mano **sette** delle
+  otto impostazioni, e l'ottava era quella. Adesso l'elenco si costruisce dalle
+  chiavi dei valori predefiniti: la nona non ripetera la storia dell'ottava.
+- **Due implementazioni di `isWithinFieldAvailability`**, sullo stesso dato,
+  con risposte opposte: `Europe/Rome` dalla strada della famiglia, **UTC** da
+  quella del club. Il lunedi alle 18:00, sullo stesso campo, la famiglia
+  prenotava e l'allenatore veniva rifiutato. Il fuso giusto e quello locale,
+  perche la fascia la scrive una persona e la rilegge come l'ha scritta.
+- **Una fascia `22:00-02:00` veniva stampata e rifiutata**, e due fasce
+  contigue non coprivano la loro unione: il messaggio di rifiuto elencava le
+  fasce che contenevano la richiesta.
+
+### Il presidio che non presidiava
+
+`tests/ui/pp-02-superfici.test.mjs` sono **28 test, 76 asserzioni, zero
+import**: tutto `readFileSync` piu `includes`. La revisione ha spento tre
+funzioni lasciando intatte le stringhe cercate — la campanella della famiglia,
+«Cambia figlio», l'elenco dei moduli online — e il file e rimasto **28/28
+verde**.
+
+Non e stato corretto in questo commit, ed e giusto dire perche: la suite non ha
+`jsdom` ne `react-dom`, quindi il comportamento di un componente non e
+**misurabile** qui, e introdurre un motore di rendering e un lavoro con la sua
+misura, non una riga dentro una lane di correzioni. Le proprieta che vivono sul
+server sono provate dalle sonde contro PostgreSQL; quelle che vivono nel
+browser oggi non sono provate da nessuno, e adesso e scritto (**PP02-D16**).

@@ -1717,11 +1717,29 @@ export const getParentDashboardData = async (
       la nona notifica di un club spingeva fuori la prima e nessuno se ne
       accorgeva.
     */
+    /*
+      **Una notifica senza destinatario non e «di tutti»: e di nessuno.**
+
+      Il ramo `{ user_id: null }` era scritto pensando agli avvisi del club, e
+      nessuno li scrive cosi: `club-notifications.ts` costruisce una riga
+      **per destinatario**, e le altre due strade scrivono
+      `user_id: recipient.userId`. Una riga con `user_id` nullo nasce quindi
+      da un solo caso — un destinatario **senza account**, raggiungibile per
+      email — e non e un annuncio: e il sollecito di **quella** famiglia.
+
+      Misurato: «Rata scaduta: Luca Bianchi — la famiglia Bianchi (via Roma 3,
+      tel 333…) non ha pagato 130,00 EUR», nella bacheca di ogni genitore del
+      club. E non si poteva nemmeno spegnere, perche segnare letto filtra per
+      `user_id`: la pastiglia restava accesa per sempre su una notizia di
+      un'altra famiglia. Il filtro per figlio non la vedeva, perche guarda
+      `data.athleteId` e il contenuto sta nel titolo.
+
+      Chi non ha un account non ha una bacheca: la sua strada e l'email, e i
+      due produttori adesso non scrivono piu una riga che nessuno puo leggere
+      ne chiudere.
+    */
     prisma.notification.findMany({
-      where: {
-        organization_id: organizationId,
-        OR: [{ user_id: userId }, { user_id: null }],
-      },
+      where: { organization_id: organizationId, user_id: userId },
       orderBy: { created_at: "desc" },
       take: 50,
     }),
@@ -2089,20 +2107,61 @@ export const getParentDashboardData = async (
       ...serializeAthleteCard(selectedAthlete),
       user_id: selectedAthlete.user_id,
       /*
-        **`data` usciva grezza, accanto ai tutori gia sanificati.**
+        **Si dichiara cio che esce, non cio che non deve uscire.**
 
-        `getGuardianRows` e una proiezione chiusa e non porta credenziali; una
-        riga sotto, `data` le portava tutte. Misurato: una madre che apriva il
-        cruscotto riceveva nel proprio browser il **codice d'accesso vivo del
-        padre** — e con esso quello di ogni altro tutore: un nonno, un ex
-        coniuge, un assistente sociale.
+        Due stesure. La prima mandava `data` **grezza** accanto ai tutori gia
+        sanificati: una madre riceveva nel proprio browser il codice d'accesso
+        vivo del padre, e quello di ogni altro tutore. La seconda ha tolto le
+        credenziali — sei nomi di campo, cercati ovunque — e ha lasciato tutto
+        il resto.
 
-        Il dato clinico del **proprio** figlio resta: e suo, ed e il motivo
-        per cui questa schermata esiste. Le credenziali no: chi ne ha una la
-        ha gia in mano, e le altre non sono sue.
+        `athletes.data` e pero il blob **libero** che la segreteria riempie, e
+        una revisione ha misurato cosa ci trova dentro chi apre il cruscotto:
+        una nota «famiglia morosa», una «relazione-servizi-sociali», il codice
+        fiscale e il telefono dell'altro tutore, una nota che dice che quel
+        tutore «non puo prendere il bambino il martedi», e — nuovo di questa
+        serie — `revokedGuardianIdentities`, cioe il cruscotto che dichiara
+        alla nuova compagna che il club ha revocato l'ex. Il contesto del
+        cruscotto conserva tutto anche in `sessionStorage`.
+
+        Un elenco di cio che si toglie non regge su un contenitore aperto: ogni
+        campo nuovo nasce **visibile**, e nessuno se ne accorge. Qui esce percio
+        cio che le schermate della famiglia leggono davvero, e nient'altro —
+        l'indirizzo e le visite mediche del **proprio** figlio. Il resto della
+        scheda continua ad arrivare da `serializeAthleteCard`, che e una
+        proiezione dichiarata, e il dato clinico da `data.health`, che ha il
+        suo permesso.
       */
-      data: stripGuardianAccessTokens(selectedAthlete.data),
-      guardians: getGuardianRows(selectedAthlete),
+      data: (() => {
+        const grezza = asRecord(stripGuardianAccessTokens(selectedAthlete.data));
+        const visibili: Record<string, unknown> = {};
+
+        for (const chiave of ["address", "medicalVisits"]) {
+          if (chiave in grezza) visibili[chiave] = grezza[chiave];
+        }
+
+        return visibili;
+      })(),
+      /*
+        **Cio che la famiglia vede di un tutore e chi e e dove si trova.**
+
+        `getGuardianRows` e la proiezione che **decide** l'accesso, e porta per
+        questo i campi con cui si decide: le grafie dell'identificativo, il
+        segno di solo-recapito, il marchio della revoca. Nessuna schermata li
+        disegna — la scheda mostra nome, rapporto, email e telefono — e uscivano
+        lo stesso, dicendo a chi legge che il club ha revocato l'altro tutore.
+
+        La proiezione che decide e quella che si pubblica sono due cose diverse,
+        ed e la terza volta che questo file lo impara.
+      */
+      guardians: getGuardianRows(selectedAthlete).map((guardian: any) => ({
+        id: guardian.id,
+        name: guardian.name,
+        surname: guardian.surname,
+        relationship: guardian.relationship,
+        email: guardian.email,
+        phone: guardian.phone,
+      })),
       /*
         **La quarta proiezione aperta, nello stesso file appena bonificato.**
 

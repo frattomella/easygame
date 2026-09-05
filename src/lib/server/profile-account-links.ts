@@ -534,35 +534,85 @@ export const unlinkGuardianAccount = async (
   const data = isRecord(atleta.data) ? (atleta.data as Record<string, any>) : {};
   const guardians = toArray(data.guardians);
   const guardianId = testo(input.guardianId);
-  let index = guardians.findIndex((entry) => testo(entry?.id) === guardianId);
 
   /*
-    **L'id che la scheda manda puo non esistere in archivio.**
+    **Un id che nomina due righe non e un id: si rifiuta.**
 
-    `normalizeGuardianRows` costruisce un id **sintetico** — `guardian-<n>-
-    <indirizzo a trattini>` — per le righe che non ne portano uno, ed e quello
-    che finisce nel `key` di React e nel corpo della richiesta. Una riga nata
-    dall'approvazione di un modulo non ha id: `buildGuardianPatch` copia i soli
-    binding del modulo e `form-submissions.ts` fa `guardians.push` di
-    quell'oggetto. Il pulsante «Scollega account» rispondeva quindi «Genitore
-    non trovato nella scheda atleta» su un genitore che era li sullo schermo, e
-    la persona restava collegata — proprio sulla classe di righe attorno a cui
-    e nata tutta la difesa `contactOnly`.
+    `normalizeGuardianRows` costruisce un id **sintetico** per le righe che non
+    ne portano uno, e la scheda atleta lo **salva**. Da li nascevano collisioni
+    che non richiedono malafede — una riga cancellata fa scalare le altre, e una
+    riga senza id (`form-submissions.ts` fa `guardians.push`) genera a quel
+    posto un id gia in archivio. Prendere la prima corrispondenza voleva dire
+    revocare **la persona sbagliata**: misurato, il clic su «Scollega account»
+    della nonna che toglie l'accesso al padre, con l'audit intestato al padre e
+    la schermata che segna scollegate tutte e due.
 
-    Si ricade percio sullo **stesso** id sintetico, calcolato con la stessa
-    funzione che lo mostra: non una seconda regola da tenere allineata.
+    `normalizeGuardianRows` adesso disambigua, ma le righe **gia in archivio**
+    portano gli id di prima: qui si rifiuta, perche fra due persone non si
+    tira a indovinare. Chi lo incontra salva una volta la scheda — il
+    salvataggio riscrive gli id disambiguati — e il pulsante torna a funzionare.
   */
-  if (index < 0 && guardianId) {
-    index = normalizeGuardianRows(guardians as any[]).findIndex(
-      (entry) => testo((entry as any)?.id) === guardianId,
+  const corrispondenze = (elenco: any[]) =>
+    elenco.reduce<number[]>((posizioni, entry, posizione) => {
+      if (testo(entry?.id) === guardianId) posizioni.push(posizione);
+      return posizioni;
+    }, []);
+
+  let trovate = corrispondenze(guardians);
+
+  /*
+    **E l'id che la scheda manda puo non esistere in archivio.**
+
+    Una riga nata dall'approvazione di un modulo non ha id: la scheda ne mostra
+    uno sintetico, e il pulsante rispondeva «Genitore non trovato nella scheda
+    atleta» su un genitore che era li sullo schermo. Si ricade percio sullo
+    **stesso** id sintetico, calcolato con la stessa funzione che lo mostra.
+  */
+  if (!trovate.length && guardianId) {
+    trovate = corrispondenze(normalizeGuardianRows(guardians as any[]) as any[]);
+  }
+
+  /*
+    **La coppia storica si revoca come l'elenco, perche concede come lui.**
+
+    `parent1`/`parent2` sono **oggetti**, non righe di un array, e questa
+    funzione cercava solo nell'array: su un'anagrafica travasata — che e la
+    ragione per cui quella coppia esiste — nessuna delle grafie dell'id
+    trovava niente, e l'unica strada per togliere l'accesso restava revocare
+    l'intera tessera. Lo sweep della revoca di tessera la copre gia
+    (`legacyKeys`); il pulsante no.
+
+    Gli id sono gli stessi che proietta `getGuardianRows`, o la scheda
+    manderebbe un id che qui non esiste.
+  */
+  const CHIAVI_STORICHE = ["parent1", "parent2"] as const;
+  const chiaveStorica = !trovate.length
+    ? CHIAVI_STORICHE.find((chiave, posizione) => {
+        const record = data[chiave];
+        if (!isRecord(record)) return false;
+        const suo =
+          testo(record.id) ||
+          testo(record.email) ||
+          testo(record.phone) ||
+          `legacy-parent-${posizione + 1}`;
+        return suo === guardianId;
+      })
+    : undefined;
+
+
+
+  if (trovate.length > 1) {
+    throw new Error(
+      "Due genitori della scheda portano lo stesso identificativo: salva la scheda e riprova",
     );
   }
 
-  if (index < 0) {
+  if (!trovate.length && !chiaveStorica) {
     throw new Error("Genitore non trovato nella scheda atleta");
   }
 
-  const guardian = guardians[index] || {};
+  const index = trovate.length ? trovate[0] : -1;
+  const guardian = (chiaveStorica ? data[chiaveStorica] : guardians[index]) || {};
 
   /*
     **Quattro grafie, non due.**
@@ -578,13 +628,7 @@ export const unlinkGuardianAccount = async (
     E la forma esatta del difetto che questa funzione e nata per chiudere,
     sopravvissuta su un canale diverso.
   */
-  const linkedUserId =
-    testo(
-      guardian.linkedUserId ||
-        guardian.linked_user_id ||
-        guardian.userId ||
-        guardian.user_id,
-    ) || null;
+  const linkedUserId = guardianDeclaredIds(guardian)[0] || null;
 
   const linkedUserEmail =
     testo(
@@ -658,6 +702,7 @@ export const unlinkGuardianAccount = async (
 
   const nextGuardians = guardians.map((entry, position) => {
     if (position === index) return nextGuardian;
+    if (chiaveStorica) return entry;
     if (!stessaPersona(entry)) return entry;
 
     const { next: ripulita } = clearLinkedFields(
@@ -706,7 +751,9 @@ export const unlinkGuardianAccount = async (
     data: {
       data: {
         ...data,
-        guardians: nextGuardians,
+        ...(chiaveStorica
+          ? { [chiaveStorica]: nextGuardian }
+          : { guardians: nextGuardians }),
         revokedGuardianIdentities: Array.from(identitaRevocate) as string[],
       },
     },

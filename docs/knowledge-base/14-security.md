@@ -2574,7 +2574,7 @@ presidio e sulla classe e non sul caso: nessun file sotto `src/app/api` o
 `src/lib/server` puo importare il dominio del browser.
 
 
-## La revoca di un tutore (PP-02, round 7-14)
+## La revoca di un tutore (PP-02, round 7-15)
 
 L'accesso di un tutore a un atleta si toglie per **identita**, non per riga, e
 la decisione con le sue ragioni sta in
@@ -2626,6 +2626,27 @@ Tre difese, tutte dentro `athletes.data`:
   e blocca la scheda: 1.079 combinazioni su 1.536 risultavano una crescita
   rimandate invariate, e da li in poi nessun ruolo senza `clinical.read`
   riusciva piu a cambiare una taglia.
+- I due marchi sono in **sola lettura** dalla rotta generica nei **due** versi:
+  non si tolgono e non si mettono. Toglierli era gia impedito; metterli no, e
+  un ruolo di club a **zero chiavi** revocava cosi un tutore legittimo — niente
+  cruscotto, niente solleciti, niente promemoria — **senza audit**, perche la
+  guardia sorveglia la crescita e chiudere fuori qualcuno non fa crescere
+  niente. Restano scrivibili solo su una riga che **nasce**, che e come
+  l'approvazione di un modulo marca la propria.
+- Il segno di solo-recapito marca la riga nata da una compilazione di cui il
+  club **non e l'autore**, e la porta non e il criterio: `submitRenewalForm`
+  scrive un autore dimostrato, quindi ogni riga tutore nuova nata da un rinnovo
+  usciva **senza segno**. Un tutore legittimo dichiarava un terzo con un
+  indirizzo qualunque e la segreteria, approvando, gli apriva il fascicolo del
+  minore.
+- Un id di riga tutore puo **collidere**: nasce dal dato piu l'indice ed e
+  **salvato**, quindi cancellare una riga fa scalare le altre. Il pulsante
+  revocava allora la persona sbagliata, con l'audit intestato a lei. Un id
+  ambiguo si **rifiuta**: fra due persone non si tira a indovinare.
+- Cio che esce nel browser della famiglia si **dichiara**, non si sottrae.
+  `athletes.data` e il blob libero che la segreteria riempie: un elenco di
+  campi da togliere lascia visibile ogni campo nuovo, e ci sono finiti note
+  interne, il codice fiscale dell'altro tutore e il registro delle revoche.
 - Il segno `contactOnly` e il marchio `accessRevokedAt` non si tolgono da
   quella rotta: si **riportano**. E una difesa piu forte del rifiuto — rifiutare
   avrebbe negato il salvataggio ordinario, perche nessun file client conosce

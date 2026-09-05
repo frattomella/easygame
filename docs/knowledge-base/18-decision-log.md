@@ -6348,6 +6348,25 @@ regressioni fra un round e il successivo, e il costo non era nel merito di
 nessuna delle tre: era che ognuna nasceva senza le protezioni della precedente.
 Chi ne aggiungera una quarta deve trovare scritto **cosa deve ereditare**.
 
+**Cosa reggeva davvero, misurato al quindicesimo round.** Le cinque protezioni
+sopra erano scritte come acquisite. Non lo erano:
+
+- **§1 (sopravvivere al salvataggio generico)** cadeva sulle righe **senza id**
+  — e sono proprio quelle che il segno `contactOnly` protegge, perche nascono
+  da `guardians.push`. I riporti si agganciavano a `record.id`. Adesso le
+  righe si abbinano per id **univoco da tutte e due le parti**, e per posizione
+  altrimenti;
+- **§3 (letta da tutte e quattro le letture)** falliva su 36 forme di riga su
+  96. Alcune restano: sono scritte in `16-technical-debt.md`, non qui;
+- **§4 (non scrivibile da chi la deve subire)** taceva sul verso in cui la
+  difesa diventa **un'arma**. Un ruolo a zero chiavi scriveva
+  `accessRevokedAt` addosso a un tutore legittimo dalla rotta generica e lo
+  chiudeva fuori senza audit: la guardia sorveglia la **crescita**, e togliere
+  non fa crescere niente. I due marchi sono adesso in sola lettura da quella
+  rotta nei **due** versi — non si mettono e non si tolgono — e restano
+  scrivibili solo su una riga che **nasce**, che e come l'approvazione di un
+  modulo marca la propria.
+
 **Sesta protezione, aggiunta dal quattordicesimo round.** Una difesa deve
 riconoscere la **persona**, non il suo recapito, ogni volta che il recapito puo
 essere condiviso — e in una famiglia lo e quasi sempre. La ripulitura delle
@@ -6368,9 +6387,27 @@ forma era quella qui sopra; l'ottava e questa, e vale in generale:
 > piu cara del pacchetto.
 
 **Dove vive la nozione di identita.** `guardianDeclaredIds` in
-`src/lib/server/parent-dashboard.ts`, una funzione sola: la usano il vaglio
-dell'accesso, la guardia della crescita, la deroga dopo una revoca e i due
-canali di invio. Prima ognuno leggeva un sottoinsieme diverso delle quattro
+`src/lib/server/parent-dashboard.ts`.
+
+Una stesura precedente di questa riga diceva che la usano «il vaglio
+dell'accesso, la guardia della crescita, la deroga dopo una revoca **e i due
+canali di invio**». Non era vero, e il quindicesimo round lo ha misurato in un
+comando: `grep -rl guardianDeclaredIds src/` restituisce **due** file. I
+canali di invio tengono ognuno la propria lista in linea. Il censimento vero,
+alla data:
+
+| lettore | grafie dell'identificativo |
+|---|---|
+| `guardianDeclaredIds` (vaglio, guardia, deroga, revoca) | 6 |
+| `readAthleteGuardianContacts`, `legameDichiaratoVivo`, `findClubsWhereUserIsGuardian` | 4 |
+| `resolveFamilyRecipients` (deroga interna) | 2 |
+| `redeem/route.ts` | solo l'identificativo utente |
+
+La correzione ne aveva unificate **due su otto**, e la KB ne dichiarava otto.
+Vale la pena scriverlo qui e non solo nel debito, perche una KB che dichiara
+chiusa una divergenza aperta e peggio di una che tace: il round successivo
+salta il controllo. CLAUDE.md §1 dice che vince il codice, e questa riga e la
+prova che la regola serve anche contro se stessi. Prima ognuno leggeva un sottoinsieme diverso delle quattro
 grafie dell'identificativo (`linkedUserId`, `linked_user_id`, `userId`,
 `user_id`), e la proiezione le **comprimeva** con `firstText` prima ancora
 che qualcuno le contasse: chi decideva ne vedeva una, chi mandava le notifiche

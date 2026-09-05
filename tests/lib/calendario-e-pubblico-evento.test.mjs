@@ -15,6 +15,7 @@ import {
   weekdayKeyOf,
 } from "../../src/lib/events/model.ts";
 import { calculateCategoryAthleteStats } from "../../src/lib/category-athlete-stats.ts";
+import { instantFromLocalTime } from "../../src/lib/structures-utils.ts";
 
 /**
  * **Cio che l'evento come riga rende esprimibile** (lane 5F).
@@ -152,24 +153,38 @@ test("un campo che non dichiara niente non e un campo chiuso", () => {
 });
 
 test("un allenamento fuori dalla fascia del campo viene visto", () => {
+  /*
+    **Le ore sono quelle dell'orologio del club, non UTC.**
+
+    Questa prova le scriveva in UTC, perche l'implementazione le leggeva cosi —
+    e quella dell'area famiglia no. Sullo stesso campo alla stessa ora la
+    famiglia prenotava e l'allenatore veniva rifiutato: due implementazioni
+    della stessa domanda, con risposte opposte per due ore d'estate.
+
+    Adesso la funzione e una sola, e legge `Europe/Rome`: la fascia la scrive
+    una persona nell'editor delle strutture, e la deve rileggere come l'ha
+    scritta.
+  */
   const disponibilita = {
     Sab: [{ start: "09:00", end: "20:00" }],
     Lun: [{ start: "17:00", end: "22:00" }],
   };
 
+  const locale = (giorno, ora) => instantFromLocalTime(giorno, ora);
+
   assert.equal(
     isWithinFieldAvailability(
       disponibilita,
-      "2026-09-05T18:00:00.000Z",
-      "2026-09-05T19:30:00.000Z",
+      locale("2026-09-05", "18:00"),
+      locale("2026-09-05", "19:30"),
     ),
     true,
   );
   assert.equal(
     isWithinFieldAvailability(
       disponibilita,
-      "2026-09-05T23:00:00.000Z",
-      "2026-09-06T00:30:00.000Z",
+      locale("2026-09-05", "23:00"),
+      locale("2026-09-06", "00:30"),
     ),
     false,
     "un allenamento delle 23:00 su un campo che chiude alle 20:00",
@@ -177,11 +192,27 @@ test("un allenamento fuori dalla fascia del campo viene visto", () => {
   assert.equal(
     isWithinFieldAvailability(
       disponibilita,
-      "2026-09-05T19:00:00.000Z",
-      "2026-09-05T21:00:00.000Z",
+      locale("2026-09-05", "19:00"),
+      locale("2026-09-05", "21:00"),
     ),
     false,
     "finire dopo la chiusura conta quanto cominciare dopo",
+  );
+
+  /*
+    **E la stessa risposta della strada che usa la famiglia.**
+
+    E la proprieta che il difetto violava, ed e quella che va tenuta ferma: non
+    «questa funzione risponde X», ma «le due rispondono la stessa cosa».
+  */
+  assert.equal(
+    isWithinFieldAvailability(
+      { Lun: [{ start: "18:00", end: "20:00" }] },
+      locale("2026-09-07", "18:00"),
+      locale("2026-09-07", "19:00"),
+    ),
+    true,
+    "il lunedi alle 18:00 di Roma il campo e aperto per tutti e due",
   );
 });
 

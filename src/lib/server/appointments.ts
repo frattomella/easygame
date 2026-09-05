@@ -1374,7 +1374,33 @@ const colonneSlot = (input: AppointmentSlotInput) => {
   if (!/^\d{1,2}:\d{2}$/.test(start) || !/^\d{1,2}:\d{2}$/.test(end)) {
     throw new Error("Orario di inizio e di fine non validi");
   }
-  if (end <= start) throw new Error("L'orario di fine deve seguire quello di inizio");
+
+  /*
+    **Due orari si confrontano in minuti, non come parole.**
+
+    Il confronto era `end <= start` fra **stringhe**: alfabeticamente
+    `"9:00" > "10:00"`, quindi una fascia di ricevimento `9:00` → `10:00`
+    veniva rifiutata come «la fine deve seguire l'inizio», mentre `10:00` →
+    `9:00` veniva **creata** e poi non generava nessuno slot. Cosi anche
+    `25:00` → `26:00`: accettata, e inerte. La segreteria vedeva una fascia
+    salvata e la famiglia nessun orario disponibile, senza niente che lo
+    spiegasse.
+  */
+  const inMinuti = (orario: string) => {
+    const [ore, minuti] = orario.split(":");
+    return Number(ore) * 60 + Number(minuti);
+  };
+
+  const daMinuti = inMinuti(start);
+  const aMinuti = inMinuti(end);
+
+  if (daMinuti >= 24 * 60 || aMinuti > 24 * 60 || inMinuti(start) % 1 !== 0) {
+    throw new Error("Orario di inizio e di fine non validi");
+  }
+
+  if (aMinuti <= daMinuti) {
+    throw new Error("L'orario di fine deve seguire quello di inizio");
+  }
 
   const weekday =
     input.weekday === null || input.weekday === undefined

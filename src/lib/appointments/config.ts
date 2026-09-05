@@ -104,7 +104,19 @@ export const normalizeAppointmentType = (
         .replace(/^-+|-+$/g, "")
         .slice(0, 60),
     name,
-    bookable: record.bookable === false ? false : true,
+    /*
+      **`"false"` e una stringa, e le stringhe non vuote sono tutte vere.**
+
+      Il confronto era con il booleano `false` soltanto: un `PUT` della
+      configurazione che manda `bookable: "false"` — cioe una casella
+      disegnata da un modulo, o un client che serializza in stringhe — lasciava
+      il tipo **prenotabile** dalla famiglia mentre il club lo aveva chiuso al
+      solo desk. La stessa correzione era gia stata fatta per
+      `familyBookingEnabled` e non era stata portata qui.
+    */
+    bookable: !["false", "0", "no", "off"].includes(
+      String(record.bookable ?? "").trim().toLowerCase(),
+    ),
   };
 };
 

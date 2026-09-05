@@ -1509,17 +1509,36 @@ const writeInAppCopy = async ({
   if (!claim.claimed) return;
 
   try {
-    await (prisma as any).notification.create({
-      data: {
-        organization_id: clubId,
-        user_id: recipientUserId,
-        title: subject,
-        message: text,
-        type: `automation_${rule.trigger}`,
-        read: false,
-        data: { source: "automation", trigger: rule.trigger, dedupKey },
-      },
-    });
+    /*
+      **Una riga in bacheca vuole un destinatario, e l'atleta di cui parla.**
+
+      `recipientUserId` e nullo quando la famiglia non ha un account: la sua
+      strada e l'email, che questo stesso invio percorre. La riga in bacheca
+      invece restava senza indirizzo, e la lettura del cruscotto la mostrava a
+      **tutti** i genitori del club — con il nome del minore, l'importo e il
+      collegamento a gettone per pagare. Non si poteva nemmeno segnare letta.
+
+      E l'atleta si scrive: il filtro per figlio guarda `data.athleteId`, e
+      senza quel campo un sollecito compariva sulla schermata dell'altro figlio.
+    */
+    if (recipientUserId) {
+      await (prisma as any).notification.create({
+        data: {
+          organization_id: clubId,
+          user_id: recipientUserId,
+          title: subject,
+          message: text,
+          type: `automation_${rule.trigger}`,
+          read: false,
+          data: {
+            source: "automation",
+            trigger: rule.trigger,
+            dedupKey,
+            ...(athleteId ? { athleteId } : {}),
+          },
+        },
+      });
+    }
     await settleDelivery({ id: claim.id, organizationId: claim.organizationId, status: "sent", now });
     deliveries.push({
       trigger: rule.trigger,

@@ -341,6 +341,26 @@ export function ParentDashboardProvider({
           Adesso la stagione la risolve il server e viaggia nel payload: qui si
           trasporta, non si ricalcola.
         */
+        /*
+          **L'area famiglia e un accesso, non un travestimento.**
+
+          Questo oggetto conservava `...stored`, cioe anche `membershipId` e
+          `accessKey` — l'**identita della tessera del club** — e ci scriveva
+          sopra `role: "parent"`. Ne usciva un accesso che dichiara la tessera
+          da dirigente e il ruolo da genitore, e le due meta si contraddicono:
+          `findStoredAccessMembership` ritrova la tessera vera (owner) proprio
+          grazie a quei due campi, e poi il ruolo salvato la sovrascrive.
+
+          Misurato: il presidente il cui figlio gioca nel club apre
+          `/parent-view/<figlio>`, il trasporto comincia a mandare
+          `x-active-access-role: parent` a ogni richiesta — 403 immediati su
+          tutto il gestionale — e al primo ricaricamento il ciclo si chiude.
+          Per uscirne bisogna indovinare il selettore d'accesso in `/account`.
+
+          Chi entra nell'area famiglia sta usando **quell'**accesso: la tessera
+          del club non e sua e non va portata dentro. Le due identita restano
+          percio separate, e tornare al gestionale ritrova la propria.
+        */
         const activeClub = {
           ...stored,
           id: payload.data.club.id,
@@ -350,6 +370,9 @@ export function ParentDashboardProvider({
           activeSeasonLabel: payload.data.club.activeSeasonLabel ?? null,
           role: "parent",
           roleLabel: "Genitore",
+          membershipId: null,
+          accessKey: null,
+          accessKind: "guardian",
           linkedAthleteIds,
           linkedAthleteId: linkedAthleteIds[0] || null,
         };

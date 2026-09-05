@@ -715,13 +715,20 @@ test("i comandi di un appuntamento vanno a capo invece di uscire", () => {
  * l'apertura a 375 px. Presidiano la classe di difetti che si scrive senza
  * accorgersene.
  *
- * Nota su cio che **non** e in elenco: `parent-dashboard-pages.tsx` e
- * anteriore alla Wave 5 e la Wave 5 ne ha cambiato la sola pagina Pagamenti.
- * Sta qui sotto con l'invariante mirata sulla riga della ricevuta, non nella
- * lista generale: metterci un file di duemila righe che nessuno ha riscritto
- * vorrebbe dire presidiare codice che non e stato guardato.
+ * `parent-dashboard-pages.tsx` era **fuori** da questo elenco, con una nota
+ * che diceva perche: era anteriore alla Wave 5, che ne aveva cambiato la sola
+ * pagina Pagamenti, e presidiare tremila righe mai riscritte sarebbe stato
+ * presidiare codice che nessuno aveva guardato.
+ *
+ * PP-02 ne ha cambiate **915**. La ragione della nota e scaduta, e il file e
+ * adesso la superficie piu grande dell'area famiglia: ci vivono la scheda
+ * atleta, i moduli online, le prenotazioni e il checkout, cioe le schermate
+ * che una famiglia apre dal telefono. Oggi non ha nessuna violazione — e il
+ * momento giusto per metterlo sotto presidio, perche domani ne avra una e
+ * nessuno se ne accorgera.
  */
 const PARENT_DASHBOARD = [
+  "components/parent-dashboard/parent-dashboard-pages.tsx",
   "components/parent-dashboard/parent-family-pages.tsx",
   "components/parent-dashboard/parent-dashboard-shell.tsx",
   "components/parent-dashboard/ParentSidebar.tsx",

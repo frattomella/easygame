@@ -5220,6 +5220,747 @@ const sezioneW = async () => {
 
   await prisma.athlete.delete({ where: { id: FIGLIO_SENZA_ID } });
 
+  /* ---------- W-29..W-33: il quindicesimo round ---------- */
+
+  const inviiW29 = await carica("src/lib/server/form-submissions.ts");
+  const modelloW29 = await carica("src/lib/forms/model.ts");
+  const risorseW29 = await carica("src/lib/server/resources.ts");
+  const cruscottoW29 = await carica("src/lib/server/parent-dashboard.ts");
+  const legamiW29 = await carica("src/lib/server/profile-account-links.ts");
+  const contattiW29 = await carica("src/lib/athlete-guardians.ts");
+
+  const scopeClubW29 = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "owner",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+    actorEmail: PRESIDENTE.email,
+  };
+
+  const scopeAllenatoreW29 = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeRole: "trainer",
+    activeMembershipId: null,
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  /*
+    **W-29 (High).** Un tutore legittimo, rinnovando, regalava a un indirizzo
+    qualunque l'area famiglia completa del minore.
+
+    Il marchio `contactOnly` era agganciato a «compilazione senza autore
+    dimostrato», cioe al solo modulo pubblico. `submitRenewalForm` scrive
+    pero `submittedBy: userId`, quindi ogni riga tutore **nuova** nata da un
+    rinnovo usciva senza marchio: la madre legata dichiara un tutore con un
+    indirizzo qualunque, la segreteria legge «Genitore aggiunto» e approva, e
+    da quel momento quell'indirizzo apre allergie, farmaci, i byte del
+    certificato, rate e ricevute — e puo revocare i consensi dati dall'altro
+    genitore. Nessun audit di concessione, e `accounts.athlete.manage` non
+    viene chiesta a chi concede.
+  */
+  const moduloTutore = await (async () => {
+    const templateId = randomUUID();
+    const versionId = randomUUID();
+    const slug = `pp02-tutore-${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const schema = modelloW29.normalizeFormSchema({
+      title: "Rinnovo con tutore",
+      description: "",
+      fields: [
+        {
+          id: "f_nome_tutore",
+          type: "short_text",
+          label: "Nome del genitore",
+          required: true,
+          binding: "guardian.name",
+        },
+        {
+          id: "f_email_tutore",
+          type: "email",
+          label: "Email del genitore",
+          required: true,
+          binding: "guardian.email",
+        },
+      ],
+      settings: {},
+    });
+
+    await prisma.formTemplate.create({
+      data: {
+        id: templateId,
+        organization_id: CLUB,
+        title: "Rinnovo con tutore",
+        status: "published",
+        public_slug: slug,
+        public_enabled: true,
+        published_version: 1,
+        published_at: new Date(),
+        draft: schema,
+        updated_at: new Date(),
+      },
+    });
+    await prisma.formTemplateVersion.create({
+      data: {
+        id: versionId,
+        organization_id: CLUB,
+        template_id: templateId,
+        version: 1,
+        schema_json: schema,
+        published_at: new Date(),
+      },
+    });
+
+    return { templateId, slug };
+  })();
+
+  const FIGLIO_RINNOVO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_RINNOVO,
+      organization_id: CLUB,
+      first_name: "Rinnovo",
+      last_name: "Tutore",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "madre", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+        ],
+      },
+    },
+  });
+
+  const inviato = await inviiW29.submitRenewalForm(ANNA.id, {
+    athleteId: FIGLIO_RINNOVO,
+    publicSlug: moduloTutore.slug,
+    answers: { f_nome_tutore: "Zio", f_email_tutore: BRUNO.email },
+    files: [],
+    respondentEmail: ANNA.email,
+  });
+
+  const accessoPrimaW29 = await cruscottoW29.canParentAccessAthlete(
+    BRUNO.id,
+    FIGLIO_RINNOVO,
+  );
+
+  const esitoApprovazione = await inviiW29
+    .decideFormSubmission(scopeClubW29, inviato.submissionId, {
+      decision: "approved",
+    })
+    .then((esito) => esito)
+    .catch((errore) => ({ errore: String(errore?.message || errore) }));
+
+  prova(
+    "W-29 un rinnovo che dichiara un terzo non gli regala l'area famiglia",
+    [false, false],
+    [
+      accessoPrimaW29,
+      await cruscottoW29.canParentAccessAthlete(BRUNO.id, FIGLIO_RINNOVO),
+    ],
+    esitoApprovazione?.errore || "approvato",
+  );
+
+  /*
+    E la riga porta il segno, perche il club non e l'autore di quell'indirizzo.
+    Il ripiego di ADR-0114 resta intatto per cio che la segreteria scrive: e la
+    riga di Anna, che esisteva gia, viene **aggiornata** e non declassata.
+  */
+  const dopoApprovazione = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_RINNOVO },
+      select: { data: true },
+    })
+  )?.data;
+
+  const rigaZio = (dopoApprovazione?.guardians || []).find(
+    (riga) => String(riga?.email || "").toLowerCase() === String(BRUNO.email).toLowerCase(),
+  );
+
+  prova(
+    "W-29b la riga nata dal rinnovo porta il segno, e la madre resta dentro",
+    [true, true],
+    [
+      Boolean(rigaZio?.contactOnly),
+      await cruscottoW29.canParentAccessAthlete(ANNA.id, FIGLIO_RINNOVO),
+    ],
+    "prima: nessun segno sulla riga nuova, e l'indirizzo era una chiave",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_RINNOVO } });
+
+  /*
+    **W-30 (High).** Un ruolo di club con **zero chiavi** chiudeva fuori un
+    tutore legittimo scrivendogli `accessRevokedAt` addosso dalla rotta
+    generica: la guardia sorveglia la **crescita**, e togliere non fa crescere
+    niente. Nessun audit, e la famiglia perdeva cruscotto, solleciti,
+    promemoria e notifiche.
+  */
+  const FIGLIO_CHIUSURA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_CHIUSURA,
+      organization_id: CLUB,
+      first_name: "Chiuso",
+      last_name: "Fuori",
+      status: "active",
+      updated_at: new Date(),
+      data: { guardians: [{ id: "t", name: "Anna", email: ANNA.email }] },
+    },
+  });
+
+  const chiusuraPrima = await cruscottoW29.canParentAccessAthlete(
+    ANNA.id,
+    FIGLIO_CHIUSURA,
+  );
+
+  await risorseW29.updateResource(
+    "athletes",
+    FIGLIO_CHIUSURA,
+    {
+      data: {
+        guardians: [
+          {
+            id: "t",
+            name: "Anna",
+            email: ANNA.email,
+            accessRevokedAt: new Date().toISOString(),
+          },
+        ],
+      },
+    },
+    scopeAllenatoreW29,
+  );
+
+  prova(
+    "W-30 dalla rotta generica non si revoca un tutore, nemmeno di nascosto",
+    [true, true],
+    [
+      chiusuraPrima,
+      await cruscottoW29.canParentAccessAthlete(ANNA.id, FIGLIO_CHIUSURA),
+    ],
+    "prima: un ruolo a zero chiavi lo chiudeva fuori, senza audit",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_CHIUSURA } });
+
+  /*
+    **W-31 (Medium).** I riporti si agganciavano a `record.id`, e le righe che
+    proteggono piu spesso un id **non ce l'hanno** — sono quelle nate da
+    `guardians.push` dell'approvazione, cioe proprio le `contactOnly`. Il
+    segno spariva al primo salvataggio, e la riga tornava una chiave.
+  */
+  const FIGLIO_SENZA_CHIAVE = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_SENZA_CHIAVE,
+      organization_id: CLUB,
+      first_name: "Senza",
+      last_name: "Chiave",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [{ name: "Anna", email: ANNA.email, contactOnly: true }],
+      },
+    },
+  });
+
+  await risorseW29.updateResource(
+    "athletes",
+    FIGLIO_SENZA_CHIAVE,
+    { data: { guardians: [{ name: "Anna", email: ANNA.email }] } },
+    scopeClubW29,
+  );
+
+  const dopoSenzaChiave = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_SENZA_CHIAVE },
+      select: { data: true },
+    })
+  )?.data;
+
+  prova(
+    "W-31 il segno si riporta anche su una riga che non ha un id",
+    [true, false],
+    [
+      Boolean((dopoSenzaChiave?.guardians || [])[0]?.contactOnly),
+      await cruscottoW29.canParentAccessAthlete(ANNA.id, FIGLIO_SENZA_CHIAVE),
+    ],
+    "prima: spariva, e l'indirizzo tornava una chiave dell'area famiglia",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_SENZA_CHIAVE } });
+
+  /*
+    **W-32 (Medium).** Il riporto spogliava **due** grafie del legame
+    dichiarato e il vaglio ne legge sei: un salvataggio con `userId`,
+    `user_id` o `linkedUserIds` restituiva l'accesso a una persona revocata,
+    senza audit. Basta una scheda aperta **prima** della revoca.
+  */
+  const FIGLIO_SEI_GRAFIE = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_SEI_GRAFIE,
+      organization_id: CLUB,
+      first_name: "Sei",
+      last_name: "Grafie",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          {
+            id: "t",
+            name: "Anna",
+            email: ANNA.email,
+            linkedUserId: null,
+            accessRevokedAt: new Date().toISOString(),
+          },
+        ],
+        revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
+      },
+    },
+  });
+
+  await risorseW29.updateResource(
+    "athletes",
+    FIGLIO_SEI_GRAFIE,
+    {
+      data: {
+        guardians: [
+          { id: "t", name: "Anna", email: ANNA.email, userId: ANNA.id },
+        ],
+      },
+    },
+    scopeClubW29,
+  );
+
+  prova(
+    "W-32 il riporto toglie il legame in tutte le grafie che concedono",
+    false,
+    await cruscottoW29.canParentAccessAthlete(ANNA.id, FIGLIO_SEI_GRAFIE),
+    "prima: la grafia userId sopravviveva al riporto e restituiva l'accesso",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_SEI_GRAFIE } });
+
+  /*
+    **W-33.** Tre difetti del pulsante «Scollega account», misurati insieme
+    perche vivono nella stessa lettura:
+
+    a) due righe con lo **stesso id** — che nasce da solo, perche la scheda
+       salva gli id sintetici — e il pulsante revocava la persona sbagliata,
+       con l'audit intestato a lei;
+    b) una riga con solo `linkedUserIds`: rispondeva **200**, senza revocare
+       niente e senza audit;
+    c) `parent1`/`parent2`, che **concedono** e che il pulsante non trovava:
+       l'unica strada restava revocare l'intera tessera.
+  */
+  const FIGLIO_AMBIGUO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_AMBIGUO,
+      organization_id: CLUB,
+      first_name: "Id",
+      last_name: "Ambiguo",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "stesso", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+          { id: "stesso", name: "Bruno", linkedUserId: BRUNO.id, email: BRUNO.email },
+        ],
+      },
+    },
+  });
+
+  const esitoAmbiguo = await legamiW29
+    .unlinkGuardianAccount(scopeClubW29, {
+      athleteId: FIGLIO_AMBIGUO,
+      guardianId: "stesso",
+    })
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-33a un id che nomina due righe si rifiuta, non si tira a indovinare",
+    [true, true, true],
+    [
+      esitoAmbiguo !== "riuscita",
+      await cruscottoW29.canParentAccessAthlete(ANNA.id, FIGLIO_AMBIGUO),
+      await cruscottoW29.canParentAccessAthlete(BRUNO.id, FIGLIO_AMBIGUO),
+    ],
+    esitoAmbiguo,
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_AMBIGUO } });
+
+  const FIGLIO_LISTA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_LISTA,
+      organization_id: CLUB,
+      first_name: "Lista",
+      last_name: "Sola",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [{ id: "t", name: "Anna", linkedUserIds: [ANNA.id] }],
+      },
+    },
+  });
+
+  const esitoLista = await legamiW29
+    .unlinkGuardianAccount(scopeClubW29, {
+      athleteId: FIGLIO_LISTA,
+      guardianId: "t",
+    })
+    .then((esito) => esito)
+    .catch((errore) => ({ errore: String(errore?.message || errore) }));
+
+  prova(
+    "W-33b una riga con il solo elenco degli identificativi si revoca davvero",
+    [String(ANNA.id), false],
+    [
+      String(esitoLista?.unlinkedUserId || ""),
+      await cruscottoW29.canParentAccessAthlete(ANNA.id, FIGLIO_LISTA),
+    ],
+    "prima: 200, nessun audit, accesso intatto",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_LISTA } });
+
+  const FIGLIO_COPPIA_STORICA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_COPPIA_STORICA,
+      organization_id: CLUB,
+      first_name: "Coppia",
+      last_name: "Storica",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        parent1: { name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+      },
+    },
+  });
+
+  const accessoStoricoPrima = await cruscottoW29.canParentAccessAthlete(
+    ANNA.id,
+    FIGLIO_COPPIA_STORICA,
+  );
+
+  const esitoStorico = await legamiW29
+    .unlinkGuardianAccount(scopeClubW29, {
+      athleteId: FIGLIO_COPPIA_STORICA,
+      guardianId: ANNA.email,
+    })
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-33c la coppia storica si revoca dal pulsante, come l'elenco",
+    [true, "riuscita", false],
+    [
+      accessoStoricoPrima,
+      esitoStorico,
+      await cruscottoW29.canParentAccessAthlete(ANNA.id, FIGLIO_COPPIA_STORICA),
+    ],
+    "prima: «Genitore non trovato», e restava solo revocare la tessera",
+  );
+
+  prova(
+    "W-33d e i canali di invio si chiudono con lui",
+    0,
+    contattiW29.readAthleteGuardianContacts(
+      await prisma.athlete.findUnique({
+        where: { id: FIGLIO_COPPIA_STORICA },
+        select: { id: true, data: true },
+      }),
+    ).length,
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_COPPIA_STORICA } });
+
+  /* ---------- W-34..W-38: il resto del quindicesimo round ---------- */
+
+  /*
+    **W-34 (High).** `athletes.data` usciva quasi intera nel browser della
+    famiglia. Il taglio era un **elenco di cio che si toglie** — sei nomi di
+    campo credenziale — su un contenitore che la segreteria riempie a mano:
+    ogni campo nuovo nasceva visibile. Misurato dentro il payload: una nota
+    «famiglia morosa», una «relazione-servizi-sociali», il codice fiscale
+    dell'altro tutore, una nota che lo riguarda, e
+    `revokedGuardianIdentities` — cioe il cruscotto che dichiara a chi legge
+    che il club ha revocato l'altro genitore. Il contesto conserva tutto anche
+    in `sessionStorage`.
+  */
+  const FIGLIO_BLOB = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_BLOB,
+      organization_id: CLUB,
+      first_name: "Blob",
+      last_name: "Aperto",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        address: "via Roma 3",
+        medicalVisits: [{ date: "2026-01-01", note: "idoneita" }],
+        notaInterna: "famiglia morosa",
+        praticaSociale: "relazione-servizi-sociali",
+        guardians: [
+          { id: "madre", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+          {
+            id: "ex",
+            name: "Ex",
+            surname: "Coniuge",
+            email: BRUNO.email,
+            fiscalCode: "XCNGXX80A01H501Z",
+            nota: "non puo prendere il bambino il martedi",
+            accessRevokedAt: new Date().toISOString(),
+          },
+        ],
+        revokedGuardianIdentities: [String(BRUNO.email).toLowerCase()],
+      },
+    },
+  });
+
+  const payloadFamiglia = await cruscottoW25.getParentDashboardData(
+    ANNA.id,
+    FIGLIO_BLOB,
+  );
+
+  const serializzato = JSON.stringify(payloadFamiglia?.athlete || {});
+
+  prova(
+    "W-34 nel payload della famiglia esce cio che le schermate leggono, e basta",
+    [true, false, false, false, false],
+    [
+      Boolean(payloadFamiglia?.athlete?.data?.address),
+      serializzato.includes("famiglia morosa"),
+      serializzato.includes("relazione-servizi-sociali"),
+      serializzato.includes("XCNGXX80A01H501Z"),
+      serializzato.includes("revokedGuardianIdentities"),
+    ],
+    "prima: usciva quasi tutto il blob, e con lui la revoca dell'altro genitore",
+  );
+
+  prova(
+    "W-34b e di un tutore escono nome, rapporto e recapiti, non cio che decide",
+    [true, false, false],
+    [
+      (payloadFamiglia?.athlete?.guardians || []).length > 0,
+      JSON.stringify(payloadFamiglia?.athlete?.guardians || []).includes(
+        "accessRevokedAt",
+      ),
+      JSON.stringify(payloadFamiglia?.athlete?.guardians || []).includes(
+        "linkedUserIds",
+      ),
+    ],
+    "prima: il marchio della revoca e le grafie dell'identificativo uscivano",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_BLOB } });
+
+  /*
+    **W-35 (High).** Una notifica **senza destinatario** finiva nella bacheca
+    di ogni genitore del club, e nessuno poteva spegnerla: segnare letto filtra
+    per `user_id`. Misurato dal contenuto: «Rata scaduta: Luca Bianchi — la
+    famiglia Bianchi non ha pagato 130,00 EUR», con nome del minore e importo.
+  */
+  await prisma.notification.create({
+    data: {
+      organization_id: CLUB,
+      user_id: null,
+      title: "Rata scaduta: un altro minore",
+      message: "La famiglia di un altro tesserato non ha pagato 130,00 EUR",
+      type: "automation_payment_overdue",
+      read: false,
+      data: { source: "automation" },
+    },
+  });
+
+  const FIGLIO_BACHECA = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_BACHECA,
+      organization_id: CLUB,
+      first_name: "Bacheca",
+      last_name: "Pulita",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "madre", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
+        ],
+      },
+    },
+  });
+
+  const bachecaAnna = await cruscottoW25.getParentDashboardData(
+    ANNA.id,
+    FIGLIO_BACHECA,
+  );
+
+  prova(
+    "W-35 una notifica senza destinatario non entra nella bacheca di nessuno",
+    false,
+    JSON.stringify(bachecaAnna?.notifications || []).includes("Rata scaduta"),
+    "prima: la vedevano tutti i genitori del club, e non si poteva spegnere",
+  );
+
+  await prisma.notification.deleteMany({
+    where: { organization_id: CLUB, user_id: null },
+  });
+  await prisma.athlete.delete({ where: { id: FIGLIO_BACHECA } });
+
+  /*
+    **W-36 (High).** L'interruttore «si compila una volta sola» non arrivava
+    mai in produzione: il confronto fra due schemi elencava **sette** delle
+    otto impostazioni, e l'ottava era proprio quella. Due schemi identici
+    tranne quel campo risultavano uguali, quindi la bozza non si salvava, la
+    schermata non segnalava modifiche e la pubblicazione non creava una
+    versione.
+  */
+  const moduloW36 = await carica("src/lib/forms/model.ts");
+  const schemaSenza = moduloW36.normalizeFormSchema({
+    title: "X",
+    description: "",
+    fields: [],
+    settings: {},
+  });
+  const schemaCon = moduloW36.normalizeFormSchema({
+    title: "X",
+    description: "",
+    fields: [],
+    settings: { singleSubmission: true },
+  });
+
+  prova(
+    "W-36 due schemi che differiscono solo sul vincolo non sono uguali",
+    false,
+    moduloW36.schemasAreEqual(schemaSenza, schemaCon),
+    "prima: uguali, e la casella non arrivava mai alla versione pubblicata",
+  );
+
+  /*
+    **W-37 (High).** Due implementazioni della stessa domanda, sullo stesso
+    dato, con risposte opposte: la disponibilita di un campo si leggeva in
+    `Europe/Rome` dalla strada della famiglia e in **UTC** da quella del club.
+    Il lunedi alle 18:00 di Roma, su un campo aperto `Lun 18:00-20:00`, la
+    famiglia prenotava e l'allenatore veniva rifiutato.
+  */
+  const struttureW37 = await carica("src/lib/structures-utils.ts");
+  const eventiW37 = await carica("src/lib/events/model.ts");
+  const disponibilitaW37 = { Lun: [{ start: "18:00", end: "20:00" }] };
+  const inizioW37 = struttureW37.instantFromLocalTime("2026-09-07", "18:00");
+  const fineW37 = struttureW37.instantFromLocalTime("2026-09-07", "19:00");
+
+  prova(
+    "W-37 famiglia e club danno la stessa risposta sullo stesso campo",
+    [true, true],
+    [
+      struttureW37.isWithinFieldAvailability(
+        { availability: disponibilitaW37 },
+        inizioW37,
+        fineW37,
+      ),
+      eventiW37.isWithinFieldAvailability(disponibilitaW37, inizioW37, fineW37),
+    ],
+    "prima: true per la famiglia, false per il club — due ore di fuso",
+  );
+
+  /*
+    **W-38 (High + Medium).** Una fascia notturna veniva **stampata e
+    rifiutata**, e due fasce contigue non coprivano la loro unione: il
+    messaggio di rifiuto elencava le fasce che contenevano la richiesta.
+  */
+  const campoNotte = { availability: { Ven: [{ start: "22:00", end: "02:00" }] } };
+  const campoSpezzato = {
+    availability: {
+      Lun: [
+        { start: "09:00", end: "11:00" },
+        { start: "11:00", end: "13:00" },
+      ],
+    },
+  };
+
+  prova(
+    "W-38 una fascia che scavalca la mezzanotte vale cio che dichiara",
+    [true, true],
+    [
+      struttureW37.isWithinFieldAvailability(
+        campoNotte,
+        struttureW37.instantFromLocalTime("2026-09-11", "22:30"),
+        struttureW37.instantFromLocalTime("2026-09-11", "23:30"),
+      ),
+      struttureW37.isWithinFieldAvailability(
+        campoNotte,
+        struttureW37.instantFromLocalTime("2026-09-12", "00:30"),
+        struttureW37.instantFromLocalTime("2026-09-12", "01:30"),
+      ),
+    ],
+    "prima: rifiutata, citando nel messaggio la fascia che la conteneva",
+  );
+
+  prova(
+    "W-38b due fasce contigue coprono la loro unione, e il buco vero no",
+    [true, false],
+    [
+      struttureW37.isWithinFieldAvailability(
+        campoSpezzato,
+        struttureW37.instantFromLocalTime("2026-09-07", "10:00"),
+        struttureW37.instantFromLocalTime("2026-09-07", "12:00"),
+      ),
+      struttureW37.isWithinFieldAvailability(
+        campoSpezzato,
+        struttureW37.instantFromLocalTime("2026-09-07", "12:00"),
+        struttureW37.instantFromLocalTime("2026-09-07", "14:00"),
+      ),
+    ],
+    "prima: la prima rifiutata; la seconda deve restare rifiutata",
+  );
+
+  /*
+    **W-38c (Medium).** `bookable: "false"` — una stringa — lasciava
+    prenotabile dalla famiglia un tipo che il club aveva chiuso al desk.
+    Un altro orario: `9:00` → `10:00` veniva rifiutato e `10:00` → `9:00`
+    accettato, perche due orari si confrontavano come **parole**.
+  */
+  const configW38 = await carica("src/lib/appointments/config.ts");
+  const appuntamentiW38 = await carica("src/lib/server/appointments.ts");
+
+  const tipiW38 = configW38.normalizeAppointmentsConfig({
+    types: [{ id: "t", name: "Solo desk", bookable: "false" }],
+  });
+
+  const fasciaStorta = await appuntamentiW38
+    .createAppointmentSlot(
+      {
+        userId: PRESIDENTE.id,
+        activeOrganizationId: CLUB,
+        activeRole: "owner",
+        activeMembershipId: null,
+        allowedOrganizationIds: [CLUB],
+        accessScopes: [],
+      },
+      { weekday: 1, startTime: "10:00", endTime: "9:00" },
+    )
+    .then(() => "riuscita")
+    .catch((errore) => String(errore?.message || errore));
+
+  prova(
+    "W-38c una stringa non e un booleano, e due orari si confrontano in minuti",
+    [false, true],
+    [
+      Boolean(tipiW38?.types?.[0]?.bookable),
+      fasciaStorta !== "riuscita",
+    ],
+    fasciaStorta,
+  );
+
   await prisma.athlete.update({
     where: { id: MARCO },
     data: { user_id: null },
