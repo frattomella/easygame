@@ -240,6 +240,7 @@ in Prisma e vivono solo nella migrazione.
 |---|---|
 | `scripts/pp-05-otp-probe.mjs` | 7 proprieta contro PostgreSQL reale: tetto dei tentativi sotto concorrenza, monouso, cooldown, legame col destinatario, scadenza calcolata dal database, contatore per numero attraverso reti diverse |
 | `scripts/pp-05-sicurezza-probe.mjs` | **14** prove dei difetti chiusi dalla revisione ostile (S1-S12), ognuna verificata **per mutazione**. S10 lo e in **due varianti**, perche le due difese contro il Critical del terzo round sono indipendenti e ciascuna doveva reggere da sola |
+| `scripts/pp-05-giro-conclusivo-probe.mjs` | **29** prove del **giro conclusivo di attacco**: iniezione HTML nei template e nei due attributi, schemi e colori pericolosi, esfiltrazione per immagine remota, iniezione di intestazioni SMTP, l'anteprima (segreti, dati d'archivio, invii, guardie, `sandbox`), entropia del codice su centocinquanta estrazioni, otto conferme simultanee, `__proto__` nelle preferenze, escalation via cambio indirizzo. **Nessuna ha trovato un difetto**: e la mappa di cosa e stato guardato |
 | `scripts/pp-05-gettone-tessera-probe.mjs` | 5 prove che il ruolo emesso dalle rotte delle tessere **accende i permessi** — la dependency di PP-03 — e che un gettone contraffatto non ne aggiunge nessuno |
 | `tests/auth/numero-di-cellulare.test.mjs` | Normalizzazione, mascheramento, messaggi |
 | `tests/auth/verifica-recapiti-dalle-rotte.test.mjs` | 19 prove sulle **rotte reali**, non su helper interni: invio, conferma, replay, scadenza, cooldown, legame col destinatario, anti-enumeration, e il vincolo «UUID nudo solo con la propria sessione» |
@@ -260,11 +261,11 @@ costruzione**.
 
 ## La revisione ostile
 
-Quattro round che hanno trovato qualcosa, piu un quinto conclusivo, condotti da
-revisori **indipendenti** — uno diverso per round — col mandato di rompere, non
-di approvare. Ogni Critical e ogni High ha una prova che **fallisce senza il
-fix**, e ogni prova e verificata **per mutazione**: rimossa la guardia, la riga
-torna rossa.
+**Cinque round che hanno trovato qualcosa, piu un giro conclusivo di attacco
+che non ha trovato niente.** Condotti da revisori **indipendenti** — uno diverso
+per round — col mandato di rompere, non di approvare. Ogni Critical e ogni High
+ha una prova che **fallisce senza il fix**, e ogni prova e verificata **per
+mutazione**: rimossa la guardia, la riga torna rossa.
 
 **Primo round: 1 Critical, 2 High, 5 Medium, 3 Low.**
 
@@ -382,7 +383,86 @@ le righe dell'occupante ma non cio che l'occupante teneva gia in mano.
   possibili sono peggiori del difetto. PP05-D7 si allarga al percorso OTP
   invece di moltiplicarsi.
 
-### Le quattro regole che questi round lasciano
+**Quinto round: 1 Critical, 0 High, 2 Medium.** I quattro round precedenti
+avevano guardato **una porta sola**, con crescente attenzione: `/api/v1/auth/**`.
+Il Critical di questo round non e dentro quella porta. E la **stessa colonna,
+dall'altra parte**.
+
+- **CRITICAL — il registro generico scriveva i recapiti, e nessuna delle sette
+  difese girava li.** `PATCH /api/v1/users/<la propria riga>` filtra il corpo
+  sullo **schema Prisma** e negava tre nomi (`role`, `app_metadata`,
+  `is_platform_admin`). Ogni altra colonna scalare di `User` passava: `email`,
+  `email_verified_at`, `phone`, `phone_verified_at`,
+  `phone_verification_required`, `password_hash`, `token_verification_id`,
+  `is_club_creator` — cioe **tutti i recapiti e tutte le credenziali**. Tre
+  catene misurate contro PostgreSQL: amministratore di piattaforma con **una**
+  richiesta (ci si scrive addosso l'indirizzo dell'elenco `NEXT_PUBLIC_*` e la
+  colonna che il quarto round aveva appena reso la fonte sicura);
+  un'occupazione che sopravvive allo sfratto OAuth (scritto
+  `email_verified_at` **prima** del cambio di indirizzo, `eraOccupatoSenzaProva`
+  e falso e le cinque difese dello sfratto non vengono **eseguite**); l'area
+  famiglia di un minore, che lega per indirizzo di contatto provato. Chiuso con
+  un elenco di **ammissione**, `WRITABLE_USER_FIELDS` in `resources.ts`: cinque
+  nomi, tutti anagrafici. Emendamento ad ADR-0117, punti 9 e 10.
+- **MEDIUM-1 — due difese contro lo stesso privilegio, tenute in due elenchi
+  diversi.** Le chiavi proibite dentro `user_metadata` erano **sette** da una
+  porta e **tre** dall'altra, e nessuno le confrontava. Il terzo round ne aveva
+  corretta una lasciando scritto nel commento «due difese per lo stesso
+  privilegio, perche una sola prima o poi si dimentica»: la seconda era gia
+  dimenticata **mentre quella frase veniva scritta**. L'elenco vive ora in
+  `src/lib/auth/user-metadata-policy.ts`, modulo puro, e un test presidia che
+  nessuna delle due porte ne **dichiari** uno proprio.
+- **MEDIUM-2 — l'asse «per account» dei contatori si consumava su una stringa
+  scelta dal chiamante**, e gli esemplari erano **quattro**, non uno. Il `userId`
+  del corpo non e l'identificativo dell'account: e il riferimento opaco, oppure
+  l'UUID nudo per chi ha gia una sessione. Lo stesso account si nomina in piu
+  modi — riferimento corrente, UUID, e un riferimento **appena ruotato**, cosa
+  che il prodotto fa da se in tre punti — quindi era un asse **azzerabile su
+  richiesta**: 10 passate su 12 con tetto dichiarato cinque, sulle due rotte di
+  conferma, dove quel contatore e l'unica cosa che limita i tentativi di
+  indovinare un codice a sei cifre **oltre** i cinque della challenge. L'asse per
+  rete resta **prima** della risoluzione del riferimento — cosi provarne uno a
+  caso costa quanto provarne uno valido — e quello per account si consuma
+  **dopo**, su `utente?.id || userId`.
+
+### Il giro conclusivo: **0 Critical, 0 High, 0 Medium, 0 Low**
+
+Eseguito dopo le correzioni del quinto round, sulla superficie che il brief
+della lane elenca e che nessun round aveva mai attaccato per intero:
+`scripts/pp-05-giro-conclusivo-probe.mjs`, **29 prove, 29 sicure**. Iniezione
+HTML nei template e nei due punti in cui un valore finisce **dentro un
+attributo**; schemi pericolosi in un `href` e colori che escono dallo stile;
+esfiltrazione per immagine remota; iniezione di intestazioni SMTP misurata sul
+**MIME vero**; l'anteprima (segreti, indirizzi d'archivio, invii, le due guardie,
+`sandbox`); entropia del codice su centocinquanta estrazioni dalla catena vera;
+otto conferme simultanee dello stesso codice; `__proto__` nelle preferenze dalle
+due porte; escalation via cambio di recapito. Il dettaglio per prova sta in
+[14](14-security.md).
+
+**Un giro che non trova niente vale solo se e scritto**, e la sonda **resta**:
+altrimenti la volta dopo si riguarda cio che era gia sicuro e non cio che nessuno
+ha mai aperto.
+
+**Tre prove sbagliate, e sono la parte utile.** Il primo passaggio usciva 26/29,
+e nessuno dei tre rossi era un difetto del prodotto: erano tre prove che
+misuravano la cosa sbagliata, e passavano o fallivano per caso.
+
+1. «nessun gestore d'evento in linea» cercava `on\w+=` sul markup **intero**, e
+   trovava `onerror=` dentro `&lt;img src=x onerror=alert(2)&gt;` — cioe dentro
+   la prova che l'escaping aveva funzionato.
+2. «il testo semplice non porta markup» era una proprieta **sbagliata da
+   volere**: sfuggire la parte `text/plain` mostrerebbe `&lt;` a chi legge la
+   posta in testo. La proprieta giusta e che quel testo **non finisca mai dove
+   viene interpretato**.
+3. L'iniezione di intestazioni SMTP era misurata con `jsonTransport`, che
+   restituisce i campi com'erano senza costruire nessuna intestazione: il CR/LF
+   ricompariva intatto e **sembrava** un difetto.
+
+Il terzo caso lascia un limite dichiarato che e diventato debito
+(**PP05-D10**): quella difesa e una proprieta di `nodemailer`, non una
+normalizzazione di EasyGame.
+
+### Le cinque regole che questi round lasciano
 
 1. **Un punto unico non e una garanzia, e un posto dove guardare.** Quando si
    aggiunge un modo di entrare, ci si va.
@@ -398,10 +478,18 @@ le righe dell'occupante ma non cio che l'occupante teneva gia in mano.
    esisteva, era scritta nella KB, ed era vera in **uno** dei due chiamanti. Una
    proprieta che vale solo se ogni chiamante se la ricorda non e una proprieta
    del sistema: e una convenzione. Il quarto round l'ha pagata due volte.
+5. **Non basta che un dominio abbia un punto di ingresso unico: bisogna
+   verificare che sia l'unico.** E la terza correzione alla prima regola, ed e
+   la piu dura, perche il secondo ingresso del quinto round **non nomina il
+   dominio**: un motore generico che serve una cinquantina di risorse e, per
+   ogni colonna che nomina, una porta silenziosa che nessuna ricerca fatta
+   partendo dal dominio incontrera mai. Quattro round di attenzione crescente
+   su `/api/v1/auth/**` non avevano mai guardato le stesse colonne dall'altra
+   parte.
 
-**E la regola che le contiene tutte e quattro**, visibile solo guardandole
+**E la regola che le contiene tutte e cinque**, visibile solo guardandole
 insieme: **ogni difesa nuova sposta il confine di cio che conta, e cio che
-conta va poi riguardato tutto.** Tre Critical su quattro sono nati dal fix del
+conta va poi riguardato tutto.** Tre Critical su cinque sono nati dal fix del
 round precedente, e nessuno per distrazione. ADR-0115 ha reso mutabile un
 indirizzo che prima era di fatto immutabile: da quel momento «il token e legato
 all'account» ha smesso di significare «il token e legato alla casella», e
@@ -412,8 +500,8 @@ codice che si e smesso di guardare perche non lo si e toccato.
 ### Coverage gaps dichiarati dai reviewer
 
 Nessuno dei round dichiara di aver coperto tutto, e le lacune sono le stesse in
-tre round su quattro — il che le rende un limite del metodo, non di un
-reviewer:
+quattro round su cinque, **giro conclusivo compreso** — il che le rende un
+limite del metodo, non di un reviewer:
 
 - **enumerazione per tempi**: verificata sull'uguaglianza di corpi e stati, mai
   su un campionamento statistico delle latenze. Un oracolo temporale resterebbe
@@ -445,6 +533,19 @@ reviewer:
 - **il flusso OAuth completo**: attaccato `findOrCreateOAuthUser`
   direttamente, mai lo scambio del codice ne il giro `state`/CSRF/redirect.
 
+**Il giro conclusivo ne aggiunge due che nessun round precedente aveva
+nominate**, e sono le uniche voci nuove — tutto il resto della sua lista
+coincide con quella qui sopra:
+
+- **iniezione di intestazioni: misurato l'oggetto, non il destinatario.** Un
+  indirizzo con CR/LF non e stato provato, perche gli indirizzi di questa lane
+  non arrivano mai dal client: escono da `users.email` e da `guardians[].email`,
+  gia normalizzati. E il gap che rende **PP05-D10** una voce di debito e non una
+  riga da scrivere di corsa;
+- **`X-Forwarded-For` contraffatto**: solo lettura di `getRequestIp`, nessuna
+  richiesta costruita con una catena falsa. E il perimetro di **PP05-D5**, che
+  resta aperto ed e **precedente** alla lane.
+
 ---
 
 ## Le due dependency di altre lane, e cosa ne e stato
@@ -454,20 +555,43 @@ reviewer:
 | **PP-03** | Che `GET /auth/memberships` e `POST /auth/memberships/activate` emettano il **gettone** invece dello slug nudo: uno slug senza chiavi spegne **ogni** permesso lato interfaccia per **ogni** ruolo personalizzato | **Implementata** (commit `c31d613`). Le due rotte gia chiamavano `risolviTessere` per scartare le tessere incoerenti, e ne buttavano via il `token`. Non concede niente in piu, ed e misurato: G5 manda un gettone **contraffatto** con una chiave aggiunta a mano e verifica che il risolutore non ne aggiunga nessuna |
 | **PP-04** | Che la firma di `sendPasswordResetChallenge` non cambi | **Soddisfatta senza modifiche**: la firma e invariata. Due cose sono cambiate **dentro** — la transazione, e il corpo che passa dal template core — e nessuna tocca il contratto |
 
-**Uno sconfinamento ricevuto e non anticipabile.** PP-04 ha scritto una riga in
-`src/app/api/v1/auth/memberships/route.ts`, che e di PP-05:
-`allowSelfAthleteLink: true`. E **giusta nel merito** — chi inverte un
-predefinito deve adeguare i chiamanti nello stesso commit — e PP-05 **non puo
-anticiparla**, perche quell'opzione nel branch di PP-05 non esiste ancora:
-passarla oggi sarebbe un errore di compilazione. Le due modifiche allo stesso
-file stanno in punti diversi della stessa funzione e in integrazione si tengono
-entrambe.
+### Due sconfinamenti ricevuti da PP-04, entrambi accettati
+
+Registrati in `deps/PP-04-DEPENDENCIES.md`. **PP-05 li accetta nella forma in
+cui sono**, e per la stessa ragione: nessuno dei due e una dependency Auth, e
+nessuno dei due PP-05 avrebbe potuto scriverlo — non per carico di lavoro, ma
+perche nel branch di PP-05 **non esiste il codice da chiamare**.
+
+| File | Cosa PP-04 ha scritto | Giudizio di PP-05 |
+|---|---|---|
+| `src/app/api/v1/auth/memberships/route.ts` (`GET`) | `allowSelfAthleteLink: true` sulla chiamata a `getParentLinkedAthletes` | **Accettato.** Giusto nel merito — chi inverte un predefinito adegua i chiamanti nello stesso commit, altrimenti consegna una regressione — e **non anticipabile**: quell'opzione nasce con l'inversione, in `parent-dashboard.ts`, e nel branch di PP-05 passarla sarebbe un errore di compilazione |
+| `src/app/api/v1/auth/athlete-profile/[athleteId]/route.ts` | `directAthleteAccess` chiama `clubsWhereStillAthlete` (una riga piu il commento; nessuna firma cambia) | **Accettato.** Il file e di PP-05 **per prefisso di URL, non per dominio**: non c'e nessun flusso di sessione, OTP o email. La riga toccata e un lettore grezzo di `athletes.user_id`, che CLAUDE.md §2 assegna ad `athlete-accounts.ts`, e l'invariante e **ADR-0117 nella lettura che PP-04 possiede**. `clubsWhereStillAthlete` vive in `src/lib/server/athlete-membership.ts`, che nel branch di PP-05 **non esiste**: anche qui, un errore di compilazione |
+
+**Sul secondo vale la pena essere espliciti, perche e simmetrico a un rifiuto.**
+PP-05 ha rifiutato di implementare la dependency High di PP-04 sul perimetro dei
+byte (PP04-D10) con l'argomento «scriverei una guardia senza poterla misurare,
+perche la sonda sta nell'altro worktree». Applicare qui il criterio opposto —
+pretendere che il proprietario del prefisso scriva una guardia di cui non ha ne
+la funzione ne la sonda — sarebbe incoerente. La misura c'e ed e di PP-04
+(`scripts/pp-04-round-conclusivo-probe.mjs`, R-82 e R-84).
+
+**Cosa PP-05 chiede di verificare in integrazione, e non prima.** Nel file base
+`directAthleteAccess` scavalca **due** cose e non una: il controllo di ruolo
+gestionale **e** `athleteWithinAccessScope`, e poi apre il contenuto clinico
+intero. Il legame di famiglia non si perimetra, ed e giusto; ma vale solo se la
+domanda sull'appartenenza viene **prima** del bivio. Chi integra guardi che
+`clubsWhereStillAthlete` stia sopra quel `if`, non dentro un ramo — e la forma
+esatta dell'errore che questo repository ha gia imparato tre volte («un difetto
+chiuso su un ramo insegna che il difetto e chiuso»).
+
+**Nessun conflitto** su questo secondo file: `git diff 0d66921..HEAD` sul branch
+di PP-05 non lo nomina, ed e byte-identico alla base.
 
 ---
 
 ## Debito e limiti dichiarati
 
-Otto voci, tutte in [16](16-technical-debt.md) con la forma per esteso. Qui
+**Dieci voci**, tutte in [16](16-technical-debt.md) con la forma per esteso. Qui
 stanno nell'ordine in cui sono nate, con **cosa manca davvero** — che e la sola
 cosa che serve a chi le riprendera.
 
@@ -479,7 +603,7 @@ cui si sono chiuse e piu istruttivo del difetto:
 | ~~**PP05-D1**~~ | **Un utente solo-OAuth non poteva aggiungere il cellulare**, ne cambiare email, ne impostare una password: `createOAuthBootstrapUser` scrive una password casuale che nessuno conosce, e `CURRENT_PASSWORD_REQUIRED` chiudeva tutti e tre i campi. Valeva anche per chi aveva appena subito uno **sfratto** (ADR-0117), che e l'altra popolazione senza password | **Senza la colonna e senza l'ADR** che la prima stesura riteneva necessari. La distinzione «non ha mai avuto una password» / «ne ha una che non ricorda» resta indecidibile dal client, e **non serve deciderla**: la strada esisteva gia ed era «Password dimenticata». Mancava il **pulsante**, che ora sta nella pagina Account accanto agli avvisi di verifica. Non apre nessuna strada nuova: quel link chiunque puo chiederlo dalla pagina di accesso |
 | ~~**PP05-D6**~~ | **`npm run lint` usciva con codice 1 in ogni worktree parallelo**, per un conflitto del plugin `@next/next` fra `.eslintrc.json` del worktree e quello identico della radice — che ESLint trova risalendo l'albero, perche i worktree vivono sotto `.claude/` | `"root": true` in `.eslintrc.json`. La prima stesura la rimandava all'integrazione; e stata applicata qui perche il gate e reale e questa e l'unica correzione possibile. **Conflitto previsto in integrazione**, sotto |
 
-**Sei restano aperte**, e nessuna e un difetto sfruttabile della lane:
+**Otto restano aperte**, e nessuna e un difetto sfruttabile della lane:
 
 | | Cosa resta | Perche non si chiude qui |
 |---|---|---|
@@ -489,6 +613,8 @@ cui si sono chiuse e piu istruttivo del difetto:
 | **PP05-D5** | **`getRequestIp` dietro un proxy non fidato**: con `AUTH_RATE_LIMIT_TRUSTED_PROXIES=1` e una catena `X-Forwarded-For` lunga 1, l'indice cade sulla voce scritta dal client | Codice **precedente** a PP-05 (Wave 6), non toccato dalla lane. E la ragione per cui e un fastidio e non una chiave rotta: i due assi introdotti da PP-05 — per account e per destinatario — **non passano di li**, e sono quelli che l'attaccante non sceglie |
 | **PP05-D7** | **Le righe `prisma:error Unique constraint failed` sfuggono al punto unico degli errori** sotto concorrenza vera: il logger interno di Prisma stampa l'invocazione **prima** che il codice applicativo veda l'eccezione, quindi il `catch` ferma l'eccezione ma non la riga. Contenuto: i soli **nomi** dei campi (`user_id`, `channel`), nessun valore — igiene di osservabilita, non riservatezza | La correzione e nella **configurazione del logger** in `src/lib/server/prisma.ts`, che e il punto unico del client: spegnere `log: ["error"]` toglie rumore qui e **segnale altrove**. E una decisione su tutto il prodotto. Il pre-read del secondo round toglie gia il caso comune, che e il secondo clic sul pulsante |
 | **PP05-D8** | **Il secchiello SMS per destinatario si puo saturare a danno di terzi**: registrando account con indirizzi usa-e-getta e **il numero di un'altra persona** si consuma il contatore condiviso di quel numero, e per quell'ora l'SMS legittimo di quella persona non parte | **In parte intrinseco** a un tetto per destinatario. Toglierlo riaprirebbe HIGH-3 del primo round — dieci SMS all'ora verso un numero scelto — che e molto peggio. La correzione vera pretende di distinguere «chi sta registrando davvero quel numero» da «chi lo sta pompando», e l'unico segnale che le separa e il **possesso**, cioe proprio cio che l'SMS deve ancora provare |
+| **PP05-D9** | **L'invio dell'SMS nella registrazione e un oracolo di enumerazione.** Le risposte HTTP dei due rami sono indistinguibili — corpo, stato e tempi, misurati dal quarto round — ma la **consegna** no: con un indirizzo gia occupato l'SMS parte solo se la password coincide, con un indirizzo libero parte sempre. Richiede un operatore che consegna davvero, e costa un SMS al club per ogni tentativo | **Le quattro correzioni possibili sono peggiori del difetto**, e la quarta — quella che sembra piu ovvia — e scartata **per iscritto** in [16](16-technical-debt.md): consumare `otpSendTarget` sul numero del corpo anche nel ramo occupato non chiude l'oracolo e apre una **seconda porta a PP05-D8**. Gemello di D8: stessa radice, stessa correzione mancante |
+| **PP05-D10** | **L'oggetto di un'email non passa da nessuna normalizzazione nostra.** Un oggetto puo portare contenuto di un utente, e nessuna riga di EasyGame gli toglie CR/LF prima del trasporto. Non sfruttabile oggi: misurato sul **MIME vero** (giro conclusivo, C4), il compositore di `nodemailer` piega il valore su una riga sola e non nasce nessuna intestazione | La difesa **appartiene alla libreria**, non al prodotto. Metterla dentro vuol dire sceglierne il posto: `sendTransactionalEmail`, che tocca **tutte** le email, comprese quelle di domini che PP-05 non possiede — e va decisa insieme alla normalizzazione dei **destinatari**, che oggi non arrivano mai dal client. La prova C4 esiste per accorgersi del giorno in cui la proprieta della libreria smettesse di valere |
 
 ### Due limiti che non sono debito, perche sono scelte
 
@@ -507,8 +633,9 @@ cui si sono chiuse e piu istruttivo del difetto:
 
 | File | Chi altro lo tocca | Come si risolve |
 |---|---|---|
-| `.eslintrc.json` | PP-03 e PP-04 hanno lo **stesso** gate rosso e l'**unica** correzione possibile | Se aggiungono `"root": true`, e la stessa riga nello stesso posto: se ne tiene una |
+| `.eslintrc.json` | PP-03 **l'ha fatto** (commit `2a244f9`), con lo stesso gate rosso e l'unica correzione possibile | **Verificato eseguendo**: il file di PP-03 e quello di PP-05 sono **byte-identici**, quindi non c'e nessuna scelta da fare. E non nasconde errori reali: la configurazione della radice da cui `root: true` smette di risalire e a sua volta **identica alla base** (`diff` a zero righe), cioe nessuna regola viene persa — il conflitto era del **plugin** `@next/next` caricato due volte, non delle regole |
 | `src/app/api/v1/auth/memberships/route.ts` | PP-04 ha scritto `allowSelfAthleteLink: true` sulla chiamata a `getParentLinkedAthletes` (~riga 169); PP-05 tocca la risoluzione delle tessere (~100-145) e il campo `role` emesso (~185) | Punti diversi della stessa funzione: un merge a tre vie le prende entrambe. Se il conflitto si presenta **si tengono tutte e due** — non c'e nessuna scelta da fare fra loro |
+| `src/app/api/v1/auth/athlete-profile/[athleteId]/route.ts` | Solo PP-04 (`clubsWhereStillAthlete` in `directAthleteAccess`) | **Nessun conflitto**: il file e byte-identico alla base sul branch di PP-05. Da verificare in integrazione che la guardia stia **sopra** il bivio `directAthleteAccess`, non dentro un ramo |
 | `docs/knowledge-base/16-technical-debt.md`, `18-decision-log.md` | Tutte e tre le lane vi aggiungono voci | Aggiunte in coda, non riscritture. Sulla numerazione degli ADR: PP-05 usa `0114`-`0117`, PP-04 `0122`-`0123`, PP-03 e partita da `0125` lasciando un varco. Un numero e un'etichetta: in integrazione si puo stringere senza conseguenze |
 
 ---
@@ -543,3 +670,29 @@ HTTPS utilizzabile con `fetch` puro, costo piu basso fra quelli con listino
 pubblico) — con il suo punto debole detto: **non pubblica ne un DPA scaricabile
 ne certificazioni ISO**, e per un canale OTP quello e il primo documento da
 chiedere. Seconda scelta la piattaforma Commify (Skebby / Esendex Italia).
+
+---
+
+## Stato di chiusura della lane (2026-09-05)
+
+Misurato sull'albero che diventa l'ultimo commit, con il database di sviluppo
+`easygame_dev_pp05`:
+
+| Gate | Esito |
+|---|---|
+| `npm test` | **4.697 / 4.697**, 0 fail, 0 skipped |
+| `npm run typecheck` | nessun output |
+| `npm run lint` | **0 errori**, 34 warning (invariati rispetto alla base) |
+| `npm run build` | completato |
+| `scripts/pp-05-otp-probe.mjs` | 7 / 7 |
+| `scripts/pp-05-sicurezza-probe.mjs` | 14 / 14 |
+| `scripts/pp-05-gettone-tessera-probe.mjs` | 5 / 5 |
+| `scripts/pp-05-giro-conclusivo-probe.mjs` | **29 / 29 sicure** |
+
+Le quattro sonde **non** stanno in `npm test` e vanno eseguite a mano contro
+PostgreSQL: e la ragione per cui esistono (vedi «Come e stato verificato»).
+
+**Cosa resta a una persona**, e nessuna delle due e un difetto: la scelta
+dell'operatore SMS con il suo contratto, il tetto di spesa, il DPA e gli alias
+mittente (ADR-0114, sezione precedente); e le otto voci di debito, tutte con la
+ragione scritta per cui non si chiudono qui.

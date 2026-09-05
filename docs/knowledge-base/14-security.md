@@ -3169,3 +3169,79 @@ pigrizia: senza, la differenza fra i due 429 direbbe quali riferimenti esistono.
 (login, registrazione, reset) o sull'impronta di un gettone che **e** il
 segreto (link di pagamento, riscatto accesso, stato iscrizione) — cioe su
 valori che il chiamante non puo moltiplicare a piacere.
+
+---
+
+## PP-05 — giro conclusivo di attacco (2026-09-05)
+
+Eseguito **dopo** le correzioni del quinto round, sulla superficie che il brief
+della lane elenca. Esito: **Critical 0 · High 0 · Medium 0 · Low 0**, su
+`scripts/pp-05-giro-conclusivo-probe.mjs`, **29 prove**.
+
+Un giro che non trova niente vale solo se e scritto: altrimenti la volta dopo
+si riguarda cio che era gia sicuro e non cio che nessuno ha mai aperto. Quella
+sonda **resta**, ed e la mappa di dove si e guardato.
+
+| Superficie del brief | Prove | Esito |
+|---|---|---|
+| Iniezione HTML nei template (nome club, nome atleta, oggetto) | C1-a…e | il carico ostile diventa entita in ogni blocco, compreso `alt` e `title` |
+| Esfiltrazione via link | C2-a…c | otto schemi rifiutati, cinque forme di colore rifiutate, i tre schemi utili passano |
+| Esfiltrazione via immagini remote | C3-a…d | logo di club fuori origine e `data:` ricadono sul **nome scritto**; nel markup reso zero immagini di terzi |
+| Iniezione di intestazioni SMTP | C4-a…b | un oggetto con CR/LF non fabbrica nessuna intestazione, nessun `Bcc` |
+| Segreti SMTP nei log o nell'anteprima | C5-c | sei stringhe cercate nel catalogo, nessuna trovata |
+| Accesso non autorizzato all'anteprima | C5-e…f | sessione **e** ruolo di piattaforma, piu `sandbox=""` |
+| Invio reale scatenato da un'anteprima | C5-a | otto voci costruite, zero invii con trasporto strumentato |
+| Entropia insufficiente | C6-a…c | 150 codici distinti, dieci cifre in **ogni** posizione, zeri iniziali presenti, nessun codice in archivio |
+| Corsa fra send e confirm | C7 | otto conferme simultanee dello stesso codice: **una** vince |
+| Escalation via cambio recapito | C9 | l'indirizzo si cambia, la prova si azzera, il controllo di piattaforma risponde no |
+| Rate limiting su un asse scelto dal chiamante | vedi MEDIUM-2 | quattro esemplari, tutti chiusi; nessun quinto |
+| Enumerazione via risposte o tempi | S9, S5, `registrazione-dalla-rotta` | gia misurata nei round precedenti, non ripetuta |
+
+### Tre prove sbagliate, e cosa insegnano
+
+Il primo passaggio della sonda usciva **26/29**. Nessuno dei tre rossi era un
+difetto del prodotto: erano tre prove che misuravano la cosa sbagliata. Vale la
+pena scriverlo, perche una prova sbagliata che passa e peggio di una che
+fallisce, e queste fallivano solo per fortuna.
+
+1. **«nessun gestore d'evento in linea»** cercava `on\w+=` sul markup intero, e
+   trovava `onerror=` **dentro** `&lt;img src=x onerror=alert(2)&gt;` — cioe
+   dentro la prova che l'escaping aveva funzionato. Si cerca ora su cio che
+   resta tolte le sequenze fra `&lt;` e `&gt;`.
+2. **«il testo semplice non porta markup»** era una proprieta sbagliata da
+   volere: sfuggire la parte `text/plain` mostrerebbe `&lt;` a chi legge la
+   posta in testo. La proprieta giusta e che quel testo **non finisca mai dove
+   viene interpretato** — nel messaggio e `text/plain`, e nell'unica pagina che
+   lo mostra e un figlio JSX, mentre in `srcDoc` finisce solo l'HTML.
+3. **l'iniezione di intestazioni SMTP** era misurata con `jsonTransport`, che
+   restituisce i campi com'erano senza costruire nessuna intestazione: il CR/LF
+   ricompariva intatto e sembrava un difetto. Con `streamTransport` escono i
+   byte veri, e il compositore piega l'oggetto su una riga sola.
+
+Il terzo caso lascia anche un **limite dichiarato**: quella difesa e una
+proprieta di `nodemailer`, non una normalizzazione di EasyGame. La prova serve
+a sapere quando smettera di valere.
+
+### Coverage gaps dichiarati del giro conclusivo
+
+Un gap dichiarato vale piu di una copertura affermata.
+
+1. **Nessuna pagina React esercitata da una richiesta vera.** Il runner e
+   `node --experimental-strip-types`, che toglie i tipi e **non compila JSX**:
+   nessun componente di questo repository e mai stato reso da un test
+   ([15](15-testing.md)). Restano fuori i due `redirect` della pagina di
+   anteprima, misurati sul sorgente.
+2. **Consegna reale di email e SMS: non misurata**, per vincolo del mandato.
+   Le sonde guardano la riga in archivio, la risposta della rotta e il MIME
+   composto, mai una casella.
+3. **Enumerazione per tempi: nessun campionamento statistico.** Misurata sui
+   corpi, sugli stati e su un delta di latenza. E il gap che si ripete in tutti
+   i round, ed e un limite del metodo.
+4. **Il giro OAuth completo** — scambio del codice, `state`, redirect — non e
+   stato attaccato: esercitato `findOrCreateOAuthUser` direttamente.
+5. **Iniezione di intestazioni: misurato l'oggetto, non il destinatario.** Un
+   indirizzo con CR/LF non e stato provato, perche gli indirizzi in questa lane
+   non arrivano mai dal client: escono da `users.email` e da
+   `guardians[].email`, gia normalizzati.
+6. **`X-Forwarded-For` contraffatto**: solo lettura di `getRequestIp`. E il
+   perimetro di PP05-D5, che resta aperto ed e precedente alla lane.
