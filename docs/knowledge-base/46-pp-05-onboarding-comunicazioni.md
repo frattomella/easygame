@@ -7,10 +7,10 @@ Verbale della lane. Documenta **il codice reale**: dove il comportamento
 descritto qui non corrisponde piu, vince il codice e questa scheda va corretta
 nello stesso commit.
 
-Decisioni architetturali: [ADR-0114](18-decision-log.md) (il codice OTP e di
-EasyGame, l'operatore e un trasporto), [ADR-0115](18-decision-log.md) (email e
-cellulare obbligatori), [ADR-0116](18-decision-log.md) (Email Template Core e i
-due brand mode), [ADR-0117](18-decision-log.md) (un recapito verificato e un
+Decisioni architetturali: [ADR-0131](18-decision-log.md) (il codice OTP e di
+EasyGame, l'operatore e un trasporto), [ADR-0132](18-decision-log.md) (email e
+cellulare obbligatori), [ADR-0133](18-decision-log.md) (Email Template Core e i
+due brand mode), [ADR-0134](18-decision-log.md) (un recapito verificato e un
 canale di accesso).
 
 ---
@@ -277,7 +277,7 @@ mutazione**: rimossa la guardia, la riga torna rossa.
   restituiva una sessione. La vittima, intanto, era **chiusa fuori**, perche il
   telefono altrui le bloccava l'accesso. Chiuso con due difese indipendenti:
   `sfrattaOccupante` azzera **tutti** i canali, e un codice apre una sessione
-  solo se la porta era gia stata aperta (ADR-0117).
+  solo se la porta era gia stata aperta (ADR-0134).
 - **HIGH-2 — l'elenco dei trasporti SMS viveva in due posti, e i due sbagliavano
   in direzioni opposte.** `noop` faceva **bloccare** l'accesso in attesa di un
   codice che per contratto non spedisce (brick di ogni registrazione); un nome
@@ -310,7 +310,7 @@ correzioni del primo, ed e il round che ha insegnato di piu.
 - **H-1 — l'amministratore di piattaforma su un indirizzo mai verificato.**
   `isPlatformAdminUser` era sicura per una ragione che non stava in quella
   funzione: prima di PP-05 un indirizzo non provato non produceva **nessuna
-  sessione**. ADR-0115 ha tolto quel cancello, e la riga e rimasta a decidere
+  sessione**. ADR-0132 ha tolto quel cancello, e la riga e rimasta a decidere
   sul solo indirizzo — che vive in una variabile `NEXT_PUBLIC_*`, cioe e
   pubblicato a ogni browser. Quando si toglie un cancello, si cerca **chi si
   appoggiava a quel cancello**.
@@ -403,7 +403,7 @@ dall'altra parte**.
   e falso e le cinque difese dello sfratto non vengono **eseguite**); l'area
   famiglia di un minore, che lega per indirizzo di contatto provato. Chiuso con
   un elenco di **ammissione**, `WRITABLE_USER_FIELDS` in `resources.ts`: cinque
-  nomi, tutti anagrafici. Emendamento ad ADR-0117, punti 9 e 10.
+  nomi, tutti anagrafici. Emendamento ad ADR-0134, punti 9 e 10.
 - **MEDIUM-1 — due difese contro lo stesso privilegio, tenute in due elenchi
   diversi.** Le chiavi proibite dentro `user_metadata` erano **sette** da una
   porta e **tre** dall'altra, e nessuno le confrontava. Il terzo round ne aveva
@@ -467,7 +467,7 @@ normalizzazione di EasyGame.
 1. **Un punto unico non e una garanzia, e un posto dove guardare.** Quando si
    aggiunge un modo di entrare, ci si va.
 2. **Quando si toglie un cancello, si cerca chi si appoggiava a quel cancello.**
-   H-1 e nato cosi, e non era una svista di chi ha scritto ADR-0115: era una
+   H-1 e nato cosi, e non era una svista di chi ha scritto ADR-0132: era una
    dipendenza che nessuno aveva scritto da nessuna parte.
 3. **Un `OR` fra due sorgenti vale quanto la piu debole delle due.** Il
    Critical del terzo round e stato aggiunto **per irrobustire** una decisione,
@@ -490,7 +490,7 @@ normalizzazione di EasyGame.
 **E la regola che le contiene tutte e cinque**, visibile solo guardandole
 insieme: **ogni difesa nuova sposta il confine di cio che conta, e cio che
 conta va poi riguardato tutto.** Tre Critical su cinque sono nati dal fix del
-round precedente, e nessuno per distrazione. ADR-0115 ha reso mutabile un
+round precedente, e nessuno per distrazione. ADR-0132 ha reso mutabile un
 indirizzo che prima era di fatto immutabile: da quel momento «il token e legato
 all'account» ha smesso di significare «il token e legato alla casella», e
 `isPlatformAdminUser` ha smesso di essere sicura — **senza che una riga di quei
@@ -565,7 +565,7 @@ perche nel branch di PP-05 **non esiste il codice da chiamare**.
 | File | Cosa PP-04 ha scritto | Giudizio di PP-05 |
 |---|---|---|
 | `src/app/api/v1/auth/memberships/route.ts` (`GET`) | `allowSelfAthleteLink: true` sulla chiamata a `getParentLinkedAthletes` | **Accettato.** Giusto nel merito — chi inverte un predefinito adegua i chiamanti nello stesso commit, altrimenti consegna una regressione — e **non anticipabile**: quell'opzione nasce con l'inversione, in `parent-dashboard.ts`, e nel branch di PP-05 passarla sarebbe un errore di compilazione |
-| `src/app/api/v1/auth/athlete-profile/[athleteId]/route.ts` | `directAthleteAccess` chiama `clubsWhereStillAthlete` (una riga piu il commento; nessuna firma cambia) | **Accettato.** Il file e di PP-05 **per prefisso di URL, non per dominio**: non c'e nessun flusso di sessione, OTP o email. La riga toccata e un lettore grezzo di `athletes.user_id`, che CLAUDE.md §2 assegna ad `athlete-accounts.ts`, e l'invariante e **ADR-0117 nella lettura che PP-04 possiede**. `clubsWhereStillAthlete` vive in `src/lib/server/athlete-membership.ts`, che nel branch di PP-05 **non esiste**: anche qui, un errore di compilazione |
+| `src/app/api/v1/auth/athlete-profile/[athleteId]/route.ts` | `directAthleteAccess` chiama `clubsWhereStillAthlete` (una riga piu il commento; nessuna firma cambia) | **Accettato.** Il file e di PP-05 **per prefisso di URL, non per dominio**: non c'e nessun flusso di sessione, OTP o email. La riga toccata e un lettore grezzo di `athletes.user_id`, che CLAUDE.md §2 assegna ad `athlete-accounts.ts`, e l'invariante e **ADR-0134 nella lettura che PP-04 possiede**. `clubsWhereStillAthlete` vive in `src/lib/server/athlete-membership.ts`, che nel branch di PP-05 **non esiste**: anche qui, un errore di compilazione |
 
 **Sul secondo vale la pena essere espliciti, perche e simmetrico a un rifiuto.**
 PP-05 ha rifiutato di implementare la dependency High di PP-04 sul perimetro dei
@@ -600,7 +600,7 @@ cui si sono chiuse e piu istruttivo del difetto:
 
 | | Difetto | Come si e chiuso |
 |---|---|---|
-| ~~**PP05-D1**~~ | **Un utente solo-OAuth non poteva aggiungere il cellulare**, ne cambiare email, ne impostare una password: `createOAuthBootstrapUser` scrive una password casuale che nessuno conosce, e `CURRENT_PASSWORD_REQUIRED` chiudeva tutti e tre i campi. Valeva anche per chi aveva appena subito uno **sfratto** (ADR-0117), che e l'altra popolazione senza password | **Senza la colonna e senza l'ADR** che la prima stesura riteneva necessari. La distinzione «non ha mai avuto una password» / «ne ha una che non ricorda» resta indecidibile dal client, e **non serve deciderla**: la strada esisteva gia ed era «Password dimenticata». Mancava il **pulsante**, che ora sta nella pagina Account accanto agli avvisi di verifica. Non apre nessuna strada nuova: quel link chiunque puo chiederlo dalla pagina di accesso |
+| ~~**PP05-D1**~~ | **Un utente solo-OAuth non poteva aggiungere il cellulare**, ne cambiare email, ne impostare una password: `createOAuthBootstrapUser` scrive una password casuale che nessuno conosce, e `CURRENT_PASSWORD_REQUIRED` chiudeva tutti e tre i campi. Valeva anche per chi aveva appena subito uno **sfratto** (ADR-0134), che e l'altra popolazione senza password | **Senza la colonna e senza l'ADR** che la prima stesura riteneva necessari. La distinzione «non ha mai avuto una password» / «ne ha una che non ricorda» resta indecidibile dal client, e **non serve deciderla**: la strada esisteva gia ed era «Password dimenticata». Mancava il **pulsante**, che ora sta nella pagina Account accanto agli avvisi di verifica. Non apre nessuna strada nuova: quel link chiunque puo chiederlo dalla pagina di accesso |
 | ~~**PP05-D6**~~ | **`npm run lint` usciva con codice 1 in ogni worktree parallelo**, per un conflitto del plugin `@next/next` fra `.eslintrc.json` del worktree e quello identico della radice — che ESLint trova risalendo l'albero, perche i worktree vivono sotto `.claude/` | `"root": true` in `.eslintrc.json`. La prima stesura la rimandava all'integrazione; e stata applicata qui perche il gate e reale e questa e l'unica correzione possibile. **Conflitto previsto in integrazione**, sotto |
 
 **Otto restano aperte**, e nessuna e un difetto sfruttabile della lane:
@@ -636,7 +636,7 @@ cui si sono chiuse e piu istruttivo del difetto:
 | `.eslintrc.json` | PP-03 **l'ha fatto** (commit `2a244f9`), con lo stesso gate rosso e l'unica correzione possibile | **Verificato eseguendo**: il file di PP-03 e quello di PP-05 sono **byte-identici**, quindi non c'e nessuna scelta da fare. E non nasconde errori reali: la configurazione della radice da cui `root: true` smette di risalire e a sua volta **identica alla base** (`diff` a zero righe), cioe nessuna regola viene persa — il conflitto era del **plugin** `@next/next` caricato due volte, non delle regole |
 | `src/app/api/v1/auth/memberships/route.ts` | PP-04 ha scritto `allowSelfAthleteLink: true` sulla chiamata a `getParentLinkedAthletes` (~riga 169); PP-05 tocca la risoluzione delle tessere (~100-145) e il campo `role` emesso (~185) | Punti diversi della stessa funzione: un merge a tre vie le prende entrambe. Se il conflitto si presenta **si tengono tutte e due** — non c'e nessuna scelta da fare fra loro |
 | `src/app/api/v1/auth/athlete-profile/[athleteId]/route.ts` | Solo PP-04 (`clubsWhereStillAthlete` in `directAthleteAccess`) | **Nessun conflitto**: il file e byte-identico alla base sul branch di PP-05. Da verificare in integrazione che la guardia stia **sopra** il bivio `directAthleteAccess`, non dentro un ramo |
-| `docs/knowledge-base/16-technical-debt.md`, `18-decision-log.md` | Tutte e tre le lane vi aggiungono voci | Aggiunte in coda, non riscritture. Sulla numerazione degli ADR: PP-05 usa `0114`-`0117`, PP-04 `0122`-`0123`, PP-03 e partita da `0125` lasciando un varco. Un numero e un'etichetta: in integrazione si puo stringere senza conseguenze |
+| `docs/knowledge-base/16-technical-debt.md`, `18-decision-log.md` | Tutte e tre le lane vi aggiungono voci | Aggiunte in coda, non riscritture. Sulla numerazione degli ADR: le lane avevano scelto numeri contigui e in integrazione si sono scontrate. PP-04, che porta la catena di riferimenti incrociati piu costosa da spostare, conserva `0114`-`0125`; PP-05 si e spostata su `0131`-`0134` e PP-03 su `0126`. Un numero e un'etichetta: si stringe senza conseguenze |
 
 ---
 
@@ -647,7 +647,7 @@ fermata prima dell'integrazione irreversibile: c'e l'astrazione, c'e il
 provider che non spedisce, c'e il doppio dei test, e aggiungere l'operatore
 scelto e un file piu tre righe.
 
-Cosa serve dal proprietario del prodotto, in [ADR-0114](18-decision-log.md) per
+Cosa serve dal proprietario del prodotto, in [ADR-0131](18-decision-log.md) per
 esteso:
 
 1. scelta dell'operatore e firma del contratto;
@@ -694,5 +694,5 @@ PostgreSQL: e la ragione per cui esistono (vedi «Come e stato verificato»).
 
 **Cosa resta a una persona**, e nessuna delle due e un difetto: la scelta
 dell'operatore SMS con il suo contratto, il tetto di spesa, il DPA e gli alias
-mittente (ADR-0114, sezione precedente); e le otto voci di debito, tutte con la
+mittente (ADR-0131, sezione precedente); e le otto voci di debito, tutte con la
 ragione scritta per cui non si chiudono qui.

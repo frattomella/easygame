@@ -74,7 +74,7 @@ test("i codici test non sono mai esposti in produzione", () => {
 });
 
 /**
- * **Il numero si chiede sempre; la verifica dipende dal canale (ADR-0115).**
+ * **Il numero si chiede sempre; la verifica dipende dal canale (ADR-0132).**
  *
  * Il test di prima provava l'opposto — «la verifica SMS e proposta solo quando
  * il canale e disponibile» — e provava anche, senza dirlo, che senza le tre

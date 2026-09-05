@@ -832,7 +832,7 @@ export function AuthShell({
                       </div>
 
                       {/*
-                        **Il campo c'e sempre (ADR-0115).** Prima era dentro un
+                        **Il campo c'e sempre (ADR-0132).** Prima era dentro un
                         `capabilities.phoneVerification &&`, cioe compariva solo
                         dove un fornitore SMS era configurato: su ogni
                         installazione reale il numero non veniva chiesto, la

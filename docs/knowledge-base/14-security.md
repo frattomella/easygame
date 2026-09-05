@@ -2550,7 +2550,7 @@ credenziale che si aggiunge abbia una casa evidente dove essere chiusa.
    appena stata presentata. Un codice chiesto da `/verify/<canale>/send`
    conferma il recapito e risponde `session: null`.
 
-Vedi [ADR-0117](18-decision-log.md).
+Vedi [ADR-0134](18-decision-log.md).
 
 ### HIGH — l'elenco dei trasporti SMS in due copie, divergenti
 
@@ -2693,7 +2693,7 @@ Quando si aggiunge un modo di entrare, si va li.
 Fino a PP-05, `isPlatformAdminUser` era sicura **per una ragione che non stava
 in quella funzione**: `finalizeVerifiedSession` sollevava «Email non
 verificata», quindi un indirizzo non provato non produceva nessuna sessione e
-non poteva valere come identita da nessuna parte. ADR-0115 ha tolto quel
+non poteva valere come identita da nessuna parte. ADR-0132 ha tolto quel
 cancello — con una buona ragione — e la riga e rimasta a decidere sul **solo
 indirizzo**.
 
@@ -2925,7 +2925,7 @@ gia in mano.**
 E la terza volta di fila che il difetto nasce **dal fix del round prima** — non
 per una svista di chi lo ha scritto, ma per una ragione strutturale che a
 questo punto vale la pena scrivere per esteso: **ogni difesa nuova sposta il
-confine di cio che conta, e cio che conta va poi riguardato tutto.** ADR-0115
+confine di cio che conta, e cio che conta va poi riguardato tutto.** ADR-0132
 ha reso mutabile un indirizzo che prima era di fatto immutabile, e da quel
 momento «il token e legato all'account» ha smesso di significare «il token e
 legato alla casella».
@@ -2999,7 +2999,7 @@ Chiuso spegnendo tutte le challenge vive dentro lo sfratto, e — caso simmetric
 stato compromesso non deve trovarsi in casa un codice altrui ancora valido, e
 un codice `login` gia emesso e una porta gia aperta.
 
-**Una challenge viva e un canale di accesso.** ADR-0117 dice che sfrattare
+**Una challenge viva e un canale di accesso.** ADR-0134 dice che sfrattare
 significa chiuderli tutti, e questo e il terzo canale che si aggiunge a
 quell'elenco in tre round: password, telefono, sessioni, legami esterni,
 challenge. L'elenco si allunga di uno **ogni volta che qualcuno guarda** — che

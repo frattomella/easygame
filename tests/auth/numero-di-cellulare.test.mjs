@@ -10,7 +10,7 @@ import {
 } from "../../src/lib/auth/phone-number.ts";
 
 /**
- * **Un numero ha una forma sola** (PP-05, ADR-0115).
+ * **Un numero ha una forma sola** (PP-05, ADR-0132).
  *
  * Finche le quattro forme in cui una persona scrive lo stesso numero restano
  * quattro stringhe diverse, il contatore per numero conta quattro secchielli e

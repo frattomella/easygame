@@ -6218,7 +6218,7 @@ questa decisione, non un'aggiunta accanto.
 
 ---
 
-## ADR-0114 — Il codice OTP e di EasyGame; l'operatore SMS e **solo un trasporto**
+## ADR-0131 — Il codice OTP e di EasyGame; l'operatore SMS e **solo un trasporto**
 
 **Data:** 2026-09-04 · **Stato:** accettato, con **una decisione commerciale
 aperta** (scelta e contratto dell'operatore) · **Lane:** PP-05
@@ -6378,7 +6378,7 @@ dell'OTP cambia**, perche non e delegata.
 
 ---
 
-## ADR-0115 — Email **e** cellulare sono obbligatori; il telefono si verifica prima, l'email dopo
+## ADR-0132 — Email **e** cellulare sono obbligatori; il telefono si verifica prima, l'email dopo
 
 **Data:** 2026-09-04 · **Stato:** accettato · **Lane:** PP-05
 
@@ -6420,7 +6420,7 @@ dell'OTP cambia**, perche non e delegata.
    l'**occupazione** di un indirizzo altrui: registro con l'indirizzo della
    vittima, uso il prodotto, e quando la vittima arriva con Google entra
    **dentro** il mio conto mentre io ci resto. Che cosa significhi esattamente
-   «decade» lo definisce ADR-0117, che chiude il buco lasciato aperto qui.
+   «decade» lo definisce ADR-0134, che chiude il buco lasciato aperto qui.
 5. **Cambio recapito, nuova verifica — e la regola e fatta valere.** Le righe
    che azzerano `email_verified_at` e `phone_verified_at` c'erano gia; cio che
    mancava era il legame fra la challenge e il **destinatario corrente**.
@@ -6457,11 +6457,11 @@ simultanei, con il cooldown scavalcato semplicemente mandando le richieste
 insieme invece che in fila.
 
 **Cosa questa decisione non copre, e che si e scoperto dopo.** Il numero e un
-**canale di accesso**, non solo un dato: vedi ADR-0117.
+**canale di accesso**, non solo un dato: vedi ADR-0134.
 
 ---
 
-## ADR-0116 — Un solo posto in cui si scrive HTML per la posta, e due marchi
+## ADR-0133 — Un solo posto in cui si scrive HTML per la posta, e due marchi
 
 **Data:** 2026-09-04 · **Stato:** accettato · **Lane:** PP-05
 
@@ -6536,11 +6536,11 @@ niente Resend, niente API di terzi.
 
 ---
 
-## ADR-0117 — Un recapito verificato e un **canale di accesso**: sfrattare significa chiuderli tutti
+## ADR-0134 — Un recapito verificato e un **canale di accesso**: sfrattare significa chiuderli tutti
 
 **Data:** 2026-09-04 · **Stato:** accettato · **Lane:** PP-05
 
-**Contesto.** ADR-0115 ha deciso che un'email non verificata non vale come
+**Contesto.** ADR-0132 ha deciso che un'email non verificata non vale come
 identita, e che chi dimostra di possedere l'indirizzo **sfratta** chi lo aveva
 solo scritto in un modulo. Lo sfratto, come scritto la prima volta, azzerava la
 password e cancellava le sessioni. Una revisione ostile indipendente, misurando
@@ -6677,7 +6677,7 @@ l'occupante **teneva gia in mano**.
 L'elenco dei canali si allunga di uno **ogni volta che qualcuno guarda**:
 password, telefono, sessioni, legami esterni, challenge. Non perche chi lo ha
 scritto sia stato distratto quattro volte, ma perche **ogni difesa nuova sposta
-il confine di cio che conta**, e cio che conta va poi riguardato tutto. ADR-0115
+il confine di cio che conta**, e cio che conta va poi riguardato tutto. ADR-0132
 ha reso mutabile un indirizzo che prima era di fatto immutabile, e da quel
 momento «il token e legato all'account» ha smesso di significare «il token e
 legato alla casella» — senza che una sola riga di quel codice fosse cambiata.

@@ -769,7 +769,7 @@ const main = async () => {
       occupa un indirizzo libero, ci si chiede un reset, si aspetta che la
       vittima arrivi davvero dal proprio Google, e si consuma il token dopo.
 
-      Una challenge viva **e** un canale di accesso, e ADR-0117 dice che
+      Una challenge viva **e** un canale di accesso, e ADR-0134 dice che
       sfrattare significa chiuderli tutti: l'elenco dei canali si allunga di
       uno ogni volta che qualcuno guarda.
     */

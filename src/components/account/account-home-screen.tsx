@@ -570,7 +570,7 @@ export default function AccountHomeScreen() {
    *
    * Due popolazioni non conoscono nessuna password del proprio account: chi si
    * e registrato **solo** con Google o Microsoft — `createOAuthBootstrapUser`
-   * ne scrive una casuale — e chi ha appena subito uno **sfratto** (ADR-0117),
+   * ne scrive una casuale — e chi ha appena subito uno **sfratto** (ADR-0134),
    * a cui la password e stata sostituita proprio per chiudere fuori un
    * occupante. Entrambe si scontrano con `CURRENT_PASSWORD_REQUIRED` e non
    * possono aggiungere il cellulare, che il prodotto dichiara obbligatorio.
@@ -1320,7 +1320,7 @@ export default function AccountHomeScreen() {
           rende visibili, con il gesto che li risolve accanto.
 
           L'ordine non e casuale: il telefono sta sopra perche e l'unico che
-          **blocca** (ADR-0115) — chi lo ha cambiato non rientrera al prossimo
+          **blocca** (ADR-0132) — chi lo ha cambiato non rientrera al prossimo
           accesso finche non lo verifica — mentre l'email non impedisce niente
           e puo aspettare. Un avviso che grida quanto quello sopra insegna a
           ignorarli entrambi.

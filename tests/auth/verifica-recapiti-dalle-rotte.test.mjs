@@ -583,7 +583,7 @@ test("il testo dell'SMS non finisce mai nell'impronta, e l'impronta non e uno SH
  *   `user.id` perche e l'unico identificativo che il client ha di se stesso.
  *   Li non si rivela niente: chi chiama sa gia chi e;
  * - **senza sessione** l'UUID non vale. Prima valeva, e quella strada rendeva
- *   vana la rotazione del riferimento fatta dallo sfratto (ADR-0117):
+ *   vana la rotazione del riferimento fatta dallo sfratto (ADR-0134):
  *   l'occupante non aveva bisogno del riferimento nuovo, perche l'UUID
  *   dell'account non cambia mai e lo aveva gia.
  * - **con la sessione di un altro** l'UUID non vale, altrimenti bastava un

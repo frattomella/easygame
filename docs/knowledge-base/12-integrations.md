@@ -148,13 +148,13 @@ Codici di errore normalizzati: `IMAP_AUTH_FAILED`, `IMAP_CONNECTION_FAILED`,
 chiedeva la configurazione, non un client di posta. E il presupposto per una
 futura ricezione (protocolli, ricevute di lettura, risposte automatiche).
 
-## SMS OTP — il codice e nostro, l'operatore e un trasporto (PP-05, ADR-0114)
+## SMS OTP — il codice e nostro, l'operatore e un trasporto (PP-05, ADR-0131)
 
 **Stato: astrazione pronta, nessun operatore cablato.** La scelta dell'operatore
 e una decisione commerciale aperta (contratto, DPA, tetto di spesa,
 registrazione del mittente alfanumerico): la comparazione fra nove operatori,
 con la verifica delle fonti e l'elenco di cio che non e stato possibile
-verificare, sta in [ADR-0114](18-decision-log.md).
+verificare, sta in [ADR-0131](18-decision-log.md).
 
 **Fino a PP-05 c'era Twilio Verify, ed e stato rimosso.** Con le tre variabili
 `TWILIO_*` configurate il codice lo generava, lo consegnava e lo verificava
@@ -210,7 +210,7 @@ quindi registrare gli alias dei propri club: ogni ASD deve avere un rapporto
 diretto con il fornitore, oppure accettare il mittente numerico. Serve codice
 fiscale e PEC in INI-PEC; la partita IVA **non** e richiesta dalla delibera
 (molti fornitori la chiedono comunque, per policy propria). Dettagli e limiti
-della verifica in ADR-0114.
+della verifica in ADR-0131.
 
 ## OAuth Google e Microsoft — opzionale
 

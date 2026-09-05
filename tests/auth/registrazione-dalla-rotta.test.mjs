@@ -4,7 +4,7 @@ import test, { before, beforeEach } from "node:test";
 import { createFakePrisma } from "../helpers/fake-prisma.mjs";
 
 /**
- * **La registrazione, provata dalla rotta vera** (PP-05, ADR-0115).
+ * **La registrazione, provata dalla rotta vera** (PP-05, ADR-0132).
  *
  * Fino a qui `POST /api/v1/auth/register` era coperto solo da controlli
  * **statici sul sorgente** (`tests/server/input-validation.test.mjs` legge il

@@ -65,7 +65,7 @@ POST /api/v1/auth/login { email, password }
   5. finalizeVerifiedSession   → crea sessione, imposta cookie, 200
 ```
 
-**Il passaggio «email non verificata → 403» non esiste piu** (ADR-0115). Era il
+**Il passaggio «email non verificata → 403» non esiste piu** (ADR-0132). Era il
 punto 4 fino a PP-05, e su un'installazione senza SMTP era un blocco totale:
 l'account si creava, non poteva entrare, e la schermata che gli chiedeva di
 confermare l'indirizzo era irraggiungibile. Oggi l'indirizzo e **obbligatorio**
@@ -133,22 +133,22 @@ il codice: il pulsante fallira finche SMTP non e configurato, e lo dira. Vedi
   `phone_verified_at` al cambio recapito era teatro; senza il legame
   nell'impronta bastava che **un solo chiamante** dimenticasse il filtro — ed e
   successo alla rotta di reset, dove e costato il Critical del quarto round
-  della revisione ostile (ADR-0117 §8). Chi verifica passa il destinatario
+  della revisione ostile (ADR-0134 §8). Chi verifica passa il destinatario
   **corrente**, mai quello salvato sulla riga: leggerlo dalla riga renderebbe
   il legame vero per costruzione.
 
   La regola dietro: **un token dimostra il possesso del recapito a cui e stato
   consegnato, e di nessun altro.** Finche un indirizzo non poteva cambiare
-  sotto un token vivo la differenza non si vedeva; da quando puo (ADR-0115),
+  sotto un token vivo la differenza non si vedeva; da quando puo (ADR-0132),
   «legato all'account» ha smesso di significare «legato alla casella».
 - **Uno sfratto spegne anche le challenge vive**, sue e di chiunque le tenesse
   gia in mano: una challenge viva e un canale di accesso come una sessione
-  (ADR-0117 §7). Lo stesso fa un reset password su tutte le **altre**.
+  (ADR-0134 §7). Lo stesso fa un reset password su tutte le **altre**.
 - **La scrittura di «verificato» e condizionata**: `updateMany` con il `where`
   sull'indirizzo o sul numero, non `update` per id. Fra l'emissione e la
   conferma il recapito puo cambiare da un'altra sessione.
 - **Un codice apre una sessione solo se la porta era gia stata aperta**
-  (ADR-0117): `challengePurposeCanMintSession` ammette solo `signup` e `login`.
+  (ADR-0134): `challengePurposeCanMintSession` ammette solo `signup` e `login`.
   Un codice chiesto da `/verify/<canale>/send` ha scopo `verify_email` o
   `verify_phone`: conferma il recapito e restituisce `session: null`.
 - **Chi si identifica alle rotte di verifica, e con che cosa.** Le quattro
@@ -164,7 +164,7 @@ il codice: il pulsante fallira finche SMTP non e configurato, e lo dira. Vedi
     `user.id` perche e l'unico identificativo che il client ha di se stesso, e
     dove non si rivela niente a chi non lo sappia gia.
 
-  Il vincolo non e una formalita (ADR-0117 §6): senza, la rotazione del
+  Il vincolo non e una formalita (ADR-0134 §6): senza, la rotazione del
   riferimento fatta dallo sfratto era teatro — l'UUID non cambia mai e
   l'occupante lo aveva gia — e chiunque avesse raccolto UUID utente, che
   circolano in molte proiezioni club-scoped, poteva pilotare quelle rotte su
@@ -212,7 +212,7 @@ semplicemente indovinare la password.
 
 Cambiare il recapito azzera la verifica corrispondente e obbliga a rifarla.
 
-### Lo sfratto di un occupante (ADR-0117)
+### Lo sfratto di un occupante (ADR-0134)
 
 Un account registrato con l'indirizzo di un'altra persona e **il numero di chi
 lo registra** era raggiungibile all'occupante anche dopo che la vittima aveva

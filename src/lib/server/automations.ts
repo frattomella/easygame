@@ -1348,7 +1348,7 @@ const deliverToFamilies = async ({
             to: recipient.email,
             subject: rendered.subject,
             text: rendered.text,
-            /* Marchio del club: la manda la societa, non noi (PP-05B, ADR-0116). */
+            /* Marchio del club: la manda la societa, non noi (PP-05B, ADR-0133). */
             html: renderEmailLayout({
               bodyHtml: rendered.html,
               brand: { mode: "club", clubName: audience.clubName },
@@ -1790,7 +1790,7 @@ const deliverDigest = async ({
           /*
             Il riepilogo va **al club**, non a una famiglia, e porta comunque
             il marchio del club: chi lo riceve gestisce piu societa e deve
-            riconoscere di quale sia questo (PP-05B, ADR-0116).
+            riconoscere di quale sia questo (PP-05B, ADR-0133).
           */
           html: renderEmailLayout({
             bodyHtml: digest.html,

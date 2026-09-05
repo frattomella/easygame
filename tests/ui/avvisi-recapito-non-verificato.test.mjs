@@ -65,7 +65,7 @@ test("l'avviso del telefono esiste, e dice che quel recapito blocca davvero", ()
   assert.match(sorgente, /ctaLabel="Verifica telefono"/);
   /*
     I due avvisi non sono intercambiabili: il telefono blocca il rientro
-    (ADR-0115), l'email no. Se un giorno le due descrizioni diventassero la
+    (ADR-0132), l'email no. Se un giorno le due descrizioni diventassero la
     stessa, uno dei due starebbe mentendo.
   */
   assert.match(
@@ -104,7 +104,7 @@ test("la via d'uscita per chi non conosce nessuna password sta accanto agli avvi
 
   /*
     Chiude PP05-D1. Chi accede solo con Google, e chi ha appena subito uno
-    sfratto (ADR-0117), non conosce nessuna password: `CURRENT_PASSWORD_REQUIRED`
+    sfratto (ADR-0134), non conosce nessuna password: `CURRENT_PASSWORD_REQUIRED`
     chiudeva a entrambe le popolazioni il cellulare che il prodotto dichiara
     obbligatorio. La strada esisteva ed era «Password dimenticata»; mancava il
     pulsante.

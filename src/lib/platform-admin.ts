@@ -112,7 +112,7 @@ export const isPlatformAdminUser = (user: any) => {
       Fino a PP-05 questa riga era sicura per una ragione che non stava qui:
       `finalizeVerifiedSession` sollevava «Email non verificata» e un indirizzo
       non provato **non produceva nessuna sessione**, quindi non poteva valere
-      come identita da nessuna parte. ADR-0115 ha tolto quel cancello — con una
+      come identita da nessuna parte. ADR-0132 ha tolto quel cancello — con una
       buona ragione — e questa riga e rimasta a decidere sul solo indirizzo.
 
       L'elenco degli indirizzi vive in `NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS`,

@@ -327,7 +327,7 @@ export const buildPaymentReminderEmail = (
   const paymentLink = String(content.paymentLink || "").trim();
 
   /*
-    **Marchio del club, e blocchi invece di stringhe** (PP-05B, ADR-0116).
+    **Marchio del club, e blocchi invece di stringhe** (PP-05B, ADR-0133).
 
     Il sollecito lo manda la societa: e il messaggio in cui il logotipo di
     EasyGame in cima era piu fuori posto di tutti, perche la famiglia deve

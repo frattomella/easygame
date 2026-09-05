@@ -16,7 +16,7 @@
  * 2. cambiare fornitore avrebbe cambiato una regola di prodotto, che e
  *    esattamente il contrario di come devono stare le due cose.
  *
- * Da PP-05 le due domande sono separate (ADR-0115):
+ * Da PP-05 le due domande sono separate (ADR-0132):
  *
  * - **il numero e obbligatorio**: sempre, per ogni account nuovo. Non dipende
  *   da nessun fornitore, perche raccogliere un dato non richiede un contratto;

@@ -2181,8 +2181,8 @@ Lane parallela su base `0d66921`. Verbale completo:
 
 ### PP-05A — registrazione e OTP telefono — `DONE`
 
-Email e cellulare obbligatori (ADR-0115); Twilio Verify rimosso e sostituito da
-un'astrazione di trasporto (ADR-0114); il flusso OTP, che esisteva completo ed
+Email e cellulare obbligatori (ADR-0132); Twilio Verify rimosso e sostituito da
+un'astrazione di trasporto (ADR-0131); il flusso OTP, che esisteva completo ed
 era **irraggiungibile**, e ora percorribile dal clic alla riga scritta. Una sola
 challenge viva per canale, garantita da un indice unico parziale del database.
 
@@ -2190,7 +2190,7 @@ challenge viva per canale, garantita da un indice unico parziale del database.
 
 Un solo posto in cui si scrive markup per la posta, due brand mode, `Powered by
 EasyGame` non rimovibile in V1, anteprima amministrativa che non spedisce
-(ADR-0116). Inventario delle nove email nella scheda 46.
+(ADR-0133). Inventario delle nove email nella scheda 46.
 
 ### Cosa aspetta una persona, non un commit
 
@@ -2205,7 +2205,7 @@ conservazione del contenuto dei messaggi, e la decisione sul mittente
 alfanumerico — che per la delibera AGCOM 12/23/CIR **ogni club deve registrare
 per conto proprio**, perche il fornitore ha l'obbligo di rigettare la richiesta
 presentata da un terzo anche con delega espressa. Raccomandazione tecnica e
-comparazione verificata in [ADR-0114](18-decision-log.md).
+comparazione verificata in [ADR-0131](18-decision-log.md).
 
 ### Debito
 

@@ -132,7 +132,7 @@ export const EASYGAME_EMAIL_PALETTE = {
 } as const;
 
 /**
- * I due modi in cui una email di EasyGame puo presentarsi (ADR-0116).
+ * I due modi in cui una email di EasyGame puo presentarsi (ADR-0133).
  *
  * `easygame` — la manda EasyGame: account, sicurezza, verifica dei recapiti,
  * reimpostazione della password, servizi di piattaforma. Il mittente e

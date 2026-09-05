@@ -93,7 +93,7 @@ export async function POST(request: Request) {
       sessioneCorrente?.db.user_id,
     );
 
-    /* Stessa regola della rotta gemella (CRITICAL-1, ADR-0117). */
+    /* Stessa regola della rotta gemella (CRITICAL-1, ADR-0134). */
     const finalized = challengePurposeCanMintSession(purpose)
       ? await finalizeVerifiedSession(verifiedUser.id)
       : { session: null, verification: null };

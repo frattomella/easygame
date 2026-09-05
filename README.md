@@ -46,7 +46,7 @@ condivisi si conservano fuori dal repository.
 4. Se vuoi OAuth reale, compila anche:
    - `AUTH_BASE_URL`
    - `SMS_PROVIDER` (oggi solo `noop`, che non spedisce: nessun operatore
-     reale e cablato, vedi ADR-0114)
+     reale e cablato, vedi ADR-0131)
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`
    - `MICROSOFT_CLIENT_ID`

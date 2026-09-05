@@ -183,7 +183,7 @@ export async function POST(request: Request) {
     );
 
     /*
-      **Email e cellulare sono entrambi obbligatori (ADR-0115).**
+      **Email e cellulare sono entrambi obbligatori (ADR-0132).**
 
       Prima il numero si raccoglieva solo se un fornitore SMS era configurato,
       quindi su ogni installazione reale non si raccoglieva affatto e l'intero

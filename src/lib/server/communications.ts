@@ -623,7 +623,7 @@ export const sendCommunication = async (
         subject: rendered.subject,
         text: rendered.text,
         /*
-          **Marchio del club** (PP-05B, ADR-0116). Una comunicazione che una
+          **Marchio del club** (PP-05B, ADR-0133). Una comunicazione che una
           societa manda alla propria famiglia arrivava con il logotipo di un
           fornitore che quella famiglia non conosce. Il nome del club e gia in
           questo ambito: non serve una query in piu. Il logo non si passa

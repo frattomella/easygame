@@ -142,7 +142,7 @@ export async function POST(request: Request) {
     }
 
     /*
-      **L'email non ferma piu il login (ADR-0115).**
+      **L'email non ferma piu il login (ADR-0132).**
 
       Qui c'era un 403 `EMAIL_NOT_VERIFIED` che rimandava indietro chiunque non
       avesse confermato l'indirizzo, e su un'installazione senza SMTP quel ramo

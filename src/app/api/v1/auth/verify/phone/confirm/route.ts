@@ -113,7 +113,7 @@ export async function POST(request: Request) {
 
     /*
       **Un codice apre una sessione solo se la porta era gia stata aperta**
-      (CRITICAL-1, ADR-0117). Un codice chiesto da `/verify/phone/send` ha
+      (CRITICAL-1, ADR-0134). Un codice chiesto da `/verify/phone/send` ha
       scopo `verify_phone`: conferma il numero e basta. Chi lo chiede dall'area
       Account una sessione ce l'ha gia; chi lo chiede senza averla non deve
       ottenerne una presentando solo un identificativo e un codice SMS.

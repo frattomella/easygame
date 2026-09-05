@@ -145,7 +145,7 @@ test("controspecchio: due errori e poi il codice giusto verificano l'indirizzo",
 
   assert.ok(utente.email_verified_at, "l'indirizzo risulta verificato");
   /*
-    Lo scopo torna insieme all'utente (PP-05, ADR-0117): e cio su cui la rotta
+    Lo scopo torna insieme all'utente (PP-05, ADR-0134): e cio su cui la rotta
     decide se aprire una sessione, e qui la challenge e stata scritta come
     `verify_email`, che **non** ne apre nessuna.
   */

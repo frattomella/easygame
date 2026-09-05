@@ -361,7 +361,7 @@ const buildVerificationPayload = async (user: {
 });
 
 /**
- * **«Account non pienamente attivato», in una riga sola (ADR-0115).**
+ * **«Account non pienamente attivato», in una riga sola (ADR-0132).**
  *
  * Un account e non pienamente attivato quando **richiede** la verifica del
  * telefono e non l'ha ancora ottenuta. L'unica limitazione che ne discende e
@@ -542,7 +542,7 @@ export const buildPhoneVerificationSmsText = (code: string) =>
  * markup: la preview deve mostrare esattamente quello che si spedisce.
  */
 /**
- * **Marchio EasyGame, e non e una scelta di stile** (PP-05B, ADR-0116).
+ * **Marchio EasyGame, e non e una scelta di stile** (PP-05B, ADR-0133).
  *
  * La verifica di un recapito la manda EasyGame, non il club: chi la riceve
  * deve poter distinguere questo messaggio da una comunicazione della propria
@@ -619,7 +619,7 @@ export const sendEmailVerificationChallenge = async (
 };
 
 /**
- * **Il codice lo fa EasyGame, l'operatore lo porta. Sempre (ADR-0114).**
+ * **Il codice lo fa EasyGame, l'operatore lo porta. Sempre (ADR-0131).**
  *
  * Prima c'erano due meccanismi: con Twilio configurato il codice lo generava e
  * lo verificava Twilio, senza Twilio lo generava e lo verificava questo file.
@@ -842,7 +842,7 @@ const prendiUnTentativo = async (challengeId: string) => {
 };
 
 /**
- * **Quali codici fanno nascere una sessione, e quali no** (PP-05, ADR-0117).
+ * **Quali codici fanno nascere una sessione, e quali no** (PP-05, ADR-0134).
  *
  * Un OTP telefono non e una password, ma la conferma ne produceva una sessione
  * **sempre**, per chiunque presentasse l'identificativo dell'account e il
@@ -936,7 +936,7 @@ const sfrattaOccupante = async (userId: string) => {
     Il legame col destinatario chiude anche questa catena quando l'indirizzo e
     cambiato; qui non e cambiato — occupante e vittima hanno lo stesso — e
     percio serve la seconda mano. Una challenge viva **e** un canale di
-    accesso: ADR-0117 dice che sfrattare significa chiuderli tutti, e l'elenco
+    accesso: ADR-0134 dice che sfrattare significa chiuderli tutti, e l'elenco
     dei canali si allunga di uno ogni volta che qualcuno guarda.
   */
   await prisma.authVerificationChallenge.updateMany({
@@ -1097,7 +1097,7 @@ export const finalizeVerifiedSession = async (userId: string) => {
   }
 
   /*
-    **L'email non blocca piu la sessione (ADR-0115).**
+    **L'email non blocca piu la sessione (ADR-0132).**
 
     Prima questa riga sollevava «Email non verificata» e nessun account senza
     indirizzo confermato poteva entrare — nemmeno per vedere la pagina che gli
@@ -1575,7 +1575,7 @@ export const findOrCreateOAuthUser = async ({
     const existingMetadata = asMetadataRecord(existingUser.user_metadata);
 
     /*
-      **L'unica limitazione di un'email non verificata (ADR-0115).**
+      **L'unica limitazione di un'email non verificata (ADR-0132).**
 
       Da PP-05 un account con l'indirizzo non confermato ha una sessione. Cio
       apre una strada che prima era chiusa da sola: registro un account con

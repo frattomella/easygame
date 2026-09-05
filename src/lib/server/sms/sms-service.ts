@@ -16,7 +16,7 @@ import type {
  * Stessa regola di `src/lib/server/email/`: chi vuole mandare un messaggio
  * passa di qui, e nessuno istanzia un provider per conto proprio.
  *
- * ## Lo stato di questo modulo (ADR-0114)
+ * ## Lo stato di questo modulo (ADR-0131)
  *
  * Nessun operatore reale e cablato, ed e una scelta: la scelta dell'operatore
  * e una **decisione commerciale** — contratto, DPA, budget, registrazione del

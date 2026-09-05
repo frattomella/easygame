@@ -181,7 +181,7 @@ test("con l'elenco configurato vale l'indirizzo, e nient'altro", async () => {
 
       Prima di PP-05 questa riga era sicura per una ragione che non stava qui:
       un indirizzo non verificato non produceva **nessuna sessione**, quindi
-      non poteva valere come identita da nessuna parte. ADR-0115 ha tolto quel
+      non poteva valere come identita da nessuna parte. ADR-0132 ha tolto quel
       cancello, e l'elenco degli indirizzi vive in una variabile
       `NEXT_PUBLIC_*`, cioe e pubblicato a ogni browser: chi registrasse un
       indirizzo di quell'elenco non ancora presente in `users` sarebbe stato

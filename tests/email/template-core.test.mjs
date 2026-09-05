@@ -12,7 +12,7 @@ import {
 import { renderEmailLayout } from "../../src/lib/server/email/layout.ts";
 
 /**
- * **Email Template Core** (PP-05B, ADR-0116).
+ * **Email Template Core** (PP-05B, ADR-0133).
  *
  * Le proprieta che qui si provano non sono estetiche. Un'email e l'unico
  * artefatto del prodotto che esce dal perimetro e viene reso da un motore che

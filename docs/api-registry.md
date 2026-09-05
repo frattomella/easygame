@@ -457,7 +457,7 @@ Fonte ufficiale da mantenere aggiornata:
   equivalenti: il **riferimento opaco** (`token_verification_id`, emesso come
   `verification.userId` da ogni risposta senza sessione) vale sempre; l'**UUID
   nudo** dell'account vale **solo da chi ha gia una sessione su quel medesimo
-  account**, che e il caso della pagina Account. Vedi ADR-0117 §6 e
+  account**, che e il caso della pagina Account. Vedi ADR-0134 §6 e
   [07](knowledge-base/07-authentication.md).
 - `GET /api/v1/auth/oauth/:provider/start`
 - `GET /api/v1/auth/oauth/:provider/callback`

@@ -6,7 +6,7 @@
  * e due forme diverse per lo stesso problema sono due posti da guardare quando
  * una consegna non arriva.
  *
- * ## Cosa il provider non fa, e perche conta (ADR-0114)
+ * ## Cosa il provider non fa, e perche conta (ADR-0131)
  *
  * Il provider **non genera** il codice e **non lo verifica**. Riceve un testo
  * gia scritto e un numero gia in E.164, e prova a consegnarlo.
