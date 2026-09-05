@@ -550,16 +550,27 @@ test("scollegato l'account, il cruscotto non si riapre dal ramo del tutore", asy
   );
 
   /*
-    Con il ramo diretto **dichiarato** la risposta resta si, ed e giusta: la
-    tessera di atleta e viva, quindi quella persona e ancora un atleta di quel
-    club. Cio che e cambiato e da **quale** ramo passa — il proprio, non quello
-    del tutore — e il proprio ramo non consegna il payload della famiglia:
-    delle quattro superfici che lo dichiarano, l'area atleta risolve prima il
-    profilo da `athletes.user_id` e con il legame scollegato risponde 403.
+    **Qui questo test diceva `true`, e la ragione scritta accanto era sbagliata**
+    (ADR-0125).
+
+    Diceva: «con il ramo diretto dichiarato la risposta resta si, ed e giusta,
+    perche delle quattro superfici che lo dichiarano l'area atleta risolve
+    prima il profilo da `athletes.user_id`». Vero per **una** delle quattro. La
+    bacheca e l'RSVP non risolvono nessun profilo: chiedono direttamente qui, e
+    con il legame scollegato ricevevano si. Misurato contro PostgreSQL — dopo
+    «Scollega account», `GET .../board` **200** e `POST .../board` **200**.
+
+    Il ragionamento generalizzava da un chiamante a quattro, ed e la stessa
+    forma dell'errore che questa lane ha gia pagato tre volte: chiudere una
+    porta e dedurne che il difetto e chiuso.
+
+    L'ammissione al proprio ramo vuole il legame **vivo**. L'esclusione dal
+    ramo del tutore resta durevole, ed e l'asserzione qui sopra.
   */
   assert.equal(
     await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA, COME_ATLETA),
-    true,
+    false,
+    "scollegato il legame, nemmeno il proprio ramo lo fa entrare",
   );
   assert.equal(
     await accessi.findAthleteProfileForUser(UTENTE_ATLETA),
@@ -806,5 +817,370 @@ test("l'invito sulla casella di un tutore della stessa scheda e respinto", async
       );
       return true;
     },
+  );
+});
+
+/* ==================================================================== *
+ *  8. La terza porta (ADR-0125)
+ * ==================================================================== */
+
+/**
+ * **ADR-0117 ha contato due lettori di `athletes.user_id`, ed erano tre.**
+ *
+ * Il round conclusivo di PP-04 ha misurato il terzo contro PostgreSQL, con il
+ * gesto vero della segreteria — Gestione Accessi -> Revoca su una tessera con
+ * l'alias `giocatrice`, cioe la forma di PP04-D9. Con **zero tessere** nel
+ * club, `/api/v1/athlete-accounts/me` rispondeva 403, il cruscotto di famiglia
+ * 403, e `GET /api/v1/auth/athlete-profile/<la stessa scheda>` **200**, con
+ * allergie, note mediche, certificati interi e il codice fiscale del tutore.
+ *
+ * E il campo non porta sempre l'atleta: PP04-D6 registra la sua seconda
+ * lettura storica, e ADR-0124 descrive il flusso — normale — in cui ci finisce
+ * l'identita di un **genitore**. Cio che usciva non era il fascicolo di chi lo
+ * leggeva: era quello di un altro.
+ *
+ * Riproduzione: `scripts/pp-04-round-conclusivo-probe.mjs`, R-82 e R-84.
+ */
+test("il fascicolo clinico per identificativo pone la stessa domanda", async () => {
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+
+  const rotta = readFileSync(
+    path.join(
+      process.cwd(),
+      "src",
+      "app",
+      "api",
+      "v1",
+      "auth",
+      "athlete-profile",
+      "[athleteId]",
+      "route.ts",
+    ),
+    "utf8",
+  );
+
+  assert.ok(
+    rotta.includes("clubsWhereStillAthlete"),
+    "il terzo lettore deve chiamare il modulo che possiede la domanda",
+  );
+
+  /*
+    E la deve chiamare **dentro** `directAthleteAccess`: importarla e non
+    usarla dove decide sarebbe la forma peggiore, perche il controllo
+    strutturale qui sopra resterebbe verde.
+  */
+  const posizione = rotta.indexOf("const directAthleteAccess");
+  assert.ok(posizione >= 0);
+  const decisione = rotta.slice(posizione, posizione + 400);
+  assert.ok(
+    decisione.includes("clubsWhereStillAthlete"),
+    "la domanda va posta dove si decide, non altrove nel file",
+  );
+});
+
+test("e i lettori di quel campo sono tre, non uno in piu", async () => {
+  /*
+    **Enumerare le porte e il difetto ricorrente di questo repository**, e la
+    difesa non e enumerarle meglio: e far diventare rosso il momento in cui ne
+    nasce una quarta. Chi confronta `athletes.user_id` con l'utenza della
+    sessione sta decidendo un accesso, e deve chiedersi se la tessera vive
+    ancora.
+  */
+  const { execFileSync } = await import("node:child_process");
+  const { readFileSync } = await import("node:fs");
+
+  const uscita = execFileSync(
+    "git",
+    ["grep", "-l", "-F", "user_id === session.db.user_id", "--", "src"],
+    { cwd: process.cwd(), encoding: "utf8" },
+  );
+
+  const trovati = uscita
+    .split("\n")
+    .map((riga) => riga.trim().replace(/\\/g, "/"))
+    .filter(Boolean);
+
+  assert.ok(trovati.length > 0, "il confronto esiste: la sonda lo ha misurato");
+
+  for (const file of trovati) {
+    const sorgente = readFileSync(file, "utf8");
+    assert.ok(
+      sorgente.includes("clubsWhereStillAthlete"),
+      `${file} decide sul legame senza chiedere se la tessera vive ancora`,
+    );
+  }
+});
+
+test("la domanda risponde di no quando la tessera non e piu di atleta", async () => {
+  const membership = await import("../../src/lib/server/athlete-membership.ts");
+
+  /* Con la tessera di atleta: si, ed e cio che tiene aperto il caso legittimo. */
+  assert.equal(
+    (await membership.clubsWhereStillAthlete(UTENTE_ATLETA, [CLUB])).has(CLUB),
+    true,
+  );
+
+  /*
+    Con una tessera qualunque **che non e** di atleta: no. E il caso che il
+    terzo lettore lasciava passare, ed e anche quello che distingue «non e piu
+    nel club» da «e nel club con un altro cappello» — per il fascicolo clinico
+    la risposta e la stessa, perche il ramo del legame non ha perimetro.
+  */
+  monta("parent");
+  assert.equal(
+    (await membership.clubsWhereStillAthlete(UTENTE_ATLETA, [CLUB])).has(CLUB),
+    false,
+  );
+
+  /* Senza nessuna tessera: no. */
+  monta(null);
+  assert.equal(
+    (await membership.clubsWhereStillAthlete(UTENTE_ATLETA, [CLUB])).has(CLUB),
+    false,
+  );
+
+  /* E l'alias italiano resta un atleta: la guardia non fa troppo. */
+  monta("giocatrice");
+  assert.equal(
+    (await membership.clubsWhereStillAthlete(UTENTE_ATLETA, [CLUB])).has(CLUB),
+    true,
+  );
+});
+
+/* ==================================================================== *
+ *  9. Una casella, un atleta (ADR-0125)
+ * ==================================================================== */
+
+/**
+ * **La guardia c'era, e arrivava sempre troppo presto.**
+ *
+ * `sendAthleteAccountInvite` dichiara di impedire che «due atleti finiscano
+ * sulla stessa utenza», e lo chiede a `athletes.user_id` — che pero lo scrive
+ * il **riscatto**. Fra due inviti quel campo e vuoto, e la sequenza che lo
+ * svuota e la piu normale che una segreteria possa fare: due fratelli, una
+ * casella di famiglia sola, i due inviti mandati prima che qualcuno clicchi.
+ *
+ * Misurato contro PostgreSQL (`scripts/pp-04-round-conclusivo-probe.mjs`,
+ * R-96): entrambi gli inviti passavano, entrambi si riscattavano, due schede
+ * portavano la stessa `user_id`, e quell'unica identita apriva la bacheca di
+ * **tutte e due** — `GET /api/parent-dashboard/<X>/board` 200 e
+ * `GET /api/parent-dashboard/<Z>/board` 200.
+ */
+test("un secondo invito sulla stessa casella e respinto alla partenza", async () => {
+  const scope = {
+    userId: TUTORE,
+    activeOrganizationId: CLUB,
+    activeRole: "owner",
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
+  };
+
+  /*
+    Nel seme, `aldo@atleti.it` e gia l'utenza collegata alla scheda di Aldo con
+    un invito **accettato**. Si aggiunge un invito ancora **vivo** su quella
+    stessa utenza, che e lo stato che il difetto produceva.
+  */
+  for (const riga of fake.rows("athlete")) {
+    if (riga.id === ATLETA) riga.user_id = null;
+  }
+  fake.rows("athleteAccountInvite").splice(
+    0,
+    fake.rows("athleteAccountInvite").length,
+    {
+      id: "inv-vivo",
+      organization_id: CLUB,
+      athlete_id: ATLETA,
+      user_id: UTENTE_ATLETA,
+      email: "aldo@atleti.it",
+      token_hash: "b".repeat(64),
+      status: "sent",
+      accepted_at: null,
+      revoked_at: null,
+      expires_at: new Date(Date.now() + 864e5),
+      sent_at: new Date(),
+    },
+  );
+
+  await assert.rejects(
+    () =>
+      accessi.sendAthleteAccountInvite(scope, {
+        athleteId: FIGLIO,
+        email: "aldo@atleti.it",
+        acknowledgeMinor: true,
+      }),
+    (errore) => {
+      assert.ok(
+        /invito in corso sulla scheda di un altro atleta/i.test(errore.message),
+        `messaggio inatteso: ${errore.message}`,
+      );
+      /*
+        Non e un errore di autorizzazione: il ruolo puo invitare, e l'indirizzo
+        a essere sbagliato. La rotta generica lo mappa su 400.
+      */
+      assert.ok(!errore.message.includes("Accesso negato"));
+      return true;
+    },
+  );
+});
+
+test("e il riscatto rifiuta comunque, perche e lui che scrive", async () => {
+  /*
+    **La decisione la prende chi scrive.** La guardia sull'invito puo essere
+    corsa, e gli archivi gia esistenti possono portare due inviti vivi nati
+    prima di questo fix: l'invariante regge solo se la pone anche il punto che
+    scrive `athletes.user_id`, dentro la transazione che lo scrive.
+  */
+  const { createHash } = await import("node:crypto");
+  const token = "token-in-chiaro-del-collaudo";
+
+  fake.rows("athleteAccountInvite").splice(
+    0,
+    fake.rows("athleteAccountInvite").length,
+    {
+      id: "inv-secondo",
+      organization_id: CLUB,
+      athlete_id: FIGLIO,
+      user_id: UTENTE_ATLETA,
+      email: "aldo@atleti.it",
+      token_hash: createHash("sha256").update(token).digest("hex"),
+      status: "sent",
+      accepted_at: null,
+      revoked_at: null,
+      expires_at: new Date(Date.now() + 864e5),
+      sent_at: new Date(),
+    },
+  );
+
+  /* Aldo e gia l'account della propria scheda: e lo stato del seme. */
+  assert.equal(
+    fake.rows("athlete").find((riga) => riga.id === ATLETA)?.user_id,
+    UTENTE_ATLETA,
+  );
+
+  await assert.rejects(
+    () => accessi.acceptAthleteAccountInvite(token),
+    (errore) => {
+      assert.ok(
+        /accesso della scheda di un altro atleta/i.test(errore.message),
+        `messaggio inatteso: ${errore.message}`,
+      );
+      return true;
+    },
+  );
+
+  /* E la seconda scheda non ha preso nessun legame. */
+  assert.equal(
+    fake.rows("athlete").find((riga) => riga.id === FIGLIO)?.user_id ?? null,
+    null,
+  );
+});
+
+/* ==================================================================== *
+ *  10. Esclusione durevole, ammissione viva (ADR-0125)
+ * ==================================================================== */
+
+/**
+ * **La stessa condizione faceva due lavori opposti.**
+ *
+ * ADR-0123 ha reso `eLaPersonaStessa` **durevole** perche serve come
+ * esclusione: senza durata, revoca e scollegamento riaprivano il ramo del
+ * tutore. Ma quella condizione e anche l'**ammissione** alle superfici proprie
+ * dell'atleta — bacheca e RSVP, cioe `allowSelfAthleteLink: true` — e li vuole
+ * il legame **vivo**, perche e esattamente cio che lo scollegamento toglie.
+ *
+ * Misurato contro PostgreSQL (`scripts/pp-04-round-conclusivo-probe.mjs`,
+ * R-98/R-99): dopo «Scollega account» l'area atleta rispondeva 403 e la
+ * bacheca **200**, con la scrittura «l'ho letto» inclusa. E il seguito e il
+ * caso che pesa: scollegata la scheda e invitata **un'altra persona** — che e
+ * il motivo per cui lo scollegamento esiste — la vecchia utenza continuava a
+ * leggere la bacheca di una scheda che non era piu sua, e **nessun gesto sul
+ * pannello la chiudeva fuori**.
+ */
+test("scollegato l'account, la porta dell'atleta si chiude con quella d'ingresso", async () => {
+  /* In regola: le due porte concordano sul si. */
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA, COME_ATLETA),
+    true,
+  );
+
+  /*
+    Lo scollegamento azzera `athletes.user_id` e **lascia la tessera**: e la
+    sua ragione d'essere, distinta dalla revoca. L'invito accettato resta, per
+    costruzione (ADR-0123).
+  */
+  for (const riga of fake.rows("athlete")) {
+    if (riga.id === ATLETA) riga.user_id = null;
+  }
+
+  assert.equal(
+    await accessi.findAthleteProfileForUser(UTENTE_ATLETA),
+    null,
+    "la porta d'ingresso si chiude",
+  );
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA, COME_ATLETA),
+    false,
+    "e quella dell'atleta con lei: era questa a restare aperta",
+  );
+});
+
+test("e la scheda ceduta a un altro non resta leggibile a chi l'aveva", async () => {
+  const NUOVO = "77777777-7c00-4000-8000-000000000abc";
+  fake.rows("user").push({
+    id: NUOVO,
+    email: "nuovo@atleti.it",
+    email_verified_at: new Date(),
+  });
+  fake.rows("organizationUser").push({
+    id: "ou-nuovo",
+    organization_id: CLUB,
+    user_id: NUOVO,
+    role: "athlete",
+  });
+
+  /* Il club scollega e affida la scheda a un'altra persona. */
+  for (const riga of fake.rows("athlete")) {
+    if (riga.id === ATLETA) riga.user_id = NUOVO;
+  }
+  fake.rows("athleteAccountInvite").push({
+    id: "inv-nuovo",
+    organization_id: CLUB,
+    athlete_id: ATLETA,
+    user_id: NUOVO,
+    email: "nuovo@atleti.it",
+    token_hash: "c".repeat(64),
+    status: "accepted",
+    accepted_at: new Date(),
+    revoked_at: null,
+    expires_at: new Date(Date.now() + 864e5),
+    sent_at: new Date(),
+  });
+
+  assert.equal(
+    await famiglia.canParentAccessAthlete(NUOVO, ATLETA, COME_ATLETA),
+    true,
+    "il nuovo titolare entra",
+  );
+
+  /*
+    E la vecchia utenza no — malgrado conservi la propria tessera `athlete`,
+    che lo scollegamento per disegno non toglie, e malgrado l'invito accettato
+    che ADR-0123 usa come identita durevole. Quella durata serve a **tenerla
+    fuori** dal ramo del tutore, non a farla entrare dal proprio.
+  */
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA, COME_ATLETA),
+    false,
+  );
+
+  /*
+    E non rientra nemmeno dal ramo del tutore, dove la casella coincidente
+    varrebbe come legame: e il Critical di ADR-0122, che l'esclusione durevole
+    continua a reggere.
+  */
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+    false,
   );
 });

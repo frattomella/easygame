@@ -2330,3 +2330,35 @@ Registrato anche come dependency verso PP-03.
 | **PP04-D9** | **Lo sweep dei legami riconosce lo slug, e il pannello «Accesso EasyGame» ne mente.** E la forma misurata di PP04-D1: revocata da Gestione Accessi la tessera di un atleta con lo slug `giocatrice` (alias legittimo in `ROLE_ALIASES`) o con un ruolo personalizzato basato su `athlete`, `unlinkDirectAthleteProfile` non azzera `athletes.user_id`. Le **letture** restano chiuse (ADR-0114/0117: nessuna tessera, nessuna area), ma `readAthleteAccountState` deriva `active` dal legame superstite e la scheda va in **vicolo cieco**: il club non puo piu invitare nessuno su quell'atleta perche la rotta risponde «ha gia un accesso attivo» | Stesso proprietario di PP04-D1 (**PP-03**). La correzione e una riga: `normalizeAccessRole(custom_role?.base_role ?? role) === "athlete"`, cioe il vocabolario che `revokeAthleteAccess` gia usa in `athlete-accounts.ts`. Aggiramento per la segreteria nel frattempo: usare «Revoca l'accesso» dal pannello dell'atleta, che gli alias li conosce |
 | **PP04-D10** | **Il perimetro di sede e categoria non vale sui byte, ne sulla stampa di una ricevuta.** Misurato dal quarto round ostile di PP-04 (`scripts/pp-04-perimetro-byte-probe.mjs`, M-4/M-5/M-6/R-3) contro PostgreSQL e le rotte vere. L'elenco dei documenti e chiuso — `getDocumentDossier` chiama `assertSubjectWithinAccessScope` — ma `GET /api/athletes/[athleteId]/documents/[documentId]/file` non chiama mai `athleteWithinAccessScope`: un `club_manager` o un `trainer` recintato su una categoria scarica i byte dell'archivio storico e del **certificato medico** di un atleta di un'altra categoria. Stessa cosa su `GET /api/v1/documents/[kind]/[id]`, che stampa ricevuta e fattura senza guardare il perimetro — malgrado il registro generico lo applichi gia sulle stesse tabelle (`resources.ts`, `PER_ATLETA`). **High**: nessuna fuga fra club, serve una tessera di staff recintata e la conoscenza dell'identificativo; atleta e genitore restano chiusi | **Nessuna delle tre lane** possiede questi due file di rotta (contratto parallelo: `documents*`/`attachments` sono dependency per tutte e tre). Preesistente: i file sono byte-identici alla base `0d66921`. Contratto: una sola chiamata a `athleteWithinAccessScope(club, atleta, scope)` **prima del bivio** dei due rami nella rotta dei byte, e una sul solo ramo di ruolo (`!perLegame`) nella rotta fiscale, chiusa anche su `athlete_id` vuoto. Il legame di famiglia **non** si perimetra |
 | **PP04-D11** | **Un diniego di perimetro esce come 500.** Stessa sonda, M-3: `assertAttachmentWithinAccessScope` solleva correttamente «Accesso negato» e i byte non escono, ma il `catch` finale di `GET /api/athletes/[athleteId]/documents/[documentId]/file` risponde 500 a qualunque errore, con il messaggio grezzo nel corpo. Contro CLAUDE.md §8, che su quella stringa fonda il 403. Nessuna perdita di dati: **Low** | Stesso file e stesso proprietario di PP04-D10. Va corretto **anche** applicando D10, perche altre guardie a valle sollevano la stessa stringa |
+
+### Nota del round conclusivo di PP-04 (2026-09-05, ADR-0125)
+
+Due voci qui sopra hanno una **conseguenza sulle letture** che il round
+conclusivo ha misurato e **chiuso dal lato del lettore**, senza toccarne la
+causa.
+
+- **PP04-D9** (e la sua radice **PP04-D1**) — il legame che sopravvive alla
+  revoca di una tessera con lo slug non canonico non apriva solo il pannello
+  «Accesso EasyGame»: apriva anche
+  `GET /api/v1/auth/athlete-profile/:athleteId`, che ricavava
+  `directAthleteAccess` dal **solo** `athletes.user_id`. Con zero tessere nel
+  club uscivano allergie, note mediche e i certificati interi.
+- **PP04-D6** — la seconda lettura storica dello stesso campo («l'utenza a cui
+  questa scheda appartiene») rende quel 200 il fascicolo di **un'altra
+  persona**: misurato con un legame ereditato, ne uscivano anche il codice
+  fiscale del tutore di un minore.
+
+ADR-0125 aggiunge `clubsWhereStillAthlete` al terzo lettore. **Le righe
+dangling restano**, e restano di **PP-03**: qui si chiude chi legge, non chi
+scrive. Riproduzione: `scripts/pp-04-round-conclusivo-probe.mjs`, R-82 e R-84.
+
+**PP04-D11 resta aperto, ed e una scelta.** Correggere da qui il solo codice
+di stato (500 -> 403) su
+`GET /api/athletes/[athleteId]/documents/[documentId]/file` costerebbe due
+righe, ma metterebbe le impronte di PP-04 su un file che il contratto parallelo
+non assegna a nessuna lane e su cui **PP04-D10** — la guardia di perimetro che
+manca davvero, con i byte del certificato medico che escono — deve ancora
+atterrare. Le due correzioni vanno insieme: la mappatura del `catch` serve
+proprio perche la guardia nuova solleva «Accesso negato», e separarle
+produrrebbe prima un file che risponde 403 per una guardia che non c'e, e poi
+un conflitto d'integrazione su un file conteso.

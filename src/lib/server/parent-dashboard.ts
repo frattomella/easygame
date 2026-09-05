@@ -335,9 +335,35 @@ const athleteBelongsToParent = (
     e ne la revoca ne lo scollegamento lo cancellano. `schedeProprie` e
     l'insieme che ne esce, unito al legame vivo.
   */
+  /*
+    **Due domande, non una** (PP-04, ADR-0125).
+
+    Il round conclusivo ha misurato che questa condizione faceva due lavori
+    **opposti** con una riga sola.
+
+    Come **esclusione** dal ramo del tutore deve essere durevole, ed e la
+    ragione per cui ADR-0123 l'ha portata sull'invito accettato: senza durata,
+    il gesto che toglie l'accesso lo riapre piu largo di prima.
+
+    Come **ammissione** alle superfici proprie dell'atleta — la bacheca e
+    l'RSVP, cioe cio che il ramo diretto dichiarato apre — vuole invece il
+    legame **vivo**: li «essere stato quella scheda» non e «essere quella
+    scheda», ed e esattamente cio che lo scollegamento toglie.
+
+    Con una condizione sola vinceva la durata, e lo scollegamento non chiudeva
+    niente. Misurato contro PostgreSQL e le rotte vere: dopo «Scollega
+    account» `GET /api/v1/athlete-accounts/me` rispondeva 403 e
+    `GET /api/parent-dashboard/<la stessa scheda>/board` **200**, con la
+    scrittura «l'ho letto» inclusa. E il caso che pesa e il seguito: il club
+    scollega e invita **un'altra persona** su quella scheda — che e il motivo
+    per cui lo scollegamento esiste — e la vecchia utenza continuava a leggere
+    la bacheca e a rispondere alle convocazioni di una scheda che non era piu
+    sua. Nessun gesto sul pannello la chiudeva fuori: `revokeAthleteAccess`
+    toglie le tessere di chi e collegato **adesso**, cioe del nuovo titolare.
+  */
+  const legameVivo = sameId(athlete?.user_id, userId);
   const eLaPersonaStessa =
-    sameId(athlete?.user_id, userId) ||
-    schedeProprie.has(String(athlete?.id || ""));
+    legameVivo || schedeProprie.has(String(athlete?.id || ""));
 
   /*
     **Ma un'identita sola puo portare due cappelli** (ADR-0124).
@@ -374,7 +400,15 @@ const athleteBelongsToParent = (
   );
 
   if (eLaPersonaStessa && !tutoreProvato) {
-    return ancoraAtleta.has(String(athlete?.organization_id || ""));
+    /*
+      L'esclusione la decide `eLaPersonaStessa`, che e durevole; l'ammissione
+      la decide `legameVivo`, che non lo e. Chi e stato l'account di questa
+      scheda e non lo e piu **non torna dal ramo del tutore** — la condizione
+      del `return` lo tiene qui — e non entra nemmeno dal proprio (ADR-0125).
+    */
+    return (
+      legameVivo && ancoraAtleta.has(String(athlete?.organization_id || ""))
+    );
   }
 
   return (

@@ -6788,3 +6788,163 @@ un accesso che vive nella casella del tutore e una lettura conservativa, non
 una policy scritta da nessuno: e la quarta domanda aperta di ADR-0116. Se la
 policy vera dira che quel flusso va permesso, la riga da cambiare e la guardia
 di `sendAthleteAccountInvite`, e va cambiata **di proposito**.
+
+---
+
+## ADR-0125 — Tre lettori di `athletes.user_id`, una casella per un atleta, e uno scollegamento che scollega
+
+**Data:** 2026-09-05 · **Stato:** accettata · **Lane:** PP-04 (round conclusivo)
+
+### Contesto
+
+Il round di revisione ostile conclusivo di PP-04 ha attaccato la superficie
+piu giovane — ADR-0122, ADR-0123, ADR-0124 — dal solo verso che i quattro
+round precedenti non avevano percorso, e ha trovato **tre High**, tutti
+misurati contro PostgreSQL e le rotte vere
+(`scripts/pp-04-round-conclusivo-probe.mjs`).
+
+### Il primo: la terza porta
+
+ADR-0117 ha stabilito che il legame diretto vale **finche la tessera vale**, e
+ha enumerato i lettori di `athletes.user_id`: `findAthleteProfileForUser` e
+`athleteBelongsToParent`. Ne ha contati due. Erano tre.
+
+`GET /api/v1/auth/athlete-profile/:athleteId` ricava `directAthleteAccess` dal
+**solo** confronto `athlete.user_id === session.db.user_id`, e da quel ramo
+salta sia la tessera sia il perimetro sia il taglio clinico — per progetto,
+perche «un atleta legge il proprio fascicolo per legame».
+
+Misurato con il gesto vero della segreteria — Gestione Accessi -> Revoca su
+una tessera con l'alias `giocatrice`, cioe la forma di **PP04-D9**, in cui lo
+sweep di `profile-account-links.ts` non azzera il campo:
+
+```
+zero tessere nel club, athletes.user_id ancora scritto
+  GET /api/v1/athlete-accounts/me                    -> 403   (ADR-0114/0117)
+  GET /api/parent-dashboard/<la stessa scheda>       -> 403   (ADR-0117/0122)
+  GET /api/v1/auth/athlete-profile/<la stessa scheda>-> 200   allergie, note
+                                                             mediche, i
+                                                             certificati interi
+```
+
+E il campo **non porta sempre l'atleta**: PP04-D6 registra la sua seconda
+lettura storica — «l'utenza a cui questa scheda appartiene» — e ADR-0124
+descrive il flusso, normale, in cui ci finisce l'identita di un **genitore**.
+Con un legame ereditato di quella forma, cio che usciva non era il fascicolo
+di chi lo leggeva: era quello di un altro, con dentro anche il codice fiscale
+del tutore (sonda R-84).
+
+### Il secondo: due schede, una sola utenza
+
+`sendAthleteAccountInvite` dichiara di chiudere questa porta, e il commento
+dice anche perche: «due atleti finirebbero sulla stessa utenza, e
+`findDirectAthleteIdForUser` aprirebbe all'uno la scheda dell'altro». La
+guardia interroga pero `athletes.user_id`, che lo scrive il **riscatto**. Fra
+due inviti quel campo e vuoto, quindi la domanda arrivava sempre troppo
+presto — e la sequenza che la svuota e la piu normale che una segreteria possa
+fare: due fratelli, una casella di famiglia sola, i due inviti mandati prima
+che qualcuno clicchi.
+
+Misurato (sonda R-96): entrambi gli inviti passavano, entrambi si riscattavano,
+due schede portavano la **stessa** `user_id`, e quell'unica identita apriva la
+bacheca di tutte e due — `GET /api/parent-dashboard/<X>/board` **200** e
+`GET /api/parent-dashboard/<Z>/board` **200**. Piu il danno silenzioso: il
+prodotto ne sceglie una (`findAthleteProfileForUser` prende il primo
+candidato) e l'altro ragazzo resta senza accesso mentre il club legge «Accesso
+attivo».
+
+### Il terzo: lo scollegamento non scollegava
+
+`eLaPersonaStessa` faceva **due lavori opposti con una condizione sola**.
+
+Come **esclusione** dal ramo del tutore deve essere durevole, ed e la ragione
+per cui ADR-0123 l'ha portata sull'invito accettato: senza durata, il gesto che
+toglie l'accesso lo riapre piu largo di prima.
+
+Come **ammissione** alle superfici proprie dell'atleta — la bacheca e l'RSVP,
+cioe cio che il ramo diretto dichiarato apre — vuole invece il legame **vivo**,
+perche e esattamente cio che lo scollegamento toglie. Con una condizione sola
+vinceva la durata:
+
+```
+dopo «Scollega account» (che lascia la tessera, per disegno):
+  GET  /api/v1/athlete-accounts/me            -> 403
+  GET  /api/parent-dashboard/<scheda>/board   -> 200
+  POST /api/parent-dashboard/<scheda>/board   -> 200   («l'ho letto»)
+poi il club affida la scheda a un'altra persona:
+  la vecchia utenza, sulla bacheca della scheda ceduta   -> 200
+  e dopo una revoca, che colpisce il NUOVO titolare      -> 200
+```
+
+L'ultima riga e la parte che pesa: **non esiste un gesto sul pannello di quella
+scheda che chiuda fuori la vecchia utenza**, perche `revokeAthleteAccess`
+toglie le tessere di chi e collegato **adesso**.
+
+**E introdotto da PP-04.** Alla base `0d66921` il predicato era
+`sameId(athlete.user_id, userId) || guardians…`: con il campo azzerato la
+bacheca rispondeva 403. La durata di ADR-0123 e cio che l'ha aperta, e il
+difetto e nato con il rimedio a un altro difetto — che e il modo in cui
+nascono quasi tutti.
+
+Il test di lane, per giunta, **asseriva il comportamento sbagliato** con una
+ragione scritta accanto: «con il ramo diretto dichiarato la risposta resta si,
+perche l'area atleta risolve prima il profilo da `athletes.user_id`». Vero per
+uno dei quattro chiamanti. La bacheca e l'RSVP non risolvono nessun profilo:
+chiedono qui.
+
+### Decisione
+
+1. **La domanda si pone a tutti e tre i lettori, e resta una sola.**
+   `athlete-profile/[athleteId]/route.ts` chiama `clubsWhereStillAthlete`
+   dentro `directAthleteAccess`. Non un terzo elenco: la funzione e quella che
+   risponde gia agli altri due, e un terzo elenco sarebbe il difetto di
+   partenza con un nome nuovo. Chi non e piu un atleta di quel club ricade sul
+   ramo di ruolo, cioe su `clinical.read` e sul perimetro, come qualunque
+   altro.
+
+2. **Una casella, un atleta.** Il rifiuto sta in due punti, e i due non sono
+   ridondanti:
+   - in `sendAthleteAccountInvite`, sull'invito **vivo** di un'altra scheda —
+     perche li c'e ancora una persona a cui dirlo, e un rifiuto al riscatto
+     lascerebbe la segreteria a leggere «Accesso inviato» e il ragazzo con un
+     link che non funzionera mai. **400**, non «Accesso negato»: il ruolo puo
+     invitare, e l'indirizzo a essere sbagliato;
+   - in `acceptAthleteAccountInvite`, **dentro la transazione che scrive**, su
+     qualunque altra scheda gia collegata a quell'utenza. E l'unico punto che
+     puo davvero garantire l'invariante: la guardia sull'invito e corribile, e
+     gli archivi esistenti possono gia portare due inviti vivi nati prima di
+     questo fix.
+
+   E la stessa forma di ADR-0119: la decisione la prende chi scrive, dentro la
+   transazione in cui scrive.
+
+3. **L'esclusione e durevole, l'ammissione e viva.** In
+   `athleteBelongsToParent` le due domande diventano due espressioni:
+   `eLaPersonaStessa` (legame vivo **oppure** invito accettato) decide che
+   quella identita **non passa dal ramo del tutore**, e resta durevole;
+   `legameVivo` decide se entra dal **proprio**, e non lo e. Chi e stato
+   l'account di questa scheda e non lo e piu non entra da nessuna delle due.
+
+### Conseguenze
+
+- Un club **non puo** dare a due fratelli lo stesso indirizzo come accesso
+  atleta. E la conseguenza voluta: quell'indirizzo e un'**identita**, e due
+  persone non possono averne una sola. La strada per la famiglia con una
+  casella sola resta il cruscotto del **tutore**, che e fatto per questo.
+- Un ex atleta con un legame superstite (PP04-D9) non legge piu il proprio
+  fascicolo clinico da nessuna porta. Le righe dangling restano, e restano
+  debito di PP-03: qui si chiude il **lettore**, non la causa.
+- «Scollega account» adesso scollega davvero: la bacheca e l'RSVP si chiudono
+  insieme all'area atleta. Chi voleva **togliere l'account e lasciare la
+  tessera** ottiene esattamente questo — la persona resta un atleta del club, e
+  non ha piu una superficie propria finche non le si da un accesso nuovo.
+
+### Come e stato validato
+
+`scripts/pp-04-round-conclusivo-probe.mjs` **112/112** contro PostgreSQL e le
+rotte vere, con R-82, R-84, R-96, R-98 e R-99 nuove; verifica per **mutazione**
+su tutte e quattro le guardie, ognuna rimossa da sola e le prove tornate rosse;
+`scripts/pp-04-atleta-probe.mjs` **123/123** invariata, cioe ADR-0122/0123/0124
+tutti ancora chiusi; `tests/server/pp-04-porta-di-servizio.test.mjs` **30**
+controlli (erano 23), di cui uno **corretto**: asseriva il comportamento che il
+terzo difetto produceva.

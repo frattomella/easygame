@@ -744,6 +744,43 @@ export const sendAthleteAccountInvite = async (
   }
 
   /*
+    **E nemmeno quello di un altro atleta gia invitato** (PP-04, ADR-0125).
+
+    La guardia qui sopra dichiara di chiudere «due atleti sulla stessa
+    utenza», e guarda `athletes.user_id` — che il **riscatto** scrive. Fra due
+    inviti quel campo e ancora vuoto, quindi la domanda arrivava sempre troppo
+    presto. Il round conclusivo lo ha misurato contro PostgreSQL con la
+    sequenza piu normale che una segreteria possa fare — due fratelli, una
+    casella di famiglia sola, i due inviti mandati prima che qualcuno clicchi:
+    entrambi passavano, entrambi si riscattavano, e due schede finivano a
+    portare la **stessa** `user_id`.
+
+    Da li in poi il prodotto sceglie: `findAthleteProfileForUser` prende il
+    primo candidato, e l'altro ragazzo non ha nessun accesso mentre il club
+    legge «Accesso attivo». E `eLaPersonaStessa` risponde di si per tutte e
+    due, quindi quell'unica identita apre la bacheca di entrambe le schede.
+
+    Una casella, un atleta. La coppia con l'invito ancora vivo e la seconda
+    meta della stessa domanda, e va fatta qui perche qui c'e ancora una
+    persona a cui dirlo.
+  */
+  const giaInvitato = await prisma.athleteAccountInvite.findFirst({
+    where: {
+      user_id: user.id,
+      status: "sent",
+      athlete_id: { not: atleta.id },
+    },
+    select: { athlete_id: true },
+  });
+  if (giaInvitato) {
+    throw new Error(
+      "Questo indirizzo ha gia un invito in corso sulla scheda di un altro " +
+        "atleta: una casella puo essere l'accesso di un atleta solo. Revoca " +
+        "quell'invito, oppure usa un indirizzo diverso per questa scheda.",
+    );
+  }
+
+  /*
     **La stessa domanda dall'altro capo** (ADR-0124).
 
     La guardia sull'indirizzo copre il caso in cui il recapito del tutore e
@@ -1289,6 +1326,32 @@ export const acceptAthleteAccountInvite = async (
   const senzaCredenzialiNote = !utente.email_verified_at;
 
   await prisma.$transaction(async (tx) => {
+    /*
+      **Una utenza, una scheda — e la decisione la prende chi scrive**
+      (PP-04, ADR-0125).
+
+      `sendAthleteAccountInvite` chiede gia due volte se questo indirizzo
+      appartiene a un altro atleta, ma entrambe le domande arrivano prima che
+      il legame esista: fra i due inviti `athletes.user_id` e ancora vuoto, e
+      due inviti emessi sulla stessa casella superavano tutti e due il
+      controllo. Chi puo rispondere davvero e questo punto, che e l'unico
+      scrittore del campo, dentro la transazione che lo scrive.
+
+      Misurato contro PostgreSQL prima del fix: due schede con la stessa
+      `user_id`, il prodotto che ne sceglieva una, e quell'unica identita che
+      apriva la bacheca di entrambe.
+    */
+    const altraScheda = await tx.athlete.findFirst({
+      where: { user_id: utente.id, id: { not: atleta.id } },
+      select: { id: true },
+    });
+    if (altraScheda) {
+      throw new Error(
+        "Questo indirizzo e gia l'accesso della scheda di un altro atleta: " +
+          "chiedi alla societa un indirizzo diverso per questa scheda.",
+      );
+    }
+
     await tx.athlete.update({
       where: { id: atleta.id },
       data: { user_id: utente.id },
