@@ -126,16 +126,30 @@ export const clubsWhereStillAthlete = async (
  */
 export const athleteCardsEverOwnedByUser = async (
   userId: string,
-  athleteIds: readonly string[],
+  /*
+    Le schede con il loro club, e non i soli identificativi: il club entra
+    nella clausola perche l'unico indice utile su `athlete_account_invites` e
+    `(organization_id, athlete_id)`. Su `user_id` non ce n'e nessuno, e questa
+    lettura sta su una strada calda — ogni apertura del cruscotto di famiglia.
+  */
+  schede: readonly { id: string; organization_id: string }[],
 ): Promise<Set<string>> => {
   const id = String(userId ?? "").trim();
-  const schede = Array.from(new Set(athleteIds.filter(Boolean)));
-  if (!id || !schede.length) return new Set();
+  const atleti = Array.from(
+    new Set(schede.map((scheda) => String(scheda?.id ?? "")).filter(Boolean)),
+  );
+  const clubs = Array.from(
+    new Set(
+      schede.map((scheda) => String(scheda?.organization_id ?? "")).filter(Boolean),
+    ),
+  );
+  if (!id || !atleti.length || !clubs.length) return new Set();
 
   const inviti = await prisma.athleteAccountInvite.findMany({
     where: {
+      organization_id: { in: clubs },
+      athlete_id: { in: atleti },
       user_id: id,
-      athlete_id: { in: schede },
       accepted_at: { not: null },
     },
     select: { athlete_id: true },

@@ -1213,7 +1213,10 @@ export const getParentLinkedAthletes = async (
   (
     await athleteCardsEverOwnedByUser(
       userId,
-      candidateAthletes.map((athlete) => String(athlete.id)),
+      candidateAthletes.map((athlete) => ({
+        id: String(athlete.id),
+        organization_id: String(athlete.organization_id),
+      })),
     )
   ).forEach((athleteId) => schedeProprie.add(athleteId));
 
