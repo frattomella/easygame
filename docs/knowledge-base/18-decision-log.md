@@ -6619,3 +6619,83 @@ della famiglia perche il proprio indirizzo compare fra quelli dei tutori.
 contro le rotte vere. Verifica per mutazione: rimessa la guardia precedente,
 sei prove tornano rosse e i **sette** segreti riappaiono nel corpo, compreso
 per l'ex atleta senza nessuna tessera.
+
+---
+
+## ADR-0123 — Essere una scheda non e un campo: e un'identita che la revoca non cancella
+
+**Data:** 2026-09-05 · **Lane:** PP-04 · **Stato:** adottata
+
+**Il fatto.** [ADR-0122](#adr-0122--chi-e-latleta-non-e-anche-la-propria-famiglia)
+ha reso esclusivo il ramo diretto di `athleteBelongsToParent`: chi porta
+`athletes.user_id` e quella scheda, non la sua famiglia. La condizione era pero
+scritta **sul campo che la revoca cancella**.
+
+`unlinkAthleteAccount` e `revokeAthleteAccess` azzerano `athletes.user_id`. Da
+quel momento `eLaPersonaStessa` e falso, la stessa identita ricade nel ramo del
+tutore — dove `guardians[].email` vale come legame, e dove non esistono ne
+`ancoraAtleta` ne `allowSelfAthleteLink` — e la casella su cui il ragazzo era
+stato invitato e, quasi sempre, la stessa che la segreteria ha scritto nel
+tutore. Misurato da un terzo giro di revisione ostile, contro PostgreSQL e
+contro le rotte vere:
+
+```
+scollegato l'account:
+  GET /api/v1/athlete-accounts/me              -> 403
+  GET /api/parent-dashboard/<la stessa scheda> -> 200
+      quote, ricevute, diagnosi, file_url del certificato, codice fiscale
+      del tutore, allergie, note mediche
+```
+
+Cioe: **il gesto con cui il club toglie l'accesso era il gesto che lo
+riapriva**, e piu largo di prima — l'area atleta proietta un elenco chiuso, il
+cruscotto della famiglia no. La stessa forma di
+[ADR-0117](#adr-0117--la-stessa-domanda-per-i-due-lettori-dello-stesso-campo),
+su uno stato del legame invece che su un secondo lettore.
+
+Con una tessera residua nel club la porta resta raggiungibile anche dopo la
+revoca completa: i candidati di `getParentLinkedAthletes` sono gli atleti dei
+club in cui la persona ha **una tessera qualunque**. Chi non ne ha piu nessuna
+era gia fuori, ma non per la guardia — per la clausola `OR` della ricerca.
+
+**La decisione.** La domanda non e «questa riga porta il mio `user_id`?» ma
+«**sono io quella scheda?**», e la risposta deve poggiare su un fatto che la
+revoca non cancella.
+
+Quel fatto e `athlete_account_invites`. Una riga di invito **accettato** dice
+«questa utenza e diventata l'account di questa scheda», e nessuno dei due gesti
+la cancella: la revoca scrive `revoked_at` sull'invito accettato **senza
+toccarne lo `status`** ([ADR-0115](#adr-0115--un-accesso-revocato-non-e-un-accesso-mai-aperto)),
+lo scollegamento non lo guarda proprio. E il solo fatto durevole disponibile, e
+non e un ripiego: `acceptAthleteAccountInvite` e **l'unico scrittore** di
+`athletes.user_id` in tutto il repository — gli altri tre punti lo azzerano —
+quindi ogni legame vivo ha la sua riga.
+
+`athleteCardsEverOwnedByUser` vive in `src/lib/server/athlete-membership.ts`,
+accanto a `clubsWhereStillAthlete`: sono le due meta della stessa domanda, e
+stanno nello stesso modulo per la ragione di ADR-0117.
+
+**Si contano solo gli inviti accettati.** Un invito mandato per errore a un
+tutore, e mai riscattato, non deve togliergli l'area della propria famiglia:
+nessuno e mai diventato quella scheda.
+
+**Il caso che questa regola chiude fuori, e va detto.** Un tutore che avesse
+**riscattato per errore** l'invito atleta del proprio figlio resta fuori dal
+ramo del tutore su quella scheda anche dopo lo scollegamento, perche l'invito
+accettato resta in archivio. E il prezzo dell'unico fatto durevole disponibile,
+ed e il verso giusto: il caso raro si ripulisce, la consegna di dati clinici a
+chi non ne ha piu diritto no.
+
+**Misurato.** `scripts/pp-04-atleta-probe.mjs` P-77…P-79, con il legame nato da
+un **riscatto vero** e non da una `update` a mano. Verifica per mutazione:
+tolta la meta nuova della condizione, quattro prove tornano rosse e i sei
+segreti riappaiono nel corpo, sia dopo lo scollegamento sia dopo la revoca.
+
+**Cosa resta aperto, e non e di PP-04.** Lo stesso ramo del tutore ha la stessa
+debolezza sul **genitore revocato**: `clearLinkedFields`
+(`profile-account-links.ts`) azzera `linkedUserId` e `linkedUserEmail` e
+**non tocca `email`**, che e il campo su cui `isGuardianLinkedToUser` ricade.
+Un genitore a cui il club ha tolto l'accesso, e che nel club conserva una
+tessera qualunque, continua a leggere e a scrivere. E un difetto **preesistente
+a PP-04** e in dominio altrui: registrato come PP04-D8 e come dependency verso
+PP-02 e PP-03, con la sua riproduzione.

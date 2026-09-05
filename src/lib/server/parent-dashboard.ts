@@ -22,7 +22,10 @@ import { dedupeTrainings } from "@/lib/training-utils";
   componente client copierebbe.
 */
 import { listAttachments } from "./attachments";
-import { clubsWhereStillAthlete } from "./athlete-membership";
+import {
+  athleteCardsEverOwnedByUser,
+  clubsWhereStillAthlete,
+} from "./athlete-membership";
 import {
   buildFamilyDocumentAreas,
   type FamilyDocumentAreas,
@@ -266,6 +269,7 @@ const athleteBelongsToParent = (
   userId: string,
   userEmail: string | null | undefined,
   ancoraAtleta: ReadonlySet<string>,
+  schedeProprie: ReadonlySet<string>,
 ) => {
   /*
     **Chi e l'atleta non e anche la propria famiglia** (ADR-0122).
@@ -286,7 +290,27 @@ const athleteBelongsToParent = (
     per lui vale il ramo diretto e solo quello, qualunque cosa dica l'elenco
     dei tutori. Il tutore vero — un'altra persona — non e toccato.
   */
-  const eLaPersonaStessa = sameId(athlete?.user_id, userId);
+  /*
+    **E «essere quella scheda» non e un campo: e un'identita** (ADR-0123).
+
+    Un terzo giro di revisione ha misurato che la condizione qui sopra era
+    scritta **sul campo che la revoca cancella**. `unlinkAthleteAccount` e
+    `revokeAthleteAccess` azzerano `athletes.user_id`, e da quel momento la
+    stessa persona tornava a passare dal ramo del tutore, dove la coincidenza
+    della casella vale come legame: l'area atleta rispondeva 403 e il
+    cruscotto della famiglia 200, sulla **stessa** scheda appena revocata.
+
+    Cioe: il gesto con cui il club toglie l'accesso era il gesto che lo
+    riapriva, piu largo di prima.
+
+    L'identita durevole la porta `athlete_account_invites`: un invito
+    **accettato** dice «questa utenza e diventata l'account di questa scheda»,
+    e ne la revoca ne lo scollegamento lo cancellano. `schedeProprie` e
+    l'insieme che ne esce, unito al legame vivo.
+  */
+  const eLaPersonaStessa =
+    sameId(athlete?.user_id, userId) ||
+    schedeProprie.has(String(athlete?.id || ""));
 
   if (eLaPersonaStessa) {
     return ancoraAtleta.has(String(athlete?.organization_id || ""));
@@ -1171,23 +1195,54 @@ export const getParentLinkedAthletes = async (
   });
 
   /*
+    **Le schede di cui questa persona e, o e stata, l'account** (ADR-0123).
+
+    Il legame vivo `athletes.user_id` piu gli inviti **accettati** che la
+    revoca non cancella. Si chiede sempre, anche quando il ramo diretto e
+    chiuso, perche non serve ad aprirlo: serve a impedire che chi e stato
+    quella scheda rientri dal ramo del tutore quando il club gli ha appena
+    tolto l'accesso.
+
+    Una interrogazione per l'intero elenco, non una per riga.
+  */
+  const schedeProprie = new Set(
+    candidateAthletes
+      .filter((athlete) => sameId(athlete.user_id, userId))
+      .map((athlete) => String(athlete.id)),
+  );
+  (
+    await athleteCardsEverOwnedByUser(
+      userId,
+      candidateAthletes.map((athlete) => String(athlete.id)),
+    )
+  ).forEach((athleteId) => schedeProprie.add(athleteId));
+
+  /*
     I club in cui questa persona e **ancora un atleta**: serve solo al ramo del
     legame diretto, e si chiede una volta sola per l'intero elenco invece che
-    per riga (ADR-0117). Si interroga soltanto sui club degli atleti che
-    portano il suo `user_id`: sugli altri la domanda non si pone.
+    per riga (ADR-0117). Si interroga soltanto sui club delle **sue** schede:
+    sugli altri la domanda non si pone.
   */
   const ancoraAtleta = allowSelfAthleteLink
     ? await clubsWhereStillAthlete(
         userId,
         candidateAthletes
-          .filter((athlete) => sameId(athlete.user_id, userId))
+          .filter((athlete) => schedeProprie.has(String(athlete.id)))
           .map((athlete) => athlete.organization_id),
       )
     : new Set<string>();
 
   const uniqueAthletes = new Map<string, (typeof candidateAthletes)[number]>();
   candidateAthletes.forEach((athlete) => {
-    if (athleteBelongsToParent(athlete, userId, verifiedEmail, ancoraAtleta)) {
+    if (
+      athleteBelongsToParent(
+        athlete,
+        userId,
+        verifiedEmail,
+        ancoraAtleta,
+        schedeProprie,
+      )
+    ) {
       uniqueAthletes.set(athlete.id, athlete);
     }
   });

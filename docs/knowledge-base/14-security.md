@@ -2146,6 +2146,31 @@ invito e senza audit. Lo stesso ramo cancellava i contenitori clinici.
 > con deroghe negative sparse vale quanto la memoria di chi scrive la prossima
 > rotta. Il verso giusto e quello in cui l'errore chiude.
 
+> **Aggiornamento PP-04 (2026-09-05, [ADR-0123](18-decision-log.md#adr-0123--essere-una-scheda-non-e-un-campo-e-unidentita-che-la-revoca-non-cancella)).**
+> **La guardia era scritta sul campo che la revoca cancella.** ADR-0122 chiude
+> il ramo del tutore a chi porta `athletes.user_id`; `unlinkAthleteAccount` e
+> `revokeAthleteAccess` azzerano proprio quel campo. Dopo il gesto, la stessa
+> persona ricadeva nel ramo del tutore — dove la coincidenza della casella
+> vale come legame — e il cruscotto della famiglia tornava a rispondere 200
+> mentre l'area atleta rispondeva 403. Il gesto con cui il club toglie
+> l'accesso era il gesto che lo riapriva, **piu largo di prima**.
+>
+> L'identita durevole la porta `athlete_account_invites`: un invito
+> **accettato** dice «questa utenza e diventata l'account di questa scheda», e
+> ne la revoca ne lo scollegamento lo cancellano.
+> `athleteCardsEverOwnedByUser` in `src/lib/server/athlete-membership.ts` la
+> legge, accanto a `clubsWhereStillAthlete`.
+>
+> Regola generale: **una guardia che poggia su un campo che un'altra
+> operazione azzera non e una guardia, e una coincidenza.** Prima di scrivere
+> una condizione di accesso su una colonna, si cerca chi la mette a `null`.
+>
+> **Resta aperto e non e di PP-04.** Lo stesso ramo ha la stessa debolezza sul
+> **genitore revocato**: `clearLinkedFields` non azzera `guardians[].email`,
+> che e il campo su cui `isGuardianLinkedToUser` ricade. Un genitore revocato
+> con una tessera residua nel club continua a leggere e a scrivere del minore.
+> Preesistente a PP-04, in dominio PP-02/PP-03: debito **PP04-D8**, con la
+> riproduzione.
 > **Aggiornamento PP-04 (2026-09-04, [ADR-0119](18-decision-log.md#adr-0119--il-token-dinvito-si-consuma-dentro-la-transazione-e-a-condizione)).**
 > Il riscatto dell'invito atleta leggeva la riga **fuori** dalla transazione e
 > dentro la aggiornava per identificativo: due riscatti simultanei dello stesso

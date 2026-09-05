@@ -147,6 +147,30 @@ const seed = (tessera = "athlete") => ({
     },
   ],
   clubRole: [],
+  /*
+    **Il legame nasce da un riscatto, e la riga resta** (ADR-0123).
+
+    `acceptAthleteAccountInvite` e l'unico scrittore di `athletes.user_id` in
+    tutto il repository: gli altri tre punti lo azzerano. Modellare il legame
+    senza la riga dell'invito accettato descriverebbe un archivio che il
+    prodotto non produce — ed e proprio quella riga il fatto durevole su cui la
+    guardia poggia quando la revoca cancella il campo.
+  */
+  athleteAccountInvite: [
+    {
+      id: "inv-aldo",
+      organization_id: CLUB,
+      athlete_id: ATLETA,
+      user_id: UTENTE_ATLETA,
+      email: "aldo@atleti.it",
+      token_hash: "a".repeat(64),
+      status: "accepted",
+      accepted_at: new Date(),
+      revoked_at: null,
+      expires_at: new Date(Date.now() + 864e5),
+      sent_at: new Date(),
+    },
+  ],
 });
 
 const monta = (tessera) => {
@@ -489,4 +513,145 @@ test("solo quattro chiamanti aprono il ramo diretto, e sono quelli dichiarati", 
       `${file} deve dire perche apre il ramo diretto`,
     );
   }
+});
+
+/* ==================================================================== *
+ *  6. La revoca non riapre la porta che chiude (ADR-0123)
+ * ==================================================================== */
+
+test("scollegato l'account, il cruscotto non si riapre dal ramo del tutore", async () => {
+  /*
+    **Il gesto che toglie l'accesso era il gesto che lo riapriva.**
+
+    ADR-0122 aveva scritto la guardia su `athletes.user_id`, che e proprio il
+    campo che `unlinkAthleteAccount` e `revokeAthleteAccess` azzerano: da li in
+    poi la stessa persona tornava a passare dal ramo del tutore, dove la
+    coincidenza della casella vale come legame. Un terzo giro di revisione
+    ostile lo ha misurato contro PostgreSQL — l'area atleta 403 e il cruscotto
+    della famiglia 200, sulla stessa scheda appena scollegata.
+
+    L'identita durevole la porta l'invito **accettato**, che ne la revoca ne lo
+    scollegamento cancellano.
+  */
+  const semi = seed("athlete");
+  semi.athlete[0].user_id = null; // lo scollegamento ha gia azzerato il legame
+  fake = createFakePrisma(semi);
+  setPrismaClientForTests(fake.client);
+
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+    false,
+    "il cruscotto della famiglia: era questa la porta che lo scollegamento apriva",
+  );
+  assert.equal(
+    await famiglia.getParentDashboardData(UTENTE_ATLETA, ATLETA),
+    null,
+    "e la rotta riceve `null`, che e il suo 403",
+  );
+
+  /*
+    Con il ramo diretto **dichiarato** la risposta resta si, ed e giusta: la
+    tessera di atleta e viva, quindi quella persona e ancora un atleta di quel
+    club. Cio che e cambiato e da **quale** ramo passa — il proprio, non quello
+    del tutore — e il proprio ramo non consegna il payload della famiglia:
+    delle quattro superfici che lo dichiarano, l'area atleta risolve prima il
+    profilo da `athletes.user_id` e con il legame scollegato risponde 403.
+  */
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA, COME_ATLETA),
+    true,
+  );
+  assert.equal(
+    await accessi.findAthleteProfileForUser(UTENTE_ATLETA),
+    null,
+    "e la porta dell'area atleta resta chiusa, perche il legame non c'e piu",
+  );
+});
+
+test("revocato l'accesso, una tessera residua non basta a rientrare", async () => {
+  /*
+    La condizione di raggiungibilita misurata dalla revisione: **una tessera
+    qualunque** nel club tiene la persona fra i candidati di
+    `getParentLinkedAthletes`. Chi non ne ha piu nessuna era gia fuori, e non
+    per la guardia: per la clausola `OR` della ricerca.
+  */
+  const semi = seed(null);
+  semi.athlete[0].user_id = null;
+  semi.organizationUser.push({
+    id: "ou-residua",
+    organization_id: CLUB,
+    user_id: UTENTE_ATLETA,
+    role: "trainer",
+  });
+  fake = createFakePrisma(semi);
+  setPrismaClientForTests(fake.client);
+
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA, COME_ATLETA),
+    false,
+  );
+  assert.equal(
+    await famiglia.canParentAccessAthlete(UTENTE_ATLETA, ATLETA),
+    false,
+  );
+});
+
+test("ma un invito mai riscattato non toglie niente a nessuno", async () => {
+  /*
+    **Il controllo sul non fare troppo.**
+
+    Si contano solo gli inviti **accettati**. Un invito mandato per errore
+    all'indirizzo di un tutore, e mai riscattato, non deve chiudergli l'area
+    della propria famiglia: nessuno e mai diventato quella scheda.
+  */
+  const semi = seed("athlete");
+  semi.athleteAccountInvite = [
+    {
+      id: "inv-sbagliato",
+      organization_id: CLUB,
+      athlete_id: FIGLIO,
+      user_id: TUTORE,
+      email: "tutore@famiglia.it",
+      token_hash: "b".repeat(64),
+      status: "sent",
+      accepted_at: null,
+      revoked_at: null,
+      expires_at: new Date(Date.now() + 864e5),
+      sent_at: new Date(),
+    },
+  ];
+  fake = createFakePrisma(semi);
+  setPrismaClientForTests(fake.client);
+
+  assert.equal(
+    await famiglia.canParentAccessAthlete(TUTORE, FIGLIO),
+    true,
+    "il tutore entra: l'invito e partito, non e stato riscattato",
+  );
+});
+
+test("la domanda sull'identita vive nel modulo che la possiede, non copiata", async () => {
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const modulo = readFileSync(
+    path.join(process.cwd(), "src", "lib", "server", "athlete-membership.ts"),
+    "utf8",
+  );
+  assert.ok(
+    modulo.includes("athleteCardsEverOwnedByUser"),
+    "sta accanto a clubsWhereStillAthlete, che risponde all'altra meta della domanda",
+  );
+  assert.ok(
+    modulo.includes("accepted_at"),
+    "e conta gli inviti accettati, non quelli soltanto partiti",
+  );
+
+  const famigliaSrc = readFileSync(
+    path.join(process.cwd(), "src", "lib", "server", "parent-dashboard.ts"),
+    "utf8",
+  );
+  assert.ok(
+    famigliaSrc.includes("athleteCardsEverOwnedByUser"),
+    "e il lettore la chiama invece di rifarla",
+  );
 });

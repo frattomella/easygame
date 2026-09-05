@@ -30,6 +30,12 @@ invitato sulla casella di famiglia. Il Critical non era stato chiuso, era stato
 quando si stringe una lettura, si cercano tutti i lettori **e** tutti i rami
 che portano al medesimo `return true`.
 
+E un terzo giro ha aggiunto la coda: la guardia nuova era scritta sul campo che
+la revoca **azzera**, quindi il gesto che toglieva l'accesso lo riapriva dal
+ramo accanto (ADR-0123). Una guardia che poggia su una colonna che un'altra
+operazione mette a `null` non e una guardia: e una coincidenza. Prima di
+scrivere una condizione di accesso su un campo, si cerca **chi lo cancella**.
+
 **2. Un elenco chiuso vale sulla proiezione, non sulla rotta.** Il commento di
 `CAMPI_AREA_ATLETA` dice, correttamente, che denaro, tutori e contenuto clinico
 restano fuori «non per dimenticanza». Era vero su una rotta sola: un atleta in
@@ -225,6 +231,62 @@ cruscotto. Fissarla a «si» sarebbe stato il predefinito permissivo appena
 tolto, spostato di un file: cioe il modo esatto in cui questo Critical si era
 gia spostato una volta.
 
+### Il terzo round: la guardia stava sul campo che la revoca cancella
+
+> Decisione: [ADR-0123](18-decision-log.md#adr-0123--essere-una-scheda-non-e-un-campo-e-unidentita-che-la-revoca-non-cancella).
+
+Un **terzo** reviewer indipendente ha rimisurato ADR-0122 e ha trovato che la
+quinta strada non era un quinto chiamante: era un **quinto stato**.
+
+La condizione «chi porta `athletes.user_id` e quella scheda» era scritta sul
+campo che `unlinkAthleteAccount` e `revokeAthleteAccess` azzerano. Dopo il
+gesto, la stessa persona ricadeva nel ramo del tutore, dove la coincidenza
+della casella vale come legame:
+
+```
+scollegato l'account (la tessera di atleta resta viva):
+  GET /api/v1/athlete-accounts/me              -> 403
+  GET /api/parent-dashboard/<la stessa scheda> -> 200
+      quote, ricevute, diagnosi, file_url del certificato, codice fiscale
+      del tutore, allergie, note mediche
+
+revocato l'accesso, con una tessera residua nel club:
+  stessa coppia, stesso payload
+```
+
+**Il gesto con cui il club toglie l'accesso era il gesto che lo riapriva**, e
+piu largo di prima: l'area atleta proietta un elenco chiuso, il cruscotto
+della famiglia no.
+
+La correzione sposta la domanda dall'essere un campo all'essere un'identita.
+Il fatto durevole e `athlete_account_invites`: un invito **accettato** dice
+«questa utenza e diventata l'account di questa scheda», e ne la revoca ne lo
+scollegamento lo cancellano. E non e un ripiego:
+`acceptAthleteAccountInvite` e **l'unico scrittore** di `athletes.user_id` in
+tutto il repository — gli altri tre punti lo azzerano — quindi ogni legame
+vivo ha la sua riga.
+
+Si contano solo gli inviti **accettati**: un invito mandato per errore e mai
+riscattato non deve togliere a nessun tutore l'area della propria famiglia.
+
+Le sonde della lane hanno dovuto cambiare per poterlo misurare: seminavano il
+legame con una `update` a mano, che e uno stato che il prodotto non produce.
+Adesso passano dal **riscatto vero**.
+
+#### Quello che resta aperto, e non e di PP-04
+
+Lo stesso ramo del tutore ha la stessa debolezza sul **genitore revocato**, e
+li PP-04 non arriva. `clearLinkedFields` (`profile-account-links.ts`, dominio
+PP-03) riconosce il legame anche per email e poi ripulisce tutto **tranne**
+`email`, che e il campo su cui `isGuardianLinkedToUser` ricade. Misurato: un
+padre che e anche allenatore del club, revocato da Gestione Accessi,
+continua a leggere del minore quote, diagnosi, `file_url` del certificato e
+codice fiscale del tutore — **e a scrivere**.
+
+Non e correggibile dal lato del lettore: un tutore revocato e un tutore mai
+collegato hanno la **stessa** riga in archivio. Serve una scrittura, e quella
+scrittura e una decisione del dominio che la possiede. Registrato come
+**PP04-D8** e come dependency verso PP-02 e PP-03, con la riproduzione.
 ### Il token dell'invito
 
 > Decisione: [ADR-0119](18-decision-log.md#adr-0119--il-token-dinvito-si-consuma-dentro-la-transazione-e-a-condizione).

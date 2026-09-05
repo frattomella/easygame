@@ -1839,20 +1839,33 @@ const proveRamoTutore = async () => {
       updated_at: new Date(),
     },
   });
-  await prisma.organizationUser.create({
+  /*
+    **Il legame nasce dal riscatto vero, non da una `update`** (ADR-0123).
+
+    `acceptAthleteAccountInvite` e l'**unico** scrittore di
+    `athletes.user_id` in tutto il repository — gli altri tre punti lo
+    azzerano — e scrive nella stessa transazione il legame, la tessera
+    `athlete` e la chiusura dell'invito. Seminare quello stato a mano
+    modellerebbe un archivio che il prodotto non produce, e nasconderebbe
+    proprio il fatto durevole su cui la guardia di ADR-0123 poggia: la riga
+    dell'invito **accettato**, che ne la revoca ne lo scollegamento cancellano.
+  */
+  const gettoneD = randomUUID().replace(/-/g, "").repeat(2);
+  await prisma.athleteAccountInvite.create({
     data: {
       id: randomUUID(),
       organization_id: CLUB,
+      athlete_id: ATLETA_D,
       user_id: UTENTE_D.id,
-      role: "athlete",
-      is_primary: true,
+      email: CASA,
+      token_hash: createHash("sha256").update(gettoneD).digest("hex"),
+      status: "sent",
+      expires_at: new Date(Date.now() + 30 * 864e5),
+      sent_at: new Date(),
       updated_at: new Date(),
     },
   });
-  await prisma.athlete.update({
-    where: { id: ATLETA_D },
-    data: { user_id: UTENTE_D.id },
-  });
+  await dominio.acceptAthleteAccountInvite(gettoneD);
 
   const quota = await prisma.athletePayment.create({
     data: {
@@ -2071,6 +2084,240 @@ const proveRamoTutore = async () => {
     "P-76b e ci trova cio per cui l'area e stata scritta",
     true,
     JSON.stringify(cruscottoTutore.corpo ?? "").includes("SEGRETO-D-QUOTA"),
+  );
+
+  /* ================================================================== *
+   *  P-77…P-79 — la revoca non deve riaprire la porta che chiude
+   *              (ADR-0123)
+   * ================================================================== */
+
+  /*
+    **Il gesto che toglie l'accesso era il gesto che lo riapriva.**
+
+    ADR-0122 aveva scritto la guardia su `athletes.user_id`. Lo scollegamento
+    e la revoca azzerano proprio quel campo: da li in poi la stessa persona
+    tornava a passare dal ramo del tutore, dove la coincidenza della casella
+    vale come legame. Un terzo giro di revisione ostile lo ha misurato —
+    `/api/v1/athlete-accounts/me` 403 e `/api/parent-dashboard/<la stessa
+    scheda>` 200, con dentro tutto.
+
+    Si semina una scheda per gesto, con lo stesso stato di partenza: la
+    casella di famiglia scritta due volte e il legame nato da un riscatto
+    vero.
+  */
+  const seminaConCasa = async (nome, cognome, nascita) => {
+    const id = randomUUID();
+    const casella = `casa-${nome.toLowerCase()}@pp04.invalid`;
+    const persona = await utente(casella, nome);
+    await prisma.athlete.create({
+      data: {
+        id,
+        organization_id: CLUB,
+        first_name: nome,
+        last_name: cognome,
+        status: "active",
+        category_id: CAT_A,
+        category_name: "Under 12",
+        birth_date: new Date(nascita),
+        data: {
+          email: casella,
+          allergies: "SEGRETO-D-ALLERGIA",
+          medical_notes: "SEGRETO-D-NOTA-MEDICA",
+          guardians: [
+            {
+              id: "g-casa",
+              first_name: "Genitore",
+              last_name: cognome,
+              email: casella,
+              fiscal_code: "SEGRETO-D-CF-TUTORE",
+            },
+          ],
+        },
+        updated_at: new Date(),
+      },
+    });
+    await prisma.athletePayment.create({
+      data: {
+        id: randomUUID(),
+        organization_id: CLUB,
+        athlete_id: id,
+        description: "SEGRETO-D-QUOTA",
+        amount: 100,
+        status: "pending",
+        due_date: new Date(Date.now() + 864e5),
+        updated_at: new Date(),
+      },
+    });
+    await prisma.medicalCertificate.create({
+      data: {
+        id: randomUUID(),
+        organization_id: CLUB,
+        athlete_id: id,
+        type: "agonistico",
+        status: "valid",
+        issue_date: new Date(),
+        expiry_date: new Date(Date.now() + 200 * 864e5),
+        file_url: "/api/v1/attachments/SEGRETO-D-FILE-CERT",
+        notes: "SEGRETO-D-DIAGNOSI",
+        updated_at: new Date(),
+      },
+    });
+    const gettone = randomUUID().replace(/-/g, "").repeat(2);
+    await prisma.athleteAccountInvite.create({
+      data: {
+        id: randomUUID(),
+        organization_id: CLUB,
+        athlete_id: id,
+        user_id: persona.id,
+        email: casella,
+        token_hash: createHash("sha256").update(gettone).digest("hex"),
+        status: "sent",
+        expires_at: new Date(Date.now() + 30 * 864e5),
+        sent_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+    await dominio.acceptAthleteAccountInvite(gettone);
+    const sessione = await sessionePer(
+      await prisma.user.findUnique({ where: { id: persona.id } }),
+    );
+    return { id, persona, sessione, params: { params: { athleteId: id } } };
+  };
+
+  const apreIlCruscotto = async (scheda, token = scheda.sessione, ruolo = "athlete") =>
+    leggi(
+      await rotte.famiglia.GET(
+        richiesta(`/api/parent-dashboard/${scheda.id}`, {
+          token,
+          club: CLUB,
+          ruolo,
+        }),
+        scheda.params,
+      ),
+    );
+  const apreLaSuaArea = async (scheda) =>
+    leggi(
+      await rotte.me.GET(
+        richiesta("/api/v1/athlete-accounts/me", {
+          token: scheda.sessione,
+          club: CLUB,
+          ruolo: "athlete",
+        }),
+      ),
+    );
+
+  /* P-77 — lo **scollegamento**: la tessera resta viva, il legame no. */
+  const scollegata = await seminaConCasa("Enzo", "Esposito", "2012-06-06");
+  prova(
+    "P-77a prima dello scollegamento la sua area si apre",
+    200,
+    (await apreLaSuaArea(scollegata)).status,
+  );
+  await dominio.unlinkAthleteAccount(scopeGestione(), {
+    athleteId: scollegata.id,
+  });
+  prova(
+    "P-77b lo scollegamento ha azzerato athletes.user_id",
+    null,
+    (
+      await prisma.athlete.findUnique({
+        where: { id: scollegata.id },
+        select: { user_id: true },
+      })
+    ).user_id,
+  );
+  prova(
+    "P-77c e l'area atleta si chiude: 403",
+    403,
+    (await apreLaSuaArea(scollegata)).status,
+  );
+  const cruscottoScollegato = await apreIlCruscotto(scollegata);
+  prova(
+    "P-77 e il cruscotto si chiude con lei: 403",
+    403,
+    cruscottoScollegato.status,
+    "era la porta che lo scollegamento apriva: /me 403 e questa 200",
+  );
+  prova(
+    "P-77d con zero segreti nel corpo",
+    [],
+    nessunSegreto(cruscottoScollegato),
+  );
+
+  /* P-78 — la **revoca**, con una tessera residua che tiene la persona nel club. */
+  const revocata = await seminaConCasa("Fabio", "Ferri", "2011-07-07");
+  await prisma.organizationUser.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      user_id: revocata.persona.id,
+      role: "parent",
+      is_primary: false,
+      updated_at: new Date(),
+    },
+  });
+  await dominio.revokeAthleteAccess(scopeGestione(), { athleteId: revocata.id });
+  prova(
+    "P-78a la revoca toglie la tessera di atleta e lascia l'altra",
+    ["parent"],
+    (
+      await prisma.organizationUser.findMany({
+        where: { organization_id: CLUB, user_id: revocata.persona.id },
+        select: { role: true },
+      })
+    ).map((riga) => riga.role),
+  );
+  prova(
+    "P-78b l'area atleta si chiude: 403",
+    403,
+    (await apreLaSuaArea(revocata)).status,
+  );
+  const cruscottoRevocato = await apreIlCruscotto(revocata);
+  prova(
+    "P-78 e il cruscotto non riapre dal ramo del tutore: 403",
+    403,
+    cruscottoRevocato.status,
+    "la tessera residua la teneva fra i candidati, e la casella la faceva passare",
+  );
+  prova(
+    "P-78c con zero segreti nel corpo",
+    [],
+    nessunSegreto(cruscottoRevocato),
+  );
+
+  /*
+    P-79 — **la guardia non fa troppo, di nuovo.** Il tutore di Fabio, che e
+    un'altra persona, entra come prima: revocare l'accesso dell'atleta non e
+    revocare quello della sua famiglia (ADR-0116, terza domanda aperta).
+  */
+  const precedente = (
+    await prisma.athlete.findUnique({
+      where: { id: revocata.id },
+      select: { data: true },
+    })
+  ).data;
+  await prisma.athlete.update({
+    where: { id: revocata.id },
+    data: {
+      data: {
+        ...precedente,
+        guardians: [
+          {
+            id: "g-delia",
+            first_name: "Delia",
+            last_name: "Ferri",
+            email: TUTORE_D.email,
+            fiscal_code: "SEGRETO-D-CF-TUTORE",
+          },
+        ],
+      },
+    },
+  });
+  prova(
+    "P-79 il tutore entra sulla scheda di un ex atleta revocato: 200",
+    200,
+    (await apreIlCruscotto(revocata, sessioneTutore, "parent")).status,
+    "revocare l'accesso dell'atleta non revoca quello della sua famiglia",
   );
 };
 

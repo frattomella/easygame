@@ -80,3 +80,66 @@ export const clubsWhereStillAthlete = async (
     ...fondati.map((riga) => riga.id),
   ]);
 };
+
+/**
+ * **«Di quali di queste schede questa persona e, o e stata, l'account?»**
+ * (PP-04, ADR-0123).
+ *
+ * ---
+ *
+ * ## Perche `athletes.user_id` non bastava
+ *
+ * ADR-0122 ha reso esclusivo il ramo diretto di `athleteBelongsToParent`: chi
+ * porta `athletes.user_id` e quella scheda, non la sua famiglia, e per lui il
+ * ramo del tutore non viene nemmeno valutato. La condizione era pero scritta
+ * **sul campo che la revoca cancella**.
+ *
+ * Un terzo giro di revisione ostile lo ha misurato: `unlinkAthleteAccount` e
+ * `revokeAthleteAccess` azzerano `athletes.user_id`, e da quel momento la
+ * stessa identita torna a passare dal ramo del tutore — dove `guardians[].email`
+ * vale come legame, e dove la casella di famiglia e quasi sempre la stessa su
+ * cui il ragazzo era stato invitato. `GET /api/v1/athlete-accounts/me`
+ * rispondeva **403** e `GET /api/parent-dashboard/<la stessa scheda>`
+ * rispondeva **200**, con quote, ricevute, diagnosi, indirizzo del file del
+ * certificato e codice fiscale dei tutori. La guardia era un cortocircuito su
+ * un campo, non una domanda sull'identita.
+ *
+ * ## Cosa risponde alla domanda, e perche sopravvive alla revoca
+ *
+ * `athlete_account_invites`. La riga di un invito **accettato** dice «questa
+ * utenza e diventata l'account di questa scheda», e ne la revoca ne lo
+ * scollegamento la cancellano: la revoca scrive `revoked_at` sull'invito
+ * accettato **senza toccarne lo `status`** (ADR-0115), e lo scollegamento non
+ * lo guarda proprio. E percio il solo fatto durevole che c'e.
+ *
+ * Si contano solo gli inviti **accettati**: un invito mandato per errore alla
+ * persona sbagliata, e mai riscattato, non deve togliere a nessuno l'area
+ * della propria famiglia.
+ *
+ * ## Il caso che questa funzione chiude fuori, e va detto
+ *
+ * Un tutore che avesse **riscattato per errore** l'invito atleta del proprio
+ * figlio resta fuori dal ramo del tutore su quella scheda anche dopo lo
+ * scollegamento, perche l'invito accettato resta in archivio. E il prezzo
+ * dell'unico fatto durevole disponibile, ed e il verso giusto: il caso raro e
+ * ripulibile, la perdita di dati clinici no.
+ */
+export const athleteCardsEverOwnedByUser = async (
+  userId: string,
+  athleteIds: readonly string[],
+): Promise<Set<string>> => {
+  const id = String(userId ?? "").trim();
+  const schede = Array.from(new Set(athleteIds.filter(Boolean)));
+  if (!id || !schede.length) return new Set();
+
+  const inviti = await prisma.athleteAccountInvite.findMany({
+    where: {
+      user_id: id,
+      athlete_id: { in: schede },
+      accepted_at: { not: null },
+    },
+    select: { athlete_id: true },
+  });
+
+  return new Set(inviti.map((riga) => String(riga.athlete_id)));
+};
