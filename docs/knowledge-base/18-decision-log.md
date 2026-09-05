@@ -6592,3 +6592,45 @@ entrare — un recapito, un gettone, un accesso esterno — bisogna chiedersi
 **dove lo si chiude**. Un elenco di canali di accesso senza un punto unico che
 li revochi tutti insieme e un elenco che prima o poi ne dimentica uno; qui il
 punto unico e `sfrattaOccupante`.
+
+**Emendamento del 2026-09-05 (secondo round della revisione ostile).** Il punto
+unico c'era, e gli era stato dato un elenco **incompleto**: mancava
+`external_accounts`, che era il canale piu forte di tutti.
+
+5. **Lo sfratto cancella anche i legami con gli accessi esterni.** La catena
+   misurata: l'attaccante collega il **proprio** Google a un account proprio
+   con indirizzo verificato — nessuno sfratto, perche non c'e niente da
+   sfrattare — poi cambia l'indirizzo in quello della vittima con la propria
+   password, e aspetta. Quando la vittima arriva da Google lo sfratto scatta e
+   le restituisce l'account, ma il legame dell'attaccante e ancora li, e
+   `findOrCreateOAuthUser` risolve **per `provider_account_id` prima di ogni
+   altra cosa**: al suo accesso successivo l'attaccante rientra, e la difesa 3
+   non lo vede nemmeno, perche quel rientro non passa da nessuna challenge. Si
+   cancellano **tutti**: chi adotta l'account ricrea il proprio subito dopo, in
+   `upsertExternalAccount`. Un legame che non si ricrea non era di chi ha appena
+   dimostrato di possedere l'indirizzo.
+
+6. **Il riferimento di verifica e un segreto; l'UUID di un account non lo e.**
+   La rotazione di `token_verification_id` decisa al punto 1 era **teatro**
+   finche `findUserByVerificationReference` accettava anche l'UUID: l'occupante
+   non aveva bisogno del riferimento nuovo, perche l'UUID non cambia mai e lo
+   aveva gia — usciva in chiaro come `verification.userId` da ogni risposta
+   senza sessione. Da qui in avanti:
+   - le risposte senza sessione emettono il **riferimento opaco**, creato al
+     bisogno da `ensureVerificationReference`;
+   - `/verify/<canale>/send` e `/confirm` accettano l'UUID nudo **solo da chi ha
+     gia una sessione su quel medesimo account** — il caso della pagina Account,
+     che manda `user.id` perche e l'unico identificativo che il client ha di se
+     stesso, e dove non si rivela niente a chi non lo sappia gia. Chiunque altro
+     porta il riferimento.
+
+   Il beneficio non e solo la rotazione: gli UUID utente circolano in molte
+   proiezioni club-scoped, e senza questo vincolo chi ne avesse raccolti poteva
+   pilotare le rotte di verifica su account altrui e **distinguere un
+   identificativo vero da uno inventato** — l'enumerazione che il resto della
+   lane aveva chiuso, riaperta da una porta laterale.
+
+**La regola generale, corretta.** «Serve un punto unico che li revochi tutti
+insieme» era giusta e insufficiente. Un punto unico non e una garanzia: e **un
+posto dove guardare**. E una rotazione vale solo quanto vale il piu debole degli
+identificativi che la aggirano.

@@ -16,6 +16,7 @@ import {
 import {
   VerificationRejected,
   buildOtpTargetCounterKey,
+  ensureVerificationReference,
   finalizeVerifiedSession,
   isPhoneVerificationBlocking,
   maskStoredPhone,
@@ -177,6 +178,7 @@ export async function POST(request: Request) {
         */
         {
           policy: AUTH_RATE_LIMITS.otpSendTarget,
+          /* La forma canonica la impone `buildOtpTargetCounterKey` (M-4). */
           identifier: `phone:target:${buildOtpTargetCounterKey(
             String(user.phone || ""),
           )}`,
@@ -202,13 +204,22 @@ export async function POST(request: Request) {
         throw error;
       });
 
+      const riferimento = await ensureVerificationReference(user);
+
       return NextResponse.json(
         {
           data: {
             user: serializeAuthUserWithoutSession(user),
             session: null,
             verification: {
-              userId: user.id,
+              /*
+                **Il riferimento opaco, non l'UUID** (M-1 del secondo round).
+                Qui usciva `user.id` in chiaro: un valore che non cambia mai,
+                che l'occupante di un account aveva gia, e che rendeva vana la
+                rotazione del riferimento fatta dallo sfratto. Il riferimento
+                si crea se manca: e un segreto lungo, e si puo ruotare.
+              */
+              userId: riferimento,
               email: user.email,
               /* Mascherato: vedi `buildVerificationPayload`. */
               phone: maskStoredPhone(user.phone),

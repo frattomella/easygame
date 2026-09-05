@@ -177,7 +177,24 @@ const hashTarget = (target: string) =>
     )
     .digest("hex");
 
-export const buildOtpTargetCounterKey = (target: string) => hashTarget(target);
+/**
+ * **La chiave del contatore per destinatario, dalla forma canonica.**
+ *
+ * `hashTarget` fa solo `trim().toLowerCase()`, che per un indirizzo email e
+ * la normalizzazione giusta e per un numero non lo e affatto: `3401234567` e
+ * `+393401234567` sono lo stesso destinatario e producevano **due
+ * secchielli** (M-4 del secondo round della revisione ostile). Il tetto
+ * raddoppiava esattamente sulle righe scritte prima di PP-05 — cioe su tutte
+ * quelle esistenti — perche la rotta di login leggeva la colonna grezza e
+ * quelle di verifica il numero normalizzato.
+ *
+ * La canonicalizzazione sta **qui e non nei chiamanti**: un chiamante che se
+ * la dimentica non produce un errore, produce un contatore che conta meta.
+ */
+export const buildOtpTargetCounterKey = (target: string) => {
+  const numero = normalizePhoneNumber(target);
+  return hashTarget(numero.valid ? numero.e164 : target);
+};
 
 const getAppBaseUrl = () =>
   process.env.AUTH_BASE_URL ||
@@ -206,7 +223,30 @@ const getPreviewCode = (_sent: boolean, code: string) =>
 export const createVerificationReference = () =>
   `verify_${randomBytes(24).toString("hex")}`;
 
-export const findUserByVerificationReference = async (reference: string) => {
+/**
+ * **L'identificativo di verifica e un segreto; l'UUID di un utente no.**
+ *
+ * Questa funzione accettava **entrambi**, e la seconda strada rendeva vana la
+ * prima (M-1 del secondo round della revisione ostile). Due conseguenze:
+ *
+ * 1. la rotazione di `token_verification_id` nello sfratto era **teatro**:
+ *    l'occupante non aveva bisogno del riferimento nuovo, perche l'UUID
+ *    dell'account non cambia e lo aveva gia — esce in chiaro come
+ *    `verification.userId` da ogni risposta senza sessione;
+ * 2. gli UUID utente circolano in molte proiezioni club-scoped, quindi chi ne
+ *    aveva raccolti poteva pilotare `/verify/<canale>/send` e `/confirm` su
+ *    account altrui, e distinguere un identificativo vero da uno inventato dal
+ *    modo in cui rispondevano.
+ *
+ * Da qui in avanti l'UUID nudo vale **solo per chi ha gia una sessione su
+ * quell'account**: e il caso della pagina Account, dove non si sta rivelando
+ * niente che chi chiama non sappia gia di se stesso. Chi non ha sessione deve
+ * portare il riferimento opaco, che e un segreto lungo e non si indovina.
+ */
+export const findUserByVerificationReference = async (
+  reference: string,
+  sessionUserId?: string | null,
+) => {
   const normalizedReference = String(reference || "").trim();
   if (!normalizedReference) return null;
 
@@ -223,7 +263,30 @@ export const findUserByVerificationReference = async (reference: string) => {
     return null;
   }
 
+  if (!sessionUserId || String(sessionUserId) !== normalizedReference) {
+    return null;
+  }
+
   return prisma.user.findUnique({ where: { id: normalizedReference } });
+};
+
+/**
+ * Il riferimento opaco di un account, creandolo se non c'e.
+ *
+ * Serve alle risposte senza sessione: prima ci usciva l'UUID, che non e un
+ * segreto e non cambia mai.
+ */
+export const ensureVerificationReference = async (user: {
+  id: string;
+  token_verification_id?: string | null;
+}) => {
+  if (user.token_verification_id) return user.token_verification_id;
+  const reference = createVerificationReference();
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { token_verification_id: reference },
+  });
+  return reference;
 };
 
 /**
@@ -241,15 +304,22 @@ export const maskStoredPhone = (phone?: string | null) => {
   return maskPhoneNumber(numero.valid ? numero.e164 : String(phone));
 };
 
-const buildVerificationPayload = (user: {
+const buildVerificationPayload = async (user: {
   id: string;
   email: string;
   phone?: string | null;
+  token_verification_id?: string | null;
   email_verified_at?: Date | null;
   phone_verified_at?: Date | null;
   phone_verification_required?: boolean;
 }) => ({
-  userId: user.id,
+  /*
+    **Il riferimento opaco, non l'UUID** (M-1 del secondo round). L'UUID di un
+    account non e un segreto e non cambia mai: farlo uscire da una risposta
+    senza sessione rendeva vana la rotazione fatta dallo sfratto, e dava a
+    chiunque lo raccogliesse una chiave per pilotare le rotte di verifica.
+  */
+  userId: await ensureVerificationReference(user),
   email: user.email,
   /*
     **Il numero si mostra mascherato.** Questa struttura esce da rotte che si
@@ -786,13 +856,36 @@ const sfrattaOccupante = async (userId: string) => {
     },
   });
   await prisma.session.deleteMany({ where: { user_id: userId } });
+  /*
+    **E i legami con gli accessi esterni**, che erano il canale piu forte di
+    tutti e sopravvivevano a entrambe le versioni precedenti di questa
+    funzione (secondo round della revisione ostile, C-1).
+
+    La catena misurata: l'attaccante collega il **proprio** Google a un account
+    proprio con indirizzo verificato — nessuno sfratto, perche non c'e niente
+    da sfrattare — poi cambia l'indirizzo in quello della vittima con la
+    propria password, e aspetta. Quando la vittima arriva da Google, lo sfratto
+    scatta e le ridà l'account; ma il legame `external_accounts` dell'attaccante
+    e ancora li, e `findOrCreateOAuthUser` risolve **per `provider_account_id`
+    prima di ogni altra cosa**. Al suo accesso successivo l'attaccante rientra
+    sull'account della vittima con tutto quello che nel frattempo ci ha messo,
+    e la seconda difesa — «un codice apre una sessione solo se la porta era gia
+    aperta» — non lo vede nemmeno, perche quel rientro non passa da nessuna
+    challenge.
+
+    Si cancellano **tutti**: chi adotta l'account ricrea il proprio subito
+    dopo, in `upsertExternalAccount`. Un legame che non si ricrea e un legame
+    che non era di chi ha appena dimostrato di possedere l'indirizzo.
+  */
+  await prisma.externalAccount.deleteMany({ where: { user_id: userId } });
 };
 
 export const confirmEmailVerification = async (
   userReference: string,
   code: string,
+  sessionUserId?: string | null,
 ) => {
-  const user = await findUserByVerificationReference(userReference);
+  const user = await findUserByVerificationReference(userReference, sessionUserId);
   if (!user) throw new VerificationRejected();
 
   const challenge = await verifyInternalChallenge({
@@ -823,8 +916,9 @@ export const confirmEmailVerification = async (
 export const confirmPhoneVerification = async (
   userReference: string,
   code: string,
+  sessionUserId?: string | null,
 ) => {
-  const user = await findUserByVerificationReference(userReference);
+  const user = await findUserByVerificationReference(userReference, sessionUserId);
 
   if (!user) {
     throw new VerificationRejected();
@@ -959,7 +1053,7 @@ export const finalizeVerifiedSession = async (userId: string) => {
     return {
       user,
       session: null,
-      verification: buildVerificationPayload(user),
+      verification: await buildVerificationPayload(user),
     };
   }
 
@@ -977,7 +1071,7 @@ export const finalizeVerifiedSession = async (userId: string) => {
   return {
     user: refreshedUser,
     session,
-    verification: buildVerificationPayload(refreshedUser),
+    verification: await buildVerificationPayload(refreshedUser),
   };
 };
 
@@ -1544,7 +1638,7 @@ export const buildPendingVerificationResponse = async (userId: string) => {
   return {
     user,
     session: null,
-    verification: buildVerificationPayload(user),
+    verification: await buildVerificationPayload(user),
   };
 };
 
@@ -1640,6 +1734,37 @@ export const sendPasswordResetChallenge = async (user: {
     non nasce nessuna enumerazione.
   */
   const adesso = new Date();
+
+  /*
+    **Il `P2002` si evita, non solo si cattura** (L-2 del secondo round).
+
+    Il `catch` qui sotto ferma l'eccezione, non il **log**: il logger di Prisma
+    stampa `prisma:error Unique constraint failed` con l'invocazione dentro
+    prima ancora che il codice applicativo veda l'errore, e quelle righe
+    escono **fuori** dal punto unico degli errori (CLAUDE.md §2). Con sei
+    richieste simultanee erano cinque righe di rumore su una rotta che
+    funziona.
+
+    Una lettura prima dell'inserimento non risolve la corsa — due richieste
+    davvero simultanee la superano entrambe — ma toglie il caso comune, che e
+    il secondo clic sul pulsante. La corsa vera resta al `catch`, che e il
+    posto giusto per lei.
+  */
+  const giaVivo = await prisma.authVerificationChallenge.findFirst({
+    where: {
+      user_id: user.id,
+      channel: "email",
+      purpose: "reset_password",
+      consumed_at: null,
+      expires_at: { gt: adesso },
+    },
+    select: { created_at: true },
+  });
+  if (giaVivo) {
+    const rinvio = resolveOtpResendDecision(giaVivo.created_at, adesso);
+    if (!rinvio.allowed) return { sent: false, previewCode: null };
+  }
+
   try {
     await prisma.$transaction([
       prisma.authVerificationChallenge.updateMany({
@@ -1849,6 +1974,17 @@ export const confirmPasswordReset = async ({
     }),
     // Un reset invalida ogni sessione aperta, ovunque.
     prisma.session.deleteMany({ where: { user_id: user.id } }),
+    /*
+      **E, sullo sfratto, anche i legami con gli accessi esterni** (C-1 del
+      secondo round). Cancellare le sole sessioni lasciava all'occupante il
+      canale piu forte: un `external_accounts` superstite riapre l'account al
+      suo prossimo accesso, senza passare da nessuna challenge. Chi ha appena
+      dimostrato di possedere la casella ricollega il proprio in un clic; chi
+      non lo ricollega non era suo.
+    */
+    ...(user.email_verified_at
+      ? []
+      : [prisma.externalAccount.deleteMany({ where: { user_id: user.id } })]),
   ]);
 
   return { userId: user.id, email: user.email };

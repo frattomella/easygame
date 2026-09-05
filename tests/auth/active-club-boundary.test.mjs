@@ -163,11 +163,42 @@ test("con l'elenco configurato vale l'indirizzo, e nient'altro", async () => {
   try {
     const { isPlatformAdminUser } = await import("../../src/lib/platform-admin.ts");
 
-    assert.equal(isPlatformAdminUser({ email: "capo@easygame.it" }), true);
+    assert.equal(
+      isPlatformAdminUser({
+        email: "capo@easygame.it",
+        email_verified_at: new Date(),
+      }),
+      true,
+    );
     assert.equal(
       isPlatformAdminUser({ email: "chiunque@example.it", role: "platform_admin" }),
       false,
       "l'elenco e la condizione, non un ramo alternativo",
+    );
+
+    /*
+      **E l'indirizzo dev'essere provato** (PP-05, H-1 del secondo round).
+
+      Prima di PP-05 questa riga era sicura per una ragione che non stava qui:
+      un indirizzo non verificato non produceva **nessuna sessione**, quindi
+      non poteva valere come identita da nessuna parte. ADR-0115 ha tolto quel
+      cancello, e l'elenco degli indirizzi vive in una variabile
+      `NEXT_PUBLIC_*`, cioe e pubblicato a ogni browser: chi registrasse un
+      indirizzo di quell'elenco non ancora presente in `users` sarebbe stato
+      amministratore di piattaforma alla richiesta successiva.
+    */
+    assert.equal(
+      isPlatformAdminUser({ email: "capo@easygame.it" }),
+      false,
+      "un indirizzo mai verificato non concede la piattaforma",
+    );
+    assert.equal(
+      isPlatformAdminUser({
+        email: "capo@easygame.it",
+        user_metadata: { emailVerified: true },
+      }),
+      true,
+      "vale anche la forma serializzata, che e quella che vede il client",
     );
   } finally {
     if (originale === undefined) delete process.env.EASYGAME_PLATFORM_ADMIN_EMAILS;

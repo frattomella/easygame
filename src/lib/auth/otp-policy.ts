@@ -80,12 +80,11 @@ export const resolveOtpResendDecision = (
 };
 
 /**
- * Gli ambienti in cui un codice non torna **mai** nella risposta, qualunque
- * cosa dica `AUTH_ALLOW_TEST_CODES`. `preview` e `staging` sono qui perche
- * portano dati che assomigliano a quelli veri e indirizzi che assomigliano a
- * quelli veri.
+ * Gli **unici** ambienti in cui un codice puo tornare nella risposta, e solo
+ * se `AUTH_ALLOW_TEST_CODES` vale `true`. Tutto il resto — `production`,
+ * `staging`, `preview`, e qualunque nome che nessuno ha previsto — nega.
  */
-const AMBIENTI_SENZA_ANTEPRIMA = new Set(["production", "staging", "preview"]);
+const AMBIENTI_CON_ANTEPRIMA = new Set(["development", "test", "local"]);
 
 /**
  * **Il codice torna nella risposta?**
@@ -112,11 +111,17 @@ export const shouldExposeVerificationPreviewCode = (
 ) => {
   if (environment.AUTH_ALLOW_TEST_CODES !== "true") return false;
 
+  /*
+    **Un elenco di ammissione, non uno di negazione** (L-3 del secondo round).
+    La prima stesura negava `production`, `staging` e `preview` e ammetteva
+    tutto il resto: `NODE_ENV=prod` passava, perche non e nessuna delle tre.
+    Un elenco di negazione va tenuto aggiornato contro l'ingegno di chi scrive
+    le variabili; uno di ammissione no.
+  */
   const ambiente = String(environment.NODE_ENV || "")
     .trim()
     .toLowerCase();
-  if (AMBIENTI_SENZA_ANTEPRIMA.has(ambiente)) return false;
-  if (ambiente) return true;
+  if (ambiente) return AMBIENTI_CON_ANTEPRIMA.has(ambiente);
 
   return (
     String(environment.EASYGAME_DB_ENV || "")

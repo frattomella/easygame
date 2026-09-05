@@ -223,24 +223,34 @@ export async function POST(request: Request) {
       scelto** da un solo indirizzo IP, moltiplicabile cambiando rete, e ogni
       invio invalidava alla vittima il codice appena ricevuto.
 
-      Il contatore si consuma **prima** di sapere se l'indirizzo email esista
-      gia, cosi il costo di una registrazione e lo stesso nei due rami e non
-      diventa un modo per distinguerli. Se e esaurito non si risponde 429 — la
-      risposta di questa rotta resta una sola, indistinguibile — semplicemente
-      **l'SMS non parte**: la challenge non nasce, e chi sta registrando
-      davvero puo chiederne una da `/verify/phone/send`.
+      **Si conta il numero che riceve, non quello che si scrive** (H-2 del
+      secondo round). La prima stesura consumava il contatore sul numero del
+      corpo della richiesta e poi mandava l'SMS a `pendingUser.phone` — il
+      numero **in archivio** sull'account che gia esisteva. I due potevano
+      essere diversi, e allora l'asse si aggirava in un gesto: si ri-registra
+      il proprio indirizzo passando ogni volta un numero usa-e-getta, il
+      contatore matura sul numero usa-e-getta, e l'SMS parte verso il numero
+      della vittima con il suo secchiello gia pieno. Misurati due SMS in piu su
+      un contatore saturo, e un tetto effettivo che tornava a `registerIp`.
+
+      Se il contatore e esaurito non si risponde 429 — la risposta di questa
+      rotta resta una sola, indistinguibile — semplicemente **l'SMS non parte**:
+      chi sta registrando davvero puo chiederne uno da `/verify/phone/send`.
     */
-    const numeroSaturo = phoneVerificationEnabled
-      ? Boolean(
-          await consumeRequestRateLimits([
-            {
-              policy: AUTH_RATE_LIMITS.otpSendTarget,
-              identifier: `phone:target:${buildOtpTargetCounterKey(phone)}`,
-            },
-          ]),
-        )
-      : false;
-    const puoMandareSms = phoneVerificationEnabled && !numeroSaturo;
+    const possoMandareA = async (destinatario: string | null | undefined) => {
+      if (!phoneVerificationEnabled) return false;
+      const numeroDestinatario = normalizePhoneNumber(destinatario);
+      if (!numeroDestinatario.valid) return false;
+      const saturo = await consumeRequestRateLimits([
+        {
+          policy: AUTH_RATE_LIMITS.otpSendTarget,
+          identifier: `phone:target:${buildOtpTargetCounterKey(
+            numeroDestinatario.e164,
+          )}`,
+        },
+      ]);
+      return !saturo;
+    };
 
     const organization_name = String(
       userData.organizationName ||
@@ -265,7 +275,8 @@ export async function POST(request: Request) {
               sendEmailVerificationChallenge(pendingUser, "signup"),
             )
           : { sent: false, previewCode: null };
-        const phoneChallenge = puoMandareSms
+        /* Il destinatario e il numero **in archivio**, non quello del corpo. */
+        const phoneChallenge = (await possoMandareA(pendingUser.phone))
           ? await senzaCooldown(() =>
               sendPhoneVerificationChallenge(pendingUser, "signup"),
             )
@@ -333,7 +344,7 @@ export async function POST(request: Request) {
           sendEmailVerificationChallenge(createdUser, "signup"),
         )
       : { sent: false, previewCode: null };
-    const phoneChallenge = puoMandareSms
+    const phoneChallenge = (await possoMandareA(createdUser.phone))
       ? await senzaCooldown(() =>
           sendPhoneVerificationChallenge(createdUser, "signup"),
         )

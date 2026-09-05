@@ -64,11 +64,46 @@ export const isPlatformAdminEmail = (email?: string | null) => {
  * `user_metadata.role` **non vale mai**: e un dato che il suo soggetto scrive.
  * Un privilegio che si concede da se non e un privilegio.
  */
+/**
+ * **L'indirizzo vale come identita solo se e stato provato** (PP-05).
+ *
+ * Accetta le due forme in cui una persona arriva qui: la riga del database
+ * (`email_verified_at`) e la sua proiezione verso il client
+ * (`user_metadata.emailVerified`, scritta da `buildUserMetadata`). Non e una
+ * comodita: `/auth/complete` e le due pagine `private/` chiamano
+ * `isPlatformAdminUser` con la forma serializzata, e pretendere solo la prima
+ * le farebbe rispondere «no» a un amministratore vero.
+ */
+const indirizzoProvato = (user: any) =>
+  Boolean(user?.email_verified_at) ||
+  Boolean(user?.user_metadata?.emailVerified);
+
 export const isPlatformAdminUser = (user: any) => {
   const email = String(user?.email || "").trim().toLowerCase();
 
   if (getPlatformAdminEmails().length > 0) {
-    return isPlatformAdminEmail(email);
+    /*
+      **Un indirizzo non verificato non concede la piattaforma** (H-1 del
+      secondo round della revisione ostile PP-05).
+
+      Fino a PP-05 questa riga era sicura per una ragione che non stava qui:
+      `finalizeVerifiedSession` sollevava «Email non verificata» e un indirizzo
+      non provato **non produceva nessuna sessione**, quindi non poteva valere
+      come identita da nessuna parte. ADR-0115 ha tolto quel cancello — con una
+      buona ragione — e questa riga e rimasta a decidere sul solo indirizzo.
+
+      L'elenco degli indirizzi vive in `NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS`,
+      cioe e **pubblicato a ogni browser**. Chiunque registrasse un indirizzo di
+      quell'elenco non ancora presente in `users` — o se lo intestasse da
+      `PATCH /auth/user` — era amministratore di piattaforma alla richiesta
+      successiva: dati di pagamento di ogni societa, piani, profilo fiscale,
+      conto Stripe.
+
+      La regola generale: quando si toglie un cancello, si cerca **chi si
+      appoggiava a quel cancello**. Qui c'era un secondo punto,
+      `parent-dashboard.ts`, che il proprio controllo lo faceva gia da se.
+    */
+    return isPlatformAdminEmail(email) && indirizzoProvato(user);
   }
 
   /*

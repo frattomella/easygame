@@ -438,6 +438,13 @@ Fonte ufficiale da mantenere aggiornata:
 - `POST /api/v1/auth/verify/email/confirm`
 - `POST /api/v1/auth/verify/phone/send`
 - `POST /api/v1/auth/verify/phone/confirm`
+
+  Le quattro prendono un campo `userId` che accetta **due** valori e non sono
+  equivalenti: il **riferimento opaco** (`token_verification_id`, emesso come
+  `verification.userId` da ogni risposta senza sessione) vale sempre; l'**UUID
+  nudo** dell'account vale **solo da chi ha gia una sessione su quel medesimo
+  account**, che e il caso della pagina Account. Vedi ADR-0117 §6 e
+  [07](knowledge-base/07-authentication.md).
 - `GET /api/v1/auth/oauth/:provider/start`
 - `GET /api/v1/auth/oauth/:provider/callback`
 - `POST /api/v1/auth/password/forgot`

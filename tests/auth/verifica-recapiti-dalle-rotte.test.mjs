@@ -19,6 +19,21 @@ import { createFakePrisma } from "../helpers/fake-prisma.mjs";
 
 const UTENTE = "22222222-0000-4000-8000-0000000000bb";
 const ALTRO = "33333333-0000-4000-8000-0000000000cc";
+/*
+  **Il riferimento opaco, che e cio che il flusso vero ha in mano** (PP-05,
+  M-1 del secondo round della revisione ostile).
+
+  L'UUID di un account non e un segreto: non cambia mai, circola in molte
+  proiezioni club-scoped, e usciva in chiaro come `verification.userId` da ogni
+  risposta senza sessione. Da PP-05 le quattro rotte accettano l'UUID nudo
+  **solo** da chi ha gia una sessione su quell'account — il caso della pagina
+  Account — e da chiunque altro pretendono il riferimento, che e un segreto
+  lungo e si puo ruotare. Chi arriva da registrazione o login lo riceve nella
+  risposta: e questo il valore che i test seguenti mandano.
+*/
+const RIFERIMENTO = "verify_aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666";
+const RIFERIMENTO_ALTRO = "verify_9999888877776666555544443333222211110000ffffeeee";
+const GETTONE_SESSIONE = "sessione-di-anna-lunga-e-imprevedibile";
 const NUMERO = "+393401234567";
 const NUMERO_ALTRUI = "+393479876543";
 const INDIRIZZO = "persona@example.invalid";
@@ -45,7 +60,7 @@ const utente = (over = {}) => ({
   email_verified_at: null,
   phone_verified_at: null,
   phone_verification_required: true,
-  token_verification_id: null,
+  token_verification_id: RIFERIMENTO,
   user_metadata: {},
   role: "user",
   is_club_creator: false,
@@ -56,9 +71,30 @@ const utente = (over = {}) => ({
 });
 
 const seed = () => ({
-  user: [utente(), utente({ id: ALTRO, email: "altro@example.invalid", phone: NUMERO_ALTRUI })],
+  user: [
+    utente(),
+    utente({
+      id: ALTRO,
+      email: "altro@example.invalid",
+      phone: NUMERO_ALTRUI,
+      token_verification_id: RIFERIMENTO_ALTRO,
+    }),
+  ],
   authVerificationChallenge: [],
-  session: [],
+  /*
+    La sessione di Anna. Il doppio non idrata le relazioni di `include`, quindi
+    l'utente sta **dentro** la riga: `getSessionFromRequest` chiede
+    `include: { user: true }` e trova gia il campo al suo posto.
+  */
+  session: [
+    {
+      id: "sessione-anna",
+      token: GETTONE_SESSIONE,
+      user_id: UTENTE,
+      expires_at: new Date(Date.now() + 3600 * 1000),
+      user: utente(),
+    },
+  ],
   authRateLimitBucket: [],
 });
 
@@ -67,6 +103,18 @@ const richiesta = (corpo, ip = "203.0.113.7") =>
   new Request("http://easygame.local/api", {
     method: "POST",
     headers: { "content-type": "application/json", "x-forwarded-for": ip },
+    body: JSON.stringify(corpo),
+  });
+
+/** La stessa richiesta, ma con il biscotto di sessione di un account. */
+const richiestaConSessione = (corpo, gettone = GETTONE_SESSIONE, ip = "203.0.113.7") =>
+  new Request("http://easygame.local/api", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-forwarded-for": ip,
+      cookie: `easygame_session=${gettone}`,
+    },
     body: JSON.stringify(corpo),
   });
 
@@ -157,7 +205,7 @@ const invecchiaChallenge = (secondi = 120) => {
 };
 
 test("l'invio del codice al telefono lo consegna al numero, in E.164", async () => {
-  const esito = await leggi(await inviaTelefono(richiesta({ userId: UTENTE })));
+  const esito = await leggi(await inviaTelefono(richiesta({ userId: RIFERIMENTO })));
 
   assert.equal(esito.status, 200);
   assert.equal(esito.body.data.sent, true);
@@ -176,30 +224,30 @@ test("l'invio del codice al telefono lo consegna al numero, in E.164", async () 
 });
 
 test("il codice giusto verifica, e riusato la seconda volta non vale piu (replay)", async () => {
-  const invio = await leggi(await inviaTelefono(richiesta({ userId: UTENTE })));
+  const invio = await leggi(await inviaTelefono(richiesta({ userId: RIFERIMENTO })));
   const codice = invio.body.data.previewCode;
 
   const prima = await leggi(
-    await confermaTelefono(richiesta({ userId: UTENTE, code: codice })),
+    await confermaTelefono(richiesta({ userId: RIFERIMENTO, code: codice })),
   );
   assert.equal(prima.status, 200);
   assert.ok(fake.rows("user")[0].phone_verified_at, "il numero risulta verificato");
 
   const replay = await leggi(
-    await confermaTelefono(richiesta({ userId: UTENTE, code: codice })),
+    await confermaTelefono(richiesta({ userId: RIFERIMENTO, code: codice })),
   );
   assert.equal(replay.status, 400, "lo stesso codice non si spende due volte");
   assert.match(replay.body.error.message, /non valido o scaduto/i);
 });
 
 test("un codice sbagliato non verifica, e al quinto tentativo la challenge e carta straccia", async () => {
-  const invio = await leggi(await inviaTelefono(richiesta({ userId: UTENTE })));
+  const invio = await leggi(await inviaTelefono(richiesta({ userId: RIFERIMENTO })));
   const codice = invio.body.data.previewCode;
   const sbagliato = codice === "000000" ? "111111" : "000000";
 
   for (let i = 0; i < 5; i += 1) {
     const esito = await leggi(
-      await confermaTelefono(richiesta({ userId: UTENTE, code: sbagliato })),
+      await confermaTelefono(richiesta({ userId: RIFERIMENTO, code: sbagliato })),
     );
     assert.equal(esito.status, 400, `tentativo ${i + 1}`);
   }
@@ -221,7 +269,7 @@ test("un codice sbagliato non verifica, e al quinto tentativo la challenge e car
     nuova, il tetto no — ma sul sesto colpo si sovrappongono ed e giusto cosi.
   */
   const dopoIlTetto = await leggi(
-    await confermaTelefono(richiesta({ userId: UTENTE, code: codice })),
+    await confermaTelefono(richiesta({ userId: RIFERIMENTO, code: codice })),
   );
   assert.equal(dopoIlTetto.status, 429);
   assert.equal(dopoIlTetto.body.error.code, "RATE_LIMITED");
@@ -234,7 +282,7 @@ test("un codice sbagliato non verifica, e al quinto tentativo la challenge e car
   */
   const daAltraRete = await leggi(
     await confermaTelefono(
-      richiesta({ userId: ALTRO, code: codice }, "198.51.100.42"),
+      richiesta({ userId: RIFERIMENTO_ALTRO, code: codice }, "198.51.100.42"),
     ),
   );
   assert.equal(daAltraRete.status, 400);
@@ -242,7 +290,7 @@ test("un codice sbagliato non verifica, e al quinto tentativo la challenge e car
 });
 
 test("un codice scaduto non verifica", async () => {
-  const invio = await leggi(await inviaTelefono(richiesta({ userId: UTENTE })));
+  const invio = await leggi(await inviaTelefono(richiesta({ userId: RIFERIMENTO })));
   const codice = invio.body.data.previewCode;
 
   for (const riga of fake.rows("authVerificationChallenge")) {
@@ -250,17 +298,17 @@ test("un codice scaduto non verifica", async () => {
   }
 
   const esito = await leggi(
-    await confermaTelefono(richiesta({ userId: UTENTE, code: codice })),
+    await confermaTelefono(richiesta({ userId: RIFERIMENTO, code: codice })),
   );
   assert.equal(esito.status, 400);
   assert.equal(fake.rows("user")[0].phone_verified_at, null);
 });
 
 test("il reinvio ravvicinato non invalida il codice gia in mano (cooldown)", async () => {
-  const primo = await leggi(await inviaTelefono(richiesta({ userId: UTENTE })));
+  const primo = await leggi(await inviaTelefono(richiesta({ userId: RIFERIMENTO })));
   const codice = primo.body.data.previewCode;
 
-  const secondo = await leggi(await inviaTelefono(richiesta({ userId: UTENTE })));
+  const secondo = await leggi(await inviaTelefono(richiesta({ userId: RIFERIMENTO })));
   assert.equal(secondo.status, 429);
   assert.equal(secondo.body.error.code, "RESEND_TOO_SOON");
   assert.equal(smsInviati.length, 1, "il secondo invio non e partito");
@@ -272,29 +320,29 @@ test("il reinvio ravvicinato non invalida il codice gia in mano (cooldown)", asy
     tenere un account inverificabile a colpi di reinvio.
   */
   const conferma = await leggi(
-    await confermaTelefono(richiesta({ userId: UTENTE, code: codice })),
+    await confermaTelefono(richiesta({ userId: RIFERIMENTO, code: codice })),
   );
   assert.equal(conferma.status, 200);
 });
 
 test("passato il cooldown il reinvio riparte, e il codice vecchio muore", async () => {
-  const primo = await leggi(await inviaTelefono(richiesta({ userId: UTENTE })));
+  const primo = await leggi(await inviaTelefono(richiesta({ userId: RIFERIMENTO })));
   const vecchio = primo.body.data.previewCode;
 
   invecchiaChallenge();
 
-  const secondo = await leggi(await inviaTelefono(richiesta({ userId: UTENTE })));
+  const secondo = await leggi(await inviaTelefono(richiesta({ userId: RIFERIMENTO })));
   assert.equal(secondo.status, 200);
   assert.equal(smsInviati.length, 2);
 
   const conVecchio = await leggi(
-    await confermaTelefono(richiesta({ userId: UTENTE, code: vecchio })),
+    await confermaTelefono(richiesta({ userId: RIFERIMENTO, code: vecchio })),
   );
   assert.equal(conVecchio.status, 400, "un codice sostituito non vale piu");
 
   const conNuovo = await leggi(
     await confermaTelefono(
-      richiesta({ userId: UTENTE, code: secondo.body.data.previewCode }),
+      richiesta({ userId: RIFERIMENTO, code: secondo.body.data.previewCode }),
     ),
   );
   assert.equal(conNuovo.status, 200);
@@ -311,7 +359,7 @@ test("passato il cooldown il reinvio riparte, e il codice vecchio muore", async 
  * e non esisteva in quella che la riscriveva.
  */
 test("un codice emesso per un numero non verifica un numero diverso", async () => {
-  const invio = await leggi(await inviaTelefono(richiesta({ userId: UTENTE })));
+  const invio = await leggi(await inviaTelefono(richiesta({ userId: RIFERIMENTO })));
   const codice = invio.body.data.previewCode;
   assert.equal(smsInviati[0].to, NUMERO);
 
@@ -320,7 +368,7 @@ test("un codice emesso per un numero non verifica un numero diverso", async () =
   fake.rows("user")[0].phone_verified_at = null;
 
   const esito = await leggi(
-    await confermaTelefono(richiesta({ userId: UTENTE, code: codice })),
+    await confermaTelefono(richiesta({ userId: RIFERIMENTO, code: codice })),
   );
 
   assert.equal(esito.status, 400);
@@ -337,7 +385,7 @@ test("un codice emesso per un numero non verifica un numero diverso", async () =
 });
 
 test("lo stesso vale per l'indirizzo: un codice email non segue il cambio di indirizzo", async () => {
-  const invio = await leggi(await inviaEmail(richiesta({ userId: UTENTE })));
+  const invio = await leggi(await inviaEmail(richiesta({ userId: RIFERIMENTO })));
   assert.equal(invio.status, 200);
   const codice = invio.body.data.previewCode;
   assert.ok(codice);
@@ -345,17 +393,17 @@ test("lo stesso vale per l'indirizzo: un codice email non segue il cambio di ind
   fake.rows("user")[0].email = "altro-indirizzo@example.invalid";
 
   const esito = await leggi(
-    await confermaEmail(richiesta({ userId: UTENTE, code: codice })),
+    await confermaEmail(richiesta({ userId: RIFERIMENTO, code: codice })),
   );
   assert.equal(esito.status, 400);
   assert.equal(fake.rows("user")[0].email_verified_at, null);
 });
 
 test("l'email si verifica, e la verifica scrive solo la colonna dell'email", async () => {
-  const invio = await leggi(await inviaEmail(richiesta({ userId: UTENTE })));
+  const invio = await leggi(await inviaEmail(richiesta({ userId: RIFERIMENTO })));
   const esito = await leggi(
     await confermaEmail(
-      richiesta({ userId: UTENTE, code: invio.body.data.previewCode }),
+      richiesta({ userId: RIFERIMENTO, code: invio.body.data.previewCode }),
     ),
   );
 
@@ -369,22 +417,22 @@ test("l'email si verifica, e la verifica scrive solo la colonna dell'email", asy
 });
 
 test("un codice del canale email non vale sul canale telefono", async () => {
-  const invio = await leggi(await inviaEmail(richiesta({ userId: UTENTE })));
+  const invio = await leggi(await inviaEmail(richiesta({ userId: RIFERIMENTO })));
   const codiceEmail = invio.body.data.previewCode;
 
   const esito = await leggi(
-    await confermaTelefono(richiesta({ userId: UTENTE, code: codiceEmail })),
+    await confermaTelefono(richiesta({ userId: RIFERIMENTO, code: codiceEmail })),
   );
   assert.equal(esito.status, 400);
   assert.equal(fake.rows("user")[0].phone_verified_at, null);
 });
 
 test("il codice di un account non verifica un altro account", async () => {
-  const invio = await leggi(await inviaTelefono(richiesta({ userId: UTENTE })));
+  const invio = await leggi(await inviaTelefono(richiesta({ userId: RIFERIMENTO })));
   const codice = invio.body.data.previewCode;
 
   const esito = await leggi(
-    await confermaTelefono(richiesta({ userId: ALTRO, code: codice })),
+    await confermaTelefono(richiesta({ userId: RIFERIMENTO_ALTRO, code: codice })),
   );
   assert.equal(esito.status, 400);
   assert.equal(
@@ -410,7 +458,7 @@ test("l'invio non rivela se il riferimento esiste, se ha un numero, se e gia ver
 
   fake.rows("user")[0].phone = null;
   const senzaNumero = await leggi(
-    await inviaTelefono(richiesta({ userId: UTENTE }, "203.0.113.8")),
+    await inviaTelefono(richiesta({ userId: RIFERIMENTO }, "203.0.113.8")),
   );
   assert.equal(senzaNumero.status, 200);
   assert.deepEqual(senzaNumero.body.data, { sent: true, previewCode: null });
@@ -418,7 +466,7 @@ test("l'invio non rivela se il riferimento esiste, se ha un numero, se e gia ver
   fake.rows("user")[0].phone = NUMERO;
   fake.rows("user")[0].phone_verified_at = new Date();
   const giaVerificato = await leggi(
-    await inviaTelefono(richiesta({ userId: UTENTE }, "203.0.113.9")),
+    await inviaTelefono(richiesta({ userId: RIFERIMENTO }, "203.0.113.9")),
   );
   assert.equal(giaVerificato.status, 200);
   assert.deepEqual(giaVerificato.body.data, { sent: true, previewCode: null });
@@ -426,7 +474,7 @@ test("l'invio non rivela se il riferimento esiste, se ha un numero, se e gia ver
 });
 
 test("la conferma non distingue «utente inesistente» da «codice sbagliato»", async () => {
-  await inviaTelefono(richiesta({ userId: UTENTE }));
+  await inviaTelefono(richiesta({ userId: RIFERIMENTO }));
 
   const inesistente = await leggi(
     await confermaTelefono(
@@ -434,7 +482,7 @@ test("la conferma non distingue «utente inesistente» da «codice sbagliato»",
     ),
   );
   const sbagliato = await leggi(
-    await confermaTelefono(richiesta({ userId: UTENTE, code: "000000" })),
+    await confermaTelefono(richiesta({ userId: RIFERIMENTO, code: "000000" })),
   );
 
   assert.equal(inesistente.status, sbagliato.status);
@@ -456,7 +504,7 @@ test("cambiare rete non azzera il contatore degli invii verso un numero", async 
   for (let i = 0; i < 10 && !bloccato; i += 1) {
     invecchiaChallenge();
     const esito = await leggi(
-      await inviaTelefono(richiesta({ userId: UTENTE }, `198.51.100.${i}`)),
+      await inviaTelefono(richiesta({ userId: RIFERIMENTO }, `198.51.100.${i}`)),
     );
     if (esito.status === 429) bloccato = esito;
   }
@@ -496,7 +544,7 @@ test("la migrazione che rende unica la challenge viva e ancora al suo posto", as
 });
 
 test("il testo dell'SMS non finisce mai nell'impronta, e l'impronta non e uno SHA nudo del codice", async () => {
-  const invio = await leggi(await inviaTelefono(richiesta({ userId: UTENTE })));
+  const invio = await leggi(await inviaTelefono(richiesta({ userId: RIFERIMENTO })));
   const codice = invio.body.data.previewCode;
   const riga = codiceCorrente("phone");
 
@@ -515,5 +563,90 @@ test("il testo dell'SMS non finisce mai nell'impronta, e l'impronta non e uno SH
       channel: "phone",
       purpose: "verify_phone",
     }),
+  );
+});
+
+/**
+ * **L'UUID nudo apre le rotte di verifica solo a chi ha gia una sessione**
+ * (PP-05, M-1 del secondo round della revisione ostile).
+ *
+ * Le due strade non sono simmetriche e non devono esserlo:
+ *
+ * - **con sessione** l'UUID vale, ed e il caso della pagina Account, che manda
+ *   `user.id` perche e l'unico identificativo che il client ha di se stesso.
+ *   Li non si rivela niente: chi chiama sa gia chi e;
+ * - **senza sessione** l'UUID non vale. Prima valeva, e quella strada rendeva
+ *   vana la rotazione del riferimento fatta dallo sfratto (ADR-0117):
+ *   l'occupante non aveva bisogno del riferimento nuovo, perche l'UUID
+ *   dell'account non cambia mai e lo aveva gia.
+ * - **con la sessione di un altro** l'UUID non vale, altrimenti bastava un
+ *   account qualunque per pilotare le rotte di verifica di chiunque.
+ */
+test("dalla pagina Account l'UUID vale, perche la sessione c'e", async () => {
+  const invio = await leggi(
+    await inviaTelefono(richiestaConSessione({ userId: UTENTE })),
+  );
+
+  assert.equal(invio.status, 200);
+  assert.equal(smsInviati.length, 1, "l'SMS parte davvero");
+  assert.equal(smsInviati[0].to, NUMERO);
+
+  const conferma = await leggi(
+    await confermaTelefono(
+      richiestaConSessione({ userId: UTENTE, code: invio.body.data.previewCode }),
+    ),
+  );
+  assert.equal(conferma.status, 200);
+  assert.ok(fake.rows("user")[0].phone_verified_at);
+});
+
+test("senza sessione l'UUID nudo non pilota niente, e non si distingue da uno inventato", async () => {
+  const conUuid = await leggi(await inviaTelefono(richiesta({ userId: UTENTE })));
+  const inventato = await leggi(
+    await inviaTelefono(
+      richiesta({ userId: "44444444-0000-4000-8000-0000000000dd" }, "203.0.113.8"),
+    ),
+  );
+
+  assert.equal(conUuid.status, 200, "la risposta resta opaca: non si nega, si tace");
+  assert.deepEqual(conUuid.body.data, inventato.body.data);
+  assert.equal(smsInviati.length, 0, "e nessun SMS parte verso quel numero");
+
+  /*
+    E la conferma nemmeno: prima si emette una challenge **vera** dal
+    riferimento, poi si prova a spenderla con l'UUID nudo. Senza il vincolo
+    questa riga tornerebbe 200.
+  */
+  const emessa = await leggi(
+    await inviaTelefono(richiesta({ userId: RIFERIMENTO }, "198.51.100.3")),
+  );
+  const conferma = await leggi(
+    await confermaTelefono(
+      richiesta({ userId: UTENTE, code: emessa.body.data.previewCode }, "198.51.100.4"),
+    ),
+  );
+  assert.equal(conferma.status, 400);
+  assert.equal(fake.rows("user")[0].phone_verified_at, null);
+});
+
+test("la sessione di un altro account non apre le rotte di verifica di questo", async () => {
+  const emessa = await leggi(
+    await inviaTelefono(richiesta({ userId: RIFERIMENTO_ALTRO })),
+  );
+  assert.equal(smsInviati.length, 1);
+  assert.equal(smsInviati[0].to, NUMERO_ALTRUI);
+
+  /* Anna e autenticata, e prova a spendere il codice di un altro account. */
+  const conferma = await leggi(
+    await confermaTelefono(
+      richiestaConSessione({ userId: ALTRO, code: emessa.body.data.previewCode }),
+    ),
+  );
+
+  assert.equal(conferma.status, 400);
+  assert.equal(
+    fake.rows("user").find((u) => u.id === ALTRO).phone_verified_at,
+    null,
+    "una sessione vale per il proprio account e per nessun altro",
   );
 });

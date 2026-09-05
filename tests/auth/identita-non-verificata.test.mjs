@@ -111,8 +111,15 @@ test("con due proxy dichiarati si risale di uno", () => {
  * solo, quindi non era sfruttabile: era pero un disegno a due serrature che
  * si contraddicono, e togliere qualcuno dall'elenco non gli toglieva l'API.
  */
-const sessioneFinta = (email, role) => ({
-  db: { user: { email, role } },
+/*
+  L'indirizzo e **verificato** salvo quando il test dice il contrario: da PP-05
+  un indirizzo mai provato non concede la piattaforma (H-1 del secondo round
+  della revisione ostile).
+*/
+const sessioneFinta = (email, role, verificato = true) => ({
+  db: {
+    user: { email, role, email_verified_at: verificato ? new Date() : null },
+  },
 });
 
 test("con l'elenco configurato, il ruolo in colonna non basta piu", () => {
@@ -128,6 +135,13 @@ test("con l'elenco configurato, il ruolo in colonna non basta piu", () => {
       isPlatformAdminSession(sessioneFinta("altro@esempio.test", "platform_admin")),
       false,
       "chi non e nell'elenco non entra, per quanto dica la colonna",
+    );
+    assert.equal(
+      isPlatformAdminSession(
+        sessioneFinta("capo@esempio.test", "user", false),
+      ),
+      false,
+      "e chi e nell'elenco con un indirizzo mai verificato nemmeno: da PP-05 una sessione esiste anche senza prova dell'indirizzo, e l'elenco e pubblicato a ogni browser",
     );
   } finally {
     if (precedente === undefined) {

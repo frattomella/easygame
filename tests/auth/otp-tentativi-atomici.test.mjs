@@ -18,6 +18,14 @@ import { createFakePrisma } from "../helpers/fake-prisma.mjs";
  */
 
 const UTENTE = "11111111-0000-4000-8000-000000000aaa";
+/*
+  **Il riferimento opaco, non l'UUID** (PP-05, M-1 del secondo round della
+  revisione ostile). Le rotte e il dominio accettano l'UUID nudo **solo** da
+  chi ha gia una sessione su quell'account: qui non c'e nessuna sessione, e
+  questa e la forma in cui il flusso vero arriva — la registrazione restituisce
+  il riferimento, non l'identificativo.
+*/
+const RIFERIMENTO = "verify_0123456789abcdef0123456789abcdef";
 const CODICE = "654321";
 const TOKEN_RESET = "token-di-reset-lungo-e-imprevedibile";
 
@@ -60,7 +68,7 @@ const seed = () => ({
       last_name: "Rossi",
       password_hash: "x",
       email_verified_at: null,
-      token_verification_id: null,
+      token_verification_id: RIFERIMENTO,
     },
   ],
   authVerificationChallenge: [challenge()],
@@ -89,7 +97,7 @@ const riga = (id = "ch-verifica") =>
 test("dodici codici sbagliati intrecciati: contati fino al tetto, e la challenge si chiude", async () => {
   const esiti = await Promise.allSettled(
     Array.from({ length: 12 }, (_, i) =>
-      flussi.confirmEmailVerification(UTENTE, String(100000 + i)),
+      flussi.confirmEmailVerification(RIFERIMENTO, String(100000 + i)),
     ),
   );
 
@@ -107,7 +115,7 @@ test("dodici codici sbagliati intrecciati: contati fino al tetto, e la challenge
   assert.equal(riga().consumed_at, null);
 
   await assert.rejects(
-    () => flussi.confirmEmailVerification(UTENTE, CODICE),
+    () => flussi.confirmEmailVerification(RIFERIMENTO, CODICE),
     /Codice non valido o scaduto/,
     "dopo la raffica il codice giusto non apre piu niente",
   );
@@ -115,19 +123,19 @@ test("dodici codici sbagliati intrecciati: contati fino al tetto, e la challenge
 });
 
 test("controspecchio: due errori e poi il codice giusto verificano l'indirizzo", async () => {
-  await assert.rejects(() => flussi.confirmEmailVerification(UTENTE, "000000"));
-  await assert.rejects(() => flussi.confirmEmailVerification(UTENTE, "111111"));
+  await assert.rejects(() => flussi.confirmEmailVerification(RIFERIMENTO, "000000"));
+  await assert.rejects(() => flussi.confirmEmailVerification(RIFERIMENTO, "111111"));
 
   const { user: utente, purpose } = await flussi.confirmEmailVerification(
-    UTENTE,
+    RIFERIMENTO,
     CODICE,
   );
 
   assert.ok(utente.email_verified_at, "l'indirizzo risulta verificato");
   /*
     Lo scopo torna insieme all'utente (PP-05, ADR-0117): e cio su cui la rotta
-    decide se aprire una sessione, e qui la challenge e stata scritta come `verify_email`, che **non** apre una
-    sessione.
+    decide se aprire una sessione, e qui la challenge e stata scritta come
+    `verify_email`, che **non** ne apre nessuna.
   */
   assert.equal(purpose, "verify_email");
   assert.equal(riga().attempts, 3);
@@ -136,7 +144,7 @@ test("controspecchio: due errori e poi il codice giusto verificano l'indirizzo",
 
 test("la challenge e monouso anche sotto dieci codici giusti intrecciati", async () => {
   const esiti = await Promise.allSettled(
-    Array.from({ length: 10 }, () => flussi.confirmEmailVerification(UTENTE, CODICE)),
+    Array.from({ length: 10 }, () => flussi.confirmEmailVerification(RIFERIMENTO, CODICE)),
   );
 
   assert.equal(

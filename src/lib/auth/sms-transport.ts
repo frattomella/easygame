@@ -69,10 +69,21 @@ export const resolveSmsTransport = (
     .toLowerCase();
   if (!nome) return { kind: "absent" };
 
+  /*
+    **`Object.hasOwn` e non l'accesso diretto** (L-1 del secondo round). Un
+    oggetto letterale porta con se il prototipo di `Object`: `SMS_PROVIDER=constructor`
+    e `SMS_PROVIDER=__proto__` restituivano un valore veritiero, quindi
+    passavano per «configurato» e **spegnevano la segnalazione di
+    configurazione errata** — cioe proprio la cosa che questo modulo esiste per
+    accendere. Nessun bypass, perche `delivers` restava `undefined`; ma la
+    forma era quella sbagliata, e `smsTransportDelivers` restituiva `undefined`
+    dove il tipo promette un booleano.
+  */
+  if (!Object.hasOwn(SMS_TRANSPORTS, nome)) return { kind: "unknown" };
   const trasporto = (SMS_TRANSPORTS as Record<string, SmsTransportDescriptor>)[
     nome
-  ];
-  return trasporto ? { kind: "configured", transport: trasporto } : { kind: "unknown" };
+  ]!;
+  return { kind: "configured", transport: trasporto };
 };
 
 /**
@@ -87,7 +98,7 @@ export const smsTransportDelivers = (
   environment: Record<string, string | undefined> = process.env,
 ) => {
   const esito = resolveSmsTransport(environment);
-  return esito.kind === "configured" && esito.transport.delivers;
+  return esito.kind === "configured" && esito.transport.delivers === true;
 };
 
 /**

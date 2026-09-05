@@ -23,7 +23,9 @@
  * - **S6** — `PATCH /auth/user` ha un tetto ai tentativi di password (MEDIUM-7);
  * - **S7** — le risposte senza sessione non portano il numero in chiaro (MEDIUM-5);
  * - **S8** — sei richieste di reset simultanee non producono violazioni
- *   `P2002` non gestite (LOW-9).
+ *   `P2002` non gestite (LOW-9);
+ * - **S9** — senza sessione l'UUID nudo di un account non pilota le rotte di
+ *   verifica, e non si distingue da uno inventato (MEDIUM-1).
  *
  * **La sonda misura, non corregge.** Scrive righe proprie con identificativi
  * casuali e le cancella alla fine.
@@ -417,6 +419,101 @@ const main = async () => {
       "S8 — sei richieste di reset simultanee: nessuna eccezione risale, una sola resta viva",
       respinti.length === 0 && vive === 1,
       `eccezioni = ${respinti.length} · token vivi = ${vive}`,
+    );
+  }
+
+  /* ---------------- S9: l'UUID nudo non pilota le rotte di verifica ------- */
+  {
+    /*
+      **M-1 del secondo round.** `verification.userId` usciva come UUID
+      dell'account, e `findUserByVerificationReference` accettava sia il
+      riferimento sia l'UUID. Due conseguenze misurate qui:
+
+      1. la rotazione del riferimento fatta dallo sfratto (S1) era **teatro**:
+         l'occupante non aveva bisogno del riferimento nuovo, perche l'UUID non
+         cambia mai e lo aveva gia;
+      2. gli UUID utente circolano in molte proiezioni club-scoped, quindi chi
+         ne aveva raccolti poteva pilotare `/verify/<canale>/send` su account
+         altrui — e distinguere un identificativo vero da uno inventato dal
+         modo in cui rispondevano.
+    */
+    const inviaTelefono = (
+      await carica("src/app/api/v1/auth/verify/phone/send/route.ts")
+    ).POST;
+
+    const numero = numeroNuovo();
+    const utente = await creaUtente({
+      phone: numero,
+      phone_verification_required: true,
+    });
+
+    const richiesta = (corpo, ip, gettone) =>
+      new Request("http://easygame.local/api", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-for": ip,
+          ...(gettone ? { cookie: `easygame_session=${gettone}` } : {}),
+        },
+        body: JSON.stringify(corpo),
+      });
+    const leggi = async (r) => ({ status: r.status, body: await r.json() });
+
+    const prima = smsRicevuti.length;
+    const conUuid = await leggi(
+      await inviaTelefono(
+        richiesta({ userId: utente.id }, `${reteDellaSonda}.201`),
+      ),
+    );
+    const inventato = await leggi(
+      await inviaTelefono(
+        richiesta({ userId: randomUUID() }, `${reteDellaSonda}.202`),
+      ),
+    );
+    const senzaSessione = smsRicevuti.length - prima;
+
+    /* Controspecchio: con il riferimento l'SMS parte davvero. */
+    const conRiferimento = await leggi(
+      await inviaTelefono(
+        richiesta(
+          { userId: utente.token_verification_id },
+          `${reteDellaSonda}.203`,
+        ),
+      ),
+    );
+    const conIlRiferimento = smsRicevuti.length - prima - senzaSessione;
+
+    /* E con una sessione vera sull'account, l'UUID torna a valere. */
+    const { createSessionForUser } = await carica("src/lib/server/auth.ts");
+    const sessione = await createSessionForUser(utente);
+    await prisma.authVerificationChallenge.updateMany({
+      where: { user_id: utente.id },
+      data: { created_at: new Date(Date.now() - 300_000) },
+    });
+    const conSessione = await leggi(
+      await inviaTelefono(
+        richiesta(
+          { userId: utente.id },
+          `${reteDellaSonda}.204`,
+          sessione.access_token,
+        ),
+      ),
+    );
+    const conLaSessione =
+      smsRicevuti.length - prima - senzaSessione - conIlRiferimento;
+
+    segna(
+      "S9 — senza sessione l'UUID nudo non pilota la verifica, e non si distingue da uno inventato",
+      senzaSessione === 0 &&
+        conUuid.status === inventato.status &&
+        JSON.stringify(conUuid.body) === JSON.stringify(inventato.body) &&
+        conRiferimento.status === 200 &&
+        conIlRiferimento === 1 &&
+        conSessione.status === 200 &&
+        conLaSessione === 1,
+      `SMS con UUID nudo = ${senzaSessione} · risposte indistinguibili = ${
+        JSON.stringify(conUuid.body) === JSON.stringify(inventato.body)
+      } · con riferimento = ${conIlRiferimento} · con sessione = ${conLaSessione}`,
     );
   }
 

@@ -79,6 +79,15 @@ const nuovoUtente = async (over = {}) => {
       password_hash: "x",
       phone: numeroNuovo(),
       phone_verification_required: true,
+      /*
+        **Il riferimento opaco, che e cio che il flusso vero ha in mano** (M-1
+        del secondo round della revisione ostile). Le rotte e il dominio
+        accettano l'UUID nudo **solo** da chi ha gia una sessione su
+        quell'account; la sonda non ne apre nessuna, quindi passa di qui.
+      */
+      token_verification_id: `verify_${randomUUID().replace(/-/g, "")}${randomUUID()
+        .replace(/-/g, "")
+        .slice(0, 16)}`,
       ...over,
     },
   });
@@ -133,7 +142,7 @@ const main = async () => {
 
     await Promise.allSettled(
       Array.from({ length: 40 }, () =>
-        flussi.confirmPhoneVerification(utente.id, sbagliato),
+        flussi.confirmPhoneVerification(utente.token_verification_id, sbagliato),
       ),
     );
 
@@ -149,7 +158,7 @@ const main = async () => {
     );
 
     const dopo = await flussi
-      .confirmPhoneVerification(utente.id, giusto)
+      .confirmPhoneVerification(utente.token_verification_id, giusto)
       .then(() => "verificato")
       .catch(() => "rifiutato");
     registra(
@@ -171,7 +180,7 @@ const main = async () => {
 
     const risultati = await Promise.allSettled(
       Array.from({ length: 10 }, () =>
-        flussi.confirmPhoneVerification(utente.id, invio.previewCode),
+        flussi.confirmPhoneVerification(utente.token_verification_id, invio.previewCode),
       ),
     );
     const riuscite = risultati.filter((r) => r.status === "fulfilled").length;
@@ -230,7 +239,7 @@ const main = async () => {
     });
 
     const esito = await flussi
-      .confirmPhoneVerification(utente.id, invio.previewCode)
+      .confirmPhoneVerification(utente.token_verification_id, invio.previewCode)
       .then(() => "verificato")
       .catch(() => "rifiutato");
     const dopo = await prisma.user.findUnique({ where: { id: utente.id } });
@@ -258,7 +267,7 @@ const main = async () => {
     });
 
     const esito = await flussi
-      .confirmPhoneVerification(utente.id, invio.previewCode)
+      .confirmPhoneVerification(utente.token_verification_id, invio.previewCode)
       .then(() => "verificato")
       .catch(() => "rifiutato");
     registra(
@@ -296,7 +305,7 @@ const main = async () => {
       });
       const esito = await corpo(
         await inviaTelefono(
-          richiesta({ userId: utente.id }, `198.51.${rete}.${i + 1}`),
+          richiesta({ userId: utente.token_verification_id }, `198.51.${rete}.${i + 1}`),
         ),
       );
       if (esito.status === 429) bloccato = true;

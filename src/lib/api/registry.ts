@@ -1606,7 +1606,9 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     name: "auth.verify.email.send",
     method: "POST",
     path: "/api/v1/auth/verify/email/send",
-    description: "Invio codice verifica email",
+    description:
+      "Invio codice verifica email." +
+      "Il campo `userId` accetta il **riferimento opaco** (`token_verification_id`, emesso come `verification.userId` dalle risposte senza sessione), e l'UUID nudo dell'account **solo** da chi ha gia una sessione su quel medesimo account (ADR-0117 §6)",
     mobile_ready: true,
   },
   {
@@ -1614,7 +1616,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "POST",
     path: "/api/v1/auth/verify/email/confirm",
     description:
-      "Conferma verifica email. Apre una sessione **solo** se la challenge era di registrazione o di login (PP-05, ADR-0117); un codice chiesto da /verify/email/send conferma l'indirizzo e risponde session: null",
+      "Conferma verifica email. Apre una sessione **solo** se la challenge era di registrazione o di login (PP-05, ADR-0117); un codice chiesto da /verify/email/send conferma l'indirizzo e risponde session: null. Il campo `userId` accetta il **riferimento opaco** (`token_verification_id`, emesso come `verification.userId` dalle risposte senza sessione), e l'UUID nudo dell'account **solo** da chi ha gia una sessione su quel medesimo account (ADR-0117 §6)",
     mobile_ready: true,
   },
   {
@@ -1622,7 +1624,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "POST",
     path: "/api/v1/auth/verify/phone/send",
     description:
-      "Invio codice verifica telefono via SMS. Risposta opaca: riferimento ignoto, utente senza numero, numero gia verificato e invio riuscito rispondono tutti { sent: true }. Rate limit su tre assi: account, destinatario (per impronta) e indirizzo IP",
+      "Invio codice verifica telefono via SMS. Risposta opaca: riferimento ignoto, utente senza numero, numero gia verificato e invio riuscito rispondono tutti { sent: true }. Rate limit su tre assi: account, destinatario (per impronta in forma canonica E.164) e indirizzo IP. Il campo `userId` accetta il **riferimento opaco** (`token_verification_id`, emesso come `verification.userId` dalle risposte senza sessione), e l'UUID nudo dell'account **solo** da chi ha gia una sessione su quel medesimo account (ADR-0117 §6)",
     mobile_ready: true,
   },
   {
@@ -1630,7 +1632,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "POST",
     path: "/api/v1/auth/verify/phone/confirm",
     description:
-      "Conferma verifica telefono. Apre una sessione **solo** se la challenge era di registrazione o di login (PP-05, ADR-0117); un codice chiesto da /verify/phone/send conferma il numero e risponde session: null",
+      "Conferma verifica telefono. Apre una sessione **solo** se la challenge era di registrazione o di login (PP-05, ADR-0117); un codice chiesto da /verify/phone/send conferma il numero e risponde session: null. Il campo `userId` accetta il **riferimento opaco** (`token_verification_id`, emesso come `verification.userId` dalle risposte senza sessione), e l'UUID nudo dell'account **solo** da chi ha gia una sessione su quel medesimo account (ADR-0117 §6)",
     mobile_ready: true,
   },
   {

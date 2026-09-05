@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getSessionFromRequest } from "@/lib/server/auth";
 import {
   readRequestId,
   reportServerError,
@@ -84,7 +85,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = await findUserByVerificationReference(userId);
+    /*
+      **L'UUID nudo vale solo per chi ha gia una sessione su quell'account**
+      (M-1 del secondo round): senza questo vincolo la rotazione del riferimento
+      nello sfratto era teatro, e chiunque avesse raccolto UUID utente — che
+      circolano in molte proiezioni club-scoped — poteva pilotare questa rotta
+      su account altrui e distinguere un identificativo vero da uno inventato.
+    */
+    const sessioneCorrente = await getSessionFromRequest(request);
+    const user = await findUserByVerificationReference(
+      userId,
+      sessioneCorrente?.db.user_id,
+    );
 
     if (!user || !user.phone || user.phone_verified_at) {
       return rispostaOpaca();

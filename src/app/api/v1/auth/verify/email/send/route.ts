@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import {
+  readRequestId,
+  reportServerError,
+} from "@/lib/server/observability";
+import { getSessionFromRequest } from "@/lib/server/auth";
+import {
   VerificationRejected,
   buildOtpTargetCounterKey,
   findUserByVerificationReference,
@@ -74,7 +79,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = await findUserByVerificationReference(userId);
+    /*
+      **L'UUID nudo vale solo per chi ha gia una sessione su quell'account**
+      (M-1 del secondo round): senza questo vincolo la rotazione del riferimento
+      nello sfratto era teatro, e chiunque avesse raccolto UUID utente — che
+      circolano in molte proiezioni club-scoped — poteva pilotare questa rotta
+      su account altrui e distinguere un identificativo vero da uno inventato.
+    */
+    const sessioneCorrente = await getSessionFromRequest(request);
+    const user = await findUserByVerificationReference(
+      userId,
+      sessioneCorrente?.db.user_id,
+    );
 
     if (!user || user.email_verified_at) {
       return NextResponse.json({
@@ -143,9 +159,19 @@ export async function POST(request: Request) {
         { status: 503 },
       );
     }
-    /* eslint-disable-next-line no-console -- un codice di esito, nessun errore */
-    console.error("Email verification resend error", {
-      code: "EMAIL_VERIFICATION_RESEND_FAILED",
+    /*
+      **Il punto unico degli errori, come ogni altra rotta** (CLAUDE.md §2, e
+      L-5 del secondo round della revisione ostile). Qui viveva un
+      `console.error` con la sua deroga scritta a mano: la deroga era
+      difendibile — usciva solo un codice — ma un secondo posto da cui si
+      scrive nei log e un secondo posto da controllare, e la riga non portava
+      l'identificativo di richiesta, quindi non si poteva mettere in fila con
+      le altre della stessa richiesta.
+    */
+    reportServerError(error, {
+      requestId: readRequestId(request),
+      route: "/api/v1/auth/verify/email/send",
+      method: "POST",
     });
     return NextResponse.json(
       {

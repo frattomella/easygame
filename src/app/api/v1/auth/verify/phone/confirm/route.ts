@@ -5,6 +5,7 @@ import {
 } from "@/lib/server/observability";
 import {
   attachSessionCookie,
+  getSessionFromRequest,
   serializeAuthUserWithoutSession,
 } from "@/lib/server/auth";
 import {
@@ -68,9 +69,19 @@ export async function POST(request: Request) {
       );
     }
 
+    /*
+      **L'UUID nudo vale solo per chi ha gia una sessione su quell'account**
+      (M-1 del secondo round). Chi arriva dalla pagina Account manda il proprio
+      identificativo e ha la sessione; chi arriva dalla registrazione o dal
+      login manda il riferimento opaco. Nessun altro puo pilotare questa rotta
+      su un account che non e suo.
+    */
+    const sessioneCorrente = await getSessionFromRequest(request);
+
     const { user: verifiedUser, purpose } = await confirmPhoneVerification(
       userId,
       code,
+      sessioneCorrente?.db.user_id,
     );
 
     /*

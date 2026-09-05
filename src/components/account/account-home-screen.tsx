@@ -565,6 +565,50 @@ export default function AccountHomeScreen() {
     "email" | "phone" | null
   >(null);
 
+  /**
+   * **Chi non ha una password non deve restare fuori dai propri recapiti.**
+   *
+   * Due popolazioni non conoscono nessuna password del proprio account: chi si
+   * e registrato **solo** con Google o Microsoft — `createOAuthBootstrapUser`
+   * ne scrive una casuale — e chi ha appena subito uno **sfratto** (ADR-0117),
+   * a cui la password e stata sostituita proprio per chiudere fuori un
+   * occupante. Entrambe si scontrano con `CURRENT_PASSWORD_REQUIRED` e non
+   * possono aggiungere il cellulare, che il prodotto dichiara obbligatorio.
+   *
+   * La via d'uscita esiste gia ed e il recupero password, che manda un link
+   * **all'indirizzo dell'account**: qui c'e solo il pulsante che la rende
+   * raggiungibile, invece di lasciarla indovinare. Non apre nessuna strada
+   * nuova — chiunque puo chiedere quel link dalla pagina di accesso — e non
+   * cambia niente della difesa: la password si imposta **dalla casella**, non
+   * dalla sessione.
+   */
+  const [sendingPasswordLink, setSendingPasswordLink] = useState(false);
+
+  const requestPasswordLink = async () => {
+    const indirizzo = String(user?.email || "").trim();
+    if (!indirizzo || sendingPasswordLink) return;
+    setSendingPasswordLink(true);
+
+    const response = await apiRequest<{ sent: boolean }>(
+      "/api/v1/auth/password/forgot",
+      { method: "POST", body: { email: indirizzo } },
+    );
+
+    setSendingPasswordLink(false);
+
+    /*
+      La rotta risponde sempre allo stesso modo — e la sua regola
+      anti-enumeration — quindi qui non c'e niente da distinguere: si dice cosa
+      succedera, non cosa e successo.
+    */
+    showToast(
+      response.error ? "error" : "success",
+      response.error
+        ? response.error.message || "Invio non riuscito"
+        : `Se serve, ti abbiamo scritto a ${indirizzo}: apri il link per impostare una password.`,
+    );
+  };
+
   const requestVerificationCode = async (channel: "email" | "phone") => {
     if (!user?.id || verificationSending) return;
     setVerificationSending(channel);
@@ -939,7 +983,7 @@ export default function AccountHomeScreen() {
     if (richiedePassword && !profileForm.currentPassword.trim()) {
       showToast(
         "error",
-        "Per cambiare email, cellulare o password serve la password attuale.",
+        "Per cambiare email, cellulare o password serve la password attuale. Se non ne hai una, usa «Ricevi un link per impostarla».",
       );
       setSavingProfile(false);
       return;
@@ -1320,6 +1364,34 @@ export default function AccountHomeScreen() {
             }}
           />
         ) : null}
+
+        {/*
+          **La via d'uscita per chi non conosce nessuna password.**
+
+          Sta accanto agli avvisi di verifica e non dentro il modulo del
+          profilo, perche chi ne ha bisogno non arriva dal profilo: arriva da un
+          accesso con Google, o da uno sfratto che gli ha appena sostituito la
+          password. La riga e discreta di proposito — non e un allarme, e
+          un'informazione per chi la cerca — e compare sempre, perche dal client
+          non si puo sapere se una password esista: chiederlo al server
+          significherebbe pubblicare quel fatto, e non e un fatto che serva a
+          nessun altro.
+        */}
+        <p className="text-xs text-slate-500">
+          Non conosci nessuna password di questo account — per esempio perché
+          accedi con Google o Microsoft?{" "}
+          <button
+            type="button"
+            className="font-medium text-slate-700 underline underline-offset-2 disabled:opacity-60"
+            disabled={sendingPasswordLink}
+            onClick={() => {
+              void requestPasswordLink();
+            }}
+          >
+            Ricevi un link per impostarla
+          </button>
+          . Serve per cambiare email o cellulare.
+        </p>
 
         {membershipsStatus === "error" && hasLoadedMemberships ? (
           <div

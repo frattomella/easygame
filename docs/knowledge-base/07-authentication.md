@@ -135,11 +135,33 @@ il codice: il pulsante fallira finche SMTP non e configurato, e lo dira. Vedi
   (ADR-0117): `challengePurposeCanMintSession` ammette solo `signup` e `login`.
   Un codice chiesto da `/verify/<canale>/send` ha scopo `verify_email` o
   `verify_phone`: conferma il recapito e restituisce `session: null`.
+- **Chi si identifica alle rotte di verifica, e con che cosa.** Le quattro
+  rotte `/verify/<canale>/send|confirm` prendono un campo `userId` che accetta
+  **due** valori, e non sono equivalenti:
+  - il **riferimento opaco** (`token_verification_id`, forma `verify_<48 esa>`)
+    vale sempre, ed e cio che le risposte senza sessione emettono come
+    `verification.userId` — registrazione, login con telefono non verificato,
+    conferma che non apre una sessione. Se manca lo crea
+    `ensureVerificationReference`;
+  - l'**UUID nudo dell'account** vale **solo per chi ha gia una sessione su
+    quel medesimo account**: e il caso della pagina Account, che manda
+    `user.id` perche e l'unico identificativo che il client ha di se stesso, e
+    dove non si rivela niente a chi non lo sappia gia.
+
+  Il vincolo non e una formalita (ADR-0117 §6): senza, la rotazione del
+  riferimento fatta dallo sfratto era teatro — l'UUID non cambia mai e
+  l'occupante lo aveva gia — e chiunque avesse raccolto UUID utente, che
+  circolano in molte proiezioni club-scoped, poteva pilotare quelle rotte su
+  account altrui e distinguere un identificativo vero da uno inventato.
 - `AUTH_ALLOW_TEST_CODES=true` espone il codice OTP nella risposta
-  (`previewCode`) — **mai in produzione**. `shouldExposeVerificationPreviewCode`
-  nega anche su `staging` e `preview`, e con `NODE_ENV` **assente** chiede
-  `EASYGAME_DB_ENV=development`: una difesa che si apre quando una variabile
-  manca e scritta al contrario.
+  (`previewCode`) — **mai in produzione**.
+  `shouldExposeVerificationPreviewCode` ammette **solo** `NODE_ENV` fra
+  `development`, `test` e `local`, e con `NODE_ENV` **assente** chiede
+  `EASYGAME_DB_ENV=development`. E un elenco di ammissione e non di negazione:
+  la prima stesura negava `production`, `staging` e `preview` e lasciava
+  passare `NODE_ENV=prod`, che non e nessuno dei tre. Una difesa che si apre
+  quando una variabile manca — o quando ne compare una che nessuno aveva
+  previsto — e scritta al contrario.
 
 ### Il numero di cellulare ha una forma sola
 
@@ -180,10 +202,27 @@ Un account registrato con l'indirizzo di un'altra persona e **il numero di chi
 lo registra** era raggiungibile all'occupante anche dopo che la vittima aveva
 dimostrato di possedere l'indirizzo. `sfrattaOccupante` azzera **tutti** i
 canali insieme — password casuale, sessioni cancellate, `phone`,
-`phone_verified_at` e `token_verification_id` azzerati — e vale nei due punti
-in cui quella prova arriva: l'adozione da accesso esterno, e la conferma di un
-reset password su un account mai verificato. Confermare un reset **verifica
-l'indirizzo**: il token e stato consegnato a quella casella e consumato.
+`phone_verified_at` e `token_verification_id` azzerati, **e le righe di
+`external_accounts` cancellate** — e vale nei due punti in cui quella prova
+arriva: l'adozione da accesso esterno, e la conferma di un reset password su un
+account mai verificato. Confermare un reset **verifica l'indirizzo**: il token e
+stato consegnato a quella casella e consumato.
+
+I legami esterni sono l'ultima voce arrivata nell'elenco, e la piu grave: un
+`external_accounts` superstite riapre l'account al prossimo accesso
+dell'occupante **senza passare da nessuna challenge**, perche
+`findOrCreateOAuthUser` risolve per `provider_account_id` prima di ogni altra
+cosa. Chi adotta l'account ricrea il proprio legame subito dopo, in
+`upsertExternalAccount`; un legame che non si ricrea non era suo.
+
+**Chi resta senza password dopo uno sfratto** — e chi non ne ha mai avuta una
+perche accede solo con Google o Microsoft — trova nella pagina Account, accanto
+agli avvisi di verifica, il pulsante **«Ricevi un link per impostarla»**, che
+chiama `POST /auth/password/forgot` sul proprio indirizzo. Senza quel pulsante
+`CURRENT_PASSWORD_REQUIRED` chiudeva a quelle due popolazioni email, numero e
+password, cioe proprio il cellulare che il prodotto dichiara obbligatorio. Non
+apre nessuna strada nuova: quel link chiunque puo chiederlo dalla pagina di
+accesso, e la password si imposta **dalla casella**, non dalla sessione.
 
 ## Reset password
 
