@@ -2310,3 +2310,45 @@ e il posto dove riscrivere un chiamante o cambiare la forma di un elenco.
 | **PP01-D5** | `/permissions` **non** ha l'esclusione dei ruoli personalizzati che `/dashboard/access-management` ha (`access-roles.ts`). Un `custom:*` passa la guardia di rotta; `getClubSettings` **inghiotte il 403** e la pagina mostra tutti i venticinque interruttori accesi a prescindere dalla configurazione reale; il salvataggio poi fallisce. E la divergenza fra cio che si vede e cio che si puo, su una pagina di permessi | E un difetto di autorizzazione su una pagina che PP-01 doveva **analizzare** e non modificare (§M: KEEP PARTIAL). Va corretto con il suo commit e il suo test di ruolo |
 | **PP01-D6** | Il menu `...` di un allenamento e costruito con `innerHTML` a mano invece che con la primitiva del menu, e contiene una voce sola | Riscriverlo e un cambiamento di natura diversa da una correzione di difetto |
 | **PP01-D7** | Ne la barra laterale ne il menu mobile filtrano per ruolo le voci «Permessi allenatore» e «Ruoli e accessi»: `collaborator` e `staff` le vedono e rimbalzano sulla guardia | Vale per l'intera barra — l'unico filtro esistente e `canOpenAccounting` — non per queste due voci |
+
+### D-EV-1 — `club_event_participants.athlete_id` non ha una chiave esterna
+
+`prisma/schema.prisma`, `model ClubEventParticipant`: `athlete_id String` —
+senza `@db.Uuid` e **senza relazione**. E una colonna di testo libero, quindi
+l'archivio non rifiuta da se un identificativo che non nomina nessun atleta, ne
+uno che nomina l'atleta di un altro club.
+
+Oggi la porta e chiusa in applicazione (`assertAtletiDelClub`, KB 14), e le
+sonde lo verificano. Ma la difesa e **una sola**, ed e in codice: il giorno in
+cui nasce una quinta strada che scrive quella tabella, la difesa va ricordata a
+mano. Una chiave esterna verso `athletes(id)` la renderebbe strutturale.
+
+Non si chiude in questa correzione perche va misurato prima **che cosa c'e gia
+in archivio**: righe orfane o cross-tenant scritte prima della guardia
+farebbero fallire la migrazione. Serve un censimento, una bonifica dichiarata e
+poi il vincolo — cioe un WP, non una riga.
+
+### D-EV-2 — il perimetro di categoria dell'allenatore vale sull'evento, non sull'atleta
+
+`assertAtletiDentroIlPerimetro` restringe per sede e categoria **solo** i ruoli
+che dichiarano righe in `club_access_scopes`, cioe i ruoli personalizzati
+ristretti. Per un `trainer` ordinario il perimetro e verificato
+sull'**evento** (`assertTrainerEventPerimeter`: «questo evento e di una tua
+categoria?») e non sull'**atleta**.
+
+Conseguenza: un allenatore di Under 12, su un evento che gli compete, puo
+convocare o segnare presente **qualunque atleta del club**, anche di categorie
+che non allena.
+
+Non e la stessa classe del Critical chiuso oggi — resta dentro il club, quindi
+non e una scrittura cross-tenant — e non e ovvio che sia un difetto: la
+convocazione fuori categoria e una **capability dichiarata**
+(`isExtraCategory`), e un allenatore che prepara un'amichevole con due ragazzi
+della categoria sopra sta usando il prodotto come previsto.
+
+Va deciso come **prodotto**, non come sicurezza: se la convocazione fuori
+categoria debba restare libera, o richiedere una chiave di permesso propria.
+Finche non e deciso, non si stringe: una guardia messa qui per prudenza
+romperebbe un uso legittimo, e sarebbe la sesta volta in questo perimetro che
+una correzione allarga un predicato senza misurare chi **non** doveva
+raggiungere.
