@@ -1530,3 +1530,57 @@ Non e un perimetro e non e un ruolo: succede **anche alla direzione**, ed e la
 stessa forma gia vista su `club_resource_items`, dove un id logico confrontato
 con una colonna `uuid` non «non trova niente» ma fa fallire la query. Debito
 `PP03-D19`.
+
+---
+
+## §19 — La verifica di responsivita completa, alle quattro larghezze
+
+Rifatta per intero a fine lane, a schermo, sul club di collaudo `pp03-uat`
+seminato da `scripts/pp-03-uat-seed.mjs` e servito da un `next dev` proprio di
+questo worktree (porta 3011, per non disturbare le altre lane).
+
+**Il criterio e quello di §12.1, e resta la cosa piu importante di questa
+sezione.** `documentElement.scrollWidth - clientWidth` misura il traboccamento
+del **documento**, e il guscio dichiara `overflow-x-hidden` sul `<main>`: un
+contenuto piu largo dello schermo non fa traboccare niente, viene **ritagliato**
+e sparisce senza lasciare traccia in quella misura. La domanda giusta e la
+seconda — esiste un contenitore **che ritaglia** il cui `scrollWidth` supera il
+proprio `clientWidth`? — con due esclusioni dichiarate: gli elementi che
+troncano di proposito (`text-overflow: ellipsis` con `white-space: nowrap`) e
+quelli che **scorrono** (`overflow-x: auto`), che e un'altra cosa dal ritaglio.
+
+| Pagina | 375 | 768 | 1280 | 1440 |
+|---|---|---|---|---|
+| `/trainer-dashboard` | 0 | 0 | 0 | 0 |
+| `/trainer-dashboard/athletes` | 0 | 0 | 0 | 0 |
+| `/trainer-dashboard/categories` | 0 | 0 | 0 | 0 |
+| `/trainer-dashboard/trainings` | 0 | 0 | 0 | 0 |
+| `/trainer-dashboard/matches` | 0 | 0 | 0 | 0 |
+| `/trainer-dashboard/board` | 0 | 0 | 0 | 0 |
+| `/trainer-dashboard/appointments` | 0 | 0 | 0 | 0 |
+| `/trainer-dashboard/documents` | 0 | 0 | 0 | 0 |
+| `/trainer-dashboard/notifications` | 0 | 0 | 0 | 0 |
+| `/trainer-dashboard/compensi` | 0 | 0 | 0 | 0 |
+
+**Quaranta misure, zero contenitori che ritagliano**, e `documentElement`
+`scrollWidth == clientWidth` a tutte e quattro le larghezze su tutte e dieci le
+pagine.
+
+### E due cose guardate, non misurate
+
+La tabella qui sopra e una misura, e §12.1 ha insegnato a questa lane che una
+misura sbagliata dice zero su quaranta caselle mentre un pulsante e fuori dallo
+schermo. Le due correzioni che avevano prodotto quella lezione sono state
+**riaperte a schermo**:
+
+- **la scheda appuntamento a 375 px** (§12.1): il titolo tronca con i puntini,
+  lo stato compare («Confermato», «In attesa di risposta»), la data compare, e i
+  **tre** pulsanti ci sono — «Conferma», «Riprogramma» e **«Rifiuta»**, che vanno
+  a capo dentro la scheda invece di finire fuori. E il pulsante che mancava: la
+  macchina a stati del dominio dichiarava quella transizione ammessa e la
+  schermata la disegnava oltre il bordo;
+- **«I miei compensi» a 1440 px** (§8.2): la scheda del rapporto stampa
+  «Attrezzista» e non `OTHER`, cioe l'etichetta dal vocabolario di
+  `sport-work/model.ts` invece del gettone grezzo, e la tabella delle rate — la
+  sola dell'area allenatore che dichiari a mano un `min-w-[560px]` — sta dentro
+  il proprio contenitore che scorre.
