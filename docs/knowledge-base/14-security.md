@@ -2702,9 +2702,16 @@ L'elenco vive in `NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS`, cioe e
 quell'elenco non ancora presente in `users` — o se lo intestasse da
 `PATCH /auth/user` — era amministratore di piattaforma alla richiesta
 successiva: dati di pagamento di ogni societa, piani, profilo fiscale, conto
-Stripe. Ora `isPlatformAdminUser` pretende anche `email_verified_at`, o la sua
-proiezione `user_metadata.emailVerified` per i chiamanti che vedono la forma
+Stripe. La correzione del secondo round pretende anche un indirizzo
+**provato**, e accettava come prova `email_verified_at` **oppure** la sua
+proiezione `user_metadata.emailVerified`, per i chiamanti che vedono la forma
 serializzata.
+
+> **Quell'`OR` e durato un round.** Era la seconda sorgente a non valere
+> niente, e il terzo round l'ha sfruttata per riaprire il difetto per intero:
+> vedi «terzo round», sotto. La forma di oggi **distingue le due forme che
+> riceve** invece di accettarle entrambe — chi porta la colonna e giudicato su
+> quella e su nient'altro.
 
 **La regola generale, che vale oltre questo caso**: quando si toglie un
 cancello, si cerca **chi si appoggiava a quel cancello**. Qui c'era un secondo
