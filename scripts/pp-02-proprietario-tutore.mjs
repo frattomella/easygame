@@ -96,7 +96,7 @@ const rifiutato = async (azione) => {
 };
 
 const main = async () => {
-  const { upsertGuardianRows } = await carica(
+  const { saveGuardianRegistry } = await carica(
     "src/lib/server/athlete-guardians.ts",
   );
 
@@ -169,16 +169,17 @@ const main = async () => {
     il diritto di scrivere da chi non ce l'ha, che e la sola cosa che voglia
     dire «difesa».
   */
-  const scritte = await upsertGuardianRows(prisma, {
+  const scritte = await saveGuardianRegistry(prisma, {
     organizationId: CLUB,
     athleteId: ATLETA,
     rows: [{ email: "madre@esempio.it", firstName: "Anna", lastName: "Sonda" }],
+    canGrantAccess: true,
   });
 
   prova(
     "3. la stessa scrittura, dal modulo proprietario",
     1,
-    scritte.length,
+    scritte.aggiunte.length,
     "senza questa, la difesa non discrimina: rifiuterebbe tutto",
   );
 

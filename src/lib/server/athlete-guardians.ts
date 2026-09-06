@@ -189,6 +189,60 @@ export const withGuardianWriter = async <T>(
   return radice.$transaction((tx: any) => esegui(tx));
 };
 
+/**
+ * **Le schede prima delle righe, e in ordine di identificativo.**
+ *
+ * ---
+ *
+ * ## Il difetto che chiude, ed e `PP02-D34` tornato su un'altra coppia
+ *
+ * WP-C aveva tolto l'abbraccio mortale che nasceva dal blocco sull'intero club,
+ * e le note di quel lavoro dichiaravano la classe chiusa — «non ci sono blocchi
+ * per riga, quindi non c'e un ordine di acquisizione da incrociare con nessun
+ * altro». Era vero per i blocchi che erano stati tolti, e falso per quelli che
+ * restavano:
+ *
+ * | Chi | Prende prima | Poi |
+ * |---|---|---|
+ * | il salvataggio dell'anagrafica | `athletes` (`lockAthleteRow`) | `athlete_guardians` |
+ * | la revoca di una tessera | `athlete_guardians` | `athletes` (la proiezione) |
+ *
+ * Due ordini opposti sulle stesse due tabelle: PostgreSQL ne fa un
+ * `40P01 deadlock detected`, e una delle due transazioni viene scelta come
+ * vittima. Quando la vittima e la revoca, la schermata dice «revocato» e la
+ * persona e ancora dentro — che e **esattamente** il modo di fallire da cui
+ * PP-02 e nato.
+ *
+ * ## La regola
+ *
+ * Un ordine solo, per tutti: **prima la scheda, poi le sue righe**, e le schede
+ * in ordine crescente di identificativo. Due transazioni che acquisiscono nello
+ * stesso ordine non si incrociano mai, e questo ordine e gia quello che il
+ * salvataggio dell'anagrafica segue — quindi la regola non chiede a nessuno di
+ * cambiare, chiede al dominio dei tutori di **allinearsi**.
+ *
+ * **Non e il blocco che PP02-D34 descriveva.** Quello prendeva ogni riga del
+ * club, quattrocento schede in ordine di scansione. Qui sono le schede su cui
+ * quella persona compare davvero: i suoi figli, uno o due.
+ *
+ * Il ripiego silenzioso e voluto: il doppio di Prisma dei test unitari non
+ * esegue SQL grezzo, e li non c'e concorrenza da ordinare. Un blocco che non si
+ * puo prendere non deve far fallire una scrittura corretta.
+ */
+const bloccaSchede = async (tx: any, athleteIds: string[]) => {
+  const ordinati = Array.from(new Set(athleteIds.filter(Boolean))).sort();
+  if (!ordinati.length) return;
+
+  try {
+    await tx.$queryRawUnsafe(
+      `SELECT "id" FROM "athletes" WHERE "id" = ANY($1::uuid[]) ORDER BY "id" FOR UPDATE`,
+      ordinati,
+    );
+  } catch {
+    /* Nessun SQL grezzo: nessuna concorrenza da ordinare. */
+  }
+};
+
 /* -------------------------------------------------------------------------
  * 3. Scrittura
  * ---------------------------------------------------------------------- */
@@ -236,103 +290,6 @@ const ORDINE_STABILE = [
   { id: "asc" as const },
 ];
 
-/**
- * Scrive le righe passate, una `upsert` per identita.
- *
- * **Non e la porta dell'anagrafica**: e il mattone su cui le porte si
- * costruiscono. Non decide chi puo concedere un accesso, non toglie righe che
- * non le sono state nominate, e non tocca `revoked_at` — chi ha il diritto di
- * togliere una revoca lo fa da `linkGuardianAccount`, che e l'atto tracciato.
- *
- * Le righe senza identita si scartano: una riga che non nomina ne un'utenza ne
- * un indirizzo ne una chiave storica non e una persona, e in una tabella con
- * una chiave unica non ha un posto dove stare.
- */
-export const upsertGuardianRows = async (
-  client: any,
-  parametri: {
-    organizationId: string;
-    athleteId: string;
-    rows: GuardianInput[];
-  },
-): Promise<GuardianRow[]> => {
-  const { organizationId, athleteId, rows } = parametri;
-
-  /*
-    **Due righe in arrivo con la stessa identita si fondono, non si scontrano.**
-
-    Gli id sintetici del blob collidevano per costruzione, quindi un elenco che
-    porta due volte lo stesso indirizzo e la norma e non un caso limite. Senza
-    questa fusione la seconda `upsert` sovrascriverebbe la prima dentro la
-    stessa transazione, e l'esito dipenderebbe dall'ordine.
-
-    La fusione e **conservativa sulle difese**, come nel travaso: se una
-    qualunque delle righe fuse era solo-recapito, lo e la riga risultante. Nel
-    verso opposto si aprirebbe un accesso che nessuna delle due righe apriva.
-  */
-  const perIdentita = new Map<string, GuardianInput & { posizione: number }>();
-  rows.forEach((riga, posizione) => {
-    const chiave = guardianIdentityKey(riga);
-    if (!chiave) return;
-
-    const gia = perIdentita.get(chiave);
-    perIdentita.set(
-      chiave,
-      gia
-        ? {
-            ...gia,
-            ...Object.fromEntries(
-              Object.entries(riga).filter(([, valore]) => valore != null && valore !== ""),
-            ),
-            contactOnly: Boolean(gia.contactOnly || riga.contactOnly),
-            posizione: gia.posizione,
-          }
-        : { ...riga, posizione },
-    );
-  });
-
-  if (!perIdentita.size) return [];
-
-  return withGuardianWriter(client, async (tx) => {
-    const scritte: GuardianRow[] = [];
-
-    for (const [identityKey, riga] of perIdentita) {
-      const comuni = {
-        user_id: testo(riga.userId),
-        email: normalizza(riga.email) || null,
-        first_name: testo(riga.firstName),
-        last_name: testo(riga.lastName),
-        phone: testo(riga.phone),
-        relationship: testo(riga.relationship),
-        contact_only: Boolean(riga.contactOnly),
-        legacy_id: testo(riga.legacyId),
-        access_token_value: testo(riga.accessTokenValue),
-        access_token_status: testo(riga.accessTokenStatus),
-        access_token_expires_at: riga.accessTokenExpiresAt ?? null,
-        access_token_generated_at: riga.accessTokenGeneratedAt ?? null,
-        position: riga.posizione,
-      };
-
-      const record = await tx.athleteGuardian.upsert({
-        where: { athlete_id_identity_key: { athlete_id: athleteId, identity_key: identityKey } },
-        create: {
-          organization_id: organizationId,
-          athlete_id: athleteId,
-          identity_key: identityKey,
-          ...comuni,
-        },
-        update: comuni,
-      });
-
-      scritte.push(record as GuardianRow);
-    }
-
-    await refreshGuardianProjection(tx, [athleteId]);
-
-    return scritte;
-  });
-};
-
 /* -------------------------------------------------------------------------
  * 4. Lettura di autorita
  * ---------------------------------------------------------------------- */
@@ -346,34 +303,6 @@ export const readGuardiansForAthlete = async (
     where: { athlete_id: athleteId },
     orderBy: ORDINE_STABILE,
   }) as Promise<GuardianRow[]>;
-
-/**
- * I tutori di piu atleti in **una** interrogazione.
- *
- * Su Neon da Vercel ogni lettura paga un giro di rete: una schermata che mostra
- * duecento atleti non deve pagarne duecento.
- */
-export const readGuardiansForAthletes = async (
-  client: any,
-  athleteIds: string[],
-): Promise<Map<string, GuardianRow[]>> => {
-  const per = new Map<string, GuardianRow[]>();
-  const identificativi = Array.from(new Set(athleteIds.filter(Boolean)));
-  if (!identificativi.length) return per;
-
-  const righe = (await (client || prisma).athleteGuardian.findMany({
-    where: { athlete_id: { in: identificativi } },
-    orderBy: ORDINE_STABILE,
-  })) as GuardianRow[];
-
-  for (const riga of righe) {
-    const gia = per.get(riga.athlete_id);
-    if (gia) gia.push(riga);
-    else per.set(riga.athlete_id, [riga]);
-  }
-
-  return per;
-};
 
 /**
  * **La riga che questo identificativo nomina.**
@@ -422,34 +351,6 @@ export const findGuardianRow = async (
     candidate.find((riga) => riga.identity_key === normalizza(chiave)) ||
     null
   );
-};
-
-/**
- * **Questa riga apre l'area famiglia a questa persona?**
- *
- * Le tre porte, nell'ordine in cui contano:
- *
- * 1. una riga **revocata** non apre niente. La revoca si toglie riscattando un
- *    invito, che riscrive `user_id` e azzera `revoked_at`;
- * 2. un legame **dichiarato** — l'utenza sulla riga — apre sempre, ed e l'atto
- *    tracciato e revocabile;
- * 3. l'indirizzo di contatto apre solo se **verificato** e solo se la riga non
- *    e `contact_only` (ADR-0114: vale perche lo scrive il club).
- */
-export const guardianRowGrantsAccess = (
-  riga: GuardianRow,
-  userId: string,
-  verifiedEmail?: string | null,
-): boolean => {
-  if (riga.revoked_at) return false;
-
-  const utenza = normalizza(userId);
-  if (utenza && normalizza(riga.user_id) === utenza) return true;
-
-  if (riga.contact_only) return false;
-
-  const indirizzo = normalizza(verifiedEmail);
-  return Boolean(indirizzo) && normalizza(riga.email) === indirizzo;
 };
 
 /* -------------------------------------------------------------------------
@@ -503,13 +404,12 @@ export const saveGuardianRegistry = async (
 
   return withGuardianWriter(client, async (tx) => {
     /*
-      La lettura sta **dentro** la transazione, e non serve un blocco sulla
-      riga dell'atleta: due salvataggi concorrenti toccano righe diverse quando
-      nominano persone diverse, e la stessa riga quando nominano la stessa
-      persona — dove la chiave unica e l'`UPDATE` fanno il lavoro che il blocco
-      faceva sul blob. E la ragione per cui `lockAthleteRow` esce da questi
-      percorsi.
+      **Prima la scheda, poi le sue righe**: vedi `bloccaSchede`. Quando questa
+      funzione e chiamata da dentro il salvataggio dell'anagrafica il blocco c'e
+      gia, e riprenderlo nella stessa transazione non costa niente.
     */
+    await bloccaSchede(tx, [athleteId]);
+
     const esistenti = (await tx.athleteGuardian.findMany({
       where: { athlete_id: athleteId },
     })) as GuardianRow[];
@@ -679,8 +579,26 @@ export const saveGuardianRegistry = async (
         continue;
       }
 
-      /* Nasce una riga: o e una persona nuova, o e un indirizzo corretto. */
+      /*
+        **Correggere un indirizzo non toglie il segno di solo-recapito.**
+
+        Una riga nata da un modulo pubblico porta `contact_only`, e la regola
+        di questo modulo dice che quel segno lo toglie **solo** un invito
+        riscattato. Ma cambiare l'indirizzo cambia l'identita, e l'identita e
+        la chiave: la riga vecchia se ne va e ne nasce una nuova, che senza
+        questa riga nascerebbe **pulita**.
+
+        Misurato: un refuso corretto dalla segreteria — un gesto ordinario, che
+        non chiede nessuna chiave — trasformava un recapito dichiarato da uno
+        sconosciuto in una chiave dell'area famiglia. Se quell'indirizzo
+        appartiene a un'utenza verificata, da quel momento apre allergie,
+        farmaci e i byte del certificato di un minore.
+
+        Il segno si eredita percio dalla riga sostituita. Nel verso opposto non
+        si eredita niente: una riga senza segno non ne acquista uno.
+      */
       const coniata = chiave ? null : rigaSenzaIdentita();
+      const segnoEreditato = Boolean(voce.riga?.contact_only);
       const creata = await tx.athleteGuardian.create({
         data: {
           ...(coniata ? { id: coniata.id } : {}),
@@ -693,7 +611,7 @@ export const saveGuardianRegistry = async (
           last_name: testo(input.lastName),
           phone: testo(input.phone),
           relationship: testo(input.relationship),
-          contact_only: Boolean(input.contactOnly),
+          contact_only: Boolean(input.contactOnly) || segnoEreditato,
           legacy_id: testo(input.legacyId),
           position: posizione,
         },
@@ -778,6 +696,8 @@ export const upsertGuardianFromFormApproval = async (
     guardianIdentityKey(row) || (coniata as { identity_key: string }).identity_key;
 
   return withGuardianWriter(client, async (tx) => {
+    await bloccaSchede(tx, [athleteId]);
+
     /*
       **Una riga nata da un modulo si accoda**, come faceva `guardians.push`.
       Se cadesse in testa, sposterebbe di uno il destinatario fiscale e il
@@ -895,6 +815,8 @@ export const linkGuardianAccount = async (
     );
 
   return withGuardianWriter(client, async (tx) => {
+    await bloccaSchede(tx, [athleteId]);
+
     const strade: any[] = [];
     if (guardianRowId && eUnIdentificativo) strade.push({ id: guardianRowId });
     if (guardianRowId) strade.push({ legacy_id: String(guardianRowId) });
@@ -959,6 +881,8 @@ export const revokeGuardianRow = async (
   parametri: { athleteId: string; guardianRowId: string },
 ): Promise<GuardianRow | null> =>
   withGuardianWriter(client, async (tx) => {
+    await bloccaSchede(tx, [parametri.athleteId]);
+
     const aggiornate = await tx.athleteGuardian.updateMany({
       where: { id: parametri.guardianRowId, athlete_id: parametri.athleteId },
       data: {
@@ -1044,6 +968,20 @@ export const revokeGuardianAccessInClub = async (
       select: { athlete_id: true },
     })) as Array<{ athlete_id: string }>;
 
+    /*
+      **Le schede si bloccano prima di scrivere le righe**, nell'ordine di
+      `bloccaSchede`: senza, questa transazione prende `athlete_guardians` e poi
+      `athletes` mentre il salvataggio dell'anagrafica li prende al contrario, e
+      i due ordini opposti sono un abbraccio mortale.
+
+      La scelta e appena stata fatta e la finestra fra scelta e blocco non
+      concede niente: una scheda che acquistasse quel tutore **dopo** questa
+      lettura avrebbe una riga che nasce gia dopo la revoca, e per lei la
+      revoca non e ancora avvenuta. Cio che la revoca promette e di chiudere
+      cio che c'era.
+    */
+    await bloccaSchede(tx, toccate.map((riga) => riga.athlete_id));
+
     const esito = await tx.athleteGuardian.updateMany({
       where: dove,
       data: {
@@ -1076,6 +1014,8 @@ export const eraseGuardiansForAthlete = async (
   athleteId: string,
 ): Promise<number> =>
   withGuardianWriter(client, async (tx) => {
+    await bloccaSchede(tx, [athleteId]);
+
     const esito = await tx.athleteGuardian.deleteMany({
       where: { athlete_id: athleteId },
     });
@@ -1140,10 +1080,58 @@ export const findGuardianLinks = async (
 
   if (!strade.length) return [];
 
-  return (client || prisma).athleteGuardian.findMany({
+  const tx = client || prisma;
+
+  const righe = (await tx.athleteGuardian.findMany({
     where: { revoked_at: null, OR: strade },
     orderBy: ORDINE_STABILE,
-  }) as Promise<GuardianRow[]>;
+  })) as GuardianRow[];
+
+  if (!indirizzo) return righe;
+
+  /*
+    **Una revoca vale per la persona su quella scheda, non per la riga che la
+    nomina.**
+
+    Su una scheda **travasata** due righe possono portare lo stesso indirizzo
+    con due chiavi diverse: il travaso da a una riga che dichiarava
+    `linkedUserId` la chiave dell'utenza — e le lascia l'indirizzo **di
+    famiglia** come recapito — e a una riga senza identificativo la chiave
+    dell'indirizzo. E la configurazione ordinaria di ADR-0114: madre e padre,
+    un indirizzo solo.
+
+    Revocare la madre chiude **la sua riga**. Ma la riga del padre porta lo
+    stesso indirizzo, e il ripiego sull'indirizzo la accetta: la madre
+    rientrava dalla porta accanto, con la scheda che diceva «Account non
+    collegato». E lo stesso difetto per cui questo pacchetto esiste, in una
+    forma che le porte del modulo non sanno creare — la crea il travaso.
+
+    Il registro di scheda che WP-C ha cancellato faceva esattamente questo, e
+    lo faceva **per identita**: qui la stessa domanda si fa alle righe.
+    L'utenza non serve escluderla — un riscatto azzera `revoked_at`, quindi una
+    riga che porta l'utenza e viva e un legame ridato apposta.
+  */
+  const revocateDiQuestaPersona = (await tx.athleteGuardian.findMany({
+    where: {
+      revoked_at: { not: null },
+      OR: [
+        ...(utenza ? [{ user_id: utenza }, { identity_key: utenza }] : []),
+        { identity_key: indirizzo },
+        { email: indirizzo },
+      ],
+    },
+    select: { athlete_id: true },
+  })) as Array<{ athlete_id: string }>;
+
+  if (!revocateDiQuestaPersona.length) return righe;
+
+  const chiuse = new Set(revocateDiQuestaPersona.map((riga) => riga.athlete_id));
+
+  return righe.filter(
+    (riga) =>
+      /* Il legame dichiarato resta: e l'atto, e la revoca lo avrebbe azzerato. */
+      normalizza(riga.user_id) === utenza || !chiuse.has(riga.athlete_id),
+  );
 };
 
 /* -------------------------------------------------------------------------

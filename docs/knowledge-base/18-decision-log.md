@@ -6786,7 +6786,7 @@ di query.
 |---|---|---|
 | la revoca di una tessera, su un club da 60 atleti | un ciclo, ~840 ms, **7 sfasamenti su 7** lasciano sfuggire la scheda scritta nel frattempo | una istruzione, ~84 ms, **0 su 7** |
 | il costo della revoca | cresce con i **tesserati del club** | cresce con le righe di **quella persona** |
-| l'abbraccio mortale con il rollover | 5 giri su 5 con il blocco sul club | non c'e un elenco su cui prendere blocchi |
+| l'abbraccio mortale con il rollover | 5 giri su 5 con il blocco sul club | un ordine solo per tutti: prima la scheda, poi le sue righe |
 | cinque approvazioni concorrenti di moduli | 6 giri su 6 con righe perse (`PP02-D33`) | una `upsert` per identita: non c'e uno snapshot da rimandare |
 | un salvataggio ordinario dopo una revoca | annullava la revoca | non ha una strada per toccarla |
 | la ricerca dei figli di un tutore | una scansione di `athletes` in SQL grezzo, non indicizzabile, che un `catch` largo faceva degradare in silenzio a «nessun club» | una interrogazione su un indice (chiude `PP02-D1`) |
@@ -6803,6 +6803,19 @@ congelato dentro la sonda — con la tabella su ventiquattro grafie storiche:
   grafie dell'identificativo invece che con quattro. E l'allargamento che
   `getParentLinkedAthletes` dichiara di volere e che la sua ricerca realizzava
   solo in parte.
+
+**Una correzione a questo ADR, imposta da una misura.** La prima stesura
+diceva che l'abbraccio mortale si chiudeva perche «non ci sono blocchi per riga,
+quindi non c'e un ordine di acquisizione da incrociare con nessun altro». Era
+vero per i blocchi tolti e falso per quelli rimasti: il salvataggio
+dell'anagrafica prende `athletes` e poi `athlete_guardians`, e la revoca li
+prendeva al contrario. Due ordini opposti sulle stesse due tabelle, e
+PostgreSQL ne abbatte uno — quando la vittima e la revoca, la schermata dice
+«revocato» e la persona e ancora dentro.
+
+Chiuso con `bloccaSchede`: **prima la scheda, poi le sue righe**, e le schede in
+ordine crescente di identificativo. La lezione sta nel debito: una classe non si
+dichiara chiusa perche e sparita l'istanza che si stava guardando.
 
 **Alternative scartate.** Una sesta stesura del riporto delle difese: le cinque
 precedenti hanno sbagliato cinque domande diverse, tutte discendenti dall'unica

@@ -2638,3 +2638,44 @@ E la ragione per cui l'invariante e stata messa nell'archivio invece che in un
 test: la rotta generica scrive attraverso un delegato **calcolato a runtime**,
 quindi un elenco derivato da una ricerca testuale non puo essere completo per
 costruzione (ADR-0119).
+
+### PP02-D34 e tornato una volta, prima di chiudersi (2026-09-06)
+
+Vale la pena scriverlo, perche l'errore non e stato nel codice ma **nel modo di
+dichiarare chiusa una classe**.
+
+WP-C ha tolto il ciclo dello sweep e il blocco sull'intero club, e le note del
+lavoro dichiaravano: «non ci sono blocchi per riga, quindi non c'e un ordine di
+acquisizione da incrociare con nessun altro». Era vero per i blocchi **tolti**,
+e falso per quelli rimasti:
+
+| Chi | Prende prima | Poi |
+|---|---|---|
+| il salvataggio dell'anagrafica | `athletes` (`lockAthleteRow`) | `athlete_guardians` |
+| la revoca di una tessera | `athlete_guardians` | `athletes` (la proiezione) |
+
+Due ordini opposti sulle stesse due tabelle. PostgreSQL:
+
+```
+deadlock detected: Process 340958 waits for ShareLock on transaction 320432;
+blocked by process 340944. Process 340944 waits for ShareLock on transaction 320433...
+```
+
+Quando la vittima e la revoca, la schermata dice «revocato» e la persona e
+ancora dentro — il modo di fallire da cui PP-02 e nato.
+
+**Chiuso** con un ordine solo per tutti (`bloccaSchede`): prima la scheda, poi
+le sue righe, e le schede in ordine crescente di identificativo. Non e il blocco
+che D34 descriveva — quello prendeva quattrocento schede in ordine di
+scansione — ma le schede su cui quella persona compare davvero: i suoi figli.
+
+**La lezione.** Una classe di difetto non si dichiara chiusa perche e sparita
+**l'istanza** che si stava guardando. Il deadlock non nasceva dal ciclo: nasceva
+da **due ordini di acquisizione incrociati**, e togliere il ciclo ne ha tolto
+uno lasciando l'altro. La domanda giusta non era «c'e ancora quel blocco?» ma
+«esiste un ordine solo?».
+
+Lo ha trovato una sonda — `W-72` e `W-79` — mentre veniva riscritta per il
+modello nuovo, e non una revisione del codice: la coppia di transazioni che lo
+produce non e evidente leggendo nessuna delle due funzioni da sola.
+

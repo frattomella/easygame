@@ -5,21 +5,21 @@ import { readFileSync } from "node:fs";
 import { createFakePrisma } from "../helpers/fake-prisma.mjs";
 
 let canParentAccessAthlete;
-let guardianAccessIdentities;
 let clearLinkedFields;
 let unlinkGuardianAccount;
 let linkGuardianAccount;
+let saveGuardianRegistry;
 let setPrismaClientForTests;
 
 before(async () => {
   process.env.DATABASE_URL ||= "postgresql://test:test@127.0.0.1:5432/test";
-  ({ canParentAccessAthlete, guardianAccessIdentities } = await import(
+  ({ canParentAccessAthlete } = await import(
     "../../src/lib/server/parent-dashboard.ts"
   ));
   ({ clearLinkedFields, unlinkGuardianAccount } = await import(
     "../../src/lib/server/profile-account-links.ts"
   ));
-  ({ linkGuardianAccount } = await import(
+  ({ linkGuardianAccount, saveGuardianRegistry } = await import(
     "../../src/lib/server/athlete-guardians.ts"
   ));
   ({ __setPrismaClientForTests: setPrismaClientForTests } = await import(
@@ -508,46 +508,78 @@ test("il marchio di una riga non chiude l'altro genitore allo stesso indirizzo",
   );
 });
 
-test("una riga porta tutte le grafie dell'identificativo, non la prima", async () => {
+test("aggiungere un tutore che esiste come utenza chiede le due chiavi", async () => {
   /*
-    `getGuardianRows` comprime le quattro grafie con `firstText`, quindi
-    l'insieme sorvegliato dalla guardia ne vedeva **una**: una riga
-    `{ linkedUserId: <gia dentro>, user_id: <un terzo> }` non faceva crescere
-    niente e nessun permesso veniva chiesto. Intanto
-    `resolveFamilyRecipients` le raccoglie tutte e quattro dalla riga grezza e
-    metteva quel terzo fra i destinatari delle notifiche documentali, che
-    nominano il minore e il documento chiesto.
+    **La stessa regola, misurata dove adesso vive** (PP-02 / WP-C).
 
-    La guardia deve guardare cio che i lettori guardano.
+    Prima era una guardia della rotta generica, che confrontava l'insieme delle
+    identita **prima** e **dopo** dentro il blob. Quel confronto ha pagato tre
+    stesure: comprimeva le grafie dell'identificativo con `firstText`, quindi
+    una riga `{ linkedUserId: <gia dentro>, user_id: <un terzo> }` non faceva
+    crescere niente e nessun permesso veniva chiesto — mentre
+    `resolveFamilyRecipients` quel terzo lo raccoglieva e gli mandava le
+    notifiche documentali sul minore.
+
+    Adesso non c'e un insieme da confrontare: le identita sono le chiavi delle
+    righe, e una riga nuova o c'e o non c'e. La regola resta la stessa, e sta
+    nel modulo proprietario — **un'identita nuova concede solo se appartiene a
+    qualcuno**, e allora servono le due chiavi insieme.
   */
-  const identita = guardianAccessIdentities({
-    guardians: [{ id: "t", name: "Tutore", linkedUserId: ANNA, user_id: BRUNO }],
-  });
+  const fake = conSeme({ id: "t1", name: "Anna", email: EMAIL_ANNA });
 
-  assert.ok(identita.has(ANNA.toLowerCase()), "la prima grafia");
-  assert.ok(identita.has(BRUNO.toLowerCase()), "e la terza, che concede un canale");
-});
-
-test("un indirizzo revocato non entra nell'insieme, da nessuno dei due lati", async () => {
-  /*
-    La guardia confrontava uno stato di partenza **senza** le identita revocate
-    con uno stato in arrivo che le conteneva: rimandare la scheda invariata
-    risultava percio una crescita, e un ruolo senza `clinical.read` non
-    salvava piu niente su quell'atleta — ne una taglia, ne un telefono.
-
-    Una riga che porta solo un indirizzo **revocato** non concede niente a
-    nessuno: non deve contare da nessuno dei due lati.
-  */
-  const dati = {
-    guardians: [{ id: "nonna", name: "Nonna", email: EMAIL_ANNA }],
-    revokedGuardianIdentities: [EMAIL_ANNA],
-  };
-
-  assert.equal(
-    guardianAccessIdentities(dati).has(EMAIL_ANNA),
-    false,
-    "l'indirizzo revocato non e un'identita che questa scheda concede",
+  await assert.rejects(
+    () =>
+      saveGuardianRegistry(null, {
+        organizationId: CLUB,
+        athleteId: FIGLIO,
+        rows: [
+          { firstName: "Anna", email: EMAIL_ANNA },
+          /* Bruno **esiste** come utenza: aggiungerlo e una concessione. */
+          { firstName: "Bruno", email: "bruno@famiglia.invalid" },
+        ],
+        canGrantAccess: false,
+      }),
+    /Accesso negato/,
+    "senza le due chiavi non si aggiunge un tutore che apre",
   );
 
-  conRighe(dati.guardians[0]);
+  assert.equal(
+    fake.rows("athleteGuardian").filter((r) => r.athlete_id === FIGLIO).length,
+    1,
+    "e il rifiuto non lascia meta salvataggio: la riga nuova non nasce",
+  );
+});
+
+test("correggere un indirizzo che non appartiene a nessuno resta possibile", async () => {
+  /*
+    **Il prezzo che le stesure precedenti avevano pagato, e che non si ripaga.**
+
+    Negare ogni **crescita** dell'insieme e gia stato provato: correggere un
+    refuso nell'email di un tutore cambia l'insieme, quindi veniva rifiutato, e
+    una «Segreteria» modellata come ruolo di club non poteva piu fare il lavoro
+    di tutti i giorni.
+
+    Cio che concede accesso non e scrivere un indirizzo: e scriverne uno che
+    **corrisponde a un'utenza**. Un indirizzo che non e di nessuno non apre
+    niente, e passa.
+  */
+  const fake = conSeme({ id: "t1", name: "Anna", email: EMAIL_ANNA });
+
+  await saveGuardianRegistry(null, {
+    organizationId: CLUB,
+    athleteId: FIGLIO,
+    rows: [{ firstName: "Anna", email: "anna@refuso.invalid" }],
+    canGrantAccess: false,
+  });
+
+  const righe = fake
+    .rows("athleteGuardian")
+    .filter((r) => r.athlete_id === FIGLIO);
+
+  assert.equal(righe.length, 1);
+  assert.equal(
+    righe[0].email,
+    "anna@refuso.invalid",
+    "l'indirizzo corretto e quello nuovo",
+  );
 });

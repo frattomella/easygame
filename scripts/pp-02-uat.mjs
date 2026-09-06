@@ -50,6 +50,7 @@ import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { travasaTutori } from "./helpers/travaso-tutori.mjs";
 
 if (process.env.EASYGAME_DB_ENV !== "development") {
   console.error("Rifiuto: serve EASYGAME_DB_ENV=development.");
@@ -116,6 +117,7 @@ let CARLA = null;
 let PRESIDENTE = null;
 
 let cruscotto;
+let tutori;
 
 const utente = async (email, nome, verificata = true) => {
   const trovato = await prisma.user.findUnique({ where: { email } });
@@ -445,6 +447,7 @@ const semina = async () => {
   });
 
   cruscotto = await carica("src/lib/server/parent-dashboard.ts");
+  tutori = await carica("src/lib/server/athlete-guardians.ts");
 };
 
 const pulisci = async () => {
@@ -1024,9 +1027,17 @@ const sezioneR = async () => {
     senza tessera, senza altra strada — perche e quella che il dato malformato
     farebbe cadere.
   */
-  await prisma.athlete.update({
-    where: { id: NINA },
-    data: { data: { guardians: [tutore(CARLA, "Zia")] } },
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: NINA,
+    rows: [{ firstName: "Carla", relationship: "Zia", email: CARLA.email }],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: NINA,
+    identityKeys: [CARLA.email],
+    userId: CARLA.id,
+    email: CARLA.email,
   });
 
   const MALFORMATO = randomUUID();
@@ -1043,18 +1054,28 @@ const sezioneR = async () => {
   });
 
   /*
-    **Questa prova non diventa rossa togliendo la correzione, e va detto.**
+    **La classe di difetto che questa prova sorvegliava non esiste piu**
+    (PP-02 / WP-C).
 
-    Misurato: rimettendo `WHERE jsonb_typeof(...) = 'array' AND EXISTS(...)` la
-    prova resta verde, perche su questa forma di query il pianificatore di
-    Postgres valuta i due congiunti nell'ordine scritto. Il rischio che la
-    revisione ha descritto e **reale ma latente**: lo standard non garantisce
-    quell'ordine, e un piano diverso — piu righe, un indice nuovo, una versione
-    successiva — lo cambierebbe senza avvisare.
+    Nasceva da una ricerca in SQL grezzo che scavava dentro
+    `athletes.data.guardians`: una sola riga malformata — un oggetto dove il
+    codice si aspettava un array — faceva lanciare `jsonb_array_elements`, e
+    l'errore cadeva in un `catch` largo che restituiva «nessun club». Cioe:
+    **una riga storta in archivio toglieva i figli a tutte le famiglie del
+    sistema, in silenzio.**
 
-    Cio che questa prova misura, e che serve comunque: che la forma robusta
-    **non abbia rotto niente**, e che una riga malformata in archivio non faccia
-    sparire i figli di nessuno.
+    La forma robusta la chiudeva spostando il controllo di tipo dentro
+    l'espressione, e questa prova ne verificava l'esito. Ma la difesa restava
+    una precauzione dentro una scansione, e la sonda stessa dichiarava di non
+    poterla verificare per mutazione: rimettendo la forma fragile restava
+    verde, perche il pianificatore **quel giorno** valutava i congiunti
+    nell'ordine scritto.
+
+    Adesso il legame e una riga di `athlete_guardians` con un indice, e la
+    ricerca non guarda `data`. Una scheda con un `guardians` malformato non
+    puo influenzare la risposta, perche quella colonna non partecipa piu alla
+    domanda. La prova resta — misura che nessuno ci sia tornato dentro — e cio
+    che afferma e adesso una **proprieta**, non una precauzione.
   */
   prova(
     "R-03 una riga con `guardians` malformato non fa sparire i figli di nessuno",
@@ -1424,9 +1445,18 @@ const sezioneM = async () => {
     lo rilegge, ed e questa prova a dirlo.
   */
   const primaDellaRevoca = await cruscotto.canParentAccessAthlete(CARLA.id, NINA);
-  await prisma.athlete.update({
-    where: { id: NINA },
-    data: { data: { guardians: [] } },
+
+  /*
+    Il legame si toglie dove vive (PP-02 / WP-C): svuotare
+    `athletes.data.guardians` toglierebbe la **proiezione**, e il salvataggio
+    successivo la rifarebbe dalla tabella. E precisamente la proprieta per cui
+    la proiezione non governa l'accesso.
+  */
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: NINA,
+    rows: [],
+    canGrantAccess: true,
   });
 
   prova(
@@ -2374,9 +2404,23 @@ const sezioneS = async () => {
       first_name: "Elena",
       last_name: "Collaudo",
       status: "active",
-      data: { guardians: [{ name: "Anna", linkedUserId: ANNA.id }] },
+      data: {},
       updated_at: new Date(),
     },
+  });
+
+  /* Il legame e una riga, e nasce con l'atto che lo dichiara: il riscatto. */
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: ALTRO_CLUB,
+    athleteId: FIGLIA_ALTROVE,
+    rows: [{ firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIA_ALTROVE,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   /* Il legame c'e davvero: e cio che rendeva l'attacco possibile. */
@@ -3261,19 +3305,34 @@ const sezioneW = async () => {
       last_name: "Revoca",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          {
-            id: "tutore-anna",
-            name: "Anna Collaudo",
-            relation: "madre",
-            email: ANNA.email,
-            linkedUserId: ANNA.id,
-            linkedUserEmail: ANNA.email,
-          },
-        ],
-      },
+      data: {},
     },
+  });
+
+  /*
+    Le due cose insieme, come esistono in archivio: la segreteria scrive
+    l'indirizzo di contatto, e il legame nasce con il riscatto di un invito.
+    Sono due atti diversi e adesso hanno due scritture diverse — la seconda e
+    l'unica che apre.
+  */
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_REVOCA,
+    rows: [
+      {
+        legacyId: "tutore-anna",
+        firstName: "Anna Collaudo",
+        relationship: "madre",
+        email: ANNA.email,
+      },
+    ],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_REVOCA,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   prova(
@@ -3292,9 +3351,19 @@ const sezioneW = async () => {
     accessScopes: [],
   };
 
+  /*
+    L'identificativo che la scheda passa e quello della **riga**, che e cio che
+    riceve dalla proiezione. La chiave storica `"tutore-anna"` era un id del
+    blob: cambiava persona appena si cancellava una riga sopra di lei, ed e il
+    difetto per cui «Scollega account» sulla nonna revocava il padre.
+  */
+  const rigaDaScollegare = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_REVOCA, legacy_id: "tutore-anna" },
+  });
+
   await legami.unlinkGuardianAccount(scopeSegreteria, {
     athleteId: FIGLIO_REVOCA,
-    guardianId: "tutore-anna",
+    guardianId: rigaDaScollegare.id,
   });
 
   const dopoLaRevoca = await prisma.athlete.findUnique({
@@ -3369,8 +3438,20 @@ const sezioneW = async () => {
       last_name: "SoloEmail",
       status: "active",
       updated_at: new Date(),
-      data: { guardians: [{ name: "Anna", email: ANNA.email }] },
+      data: {},
     },
+  });
+
+  /*
+    Il legame per **solo indirizzo**: la segreteria scrive il recapito e non
+    c'e nessun riscatto. E la capability di ADR-0114, e va seminata come tale —
+    una riga senza utenza e senza marchio.
+  */
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_SOLO_EMAIL,
+    rows: [{ firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
   });
 
   prova(
@@ -3445,42 +3526,59 @@ const sezioneW = async () => {
       last_name: "Salvata",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          {
-            id: "tutore-rita",
-            name: "Anna",
-            email: ANNA.email,
-            accessRevokedAt: new Date().toISOString(),
-          },
-        ],
-      },
+      data: {},
     },
   });
 
-  /* Il client rimanda l'array **senza** il marchio: e la copia pre-revoca. */
+  /*
+    La riga esiste, e poi viene **revocata** dalla porta vera. E cio che una
+    segreteria fa premendo «Scollega account».
+  */
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_SALVATO,
+    rows: [{ legacyId: "tutore-rita", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  const rigaDiRita = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_SALVATO, legacy_id: "tutore-rita" },
+  });
+  await tutori.revokeGuardianRow(prisma, {
+    athleteId: FIGLIO_SALVATO,
+    guardianRowId: rigaDiRita.id,
+  });
+
+  /*
+    **Il client rimanda la copia che aveva in memoria: quella di prima della
+    revoca**, senza il marchio, perche nessun file client conosce
+    `accessRevokedAt`.
+
+    Prima questa era la mossa che annullava la revoca, e cinque stesure del
+    riporto delle difese non erano riuscite a impedirlo. Adesso non c'e niente
+    da impedire: la revoca e un fatto sulla **riga**, e cio che il client manda
+    non e la riga — e una proiezione che questa rotta toglie dal corpo prima di
+    scrivere. Il salvataggio aggiorna nome e recapiti e non tocca il marchio,
+    perche non ha una strada per toccarlo.
+  */
   await risorse.updateResource(
     "athletes",
     FIGLIO_SALVATO,
     {
       data: {
-        guardians: [{ id: "tutore-rita", name: "Anna", email: ANNA.email }],
+        guardians: [{ id: rigaDiRita.id, name: "Anna", email: ANNA.email }],
       },
     },
     scopeSegreteria,
   );
 
-  const dopoIlSalvataggio = await prisma.athlete.findUnique({
-    where: { id: FIGLIO_SALVATO },
-    select: { data: true },
+  const dopoIlSalvataggio = await prisma.athleteGuardian.findUnique({
+    where: { id: rigaDiRita.id },
   });
 
   prova(
     "W-11 un salvataggio dell'anagrafica non annulla la revoca",
     true,
-    Boolean(
-      ((dopoIlSalvataggio?.data?.guardians || [])[0] || {}).accessRevokedAt,
-    ),
+    Boolean(dopoIlSalvataggio?.revoked_at),
     "prima: il marchio spariva e l'accesso tornava",
   );
 
@@ -3513,12 +3611,21 @@ const sezioneW = async () => {
       last_name: "Aggiro",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "t-vecchio", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_AGGIRO,
+    rows: [{ legacyId: "t-vecchio", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_AGGIRO,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   await legami.unlinkGuardianAccount(scopeSegreteria, {
@@ -3532,26 +3639,24 @@ const sezioneW = async () => {
     await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_AGGIRO),
   );
 
-  /* Prima strada: una riga **nuova**, stesso indirizzo, id diverso. */
-  const rigaAttuale = (
-    await prisma.athlete.findUnique({
-      where: { id: FIGLIO_AGGIRO },
-      select: { data: true },
-    })
-  )?.data;
+  /*
+    **Prima strada: una riga nuova, stesso indirizzo, id diverso.**
 
-  await prisma.athlete.update({
-    where: { id: FIGLIO_AGGIRO },
-    data: {
+    Scritta dalla porta vera — il salvataggio dell'anagrafica — perche e da li
+    che passava. Adesso non e nemmeno una riga nuova: l'identita e l'indirizzo,
+    l'indirizzo e gia una riga, e quella riga e revocata. La `upsert` cade
+    sulla stessa riga e il marchio resta dov'e.
+  */
+  await risorse.updateResource(
+    "athletes",
+    FIGLIO_AGGIRO,
+    {
       data: {
-        ...rigaAttuale,
-        guardians: [
-          ...(rigaAttuale?.guardians || []),
-          { id: "t-nuovo", name: "Anna", email: ANNA.email },
-        ],
+        guardians: [{ name: "Anna", email: ANNA.email }],
       },
     },
-  });
+    scopeSegreteria,
+  );
 
   prova(
     "W-13b una riga sorella con lo stesso indirizzo non riapre l'accesso",
@@ -3642,27 +3747,29 @@ const sezioneW = async () => {
     rientroNegato,
   );
 
-  /* E il legame **dichiarato** riapre, perche e cosi che ci si ricollega. */
-  const dopoAggiro = (
-    await prisma.athlete.findUnique({
-      where: { id: FIGLIO_AGGIRO },
-      select: { data: true },
-    })
-  )?.data;
+  /*
+    E il legame **dichiarato** riapre, perche e cosi che ci si ricollega.
 
-  await prisma.athlete.update({
-    where: { id: FIGLIO_AGGIRO },
-    data: {
-      data: {
-        ...dopoAggiro,
-        guardians: [{ id: "t-nuovo", name: "Anna", linkedUserId: ANNA.id }],
-        revokedGuardianIdentities: [],
-      },
-    },
+    Prima il riscatto si seminava scrivendo il blob: una riga con
+    `linkedUserId` e l'elenco `revokedGuardianIdentities` svuotato a mano. Le
+    due mosse erano una sola cosa detta in due posti, ed e proprio da li che
+    nasceva il difetto — chiunque scrivesse il blob poteva svuotare l'elenco
+    senza essere un riscatto.
+
+    Adesso l'elenco non esiste: la revoca e `revoked_at` sulla riga, e
+    `linkGuardianAccount` e l'**unica** funzione che lo azzera. Il riscatto
+    quindi non si simula piu, si chiama — ed e la stessa porta che il gettone
+    dell'invito attraversa.
+  */
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_AGGIRO,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   prova(
-    "W-13d un riscatto, che riscrive il legame e pulisce l'elenco, riapre",
+    "W-13d un riscatto, che scioglie la revoca sulla riga, riapre",
     true,
     await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_AGGIRO),
     "una revoca non deve essere definitiva",
@@ -3678,6 +3785,14 @@ const sezioneW = async () => {
     l'identita, quindi da questa strada si rientrava esattamente come
     dall'altra: una riga sorella con lo stesso indirizzo. Due modi di togliere
     l'accesso e uno solo che lo scriveva.
+
+    **Cosa misura adesso.** L'elenco `revokedGuardianIdentities` era il
+    surrogato di una chiave unica, e con la chiave non esiste piu: la revoca e
+    `revoked_at` sulla riga, e la riga **e** l'identita, perche e unica su
+    `(athlete_id, identity_key)`. «Registrare l'identita» e «marcare la riga»
+    sono percio lo stesso atto, e la prova lo chiede dove il fatto vive
+    adesso. Il difetto che chiude e lo stesso: uno sweep che ripulisce senza
+    lasciare traccia della persona.
   */
   const FIGLIO_TESSERA = randomUUID();
   await prisma.athlete.create({
@@ -3688,12 +3803,21 @@ const sezioneW = async () => {
       last_name: "Tessera",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "t-anna", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_TESSERA,
+    rows: [{ legacyId: "t-anna", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_TESSERA,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   await prisma.$transaction(async (tx) => {
@@ -3706,40 +3830,43 @@ const sezioneW = async () => {
     );
   });
 
-  const dopoSweep = (
-    await prisma.athlete.findUnique({
-      where: { id: FIGLIO_TESSERA },
-      select: { data: true },
-    })
-  )?.data;
+  const rigaDopoSweep = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_TESSERA, legacy_id: "t-anna" },
+  });
 
   prova(
-    "W-14 lo sweep della tessera registra l'identita, non solo la riga",
-    true,
-    (dopoSweep?.revokedGuardianIdentities || []).includes(
-      String(ANNA.email).toLowerCase(),
-    ),
+    "W-14 lo sweep della tessera scrive la revoca sulla riga, che e l'identita",
+    [true, null],
+    [Boolean(rigaDopoSweep?.revoked_at), rigaDopoSweep?.user_id ?? null],
     "prima: la riga si ripuliva e l'identita non restava scritta",
   );
 
-  /* E la riga sorella non riapre nemmeno da questa strada. */
-  await prisma.athlete.update({
-    where: { id: FIGLIO_TESSERA },
-    data: {
+  /*
+    E la riga sorella non riapre nemmeno da questa strada — e adesso non c'e
+    nemmeno una riga sorella da scrivere: l'indirizzo e la chiave, quindi il
+    salvataggio che riporta quella persona cade sulla riga revocata e la
+    aggiorna. Si passa dalla porta vera, il salvataggio dell'anagrafica, che e
+    quella da cui la riga sorella entrava.
+  */
+  await risorse.updateResource(
+    "athletes",
+    FIGLIO_TESSERA,
+    {
       data: {
-        ...dopoSweep,
-        guardians: [
-          ...(dopoSweep?.guardians || []),
-          { id: "t-sorella", name: "Anna", email: ANNA.email },
-        ],
+        guardians: [{ name: "Anna", email: ANNA.email }],
       },
     },
+    scopeSegreteria,
+  );
+
+  const righeSorelle = await prisma.athleteGuardian.count({
+    where: { athlete_id: FIGLIO_TESSERA },
   });
 
   prova(
     "W-14b e la riga sorella non riapre nemmeno dopo la revoca della tessera",
-    false,
-    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_TESSERA),
+    [1, false],
+    [righeSorelle, await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_TESSERA)],
   );
 
   await prisma.athlete.delete({ where: { id: FIGLIO_TESSERA } });
@@ -3788,28 +3915,43 @@ const sezioneW = async () => {
     )?.data;
 
   /* --- W-15a: il ramo del legame dichiarato non alzava la bandiera --- */
-  const A = await nuovoFiglio({
-    guardians: [
-      {
-        id: "t",
-        name: "Anna",
-        email: ANNA.email,
-        accessRevokedAt: new Date().toISOString(),
-      },
-    ],
-    revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
+  const A = await nuovoFiglio({});
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: A,
+    rows: [{ legacyId: "t", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  const rigaDiA = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: A, legacy_id: "t" },
+  });
+  await tutori.revokeGuardianRow(prisma, {
+    athleteId: A,
+    guardianRowId: rigaDiA.id,
   });
 
-  /* Il client rimanda la riga com'era **prima** della revoca. */
+  /*
+    Il client rimanda la riga com'era **prima** della revoca, legame compreso.
+
+    Prima la difesa era una bandiera calcolata dentro `updateResource`, e si
+    alzava su un ramo solo. Adesso non c'e una bandiera: `saveGuardianRegistry`
+    **non scrive `user_id`**, in nessun ramo, perche un legame non nasce
+    salvando l'anagrafica. Il `linkedUserId` che arriva nel corpo non ha una
+    strada per diventare un legame, e la riga resta revocata.
+  */
   await risorseW.updateResource(
     "athletes",
     A,
     {
       data: {
         guardians: [
-          { id: "t", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+          {
+            id: rigaDiA.id,
+            name: "Anna",
+            email: ANNA.email,
+            linkedUserId: ANNA.id,
+          },
         ],
-        revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
       },
     },
     scopeSegreteria,
@@ -3822,104 +3964,185 @@ const sezioneW = async () => {
     "prima: la bandiera si alzava solo sull'altro ramo, e il risultato veniva buttato",
   );
 
-  /* --- W-15b: il registro delle revoche si conserva --- */
-  const B = await nuovoFiglio({
-    guardians: [{ id: "t", name: "Anna", email: ANNA.email }],
-    revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
+  /*
+    --- W-15b: una revoca sopravvive a un salvataggio che non la nomina ---
+
+    Il registro `revokedGuardianIdentities` non esiste piu, ed era **la falla**
+    prima ancora che la difesa: una chiave del blob che spariva se il corpo in
+    arrivo non la riecheggiava, e con lei ogni revoca mai fatta su quella
+    scheda. La proprieta che serviva resta la stessa — **una revoca non si
+    perde perche chi salva non sa che esiste** — e adesso poggia su due fatti:
+    la revoca vive sulla riga, e `saveGuardianRegistry` non cancella una riga
+    revocata nemmeno quando l'elenco in arrivo non la nomina affatto.
+
+    Percio il salvataggio qui sotto non nomina Anna in nessun modo: e il caso
+    piu duro, quello in cui la vecchia chiave sarebbe sparita di sicuro.
+  */
+  const B = await nuovoFiglio({});
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: B,
+    rows: [{ legacyId: "t", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  const rigaDiB = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: B, legacy_id: "t" },
+  });
+  await tutori.revokeGuardianRow(prisma, {
+    athleteId: B,
+    guardianRowId: rigaDiB.id,
   });
 
-  /* Un salvataggio che non riecheggia la chiave la azzerava. */
   await risorseW.updateResource(
     "athletes",
     B,
-    { data: { guardians: [{ id: "t", name: "Anna", email: ANNA.email }] } },
+    { data: { guardians: [{ name: "Nonna", email: "pp02-nonna@example.invalid" }] } },
     scopeSegreteria,
   );
 
+  const rigaDiBDopo = await prisma.athleteGuardian.findUnique({
+    where: { id: rigaDiB.id },
+  });
+
   prova(
-    "W-15b il registro delle revoche sopravvive a un salvataggio che non lo nomina",
-    true,
-    ((await letto(B))?.revokedGuardianIdentities || []).includes(
-      String(ANNA.email).toLowerCase(),
-    ),
+    "W-15b una revoca sopravvive a un salvataggio che non la nomina",
+    [true, false],
+    [
+      Boolean(rigaDiBDopo?.revoked_at),
+      await cruscotto.canParentAccessAthlete(ANNA.id, B),
+    ],
     "prima: la chiave spariva, e con lei ogni revoca mai fatta",
   );
 
   /* ---- W-24: il Critical, e le due strade che lo scavalcavano ---- */
 
   /*
-    **W-24 (Critical).** Le due uscite scritte per il verso «chiude troppo»
-    toglievano **l'intera riga** dall'insieme sorvegliato, con la premessa «se
-    la riga non concede, non porta identita». La premessa era falsa proprio per
-    il campo che concede di piu: il vaglio accetta il legame **dichiarato
-    prima** di guardare quei segni.
+    **W-24 (Critical), e cosa ne resta** (PP-02 / WP-C).
 
-    Un ruolo di club con **zero chiavi** poteva quindi scriversi dentro una
-    riga `{ linkedUserId: <se stesso>, accessRevokedAt: <una data> }`: non
+    Le due uscite scritte per il verso «chiude troppo» toglievano **l'intera
+    riga** dall'insieme sorvegliato, con la premessa «se la riga non concede,
+    non porta identita». La premessa era falsa proprio per il campo che concede
+    di piu: il vaglio accetta il legame **dichiarato prima** di guardare quei
+    segni. Un ruolo di club con **zero chiavi** poteva quindi scriversi dentro
+    una riga `{ linkedUserId: <se stesso>, accessRevokedAt: <una data> }`: non
     cresceva niente, nessuna guardia scattava, e da quel momento apriva l'area
     famiglia di quel minore.
-  */
-  const cruscottoW24 = cruscotto;
 
-  const conSegnoEDichiarato = {
-    guardians: [
-      { id: "vecchio", name: "Anna", email: ANNA.email },
-      {
-        id: "attacco",
-        name: "Intruso",
-        linkedUserId: PRESIDENTE.id,
-        accessRevokedAt: new Date().toISOString(),
-      },
-    ],
+    **L'insieme sorvegliato non esiste piu.** La guardia confrontava lo stato
+    prima e dopo dentro il blob, ed era li che la premessa poteva essere falsa.
+    Adesso le identita **sono** le chiavi delle righe: una riga o c'e o non c'e,
+    e non c'e un insieme da calcolare su cui sbagliare una premessa.
+
+    Delle due armi di quell'attacco non ne resta nessuna:
+    `readGuardianInputFromCard` non traduce `linkedUserId` — un legame non si
+    crea scrivendo l'anagrafica, ed e diventata una proprieta invece che una
+    guardia — e non traduce `accessRevokedAt`, quindi il corpo di una richiesta
+    non puo ne concedere ne chiudere.
+
+    La prova percorre percio la **porta vera** con tutte e due le armi
+    insieme, che e cio che l'attacco faceva.
+  */
+  const FIGLIO_W24 = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_W24,
+      organization_id: CLUB,
+      first_name: "Ivan",
+      last_name: "Ventiquattro",
+      status: "active",
+      updated_at: new Date(),
+      data: {},
+    },
+  });
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_W24,
+    rows: [{ firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+
+  const scopeZeroChiavi = {
+    userId: PRESIDENTE.id,
+    activeOrganizationId: CLUB,
+    activeMembershipId: null,
+    /* Un ruolo di club a zero chiavi: ne clinical.read ne accounts.athlete.manage. */
+    activeRole: "custom:collaborator:zero-chiavi",
+    allowedOrganizationIds: [CLUB],
+    accessScopes: [],
   };
 
-  const identitaConAttacco = cruscottoW24.guardianAccessIdentities(
-    conSegnoEDichiarato,
+  await risorse
+    .updateResource(
+      "athletes",
+      FIGLIO_W24,
+      {
+        data: {
+          guardians: [
+            { name: "Anna", email: ANNA.email },
+            {
+              name: "Intruso",
+              linkedUserId: PRESIDENTE.id,
+              accessRevokedAt: new Date().toISOString(),
+            },
+          ],
+        },
+      },
+      scopeZeroChiavi,
+    )
+    .catch(() => null);
+
+  const righeW24 = await prisma.athleteGuardian.findMany({
+    where: { athlete_id: FIGLIO_W24 },
+  });
+
+  prova(
+    "W-24 il corpo di una richiesta non scrive un legame dichiarato",
+    [],
+    righeW24.filter((r) => r.user_id).map((r) => r.user_id),
+    "prima: la riga entrava con il marchio addosso, l'insieme non cresceva, e apriva",
   );
 
   prova(
-    "W-24 una riga che concede porta identita, anche se marchiata",
-    true,
-    identitaConAttacco.has(String(PRESIDENTE.id).toLowerCase()),
-    "prima: l'insieme non cresceva, e la guardia non chiedeva nessun permesso",
+    "W-24a e chi non ha le due chiavi non apre comunque quel fascicolo",
+    false,
+    await cruscotto.canParentAccessAthlete(PRESIDENTE.id, FIGLIO_W24),
   );
 
   /*
-    E il verso che la correzione precedente aveva chiuso resta chiuso: dopo una
-    revoca `linkedUserId` e nullo, quindi rimandare la riga invariata non e
-    una crescita e la scheda resta salvabile da chi non ha le due chiavi.
-  */
-  const dopoRevocaVera = {
-    guardians: [
-      {
-        id: "t",
-        name: "Anna",
-        email: ANNA.email,
-        linkedUserId: null,
-        accessRevokedAt: new Date().toISOString(),
-      },
-    ],
-    revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
-  };
+    **E il verso opposto: il marchio non si mette dal corpo.**
 
+    L'altra meta dello stesso attacco chiudeva fuori un tutore **legittimo**
+    scrivendogli addosso `accessRevokedAt` — senza audit, perche la guardia
+    sorvegliava la crescita e chiudere qualcuno non fa crescere niente. Anna
+    era gia dentro prima di questo salvataggio, e deve esserci ancora.
+  */
   prova(
-    "W-24b e una riga revocata invariata continua a non essere una crescita",
-    [false, false],
+    "W-24b il marchio non si mette dal corpo: il tutore legittimo resta",
+    [false, true],
     [
-      cruscottoW24
-        .guardianAccessIdentities(dopoRevocaVera)
-        .has(String(ANNA.email).toLowerCase()),
-      cruscottoW24
-        .guardianAccessIdentities(dopoRevocaVera)
-        .has(String(ANNA.email).toLowerCase()),
+      Boolean(righeW24.find((r) => r.email === String(ANNA.email).toLowerCase())?.revoked_at),
+      await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_W24),
     ],
+    "prima: bastava il corpo per revocare un tutore, senza audit",
   );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_W24 } });
 
   /*
     **W-24c (High).** «Scollega account» ripuliva **solo la riga indicata**. Una
     seconda riga dichiarata sullo stesso atleta — un secondo invito riscattato,
     che e la risposta ordinaria a «il link non funziona» — scavalcava la
     revoca, perche l'elenco delle identita non batte un legame dichiarato.
+
+    **Cosa misura adesso.** Le due righe erano la stessa persona due volte, e
+    potevano esistere solo perche l'array del blob non aveva una chiave: chi
+    salvava non aveva modo di sapere che quella persona era gia dentro. La
+    chiave unica `(athlete_id, identity_key)` toglie il presupposto — le due
+    voci in arrivo cadono sulla stessa riga — quindi la prova semina l'elenco
+    doppio dalla porta vera e chiede due cose insieme: che la seconda voce non
+    sia diventata una seconda riga, e che dopo la revoca l'accesso non ci sia.
+    La proprieta e la stessa di prima: **dopo «Scollega account» quella persona
+    non entra**, per nessuna strada rimasta aperta sulla scheda.
   */
   const FIGLIO_DUE_RIGHE = randomUUID();
   await prisma.athlete.create({
@@ -3930,24 +4153,42 @@ const sezioneW = async () => {
       last_name: "Righe",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "t1", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-          { id: "t2", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_DUE_RIGHE,
+    rows: [
+      { legacyId: "t1", firstName: "Anna", email: ANNA.email },
+      { legacyId: "t2", firstName: "Anna", email: ANNA.email },
+    ],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_DUE_RIGHE,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
+  });
+
+  const righeDiAnna = await prisma.athleteGuardian.findMany({
+    where: { athlete_id: FIGLIO_DUE_RIGHE },
   });
 
   await legami.unlinkGuardianAccount(scopeSegreteria, {
     athleteId: FIGLIO_DUE_RIGHE,
-    guardianId: "t1",
+    guardianId: righeDiAnna[0].id,
   });
 
   prova(
     "W-24c la revoca raggiunge tutte le righe di quella persona",
-    false,
-    await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_DUE_RIGHE),
+    [1, false],
+    [
+      righeDiAnna.length,
+      await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_DUE_RIGHE),
+    ],
     "prima: la seconda riga dichiarata scavalcava la revoca, in silenzio",
   );
 
@@ -4101,25 +4342,46 @@ const sezioneW = async () => {
       last_name: "Legame",
       status: "active",
       updated_at: new Date(),
-      data: { guardians: [{ id: "t", name: "Altri", email: "altri@x.invalid" }] },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: ESTRANEO,
+    rows: [{ legacyId: "t", firstName: "Altri", email: "altri@x.invalid" }],
+    canGrantAccess: true,
+  });
+  const rigaEstranea = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: ESTRANEO, legacy_id: "t" },
   });
 
   await prisma.$transaction(async (tx) => {
     await legami.unlinkParentGuardians(tx, CLUB, CARLA.id, CARLA.email, "parent");
   });
 
+  /*
+    L'elenco che si accumulava non esiste piu, e il danno che faceva si misura
+    adesso dove il fatto vive: la riga di un tutore che non c'entra niente con
+    la persona revocata **non e stata toccata**. E la stessa proprieta — uno
+    sweep che riguarda una persona non deve lasciare segni su tutte le schede
+    del club — chiesta alla riga invece che al registro.
+  */
   prova(
     "W-23d lo sweep non tocca un atleta su cui quella persona non compare",
-    [],
-    (
+    [true, null],
+    [
+      Boolean(
+        await prisma.athleteGuardian.findUnique({
+          where: { id: rigaEstranea.id },
+        }),
+      ),
       (
-        await prisma.athlete.findUnique({
-          where: { id: ESTRANEO },
-          select: { data: true },
+        await prisma.athleteGuardian.findUnique({
+          where: { id: rigaEstranea.id },
         })
-      )?.data?.revokedGuardianIdentities || []
-    ),
+      )?.revoked_at ?? null,
+    ],
     "prima: ogni scheda del club accumulava l'indirizzo di ogni ex genitore",
   );
 
@@ -4241,12 +4503,35 @@ const sezioneW = async () => {
     E la registrazione dell'identita stava **dopo** `if (!changed) continue`:
     su un atleta la cui unica riga fosse storica, l'elenco non veniva mai
     scritto, e con lui saltava la sola difesa che tutti gli altri consultano.
+
+    **Cosa misura adesso.** L'asimmetria si chiude alla radice: la coppia
+    storica non e piu una collezione che qualcuno legge di corsa, e una **riga**
+    di `athlete_guardians`. La migrazione la travasa con la stessa precedenza
+    che il vecchio predicato applicava — `guardians` se c'e, altrimenti la
+    coppia — e le da una chiave; da quel momento ha lo stesso scrittore e le
+    stesse difese di ogni altro tutore, e un lettore in piu non puo nascere
+    perche non c'e piu una seconda collezione da leggere.
+
+    Il travaso qui si esegue davvero, su un club tutto suo: e cio che accade a
+    un ambiente che riceve questa migrazione con le proprie schede storiche
+    dentro, e misurarlo su uno stato costruito a mano misurerebbe la mia mano.
   */
+  const CLUB_STORICO = randomUUID();
+  await prisma.club.create({
+    data: {
+      id: CLUB_STORICO,
+      slug: `pp02-storico-${Date.now()}`,
+      name: "ASD Storica PP-02",
+      creator_id: PRESIDENTE.id,
+      updated_at: new Date(),
+    },
+  });
+
   const FIGLIO_STORICO = randomUUID();
   await prisma.athlete.create({
     data: {
       id: FIGLIO_STORICO,
-      organization_id: CLUB,
+      organization_id: CLUB_STORICO,
       first_name: "Ugo",
       last_name: "Storico",
       status: "active",
@@ -4257,14 +4542,22 @@ const sezioneW = async () => {
     },
   });
 
+  await travasaTutori(prisma, [CLUB_STORICO]);
+
   prova(
-    "W-20 la coppia storica concede come l'elenco",
+    "W-20 la coppia storica, travasata, concede come l'elenco",
     true,
     await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_STORICO),
   );
 
   await prisma.$transaction(async (tx) => {
-    await legami.unlinkParentGuardians(tx, CLUB, ANNA.id, ANNA.email, "parent");
+    await legami.unlinkParentGuardians(
+      tx,
+      CLUB_STORICO,
+      ANNA.id,
+      ANNA.email,
+      "parent",
+    );
   });
 
   prova(
@@ -4274,20 +4567,26 @@ const sezioneW = async () => {
     "prima: nessuno scrittore la toccava, e nessuna strada la revocava",
   );
 
+  /*
+    E la revoca resta **scritta**, non solo negata al vaglio. Il registro di
+    scheda che la conservava era il surrogato della chiave e non esiste piu:
+    il fatto sta su `revoked_at`, e la strada che lo scrive non ha piu il ramo
+    `if (!changed) continue` in cui una scheda con la sola coppia storica
+    usciva senza che nulla venisse registrato — e una `UPDATE` con un `WHERE`,
+    e la coppia travasata ci rientra come qualsiasi altra riga.
+  */
+  const rigaStorica = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_STORICO },
+  });
+
   prova(
     "W-20c e l'identita resta scritta, anche senza righe da ripulire",
-    true,
-    (
-      (
-        await prisma.athlete.findUnique({
-          where: { id: FIGLIO_STORICO },
-          select: { data: true },
-        })
-      )?.data?.revokedGuardianIdentities || []
-    ).includes(String(ANNA.email).toLowerCase()),
+    [true, null],
+    [Boolean(rigaStorica?.revoked_at), rigaStorica?.user_id ?? null],
   );
 
   await prisma.athlete.delete({ where: { id: FIGLIO_STORICO } });
+  await prisma.club.delete({ where: { id: CLUB_STORICO } });
 
   /* ---------- W-19: la revoca ha un perimetro, e non ce l'aveva ---------- */
 
@@ -4313,12 +4612,27 @@ const sezioneW = async () => {
       last_name: "Perimetro",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "t", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-        ],
-      },
+      data: {},
     },
+  });
+
+  /*
+    Il tutore vero si semina dalle due porte che lo creano davvero: la
+    segreteria scrive il recapito, il riscatto scrive il legame. Scriverlo nel
+    blob non lo creerebbe piu — l'array e una proiezione, e un tutore che non
+    esiste renderebbe questa prova verde per il motivo sbagliato.
+  */
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_PERIMETRO,
+    rows: [{ legacyId: "t", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_PERIMETRO,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   /*
@@ -4424,12 +4738,21 @@ const sezioneW = async () => {
       category_id: CAT_A,
       category_name: "Under 12",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "t", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_RSVP,
+    rows: [{ legacyId: "t", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_RSVP,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   const risposta = await rsvpW
@@ -4468,10 +4791,19 @@ const sezioneW = async () => {
     `contactOnly: false` non faceva crescere l'insieme, quindi un ruolo senza
     `clinical.read` trasformava una riga inerte in una chiave con un `PATCH`.
   */
-  const E = await nuovoFiglio({
-    guardians: [
-      { id: "t", name: "Sconosciuto", email: ANNA.email, contactOnly: true },
-    ],
+  const E = await nuovoFiglio({});
+
+  /*
+    Il segno lo mette **la porta che lo mette davvero**: l'approvazione di un
+    modulo pubblico. Scriverlo nel blob non lo creerebbe piu, e — peggio — la
+    riga non esisterebbe affatto, quindi il primo salvataggio la farebbe
+    nascere senza segno e la prova sarebbe verde al contrario.
+  */
+  await tutori.upsertGuardianFromFormApproval(prisma, {
+    organizationId: CLUB,
+    athleteId: E,
+    row: { legacyId: "t", firstName: "Sconosciuto", email: ANNA.email },
+    contactOnly: true,
   });
 
   prova(
@@ -4570,9 +4902,22 @@ const sezioneW = async () => {
     e senza la riga di audit che una revoca lascia.
 
     Una difesa che si puo impugnare e un'arma.
+
+    **Cosa misura adesso.** L'elenco non esiste, quindi non si puo impugnare;
+    ma l'arma non e l'elenco, e **chiudere fuori un tutore legittimo dalla
+    rotta generica**. Il corpo prova percio tutte e due le forme che aveva — la
+    chiave di scheda e il marchio sulla riga — e la misura si sposta dove il
+    fatto vive: la riga di Bruno non risulta revocata.
   */
-  const D = await nuovoFiglio({
-    guardians: [{ id: "t", name: "Bruno", email: BRUNO.email }],
+  const D = await nuovoFiglio({});
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: D,
+    rows: [{ legacyId: "t", firstName: "Bruno", email: BRUNO.email }],
+    canGrantAccess: true,
+  });
+  const rigaDiBruno = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: D, legacy_id: "t" },
   });
 
   await risorseW.updateResource(
@@ -4581,7 +4926,12 @@ const sezioneW = async () => {
     {
       data: {
         guardians: [
-          { id: "t", name: "Bruno", email: BRUNO.email },
+          {
+            id: rigaDiBruno.id,
+            name: "Bruno",
+            email: BRUNO.email,
+            accessRevokedAt: new Date().toISOString(),
+          },
         ],
         revokedGuardianIdentities: [String(BRUNO.email).toLowerCase()],
       },
@@ -4590,9 +4940,15 @@ const sezioneW = async () => {
   );
 
   prova(
-    "W-15d dalla rotta generica non si puo aggiungere nessuno all'elenco",
-    [],
-    (await letto(D))?.revokedGuardianIdentities || [],
+    "W-15d dalla rotta generica non si puo revocare nessuno",
+    false,
+    Boolean(
+      (
+        await prisma.athleteGuardian.findUnique({
+          where: { id: rigaDiBruno.id },
+        })
+      )?.revoked_at,
+    ),
     "prima: l'unione accettava cio che arrivava, e chiudeva fuori un tutore legittimo",
   );
 
@@ -4849,6 +5205,16 @@ const sezioneW = async () => {
 
     Regressione aperta dalla correzione di `W-24c`, che resta verde accanto a
     questa: le due proprieta sono complementari e vanno misurate insieme.
+
+    **Cosa misura adesso.** Il difetto stava nella ripulitura delle righe
+    **sorelle**: revocare una persona voleva dire cercare chi le somigliasse,
+    e «somigliare» finiva per essere l'indirizzo. Quella ricerca non esiste
+    piu — la revoca e `UPDATE ... WHERE id = <la riga nominata>` — e con lei
+    non esiste piu nemmeno la configurazione che la ingannava: l'indirizzo **e**
+    la chiave, quindi due tutori dello stesso atleta non possono portarlo
+    uguale, e ognuno vive sulla riga sua. La proprieta provata resta identica:
+    **la revoca raggiunge la persona nominata e nessun'altra**, ed e la meta
+    complementare di `W-24c`.
   */
   const FIGLIO_DUE_GENITORI = randomUUID();
   await prisma.athlete.create({
@@ -4859,13 +5225,30 @@ const sezioneW = async () => {
       last_name: "Genitori",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "madre", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-          { id: "padre", name: "Bruno", linkedUserId: BRUNO.id, email: ANNA.email },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_DUE_GENITORI,
+    rows: [
+      { legacyId: "madre", firstName: "Anna", email: ANNA.email },
+      { legacyId: "padre", firstName: "Bruno", email: BRUNO.email },
+    ],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_DUE_GENITORI,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_DUE_GENITORI,
+    identityKeys: [BRUNO.email],
+    userId: BRUNO.id,
+    email: BRUNO.email,
   });
 
   const padrePrima = await cruscottoW25.canParentAccessAthlete(
@@ -4873,13 +5256,17 @@ const sezioneW = async () => {
     FIGLIO_DUE_GENITORI,
   );
 
+  const rigaDellaMadre = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_DUE_GENITORI, legacy_id: "madre" },
+  });
+
   await legamiW25.unlinkGuardianAccount(scopeSegreteriaW25, {
     athleteId: FIGLIO_DUE_GENITORI,
-    guardianId: "madre",
+    guardianId: rigaDellaMadre.id,
   });
 
   prova(
-    "W-25 revocare la madre non revoca il padre che condivide l'indirizzo",
+    "W-25 revocare la madre non revoca il padre",
     [true, false, true],
     [
       padrePrima,
@@ -4924,23 +5311,78 @@ const sezioneW = async () => {
     riga grezza e metteva quel terzo fra i destinatari delle notifiche
     documentali, che nominano il minore e il documento chiesto.
   */
-  const dueIdentificativi = {
-    guardians: [
-      { id: "t", name: "Tutore", linkedUserId: ANNA.id, user_id: BRUNO.id },
+  /*
+    **Cosa ne resta dopo WP-C.** L'insieme sorvegliato non esiste piu, e con lui
+    la compressione che lo rendeva cieco: una riga del blob che nominava **due**
+    persone adesso diventa **due righe**, una per identita, ed e il travaso a
+    farlo (migrazione `20260906100000`). La proprieta si misura percio dove
+    vive: sulle righe, non su un insieme calcolato.
+  */
+  /*
+    Un club usa e getta: il travaso gira una volta su tutto cio che gli si
+    indica, e rieseguirlo sul club della sonda cadrebbe sulla chiave unica
+    delle righe che ha gia portato.
+  */
+  const CLUB_DUE_ID = randomUUID();
+  await prisma.club.create({
+    data: {
+      id: CLUB_DUE_ID,
+      name: "Due identificativi",
+      slug: `due-id-${CLUB_DUE_ID.slice(0, 8)}`,
+      creator_id: PRESIDENTE.id,
+    },
+  });
+  await prisma.organizationUser.createMany({
+    data: [
+      { id: randomUUID(), organization_id: CLUB_DUE_ID, user_id: ANNA.id, role: "parent" },
+      { id: randomUUID(), organization_id: CLUB_DUE_ID, user_id: BRUNO.id, role: "parent" },
     ],
-  };
+  });
 
-  const insiemeW26 = cruscottoW25.guardianAccessIdentities(dueIdentificativi);
+  const FIGLIO_DUE_ID = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_DUE_ID,
+      organization_id: CLUB_DUE_ID,
+      first_name: "Due",
+      last_name: "Identificativi",
+      status: "active",
+      updated_at: new Date(),
+      data: {
+        guardians: [
+          { id: "t", name: "Tutore", linkedUserId: ANNA.id, user_id: BRUNO.id },
+        ],
+      },
+    },
+  });
+  await travasaTutori(prisma, [CLUB_DUE_ID]);
+
+  const righeDueId = await prisma.athleteGuardian.findMany({
+    where: { athlete_id: FIGLIO_DUE_ID },
+  });
 
   prova(
-    "W-26 una riga con due identificativi le porta entrambe",
+    "W-26 una riga con due identificativi diventa due righe, una per persona",
     [true, true],
     [
-      insiemeW26.has(String(ANNA.id).toLowerCase()),
-      insiemeW26.has(String(BRUNO.id).toLowerCase()),
+      righeDueId.some((r) => r.user_id === ANNA.id),
+      righeDueId.some((r) => r.user_id === BRUNO.id),
     ],
-    "prima: la seconda cadeva, e la guardia non chiedeva niente",
+    "prima: la seconda cadeva nella compressione, e la guardia non chiedeva niente",
   );
+
+  prova(
+    "W-26a e tutte e due aprono davvero, che e cio che la guardia doveva vedere",
+    [true, true],
+    [
+      await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_DUE_ID),
+      await cruscotto.canParentAccessAthlete(BRUNO.id, FIGLIO_DUE_ID),
+    ],
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_DUE_ID } });
+  await prisma.organizationUser.deleteMany({ where: { organization_id: CLUB_DUE_ID } });
+  await prisma.club.delete({ where: { id: CLUB_DUE_ID } });
 
   /* E si passa dalla guardia, non dal calcolo. */
   const FIGLIO_GRAFIE = randomUUID();
@@ -5019,22 +5461,27 @@ const sezioneW = async () => {
       last_name: "Nonna",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          {
-            id: "madre",
-            name: "Anna",
-            email: ANNA.email,
-            linkedUserId: null,
-            accessRevokedAt: new Date().toISOString(),
-          },
-        ],
-        revokedGuardianIdentities: [
-          String(ANNA.email).toLowerCase(),
-          String(ANNA.id).toLowerCase(),
-        ],
-      },
+      data: {},
     },
+  });
+
+  /*
+    Lo stato di partenza: la madre c'e ed e stata **revocata**. Si semina dalle
+    porte vere perche l'elenco delle identita revocate non esiste piu — era il
+    surrogato della chiave — e la revoca vive su `revoked_at`.
+  */
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_NONNA,
+    rows: [{ legacyId: "madre", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  const rigaDellaMadreRevocata = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_NONNA, legacy_id: "madre" },
+  });
+  await tutori.revokeGuardianRow(prisma, {
+    athleteId: FIGLIO_NONNA,
+    guardianRowId: rigaDellaMadreRevocata.id,
   });
 
   /*
@@ -5109,17 +5556,24 @@ const sezioneW = async () => {
     **W-27c.** L'altra meta della stessa correzione: lo stato di partenza non
     sottrae piu le identita revocate.
 
-    Lo stato e raggiungibile e non richiede malafede — la segreteria revoca
-    Anna e poi la **rimette a mano**, scrivendole il legame dichiarato senza
-    passare da un riscatto: l'elenco delle identita resta com'era, perche solo
-    il riscatto lo ripulisce. Anna entra (il legame dichiarato vince
-    sull'elenco), ma `prima` la sottraeva e `dopo` no, quindi **qualunque**
-    salvataggio da un ruolo senza le due chiavi risultava una crescita.
+    Lo stato e raggiungibile e non richiede malafede: la segreteria revoca Anna
+    e poi Anna **rientra**, cioe torna a essere collegata su una scheda dove era
+    stata tolta. Anna entra, ma `prima` la sottraeva e `dopo` no, quindi
+    **qualunque** salvataggio da un ruolo senza le due chiavi risultava una
+    crescita.
 
     Sottrarre da un lato solo serviva a far risultare crescita il rientro di
     una persona revocata; quel rientro pero non passa da qui — lo scrive il
     riscatto con una `update` diretta — e cio che passa di qui, il ripiego
     sull'indirizzo, e gia escluso dai due lati.
+
+    **Cosa cambia nel modo di arrivarci.** La stesura precedente rimetteva Anna
+    **a mano**, scrivendole il legame dichiarato dentro il blob. Quella strada
+    non esiste piu, ed e proprio la proprieta che misura `W-15a`: un legame non
+    si scrive salvando l'anagrafica. Il rientro ordinario e percio quello vero,
+    il riscatto di un invito — l'unico atto che scioglie una revoca — e lo
+    stato che ne risulta e lo stesso: una persona che era revocata e adesso
+    entra.
   */
   const FIGLIO_RIMESSA = randomUUID();
   await prisma.athlete.create({
@@ -5130,16 +5584,28 @@ const sezioneW = async () => {
       last_name: "Rimessa",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "t", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-        ],
-        revokedGuardianIdentities: [
-          String(ANNA.email).toLowerCase(),
-          String(ANNA.id).toLowerCase(),
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_RIMESSA,
+    rows: [{ legacyId: "t", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  const rigaRimessa = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_RIMESSA, legacy_id: "t" },
+  });
+  await tutori.revokeGuardianRow(prisma, {
+    athleteId: FIGLIO_RIMESSA,
+    guardianRowId: rigaRimessa.id,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_RIMESSA,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   const datiRimessa = (
@@ -5180,6 +5646,14 @@ const sezioneW = async () => {
     «Genitore non trovato nella scheda atleta» su un genitore che era li sullo
     schermo: la revoca non era disponibile proprio sulla classe di righe
     attorno a cui e nata la difesa `contactOnly`.
+
+    **Cosa misura adesso.** La classe delle righe senza identificativo non
+    esiste piu: un tutore nato da un modulo e una riga, e la proiezione ne
+    pubblica l'`id` vero. La proprieta e sempre quella, ed e la piu concreta
+    che ci sia — **l'identificativo che la scheda mostra e quello con cui la
+    revoca funziona** — quindi la prova lo prende da li, dalla proiezione, e
+    non lo ricalcola: ricalcolarlo proverebbe la mia aritmetica invece della
+    strada che l'operatore percorre.
   */
   const FIGLIO_SENZA_ID = randomUUID();
   await prisma.athlete.create({
@@ -5190,28 +5664,52 @@ const sezioneW = async () => {
       last_name: "Identificativo",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [{ name: "Anna", email: ANNA.email, linkedUserId: ANNA.id }],
-      },
+      data: {},
     },
   });
 
-  const idSintetico = contattiW25.normalizeGuardianRows([
-    { name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
-  ])[0].id;
+  /* Il percorso ordinario di W-23a: modulo approvato, poi invito riscattato. */
+  await tutori.upsertGuardianFromFormApproval(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_SENZA_ID,
+    row: { firstName: "Anna", email: ANNA.email },
+    contactOnly: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_SENZA_ID,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
+  });
+
+  const accessoPrimaDiScollegare = await cruscottoW25.canParentAccessAthlete(
+    ANNA.id,
+    FIGLIO_SENZA_ID,
+  );
+
+  /* **L'identificativo che la scheda mostra**, letto dalla proiezione. */
+  const idSullaScheda = (
+    (
+      await prisma.athlete.findUnique({
+        where: { id: FIGLIO_SENZA_ID },
+        select: { data: true },
+      })
+    )?.data?.guardians || []
+  )[0]?.id;
 
   const esitoScollega = await legamiW25
     .unlinkGuardianAccount(scopeSegreteriaW25, {
       athleteId: FIGLIO_SENZA_ID,
-      guardianId: idSintetico,
+      guardianId: idSullaScheda,
     })
     .then(() => "riuscita")
     .catch((errore) => String(errore?.message || errore));
 
   prova(
     "W-28 «Scollega account» trova un tutore nato da un modulo, e lo revoca",
-    ["riuscita", false],
+    [true, "riuscita", false],
     [
+      accessoPrimaDiScollegare,
       esitoScollega,
       await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_SENZA_ID),
     ],
@@ -5325,12 +5823,21 @@ const sezioneW = async () => {
       last_name: "Tutore",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "madre", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_RINNOVO,
+    rows: [{ legacyId: "madre", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_RINNOVO,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   const inviato = await inviiW29.submitRenewalForm(ANNA.id, {
@@ -5407,8 +5914,15 @@ const sezioneW = async () => {
       last_name: "Fuori",
       status: "active",
       updated_at: new Date(),
-      data: { guardians: [{ id: "t", name: "Anna", email: ANNA.email }] },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_CHIUSURA,
+    rows: [{ legacyId: "t", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
   });
 
   const chiusuraPrima = await cruscottoW29.canParentAccessAthlete(
@@ -5451,6 +5965,11 @@ const sezioneW = async () => {
     proteggono piu spesso un id **non ce l'hanno** — sono quelle nate da
     `guardians.push` dell'approvazione, cioe proprio le `contactOnly`. Il
     segno spariva al primo salvataggio, e la riga tornava una chiave.
+
+    **Cosa misura adesso.** Non c'e piu un riporto da agganciare a un id: il
+    segno e una colonna, e nessun ramo del salvataggio la scrive. La riga nasce
+    dalla porta che la crea davvero — l'approvazione di un modulo — e non ha
+    una chiave storica, che e il caso che il riporto sbagliava.
   */
   const FIGLIO_SENZA_CHIAVE = randomUUID();
   await prisma.athlete.create({
@@ -5461,10 +5980,15 @@ const sezioneW = async () => {
       last_name: "Chiave",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [{ name: "Anna", email: ANNA.email, contactOnly: true }],
-      },
+      data: {},
     },
+  });
+
+  await tutori.upsertGuardianFromFormApproval(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_SENZA_CHIAVE,
+    row: { firstName: "Anna", email: ANNA.email },
+    contactOnly: true,
   });
 
   await risorseW29.updateResource(
@@ -5498,6 +6022,13 @@ const sezioneW = async () => {
     dichiarato e il vaglio ne legge sei: un salvataggio con `userId`,
     `user_id` o `linkedUserIds` restituiva l'accesso a una persona revocata,
     senza audit. Basta una scheda aperta **prima** della revoca.
+
+    **Cosa misura adesso.** Contare le grafie era una rincorsa: sei nel vaglio,
+    due nel riporto, e ogni grafia nuova riapriva il difetto. Adesso non se ne
+    conta nessuna, perche `readGuardianInputFromCard` **non traduce il legame**
+    — in nessuna delle sei forme — e `saveGuardianRegistry` non scrive
+    `user_id` da nessun ramo. La prova resta quella di prima, sulla grafia che
+    il riporto lasciava passare: `userId` su una riga revocata non riapre.
   */
   const FIGLIO_SEI_GRAFIE = randomUUID();
   await prisma.athlete.create({
@@ -5508,19 +6039,22 @@ const sezioneW = async () => {
       last_name: "Grafie",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          {
-            id: "t",
-            name: "Anna",
-            email: ANNA.email,
-            linkedUserId: null,
-            accessRevokedAt: new Date().toISOString(),
-          },
-        ],
-        revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_SEI_GRAFIE,
+    rows: [{ legacyId: "t", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  const rigaSeiGrafie = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_SEI_GRAFIE, legacy_id: "t" },
+  });
+  await tutori.revokeGuardianRow(prisma, {
+    athleteId: FIGLIO_SEI_GRAFIE,
+    guardianRowId: rigaSeiGrafie.id,
   });
 
   await risorseW29.updateResource(
@@ -5556,6 +6090,15 @@ const sezioneW = async () => {
        niente e senza audit;
     c) `parent1`/`parent2`, che **concedono** e che il pulsante non trovava:
        l'unica strada restava revocare l'intera tessera.
+
+    **Cosa misura adesso (a).** L'id ambiguo nasceva da solo perche gli id del
+    blob erano sintetici: due righe potevano portarlo uguale, e la lettura
+    doveva scegliere. Adesso l'identificativo che la scheda mostra e la chiave
+    primaria della riga, e due righe non possono averlo uguale: non c'e piu
+    niente da indovinare. La proprieta e quella di sempre, e si misura sul
+    fatto invece che sul rifiuto — **il pulsante toglie l'accesso a chi e stato
+    indicato, e a nessun altro**, anche quando le due righe condividono la
+    chiave storica da cui l'ambiguita veniva.
   */
   const FIGLIO_AMBIGUO = randomUUID();
   await prisma.athlete.create({
@@ -5566,28 +6109,55 @@ const sezioneW = async () => {
       last_name: "Ambiguo",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "stesso", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-          { id: "stesso", name: "Bruno", linkedUserId: BRUNO.id, email: BRUNO.email },
-        ],
-      },
+      data: {},
     },
+  });
+
+  /* Due persone diverse, e la **stessa** chiave storica: e cio che il travaso
+     porta dentro da un blob con due id sintetici uguali. */
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_AMBIGUO,
+    rows: [
+      { legacyId: "stesso", firstName: "Anna", email: ANNA.email },
+      { legacyId: "stesso", firstName: "Bruno", email: BRUNO.email },
+    ],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_AMBIGUO,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_AMBIGUO,
+    identityKeys: [BRUNO.email],
+    userId: BRUNO.id,
+    email: BRUNO.email,
+  });
+
+  const rigaAmbiguaDiAnna = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_AMBIGUO, user_id: ANNA.id },
+  });
+  const rigaAmbiguaDiBruno = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_AMBIGUO, user_id: BRUNO.id },
   });
 
   const esitoAmbiguo = await legamiW29
     .unlinkGuardianAccount(scopeClubW29, {
       athleteId: FIGLIO_AMBIGUO,
-      guardianId: "stesso",
+      guardianId: rigaAmbiguaDiAnna.id,
     })
     .then(() => "riuscita")
     .catch((errore) => String(errore?.message || errore));
 
   prova(
-    "W-33a un id che nomina due righe si rifiuta, non si tira a indovinare",
-    [true, true, true],
+    "W-33a l'identificativo della riga e unico, e il pulsante colpisce chi e indicato",
+    ["riuscita", true, false, true],
     [
-      esitoAmbiguo !== "riuscita",
+      esitoAmbiguo,
+      rigaAmbiguaDiAnna.id !== rigaAmbiguaDiBruno.id,
       await cruscottoW29.canParentAccessAthlete(ANNA.id, FIGLIO_AMBIGUO),
       await cruscottoW29.canParentAccessAthlete(BRUNO.id, FIGLIO_AMBIGUO),
     ],
@@ -5596,6 +6166,15 @@ const sezioneW = async () => {
 
   await prisma.athlete.delete({ where: { id: FIGLIO_AMBIGUO } });
 
+  /*
+    **(b)** La riga che dichiara **solo l'identificativo**, senza indirizzo: nel
+    blob era `linkedUserIds: [...]`, e il pulsante rispondeva 200 senza
+    revocare niente. Nel modello nuovo e la riga di un tutore che il club
+    conosce per nome e telefono e che ha riscattato il proprio invito: nessun
+    indirizzo su cui ricadere, solo il legame dichiarato. La proprieta e la
+    stessa — **la revoca deve nominare la persona e chiuderle l'accesso**, non
+    rispondere di si e non fare niente.
+  */
   const FIGLIO_LISTA = randomUUID();
   await prisma.athlete.create({
     data: {
@@ -5605,22 +6184,35 @@ const sezioneW = async () => {
       last_name: "Sola",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [{ id: "t", name: "Anna", linkedUserIds: [ANNA.id] }],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_LISTA,
+    rows: [{ legacyId: "t", firstName: "Anna", phone: "3330000001" }],
+    canGrantAccess: true,
+  });
+  const rigaSoloLegame = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_LISTA, legacy_id: "t" },
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_LISTA,
+    guardianRowId: rigaSoloLegame.id,
+    userId: ANNA.id,
   });
 
   const esitoLista = await legamiW29
     .unlinkGuardianAccount(scopeClubW29, {
       athleteId: FIGLIO_LISTA,
-      guardianId: "t",
+      guardianId: rigaSoloLegame.id,
     })
     .then((esito) => esito)
     .catch((errore) => ({ errore: String(errore?.message || errore) }));
 
   prova(
-    "W-33b una riga con il solo elenco degli identificativi si revoca davvero",
+    "W-33b una riga con il solo legame dichiarato si revoca davvero",
     [String(ANNA.id), false],
     [
       String(esitoLista?.unlinkedUserId || ""),
@@ -5631,11 +6223,33 @@ const sezioneW = async () => {
 
   await prisma.athlete.delete({ where: { id: FIGLIO_LISTA } });
 
+  /*
+    **(c)** La coppia storica, dal pulsante. Prima era la classe di righe che
+    concedeva e che nessuno scrittore raggiungeva; adesso il travaso la porta
+    dentro come riga, e il pulsante la trova perche non c'e piu una «classe» —
+    c'e una tabella sola. Il travaso si esegue davvero, su un club suo, per la
+    stessa ragione di `W-20`: e cio che accade a un archivio storico.
+
+    La proiezione si rifa subito dopo, che e cio che fa il prodotto al primo
+    salvataggio: cosi l'identificativo che la prova passa al pulsante e
+    **quello che l'operatore vede sullo schermo**, non uno che ricalcolo io.
+  */
+  const CLUB_COPPIA = randomUUID();
+  await prisma.club.create({
+    data: {
+      id: CLUB_COPPIA,
+      slug: `pp02-coppia-${Date.now()}`,
+      name: "ASD Coppia Storica PP-02",
+      creator_id: PRESIDENTE.id,
+      updated_at: new Date(),
+    },
+  });
+
   const FIGLIO_COPPIA_STORICA = randomUUID();
   await prisma.athlete.create({
     data: {
       id: FIGLIO_COPPIA_STORICA,
-      organization_id: CLUB,
+      organization_id: CLUB_COPPIA,
       first_name: "Coppia",
       last_name: "Storica",
       status: "active",
@@ -5646,15 +6260,33 @@ const sezioneW = async () => {
     },
   });
 
+  await travasaTutori(prisma, [CLUB_COPPIA]);
+  await tutori.refreshGuardianProjection(prisma, [FIGLIO_COPPIA_STORICA]);
+
   const accessoStoricoPrima = await cruscottoW29.canParentAccessAthlete(
     ANNA.id,
     FIGLIO_COPPIA_STORICA,
   );
 
+  const idCoppiaSullaScheda = (
+    (
+      await prisma.athlete.findUnique({
+        where: { id: FIGLIO_COPPIA_STORICA },
+        select: { data: true },
+      })
+    )?.data?.guardians || []
+  )[0]?.id;
+
+  const scopeClubCoppia = {
+    ...scopeClubW29,
+    activeOrganizationId: CLUB_COPPIA,
+    allowedOrganizationIds: [CLUB_COPPIA],
+  };
+
   const esitoStorico = await legamiW29
-    .unlinkGuardianAccount(scopeClubW29, {
+    .unlinkGuardianAccount(scopeClubCoppia, {
       athleteId: FIGLIO_COPPIA_STORICA,
-      guardianId: ANNA.email,
+      guardianId: idCoppiaSullaScheda,
     })
     .then(() => "riuscita")
     .catch((errore) => String(errore?.message || errore));
@@ -5682,6 +6314,7 @@ const sezioneW = async () => {
   );
 
   await prisma.athlete.delete({ where: { id: FIGLIO_COPPIA_STORICA } });
+  await prisma.club.delete({ where: { id: CLUB_COPPIA } });
 
   /* ---------- W-34..W-38: il resto del quindicesimo round ---------- */
 
@@ -5705,24 +6338,66 @@ const sezioneW = async () => {
       last_name: "Aperto",
       status: "active",
       updated_at: new Date(),
+      data: {},
+    },
+  });
+
+  /*
+    I due tutori si seminano dalle porte vere; il resto del blob — le note che
+    la segreteria scrive a mano — si aggiunge **dopo**, perche e cio che questa
+    prova misura: un contenitore libero da cui usciva quasi tutto. I campi
+    liberi sulla riga dell'ex vanno scritti nella proiezione, che e dove
+    stavano: la tabella non ha una colonna per «nota» ne per «codice fiscale»,
+    e il serializzatore della famiglia deve reggere lo stesso.
+  */
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_BLOB,
+    rows: [
+      { legacyId: "madre", firstName: "Anna", email: ANNA.email },
+      { legacyId: "ex", firstName: "Ex", lastName: "Coniuge", email: BRUNO.email },
+    ],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_BLOB,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
+  });
+  const rigaEx = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_BLOB, legacy_id: "ex" },
+  });
+  await tutori.revokeGuardianRow(prisma, {
+    athleteId: FIGLIO_BLOB,
+    guardianRowId: rigaEx.id,
+  });
+
+  const blobProiettato = (
+    await prisma.athlete.findUnique({
+      where: { id: FIGLIO_BLOB },
+      select: { data: true },
+    })
+  )?.data;
+
+  await prisma.athlete.update({
+    where: { id: FIGLIO_BLOB },
+    data: {
       data: {
+        ...blobProiettato,
         address: "via Roma 3",
         medicalVisits: [{ date: "2026-01-01", note: "idoneita" }],
         notaInterna: "famiglia morosa",
         praticaSociale: "relazione-servizi-sociali",
-        guardians: [
-          { id: "madre", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-          {
-            id: "ex",
-            name: "Ex",
-            surname: "Coniuge",
-            email: BRUNO.email,
-            fiscalCode: "XCNGXX80A01H501Z",
-            nota: "non puo prendere il bambino il martedi",
-            accessRevokedAt: new Date().toISOString(),
-          },
-        ],
-        revokedGuardianIdentities: [String(BRUNO.email).toLowerCase()],
+        guardians: (blobProiettato?.guardians || []).map((riga) =>
+          riga?.id === rigaEx.id
+            ? {
+                ...riga,
+                fiscalCode: "XCNGXX80A01H501Z",
+                nota: "non puo prendere il bambino il martedi",
+              }
+            : riga,
+        ),
       },
     },
   });
@@ -5742,7 +6417,15 @@ const sezioneW = async () => {
       serializzato.includes("famiglia morosa"),
       serializzato.includes("relazione-servizi-sociali"),
       serializzato.includes("XCNGXX80A01H501Z"),
-      serializzato.includes("revokedGuardianIdentities"),
+      /*
+        La quinta misura era `revokedGuardianIdentities`, il registro di scheda
+        che dichiarava a chi legge quali persone il club avesse escluso. Quel
+        registro non esiste piu — la revoca e un fatto sulla riga — ma il fatto
+        da non far uscire e lo stesso, e adesso viaggia come `accessRevokedAt`
+        dentro la proiezione: **che il club abbia revocato l'altro genitore non
+        e una cosa che questa famiglia deve leggere nel proprio payload.**
+      */
+      serializzato.includes("accessRevokedAt"),
     ],
     "prima: usciva quasi tutto il blob, e con lui la revoca dell'altro genitore",
   );
@@ -5791,12 +6474,26 @@ const sezioneW = async () => {
       last_name: "Pulita",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "madre", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-        ],
-      },
+      data: {},
     },
+  });
+
+  /*
+    Il legame va seminato dalle porte vere: senza una riga, il cruscotto
+    risponderebbe `null` e la prova sarebbe verde perche non c'e nessuna
+    bacheca, non perche la notifica non ci sia entrata.
+  */
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_BACHECA,
+    rows: [{ legacyId: "madre", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_BACHECA,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   const bachecaAnna = await cruscottoW25.getParentDashboardData(
@@ -5979,6 +6676,15 @@ const sezioneW = async () => {
     una riga addosso a un'altra: riordinare le righe, mandare id diversi da
     quelli in archivio, duplicare un id in arrivo. Un ruolo a zero chiavi
     chiudeva fuori un tutore legittimo, senza audit.
+
+    **Cosa misura adesso.** Il ripiego posizionale non c'e piu, e non perche
+    sia stato tolto: non c'e piu la domanda a cui rispondeva. Con una chiave
+    unica non si abbina niente — la riga in arrivo *e* la riga in archivio, per
+    identita o per identificativo — quindi l'ordine, gli id inventati e gli id
+    duplicati non hanno una leva su cui agire. Le tre prove restano tutte e
+    tre, con lo stesso esito atteso, perche sono le tre forme in cui la leva
+    veniva impugnata: se una di esse tornasse a spostare un marchio, e li che
+    si vedrebbe.
   */
   const provaSpostamento = async (titolo, righeInArrivo, nota) => {
     const atleta = randomUUID();
@@ -5990,18 +6696,31 @@ const sezioneW = async () => {
         last_name: "Spostato",
         status: "active",
         updated_at: new Date(),
-        data: {
-          guardians: [
-            {
-              name: "Revocata",
-              email: BRUNO.email,
-              linkedUserId: null,
-              accessRevokedAt: new Date().toISOString(),
-            },
-            { name: "Madre", email: ANNA.email, linkedUserId: ANNA.id },
-          ],
-        },
+        data: {},
       },
+    });
+
+    await tutori.saveGuardianRegistry(prisma, {
+      organizationId: CLUB,
+      athleteId: atleta,
+      rows: [
+        { legacyId: "revocata", firstName: "Revocata", email: BRUNO.email },
+        { legacyId: "madre", firstName: "Madre", email: ANNA.email },
+      ],
+      canGrantAccess: true,
+    });
+    const rigaRevocata = await prisma.athleteGuardian.findFirst({
+      where: { athlete_id: atleta, legacy_id: "revocata" },
+    });
+    await tutori.revokeGuardianRow(prisma, {
+      athleteId: atleta,
+      guardianRowId: rigaRevocata.id,
+    });
+    await tutori.linkGuardianAccount(prisma, {
+      athleteId: atleta,
+      identityKeys: [ANNA.email],
+      userId: ANNA.id,
+      email: ANNA.email,
     });
 
     const prima = await cruscottoW25.canParentAccessAthlete(ANNA.id, atleta);
@@ -6087,10 +6806,15 @@ const sezioneW = async () => {
       last_name: "Diversa",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [{ name: "Zio", email: BRUNO.email, contactOnly: true }],
-      },
+      data: {},
     },
+  });
+
+  await tutori.upsertGuardianFromFormApproval(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_LUNGHEZZA,
+    row: { firstName: "Zio", email: BRUNO.email },
+    contactOnly: true,
   });
 
   await risorseW26.updateResource(
@@ -6131,6 +6855,15 @@ const sezioneW = async () => {
     insieme, misurate accanto: il padre che condivide l'indirizzo di famiglia
     con la madre revocata **resta dentro**, e la madre che si ripresenta con il
     proprio identificativo **resta fuori**.
+
+    **Cosa misura adesso.** «L'indirizzo condiviso non e un'identita» era il
+    modo di dirlo quando l'identita andava dedotta: adesso l'indirizzo **e**
+    l'identita, quindi due tutori dello stesso atleta non lo condividono e la
+    meta sbagliata di quella regola non ha piu un caso in cui applicarsi. Le
+    due proprieta che restano sono le due che contano davvero, e si misurano
+    con lo stesso salvataggio: un salvataggio ordinario **non toglie** l'accesso
+    a chi ce l'ha, e **non lo restituisce** a chi e stato revocato — nemmeno
+    quando il corpo in arrivo dichiara il legame per tutte e due.
   */
   const FIGLIO_DUE_VERSI = randomUUID();
   await prisma.athlete.create({
@@ -6141,20 +6874,31 @@ const sezioneW = async () => {
       last_name: "Versi",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          {
-            id: "madre",
-            name: "Anna",
-            email: ANNA.email,
-            linkedUserId: null,
-            accessRevokedAt: new Date().toISOString(),
-          },
-          { id: "padre", name: "Bruno", email: ANNA.email, linkedUserId: BRUNO.id },
-        ],
-        revokedGuardianIdentities: [String(ANNA.email).toLowerCase()],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_DUE_VERSI,
+    rows: [
+      { legacyId: "madre", firstName: "Anna", email: ANNA.email },
+      { legacyId: "padre", firstName: "Bruno", email: BRUNO.email },
+    ],
+    canGrantAccess: true,
+  });
+  const rigaMadreDueVersi = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_DUE_VERSI, legacy_id: "madre" },
+  });
+  await tutori.revokeGuardianRow(prisma, {
+    athleteId: FIGLIO_DUE_VERSI,
+    guardianRowId: rigaMadreDueVersi.id,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_DUE_VERSI,
+    identityKeys: [BRUNO.email],
+    userId: BRUNO.id,
+    email: BRUNO.email,
   });
 
   await risorseW26.updateResource(
@@ -6163,8 +6907,8 @@ const sezioneW = async () => {
     {
       data: {
         guardians: [
-          { id: "madre", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
-          { id: "padre", name: "Bruno", email: ANNA.email, linkedUserId: BRUNO.id },
+          { name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+          { name: "Bruno", email: BRUNO.email, linkedUserId: BRUNO.id },
         ],
       },
     },
@@ -6178,7 +6922,7 @@ const sezioneW = async () => {
       await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_DUE_VERSI),
       await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_DUE_VERSI),
     ],
-    "le due meta della stessa regola: l'indirizzo condiviso non e un'identita",
+    "le due meta della stessa regola, sulla riga invece che sull'elenco",
   );
 
   await prisma.athlete.delete({ where: { id: FIGLIO_DUE_VERSI } });
@@ -6312,10 +7056,27 @@ const sezioneW = async () => {
       status: "active",
       updated_at: new Date(),
       data: {
-        guardians: [{ id: "nonna", name: "Nonna", email: BRUNO.email }],
         parent1: { name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
       },
     },
+  });
+
+  /*
+    La riga che la scheda **mostra** e una riga vera; la coppia storica resta
+    nel blob e non e stata travasata, cioe e esattamente cio che il ripiego
+    andava a pescare. Il ripiego non c'e piu — `findGuardianRow` interroga la
+    tabella e basta — e la prova lo chiede in tutti e due i versi: la chiamata
+    con un id che non nomina nessuna riga fallisce, e la riga che la scheda
+    mostra resta com'era.
+  */
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_MISTO,
+    rows: [{ legacyId: "nonna", firstName: "Nonna", email: BRUNO.email }],
+    canGrantAccess: true,
+  });
+  const rigaMisto = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_MISTO, legacy_id: "nonna" },
   });
 
   /*
@@ -6331,20 +7092,18 @@ const sezioneW = async () => {
     .then(() => "riuscita")
     .catch((errore) => String(errore?.message || errore));
 
-  const dopoMisto = (
-    await prisma.athlete.findUnique({
-      where: { id: FIGLIO_MISTO },
-      select: { data: true },
-    })
-  )?.data;
-
   prova(
     "W-45 un id inesistente non revoca una riga che la scheda non mostra",
     [true, false],
     [
       esitoMisto !== "riuscita",
-      Array.isArray(dopoMisto?.revokedGuardianIdentities) &&
-        dopoMisto.revokedGuardianIdentities.length > 0,
+      Boolean(
+        (
+          await prisma.athleteGuardian.findUnique({
+            where: { id: rigaMisto.id },
+          })
+        )?.revoked_at,
+      ),
     ],
     esitoMisto,
   );
@@ -6393,6 +7152,16 @@ const sezioneW = async () => {
     Il commento della stesura precedente prometteva proprio questo caso; era
     vero solo per il padre che porta un **identificativo riconosciuto**, cioe
     non per quello per cui ADR-0114 esiste.
+
+    **Cosa misura adesso.** Il difetto era il **riporto per identita**: dopo la
+    revoca l'identita della madre collassava sull'indirizzo di famiglia, e da
+    li si spalmava sul padre. Non c'e piu ne un riporto ne un collasso —
+    l'identita di una riga e fissata quando la riga nasce e la revoca e una
+    colonna su quella riga — e non c'e piu nemmeno l'indirizzo condiviso, che
+    la chiave unica non ammette. Le due strade di ADR-0114 restano due (la
+    madre per legame dichiarato, il padre per indirizzo scritto dal club), e la
+    proprieta e la stessa: **revocare la madre non tocca il padre, ne subito ne
+    al primo salvataggio.**
   */
   const FIGLIO_DUE_STRADE = randomUUID();
   await prisma.athlete.create({
@@ -6403,19 +7172,28 @@ const sezioneW = async () => {
       last_name: "Strade",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          {
-            id: "madre",
-            name: "Anna",
-            linkedUserId: ANNA.id,
-            linkedUserEmail: ANNA.email,
-            email: BRUNO.email,
-          },
-          { id: "padre", name: "Bruno", email: BRUNO.email },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_DUE_STRADE,
+    rows: [
+      { legacyId: "madre", firstName: "Anna", email: ANNA.email },
+      { legacyId: "padre", firstName: "Bruno", email: BRUNO.email },
+    ],
+    canGrantAccess: true,
+  });
+  /* La madre ha riscattato un invito; il padre entra per il solo indirizzo. */
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_DUE_STRADE,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
+  });
+  const rigaMadreDueStrade = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_DUE_STRADE, legacy_id: "madre" },
   });
 
   const partenzaW47 = [
@@ -6425,7 +7203,7 @@ const sezioneW = async () => {
 
   await legamiW25.unlinkGuardianAccount(scopeClubW29, {
     athleteId: FIGLIO_DUE_STRADE,
-    guardianId: "madre",
+    guardianId: rigaMadreDueStrade.id,
   });
 
   const dopoRevocaW47 = [
@@ -6469,12 +7247,12 @@ const sezioneW = async () => {
     in cui arrivano da un'anagrafica travasata o dall'approvazione di un modulo,
     cioe proprio dove l'abbinamento e costretto a indovinare.
 
-    Qui l'indirizzo di famiglia compare su **due** righe: non si sa quale sia
-    quale, e allora non si eredita niente. Non e un buco — la madre resta fuori
-    per il **registro delle identita**, che nega per identita da qualunque riga
-    — ed e la scelta giusta fra i due errori possibili: non riportare un marchio
-    lascia in piedi una difesa che vive altrove, riportarlo alla persona
-    sbagliata la chiude fuori senza audit e senza strada di ritorno.
+    **Cosa misura adesso.** «Righe senza id» era la classe piu esposta perche
+    l'abbinamento doveva dedurle; adesso una riga nasce con la propria chiave
+    primaria anche quando nessuna chiave storica la nomina, e la scheda
+    pubblica quella. La prova tiene percio il caso — righe senza `legacy_id`,
+    cioe senza nessun riferimento al blob — e chiede la stessa cosa di `W-47`:
+    revocare la madre non tocca il padre, ne subito ne al primo salvataggio.
   */
   const FIGLIO_SENZA_CHIAVI = randomUUID();
   await prisma.athlete.create({
@@ -6485,33 +7263,39 @@ const sezioneW = async () => {
       last_name: "Chiavi",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          {
-            name: "Anna",
-            linkedUserId: ANNA.id,
-            linkedUserEmail: ANNA.email,
-            email: BRUNO.email,
-          },
-          { name: "Bruno", email: BRUNO.email },
-        ],
-      },
+      data: {},
     },
   });
 
-  const idSinteticoMadre = contattiW25.normalizeGuardianRows([
-    {
-      name: "Anna",
-      linkedUserId: ANNA.id,
-      linkedUserEmail: ANNA.email,
-      email: BRUNO.email,
-    },
-    { name: "Bruno", email: BRUNO.email },
-  ])[0].id;
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_SENZA_CHIAVI,
+    rows: [
+      { firstName: "Anna", email: ANNA.email },
+      { firstName: "Bruno", email: BRUNO.email },
+    ],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_SENZA_CHIAVI,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
+  });
+
+  /* L'identificativo che la scheda mostra, non uno ricalcolato. */
+  const idMadreSullaScheda = (
+    (
+      await prisma.athlete.findUnique({
+        where: { id: FIGLIO_SENZA_CHIAVI },
+        select: { data: true },
+      })
+    )?.data?.guardians || []
+  ).find((riga) => String(riga?.email || "").toLowerCase() === String(ANNA.email).toLowerCase())?.id;
 
   await legamiW25.unlinkGuardianAccount(scopeClubW29, {
     athleteId: FIGLIO_SENZA_CHIAVI,
-    guardianId: idSinteticoMadre,
+    guardianId: idMadreSullaScheda,
   });
 
   const dopoRevocaSenzaId = [
@@ -6565,6 +7349,14 @@ const sezioneW = async () => {
   /*
     **W-48.** E il segno di solo-recapito non si spalma sul genitore vero che
     condivide l'indirizzo: e la stessa radice, dall'altro lato.
+
+    **Cosa misura adesso.** Il segno si spalmava perche il riporto cercava la
+    riga «corrispondente» per identita, e due righe con lo stesso indirizzo
+    erano indistinguibili. Il riporto non c'e piu, e nemmeno l'indirizzo
+    condiviso: `contact_only` e una colonna della riga che lo ha, e nessun ramo
+    del salvataggio la scrive. La prova tiene le due righe — lo sconosciuto del
+    modulo pubblico e la madre — ognuna sul proprio indirizzo, e chiede la
+    stessa cosa: **il segno resta dove e nato, e la madre continua a entrare.**
   */
   const FIGLIO_SEGNO_CONDIVISO = randomUUID();
   await prisma.athlete.create({
@@ -6575,13 +7367,30 @@ const sezioneW = async () => {
       last_name: "Condiviso",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "sconosciuto", name: "Tizio", email: ANNA.email, contactOnly: true },
-          { id: "madre", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.upsertGuardianFromFormApproval(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_SEGNO_CONDIVISO,
+    row: { legacyId: "sconosciuto", firstName: "Tizio", email: BRUNO.email },
+    contactOnly: true,
+  });
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_SEGNO_CONDIVISO,
+    rows: [
+      { legacyId: "sconosciuto", firstName: "Tizio", email: BRUNO.email },
+      { legacyId: "madre", firstName: "Anna", email: ANNA.email },
+    ],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_SEGNO_CONDIVISO,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   const datiSegno = (
@@ -6610,11 +7419,18 @@ const sezioneW = async () => {
     [true, false, true],
     [
       Boolean(
-        (dopoSegno?.guardians || []).find((r) => r.id === "sconosciuto")
-          ?.contactOnly,
+        (dopoSegno?.guardians || []).find(
+          (r) =>
+            String(r?.email || "").toLowerCase() ===
+            String(BRUNO.email).toLowerCase(),
+        )?.contactOnly,
       ),
       Boolean(
-        (dopoSegno?.guardians || []).find((r) => r.id === "madre")?.contactOnly,
+        (dopoSegno?.guardians || []).find(
+          (r) =>
+            String(r?.email || "").toLowerCase() ===
+            String(ANNA.email).toLowerCase(),
+        )?.contactOnly,
       ),
       await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_SEGNO_CONDIVISO),
     ],
@@ -6679,12 +7495,15 @@ const sezioneW = async () => {
       last_name: "Moduli",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "zio", name: "Zio", email: BRUNO.email, contactOnly: true },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.upsertGuardianFromFormApproval(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_DUE_MODULI,
+    row: { legacyId: "zio", firstName: "Zio", email: BRUNO.email },
+    contactOnly: true,
   });
 
   const primaDelSecondo = await cruscottoW25.canParentAccessAthlete(
@@ -6760,19 +7579,31 @@ const sezioneW = async () => {
       last_name: "Rubato",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          {
-            id: "ra",
-            name: "Revocata",
-            email: BRUNO.email,
-            linkedUserId: null,
-            accessRevokedAt: new Date().toISOString(),
-          },
-          { id: "rb", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_ID_RUBATO,
+    rows: [
+      { legacyId: "ra", firstName: "Revocata", email: BRUNO.email },
+      { legacyId: "rb", firstName: "Anna", email: ANNA.email },
+    ],
+    canGrantAccess: true,
+  });
+  const rigaRevocataRubata = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_ID_RUBATO, legacy_id: "ra" },
+  });
+  await tutori.revokeGuardianRow(prisma, {
+    athleteId: FIGLIO_ID_RUBATO,
+    guardianRowId: rigaRevocataRubata.id,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_ID_RUBATO,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   const primaIdRubato = await cruscottoW25.canParentAccessAthlete(
@@ -6780,13 +7611,25 @@ const sezioneW = async () => {
     FIGLIO_ID_RUBATO,
   );
 
+  /*
+    La riga della madre, mandata con l'identificativo **della riga revocata**.
+    L'identificativo nomina una riga che esiste, ma l'identita che porta e
+    un'altra: e la sostituzione di un indirizzo, non la madre che eredita il
+    marchio. La riga revocata non si tocca — non si toglie e non si riapre — e
+    quella della madre si aggiorna dove vive.
+  */
   await risorseW26.updateResource(
     "athletes",
     FIGLIO_ID_RUBATO,
     {
       data: {
         guardians: [
-          { id: "ra", name: "Anna", email: ANNA.email, linkedUserId: ANNA.id },
+          {
+            id: rigaRevocataRubata.id,
+            name: "Anna",
+            email: ANNA.email,
+            linkedUserId: ANNA.id,
+          },
         ],
       },
     },
@@ -6809,6 +7652,24 @@ const sezioneW = async () => {
     **W-52.** E il verso opposto della stessa regola: correggere un refuso
     nell'indirizzo di un tutore **non** deve fargli perdere il segno. La riga
     resta la stessa — l'`id` lo dice, e nessun'altra identita lo contraddice.
+
+    **Come e stata trovata, e come e stata chiusa.** Nel modello nuovo
+    l'indirizzo **e** l'identita, quindi correggerlo non aggiorna la riga: ne fa
+    nascere una seconda e toglie la prima. `readGuardianInputFromCard` non
+    traduce `contactOnly` — e giusto, un salvataggio non deve poter **mettere**
+    il segno — quindi la riga che nasceva dalla correzione nasceva **senza**, e
+    il segno di una riga dichiarata da uno sconosciuto se ne andava con il
+    gesto piu ordinario che una segreteria compia.
+
+    Se quell'indirizzo appartiene a un'utenza verificata, da quel momento apre
+    allergie, farmaci e i byte del certificato di un minore. Era esattamente
+    cio che la regola del modulo proprietario esclude («`contact_only` non si
+    toglie da qui: lo toglie solo un invito riscattato»), e la regola non
+    reggeva perche la sostituzione di una riga non e ne un aggiornamento ne una
+    creazione, ed era stata pensata come le due cose separate.
+
+    `saveGuardianRegistry` eredita adesso il segno dalla riga sostituita. Nel
+    verso opposto non eredita niente: una riga senza segno non ne acquista uno.
   */
   const FIGLIO_REFUSO = randomUUID();
   await prisma.athlete.create({
@@ -6819,12 +7680,18 @@ const sezioneW = async () => {
       last_name: "Corretto",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "t", name: "Zio", email: "zioo@estraneo.invalid", contactOnly: true },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.upsertGuardianFromFormApproval(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_REFUSO,
+    row: { legacyId: "t", firstName: "Zio", email: "zioo@estraneo.invalid" },
+    contactOnly: true,
+  });
+  const rigaRefuso = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_REFUSO, legacy_id: "t" },
   });
 
   await risorseW26.updateResource(
@@ -6833,7 +7700,7 @@ const sezioneW = async () => {
     {
       data: {
         guardians: [
-          { id: "t", name: "Zio", email: "zio@estraneo.invalid" },
+          { id: rigaRefuso.id, name: "Zio", email: "zio@estraneo.invalid" },
         ],
       },
     },
@@ -6875,6 +7742,15 @@ const sezioneW = async () => {
     attraversarlo. La difesa e stata percio tolta dal blob: vive adesso in un
     **registro sull'atleta**, come quello delle revoche, che e l'unica delle tre
     che non e mai caduta.
+
+    **Cosa misura adesso.** Il registro di scheda e stato a sua volta superato:
+    era il surrogato di una chiave, e con la chiave il segno vive su
+    `athlete_guardians.contact_only`, dove la rotta non arriva — toglie
+    `guardians` dal corpo prima di scrivere, e `readGuardianInputFromCard` non
+    traduce il campo. Cade anche il presupposto dell'ambiguita: due tutori sullo
+    stesso indirizzo di famiglia sono **una** riga, perche l'indirizzo e la
+    chiave. La proprieta misurata e identica, ed e quella che conta: **la
+    segreteria salva la scheda e l'area famiglia del minore non si apre.**
   */
   const FIGLIO_SALVATAGGIO = randomUUID();
   await prisma.athlete.create({
@@ -6885,14 +7761,15 @@ const sezioneW = async () => {
       last_name: "Ordinario",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { name: "Zio", email: BRUNO.email, contactOnly: true },
-          { name: "Zia", email: BRUNO.email, contactOnly: true },
-        ],
-        contactOnlyIdentities: [String(BRUNO.email).toLowerCase()],
-      },
+      data: {},
     },
+  });
+
+  await tutori.upsertGuardianFromFormApproval(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_SALVATAGGIO,
+    row: { firstName: "Zio", email: BRUNO.email },
+    contactOnly: true,
   });
 
   const primaDelSalvataggio = await cruscottoW25.canParentAccessAthlete(
@@ -6902,10 +7779,7 @@ const sezioneW = async () => {
 
   /* Cio che manda la scheda atleta: id sintetici, e niente segno. */
   const righeDallaScheda = contattiW25
-    .normalizeGuardianRows([
-      { name: "Zio", email: BRUNO.email },
-      { name: "Zia", email: BRUNO.email },
-    ])
+    .normalizeGuardianRows([{ name: "Zio", email: BRUNO.email }])
     .map((riga) => ({ id: riga.id, name: riga.name, email: riga.email }));
 
   await risorseW26.updateResource(
@@ -6926,60 +7800,71 @@ const sezioneW = async () => {
   );
 
   /*
-    E il registro sopravvive al salvataggio: e la proprieta che lo rende una
-    difesa invece di un'annotazione.
+    E il segno sopravvive al salvataggio: e la proprieta che lo rende una difesa
+    invece di un'annotazione. Prima si chiedeva al registro di scheda, che era
+    l'unica delle tre difese mai caduta; adesso si chiede alla colonna, che e
+    dove il registro voleva arrivare — un posto che la rotta non sostituisce.
   */
-  const dopoSalvataggio = (
-    await prisma.athlete.findUnique({
-      where: { id: FIGLIO_SALVATAGGIO },
-      select: { data: true },
-    })
-  )?.data;
+  const rigaSalvataggio = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_SALVATAGGIO },
+  });
 
   prova(
-    "W-53b il registro dei soli recapiti sopravvive al blob sostituito",
+    "W-53b il segno del solo recapito sopravvive al blob sostituito",
     true,
-    (dopoSalvataggio?.contactOnlyIdentities || []).includes(
-      String(BRUNO.email).toLowerCase(),
-    ),
-    "prima: la difesa viveva nella riga, e la riga la rotta la sostituisce",
+    Boolean(rigaSalvataggio?.contact_only),
+    "prima: la difesa viveva nella riga del blob, e la riga la rotta la sostituisce",
   );
 
   /*
-    **W-54.** E non si puo togliere dalla rotta generica, come l'altro registro:
-    una difesa che chi la subisce puo cancellare non e una difesa.
+    **W-54.** E non si puo togliere dalla rotta generica: una difesa che chi la
+    subisce puo cancellare non e una difesa. Il corpo prova le due strade che
+    esistevano — svuotare il registro di scheda, che la rotta toglie dal corpo
+    perche non e piu scrivibile, e dichiarare `contactOnly: false` sulla riga,
+    che il traduttore non guarda.
   */
   await risorseW26.updateResource(
     "athletes",
     FIGLIO_SALVATAGGIO,
-    { data: { guardians: righeDallaScheda, contactOnlyIdentities: [] } },
+    {
+      data: {
+        guardians: righeDallaScheda.map((riga) => ({
+          ...riga,
+          contactOnly: false,
+          contact_only: false,
+        })),
+        contactOnlyIdentities: [],
+      },
+    },
     scopeClubW29,
   );
 
   prova(
-    "W-54 dalla rotta generica il registro non si svuota",
+    "W-54 dalla rotta generica il segno non si toglie",
     [true, false],
     [
-      (
+      Boolean(
         (
-          await prisma.athlete.findUnique({
-            where: { id: FIGLIO_SALVATAGGIO },
-            select: { data: true },
+          await prisma.athleteGuardian.findUnique({
+            where: { id: rigaSalvataggio.id },
           })
-        )?.data?.contactOnlyIdentities || []
-      ).includes(String(BRUNO.email).toLowerCase()),
+        )?.contact_only,
+      ),
       await cruscottoW25.canParentAccessAthlete(BRUNO.id, FIGLIO_SALVATAGGIO),
     ],
-    "stessa disciplina dell'elenco delle revoche",
+    "stessa disciplina della revoca: e un fatto sulla riga, non un'annotazione",
   );
 
   await prisma.athlete.delete({ where: { id: FIGLIO_SALVATAGGIO } });
 
   /*
     **W-55.** Il verso opposto, che vale quanto l'altro: un invito **riscattato**
-    toglie l'indirizzo dal registro, e la famiglia torna a vedere **e** a
-    ricevere. Meta accesso e la forma di difetto che questo pacchetto ha gia
-    pagato due volte.
+    scioglie il segno, e la famiglia torna a vedere **e** a ricevere. Meta
+    accesso e la forma di difetto che questo pacchetto ha gia pagato due volte.
+
+    Il riscatto non si simula piu svuotando un registro: si chiama, ed e
+    l'unica funzione che toglie `contact_only` — la stessa che toglie una
+    revoca, perche sono la stessa promessa mantenuta alla stessa persona.
   */
   const FIGLIO_RISCATTO = randomUUID();
   await prisma.athlete.create({
@@ -6990,19 +7875,21 @@ const sezioneW = async () => {
       last_name: "Completo",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          {
-            id: "t",
-            name: "Anna",
-            email: ANNA.email,
-            contactOnly: true,
-            linkedUserId: ANNA.id,
-          },
-        ],
-        contactOnlyIdentities: [],
-      },
+      data: {},
     },
+  });
+
+  await tutori.upsertGuardianFromFormApproval(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_RISCATTO,
+    row: { legacyId: "t", firstName: "Anna", email: ANNA.email },
+    contactOnly: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_RISCATTO,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   const schedaRiscatto = await prisma.athlete.findUnique({
@@ -7123,10 +8010,18 @@ const sezioneW = async () => {
       last_name: "Impugnato",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [{ id: "madre", name: "Anna", email: ANNA.email }],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_INIEZIONE,
+    rows: [{ legacyId: "madre", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  const rigaIniezione = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_INIEZIONE, legacy_id: "madre" },
   });
 
   const primaIniezione = await cruscottoW25.canParentAccessAthlete(
@@ -7134,31 +8029,42 @@ const sezioneW = async () => {
     FIGLIO_INIEZIONE,
   );
 
+  /*
+    L'arma e la stessa, nelle due forme che il corpo puo prendere: il registro
+    di scheda — che non e piu scrivibile — e il segno dichiarato sulla riga.
+    Nessuna delle due arriva alla colonna, e la madre resta dentro.
+  */
   await risorseW26.updateResource(
     "athletes",
     FIGLIO_INIEZIONE,
     {
       data: {
-        guardians: [{ id: "madre", name: "Anna", email: ANNA.email }],
+        guardians: [
+          {
+            id: rigaIniezione.id,
+            name: "Anna",
+            email: ANNA.email,
+            contactOnly: true,
+          },
+        ],
         contactOnlyIdentities: [String(ANNA.email).toLowerCase()],
       },
     },
     scopeAllenatoreW29,
   );
 
-  const dopoIniezione = (
-    await prisma.athlete.findUnique({
-      where: { id: FIGLIO_INIEZIONE },
-      select: { data: true },
-    })
-  )?.data;
-
   prova(
-    "W-58 dalla rotta generica il registro non si puo nemmeno riempire",
-    [true, 0, true],
+    "W-58 dalla rotta generica il segno non si puo nemmeno mettere",
+    [true, false, true],
     [
       primaIniezione,
-      (dopoIniezione?.contactOnlyIdentities || []).length,
+      Boolean(
+        (
+          await prisma.athleteGuardian.findUnique({
+            where: { id: rigaIniezione.id },
+          })
+        )?.contact_only,
+      ),
       await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_INIEZIONE),
     ],
     "prima: un ruolo a zero chiavi chiudeva fuori un genitore, senza audit",
@@ -7183,10 +8089,15 @@ const sezioneW = async () => {
       last_name: "Condiviso",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [{ id: "madre", name: "Anna", email: ANNA.email }],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_INDIRIZZO_CONDIVISO,
+    rows: [{ legacyId: "madre", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
   });
 
   const primaCondiviso = await cruscottoW25.canParentAccessAthlete(
@@ -7235,28 +8146,62 @@ const sezioneW = async () => {
     restituiva zero. Un indirizzo di famiglia avvelenato una volta restava
     chiuso **per sempre**, per ogni persona futura che la segreteria scrivesse
     su quella scheda senza un invito nominale.
+
+    **Cosa misura adesso.** Il registro di scheda non esiste piu e il blocco
+    nemmeno: il segno e `contact_only` sulla riga, e il riscatto lo scioglie in
+    **una istruzione**, dove non c'e uno snapshot da rimandare e quindi non c'e
+    una corsa da perdere — cioe la ragione per cui il blocco serviva. Le due
+    meta si chiedono percio insieme: che la rotta del riscatto passi davvero dal
+    proprietario del tutore (e la stessa preoccupazione della stesura
+    precedente, che il sorgente dichiarasse cio che poi non faceva), e che
+    quell'atto apra davvero.
   */
   const riscattoSorgente = await import("node:fs").then((fs) =>
     fs.readFileSync("src/app/api/v1/auth/access/redeem/route.ts", "utf8"),
   );
 
-  /*
-    Questa e una asserzione sul **sorgente**, e va detto: la rotta del riscatto
-    non e raggiungibile da questo collaudo — vuole un gettone in archivio e una
-    sessione — e le altre sonde che parlano di riscatto ne simulano lo stato
-    scrivendolo a mano. Cio che si tiene fermo qui e che le due righe esistano
-    davvero: erano dichiarate in quattro commenti e non le faceva nessuno.
-  */
+  const FIGLIO_SEGNO_SCIOLTO = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_SEGNO_SCIOLTO,
+      organization_id: CLUB,
+      first_name: "Segno",
+      last_name: "Sciolto",
+      status: "active",
+      updated_at: new Date(),
+      data: {},
+    },
+  });
+
+  await tutori.upsertGuardianFromFormApproval(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_SEGNO_SCIOLTO,
+    row: { legacyId: "t", firstName: "Anna", email: ANNA.email },
+    contactOnly: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_SEGNO_SCIOLTO,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
+  });
+
+  const rigaSegnoSciolto = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_SEGNO_SCIOLTO, legacy_id: "t" },
+  });
+
   prova(
-    "W-60 il riscatto toglie l'indirizzo dal registro, e sotto blocco",
-    [true, true, true],
+    "W-60 il riscatto scioglie il segno, e passa dal proprietario del tutore",
+    [true, false, true],
     [
-      riscattoSorgente.includes("contactOnlyIdentities: Array.from("),
-      riscattoSorgente.includes("lockAthleteRow(client, parentTarget.athlete.id)"),
-      riscattoSorgente.includes("contactOnly: false"),
+      riscattoSorgente.includes("await linkGuardianAccount(prisma, {"),
+      Boolean(rigaSegnoSciolto?.contact_only),
+      await cruscottoW25.canParentAccessAthlete(ANNA.id, FIGLIO_SEGNO_SCIOLTO),
     ],
     "prima: quattro commenti lo dichiaravano e nessuna riga lo faceva",
   );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_SEGNO_SCIOLTO } });
 
   /*
     **W-61 (Medium).** L'anteprima delle rate produceva una rata da 0,00 **senza
@@ -7328,20 +8273,61 @@ const sezioneW = async () => {
     quindi l'indirizzo di una famiglia che aveva seguito il percorso dichiarato
     — modulo, invito, riscatto — restava avvelenabile da qualunque modulo
     approvato in seguito.
+
+    **Cosa misura adesso.** I due marchi sono due colonne della stessa riga, e
+    il riscatto le scrive nella stessa `UPDATE`: si puo percio chiedere il
+    fatto invece della presenza di due stringhe nel sorgente. La riga di
+    partenza porta **tutti e due** i marchi — nata da un modulo pubblico e poi
+    revocata — che e il caso in cui scioglierne uno solo si vedrebbe.
   */
-  const riscattoSorgenteW63 = await import("node:fs").then((fs) =>
-    fs.readFileSync("src/app/api/v1/auth/access/redeem/route.ts", "utf8"),
-  );
+  const FIGLIO_DUE_MARCHI = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_DUE_MARCHI,
+      organization_id: CLUB,
+      first_name: "Due",
+      last_name: "Marchi",
+      status: "active",
+      updated_at: new Date(),
+      data: {},
+    },
+  });
+
+  await tutori.upsertGuardianFromFormApproval(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_DUE_MARCHI,
+    row: { legacyId: "t", firstName: "Anna", email: ANNA.email },
+    contactOnly: true,
+  });
+  const rigaDueMarchi = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_DUE_MARCHI, legacy_id: "t" },
+  });
+  await tutori.revokeGuardianRow(prisma, {
+    athleteId: FIGLIO_DUE_MARCHI,
+    guardianRowId: rigaDueMarchi.id,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_DUE_MARCHI,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
+  });
+
+  const rigaDueMarchiDopo = await prisma.athleteGuardian.findUnique({
+    where: { id: rigaDueMarchi.id },
+  });
 
   prova(
     "W-63 il riscatto toglie tutti e due i marchi, non uno solo",
     [true, true],
     [
-      riscattoSorgenteW63.includes("accessRevokedAt: null"),
-      riscattoSorgenteW63.includes("contactOnly: false"),
+      rigaDueMarchiDopo?.revoked_at === null,
+      rigaDueMarchiDopo?.contact_only === false,
     ],
     "un accesso ridato si rida per intero, e vale per i due marchi",
   );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_DUE_MARCHI } });
 
   /*
     **W-64 (Medium).** La quarta lettura dei tutori leggeva **due** grafie del
@@ -7358,11 +8344,27 @@ const sezioneW = async () => {
       last_name: "Lettura",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [{ id: "t", name: "Anna", userId: ANNA.id, email: ANNA.email }],
-        contactOnlyIdentities: [String(ANNA.email).toLowerCase()],
-      },
+      data: {},
     },
+  });
+
+  /*
+    Le quattro letture devono dare la stessa risposta su **una** riga collegata.
+    Le grafie del legame non sono piu un problema di lettura — la proiezione ne
+    scrive una sola, perche in archivio c'e una sola colonna — ma le quattro
+    letture restano quattro, e questa prova esiste per tenerle d'accordo.
+  */
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_QUARTA_LETTURA,
+    rows: [{ legacyId: "t", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_QUARTA_LETTURA,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   const schedaQuarta = await prisma.athlete.findUnique({
@@ -7443,18 +8445,62 @@ const sezioneW = async () => {
     e l'ottava protezione, quella che ADR-0116 non aveva mai messo per iscritto e
     che e la ragione per cui il registro gemello non e mai caduto. Cinque
     approvazioni concorrenti perdevano voci in sei giri su sei.
+
+    **Cosa misura adesso.** L'atomicita non si chiede piu a una transazione
+    attorno a una rilettura: il registro non c'e, e l'approvazione e una
+    `upsert` su `(athlete_id, identity_key)` che non ha uno snapshot da
+    rimandare. `PP02-D33` si chiude percio perche la domanda non si pone,
+    e la prova puo smettere di cercare una parola nel sorgente e misurare il
+    fatto: **cinque approvazioni concorrenti sullo stesso atleta lasciano
+    cinque righe**, che e esattamente cio che si perdeva sei giri su sei. Resta
+    la meta che la stesura precedente aveva ragione di sorvegliare — che il
+    dominio dei moduli passi davvero dal proprietario — perche una `upsert`
+    atomica in un file che nessuno chiama non protegge niente.
   */
   const moduliSorgente = await import("node:fs").then((fs) =>
     fs.readFileSync("src/lib/server/form-submissions.ts", "utf8"),
   );
 
-  prova(
-    "W-66 il registro si scrive dentro una transazione, come il suo gemello",
-    true,
-    moduliSorgente.includes("await prisma.$transaction(async (client: any) => {") &&
-      moduliSorgente.includes("contactOnlyIdentities: Array.from(registro)"),
-    "prima: rilettura e scrittura separate, fuori transazione",
+  const FIGLIO_CINQUE_MODULI = randomUUID();
+  await prisma.athlete.create({
+    data: {
+      id: FIGLIO_CINQUE_MODULI,
+      organization_id: CLUB,
+      first_name: "Cinque",
+      last_name: "Moduli",
+      status: "active",
+      updated_at: new Date(),
+      data: {},
+    },
+  });
+
+  await Promise.all(
+    [1, 2, 3, 4, 5].map((numero) =>
+      tutori.upsertGuardianFromFormApproval(prisma, {
+        organizationId: CLUB,
+        athleteId: FIGLIO_CINQUE_MODULI,
+        row: {
+          firstName: `Tutore ${numero}`,
+          email: `pp02-modulo-${numero}@example.invalid`,
+        },
+        contactOnly: true,
+      }),
+    ),
   );
+
+  prova(
+    "W-66 cinque approvazioni concorrenti non perdono righe",
+    [true, 5],
+    [
+      moduliSorgente.includes("upsertGuardianFromFormApproval("),
+      await prisma.athleteGuardian.count({
+        where: { athlete_id: FIGLIO_CINQUE_MODULI },
+      }),
+    ],
+    "prima: tutte rispondevano «Genitore aggiunto» e in anagrafica ne arrivavano due o tre",
+  );
+
+  await prisma.athlete.delete({ where: { id: FIGLIO_CINQUE_MODULI } });
 
   /* ---------- W-67..W-68: il ventitreesimo round ---------- */
 
@@ -7487,12 +8533,24 @@ const sezioneW = async () => {
         last_name: "Revoca" + giro,
         status: "active",
         updated_at: new Date(),
-        data: {
-          guardians: [
-            { id: "g0", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-          ],
-        },
+        data: {},
       },
+    });
+
+    await tutori.saveGuardianRegistry(prisma, {
+      organizationId: CLUB,
+      athleteId: atleta,
+      rows: [{ legacyId: "g0", firstName: "Anna", email: ANNA.email }],
+      canGrantAccess: true,
+    });
+    await tutori.linkGuardianAccount(prisma, {
+      athleteId: atleta,
+      identityKeys: [ANNA.email],
+      userId: ANNA.id,
+      email: ANNA.email,
+    });
+    const rigaCorsa = await prisma.athleteGuardian.findFirst({
+      where: { athlete_id: atleta, legacy_id: "g0" },
     });
 
     const datiPrima = (
@@ -7506,7 +8564,7 @@ const sezioneW = async () => {
     await Promise.allSettled([
       legamiW25.unlinkGuardianAccount(scopeClubW29, {
         athleteId: atleta,
-        guardianId: "g0",
+        guardianId: rigaCorsa.id,
       }),
       risorseW26.updateResource(
         "athletes",
@@ -7547,23 +8605,46 @@ const sezioneW = async () => {
       last_name: "Revoche",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "g1", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-          { id: "g2", name: "Bruno", linkedUserId: BRUNO.id, email: BRUNO.email },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_DUE_REVOCHE,
+    rows: [
+      { legacyId: "g1", firstName: "Anna", email: ANNA.email },
+      { legacyId: "g2", firstName: "Bruno", email: BRUNO.email },
+    ],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_DUE_REVOCHE,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_DUE_REVOCHE,
+    identityKeys: [BRUNO.email],
+    userId: BRUNO.id,
+    email: BRUNO.email,
+  });
+  const rigaG1 = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_DUE_REVOCHE, legacy_id: "g1" },
+  });
+  const rigaG2 = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: FIGLIO_DUE_REVOCHE, legacy_id: "g2" },
   });
 
   await Promise.allSettled([
     legamiW25.unlinkGuardianAccount(scopeClubW29, {
       athleteId: FIGLIO_DUE_REVOCHE,
-      guardianId: "g1",
+      guardianId: rigaG1.id,
     }),
     legamiW25.unlinkGuardianAccount(scopeClubW29, {
       athleteId: FIGLIO_DUE_REVOCHE,
-      guardianId: "g2",
+      guardianId: rigaG2.id,
     }),
   ]);
 
@@ -7605,13 +8686,24 @@ const sezioneW = async () => {
         status: "active",
         user_id: UTENTE_RAGAZZO.id,
         updated_at: new Date(),
-        data: {
-          guardians: [
-            { id: "g0", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-          ],
-          phone: "3330000000",
-        },
+        data: { phone: "3330000000" },
       },
+    });
+
+    await tutori.saveGuardianRegistry(prisma, {
+      organizationId: CLUB,
+      athleteId: atleta,
+      rows: [{ legacyId: "g0", firstName: "Anna", email: ANNA.email }],
+      canGrantAccess: true,
+    });
+    await tutori.linkGuardianAccount(prisma, {
+      athleteId: atleta,
+      identityKeys: [ANNA.email],
+      userId: ANNA.id,
+      email: ANNA.email,
+    });
+    const rigaSelfService = await prisma.athleteGuardian.findFirst({
+      where: { athlete_id: atleta, legacy_id: "g0" },
     });
 
     /*
@@ -7631,7 +8723,7 @@ const sezioneW = async () => {
     await Promise.allSettled([
       legamiW25.unlinkGuardianAccount(scopeClubW29, {
         athleteId: atleta,
-        guardianId: "g0",
+        guardianId: rigaSelfService.id,
       }),
       accessiW69.updateOwnAthleteContacts(UTENTE_RAGAZZO.id, {
         phone: "3331112222",
@@ -7680,11 +8772,21 @@ const sezioneW = async () => {
       last_name: "Cancellare",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [{ id: "g", name: "Anna", linkedUserId: ANNA.id }],
-        allergie: "arachidi",
-      },
+      data: { allergie: "arachidi" },
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_CANCELLATO,
+    rows: [{ legacyId: "g", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_CANCELLATO,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   const copiaDelBrowser = (
@@ -7694,7 +8796,12 @@ const sezioneW = async () => {
     })
   )?.data;
 
-  /* La cancellazione, come la scrive il dominio dei diritti dell'interessato. */
+  /*
+    La cancellazione, come la scrive il dominio dei diritti dell'interessato: il
+    blob si azzera **e** i tutori spariscono. La seconda meta e l'unica
+    operazione che toglie righe revocate, e va fatta dalla porta sua — scrivere
+    solo il blob lascerebbe le righe in piedi, cioe il genitore ancora dentro.
+  */
   await prisma.athlete.update({
     where: { id: FIGLIO_CANCELLATO },
     data: {
@@ -7704,6 +8811,7 @@ const sezioneW = async () => {
       data: { anonymizedAt: new Date().toISOString() },
     },
   });
+  await tutori.eraseGuardiansForAthlete(prisma, FIGLIO_CANCELLATO);
 
   const risurrezione = await risorseW26
     .updateResource(
@@ -7742,13 +8850,30 @@ const sezioneW = async () => {
       last_name: "Concorrente",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [
-          { id: "ga", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-          { id: "gb", name: "Bruno", linkedUserId: BRUNO.id, email: BRUNO.email },
-        ],
-      },
+      data: {},
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_SWEEP,
+    rows: [
+      { legacyId: "ga", firstName: "Anna", email: ANNA.email },
+      { legacyId: "gb", firstName: "Bruno", email: BRUNO.email },
+    ],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_SWEEP,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_SWEEP,
+    identityKeys: [BRUNO.email],
+    userId: BRUNO.id,
+    email: BRUNO.email,
   });
 
   await Promise.allSettled([
@@ -7774,7 +8899,9 @@ const sezioneW = async () => {
 
   /*
     **W-72.** E lo sweep non distrugge il salvataggio che gli corre accanto: il
-    dato clinico appena scritto non deve tornare com'era.
+    dato clinico appena scritto non deve tornare com'era — e nessuno dei due
+    deve morire di abbraccio mortale, che e la forma in cui questa prova ha
+    trovato `PP02-D34` tornato su un'altra coppia di blocchi (vedi `W-79`).
   */
   const FIGLIO_SWEEP_DATO = randomUUID();
   await prisma.athlete.create({
@@ -7785,11 +8912,21 @@ const sezioneW = async () => {
       last_name: "Dato",
       status: "active",
       updated_at: new Date(),
-      data: {
-        guardians: [{ id: "ga", name: "Anna", linkedUserId: ANNA.id }],
-        allergie: "prima",
-      },
+      data: { allergie: "prima" },
     },
+  });
+
+  await tutori.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: FIGLIO_SWEEP_DATO,
+    rows: [{ legacyId: "ga", firstName: "Anna", email: ANNA.email }],
+    canGrantAccess: true,
+  });
+  await tutori.linkGuardianAccount(prisma, {
+    athleteId: FIGLIO_SWEEP_DATO,
+    identityKeys: [ANNA.email],
+    userId: ANNA.id,
+    email: ANNA.email,
   });
 
   const datiSweep = (
@@ -7799,6 +8936,23 @@ const sezioneW = async () => {
     })
   )?.data;
 
+  /*
+    **Questa prova misura un difetto aperto (PP02-D34, nella forma nuova).**
+
+    Lo sweep e il salvataggio prendono i loro blocchi in **ordine inverso**: il
+    salvataggio blocca prima la riga dell'atleta (`lockAthleteRow`) e poi
+    scrive `athlete_guardians`; lo sweep aggiorna prima `athlete_guardians` e
+    poi rifa la proiezione, che scrive `athletes`. PostgreSQL rileva
+    l'abbraccio mortale e **abbatte lo sweep** (`40P01`), che qui e la
+    transazione che porta la revoca. `Promise.allSettled` lo assorbe, come lo
+    assorbirebbe una richiesta che risponde 500 mentre la schermata dice
+    «revocato».
+
+    E la stessa proprieta della stesura precedente, e va tenuta cosi: la revoca
+    deve entrare **e** il salvataggio non deve tornare indietro. Abbassarla
+    nasconderebbe che l'abbraccio mortale che WP-C dichiara chiuso e tornato su
+    una coppia di blocchi diversa.
+  */
   await Promise.allSettled([
     prisma.$transaction((tx) =>
       legamiW25.unlinkParentGuardians(tx, CLUB, ANNA.id, ANNA.email, "parent"),
@@ -7853,12 +9007,24 @@ const sezioneW = async () => {
         last_name: "Modulo" + giro,
         status: "active",
         updated_at: new Date(),
-        data: {
-          guardians: [
-            { id: "g0", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email },
-          ],
-        },
+        data: {},
       },
+    });
+
+    await tutori.saveGuardianRegistry(prisma, {
+      organizationId: CLUB,
+      athleteId: atleta,
+      rows: [{ legacyId: "g0", firstName: "Anna", email: ANNA.email }],
+      canGrantAccess: true,
+    });
+    await tutori.linkGuardianAccount(prisma, {
+      athleteId: atleta,
+      identityKeys: [ANNA.email],
+      userId: ANNA.id,
+      email: ANNA.email,
+    });
+    const rigaCorsaModulo = await prisma.athleteGuardian.findFirst({
+      where: { athlete_id: atleta, legacy_id: "g0" },
     });
 
     const inviato = await inviiW29.submitRenewalForm(ANNA.id, {
@@ -7893,7 +9059,7 @@ const sezioneW = async () => {
       approvazione,
       legamiW25.unlinkGuardianAccount(scopeClubW29, {
         athleteId: atleta,
-        guardianId: "g0",
+        guardianId: rigaCorsaModulo.id,
       }),
     ]);
 
@@ -8175,6 +9341,16 @@ const sezioneW = async () => {
   /*
     **W-78b.** E la stessa porta non aggira la guardia della crescita: un ruolo
     senza le due chiavi non si scrive un legame addosso nemmeno da li.
+
+    **Cosa cambia nell'arma impugnata.** La stesura precedente scriveva
+    `linkedUserId: <se stesso>`, che era la strada. Adesso quel campo non ha
+    piu una strada: `readGuardianInputFromCard` non lo traduce, quindi da
+    questa porta non produce niente — non un legame e nemmeno un rifiuto, ed e
+    la forma piu forte della difesa (la regola ha smesso di essere una guardia
+    ed e diventata una proprieta, come in `W-15a`). Cio che **resta** una
+    crescita, e che deve restare rifiutato, e scrivere un **indirizzo che
+    corrisponde a un'utenza**: e quella la mossa che apre il fascicolo
+    sanitario di un minore, ed e su quella che si misura la porta.
   */
   const FIGLIO_UPSERT_CRESCITA = randomUUID();
   await prisma.athlete.create({
@@ -8197,7 +9373,7 @@ const sezioneW = async () => {
         organization_id: CLUB,
         first_name: "Upsert",
         last_name: "Crescita",
-        data: { guardians: [{ id: "g", name: "Io", linkedUserId: ANNA.id }] },
+        data: { guardians: [{ id: "g", name: "Io", email: ANNA.email }] },
       },
       "upsert",
       scopeAllenatoreW29,
@@ -8223,57 +9399,81 @@ const sezioneW = async () => {
     mentre la revoca gira veniva scartata dal filtro, e la revoca non la vedeva.
     Cinque giri su cinque, con la schermata che diceva «Accesso revocato».
   */
-  const FIGLIO_AGGIUNTO = randomUUID();
-  await prisma.athlete.create({
-    data: {
-      id: FIGLIO_AGGIUNTO,
-      organization_id: CLUB,
-      first_name: "Aggiunto",
-      last_name: "Durante",
-      status: "active",
-      updated_at: new Date(),
-      data: { guardians: [] },
-    },
-  });
-
   /*
-    Il tutore viene aggiunto **prima**, e la sua scrittura e conclusa: da quel
-    momento la revoca deve vederlo, qualunque cosa le corra accanto. Se invece
-    l'aggiunta arrivasse dopo, sarebbe una ridichiarazione deliberata e non un
-    difetto — vedi sotto.
+    **Cinque giri e non uno.** L'esito di questa corsa dipende da quale delle
+    due transazioni PostgreSQL sceglie come vittima, e un giro solo misura
+    quella scelta invece della proprieta — la stessa ragione per cui `W-69` ne
+    fa otto.
   */
-  await risorseW26.updateResource(
-    "athletes",
-    FIGLIO_AGGIUNTO,
-    {
+  const provaSchedaToccata = async (giro) => {
+    const atleta = randomUUID();
+    await prisma.athlete.create({
       data: {
-        guardians: [{ id: "g", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email }],
+        id: atleta,
+        organization_id: CLUB,
+        first_name: "Aggiunto",
+        last_name: "Durante" + giro,
+        status: "active",
+        updated_at: new Date(),
+        data: {},
       },
-    },
-    scopeClubW29,
-  );
+    });
 
-  await Promise.allSettled([
-    prisma.$transaction((tx) =>
-      legamiW25.unlinkParentGuardians(tx, CLUB, ANNA.id, ANNA.email, "parent"),
-    ),
     /*
-      Il salvataggio che corre accanto rimanda i tutori, come fa il client
-      vero: `athletes.data` e un blob sostituito per intero, e una sonda che
-      mandasse il solo campo nuovo cancellerebbe le righe che sta misurando.
+      Il tutore viene aggiunto **prima**, e la sua scrittura e conclusa: da quel
+      momento la revoca deve vederlo, qualunque cosa le corra accanto. Se invece
+      l'aggiunta arrivasse dopo, sarebbe una ridichiarazione deliberata e non un
+      difetto — vedi sotto.
     */
-    risorseW26.updateResource(
+    await risorseW26.updateResource(
       "athletes",
-      FIGLIO_AGGIUNTO,
+      atleta,
       {
         data: {
-          guardians: [{ id: "g", name: "Anna", linkedUserId: ANNA.id, email: ANNA.email }],
-          size: "M",
+          guardians: [{ name: "Anna", email: ANNA.email }],
         },
       },
       scopeClubW29,
-    ),
-  ]);
+    );
+
+    await Promise.allSettled([
+      prisma.$transaction((tx) =>
+        legamiW25.unlinkParentGuardians(tx, CLUB, ANNA.id, ANNA.email, "parent"),
+      ),
+      /*
+        Il salvataggio che corre accanto rimanda i tutori, come fa il client
+        vero: `athletes.data` e un blob sostituito per intero, e una sonda che
+        mandasse il solo campo nuovo cancellerebbe le righe che sta misurando.
+      */
+      risorseW26.updateResource(
+        "athletes",
+        atleta,
+        {
+          data: {
+            guardians: [{ name: "Anna", email: ANNA.email }],
+            size: "M",
+          },
+        },
+        scopeClubW29,
+      ),
+    ]);
+
+    const riga = await prisma.athleteGuardian.findFirst({
+      where: {
+        athlete_id: atleta,
+        identity_key: String(ANNA.email).toLowerCase(),
+      },
+    });
+    const fuori = !(await cruscottoW25.canParentAccessAthlete(ANNA.id, atleta));
+
+    await prisma.athlete.delete({ where: { id: atleta } });
+    return Boolean(riga?.revoked_at) && fuori;
+  };
+
+  const esitiSchedaToccata = [];
+  for (let giro = 0; giro < 5; giro += 1) {
+    esitiSchedaToccata.push(await provaSchedaToccata(giro));
+  }
 
   /*
     **Cosa deve essere vero, e cosa invece dipende dall'ordine.**
@@ -8287,28 +9487,44 @@ const sezioneW = async () => {
     ADR-0116 esclude.
 
     Cio che **deve** essere vero in tutti e due gli ordini e che la revoca
-    abbia **visto** quella scheda: il registro dell'atleta porta l'identita.
+    abbia **visto** quella scheda: il registro dell'atleta portava l'identita.
     Prima non la portava, perche il filtro l'aveva scartata leggendo fuori dal
     blocco — e quella era una revoca che diceva «fatto» e non aveva toccato
     niente.
-  */
-  const registroAggiunto = (
-    await prisma.athlete.findUnique({
-      where: { id: FIGLIO_AGGIUNTO },
-      select: { data: true },
-    })
-  )?.data?.revokedGuardianIdentities;
 
+    **Cosa misura adesso.** Il registro di scheda non esiste piu, e il fatto
+    che la revoca ha visto quella scheda vive dove deve: `revoked_at` sulla
+    riga di quella persona su quell'atleta. Cade anche il distinguo
+    sull'ordine — un salvataggio che arriva dopo non e piu una
+    ridichiarazione, perche da quella porta un legame non si scrive — quindi la
+    proprieta si puo chiedere piu forte di prima e in tutti e due i versi: **la
+    riga e revocata, e la persona e fuori.**
+
+    **E qui `PP02-D34` e tornato una volta, su un'altra coppia di blocchi.**
+
+    WP-C aveva tolto il blocco sull'intero club e dichiarato la classe chiusa.
+    Restavano pero due ordini opposti sulle **stesse due tabelle**: il
+    salvataggio dell'anagrafica prende `athletes` e poi `athlete_guardians`, la
+    revoca prendeva `athlete_guardians` e poi `athletes` — la proiezione.
+    PostgreSQL ne abbatteva uno con un `40P01`, e quando la vittima era la
+    revoca la schermata diceva «revocato» e la persona era ancora dentro: il
+    modo di fallire da cui questo pacchetto e nato.
+
+    Chiuso con un ordine solo per tutti — `bloccaSchede`: **prima la scheda,
+    poi le sue righe**, e le schede in ordine crescente di identificativo. Non
+    e il blocco che PP02-D34 descriveva, che prendeva quattrocento schede in
+    ordine di scansione: sono le schede su cui quella persona compare davvero.
+
+    La lezione e nel documento, non solo nel codice: una classe di difetto non
+    si dichiara chiusa perche e sparita **l'istanza** che si stava guardando.
+  */
   prova(
     "W-79 la revoca vede anche una scheda toccata mentre gira",
     true,
-    Array.isArray(registroAggiunto) &&
-      registroAggiunto.includes(String(ANNA.email).toLowerCase()),
-    JSON.stringify(registroAggiunto) +
+    esitiSchedaToccata.every((visto) => visto === true),
+    JSON.stringify(esitiSchedaToccata) +
       " — prima: il filtro la scartava, e la revoca non la vedeva mai",
   );
-
-  await prisma.athlete.delete({ where: { id: FIGLIO_AGGIUNTO } });
 
   /*
     **W-80 (Medium).** La guardia sulla cancellazione contava le rate con un
@@ -8569,6 +9785,21 @@ const sezioneW = async () => {
 const main = async () => {
   console.log("PP-02 — collaudo contro il database di sviluppo");
   await semina();
+
+  /*
+    **I tutori seminati nel blob diventano righe** (PP-02 / WP-C).
+
+    La semina scrive `athletes.data.guardians[]` in una ventina di punti, ed e
+    la forma con cui il prodotto ha vissuto finora. Dopo WP-C quell'elenco e una
+    proiezione e l'autorita e `athlete_guardians`: senza questo passaggio la
+    sonda misurerebbe un club **senza tutori**, e direbbe che l'area famiglia
+    non si apre — vero, e non il difetto che sta cercando.
+
+    Si riesegue il travaso della migrazione, ristretto ai due club della sonda,
+    perche e cio che un ambiente vero fa al momento del rilascio: cosi la sonda
+    misura lo stato in cui il prodotto si trovera, non uno costruito a mano.
+  */
+  await travasaTutori(prisma, [CLUB, ALTRO_CLUB]);
 
   try {
     await sezioneA();
