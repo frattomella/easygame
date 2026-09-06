@@ -113,7 +113,7 @@ const loadTrainerAccessTarget = async (
           organization_id: organizationId,
           resource_type: { in: ["trainers", "staff_members"] },
         },
-        select: { id: true },
+        select: { id: true, resource_type: true },
       })
     : null;
 
@@ -125,10 +125,11 @@ const loadTrainerAccessTarget = async (
           resource_type: { in: ["trainers", "staff_members"] },
           payload: { path: ["id"], equals: trainerId },
         },
-        select: { id: true },
+        select: { id: true, resource_type: true },
       });
 
-  if (!perUuid && !perIdLogico) return null;
+  const trovata = perUuid || perIdLogico;
+  if (!trovata) return null;
 
   /*
     **Il ripiego si prende quando il primo tentativo non trova, non quando
@@ -151,21 +152,40 @@ const loadTrainerAccessTarget = async (
 
     Si guarda percio **cio che si e trovato**, non se si e sollevato.
   */
-  const comeAllenatore = await getResourceById("trainers", trainerId).catch(
-    () => null,
-  );
-  if (comeAllenatore) {
-    return { resource: "trainers", record: comeAllenatore } as const;
-  }
+  /*
+    **Si legge la riga che la guardia ha trovato, non un'altra con lo stesso
+    nome.**
 
-  const comeStaff = await getResourceById("staff_members", trainerId).catch(
-    () => null,
-  );
-  if (comeStaff) {
-    return { resource: "staff_members", record: comeStaff } as const;
-  }
+    La guardia qui sopra cerca con il filtro di club — ed e giusta. Poi il
+    codice **buttava via la risposta** e richiamava `getResourceById` con
+    l'identificativo **logico** e senza `scope`: e in `findClubResourceRecord`
+    uno `scope` assente significa nessun filtro di club, e nessun ordinamento.
+    La domanda giusta veniva fatta, e la risposta veniva scartata.
 
-  return null;
+    L'identificativo logico lo sceglie il client — un `id` non-UUID finisce nel
+    carico senza vincolo di unicita, nemmeno fra club — quindi chi gestisce un
+    club qualunque poteva coniarne uno uguale a quello di un profilo altrui,
+    riscattare, e farsi scrivere l'utenza **sulla scheda dell'altro club**.
+    Misurato: nove tentativi su dieci dirottati, e quale club risponda lo
+    decideva l'ordine fisico delle tuple.
+
+    Da qui in poi si nomina la riga per **identificativo di riga**, che e unico
+    e che la guardia ha gia verificato appartenere a questo club. La stessa
+    risposta dice anche il **tipo**, quindi il ripiego non serve piu.
+  */
+  const record = await getResourceById(
+    trovata.resource_type as "trainers" | "staff_members",
+    trovata.id,
+  ).catch(() => null);
+
+  if (!record) return null;
+
+  return {
+    resource: trovata.resource_type as "trainers" | "staff_members",
+    record,
+    /** L'identificativo **di riga**: e con questo che si scrive. */
+    rowId: trovata.id,
+  } as const;
 };
 
 const loadParentAccessTarget = async (
@@ -991,7 +1011,8 @@ export async function POST(request: Request) {
     });
 
     if (trainerId && trainerTarget?.record) {
-      await updateResource(trainerTarget.resource, trainerId, {
+      /* Per riga, non per identificativo logico: vedi `loadTrainerAccessTarget`. */
+      await updateResource(trainerTarget.resource, trainerTarget.rowId, {
         linkedUserId: session.db.user_id,
         linked_user_id: session.db.user_id,
         linkedUserEmail: session.db.user.email,

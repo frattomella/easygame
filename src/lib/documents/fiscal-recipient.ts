@@ -263,8 +263,18 @@ export const resolveFiscalRecipient = (
     documento si emette lo stesso: rifiutarsi vorrebbe dire non documentare un
     incasso che e avvenuto, e la ricevuta senza codice fiscale resta valida.
   */
-  if (!athleteRecipient.name && guardians.length) {
-    return fromGuardian(guardians[0]);
+  /*
+    **Anche l'ultimo ripiego passa da `intestabile`.**
+
+    La regola era stata applicata a due rami su tre, dentro la stessa funzione:
+    questo intestava a `guardians[0]` qualunque cosa fosse, quindi anche a una
+    riga revocata o a un recapito dichiarato dalla porta pubblica. Un ADR che
+    dice «due righe non possono comparirci» e poi lascia un ramo che le fa
+    comparire non dice niente.
+  */
+  const primoIntestabile = guardians.find(intestabile);
+  if (!athleteRecipient.name && primoIntestabile) {
+    return fromGuardian(primoIntestabile);
   }
 
   return athleteRecipient;

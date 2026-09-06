@@ -2412,16 +2412,51 @@ export const refreshGuardianProjection = async (
         voci.set(chiave, { posto, voce: proiettata });
         continue;
       }
-      /* Conservativa sulle difese, come il travaso: chi chiude vince. */
+      /*
+        **Una voce mescola due persone: i marchi valgono quando sono d'accordo.**
+
+        La regola era «chi chiude vince»: bastava una riga revocata perche la
+        voce risultasse revocata. Nasceva per prudenza sull'**accesso** — ma
+        l'accesso lo decidono le righe, non questa proiezione (ADR-0118), e
+        intanto due lettori la usano per decidere **chi compare su un
+        documento**: l'intestatario di una ricevuta e i segnaposto
+        `{{parent.N.*}}`.
+
+        Una voce mista esiste davvero, e la crea una difesa: revocare una
+        persona **risparmia** la riga che porta l'utenza di un'altra
+        (ADR-0139). Da li una voce che porta insieme il marchio della revocata
+        e l'utenza della viva — e i due lettori, leggendo il marchio sulla
+        **voce**, toglievano dalla ricevuta un tutore **vivo**. Misurato: il
+        codice fiscale stampato passava a una terza persona, e
+        `{{parent.1.*}}` rispondeva vuoto mentre in quella posizione sedeva un
+        genitore vivo. E il danno che il commento della correzione precedente
+        dichiarava di voler evitare, prodotto dalla correzione stessa.
+
+        Un marchio vale percio per la voce solo se vale per **tutte** le righe
+        che ci stanno dietro, e l'anagrafica che la voce mostra e quella della
+        prima riga **che non sia esclusa**: la persona viva non sparisce dietro
+        chi e stato escluso, e chi e stato escluso non copre la persona viva.
+      */
+      const esclusa = (v: Record<string, unknown>) =>
+        Boolean(v.accessRevokedAt) || v.contactOnly === true;
+
+      const anagraficaDaTenere = esclusa(gia) && !esclusa(proiettata) ? proiettata : gia;
+      const anagraficaDiFondo = anagraficaDaTenere === gia ? proiettata : gia;
+
       voci.set(chiave, {
         posto,
         voce: {
-          ...proiettata,
+          ...anagraficaDiFondo,
           ...Object.fromEntries(
-            Object.entries(gia).filter(([, valore]) => valore != null && valore !== ""),
+            Object.entries(anagraficaDaTenere).filter(
+              ([, valore]) => valore != null && valore !== "",
+            ),
           ),
-          contactOnly: Boolean(gia.contactOnly || proiettata.contactOnly),
-          accessRevokedAt: gia.accessRevokedAt || proiettata.accessRevokedAt,
+          contactOnly: Boolean(gia.contactOnly) && Boolean(proiettata.contactOnly),
+          accessRevokedAt:
+            gia.accessRevokedAt && proiettata.accessRevokedAt
+              ? gia.accessRevokedAt
+              : null,
         },
       });
     }

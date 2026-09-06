@@ -7734,3 +7734,92 @@ autorita** e stato scritto. Se una difesa poggia sull'autorita, il campo da
 guardare non e la provenienza: e il permesso di chi ha scritto.
 
 **Vedi anche.** ADR-0114, ADR-0148.
+
+## ADR-0151 — La guardia e la scrittura devono interrogare la stessa riga
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+tredicesimo vaglio indipendente
+
+### Il fatto
+
+`loadTrainerAccessTarget` verificava che il profilo nominato da un gettone
+appartenesse al club che l'ha coniato — con il filtro di club, correttamente —
+e poi **buttava via la risposta**: rileggeva con `getResourceById` passando
+l'identificativo **logico** e senza `scope`, e in `findClubResourceRecord` uno
+`scope` assente significa nessun filtro di club e nessun ordinamento. La
+scrittura rifaceva la stessa query.
+
+L'identificativo logico lo sceglie il client: un `id` non-UUID finisce dentro il
+carico di un profilo senza vincolo di unicita, nemmeno fra club. Chi gestisce un
+club qualunque poteva percio crearne uno uguale a quello di un profilo altrui,
+coniare un gettone nel proprio club, riscattarlo — e farsi scrivere l'utenza
+**sulla scheda di un altro club**: `linkedUserId` riscritto, il codice
+dell'invito sostituito, e il club bersaglio che perde la capacita di collegare
+quell'allenatore.
+
+Misurato dalle rotte vere: nove tentativi su dieci dirottati, e quale club
+rispondesse lo decideva **l'ordine fisico delle tuple**, perche la query non ha
+un `ORDER BY`. Da qui l'oscillazione fra le esecuzioni, che a prima vista
+sembrava rumore.
+
+### La decisione
+
+Da qui in poi si nomina la riga per **identificativo di riga** — unico, e gia
+verificato dalla guardia come appartenente a questo club — sia per leggerla sia
+per scriverla. La stessa risposta della guardia dice anche il **tipo**, quindi
+il ripiego fra `trainers` e `staff_members` non serve piu.
+
+**La regola.** Fare la domanda giusta non basta: bisogna **usare la risposta**.
+Una guardia che verifica una riga e poi lascia che sia un'altra query a
+ritrovarla non e una guardia — e un commento. E il commit precedente aveva
+toccato quella funzione correggendo *quando* si prende il ripiego, senza
+guardare *dove* si cerca: la quinta volta di fila che un difetto sta accanto a
+cio che si era appena corretto.
+
+### E un identificativo che il client sceglie non e una chiave
+
+Il difetto poggia su una premessa che vale la pena scrivere: `payload.id` non e
+unico, non e verificato, e lo decide chi scrive il profilo. Finche viene usato
+solo per **trovare** una riga dentro un club che si e gia verificato, e
+innocuo; nel momento in cui una query lo usa **senza** quel confine, diventa un
+puntatore che l'attaccante controlla.
+
+**Vedi anche.** ADR-0147 (una difesa inerte), ADR-0148, CLAUDE.md §8.
+
+## ADR-0152 — Un filtro sulla voce non e un filtro sulla persona
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+tredicesimo vaglio indipendente
+
+ADR-0149 aveva deciso che un documento nuovo non nomina chi il club ha escluso,
+e i due lettori — l'intestatario di una ricevuta e i segnaposto `{{parent.N.*}}`
+— erano stati insegnati a leggere `accessRevokedAt`. Sulla **voce**.
+
+Ma la proiezione **fonde per posizione**, e una voce puo mescolare due persone:
+lo produce una difesa, perche revocare qualcuno **risparmia** la riga che porta
+l'utenza di un altro (ADR-0139). La voce fusa portava insieme il marchio della
+revocata e l'utenza del vivo, e i due lettori — leggendo il marchio sulla voce —
+toglievano dalla ricevuta un tutore **vivo**: il codice fiscale stampato passava
+a una terza persona, e `{{parent.1.*}}` rispondeva vuoto mentre in quella
+posizione sedeva un genitore vivo.
+
+Il danno era esattamente quello che il commento della correzione dichiarava di
+voler evitare.
+
+### La decisione
+
+Un marchio vale per la voce solo se vale per **tutte** le righe che ci stanno
+dietro, e l'anagrafica che la voce mostra e quella della prima riga **non
+esclusa**. La persona viva non sparisce dietro chi e stato escluso, e chi e
+stato escluso non copre la persona viva.
+
+La vecchia regola — «chi chiude vince» — era nata per prudenza sull'**accesso**.
+Ma l'accesso lo decidono le righe, non questa proiezione (ADR-0118): applicarla
+qui non proteggeva niente e faceva danno a valle.
+
+**La regola.** Quando una difesa si applica a una proiezione che **aggrega**,
+la domanda da farsi e su che cosa si sta filtrando: l'unita della proiezione o
+l'unita del dominio. Se non coincidono, il filtro va scritto sull'unita del
+dominio e portato nella proiezione — non il contrario.
+
+**Vedi anche.** ADR-0149, ADR-0139, ADR-0140, ADR-0118.
