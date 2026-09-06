@@ -645,9 +645,36 @@ export const saveGuardianRegistry = async (
     const nominate = new Set(
       inArrivo.map((voce) => voce.riga?.id).filter(Boolean) as string[],
     );
+    /*
+      **Una posizione che questo salvataggio nomina non e occupata.**
+
+      `occupate` teneva le posizioni delle righe revocate che il salvataggio
+      non nomina — e su una voce **fusa** quella condizione e vera per la riga
+      revocata anche quando la voce **e** nominata, perche la scheda pubblica
+      un identificativo solo. La posizione finiva percio fra le occupate, la
+      riga viva slittava a quella dopo, e la voce si spezzava in due: tutti i
+      lettori posizionali si spostavano — l'intestatario di una ricevuta
+      compreso — al **primo salvataggio ordinario** della scheda.
+
+      E il danno che questo stesso ciclo esiste per evitare, prodotto dal gesto
+      piu comune che ci sia. Una posizione nominata da una qualunque delle
+      righe che ci stanno dietro e nominata per tutte.
+    */
+    const posizioniInArrivo = new Set(
+      inArrivo
+        .map((voce) => voce.riga)
+        .filter(Boolean)
+        .map((riga) => Number((riga as GuardianRow).position ?? 0)),
+    );
+
     const occupate = new Set(
       esistenti
-        .filter((riga) => riga.revoked_at && !nominate.has(riga.id))
+        .filter(
+          (riga) =>
+            riga.revoked_at &&
+            !nominate.has(riga.id) &&
+            !posizioniInArrivo.has(Number(riga.position ?? 0)),
+        )
         .map((riga) => Number(riga.position ?? 0)),
     );
 
@@ -2440,18 +2467,34 @@ export const refreshGuardianProjection = async (
       const esclusa = (v: Record<string, unknown>) =>
         Boolean(v.accessRevokedAt) || v.contactOnly === true;
 
-      const anagraficaDaTenere = esclusa(gia) && !esclusa(proiettata) ? proiettata : gia;
-      const anagraficaDiFondo = anagraficaDaTenere === gia ? proiettata : gia;
+      /*
+        **E non le presta nemmeno i campi che l'altra non ha.**
+
+        La prima stesura sceglieva quale anagrafica «tenere» e poi la
+        sovrapponeva all'altra: ogni campo che la riga viva aveva vuoto veniva
+        **ereditato** da quella esclusa. E il caso ordinario, non un caso
+        limite: il club ha il codice fiscale della madre e non quello del
+        padre, e quei campi — codice fiscale, indirizzo, comune, telefono —
+        vivono in `data` e non hanno una colonna.
+
+        Esito misurato: dopo la revoca della madre, ogni ricevuta nuova usciva
+        intestata al **padre** con il **codice fiscale e l'indirizzo della
+        madre**, e `{{parent.1.phone}}` stampava il telefono di lei. Un dato
+        personale di una persona esclusa consegnato ad altri, e un documento
+        fiscalmente falso — nome di uno, codice fiscale di un'altra. Peggio del
+        difetto che la correzione chiudeva: **prima quel documento non si
+        emetteva affatto**, perche la voce risultava revocata.
+
+        Una voce che contiene una persona esclusa e una viva mostra la viva, e
+        **solo** la viva: i suoi campi vuoti restano vuoti.
+      */
+      const anagraficaDaTenere =
+        esclusa(gia) && !esclusa(proiettata) ? proiettata : gia;
 
       voci.set(chiave, {
         posto,
         voce: {
-          ...anagraficaDiFondo,
-          ...Object.fromEntries(
-            Object.entries(anagraficaDaTenere).filter(
-              ([, valore]) => valore != null && valore !== "",
-            ),
-          ),
+          ...anagraficaDaTenere,
           contactOnly: Boolean(gia.contactOnly) && Boolean(proiettata.contactOnly),
           accessRevokedAt:
             gia.accessRevokedAt && proiettata.accessRevokedAt

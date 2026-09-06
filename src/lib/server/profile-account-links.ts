@@ -353,10 +353,32 @@ const caricaAllenatoreDelClubAttivo = async (
       })
     : null;
 
+  /*
+    **Il confine dentro la query, non dopo.**
+
+    ADR-0151 lo ha imparato sul riscatto: un identificativo che il client
+    sceglie non e una chiave, e cercarlo **senza** filtro di club significa
+    trovare la riga di chiunque — con `findFirst` senza `ORDER BY`, quale sia
+    lo decide l'ordine fisico. Quella regola era stata scritta nel riscatto e
+    non qui, benche il commento sopra dichiari le due porte parenti.
+
+    Misurato: un ex allenatore conosce il proprio identificativo logico (sta
+    nell'URL della sua scheda e nel carico del suo invito), si crea un club — e
+    chiunque puo crearsene uno — e ci conia un profilo con lo stesso
+    identificativo. Da quel momento il club legittimo riceve **403** su
+    «Scollega account», con un messaggio che dice «non appartiene al club
+    attivo». La funzione muore **prima** di chiudere l'invito, che resta
+    `active`: e di nuovo «la strada per rifarlo» lasciata aperta.
+
+    Non serve nemmeno un attaccante: un `UPDATE` sposta la tupla in coda,
+    quindi basta che una segreteria corregga il telefono del proprio allenatore
+    perche la riga altrui passi davanti.
+  */
   const record =
     perUuid ||
     (await prisma.clubResourceItem.findFirst({
       where: {
+        organization_id: scope.activeOrganizationId ?? undefined,
         resource_type: { in: [...TIPI_ALLENATORE] },
         payload: { path: ["id"], equals: id },
       },
