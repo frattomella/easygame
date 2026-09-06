@@ -591,6 +591,29 @@ export const previewDataSubjectErasure = async (
     cancella con un altro non e un riepilogo, e i due sono gia divergiti una
     volta.
   */
+  /*
+    **Le notifiche: l'atto le distrugge, il riepilogo non le nominava.**
+
+    `eraseDataSubject` cancella le notifiche che citano il soggetto, e nessuna
+    delle fette le dichiarava: il gettone di conferma non le copriva, e chi
+    conferma non sapeva cosa stesse distruggendo. Questa scheda dichiara di
+    essere «l'unico posto in cui si dichiara dove vive una persona», e qui
+    cancellava un indice che non dichiarava.
+
+    E il verso opposto del difetto gemello di ieri — allora il riepilogo
+    prometteva e l'atto non toglieva; qui l'atto toglie e il riepilogo tace. Un
+    riepilogo e un atto sono la stessa cosa detta due volte: se divergono, una
+    delle due mente.
+  */
+  const notifiche = (
+    await (prisma as any).notification.findMany({
+      where: { organization_id: organizationId },
+      select: { id: true, data: true },
+    })
+  ).filter((riga: any) =>
+    JSON.stringify(riga?.data ?? {}).includes(subjectId),
+  ).length;
+
   const invitiTutore = await prisma.clubResourceItem.count({
     where: {
       organization_id: organizationId,
@@ -612,6 +635,13 @@ export const previewDataSubjectErasure = async (
       label: "Inviti all'area famiglia (portano nome e indirizzo del tutore)",
       index: "json",
       count: Number(invitiTutore || 0),
+      disposal: "delete",
+    },
+    {
+      table: "notifications",
+      label: "Notifiche che nominano questa persona",
+      index: "foreign_key",
+      count: Number(notifiche || 0),
       disposal: "delete",
     },
     {

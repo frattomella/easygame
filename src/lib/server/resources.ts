@@ -8,6 +8,7 @@ import {
   type GuardianInput,
   eraseGuardianInvitesForAthlete,
 } from "./athlete-guardians";
+import { eraseProfileInvites } from "./profile-account-links";
 import {
   customRoleReachesResource,
   roleHasPermission,
@@ -7865,6 +7866,32 @@ export const deleteResource = async (
     */
     assertNotDomainOwnedResourceItem(resource, existing?.resource_type);
     assertPuoScrivereIlTipoDellaRiga(resource, existing?.resource_type, "delete", scope);
+
+    /*
+      **L'invito se ne va con il profilo.**
+
+      Il carico di un invito di allenatore o di staff porta `trainer_name`,
+      `trainer_email` e `trainer_phone`: lo stesso genere di dato per cui
+      l'invito di un tutore viene cancellato insieme alla scheda. Un invito che
+      sopravvive al profilo e un archivio di dati personali che nessuna
+      schermata mostra piu — e nessun percorso lo cancellava mai, perche
+      `DATA_SUBJECT_KINDS` conosce solo l'atleta.
+    */
+    if (
+      ["trainers", "staff_members"].includes(
+        String(existing?.resource_type || ""),
+      )
+    ) {
+      await eraseProfileInvites(
+        prisma,
+        String(existing.organization_id || ""),
+        [String(existing.id), (existing as any)?.payload?.id],
+        String(existing.resource_type) === "trainers"
+          ? "trainer_id"
+          : "staff_id",
+      );
+    }
+
     const record = await delegate.delete({
       where: { id: existing.id },
     });
@@ -7973,6 +8000,7 @@ export const deleteResource = async (
       (existing as any)?.organization_id || null,
     );
   }
+
 
   const record = await delegate.delete({
     where: { id },

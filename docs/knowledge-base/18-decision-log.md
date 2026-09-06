@@ -7586,3 +7586,71 @@ che un registro non deve conservare. La chiave e in elenco, quindi il lettore la
 mostra.
 
 **Vedi anche.** ADR-0146, ADR-0145, ADR-0105, CLAUDE.md §2.
+
+## ADR-0148 — Chiudere un invito e un fatto solo, e ha una funzione sola
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+undicesimo vaglio indipendente
+
+### Il fatto
+
+Undici revisioni indipendenti hanno trovato **nove volte** la stessa forma: una
+porta impara a chiudere l'invito, la sua gemella no. Ogni volta la correzione
+era giusta, stava in un posto solo, e il giro successivo trovava l'altra porta.
+
+Le porte che scollegano un profilo o tolgono un accesso sono almeno sei:
+«Scollega account» (allenatore, tutore, atleta), la revoca della tessera dalla
+Gestione accessi, l'uscita volontaria dal club, la cancellazione del profilo, la
+cancellazione della scheda, l'approvazione di un modulo che sostituisce un
+tutore. Correggerle una alla volta e stato misurato: non converge.
+
+### La decisione
+
+**Chiudere un invito e una funzione sola**, `chiudiGliInvitiDelProfilo`, e chi
+scollega la chiama. Cancellare un profilo ne chiama la gemella,
+`eraseProfileInvites`, perche li l'invito non va chiuso ma **tolto**: il suo
+carico porta nome, indirizzo e telefono della persona.
+
+La regola non e «ricordarsi di chiudere l'invito»: e **non avere due posti in
+cui lo si potrebbe dimenticare**.
+
+### Cio che si chiude e tutto cio che non e gia chiuso
+
+Scrivendo quella funzione le ho dato l'elenco degli stati «aperti» —
+`active | pending | sent` — copiandolo dal gemello dei tutori. E sbagliato in
+tutti e due: il riscatto accetta un invito **`redeemed`** quando e multi-uso, e
+un invito gia speso una volta poteva percio essere speso ancora dopo una revoca
+che non lo toccava.
+
+Un elenco di stati aperti va tenuto allineato con cio che il riscatto accetta, e
+sono due posti che divergono. Si nega invece il solo stato che chiude davvero:
+**cio che non e `revoked` si chiude**.
+
+Il difetto non l'ha trovato una revisione: e emerso applicando la disciplina di
+ADR-0146 — cercare i gemelli — a una correzione appena scritta.
+
+### Una compilazione pubblica non riscrive chi c'e gia
+
+`upsertGuardianFromFormApproval` cade sulla chiave dell'identita dichiarata, e
+quando quella identita esiste gia riscriveva nome e cognome. Chi conosce
+l'indirizzo di contatto di un tutore — l'indirizzo di famiglia, stampato su ogni
+email del club — lo dichiarava in un modulo pubblico con il **proprio** nome, e
+la riga della madre si ritrovava a chiamarsi come lui.
+
+ADR-0114 fa valere l'indirizzo come chiave poggiando su un presupposto:
+**l'ha scritto il club**. Una compilazione pubblica non e il club, ed e
+esattamente cio che `contactOnly` dice. Da una compilazione pubblica si riempie
+percio solo cio che e **vuoto**: un telefono che mancava e un dato in piu, un
+nome riscritto e un'altra persona.
+
+### Un riepilogo e un atto sono la stessa cosa detta due volte
+
+`eraseDataSubject` cancellava le notifiche che citano il soggetto, e nessuna
+delle fette le dichiarava: il gettone di conferma non le copriva, e chi conferma
+non sapeva cosa stesse distruggendo. E il verso opposto del difetto gemello
+chiuso il giorno prima — allora il riepilogo prometteva e l'atto non toglieva.
+
+Se riepilogo e atto divergono, una delle due mente; e il conteggio va fatto con
+**lo stesso criterio** dell'atto, non con uno equivalente.
+
+**Vedi anche.** ADR-0147, ADR-0146, ADR-0145, ADR-0114, ADR-0105.

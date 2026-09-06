@@ -1186,6 +1186,11 @@ export const upsertGuardianFromFormApproval = async (
       minore. Nel blob questa distinzione richiedeva di sapere se l'indice
       corrispondesse a una riga esistente; qui la fa la `upsert`.
     */
+    /* Cosa c'e gia: serve a non riscrivere cio che una compilazione pubblica non puo. */
+    const esistente = (await tx.athleteGuardian.findFirst({
+      where: { athlete_id: athleteId, identity_key: identityKey },
+    })) as GuardianRow | null;
+
     const record = await tx.athleteGuardian.upsert({
       where: {
         athlete_id_identity_key: { athlete_id: athleteId, identity_key: identityKey },
@@ -1205,13 +1210,49 @@ export const upsertGuardianFromFormApproval = async (
         data: residuo(row, null),
         position: posizione,
       },
-      update: {
-        first_name: testo(row.firstName) ?? undefined,
-        last_name: testo(row.lastName) ?? undefined,
-        phone: testo(row.phone) ?? undefined,
-        relationship: testo(row.relationship) ?? undefined,
-        data: residuo(row, null) ?? undefined,
-      },
+      /*
+        **Una compilazione pubblica non riscrive chi c'e gia.**
+
+        L'`upsert` cade sulla chiave dell'identita dichiarata. Quando quella
+        identita **esiste gia**, riscrivere nome e cognome vuol dire cambiare
+        di chi si tratta: chi conosce l'indirizzo di contatto di un tutore — che
+        e l'indirizzo di famiglia, stampato su ogni email del club — lo dichiara
+        in un modulo pubblico con il **proprio** nome, la segreteria approva, e
+        la riga della madre si ritrova a chiamarsi come lui. Da li lo nominano i
+        segnaposto `{{parent.N.*}}`, il destinatario fiscale di una ricevuta e
+        i tre canali di notifica.
+
+        ADR-0114 fa valere l'indirizzo come chiave poggiando su un presupposto:
+        **l'ha scritto il club**. Una compilazione pubblica non e il club, ed e
+        esattamente cio che `contactOnly` dice. Da una compilazione pubblica si
+        riempie percio solo cio che e **vuoto** — un telefono che mancava e un
+        dato in piu, un nome riscritto e un'altra persona — mentre da una
+        interna, che il club ha in mano, si aggiorna come prima.
+
+        Misurato da una revisione indipendente, dalla rotta vera, con un ruolo
+        che porta le sole chiavi dei moduli.
+      */
+      update: contactOnly
+        ? {
+            first_name: esistente?.first_name
+              ? undefined
+              : (testo(row.firstName) ?? undefined),
+            last_name: esistente?.last_name
+              ? undefined
+              : (testo(row.lastName) ?? undefined),
+            phone: esistente?.phone ? undefined : (testo(row.phone) ?? undefined),
+            relationship: esistente?.relationship
+              ? undefined
+              : (testo(row.relationship) ?? undefined),
+            data: esistente?.data ? undefined : (residuo(row, null) ?? undefined),
+          }
+        : {
+            first_name: testo(row.firstName) ?? undefined,
+            last_name: testo(row.lastName) ?? undefined,
+            phone: testo(row.phone) ?? undefined,
+            relationship: testo(row.relationship) ?? undefined,
+            data: residuo(row, null) ?? undefined,
+          },
     });
 
     /*
@@ -2236,8 +2277,16 @@ const revocaIGettoni = async (
   );
   const candidati = perAtleta.get(athleteId) || [];
 
+  /*
+    **Anche qui: cio che non e chiuso si chiude.**
+
+    `GETTONE_VIVO` elencava `active | pending | sent`, e un invito `redeemed`
+    **multi-uso** il riscatto lo accetta ancora. Cercare i gemelli di una
+    correzione e la regola che questo pacchetto ha imparato a sue spese: la
+    stessa larghezza, sulle due porte.
+  */
   const daChiudere = candidati
-    .filter((record) => GETTONE_VIVO.has(String(record.status || "").trim()))
+    .filter((record) => String(record.status || "").trim() !== "revoked")
     .filter((record) => righe.some((riga) => gettoneDiQuestaRiga(record, riga)))
     .map((record) => String(record.id));
 

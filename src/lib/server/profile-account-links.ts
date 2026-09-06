@@ -380,6 +380,112 @@ export type UnlinkTrainerAccountResult = {
  * tocca gli altri profili della stessa utenza: un atleta collegato altrove
  * non lo sa nemmeno.
  */
+/**
+ * **Chiude gli inviti che nominano un profilo. Da un posto solo.**
+ *
+ * Undici revisioni indipendenti hanno trovato **nove volte** la stessa forma:
+ * una porta impara a chiudere l'invito e la sua gemella no. Ogni volta la
+ * correzione era giusta e stava in un posto solo, e ogni volta il giro
+ * successivo trovava l'altra porta.
+ *
+ * Il rimedio non e correggere anche quella: e **non avere due posti**. Chi
+ * scollega un profilo — «Scollega account», la revoca della tessera, l'uscita
+ * volontaria dal club, la cancellazione del profilo — chiama questa.
+ *
+ * ## Le due grafie
+ *
+ * `club_resource_items.id` e una colonna UUID; il carico di un profilo porta
+ * un identificativo **logico** (`trainer-<istante>-<casuale>`), ed e quello
+ * che il gettone ricopia. Cercarne una sola non combacia con **nessun gettone
+ * del prodotto**: una difesa inerte, che da fuori e identica a una che
+ * funziona (ADR-0147). Si cercano tutte e due.
+ */
+export const chiudiGliInvitiDelProfilo = async (
+  client: any,
+  parametri: {
+    organizationId: string;
+    /** L'identificativo di riga e quello logico: quello che c'e. */
+    identificativi: Array<string | null | undefined>;
+    /** La chiave del carico che nomina il profilo: `trainer_id`, `staff_id`. */
+    chiaveDelCarico: string;
+  },
+): Promise<number> => {
+  const tx = client || prisma;
+
+  const nomi = [
+    ...new Set(parametri.identificativi.map((v) => testo(v)).filter(Boolean)),
+  ] as string[];
+  if (!nomi.length) return 0;
+
+  const daChiudere = (
+    (await tx.clubResourceItem.findMany({
+      where: {
+        organization_id: parametri.organizationId,
+        resource_type: "access_tokens",
+        /*
+          **Tutto cio che non e gia chiuso**, non solo cio che sembra aperto.
+
+          Il primo filtro elencava `active | pending | sent`, e lasciava fuori
+          `redeemed`. Ma il riscatto accetta un invito `redeemed` quando e
+          **multi-uso** (`redeem/route.ts`: `status === "redeemed" &&
+          multiUsoLecito`): un invito gia speso una volta poteva percio essere
+          speso ancora, e lo scollegamento non lo toccava.
+
+          Elencare gli stati aperti vuol dire tenere quell'elenco allineato con
+          cio che il riscatto accetta, e sono due posti. Si nega invece il solo
+          stato che chiude davvero: cio che non e `revoked` si chiude.
+        */
+        status: { not: "revoked" },
+        OR: nomi.map((valore) => ({
+          payload: { path: [parametri.chiaveDelCarico], equals: valore },
+        })),
+      },
+      select: { id: true },
+    })) as Array<{ id: string }>
+  ).map((voce) => voce.id);
+
+  if (!daChiudere.length) return 0;
+
+  const esito = await tx.clubResourceItem.updateMany({
+    where: { id: { in: daChiudere } },
+    data: { status: "revoked" },
+  });
+
+  return esito.count as number;
+};
+
+/**
+ * **Cancella** gli inviti di un profilo, invece di chiuderli.
+ *
+ * Serve quando il profilo se ne va del tutto: il carico dell'invito porta nome,
+ * indirizzo e telefono della persona, e un invito che sopravvive al profilo e
+ * un archivio di dati personali che nessuna schermata mostra piu.
+ */
+export const eraseProfileInvites = async (
+  client: any,
+  organizationId: string,
+  identificativi: Array<string | null | undefined>,
+  chiaveDelCarico: string,
+): Promise<number> => {
+  const tx = client || prisma;
+  const nomi = [
+    ...new Set(identificativi.map((v) => testo(v)).filter(Boolean)),
+  ] as string[];
+  if (!organizationId || !nomi.length) return 0;
+
+  const esito = await tx.clubResourceItem.deleteMany({
+    where: {
+      organization_id: organizationId,
+      resource_type: "access_tokens",
+      OR: nomi.map((valore) => ({
+        payload: { path: [chiaveDelCarico], equals: valore },
+      })),
+    },
+  });
+
+  return esito.count as number;
+};
+
 export const unlinkTrainerAccount = async (
   scope: ProfileAccountLinksScope,
   input: { trainerId: string; reason?: string | null },
@@ -426,41 +532,58 @@ export const unlinkTrainerAccount = async (
     messo al suo posto una chiave che non combacia con niente: una difesa
     inerte e indistinguibile da una difesa assente, finche non la si misura.
   */
-  const identificativiDelProfilo = [
-    String(record.id),
-    testo((payload as Record<string, any>).id),
-  ].filter(Boolean);
-
-  const daChiudere = (
-    (await prisma.clubResourceItem.findMany({
-      where: {
-        organization_id: record.organization_id,
-        resource_type: "access_tokens",
-        OR: identificativiDelProfilo.map((valore) => ({
-          payload: { path: ["trainer_id"], equals: valore },
-        })),
+  const invitiChiusi = await chiudiGliInvitiDelProfilo(prisma, {
+    organizationId: record.organization_id,
+    identificativi: [record.id, (payload as Record<string, any>).id],
+    chiaveDelCarico: "trainer_id",
+  }).catch((error) => {
+    reportServerError(error, {
+      metadata: {
+        trainerId: record.id,
+        esito: "[profile-account-links] revoca token allenatore non riuscita",
       },
-      select: { id: true },
-    })) as Array<{ id: string }>
-  ).map((voce) => voce.id);
+    });
+    return 0;
+  });
 
-  if (daChiudere.length) {
-    try {
-      await prisma.clubResourceItem.updateMany({
-        where: { id: { in: daChiudere } },
-        data: { status: "revoked" },
+  if (!linkedUserId) {
+    /*
+      **Se qui si e chiuso un invito, il registro lo dice e il carico lo sa.**
+
+      La chiusura dell'invito e stata spostata prima di questa uscita, e la
+      riga di audit e rimasta dopo: un invito veniva revocato e **nessun
+      archivio lo diceva** — la forma che questo repository ha gia corretto due
+      volte. E il carico continuava a dichiararlo `active` mentre la riga era
+      `revoked`, cioe due archivi che dicono cose diverse sullo stesso fatto.
+    */
+    if (invitiChiusi) {
+      await prisma.clubResourceItem.update({
+        where: { id: record.id },
+        data: {
+          payload: {
+            ...(payload as Record<string, unknown>),
+            accessTokenStatus: "revoked",
+            access_token_status: "revoked",
+          },
+        },
       });
-    } catch (error) {
-      reportServerError(error, {
+
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.trainerAccountUnlinked,
+        actorUserId: scope.userId,
+        actorEmail: scope.actorEmail,
+        actorRole: scope.activeRole,
+        organizationId: record.organization_id,
+        resource: record.resource_type,
+        resourceId: record.id,
         metadata: {
-          trainerId: record.id,
-          esito: "[profile-account-links] revoca token allenatore non riuscita",
+          unlinked_user_id: null,
+          count: invitiChiusi,
+          reason: testo(input.reason) || null,
         },
       });
     }
-  }
 
-  if (!linkedUserId) {
     return { trainerId: record.id, unlinkedUserId: null };
   }
 
@@ -809,6 +932,38 @@ export const unlinkProfileResources = async (
 
     const result = clearLinkedFields(resource.payload, userId, userEmail);
     if (!result.changed) continue;
+
+    /*
+      **Anche qui si chiude l'invito, e non solo il puntatore.**
+
+      `clearLinkedFields` azzera `accessTokenRecordId` — cioe il **puntatore**
+      — e la riga di `club_resource_items` che quel puntatore nominava restava
+      `active`. Misurato: la Gestione accessi revoca la tessera, risponde
+      `revoked: true`, il profilo risulta scollegato, e chi aveva il codice in
+      tasca lo riscatta e **si ritrova la tessera ricreata**.
+
+      Le due gemelle dello stesso sweep l'invito lo chiudono gia — quella del
+      tutore e quella dell'atleta, con un commento che dice «due porte per lo
+      stesso fatto devono lasciare lo stesso stato». Questa no, ed era la nona
+      volta che questo pacchetto trovava quella forma.
+    */
+    await chiudiGliInvitiDelProfilo(tx, {
+      organizationId,
+      identificativi: [
+        resource.id,
+        (resource.payload as Record<string, any>)?.id,
+      ],
+      chiaveDelCarico:
+        resource.resource_type === "trainers" ? "trainer_id" : "staff_id",
+    }).catch((error) => {
+      reportServerError(error, {
+        metadata: {
+          profileId: resource.id,
+          esito: "[profile-account-links] revoca invito profilo non riuscita",
+        },
+      });
+      return 0;
+    });
 
     await tx.clubResourceItem.update({
       where: { id: resource.id },

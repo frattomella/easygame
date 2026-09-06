@@ -2149,6 +2149,12 @@ const eseguiDecisione = async (
       la stessa persona. La corsa non si perde perche non c'e piu uno snapshot
       da rimandare.
     */
+    /* Le righe prima della scrittura: servono a dire se ne e nata una. */
+    const righeTutore = (await prisma.athleteGuardian.findMany({
+      where: { athlete_id: athleteId },
+      select: { id: true },
+    })) as Array<{ id: string }>;
+
     const scritta = await upsertGuardianFromFormApproval(prisma, {
       organizationId,
       athleteId,
@@ -2216,12 +2222,27 @@ const eseguiDecisione = async (
       dal vero era esattamente quello in cui una riga viva spariva, e chi
       rileggeva il registro non aveva modo di saperlo.
     */
+    /*
+      **«Aggiunto» solo se e nata una riga.**
+
+      L'`upsert` cade sulla chiave dell'identita dichiarata: quando quella
+      identita esiste gia, non nasce niente — la riga viene aggiornata. Senza
+      confrontarlo con cio che c'era prima, la traccia diceva «Genitore
+      aggiunto» proprio nel caso in cui nessuna riga era stata aggiunta, ed e il
+      caso in cui una compilazione pubblica cade su un tutore gia presente:
+      quello in cui leggere il registro serve di piu.
+    */
+    const erano = new Set(righeTutore.map((riga) => String(riga.id)));
+    const nata = Boolean(scritta && !erano.has(String(scritta.id)));
+
     applied.push(
       rigaScelta && scritta && asText(rigaScelta.id) === scritta.id
         ? `Genitore aggiornato: ${guardianChange.recordLabel}`
         : rigaScelta
           ? `Genitore sostituito: ${guardianChange.recordLabel}`
-          : `Genitore aggiunto: ${guardianChange.recordLabel}`,
+          : nata
+            ? `Genitore aggiunto: ${guardianChange.recordLabel}`
+            : `Genitore aggiornato: ${guardianChange.recordLabel}`,
     );
 
     /*
