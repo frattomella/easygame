@@ -2746,3 +2746,14 @@ questo pacchetto la metterebbe in uno solo dei posti che ne hanno bisogno.
 **Perimetro di sicurezza (misurato, e verde):** nessuna riga revocata risuscita
 e nessun accesso si apre. Il danno e la perdita di un recapito, non un varco.
 Sonda: `scripts/pp-02-terzo-vaglio.mjs`, sezione R-H, che stampa la misura.
+
+### D50 — Un tutore non ha una strada di ingresso propria fra i diritti dell'interessato
+
+`DATA_SUBJECT_KINDS` contiene solo `athlete`: non si puo chiedere «cancella
+questo tutore» nominando lui. La motivazione storica — «un tutore vive dentro
+`athletes.data.guardians`, e cancellarlo significa riscrivere l'anagrafica di un
+altro» — **non e piu vera** da WP-C: e una riga con una chiave.
+
+La parte urgente e stata fatta: `athlete_guardians` e ora una fetta
+dell'inventario, quindi il riepilogo la nomina e il gettone di conferma la
+copre. Resta da fare la strada di ingresso per il soggetto `guardian`.

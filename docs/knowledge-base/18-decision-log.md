@@ -7069,3 +7069,74 @@ crescenti non sono un ordine crescente. Chiuso bloccando l'unione a monte.
 
 **Vedi anche.** ADR-0137 (un confine si difende dai due lati), ADR-0117
 (enumerare il dominio), ADR-0110, CLAUDE.md §2.
+
+## ADR-0139 — Davanti a un'identita ambigua su un dato sanitario di un minore si chiude
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+quarto vaglio indipendente
+
+### Il fatto
+
+Una revoca nomina una persona con un'utenza e un indirizzo. Le righe che porta
+l'utenza sono **sue** con certezza. Le righe raggiunte dal solo indirizzo sono
+**ambigue**: su un indirizzo di famiglia — la configurazione che ADR-0114
+chiama ordinaria — dietro quell'indirizzo possono esserci due genitori, oppure
+la stessa persona dichiarata due volte, e il dato non lo dice.
+
+Fra le due revisioni si e provato a distinguerle **per scheda**: «se qui c'e
+una riga provatamente sua, quelle prese dal solo indirizzo sono di un altro».
+Era sbagliata dai due lati, e la revisione successiva li ha misurati entrambi:
+
+* risparmiava anche la **seconda riga della stessa persona**, e con lei restava
+  vivo il gettone che la nomina — chi era appena stato escluso lo riscattava e
+  rientrava nel fascicolo del minore;
+* il \`WHERE\` della revoca e **di club** mentre il risparmio era **per scheda**,
+  quindi sulle altre schede del club nessuna riga era «sua» e cadevano tutte:
+  la zia di un altro atleta, con un'utenza propria, perdeva l'area famiglia del
+  nipote e il suo indirizzo finiva fra le identita revocate, spegnendo i
+  promemoria del certificato medico di **quel** minore.
+
+### La decisione
+
+**Si risparmia solo cio di cui si ha una prova**: una riga che porta l'utenza di
+un'altra persona. Tutto il resto — indirizzo condiviso, riga senza utenza,
+seconda riga della stessa persona — si chiude.
+
+L'asimmetria che decide non e fra i due errori ma fra i due **rimedi**: chi
+viene chiuso per eccesso rientra con un riscatto, che e un atto che esiste e
+che qualcuno puo compiere; chi resta dentro per un dubbio non rientra da
+nessuna parte, perche non e mai uscito. Un errore reversibile e un errore
+irreversibile non si pesano uguale, e il secondo qui vale il fascicolo
+sanitario di un minore.
+
+Il costo reale del lato chiuso e inoltre minore di quanto sembri: \`users.email\`
+e \`@unique\`, quindi un indirizzo di famiglia e l'indirizzo dell'account di
+**una** persona sola, e l'altro genitore da li non entrava comunque.
+
+### Cio che cresce e l'insieme delle identita, non il numero delle righe
+
+Lo stesso vaglio ha trovato che il controllo sulla concessione contava le righe
+che **nascono**. Bastava percio rimandare una riga esistente — il suo \`id\` la
+proiezione lo pubblica — cambiandone il solo indirizzo: un ruolo di club con
+**zero caselle** spuntate spostava il legame di un minore su un'utenza
+qualunque, e quella persona apriva il fascicolo, dato clinico compreso.
+
+La domanda giusta e **quali identita apriranno il fascicolo dopo questo
+salvataggio, che non lo aprivano prima**: si confrontano i due insiemi. E si
+confronta il valore che verra **scritto**, non quello che il client manda — il
+segno di solo-recapito e appiccicoso, e calcolarlo sull'intento faceva negare
+un salvataggio che non apriva niente.
+
+### Una proiezione non nasconde mai un accesso vivo
+
+La ricomposizione per posizione fondeva due righe con la stessa posizione, e il
+travaso ne produce quando una voce del blob dichiarava piu di un identificativo
+utente. La riga fusa spariva dalla scheda ma restava autorevole: «Scollega
+account» chiudeva **l'altra** persona e rispondeva 200.
+
+Una posizione in piu su una ricevuta e un difetto di forma; un accesso vivo che
+nessuna schermata mostra e un difetto di sicurezza. Si fondono percio solo le
+righe che un accesso non lo aprono.
+
+**Vedi anche.** ADR-0138 (un commento e un debito finche non ha una sonda),
+ADR-0137, ADR-0114, ADR-0105 (diritti dell'interessato).

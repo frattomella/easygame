@@ -103,9 +103,19 @@ const asText = (value: unknown) => String(value ?? "").trim();
  * **Solo l'atleta, in V1.**
  *
  * Gli altri soggetti dei consensi — `person`, `member`, `guardian` — non hanno
- * una tabella propria: un tutore vive dentro `athletes.data.guardians`, e
- * cancellarlo significa riscrivere l'anagrafica di un altro. E un lavoro
- * diverso, e farlo a meta sarebbe peggio che dichiararlo.
+ * ancora una **strada di ingresso** propria: non si puo chiedere «cancella
+ * questo tutore» nominando lui.
+ *
+ * **Correzione (2026-09-06).** La motivazione scritta qui prima — «un tutore
+ * vive dentro `athletes.data.guardians`, e cancellarlo significa riscrivere
+ * l'anagrafica di un altro» — non e piu vera da PP-02 / WP-C: un tutore e una
+ * riga di `athlete_guardians`, con nome, cognome, indirizzo, telefono, codice
+ * fiscale e data di nascita. L'ostacolo dichiarato non esiste piu; resta da
+ * fare la strada di ingresso, ed e in `16-technical-debt.md`.
+ *
+ * Cio che **non** poteva restare e che quella tabella non fosse dichiarata
+ * qui: `eraseDataSubject` la cancellava senza che il riepilogo la nominasse,
+ * e il gettone di conferma non la copriva. Ora e una fetta come le altre.
  */
 export const DATA_SUBJECT_KINDS = ["athlete"] as const;
 export type DataSubjectKind = (typeof DATA_SUBJECT_KINDS)[number];
@@ -556,7 +566,18 @@ export const previewDataSubjectErasure = async (
 
   const moduli = await readFormSubmissionsForSubject(organizationId, subjectId);
 
+  const tutori = await prisma.athleteGuardian.count({
+    where: { organization_id: organizationId, athlete_id: subjectId },
+  });
+
   const slices: DataSubjectSlice[] = [
+    {
+      table: "athlete_guardians",
+      label: "Genitori e tutori dichiarati sulla scheda",
+      index: "foreign_key",
+      count: Number(tutori || 0),
+      disposal: "delete",
+    },
     {
       table: "medical_certificates",
       label: "Certificati medici",

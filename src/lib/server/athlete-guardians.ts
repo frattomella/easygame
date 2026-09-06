@@ -638,15 +638,75 @@ export const saveGuardianRegistry = async (
       «Accesso negato» in un 403, ed e cio che l'interfaccia sa mostrare.
     */
     /*
-      **Cresce l'insieme solo dove nasce una riga**, e una riga nasce solo dove
-      questo salvataggio non nomina nessuna riga esistente. Misurare invece «la
-      chiave e cambiata» contava anche il giro di andata e ritorno della
-      proiezione, che non aggiunge nessuno — ed e cio che faceva rispondere 403
-      al salvataggio ordinario di una scheda travasata.
+      **Cio che cresce e l'insieme delle identita, non il numero delle righe.**
+
+      La stesura precedente contava le righe che **nascono**, e da li la regola
+      si scavalcava senza forzare niente: bastava rimandare una riga esistente
+      — il suo `id` la proiezione lo pubblica — cambiandone il solo indirizzo.
+      Il ramo di aggiornamento scrive `email` e non passava di qui, cosi un
+      ruolo di club con **zero caselle** spuntate spostava il legame di un
+      minore su un indirizzo qualunque, e chiunque avesse una tessera nel club
+      e quell'indirizzo verificato apriva il fascicolo — dato clinico compreso.
+      Misurato da una revisione indipendente, dalla rotta HTTP vera.
+
+      Il numero delle righe non e mai stato la cosa giusta da guardare: la
+      domanda e **quali identita apriranno il fascicolo dopo questo
+      salvataggio, che non lo aprivano prima**. Si confrontano percio i due
+      insiemi.
+
+      Chi apre e chi porta l'indirizzo su una riga viva che non sia di solo
+      recapito — il ramo per identita di `findGuardianLinks`. L'utenza non
+      entra nel confronto perche un salvataggio d'anagrafica non la scrive mai:
+      il legame lo crea il riscatto, e solo lui.
+
+      L'andata e ritorno della proiezione non conta piu come crescita, ed e la
+      ragione per cui la stesura prima di questa guardava le righe: un
+      salvataggio che rimanda cio che ha letto produce due insiemi **uguali**.
     */
-    const nuove = inArrivo
-      .filter((voce) => voce.chiave && !voce.riga && !perChiave.has(voce.chiave))
-      .map((voce) => voce.chiave as string);
+    const apre = (riga: GuardianRow) =>
+      !riga.revoked_at && !riga.contact_only ? normalizza(riga.email) : "";
+
+    const identitaPrima = new Set(
+      esistenti.map(apre).filter(Boolean),
+    );
+
+    const identitaDopo = new Set(
+      inArrivo
+        .map((voce) => {
+          /*
+            **Il valore che verra scritto, non quello che il client manda.**
+
+            Il segno di solo-recapito e appiccicoso: una scheda che provi a
+            toglierlo non lo toglie (W-17d). Calcolare l'insieme «dopo» su cio
+            che arriva invece che su cio che restera faceva percio rispondere
+            403 a un salvataggio che non apriva niente — la stessa forma di
+            errore per cui la stesura prima di questa guardava le righe.
+          */
+          const soloRecapito = voce.riga
+            ? voce.riga.contact_only || Boolean(voce.input.contactOnly)
+            : Boolean(voce.input.contactOnly);
+          if (soloRecapito) return "";
+
+          const indirizzo = normalizza(voce.input.email);
+          if (!voce.riga) return indirizzo;
+          if (voce.riga.revoked_at) return "";
+          return indirizzo || normalizza(voce.riga.email);
+        })
+        .filter(Boolean),
+    );
+
+    const nuove = [
+      ...[...identitaDopo].filter((chiave) => !identitaPrima.has(chiave)),
+      /*
+        Le righe che nascono con una chiave che e un identificativo di utenza:
+        non aprono da sole — nessun ramo di lettura guarda `identity_key` — ma
+        restano nel conto perche una riga coniata cosi e una dichiarazione di
+        legame, e chi la scrive deve poterla fare.
+      */
+      ...inArrivo
+        .filter((voce) => voce.chiave && !voce.riga && !perChiave.has(voce.chiave))
+        .map((voce) => voce.chiave as string),
+    ].filter((chiave, indice, tutte) => tutte.indexOf(chiave) === indice);
 
     if (nuove.length && !canGrantAccess) {
       const perUuid = nuove.filter((valore) =>
@@ -1256,48 +1316,43 @@ export const revokeGuardianAccessInClub = async (
     })) as GuardianRow[];
 
     /*
-      **Un indirizzo di famiglia non e una persona.**
+      **Si risparmia solo cio che e provatamente di un'altra persona.**
 
       Il ramo `{ email: indirizzo }` serve a raggiungere chi non ha un'utenza:
       un tutore dichiarato solo per recapito si revoca cosi, e senza quel ramo
       non lo si revocherebbe affatto. Ma sulla configurazione ordinaria di
-      ADR-0114 — madre e padre, **un solo indirizzo di famiglia** — prendeva
-      anche la riga dell'altro genitore, che non aveva lasciato niente.
+      ADR-0114 — due genitori, **un solo indirizzo di famiglia** — raggiunge
+      anche la riga dell'altro.
 
-      Il danno era doppio, e nessuno dei due richiedeva un attaccante: il padre
-      perdeva l'area famiglia del **proprio** figlio, e il suo indirizzo — che
-      e l'unico della famiglia — finiva nel registro delle identita revocate,
-      che e l'elenco con cui i promemoria del certificato medico e i solleciti
-      di pagamento decidono chi **non** deve ricevere. Risultato: nessuno
-      riceveva piu gli avvisi sulla salute del minore.
+      La stesura precedente provava a distinguerli per **scheda**: «se qui c'e
+      una riga provatamente sua, le righe prese dal solo indirizzo sono di
+      qualcun altro». Era sbagliata dai due lati, e una revisione indipendente
+      li ha misurati tutti e due:
 
-      Il travaso aveva gia dovuto imparare a **non fondere due persone che
-      condividono un indirizzo**, e ne ha fatto due righe con due chiavi. Qui
-      quella distinzione si rispetta: se la revoca nomina un'utenza precisa e
-      su quella scheda esiste una riga che e **provatamente sua** — chiavata
-      sull'utenza, o che la porta addosso — allora le righe raggiunte dal solo
-      indirizzo sono di **un'altra persona**, e non si toccano.
+      * **troppo larga** — il `WHERE` e di club e il risparmio era per scheda,
+        quindi su **ogni altra scheda** del club che portasse quell'indirizzo
+        nessuna riga era «sua» e cadevano tutte: la zia di un altro atleta,
+        con un'utenza propria, perdeva l'area famiglia del nipote;
+      * **troppo stretta** — sulla scheda della persona, una sua **seconda**
+        riga chiavata sull'indirizzo veniva risparmiata, e con lei restava
+        `active` il gettone che la nomina. Chi era appena stato escluso lo
+        riscattava e rientrava.
 
-      Quando invece nessuna riga e provatamente sua, l'indirizzo resta l'unico
-      appiglio e continua a valere: una revoca che non sapesse piu revocare un
-      tutore di solo recapito sarebbe il difetto opposto.
+      La distinzione giusta non e per scheda ed e molto piu semplice: una riga
+      che porta **l'utenza di qualcun altro** e provatamente di qualcun altro,
+      e non si tocca. Tutto il resto — l'indirizzo condiviso, la riga senza
+      utenza, la seconda riga della stessa persona — e ambiguo, e davanti
+      all'ambiguita su un fascicolo sanitario di un minore si **chiude**: il
+      co-genitore che ci rimette rientra con un riscatto, mentre chi resta
+      dentro per un dubbio non rientra da nessuna parte, perche non e mai
+      uscito.
     */
-    const sua = (riga: GuardianRow) =>
-      Boolean(utenza) &&
-      (normalizza(riga.user_id) === utenza ||
-        normalizza(riga.identity_key) === utenza);
+    const diUnAltraPersona = (riga: GuardianRow) => {
+      const suUtenza = normalizza(riga.user_id);
+      return Boolean(suUtenza) && suUtenza !== utenza;
+    };
 
-    const perScheda = new Map<string, GuardianRow[]>();
-    for (const riga of righeToccate) {
-      const gia = perScheda.get(riga.athlete_id);
-      if (gia) gia.push(riga);
-      else perScheda.set(riga.athlete_id, [riga]);
-    }
-
-    const daRevocare = righeToccate.filter((riga) => {
-      if (!utenza || sua(riga)) return true;
-      return !(perScheda.get(riga.athlete_id) || []).some(sua);
-    });
+    const daRevocare = righeToccate.filter((riga) => !diUnAltraPersona(riga));
 
     if (!daRevocare.length) return 0;
 
@@ -1792,10 +1847,33 @@ export const refreshGuardianProjection = async (
     non decide niente li, perche li nessuno decide un accesso.
   */
   const perPosizione = (elenco: GuardianRow[], record: any[]) => {
-    const voci = new Map<number, Record<string, unknown>>();
+    const voci = new Map<string, { posto: number; voce: Record<string, unknown> }>();
     for (const riga of elenco) {
       const posto = Number(riga.position ?? 0);
-      const gia = voci.get(posto);
+
+      /*
+        **Una riga con un legame vivo non si fonde con nessuno.**
+
+        La ricomposizione per posizione esiste per i tre lettori che prendono i
+        tutori **per posto**, e va bene finche cio che si fonde e anagrafica.
+        Ma il travaso produce due righe con la **stessa** posizione da ogni
+        voce del blob che dichiarava piu di un identificativo utente, e fonderle
+        faceva sparire dalla scheda una riga con l'utenza addosso e
+        `revoked_at` nullo: autorevole per `findGuardianLinks`, invisibile
+        alla sola porta da cui si revoca. «Scollega account» chiudeva l'altra
+        persona e rispondeva 200.
+
+        Il commento che stava qui diceva che cio che si perde nella
+        ricomposizione «non decide niente li, perche li nessuno decide un
+        accesso»: vero della proiezione come elenco, falso della **scheda**.
+
+        Una posizione in piu su una ricevuta e un difetto di forma; un accesso
+        vivo che nessuna schermata mostra e un difetto di sicurezza. Si fondono
+        percio solo le righe che un accesso non lo aprono.
+      */
+      const collegataViva = Boolean(riga.user_id) && !riga.revoked_at;
+      const chiave = collegataViva ? `riga:${riga.id}` : `posto:${posto}`;
+      const gia = voci.get(chiave)?.voce;
 
       /*
         Il gettone si legge dove vive — l'archivio dei gettoni — e non dalle
@@ -1824,22 +1902,25 @@ export const refreshGuardianProjection = async (
             }),
       } as Record<string, unknown>;
       if (!gia) {
-        voci.set(posto, proiettata);
+        voci.set(chiave, { posto, voce: proiettata });
         continue;
       }
       /* Conservativa sulle difese, come il travaso: chi chiude vince. */
-      voci.set(posto, {
-        ...proiettata,
-        ...Object.fromEntries(
-          Object.entries(gia).filter(([, valore]) => valore != null && valore !== ""),
-        ),
-        contactOnly: Boolean(gia.contactOnly || proiettata.contactOnly),
-        accessRevokedAt: gia.accessRevokedAt || proiettata.accessRevokedAt,
+      voci.set(chiave, {
+        posto,
+        voce: {
+          ...proiettata,
+          ...Object.fromEntries(
+            Object.entries(gia).filter(([, valore]) => valore != null && valore !== ""),
+          ),
+          contactOnly: Boolean(gia.contactOnly || proiettata.contactOnly),
+          accessRevokedAt: gia.accessRevokedAt || proiettata.accessRevokedAt,
+        },
       });
     }
-    return [...voci.entries()]
-      .sort((sinistra, destra) => sinistra[0] - destra[0])
-      .map(([, voce]) => voce);
+    return [...voci.values()]
+      .sort((sinistra, destra) => sinistra.posto - destra.posto)
+      .map(({ voce }) => voce);
   };
 
   /*

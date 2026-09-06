@@ -571,11 +571,40 @@ const main = async () => {
 
     const dopo = await righeDi(figlio);
     const padreDopo = dopo.find((r) => r.id === rigaPadre?.id);
+    /*
+      **Questa asserzione e stata rovesciata dal quarto vaglio, e va detto
+      perche.**
+
+      Qui si chiedeva che revocare la madre non chiudesse la riga del padre
+      raggiunta dal solo indirizzo di famiglia. La regola che ne era nata —
+      «se su questa scheda c'e una riga provatamente sua, quelle prese dal solo
+      indirizzo sono di un altro» — era sbagliata dai due lati, e il vaglio
+      successivo li ha misurati tutti e due: risparmiava anche la **seconda
+      riga della stessa persona** (che rientrava riscattando il gettone che la
+      nomina), e non risparmiava le righe di terzi sulle **altre schede** del
+      club, perche il `WHERE` e di club e il risparmio era per scheda.
+
+      La distinzione giusta non e per scheda: si risparmia **solo** una riga
+      che porta l'utenza di un'altra persona, che e l'unico caso in cui si ha
+      una prova. Una riga senza utenza, raggiunta da un indirizzo condiviso, e
+      **ambigua** — e davanti a un dubbio sul fascicolo sanitario di un minore
+      si chiude: chi ci rimette rientra con un riscatto, chi resta dentro per
+      un dubbio non rientra perche non e mai uscito.
+
+      Il costo per il padre e inoltre minore di quanto sembrasse: `users.email`
+      e `@unique`, quindi l'indirizzo di famiglia e dell'account **della
+      madre**, e il padre da li non entrava comunque. La sua strada e quella
+      dichiarata, ed e misurata due asserzioni piu sotto.
+
+      La proprieta che protegge i terzi vive ora in `pp-02-quarto-vaglio`
+      (5a/5b/5c): la zia di un altro atleta, che ha un'utenza propria, non
+      viene toccata.
+    */
     prova(
-      "R-C la riga del padre NON e revocata",
-      false,
+      "R-C la riga presa dal solo indirizzo cade con la revoca",
+      true,
       Boolean(padreDopo?.revoked_at),
-      "revocare la madre non deve chiudere il padre",
+      "davanti all'ambiguita su un fascicolo sanitario si chiude",
     );
     /*
       **Cio che qui non si puo misurare, e perche.**

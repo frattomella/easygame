@@ -690,3 +690,65 @@ modulo che nessuno aveva guardato: `unlinkDirectAthleteProfile` scriveva le
 schede in massa senza prendere l'ordine. Da li il residuo vero — dentro **una**
 transazione i due sweep prendevano due lotti, e due lotti crescenti non sono un
 ordine crescente — chiuso bloccando l'unione a monte, in un lotto solo.
+
+---
+
+## Il quarto vaglio indipendente (2026-09-06)
+
+**1 Critical, 3 High, 1 Medium.** Quattro su cinque erano affermazioni scritte
+nei commenti e non presidiate da nessuna sonda — la regolarita che ADR-0138
+aveva appena nominato, confermata su se stessa.
+
+| # | gravita | l'affermazione che era falsa |
+|---|---------|------------------------------|
+| R-1 | Critical | «un salvataggio d'anagrafica non puo far crescere l'insieme delle identita che aprono il fascicolo» |
+| R-2 | High | «chiudere il gettone e la differenza fra una revoca e una revoca che si puo annullare» |
+| R-3 | High | (la correzione del giorno prima, applicata al club invece che alla scheda) |
+| R-4 | High | «cio che si perde nella ricomposizione non decide niente li, perche li nessuno decide un accesso» |
+| R-5 | Medium | «un tutore vive dentro `athletes.data.guardians`» — in `data-subject.ts`, non piu vera da WP-C |
+
+### R-2 e R-3 sono i due lati della stessa correzione, fatta il giorno prima
+
+Il terzo vaglio aveva trovato che revocare una madre revocava anche la riga del
+padre che condivide l'indirizzo di famiglia. La correzione distingueva **per
+scheda**: «se qui c'e una riga provatamente sua, quelle prese dal solo indirizzo
+sono di un altro».
+
+Sbagliata dai due lati insieme, ed e istruttivo che siano stati trovati nello
+stesso passaggio:
+
+* **troppo stretta sulla scheda della persona** — la sua seconda riga veniva
+  risparmiata, e con lei il gettone che la nomina: rientrava riscattandolo;
+* **troppo larga sul resto del club** — il `WHERE` e di club e il risparmio era
+  per scheda, quindi altrove cadeva tutto, compresa la riga di un terzo con
+  un'utenza propria.
+
+La regola che le sostituisce non guarda la scheda: si risparmia **solo** una
+riga che porta l'utenza di un'altra persona (ADR-0139). Le due mutazioni la
+fissano dai due lati — risparmiando di piu la persona revocata rientra,
+risparmiando di meno il terzo viene tagliato fuori — e nessuna delle due
+asserzioni, da sola, distingue la regola dal difetto opposto.
+
+### Il Critical: contare le righe non e contare le identita
+
+Il vaglio sulla concessione contava le righe che **nascono**. Riusare l'`id` di
+una riga esistente — che la proiezione pubblica — bastava a scavalcarlo: un
+ruolo di club «Segreteria» con **zero caselle** spuntate spostava il legame di
+un minore su un indirizzo qualunque, e chiunque avesse una tessera nel club e
+quell'indirizzo verificato apriva il fascicolo, dato clinico compreso. Misurato
+dalla rotta HTTP vera, con il cruscotto famiglia che consegna allergie e
+patologie.
+
+Il numero delle righe non era mai stato la cosa giusta da guardare. Ora si
+confrontano gli **insiemi di identita**, prima e dopo — e si confronta il valore
+che verra scritto, non quello che il client manda: il primo tentativo negava un
+salvataggio che tentava di togliere il segno di solo-recapito, che e appiccicoso
+e non si toglie, quindi non apriva niente.
+
+### La regola che non ho tenuto, e che ora e una sonda
+
+Negare **ogni** crescita e gia stato provato, e il prezzo era che una segreteria
+non potesse piu correggere un refuso in un'email. La correzione ha quindi un
+controllo esplicito accanto al reperto: lo stesso `PATCH`, dallo stesso ruolo
+ristretto, verso un indirizzo **che non e di nessuno**, deve riuscire — e
+riesce.
