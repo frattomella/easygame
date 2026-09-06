@@ -6740,6 +6740,41 @@ const applicaGuardieDiModifica = async (
   scope?: ResourceAccessScope,
 ): Promise<GuardianInput[] | null> => {
   let tutoriInArrivo: GuardianInput[] | null = null;
+
+  /*
+    **La verifica di un indirizzo non si dichiara: si dimostra.**
+
+    `PATCH /api/v1/auth/user` lascia cambiare il proprio indirizzo e **azzera**
+    `email_verified_at`, ed e su quell'azzeramento che poggia l'apertura
+    dell'area famiglia per indirizzo di contatto (ADR-0114): un indirizzo vale
+    come legame solo se e verificato, perche per averlo verificato bisogna
+    avere letto quella casella.
+
+    Il registro generico scriveva la stessa riga **senza** quella regola. Una
+    revisione indipendente lo ha misurato: chiunque abbia una tessera qualunque
+    in un club, e sia proprietario di un club suo — cioe chiunque, registrando
+    una societa —, si scriveva addosso l'indirizzo di contatto del tutore di un
+    altro bambino **gia verificato**, e apriva allergie, note cliniche,
+    ricevute, consensi e i byte del certificato medico di quel minore.
+
+    Qui la colonna diventa non scrivibile, e cambiare indirizzo da questa porta
+    **spegne** la verifica come fa la porta dedicata: le due strade non possono
+    dare due risposte diverse alla stessa domanda.
+  */
+  if (resource === "users" && normalized && typeof normalized === "object") {
+    delete (normalized as any).email_verified_at;
+
+    const indirizzoNuovo = String((normalized as any).email ?? "").trim().toLowerCase();
+    const indirizzoVecchio = String((existing as any)?.email ?? "").trim().toLowerCase();
+
+    if (
+      "email" in normalized &&
+      indirizzoNuovo &&
+      indirizzoNuovo !== indirizzoVecchio
+    ) {
+      (normalized as any).email_verified_at = null;
+    }
+  }
     /*
       **`athletes.user_id` non si scrive dal registro generico.**
 

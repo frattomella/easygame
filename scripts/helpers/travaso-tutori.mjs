@@ -34,9 +34,42 @@
  * altrimenti cadrebbe sulla chiave unica.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
-const FILE = "prisma/migrations/20260906100000_pp02_il_travaso_perdeva_e_inventava/migration.sql";
+/**
+ * **L'ultima migrazione che contiene il travaso, non una scritta a mano.**
+ *
+ * Il travaso e stato rifatto due volte — la prima perdeva quattro identita e
+ * ne inventava quattro, la seconda fondeva due genitori con un indirizzo di
+ * famiglia — e ogni volta le sonde che puntavano alla vecchia hanno continuato
+ * a misurare la vecchia, verdi, mentre il prodotto era cambiato sotto.
+ *
+ * Si cerca percio **l'ultima** migrazione che porti un `INSERT INTO
+ * "athlete_guardians"`, che e quella che un archivio nuovo esegue per ultima e
+ * quindi lo stato in cui ogni ambiente si trova. Rifarlo a mano ogni volta e
+ * la stessa forma di errore che questo pacchetto ha passato ventotto round a
+ * togliere: un riferimento scritto a mano che invecchia.
+ */
+const FILE = (() => {
+  const radice = "prisma/migrations";
+  const candidate = readdirSync(radice)
+    .filter((nome) => /^\d{14}_/.test(nome))
+    .sort()
+    .reverse()
+    .map((nome) => `${radice}/${nome}/migration.sql`)
+    .filter((percorso) => {
+      try {
+        return readFileSync(percorso, "utf8").includes('INSERT INTO "athlete_guardians"');
+      } catch {
+        return false;
+      }
+    });
+
+  if (!candidate.length) {
+    throw new Error("Nessuna migrazione con il travaso dei tutori");
+  }
+  return candidate[0];
+})();
 
 /**
  * Le istruzioni del travaso, ristrette a un insieme di club.

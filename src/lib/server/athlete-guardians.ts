@@ -103,6 +103,12 @@ export type GuardianInput = {
   contactOnly?: boolean;
   /** La chiave che la riga portava dentro il blob, per i riferimenti storici. */
   legacyId?: string | null;
+  /**
+   * La riga com'e arrivata, per conservare i campi che non hanno una colonna:
+   * codice fiscale, indirizzo, data di nascita. Non decidono niente, e proprio
+   * per questo nessuno si accorgeva che sparivano.
+   */
+  extra?: Record<string, unknown> | null;
   accessTokenValue?: string | null;
   accessTokenStatus?: string | null;
   accessTokenExpiresAt?: Date | null;
@@ -131,6 +137,73 @@ export const guardianIdentityKey = (input: GuardianInput): string | null => {
 
   const storica = testo(input.legacyId);
   return storica ? `riga:${storica}` : null;
+};
+
+/**
+ * **Cio che la scheda porta su una persona e la tabella non ha una colonna per
+ * tenere.**
+ *
+ * Il codice fiscale, l'indirizzo, la data di nascita — e qualunque campo che il
+ * prodotto aggiungera domani. Vivono in una colonna JSON perche non decidono
+ * niente: nessun accesso, nessuna identita. Ma **si perdono**, se la
+ * proiezione li dimentica, e il codice fiscale del tutore e cio che finisce
+ * sulla ricevuta che una famiglia porta in detrazione.
+ *
+ * Misurato: senza questa colonna il primo salvataggio di una scheda svuotava
+ * `fiscalCode` per tutto il club, e non c'era piu **nessuna strada** per
+ * riscriverlo — il modulo di iscrizione lo raccoglie, ma niente lo conservava.
+ */
+const CHIAVI_CON_UNA_COLONNA = new Set([
+  "id",
+  "rowId",
+  "name",
+  "firstName",
+  "first_name",
+  "surname",
+  "lastName",
+  "last_name",
+  "email",
+  "linkedUserEmail",
+  "linked_user_email",
+  "phone",
+  "telefono",
+  "relationship",
+  "role",
+  "linkedUserId",
+  "linked_user_id",
+  "userId",
+  "user_id",
+  "linkedUserIds",
+  "linked_user_ids",
+  "contactOnly",
+  "contact_only",
+  "accessRevokedAt",
+  "access_revoked_at",
+  "linkedAt",
+  "linked_at",
+  "parentAccessTokenValue",
+  "parentAccessTokenStatus",
+  "parentAccessTokenExpiresAt",
+  "parentAccessTokenGeneratedAt",
+]);
+
+const residuo = (
+  input: GuardianInput,
+  precedente: GuardianRow | null,
+): Record<string, unknown> | undefined => {
+  const grezzo = input.extra;
+  if (!grezzo || typeof grezzo !== "object") {
+    return (precedente?.data as Record<string, unknown>) ?? undefined;
+  }
+
+  const tenuti: Record<string, unknown> = {};
+  for (const [chiave, valore] of Object.entries(grezzo)) {
+    if (CHIAVI_CON_UNA_COLONNA.has(chiave)) continue;
+    if (valore === undefined) continue;
+    tenuti[chiave] = valore;
+  }
+
+  return Object.keys(tenuti).length ? tenuti : undefined;
 };
 
 /**
@@ -238,8 +311,27 @@ const bloccaSchede = async (tx: any, athleteIds: string[]) => {
       `SELECT "id" FROM "athletes" WHERE "id" = ANY($1::uuid[]) ORDER BY "id" FOR UPDATE`,
       ordinati,
     );
-  } catch {
-    /* Nessun SQL grezzo: nessuna concorrenza da ordinare. */
+  } catch (errore) {
+    /*
+      **Un `catch` muto su un blocco nasconde proprio cio che il blocco esiste
+      per evitare.**
+
+      Il ripiego serve al doppio di Prisma dei test unitari, che SQL grezzo non
+      lo esegue: li non c'e concorrenza da ordinare, e far fallire una scrittura
+      corretta sarebbe sbagliato. Ma inghiottire **tutto** inghiottiva anche un
+      `40P01`, e la transazione proseguiva avvelenata fino a morire su
+      un'istruzione successiva con un `25P02` che non nomina ne la causa ne il
+      rimedio: l'operatore leggeva «revoca non riuscita» e nessuno sapeva perche.
+
+      Passa in silenzio solo cio che dice «qui SQL grezzo non c'e». Tutto il
+      resto risale, con il suo codice.
+    */
+    const messaggio = String((errore as any)?.message || errore);
+    const nonSupportato =
+      typeof (tx as any)?.$queryRawUnsafe !== "function" ||
+      /is not a function|not implemented|non supportat/i.test(messaggio);
+
+    if (!nonSupportato) throw errore;
   }
 };
 
@@ -266,6 +358,8 @@ export type GuardianRow = {
   access_token_expires_at: Date | null;
   access_token_generated_at: Date | null;
   legacy_id: string | null;
+  data: unknown;
+  position: number;
 };
 
 /**
@@ -418,6 +512,25 @@ export const saveGuardianRegistry = async (
     const perChiave = new Map(esistenti.map((riga) => [riga.identity_key, riga]));
 
     /*
+      **La chiave che la riga aveva nel blob, perche il primo salvataggio dopo
+      il travaso la porta ancora.**
+
+      Il travaso riempie la tabella e **non** riscrive `athletes.data`: finche
+      la scheda non viene salvata una volta, cio che il client legge e ancora
+      l'elenco storico, con gli id di allora. Lo stesso vale per una linguetta
+      del browser aperta prima del rilascio.
+
+      Senza questa mappa quel salvataggio non riconosceva nessuna riga, e ne
+      creava di nuove **senza utenza** cancellando le vecchie: il tutore perdeva
+      l'accesso al primo salvataggio della sua scheda.
+    */
+    const perStorica = new Map<string, GuardianRow>();
+    for (const riga of esistenti) {
+      const storica = testo(riga.legacy_id);
+      if (storica && !perStorica.has(storica)) perStorica.set(storica, riga);
+    }
+
+    /*
       **Chi e questa riga in arrivo**, in due domande e nell'ordine giusto.
 
       1. **Nomina una riga che esiste?** La proiezione pubblica l'`id`, e la
@@ -440,25 +553,91 @@ export const saveGuardianRegistry = async (
     };
 
     const inArrivo: InArrivo[] = [];
-    const nominate = new Set<string>();
+    const presi = new Set<string>();
+    const visti = new Set<string>();
 
     rows.forEach((input, posizione) => {
-      const riga = perId.get(String(input.rowId || "")) || null;
-      const chiave = guardianIdentityKey(input);
+      const nominata = String(input.rowId || "").trim();
+      const trovata =
+        perId.get(nominata) || (nominata ? perStorica.get(nominata) : null) || null;
+
+      /* Una riga gia presa da un elemento precedente non si riprende. */
+      const nominatanonPresa = trovata && !presi.has(trovata.id) ? trovata : null;
+
+      const calcolata = guardianIdentityKey(input);
+      const perIdentita = calcolata ? perChiave.get(calcolata) || null : null;
+      const indirizzoNuovo = normalizza(input.email);
 
       /*
-        Due elementi che finiscono sulla stessa riga o sulla stessa identita si
-        fondono: gli id sintetici del blob collidevano per costruzione, quindi
-        un elenco che porta due volte la stessa persona e la norma. Vince il
-        primo, che e quello che si vedeva piu in alto.
-      */
-      const gia = riga ? `riga:${riga.id}` : chiave;
-      if (gia) {
-        if (nominate.has(gia)) return;
-        nominate.add(gia);
-      }
+        **Quale riga sta nominando questo elemento**, e perche l'ordine ha
+        richiesto tre stesure e due misure per venire giusto.
 
-      inArrivo.push({ input, posizione, riga, chiave });
+        Ci sono due candidati: la riga che l'elemento **nomina** con
+        l'identificativo, e la riga che porta la sua **identita**. Quando
+        coincidono non c'e domanda; quando divergono, sceglierne uno a caso
+        apre un difetto o l'altro:
+
+        - **la riga nominata sempre** — e mandare i dati della madre con
+          l'identificativo di una riga **revocata** scriveva il suo indirizzo su
+          quella riga, e la revoca la raggiungeva: perdeva tutto, e in audit
+          restava un salvataggio d'anagrafica;
+        - **l'identita sempre** — e due genitori con **un indirizzo di famiglia**
+          (la configurazione ordinaria di ADR-0114) collassavano in uno: la
+          seconda riga non veniva nominata da nessun elemento e spariva, con il
+          suo codice fiscale.
+
+        La domanda che li distingue non e quale candidato venga prima, ma
+        **quanto costa credere all'identificativo**: se la riga nominata porta
+        gia quell'indirizzo, crederle non cambia l'identita di nessuno ed e
+        gratis. Se invece bisognerebbe **spostarle** l'identita addosso, allora
+        l'identificativo sta chiedendo qualcosa, e chi ha quell'identita ha piu
+        titolo a rispondere.
+      */
+      const nominataECompatibile =
+        Boolean(nominatanonPresa) &&
+        (!indirizzoNuovo ||
+          indirizzoNuovo === normalizza(nominatanonPresa!.email) ||
+          nominatanonPresa!.identity_key !== normalizza(nominatanonPresa!.email));
+
+      const bersaglio = nominataECompatibile
+        ? nominatanonPresa
+        : perIdentita && !presi.has(perIdentita.id)
+          ? perIdentita
+          : nominatanonPresa;
+
+      /*
+        Due elementi che finiscono sulla stessa riga, o sulla stessa identita
+        di persona, si fondono: vince il primo, che e quello piu in alto
+        nell'elenco. Una chiave `riga:` invece dice «di questa persona non si
+        sa niente», e due sconosciuti diversi non sono la stessa persona.
+      */
+      const ripiego = Boolean(calcolata?.startsWith("riga:"));
+      const chiave = ripiego && !bersaglio ? null : calcolata;
+
+      /*
+        **Un elemento che nomina una persona gia trattata non ne crea una
+        seconda.**
+
+        Succede in due modi, e tutti e due arrivano dalla porta vera: un elenco
+        che porta due volte lo stesso indirizzo, e un elenco che ne aggiunge
+        uno che su questa scheda e gia **revocato** — cioe una riga che esiste,
+        che non si tocca, e che questo salvataggio non deve poter duplicare.
+
+        Senza questa uscita si finiva in `create` con una chiave gia presa, e
+        la chiave unica faceva fallire **l'intero salvataggio della scheda**:
+        nome, categoria e recapiti compresi, per una riga che il client
+        rimandava senza saperlo.
+      */
+      if (!bersaglio && chiave && perChiave.has(chiave)) return;
+
+      const marcatore = bersaglio ? `riga:${bersaglio.id}` : chiave;
+      if (marcatore) {
+        if (visti.has(marcatore)) return;
+        visti.add(marcatore);
+      }
+      if (bersaglio) presi.add(bersaglio.id);
+
+      inArrivo.push({ input, posizione, riga: bersaglio, chiave });
     });
 
     const aggiunte: string[] = [];
@@ -488,13 +667,15 @@ export const saveGuardianRegistry = async (
       tutore che credeva di avere aggiunto non c'e. La rotta traduce
       «Accesso negato» in un 403, ed e cio che l'interfaccia sa mostrare.
     */
+    /*
+      **Cresce l'insieme solo dove nasce una riga**, e una riga nasce solo dove
+      questo salvataggio non nomina nessuna riga esistente. Misurare invece «la
+      chiave e cambiata» contava anche il giro di andata e ritorno della
+      proiezione, che non aggiunge nessuno — ed e cio che faceva rispondere 403
+      al salvataggio ordinario di una scheda travasata.
+    */
     const nuove = inArrivo
-      .filter(
-        (voce) =>
-          voce.chiave &&
-          voce.chiave !== voce.riga?.identity_key &&
-          !perChiave.has(voce.chiave),
-      )
+      .filter((voce) => voce.chiave && !voce.riga && !perChiave.has(voce.chiave))
       .map((voce) => voce.chiave as string);
 
     if (nuove.length && !canGrantAccess) {
@@ -532,73 +713,110 @@ export const saveGuardianRegistry = async (
     }
 
     const sopravvissute = new Set<string>();
+    /* Le identita che questo salvataggio ha gia assegnato: la chiave e unica. */
+    const chiaviPrese = new Set<string>();
 
     for (const voce of inArrivo) {
       const { input, posizione, riga, chiave } = voce;
 
       /*
-        La riga esiste e la sua identita non e cambiata: si aggiorna **come si
-        chiama la persona e dove la si raggiunge**, e nient'altro. Non se apre
-        il fascicolo, non se e revocata, non se e un solo-recapito.
+        **Una riga nominata si aggiorna: non si sostituisce mai.**
+
+        La stesura precedente trattava «la chiave calcolata non combacia con
+        quella della riga» come un cambio di identita, e cambiare identita
+        voleva dire cancellare la riga e crearne un'altra. Su una scheda
+        **travasata** quella condizione e vera **sempre**, e non per una
+        modifica: il travaso da a un tutore collegato la chiave della sua
+        **utenza**, mentre cio che la scheda rimanda porta l'indirizzo — perche
+        `readGuardianInputFromCard` non traduce `linkedUserId`, ed e giusto che
+        non lo faccia, un legame non si crea scrivendo l'anagrafica.
+
+        Misurato: il primo salvataggio ordinario di **qualunque** scheda
+        travasata cancellava la riga del tutore e ne creava una senza utenza.
+        Chi aveva le due chiavi toglieva cosi l'area famiglia a un genitore
+        legittimo — calendario, rate, ricevute, documenti, certificato — con la
+        scheda che continuava a mostrarlo; chi non le aveva riceveva un 403 e
+        non poteva piu salvare **niente** su quella scheda, nemmeno un telefono.
+
+        La domanda giusta non e «la chiave combacia» ma **«e cambiato
+        l'indirizzo»**: l'indirizzo e l'unica cosa che questa porta puo
+        cambiare, e l'unica che possa spostare l'identita. Quando cambia, la
+        riga si **richiavia sul posto** — cosi conserva l'utenza, il marchio
+        della revoca, il segno di solo-recapito, la posizione e la chiave
+        storica, che una sostituzione buttava via tutti insieme.
       */
-      if (riga && (!chiave || chiave === riga.identity_key)) {
+      /*
+        **L'identita vince sull'identificativo, e l'ordine e stato misurato.**
+
+        L'identificativo della riga e un **suggerimento**: la scheda lo rimanda
+        perche la proiezione glielo ha dato, e serve a riconoscere una riga la
+        cui identita non e deducibile da cio che torna — una riga travasata,
+        chiavata sull'utenza, di cui la scheda conosce solo l'indirizzo.
+
+        Ma un identificativo si puo anche **prendere da un'altra riga**. Con
+        l'ordine opposto, mandare i dati della madre con l'identificativo di una
+        riga **revocata** faceva scrivere l'indirizzo della madre su quella
+        riga, e da li la revoca la raggiungeva: perdeva tutto, e in audit
+        restava un salvataggio d'anagrafica.
+
+        Quando cio che arriva nomina un'identita che **esiste gia**, quella e la
+        riga di cui si sta parlando, e l'identificativo non conta. Il
+        suggerimento vale solo dove non c'e niente di meglio.
+      */
+      const bersaglio = riga;
+
+      if (bersaglio) {
+        const indirizzoNuovo = normalizza(input.email);
+        const cambiaIndirizzo =
+          Boolean(indirizzoNuovo) && indirizzoNuovo !== normalizza(bersaglio.email);
+
+        /*
+          Si richiavia **solo** una riga che era chiavata sull'indirizzo: una
+          riga chiavata sull'utenza non cambia identita quando cambia il
+          recapito, perche la sua identita e l'atto del riscatto.
+
+          **E solo se l'identita nuova e libera.** Correggere l'indirizzo di un
+          tutore mettendogli quello di un altro gia in elenco non e una
+          correzione: e dire che sono la stessa persona. Richiavare li sopra
+          violerebbe la chiave unica e farebbe fallire l'intero salvataggio
+          della scheda — misurato: la prima riga in arrivo prendeva la chiave e
+          la seconda si schiantava, e con lei nome, categoria e recapiti.
+
+          La riga tiene allora la chiave che aveva e prende il recapito nuovo.
+          Non concede niente di piu: quell'indirizzo apriva gia dall'altra riga.
+        */
+        const liberoAltrove =
+          !perChiave.has(indirizzoNuovo) || perChiave.get(indirizzoNuovo)?.id === bersaglio.id;
+
+        const richiavia =
+          cambiaIndirizzo &&
+          liberoAltrove &&
+          !chiaviPrese.has(indirizzoNuovo) &&
+          bersaglio.identity_key === normalizza(bersaglio.email);
+
         await tx.athleteGuardian.update({
-          where: { id: riga.id },
+          where: { id: bersaglio.id },
           data: {
-            first_name: testo(input.firstName) ?? riga.first_name,
-            last_name: testo(input.lastName) ?? riga.last_name,
-            phone: testo(input.phone) ?? riga.phone,
-            relationship: testo(input.relationship) ?? riga.relationship,
+            ...(cambiaIndirizzo ? { email: indirizzoNuovo } : {}),
+            ...(richiavia ? { identity_key: indirizzoNuovo } : {}),
+            first_name: testo(input.firstName) ?? bersaglio.first_name,
+            last_name: testo(input.lastName) ?? bersaglio.last_name,
+            phone: testo(input.phone) ?? bersaglio.phone,
+            relationship: testo(input.relationship) ?? bersaglio.relationship,
+            data: residuo(input, bersaglio),
             position: posizione,
           },
         });
-        sopravvissute.add(riga.id);
-        aggiornate.push(riga.identity_key);
+        if (richiavia) chiaviPrese.add(indirizzoNuovo);
+        sopravvissute.add(bersaglio.id);
+        aggiornate.push(bersaglio.identity_key);
         continue;
       }
 
-      /*
-        L'identita in arrivo esiste gia su un'altra riga: e la stessa persona,
-        e si aggiorna quella. Non se ne crea una seconda, che e cio che la
-        chiave unica rifiuterebbe comunque.
-      */
-      const gemella = chiave ? perChiave.get(chiave) : null;
-      if (gemella) {
-        await tx.athleteGuardian.update({
-          where: { id: gemella.id },
-          data: {
-            first_name: testo(input.firstName) ?? gemella.first_name,
-            last_name: testo(input.lastName) ?? gemella.last_name,
-            phone: testo(input.phone) ?? gemella.phone,
-            relationship: testo(input.relationship) ?? gemella.relationship,
-            position: posizione,
-          },
-        });
-        sopravvissute.add(gemella.id);
-        aggiornate.push(gemella.identity_key);
-        continue;
-      }
-
-      /*
-        **Correggere un indirizzo non toglie il segno di solo-recapito.**
-
-        Una riga nata da un modulo pubblico porta `contact_only`, e la regola
-        di questo modulo dice che quel segno lo toglie **solo** un invito
-        riscattato. Ma cambiare l'indirizzo cambia l'identita, e l'identita e
-        la chiave: la riga vecchia se ne va e ne nasce una nuova, che senza
-        questa riga nascerebbe **pulita**.
-
-        Misurato: un refuso corretto dalla segreteria — un gesto ordinario, che
-        non chiede nessuna chiave — trasformava un recapito dichiarato da uno
-        sconosciuto in una chiave dell'area famiglia. Se quell'indirizzo
-        appartiene a un'utenza verificata, da quel momento apre allergie,
-        farmaci e i byte del certificato di un minore.
-
-        Il segno si eredita percio dalla riga sostituita. Nel verso opposto non
-        si eredita niente: una riga senza segno non ne acquista uno.
-      */
+      /* Nasce una riga: una persona che questa scheda non nominava. */
       const coniata = chiave ? null : rigaSenzaIdentita();
-      const segnoEreditato = Boolean(voce.riga?.contact_only);
+      if (chiave && chiaviPrese.has(chiave)) continue;
+
       const creata = await tx.athleteGuardian.create({
         data: {
           ...(coniata ? { id: coniata.id } : {}),
@@ -611,11 +829,13 @@ export const saveGuardianRegistry = async (
           last_name: testo(input.lastName),
           phone: testo(input.phone),
           relationship: testo(input.relationship),
-          contact_only: Boolean(input.contactOnly) || segnoEreditato,
+          contact_only: Boolean(input.contactOnly),
           legacy_id: testo(input.legacyId),
+          data: residuo(input, null),
           position: posizione,
         },
       });
+      if (chiave) chiaviPrese.add(chiave);
       sopravvissute.add(creata.id);
       aggiunte.push(creata.identity_key);
     }
@@ -672,6 +892,25 @@ export const upsertGuardianFromFormApproval = async (
     row: GuardianInput;
     contactOnly: boolean;
     /**
+     * Se chi approva porta la chiave che governa la concessione di un accesso.
+     *
+     * **Perche serve anche qui.** La regola vive sul salvataggio
+     * dell'anagrafica da tre stesure, e una revisione indipendente ha misurato
+     * che questa porta la stessa cosa la faceva **senza gate**: un ruolo di
+     * club ristretto ai soli moduli — `forms.submissions.review` e nient'altro
+     * — compilava un modulo **interno** dichiarandosi tutore di un minore
+     * qualunque, lo approvava, e da quel momento apriva il fascicolo sanitario
+     * di quel bambino. In audit restava «Genitore aggiunto».
+     *
+     * Il presupposto che reggeva la porta — «chi esamina le pratiche e la
+     * gestione» — e vero per i quattro ruoli canonici e **falso** per i ruoli
+     * personalizzati, che esistono proprio per sciogliere quel mazzo.
+     *
+     * Una compilazione **pubblica** non ha bisogno di questa chiave: la riga
+     * che nasce e `contact_only`, e un recapito non apre niente.
+     */
+    canGrantAccess?: boolean;
+    /**
      * La riga che questa compilazione stava **modificando**, quando la
      * modifica ne cambia l'identita — cioe l'indirizzo.
      *
@@ -697,6 +936,38 @@ export const upsertGuardianFromFormApproval = async (
 
   return withGuardianWriter(client, async (tx) => {
     await bloccaSchede(tx, [athleteId]);
+
+    /*
+      **Anche da questa porta, una identita nuova concede solo se appartiene a
+      qualcuno.**
+
+      La stessa regola del salvataggio dell'anagrafica, e per la stessa ragione:
+      cio che concede accesso non e scrivere un indirizzo, e scriverne uno che
+      **corrisponde a un'utenza**. Una riga che nasce `contact_only` non apre
+      niente e non ha bisogno di chiedere niente.
+    */
+    if (!contactOnly && parametri.canGrantAccess === false) {
+      const gia = await tx.athleteGuardian.findFirst({
+        where: { athlete_id: athleteId, identity_key: identityKey },
+        select: { id: true },
+      });
+
+      if (!gia) {
+        const indirizzo = normalizza(row.email);
+        const utenza = indirizzo
+          ? await tx.user.findFirst({
+              where: { email: { equals: indirizzo, mode: "insensitive" as const } },
+              select: { id: true },
+            })
+          : null;
+
+        if (utenza) {
+          throw new Error(
+            "Accesso negato: il legame fra un tutore e un'utenza apre a quella persona l'area famiglia del minore — dato sanitario compreso — e servono sia il permesso sugli accessi sia quello sul dato clinico",
+          );
+        }
+      }
+    }
 
     /*
       **Una riga nata da un modulo si accoda**, come faceva `guardians.push`.
@@ -735,6 +1006,7 @@ export const upsertGuardianFromFormApproval = async (
         relationship: testo(row.relationship),
         contact_only: contactOnly,
         legacy_id: testo(row.legacyId),
+        data: residuo(row, null),
         position: posizione,
       },
       update: {
@@ -742,6 +1014,7 @@ export const upsertGuardianFromFormApproval = async (
         last_name: testo(row.lastName) ?? undefined,
         phone: testo(row.phone) ?? undefined,
         relationship: testo(row.relationship) ?? undefined,
+        data: residuo(row, null) ?? undefined,
       },
     });
 
@@ -878,13 +1151,29 @@ export const linkGuardianAccount = async (
  */
 export const revokeGuardianRow = async (
   client: any,
-  parametri: { athleteId: string; guardianRowId: string },
+  parametri: {
+    athleteId: string;
+    guardianRowId: string;
+    /**
+     * Il club, quando il chiamante lo conosce. I due chiamanti di oggi
+     * risolvono gia l'atleta dentro il club attivo, quindi il perimetro c'e —
+     * ma **nella firma non c'era**, e una revisione lo ha notato: un dominio
+     * che porta il confine solo nei suoi chiamanti lo perde al terzo.
+     */
+    organizationId?: string | null;
+  },
 ): Promise<GuardianRow | null> =>
   withGuardianWriter(client, async (tx) => {
     await bloccaSchede(tx, [parametri.athleteId]);
 
     const aggiornate = await tx.athleteGuardian.updateMany({
-      where: { id: parametri.guardianRowId, athlete_id: parametri.athleteId },
+      where: {
+        id: parametri.guardianRowId,
+        athlete_id: parametri.athleteId,
+        ...(parametri.organizationId
+          ? { organization_id: parametri.organizationId }
+          : {}),
+      },
       data: {
         revoked_at: new Date(),
         user_id: null,
@@ -894,6 +1183,11 @@ export const revokeGuardianRow = async (
     });
 
     if (!aggiornate.count) return null;
+
+    const revocata = (await tx.athleteGuardian.findUnique({
+      where: { id: parametri.guardianRowId },
+    })) as GuardianRow;
+    await revocaIGettoni(tx, parametri.athleteId, [revocata]);
 
     await refreshGuardianProjection(tx, [parametri.athleteId]);
 
@@ -982,6 +1276,22 @@ export const revokeGuardianAccessInClub = async (
     */
     await bloccaSchede(tx, toccate.map((riga) => riga.athlete_id));
 
+    /*
+      I gettoni pendenti di questa persona si chiudono **prima** della riga:
+      un invito che sopravvive a una revoca la annulla, ed e cio che una
+      revisione indipendente ha misurato sulla revoca della tessera.
+    */
+    const righeToccate = (await tx.athleteGuardian.findMany({
+      where: dove,
+    })) as GuardianRow[];
+    for (const athleteId of new Set(righeToccate.map((riga) => riga.athlete_id))) {
+      await revocaIGettoni(
+        tx,
+        athleteId,
+        righeToccate.filter((riga) => riga.athlete_id === athleteId),
+      );
+    }
+
     const esito = await tx.athleteGuardian.updateMany({
       where: dove,
       data: {
@@ -1012,12 +1322,17 @@ export const revokeGuardianAccessInClub = async (
 export const eraseGuardiansForAthlete = async (
   client: any,
   athleteId: string,
+  /** Il club, quando il chiamante lo conosce: vedi `revokeGuardianRow`. */
+  organizationId?: string | null,
 ): Promise<number> =>
   withGuardianWriter(client, async (tx) => {
     await bloccaSchede(tx, [athleteId]);
 
     const esito = await tx.athleteGuardian.deleteMany({
-      where: { athlete_id: athleteId },
+      where: {
+        athlete_id: athleteId,
+        ...(organizationId ? { organization_id: organizationId } : {}),
+      },
     });
 
     /*
@@ -1194,6 +1509,11 @@ export const findGuardianLinks = async (
  * compare su un documento e chi riceve un avviso.
  */
 const proiettaRiga = (riga: GuardianRow) => ({
+  /*
+    I campi senza colonna vengono per primi: cio che segue li **vince**, cosi
+    un residuo storico non puo sovrascrivere un dato che la tabella governa.
+  */
+  ...((riga.data && typeof riga.data === "object" ? riga.data : {}) as Record<string, unknown>),
   id: riga.id,
   name: riga.first_name,
   surname: riga.last_name,
@@ -1233,6 +1553,111 @@ const proiettaRiga = (riga: GuardianRow) => ({
 });
 
 /**
+ * **I gettoni di invito attivi che nominano questi tutori.**
+ *
+ * ---
+ *
+ * ## Perche il gettone non vive sulla riga
+ *
+ * Un invito e una riga di `club_resource_items` di tipo `access_tokens`, e il
+ * suo carico nomina gia l'atleta e il tutore. La riga del tutore ha delle
+ * colonne `access_token_*`, riempite dal travaso e **da nient'altro**: erano il
+ * riflesso di cio che stava nel blob, e dopo il passaggio nessuno le scriveva
+ * piu.
+ *
+ * Tenerle come seconda copia sarebbe stato il difetto di questo pacchetto
+ * un'altra volta. Si legge percio la fonte, e la riga del tutore torna a dire
+ * cio che dice l'archivio dei gettoni.
+ *
+ * ## Il difetto che questa lettura chiude
+ *
+ * L'identificativo del gettone viaggiava dentro `athletes.data.guardians[]`: la
+ * schermata lo coniava, poi salvava la scheda con l'identificativo dentro
+ * l'elenco. Quando questa rotta ha smesso di accettare quell'elenco — ed e
+ * giusto, un gettone e una credenziale e non si scrive salvando un'anagrafica —
+ * l'identificativo non e piu arrivato da nessuna parte, e
+ * `unlinkGuardianAccount` cercava un campo che non esisteva.
+ *
+ * Conseguenza misurata da una revisione indipendente: **«Scollega account» non
+ * revocava il gettone**, e la persona appena esclusa lo riscattava e rientrava
+ * — riga riaperta, utenza ricollegata, area famiglia del minore di nuovo
+ * aperta, con la revoca scritta in audit. Lo stesso valeva per la revoca della
+ * tessera, che il gettone non lo aveva mai toccato.
+ *
+ * La difesa esisteva ed era semplicemente **disarmata**: il riscatto rifiuta un
+ * gettone il cui record non sia attivo.
+ */
+const gettoniDeiTutori = async (
+  tx: any,
+  athleteIds: string[],
+): Promise<Map<string, any[]>> => {
+  const per = new Map<string, any[]>();
+  if (!athleteIds.length) return per;
+
+  const record = (await tx.clubResourceItem.findMany({
+    where: { resource_type: "access_tokens" },
+  })) as Array<Record<string, any>>;
+
+  const interessati = new Set(athleteIds);
+
+  for (const riga of record) {
+    const carico =
+      riga?.payload && typeof riga.payload === "object" ? riga.payload : {};
+    const atleta = String(carico.athlete_id || "").trim();
+    if (!atleta || !interessati.has(atleta)) continue;
+    if (String(carico.token_type || "") !== "parent_access") continue;
+
+    const gia = per.get(atleta);
+    if (gia) gia.push(riga);
+    else per.set(atleta, [riga]);
+  }
+
+  return per;
+};
+
+/** Vero se questo gettone nomina questa riga di tutore. */
+const gettoneDiQuestaRiga = (record: any, riga: GuardianRow) => {
+  const carico =
+    record?.payload && typeof record.payload === "object" ? record.payload : {};
+  const nominato = String(carico.guardian_id || "").trim();
+  if (!nominato) return false;
+  return nominato === riga.id || nominato === riga.legacy_id;
+};
+
+const GETTONE_VIVO = new Set(["active", "pending", "sent"]);
+
+/**
+ * **Revoca i gettoni che nominano queste righe.**
+ *
+ * Chiude la porta che la revoca lasciava aperta. Non fallisce se non ci riesce:
+ * l'accesso e gia chiuso sulla riga, che e cio che decide, e un invito che
+ * sopravvive a una revoca non apre niente da solo — ma **chiuderlo e la
+ * differenza fra una revoca e una revoca che si puo annullare**.
+ */
+const revocaIGettoni = async (
+  tx: any,
+  athleteId: string,
+  righe: GuardianRow[],
+) => {
+  if (!righe.length) return;
+
+  const perAtleta = await gettoniDeiTutori(tx, [athleteId]);
+  const candidati = perAtleta.get(athleteId) || [];
+
+  const daChiudere = candidati
+    .filter((record) => GETTONE_VIVO.has(String(record.status || "").trim()))
+    .filter((record) => righe.some((riga) => gettoneDiQuestaRiga(record, riga)))
+    .map((record) => String(record.id));
+
+  if (!daChiudere.length) return;
+
+  await tx.clubResourceItem.updateMany({
+    where: { id: { in: daChiudere } },
+    data: { status: "revoked" },
+  });
+};
+
+/**
  * Riscrive `athletes.data.guardians` dalla tabella, per gli atleti indicati.
  *
  * **Perche un ciclo qui non e il ciclo di prima.** Lo sweep che `PP02-D34`
@@ -1263,6 +1688,104 @@ export const refreshGuardianProjection = async (
     else perAtleta.set(riga.athlete_id, [riga]);
   }
 
+  /*
+    **Una riga del blob che nominava due persone e diventata due righe**, ed e
+    giusto: due identita che aprono sono due. Ma l'array aveva **una** voce, e
+    tre letture prendono i tutori per posizione — chi paga una ricevuta, quale
+    genitore compare su un documento, quale riga una pratica gia salvata stava
+    modificando.
+
+    La proiezione ricompone percio per **posizione**: le righe che vengono
+    dalla stessa voce del blob tornano una voce sola. L'autorita resta una riga
+    per identita; cio che si perde nella ricomposizione — la seconda utenza —
+    non decide niente li, perche li nessuno decide un accesso.
+  */
+  const perPosizione = (elenco: GuardianRow[], record: any[]) => {
+    const voci = new Map<number, Record<string, unknown>>();
+    for (const riga of elenco) {
+      const posto = Number(riga.position ?? 0);
+      const gia = voci.get(posto);
+
+      /*
+        Il gettone si legge dove vive — l'archivio dei gettoni — e non dalle
+        colonne della riga, che il travaso ha riempito una volta e nessuno
+        aggiorna. Cosi la schermata mostra il codice che il riscatto accetta
+        davvero, e una revoca lo fa sparire da tutte e due i posti insieme.
+      */
+      const vivo = record
+        .filter((voce) => gettoneDiQuestaRiga(voce, riga))
+        .find((voce) => GETTONE_VIVO.has(String(voce.status || "").trim()));
+
+      const proiettata = {
+        ...proiettaRiga(riga),
+        ...(vivo
+          ? {
+              parentAccessTokenRecordId: String(vivo.id),
+              parentAccessTokenValue: vivo.name ?? null,
+              parentAccessTokenStatus: String(vivo.status || "active"),
+              parentAccessTokenExpiresAt:
+                (vivo.payload as any)?.expires_at ?? null,
+            }
+          : {
+              parentAccessTokenRecordId: null,
+              parentAccessTokenValue: null,
+              parentAccessTokenStatus: null,
+            }),
+      } as Record<string, unknown>;
+      if (!gia) {
+        voci.set(posto, proiettata);
+        continue;
+      }
+      /* Conservativa sulle difese, come il travaso: chi chiude vince. */
+      voci.set(posto, {
+        ...proiettata,
+        ...Object.fromEntries(
+          Object.entries(gia).filter(([, valore]) => valore != null && valore !== ""),
+        ),
+        contactOnly: Boolean(gia.contactOnly || proiettata.contactOnly),
+        accessRevokedAt: gia.accessRevokedAt || proiettata.accessRevokedAt,
+      });
+    }
+    return [...voci.entries()]
+      .sort((sinistra, destra) => sinistra[0] - destra[0])
+      .map(([, voce]) => voce);
+  };
+
+  /*
+    **I due registri tornano, come proiezione.**
+
+    WP-C li aveva cancellati, e come **archivio** e giusto: erano il surrogato
+    di una chiave unica, e cio che li rendeva pericolosi era che qualcuno
+    potesse scriverli. Ma tre lettori li consultano ancora per decidere **chi
+    riceve** un avviso — i solleciti degli insoluti, i promemoria del
+    certificato, le notifiche documentali — e senza di loro una persona
+    revocata continuava ad arrivare fra i destinatari: gli avvisi sulla salute
+    di un minore, e il sollecito con il link per pagare.
+
+    Il difetto nasceva dal caso ordinario di ADR-0114: madre e padre con **un
+    solo indirizzo di famiglia**. Revocare la madre chiude la sua riga, ma la
+    riga del padre porta lo stesso indirizzo, e da li quei lettori risolvevano
+    di nuovo l'utenza della madre.
+
+    Qui i due elenchi sono **derivati**: si ricavano dalle righe a ogni
+    scrittura, la rotta generica li toglie da cio che riceve, e nessuna
+    decisione di accesso li guarda — quella la prende `findGuardianLinks`
+    sulle righe. Sono una denormalizzazione, non un secondo archivio.
+  */
+  const registro = (elenco: GuardianRow[], filtro: (r: GuardianRow) => boolean) => {
+    const identita = new Set<string>();
+    for (const riga of elenco) {
+      if (!filtro(riga)) continue;
+      for (const valore of [riga.identity_key, riga.user_id, riga.email]) {
+        const pulito = normalizza(valore);
+        if (pulito && !pulito.startsWith("riga:")) identita.add(pulito);
+      }
+    }
+    return [...identita];
+  };
+
+  const gettoni = await gettoniDeiTutori(tx, identificativi);
+
   let scritte = 0;
   for (const athleteId of identificativi) {
     const fresca = await tx.athlete.findUnique({
@@ -1281,7 +1804,18 @@ export const refreshGuardianProjection = async (
       data: {
         data: {
           ...base,
-          guardians: (perAtleta.get(athleteId) || []).map(proiettaRiga),
+          guardians: perPosizione(
+            perAtleta.get(athleteId) || [],
+            gettoni.get(athleteId) || [],
+          ),
+          revokedGuardianIdentities: registro(
+            perAtleta.get(athleteId) || [],
+            (riga) => Boolean(riga.revoked_at),
+          ),
+          contactOnlyIdentities: registro(
+            perAtleta.get(athleteId) || [],
+            (riga) => Boolean(riga.contact_only),
+          ),
         },
       },
     });
@@ -1333,6 +1867,8 @@ export const readGuardianInputFromCard = (valore: unknown): GuardianInput[] => {
         posizione o da un id sintetico.
       */
       rowId: testo(riga.id),
+      /* Cio che non ha una colonna si conserva: vedi `residuo`. */
+      extra: riga as Record<string, unknown>,
       email:
         testo(riga.linkedUserEmail) ||
         testo(riga.linked_user_email) ||
@@ -1341,5 +1877,10 @@ export const readGuardianInputFromCard = (valore: unknown): GuardianInput[] => {
       lastName: testo(riga.surname) || testo(riga.lastName) || testo(riga.last_name),
       phone: testo(riga.phone) || testo(riga.telefono),
       relationship: testo(riga.relationship) || testo(riga.role),
+      /*
+        La chiave storica resta: e cio che una scheda non ancora salvata dopo
+        il travaso, o una linguetta aperta da prima, continua a mandare.
+      */
+      legacyId: testo(riga.id),
     }));
 };

@@ -2161,8 +2161,24 @@ const eseguiDecisione = async (
         lastName: asText(patch.surname),
         phone: asText(patch.phone),
         relationship: asText(patch.relationship),
+        /*
+          Il codice fiscale di un tutore arriva dal modulo di iscrizione ed e
+          cio che finisce sulla ricevuta che una famiglia porta in detrazione:
+          si conserva, insieme a tutto cio che la tabella non ha una colonna
+          per tenere.
+        */
+        extra: patch as Record<string, unknown>,
       },
       contactOnly: !compilataDalClub,
+      /*
+        Approvare una pratica non e un atto di concessione piu di quanto lo sia
+        salvare un'anagrafica: chi la compie chiede la stessa chiave. Un ruolo
+        ristretto ai soli moduli si scriveva altrimenti addosso il fascicolo
+        sanitario di un minore qualunque, con «Genitore aggiunto» in audit.
+      */
+      canGrantAccess:
+        roleHasPermission(scope.activeRole, "accounts.athlete.manage") &&
+        hasHealthPermission(scope.activeRole, "clinical.read"),
       replacesGuardianRowId: rigaScelta ? asText(rigaScelta.id) : null,
     });
 

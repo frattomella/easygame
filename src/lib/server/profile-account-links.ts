@@ -590,6 +590,7 @@ export const unlinkGuardianAccount = async (
   await revokeGuardianRow(prisma, {
     athleteId: atleta.id,
     guardianRowId: riga.id,
+    organizationId: atleta.organization_id,
   });
 
   /*

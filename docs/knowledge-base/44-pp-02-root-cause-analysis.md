@@ -506,3 +506,66 @@ La regola vecchia vive percio **dentro la sonda**, copiata dal codice che
 c'era. Che la copia sia fedele non e un'opinione: prima del cutover girava
 contro l'originale e dava lo stesso verdetto su tutti e ventiquattro i casi,
 divergenze comprese e con lo stesso verso.
+
+---
+
+## PP-02 — il vaglio strutturale, e i sette reperti (2026-09-06)
+
+Due revisori indipendenti hanno attaccato il passaggio dei tutori all'archivio
+relazionale, con la regola che ogni sonda dovesse **discriminare**: mutare la
+difesa e mostrare che diventa rossa.
+
+Hanno trovato **sette difetti**. Cinque li aveva introdotti il passaggio stesso,
+poche ore prima. E il numero che conta di piu e un altro: fra le **268 sonde
+contro PostgreSQL e i 4.754 test** che c'erano gia, **nessuna** ne vedeva uno.
+
+| Reperto | Gravita | Il presupposto che era falso |
+|---|---|---|
+| il primo salvataggio di una scheda **travasata** cancellava l'accesso del tutore, o rispondeva 403 e la scheda non si salvava piu | **Critical** | «se la chiave calcolata non combacia, l'identita e cambiata» — su una scheda travasata non combacia **mai**: la chiave e l'utenza, cio che torna e l'indirizzo |
+| una revoca non chiudeva il **gettone** pendente: la persona espulsa lo riscattava e rientrava, con tessera nuova | **Critical** | «il ripristino del gettone non ha piu niente da difendere» — era l'unico posto da cui passava l'identificativo del record |
+| una persona **revocata** restava fra i destinatari dei promemoria sul certificato di un minore e dei solleciti con il link per pagare | **Critical** | «i due registri erano il surrogato di una chiave» — come **archivio** si, come **denormalizzazione per i canali di avviso** servivano ancora |
+| un ruolo ristretto ai **soli moduli** si scriveva addosso il fascicolo sanitario di un minore approvando una pratica | **High** | «chi esamina le pratiche e la gestione» — vero per i quattro ruoli canonici, falso per i ruoli personalizzati, che esistono per sciogliere quel mazzo |
+| l'indirizzo **verificato** si scriveva dal registro generico, e da li si apriva l'area famiglia di un minore qualunque | **High** | «cambiare indirizzo azzera la verifica» — lo fa la rotta dedicata, non il registro |
+| il travaso **fondeva** madre e padre con un indirizzo di famiglia: del secondo restava il nome del primo, e la ricevuta usciva intestata al minore | **High** | «due righe con la stessa identita sono la stessa persona» — con un indirizzo condiviso sono due |
+| la proiezione cancellava **codice fiscale, indirizzo e data di nascita** del tutore, per tutto il club, senza modo di riscriverli | **High** | «la proiezione riproduce la forma vecchia» — riproduceva le colonne che esistevano |
+
+Piu due Medium: cancellare la propria utenza falliva per chiunque fosse tutore
+(`SET NULL` e una `UPDATE`, che il vaglio rifiutava), e `bloccaSchede`
+inghiottiva un `40P01` lasciando la transazione avvelenata e l'operatore con un
+messaggio che non nomina ne la causa ne il rimedio.
+
+### Cosa insegna, al di la delle sette correzioni
+
+**1. Le sonde misuravano le porte, non i dati che ci passano.** Tutte
+seminavano club nuovi. Nessuna seminava un club **travasato**, ed e li che
+vivevano due dei tre Critical: la differenza fra una riga nata dal prodotto e
+una nata dalla migrazione non era misurata da nessuna parte.
+
+**2. Cancellare una difesa chiede la stessa prova che aggiungerla.**
+`restoreGuardianAccessTokens` e stato tolto con la motivazione «non ha piu
+niente da difendere». Era vero per cio che difendeva **in vista** — il gettone
+dentro il blob — e falso per cio che trasportava: l'identificativo del record.
+Nessuna sonda copriva quel trasporto, perche nessuno lo aveva mai chiamato una
+difesa.
+
+**3. Una regola scritta in un posto solo va cercata in tutti i posti che fanno
+la stessa cosa.** «Un salvataggio d'anagrafica non concede accessi» era
+diventata la regola del modulo proprietario, e la porta dei moduli faceva la
+stessa cosa senza gate. La domanda giusta non e «la regola e scritta?» ma
+«quante porte producono questo effetto?».
+
+**4. Una proiezione riproduce cio che le si dice di riprodurre.** Il codice
+fiscale non aveva una colonna, quindi non c'era: e non decideva niente, quindi
+nessuna difesa se ne e accorta. Cio che non decide niente si perde in silenzio.
+
+### La risposta, oltre alle correzioni
+
+`scripts/pp-02-vaglio-strutturale.mjs`: i sette reperti come prove permanenti,
+ognuna con il suo **controllo** — la stessa mossa dove la difesa non deve
+intervenire. Le sonde dei revisori erano usa e getta; queste proprieta non lo
+sono, perche ognuna nasce da un presupposto che sembrava ovvio e sembrera ovvio
+di nuovo.
+
+E `scripts/helpers/travaso-tutori.mjs` cerca adesso **l'ultima** migrazione che
+porti il travaso, invece di nominarla: due volte una sonda ha continuato a
+misurare la versione vecchia, verde, mentre il prodotto era cambiato sotto.

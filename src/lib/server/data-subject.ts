@@ -1332,7 +1332,7 @@ export const eraseDataSubject = async (
     sua madre — dati di terzi, dentro una tabella che nessuna schermata
     mostra piu. Azzerare `data` sarebbe sembrato sufficiente, e non lo era.
   */
-  await eraseGuardiansForAthlete(prisma, subjectId);
+  await eraseGuardiansForAthlete(prisma, subjectId, organizationId);
 
   await (prisma as any).athlete.update({
     where: { id: subjectId },

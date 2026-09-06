@@ -555,6 +555,15 @@ model AthleteGuardian {
   /// di ricavarla da `created_at` — che il travaso scrive uguale per tutte.
   position  Int     @default(0)
 
+  /// **Cio che la scheda porta su una persona e la tabella non ha una colonna
+  /// per tenere**: codice fiscale, indirizzo, data di nascita, e qualunque
+  /// campo che il prodotto aggiungera. Non decide niente — nessun accesso,
+  /// nessuna identita — e proprio per questo si perdeva senza che nessuna
+  /// difesa se ne accorgesse: il primo salvataggio di una scheda azzerava il
+  /// codice fiscale del tutore per tutto il club, e non restava nessuna strada
+  /// per riscriverlo.
+  data      Json?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 

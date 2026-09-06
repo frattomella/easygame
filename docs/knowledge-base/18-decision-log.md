@@ -6882,6 +6882,15 @@ eccezioni implicite. La risposta non e esentare le migrazioni — sarebbe una
 scappatoia che qualunque scrittura potrebbe imboccare — ma che una migrazione
 che tocca i tutori porti quella riga, dove si vede nel diff.
 
+**Una precisazione che una revisione ha imposto.** La garanzia e «uno scrittore
+deve **dichiararsi**», non «solo questo modulo puo scrivere». Chi apre una
+transazione, dichiara il permesso e poi scrive, passa — ed e voluto: e cosi che
+una migrazione tocca i tutori. Ne segue che un diciannovesimo scrittore aggiunto
+**dentro** la transazione del proprietario, dopo la chiamata al modulo,
+verrebbe accettato dall'archivio senza errore. Nessun chiamante lo fa oggi; la
+proprieta e comunque piu debole di come la prima stesura di questo ADR la
+raccontava, e vale la pena saperlo prima di scoprirlo.
+
 **Cosa questa forma non fa.** Non impedisce di scrivere il **blob** accanto:
 quello resta sorvegliato dal fatto che la rotta generica toglie le chiavi dal
 corpo, che e una difesa di codice e non di archivio. E non e verificabile dai
