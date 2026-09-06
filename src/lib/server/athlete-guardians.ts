@@ -202,6 +202,12 @@ const residuo = (
   const tenuti: Record<string, unknown> = {};
   for (const [chiave, valore] of Object.entries(grezzo)) {
     if (CHIAVI_CON_UNA_COLONNA.has(chiave)) continue;
+    /*
+      `escluseDietro` lo deriva la proiezione a ogni scrittura: rimandarlo
+      indietro lo scriverebbe dentro la riga viva, che e il modo in cui il
+      miscuglio di due persone finiva nell'autorita.
+    */
+    if (chiave === "escluseDietro") continue;
     if (valore === undefined) continue;
     tenuti[chiave] = valore;
   }
@@ -1017,6 +1023,35 @@ export const saveGuardianRegistry = async (
         riga `contact_only` invece si puo togliere — non apre niente, e
         riscriverla costa comunque la chiave della concessione.
       */
+      /*
+        **La riga revocata segue la sua voce prima di fermarsi.**
+
+        Questo `continue` stava **prima** del blocco che consulta
+        `mappaPosizioni`, quindi una riga revocata nascosta dietro una voce non
+        si spostava mai. Finche `occupate` teneva ferma la sua posizione,
+        restare immobile era innocuo — nessuno poteva prendergliela. La
+        correzione precedente le ha tolto quella protezione **senza darle una
+        strada per spostarsi**, e la posizione liberata la prendeva un'altra
+        voce: da li una posizione che tiene insieme una riga revocata e un
+        recapito estraneo, cioe la configurazione del difetto qui sopra,
+        prodotta da tre gesti tutti ordinari.
+
+        Le due si mascheravano a vicenda: chiudere solo l'altra faceva sparire
+        il danno visibile e lasciava in piedi la collisione.
+      */
+      const nuovaPosizioneDellaRevocata = riga.revoked_at
+        ? mappaPosizioni.get(Number(riga.position ?? 0))
+        : undefined;
+      if (
+        nuovaPosizioneDellaRevocata !== undefined &&
+        nuovaPosizioneDellaRevocata !== Number(riga.position ?? 0)
+      ) {
+        await tx.athleteGuardian.update({
+          where: { id: riga.id },
+          data: { position: nuovaPosizioneDellaRevocata },
+        });
+      }
+
       if (riga.revoked_at) continue;
 
       /*
@@ -2488,6 +2523,41 @@ export const refreshGuardianProjection = async (
         Una voce che contiene una persona esclusa e una viva mostra la viva, e
         **solo** la viva: i suoi campi vuoti restano vuoti.
       */
+      /*
+        **Chi sta dietro la voce non sparisce dalla scheda.**
+
+        Da quando la voce mista mostra la persona viva e **solo** lei, della
+        riga esclusa non restava nessuna traccia leggibile: l'operatore non
+        poteva vedere che dietro quella posizione c'e qualcuno che il club ha
+        escluso, mentre `revokeGuardianRow` continua a revocare **per
+        posizione** — la porta che revoca ragionava su qualcosa che la porta
+        che mostra non dichiarava piu.
+
+        La traccia sta in un campo **suo**, non nei campi della voce: metterla
+        li sarebbe stato il difetto del giro prima, dove il codice fiscale
+        dell'esclusa finiva sulla ricevuta della persona viva. I due lettori
+        dei documenti guardano i campi della voce e non questo; la scheda
+        guarda questo.
+      */
+      const dietroLaVoce = (v: Record<string, unknown>) =>
+        esclusa(v)
+          ? [
+              {
+                id: v.id ?? null,
+                name: v.name ?? null,
+                surname: v.surname ?? null,
+                accessRevokedAt: v.accessRevokedAt ?? null,
+                contactOnly: v.contactOnly === true,
+              },
+            ]
+          : [];
+
+      const escluseDietro = [
+        ...((gia.escluseDietro as unknown[]) || dietroLaVoce(gia)),
+        ...dietroLaVoce(proiettata),
+      ];
+
+      const escluseTutte = esclusa(gia) && esclusa(proiettata);
       const anagraficaDaTenere =
         esclusa(gia) && !esclusa(proiettata) ? proiettata : gia;
 
@@ -2495,11 +2565,36 @@ export const refreshGuardianProjection = async (
         posto,
         voce: {
           ...anagraficaDaTenere,
-          contactOnly: Boolean(gia.contactOnly) && Boolean(proiettata.contactOnly),
-          accessRevokedAt:
-            gia.accessRevokedAt && proiettata.accessRevokedAt
-              ? gia.accessRevokedAt
-              : null,
+          /*
+            **I marchi si piegano con la stessa domanda che li legge.**
+
+            `esclusa` e un **OR** — revocata **oppure** di solo recapito — ma
+            i due marchi si ripiegavano con due **AND indipendenti**. Una voce
+            le cui righe fossero tutte escluse ma **in due modi diversi** — una
+            revocata, una di solo recapito — usciva percio senza **nessuno** dei
+            due marchi: viva agli occhi di chi la legge.
+
+            Misurato: la ricevuta nuova intestata alla persona che il club aveva
+            escluso, con il suo codice fiscale e il suo indirizzo. Cioe
+            esattamente cio che la correzione precedente dichiarava di chiudere.
+
+            Peggio, l'accumulatore: `gia` porta i marchi gia piegati, quindi
+            con tre righe sulla stessa posizione — un recapito, una revocata e
+            una **viva** — al secondo passo l'accumulatore li perdeva tutti e
+            due, al terzo `esclusa(gia)` rispondeva falso, e la riga viva non
+            vinceva piu: la scheda mostrava chi aveva compilato un modulo
+            pubblico, e il genitore vivo spariva.
+
+            La voce e esclusa se **tutte** le righe lo sono, con la stessa
+            domanda; e allora porta il marchio che quelle righe hanno.
+          */
+          ...(escluseDietro.length ? { escluseDietro } : {}),
+          contactOnly: escluseTutte
+            ? Boolean(gia.contactOnly || proiettata.contactOnly)
+            : false,
+          accessRevokedAt: escluseTutte
+            ? gia.accessRevokedAt || proiettata.accessRevokedAt || null
+            : null,
         },
       });
     }

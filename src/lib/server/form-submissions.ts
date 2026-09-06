@@ -113,6 +113,21 @@ const toIso = (value: unknown) =>
 
 const denied = (message: string) => new Error(`Accesso negato: ${message}`);
 
+/**
+ * Vero se una voce della proiezione dei tutori e **esclusa**: revocata, oppure
+ * dichiarata come solo recapito. E lo stesso predicato dei due lettori dei
+ * documenti (ADR-0149), scritto qui perche questo e il terzo.
+ */
+const voceEsclusa = (voce: unknown): boolean => {
+  const v =
+    voce && typeof voce === "object" ? (voce as Record<string, any>) : {};
+  return (
+    Boolean(v.accessRevokedAt || v.access_revoked_at) ||
+    v.contactOnly === true ||
+    v.contact_only === true
+  );
+};
+
 const ensureOrganizationAccess = (
   scope: FormsAccessScope | undefined,
   organizationId: string | null | undefined,
@@ -233,14 +248,26 @@ const loadSubjectRecords = async (
     (selection) => selection.subject === "guardian",
   );
   if (guardianSelection) {
+    /*
+      **Una voce esclusa non e un soggetto.**
+
+      I due lettori dei documenti scartano le voci revocate e quelle di solo
+      recapito (ADR-0149); questo — che sceglie di **quale tutore** parla una
+      pratica — non lo faceva. Una voce apertamente revocata diventava percio il
+      soggetto di una compilazione, e da li l'approvazione ci scriveva sopra.
+
+      E il terzo lettore posizionale, ed e il gemello che le due correzioni
+      precedenti non avevano allargato.
+    */
     const guardians = Array.isArray(athlete?.data?.guardians)
       ? athlete!.data.guardians
       : [];
     const index = Number(guardianSelection.recordId);
-    records.guardian =
+    const voceScelta =
       Number.isInteger(index) && index >= 0 && index < guardians.length
         ? guardians[index]
         : null;
+    records.guardian = voceEsclusa(voceScelta) ? null : voceScelta;
   }
 
   for (const subject of ["trainer", "staff", "member"] as const) {
@@ -2139,10 +2166,12 @@ const eseguiDecisione = async (
       (entry) => entry.subject === "guardian",
     );
     const index = Number(selection?.recordId);
-    const rigaScelta =
+    const voceIndicata =
       Number.isInteger(index) && index >= 0 && index < proiezione.length
         ? proiezione[index]
         : null;
+    /* Come sopra: una voce esclusa non e la riga che si sta sostituendo. */
+    const rigaScelta = voceEsclusa(voceIndicata) ? null : voceIndicata;
 
     /*
       **Cio che sedici stesure non erano riuscite a difendere, qui non c'e piu

@@ -374,15 +374,28 @@ const caricaAllenatoreDelClubAttivo = async (
     quindi basta che una segreteria corregga il telefono del proprio allenatore
     perche la riga altrui passi davanti.
   */
+  /*
+    **Senza un club attivo non si cerca affatto.**
+
+    `?? undefined` e la forma che questo stesso file dichiara vietata dieci
+    righe piu sotto: con Prisma un campo `undefined` in un `where` **toglie**
+    il filtro invece di restringerlo, quindi uno scope senza club attivo
+    tornava a cercare in tutto l'archivio. Non e raggiungibile dalla rotta —
+    un'altra guardia scatta prima — ma una difesa che dipende da chi la chiama
+    non e una difesa: e la stessa lezione che questo pacchetto ha gia scritto
+    due volte.
+  */
   const record =
     perUuid ||
-    (await prisma.clubResourceItem.findFirst({
-      where: {
-        organization_id: scope.activeOrganizationId ?? undefined,
-        resource_type: { in: [...TIPI_ALLENATORE] },
-        payload: { path: ["id"], equals: id },
-      },
-    }));
+    (testo(scope.activeOrganizationId)
+      ? await prisma.clubResourceItem.findFirst({
+          where: {
+            organization_id: String(scope.activeOrganizationId),
+            resource_type: { in: [...TIPI_ALLENATORE] },
+            payload: { path: ["id"], equals: id },
+          },
+        })
+      : null);
 
   if (!record) throw new Error("Allenatore non trovato");
   assertActiveClub(scope, record.organization_id, "l'allenatore");
