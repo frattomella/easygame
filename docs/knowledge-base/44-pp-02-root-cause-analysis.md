@@ -858,3 +858,57 @@ Un revisore perso non e una revisione persa a zero: le **ipotesi** che aveva
 scritto sono sopravvissute nel file di sonda, e una si e chiusa senza bisogno
 del suo referto. Vale la pena scrivere in testa a una sonda *quale frase si sta
 cercando di falsificare*, prima di riuscirci.
+
+---
+
+## Il sesto vaglio indipendente (2026-09-06)
+
+**2 Critical, 1 High, 1 Low.** Le due ipotesi che il revisore interrotto aveva
+lasciato scritte in testa alla sua sonda erano **vere tutte e due**, ed erano la
+stessa: la `position` era diventata una chiave che nessuno teneva unica
+(ADR-0142).
+
+Il difetto piu istruttivo non e pero nel prodotto. E nella sonda.
+
+### La terza sonda vacua, e la peggiore
+
+ADR-0141 — scritto il giorno prima — aveva introdotto una sonda che confronta la
+funzione viva del vaglio d'archivio con quella dichiarata dalla migrazione,
+**proprio** perche l'ambiente aveva gia subito una deriva silenziosa.
+
+Il vaglio l'ha falsificata in due mosse: spegnere il trigger, o riscrivere la
+funzione con tutte le condizioni dichiarate e il `RAISE EXCEPTION` sostituito da
+un `RETURN`. In entrambi i casi **la sonda resta verde** e una scrittura fuori
+dal modulo passa.
+
+Terza volta che una sonda di questo pacchetto cerca un **nome** invece di un
+**atto**:
+
+1. il vaglio strutturale cercava `bloccaSchede` nel testo, e trovava l'`import`;
+2. due asserzioni descrivevano lo **stato di sfruttamento** invece della
+   proprieta, e passavano solo finche il difetto c'era;
+3. questa confrontava il **testo** di una difesa invece di tentarla.
+
+E la terza e la piu grave, perche era stata scritta apposta per accorgersi di
+qualcosa che il codice non mostra. **Una difesa dell'archivio si misura tentando
+di violarla** (ADR-0143) — e la scrittura deve toccare una riga che esiste: la
+prima correzione scriveva su un atleta inesistente ed era verde con il vaglio
+spento, perche un trigger di riga su zero righe non scatta. La stessa forma di
+errore che stava misurando, due volte di fila.
+
+### La correzione che ha rotto la correzione precedente
+
+Allineando la revoca alla lettura — «si chiude la persona su questa scheda, non
+la voce che la mostra» — la sonda del quarto vaglio e diventata rossa: la regola
+di ADR-0139, che risparmia le righe con l'utenza di **un'altra** persona, ora
+risparmiava anche le righe **dentro la voce** che l'operatore aveva
+esplicitamente tolto.
+
+Le due regole erano entrambe giuste e in conflitto, e la distinzione che le
+riconcilia non e sulla gravita ma sulla **provenienza della selezione**: la voce
+e cio che l'operatore ha davanti e ha deciso di togliere — intenzione
+dichiarata; l'estensione per identita e inferenza nostra. La regola del terzo
+risparmiato vale sulla seconda, non sulla prima.
+
+Senza la sonda del quarto vaglio ancora in piedi, questa correzione avrebbe
+riaperto in silenzio un Critical chiuso due giorni prima.

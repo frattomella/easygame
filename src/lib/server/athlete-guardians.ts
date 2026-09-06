@@ -348,6 +348,10 @@ export type GuardianRow = {
  * il piano di query. La posizione e percio una colonna, e `id` chiude
  * l'ordinamento perche due righe non possano scambiarsi fra due letture.
  */
+/** La forma di un identificativo: serve a non passare un indirizzo a una colonna UUID. */
+const SEMBRA_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const ORDINE_STABILE = [
   { position: "asc" as const },
   { created_at: "asc" as const },
@@ -609,6 +613,50 @@ export const saveGuardianRegistry = async (
 
       inArrivo.push({ input, posizione, riga: bersaglio, chiave });
     });
+
+    /*
+      **La posizione e una chiave di fatto, e va tenuta unica.**
+
+      Due cose la usano per decidere: la proiezione **fonde** le righe che la
+      condividono, e `revokeGuardianRow` **revoca** tutte quelle che la
+      condividono. Ma finora la si assegnava con l'indice dell'array in arrivo,
+      mentre le righe **revocate** — che la `DELETE` risparmia apposta — la
+      loro se la tenevano. Bastava percio revocare un tutore e poi salvare la
+      scheda senza la sua voce (il gesto naturale: quella persona non e piu un
+      tutore) perche una riga viva ereditasse la posizione di quella revocata.
+
+      Misurato da una revisione indipendente, dalla rotta HTTP vera e con un
+      ruolo di club a zero caselle spuntate. Da li due esiti, decisi da quale
+      delle due righe vince l'ordinamento — cioe dal caso:
+
+      * **vince la revocata**: la voce porta il suo identificativo, e il
+        salvataggio successivo non nomina piu la riga viva e la **cancella**.
+        Un tutore legittimo perde il figlio senza una revoca, senza una
+        schermata e senza una riga di audit;
+      * **vince la viva**: la voce porta l'identificativo del tutore vivo e il
+        **marchio della revoca** dell'altra. La schermata dice chiuso e
+        l'archivio dice aperto — un falso senso di revoca, che resta tale per
+        sempre.
+
+      Le posizioni tenute da chi sopravvive a questo salvataggio senza esserne
+      nominato si saltano. Cio che il client manda conserva il proprio **ordine**
+      relativo, che e l'unica cosa che i lettori posizionali guardano.
+    */
+    const nominate = new Set(
+      inArrivo.map((voce) => voce.riga?.id).filter(Boolean) as string[],
+    );
+    const occupate = new Set(
+      esistenti
+        .filter((riga) => riga.revoked_at && !nominate.has(riga.id))
+        .map((riga) => Number(riga.position ?? 0)),
+    );
+
+    let prossima = 0;
+    for (const voce of inArrivo) {
+      while (occupate.has(prossima)) prossima += 1;
+      voce.posizione = prossima;
+      prossima += 1;
+    }
 
     const aggiunte: string[] = [];
     const aggiornate: string[] = [];
@@ -1260,16 +1308,97 @@ export const revokeGuardianRow = async (
       },
     })) as GuardianRow | null;
 
-    const aggiornate = await tx.athleteGuardian.updateMany({
+    /*
+      **Si chiude la persona su questa scheda, non la voce che la mostra.**
+
+      La voce era gia meglio della riga: la scheda ne mostra una dove il
+      travaso puo averne messe due, e toglierla deve toglierle tutte. Ma la
+      porta che **decide** un accesso non ragiona ne per riga ne per voce:
+      `findGuardianLinks` chiude **la persona su quella scheda**, cercando
+      fra le righe revocate la sua utenza, la sua chiave e il suo indirizzo.
+
+      Le due nozioni divergono appena la stessa persona sta su **due
+      posizioni** — la forma che il travaso produce da una scheda in cui la
+      segreteria aveva scritto lo stesso genitore due volte, una collegata e
+      una di solo recapito con lo stesso indirizzo. Misurato da una revisione
+      indipendente: la revoca chiudeva la lettura, l'audit era in ordine, e il
+      gettone che nomina l'altra posizione restava `active`. Chi lo aveva in
+      tasca lo riscattava e rientrava nel fascicolo del minore.
+
+      E la terza volta che questo pacchetto riapre la stessa forma, e la
+      seconda di fila per la stessa ragione: una difesa allargata **a meta**.
+      Le tre porte — cio che si legge, cio che si revoca, cio che si chiude —
+      guardano da qui la stessa cosa.
+
+      Resta la regola di ADR-0139: una riga che porta **l'utenza di un'altra
+      persona** e provatamente di un'altra persona, e non si tocca.
+    */
+    /*
+      Le identita si separano per colonna: `user_id` e un UUID, e passargli un
+      indirizzo fa fallire l'intera transazione sul cast, non filtrare a vuoto.
+    */
+    const identita = [
+      nominata?.user_id,
+      nominata?.identity_key,
+      nominata?.email,
+    ]
+      .map(normalizza)
+      .filter(Boolean);
+
+    const utenze = [...new Set(identita.filter((valore) => SEMBRA_UUID.test(valore)))];
+    const chiavi = [...new Set(identita)];
+
+    const candidate = (await tx.athleteGuardian.findMany({
       where: {
         athlete_id: parametri.athleteId,
-        ...(nominata
-          ? { position: nominata.position ?? 0 }
-          : { id: parametri.guardianRowId }),
         ...(parametri.organizationId
           ? { organization_id: parametri.organizationId }
           : {}),
+        OR: [
+          { id: parametri.guardianRowId },
+          ...(nominata ? [{ position: nominata.position ?? 0 }] : []),
+          ...(utenze.length ? [{ user_id: { in: utenze } }] : []),
+          ...(chiavi.length
+            ? [{ identity_key: { in: chiavi } }, { email: { in: chiavi } }]
+            : []),
+        ],
       },
+      orderBy: ORDINE_STABILE,
+    })) as GuardianRow[];
+
+    /*
+      **La voce e intenzione, l'identita e inferenza — e si trattano diverso.**
+
+      La regola di ADR-0139 — una riga che porta l'utenza di **un'altra**
+      persona non si tocca — nasce da una revoca **di club**, dove le righe si
+      raggiungono per indirizzo e l'indirizzo di famiglia e ambiguo: li
+      risparmiare un terzo e giusto, perche nessuno lo ha nominato.
+
+      Qui e diverso su meta della selezione. La **voce** — la riga nominata e
+      quelle che ne condividono la posizione — e cio che l'operatore ha davanti
+      e ha deciso di togliere: la scheda gliene mostra una sola, e dietro
+      possono esserci due persone che lui non vede. Risparmiarne una perche
+      «e un'altra persona» le lascerebbe un accesso vivo che **nessuna
+      schermata mostra**, ed e il difetto Critical che questa porta aveva.
+
+      L'**estensione per identita** invece e inferenza nostra: li la regola
+      vale piena.
+    */
+    const suaUtenza = normalizza(nominata?.user_id);
+    const nellaVoce = (riga: GuardianRow) =>
+      riga.id === parametri.guardianRowId ||
+      (nominata ? Number(riga.position ?? 0) === Number(nominata.position ?? 0) : false);
+
+    const revocate = candidate.filter((riga) => {
+      if (nellaVoce(riga)) return true;
+      const altra = normalizza(riga.user_id);
+      return !altra || !suaUtenza || altra === suaUtenza;
+    });
+
+    if (!revocate.length) return null;
+
+    const aggiornate = await tx.athleteGuardian.updateMany({
+      where: { id: { in: revocate.map((riga) => riga.id) } },
       data: {
         revoked_at: new Date(),
         user_id: null,
@@ -1279,35 +1408,6 @@ export const revokeGuardianRow = async (
     });
 
     if (!aggiornate.count) return null;
-
-    /*
-      **I gettoni si chiudono su tutte le righe della voce, non su quella
-      nominata.**
-
-      La `updateMany` qui sopra revoca l'intera voce — tutte le righe che la
-      scheda mostra come una sola — ma lo sweep dei gettoni riceveva un array
-      di **una** riga: quella che il chiamante aveva nominato. Un invito che
-      nominasse una delle altre restava percio `active` dopo una revoca
-      riuscita, e chi lo aveva in tasca rientrava: `linkGuardianAccount` azzera
-      `revoked_at` e riscrive l'utenza.
-
-      E la stessa forma di difetto che questo pacchetto ha gia chiuso due volte
-      — una revoca che lascia viva la sua strada di ritorno — riaperta
-      allargando la revoca e **non** allargando cio che la accompagna. Quando
-      si allarga una porta si allarga anche cio che la porta chiude.
-    */
-    const revocate = (await tx.athleteGuardian.findMany({
-      where: {
-        athlete_id: parametri.athleteId,
-        ...(nominata
-          ? { position: nominata.position ?? 0 }
-          : { id: parametri.guardianRowId }),
-        ...(parametri.organizationId
-          ? { organization_id: parametri.organizationId }
-          : {}),
-      },
-      orderBy: ORDINE_STABILE,
-    })) as GuardianRow[];
 
     await revocaIGettoni(tx, parametri.athleteId, revocate);
 

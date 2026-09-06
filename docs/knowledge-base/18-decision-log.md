@@ -7226,3 +7226,100 @@ E il seguito di ADR-0117 su una terza superficie: li il dominio era un'enum, poi
 un elenco di moduli, qui e il corpo di una funzione dell'archivio.
 
 **Vedi anche.** ADR-0119 (l'archivio fa valere il proprietario), ADR-0117.
+
+## ADR-0142 — La posizione e una chiave di fatto, e va tenuta unica
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+sesto vaglio indipendente
+
+### Il fatto
+
+`athlete_guardians.position` era nata come una **compatibilita**: tre lettori
+prendono i tutori per posto, e la proiezione doveva continuare a dargliene uno.
+Ma nel frattempo due decisioni hanno cominciato a poggiarci sopra: la proiezione
+**fonde** le righe che condividono una posizione, e `revokeGuardianRow`
+**revoca** tutte quelle che la condividono.
+
+Da quel momento la posizione non era piu una compatibilita: era una **chiave**.
+E nessuno la teneva unica. Le righe in arrivo la prendevano dall'indice
+dell'array; le righe **revocate** — che la cancellazione risparmia apposta — se
+la tenevano. Bastava percio revocare un tutore e poi salvare la scheda senza la
+sua voce (il gesto naturale: quella persona non e piu un tutore) perche una riga
+viva ereditasse la posizione di una revocata.
+
+Misurato dalla rotta HTTP vera, con un ruolo di club a **zero caselle**
+spuntate. Due esiti, decisi da quale delle due righe vince l'ordinamento — cioe
+dal caso:
+
+* **vince la revocata**: la voce porta il suo identificativo, e il salvataggio
+  successivo non nomina piu la riga viva e la **cancella**. Un tutore legittimo
+  perde il figlio senza una revoca, senza una schermata, senza audit;
+* **vince la viva**: la voce porta l'identificativo del tutore vivo e il
+  **marchio della revoca** dell'altra. La schermata dice chiuso, l'archivio dice
+  aperto — un falso senso di revoca, permanente.
+
+### La decisione
+
+Le posizioni tenute da chi sopravvive a un salvataggio senza esserne nominato si
+**saltano**. Cio che il client manda conserva il proprio **ordine relativo**, che
+e l'unica cosa che i lettori posizionali guardano.
+
+**La regola generale.** Quando una colonna nata per compatibilita comincia a
+decidere qualcosa — che cosa si fonde, che cosa si revoca — e diventata una
+chiave, e va tenuta unica come una chiave. Il momento in cui cambia natura non
+si annuncia: si riconosce guardando **chi la interroga per decidere**.
+
+### E la revoca guarda cio che guarda la lettura
+
+Lo stesso vaglio ha trovato che `revokeGuardianRow` chiudeva **la voce** mentre
+`findGuardianLinks` chiude **la persona su quella scheda**. Le due nozioni
+divergono appena la stessa persona sta su due posizioni — la forma che il
+travaso produce quando la segreteria aveva scritto lo stesso genitore due volte.
+Misurato: la revoca chiudeva la lettura, l'audit era in ordine, e il gettone che
+nomina l'altra posizione restava `active`. Chi lo aveva in tasca rientrava.
+
+Le tre porte — cio che si legge, cio che si revoca, cio che si chiude — guardano
+ora la stessa cosa.
+
+### La voce e intenzione, l'identita e inferenza
+
+Allineandole e emerso che la regola di ADR-0139 — una riga che porta l'utenza di
+un'altra persona non si tocca — non puo valere su tutta la selezione. Nasce da
+una revoca **di club**, dove le righe si raggiungono per indirizzo e nessuno ha
+nominato il terzo. Ma la **voce** e cio che l'operatore ha davanti e ha deciso di
+togliere, e dietro possono esserci due persone che lui non vede: risparmiarne
+una perche «e un'altra persona» le lascia un accesso che nessuna schermata
+mostra.
+
+La regola vale percio piena sull'**estensione per identita**, che e inferenza
+nostra, e non sulla **voce**, che e intenzione dichiarata.
+
+**Vedi anche.** ADR-0139, ADR-0140, ADR-0141, ADR-0118.
+
+## ADR-0143 — Una difesa dell'archivio si misura tentando di violarla
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02, terza sonda
+vacua del pacchetto
+
+ADR-0141 aveva introdotto una sonda che confronta la funzione **viva** del
+vaglio d'archivio con quella dichiarata dalla migrazione. Il sesto vaglio l'ha
+falsificata in due modi: con `ALTER TABLE ... DISABLE TRIGGER` la funzione resta
+identica e la sonda resta **verde** mentre una scrittura fuori dal modulo passa;
+e lo stesso con una funzione che porti **tutte** le condizioni dichiarate e il
+`RAISE EXCEPTION` sostituito da un `RETURN`.
+
+E la terza volta che una sonda di questo pacchetto cerca un **nome** invece di
+un **atto** — la prima cercava `bloccaSchede` nel testo e trovava l'`import`, la
+seconda asseriva lo stato di sfruttamento invece della proprieta — ed e la piu
+grave, perche questa era stata scritta apposta per accorgersi di una deriva.
+
+**La regola.** Il confronto testuale dice **quale** condizione manca, e serve a
+diagnosticare. Cio che dice **se la difesa c'e** e il tentativo di scrivere. La
+sonda tenta ora una scrittura fuori dal modulo e ne pretende il rifiuto, con il
+controllo speculare — la stessa scrittura, dichiarandosi, deve passare.
+
+E la scrittura deve toccare una **riga che esiste**: la prima stesura scriveva su
+un atleta inesistente e restava verde con il vaglio spento, perche un trigger di
+riga su zero righe non scatta. La stessa forma di errore che stava misurando.
+
+**Vedi anche.** ADR-0141, ADR-0138, ADR-0117.

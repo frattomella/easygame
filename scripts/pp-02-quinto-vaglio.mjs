@@ -658,6 +658,83 @@ const main = async () => {
       condizioni.filter((riga) => !viva.includes(riga)),
       "l'archivio e andato alla deriva dalla migrazione: la difesa non e quella committata",
     );
+
+    /*
+      **E soprattutto: la difesa MORDE.**
+
+      L2 confronta un testo, e un testo non e un atto. Misurato da una
+      revisione indipendente: con `ALTER TABLE ... DISABLE TRIGGER` la
+      funzione resta identica e L2 resta **verde**, mentre una scrittura fuori
+      dal modulo proprietario passa; e lo stesso con una funzione che porti
+      **tutte** le condizioni dichiarate e il `RAISE EXCEPTION` sostituito da
+      un `RETURN`.
+
+      E la terza volta che una sonda di questo pacchetto cerca un **nome**
+      invece di un **atto** — ed e tanto piu grave qui, perche questa sonda era
+      stata scritta apposta per accorgersi di una deriva dell'archivio. Il
+      confronto testuale dice *quale* condizione manca, e serve a diagnosticare;
+      cio che dice se la difesa c'e e il tentativo di scrivere.
+    */
+    /*
+      **La riga deve esistere**, o non si sta misurando niente: il vaglio e un
+      trigger di riga, e una `updateMany` che non ne tocca nessuna riesce da
+      se. La prima stesura di L3 scriveva su un atleta inesistente ed era
+      **verde con il vaglio spento** — la stessa forma di errore che stava
+      misurando.
+    */
+    const cavia = await atleta("CaviaVaglio");
+    await tutori.saveGuardianRegistry(prisma, {
+      organizationId: CLUB,
+      athleteId: cavia,
+      rows: [{ firstName: "Cavia", lastName: "Vaglio", email: email("cavia") }],
+      canGrantAccess: true,
+    });
+
+    const scrivi = (client) =>
+      client.athleteGuardian.updateMany({
+        where: { athlete_id: cavia },
+        data: { relationship: "vaglio" },
+      });
+
+    prova(
+      "L3 SEMINA — c'e una riga da scrivere, o L3 non misura niente",
+      1,
+      await prisma.athleteGuardian.count({ where: { athlete_id: cavia } }),
+    );
+
+    const scritturaFuori = await scrivi(prisma)
+      .then((esito) => (esito.count ? "passata" : "nessuna riga toccata"))
+      .catch((errore) =>
+        /fuori dal modulo proprietario/i.test(String(errore?.message || errore))
+          ? "respinta"
+          : `altro errore: ${String(errore?.message || errore).slice(0, 60)}`,
+      );
+
+    prova(
+      "L3 una scrittura fuori dal modulo proprietario e RESPINTA dall'archivio",
+      "respinta",
+      scritturaFuori,
+      "il vaglio e spento o non solleva: L2 da sola non se ne accorgerebbe",
+    );
+
+    /*
+      **Il controllo**: la stessa scrittura, dentro una transazione che si
+      dichiara, passa. Senza questa meta, un archivio che rifiutasse **tutto**
+      — o una tabella sparita — passerebbe L3.
+    */
+    const scritturaDentro = await prisma
+      .$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET LOCAL "easygame.guardian_writer" = 'on'`);
+        return scrivi(tx);
+      })
+      .then((esito) => (esito.count ? "passata" : "nessuna riga toccata"))
+      .catch((errore) => `respinta: ${String(errore?.message || errore).slice(0, 60)}`);
+
+    prova(
+      "L4 CONTROLLO la stessa scrittura, dichiarandosi, passa",
+      "passata",
+      scritturaDentro,
+    );
   }
 
 

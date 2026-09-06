@@ -2792,3 +2792,29 @@ Sarebbe un falso senso di revoca — la schermata dice chiuso, l'archivio dice
 aperto — ed e la direzione piu pericolosa fra le due. Ipotesi lasciata dal sesto
 vaglio, **non ancora misurata**: e la prima cosa che il vaglio successivo deve
 attaccare.
+
+### D52 e D53 — chiusi (2026-09-06)
+
+Erano le due ipotesi lasciate dal sesto vaglio interrotto. Il vaglio successivo
+le ha misurate: erano **vere tutte e due**, ed erano **la stessa cosa** — la
+posizione era diventata una chiave che nessuno teneva unica. Chiusi da ADR-0142.
+
+### D54 — La deroga della cascata e tenuta stretta dal vincolo esterno, non dall'elenco delle colonne
+
+Il vaglio d'archivio deroga per l'azzeramento del riferimento a un'utenza
+cancellata, e il commento della migrazione dice «ogni altro campo deve restare
+com'era». In realta fissa **quattro** colonne su dodici: restano libere
+`position` (che decide che cosa si fonde e che cosa si revoca), `legacy_id` (che
+decide quale gettone nomina la riga), `access_token_*`, `first_name`, `data`,
+`linked_at`.
+
+**Non e sfruttabile**, e la ragione non e quella scritta: la premessa della
+deroga (`user_id` valorizzato ma inesistente in `users`) non e ricostruibile a
+riposo, perche la chiave esterna la rifiuta. La deroga vive solo dentro la
+cascata che PostgreSQL genera, che scrive quella colonna e nessun'altra.
+
+A tenerla stretta e quindi il **vincolo esterno**. Se un giorno la FK diventasse
+`NO ACTION` con azzeramento a mano, otto colonne si aprirebbero e nessun commento
+lo direbbe. La migrazione e applicata e non si tocca: la correzione va fatta
+quando una migrazione successiva tocchera quel vaglio, elencando le colonne o
+dichiarando la dipendenza dalla FK.
