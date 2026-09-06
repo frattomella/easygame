@@ -2768,3 +2768,27 @@ Non e un buco di sicurezza — e il verso restrittivo — ed e irraggiungibile d
 conio odierno, perche la scheda quell'identificativo non lo pubblica. Va chiuso
 risolvendo il bersaglio del riscatto sull'**autorita** invece che sulla
 proiezione, insieme a D46.
+
+### D52 — Un salvataggio ordinario cancella la riga nascosta dietro una voce
+
+La proiezione ricompone i tutori per posizione e la scheda mostra una voce dove
+il travaso puo aver messo due righe. Il salvataggio cancella ogni riga viva che
+non sia nominata, e la scheda quella riga non la nomina: il primo salvataggio
+ordinario la distrugge — un tutore legittimo perde l'accesso senza una revoca e
+senza una riga di audit.
+
+Non e un varco (toglie, non concede) ed e la stessa famiglia di D49: il rimedio
+sta nel far portare al salvataggio l'insieme delle righe che la voce rappresenta,
+non un id solo. Ipotesi lasciata dal sesto vaglio, **non ancora misurata**.
+
+### D53 — Le posizioni delle righe revocate non si rinumerano
+
+Le righe in arrivo prendono come `position` l'indice dell'array; le righe
+revocate conservano la loro e non vengono rinumerate. Due righe possono percio
+condividere una posizione, e la proiezione le fonde con la regola «chi chiude
+vince»: un tutore **vivo** comparirebbe come revocato.
+
+Sarebbe un falso senso di revoca — la schermata dice chiuso, l'archivio dice
+aperto — ed e la direzione piu pericolosa fra le due. Ipotesi lasciata dal sesto
+vaglio, **non ancora misurata**: e la prima cosa che il vaglio successivo deve
+attaccare.

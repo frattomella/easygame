@@ -656,10 +656,40 @@ const main = async () => {
         (await cruscotto.getParentLinkedAthletes(nascosta.user_id)).length,
       );
 
+      /*
+        **E chiude anche gli inviti che nominano le righe dietro la voce.**
+
+        Allargare la revoca all'intera voce senza allargare cio che la
+        accompagna lasciava `active` il gettone che nomina la riga nascosta:
+        una revoca riuscita con la sua strada di ritorno ancora aperta, che e
+        la forma di difetto che questo pacchetto ha gia chiuso due volte.
+        `linkGuardianAccount` azzera `revoked_at` e riscrive l'utenza, quindi
+        chi ha quel codice in tasca rientra nel fascicolo del minore.
+      */
+      const gettoneNascosto = await prisma.clubResourceItem.findFirst({
+        where: { organization_id: CLUB, resource_type: 'access_tokens', name: CODICE },
+        select: { status: true },
+      });
+      prova(
+        '3h-bis PROPRIETA — e l invito che nomina la riga dietro la voce e chiuso',
+        'revoked',
+        gettoneNascosto?.status ?? null,
+        'una revoca che lascia vivo il suo invito e una revoca che si puo annullare',
+      );
+
       const esito = await riscatta(ESTRANEO, CODICE);
       prova(
-        "3f DEBITO D51 — un invito che nomina la riga dietro la voce da 404",
-        404,
+        /*
+          Prima misurava D51 — un invito che nomina la riga dietro la voce
+          rispondeva 404, perche il riscatto cerca il bersaglio nella
+          proiezione, che quella riga non la pubblica. Da quando la revoca
+          chiude i gettoni di **tutte** le righe della voce, qui il gettone
+          arriva gia `revoked` e la risposta e 410: il rifiuto giusto, per la
+          ragione giusta. D51 resta aperto ma questa fixture non lo misura
+          piu — servirebbe un invito **vivo** che nomini una riga nascosta.
+        */
+        "3f l'invito chiuso dalla revoca e rifiutato come tale",
+        410,
         esito.stato,
         `${JSON.stringify(esito.corpo?.error?.message || "ok")}`,
       );

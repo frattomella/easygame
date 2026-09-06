@@ -1280,10 +1280,36 @@ export const revokeGuardianRow = async (
 
     if (!aggiornate.count) return null;
 
-    const revocata = (await tx.athleteGuardian.findUnique({
-      where: { id: parametri.guardianRowId },
-    })) as GuardianRow;
-    await revocaIGettoni(tx, parametri.athleteId, [revocata]);
+    /*
+      **I gettoni si chiudono su tutte le righe della voce, non su quella
+      nominata.**
+
+      La `updateMany` qui sopra revoca l'intera voce — tutte le righe che la
+      scheda mostra come una sola — ma lo sweep dei gettoni riceveva un array
+      di **una** riga: quella che il chiamante aveva nominato. Un invito che
+      nominasse una delle altre restava percio `active` dopo una revoca
+      riuscita, e chi lo aveva in tasca rientrava: `linkGuardianAccount` azzera
+      `revoked_at` e riscrive l'utenza.
+
+      E la stessa forma di difetto che questo pacchetto ha gia chiuso due volte
+      — una revoca che lascia viva la sua strada di ritorno — riaperta
+      allargando la revoca e **non** allargando cio che la accompagna. Quando
+      si allarga una porta si allarga anche cio che la porta chiude.
+    */
+    const revocate = (await tx.athleteGuardian.findMany({
+      where: {
+        athlete_id: parametri.athleteId,
+        ...(nominata
+          ? { position: nominata.position ?? 0 }
+          : { id: parametri.guardianRowId }),
+        ...(parametri.organizationId
+          ? { organization_id: parametri.organizationId }
+          : {}),
+      },
+      orderBy: ORDINE_STABILE,
+    })) as GuardianRow[];
+
+    await revocaIGettoni(tx, parametri.athleteId, revocate);
 
     await refreshGuardianProjection(tx, [parametri.athleteId]);
 

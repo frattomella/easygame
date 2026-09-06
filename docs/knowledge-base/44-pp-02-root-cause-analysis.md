@@ -817,3 +817,44 @@ Una difesa che vive nell'archivio non la vede nessuna revisione del codice e
 non la mostra `git diff`. Ora c'e una sonda che confronta la funzione **viva**
 con le condizioni che la migrazione piu recente dichiara, estratte dal file
 (ADR-0141). Rimettendo la versione vecchia nomina le otto condizioni mancanti.
+
+---
+
+## Il sesto vaglio, interrotto — e cio che aveva gia visto (2026-09-06)
+
+Il sesto revisore indipendente e stato interrotto dall'arresto della macchina.
+Non ha lasciato un referto: ha lasciato una sonda a meta con **tre ipotesi**
+scritte in testa al file. Una si verifica leggendo il codice, ed e un difetto
+reale.
+
+**Il difetto (§T).** Il commit precedente aveva allargato `revokeGuardianRow`
+per revocare **l'intera voce** — tutte le righe che la scheda mostra come una
+sola. Lo sweep dei gettoni che accompagna la revoca continuava pero a ricevere
+**una** riga: quella che il chiamante aveva nominato. Un invito che nominasse
+una delle altre restava percio `active` dopo una revoca riuscita, e
+`linkGuardianAccount` azzera `revoked_at` e riscrive l'utenza: chi aveva quel
+codice in tasca rientrava nel fascicolo del minore.
+
+E la terza volta che questo pacchetto riapre la stessa forma — una revoca che
+lascia viva la propria strada di ritorno — e la prima in cui la causa non e una
+difesa dimenticata ma una difesa **allargata a meta**: *quando si allarga una
+porta, si allarga anche cio che la porta chiude*.
+
+**Le altre due ipotesi**, non ancora misurate, sono passate al vaglio nuovo:
+
+* **§M** — un salvataggio ordinario cancella la riga nascosta dietro una voce
+  (non e nominata, e la `DELETE` risparmia solo le righe revocate). Toglie un
+  accesso, quindi non e un varco; ma distrugge in silenzio un tutore legittimo,
+  senza revoca e senza audit. Vicino a D49.
+* **§P** — le posizioni delle righe **revocate** non si rinumerano, mentre le
+  righe in arrivo prendono l'indice dell'array. Due righe possono percio
+  finire sulla stessa posizione e la proiezione le fonde, con la regola «chi
+  chiude vince»: un tutore **vivo** verrebbe mostrato come revocato. Sarebbe un
+  falso senso di revoca — la schermata dice chiuso, l'archivio dice aperto.
+
+### La lezione sul metodo
+
+Un revisore perso non e una revisione persa a zero: le **ipotesi** che aveva
+scritto sono sopravvissute nel file di sonda, e una si e chiusa senza bisogno
+del suo referto. Vale la pena scrivere in testa a una sonda *quale frase si sta
+cercando di falsificare*, prima di riuscirci.
