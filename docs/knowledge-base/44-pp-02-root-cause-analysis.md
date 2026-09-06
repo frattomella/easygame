@@ -958,3 +958,52 @@ per identificativo, che e casuale: da li il caso.
 quando lo si cerca, e la sonda che lo trova viene creduta instabile invece che
 informativa. Una sonda che cambia esito senza che il codice cambi non e instabile
 finche non lo si e **dimostrato**: e un difetto che non si sa ancora nominare.
+
+---
+
+## L'ottavo vaglio indipendente (2026-09-06)
+
+**0 Critical, 4 High, 1 Medium** — e per la prima volta in otto giri **nessun
+Critical**. Tutti e quattro gli High di nuovo sul bordo, e nessuno dentro cio
+che le ultime tre revisioni avevano corretto: le correzioni tengono, i difetti
+si sono spostati alle porte accanto.
+
+| # | gravita | dove |
+|---|---------|------|
+| R-1 | High | l'approvazione di un modulo toglie un tutore e non chiude il suo invito |
+| R-2 | High | la sostituzione toglie **una riga** dove la voce ne mostra due |
+| R-3 | High | `unlinkGuardianAccount` scriveva **fuori dal proprio club**, su una chiave che il client puo scrivere |
+| R-4 | High | l'oblio lasciava nome e indirizzo del tutore nel carico di un invito, e l'invito vivo |
+| R-5 | Medium | la traccia diceva «Genitore aggiunto» proprio quando una riga viva era stata cancellata |
+
+### La frase falsificata in ventiquattro ore, di nuovo
+
+Il settimo vaglio aveva chiuso una porta e il commento diceva «e la **sola**
+strada». Ne esistevano tre. La regolarita e ormai una legge del pacchetto: **una
+frase che dice «l'unico», «sempre», «mai» invecchia peggio di qualunque riga di
+codice**, e va scritta come asserzione o non scritta.
+
+La domanda giusta davanti a una porta non e «si chiama revoca?» ma «dopo questa
+istruzione, quella persona puo ancora rientrare?».
+
+### Una difesa in piu che era una porta in piu
+
+Il reperto piu istruttivo e R-3, perche il blocco incriminato **esisteva per
+sicurezza**: chiudeva il gettone «per sicurezza in piu», dice il suo commento.
+Lo faceva leggendo l'identificativo da una chiave del blob che la rotta generica
+lascia scrivere, e passandolo a un `updateMany` senza filtro di club. Una
+scrittura cross-tenant, dentro una funzione che nessuno sospettava.
+
+Ed era **ridondante**: la strada buona esisteva gia due righe sopra. Una difesa
+che si appoggia a un dato che l'attaccante controlla non e una difesa in piu.
+
+### La correzione che ha rotto un test, e perche va detto
+
+Togliendo quel blocco ho tagliato anche la riga di audit che gli stava sotto:
+`npm test` e passato da 4754 a 4753, e il test che e caduto era esattamente
+quello che verifica che lo scollegamento **lasci una traccia**. Recuperata dalla
+versione committata.
+
+Un taglio fatto per estremi di testo invece che per struttura porta via cio che
+gli sta accanto, e cio che gli stava accanto era la sola prova che l'operazione
+fosse avvenuta.

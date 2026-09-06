@@ -2182,10 +2182,21 @@ const eseguiDecisione = async (
       replacesGuardianRowId: rigaScelta ? asText(rigaScelta.id) : null,
     });
 
+    /*
+      **La traccia dice cio che e successo, non cio che si voleva fare.**
+
+      Quando `rigaScelta.id !== scritta.id` non e stato «aggiunto» un genitore:
+      ne e stato scritto uno **al posto di un altro**, e quello di prima e
+      stato cancellato. Il caso in cui la traccia diceva la cosa piu lontana
+      dal vero era esattamente quello in cui una riga viva spariva, e chi
+      rileggeva il registro non aveva modo di saperlo.
+    */
     applied.push(
       rigaScelta && scritta && asText(rigaScelta.id) === scritta.id
         ? `Genitore aggiornato: ${guardianChange.recordLabel}`
-        : `Genitore aggiunto: ${guardianChange.recordLabel}`,
+        : rigaScelta
+          ? `Genitore sostituito: ${guardianChange.recordLabel}`
+          : `Genitore aggiunto: ${guardianChange.recordLabel}`,
     );
 
     /*

@@ -7385,3 +7385,63 @@ padre. Una riga con un'utenza qualunque, raggiunta per inferenza da una riga che
 non ne porta nessuna, e di qualcuno di cui non sappiamo niente: non si tocca.
 
 **Vedi anche.** ADR-0142, ADR-0139, ADR-0140, ADR-0114.
+
+## ADR-0145 — Le porte che tolgono un tutore sono tre, e nessuna si chiama revoca
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+ottavo vaglio indipendente
+
+### Il fatto
+
+Il settimo vaglio aveva chiuso «togliere un tutore dalla scheda», e il commento
+che ne usciva diceva: *«e la **sola** strada per cui un tutore lascia la scheda
+senza che nessuno la chiami revoca»*. Falsa entro ventiquattro ore.
+
+Le strade sono **tre**, e due non portano quel nome:
+
+1. il salvataggio della scheda che non manda piu una voce (chiusa dal settimo);
+2. **l'approvazione di un modulo** che sostituisce un tutore
+   (`replacesGuardianRowId`);
+3. **la cancellazione dell'interessato** (`eraseGuardiansForAthlete`).
+
+La seconda e la terza lasciavano vivo l'invito. Su entrambe bastava che la
+persona tornasse sulla scheda perche il vecchio codice tornasse spendibile,
+attraverso il `legacy_id` che la riga nuova eredita dall'identificativo che il
+client rimanda.
+
+### La decisione
+
+**Chi toglie una riga di tutore chiude il suo invito.** Vale per tutte e tre le
+porte, e la domanda da farsi davanti a una porta nuova non e «si chiama revoca?»
+ma **«dopo questa istruzione, quella persona puo ancora rientrare?»**.
+
+E la sostituzione toglie **la voce**, non la riga: `replacesGuardianRowId` viene
+pescato dalla proiezione, che fonde per posizione, quindi ne toglieva una e
+lasciava l'altra viva e collegata — con l'identificativo a decidere quale, cioe
+il caso.
+
+### Una difesa che si appoggia a un dato del client non e una difesa
+
+`unlinkGuardianAccount` portava un blocco che leggeva l'identificativo del
+gettone da `athletes.data.parentAccessTokenRecordId` — chiave che la rotta
+generica **non** toglie da cio che riceve — e lo passava a un `updateMany`
+**senza filtro di club**. Un ruolo a zero caselle spuntate poteva depositarci
+l'identificativo del gettone di un altro club e farlo revocare da li.
+
+Il blocco era anche **inutile**: `revokeGuardianRow` chiama gia `revocaIGettoni`,
+che i gettoni li cerca nell'archivio dei gettoni, filtrati per club e abbinati
+alla riga per `guardian_id`. E stato tolto; il gemello sul ramo allenatore, che
+un dominio equivalente non ce l'ha, ha ricevuto il filtro di club.
+
+**La regola.** Una difesa in piu che si appoggia a un dato che l'attaccante
+controlla non e una difesa in piu: e una porta in piu.
+
+### Il settimo indice
+
+Il carico di un invito porta `guardian_name` e `guardian_email`: e un posto dove
+vive una persona — di terzi — e `data-subject.ts` dichiara di essere l'unico
+posto in cui si dichiara dove vive una persona. Non essendoci, il riepilogo non
+lo nominava, il gettone di conferma non lo copriva e la cancellazione lo
+lasciava in archivio. Ora e una fetta come le altre, e l'oblio lo cancella.
+
+**Vedi anche.** ADR-0144, ADR-0140, ADR-0105, CLAUDE.md §2 e §8.

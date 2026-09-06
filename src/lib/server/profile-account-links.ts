@@ -447,8 +447,23 @@ export const unlinkTrainerAccount = async (
   );
   if (tokenRecordId) {
     try {
+      /*
+        **Il filtro di club, che qui mancava.**
+
+        L'identificativo viene dal carico del profilo allenatore, che la rotta
+        generica lascia scrivere: senza `organization_id` questa istruzione
+        poteva portare a `revoked` la riga di un **altro club**. Il gemello
+        sul ramo genitore e stato tolto del tutto — li `revocaIGettoni` fa la
+        stessa cosa meglio — mentre qui non c'e ancora un dominio dei gettoni
+        dell'allenatore che lo faccia al posto suo, quindi resta, con il
+        confine addosso.
+      */
       await prisma.clubResourceItem.updateMany({
-        where: { id: tokenRecordId, resource_type: "access_tokens" },
+        where: {
+          id: tokenRecordId,
+          resource_type: "access_tokens",
+          organization_id: record.organization_id,
+        },
         data: { status: "revoked" },
       });
     } catch (error) {
@@ -595,31 +610,22 @@ export const unlinkGuardianAccount = async (
   });
 
   /*
-    Il gettone vive anche come riga di `club_resource_items`, e quella riga la
-    conosce il suo dominio: qui si segna revocata, e se non ci riesce
-    l'operazione non fallisce — l'accesso e gia chiuso sulla riga del tutore,
-    che e cio che decide.
+    **Il gettone lo chiude gia `revokeGuardianRow`, e lo chiude meglio.**
+
+    Qui c'era un blocco che leggeva l'identificativo del gettone da
+    `athletes.data.parentAccessTokenRecordId` — una chiave che la rotta
+    generica **non** toglie da cio che riceve, quindi scrivibile dal client — e
+    lo passava a un `updateMany` **senza filtro di club**. Un ruolo a zero
+    caselle spuntate poteva percio depositare l'identificativo del gettone di
+    un **altro club** e farlo revocare da qui: una scrittura fuori dal proprio
+    club, contro CLAUDE.md §8.
+
+    Non serviva a niente: `revokeGuardianRow` chiama `revocaIGettoni`, che i
+    gettoni li cerca nell'archivio dei gettoni — filtrati per club, e abbinati
+    alla riga per `guardian_id`, non per una chiave che il client puo scrivere.
+    Una difesa che si appoggia a un dato che l'attaccante controlla non e una
+    difesa in piu: e una porta in piu.
   */
-  const tokenRecordId = testo(
-    (riga as any).access_token_record_id ||
-      (atleta.data as any)?.parentAccessTokenRecordId,
-  );
-  if (tokenRecordId) {
-    try {
-      await prisma.clubResourceItem.updateMany({
-        where: { id: tokenRecordId, resource_type: "access_tokens" },
-        data: { status: "revoked" },
-      });
-    } catch (error) {
-      reportServerError(error, {
-        metadata: {
-          athleteId: atleta.id,
-          guardianId,
-          esito: "[profile-account-links] revoca token genitore non riuscita",
-        },
-      });
-    }
-  }
 
   await recordAuditEvent({
     action: AUDIT_ACTIONS.guardianAccountUnlinked,

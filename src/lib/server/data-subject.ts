@@ -570,12 +570,43 @@ export const previewDataSubjectErasure = async (
     where: { organization_id: organizationId, athlete_id: subjectId },
   });
 
+  /*
+    **Il settimo indice: il carico di un invito di tutore.**
+
+    La schermata che conia un invito ci scrive dentro `guardian_name` e
+    `guardian_email`. E percio un posto dove vive una persona — di terzi, per
+    giunta — e questa scheda dichiara di essere l'unico posto in cui si
+    dichiara dove vive una persona. Non essendoci, il riepilogo non lo nominava
+    e il gettone di conferma non lo copriva, mentre la cancellazione lo
+    lasciava in archivio: lo stesso dato, spostato in una tabella che nessuna
+    schermata mostra.
+  */
+  const invitiTutore = (
+    await prisma.clubResourceItem.findMany({
+      where: { organization_id: organizationId, resource_type: "access_tokens" },
+      select: { payload: true },
+    })
+  ).filter((voce) => {
+    const carico =
+      voce.payload && typeof voce.payload === "object"
+        ? (voce.payload as Record<string, any>)
+        : {};
+    return String(carico.athlete_id || "").trim() === subjectId;
+  }).length;
+
   const slices: DataSubjectSlice[] = [
     {
       table: "athlete_guardians",
       label: "Genitori e tutori dichiarati sulla scheda",
       index: "foreign_key",
       count: Number(tutori || 0),
+      disposal: "delete",
+    },
+    {
+      table: "club_resource_items",
+      label: "Inviti all'area famiglia (portano nome e indirizzo del tutore)",
+      index: "json",
+      count: Number(invitiTutore || 0),
       disposal: "delete",
     },
     {

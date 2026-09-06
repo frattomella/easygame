@@ -1215,18 +1215,51 @@ export const upsertGuardianFromFormApproval = async (
     });
 
     /*
-      **La riga sostituita se ne va, tranne se e revocata.**
+      **La voce sostituita se ne va — tutta — e si porta dietro il suo invito.**
 
-      Toglierne una revocata e riscriverla con un indirizzo appena diverso
-      sarebbe il modo di lavare il marchio approvando un modulo, cioe da una
-      porta che non chiede la chiave della concessione. Una riga revocata
-      resta dov'e, e la persona nuova nasce accanto.
+      Tre cose, e due erano sbagliate:
+
+      * **una riga revocata resta dov'e.** Toglierne una revocata e riscriverla
+        con un indirizzo appena diverso sarebbe il modo di lavare il marchio
+        approvando un modulo, cioe da una porta che non chiede la chiave della
+        concessione;
+      * **si toglie la voce, non la riga.** `replacesGuardianRowId` viene
+        pescato dalla **proiezione**, che fonde per posizione: dove il travaso
+        ha messo due righe vive su una voce sola, questa cancellazione ne
+        toglieva una e lasciava l'altra viva e collegata — e quale delle due
+        sopravvivesse lo decideva l'identificativo, che e casuale. E la stessa
+        regola che sesto e settimo vaglio hanno imposto a ogni altra porta: se
+        la porta mostra una cosa sola, toglierla deve toglierla tutta;
+      * **l'invito si chiude con lei.** Questa e la **seconda** strada per cui
+        un tutore lascia la scheda senza che nessuno la chiami revoca — il
+        commento che ne dichiarava una sola e stato falsificato entro
+        ventiquattro ore. Il gettone restava `active`, e bastava rimettere la
+        persona perche tornasse spendibile attraverso il `legacy_id` che la
+        riga nuova eredita.
     */
     const sostituita = testo(parametri.replacesGuardianRowId);
     if (sostituita && sostituita !== record.id) {
-      await tx.athleteGuardian.deleteMany({
+      const bersaglio = (await tx.athleteGuardian.findFirst({
         where: { id: sostituita, athlete_id: athleteId, revoked_at: null },
-      });
+      })) as GuardianRow | null;
+
+      if (bersaglio) {
+        const laVoce = (await tx.athleteGuardian.findMany({
+          where: {
+            athlete_id: athleteId,
+            position: bersaglio.position ?? 0,
+            revoked_at: null,
+            id: { not: record.id },
+          },
+        })) as GuardianRow[];
+
+        if (laVoce.length) {
+          await revocaIGettoni(tx, athleteId, laVoce);
+          await tx.athleteGuardian.deleteMany({
+            where: { id: { in: laVoce.map((riga) => riga.id) } },
+          });
+        }
+      }
     }
 
     await refreshGuardianProjection(tx, [athleteId]);
@@ -1683,6 +1716,45 @@ export const eraseGuardiansForAthlete = async (
 ): Promise<number> =>
   withGuardianWriter(client, async (tx) => {
     await bloccaSchede(tx, [athleteId]);
+
+    /*
+      **Gli inviti se ne vanno con le righe, e non basta chiuderli.**
+
+      Il carico di un invito di tutore porta `guardian_name` e
+      `guardian_email` — li scrive la schermata che lo conia. E percio un
+      **settimo indice** dove vive una persona, e una cancellazione che
+      lasciasse quelle due chiavi in `club_resource_items` non sarebbe una
+      cancellazione: sarebbe lo stesso dato di terzi, spostato in una tabella
+      che nessuna schermata mostra.
+
+      E l'invito **vivo** sarebbe anche una strada di ritorno su una scheda che
+      non c'e piu. Si chiudono e si cancellano: e la terza porta che toglie
+      righe di tutore, e l'ultima che non lo faceva.
+    */
+    const daCancellare = (await tx.athleteGuardian.findMany({
+      where: {
+        athlete_id: athleteId,
+        ...(organizationId ? { organization_id: organizationId } : {}),
+      },
+    })) as GuardianRow[];
+
+    if (daCancellare.length) {
+      await revocaIGettoni(tx, athleteId, daCancellare);
+
+      const gettoni = await gettoniDeiTutori(
+        tx,
+        [athleteId],
+        daCancellare.map((riga) => riga.organization_id),
+      );
+      const nominati = (gettoni.get(athleteId) || []).filter((voce) =>
+        daCancellare.some((riga) => gettoneDiQuestaRiga(voce, riga)),
+      );
+      if (nominati.length) {
+        await tx.clubResourceItem.deleteMany({
+          where: { id: { in: nominati.map((voce) => String(voce.id)) } },
+        });
+      }
+    }
 
     const esito = await tx.athleteGuardian.deleteMany({
       where: {

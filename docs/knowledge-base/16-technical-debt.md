@@ -2818,3 +2818,18 @@ A tenerla stretta e quindi il **vincolo esterno**. Se un giorno la FK diventasse
 lo direbbe. La migrazione e applicata e non si tocca: la correzione va fatta
 quando una migrazione successiva tocchera quel vaglio, elencando le colonne o
 dichiarando la dipendenza dalla FK.
+
+### D55 — Togliere un tutore non chiede la chiave della concessione
+
+`canGrantAccess` governa la **crescita** dell'insieme delle identita che aprono
+il fascicolo, non la sua riduzione: un ruolo che sa scrivere una scheda puo
+**togliere** un tutore senza portare ne `accounts.athlete.manage` ne
+`clinical.read`, e lo stesso vale sulla porta dell'approvazione di un modulo.
+
+E coerente fra le due porte e dichiarato dal modulo, quindi non e
+un'asimmetria; ma togliere un tutore a un minore e un atto distruttivo, e la
+domanda «quale permesso lo governa» non ha ancora una risposta scritta. Va
+decisa da una revisione sull'insieme dei permessi, non dentro questo pacchetto.
+
+La traccia intanto non mente piu: quando una riga viva viene sostituita, il
+registro dice «Genitore **sostituito**», non «aggiunto».
