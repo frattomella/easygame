@@ -1731,6 +1731,38 @@ export const revokeGuardianAccessInClub = async (
  * richiesta dell'interessato non deve lasciare in archivio il nome, l'indirizzo
  * e il telefono di sua madre.
  */
+/**
+ * **Chiude e cancella gli inviti all'area famiglia di una scheda.**
+ *
+ * Il carico di un invito porta `guardian_name` e `guardian_email`: e un posto
+ * dove vive una persona, di terzi per giunta (ADR-0145). L'oblio lo cancella
+ * gia; ma la scheda si puo anche **cancellare e basta**, dalla rotta generica,
+ * senza che nessun riepilogo preceda l'atto — e li la cascata toglie le righe
+ * di tutore e lasciava l'invito in archivio, `active`, con dentro quei due
+ * campi.
+ *
+ * Nessun accesso ne derivava, perche il riscatto non trova piu la scheda. Ma e
+ * lo stesso dato che l'ADR dichiara chiuso, e una difesa chiusa da una porta
+ * sola non e chiusa: e la stessa forma per cui esiste questo pacchetto.
+ */
+export const eraseGuardianInvitesForAthlete = async (
+  client: any,
+  athleteId: string,
+  organizationId?: string | null,
+): Promise<number> => {
+  const tx = client || prisma;
+
+  const esito = await tx.clubResourceItem.deleteMany({
+    where: {
+      resource_type: "access_tokens",
+      ...(organizationId ? { organization_id: organizationId } : {}),
+      payload: { path: ["athlete_id"], equals: athleteId },
+    },
+  });
+
+  return esito.count as number;
+};
+
 export const eraseGuardiansForAthlete = async (
   client: any,
   athleteId: string,

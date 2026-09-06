@@ -398,6 +398,68 @@ export const unlinkTrainerAccount = async (
   const linkedUserId =
     testo(payload.linkedUserId || payload.linked_user_id) || null;
 
+  /*
+    **L'invito si chiude prima dell'uscita anticipata.**
+
+    Questa funzione usciva subito quando il profilo non risultava collegato, e
+    il blocco che chiude l'invito stava dopo: un profilo **non collegato** con
+    un invito ancora `active` usciva da «Scollega account» con l'invito
+    intatto, e chi lo aveva in tasca entrava lo stesso.
+
+    La porta gemella del tutore non ha questa uscita — `revocaIGettoni` chiude
+    l'invito anche su una riga senza utenza — ed e la forma giusta: cio che si
+    chiude non e il legame, e la **strada per rifarlo**.
+  */
+  /*
+    **Le due grafie dell'identificativo, che questo file gia conosce.**
+
+    `club_resource_items.id` e una colonna UUID; il gettone di un allenatore
+    porta l'identificativo **logico** — `trainer-<istante>-<casuale>` — perche
+    e quello che il profilo pubblica. `caricaAllenatoreDelClubAttivo` qui
+    sopra e `loadTrainerAccessTarget` nel riscatto cercano entrambe le forme
+    apposta; cercarne una sola non trova **nessun gettone del prodotto**.
+
+    Cercandone una sola questa istruzione non combaciava mai: il caso onesto —
+    la direzione conia, l'allenatore riscatta, poi lo si scollega — usciva con
+    il gettone ancora vivo, e chi lo aveva in tasca rientrava nel club con una
+    tessera nuova. La correzione che ha tolto la chiave scelta dal client aveva
+    messo al suo posto una chiave che non combacia con niente: una difesa
+    inerte e indistinguibile da una difesa assente, finche non la si misura.
+  */
+  const identificativiDelProfilo = [
+    String(record.id),
+    testo((payload as Record<string, any>).id),
+  ].filter(Boolean);
+
+  const daChiudere = (
+    (await prisma.clubResourceItem.findMany({
+      where: {
+        organization_id: record.organization_id,
+        resource_type: "access_tokens",
+        OR: identificativiDelProfilo.map((valore) => ({
+          payload: { path: ["trainer_id"], equals: valore },
+        })),
+      },
+      select: { id: true },
+    })) as Array<{ id: string }>
+  ).map((voce) => voce.id);
+
+  if (daChiudere.length) {
+    try {
+      await prisma.clubResourceItem.updateMany({
+        where: { id: { in: daChiudere } },
+        data: { status: "revoked" },
+      });
+    } catch (error) {
+      reportServerError(error, {
+        metadata: {
+          trainerId: record.id,
+          esito: "[profile-account-links] revoca token allenatore non riuscita",
+        },
+      });
+    }
+  }
+
   if (!linkedUserId) {
     return { trainerId: record.id, unlinkedUserId: null };
   }
@@ -461,33 +523,6 @@ export const unlinkTrainerAccount = async (
     tutori: **nell'archivio dei gettoni**, fra quelli che nominano **questo**
     profilo, dentro **questo** club. Il client non sceglie piu niente.
   */
-  const daChiudere = (
-    (await prisma.clubResourceItem.findMany({
-      where: {
-        organization_id: record.organization_id,
-        resource_type: "access_tokens",
-        payload: { path: ["trainer_id"], equals: String(record.id) },
-      },
-      select: { id: true },
-    })) as Array<{ id: string }>
-  ).map((voce) => voce.id);
-
-  if (daChiudere.length) {
-    try {
-      await prisma.clubResourceItem.updateMany({
-        where: { id: { in: daChiudere } },
-        data: { status: "revoked" },
-      });
-    } catch (error) {
-      reportServerError(error, {
-        metadata: {
-          trainerId: record.id,
-          esito: "[profile-account-links] revoca token allenatore non riuscita",
-        },
-      });
-    }
-  }
-
   await recordAuditEvent({
     action: AUDIT_ACTIONS.trainerAccountUnlinked,
     actorUserId: scope.userId,

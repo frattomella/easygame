@@ -7512,3 +7512,77 @@ finisce sulla compilazione, e la rotta ne salvava **la lunghezza**. Ora la rotta
 salva le stringhe.
 
 **Vedi anche.** ADR-0145, ADR-0144, ADR-0105, CLAUDE.md §8.
+
+## ADR-0147 — Una difesa inerte e indistinguibile da una difesa assente
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+decimo vaglio indipendente
+
+### Il fatto
+
+ADR-0146 aveva tolto dal ramo allenatore la chiave scelta dal client e messo al
+suo posto una ricerca in archivio, scrivendo che il gettone si cerca «come lo
+cerca il dominio dei tutori». Il dominio dei tutori ne cerca **due grafie**;
+quella correzione ne cercava una — l'uuid della riga — mentre il gettone di ogni
+allenatore del prodotto porta l'identificativo **logico**
+`trainer-<istante>-<casuale>`.
+
+L'istruzione non combaciava percio **mai**. Due conseguenze:
+
+* il difetto che si voleva chiudere restava aperto, in una forma nuova: chi
+  veniva scollegato riscattava l'invito sopravvissuto e **rientrava nel club con
+  una tessera nuova**;
+* e il **caso onesto** — la direzione conia, l'allenatore riscatta, poi lo si
+  scollega — che prima funzionava, ha smesso di funzionare.
+
+Due funzioni dello stesso file cercano entrambe le grafie e lo dicono nei
+commenti: `caricaAllenatoreDelClubAttivo` trenta righe piu su, e
+`loadTrainerAccessTarget` nel riscatto.
+
+### La decisione
+
+Si cercano entrambe le grafie, come le due funzioni gemelle.
+
+**La regola.** Una difesa che non combacia mai e **verde**: non solleva, non
+registra niente, e da fuori e identica a una difesa che funziona. La sola cosa
+che la distingue da una difesa assente e una misura — e il momento in cui e piu
+facile scriverne una inerte e proprio quando si sta **correggendo** una difesa,
+perche si guarda cio che si toglie e non cio che si mette.
+
+### E si chiude prima di uscire
+
+La stessa porta usciva subito quando il profilo non risultava collegato, e il
+blocco che chiude l'invito stava dopo: un profilo **non collegato** con un
+invito ancora vivo usciva da «Scollega account» con l'invito intatto. La porta
+gemella del tutore non ha quell'uscita — chiude l'invito anche su una riga senza
+utenza — ed e la forma giusta: **cio che si chiude non e il legame, e la strada
+per rifarlo**.
+
+### L'indirizzo dichiarato vince su quello ereditato
+
+`upsertGuardianFromFormApproval` riceveva l'indirizzo leggendo prima
+`linkedUserEmail`, che la proiezione valorizza per ogni riga viva: l'indirizzo
+scritto nel modulo non vinceva **mai**, e l'`upsert` cadeva sulla chiave della
+persona gia presente riscrivendole nome e cognome.
+
+Misurato: una compilazione **pubblica**, approvata da un ruolo che porta solo le
+chiavi dei moduli, faceva ritrovare alla riga della madre — identita, indirizzo,
+utenza — il nome di un estraneo. Da li i segnaposto `{{parent.N.*}}`, il
+destinatario fiscale di una ricevuta e i tre canali di notifica nominavano lui.
+
+### Un registro dice cosa e successo, non a chi
+
+ADR-0146 aveva fatto salvare in audit le stringhe di `applied` per non lasciare
+la traccia solo nel corpo di una risposta HTTP. Ma l'etichetta porta «Nome
+Cognome» o un indirizzo: il registro finiva per conservare il nome di un minore
+e quello di un terzo, in una tabella che `data-subject.ts` non dichiara e che si
+conserva a tempo indeterminato quando la retention non e configurata. E il
+lettore del registro, che proietta i metadati attraverso un elenco chiuso, non
+la mostrava comunque — quindi la correzione era **muta** e **costosa** insieme.
+
+Si conserva la parte davanti ai due punti: «Genitore sostituito». Dice cosa e
+successo, che e cio che un registro serve a dire, e non dice a chi — che e cio
+che un registro non deve conservare. La chiave e in elenco, quindi il lettore la
+mostra.
+
+**Vedi anche.** ADR-0146, ADR-0145, ADR-0105, CLAUDE.md §2.

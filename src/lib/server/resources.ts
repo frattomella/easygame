@@ -6,6 +6,7 @@ import {
   refreshGuardianProjection,
   saveGuardianRegistry,
   type GuardianInput,
+  eraseGuardianInvitesForAthlete,
 } from "./athlete-guardians";
 import {
   customRoleReachesResource,
@@ -7956,6 +7957,22 @@ export const deleteResource = async (
     existing?.organization_id,
   );
   await assertClubHasNoFiscalHistory(resource, existing?.id);
+
+  /*
+    **Gli inviti della scheda se ne vanno con la scheda.**
+
+    Le righe di tutore le porta via la cascata; il loro **invito** no, ed e una
+    riga di `club_resource_items` con dentro nome e indirizzo di un terzo. La
+    cancellazione dell'interessato lo cancella gia (ADR-0145); questa porta —
+    che nessun riepilogo precede — lo lasciava in archivio.
+  */
+  if (resource === "athletes" || resource === "simplified_athletes") {
+    await eraseGuardianInvitesForAthlete(
+      prisma,
+      String(id),
+      (existing as any)?.organization_id || null,
+    );
+  }
 
   const record = await delegate.delete({
     where: { id },

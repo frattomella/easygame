@@ -84,17 +84,27 @@ export async function POST(request: Request, context: Context) {
         templateId: outcome.submission.templateId,
         version: outcome.submission.version,
         /*
-          **Cosa e stato applicato, non quanto.**
+          **Cosa e stato applicato — il tipo, non il nome di chi.**
 
-          Qui viveva un numero, e le stringhe — «Genitore sostituito», che e
-          l'unico posto in cui si dice che una riga viva e stata tolta —
-          morivano nel corpo della risposta HTTP. `form-submissions.ts` non
-          registra niente e `applied` non viene salvato sulla compilazione,
-          quindi questo e **l'unico** archivio che possa conservarle: chi
-          rileggeva il registro non aveva modo di sapere che un tutore era
-          sparito.
+          Qui viveva un numero, e le stringhe — «Genitore sostituito», l'unico
+          posto in cui si dice che una riga viva e stata tolta — morivano nel
+          corpo della risposta HTTP: `form-submissions.ts` non registra niente
+          e `applied` non finisce sulla compilazione.
+
+          Scriverle **intere** ha pero aperto un indice nuovo: l'etichetta porta
+          «Nome Cognome» o un indirizzo, quindi il registro finiva per
+          conservare il nome di un minore e quello di un terzo, in una tabella
+          che `data-subject.ts` non dichiara e che si conserva a tempo
+          indeterminato quando la retention non e configurata.
+
+          Le due esigenze si tengono insieme tenendo solo la **parte davanti ai
+          due punti**: «Genitore sostituito», «Consenso aggiornato». Dice cosa e
+          successo, che e cio che un registro serve a dire, e non dice a chi —
+          che e cio che un registro non deve conservare.
         */
-        applied: outcome.applied,
+        applied: outcome.applied.map((voce) =>
+          String(voce).split(":")[0].trim(),
+        ),
         appliedCount: outcome.applied.length,
       },
     });

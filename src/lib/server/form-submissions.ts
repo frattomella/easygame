@@ -2153,10 +2153,35 @@ const eseguiDecisione = async (
       organizationId,
       athleteId,
       row: {
+        /*
+          **Vince l'indirizzo dichiarato, non quello della riga scelta.**
+
+          `patch` parte dalla riga **selezionata**, e la sua proiezione porta
+          `linkedUserEmail` valorizzato per ogni riga viva che non sia di solo
+          recapito. Leggerlo per primo voleva dire che l'indirizzo scritto nel
+          modulo non vincesse **mai**: l'`upsert` cadeva sulla chiave della
+          persona gia presente e le riscriveva nome e cognome.
+
+          Misurato da una revisione indipendente, dalla rotta vera, con una
+          compilazione **pubblica** e un ruolo che porta solo le chiavi dei
+          moduli: la riga della madre — identita, indirizzo, utenza — si
+          ritrovava il nome di un estraneo, e da li i segnaposto
+          `{{parent.N.*}}`, il destinatario fiscale di una ricevuta e i tre
+          canali di notifica nominavano lui. L'audit diceva «Genitore
+          aggiornato», vero alla lettera e falso per chi lo legge.
+
+          Il corollario e che `replacesGuardianRowId` — documentato per «quando
+          la modifica ne cambia l'identita, cioe l'indirizzo» — non poteva mai
+          entrare in gioco, perche l'identita non cambiava mai.
+
+          L'indirizzo del modulo viene percio per primo. Gli altri due restano
+          come ripiego per le compilazioni che non ne dichiarano uno: li la
+          riga scelta e l'unica cosa che dica di chi si parla.
+        */
         email:
+          asText(patch.email) ||
           asText(patch.linkedUserEmail) ||
-          asText(patch.linked_user_email) ||
-          asText(patch.email),
+          asText(patch.linked_user_email),
         firstName: asText(patch.name),
         lastName: asText(patch.surname),
         phone: asText(patch.phone),

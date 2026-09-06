@@ -712,6 +712,14 @@ export const recordPermissionDenied = async (input: {
  */
 export const AUDIT_VISIBLE_METADATA_KEYS: readonly string[] = [
   "action",
+  /*
+    `applied` porta il **tipo** delle modifiche che l'approvazione di una
+    compilazione ha scritto — «Genitore sostituito», non chi. Senza questa
+    riga la colonna le conserva e il lettore le nasconde, che e il modo in cui
+    una correzione al registro puo essere scritta e non servire a niente.
+  */
+  "applied",
+  "appliedCount",
   "base_role",
   "count",
   "method",

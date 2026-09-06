@@ -1065,3 +1065,59 @@ iniezione, e ri-specificato a zero.
 
 Terza volta che il pattern «un nome invece di un atto» compare, e la seconda in
 cui compare **dentro una sonda scritta per misurare quel pattern**.
+
+---
+
+## Il decimo vaglio indipendente (2026-09-06)
+
+**0 Critical, 2 High, 4 Medium.** Terzo giro di fila senza Critical — e per la
+seconda volta di fila i due High stanno **esattamente accanto** a cio che il
+commit precedente ha corretto.
+
+| # | gravita | dove |
+|---|---------|------|
+| R-1 | High | la correzione di ieri cercava una grafia sola: non combaciava mai, e ha rotto anche il caso onesto |
+| R-2 | High | un terzo che compila un modulo pubblico **rinomina** un genitore esistente |
+| R-3 | Medium | la stringa d'audit corretta l'altro ieri finiva in una colonna che nessun lettore mostra |
+| R-4 | Medium | ...e conteneva nomi, aprendo un ottavo indice non dichiarato |
+| R-5 | Medium | «Scollega allenatore» usciva prima di chiudere l'invito, se il profilo non era collegato |
+| R-6 | Medium | la cancellazione ordinaria della scheda lasciava l'invito con nome e indirizzo di un terzo |
+
+### Il difetto piu istruttivo: una difesa inerte
+
+Ieri ho tolto dal ramo allenatore la chiave scelta dal client e ho scritto che
+il gettone si cerca «come lo cerca il dominio dei tutori». Il dominio dei tutori
+ne cerca **due grafie**; io ne ho cercata una — l'uuid — e il gettone di ogni
+allenatore del prodotto porta l'identificativo **logico**. L'istruzione non
+combaciava mai.
+
+Due conseguenze, e la seconda e peggiore della prima:
+
+* il difetto restava aperto in forma nuova (chi veniva scollegato rientrava);
+* **il caso onesto, che prima funzionava, ha smesso.**
+
+Una difesa che non combacia mai e **verde**: non solleva, non registra niente, e
+da fuori e identica a una difesa che funziona. Il momento in cui e piu facile
+scriverne una inerte e proprio quando si sta **correggendo** una difesa, perche
+si guarda cio che si toglie e non cio che si mette.
+
+### Due correzioni che si sono annullate a vicenda
+
+R-3 e R-4 sono la stessa correzione vista da due lati: l'altro ieri ho fatto
+salvare in audit le stringhe di `applied` perche non morissero nel corpo di una
+risposta HTTP. Ma il lettore del registro proietta i metadati attraverso un
+elenco chiuso e `applied` non c'era — quindi la correzione era **muta**; e
+l'etichetta porta un nome — quindi era anche **costosa**, avendo aperto un
+archivio di dati personali non dichiarato.
+
+Muta e costosa insieme: il peggior rapporto possibile. La forma che le tiene
+insieme e conservare il **tipo** e non il nome — «Genitore sostituito» — e
+metterlo in elenco perche il lettore lo mostri.
+
+### Tre asserzioni vacue nella sonda precedente
+
+Il decimo vaglio ha anche mostrato che tre asserzioni del nono erano verdi per
+la ragione sbagliata: due asserivano che un gettone **sbagliato** restasse
+attivo su una porta che non revocava niente, e una era un'implicazione il cui
+antecedente non era mai vero. E la quarta volta che «un nome invece di un atto»
+compare, e la seconda dentro una sonda scritta per misurare quel pattern.
