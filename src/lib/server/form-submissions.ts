@@ -1042,6 +1042,19 @@ export const submitInternalForm = async (
   scope: FormsAccessScope,
   input: SubmitFormInput & { templateId: string; subjects?: unknown },
 ) => {
+  /*
+    La chiave, non la matrice del ruolo **base**: `canAccessClubResource`
+    guarda il ruolo base, quindi un ruolo personalizzato con la sola casella
+    della lettura passerebbe lo stesso — e la lettura e proprio cio che questa
+    guardia deve smettere di accettare. I moduli hanno due chiavi, e quella che
+    dice «lavoro sulle pratiche» e la seconda.
+  */
+  if (!roleHasPermission(scope.activeRole, "forms.submissions.review")) {
+    throw denied(
+      "compilare un modulo a nome della societa e di chi gestisce le pratiche",
+    );
+  }
+
   const compilable = await resolveCompilableVersion(scope, input.templateId);
   const selections = normalizeSelections(input.subjects);
 

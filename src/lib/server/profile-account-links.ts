@@ -400,14 +400,24 @@ export type UnlinkTrainerAccountResult = {
  * del prodotto**: una difesa inerte, che da fuori e identica a una che
  * funziona (ADR-0147). Si cercano tutte e due.
  */
+/**
+ * Le chiavi con cui il carico di un invito puo nominare un profilo.
+ *
+ * Oggi il conio ne scrive **una sola** — `trainer_id` — anche per le voci di
+ * staff, perche la schermata che conia serve tutti e due i tipi. Le si cercano
+ * comunque tutte: cercare un soprainsieme costa un `OR` e non puo mai essere
+ * **inerte**, mentre lasciare che sia il chiamante a scegliere la chiave
+ * significa che un chiamante puo sceglierne una che non combacia con niente —
+ * ed e successo, nel commit che aveva appena definito quel difetto.
+ */
+const CHIAVI_CHE_NOMINANO_UN_PROFILO = ["trainer_id", "staff_id"] as const;
+
 export const chiudiGliInvitiDelProfilo = async (
   client: any,
   parametri: {
     organizationId: string;
     /** L'identificativo di riga e quello logico: quello che c'e. */
     identificativi: Array<string | null | undefined>;
-    /** La chiave del carico che nomina il profilo: `trainer_id`, `staff_id`. */
-    chiaveDelCarico: string;
   },
 ): Promise<number> => {
   const tx = client || prisma;
@@ -415,7 +425,12 @@ export const chiudiGliInvitiDelProfilo = async (
   const nomi = [
     ...new Set(parametri.identificativi.map((v) => testo(v)).filter(Boolean)),
   ] as string[];
-  if (!nomi.length) return 0;
+  /*
+    **Il club non e facoltativo.** Con Prisma un `organization_id: undefined`
+    non restringe: **toglie il filtro**, e una revoca uscirebbe dal proprio
+    club. Il gemello che cancella questa guardia ce l'ha; questa no.
+  */
+  if (!nomi.length || !testo(parametri.organizationId)) return 0;
 
   const daChiudere = (
     (await tx.clubResourceItem.findMany({
@@ -423,22 +438,34 @@ export const chiudiGliInvitiDelProfilo = async (
         organization_id: parametri.organizationId,
         resource_type: "access_tokens",
         /*
-          **Tutto cio che non e gia chiuso**, non solo cio che sembra aperto.
+          **Tutto cio che non e gia chiuso** — e `NULL` non e chiuso.
 
-          Il primo filtro elencava `active | pending | sent`, e lasciava fuori
-          `redeemed`. Ma il riscatto accetta un invito `redeemed` quando e
-          **multi-uso** (`redeem/route.ts`: `status === "redeemed" &&
-          multiUsoLecito`): un invito gia speso una volta poteva percio essere
-          speso ancora, e lo scollegamento non lo toccava.
+          Il primo filtro elencava `active | pending | sent` e lasciava fuori
+          `redeemed`, che il riscatto accetta quando l'invito e multi-uso. Il
+          secondo, `status: { not: "revoked" }`, ha introdotto un terzo caso:
+          la colonna e **nullable**, e in SQL `status <> 'revoked'` **non**
+          seleziona le righe con `NULL`. Il riscatto invece legge
+          `status || "active"` e le accetta, e la rotta generica lascia coniare
+          un invito senza stato.
 
-          Elencare gli stati aperti vuol dire tenere quell'elenco allineato con
-          cio che il riscatto accetta, e sono due posti. Si nega invece il solo
-          stato che chiude davvero: cio che non e `revoked` si chiude.
+          Il gemello dei tutori filtra in memoria, dove `String(null || "")`
+          non e `"revoked"` e quindi passa: le due porte hanno larghezza
+          diversa per una differenza fra SQL e JavaScript che nessuno dei due
+          commenti nominava.
         */
-        status: { not: "revoked" },
-        OR: nomi.map((valore) => ({
-          payload: { path: [parametri.chiaveDelCarico], equals: valore },
-        })),
+        OR: nomi.flatMap((valore) =>
+          CHIAVI_CHE_NOMINANO_UN_PROFILO.map((chiave) => ({
+            payload: { path: [chiave], equals: valore },
+            status: { not: "revoked" as const },
+          })),
+        ).concat(
+          nomi.flatMap((valore) =>
+            CHIAVI_CHE_NOMINANO_UN_PROFILO.map((chiave) => ({
+              payload: { path: [chiave], equals: valore },
+              status: null as any,
+            })),
+          ),
+        ),
       },
       select: { id: true },
     })) as Array<{ id: string }>
@@ -465,7 +492,6 @@ export const eraseProfileInvites = async (
   client: any,
   organizationId: string,
   identificativi: Array<string | null | undefined>,
-  chiaveDelCarico: string,
 ): Promise<number> => {
   const tx = client || prisma;
   const nomi = [
@@ -477,9 +503,11 @@ export const eraseProfileInvites = async (
     where: {
       organization_id: organizationId,
       resource_type: "access_tokens",
-      OR: nomi.map((valore) => ({
-        payload: { path: [chiaveDelCarico], equals: valore },
-      })),
+      OR: nomi.flatMap((valore) =>
+        CHIAVI_CHE_NOMINANO_UN_PROFILO.map((chiave) => ({
+          payload: { path: [chiave], equals: valore },
+        })),
+      ),
     },
   });
 
@@ -535,7 +563,6 @@ export const unlinkTrainerAccount = async (
   const invitiChiusi = await chiudiGliInvitiDelProfilo(prisma, {
     organizationId: record.organization_id,
     identificativi: [record.id, (payload as Record<string, any>).id],
-    chiaveDelCarico: "trainer_id",
   }).catch((error) => {
     reportServerError(error, {
       metadata: {
@@ -953,8 +980,6 @@ export const unlinkProfileResources = async (
         resource.id,
         (resource.payload as Record<string, any>)?.id,
       ],
-      chiaveDelCarico:
-        resource.resource_type === "trainers" ? "trainer_id" : "staff_id",
     }).catch((error) => {
       reportServerError(error, {
         metadata: {

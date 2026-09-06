@@ -7654,3 +7654,83 @@ Se riepilogo e atto divergono, una delle due mente; e il conteggio va fatto con
 **lo stesso criterio** dell'atto, non con uno equivalente.
 
 **Vedi anche.** ADR-0147, ADR-0146, ADR-0145, ADR-0114, ADR-0105.
+
+## ADR-0149 — Un documento nuovo non nomina chi il club ha escluso
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+dodicesimo vaglio indipendente
+
+### Il fatto
+
+Tre revisioni di fila avevano segnalato che `fiscal-recipient.ts` e
+`document-placeholders.ts` non guardano `accessRevokedAt`, e tutte e tre lo
+avevano dichiarato **letto e mai deciso per iscritto**. La dodicesima l'ha
+misurato:
+
+* dopo una revoca, l'intestatario della ricevuta — quella che una famiglia porta
+  in detrazione — resta la persona che il club ha escluso, con nome, codice
+  fiscale e indirizzo;
+* e `{{parent.1.*}}` sui documenti generati continua a nominarla;
+* peggio: un terzo che compila un modulo **pubblico** con il proprio codice
+  fiscale diventa l'intestatario. La riga che nasce e `contact_only`, cioe «un
+  recapito, non un legame», e nessuno dei due lettori guardava nemmeno quello.
+
+### La decisione
+
+**Un documento emesso da adesso non intesta a una riga revocata ne a una di
+solo recapito.** Vale per il destinatario fiscale e per i segnaposto
+`{{parent.N.*}}`.
+
+Le ricevute **gia emesse non cambiano**: il destinatario si congela sulla riga
+al momento dell'emissione, ed e giusto — chi ha pagato ha pagato. La decisione
+riguarda cio che si emette dopo, ed e la prima volta che viene scritta.
+
+**La posizione resta dov'e.** Togliere le righe escluse dall'elenco farebbe
+slittare `{{parent.2.*}}`, e questo pacchetto ha gia misurato quanto costa:
+il codice fiscale stampato su una ricevuta che cambia persona da
+un'esecuzione all'altra. La voce esclusa risponde **vuoto**, e cio che era il
+genitore due resta il genitore due.
+
+La scelta esplicita del club (`billingGuardianIndex`) non fa eccezione: se punta
+a una riga esclusa, si passa alla successiva utile. Un operatore che revoca una
+persona non si aspetta di trovarla sulla ricevuta del mese dopo.
+
+### Perche non era stato deciso prima
+
+Perche nessuno dei due lettori si presenta come una difesa: sono due funzioni
+che leggono una proiezione e ne prendono un campo. La proiezione riproduce le
+righe revocate **per scelta** (ADR-0140), cosi la scheda puo mostrare
+«revocato» invece di far sparire la persona — e quella scelta, giusta per la
+scheda, arriva intatta fino a un documento ufficiale.
+
+**La regola.** Quando una proiezione conserva deliberatamente cio che una
+difesa ha marcato, ogni suo lettore va guardato uno per uno: il marchio dice
+«non decide un accesso», non «non decide niente».
+
+**Vedi anche.** ADR-0140, ADR-0114, ADR-0148.
+
+## ADR-0150 — «Interno» dice da quale rotta, non con quale autorita
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+dodicesimo vaglio indipendente
+
+ADR-0114 fa valere l'indirizzo di un tutore come chiave poggiando su un
+presupposto: **l'ha scritto il club**. L'approvazione di una compilazione lo
+traduceva in `source === "internal"`, e `source` lo scrive la rotta interna, la
+cui guardia era la sola chiave di **lettura** dei moduli.
+
+Chi poteva soltanto leggere le compilazioni ne produceva quindi una che porta
+l'autorita del club, e la faceva approvare a un collega: la riga di un tutore
+esistente si ritrovava il nome di chi aveva compilato.
+
+**La decisione.** Scrivere una compilazione a nome della societa e un atto di
+scrittura e chiede la chiave delle pratiche (`forms.submissions.review`), non
+quella della lettura. Chi non ce l'ha ha comunque la porta pubblica, dove
+l'indirizzo vale come recapito e non come legame — che e esattamente la
+distinzione che ADR-0114 stabilisce.
+
+**La regola.** Un campo che dice **da dove** viene un dato non dice **con quale
+autorita** e stato scritto. Se una difesa poggia sull'autorita, il campo da
+guardare non e la provenienza: e il permesso di chi ha scritto.
+
+**Vedi anche.** ADR-0114, ADR-0148.

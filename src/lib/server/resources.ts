@@ -7882,14 +7882,10 @@ export const deleteResource = async (
         String(existing?.resource_type || ""),
       )
     ) {
-      await eraseProfileInvites(
-        prisma,
-        String(existing.organization_id || ""),
-        [String(existing.id), (existing as any)?.payload?.id],
-        String(existing.resource_type) === "trainers"
-          ? "trainer_id"
-          : "staff_id",
-      );
+      await eraseProfileInvites(prisma, String(existing.organization_id || ""), [
+        String(existing.id),
+        (existing as any)?.payload?.id,
+      ]);
     }
 
     const record = await delegate.delete({

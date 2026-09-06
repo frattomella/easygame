@@ -2378,9 +2378,19 @@ export const refreshGuardianProjection = async (
         aggiorna. Cosi la schermata mostra il codice che il riscatto accetta
         davvero, e una revoca lo fa sparire da tutte e due i posti insieme.
       */
+      /*
+        **La stessa larghezza della revoca.**
+
+        `GETTONE_VIVO` elencava `active | pending | sent`, mentre la revoca e
+        stata allargata a «tutto cio che non e revocato». Un invito `redeemed`
+        multi-uso — che il riscatto accetta ancora — restava percio invisibile
+        alla scheda: il club non lo vedeva e non poteva chiuderlo dall'interfaccia.
+        Il gemello non allargato di una correzione dichiarata «su entrambe le
+        porte».
+      */
       const vivo = record
         .filter((voce) => gettoneDiQuestaRiga(voce, riga))
-        .find((voce) => GETTONE_VIVO.has(String(voce.status || "").trim()));
+        .find((voce) => String(voce.status || "").trim() !== "revoked");
 
       const proiettata = {
         ...proiettaRiga(riga),

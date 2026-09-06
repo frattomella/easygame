@@ -260,10 +260,31 @@ const buildCommonValues = (context: {
   };
 };
 
+/*
+  **La posizione resta, la persona esclusa no.**
+
+  I segnaposto `{{parent.N.*}}` prendono i tutori **per posto**, e la
+  proiezione riproduce anche le righe revocate e quelle di solo recapito. Un
+  documento generato oggi non deve nominare chi il club ha escluso, ne un
+  indirizzo dichiarato dalla porta pubblica.
+
+  Togliere quelle righe dall'elenco farebbe pero **slittare** le posizioni — e
+  questo pacchetto ha gia misurato cosa costa: il codice fiscale stampato su una
+  ricevuta che cambia persona. La posizione si tiene percio dov'e, e la voce
+  esclusa risponde **vuoto**: cio che era il genitore due resta il genitore due.
+*/
 const guardianAt = (athlete: Record<string, any>, index: number) => {
   const guardians = asRecord(athlete.data).guardians;
   const list = Array.isArray(guardians) ? guardians.filter(Boolean) : [];
-  return asRecord(list[index]);
+  const voce = asRecord(list[index]);
+
+  const revocata = String(
+    (voce as any).accessRevokedAt || (voce as any).access_revoked_at || "",
+  ).trim();
+  const soloRecapito =
+    (voce as any).contactOnly === true || (voce as any).contact_only === true;
+
+  return revocata || soloRecapito ? asRecord(null) : voce;
 };
 
 /**

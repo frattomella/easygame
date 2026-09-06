@@ -211,6 +211,34 @@ export const resolveFiscalRecipient = (
     ? data.guardians.filter(isRecord)
     : [];
 
+  /*
+    **Un documento nuovo non intesta a chi il club ha escluso, ne a un recapito.**
+
+    La proiezione riproduce **tutte** le righe, comprese quelle revocate e
+    quelle di solo recapito: e voluto, perche li nessuno decide un accesso. Ma
+    qui si decide chi compare come intestatario su una ricevuta — quella che una
+    famiglia porta in detrazione — e due righe non possono comparirci:
+
+    * una riga **revocata** e una persona che il club ha escluso. Continuare a
+      intestarle i documenti nuovi vuol dire che l'esclusione vale per l'accesso
+      e non per il resto, che non e cio che un operatore intende quando revoca;
+    * una riga **di solo recapito** e un indirizzo che qualcuno ha dichiarato
+      dalla porta pubblica. Misurato: un terzo compila un modulo pubblico con il
+      proprio codice fiscale e diventa l'intestatario della ricevuta.
+
+    Le ricevute gia emesse non cambiano: il destinatario si congela sulla riga
+    al momento dell'emissione. Questa scelta riguarda cio che si emette **da
+    adesso**, ed e la prima volta che viene scritta: tre revisioni l'avevano
+    segnalata come «letta, mai decisa».
+
+    La posizione scelta a mano dal club (`billingGuardianIndex`) non fa
+    eccezione: se punta a una riga esclusa, si passa alla successiva utile.
+  */
+  const intestabile = (guardian: Record<string, any>) =>
+    !firstText(guardian.accessRevokedAt, guardian.access_revoked_at) &&
+    guardian.contactOnly !== true &&
+    guardian.contact_only !== true;
+
   const chosenIndex = Number(data.billingGuardianIndex);
   const chosen =
     Number.isInteger(chosenIndex) &&
@@ -219,10 +247,12 @@ export const resolveFiscalRecipient = (
       ? guardians[chosenIndex]
       : null;
 
-  if (chosen) return fromGuardian(chosen);
+  if (chosen && intestabile(chosen)) return fromGuardian(chosen);
 
-  const withFiscalCode = guardians.find((guardian) =>
-    firstText(guardian.fiscalCode, guardian.fiscal_code),
+  const withFiscalCode = guardians.find(
+    (guardian) =>
+      intestabile(guardian) &&
+      firstText(guardian.fiscalCode, guardian.fiscal_code),
   );
   if (withFiscalCode) return fromGuardian(withFiscalCode);
 

@@ -130,21 +130,42 @@ const loadTrainerAccessTarget = async (
 
   if (!perUuid && !perIdLogico) return null;
 
-  try {
-    return {
-      resource: "trainers",
-      record: await getResourceById("trainers", trainerId),
-    } as const;
-  } catch {
-    try {
-      return {
-        resource: "staff_members",
-        record: await getResourceById("staff_members", trainerId),
-      } as const;
-    } catch {
-      return null;
-    }
+  /*
+    **Il ripiego si prende quando il primo tentativo non trova, non quando
+    solleva.**
+
+    Qui il ramo `staff_members` stava dentro un `catch`, e
+    `getResourceById` senza `scope` **non solleva** quando la riga non c'e:
+    `assertRecordAccess` esce con `if (!scope || !record) return`. Il primo
+    tentativo restituiva percio `{ resource: "trainers", record: null }` senza
+    eccezione, il `catch` non scattava mai, e il ripiego era **codice morto**:
+    l'onboarding a gettone di una voce di staff rispondeva 404 e non era
+    possibile.
+
+    Il difetto era invisibile perche **mascherava** un altro difetto: finche
+    nessun invito di staff si riscattava, il fatto che la revoca non lo
+    chiudesse non apriva niente. Due difetti che si nascondono a vicenda
+    restano tutti e due, e il giorno in cui si corregge il primo il secondo
+    diventa uno sfruttamento — misurato: chiudendo questo, la revoca di una
+    tessera di staff lasciava rientrare la persona.
+
+    Si guarda percio **cio che si e trovato**, non se si e sollevato.
+  */
+  const comeAllenatore = await getResourceById("trainers", trainerId).catch(
+    () => null,
+  );
+  if (comeAllenatore) {
+    return { resource: "trainers", record: comeAllenatore } as const;
   }
+
+  const comeStaff = await getResourceById("staff_members", trainerId).catch(
+    () => null,
+  );
+  if (comeStaff) {
+    return { resource: "staff_members", record: comeStaff } as const;
+  }
+
+  return null;
 };
 
 const loadParentAccessTarget = async (
