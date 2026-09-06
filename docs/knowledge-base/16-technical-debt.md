@@ -2562,3 +2562,39 @@ adesso subito dopo la tessera, e un suo rifiuto solleva **prima** che il
 gettone venga consumato. Chiuderla davvero vuol dire portare le cinque
 scritture sotto la stessa transazione, e `updateResource` non accetta oggi un
 client di transazione: e un WP, non una riga.
+
+### PP02-D34 — la misura definitiva della finestra (2026-09-06)
+
+`scripts/pp-02-revoca-atomica.mjs` sostituisce la caratterizzazione del round
+28, che era gia una correzione di una precedente e **ancora** non era la misura
+giusta.
+
+**Cosa misurava W-79, e perche non bastava.** «La revoca vede anche una scheda
+toccata mentre gira»: una taglia di club, **uno** sfasamento. Un istante in cui
+la finestra non si apre. La RCA lo chiama per nome: la copertura e alta, la
+varieta e bassa.
+
+**Cosa misurava il round 28.** Due porte in parallelo con lo sfasamento fissato
+a 20 ms: 5 giri su 5. Meglio, ma sempre **un** punto della finestra.
+
+**Cosa si misura adesso.** Lo sfasamento non si indovina: si **percorre**. La
+revoca viene cronometrata, e la scrittura concorrente — il salvataggio
+ordinario dell'anagrafica, da `updateResource` — viene inserita a sette
+frazioni diverse della sua durata. Su un club di 60 schede con lo stesso
+tutore, revoca da **499 ms**:
+
+| sfasamento | la scheda sfugge alla revoca? |
+|------------|-------------------------------|
+| 0% | no — la scrittura arriva prima che l'elenco sia scelto |
+| 10%, 25%, 40%, 55%, 70%, 85% | **si**, tutte |
+
+**Sei sfasamenti su sette.** Non e «una corsa rara» e non e nemmeno «una
+finestra stretta»: e **tutta** la scansione tranne il suo primo istante. Su
+quelle sei schede il tutore revocato entra ancora — tessera cancellata, audit
+scritto, fascicolo del minore aperto.
+
+E la ragione per cui la sonda vive: fino a quando non diventa verde, R-2 e
+aperto e **PP-02 non e FINAL**. Diventera verde quando lo sweep smettera di
+essere una scansione su un blob e diventera una `UPDATE` sola su
+`athlete_guardians` (AC-1, WP-C+D): non c'e piu un elenco scelto prima, quindi
+non c'e piu un dopo in cui infilarsi.
