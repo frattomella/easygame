@@ -83,6 +83,40 @@ coda, senza arbitrare numeri in mezzo a un merge.
 
 Fatto: PP-03 (`9503fe4`), PP-05 (`43fc1bb`). PP-02 da fare prima del merge.
 
+**Aggiornamento 2026-09-06.** La tabella qui sopra e invecchiata su due punti,
+e vanno letti insieme a lei:
+
+* **La base non e piu `0d66921`.** Tutte e quattro le lane hanno poi ricevuto
+  `aa62e16` (la sonda della corsa con un'utenza sua), che e oggi il
+  `merge-base` di ogni coppia. Ogni confronto fra lane si fa contro **quello**;
+  contro `0d66921` si contano differenze che le lane condividono gia.
+* **PP-02 ha ora sei ADR, non quattro.** WP-C+D ne ha aggiunti due (l'autorita
+  sui tutori e il vaglio d'archivio) e il secondo vaglio indipendente un terzo,
+  gia numerato **0137** perche 0120-0125 sono di PP-04 e 0131-0134 di PP-05.
+  L'assegnazione finale di PP-02 e quindi:
+
+  | prima | dopo |
+  |-------|------|
+  | 0114-0117 | **0127-0130** (come da piano) |
+  | 0118 | **0135** |
+  | 0119 | **0136** |
+  | 0137 | invariato |
+
+  I due numeri nuovi vanno in coda invece che dentro 0127-0130 perche quel
+  blocco e largo quattro e PP-05 occupa gia da 0131: allargarlo vorrebbe dire
+  rinumerare una terza lane per un risultato solo piu ordinato.
+
+* **Un riferimento che resta valido puntando altrove.**
+  `tests/lib/riscatto-perimetro.test.mjs` viene dalla base ed e identico in
+  tutte e quattro le lane; cita `ADR-0117` intendendo il **test di totalita**
+  di PP-02. Dopo il merge `ADR-0117` sara quello di PP-04 («la stessa domanda,
+  per i due lettori dello stesso campo»), su tutt'altro tema. Git non lo
+  segnala — nessun conflitto, nomi uguali — e va riscritto a **0130** insieme
+  agli altri riferimenti di PP-02.
+
+* **La ricetta della §4.1 non descrive piu il lato PP-02.** Vedi la nota in
+  fondo a quella sezione.
+
 **Collisione di nome fra schede KB**: PP-02 e PP-03 aggiungevano entrambe un
 file con prefisso `44`. Git non le avrebbe messe in conflitto — nomi diversi —
 e la collisione sarebbe entrata in silenzio. PP-03 e stata spostata a
@@ -129,6 +163,16 @@ valutazione:
 2. poi il cancello di revoca di PP-02, applicato al ramo tutore **prima** di
    `tutoreProvato || isGuardianLinkedToUser(...)`;
 3. `guardianDeclaredIds` resta l'unica strada che sopravvive a una revoca.
+
+**Nota 2026-09-06 — questa ricetta e da rifare.** E stata scritta prima del
+cutover WP-C+D, che ha spostato l'autorita sui tutori dal blob alla tabella e ha
+cancellato `getGuardianRows`, `isGuardianLinkedToUser` e
+`revokedGuardianIdentities` **come lettori di sicurezza**. La versione PP-04 li
+chiama ancora. La conseguenza e paradossalmente **piu sicura** di quella
+descritta qui: il merge non lascera passare in silenzio il predicato pre-PP-02,
+perche non compilera. Cio che resta da comporre a mano e la sostanza di PP-04 —
+il ramo esclusivo, `schedeProprie`, `ancoraAtleta` — sopra il lettore
+relazionale `findGuardianLinks`.
 
 **Il controllo che dice se la composizione e giusta**: si eseguono contro la
 funzione fusa **entrambe** le suite,

@@ -1164,6 +1164,7 @@ export const revokeClubAccess = async (
       tessera.user_id,
       utente?.email || null,
       tessera.role,
+      tessera.id,
     );
     const athleteProfiles = await unlinkDirectAthleteProfile(
       tx,

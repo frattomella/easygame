@@ -891,8 +891,44 @@ export const unlinkParentGuardians = async (
   userId: string,
   userEmail: string | null,
   accessRole: string,
+  membershipId?: string | null,
 ) => {
-  if (!isParentAccessRole(accessRole)) return 0;
+  /*
+    **Due strade portano qui, e il ruolo della tessera ne conosce una sola.**
+
+    La prima e ovvia: si revoca la tessera `parent`, e l'area famiglia si
+    chiude con lei.
+
+    La seconda la si vedeva solo guardando la chiave: `organization_users` e
+    unica per `(organization_id, user_id, role)`, non per persona — una
+    persona puo avere **piu tessere** nello stesso club. Chi era tutore
+    collegato di un minore e portava una tessera di ruolo diverso (allenatore,
+    socio, un ruolo personalizzato su base non-parent) usciva percio da questo
+    controllo con `return 0`: la tessera spariva, l'audit scriveva
+    `clubRoleRevoked`, la schermata diceva revocato — e la riga del tutore
+    restava **viva con l'utenza addosso**. Quella persona, senza piu nessuna
+    tessera nel club, continuava a vedere l'area famiglia completa del minore:
+    calendario, rate, ricevute, documenti, certificato, dato clinico.
+
+    Il ruolo non e percio la domanda giusta da solo. Si chiude quando la
+    tessera revocata **e** quella di genitore, oppure quando dopo di lei quella
+    persona nel club **non ne ha piu nessuna**: e la revoca completa di cui
+    parla ADR-0110, e un legame che le sopravvive e esattamente il riferimento
+    dangling che questo modulo esiste per non lasciare.
+
+    Il verso opposto resta protetto: chi perde la tessera da allenatore ma
+    **conserva** quella da genitore non perde i figli.
+  */
+  if (!isParentAccessRole(accessRole)) {
+    const altreTessere = await tx.organizationUser.count({
+      where: {
+        organization_id: organizationId,
+        user_id: userId,
+        ...(membershipId ? { id: { not: membershipId } } : {}),
+      },
+    });
+    if (altreTessere > 0) return 0;
+  }
 
   return revokeGuardianAccessInClub(tx, {
     organizationId,

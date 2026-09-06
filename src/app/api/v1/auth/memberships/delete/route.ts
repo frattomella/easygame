@@ -121,6 +121,7 @@ export async function POST(request: Request) {
         session.db.user_id,
         session.db.user.email,
         membership.role,
+        membership.id,
       );
       const athleteProfiles = await unlinkDirectAthleteProfile(
         tx,

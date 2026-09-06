@@ -569,3 +569,56 @@ di nuovo.
 E `scripts/helpers/travaso-tutori.mjs` cerca adesso **l'ultima** migrazione che
 porti il travaso, invece di nominarla: due volte una sonda ha continuato a
 misurare la versione vecchia, verde, mentre il prodotto era cambiato sotto.
+
+---
+
+## Il secondo vaglio indipendente (2026-09-06)
+
+Chiusi i sette reperti del vaglio strutturale, una **seconda** revisione
+indipendente ha attaccato lo stesso pacchetto senza conoscerlo: PostgreSQL vero,
+entrypoint vere, ogni sonda tenuta a dimostrare di discriminare. Ha trovato
+**0 Critical, 4 High, 1 Medium**.
+
+| # | gravita | dove |
+|---|---------|------|
+| R-1 | High | `resources.ts` — ogni salvataggio cancellava i due registri di difesa |
+| R-2 | High | `resources.ts` — un salvataggio con `data` e senza `guardians` cancellava tutte le righe |
+| R-3 | High | `profile-account-links.ts` — la revoca non chiudeva l'area famiglia se la tessera non era `parent` |
+| R-4 | High | `athlete-guardians.ts` — un invito senza `token_type` sopravviveva a ogni revoca |
+| R-5 | Medium | `athlete-guardians.ts` — la lettura dei gettoni non aveva filtro di club |
+
+### Il numero che conta
+
+Nessuno dei cinque sta dentro `athlete-guardians.ts`. **Tutti** sul bordo, dove
+il modulo proprietario incontra chi lo chiama — e nessuno era visto dalle 268
+sonde, dai 4.754 test e dal vaglio strutturale che c'erano prima.
+
+E la seconda volta di fila che i reperti stanno tutti sul confine. La prima si
+poteva leggere come un caso; due volte e una proprieta del problema. Un dominio
+con un proprietario unico non lo mette in sicurezza il proprietario: lo mettono
+in sicurezza i suoi confini, e sono loro che vanno attaccati per primi.
+
+### La sonda che descriveva il difetto invece di difendere da lui
+
+R-3 ha una coda che vale piu del reperto. `pp-02-totalita-ruoli` chiedeva, per
+ogni grafia di ruolo, che revocare una tessera **non** togliesse il legame di
+famiglia — la protezione giusta, con l'intenzione giusta scritta in testa al
+file: «revocare la tessera di allenatore a un padre gli toglierebbe l'accesso ai
+figli».
+
+Ma la sua semina dava a ogni soggetto **una sola** tessera. Con una tessera
+sola, revocarla non e togliere un ruolo: e togliere la persona dal club. La
+sonda stava percio pretendendo che l'area famiglia sopravvivesse a un'uscita
+completa — cioe **asseriva il difetto**, e sarebbe diventata rossa sulla
+correzione.
+
+Non e stata allentata. E stata divisa in due proprieta con due semine diverse:
+T-13 (una tessera sola, l'area si chiude) e T-15 (due tessere, revocata l'altra
+i figli restano). Rimettendo il difetto vecchio cade T-13; togliendo il freno
+alla correzione cade T-15. Nessuna delle due, da sola, distingue la correzione
+dal difetto opposto.
+
+**La lezione.** Quando una sonda di sicurezza diventa rossa su una correzione,
+la prima domanda non e quale delle due sia sbagliata: e **quale scenario la sua
+semina rappresenta davvero**. Qui la semina rappresentava un caso che
+l'intenzione scritta nel file non nominava.

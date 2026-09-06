@@ -6915,3 +6915,88 @@ quindi non distinguerebbe il proprietario dal resto dell'applicazione.
 
 **Vedi anche.** ADR-0118 (un tutore e una riga), ADR-0117 (un'enumerazione ha un
 test che enumera il dominio), CLAUDE.md §2.
+
+## ADR-0137 — Un confine si difende dai due lati, e le due letture sono una funzione sola
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+secondo vaglio indipendente
+
+### Il fatto
+
+Chiusi i sette reperti del vaglio strutturale, una **seconda** revisione
+indipendente ha attaccato lo stesso pacchetto senza conoscerlo e ne ha trovati
+altri cinque: nessun Critical, quattro High e un Medium. Nessuno dentro
+`athlete-guardians.ts`. Tutti sul **bordo**, dove il modulo proprietario
+incontra chi lo chiama.
+
+E la stessa forma dei sette di prima. Un dominio con un proprietario unico non
+lo mette in sicurezza il proprietario: lo mettono in sicurezza i suoi confini.
+
+### Le tre regole che ne escono
+
+**1. Una difesa che si toglie e si rimette va rimessa per intero.**
+
+La rotta generica toglie da cio che riceve le tre chiavi che il modulo dichiara
+non scrivibili, la proiezione le riscrive tutte e tre, e poi la `update` finale
+sostituisce `data`. Ne veniva riportata indietro **una sola**: i due registri —
+chi e revocato, chi e solo un recapito — sparivano a **ogni** salvataggio di
+**qualunque** scheda. Non sono decorativi: tre canali di notifica leggono di li
+per sapere chi **non** deve ricevere, e senza di loro una persona revocata che
+condivide l'indirizzo di famiglia con un genitore attivo — il caso ordinario di
+ADR-0114 — tornava a ricevere gli avvisi sulla salute del minore e il sollecito
+con il link per pagare.
+
+Le chiavi si riportano ora **derivandole dalla costante** che le dichiara: una
+quarta chiave aggiunta li torna indietro da sola.
+
+**2. «Non ne parlo» non e «non ce ne sono».**
+
+`readGuardianInputFromCard(undefined)` restituisce `[]`, che e **vero**. Un
+salvataggio che portasse `data` senza la chiave `guardians` veniva percio letto
+come «questa scheda non ha piu tutori», e il modulo cancellava ogni riga non
+revocata — senza permesso che lo governasse (`canGrantAccess` governa solo la
+crescita) e senza una riga di audit. Non serviva malizia:
+`ATHLETE_SUMMARY_OMITTED_DATA_KEYS` **omette apposta** `guardians` dalla lettura
+riassuntiva, quindi qualunque codice che rilegga una scheda in forma breve e la
+risalvi innescava la cancellazione. L'assenza di una chiave e ora un silenzio,
+non una dichiarazione.
+
+**3. Due porte sulla stessa proprieta sono una funzione sola.**
+
+Lo sweep dei gettoni pretendeva un carico con `token_type` esattamente
+`parent_access`. Il riscatto era piu largo: accetta anche la grafia in cammello
+e **deduce** il ruolo di genitore da `athlete_id` + `guardian_id`, senza chiedere
+alcun `token_type`. Un invito coniato senza quella chiave sopravviveva a **ogni**
+revoca, e chi lo aveva in tasca rientrava nel fascicolo del minore: un
+meccanismo di persistenza che nessuna revoca poteva chiudere.
+
+Non si e ricopiata la condizione — ricopiarla e cio che le ha fatte divergere.
+Le due letture sono ora `eCaricoDiTutore`, esportata dal modulo proprietario e
+chiamata da entrambe: **allargare la porta allarga anche la revoca**, e non si
+puo piu allargarne una sola.
+
+### E la revoca di una tessera
+
+`organization_users` e unica per `(organization_id, user_id, role)`, non per
+persona: una persona puo avere **piu tessere** nello stesso club. Lo sweep dei
+tutori usciva pero con `return 0` se la tessera revocata non era `parent`, e
+`findGuardianLinks` apre su `{ user_id }` **senza chiedere una tessera**. Chi
+era tutore collegato e portava una tessera di ruolo diverso restava percio con
+l'area famiglia completa del minore dopo essere stato escluso dal club.
+
+La domanda giusta non e il ruolo da solo: si chiude quando la tessera revocata
+**e** quella di genitore, **oppure** quando dopo di lei quella persona nel club
+non ne ha piu nessuna. Il verso opposto resta protetto — chi perde la tessera da
+allenatore ma conserva quella da genitore non perde i figli — e le due meta sono
+misurate insieme (`pp-02-totalita-ruoli`, T-13 e T-15), perche una sola delle
+due si soddisfa anche con il difetto opposto.
+
+### Conseguenza sulle prove
+
+Una sonda che misura una difesa **e** la sua negazione e l'unica che dice
+qualcosa. Le cinque correzioni hanno quindici asserzioni e sei controlli, e ogni
+correzione e stata rimessa indietro una per una per vedere la sua asserzione
+diventare rossa — e solo la sua.
+
+**Vedi anche.** ADR-0118 (un tutore e una riga), ADR-0119 (l'archivio fa valere
+il proprietario), ADR-0114 (l'indirizzo di un tutore), CLAUDE.md §2.

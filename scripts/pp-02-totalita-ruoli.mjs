@@ -432,7 +432,12 @@ const main = async () => {
     `\n§1 — totalita e specificita della revoca, su ${DOMINIO.length} grafie\n`,
   );
 
-  const falliti = { totalita: [], specificita: [], revoca: [] };
+  const falliti = {
+    totalita: [],
+    specificita: [],
+    uscitaCompleta: [],
+    revoca: [],
+  };
 
   for (const valore of DOMINIO) {
     const s = soggetti.get(valore);
@@ -463,9 +468,37 @@ const main = async () => {
     }
     for (const altra of FAMIGLIE) {
       if (altra === famiglia) continue;
+      /*
+        **Il legame di famiglia esce dalla specificita, e diventa una domanda
+        sua.** Vedi `falliti.uscitaCompleta` qui sotto: questi soggetti hanno
+        **una sola** tessera, e revocarla non e togliere un ruolo — e togliere
+        la persona dal club. La specificita continua a valere piena per gli
+        altri due legami, che una revoca completa non deve toccare.
+      */
+      if (altra === "parent") continue;
       if (dopo[altra] !== true) {
         falliti.specificita.push({ valore, famiglia, rotta: altra });
       }
+    }
+
+    /*
+      **Chi esce dal club non conserva l'area famiglia.**
+
+      `findGuardianLinks` apre su `{ user_id }` **senza chiedere una tessera**:
+      una riga di tutore collegata basta da sola. Finche questa sonda dava a
+      ogni soggetto una sola tessera e pretendeva che il legame di famiglia
+      sopravvivesse a qualunque revoca, stava descrivendo il difetto invece di
+      difendere da lui: la tessera spariva, l'audit scriveva `clubRoleRevoked`,
+      e quella persona — senza piu niente nel club — continuava a vedere del
+      minore calendario, rate, ricevute, documenti, certificato e dato clinico.
+      Misurato da una revisione indipendente su ogni grafia non-parent.
+
+      L'altra meta della proprieta — chi perde una tessera ma **ne conserva
+      un'altra** non perde i figli — e il §3, che semina le due tessere che
+      quel caso ha davvero.
+    */
+    if (dopo.parent !== false) {
+      falliti.uscitaCompleta.push({ valore, famiglia });
     }
   }
 
@@ -477,10 +510,136 @@ const main = async () => {
     "una grafia qui dentro e una revoca che lascia il profilo collegato",
   );
   prova(
-    "T-12 SPECIFICITA — gli altri tre legami restano, per ogni grafia",
+    "T-12 SPECIFICITA — gli altri due legami restano, per ogni grafia",
     [],
     falliti.specificita,
     "una grafia qui dentro e una revoca che scollega piu di quanto le compete",
+  );
+  prova(
+    "T-13 USCITA COMPLETA — tolta l'unica tessera, l'area famiglia si chiude",
+    [],
+    falliti.uscitaCompleta,
+    "una grafia qui dentro e una persona senza piu tessere che vede ancora il minore",
+  );
+
+  /*
+    ------------------------------------------------------------------ §3 ----
+
+    **L'altra meta di T-13: chi conserva una tessera conserva i figli.**
+
+    T-13 dice che togliere l'**unica** tessera chiude l'area famiglia. Da sola
+    quella proprieta si soddisfa anche con una revoca che scollega sempre —
+    ed e il difetto opposto, quello che il commento in testa a questo file
+    chiama per nome: «revocare la tessera di allenatore a un padre gli
+    toglierebbe l'accesso ai figli».
+
+    Il caso vero ha **due** tessere, e in produzione le ha davvero:
+    `organization_users` e unica per `(organization_id, user_id, role)`, non
+    per persona, e il riscatto di un invito di tutore crea la tessera
+    `parent` **accanto** a quelle che quella persona gia aveva. Qui si semina
+    esattamente quella forma e si revoca l'altra tessera.
+  */
+  console.log("\n§3 — due tessere: si revoca l'altra, e i figli restano\n");
+
+  const dueTessere = [];
+  for (const [n, valore] of ["trainer", "allenatrice", "club_manager", "staff"].entries()) {
+    const utente = await prisma.user.create({
+      data: {
+        id: randomUUID(),
+        email: `pp02tot-due-${n}@example.invalid`,
+        first_name: `Padre${n}`,
+        last_name: "DueTessere",
+        password_hash: "$2b$10$pp02tot",
+        role: "user",
+        email_verified_at: new Date(),
+        updated_at: new Date(),
+      },
+    });
+
+    /* La tessera che si revochera, e quella di genitore che deve restare. */
+    const tessera = await prisma.organizationUser.create({
+      data: {
+        id: randomUUID(),
+        organization_id: CLUB,
+        user_id: utente.id,
+        role: valore,
+        is_primary: true,
+        updated_at: new Date(),
+      },
+    });
+    await prisma.organizationUser.create({
+      data: {
+        id: randomUUID(),
+        organization_id: CLUB,
+        user_id: utente.id,
+        role: "parent",
+        is_primary: false,
+        updated_at: new Date(),
+      },
+    });
+
+    const figlio = randomUUID();
+    await prisma.athlete.create({
+      data: {
+        id: figlio,
+        organization_id: CLUB,
+        first_name: `Figlio${n}`,
+        last_name: "DueTessere",
+        birth_date: new Date(Date.UTC(2014, 4, 12)),
+        status: "active",
+        category_id: "cat-tot",
+        category_name: "Under 12",
+        data: {},
+        updated_at: new Date(),
+      },
+    });
+    await saveGuardianRegistry(prisma, {
+      organizationId: CLUB,
+      athleteId: figlio,
+      rows: [
+        {
+          firstName: utente.first_name,
+          lastName: utente.last_name,
+          relationship: "Genitore",
+          email: utente.email,
+        },
+      ],
+      canGrantAccess: true,
+    });
+    await linkGuardianAccount(prisma, {
+      athleteId: figlio,
+      identityKeys: [utente.email],
+      userId: utente.id,
+      email: utente.email,
+    });
+
+    dueTessere.push({ valore, utente, figlio, tesseraId: tessera.id });
+  }
+
+  const primaDue = [];
+  for (const d of dueTessere) {
+    primaDue.push(await cruscotto.canParentAccessAthlete(d.utente.id, d.figlio));
+  }
+  prova(
+    "T-14 SEMINA — con due tessere il padre vede il figlio",
+    dueTessere.map(() => true),
+    primaDue,
+    "senza questa la sonda misurerebbe un legame che non c'era",
+  );
+
+  const dopoDue = [];
+  for (const d of dueTessere) {
+    await accessi.revokeClubAccess(scope, d.tesseraId);
+    dopoDue.push({
+      valore: d.valore,
+      vede: await cruscotto.canParentAccessAthlete(d.utente.id, d.figlio),
+    });
+  }
+  prova(
+    "T-15 revocata l'altra tessera, i figli restano",
+    dueTessere.map((d) => ({ valore: d.valore, vede: true })),
+    dopoDue,
+    "qui una revoca sta togliendo piu di quanto le compete",
   );
 
   /*

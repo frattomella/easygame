@@ -2891,3 +2891,28 @@ perimetri per sedici) invece che su casi scelti a mano.
 
 **Verificate per mutazione**: togliendo la propagazione del perimetro dalle due
 strade, **sette** asserzioni diventano rosse su tutti e tre i tipi di gettone.
+
+### Il confine del dominio dei tutori, e le cinque porte che lo attraversano (2026-09-06)
+
+Un secondo vaglio indipendente (ADR-0137) ha trovato cinque difetti **tutti sul
+bordo** del modulo proprietario dei tutori, nessuno dentro di esso. Le regole
+che ne restano, e che valgono per qualunque dominio con un proprietario unico:
+
+* **Una difesa tolta e rimessa va rimessa per intero.** La rotta generica toglie
+  da cio che riceve le chiavi non scrivibili e le riporta indietro dalla
+  proiezione: si riportano **derivandole dalla costante** che le dichiara, mai
+  nominandone una.
+* **L'assenza di una chiave e un silenzio, non una dichiarazione.** Un
+  salvataggio che non nomina i tutori non li tocca; solo `guardians: []` li
+  toglie.
+* **Due porte sulla stessa proprieta sono una funzione sola.** Cosa conti come
+  invito di tutore lo dice `eCaricoDiTutore`, chiamata sia dal riscatto sia
+  dalla revoca: allargare l'una allarga l'altra.
+* **La revoca non esce dal proprio club.** La lettura dei gettoni porta il
+  filtro `organization_id`: `legacy_id` viene dal blob e non e unico fra club.
+* **Uscire dal club chiude l'area famiglia.** `organization_users` e unica per
+  `(organization_id, user_id, role)`: si guarda se **restano** tessere, non solo
+  il ruolo di quella revocata.
+
+Sonda permanente: `scripts/pp-02-secondo-vaglio.mjs` (15 asserzioni, 6
+controlli) piu T-13/T-15 in `scripts/pp-02-totalita-ruoli.mjs`.

@@ -6833,7 +6833,10 @@ const applicaGuardieDiModifica = async (
           non si legge affatto: erano il surrogato della chiave unica, e chi
           li mandava non sapeva di mandarli.
         */
-        tutoriInArrivo = readGuardianInputFromCard(inArrivo.guardians);
+        tutoriInArrivo =
+          "guardians" in inArrivo
+            ? readGuardianInputFromCard(inArrivo.guardians)
+            : null;
 
         for (const chiave of GUARDIAN_KEYS_NON_SCRIVIBILI) {
           delete inArrivo[chiave];
@@ -7493,8 +7496,34 @@ export const updateResource = async (
             select: { data: true },
           });
           if (normalized.data && typeof normalized.data === "object") {
-            (normalized.data as any).guardians =
-              ((proiettata?.data as any) || {}).guardians ?? [];
+            /*
+              **Tutte e tre, non solo la prima.**
+
+              La proiezione riscrive dentro `athletes.data` l'elenco dei tutori
+              **e i due registri** — chi e revocato, chi e solo un recapito — e
+              subito dopo questa `update` sovrascrive `data` con cio che il
+              client ha mandato, da cui le tre chiavi erano appena state tolte.
+              Riportandone indietro una sola, le altre due sparivano a **ogni**
+              salvataggio di **qualunque** scheda.
+
+              Non sono decorative: i promemoria del certificato medico e i
+              solleciti di pagamento leggono di li per sapere **chi non deve
+              ricevere**. Senza il registro, una persona revocata che condivide
+              l'indirizzo di famiglia con un genitore attivo — il caso ordinario
+              di ADR-0114 — tornava fra i destinatari degli avvisi sulla salute
+              del minore e del sollecito con il link per pagare.
+
+              Si riportano percio le chiavi che il modulo proprietario dichiara,
+              **derivandole dalla sua costante**: una quarta chiave aggiunta li
+              torna indietro da sola, senza che nessuno se ne ricordi qui.
+            */
+            const dallaProiezione = ((proiettata?.data as any) || {}) as Record<
+              string,
+              unknown
+            >;
+            for (const chiave of GUARDIAN_KEYS_NON_SCRIVIBILI) {
+              (normalized.data as any)[chiave] = dallaProiezione[chiave] ?? [];
+            }
           }
 
           return clientDelegate(client, resource).update({

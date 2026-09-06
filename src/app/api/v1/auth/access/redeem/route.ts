@@ -22,7 +22,10 @@ import {
   type AccessScopeEntry,
 } from "@/lib/roles/access-scope";
 import { prisma } from "@/lib/server/prisma";
-import { linkGuardianAccount } from "@/lib/server/athlete-guardians";
+import {
+  eCaricoDiTutore,
+  linkGuardianAccount,
+} from "@/lib/server/athlete-guardians";
 import { lockAthleteRow } from "@/lib/server/resources";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getResourceById, updateResource } from "@/lib/server/resources";
@@ -538,13 +541,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const tokenType = String(payload.token_type || payload.tokenType || "").trim();
     let role = normalizeAccessRole(payload.role || "member") || "member";
 
-    if (
-      tokenType === "parent_access" ||
-      (athleteId && guardianId && (!payload.role || role === "member"))
-    ) {
+    /*
+      **La stessa domanda che si fa la revoca.**
+
+      Questa porta accettava piu di quanto la revoca sapesse chiudere: qui
+      bastava `athlete_id` + `guardian_id` senza alcun `token_type`, mentre lo
+      sweep dei gettoni ne pretendeva uno esattamente `parent_access`. Un
+      invito coniato senza quella chiave sopravviveva percio a **ogni** revoca,
+      e chi lo aveva in tasca rientrava nel fascicolo del minore.
+
+      Le due letture sono ora **una funzione sola**: allargare questa porta
+      allarga anche la revoca, e non si puo piu allargarne una sola.
+    */
+    if (eCaricoDiTutore(payload)) {
       role = "parent";
     }
 

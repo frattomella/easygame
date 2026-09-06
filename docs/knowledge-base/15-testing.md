@@ -463,7 +463,7 @@ nel file**.
 
 | sonda | il dominio, e da dove viene | che cosa chiede |
 |-------|------------------------------|-----------------|
-| `pp-02-totalita-ruoli.mjs` | `ACCESS_ROLE_ALIASES` + `CUSTOM_ROLE_BASE_ROLES`, importati da `src/lib/access-roles.ts` (40 valori) | per **ogni** grafia: `revokeClubAccess` fa cadere il legame della famiglia canonica di quel ruolo (**totalita**) e **non** fa cadere gli altri tre (**specificita**) |
+| `pp-02-totalita-ruoli.mjs` | `ACCESS_ROLE_ALIASES` + `CUSTOM_ROLE_BASE_ROLES`, importati da `src/lib/access-roles.ts` (40 valori) | per **ogni** grafia: `revokeClubAccess` fa cadere il legame della famiglia canonica di quel ruolo (**totalita**) e **non** fa cadere gli altri due (**specificita**). Il legame di famiglia ha due proprieta sue, perche `findGuardianLinks` apre su `{ user_id }` senza chiedere una tessera: **T-13** — tolta l'unica tessera, l'area famiglia si chiude; **T-15** — con due tessere, revocata l'altra, i figli restano. Nessuna delle due, da sola, distingue la correzione dal difetto opposto (ADR-0137) |
 | `pp-02-totalita-corpo.mjs` | le risorse aperte di `RESOURCE_CONFIG`, importate da `src/lib/server/resources.ts` | per **ogni** risorsa raggiungibile: un `PATCH` con il corpo non incartato scrive davvero, e un corpo senza campi e 400 e non 200 |
 
 Chi domani aggiunge un alias di ruolo, o una risorsa, **estende la prova senza

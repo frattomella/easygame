@@ -2679,3 +2679,49 @@ Lo ha trovato una sonda — `W-72` e `W-79` — mentre veniva riscritta per il
 modello nuovo, e non una revisione del codice: la coppia di transazioni che lo
 produce non e evidente leggendo nessuna delle due funzioni da sola.
 
+
+## PP-02 — cosa il secondo vaglio indipendente ha lasciato aperto (2026-09-06)
+
+Cinque reperti chiusi (ADR-0137). Qui sotto cio che la revisione ha dichiarato
+di **non** aver misurato: sono lacune di copertura, non difetti trovati.
+
+### D43 — Il rollover di stagione e la revoca di tesseramento non sono stati attaccati
+
+La revisione non ha toccato il passaggio di stagione ne la cancellazione di un
+tesseramento. Le affermazioni su `bloccaSchede` e sull'ordine di acquisizione
+dei blocchi rispetto al passaggio di stagione restano quindi **non misurate**
+da questa revisione — non smentite, non confermate.
+
+**Dove.** `src/lib/server/seasons.ts`, `src/lib/server/athlete-membership.ts`.
+
+### D44 — La concorrenza vera resta misurata solo in sequenza
+
+Le sonde di questo pacchetto serializzano: due segreterie che salvano la stessa
+scheda **simultaneamente**, due approvazioni di modulo concorrenti e l'ordine di
+acquisizione dei blocchi sotto contesa non sono stati riprodotti. La revoca
+concorrente con un salvataggio in volo e invece misurata.
+
+### D45 — `scripts/provision-staging-e2e.mjs` scrive ancora il blob
+
+Lo script di provisioning semina i tutori dentro `athletes.data.guardians[]`,
+che dopo WP-C e una proiezione: l'area famiglia di uno staging appena
+provisionato non si apre. Va portato su `saveGuardianRegistry`.
+
+### D46 — Tre letture del riscatto passano dalla proiezione, non dall'autorita
+
+`loadParentAccessTarget` e `alreadyLinkedUserId` leggono `athletes.data`. Non
+decidono un accesso — quello lo decide `findGuardianLinks` sulle righe — ma
+sono la classe di lettura che questo pacchetto ha speso ventotto round a
+spostare, e vanno riportate sull'autorita.
+
+### D47 — L'approvazione di un modulo preferisce `linkedUserEmail`
+
+Se una compilazione propone un indirizzo diverso da quello gia collegato, il
+cambio proposto viene silenziosamente ignorato. E una perdita di dato, non un
+buco di accesso.
+
+### D48 — Il cruscotto della famiglia pubblica i recapiti di un tutore revocato
+
+L'elenco mostrato in area famiglia proietta anche le righe revocate con i loro
+recapiti. Nessun accesso ne deriva; e un'esposizione di dato personale fra
+tutori della stessa scheda.

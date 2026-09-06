@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
 
+import { normalizeAccessRole } from "../access-roles";
+
 import { prisma } from "./prisma";
 
 /**
@@ -1587,15 +1589,47 @@ const proiettaRiga = (riga: GuardianRow) => ({
  * La difesa esisteva ed era semplicemente **disarmata**: il riscatto rifiuta un
  * gettone il cui record non sia attivo.
  */
+export const eCaricoDiTutore = (carico: unknown): boolean => {
+  const c =
+    carico && typeof carico === "object" ? (carico as Record<string, any>) : {};
+
+  if (String(c.token_type || c.tokenType || "").trim() === "parent_access") {
+    return true;
+  }
+
+  /*
+    Le due chiavi che il riscatto legge, **nella grafia in cui le legge**:
+    `athlete_id` e `guardian_id`. Se un giorno ne accettasse anche la forma
+    in cammello, la si aggiunge **qui**, e le due porte restano larghe uguale.
+  */
+  if (!String(c.athlete_id || "").trim() || !String(c.guardian_id || "").trim()) {
+    return false;
+  }
+
+  const ruolo = normalizeAccessRole(c.role || "member") || "member";
+  return !c.role || ruolo === "member" || ruolo === "parent";
+};
+
 const gettoniDeiTutori = async (
   tx: any,
   athleteIds: string[],
+  organizationIds: string[],
 ): Promise<Map<string, any[]>> => {
   const per = new Map<string, any[]>();
-  if (!athleteIds.length) return per;
+  const club = Array.from(new Set(organizationIds.filter(Boolean)));
+  if (!athleteIds.length || !club.length) return per;
 
+  /*
+    **Ristretta ai club delle schede che si stanno toccando.**
+
+    Senza il filtro questa lettura prendeva l'archivio dei gettoni di **tutti**
+    i club a ogni scrittura di tutore, e `revocaIGettoni` poteva portare a
+    `revoked` la riga di un club che non c'entrava: `legacy_id` viene dal blob
+    e non e unico fra club, quindi `gettoneDiQuestaRiga` poteva combaciare
+    fuori casa. Una revoca non esce dal proprio club.
+  */
   const record = (await tx.clubResourceItem.findMany({
-    where: { resource_type: "access_tokens" },
+    where: { resource_type: "access_tokens", organization_id: { in: club } },
   })) as Array<Record<string, any>>;
 
   const interessati = new Set(athleteIds);
@@ -1605,7 +1639,7 @@ const gettoniDeiTutori = async (
       riga?.payload && typeof riga.payload === "object" ? riga.payload : {};
     const atleta = String(carico.athlete_id || "").trim();
     if (!atleta || !interessati.has(atleta)) continue;
-    if (String(carico.token_type || "") !== "parent_access") continue;
+    if (!eCaricoDiTutore(carico)) continue;
 
     const gia = per.get(atleta);
     if (gia) gia.push(riga);
@@ -1641,7 +1675,11 @@ const revocaIGettoni = async (
 ) => {
   if (!righe.length) return;
 
-  const perAtleta = await gettoniDeiTutori(tx, [athleteId]);
+  const perAtleta = await gettoniDeiTutori(
+    tx,
+    [athleteId],
+    righe.map((riga) => riga.organization_id),
+  );
   const candidati = perAtleta.get(athleteId) || [];
 
   const daChiudere = candidati
@@ -1784,7 +1822,11 @@ export const refreshGuardianProjection = async (
     return [...identita];
   };
 
-  const gettoni = await gettoniDeiTutori(tx, identificativi);
+  const gettoni = await gettoniDeiTutori(
+    tx,
+    identificativi,
+    righe.map((riga) => riga.organization_id),
+  );
 
   let scritte = 0;
   for (const athleteId of identificativi) {
