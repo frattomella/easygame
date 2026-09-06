@@ -545,6 +545,16 @@ model AthleteGuardian {
   /// storici durante la doppia scrittura.
   legacy_id String?
 
+  /// **La posizione che l'array aveva e la tabella non ha.**
+  ///
+  /// Tre cose leggono i tutori per posizione e non per identita:
+  /// `data.billingGuardianIndex` (di chi e il codice fiscale su una ricevuta),
+  /// i segnaposto `{{parent.1.*}}` di un documento, e il `recordId` di una
+  /// compilazione gia salvata. Nessuna delle tre puo cambiare persona senza
+  /// riscrivere un fatto gia accaduto, quindi la posizione si conserva invece
+  /// di ricavarla da `created_at` — che il travaso scrive uguale per tutte.
+  position  Int     @default(0)
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
