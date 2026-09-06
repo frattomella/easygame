@@ -2598,3 +2598,43 @@ aperto e **PP-02 non e FINAL**. Diventera verde quando lo sweep smettera di
 essere una scansione su un blob e diventera una `UPDATE` sola su
 `athlete_guardians` (AC-1, WP-C+D): non c'e piu un elenco scelto prima, quindi
 non c'e piu un dopo in cui infilarsi.
+
+---
+
+## PP-02 / WP-C+D — cosa si chiude quando un tutore diventa una riga (2026-09-06)
+
+Il travaso di WP-B aveva creato la tabella e non l'aveva resa autorevole: nessun
+codice di prodotto la leggeva o la scriveva. WP-C+D sposta l'autorita, e con lei
+cadono cinque voci di questo registro — non perche siano state corrette una per
+una, ma perche la forma da cui nascevano non c'e piu.
+
+| Debito | Stato | Cosa lo chiude, e come si e misurato |
+|---|---|---|
+| **R-2** (High) | **CHIUSO** | La revoca di una tessera era un ciclo su ogni tesserato del club: ~840 ms su un club da 60 atleti, e la scheda che acquistava il tutore mentre girava sfuggiva a **7 sfasamenti su 7**. Adesso e una `UPDATE` con un `WHERE` su un indice: ~84 ms, **0 su 7**. `scripts/pp-02-revoca-atomica.mjs`, che percorre la finestra invece di indovinare uno sfasamento |
+| **PP02-D34** | **CHIUSO** | Le due proprieta che «non si ottenevano insieme» — nessuna scheda sfugge, e nessun abbraccio mortale con il passaggio di stagione — adesso si ottengono tutte e due, e non per un compromesso migliore: non c'e piu una scansione da cui la finestra nasca, ne un elenco su cui prendere blocchi in un ordine da incrociare con quello del rollover. Cade anche il tetto oltre il quale la transazione scadeva, perche il costo non cresce piu con i tesserati del club |
+| **PP02-D33** | **CHIUSO** | Cinque approvazioni concorrenti di moduli sullo stesso atleta perdevano righe tutore, 6 giri su 6. La causa era che `decideFormSubmission` leggeva l'array **prima** della transazione e lo rimandava: due decisioni serializzate scrivevano ognuna il proprio snapshot. Adesso l'elenco non si legge affatto — e una `upsert` su `(athlete_id, identity_key)` — quindi non c'e uno snapshot da rimandare. **Si chiude perche la domanda non si pone piu**, non perche sia stata messa una serratura piu grossa |
+| **PP02-D1** | **CHIUSO** | «La chiusura vera e materializzare il legame in una tabella con la sua chiave esterna». La ricerca dei figli di un tutore era una scansione di `athletes` in SQL grezzo dentro un array JSON — non indicizzabile, e con un `catch` largo che la faceva degradare **in silenzio** a «nessun club» per tutte le famiglie del sistema. Adesso e una interrogazione su `(organization_id, user_id)` piu un indice sull'indirizzo |
+| **PP02-D13** | **RIDIMENSIONATO** | «Due righe senza identificativo allo stesso indirizzo non sono distinguibili nemmeno in principio». Resta vero come enunciato, e smette di essere un rischio: una riga senza utenza e senza indirizzo riceve adesso una chiave **sua** (`riga:<identificativo>`), coniata insieme alla riga, quindi due sconosciuti diversi non collassano piu in uno |
+
+### Cosa questo lavoro **non** chiude, e va detto
+
+| Debito | Stato | Perche resta |
+|---|---|---|
+| **PP02-D38** (nuovo, Low) | **APERTO** | `athletes.data.parents`, `.tutors`, `.tutori` sono **dato morto**: un censimento indipendente dei lettori non ne ha trovato **nessuno** in tutto `src/`, e il travaso non li legge — leggerli inventerebbe legami che nessun predicato riconosceva, ed e uno dei quattro difetti che la sonda del travaso ha misurato. Restano in archivio perche cancellare un dato senza bisogno e un'altra classe di errore. Vanno tolti con una migrazione dedicata, dopo aver contato quante schede li portino |
+| **PP02-D39** (nuovo, Medium) | **APERTO** | La finestra dichiarata da ADR-0118: scrivere oggi l'indirizzo di un'utenza che **nascera domani** produce il legame senza passare dal vaglio dei due permessi. Chiuderla vorrebbe dire negare la correzione di un refuso in un'email, che e il lavoro di tutti i giorni di una segreteria — e il difetto che due stesure precedenti hanno gia pagato. Si chiude con un vaglio al momento della **registrazione** dell'utenza, non a quello della scrittura dell'indirizzo |
+| **PP02-D40** (nuovo, Medium) | **APERTO** | La **proiezione** `athletes.data.guardians[]` resta, e con lei restano i tre lettori che prendono i tutori **per posizione**: `billingGuardianIndex` (di chi e il codice fiscale su una ricevuta), i segnaposto `{{parent.1.*}}`, e il `recordId` di una compilazione gia salvata. La posizione e adesso una colonna e l'ordine e deterministico, quindi il rischio e chiuso; ma tre letture che decidono un fatto fiscale o il nome su un documento continuano a farlo per posizione invece che per persona. Vanno spostate su un riferimento esplicito, ed e un lavoro con conseguenze fuori dal prodotto: cambia chi paga una fattura |
+| **PP02-D41** (nuovo, Low) | **APERTO** | Esistono **due** `getGuardianRows`: quella di `parent-dashboard.ts` (che dopo WP-C non decide piu niente) e quella **esportata** da `medical-certificate-reminders.ts`, che decide chi riceve gli avvisi sul certificato di un minore. Leggono le stesse righe con regole diverse — una conta sei grafie dell'identificativo, l'altra quattro. Adesso leggono tutte e due la **proiezione**, quindi i marchi non si perdono piu; ma restano due nozioni di «tutore» per due domande diverse, e almeno tre canali di notifica non sono d'accordo su quali grafie facciano di una persona un destinatario |
+| **PP02-D42** (nuovo, Low) | **APERTO** | Il gettone di invito del tutore vive ancora **in chiaro** su `athlete_guardians.access_token_value`. Per l'atleta ADR-0104 conserva la sola impronta; qui il travaso ha portato cio che esisteva, e non ha cambiato il meccanismo. E lo stesso debito che WP-B aveva gia scritto sul campo |
+
+### Il conteggio degli scrittori, rifatto da zero
+
+Il censimento e stato rifatto contro il codice invece che aggiornato: sono
+**diciannove istruzioni di scrittura in grado di cambiare uno stato di tutore,
+su otto file**, e non sedici. Le tre in piu vivono nel **browser**
+(`simplified-db.ts`): compongono il blob e lo mandano alla rotta generica, e
+nessun censimento precedente le aveva nominate.
+
+E la ragione per cui l'invariante e stata messa nell'archivio invece che in un
+test: la rotta generica scrive attraverso un delegato **calcolato a runtime**,
+quindi un elenco derivato da una ricerca testuale non puo essere completo per
+costruzione (ADR-0119).

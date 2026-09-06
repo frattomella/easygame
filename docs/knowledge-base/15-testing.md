@@ -472,6 +472,72 @@ rossa da sola. E la proprieta per cui esistono: un elenco scritto nel test
 sarebbe il sesto elenco da tenere d'accordo con gli altri cinque, e
 divergerebbe come gli altri.
 
+### Le due sonde di WP-C, e perche non sono sonde di totalita
+
+```bash
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-proprietario-tutore.mjs
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-travaso-equivalente.mjs
+```
+
+| sonda | che cosa chiede | verifica per mutazione |
+|-------|------------------|------------------------|
+| `pp-02-proprietario-tutore.mjs` | **qualunque** scrittura su `athlete_guardians` che non venga dal modulo proprietario viene rifiutata dall'archivio — con Prisma, con SQL grezzo, in una transazione successiva a una legittima — e la cascata del diritto all'oblio resta possibile | togliendo il vaglio dall'archivio, **4 prove su 6** diventano rosse |
+| `pp-02-travaso-equivalente.mjs` | chi apriva il fascicolo di un minore leggendo il blob lo apre leggendo la tabella, **e chi il blob teneva fuori resta fuori**: ventiquattro grafie storiche, una scheda per grafia | eseguita contro il travaso precedente, **11 righe rosse su 23** (4 identita perse, 4 inventate) |
+
+**Non sono sonde di totalita** e la differenza vale la pena scriverla.
+ADR-0117 chiede che una difesa che dipende da un'**enumerazione** abbia un test
+che enumera il dominio. Qui il dominio non e enumerabile: gli scrittori possibili
+di una tabella sono «tutti i file che esistono e tutti quelli che esisteranno».
+
+La prima sonda risponde spostando l'invariante **fuori dal codice**: non prova
+che un elenco di scrittori sia completo, prova che l'archivio rifiuta chiunque
+non si dichiari (ADR-0119). La seconda misura un'**equivalenza fra due
+predicati** invece di una copertura.
+
+**La terza prova della prima sonda e la piu importante**, e va letta insieme
+alle altre: e la scrittura che il proprietario compie **legittimamente**. Senza
+di lei, le altre quattro passerebbero anche con una tabella in sola lettura —
+cioe una difesa che rifiuta tutto, che non e una difesa ma un guasto.
+
+**Una divergenza dichiarata resta misurata, non esentata.** Dove il passaggio
+alla tabella cambia risposta di proposito, la seconda sonda non chiude un occhio:
+pretende **esattamente** la risposta dichiarata, e se domani cambiasse — in un
+verso o nell'altro — la riga diventa rossa. Sono due, e stanno in ADR-0118.
+
+**Il predicato vecchio vive dentro la sonda.** Fino al cutover chiamava
+`getParentLinkedAthletes`, cioe la porta vera; dopo, quella porta legge la
+tabella e chiamarla confronterebbe la tabella con se stessa. La regola vecchia e
+percio copiata nel file, e che la copia sia fedele non e un'opinione: prima del
+cutover girava contro l'originale e dava lo stesso verdetto su tutti e
+ventiquattro i casi.
+
+### `scripts/helpers/travaso-tutori.mjs`
+
+Una sonda che semina un club scrivendo `athletes.data.guardians[]` — cioe come
+tutte quelle scritte prima di WP-C — semina un club **senza tutori**, perche
+quell'elenco e adesso una proiezione. Direbbe che l'area famiglia non si apre:
+vero, e non il difetto che sta cercando. Il modo peggiore in cui una prova possa
+fallire.
+
+L'aiutante riesegue il travaso della migrazione, ristretto ai club della sonda,
+leggendo l'`INSERT ... SELECT` **dal file della migrazione**: cosi la sonda
+misura lo stato in cui il prodotto si trovera davvero dopo il rilascio, e non
+uno costruito a mano che potrebbe essere piu ordinato del vero.
+
+### Cosa il doppio di Prisma **non** puo dire
+
+`tests/helpers/fake-prisma.mjs` materializza le righe tutore dagli atleti del
+seed — chiamando `guardianIdentityKey`, cioe la stessa funzione del modulo
+proprietario, perche la regola non diverga — e accetta la dichiarazione
+`SET LOCAL "easygame.guardian_writer"` registrandola fra le chiamate.
+
+Cio che **non** puo dire e se quel vaglio esista: un vaglio dell'archivio si
+prova contro l'archivio. E dichiarato dentro il doppio, accanto al metodo, e la
+prova vive in `pp-02-proprietario-tutore.mjs`.
+
+
 **La specificita non e un ornamento.** Un test di totalita da solo e verde
 anche per una «correzione» che scollega tutto: senza la seconda meta, revocare
 la tessera di allenatore a un padre gli toglierebbe l'accesso ai figli e il

@@ -66,6 +66,9 @@ if (process.env.EASYGAME_DB_ENV !== "development") {
 const prisma = new PrismaClient();
 const carica = (rel) => import(pathToFileURL(path.resolve(rel)).href);
 
+let saveGuardianRegistry;
+let linkGuardianAccount;
+
 const esiti = [];
 const prova = (titolo, atteso, trovato, nota = "") => {
   const ok = JSON.stringify(atteso) === JSON.stringify(trovato);
@@ -220,6 +223,41 @@ const semina = async () => {
       },
     });
 
+    /*
+      Il legame del tutore e una **riga**, non un elemento del blob
+      (PP-02 / WP-C): la scrive il modulo proprietario, che e l'unico a cui
+      l'archivio permetta di scriverla. Seminare solo dentro `data` lascerebbe
+      la semina incompleta, e la sonda misurerebbe una revoca che non aveva
+      niente da revocare.
+    */
+    await saveGuardianRegistry(prisma, {
+      organizationId: CLUB,
+      athleteId: figlio,
+      rows: [
+        {
+          legacyId: `guardian-${utente.id}`,
+          firstName: utente.first_name,
+          lastName: utente.last_name,
+          relationship: "Genitore",
+          email: utente.email,
+        },
+      ],
+      canGrantAccess: true,
+    });
+
+    /*
+      Il legame **dichiarato** — l'utenza sulla riga — lo scrive il riscatto di
+      un invito, e qui si riproduce quell'atto invece di scrivere il campo:
+      `saveGuardianRegistry` non tocca `user_id`, ed e voluto («un legame con
+      una famiglia non si crea scrivendo l'anagrafica»).
+    */
+    await linkGuardianAccount(prisma, {
+      athleteId: figlio,
+      identityKeys: [utente.email],
+      userId: utente.id,
+      email: utente.email,
+    });
+
     /* Legame 2 — la propria scheda atleta. */
     const scheda = randomUUID();
     await prisma.athlete.create({
@@ -354,6 +392,9 @@ const main = async () => {
   ruoli = await carica("src/lib/access-roles.ts");
   cruscotto = await carica("src/lib/server/parent-dashboard.ts");
   const accessi = await carica("src/lib/server/club-roles.ts");
+  ({ saveGuardianRegistry, linkGuardianAccount } = await carica(
+    "src/lib/server/athlete-guardians.ts",
+  ));
 
   DOMINIO = [
     ...ruoli.ACCESS_ROLE_ALIASES,

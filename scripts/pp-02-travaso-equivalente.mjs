@@ -249,10 +249,137 @@ const istruzioniDelTravaso = () => {
   );
 };
 
-const main = async () => {
-  const { getParentLinkedAthletes } = await carica(
-    "src/lib/server/parent-dashboard.ts",
+
+/**
+ * **Il predicato del blob, congelato.**
+ *
+ * Fino al commit `955fdfa` questa sonda chiamava `getParentLinkedAthletes`, cioe
+ * la porta vera del prodotto, e misurava 24 casi su 24. Poi WP-C ha spostato
+ * quella porta sulla tabella: chiamarla adesso confronterebbe la tabella con se
+ * stessa, e la sonda direbbe sempre di si.
+ *
+ * La regola vecchia vive percio qui, copiata dal codice che c'era, e la sonda
+ * continua a misurare cio per cui e nata: **il travaso conserva le risposte che
+ * il blob dava**. Che questa copia sia fedele non e un'opinione — a `955fdfa`
+ * girava contro l'originale e dava lo stesso verdetto su tutti e 24 i casi, e i
+ * due casi in cui l'originale e la tabella divergono sono gli stessi due, con
+ * lo stesso verso.
+ *
+ * Sotto ci sono `getGuardianRows`, `guardianDeclaredIds`,
+ * `isGuardianLinkedToUser` e `athleteBelongsToParent` come stavano in
+ * `src/lib/server/parent-dashboard.ts`, piu l'insieme dei candidati che
+ * `findClubsWhereUserIsGuardian` costruiva.
+ */
+const testoDi = (...valori) => {
+  for (const valore of valori) {
+    if (typeof valore === "string" && valore.trim()) return valore.trim();
+    if (typeof valore === "number" && Number.isFinite(valore)) return String(valore);
+  }
+  return "";
+};
+
+const gettone = (valore) => String(valore ?? "").trim().toLowerCase();
+
+/** Le sei grafie dell'identificativo, e gli elementi degli array. */
+const identificativiDichiarati = (guardian) => {
+  const record = guardian && typeof guardian === "object" ? guardian : {};
+  const grezzi = [
+    record.linkedUserId,
+    record.linked_user_id,
+    record.userId,
+    record.user_id,
+    record.linkedUserIds,
+    record.linked_user_ids,
+  ];
+  const identita = new Set();
+  for (const valore of grezzi) {
+    for (const voce of Array.isArray(valore) ? valore : [valore]) {
+      const pulito = gettone(voce);
+      if (pulito) identita.add(pulito);
+    }
+  }
+  return [...identita];
+};
+
+/** `guardians` se non vuoto, **altrimenti** la coppia storica. Mai l'unione. */
+const righeTutore = (athlete) => {
+  const data = athlete?.data && typeof athlete.data === "object" ? athlete.data : {};
+  const elenco = Array.isArray(data.guardians) ? data.guardians : [];
+  if (elenco.length) return elenco;
+  return [data.parent1, data.parent2].filter(
+    (valore) => valore && typeof valore === "object",
   );
+};
+
+const registro = (data, chiave) => {
+  const record = data && typeof data === "object" ? data : {};
+  const elenco = Array.isArray(record[chiave]) ? record[chiave] : [];
+  return new Set(elenco.map(gettone).filter(Boolean));
+};
+
+const legameConLUtenza = (guardian, userId, userEmail) => {
+  if (identificativiDichiarati(guardian).includes(gettone(userId))) return true;
+  if (guardian?.contactOnly || guardian?.contact_only) return false;
+
+  const indirizzo = testoDi(
+    guardian?.linkedUserEmail,
+    guardian?.linked_user_email,
+    guardian?.email,
+  );
+  if (!userEmail || gettone(indirizzo) !== gettone(userEmail)) return false;
+
+  return !testoDi(guardian?.accessRevokedAt, guardian?.access_revoked_at);
+};
+
+const eUnMioFiglio = (athlete, userId, userEmail) => {
+  const soloRecapiti = registro(athlete?.data, "contactOnlyIdentities");
+  const revocate = registro(athlete?.data, "revokedGuardianIdentities");
+  const ioRevocato =
+    revocate.size > 0 &&
+    (revocate.has(gettone(userId)) || (!!userEmail && revocate.has(gettone(userEmail))));
+  const indirizzoSoloRecapito = !!userEmail && soloRecapiti.has(gettone(userEmail));
+
+  return righeTutore(athlete).some((guardian) => {
+    if (!legameConLUtenza(guardian, userId, userEmail)) return false;
+    const dichiarati = identificativiDichiarati(guardian);
+    if (indirizzoSoloRecapito && !dichiarati.includes(gettone(userId))) return false;
+    if (!ioRevocato) return true;
+    return dichiarati.includes(gettone(userId));
+  });
+};
+
+/**
+ * L'insieme dei candidati come lo costruiva il prodotto: gli atleti dei club in
+ * cui la persona ha una tessera, **piu** quelli dei club trovati dalla ricerca
+ * in SQL grezzo — che leggeva quattro grafie e solo `data.guardians`.
+ */
+const apertiDalBlob = async (userId, verifiedEmail, clubDelleTessere) => {
+  const tutti = await prisma.athlete.findMany({
+    where: { organization_id: CLUB },
+  });
+
+  const clubDaTutore = new Set();
+  for (const atleta of tutti) {
+    const elenco = Array.isArray(atleta.data?.guardians) ? atleta.data.guardians : [];
+    const trovato = elenco.some((g) =>
+      [g?.linkedUserId, g?.linked_user_id, g?.userId, g?.user_id].some(
+        (valore) => gettone(valore) === gettone(userId),
+      ),
+    );
+    if (trovato) clubDaTutore.add(atleta.organization_id);
+  }
+
+  const club = new Set([...clubDelleTessere, ...clubDaTutore]);
+
+  return new Set(
+    tutti
+      .filter((atleta) => club.has(atleta.organization_id))
+      .filter((atleta) => eUnMioFiglio(atleta, userId, verifiedEmail))
+      .map((atleta) => atleta.id),
+  );
+};
+
+const main = async () => {
   const { findGuardianLinks } = await carica(
     "src/lib/server/athlete-guardians.ts",
   );
@@ -328,12 +455,11 @@ const main = async () => {
   }
 
   /* --- 1. Cosa concede il blob, oggi, dalla porta vera del prodotto. --- */
-  const dalBlob = new Set(
-    [
-      ...(await getParentLinkedAthletes(TUTORE)),
-      ...(await getParentLinkedAthletes(SENZA_TESSERA)),
-    ].map((atleta) => atleta.id),
-  );
+  const dalBlob = new Set([
+    ...(await apertiDalBlob(TUTORE, EMAIL, [CLUB])),
+    /* Senza tessera: nessun club dalle tessere, solo quelli che la ricerca trova. */
+    ...(await apertiDalBlob(SENZA_TESSERA, null, [])),
+  ]);
 
   /* --- 2. Il travaso, con lo stesso SQL della migrazione. --- */
   await prisma.$transaction(async (tx) => {

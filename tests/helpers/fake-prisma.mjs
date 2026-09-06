@@ -14,6 +14,168 @@
   sarebbe una terza contabilita, e divergerebbe al primo cambiamento.
 */
 import { buildLedgerView } from "../../src/lib/accounting/ledger-view.ts";
+import { guardianIdentityKey } from "../../src/lib/server/athlete-guardians.ts";
+
+/**
+ * **I tutori di un atleta, materializzati come li ha materializzati il travaso.**
+ *
+ * PP-02 / WP-C. Fino a WP-B un tutore era un elemento di
+ * `athletes.data.guardians[]`, e ogni fixture di questo repository lo scrive
+ * cosi. Adesso l'autorita e la tabella `athlete_guardians`, e un doppio che
+ * non la conoscesse farebbe rispondere «no» a **ogni** vaglio dell'area
+ * famiglia — cioe farebbe passare per rotto cio che e giusto, che e il modo
+ * peggiore in cui un test possa fallire.
+ *
+ * Il doppio fa quindi cio che la migrazione ha fatto una volta sull'archivio:
+ * deriva le righe dagli atleti del seed, quando il seed non le dichiara gia.
+ *
+ * **Le due regole sono chiamate, non ricopiate.** L'identita la calcola
+ * `guardianIdentityKey`, cioe la stessa funzione del modulo proprietario: se
+ * quella cambia, questa la segue. E le collezioni si leggono con la precedenza
+ * del prodotto — `guardians` se non e vuoto, **altrimenti** la coppia storica
+ * `parent1`/`parent2` — perche unirle inventerebbe legami che nessun
+ * predicato riconosceva, ed e esattamente l'errore che il primo travaso aveva
+ * commesso.
+ *
+ * Cio che il doppio **non** puo dire e se il prodotto vero scriva quelle righe:
+ * lo dicono le sonde contro PostgreSQL, ed e li che quella domanda va fatta.
+ */
+const tutoriDalSeed = (atleti = []) => {
+  const righe = [];
+
+  /*
+    **L'identificativo di una riga e uno UUID, anche qui.**
+
+    Il modulo proprietario riconosce una riga in tre modi — per identificativo,
+    per la chiave che aveva nel blob, per identita — e il primo lo tenta solo se
+    cio che gli arriva **ha la forma** di uno UUID, perche altrimenti la colonna
+    lo rifiuterebbe. Un doppio che coniasse identificativi di comodo farebbe
+    quindi cadere il ramo piu preciso dei tre, e i test misurerebbero il ripiego
+    invece della strada vera.
+
+    Deterministico e non casuale: due montaggi dello stesso seed devono produrre
+    le stesse chiavi, altrimenti un test che ne salva una non la ritrova.
+  */
+  let contatore = 0;
+  const identificativo = () => {
+    contatore += 1;
+    const coda = String(contatore).padStart(12, "0");
+    return `a91adaa0-0000-4000-8000-${coda}`;
+  };
+
+  for (const atleta of atleti) {
+    const data =
+      atleta?.data && typeof atleta.data === "object" ? atleta.data : {};
+    const elenco = Array.isArray(data.guardians) ? data.guardians : [];
+    const sorgenti = elenco.length
+      ? elenco
+      : [data.parent1, data.parent2].filter(
+          (valore) => valore && typeof valore === "object",
+        );
+
+    const viste = new Set();
+
+    sorgenti.forEach((guardian, posizione) => {
+      const record = guardian && typeof guardian === "object" ? guardian : {};
+
+      /* Le sei grafie dell'identificativo, elementi di array compresi. */
+      const dichiarati = new Set();
+      for (const valore of [
+        record.linkedUserId,
+        record.linked_user_id,
+        record.userId,
+        record.user_id,
+        record.linkedUserIds,
+        record.linked_user_ids,
+      ]) {
+        for (const voce of Array.isArray(valore) ? valore : [valore]) {
+          const pulito = String(voce ?? "").trim().toLowerCase();
+          if (pulito) dichiarati.add(pulito);
+        }
+      }
+
+      /* L'indirizzo che apre, nell'ordine in cui lo legge chi decide. */
+      const indirizzo =
+        [record.linkedUserEmail, record.linked_user_email, record.email]
+          .map((valore) => String(valore ?? "").trim().toLowerCase())
+          .find(Boolean) || null;
+
+      const identita = dichiarati.size
+        ? [...dichiarati]
+        : [guardianIdentityKey({ email: indirizzo, legacyId: record.id }) ||
+            `riga:pos-${posizione}`];
+
+      for (const chiave of identita) {
+        if (!chiave || viste.has(chiave)) continue;
+        viste.add(chiave);
+
+        righe.push({
+          id: identificativo(),
+          organization_id: atleta.organization_id,
+          athlete_id: atleta.id,
+          identity_key: chiave,
+          /*
+            **Un'identita che non e un indirizzo e un'utenza.**
+
+            Il travaso vero pretende uno UUID valido, perche la chiave esterna
+            rifiuterebbe un'utenza inventata. Qui la chiave esterna non c'e, e
+            le fixture di questo repository usano identificativi che **non**
+            sono UUID validi — `33333333-5g00-…` ne e uno. Pretendere la forma
+            farebbe rispondere «non e tuo figlio» a un test che dice il
+            contrario, cioe misurerebbe la fixture invece del prodotto.
+          */
+          user_id: chiave.includes("@") ? null : chiave,
+          email: indirizzo,
+          first_name: record.name ?? null,
+          last_name: record.surname ?? null,
+          phone: record.phone ?? record.telefono ?? null,
+          relationship: record.relationship ?? null,
+          contact_only: Boolean(record.contactOnly || record.contact_only),
+          linked_at: record.linkedAt ? new Date(record.linkedAt) : null,
+          revoked_at:
+            record.accessRevokedAt || record.access_revoked_at
+              ? new Date(record.accessRevokedAt || record.access_revoked_at)
+              : null,
+          access_token_value: record.parentAccessTokenValue ?? null,
+          access_token_status: record.parentAccessTokenStatus ?? null,
+          access_token_expires_at: record.parentAccessTokenExpiresAt
+            ? new Date(record.parentAccessTokenExpiresAt)
+            : null,
+          access_token_generated_at: record.parentAccessTokenGeneratedAt
+            ? new Date(record.parentAccessTokenGeneratedAt)
+            : null,
+          legacy_id: record.id ?? null,
+          position: posizione,
+          created_at: new Date(0),
+          updated_at: new Date(0),
+        });
+      }
+    });
+
+    /*
+      I due registri di scheda diventano fatti sulla riga, come nel travaso: il
+      registro **vince** sul segno di riga.
+    */
+    const insieme = (chiave) =>
+      new Set(
+        (Array.isArray(data[chiave]) ? data[chiave] : [])
+          .map((valore) => String(valore ?? "").trim().toLowerCase())
+          .filter(Boolean),
+      );
+    const revocate = insieme("revokedGuardianIdentities");
+    const recapiti = insieme("contactOnlyIdentities");
+
+    for (const riga of righe) {
+      if (riga.athlete_id !== atleta.id) continue;
+      if (revocate.has(riga.identity_key)) {
+        riga.revoked_at = riga.revoked_at || new Date(0);
+      }
+      if (recapiti.has(riga.identity_key)) riga.contact_only = true;
+    }
+  }
+
+  return righe;
+};
 
 /** Vero se il valore soddisfa un filtro su campo JSON `{ path, equals }`. */
 const matchesJsonPath = (value, condition) => {
@@ -645,8 +807,13 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     non esiste.
   */
   let generatedIds = 0;
+  const semi = { ...seedByDelegate };
+  if (!semi.athleteGuardian && Array.isArray(semi.athlete)) {
+    semi.athleteGuardian = tutoriDalSeed(semi.athlete);
+  }
+
   const store = new Map(
-    Object.entries(seedByDelegate).map(([name, rows]) => [name, rows.map((r) => ({ ...r }))]),
+    Object.entries(semi).map(([name, rows]) => [name, rows.map((r) => ({ ...r }))]),
   );
 
   const rowsOf = (name) => {
@@ -1355,6 +1522,29 @@ export const createFakePrisma = (seedByDelegate = {}) => {
         typeof input === "function" ? input(client) : Promise.all(input),
       $disconnect: async () => {},
       $queryRaw: async (strings, ...values) => eseguiSqlGrezzo(strings, values),
+      /*
+        **Il permesso di scrivere i tutori, che qui non ha niente da aprire.**
+
+        `withGuardianWriter` dichiara `SET LOCAL "easygame.guardian_writer"`
+        prima di toccare `athlete_guardians`: e la sola forma che l'archivio
+        vero accetta, e senza questo metodo ogni percorso che passa dal modulo
+        proprietario cadrebbe qui dentro con un errore che non parla del
+        difetto che il test cerca.
+
+        **Il doppio non puo misurare quella difesa**, ed e giusto dirlo invece
+        di lasciarlo intuire: un vaglio dell'archivio si prova contro
+        l'archivio. Lo fa `scripts/pp-02-proprietario-tutore.mjs`, che
+        attacca la tabella con Prisma e con SQL grezzo da fuori il modulo e
+        pretende un rifiuto — e che verificato per mutazione, tolto il vaglio,
+        diventa rosso su quattro prove su sei.
+
+        Qui l'istruzione si registra fra le chiamate e non fa altro: un test
+        che volesse controllare **che** sia stata dichiarata puo leggerla.
+      */
+      $executeRawUnsafe: async (sql, ...values) => {
+        calls.push({ delegate: "$executeRawUnsafe", method: "run", args: [sql, values] });
+        return 0;
+      },
     },
     {
       get: (target, property) => {

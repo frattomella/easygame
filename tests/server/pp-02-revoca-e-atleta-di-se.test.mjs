@@ -8,6 +8,7 @@ let canParentAccessAthlete;
 let guardianAccessIdentities;
 let clearLinkedFields;
 let unlinkGuardianAccount;
+let linkGuardianAccount;
 let setPrismaClientForTests;
 
 before(async () => {
@@ -17,6 +18,9 @@ before(async () => {
   ));
   ({ clearLinkedFields, unlinkGuardianAccount } = await import(
     "../../src/lib/server/profile-account-links.ts"
+  ));
+  ({ linkGuardianAccount } = await import(
+    "../../src/lib/server/athlete-guardians.ts"
   ));
   ({ __setPrismaClientForTests: setPrismaClientForTests } = await import(
     "../../src/lib/server/prisma.ts"
@@ -145,11 +149,26 @@ test("dopo la revoca l'indirizzo di contatto non basta piu", async () => {
   assert.equal(await canParentAccessAthlete(ANNA, FIGLIO), false);
 });
 
-test("un legame dichiarato vince sul marchio, cosi ci si ricollega", async () => {
+test("ci si ricollega riscattando, non sopravvivendo alla revoca", async () => {
   /*
-    Un riscatto successivo riscrive `linkedUserId`: il marchio nega il
-    **ripiego** sull'indirizzo, non un legame dichiarato. Senza questa regola
-    una revoca sarebbe definitiva, e non lo e.
+    **Qui la regola e cambiata, di proposito** (PP-02 / WP-C).
+
+    Prima un legame **dichiarato** apriva anche con il marchio addosso: il
+    marchio negava il solo ripiego sull'indirizzo. Reggeva perche lo sweep
+    della revoca **azzerava** i campi del legame — ed e proprio quello sweep
+    che il reperto R-2 dimostra fallire sotto concorrenza. Cioe: quando la
+    revoca non riusciva del tutto, l'accesso restava aperto, e la difesa
+    che avrebbe dovuto chiuderlo era scritta per non intervenire.
+
+    Adesso la revoca e un fatto sulla riga e vale su **tutti e due** i
+    percorsi. Cio che la regola vecchia teneva aperto — potersi ricollegare —
+    resta aperto, e passa dall'atto che lo dichiara: riscattare un invito, che
+    e tracciato e revocabile.
+
+    La divergenza e misurata anche contro PostgreSQL, in
+    `scripts/pp-02-travaso-equivalente.mjs`, dove e l'unico caso in cui il
+    predicato vecchio e la tabella non coincidono — e la sonda pretende
+    esattamente questo verso.
   */
   conSeme({
     id: "t1",
@@ -159,7 +178,24 @@ test("un legame dichiarato vince sul marchio, cosi ci si ricollega", async () =>
     accessRevokedAt: new Date().toISOString(),
   });
 
-  assert.equal(await canParentAccessAthlete(ANNA, FIGLIO), true);
+  assert.equal(
+    await canParentAccessAthlete(ANNA, FIGLIO),
+    false,
+    "una riga revocata non apre, nemmeno con il legame dichiarato ancora scritto",
+  );
+
+  await linkGuardianAccount(null, {
+    athleteId: FIGLIO,
+    identityKeys: [ANNA],
+    userId: ANNA,
+    email: EMAIL_ANNA,
+  });
+
+  assert.equal(
+    await canParentAccessAthlete(ANNA, FIGLIO),
+    true,
+    "e il riscatto la riapre, che e la strada dichiarata",
+  );
 });
 
 /* --------------------------------------- un atleta non e tutore di se */
@@ -363,12 +399,54 @@ test("il criterio del marchio e chi ha scritto l'indirizzo, non chi ha compilato
     "il criterio e chi ha scritto l'indirizzo",
   );
   assert.ok(
-    sorgente.includes("if (!compilataDalClub && rigaNuova) {"),
-    "e vale solo sulla riga che nasce adesso",
+    sorgente.includes("contactOnly: !compilataDalClub,"),
+    "e il criterio arriva al modulo proprietario cosi com'e",
   );
   assert.ok(
     !sorgente.includes("const senzaAutore ="),
     "il criterio dell'autore dimostrato non deve sopravvivere accanto al nuovo",
+  );
+
+  /*
+    **«Solo sulla riga che nasce» non e piu una condizione: e una proprieta.**
+
+    Era `if (!compilataDalClub && rigaNuova)`, dove `rigaNuova` si deduceva
+    dalla **posizione** — un indice dentro l'array — e sbagliare quella
+    deduzione voleva dire mettere il marchio a un tutore che la segreteria
+    aveva scritto mesi prima, o non metterlo a uno sconosciuto.
+
+    Adesso lo decide la `upsert` sulla chiave `(athlete_id, identity_key)`: il
+    segno sta nel ramo che **crea** e non in quello che aggiorna, quindi la
+    condizione non si puo sbagliare perche non si scrive.
+  */
+  const proprietario = readFileSync(
+    new URL("../../src/lib/server/athlete-guardians.ts", import.meta.url),
+    "utf8",
+  );
+  /*
+    Si misura sulla porzione di file fra `create:` e `update:`, che e la
+    domanda vera — non sulla forma esatta delle graffe, che cambia appena si
+    aggiunge un campo.
+  */
+  const upsert = proprietario.slice(
+    proprietario.indexOf("export const upsertGuardianFromFormApproval"),
+  );
+  const ramoCrea = upsert.slice(
+    upsert.indexOf("create: {"),
+    upsert.indexOf("update: {"),
+  );
+  const ramoAggiorna = upsert.slice(
+    upsert.indexOf("update: {"),
+    upsert.indexOf("update: {") + 400,
+  );
+
+  assert.ok(
+    ramoCrea.includes("contact_only: contactOnly,"),
+    "il segno si mette nel ramo che crea",
+  );
+  assert.ok(
+    !ramoAggiorna.includes("contact_only"),
+    "e non in quello che aggiorna: declasserebbe un tutore scritto dal club",
   );
 });
 
@@ -389,7 +467,7 @@ test("il marchio di una riga non chiude l'altro genitore allo stesso indirizzo",
     Qui si tiene fermo il confine giusto: la riga sorella e la stessa
     **persona**, non lo stesso recapito.
   */
-  conRighe(
+  const fake = conRighe(
     { id: "madre", name: "Anna", email: EMAIL_FAMIGLIA, linkedUserId: ANNA },
     { id: "padre", name: "Bruno", email: EMAIL_FAMIGLIA, linkedUserId: BRUNO },
   );
@@ -405,7 +483,17 @@ test("il marchio di una riga non chiude l'altro genitore allo stesso indirizzo",
       allowedOrganizationIds: [CLUB],
       accessScopes: [],
     },
-    { athleteId: FIGLIO, guardianId: "madre" },
+    /*
+      L'identificativo e quello della **riga**, che e cio che la scheda riceve
+      dalla proiezione. La chiave sintetica `"madre"` era un id del blob, e
+      cambiava persona appena si cancellava una riga.
+    */
+    {
+      athleteId: FIGLIO,
+      guardianId: fake
+        .rows("athleteGuardian")
+        .find((r) => r.athlete_id === FIGLIO && r.user_id === ANNA).id,
+    },
   );
 
   assert.equal(

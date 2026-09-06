@@ -403,3 +403,106 @@ commit solo.
 **Cosa resta vero, misurato**: `PP02-D33`, `PP02-D34` e R-2 sono ancora aperti,
 e la finestra della revoca e ancora l'intera durata dello sweep. Finche WP-C e
 WP-D non sono fatti, **PP-02 non e FINAL**.
+
+### WP-C + WP-D — **FATTO** (2026-09-06)
+
+Eseguiti come **un solo cutover**, e non per fretta: una fase intermedia in cui
+alcuni scrittori toccano la tabella e altri il blob, con i lettori di sicurezza
+liberi di scegliere, e esattamente la forma da cui questo pacchetto e nato.
+
+#### Cosa e cambiato
+
+| | Prima | Dopo |
+|---|---|---|
+| l'autorita sui tutori | `athletes.data.guardians[]`, un array JSON senza chiave | `athlete_guardians`, unica per `(athlete_id, identity_key)` |
+| chi la scrive | diciannove istruzioni su otto file, tre delle quali nel browser | **una** funzione, e a farlo valere e un vaglio dell'archivio (ADR-0119) |
+| la revoca di una tessera | un ciclo su ogni tesserato del club | una `UPDATE` con un `WHERE` |
+| la ricerca dei figli di un tutore | una scansione di `athletes` in SQL grezzo dentro un array JSON | una interrogazione su un indice |
+| il riporto delle difese in `resources.ts` | cinque stesure, ~640 righe | **cancellato** |
+| i due registri di scheda | il surrogato di una chiave unica | **cancellati** |
+| `athletes.data.guardians[]` | l'archivio | una **proiezione in sola lettura** che nessuna decisione di accesso guarda |
+
+#### Il censimento, rifatto da zero
+
+Non aggiornato: **rifatto**, contro il codice, con un revisore indipendente.
+Sono **diciannove istruzioni di scrittura** in grado di cambiare uno stato di
+tutore, su **otto file** — non sedici. Le tre in piu vivono in
+`src/lib/simplified-db.ts`, cioe nel **browser**: compongono il blob e lo
+mandano alla rotta generica, e nessuno dei cinque censimenti precedenti le
+aveva nominate.
+
+E il motivo per cui l'elenco cresceva ogni volta e sempre lo stesso, ed e
+strutturale: la rotta generica scrive attraverso un delegato **calcolato a
+runtime**, quindi nessuna ricerca testuale la trova e **nessun elenco scritto a
+mano puo essere completo per costruzione**. Un test che portasse la lista dei
+file «che oggi conosciamo» ripeterebbe lo stesso errore in forma di prova
+(ADR-0119).
+
+#### Il travaso di WP-B perdeva quattro identita e ne inventava quattro
+
+WP-B aveva dichiarato «14 identita → 14 righe, 0 perse». Quel conteggio misura
+che nessuna riga e sparita, e non e la proprieta che conta. La proprieta che
+conta e un'**equivalenza fra due predicati**, e misurata su ventiquattro grafie
+storiche il travaso sbagliava in **tutti e due i versi**:
+
+- **quattro perse** — `linkedUserIds[]`, `linked_user_ids[]`, `linkedUserEmail`,
+  `linked_user_email`, piu due identificativi sulla stessa riga e l'indirizzo di
+  accesso diverso da quello di recapito. Un tutore legittimo avrebbe perso
+  calendario, rate, ricevute, documenti e certificato **senza che nessuna
+  schermata lo spiegasse**;
+- **quattro inventate** — `parents[]`, `tutors[]`, `tutori[]`, e `parent1`
+  quando `guardians` non e vuoto. Una persona che nessun predicato riconosce
+  avrebbe aperto il fascicolo sanitario di un minore.
+
+Le due cause sono la stessa vista da due lati: **un elenco scritto a mano invece
+che derivato da chi decide**. Il travaso leggeva quattro grafie
+dell'identificativo dove `guardianDeclaredIds` ne legge sei (e conta anche gli
+elementi di un array), e **univa** sei collezioni dove `getGuardianRows` ne
+legge una sola con una precedenza.
+
+E la stessa causa che il §3 di questo documento descrive, in un posto in cui
+nessuno l'aveva cercata: **una migrazione e codice, e le sue enumerazioni
+invecchiano come le altre**.
+
+Corretto con una migrazione in avanti — la precedente era gia stata applicata —
+che rifa il travaso daccapo. Si puo, e non e una fortuna: nessun codice di
+prodotto scriveva `athlete_guardians`, quindi ogni riga presente veniva dal
+travaso.
+
+#### Le misure
+
+| Proprieta | Prima | Dopo |
+|---|---|---|
+| `R-2` — nessuna scheda sfugge alla revoca, a nessuno sfasamento | 7 su 7 sfuggono, revoca ~840 ms | **0 su 7**, revoca ~84 ms |
+| l'equivalenza del travaso, 24 grafie | 11 righe rosse (4 perse, 4 inventate) | **24/24**, con due divergenze **dichiarate** |
+| il vaglio del proprietario, 6 prove | — | **6/6**, e **4 su 6 rosse** togliendo il vaglio |
+| `npm test` | 4.754 | 4.754 |
+| sonde PP-02 contro PostgreSQL | 266 | 266 |
+| `scripts/riscatto-perimetro.mjs` | 31/31 | 31/31 |
+| totalita dei ruoli / del corpo | 6/6, 10/10 | 6/6, 10/10 |
+
+#### Le due divergenze, dichiarate invece che scoperte
+
+`scripts/pp-02-travaso-equivalente.mjs` non esenta i casi in cui il passaggio
+cambia risposta: pretende **esattamente** la risposta dichiarata, quindi se
+domani cambiasse — nell'uno o nell'altro verso — la riga diventa rossa.
+
+1. **un restringimento**: una revoca registrata sull'identita chiude adesso
+   tutti e due i percorsi. Prima un legame **dichiarato** sopravvissuto allo
+   sweep continuava ad aprire, ed e il caso che `R-2` misura: la difesa non
+   interveniva proprio quando serviva;
+2. **un allargamento**: un tutore collegato **senza tessera** trova i propri
+   figli con tutte e sei le grafie dell'identificativo invece che con quattro.
+   E cio che `getParentLinkedAthletes` dichiarava di volere e che la sua
+   ricerca realizzava solo in parte.
+
+#### Il predicato vecchio, congelato
+
+Fino al commit della correzione del travaso la sonda dell'equivalenza chiamava
+`getParentLinkedAthletes`, cioe la porta vera. Dopo il cutover quella porta
+legge la tabella: chiamarla confronterebbe la tabella con se stessa.
+
+La regola vecchia vive percio **dentro la sonda**, copiata dal codice che
+c'era. Che la copia sia fedele non e un'opinione: prima del cutover girava
+contro l'originale e dava lo stesso verdetto su tutti e ventiquattro i casi,
+divergenze comprese e con lo stesso verso.

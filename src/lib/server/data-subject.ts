@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { parseAttachmentReference } from "@/lib/attachments";
 
 import { prisma } from "./prisma";
+import { eraseGuardiansForAthlete } from "./athlete-guardians";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { athleteWithinAccessScope } from "./access-scope-query";
@@ -1317,6 +1318,22 @@ export const eraseDataSubject = async (
     e negli anni ci e finito dentro di tutto — tutori, indirizzi, note. Un
     elenco di chiavi da ripulire sarebbe incompleto il giorno dopo.
   */
+  /*
+    **I tutori si cancellano, e non basta azzerare il blob** (PP-02 / WP-C).
+
+    La cancellazione dell'interessato lascia in piedi la **riga** dell'atleta
+    come segnaposto — rate, incassi, fatture e ricevute la nominano, e un
+    movimento di denaro senza beneficiario e cio che le guardie fiscali
+    esistono per impedire. Ma proprio per questo la cascata su
+    `athlete_guardians` **non scatta**: nessuno cancella la riga padre.
+
+    Senza questa chiamata, dopo il passaggio all'autorita relazionale una
+    cancellazione avrebbe lasciato in archivio nome, indirizzo e telefono di
+    sua madre — dati di terzi, dentro una tabella che nessuna schermata
+    mostra piu. Azzerare `data` sarebbe sembrato sufficiente, e non lo era.
+  */
+  await eraseGuardiansForAthlete(prisma, subjectId);
+
   await (prisma as any).athlete.update({
     where: { id: subjectId },
     data: {
@@ -1328,6 +1345,14 @@ export const eraseDataSubject = async (
       jersey_number: null,
       user_id: null,
       status: "inactive",
+      /*
+        Il marchio vive **anche** come colonna (`anonymized_at`, WP-B): una
+        colonna non si perde riscrivendo il blob accanto, ed e esattamente la
+        ragione per cui quella colonna e stata aggiunta — e fino a qui non la
+        scriveva nessuno. La chiave dentro `data` resta perche la guardia
+        della rotta generica la legge ancora.
+      */
+      anonymized_at: now,
       data: { anonymizedAt: now.toISOString() },
     },
   });

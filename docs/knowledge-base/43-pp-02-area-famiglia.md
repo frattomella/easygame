@@ -2077,3 +2077,48 @@ bassa. Ed e la varieta che qui decide.
 Aggiungere una sonda non chiude questa classe, perche la classe non e finita.
 Per questo il documento successivo non propone una correzione: ne propone
 tre, piu la regola che impedisce alla forma di tornare.
+---
+
+## Il ventinovesimo giro non c'e stato: WP-C+D (2026-09-06)
+
+Il documento si chiudeva con «il ventottesimo round» e con una diagnosi:
+la forma che continuava a tornare non era un difetto ripetuto, era **una
+domanda senza risposta** — «quale riga in arrivo corrisponde a quale riga in
+archivio» — posta a un array JSON senza chiave che la rotta generica sostituisce
+per intero.
+
+WP-C+D non prova a rispondere per la sesta volta. Toglie la domanda:
+`athlete_guardians` diventa l'autorita, unica per `(athlete_id, identity_key)`,
+e `athletes.data.guardians[]` resta come proiezione in sola lettura che nessuna
+decisione di accesso guarda. Il dettaglio sta in
+[ADR-0118](18-decision-log.md) e in [KB 44](44-pp-02-root-cause-analysis.md).
+
+**Cosa e caduto insieme alla forma:**
+
+| | Esito |
+|---|---|
+| `R-2` — la revoca lascia sfuggire la scheda scritta mentre gira | **chiuso**: da 7 sfasamenti su 7, a 0 su 7. Da ~840 ms a ~84 ms su un club da 60 atleti |
+| `PP02-D34` — le due proprieta che «non si ottengono insieme» | **chiuso**: non c'e piu una scansione da cui la finestra nasca, ne un elenco su cui prendere blocchi |
+| `PP02-D33` — cinque approvazioni concorrenti perdono righe | **chiuso**: l'elenco non si legge, quindi non c'e uno snapshot da rimandare |
+| `PP02-D1` — il legame va materializzato in una tabella | **chiuso** |
+| il riporto delle difese, cinque stesure | **cancellato** |
+| i due registri di scheda | **cancellati** |
+
+**E una cosa che il ventottesimo round non aveva visto.** Il travaso di WP-B
+era stato dichiarato «14 identita → 14 righe, 0 perse». Misurato con
+un'equivalenza fra predicati invece che con un conteggio di righe, **perdeva
+quattro identita e ne inventava quattro**: leggeva quattro grafie
+dell'identificativo dove chi decide ne legge sei, e univa sei collezioni dove
+chi decide ne legge una.
+
+E la stessa causa che il §3 di KB 44 descrive — un elenco scritto a mano invece
+che derivato da chi decide — in un posto in cui nessuno l'aveva cercata: dentro
+una migrazione. **Una migrazione e codice, e le sue enumerazioni invecchiano
+come le altre.**
+
+**Perche questa volta la forma non puo tornare.** Non perche sia stata scritta
+una difesa migliore, ma perche l'invariante e uscita dal codice: l'archivio
+rifiuta ogni scrittura sui tutori che non venga dal modulo proprietario
+([ADR-0119](18-decision-log.md)). Un elenco di file «che oggi conosciamo» era
+stato sbagliato cinque volte da chi il documento lo aveva letto; un vaglio
+dell'archivio non ha un elenco da tenere aggiornato.

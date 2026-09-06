@@ -13,6 +13,10 @@ import {
 } from "@/lib/club-seasons";
 import { normalizeClubSites } from "@/lib/club-sites";
 import { reportServerError } from "@/lib/server/observability";
+import {
+  findGuardianLinks,
+  readGuardiansForAthlete,
+} from "@/lib/server/athlete-guardians";
 import { resolveCheckoutReadiness } from "@/lib/server/connect-accounts";
 import { normalizePaymentSettings } from "@/lib/payments/payment-config-utils";
 import { resolveFamilyCheckoutChannel } from "@/lib/payments/family-checkout";
@@ -1485,112 +1489,35 @@ const serializeParentStructureBooking = (
 });
 
 /**
- * **In quali club questa persona compare come tutore, per identificativo di
- * utenza.**
+ * **Di quali atleti questa persona e tutore.**
  *
- * PP-02 §A. Risponde alla sola domanda che serve ad allargare l'insieme dei
- * candidati, e restituisce **club**, non atleti: chi decide se un atleta e
- * davvero suo figlio resta `athleteBelongsToParent`, che legge la riga per
- * intero e conosce anche le forme storiche `parent1` / `parent2`. Questa
- * ricerca puo solo aggiungere candidati da vagliare, mai concedere.
+ * PP-02 / WP-C. Qui prima c'erano **tre** cose, e ognuna aveva il proprio
+ * difetto:
  *
- * ---
+ * 1. una scansione in SQL grezzo di tutta la tabella `athletes` — «esiste,
+ *    dentro un array JSON, un oggetto con una di queste quattro grafie uguale a
+ *    questo valore» — che nessun indice poteva aiutare, e che un `catch` largo
+ *    faceva degradare in silenzio a «nessun club»;
+ * 2. un insieme di **candidati** che portava in memoria ogni atleta di ogni
+ *    club in cui la persona avesse una tessera;
+ * 3. un vaglio in memoria (`athleteBelongsToParent`) che girava **dopo**, su
+ *    quell'insieme, e quindi non poteva vedere un figlio che l'insieme non
+ *    contenesse.
  *
- * ## Perche l'identificativo si e l'indirizzo no
+ * Adesso e una interrogazione su una tabella con una chiave. Il legame ha una
+ * riga, la riga ha un indice, e chi decide e l'archivio. Chiude `PP02-D1`, che
+ * diceva esattamente questo: «la chiusura vera e materializzare il legame in
+ * una tabella con la sua chiave esterna».
  *
- * Sono due legami di natura diversa, e la differenza e **chi li ha scritti**.
- *
- * `linkedUserId` nasce dal **riscatto di un gettone**: e un atto della persona
- * — ha ricevuto un invito e lo ha aperto — tracciato e revocabile. Vale
- * ovunque quella riga sia, tessera o non tessera, perche la tessera e la
- * conseguenza dell'atto e non l'atto.
- *
- * L'indirizzo di contatto lo scrive **la segreteria, a mano**. Un indirizzo
- * scritto per sbaglio — una lettera di troppo su un dominio diffuso — e
- * l'indirizzo verificato di un'altra persona reale, e farne un legame che
- * apre da solo vorrebbe dire consegnare a uno sconosciuto il fascicolo
- * sanitario di un minore per un refuso.
- *
- * Percio l'indirizzo continua a valere **solo dove quella persona ha gia una
- * tessera**, che e il comportamento odierno e la proprieta che
- * `tests/server/area-famiglia.test.mjs` presidia per nome («un atleta di un
- * altro club non e un figlio»). Allargarlo e una decisione di prodotto, non
- * una correzione: sta fra i residui di PP-02.
- *
- * ## Perche e SQL grezzo
- *
- * La domanda e «esiste, dentro un array JSON, un oggetto con una di queste
- * quattro chiavi uguale a questo valore», e Prisma non ha un modo di porla che
- * regga le quattro grafie e il confronto minuscolo insieme. Le quattro grafie
- * sono le stesse che legge `isGuardianLinkedToUser`: le due domande devono
- * avere la stessa risposta, altrimenti l'insieme non contiene cio che il
- * vaglio cercherebbe.
- *
- * **Costo**: e una scansione di `athletes`, senza indice che possa aiutarla —
- * una funzione su ogni riga non e indicizzabile. La pagano solo le famiglie,
- * una volta per lettura, e restituisce poche righe. La chiusura vera e
- * materializzare il legame in una tabella con la sua chiave esterna, che e un
- * lavoro con il suo perimetro (debito PP02-D1).
+ * **Le due strade restano due, e la differenza non e una sfumatura.**
+ * L'utenza vale ovunque, perche nasce dal riscatto di un invito: e un atto
+ * della persona, tracciato e revocabile. L'indirizzo di contatto lo scrive la
+ * segreteria a mano — e un refuso su un dominio diffuso e l'indirizzo
+ * verificato di qualcun altro — quindi vale **solo dove quella persona ha gia
+ * una tessera**, e solo se l'indirizzo e verificato. Le due regole vivono in
+ * `findGuardianLinks`, nel modulo proprietario, perche sono regole di dominio
+ * e non di questa schermata.
  */
-const findClubsWhereUserIsGuardian = async (userId: string) => {
-  /*
-    **Il controllo del tipo sta dentro la funzione, non accanto.**
-
-    La prima stesura scriveva `WHERE jsonb_typeof(...) = 'array' AND EXISTS(...
-    jsonb_array_elements(...))`, e Postgres **non garantisce** l'ordine di
-    valutazione dei congiunti di un `AND`: puo eseguire il sotto-piano su righe
-    in cui `guardians` e un oggetto o una stringa, e li
-    `jsonb_array_elements` lancia.
-    
-    Una sola riga malformata — un travaso, un import, una versione vecchia dello
-    schema JSON — avrebbe fatto cadere l'intera ricerca nel `catch`, cioe
-    avrebbe **rimesso il difetto** che questa funzione esiste per chiudere, per
-    tutte le famiglie del sistema e in silenzio. Il `CASE` sposta la domanda
-    dentro l'espressione, dove viene valutata riga per riga.
-  */
-  const identita = [String(userId || "").trim().toLowerCase()].filter(Boolean);
-  if (!identita.length) return [] as string[];
-
-  try {
-    const righe = await prisma.$queryRaw<Array<{ organization_id: string }>>`
-      SELECT DISTINCT a.organization_id::text AS organization_id
-      FROM athletes a
-      WHERE EXISTS (
-          SELECT 1
-          FROM jsonb_array_elements(
-            CASE
-              WHEN jsonb_typeof(a.data -> 'guardians') = 'array'
-                THEN a.data -> 'guardians'
-              ELSE '[]'::jsonb
-            END
-          ) AS g
-          WHERE jsonb_typeof(g) = 'object'
-            AND (
-              lower(g ->> 'linkedUserId') = ANY(${identita})
-              OR lower(g ->> 'linked_user_id') = ANY(${identita})
-              OR lower(g ->> 'userId') = ANY(${identita})
-              OR lower(g ->> 'user_id') = ANY(${identita})
-            )
-        )
-    `;
-
-    return righe.map((riga) => String(riga.organization_id));
-  } catch (error) {
-    /*
-      Una ricerca che non riesce non deve **togliere** i figli a chi li
-      raggiungeva gia dalla tessera: chi ha una tessera continua a vederli, e
-      chi non ce l'ha vede l'elenco vuoto che vedeva prima. L'errore si
-      registra, perche un allargamento che smette di funzionare in silenzio e
-      indistinguibile da un club senza tutori.
-    */
-    reportServerError(error, {
-      route: "parent-dashboard/findClubsWhereUserIsGuardian",
-      actorUserId: userId,
-    });
-    return [] as string[];
-  }
-};
-
 export const getParentLinkedAthletes = async (
   userId: string,
   opzioni?: { includeSelf?: boolean },
@@ -1598,14 +1525,9 @@ export const getParentLinkedAthletes = async (
   /*
     **Tre domande su `userId`, e nessuna dipende dall'altra.**
 
-    Erano tre `await` in fila. Su Neon da Vercel ogni lettura paga un giro di
-    rete: in fila costano tre attese, insieme una. La misura del §27
-    (`npm run wave6:perf`) conta le attese iniettando una latenza fissa, ed e
-    li che si vedono — il conteggio delle interrogazioni non cambia, il tempo
-    che una famiglia aspetta si.
-
-    L'elenco degli atleti resta dopo, perche quello **dipende** davvero dalle
-    prime due: e la quarta attesa, e non si puo togliere.
+    Su Neon da Vercel ogni lettura paga un giro di rete: in fila costano tre
+    attese, insieme una. La misura del §27 (`npm run wave6:perf`) conta le
+    attese iniettando una latenza fissa.
   */
   const [user, memberships, ownedClubs] = await Promise.all([
     prisma.user.findUnique({
@@ -1625,106 +1547,62 @@ export const getParentLinkedAthletes = async (
   /*
     **L'indirizzo vale come legame solo se e verificato.**
 
-    Un tutore si collega al suo account redimendo un token, e allora c'e
-    `linked_user_id`. Finche non lo ha fatto vale anche la corrispondenza con
-    l'indirizzo di contatto che la segreteria ha scritto sulla scheda — ed e
-    quella corrispondenza che apriva la porta.
-
     `PATCH /api/v1/auth/user` lascia cambiare il proprio indirizzo con qualunque
     altro non ancora registrato. Chiunque avesse **una qualsiasi** tessera nel
-    club — genitore di suo figlio, atleta, allenatore — poteva scrivere
-    l'indirizzo del tutore di un'altra famiglia e leggere di quel minore
-    pagamenti, fatture, **certificati medici** e documenti d'identita, poi
-    rimettere il proprio.
-
-    Il cambio azzera pero `email_verified_at`, e il login non rilascia sessioni
-    a un indirizzo non verificato: pretendere qui la verifica chiude la strada
-    senza toccare il tutore vero, che per avere una sessione ha gia dovuto
-    dimostrare di leggere quella casella.
+    club poteva scrivere l'indirizzo del tutore di un'altra famiglia e leggere
+    di quel minore pagamenti, fatture, **certificati medici** e documenti
+    d'identita, poi rimettere il proprio. Il cambio azzera pero
+    `email_verified_at`, e pretendere qui la verifica chiude la strada senza
+    toccare il tutore vero.
   */
   const verifiedEmail = user?.email_verified_at ? user.email : null;
 
-  /*
-    **PP-02 §A. Il legame di un tutore non e la sua tessera, e la ricerca dei
-    candidati lo dava per scontato.**
-
-    L'insieme dei candidati era «gli atleti di cui sono l'utenza collegata,
-    piu **tutti** gli atleti dei club in cui ho una tessera». Il vaglio vero —
-    `athleteBelongsToParent`, che legge `athletes.data.guardians` — girava
-    **dopo**, in memoria, su quell'insieme: cioe non poteva vedere nessun
-    atleta che l'insieme non contenesse.
-
-    La conseguenza si legge in una riga: **un tutore collegato ma senza
-    tessera non trovava nessun figlio.** E uno stato che esiste — una tessera
-    revocata a mano, una riga cancellata, un travaso di dati che porta il
-    legame e non la tessera — e su cui il prodotto dichiara il contrario:
-    «per genitore e atleta il gate e il legame, non il ruolo».
-
-    Il rimedio non e un secondo scrittore che materializzi la tessera al
-    momento del collegamento — sarebbe un secondo posto in cui il legame vive,
-    da tenere allineato con il primo. E **allargare i candidati**: si chiede al
-    database in quali club questa persona compare come tutore, e i club
-    trovati si uniscono a quelli delle tessere. L'autorita su «e davvero un suo
-    figlio?» resta dove era.
-
-    L'allargamento vale per l'**identificativo dell'utenza** e non per
-    l'indirizzo di contatto: il perche sta su `findClubsWhereUserIsGuardian`,
-    e non e una sfumatura — e la differenza fra un atto della persona e una
-    stringa scritta a mano dalla segreteria.
-  */
-  const guardianClubIds = await findClubsWhereUserIsGuardian(userId);
-
-  const organizationIds = Array.from(
+  const organizationIdsForEmail = Array.from(
     new Set(
       memberships
         .map((membership) => membership.organization_id)
-        .concat(ownedClubs.map((club) => club.id))
-        .concat(guardianClubIds),
+        .concat(ownedClubs.map((club) => club.id)),
     ),
   );
 
-  const candidateAthletes = await prisma.athlete.findMany({
-    where: {
-      OR: [
-        { user_id: userId },
-        ...(organizationIds.length
-          ? [{ organization_id: { in: organizationIds } }]
-          : []),
-      ],
-    },
+  const legami = await findGuardianLinks(prisma, {
+    userId,
+    verifiedEmail,
+    organizationIdsForEmail,
+  });
+
+  const athleteIds = Array.from(new Set(legami.map((legame) => legame.athlete_id)));
+
+  /*
+    **«E un mio figlio» e «sono io» non sono la stessa domanda.**
+
+    Il ramo «sono io» apre tutta l'area famiglia — nome, **indirizzo e telefono
+    dei propri tutori**, che sono dati di terzi, la riga `data` grezza, allergie
+    e note mediche, e da `/documents/<id>` i **byte** del certificato. Percio va
+    **chiesto**, e lo chiede solo l'area atleta, che da questi stessi dati
+    costruisce la propria proiezione ristretta.
+  */
+  const strade: any[] = [];
+  if (opzioni?.includeSelf) strade.push({ user_id: userId });
+  if (athleteIds.length) strade.push({ id: { in: athleteIds } });
+
+  if (!strade.length) return [];
+
+  return prisma.athlete.findMany({
+    where: { OR: strade },
     include: {
       organization: true,
       /*
-        W6-14. **Le appartenenze non venivano nemmeno caricate.**
-
-        Un atleta puo stare in piu categorie — la tabella esiste, ha
-        `is_primary` e `site_id`, e il dominio sa gia leggerla — e la
-        famiglia ne vedeva **una**: i due campi piatti `category_id` e
-        `category_name`, cioe la primaria.
-
-        Non era solo un'etichetta mancante: `getAthleteCategoryTokens`
-        legge `athlete.category_memberships` per decidere quali allenamenti
-        e quali gare riguardano questo figlio. Con la relazione mai
-        popolata ricadeva sulla sola categoria primaria, quindi **il
-        calendario perdeva le attivita della seconda squadra**. Un ragazzo
-        che si allena con l'Under 15 e gioca con la prima squadra vedeva
-        meta dei propri impegni.
+        W6-14. Un atleta puo stare in piu categorie, e `getAthleteCategoryTokens`
+        legge questa relazione per decidere quali allenamenti e quali gare
+        riguardano questo figlio. Senza popolarla, il calendario perdeva le
+        attivita della seconda squadra.
       */
       category_memberships: true,
     },
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
   });
-
-  const uniqueAthletes = new Map<string, (typeof candidateAthletes)[number]>();
-  candidateAthletes.forEach((athlete) => {
-    if (athleteBelongsToParent(athlete, userId, verifiedEmail, opzioni)) {
-      uniqueAthletes.set(athlete.id, athlete);
-    }
-  });
-
-  return Array.from(uniqueAthletes.values());
 };
-
 /**
  * **Questo genitore puo accedere a questo atleta?**
  *
@@ -1896,6 +1774,19 @@ export const getParentDashboardData = async (
   );
 
   const club = selectedAthlete.organization;
+
+  /*
+    **I tutori si leggono dalla tabella, non dal blob** (PP-02 / WP-C).
+
+    E la stessa lettura che decide l'accesso, quindi cio che la famiglia vede
+    elencato e cio che il prodotto considera vero. Prima erano due strade — una
+    proiezione del blob per lo schermo e un predicato sul blob per la porta — e
+    tenerle d'accordo era un lavoro che nessuno faceva.
+  */
+  const tutoriDellaScheda = await readGuardiansForAthlete(
+    prisma,
+    selectedAthlete.id,
+  );
 
   /*
     Gli appuntamenti del figlio selezionato, la disponibilita configurata e cio
@@ -2309,10 +2200,16 @@ export const getParentDashboardData = async (
         La proiezione che decide e quella che si pubblica sono due cose diverse,
         ed e la terza volta che questo file lo impara.
       */
-      guardians: getGuardianRows(selectedAthlete).map((guardian: any) => ({
+      guardians: tutoriDellaScheda.map((guardian) => ({
+        /*
+          L'identificativo della **riga**, non piu quello sintetico costruito
+          sulla posizione. Quello cambiava persona quando si cancellava una
+          riga, ed e il difetto che ha fatto revocare il padre premendo
+          «Scollega account» sulla nonna.
+        */
         id: guardian.id,
-        name: guardian.name,
-        surname: guardian.surname,
+        name: guardian.first_name,
+        surname: guardian.last_name,
         relationship: guardian.relationship,
         email: guardian.email,
         phone: guardian.phone,

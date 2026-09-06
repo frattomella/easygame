@@ -1,5 +1,9 @@
 import { athleteWithinAccessScope } from "./access-scope-query";
-import { guardianDeclaredIds } from "./parent-dashboard";
+import {
+  findGuardianRow,
+  revokeGuardianAccessInClub,
+  revokeGuardianRow,
+} from "./athlete-guardians";
 import { normalizeGuardianRows } from "@/lib/athlete-guardians";
 import { prisma } from "./prisma";
 import { reportServerError } from "./observability";
@@ -521,9 +525,37 @@ export type UnlinkGuardianAccountResult = {
 /**
  * Scollega l'utenza dal genitore **indicato** di questo atleta.
  *
- * Il genitore vive dentro `athletes.data.guardians[]` (`athlete-guardians.ts`):
- * non e una riga a se, quindi non ha una tessera propria da toccare — solo
- * l'elemento dell'elenco cambia, in una sola scrittura del campo `data`.
+ * ---
+ *
+ * ## Cosa e sparito da qui (PP-02 / WP-C)
+ *
+ * Trecentocinquanta righe, e nessuna era una funzionalita.
+ *
+ * Un tutore viveva dentro `athletes.data.guardians[]`, un array **senza
+ * chiave**, quindi «scollega quello li» voleva prima dire *quale*. La risposta
+ * era una ricerca per identificativo che poteva nominarne due, un ripiego che
+ * ricalcolava gli id sintetici al volo, una chiave storica per `parent1` e
+ * `parent2`, e la ripulitura di tutte le righe **sorelle** della stessa
+ * persona, perche l'indirizzo di famiglia e uno solo e la revoca doveva
+ * seguire la persona e non la riga.
+ *
+ * Poi il blocco: la scheda si bloccava, il blob si rileggeva **dentro** il
+ * blocco e la ripulitura si rifaceva su quello — perche il client
+ * dell'anagrafica rimanda **sempre** l'array dei tutori, e bastavano due
+ * persone in segreteria sulla stessa scheda perche la revoca sparisse per
+ * intero. Misurato tre volte su tre: schermata con la conferma, riga di audit
+ * scritta, registro vuoto, e la persona revocata che continuava a leggere
+ * allergie, farmaci e i byte del certificato del minore.
+ *
+ * Infine il registro delle identita revocate, che era il **surrogato di una
+ * chiave**: serviva perche il marchio sulla riga si aggirava aggiungendone una
+ * sorella con lo stesso indirizzo.
+ *
+ * Adesso il tutore e una riga con una chiave, e questa funzione e una
+ * `UPDATE`. Non c'e uno snapshot da rimandare, quindi non c'e una corsa da
+ * perdere; non c'e un elenco da percorrere, quindi non c'e un blocco da
+ * prendere; non c'e un id da indovinare, perche l'identificativo che la scheda
+ * manda **e** quello della riga.
  */
 export const unlinkGuardianAccount = async (
   scope: ProfileAccountLinksScope,
@@ -537,320 +569,38 @@ export const unlinkGuardianAccount = async (
   );
   const atleta = await caricaAtletaDelClubAttivo(scope, input.athleteId);
 
-  const data = isRecord(atleta.data) ? (atleta.data as Record<string, any>) : {};
-  const guardians = toArray(data.guardians);
   const guardianId = testo(input.guardianId);
-
-  /*
-    **Un id che nomina due righe non e un id: si rifiuta.**
-
-    `normalizeGuardianRows` costruisce un id **sintetico** per le righe che non
-    ne portano uno, e la scheda atleta lo **salva**. Da li nascevano collisioni
-    che non richiedono malafede — una riga cancellata fa scalare le altre, e una
-    riga senza id (`form-submissions.ts` fa `guardians.push`) genera a quel
-    posto un id gia in archivio. Prendere la prima corrispondenza voleva dire
-    revocare **la persona sbagliata**: misurato, il clic su «Scollega account»
-    della nonna che toglie l'accesso al padre, con l'audit intestato al padre e
-    la schermata che segna scollegate tutte e due.
-
-    `normalizeGuardianRows` adesso disambigua, ma le righe **gia in archivio**
-    portano gli id di prima: qui si rifiuta, perche fra due persone non si
-    tira a indovinare. Chi lo incontra salva una volta la scheda — il
-    salvataggio riscrive gli id disambiguati — e il pulsante torna a funzionare.
-  */
-  const corrispondenze = (elenco: any[]) =>
-    elenco.reduce<number[]>((posizioni, entry, posizione) => {
-      if (testo(entry?.id) === guardianId) posizioni.push(posizione);
-      return posizioni;
-    }, []);
-
-  let trovate = corrispondenze(guardians);
-
-  /*
-    **E l'id che la scheda manda puo non esistere in archivio.**
-
-    Una riga nata dall'approvazione di un modulo non ha id: la scheda ne mostra
-    uno sintetico, e il pulsante rispondeva «Genitore non trovato nella scheda
-    atleta» su un genitore che era li sullo schermo. Si ricade percio sullo
-    **stesso** id sintetico, calcolato con la stessa funzione che lo mostra.
-  */
-  if (!trovate.length && guardianId) {
-    trovate = corrispondenze(normalizeGuardianRows(guardians as any[]) as any[]);
+  if (!guardianId) {
+    throw new Error("Genitore non trovato su questa scheda");
   }
 
   /*
-    **La coppia storica si revoca come l'elenco, perche concede come lui.**
-
-    `parent1`/`parent2` sono **oggetti**, non righe di un array, e questa
-    funzione cercava solo nell'array: su un'anagrafica travasata — che e la
-    ragione per cui quella coppia esiste — nessuna delle grafie dell'id
-    trovava niente, e l'unica strada per togliere l'accesso restava revocare
-    l'intera tessera. Lo sweep della revoca di tessera la copre gia
-    (`legacyKeys`); il pulsante no.
-
-    Gli id sono gli stessi che proietta `getGuardianRows`, o la scheda
-    manderebbe un id che qui non esiste.
+    Si legge **prima** per due ragioni: sapere a chi si sta togliendo l'accesso,
+    che e cio che finisce in audit, e distinguere «non esiste» da «esiste ed e
+    gia scollegato». La revoca vera e una istruzione sola, subito sotto.
   */
-  /*
-    **Il ripiego storico vale dove la coppia storica e cio che c'e.**
+  const riga = await findGuardianRow(prisma, atleta.id, guardianId);
 
-    Scattava su «nessuna corrispondenza nell'elenco», che e una condizione piu
-    larga: con un `guardians` **pieno** e un id che nessuna delle sue righe
-    porta, la chiamata scendeva su `parent1` e revocava **una riga che la
-    scheda non mostra** — rispondendo 200 e mettendo quell'indirizzo nel
-    registro delle identita, che vale per tutto l'atleta. Prima l'errore era
-    esplicito, ed era la risposta giusta.
-
-    `getGuardianRows` legge la coppia storica **solo** quando l'elenco e
-    vuoto: qui vale la stessa condizione, o il pulsante revocherebbe qualcosa
-    che nessuna schermata ha mai disegnato.
-  */
-  const CHIAVI_STORICHE = ["parent1", "parent2"] as const;
-  const chiaveStorica = !trovate.length && !guardians.length
-    ? CHIAVI_STORICHE.find((chiave, posizione) => {
-        const record = data[chiave];
-        if (!isRecord(record)) return false;
-        const suo =
-          testo(record.id) ||
-          testo(record.email) ||
-          testo(record.phone) ||
-          `legacy-parent-${posizione + 1}`;
-        return suo === guardianId;
-      })
-    : undefined;
-
-
-
-  if (trovate.length > 1) {
-    throw new Error(
-      "Due genitori della scheda portano lo stesso identificativo: salva la scheda e riprova",
-    );
+  if (!riga) {
+    throw new Error("Genitore non trovato su questa scheda");
   }
 
-  if (!trovate.length && !chiaveStorica) {
-    throw new Error("Genitore non trovato nella scheda atleta");
-  }
+  const linkedUserId = riga.user_id;
 
-  const index = trovate.length ? trovate[0] : -1;
-  const guardian = (chiaveStorica ? data[chiaveStorica] : guardians[index]) || {};
-
-  /*
-    **Quattro grafie, non due.**
-
-    `resolveFamilyRecipients` ne legge quattro per decidere **chi riceve**, e
-    una riga scritta con `userId`/`user_id` usciva di qui al primo `return`:
-    nessun marchio, nessuna ripulitura, nessun audit — e la rotta rispondeva
-    **200**. La scheda mostrava «Account non collegato» perche anche quel badge
-    guarda due grafie, quindi il club non aveva modo di sapere che quella
-    persona continuava a ricevere le notifiche documentali sul minore, ne un
-    pulsante per toglierla.
-
-    E la forma esatta del difetto che questa funzione e nata per chiudere,
-    sopravvissuta su un canale diverso.
-  */
-  const linkedUserId = guardianDeclaredIds(guardian)[0] || null;
-
-  const linkedUserEmail =
-    testo(
-      guardian.linkedUserEmail || guardian.linked_user_email || guardian.email,
-    ) || null;
-
-  /*
-    **Non c'e piu un'uscita silenziosa.** Una riga senza nessuna identita non
-    concede niente e non c'e niente da revocare; una riga che ha almeno un
-    indirizzo si revoca, perche e quell'indirizzo a fare da ripiego.
-  */
-  if (!linkedUserId && !linkedUserEmail) {
-    return { athleteId: atleta.id, guardianId, unlinkedUserId: null };
-  }
-  const { next } = clearLinkedFields(
-    guardian,
-    linkedUserId || "",
-    linkedUserEmail,
-  );
-  const nextGuardian = {
-    ...next,
-    parentAccessTokenStatus: "revoked",
-    parent_access_token_status: "revoked",
-  };
-
-  /*
-    **Si ripuliscono tutte le righe di quella persona, non solo quella
-    indicata.**
-
-    L'elenco delle identita, per progetto, non batte un legame **dichiarato**:
-    e cosi che ci si ricollega dopo una revoca. Ma allora una seconda riga
-    dichiarata sullo stesso atleta — un secondo invito riscattato, che e la
-    risposta ordinaria a «il link non funziona» — **scavalca la revoca**: la
-    scheda mostra «Account non collegato» sulla riga toccata e «Account
-    collegato» sull'altra, e niente dice che l'accesso e rimasto aperto.
-
-    E la forma della «riga sorella» per cui questo elenco e nato, spostata di
-    un livello: li si aggirava il ripiego sull'indirizzo, qui il legame
-    dichiarato.
-  */
-  /*
-    **La riga sorella e la stessa persona, non lo stesso indirizzo.**
-
-    La prima stesura di questo blocco filtrava con `isLinkedToTarget`, che
-    combacia **anche sul solo indirizzo**. Su una configurazione ordinaria —
-    madre e padre, ognuno con il proprio `linkedUserId`, e l'unico indirizzo
-    di famiglia su tutte e due le righe — revocare la madre azzerava il legame
-    dichiarato **del padre** e gli scriveva addosso il marchio. Al caricamento
-    successivo lui trovava «Accesso negato»: calendario, rate, ricevute,
-    documenti e certificato del figlio spariti, e con loro solleciti,
-    promemoria e notifiche. La scheda diceva «Account non collegato» anche
-    sulla sua riga, nessuno aveva premuto quel pulsante, e l'audit registrava
-    un `guardian_id` solo. Per rientrare gli serviva un invito nuovo.
-
-    Una riga che porta un **proprio** identificativo, diverso da quello che si
-    sta revocando, e un'altra persona: l'indirizzo condiviso non la rende la
-    stessa. Percio si spazza per identificativo, e si cade sull'indirizzo solo
-    quando la riga un identificativo non ce l'ha — li l'indirizzo **e**
-    l'identita, e due righe senza identificativo allo stesso indirizzo non
-    sono distinguibili nemmeno in principio.
-  */
-  const stessaPersona = (entry: any) => {
-    const suoi = guardianDeclaredIds(entry);
-    if (suoi.length) {
-      const bersaglio = String(linkedUserId || "").trim().toLowerCase();
-      return Boolean(bersaglio) && suoi.includes(bersaglio);
-    }
-
-    return isLinkedToTarget(entry, "", linkedUserEmail);
-  };
-
-  const nextGuardians = guardians.map((entry, position) => {
-    if (position === index) return nextGuardian;
-    if (chiaveStorica) return entry;
-    if (!stessaPersona(entry)) return entry;
-
-    const { next: ripulita } = clearLinkedFields(
-      entry,
-      linkedUserId || "",
-      linkedUserEmail,
-    );
-    return {
-      ...ripulita,
-      parentAccessTokenStatus: "revoked",
-      parent_access_token_status: "revoked",
-    };
+  await revokeGuardianRow(prisma, {
+    athleteId: atleta.id,
+    guardianRowId: riga.id,
   });
 
   /*
-    **L'accesso si toglie a un'identita, non a una riga.**
-
-    Il marchio sulla riga si aggirava in due mosse, e nessuna delle due
-    richiedeva malafede: aggiungerne una **nuova** con lo stesso indirizzo e un
-    `id` diverso, oppure lasciare che lo facesse il dominio dei moduli, che
-    all'approvazione di un'iscrizione in cui la persona si dichiara tutore fa
-    `guardians.push(...)` di un oggetto nuovo. Una riga pulita, e il ripiego
-    sull'indirizzo la accetta.
-
-    L'elenco vive sull'atleta e non ha un `id` da cambiare. Chi si presenta con
-    un'identita che sta qui dentro non entra, da qualunque riga arrivi —
-    finche non torna con un legame **dichiarato**, cioe un riscatto, che e la
-    strada che ha il suo gate e che da questo elenco lo toglie.
+    Il gettone vive anche come riga di `club_resource_items`, e quella riga la
+    conosce il suo dominio: qui si segna revocata, e se non ci riesce
+    l'operazione non fallisce — l'accesso e gia chiuso sulla riga del tutore,
+    che e cio che decide.
   */
-  const identitaRevocate = new Set<string>(
-    (Array.isArray((data as any).revokedGuardianIdentities)
-      ? (data as any).revokedGuardianIdentities
-      : []
-    )
-      .map((valore: unknown) => String(valore || "").trim().toLowerCase())
-      .filter(Boolean),
-  );
-
-  for (const valore of [linkedUserId, linkedUserEmail]) {
-    const pulito = String(valore || "").trim().toLowerCase();
-    if (pulito) identitaRevocate.add(pulito);
-  }
-
-  /*
-    **Una `update` sola non e atomicita: lo e il blocco.**
-
-    ADR-0116 chiamava «atomico» questo scrittore perche scrive le righe e il
-    registro nella **stessa** `update`. La forma era giusta e il comportamento
-    no: `data` e stato letto ~230 righe piu su, e fra la lettura e questa
-    scrittura ci sta un'altra richiesta. Misurato tre volte su tre contro
-    PostgreSQL — una revoca e un salvataggio ordinario della scheda in
-    parallelo — la revoca **spariva per intero**: registro vuoto, riga intatta,
-    e la persona revocata continuava a leggere allergie, farmaci e i byte del
-    certificato del minore. La segreteria aveva la conferma a schermo e la riga
-    di audit.
-
-    Non serviva un attaccante: il client della scheda manda **sempre** l'array
-    dei tutori, quindi bastano due persone in segreteria sulla stessa scheda.
-
-    E il registro «non e mai caduto» non perche fosse protetto: perche nessuno
-    lo aveva mai messo sotto concorrenza.
-
-    Adesso si blocca la riga, si **rilegge dentro il blocco**, e si riapplica su
-    quella: chi arriva secondo vede cio che il primo ha scritto.
-  */
-  await prisma.$transaction(async (client: any) => {
-    await lockAthleteRow(client, atleta.id);
-
-    const fresca = await client.athlete.findUnique({
-      where: { id: atleta.id },
-      select: { data: true },
-    });
-
-    const dataFresca = isRecord(fresca?.data)
-      ? (fresca!.data as Record<string, any>)
-      : data;
-
-    const guardianiFreschi = toArray(dataFresca.guardians);
-
-    /*
-      Le righe si riscrivono su quelle **appena lette**: si rifa la stessa
-      ripulitura, per identita, invece di rimandare l'array di prima.
-    */
-    const righeAggiornate = chiaveStorica
-      ? guardianiFreschi
-      : guardianiFreschi.map((entry: any, position: number) => {
-          if (position === index) return nextGuardian;
-          if (!stessaPersona(entry)) return entry;
-
-          const { next: ripulita } = clearLinkedFields(
-            entry,
-            linkedUserId || "",
-            linkedUserEmail,
-          );
-          return {
-            ...ripulita,
-            parentAccessTokenStatus: "revoked",
-            parent_access_token_status: "revoked",
-          };
-        });
-
-    const registroFresco = new Set<string>(
-      (Array.isArray((dataFresca as any).revokedGuardianIdentities)
-        ? ((dataFresca as any).revokedGuardianIdentities as unknown[])
-        : []
-      )
-        .map((valore) => String(valore || "").trim().toLowerCase())
-        .filter(Boolean),
-    );
-
-    for (const valore of identitaRevocate) registroFresco.add(valore);
-
-    await client.athlete.update({
-      where: { id: atleta.id },
-      data: {
-        data: {
-          ...dataFresca,
-          ...(chiaveStorica
-            ? { [chiaveStorica]: nextGuardian }
-            : { guardians: righeAggiornate }),
-          revokedGuardianIdentities: Array.from(registroFresco) as string[],
-        },
-      },
-    });
-  });
-
   const tokenRecordId = testo(
-    guardian.parentAccessTokenRecordId || guardian.parent_access_token_record_id,
+    (riga as any).access_token_record_id ||
+      (atleta.data as any)?.parentAccessTokenRecordId,
   );
   if (tokenRecordId) {
     try {
@@ -1079,7 +829,61 @@ const unlinkParentCollection = (
   return { next, changed };
 };
 
-/** Ripulisce `athletes.data.guardians[]` (ed elenchi storici) di tutti gli atleti del club. */
+/**
+ * **La revoca di una tessera, in una istruzione** (PP-02 / WP-C).
+ *
+ * ---
+ *
+ * ## Cosa c'era qui, e perche non poteva funzionare
+ *
+ * Duecentosettanta righe che percorrevano **ogni tesserato del club**: per
+ * ognuno un blocco di riga, una rilettura del blob, una ripulitura in memoria
+ * di quattro collezioni piu la coppia storica, la registrazione dell'identita
+ * nel registro delle revoche, e una `update`.
+ *
+ * Da quella forma discendevano due difetti che **non si potevano chiudere
+ * insieme**, ed e questo che rende il reperto `R-2` diverso da un difetto
+ * ordinario:
+ *
+ * - scegliere le schede **fuori** dal blocco lascia sfuggire quella che
+ *   acquista il tutore mentre la revoca gira. Misurato dalle due porte vere in
+ *   parallelo: su un club da 60 atleti la revoca dura ~840 ms, e a **sette
+ *   sfasamenti su sette** la scheda scritta nel frattempo sfuggiva — la
+ *   finestra non e stretta, e **tutta la durata della scansione**, e cresce
+ *   con i tesserati;
+ * - bloccarle **tutte** con un `FOR UPDATE` sul club chiude quella finestra e
+ *   va in abbraccio mortale con il passaggio di stagione, che prende le stesse
+ *   righe in un ordine scorrelato (gli id sono UUID). Cinque giri su cinque,
+ *   dal log di PostgreSQL: «Revoca dell'accesso non riuscita», tessera ancora
+ *   li, il genitore ancora dentro, e **niente in audit**.
+ *
+ * Piu un tetto: oltre ~1.100 schede toccate la transazione scadeva.
+ *
+ * ## Perche adesso il problema non si pone
+ *
+ * Non e stata scelta la meno dannosa delle due: e sparita la scansione.
+ *
+ * Un tutore e una riga di `athlete_guardians` con un indice su
+ * `(organization_id, user_id)`. «Togli l'accesso a questa persona in questo
+ * club» e percio una `UPDATE` con un `WHERE`, e da li:
+ *
+ * - **non c'e una finestra**, perche non c'e un intervallo fra lo scegliere e
+ *   l'agire: e la stessa istruzione a fare tutte e due le cose;
+ * - **non c'e un ordine di acquisizione** da incrociare con il rollover,
+ *   perche non si prendono blocchi su un elenco;
+ * - **non c'e un tetto**, perche il costo non cresce con i tesserati del club
+ *   ma con le righe che riguardano davvero quella persona — i suoi figli.
+ *
+ * `PP02-D34` e `PP02-D33` si chiudono tutti e due, e non perche sia stata
+ * messa una serratura piu grossa: perche la domanda a cui rispondevano non si
+ * pone piu.
+ *
+ * ## Il perimetro resta quello di ADR-0110
+ *
+ * Questa funzione **non tocca `organization_users`**: scollegare un profilo non
+ * e revocare una tessera. Toglie l'accesso del tutore alle schede su cui
+ * compare, e nient'altro.
+ */
 export const unlinkParentGuardians = async (
   tx: any,
   organizationId: string,
@@ -1089,260 +893,11 @@ export const unlinkParentGuardians = async (
 ) => {
   if (!isParentAccessRole(accessRole)) return 0;
 
-  /*
-    **Qui si prendono solo gli identificativi: il contenuto si rilegge dopo.**
-
-    Questa lettura serviva anche a portarsi dietro `data`, e il ciclo lavorava
-    su quello: prendere il blocco piu sotto serializzava le scritture e non
-    cambiava il valore scritto, che restava lo snapshot di **prima** del blocco.
-    Il lost update era intatto.
-
-    Misurato dalla porta del prodotto — due revoche di tessera in parallelo su un
-    club di sei atleti, tre esecuzioni su tre: le due schermate dicevano
-    «revocato», l'audit registrava entrambe, e su **sei schede su sei** uno dei
-    due genitori continuava ad aprire l'area famiglia. Nella versione
-    sequenziale, con gli stessi dati, tutte e due le revoche entravano.
-
-    Adesso l'elenco porta solo gli `id`, e ogni scheda si rilegge **dentro** il
-    proprio blocco.
-  */
-  const collectionKeys = ["guardians", "parents", "tutors", "tutori"];
-  const legacyKeys = ["parent1", "parent2"];
-
-  /*
-    **Si restringe nel database, e si decide dentro il blocco.**
-
-    Tre stesure, e ognuna ha rotto cio che l'altra aveva aggiustato.
-
-    1. `select: { id, data }` e la scelta fatta **fuori** dal blocco: il blocco
-       serializzava e il valore scritto restava lo snapshot vecchio;
-    2. `select: { id }` con blocco e rilettura per **ogni** tesserato: corretto,
-       e due viaggi in archivio per atleta dentro una transazione da cinque
-       secondi — a 1.600 la revoca scadeva;
-    3. di nuovo `select: { id, data }` per restringere prima di bloccare:
-       veloce, e la scelta e tornata fuori dal blocco. Misurato: una scheda a cui
-       il tutore viene **aggiunto** mentre la revoca gira viene scartata dal
-       filtro e la revoca non la vede — cinque giri su cinque, con la schermata
-       che dice «Accesso revocato» e quel genitore che continua ad aprire il
-       fascicolo del secondo figlio. E la lettura ampia porta in Node l'intero
-       blob di ogni tesserato: con la forma di anagrafica che il repository
-       stesso dichiara realistica sono **175 MB** a duemila tesserati, dentro la
-       transazione.
-
-    Le tre cose che servono sono separabili, e finora erano state impastate:
-    **restringere** si fa nel database e non deve essere esatto, **decidere** si
-    fa dentro il blocco sulla riga riletta, e **non portare byte** si ottiene
-    chiedendo solo gli identificativi.
-
-    Il predicato qui sotto sovrastima di proposito — cerca il testo in tutto il
-    blob — perche una scheda in piu costa un blocco e una rilettura, mentre una
-    scheda in meno e una revoca persa. Se la sovrastima non bastasse, il costo
-    sarebbe comunque solo di lavoro inutile: chi decide e la rilettura.
-  */
-  const aghi = [userId, userEmail]
-    .map((valore) => String(valore || "").trim().toLowerCase())
-    .filter(Boolean);
-
-  /*
-    **Se la restrizione non si puo fare, si lavora su tutti: mai su nessuno.**
-
-    Il predicato gira in SQL, e il doppio di Prisma dei test unitari SQL grezzo
-    non ne esegue. Il ripiego non e «nessun candidato» — sarebbe una revoca che
-    non revoca niente, cioe il difetto peggiore di tutti travestito da
-    ottimizzazione — ma **tutti gli atleti del club**, che e esattamente cio che
-    faceva la stesura precedente: piu lenta, mai sbagliata.
-
-    E la regola che rende sicura la restrizione: chi decide e la rilettura
-    dentro il blocco, e questa scelta puo solo togliere lavoro inutile.
-  */
-  /*
-    **Prima si chiede se SQL grezzo esista davvero, e non lo si deduce.**
-
-    Il doppio di Prisma dei test unitari ha un `$queryRaw` che **non solleva**:
-    restituisce un elenco vuoto. Un ripiego agganciato all'errore non sarebbe
-    quindi mai scattato, e la restrizione avrebbe risposto «nessun candidato» —
-    cioe una revoca che non revoca niente, il difetto peggiore di tutti
-    travestito da ottimizzazione. Un test unitario lo ha preso.
-
-    Si fa percio una domanda a cui **si conosce la risposta**: se non torna
-    indietro una riga, SQL grezzo non c'e, e si lavora su tutti gli atleti del
-    club — piu lento, mai sbagliato. Chi decide resta la rilettura dentro il
-    blocco: questa scelta puo solo togliere lavoro inutile.
-  */
-  const sondaSql = await tx
-    .$queryRaw`SELECT 1 AS uno`
-    .catch(() => null);
-
-  const sqlGrezzoDisponibile = Array.isArray(sondaSql) && sondaSql.length === 1;
-
-  /*
-    **Il blocco sull'intero club e stato tolto: prendeva un'impronta che si
-    incrocia con il passaggio di stagione.**
-
-    Era stato messo per chiudere una finestra stretta — una scheda che acquista
-    il tutore **mentre** la revoca gira viene scartata dal filtro e la revoca non
-    la vede. La chiudeva davvero, e ne ha aperta una peggiore: bloccando **ogni**
-    riga del club in ordine di `id`, e prendendo il rollover di stagione le
-    stesse righe in ordine di scansione, i due ordini sono scorrelati per
-    costruzione (gli `id` sono UUID). Misurato cinque giri su cinque dalla porta
-    del prodotto: «Revoca dell'accesso non riuscita», tessera ancora li, il
-    genitore ancora dentro, e **niente in audit** — perche l'audit sta dopo la
-    transazione. Piu il tetto: oltre ~1.100 schede toccate la transazione scade.
-
-    Il difetto che il blocco chiudeva vale meno di quello che apriva: la finestra
-    stretta lascia fuori una scheda in una corsa rara, il deadlock fa fallire
-    **ogni** revoca durante un passaggio di stagione.
-
-    E la scelta fra i due non e una vittoria: e la prova che in questa forma le
-    due proprieta non si ottengono insieme. Sta in ADR-0116 e nel debito
-    (PP02-D34), ed e la ragione per cui la revoca dovrebbe essere una riga da
-    aggiornare e non un ciclo su un blob.
-  */
-
-  const athletes: Array<{ id: string }> =
-    sqlGrezzoDisponibile && aghi.length
-      ? (
-          (await tx.$queryRaw`
-            SELECT id
-            FROM athletes
-            WHERE organization_id = ${organizationId}::uuid
-              AND EXISTS (
-                SELECT 1 FROM unnest(${aghi}::text[]) AS ago
-                WHERE lower(data::text) LIKE '%' || ago || '%'
-              )
-            ORDER BY id ASC
-          `) as Array<{ id: string }>
-        ).map((riga) => ({ id: String(riga.id) }))
-      : await tx.athlete.findMany({
-          where: { organization_id: organizationId },
-          select: { id: true },
-          orderBy: { id: "asc" },
-        });
-  /*
-    **Le chiavi che si spazzano erano quelle che nessuno legge.**
-
-    L'elenco copriva `parents`, `tutors` e `tutori` — tre forme che nessun
-    predicato di accesso consulta — e **non** `parent1`/`parent2`, che invece
-    concedono: il vaglio del legame ci ricade quando `guardians` e vuoto, e da
-    li passano anche i solleciti degli insoluti e i promemoria del certificato.
-
-    Cioe si spazzava dove non c'era polvere e si lasciava intatto cio che apre
-    la porta. Una anagrafica travasata — che e la ragione per cui quella coppia
-    esiste — restava senza nessuna strada di revoca: il pulsante «Scollega
-    account» non ha una riga da indicare, e la revoca della tessera non la
-    guardava.
-  */
-  let updated = 0;
-
-  for (const athlete of athletes) {
-    /*
-      Il blocco viene **prima** della lettura, e la lettura sta dentro: e
-      l'ordine che rende il ciclo una sequenza di scritture atomiche invece di
-      una sequenza di sovrascritture. L'`orderBy` sopra da a due sweep
-      concorrenti lo stesso ordine di acquisizione, che e cio che tiene lontano
-      un abbraccio mortale.
-    */
-    await lockAthleteRow(tx, athlete.id);
-
-    const fresca = await tx.athlete.findUnique({
-      where: { id: athlete.id },
-      select: { data: true },
-    });
-
-    const data = isRecord(fresca?.data) ? { ...(fresca!.data as any) } : {};
-    let changed = false;
-
-    for (const key of collectionKeys) {
-      if (!Array.isArray(data[key])) continue;
-
-      const result = unlinkParentCollection(data[key], userId, userEmail);
-      if (result.changed) {
-        data[key] = result.next;
-        changed = true;
-      }
-    }
-
-    /*
-      La coppia storica sono **oggetti**, non array: si trattano a parte, con
-      lo stesso `clearLinkedFields` che ripulisce le righe dell'elenco.
-    */
-    for (const key of legacyKeys) {
-      if (!isRecord(data[key])) continue;
-
-      const esito = clearLinkedFields(data[key], userId, userEmail);
-      if (esito.changed) {
-        data[key] = esito.next;
-        changed = true;
-      }
-    }
-
-    /*
-      **L'identita si registra dove quella persona compare, e solo li.**
-
-      Due stesure sbagliate, in due direzioni opposte, e la seconda era mia.
-
-      La prima registrava **dopo** `if (!changed) continue`: su un atleta la cui
-      unica riga fosse storica — o gia ripulita da una stesura precedente —
-      l'elenco non veniva mai scritto, e saltava la sola difesa che tutti gli
-      altri lettori consultano.
-
-      La seconda ha spostato la registrazione **prima** del `continue`, e ha
-      fatto molto peggio: l'insieme cresce sempre, quindi `changed` diventa
-      vero su **ogni atleta del club**. Il ciclo gira dentro una transazione, e
-      una `athlete.update` per atleta significa che su un club di qualche
-      centinaio di tesserati la revoca di una tessera — o l'uscita volontaria,
-      che e self-service — puo andare in timeout e non riuscire. E ogni scheda
-      accumulava l'indirizzo di ogni genitore mai uscito dal club, compresi i
-      figli di altre famiglie, senza nessuna strada che li togliesse.
-
-      La domanda giusta non e «ho cambiato qualcosa» ne «e un atleta del club»:
-      e **questa persona compare su questa scheda**. Su un atleta che con lei
-      non ha mai avuto niente a che fare non c'e niente da revocare.
-    */
-    const compareSuQuestaScheda =
-      changed ||
-      [...collectionKeys, ...legacyKeys].some((key) => {
-        const valore = data[key];
-        const righe = Array.isArray(valore)
-          ? valore
-          : isRecord(valore)
-            ? [valore]
-            : [];
-        return righe.some((riga) => isLinkedToTarget(riga, userId, userEmail));
-      });
-
-    if (!compareSuQuestaScheda) continue;
-
-    const identitaDaRegistrare = new Set<string>(
-      (Array.isArray((data as any).revokedGuardianIdentities)
-        ? ((data as any).revokedGuardianIdentities as unknown[])
-        : []
-      )
-        .map((valore) => String(valore || "").trim().toLowerCase())
-        .filter(Boolean),
-    );
-
-    const primaDellaRegistrazione = identitaDaRegistrare.size;
-    for (const valore of [userId, userEmail]) {
-      const pulito = String(valore || "").trim().toLowerCase();
-      if (pulito) identitaDaRegistrare.add(pulito);
-    }
-
-    if (identitaDaRegistrare.size !== primaDellaRegistrazione) {
-      (data as any).revokedGuardianIdentities = Array.from(
-        identitaDaRegistrare,
-      ) as string[];
-      changed = true;
-    }
-
-    if (!changed) continue;
-
-
-    await tx.athlete.update({ where: { id: athlete.id }, data: { data } });
-    updated += 1;
-  }
-
-  return updated;
+  return revokeGuardianAccessInClub(tx, {
+    organizationId,
+    userId,
+    email: userEmail,
+  });
 };
 
 /**

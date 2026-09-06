@@ -1,10 +1,12 @@
 import { prisma } from "./prisma";
 import { canonicalResourceName } from "@/lib/resource-aliases";
 import {
-  guardianAccessIdentities,
-  guardianDeclaredIds,
-  guardianIdentityTokens,
-} from "./parent-dashboard";
+  GUARDIAN_KEYS_NON_SCRIVIBILI,
+  readGuardianInputFromCard,
+  refreshGuardianProjection,
+  saveGuardianRegistry,
+  type GuardianInput,
+} from "./athlete-guardians";
 import {
   customRoleReachesResource,
   roleHasPermission,
@@ -42,7 +44,6 @@ import {
   hasHealthPermission,
   stripClinicalAthleteFields,
   stripClinicalCertificateFields,
-  restoreGuardianAccessTokens,
   stripGuardianAccessTokens,
   stripPersonCredentials,
 } from "@/lib/health/permissions";
@@ -5978,8 +5979,19 @@ export const createResource = async (
     Il lato precedente e vuoto: non c'e niente da conservare, e ogni legame
     presente e **nuovo**.
   */
+  /**
+   * Le righe tutore che il corpo portava, gia tolte da `data`. Si scrivono
+   * **dopo** che la riga esiste, perche una riga tutore nomina un atleta.
+   */
+  let tutoriDaScrivere: GuardianInput[] | null = null;
+
   if (mode === "create" && RISORSE_CON_SCHEDA_ATLETA.has(resource)) {
-    await applicaGuardieDiModifica(resource, normalized, null, scope);
+    tutoriDaScrivere = await applicaGuardieDiModifica(
+      resource,
+      normalized,
+      null,
+      scope,
+    );
   }
 
   if (mode === "upsert") {
@@ -6048,7 +6060,7 @@ export const createResource = async (
           /*
             **E le stesse guardie della modifica**, perche questo ramo modifica.
           */
-          await applicaGuardieDiModifica(
+          tutoriDaScrivere = await applicaGuardieDiModifica(
             resource,
             normalized,
             esistente,
@@ -6080,7 +6092,12 @@ export const createResource = async (
             Il lato precedente e vuoto, come per la creazione: non c'e niente da
             conservare, e ogni legame presente e nuovo.
           */
-          await applicaGuardieDiModifica(resource, normalized, null, scope);
+          tutoriDaScrivere = await applicaGuardieDiModifica(
+            resource,
+            normalized,
+            null,
+            scope,
+          );
         }
       }
 
@@ -6122,6 +6139,29 @@ export const createResource = async (
         create: normalized,
         include: getModelInclude(resource),
       });
+
+      /*
+        **I tutori si scrivono dove hanno una chiave, non dentro il blob.**
+
+        PP-02 / WP-C. Il corpo della richiesta li portava dentro `data`, e le
+        guardie della modifica li hanno gia tolti da li: qui si consegnano al
+        modulo proprietario, che e l'unico a cui l'archivio permette di
+        scrivere `athlete_guardians`.
+
+        Dopo la riga e non prima, perche una riga tutore nomina un atleta e
+        prima l'atleta non esisteva.
+      */
+      if (tutoriDaScrivere) {
+        await saveGuardianRegistry(prisma, {
+          organizationId: String(record.organization_id || ""),
+          athleteId: String(record.id),
+          rows: tutoriDaScrivere,
+          canGrantAccess:
+            !scope ||
+            (roleHasPermission(scope.activeRole, "accounts.athlete.manage") &&
+              hasHealthPermission(scope.activeRole, "clinical.read")),
+        });
+      }
 
       if (resource === "users") {
         await syncUserClubAccess(record.id, input.club_access, scope);
@@ -6198,6 +6238,22 @@ export const createResource = async (
     data: normalized,
     include: getModelInclude(resource),
   });
+
+  /*
+    **I tutori si scrivono dopo la riga**, per la stessa ragione del ramo
+    `upsert`: una riga tutore nomina un atleta, e prima l'atleta non c'era.
+  */
+  if (tutoriDaScrivere) {
+    await saveGuardianRegistry(prisma, {
+      organizationId: String(record.organization_id || ""),
+      athleteId: String(record.id),
+      rows: tutoriDaScrivere,
+      canGrantAccess:
+        !scope ||
+        (roleHasPermission(scope.activeRole, "accounts.athlete.manage") &&
+          hasHealthPermission(scope.activeRole, "clinical.read")),
+    });
+  }
 
   if (resource === "users") {
     await syncUserClubAccess(record.id, input.club_access, scope);
@@ -6665,12 +6721,25 @@ const guardFiscalDocumentIntegrity = (
  *
  * Modifica `normalized` in luogo dove la regola e una **conservazione**.
  */
+/**
+ * **Le guardie della modifica, e cio che questa funzione non fa piu.**
+ *
+ * Restituisce le righe tutore che il corpo della richiesta portava, gia
+ * tradotte e gia **tolte** da `normalized.data`. Non le scrive: chi le scrive e
+ * il modulo proprietario, e lo fa dentro la stessa transazione della riga —
+ * perche il salvataggio della scheda e la scrittura dei tutori o riescono
+ * insieme o non riescono.
+ *
+ * `null` significa «questa scrittura non nomina i tutori», che e diverso da
+ * «li nomina e sono zero»: la prima non tocca l'insieme, la seconda lo svuota.
+ */
 const applicaGuardieDiModifica = async (
   resource: string,
   normalized: Record<string, any>,
   existing: Record<string, any> | null | undefined,
   scope?: ResourceAccessScope,
-) => {
+): Promise<GuardianInput[] | null> => {
+  let tutoriInArrivo: GuardianInput[] | null = null;
     /*
       **`athletes.user_id` non si scrive dal registro generico.**
 
@@ -6687,680 +6756,53 @@ const applicaGuardieDiModifica = async (
       account, senza audit e senza revoca.
     */
     /*
-      **Un legame con una famiglia non si crea scrivendo l'anagrafica.**
+      **I tutori escono dal blob, e con loro esce tutto cio che li difendeva.**
 
-      `guardians[].linkedUserId` decide chi e famiglia di quel minore, e
-      `canParentAccessAthlete` lo legge per aprire il cruscotto: nome,
-      recapiti, **allergie, visite mediche, farmaci**. Chiunque potesse
-      scrivere l'anagrafica se lo scriveva addosso — misurato con un ruolo
-      personalizzato **senza** `clinical.read` — e leggeva dalla porta accanto
-      cio che la chiave gli negava. Nell'audit restava un `anagrafica.updated`:
-      la famiglia vera non aveva modo di vederlo ne di toglierlo.
+      PP-02 / WP-C. Qui sopra vivevano seicentoquaranta righe, e non erano
+      seicentoquaranta righe di funzionalita: erano cinque stesure successive
+      del **riporto delle difese**, piu due registri di scheda che erano il
+      surrogato di una chiave, piu la guardia sulla crescita delle identita.
 
-      Il legame nasce **riscattando un gettone**, che e un atto tracciato e
-      revocabile. Qui si nega che l'insieme dei legami **cresca**: toglierne
-      uno resta possibile — e cosi si scollega — e un salvataggio ordinario
-      che rimanda indietro gli stessi legami non cambia niente e passa.
-    */
-    /*
-      **`data` nullo spegneva tutte e tre le guardie dell'anagrafica.**
+      Tutte rispondevano alla stessa domanda, e la domanda era sbagliata:
+      «quale riga in arrivo corrisponde a quale riga in archivio». Non ha
+      risposta su un array senza chiave, e le quattro risposte provate lo
+      dimostrano una per una — per `id`, e le righe che nascono da
+      `guardians.push` un id non ce l'hanno; per **posizione**, e la posizione
+      la sceglie chi chiama; per **identita**, e l'identita di una riga revocata
+      collassa sull'indirizzo di famiglia, quindi il padre ereditava il marchio
+      della madre; per `id` con ripiego sull'identita, e restava il caso di due
+      righe che l'id non ce l'hanno.
 
-      Le condizioni erano `normalized.data && existing?.data`, cioe due
-      valori **veri**. Un salvataggio con `data: null` — o `""`, o `0` —
-      le attraversava tutte, e al salvataggio successivo anche `existing.data`
-      era falso: la seconda scrittura poteva aggiungere il legame che la
-      guardia sorveglia, senza incontrarla.
+      Adesso la domanda non si pone: un tutore e una riga con una chiave in
+      `athlete_guardians`, e questa rotta non la scrive. Prende cio che il
+      client manda, lo consegna al modulo proprietario, e toglie la chiave dal
+      blob — perche cio che resta dentro `athletes.data.guardians` e una
+      **proiezione in sola lettura** che il proprietario riscrive, e che nessuna
+      decisione di accesso guarda piu.
 
-      Misurato in due passi, da un ruolo personalizzato senza `clinical.read`:
-      il primo cancellava allergie, farmaci, certificati e i codici di accesso
-      della famiglia; il secondo lo rendeva tutore di quel minore.
-
-      La domanda giusta non e «c'e un `data` valorizzato?» ma «questa
-      scrittura tocca `data`?». Cio che manca dal lato precedente vale come
-      oggetto vuoto: non c'era niente da conservare, ed e diverso da «non
-      guardo».
+      Cio che spariva a ogni salvataggio non puo piu sparire: non e piu li.
     */
     if (
-      scope &&
       (resource === "athletes" || resource === "simplified_athletes") &&
       "data" in normalized
     ) {
-      /*
-        **Non una seconda funzione: la stessa.**
+      const inArrivo =
+        normalized.data && typeof normalized.data === "object"
+          ? (normalized.data as Record<string, any>)
+          : null;
 
-        La copia locale percorreva tutto `data` e contava solo le stringhe.
-        Due difetti misurati da questo: un valore in **array** le passava
-        davanti (`String(["a@b.c"]) === "a@b.c"`), e la chiave `email` di
-        **primo livello** — il recapito dell'atleta, non di un tutore —
-        veniva sorvegliata, negando alla segreteria di correggerlo.
-
-        Entrambi spariscono chiedendo l'insieme a chi lo usa per decidere.
-      */
-      /*
-        **Il marchio della revoca non si toglie da qui, e si riporta da se.**
-
-        `athletes.data` e un blob JSON che questa rotta **sostituisce per
-        intero**. Il client della scheda atleta manda l'array dei tutori come
-        lo aveva in memoria, e dopo una revoca quella copia e quella di
-        **prima**: nessun file client conosce `accessRevokedAt`. Bastava
-        quindi premere «Scollega account» e poi, senza ricaricare, caricare un
-        certificato o salvare una sezione — e il marchio spariva dall'archivio.
-
-        La persona scollegata tornava a leggere calendario, rate, ricevute,
-        documenti e i byte del certificato del minore: la tessera non era stata
-        toccata (per progetto, ADR-0110), e l'indirizzo di contatto era ancora
-        li a fare da ripiego.
-
-        La guardia sopra sorveglia solo la **crescita** dell'insieme delle
-        identita, e togliere il marchio non fa crescere niente — l'indirizzo
-        era gia dentro. Non e una concessione **nuova**: e una concessione
-        **restituita**, che e la stessa cosa e nessuno la contava.
-
-        Percio qui non si nega: si **riporta**. Un salvataggio dell'anagrafica
-        non deve poter riaccendere un accesso, e nemmeno fallire per una
-        chiave che il client non sa di dover mandare. A toglierlo resta una
-        strada sola, quella che lo ha scritto — un riscatto che riscrive il
-        legame dichiarato, in `profile-account-links.ts`.
-      */
-      /*
-        **E il segno di solo-recapito, che e la terza difesa sullo stesso blob.**
-
-        `contactOnly` marca la riga nata da una compilazione senza autore
-        dimostrato. Vive dentro `athletes.data`, che questa rotta sostituisce
-        per intero, e nessun file client la conosce: qualunque salvataggio che
-        non la riecheggiasse la cancellava, e la riga tornava a essere una
-        chiave dell'area famiglia. E la terza volta che una difesa nuova nasce
-        senza le protezioni di quella che affianca — dopo il marchio della
-        revoca e il registro delle identita, entrambi conservati qui sotto.
-      */
-      /*
-        **Le difese seguono la persona, non la riga: abbinare era il difetto.**
-
-        Tre stesure. La prima agganciava i riporti a `record.id`, e le righe
-        che proteggono piu spesso un id **non ce l'hanno** — nascono da
-        `guardians.push` dell'approvazione di un modulo, cioe sono proprio le
-        `contactOnly`. La seconda ha aggiunto un ripiego **posizionale**, e ha
-        fatto peggio: la posizione la sceglie chi chiama. Misurato, con un
-        ruolo di club a **zero chiavi**, tre strade indipendenti — riordinare
-        le righe, mandare id diversi da quelli in archivio, duplicare un id in
-        arrivo — scrivevano il marchio di una riga **addosso a un'altra**,
-        azzerandole il legame in tutte le grafie. Un tutore legittimo perdeva
-        calendario, rate, ricevute, documenti e certificato, e in audit restava
-        un `anagrafica.updated`. E se lo stesso salvataggio cambiava la
-        **lunghezza** dell'elenco, il ripiego non si applicava affatto: il
-        segno `contactOnly` spariva, definitivamente, perche il riporto
-        successivo copia da un archivio che non ce l'ha piu.
-
-        L'errore era il presupposto. Una difesa non protegge una **riga**:
-        protegge una **persona**, e le persone hanno un'identita che
-        sopravvive al riordino, alla rinumerazione e all'inserimento in mezzo.
-        `guardianIdentityTokens` la dice — l'identificativo se c'e,
-        l'indirizzo se no — con la stessa regola con cui la revoca decide quali
-        righe sorelle toccare, quindi madre e padre allo stesso indirizzo di
-        famiglia restano due persone.
-
-        Cosi il riporto non ha piu niente da abbinare: si guarda **chi** porta
-        la riga, e le difese che quella persona aveva le ritrova.
-      */
-      const tutoriEsistenti = toArrayValue(
-        ((existing?.data as any) ?? {}).guardians,
-      );
-      const tutoriInArrivo = toArrayValue(((normalized.data as any) ?? {}).guardians);
-
-      /*
-        **Le difese si riportano sulla riga da cui vengono, e solo quando si sa
-        quale sia.**
-
-        Quarta stesura, e le tre precedenti sbagliavano tutte la stessa domanda:
-        «quale riga in arrivo corrisponde a quale riga in archivio».
-
-        1. **per `id`** — e le righe che `contactOnly` protegge un id non ce
-           l'hanno, perche nascono da `guardians.push`;
-        2. **per posizione** — che la sceglie chi chiama: riordinare l'elenco
-           scriveva il marchio di una riga addosso a un'altra;
-        3. **per identita** — dove l'identita di una riga revocata **collassa
-           sull'indirizzo**, perche la revoca azzera gli identificativi e
-           l'indirizzo lo lascia (al club serve). Su madre e padre con un unico
-           indirizzo di famiglia — ADR-0114, la configurazione ordinaria — il
-           padre finiva per **avere la stessa identita** della madre revocata, e
-           al primo salvataggio ereditava il suo marchio: perdeva calendario,
-           rate, ricevute, documenti e certificato senza che nessuno avesse
-           premuto niente.
-
-        La quarta smette di indovinare. Si abbina per `id` quando l'id e
-        presente e **univoco da tutte e due le parti**; si cade sull'indirizzo
-        solo quando quell'indirizzo compare su **una sola** riga di qua e una
-        sola di la. Se resta un dubbio, non si eredita niente.
-
-        Non ereditare non apre un buco, ed e questa la ragione per cui la scelta
-        e sostenibile: la revoca vera vive nel **registro delle identita**
-        dell'atleta, che questa rotta conserva in sola lettura e che nega per
-        identita da qualunque riga; e un `contactOnly` che cadesse renderebbe
-        quell'indirizzo una chiave, cioe una **crescita**, che la guardia qui
-        sotto rifiuta a chi non ha le due chiavi. Ereditare per errore, invece,
-        chiude fuori una persona senza audit e senza strada di ritorno.
-
-        E perche il dubbio diventi raro, ogni riga che passa di qui esce con un
-        id stabile: chi non ne ha uno lo riceve adesso, e i salvataggi
-        successivi non hanno piu niente da indovinare.
-      */
-      const idDi = (riga: any) => String((riga || {}).id || "").trim();
-
-      const soloIndirizzi = (record: Record<string, any>) =>
-        guardianIdentityTokens({
-          ...record,
-          linkedUserId: null,
-          linked_user_id: null,
-          userId: null,
-          user_id: null,
-          linkedUserIds: null,
-          linked_user_ids: null,
-        });
-
-      const contaId = (elenco: any[]) => {
-        const quante = new Map<string, number>();
-        for (const riga of elenco) {
-          const chiave = idDi(riga);
-          if (chiave) quante.set(chiave, (quante.get(chiave) || 0) + 1);
-        }
-        return quante;
-      };
-
-      const contaIndirizzi = (elenco: any[]) => {
-        const quante = new Map<string, number>();
-        for (const riga of elenco) {
-          for (const voce of soloIndirizzi((riga || {}) as Record<string, any>)) {
-            quante.set(voce, (quante.get(voce) || 0) + 1);
-          }
-        }
-        return quante;
-      };
-
-      const idEsistenti = contaId(tutoriEsistenti);
-      const idInArrivo = contaId(tutoriInArrivo);
-      /*
-        **Un `id` non dice chi e una riga: lo dice cio che la riga porta.**
-
-        La stesura precedente si fidava dell'`id` quando era univoco da tutte e
-        due le parti. L'`id` pero arriva dal **corpo della richiesta**, e li
-        vinceva su `linkedUserId` e sull'indirizzo, che sono i due dati che
-        dicono davvero di chi si tratta. Misurato contro PostgreSQL: mandando la
-        riga della madre con l'`id` della riga revocata, il marchio le finiva
-        addosso e lei perdeva l'accesso al figlio — un `anagrafica.updated` in
-        audit, nessuna revoca, nessuna schermata che lo spieghi. E la stessa
-        classe che l'`id` stabile doveva chiudere, riaperta dalla riga aggiunta
-        per chiuderla: la superficie **cresceva con il proprio rimedio**.
-
-        L'`id` resta il modo piu comodo di abbinare, e resta il primo: ma vale
-        solo finche **cio che la riga porta non indica un'altra riga**. Se i
-        suoi identificativi o i suoi indirizzi puntano a una riga diversa da
-        quella che l'`id` nomina, l'`id` ha torto.
-      */
-      const tuttiToken = (record: Record<string, any>) => {
-        const insieme = new Set<string>(guardianDeclaredIds(record));
-        for (const voce of soloIndirizzi(record)) insieme.add(voce);
-        return [...insieme];
-      };
-
-      const indiciPerToken = new Map<string, number[]>();
-      tutoriEsistenti.forEach((riga: any, posizione: number) => {
-        for (const voce of tuttiToken((riga || {}) as Record<string, any>)) {
-          const elenco = indiciPerToken.get(voce) || [];
-          elenco.push(posizione);
-          indiciPerToken.set(voce, elenco);
-        }
-      });
-
-      const candidatiPerIdentita = (record: Record<string, any>) => {
-        const insieme = new Set<number>();
-        for (const voce of tuttiToken(record)) {
-          for (const posizione of indiciPerToken.get(voce) || []) {
-            insieme.add(posizione);
-          }
-        }
-        return [...insieme];
-      };
-
-      /*
-        Quante righe **in arrivo** rivendicano una certa riga in archivio: se
-        sono due, non si sa quale sia, e vale la regola di ADR-0116 — quando non
-        si sa, non si eredita.
-      */
-      const rivendicazioni = new Map<number, number>();
-      for (const riga of tutoriInArrivo) {
-        for (const posizione of candidatiPerIdentita(
-          (riga || {}) as Record<string, any>,
-        )) {
-          rivendicazioni.set(posizione, (rivendicazioni.get(posizione) || 0) + 1);
-        }
-      }
-
-      const rigaInArchivio = (record: Record<string, any>) => {
-        const candidati = candidatiPerIdentita(record);
-        const chiave = idDi(record);
-
-        if (
-          chiave &&
-          idEsistenti.get(chiave) === 1 &&
-          idInArrivo.get(chiave) === 1
-        ) {
-          const posizione = tutoriEsistenti.findIndex(
-            (voce: any) => idDi(voce) === chiave,
-          );
-
-          /*
-            L'`id` vale se nessuna identita della riga contraddice: o non ne
-            porta nessuna che il club conosca, o quelle che porta indicano
-            **quella stessa** riga.
-          */
-          if (
-            posizione >= 0 &&
-            (candidati.length === 0 || candidati.includes(posizione))
-          ) {
-            return tutoriEsistenti[posizione];
-          }
-        }
-
+      if (inArrivo) {
         /*
-          Altrimenti decide cio che la riga porta, e solo quando la risposta e
-          **una sola** in tutte e due le direzioni.
+          Le righe si leggono **prima** di togliere la chiave, perche sono cio
+          che il salvataggio vuole davvero dire. Il resto — i due registri —
+          non si legge affatto: erano il surrogato della chiave unica, e chi
+          li mandava non sapeva di mandarli.
         */
-        if (candidati.length === 1 && rivendicazioni.get(candidati[0]) === 1) {
-          return tutoriEsistenti[candidati[0]];
+        tutoriInArrivo = readGuardianInputFromCard(inArrivo.guardians);
+
+        for (const chiave of GUARDIAN_KEYS_NON_SCRIVIBILI) {
+          delete inArrivo[chiave];
         }
-
-        return null;
-      };
-
-      let riportato = false;
-
-      const conDifese = tutoriInArrivo.map((riga: any) => {
-        const record = (riga || {}) as Record<string, any>;
-        const prima = rigaInArchivio(record) as Record<string, any> | null;
-
-        const marchio = prima
-          ? String(prima.accessRevokedAt || prima.access_revoked_at || "").trim()
-          : "";
-        const eraRevocata = Boolean(marchio);
-        const eraSoloRecapito = Boolean(
-          prima && (prima.contactOnly || prima.contact_only),
-        );
-        /*
-          **Una riga senza corrispondenza e una riga nuova, e basta.**
-
-          Questo vaglio guardava se l'**identita** fosse gia in archivio, e su
-          una riga `contactOnly` l'identita e l'indirizzo: due tutori sulla
-          stessa email di famiglia — la configurazione che ADR-0114 chiama
-          ordinaria — e la seconda risultava «conosciuta». Il ramo qui sotto le
-          cancellava allora il segno che il dominio dei moduli le aveva appena
-          scritto, e quell'indirizzo diventava una chiave dell'area famiglia.
-
-          Misurato contro PostgreSQL, senza nessun attaccante: due moduli
-          pubblici approvati dalla segreteria, e al secondo il minore si apriva.
-          La «seconda difesa» che avrebbe dovuto coprire — la guardia della
-          crescita — non copre, perche chi approva i moduli le due chiavi ce le
-          ha: non e una seconda porta, e la stessa.
-
-          Cio che conta non e se il club conosca quell'indirizzo, ma se questa
-          riga **corrisponda a una riga che c'era**. Se non corrisponde e nuova,
-          e un marchio su una riga nuova non toglie niente a nessuno.
-        */
-        const conosciuta = Boolean(prima);
-
-        const marchioInArrivo = String(
-          record.accessRevokedAt || record.access_revoked_at || "",
-        ).trim();
-        const recapitoInArrivo = Boolean(
-          record.contactOnly || record.contact_only,
-        );
-
-        /* Cio che vale alla fine, per questa persona. */
-        const revocataDopo = eraRevocata || (!conosciuta && Boolean(marchioInArrivo));
-        const soloRecapitoDopo =
-          eraSoloRecapito || (!conosciuta && recapitoInArrivo);
-
-        /*
-          **E il legame dichiarato si toglie con il marchio.**
-
-          Una scheda aperta **prima** della revoca ha ancora il legame in
-          memoria, e basta salvarla per riscriverlo. Il vaglio ne legge sei
-          grafie, quindi si azzerano tutte e sei.
-        */
-        const dichiarati = guardianDeclaredIds(record);
-
-        const marchioFinale = revocataDopo
-          ? marchio || marchioInArrivo || new Date().toISOString()
-          : "";
-
-        if (
-          marchioFinale === marchioInArrivo &&
-          soloRecapitoDopo === recapitoInArrivo &&
-          !(marchioFinale && dichiarati.length)
-        ) {
-          return riga;
-        }
-
-        riportato = true;
-        const successivo: Record<string, any> = { ...record };
-
-        if (marchioFinale) {
-          successivo.accessRevokedAt = marchioFinale;
-          successivo.access_revoked_at = marchioFinale;
-          successivo.linkedUserId = null;
-          successivo.linked_user_id = null;
-          successivo.userId = null;
-          successivo.user_id = null;
-          successivo.linkedUserIds = null;
-          successivo.linked_user_ids = null;
-        } else {
-          delete successivo.accessRevokedAt;
-          delete successivo.access_revoked_at;
-        }
-
-        if (soloRecapitoDopo) {
-          successivo.contactOnly = true;
-          successivo.contact_only = true;
-        } else {
-          delete successivo.contactOnly;
-          delete successivo.contact_only;
-        }
-
-        return successivo;
-      });
-
-      /*
-        **Ogni riga tutore esce di qui con un id stabile.**
-
-        L'abbinamento qui sopra e costretto a indovinare quando le righe non
-        hanno un id — e sono proprio quelle che portano le difese, perche
-        nascono da `guardians.push` dell'approvazione di un modulo. Un id lo
-        assegna percio questa rotta, che e l'unico scrittore per cui passano
-        tutte: da qui in avanti «quale riga era» non e piu una domanda.
-
-        L'id non e una credenziale e non concede niente: serve solo a dire che
-        due righe sono la stessa. Quello sintetico che la scheda costruisce per
-        React continua a valere finche la scheda non salva; dopo, vale questo.
-      */
-      /*
-        **E un id che nomina due righe non e un id.**
-
-        L'assegnazione toccava solo le righe che un id non ce l'avevano, e due
-        righe potevano quindi restare in archivio con lo **stesso**: da quel
-        momento l'abbinamento per id era spento per sempre, e su un indirizzo
-        condiviso si ricadeva nell'ambiguita che l'id doveva togliere.
-
-        Peggio, il rimedio che «Scollega account» suggerisce a chi incontra un
-        id ambiguo — «salva la scheda e riprova» — non era vero: la scheda si
-        salvava e gli id restavano uguali. Un messaggio che manda in un vicolo
-        cieco e peggio di nessun messaggio.
-      */
-      const idVisti = new Set<string>();
-
-      const conIdentificatore = conDifese.map((riga: any) => {
-        const record = (riga || {}) as Record<string, any>;
-        const suo = idDi(record);
-
-        if (suo && !idVisti.has(suo)) {
-          idVisti.add(suo);
-          return riga;
-        }
-
-        riportato = true;
-        const nuovo = newResourceItemId();
-        idVisti.add(nuovo);
-        return { ...record, id: nuovo };
-      });
-
-      if (riportato) {
-        normalized.data = {
-          ...(((normalized.data as any) ?? {}) as Record<string, any>),
-          guardians: conIdentificatore,
-        };
-      }
-
-      /*
-        **E il registro dei soli recapiti, che e la difesa che ha sostituito il
-        segno di riga.**
-
-        Stessa disciplina dell'elenco delle revoche qui sotto, e per la stessa
-        ragione: e una difesa che vive in un blob «sostituito per intero», e chi
-        la deve subire non deve poterla togliere. La scrive l'approvazione di un
-        modulo, la toglie il riscatto di un invito.
-
-        La prima stesura lasciava passare le **aggiunte** — «e cosi che
-        l'approvazione scrive, perche passa da `updateResource`» — e si e
-        rivelata la stessa arma che il registro gemello venti righe piu sotto
-        rifiuta a lettere: «una difesa che si puo impugnare e un'arma».
-
-        Misurato: un ruolo personalizzato a **zero chiavi** non riesce ad
-        aggiungere un tutore (la guardia della crescita lo nega) e riesce a
-        mandare `contactOnlyIdentities: ["<indirizzo della madre>"]`. Da quel
-        momento lei trova «Accesso negato» sul proprio figlio e smette di
-        ricevere solleciti e promemoria del certificato, senza che niente lo
-        spieghi e con un `anagrafica.updated` in audit. La guardia non lo vede
-        perche misura solo la **crescita**, e iniettare nel registro
-        **restringe**.
-
-        Le due difese sono gemelle per progetto e adesso hanno la stessa
-        disciplina: da questa rotta il registro si **conserva e basta**. Chi lo
-        scrive lo fa dal proprio dominio, con una scrittura diretta, come fa
-        `unlinkGuardianAccount` per l'altro.
-      */
-      const recapitiPrecedenti = Array.isArray(
-        ((existing?.data as any) ?? {}).contactOnlyIdentities,
-      )
-        ? (((existing?.data as any) ?? {}).contactOnlyIdentities as unknown[])
-        : [];
-
-      const recapitiInArchivio = recapitiPrecedenti
-        .map((valore) => String(valore || "").trim().toLowerCase())
-        .filter(Boolean);
-
-      const recapitiInArrivo = Array.isArray(
-        ((normalized.data as any) ?? {}).contactOnlyIdentities,
-      )
-        ? (((normalized.data as any) ?? {}).contactOnlyIdentities as unknown[])
-            .map((valore) => String(valore || "").trim().toLowerCase())
-            .filter(Boolean)
-        : [];
-
-      const recapitiDiscordano =
-        recapitiInArchivio.length !== recapitiInArrivo.length ||
-        recapitiInArchivio.some((voce) => !recapitiInArrivo.includes(voce));
-
-      if (recapitiInArchivio.length || recapitiDiscordano) {
-        normalized.data = {
-          ...(((normalized.data as any) ?? {}) as Record<string, any>),
-          contactOnlyIdentities: recapitiInArchivio as string[],
-        };
-      }
-
-      /*
-        **E il registro delle revoche si conserva, come tutto il resto.**
-
-        `athletes.data` e un blob che questa rotta sostituisce per intero, e
-        qui si conservano gia a mano i campi clinici e i gettoni dei tutori. Il
-        registro delle identita revocate — la difesa **nuova**, quella che
-        sostituisce il marchio di riga — non era nell'elenco: una scrittura che
-        non lo riecheggiasse lo azzerava in silenzio, e con lui ogni revoca mai
-        fatta su quell'atleta.
-
-        La difesa nuova viveva in un contenitore descritto come «sostituito per
-        intero» e aveva **meno** protezione di quella vecchia che rimpiazza.
-      */
-      const revochePrecedenti = Array.isArray(
-        ((existing?.data as any) ?? {}).revokedGuardianIdentities,
-      )
-        ? (((existing?.data as any) ?? {})
-            .revokedGuardianIdentities as unknown[])
-        : [];
-
-      /*
-        **Si conserva, non si unisce.**
-
-        La prima stesura faceva l'unione fra l'elenco in archivio e quello in
-        arrivo. Conservava, ma apriva il verso opposto: da questa rotta un
-        client poteva **aggiungere** identita all'elenco, cioe togliere
-        l'accesso a un tutore legittimo — con un `PATCH` sull'anagrafica, senza
-        passare da nessuna delle due strade che revocano davvero e senza
-        lasciare la riga di audit che una revoca lascia.
-
-        Una difesa che si puo **impugnare** e un'arma. Qui l'elenco e in sola
-        lettura: chi vuole toglierlo passa da un riscatto, chi vuole
-        aggiungerci qualcuno passa da «Scollega account» o dalla revoca della
-        tessera, che sono le due strade che lo scrivono e che hanno il loro
-        gate.
-      */
-      const revocheInArchivio = revochePrecedenti
-        .map((valore) => String(valore || "").trim().toLowerCase())
-        .filter(Boolean);
-
-      const revocheInArrivo = Array.isArray(
-        ((normalized.data as any) ?? {}).revokedGuardianIdentities,
-      )
-        ? (((normalized.data as any) ?? {})
-            .revokedGuardianIdentities as unknown[])
-            .map((valore) => String(valore || "").trim().toLowerCase())
-            .filter(Boolean)
-        : [];
-
-      const differiscono =
-        revocheInArchivio.length !== revocheInArrivo.length ||
-        revocheInArchivio.some((voce) => !revocheInArrivo.includes(voce));
-
-      if (revocheInArchivio.length || differiscono) {
-        normalized.data = {
-          ...(((normalized.data as any) ?? {}) as Record<string, any>),
-          revokedGuardianIdentities: revocheInArchivio as string[],
-        };
-      }
-
-      /*
-        **Si misura cio che verra scritto, non cio che e arrivato.**
-
-        Il confronto stava **prima** dei tre riporti qui sopra, e cioe
-        guardava un `data` a cui mancavano le difese che questa rotta sta per
-        rimettere. Il costo era misurato e nasceva da solo: il client della
-        scheda atleta non conosce `accessRevokedAt`, `contactOnly` ne
-        l'elenco delle identita revocate, quindi li lascia cadere a ogni
-        salvataggio; l'insieme «in arrivo» risultava percio piu largo dello
-        stato reale, e un ruolo senza le due chiavi si vedeva rifiutare il
-        cambio di una taglia con un messaggio sui legami di famiglia.
-
-        Spostarlo qui rende la domanda quella giusta: **dopo** che le difese
-        sono tornate al loro posto, questa scrittura fa entrare qualcuno che
-        prima non entrava? I riporti non possono aprire niente — riscrivono
-        cio che era in archivio — quindi misurare a valle non indebolisce la
-        guardia, la rende esatta.
-      */
-
-      const prima = guardianAccessIdentities(existing?.data ?? {});
-      const dopo = guardianAccessIdentities(normalized.data ?? {});
-      const cresciute = [...dopo].filter((id) => !prima.has(id));
-      /*
-        **Un'identita che non appartiene a nessuno non concede niente.**
-
-        La stesura precedente negava ogni **crescita** dell'insieme. Una
-        revisione ha misurato il prezzo: correggere un refuso nell'email di un
-        tutore cambia l'insieme, quindi veniva rifiutato — e una «Segreteria»
-        modellata come ruolo di club non poteva piu correggere un indirizzo
-        sbagliato, che e il lavoro di tutti i giorni.
-
-        Cio che concede accesso non e scrivere un indirizzo: e scriverne uno
-        che **corrisponde a un'utenza**. Si guarda quindi se le identita nuove
-        esistono davvero — per identificativo o per email — e solo allora la
-        scrittura e una concessione.
-
-        Resta una finestra, e va detta: scrivere oggi l'indirizzo di un'utenza
-        che **nascera domani** produce il legame senza passare di qui. Chiuderla
-        vorrebbe dire negare la correzione di un'email, cioe il difetto che
-        questa riga esiste per non rifare. E scritta in `16-technical-debt.md`.
-      */
-      const nuovi = cresciute.length
-        ? await (async () => {
-            const perId = cresciute.filter((valore) => isUuid(valore));
-            const perEmail = cresciute.filter((valore) => valore.includes("@"));
-
-            const utenze = await prisma.user.findMany({
-              where: {
-                OR: [
-                  ...(perId.length ? [{ id: { in: perId } }] : []),
-                  ...(perEmail.length
-                    ? [{ email: { in: perEmail, mode: "insensitive" as const } }]
-                    : []),
-                ],
-              },
-              select: { id: true, email: true },
-            });
-
-            const esistenti = new Set<string>();
-            for (const utenza of utenze) {
-              esistenti.add(String(utenza.id).trim().toLowerCase());
-              if (utenza.email) {
-                esistenti.add(String(utenza.email).trim().toLowerCase());
-              }
-            }
-
-            return cresciute.filter((valore) => esistenti.has(valore));
-          })()
-        : [];
-
-      /*
-        **Scrivere un legame di famiglia concede due cose, e servono
-        entrambe le chiavi.**
-
-        Tre stesure di questa riga, e la terza le corregge tutte e due.
-
-        La prima chiedeva `clinical.read`, perche il cruscotto della famiglia
-        mostra allergie, farmaci e visite. Una revisione ha misurato che un
-        legame concede molto di piu — documenti condivisi, RSVP, appuntamenti,
-        checkout — e che chi aveva la sola vista clinica se lo scriveva addosso.
-
-        La seconda ha **sostituito** la chiave invece di aggiungerla, e ha
-        aperto il verso opposto: un ruolo con `accounts.athlete.manage` e
-        **senza** `clinical.read` si legava a un minore qualunque e ne apriva
-        il fascicolo sanitario. Misurato: 4307 byte con allergie, farmaci e
-        certificato, a un ruolo a cui il club la vista clinica l'aveva tolta.
-
-        Un legame apre **l'area famiglia**, e l'area famiglia contiene il dato
-        sanitario: le due cose non si separano, quindi non si separano nemmeno
-        le due chiavi. Chi scrive un legame deve poter vedere cio che sta
-        concedendo — `clinical.read` — ed essere autorizzato a concedere un
-        accesso — `accounts.athlete.manage`.
-
-        Entrambe appartengono alla **gestione**, quindi segreteria e
-        collaboratore canonici lavorano come prima. Un ruolo di club a cui ne
-        manca una non aggiunge tutori: se il club vuole delegarlo, spunta le
-        due caselle — che e esattamente cio per cui l'editor esiste.
-
-        E la crescita si misura sulle **identita**, non sui campi: correggere
-        un refuso in un'email che non appartiene a nessuna utenza non concede
-        niente, e non passa di qui.
-      */
-      if (
-        nuovi.length &&
-        !(
-          roleHasPermission(scope.activeRole, "accounts.athlete.manage") &&
-          hasHealthPermission(scope.activeRole, "clinical.read")
-        )
-      ) {
-        await recordPermissionDenied({
-          scope: {
-            userId: scope.userId,
-            activeRole: scope.activeRole,
-            activeOrganizationId: scope.activeOrganizationId,
-          },
-          permission: "accounts.athlete.manage",
-          resource: "athletes",
-          resourceId: String((existing as any)?.id || ""),
-          metadata: {
-            nuovi_legami: nuovi.length,
-            reason: "guardian_link_from_generic_route",
-          },
-        });
-        throw new Error(
-          "Accesso negato: il legame fra un tutore e un'utenza apre a quella persona l'area famiglia del minore — dato sanitario compreso — e servono sia il permesso sugli accessi sia quello sul dato clinico",
-        );
       }
     }
 
@@ -7557,56 +6999,25 @@ const applicaGuardieDiModifica = async (
       }
 
       /*
-        **La stessa regola vale per il codice con cui entra la famiglia.**
+        **Il codice con cui entra la famiglia non ha piu una strada per
+        sparire** (PP-02 / WP-C).
 
-        `data.guardians[].parentAccessTokenValue` viene tolto in lettura a
-        chiunque non abbia una direzione canonica. La scheda letta cosi e
-        rimandata indietro cancellava il codice: la famiglia non entrava piu, e
+        Qui c'era il ripristino del gettone dentro `data.guardians[]`: la
+        scheda letta da chi non vede le credenziali tornava indietro senza il
+        codice, e il salvataggio lo cancellava — la famiglia non entrava piu, e
         nessuno aveva chiesto di revocarlo.
 
-        Il difetto e identico a quello clinico qui sopra — un'assenza scambiata
-        per una cancellazione — ma non poteva essere risolto dallo stesso ciclo,
-        perche quello guarda le chiavi di primo livello e il gettone e dentro un
-        elemento di un elenco.
+        Non serve piu, e non perche sia stato irrobustito: perche
+        `data.guardians` non e piu scrivibile da questa rotta. Il gettone vive
+        su `athlete_guardians`, dove il client non arriva, e cio che compare
+        nel blob e una proiezione che il modulo proprietario riscrive. Una
+        difesa che non ha piu niente da difendere si toglie.
       */
-      if (!vedeICredenzialiDiAccesso(scope?.activeRole)) {
-        /*
-          Il **secondo** argomento e `normalized.data`, non `nuovo`: la fusione
-          che conserva il clinico e gia avvenuta, e ripartire da `nuovo` la
-          butterebbe via. E il genere di errore che si vede solo a runtime, e la
-          sonda lo ha visto.
-        */
-        normalized.data = restoreGuardianAccessTokens(
-          precedente,
-          normalized.data,
-        );
-
-        /*
-          **Qui c'era una guardia contro la sparizione di una credenziale, e
-          non e difendibile.**
-
-          Pretendeva che chi non vede un gettone non potesse farlo sparire, e
-          confrontava gli insiemi di valori prima e dopo. Tre revisioni l'hanno
-          smontata da tre lati diversi:
-
-            * **non protegge**. Togliere un tutore fa sparire il suo gettone
-              ed e un atto legittimo che la segreteria compie ogni giorno:
-              chi vuole distruggere una credenziale toglie il tutore, e la
-              guardia non ha niente da dire;
-            * **blocca il lavoro vero**. I tutori gia in archivio non hanno
-              l'`id` — lo assegna il browser — quindi ogni salvataggio della
-              loro scheda perdeva l'aggancio e veniva **rifiutato**. Quelle
-              schede erano diventate non modificabili;
-            * **nega a chi deve**. «Scollega account» e un pulsante che
-              l'interfaccia mostra alla segreteria, che poi riceveva un 403.
-
-          Resta il **ripristino**, che e la difesa vera e non ha questi
-          effetti: cio che non e stato ricevuto torna com'era, e cio che si
-          toglie deliberatamente si toglie.
-        */
-      }
     }
+
+  return tutoriInArrivo;
 };
+
 export const updateResource = async (
   resource: string,
   id: string,
@@ -7997,12 +7408,59 @@ export const updateResource = async (
             );
           }
 
-          await applicaGuardieDiModifica(
+          const tutoriDaScrivere = await applicaGuardieDiModifica(
             resource,
             normalized,
             fresca || existing,
             scope,
           );
+
+          /*
+            **I tutori si scrivono qui dentro, e prima della riga.**
+
+            PP-02 / WP-C. Dentro **questa** transazione, che e la stessa in cui
+            la scheda si salva: il salvataggio dell'anagrafica e la scrittura
+            dei tutori o riescono insieme o non riescono. Prima della riga
+            perche il modulo proprietario, finito di scrivere, rifa la
+            proiezione dentro `athletes.data` — e la `update` qui sotto la
+            leggerebbe vecchia se girasse per prima.
+          */
+          if (tutoriDaScrivere) {
+            await saveGuardianRegistry(client, {
+              organizationId: String(
+                (fresca as any)?.organization_id ||
+                  (existing as any)?.organization_id ||
+                  "",
+              ),
+              athleteId: String(id),
+              rows: tutoriDaScrivere,
+              canGrantAccess:
+                !scope ||
+                (roleHasPermission(scope.activeRole, "accounts.athlete.manage") &&
+                  hasHealthPermission(scope.activeRole, "clinical.read")),
+            });
+          }
+
+          /*
+            **La proiezione si rifa dalla tabella, sempre.**
+
+            Non e un riporto di cio che il client ha mandato: e cio che
+            l'autorita contiene, riscritto dentro il blob perche i lettori
+            storici — il destinatario fiscale di una ricevuta, i segnaposto
+            `{{parent.1.*}}`, la scheda, la segreteria — continuino a leggere
+            la forma che conoscono. Rifarla a **ogni** salvataggio la rende
+            auto-riparante: se una scrittura concorrente l'avesse persa,
+            torna al primo salvataggio successivo.
+          */
+          await refreshGuardianProjection(client, [String(id)]);
+          const proiettata = await clientDelegate(client, resource).findUnique({
+            where: { id },
+            select: { data: true },
+          });
+          if (normalized.data && typeof normalized.data === "object") {
+            (normalized.data as any).guardians =
+              ((proiettata?.data as any) || {}).guardians ?? [];
+          }
 
           return clientDelegate(client, resource).update({
             where: { id },

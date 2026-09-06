@@ -6713,3 +6713,183 @@ il difetto piu grave del round successivo e nato li.
 
 **Vedi anche.** KB 44 (l'analisi della causa), ADR-0102 (lo slug e le chiavi si
 scrivono insieme), ADR-0110 (scollegare non e revocare).
+
+---
+
+## ADR-0118 — Un tutore e una riga, e l'autorita non e piu il blob
+
+**Stato**: accettata (2026-09-06, PP-02 / WP-C+D).
+
+**Contesto.** I genitori e i tutori di un atleta vivevano dentro
+`athletes.data.guardians[]`: un array JSON **senza chiave**, dentro un blob che
+la rotta generica sostituisce per intero. Dentro quell'array c'era la decisione
+se una persona vede o non vede il fascicolo sanitario di un minore.
+
+Da quella forma discendeva tutto il resto, e non per sfortuna:
+
+| Sintomo | Perche era inevitabile |
+|---|---|
+| la perdita di aggiornamento come guasto **normale** | leggere un array, modificarlo in memoria e riscriverlo per intero e una corsa per costruzione |
+| **cinque** stesure del riporto delle difese in `resources.ts` | senza chiave non si sa quale riga in arrivo corrisponda a quale riga in archivio, e le quattro risposte provate — per `id`, per posizione, per identita, per `id` con ripiego — sbagliavano ognuna un caso diverso |
+| due registri di scheda (`revokedGuardianIdentities`, `contactOnlyIdentities`) | erano il **surrogato** di una chiave unica |
+| il ciclo dello sweep di revoca, il suo blocco per riga, e il tetto oltre il quale scadeva | revocare **una persona** significava riscrivere **ogni scheda del club** |
+| l'abbraccio mortale con il passaggio di stagione (`PP02-D34`) | due cicli che prendono le stesse righe in ordini scorrelati |
+| il censimento degli scrittori: 4 → 6 → 8 → 9 → 16 → **19 su 8 file** | la rotta generica scrive con un delegato **calcolato a runtime**: nessuna ricerca testuale la trova, e nessun elenco scritto a mano puo essere completo |
+
+**Decisione.** L'autorita sui tutori e la tabella `athlete_guardians`, unica per
+`(athlete_id, identity_key)`. `athletes.data.guardians[]` resta come
+**proiezione in sola lettura**, e non governa piu nessun accesso.
+
+Le quattro regole, tutte in `src/lib/server/athlete-guardians.ts`:
+
+1. **un tutore e una riga**, e l'identita e l'utenza se c'e, altrimenti
+   l'indirizzo in minuscolo, altrimenti la riga stessa;
+2. **la revoca e un fatto sulla riga** (`revoked_at`), e la toglie solo il
+   riscatto di un invito — l'atto tracciato e revocabile;
+3. **`contact_only` marca un recapito, non una chiave**: una riga nata da un
+   modulo pubblico non apre l'area famiglia, perche il presupposto di ADR-0114
+   — che l'indirizzo lo scriva il club — li non c'e;
+4. **un salvataggio dell'anagrafica non concede accessi**: puo aggiornare come
+   si chiama una persona e dove la si raggiunge, non se apre il fascicolo.
+
+**Perche la proiezione resta, e perche non e una doppia scrittura.** Un
+censimento indipendente ha contato una quarantina di lettori, e solo una
+manciata decide un accesso. Gli altri fanno cose che la tabella non cambia e
+che non si possono rifare in un colpo: `fiscal-recipient.ts` sceglie **per
+posizione** di chi e il codice fiscale su una ricevuta, `document-placeholders.ts`
+risolve `{{parent.1.*}}`, e il `recordId` di una compilazione gia salvata e la
+**posizione** della riga che quella pratica stava modificando. Spostarli tutti
+nello stesso commit vorrebbe dire cambiare, insieme, chi paga una fattura e
+quale genitore firma un modulo.
+
+Una doppia scrittura e quando due depositi sono **tutti e due autorevoli** e chi
+legge sceglie. Qui c'e **un solo scrittore** — il modulo, dentro la stessa
+transazione della riga —, **nessuna decisione di accesso guarda la proiezione**,
+e la proiezione **si ricostruisce da se**: la rotta generica la rifa dalla
+tabella a ogni salvataggio, quindi perderla non perde niente.
+
+La proiezione riproduce la forma vecchia **per intero**, righe revocate
+comprese e con i loro marchi: e la condizione perche i lettori storici si
+comportino esattamente come prima invece che «quasi». Con una separazione che
+il blob aveva e la tabella no: `email` e il recapito e resta dopo una revoca —
+al club serve —, `linkedUserEmail` e il legame e cade con lei.
+
+**La posizione diventa una colonna.** Un array ha un ordine, una tabella no, e
+tre letture prendono i tutori per posizione. `created_at` non poteva servire: il
+travaso scrive tutte le righe con lo stesso `now()`, quindi ordinare per quello
+non ordina affatto — e sarebbe sembrato funzionare finche non cambiava il piano
+di query.
+
+**Conseguenze misurate.**
+
+| | Prima | Dopo |
+|---|---|---|
+| la revoca di una tessera, su un club da 60 atleti | un ciclo, ~840 ms, **7 sfasamenti su 7** lasciano sfuggire la scheda scritta nel frattempo | una istruzione, ~84 ms, **0 su 7** |
+| il costo della revoca | cresce con i **tesserati del club** | cresce con le righe di **quella persona** |
+| l'abbraccio mortale con il rollover | 5 giri su 5 con il blocco sul club | non c'e un elenco su cui prendere blocchi |
+| cinque approvazioni concorrenti di moduli | 6 giri su 6 con righe perse (`PP02-D33`) | una `upsert` per identita: non c'e uno snapshot da rimandare |
+| un salvataggio ordinario dopo una revoca | annullava la revoca | non ha una strada per toccarla |
+| la ricerca dei figli di un tutore | una scansione di `athletes` in SQL grezzo, non indicizzabile, che un `catch` largo faceva degradare in silenzio a «nessun club» | una interrogazione su un indice (chiude `PP02-D1`) |
+
+**Due divergenze, dichiarate e misurate** in
+`scripts/pp-02-travaso-equivalente.mjs`, che confronta il predicato vecchio —
+congelato dentro la sonda — con la tabella su ventiquattro grafie storiche:
+
+- una revoca registrata sull'identita chiude adesso **tutti e due** i percorsi,
+  dove prima un legame dichiarato sopravvissuto allo sweep continuava ad aprire.
+  E un restringimento, ed e il punto di WP-C: quel legame sopravviveva proprio
+  quando lo sweep falliva, cioe nel caso che R-2 misura;
+- un tutore collegato **senza tessera** trova i propri figli con tutte e sei le
+  grafie dell'identificativo invece che con quattro. E l'allargamento che
+  `getParentLinkedAthletes` dichiara di volere e che la sua ricerca realizzava
+  solo in parte.
+
+**Alternative scartate.** Una sesta stesura del riporto delle difese: le cinque
+precedenti hanno sbagliato cinque domande diverse, tutte discendenti dall'unica
+domanda senza risposta. Tenere il blob come autorita e aggiungere un blocco piu
+grosso: e cio che ha prodotto il deadlock con il rollover, e la scelta fra i due
+difetti era gia stata riconosciuta come non-vittoria in ADR-0116.
+
+**Vedi anche.** ADR-0119 (l'archivio fa valere il proprietario), ADR-0114 (il
+legame di un tutore), ADR-0116 (la revoca per identita — superata da questa),
+ADR-0110 (scollegare non e revocare), KB 44 (l'analisi della causa).
+
+---
+
+## ADR-0119 — Un proprietario di dominio lo fa valere l'archivio, non il documento
+
+**Stato**: accettata (2026-09-06, PP-02 / WP-C).
+
+**Contesto.** CLAUDE.md §2 dichiara sette domini con un proprietario unico, e la
+regola regge finche qualcuno legge il documento. Su `athletes.data.guardians[]`
+non ha retto: il censimento degli scrittori e stato rifatto **cinque volte** e
+ogni volta era piu grande — quattro, sei, otto, nove, sedici — e ogni elenco era
+completo il giorno in cui era stato scritto.
+
+Non e distrazione. La rotta generica scrive attraverso un delegato **calcolato a
+runtime** (`getDelegate(resource)` → `client[config.delegate]`): una ricerca di
+`prisma.athlete.update` non la trova. Il censimento rifatto da zero per questo
+lavoro ne ha contati **diciannove su otto file**, e cinque vivono nel
+**browser** — compongono il blob prima di mandarlo alla rotta.
+
+Un test che portasse la lista dei file «che oggi conosciamo» ripeterebbe percio
+lo stesso errore in forma di prova.
+
+**Decisione.** Dove un dominio ha un proprietario, l'invariante sta
+**nell'archivio**, non nel documento e non in un test che enumera file.
+
+`athlete_guardians` accetta un `INSERT` o un `UPDATE` solo dentro una transazione
+che abbia dichiarato:
+
+```sql
+SET LOCAL "easygame.guardian_writer" = 'on';
+```
+
+e quella dichiarazione la scrive **una sola funzione** in tutto il prodotto:
+`withGuardianWriter`. Uno scrittore nuovo — in un file che oggi non esiste, con
+Prisma o con SQL grezzo, dentro la rotta generica o fuori — non incontra un
+elenco da aggiornare: incontra un errore.
+
+**Tre proprieta della forma scelta, misurate contro PostgreSQL e non dedotte:**
+
+1. **il permesso vive nella transazione, non nella connessione.** `SET LOCAL` si
+   spegne al `COMMIT`; un flag di sessione resterebbe acceso per tutte le
+   richieste servite da quella connessione dopo la prima scrittura legittima,
+   cioe non sarebbe piu un permesso;
+2. **la cascata dalla cancellazione della scheda resta possibile**, perche e la
+   strada del diritto all'oblio: il vaglio riconosce quel caso dal fatto che la
+   scheda non esiste piu;
+3. **una `DELETE` non a cascata resta sorvegliata**: togliere una riga non
+   concede niente, ma toglierla e riscriverla sarebbe il modo di rimettere in
+   piedi un tutore revocato.
+
+**Chi scrive lo dichiara, migrazioni comprese.** Il vaglio ha **rifiutato la
+migrazione correttiva** che lo seguiva, ed e la prova che serviva: non conosce
+eccezioni implicite. La risposta non e esentare le migrazioni — sarebbe una
+scappatoia che qualunque scrittura potrebbe imboccare — ma che una migrazione
+che tocca i tutori porti quella riga, dove si vede nel diff.
+
+**Cosa questa forma non fa.** Non impedisce di scrivere il **blob** accanto:
+quello resta sorvegliato dal fatto che la rotta generica toglie le chiavi dal
+corpo, che e una difesa di codice e non di archivio. E non e verificabile dai
+test unitari, che girano su un doppio di Prisma senza vagli: e dichiarato dentro
+il doppio, e la prova vive in `scripts/pp-02-proprietario-tutore.mjs`.
+
+**Verifica per mutazione.** Togliendo il vaglio, la sonda diventa rossa su
+**quattro prove su sei**, e restano verdi la prova che il proprietario scrive e
+quella della cascata. La terza prova e la piu importante e va letta insieme alle
+altre: dimostra che la difesa **discrimina**, cioe che non e semplicemente una
+tabella in sola lettura.
+
+**Conseguenze.** Un dominio nuovo che voglia questa garanzia paga una migrazione
+e una funzione. In cambio il suo censimento degli scrittori smette di essere un
+documento da tenere aggiornato e diventa una proprieta.
+
+**Alternative scartate.** Una regola di lint sul nome del delegato Prisma: non
+vede SQL grezzo, non vede un delegato calcolato, e la si spegne con un commento.
+Un test che elenca i file autorizzati: e la forma che ha gia fallito cinque
+volte. Un `GRANT` per ruolo di database: il prodotto usa una connessione sola,
+quindi non distinguerebbe il proprietario dal resto dell'applicazione.
+
+**Vedi anche.** ADR-0118 (un tutore e una riga), ADR-0117 (un'enumerazione ha un
+test che enumera il dominio), CLAUDE.md §2.

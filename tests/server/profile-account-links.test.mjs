@@ -264,35 +264,61 @@ test("senza accounts.trainer.manage lo scollegamento e negato e tracciato", asyn
  * ==================================================================== */
 
 test("scollegare un genitore pulisce il suo elemento e non tocca organization_users, ne gli altri genitori", async () => {
-  fake.rows("athlete")
-    .find((r) => r.id === ATLETA)
-    .data.guardians.push({
-      id: "guardian-2",
-      name: "Genitore Due",
-      linkedUserId: UTENTE_MULTI,
-      linked_user_id: UTENTE_MULTI,
-    });
+  /*
+    **Un tutore e una riga** (PP-02 / WP-C), quindi il secondo genitore si
+    aggiunge dove i tutori vivono. Prima si spingeva dentro
+    `athletes.data.guardians`, che oggi e una **proiezione**: scriverci
+    direttamente vorrebbe dire dichiarare un tutore che l'autorita non conosce,
+    e il primo salvataggio lo cancellerebbe.
+  */
+  fake.rows("athleteGuardian").push({
+    id: "a91adaa0-0000-4000-8000-000000009002",
+    organization_id: CLUB,
+    athlete_id: ATLETA,
+    identity_key: UTENTE_MULTI,
+    user_id: UTENTE_MULTI,
+    email: null,
+    first_name: "Genitore Due",
+    contact_only: false,
+    revoked_at: null,
+    position: 1,
+    created_at: new Date(0),
+    updated_at: new Date(0),
+  });
 
   const primaDelleTessere = fake.rows("organizationUser").length;
 
+  /*
+    L'identificativo che si passa e quello della **riga**, che e cio che la
+    scheda riceve dalla proiezione: non piu una chiave sintetica costruita
+    sulla posizione, che cambiava persona appena si cancellava una riga.
+  */
+  const rigaDelGenitore = fake
+    .rows("athleteGuardian")
+    .find((r) => r.athlete_id === ATLETA && r.user_id === UTENTE_GENITORE);
+
   const esito = await dominio.unlinkGuardianAccount(scope(), {
     athleteId: ATLETA,
-    guardianId: GUARDIAN_ID,
+    guardianId: rigaDelGenitore.id,
   });
 
   assert.equal(esito.unlinkedUserId, UTENTE_GENITORE);
 
-  const atleta = fake.rows("athlete").find((r) => r.id === ATLETA);
-  const scollegato = atleta.data.guardians.find((g) => g.id === GUARDIAN_ID);
-  assert.equal(scollegato.linkedUserId, null);
-  assert.equal(scollegato.linked_user_id, null);
+  const scollegato = fake
+    .rows("athleteGuardian")
+    .find((r) => r.id === rigaDelGenitore.id);
+  assert.equal(scollegato.user_id, null);
+  assert.ok(scollegato.revoked_at, "la revoca e un fatto sulla riga");
 
-  const altro = atleta.data.guardians.find((g) => g.id === "guardian-2");
+  const altro = fake
+    .rows("athleteGuardian")
+    .find((r) => r.id === "a91adaa0-0000-4000-8000-000000009002");
   assert.equal(
-    altro.linkedUserId,
+    altro.user_id,
     UTENTE_MULTI,
     "un genitore scollegato non tocca gli altri genitori dello stesso atleta",
   );
+  assert.equal(altro.revoked_at ?? null, null);
 
   assert.equal(fake.rows("organizationUser").length, primaDelleTessere);
 
@@ -427,10 +453,31 @@ test("revocare la tessera genitore ripulisce athletes.data.guardians[] del club"
 
   await clubRoles.revokeClubAccess(scope(), "ou-parent");
 
+  /*
+    **La revoca e una riga, non un blob riscritto** (PP-02 / WP-C).
+
+    Lo sweep percorreva ogni tesserato del club e ripuliva i campi del legame
+    dentro `athletes.data.guardians[]`; adesso e una `UPDATE` sulle righe di
+    quella persona. Cio che si verifica e percio la riga, e la proiezione che
+    ne discende.
+  */
+  const riga = fake
+    .rows("athleteGuardian")
+    .find((r) => r.athlete_id === ATLETA && r.identity_key === UTENTE_GENITORE);
+  assert.ok(riga, "la riga del tutore esiste");
+  assert.equal(riga.user_id ?? null, null);
+  assert.ok(riga.revoked_at, "la revoca e un fatto sulla riga");
+
   const atleta = fake.rows("athlete").find((r) => r.id === ATLETA);
-  const genitore = atleta.data.guardians.find((g) => g.id === GUARDIAN_ID);
-  assert.equal(genitore.linkedUserId ?? null, null);
-  assert.equal(genitore.linked_user_id ?? null, null);
+  const proiettato = (atleta.data.guardians || []).find(
+    (g) => g.id === riga.id,
+  );
+  assert.ok(proiettato, "la proiezione dentro data resta allineata");
+  assert.equal(proiettato.linkedUserId ?? null, null);
+  assert.ok(
+    proiettato.accessRevokedAt,
+    "e la proiezione porta il marchio, che e cio che i lettori storici guardano",
+  );
 });
 
 test("revocare la tessera atleta di un'utenza multi-profilo non tocca il suo profilo allenatore", async () => {

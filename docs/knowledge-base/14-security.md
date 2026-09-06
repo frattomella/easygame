@@ -2679,6 +2679,55 @@ Tre difese, tutte dentro `athletes.data`:
   avrebbe negato il salvataggio ordinario, perche nessun file client conosce
   quei campi — e li rende immutabili da li, con una sola strada che li scioglie.
 
+### Come si chiude questa intera classe (WP-C+D, 2026-09-06)
+
+Le undici righe qui sopra sono undici difese, e sono state scritte in
+ventotto round. Hanno una cosa in comune: **difendono tutte lo stesso blob**.
+Ogni volta che una reggeva, la successiva nasceva accanto senza ereditarne le
+protezioni — e ADR-0116 lo aveva gia scritto come regola.
+
+Non erano difese sbagliate. Erano risposte a una domanda che non ha risposta:
+«quale riga in arrivo corrisponde a quale riga in archivio», su un array senza
+chiave che la rotta generica sostituisce per intero.
+
+WP-C+D toglie la domanda. Un tutore e una riga di `athlete_guardians` con una
+chiave unica, e cio che seguiva dal blob smette di essere possibile — non
+smette di essere **permesso**:
+
+| Difesa | Che fine fa |
+|---|---|
+| il **riporto** dei due marchi e dei due registri (cinque stesure) | **cancellato**: la rotta generica non riceve piu quelle chiavi, e cio che non arriva non si puo perdere |
+| i due **registri di scheda** | **cancellati**: erano il surrogato della chiave unica |
+| «una riga sorella con lo stesso indirizzo riapre l'accesso» | impossibile: l'indirizzo **e** l'identita, e l'identita e la chiave. Una riga sorella e la stessa riga |
+| «un id di riga tutore puo collidere» | impossibile: l'identificativo e quello della riga, e non nasce piu dal dato piu l'indice |
+| «un salvataggio ordinario annulla la revoca» | impossibile: la revoca e un fatto sulla riga, e il salvataggio non ha una strada per toccarla. Misurato dalla porta vera, `W-11` |
+| «il registro delle revoche esce nel browser della famiglia» | non esiste piu un registro |
+| il **vaglio della crescita** delle identita | resta, e vive nel modulo proprietario invece che nella rotta: la regola e la stessa — una identita nuova concede solo se **appartiene a qualcuno**, e allora servono `accounts.athlete.manage` e `clinical.read` insieme |
+
+**Cosa resta a difendere, e dove.** Due cose, e non sono nella stessa forma:
+
+1. **la scrittura della tabella** e sorvegliata dall'**archivio**: un vaglio
+   rifiuta ogni `INSERT`/`UPDATE` fuori da una transazione che si sia dichiarata
+   scrittore (ADR-0119). Non e un elenco di file, quindi non invecchia;
+2. **la scrittura della proiezione** dentro `athletes.data` e sorvegliata dal
+   codice: la rotta generica toglie `guardians`, `revokedGuardianIdentities` e
+   `contactOnlyIdentities` dal corpo. E una difesa piu debole della prima, e va
+   detto — ma cio che difende non decide piu nessun accesso.
+
+**La cancellazione dell'interessato adesso cancella anche i tutori.** La scheda
+dell'atleta resta come segnaposto, perche rate e ricevute la nominano: la
+cascata di `ON DELETE CASCADE` non scatta mai, e senza una cancellazione
+esplicita sarebbero rimasti in archivio nome, indirizzo e telefono di sua madre —
+dati di **terzi**, dentro una tabella che nessuna schermata mostra piu.
+
+**Un restringimento voluto**, dichiarato perche non venga scoperto in
+produzione: una revoca registrata sull'identita chiude adesso **tutti e due** i
+percorsi. Prima un legame **dichiarato** sopravvissuto allo sweep continuava ad
+aprire — e sopravviveva proprio quando lo sweep falliva, cioe nel caso che il
+reperto `R-2` misura. Ci si ricollega riscattando un invito, che e l'atto
+tracciato che lo dichiara.
+
+
 ---
 
 ## Un atleta di questo club, e nessun altro (Critical, 2026-09-05)

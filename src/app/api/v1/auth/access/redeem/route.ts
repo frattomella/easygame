@@ -22,6 +22,7 @@ import {
   type AccessScopeEntry,
 } from "@/lib/roles/access-scope";
 import { prisma } from "@/lib/server/prisma";
+import { linkGuardianAccount } from "@/lib/server/athlete-guardians";
 import { lockAthleteRow } from "@/lib/server/resources";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getResourceById, updateResource } from "@/lib/server/resources";
@@ -163,10 +164,33 @@ const loadParentAccessTarget = async (
     athlete.data && typeof athlete.data === "object"
       ? (athlete.data as Record<string, any>)
       : {};
+  /*
+    **Il gettone nomina una riga, e ne esistono di tre forme** (PP-02 / WP-C).
+
+    L'elenco dentro `data` e adesso una proiezione di `athlete_guardians`, e
+    porta l'identificativo della **riga**. Un invito spedito prima del passaggio
+    porta invece la chiave che quella riga aveva nel blob, conservata su
+    `legacy_id`; e ce ne sono che non nominano nessuna riga, solo la persona.
+
+    Si cercano nell'ordine dal piu preciso al piu largo, e la ricerca sta qui
+    perche e la stessa domanda che `linkGuardianAccount` fara dopo: se le due
+    rispondessero diverso, il riscatto collegherebbe una riga e ne dichiarerebbe
+    un'altra.
+  */
   const guardians = Array.isArray(data.guardians) ? data.guardians : [];
-  const guardianIndex = guardians.findIndex(
-    (guardian: any) => String(guardian?.id || "").trim() === guardianId,
-  );
+
+  const storiche = guardianId
+    ? ((await prisma.athleteGuardian.findMany({
+        where: { athlete_id: athlete.id, legacy_id: guardianId },
+        select: { id: true },
+      })) as Array<{ id: string }>)
+    : [];
+  const perChiaveStorica = new Set(storiche.map((riga) => riga.id));
+
+  const guardianIndex = guardians.findIndex((guardian: any) => {
+    const suo = String(guardian?.id || "").trim();
+    return suo === guardianId || perChiaveStorica.has(suo);
+  });
 
   if (guardianIndex < 0) {
     return {
@@ -952,210 +976,47 @@ export async function POST(request: Request) {
         token: payload.one_time === false ? String(accessToken.name || "") : "",
       });
     }
-
     if (parentTarget?.guardian) {
       /*
-        **La riga si riscrive su cio che si legge dentro il blocco.**
+        **Il riscatto e l'unico atto che apre, e adesso e una riga**
+        (PP-02 / WP-C).
 
-        Questa mappa nasceva da `parentTarget.guardians`, letto a inizio
-        richiesta, e veniva scritta tale e quale dentro la transazione: i due
-        registri erano riletti freschi, l'array delle righe no. Una revoca
-        committata nel frattempo si vedeva la propria riga **risuscitata** —
-        `linkedUserId` di nuovo scritto, `accessRevokedAt` azzerato.
+        Qui c'erano centosessanta righe, ed erano tre scritture in corsa fra
+        loro: l'elemento dell'array, il registro delle identita revocate e il
+        registro dei solo-recapito. Tutti e tre dentro lo stesso blob, tutti e
+        tre da rileggere sotto blocco perche il valore letto a inizio richiesta
+        era gia vecchio — una revoca committata nel frattempo si vedeva la
+        propria riga **risuscitata**, `linkedUserId` riscritto e
+        `accessRevokedAt` azzerato.
 
-        L'accesso restava negato dal registro delle identita, che e la difesa
-        che ADR-0116 chiama sufficiente; ma riga e registro divergevano, e la
-        scheda mostrava «Account collegato» a chi collegato non era. Una difesa
-        che regge e una scheda che mente sono due cose diverse.
+        Le tre difese vivevano in tre posti perche la riga non aveva una
+        chiave: il marchio sulla riga si aggirava aggiungendone una sorella con
+        lo stesso indirizzo, quindi serviva un registro a livello di scheda, e
+        il registro andava tenuto d'accordo con la riga.
+
+        Adesso sono **una** riga con una chiave, e scioglierle e una `UPDATE`:
+        `revoked_at` a nullo, `contact_only` a falso, l'utenza scritta. Non c'e
+        niente da rileggere perche non c'e niente da rimandare.
+
+        Cosa resta vero, e va detto: un accesso ridato si ridà **per intero** —
+        anche i promemoria del certificato medico, che guardano il marchio e
+        senza questo avrebbero escluso per sempre il tutore riattivato, senza
+        che niente lo dicesse.
       */
-      const applicaRiscatto = (righe: any[]) =>
-        righe.map((guardian: any) =>
-        String(guardian?.id || "").trim() === guardianId
-          ? {
-              ...guardian,
-              linkedUserId: session.db.user_id,
-              linked_user_id: session.db.user_id,
-              linkedUserEmail: session.db.user.email,
-              linked_user_email: session.db.user.email,
-              linkedAt: nowIso,
-              linked_at: nowIso,
-              /*
-                **Il riscatto toglie il marchio della revoca.**
-
-                Senza, l'accesso tornava — il legame dichiarato vince sul
-                marchio — ma i **promemoria** del certificato medico no: quel
-                filtro guarda il marchio, e il tutore riattivato restava
-                escluso per sempre dagli avvisi sulla scadenza, senza che
-                niente lo dicesse. Un accesso ridato si ridà per intero.
-              */
-              accessRevokedAt: null,
-              access_revoked_at: null,
-              /*
-                **E anche il segno di solo-recapito, per la stessa ragione.**
-
-                Restava sulla riga dopo il riscatto, e la conseguenza si vedeva
-                un round dopo: la regola che protegge un indirizzo «gia in uso»
-                salta le righe marchiate, quindi l'indirizzo di una famiglia che
-                aveva seguito il percorso dichiarato — modulo, invito, riscatto —
-                restava avvelenabile da qualunque modulo approvato in seguito, e
-                il secondo genitore che la segreteria scriveva li trovava
-                «Accesso negato».
-
-                Un accesso ridato si rida per intero: vale per i due marchi.
-              */
-              contactOnly: false,
-              contact_only: false,
-
-              parentAccessTokenRecordId: accessToken.id,
-              parent_access_token_record_id: accessToken.id,
-              parentAccessTokenStatus:
-                payload.one_time === false ? "active" : "redeemed",
-              parent_access_token_status:
-                payload.one_time === false ? "active" : "redeemed",
-              parentAccessTokenRedeemedAt: nowIso,
-              parent_access_token_redeemed_at: nowIso,
-              parentAccessTokenValue:
-                payload.one_time === false ? String(accessToken.name || "") : "",
-              parent_access_token_value:
-                payload.one_time === false ? String(accessToken.name || "") : "",
-            }
-          : guardian,
-      );
-
-      /*
-        **Il riscatto toglie l'identita dall'elenco delle revoche.**
-
-        Senza, l'accesso tornava — il legame dichiarato vince sul ripiego — ma
-        i canali automatici no: promemoria del certificato, solleciti e
-        notifiche documentali guardano l'elenco, e il tutore riattivato
-        restava escluso per sempre senza che niente lo dicesse. Un accesso
-        ridato si ridà per intero.
-      */
-      const identita = new Set<string>(
-        (Array.isArray((parentTarget.data as any)?.revokedGuardianIdentities)
-          ? (parentTarget.data as any).revokedGuardianIdentities
-          : []
-        )
-          .map((valore: unknown) => String(valore || "").trim().toLowerCase())
-          .filter(Boolean) as string[],
-      );
-      identita.delete(String(session.db.user_id || "").trim().toLowerCase());
-      identita.delete(String(session.db.user.email || "").trim().toLowerCase());
-
-      /*
-        **E toglie l'indirizzo dal registro dei soli recapiti.**
-
-        Quattro punti del codice dichiaravano che «lo toglie il riscatto di un
-        invito», e nessuno lo faceva: una revisione lo ha misurato con un
-        `grep` che su questo file restituiva zero. Chi riscattava era salvo per
-        un'altra ragione — le quattro letture hanno l'uscita «un legame
-        dichiarato vince» — ma l'indirizzo restava nel registro **per sempre**,
-        e nessuno scrittore lo toglieva: un indirizzo di famiglia avvelenato
-        una volta restava chiuso per ogni persona futura che la segreteria
-        avesse scritto su quella scheda senza un invito nominale.
-
-        Il riscatto e il club che si fa garante di quella riga: e la strada
-        dichiarata per trasformare un recapito in una chiave, e adesso lo e.
-      */
-      const recapiti = new Set<string>(
-        (Array.isArray((parentTarget.data as any)?.contactOnlyIdentities)
-          ? (parentTarget.data as any).contactOnlyIdentities
-          : []
-        )
-          .map((valore: unknown) => String(valore || "").trim().toLowerCase())
-          .filter(Boolean) as string[],
-      );
-      /*
-        **Si toglie l'indirizzo della RIGA, non solo quello dell'utenza.**
-
-        Il registro e indicizzato sull'indirizzo che la riga porta — quello che
-        il club ha scritto — e chi riscatta puo avere un account con un altro
-        indirizzo: togliere il secondo lasciava dentro il primo, cioe non
-        toglieva niente nel caso ordinario.
-      */
-      for (const valore of [
-        session.db.user.email,
-        (parentTarget.guardian as any)?.email,
-        (parentTarget.guardian as any)?.linkedUserEmail,
-        (parentTarget.guardian as any)?.linked_user_email,
-      ]) {
-        const pulito = String(valore || "").trim().toLowerCase();
-        if (pulito) recapiti.delete(pulito);
-      }
-
-      /*
-        **Anche il riscatto prende il blocco sulla riga.**
-
-        E il terzo scrittore di `athletes.data`, e scrive **tutti e due** i
-        registri partendo da `parentTarget.data`, letto a inizio richiesta: un
-        riscatto concorrente con una revoca, o con l'approvazione di un modulo,
-        cancellava cio che l'altro aveva appena scritto. La stessa corsa che ha
-        fatto perdere una revoca intera, misurata tre volte su tre.
-
-        I due registri si rifondono percio su cio che si legge **dentro** il
-        blocco: un'identita revocata da qualcun altro un istante prima non
-        sparisce perche questo riscatto aveva in mano una copia vecchia.
-      */
-      await prisma.$transaction(async (client: any) => {
-        await lockAthleteRow(client, parentTarget.athlete.id);
-
-        const fresca = await client.athlete.findUnique({
-          where: { id: parentTarget.athlete.id },
-          select: { data: true },
-        });
-
-        const dataFresca =
-          fresca?.data && typeof fresca.data === "object"
-            ? (fresca.data as Record<string, any>)
-            : (parentTarget.data as Record<string, any>);
-
-        const revocateFresche = new Set<string>(
-          (Array.isArray((dataFresca as any).revokedGuardianIdentities)
-            ? ((dataFresca as any).revokedGuardianIdentities as unknown[])
-            : []
-          )
-            .map((valore: unknown) => String(valore || "").trim().toLowerCase())
-            .filter(Boolean),
-        );
-
-        const recapitiFreschi = new Set<string>(
-          (Array.isArray((dataFresca as any).contactOnlyIdentities)
-            ? ((dataFresca as any).contactOnlyIdentities as unknown[])
-            : []
-          )
-            .map((valore: unknown) => String(valore || "").trim().toLowerCase())
-            .filter(Boolean),
-        );
-
-        /* Cio che questo riscatto riammette, sullo stato appena letto. */
-        for (const insieme of [revocateFresche, recapitiFreschi]) {
-          for (const valore of [
-            session.db.user_id,
-            session.db.user.email,
-            (parentTarget.guardian as any)?.email,
-            (parentTarget.guardian as any)?.linkedUserEmail,
-            (parentTarget.guardian as any)?.linked_user_email,
-          ]) {
-            const pulito = String(valore || "").trim().toLowerCase();
-            if (pulito) insieme.delete(pulito);
-          }
-        }
-
-        await client.athlete.update({
-          where: { id: parentTarget.athlete.id },
-          data: {
-            data: {
-              ...dataFresca,
-              guardians: applicaRiscatto(
-                Array.isArray((dataFresca as any).guardians)
-                  ? ((dataFresca as any).guardians as any[])
-                  : parentTarget.guardians,
-              ),
-              revokedGuardianIdentities: Array.from(revocateFresche) as string[],
-              contactOnlyIdentities: Array.from(recapitiFreschi) as string[],
-            },
-          },
-        });
+      await linkGuardianAccount(prisma, {
+        athleteId: String(parentTarget.athlete.id),
+        guardianRowId: guardianId || null,
+        identityKeys: [
+          session.db.user_id,
+          session.db.user?.email,
+          (parentTarget.guardian as any)?.email,
+          (parentTarget.guardian as any)?.linkedUserEmail,
+          (parentTarget.guardian as any)?.linked_user_email,
+        ]
+          .map((valore) => String(valore || "").trim().toLowerCase())
+          .filter(Boolean),
+        userId: session.db.user_id,
+        email: session.db.user?.email,
       });
     }
 

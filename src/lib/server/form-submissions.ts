@@ -9,6 +9,7 @@ import { canAccessClubResource } from "@/lib/access-roles";
 import { roleHasPermission } from "@/lib/permissions/catalog";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
+import { upsertGuardianFromFormApproval } from "./athlete-guardians";
 import { createAttachment, deleteAttachment } from "./attachments";
 import { parseAttachmentReference } from "@/lib/attachments";
 import { createResource, lockAthleteRow, updateResource } from "./resources";
@@ -2071,8 +2072,6 @@ const eseguiDecisione = async (
     );
   }
 
-  let contactOnlyDaScrivere: string[] | null = null;
-
   const guardianChange = review.changeSet.subjects.find(
     (subject) => subject.subject === "guardian",
   );
@@ -2084,13 +2083,6 @@ const eseguiDecisione = async (
       );
     }
 
-    const guardians = Array.isArray(athleteRecord?.data?.guardians)
-      ? [...athleteRecord!.data.guardians]
-      : [];
-    const selection = review.submission.subjects.find(
-      (entry) => entry.subject === "guardian",
-    );
-    const index = Number(selection?.recordId);
     const patch = buildGuardianPatch(
       applyValues(guardianChange),
       records.guardian || null,
@@ -2099,250 +2091,94 @@ const eseguiDecisione = async (
     /*
       **Un indirizzo dichiarato da uno sconosciuto non e una credenziale.**
 
-      ADR-0114 dice che l'indirizzo di contatto di un tutore vale come legame:
-      la segreteria lo scrive, la famiglia si registra con quello, ed entra
-      senza riscattare un codice. Quella decisione poggia su un presupposto che
-      qui non regge — che l'indirizzo lo abbia **scritto il club**.
+      ADR-0114 fa valere l'indirizzo di contatto di un tutore come legame: la
+      segreteria lo scrive, la famiglia si registra con quello, ed entra senza
+      riscattare un codice. Quella decisione poggia su un presupposto che qui
+      non regge — che l'indirizzo lo abbia **scritto il club**.
 
       Un modulo pubblico lo compila chiunque, senza sessione. Bastava conoscere
-      lo slug — il link che il club diffonde — e il nome di un minore
-      tesserato: si dichiarava il proprio indirizzo nei campi `guardian.*`, la
-      segreteria vedeva il minore proposto fra i duplicati, approvava, e da
-      quel momento l'area famiglia di quel bambino era aperta a chi si
-      registrava con quell'indirizzo. Allergie, farmaci, i byte del certificato
-      medico, le ricevute, e la revoca dei consensi dati dall'altro genitore.
+      lo slug e il nome di un minore tesserato: si dichiarava il proprio
+      indirizzo nei campi `guardian.*`, la segreteria approvava, e da quel
+      momento l'area famiglia di quel bambino era aperta a chi si registrava
+      con quell'indirizzo. Allergie, farmaci, i byte del certificato medico, le
+      ricevute, e la revoca dei consensi dati dall'altro genitore.
 
-      Approvare una pratica non deve poter **concedere un accesso**: e
-      un'operazione di anagrafica, e chi la compie non ha modo di sapere che
-      quella riga e una chiave. Percio una riga nata da una compilazione
-      anonima porta il segno di dove viene, e per lei il ripiego sull'indirizzo
-      non vale: si entra con un invito, che e la strada che ha il suo gate e
-      che scrive un legame **dichiarato**.
-
-      Cio che ADR-0114 tiene aperto resta aperto: l'indirizzo scritto dalla
-      segreteria — a mano, o da una compilazione interna — vale come prima.
-    */
-    /*
-      **Il criterio e «l'ha scritto il club», e ci sono voluti tre giri.**
-
-      Prima stesura: `source !== "internal"`. Applicata anche al ramo che
-      **aggiorna**, declassava il genitore che rinnovava — perche
-      `submitRenewalForm` salva `source: "public"` — e al caricamento dopo lui
-      trovava «Accesso negato» sul proprio figlio.
-
-      Seconda stesura: `!asText(row.submitted_by)`, cioe «compilazione senza
-      autore dimostrato». Curava il sintomo e apriva un buco piu largo di
-      quello che chiudeva: `submitRenewalForm` scrive `submittedBy: userId`,
-      quindi **ogni riga tutore nuova nata da un rinnovo usciva senza marchio**.
-      Misurato: la madre legata rinnova dichiarando un tutore nuovo con un
-      indirizzo qualunque, la segreteria legge «Genitore aggiunto: Zio» e
-      approva, e da quel momento quell'indirizzo apre allergie, farmaci, i
-      **byte** del certificato, rate e ricevute, e puo revocare i consensi dati
-      dall'altro genitore. Nessun audit di concessione, e
-      `accounts.athlete.manage` — la chiave che governa proprio questo — non
-      viene mai chiesta a chi concede.
-
-      La domanda giusta non e «chi ha compilato» ne «da quale porta»: e **chi
-      ha scritto quell'indirizzo**. ADR-0114 fa valere l'indirizzo come chiave
-      poggiando su un presupposto — che lo scriva **il club** — e l'unica
-      compilazione di cui questo e vero e quella interna. Un genitore
-      autenticato ha dimostrato il **proprio** legame, non quello di un terzo
-      che dichiara.
-
-      Il ripiego che la prima stesura aveva rotto resta intatto, perche adesso
-      il criterio vale **solo sulla riga che nasce**: la riga del genitore che
-      rinnova esiste gia e viene aggiornata, non creata.
+      Il criterio non e «chi ha compilato» ne «da quale porta»: e **chi ha
+      scritto quell'indirizzo**, e l'unica compilazione di cui il presupposto
+      di ADR-0114 sia vero e quella interna. Un genitore autenticato ha
+      dimostrato il **proprio** legame, non quello di un terzo che dichiara.
     */
     const compilataDalClub = asText(row.source) === "internal";
 
     /*
-      **E vale solo sulla riga che nasce adesso.**
+      **La riga che questa compilazione stava modificando.**
 
-      Applicarlo anche al ramo che **aggiorna** una riga esistente declassava a
-      solo-recapito un tutore scritto dalla segreteria mesi prima — che
-      ADR-0114 dichiara valido — perche uno sconosciuto aveva compilato il
-      modulo pubblico su quel minore e l'anagrafica proposta era stata
-      approvata. Il marchio non si toglie da nessuna schermata: quel genitore
-      restava fuori senza che niente lo spiegasse.
+      Il `recordId` di un tutore e la sua **posizione** nell'elenco, e lo dice
+      gia il commento di `loadSubjectRecords`. La posizione la conserva la
+      proiezione — che il modulo proprietario riscrive ordinata — quindi
+      l'oggetto in quel posto porta l'identificativo della **riga**, e da li in
+      poi non si ragiona piu per posizione.
     */
-    const rigaNuova = !(
-      Number.isInteger(index) &&
-      index >= 0 &&
-      index < guardians.length
+    const proiezione = Array.isArray(athleteRecord?.data?.guardians)
+      ? (athleteRecord!.data.guardians as any[])
+      : [];
+    const selection = review.submission.subjects.find(
+      (entry) => entry.subject === "guardian",
     );
-
-    if (!compilataDalClub && rigaNuova) {
-      patch.contactOnly = true;
-      patch.contact_only = true;
-
-      /*
-        **E l'indirizzo entra nel registro dell'atleta.**
-
-        Il segno sulla riga da solo non regge: `athletes.data` e il blob che la
-        rotta generica sostituisce per intero, e per farlo sopravvivere bisogna
-        sapere quale riga in arrivo corrisponda a quale riga in archivio — una
-        domanda che su due tutori allo stesso indirizzo di famiglia non ha
-        risposta. Cinque stesure del riporto, e ogni volta il segno cadeva e
-        l'area famiglia del minore si apriva a chi aveva **solo compilato un
-        modulo**.
-
-        Il registro sta sull'atleta, come quello delle revoche: non ha niente da
-        abbinare, e la rotta generica lo conserva in sola lettura. Lo toglie il
-        riscatto di un invito, che e la strada dichiarata per trasformare un
-        recapito in una chiave.
-      */
-      const indirizzoDichiarato = String(
-        patch.email || patch.linkedUserEmail || "",
-      )
-        .trim()
-        .toLowerCase();
-
-      /*
-        **Un indirizzo che il club usa gia non si avvelena.**
-
-        Il registro nega **per identita, da qualunque riga**, e quella forza e
-        anche il suo pericolo: la regola `rigaNuova` che protegge il marchio di
-        riga — «non si declassa un tutore che la segreteria aveva scritto mesi
-        prima» — il registro non ce l'ha, perche di righe non ne conosce.
-
-        Misurato: un atleta con una sola riga `{ Anna, famiglia@… }` **senza**
-        legame dichiarato, cioe la capability di ADR-0114; un rinnovo dichiara
-        un secondo tutore con **lo stesso indirizzo di famiglia**; la segreteria
-        approva e legge «Genitore aggiunto». Da quel momento la madre trova
-        «Accesso negato» sul proprio figlio e i canali di invio si chiudono.
-
-        Il registro si scrive quindi solo per un indirizzo che su questa scheda
-        **non e gia una chiave**: se una riga scritta dal club lo porta senza
-        marchio, quell'indirizzo apre gia, e la riga nuova la governa il suo
-        marchio di riga. Non si guadagna niente ad avvelenarlo, e si perde un
-        genitore.
-      */
-      const indirizzoGiaInUso = guardians.some((riga: any) => {
-        const record = (riga || {}) as Record<string, any>;
-        if (record.contactOnly || record.contact_only) return false;
-
-        const suo = String(
-          record.email || record.linkedUserEmail || record.linked_user_email || "",
-        )
-          .trim()
-          .toLowerCase();
-
-        return Boolean(suo) && suo === indirizzoDichiarato;
-      });
-
-      if (indirizzoDichiarato && !indirizzoGiaInUso) {
-        const registro = new Set<string>(
-          (Array.isArray((athleteRecord?.data as any)?.contactOnlyIdentities)
-            ? ((athleteRecord!.data as any).contactOnlyIdentities as unknown[])
-            : []
-          )
-            .map((valore) => String(valore || "").trim().toLowerCase())
-            .filter(Boolean),
-        );
-        registro.add(indirizzoDichiarato);
-        contactOnlyDaScrivere = Array.from(registro);
-      }
-    }
-
-    if (Number.isInteger(index) && index >= 0 && index < guardians.length) {
-      guardians[index] = { ...guardians[index], ...patch };
-      applied.push(`Genitore aggiornato: ${guardianChange.recordLabel}`);
-    } else {
-      guardians.push(patch);
-      applied.push(`Genitore aggiunto: ${guardianChange.recordLabel}`);
-    }
-
-    const updated = await updateResource(
-      "athletes",
-      athleteId,
-      { data: { ...(athleteRecord?.data || {}), guardians } },
-      scope,
-    );
-    athleteRecord = updated as any;
+    const index = Number(selection?.recordId);
+    const rigaScelta =
+      Number.isInteger(index) && index >= 0 && index < proiezione.length
+        ? proiezione[index]
+        : null;
 
     /*
-      **Il registro lo scrive questo dominio, non la rotta generica.**
+      **Cio che sedici stesure non erano riuscite a difendere, qui non c'e piu
+      da difendere** (PP-02 / WP-C).
 
-      Passava da `updateResource`, e per farlo la rotta doveva accettare le
-      **aggiunte** che arrivano dal corpo della richiesta: da li un ruolo a zero
-      chiavi ci infilava l'indirizzo di un genitore legittimo e lo chiudeva
-      fuori, senza audit di revoca e senza che la guardia della crescita — che
-      misura solo la crescita — vedesse niente.
+      Sparisce il registro `contactOnlyIdentities`, che era il surrogato di una
+      chiave: il segno viveva sulla riga, la riga non aveva un id stabile, e
+      cinque stesure del riporto in `resources.ts` non riuscivano a farlo
+      sopravvivere a un salvataggio ordinario. Sparisce con lui la regola
+      «non avvelenare un indirizzo gia in uso», perche una `upsert` su
+      un'identita che esiste **aggiorna** invece di creare, e il segno si mette
+      solo su cio che nasce.
 
-      La disciplina e quella del registro gemello: la rotta generica lo
-      **conserva** e basta, e chi lo scrive lo fa dal proprio dominio con una
-      scrittura diretta, come `unlinkGuardianAccount` fa per le revoche.
+      E sparisce `PP02-D33`: l'elenco dei tutori non si legge, non si modifica
+      in memoria e non si rimanda. Cinque approvazioni concorrenti sullo stesso
+      atleta scrivono cinque righe — o la stessa riga cinque volte, se nominano
+      la stessa persona. La corsa non si perde perche non c'e piu uno snapshot
+      da rimandare.
     */
-    if (contactOnlyDaScrivere) {
-      /*
-        **La scrittura del registro e atomica con il fatto che registra.**
+    const scritta = await upsertGuardianFromFormApproval(prisma, {
+      organizationId,
+      athleteId,
+      row: {
+        email:
+          asText(patch.linkedUserEmail) ||
+          asText(patch.linked_user_email) ||
+          asText(patch.email),
+        firstName: asText(patch.name),
+        lastName: asText(patch.surname),
+        phone: asText(patch.phone),
+        relationship: asText(patch.relationship),
+      },
+      contactOnly: !compilataDalClub,
+      replacesGuardianRowId: rigaScelta ? asText(rigaScelta.id) : null,
+    });
 
-        E l'ottava protezione, quella che ADR-0116 non aveva mai messo per
-        iscritto e che e la ragione per cui il registro **gemello** non e mai
-        caduto: `unlinkGuardianAccount` scrive le righe e le identita revocate
-        nella **stessa** `update`, e lo sweep della revoca lo fa dentro una
-        transazione.
+    applied.push(
+      rigaScelta && scritta && asText(rigaScelta.id) === scritta.id
+        ? `Genitore aggiornato: ${guardianChange.recordLabel}`
+        : `Genitore aggiunto: ${guardianChange.recordLabel}`,
+    );
 
-        Questa scriveva le righe con `updateResource` e poi, separatamente e
-        fuori transazione, rileggeva e scriveva il registro. Misurato: cinque
-        approvazioni concorrenti sullo stesso atleta, **sei giri su sei** con
-        una riga tutore presente e la sua voce **persa**, piu voci nel registro
-        di righe che non esistevano piu. La riga scoperta restava difesa dal
-        solo marchio di riga, che e esattamente la difesa che ADR-0116 dichiara
-        non sufficiente da sola — e per cui il registro esiste.
-
-        La rilettura e la scrittura stanno adesso nella stessa transazione, e
-        la fusione avviene sul valore **appena letto** li dentro: due
-        approvazioni concorrenti si serializzano invece di sovrascriversi.
-      */
-      const aggiornato = await prisma.$transaction(async (client: any) => {
-        /*
-          **Una transazione con rilettura, ma senza blocco, non serializza.**
-
-          Il commento della stesura precedente diceva «due approvazioni
-          concorrenti si serializzano invece di sovrascriversi». Falso: sotto
-          READ COMMITTED due transazioni leggono lo stesso valore e la seconda
-          sovrascrive. E la forma esatta che ADR-0116 aveva gia dichiarato
-          insufficiente per la revoca, ripetuta qui.
-
-          Misurato dalla porta del prodotto: un rinnovo approvato mentre la
-          segreteria preme «Scollega account», e in **3 giri su 8** la revoca
-          spariva — conferma a schermo, riga di audit, e il genitore ancora
-          dentro il fascicolo del minore. Il controllo di isolamento lo
-          attribuisce a questa scrittura: con un indirizzo gia in uso, dove
-          questo ramo non gira, la revoca tiene 8 giri su 8.
-        */
-        await lockAthleteRow(client, athleteId);
-
-        const rilettura = await client.athlete.findUnique({
-          where: { id: athleteId },
-          select: { data: true },
-        });
-
-        const registro = new Set<string>(
-          (Array.isArray((rilettura?.data as any)?.contactOnlyIdentities)
-            ? ((rilettura!.data as any).contactOnlyIdentities as unknown[])
-            : []
-          )
-            .map((valore: unknown) => String(valore || "").trim().toLowerCase())
-            .filter(Boolean),
-        );
-
-        for (const voce of contactOnlyDaScrivere!) registro.add(voce);
-
-        return client.athlete.update({
-          where: { id: athleteId },
-          data: {
-            data: {
-              ...((rilettura?.data as any) || {}),
-              contactOnlyIdentities: Array.from(registro) as string[],
-            },
-          },
-        });
-      });
-
-      athleteRecord = aggiornato as any;
-    }
+    /*
+      La scheda si rilegge perche la proiezione dentro `data` e appena cambiata,
+      e cio che segue — consensi, documenti, allegati — la usa.
+    */
+    athleteRecord = (await prisma.athlete.findUnique({
+      where: { id: athleteId },
+    })) as any;
   }
 
   /*
