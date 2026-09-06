@@ -7323,3 +7323,65 @@ un atleta inesistente e restava verde con il vaglio spento, perche un trigger di
 riga su zero righe non scatta. La stessa forma di errore che stava misurando.
 
 **Vedi anche.** ADR-0141, ADR-0138, ADR-0117.
+
+## ADR-0144 — Cio che sta dietro una voce e nominato con lei, e si sposta con lei
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+settimo vaglio indipendente
+
+### Il fatto
+
+La scheda mostra **una voce** dove il travaso puo aver messo **due righe vive**:
+accade per ogni voce del blob che dichiarasse piu di un identificativo utente
+(`linkedUserIds` plurale). Il client puo nominare solo l'identificativo che la
+proiezione pubblica; l'altro non lo ha mai visto.
+
+Da qui tre difetti, tutti misurati dalla rotta HTTP vera:
+
+* **la riga nascosta veniva cancellata** dal primo salvataggio che rimandasse
+  cio che la scheda aveva appena consegnato — «non e stata nominata». Un tutore
+  collegato perdeva il figlio senza una revoca, senza una schermata e senza una
+  riga di audit. La correzione del giorno prima non copriva questo caso perche
+  guardava `revoked_at`, e qui **nessuna delle due righe e revocata**;
+* **la riga nascosta non seguiva la sua voce.** Una voce puo cambiare posizione
+  — la rinumerazione salta quelle tenute da chi sopravvive senza essere
+  nominato — e la riga dietro restava dov'era, potendo **collidere con
+  un'altra voce**. Si presentava come un'**intermittenza**: tre esecuzioni su
+  otto, sul lettore che decide chi paga. Il codice fiscale stampato sulla
+  ricevuta cambiava persona da un'esecuzione all'altra, perche a pari posizione
+  l'ordine lo decide l'identificativo, che e casuale;
+* **l'invito della riga tolta restava vivo.** `revocaIGettoni` lo chiamavano le
+  due porte che si chiamano revoca, e non questa — che e la sola strada per cui
+  un tutore lascia la scheda senza che nessuno la chiami revoca.
+
+### La decisione
+
+**Una voce e l'unita che il salvataggio nomina.** Una riga che condivide la
+posizione con una riga nominata e nominata anche lei: non si cancella, e se la
+voce si sposta si sposta con lei. Togliere la voce — non mandarla piu — le
+toglie tutte insieme, ed e cio che l'operatore vede e intende. Chi esce dalla
+scheda si porta dietro il proprio invito.
+
+### Un'intermittenza e peggio di un difetto costante
+
+Un difetto che si presenta tre volte su otto non lo si riproduce quando lo si
+cerca, e la sonda che lo trova viene creduta instabile invece che informativa.
+Qui il segnale e arrivato da una sonda che dava 30/30 da sola e 28/30 in
+sequenza: la tentazione di archiviarlo come rumore era concreta, e cio che lo ha
+impedito e stato eseguirla otto volte di fila invece di due.
+
+**La regola.** Una sonda che cambia esito senza che il codice cambi non e una
+sonda instabile finche non lo si e **dimostrato**: e un difetto che non si sa
+ancora nominare.
+
+### Senza un'utenza non si ha una prova
+
+Lo stesso vaglio ha trovato che il risparmio di ADR-0139 — non toccare la riga
+di un'altra persona — si spegneva quando la riga **nominata** non porta
+un'utenza, che e il caso di ogni riga di solo recapito: `!suaUtenza ||` rendeva
+la condizione sempre vera. Scollegare un tutore che un account non ce l'ha
+revocava la riga della madre raggiunta per indirizzo, e in audit c'era solo il
+padre. Una riga con un'utenza qualunque, raggiunta per inferenza da una riga che
+non ne porta nessuna, e di qualcuno di cui non sappiamo niente: non si tocca.
+
+**Vedi anche.** ADR-0142, ADR-0139, ADR-0140, ADR-0114.

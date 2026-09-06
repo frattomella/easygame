@@ -912,3 +912,49 @@ risparmiato vale sulla seconda, non sulla prima.
 
 Senza la sonda del quarto vaglio ancora in piedi, questa correzione avrebbe
 riaperto in silenzio un Critical chiuso due giorni prima.
+
+---
+
+## Il settimo vaglio indipendente (2026-09-06)
+
+**1 Critical, 2 High**, piu un'intermittenza trovata correggendoli. Settima volta
+su sette: tutti sul bordo. Due dei tre falsificano frasi scritte nelle ventiquattro
+ore precedenti.
+
+| # | gravita | la frase falsificata |
+|---|---------|----------------------|
+| R-1 | Critical | «Le posizioni tenute da chi sopravvive **senza esserne nominato** si saltano» — guardava solo le righe **revocate** |
+| R-2 | High | «la regola vale **piena** sull'estensione per identita» — `!suaUtenza ||` la spegneva del tutto |
+| R-3 | High | «chiuderlo e la differenza fra una revoca e una revoca che si puo annullare» — vero delle due porte che si chiamano revoca, falso della terza |
+
+### R-3 e la quarta ricorrenza della stessa forma
+
+«Una revoca che lascia viva la propria strada di ritorno» e ricomparsa per la
+quarta volta, e stavolta sulla **sola porta che non porta quel nome**: togliere
+un tutore dalla scheda. Nessuno la chiama revoca, quindi nessuno le aveva dato
+cio che accompagna una revoca — e bastava rimettere la persona perche il vecchio
+invito tornasse spendibile, perche il client rimanda l'identificativo che aveva
+letto e quello diventa il `legacy_id` della riga nuova.
+
+Le tre volte precedenti la causa era stata una difesa dimenticata, poi una
+allargata a meta, poi di nuovo. Questa volta e **una porta che non si era
+riconosciuta come tale**.
+
+### L'intermittenza, e perche stava per essere archiviata
+
+Chiusi i tre reperti, la sonda del settimo vaglio dava **30/30 da sola e 28/30
+in sequenza**. La spiegazione comoda era «sonda instabile».
+
+Otto esecuzioni di fila: tre rosse. E le due asserzioni che cadevano erano quelle
+sul **destinatario fiscale** — il codice fiscale stampato sulla ricevuta che una
+famiglia porta in detrazione — che cambiava persona da un'esecuzione all'altra.
+
+La causa era nella correzione appena scritta: la rinumerazione riscrive la
+posizione delle righe **nominate**, e lasciava quelle nascoste sulla vecchia, da
+dove potevano collidere con un'altra voce. A pari posizione la fusione sceglie
+per identificativo, che e casuale: da li il caso.
+
+**La lezione.** Un difetto che si presenta tre volte su otto non lo si riproduce
+quando lo si cerca, e la sonda che lo trova viene creduta instabile invece che
+informativa. Una sonda che cambia esito senza che il codice cambi non e instabile
+finche non lo si e **dimostrato**: e un difetto che non si sa ancora nominare.

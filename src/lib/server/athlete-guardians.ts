@@ -658,6 +658,34 @@ export const saveGuardianRegistry = async (
       prossima += 1;
     }
 
+    /*
+      **Dove va a finire cio che sta dietro una voce che si e spostata.**
+
+      Una riga nominata puo cambiare posizione — la rinumerazione salta quelle
+      tenute da chi sopravvive senza essere nominato. Le righe che le stanno
+      dietro non sono in `inArrivo` e la loro posizione non veniva riscritta:
+      restavano dov'erano, e da li potevano **collidere con un'altra voce**.
+
+      Misurato come un'intermittenza — tre esecuzioni su otto — sul lettore che
+      decide **chi paga**: il codice fiscale stampato sulla ricevuta cambiava
+      persona da un'esecuzione all'altra, perche a pari posizione l'ordine lo
+      decide l'identificativo, che e casuale. Un difetto che si presenta a
+      volte e piu pericoloso di uno che si presenta sempre: non lo si riproduce
+      quando lo si cerca.
+
+      La riga nascosta **segue la sua voce**: la posizione e cio che le tiene
+      insieme, e insieme si spostano.
+    */
+    const mappaPosizioni = new Map<number, number>();
+    for (const voce of inArrivo) {
+      if (voce.riga) {
+        mappaPosizioni.set(Number(voce.riga.position ?? 0), voce.posizione);
+      }
+    }
+
+    /** Le righe che escono dalla scheda: i loro inviti si chiudono con loro. */
+    const daTogliere: GuardianRow[] = [];
+
     const aggiunte: string[] = [];
     const aggiornate: string[] = [];
     const tolte: string[] = [];
@@ -964,8 +992,55 @@ export const saveGuardianRegistry = async (
       */
       if (riga.revoked_at) continue;
 
+      /*
+        **Cio che sta dietro una voce nominata e nominato.**
+
+        La scheda mostra **una voce** dove il travaso puo aver messo due righe
+        vive — accade per ogni voce del blob che dichiarasse piu di un
+        identificativo utente (`linkedUserIds`). Il client puo nominare solo
+        l'identificativo che la proiezione pubblica, e l'altro non lo ha mai
+        visto: cancellarlo perche «non e stato nominato» toglie il figlio a un
+        tutore collegato **senza una revoca, senza una schermata e senza una
+        riga di audit**. Bastava rimandare cio che la scheda aveva appena
+        consegnato.
+
+        Il criterio non e percio l'identificativo ma la **voce**: una riga che
+        condivide la posizione con una riga nominata e stata nominata anche
+        lei. Togliere quella voce — non mandarla piu — le toglie tutte insieme,
+        ed e cio che l'operatore vede e intende.
+      */
+      const nuovaPosizione = mappaPosizioni.get(Number(riga.position ?? 0));
+      if (nuovaPosizione !== undefined) {
+        if (nuovaPosizione !== Number(riga.position ?? 0)) {
+          await tx.athleteGuardian.update({
+            where: { id: riga.id },
+            data: { position: nuovaPosizione },
+          });
+        }
+        continue;
+      }
+
+      daTogliere.push(riga);
       await tx.athleteGuardian.delete({ where: { id: riga.id } });
       tolte.push(riga.identity_key);
+    }
+
+    /*
+      **Chi esce dalla scheda si porta dietro il proprio invito.**
+
+      `revocaIGettoni` lo chiamavano le due porte che si chiamano revoca, e non
+      questa — che e la sola strada per cui un tutore lascia la scheda senza
+      che nessuno la chiami revoca. Il gettone restava percio `active`, e
+      bastava rimettere la persona perche tornasse spendibile: il client
+      rimanda l'identificativo che aveva letto, `readGuardianInputFromCard` lo
+      mappa **anche** su `legacyId`, e il riscatto ritrova la riga nuova da li.
+
+      E la quarta volta che questo pacchetto riapre la stessa forma — una
+      revoca che lascia viva la propria strada di ritorno — e la prima sulla
+      porta che quel nome non lo porta.
+    */
+    if (daTogliere.length) {
+      await revocaIGettoni(tx, athleteId, daTogliere);
     }
 
     await refreshGuardianProjection(tx, [athleteId]);
@@ -1391,8 +1466,25 @@ export const revokeGuardianRow = async (
 
     const revocate = candidate.filter((riga) => {
       if (nellaVoce(riga)) return true;
+      /*
+        **Senza un'utenza da confrontare non si ha una prova: si risparmia.**
+
+        La stesura di ieri scriveva `!altra || !suaUtenza || altra === suaUtenza`,
+        e quel `!suaUtenza` **spegneva la regola per intero** quando la riga
+        nominata non porta un'utenza — che e il caso di ogni riga di solo
+        recapito. Non valeva «piena»: non valeva affatto.
+
+        Misurato dalla rotta vera, sulla configurazione ordinaria di ADR-0114:
+        l'operatore scollega il **padre**, che un account non ce l'ha, e
+        l'estensione per indirizzo porta dentro la riga della **madre**, che
+        viene revocata. In audit c'e solo il padre.
+
+        Una riga che porta un'utenza qualunque, raggiunta per inferenza da una
+        riga che non ne porta nessuna, e di qualcuno di cui non sappiamo niente:
+        non si tocca.
+      */
       const altra = normalizza(riga.user_id);
-      return !altra || !suaUtenza || altra === suaUtenza;
+      return !altra || (Boolean(suaUtenza) && altra === suaUtenza);
     });
 
     if (!revocate.length) return null;
