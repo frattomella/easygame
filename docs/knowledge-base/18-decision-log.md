@@ -7140,3 +7140,89 @@ righe che un accesso non lo aprono.
 
 **Vedi anche.** ADR-0138 (un commento e un debito finche non ha una sonda),
 ADR-0137, ADR-0114, ADR-0105 (diritti dell'interessato).
+
+## ADR-0140 — La revoca non e la colonna: e la coppia che la riga revocata conserva
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+quinto vaglio indipendente
+
+### Il fatto
+
+Il marchio di una revoca e `revoked_at`. Ma cio che **tiene chiusa la porta**
+non e quella colonna: e la coppia `(identity_key, email)` della riga revocata,
+che `findGuardianLinks` interroga per sapere **di chi** e stata la revoca su
+quella scheda. La colonna dice che una revoca c'e stata; la coppia dice a chi si
+applica.
+
+Il salvataggio dell'anagrafica riscriveva tutte e due, e il vaglio sulla
+crescita delle identita — introdotto lo stesso giorno — non poteva vederlo,
+perche mappa ogni riga revocata su niente: una riga revocata non apre, quindi
+non fa crescere l'insieme. Da li due mosse opposte, entrambe da un ruolo di club
+con **zero caselle** spuntate, entrambe con la scheda che continuava a mostrare
+«revocato» e in audit un innocuo `anagrafica.updated`:
+
+* **cancellare una revoca** — si sposta l'indirizzo della riga revocata, la riga
+  si richiavia, e la persona revocata rientra dalla riga viva del co-genitore
+  che porta l'indirizzo di famiglia. L'attaccante puo essere la persona
+  revocata stessa, se conserva un ruolo qualunque che sappia salvare una scheda;
+* **revocare senza revocare** — si scrive l'indirizzo di una vittima sopra una
+  riga revocata qualunque, e chi entrava per indirizzo verificato smette di
+  entrare. La sua riga resta viva e intatta: nessuna schermata l'ha toccata, e
+  per rientrare serve un riscatto, che e della direzione.
+
+### La decisione
+
+**L'identita di una riga revocata e congelata.** Un salvataggio d'anagrafica non
+tocca `email` ne `identity_key` di una riga revocata: correggere il recapito di
+una riga revocata non e lavoro d'anagrafica, e spostare una difesa. Solo un
+riscatto puo riaprire quella riga, ed e l'unico atto che puo cambiarne
+l'identita.
+
+**La regola generale.** Quando una difesa e implementata da una *query* e non da
+una colonna, cio che va protetto sono i **campi che quella query interroga**,
+non il campo che porta il nome della difesa.
+
+### Una voce della scheda e l'unita che si revoca
+
+La proiezione ricompone i tutori per posizione — tre lettori li prendono per
+posto, fra cui il destinatario fiscale di una **ricevuta**. Il tentativo di
+mostrare separatamente le righe che il travaso fonde e stato misurato e
+scartato: al primo salvataggio ogni lettore posizionale slittava di uno, e il
+codice fiscale stampato su una ricevuta cambiava persona.
+
+La fusione resta, e il buco si chiude dall'altro lato: `revokeGuardianRow`
+revoca **la voce**, cioe tutte le righe che la scheda mostra come una sola. Se
+una porta mostra una cosa sola, toglierla deve toglierla tutta.
+
+### Un vaglio non ha un default che concede
+
+`upsertGuardianFromFormApproval` prendeva `canGrantAccess` **opzionale** e
+negava su `=== false`: chi lo ometteva passava. Un fail-open sulla porta che
+apre il fascicolo sanitario di un minore, ed e la forma esatta contro cui quel
+vaglio era stato scritto. Ora e obbligatorio, come nel gemello, e nega su
+`!== true`. Due porte sulla stessa proprieta si somigliano o divergono.
+
+**Vedi anche.** ADR-0139, ADR-0138, ADR-0114, CLAUDE.md §2.
+
+## ADR-0141 — Una difesa che vive nell'archivio ha una sonda che la confronta con la migrazione
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02, deriva
+misurata dell'ambiente di sviluppo
+
+Il vaglio che rifiuta ogni scrittura fuori dal modulo proprietario e una
+funzione PostgreSQL. Nessuna revisione del codice la vede, `git diff` non la
+mostra, e un ambiente puo ritrovarsi con una versione **precedente** — e
+successo: la funzione era stata riapplicata prendendo il file di una migrazione
+piu vecchia, e per mezza giornata la deroga che permette di cancellare il
+proprio account non c'era. Tutte le sonde erano verdi tranne una, per caso.
+
+**La regola.** Una difesa che vive nell'archivio ha una sonda che confronta la
+definizione **viva** con quella che la migrazione piu recente dichiara — non il
+testo intero, che PostgreSQL riscrive a modo suo, ma le condizioni che deve
+contenere, **estratte dal file**. Una condizione aggiunta domani viene pretesa
+senza che nessuno debba ricordarsene.
+
+E il seguito di ADR-0117 su una terza superficie: li il dominio era un'enum, poi
+un elenco di moduli, qui e il corpo di una funzione dell'archivio.
+
+**Vedi anche.** ADR-0119 (l'archivio fa valere il proprietario), ADR-0117.

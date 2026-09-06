@@ -752,3 +752,68 @@ non potesse piu correggere un refuso in un'email. La correzione ha quindi un
 controllo esplicito accanto al reperto: lo stesso `PATCH`, dallo stesso ruolo
 ristretto, verso un indirizzo **che non e di nessuno**, deve riuscire — e
 riesce.
+
+---
+
+## Il quinto vaglio indipendente (2026-09-06)
+
+**1 Critical, 2 High, 1 Medium latente.** Quinta volta su cinque: tutti sul
+bordo, e tutti e quattro dalla miniera che ADR-0138 aveva dichiarato — una
+frase di sicurezza scritta in un commento, vera del pezzo appena corretto e
+falsa del pezzo accanto.
+
+| # | gravita | la frase falsificata |
+|---|---------|----------------------|
+| R-1 | Critical | «la revoca e un fatto sulla riga, e si toglie **solo** riscattando un invito» |
+| R-2 | High | (la stessa, dal verso opposto: si puo **chiudere** un accesso senza revocarlo) |
+| R-3 | High | «una posizione in piu su una ricevuta e un difetto di forma» — scritta da me il giorno prima |
+| R-4 | Medium | «questa porta non concede senza la chiave» — vera solo per un chiamante che passi `false` |
+
+### Il Critical: la difesa non era dove ne stava il nome
+
+`revoked_at` e il **marchio** della revoca. Cio che tiene chiusa la porta e la
+coppia `(identity_key, email)` della riga revocata, che `findGuardianLinks`
+interroga per sapere **di chi** e la revoca. Il salvataggio dell'anagrafica
+riscriveva entrambe, e il vaglio sulla crescita — scritto lo stesso giorno — non
+poteva vederlo, perche mappa ogni riga revocata su niente: una riga revocata non
+apre, quindi non fa crescere l'insieme. Il ragionamento era giusto e la
+conclusione sbagliata, perche la domanda non era «questa riga apre?» ma «questa
+scrittura tocca cio che tiene chiusa una porta?».
+
+**La regola generale.** Quando una difesa e implementata da una *query* e non da
+una colonna, cio che va protetto sono i **campi che quella query interroga**.
+
+### R-3: avevo scritto io la frase, il giorno prima
+
+Correggendo il quarto vaglio avevo smesso di fondere le righe con un legame
+vivo, e avevo scritto: «una posizione in piu su una ricevuta e un difetto di
+forma; un accesso vivo che nessuna schermata mostra e un difetto di sicurezza».
+
+La seconda meta era vera. La prima no, e la misura l'ha mostrata subito: al
+primo salvataggio la proiezione passa da due voci a tre e ogni lettore
+posizionale slitta di uno — fra questi il **destinatario fiscale** di una
+ricevuta, cioe il codice fiscale che una famiglia porta in detrazione, e
+l'indice con cui l'approvazione di un modulo dice quale riga sta sostituendo,
+che di li ne cancella una viva e diversa.
+
+Avevo scelto fra due mali dichiarandone uno lieve **senza misurarlo**. Era la
+terza volta in tre giorni che una mia frase di sicurezza risultava vera del
+pezzo appena toccato e falsa di quello accanto — e stavolta l'avevo scritta
+*dopo* aver formulato ADR-0138, che dice esattamente di non farlo.
+
+La fusione e tornata com'era, e il buco si chiude dall'altro lato: la scheda
+mostra una voce, e revocarla revoca **tutte** le righe che le stanno dietro.
+
+### La deriva dell'archivio
+
+Alla fine di questo giro una sonda del vaglio strutturale e diventata rossa
+senza che il codice fosse cambiato: nel database di sviluppo la funzione del
+vaglio era la **versione precedente**, riapplicata prendendo il file di una
+migrazione piu vecchia. Per mezza giornata la deroga che permette di cancellare
+il proprio account non c'era, e delle quattordici sonde una sola se ne e
+accorta, per caso.
+
+Una difesa che vive nell'archivio non la vede nessuna revisione del codice e
+non la mostra `git diff`. Ora c'e una sonda che confronta la funzione **viva**
+con le condizioni che la migrazione piu recente dichiara, estratte dal file
+(ADR-0141). Rimettendo la versione vecchia nomina le otto condizioni mancanti.

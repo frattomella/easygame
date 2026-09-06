@@ -2757,3 +2757,14 @@ altro» — **non e piu vera** da WP-C: e una riga con una chiave.
 La parte urgente e stata fatta: `athlete_guardians` e ora una fetta
 dell'inventario, quindi il riepilogo la nomina e il gettone di conferma la
 copre. Resta da fare la strada di ingresso per il soggetto `guardian`.
+
+### D51 — Un invito che nomina la riga dietro una voce della scheda da 404
+
+`loadParentAccessTarget` cerca il tutore dentro `athletes.data.guardians`, che
+pubblica **una voce per posizione**. Un gettone coniato fuori dall'interfaccia
+che nomini una delle righe fuse dietro quella voce non si riscatta: 404.
+
+Non e un buco di sicurezza — e il verso restrittivo — ed e irraggiungibile dal
+conio odierno, perche la scheda quell'identificativo non lo pubblica. Va chiuso
+risolvendo il bersaglio del riscatto sull'**autorita** invece che sulla
+proiezione, insieme a D46.

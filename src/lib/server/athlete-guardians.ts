@@ -796,7 +796,39 @@ export const saveGuardianRegistry = async (
       const bersaglio = riga;
 
       if (bersaglio) {
-        const indirizzoNuovo = normalizza(input.email);
+        /*
+          **L'identita di una riga revocata e congelata.**
+
+          Il marchio della revoca e `revoked_at`, ma cio che **tiene chiusa la
+          porta** non e quella colonna: e la coppia `(identity_key, email)` di
+          quella riga, che `findGuardianLinks` interroga per sapere chi e stato
+          revocato su questa scheda. La colonna dice «qui c'e stata una
+          revoca»; la coppia dice **di chi**.
+
+          Il salvataggio dell'anagrafica riscriveva tutte e due, e il vaglio
+          sulla crescita non poteva vederlo perche mappa ogni riga revocata su
+          niente — una riga revocata non apre, quindi non fa crescere l'insieme.
+          Da li due mosse opposte, misurate tutte e due da una revisione
+          indipendente, entrambe da un ruolo di club con **zero caselle**
+          spuntate e con la scheda che continuava a mostrare «revocato»:
+
+          * **cancellare una revoca** — si sposta l'indirizzo della riga
+            revocata su un indirizzo qualunque, la riga si richiavia, e
+            `revocateDiQuestaPersona` non trova piu niente: la persona revocata
+            rientra dalla riga viva del co-genitore che porta l'indirizzo di
+            famiglia;
+          * **revocare senza revocare** — si scrive l'indirizzo di una vittima
+            sopra una riga revocata qualunque, e chi entrava per indirizzo
+            verificato smette di entrare. La sua riga resta viva e intatta:
+            nessuna schermata l'ha toccata, nessun audit lo dice, e per
+            rientrare serve un riscatto, che e della direzione.
+
+          Correggere il recapito di una riga revocata non e percio un lavoro di
+          anagrafica: e spostare una difesa. Una riga revocata conserva la sua
+          identita finche un riscatto non la riapre — e il riscatto e l'unico
+          atto che puo farlo.
+        */
+        const indirizzoNuovo = bersaglio.revoked_at ? "" : normalizza(input.email);
         const cambiaIndirizzo =
           Boolean(indirizzoNuovo) && indirizzoNuovo !== normalizza(bersaglio.email);
 
@@ -939,7 +971,18 @@ export const upsertGuardianFromFormApproval = async (
      * Una compilazione **pubblica** non ha bisogno di questa chiave: la riga
      * che nasce e `contact_only`, e un recapito non apre niente.
      */
-    canGrantAccess?: boolean;
+    /*
+      **Obbligatorio, e non e pedanteria di tipi.**
+
+      Era opzionale e il vaglio chiedeva `=== false`, quindi chi lo **ometteva**
+      passava: un default che concede, sulla porta che apre il fascicolo
+      sanitario di un minore, ed e la forma esatta contro cui questo vaglio era
+      stato scritto. L'unico chiamante di oggi calcola sempre un booleano, ma il
+      difetto non era in lui — era nel secondo chiamante, che non esiste
+      ancora. Il gemello in `saveGuardianRegistry` lo pretende obbligatorio, e
+      due porte sulla stessa proprieta si somigliano o divergono.
+    */
+    canGrantAccess: boolean;
     /**
      * La riga che questa compilazione stava **modificando**, quando la
      * modifica ne cambia l'identita — cioe l'indirizzo.
@@ -976,7 +1019,7 @@ export const upsertGuardianFromFormApproval = async (
       **corrisponde a un'utenza**. Una riga che nasce `contact_only` non apre
       niente e non ha bisogno di chiedere niente.
     */
-    if (!contactOnly && parametri.canGrantAccess === false) {
+    if (!contactOnly && parametri.canGrantAccess !== true) {
       const gia = await tx.athleteGuardian.findFirst({
         where: { athlete_id: athleteId, identity_key: identityKey },
         select: { id: true },
@@ -1196,10 +1239,33 @@ export const revokeGuardianRow = async (
   withGuardianWriter(client, async (tx) => {
     await bloccaSchede(tx, [parametri.athleteId]);
 
-    const aggiornate = await tx.athleteGuardian.updateMany({
+    /*
+      **Si revoca la voce, non la riga.**
+
+      La proiezione ricompone per posizione, e la scheda mostra **una** voce
+      dove il travaso puo aver messo due righe. Revocare solo quella nominata
+      lasciava viva l'altra — con l'utenza addosso e nessuna schermata che la
+      mostrasse: «Scollega account» rispondeva 200 e chiudeva l'altra persona.
+
+      Il perimetro resta quello di sempre: l'atleta, e il club quando chi chiama
+      lo conosce.
+    */
+    const nominata = (await tx.athleteGuardian.findFirst({
       where: {
         id: parametri.guardianRowId,
         athlete_id: parametri.athleteId,
+        ...(parametri.organizationId
+          ? { organization_id: parametri.organizationId }
+          : {}),
+      },
+    })) as GuardianRow | null;
+
+    const aggiornate = await tx.athleteGuardian.updateMany({
+      where: {
+        athlete_id: parametri.athleteId,
+        ...(nominata
+          ? { position: nominata.position ?? 0 }
+          : { id: parametri.guardianRowId }),
         ...(parametri.organizationId
           ? { organization_id: parametri.organizationId }
           : {}),
@@ -1852,27 +1918,29 @@ export const refreshGuardianProjection = async (
       const posto = Number(riga.position ?? 0);
 
       /*
-        **Una riga con un legame vivo non si fonde con nessuno.**
+        **Una voce del blob resta una voce, e chi la revoca le revoca tutte.**
 
-        La ricomposizione per posizione esiste per i tre lettori che prendono i
-        tutori **per posto**, e va bene finche cio che si fonde e anagrafica.
-        Ma il travaso produce due righe con la **stessa** posizione da ogni
-        voce del blob che dichiarava piu di un identificativo utente, e fonderle
-        faceva sparire dalla scheda una riga con l'utenza addosso e
-        `revoked_at` nullo: autorevole per `findGuardianLinks`, invisibile
-        alla sola porta da cui si revoca. «Scollega account» chiudeva l'altra
-        persona e rispondeva 200.
+        Il travaso produce due righe con la **stessa** posizione da ogni voce
+        del blob che dichiarava piu di un identificativo utente, e fonderle
+        faceva sparire dalla scheda una riga con l'utenza addosso: autorevole
+        per `findGuardianLinks`, invisibile alla sola porta da cui si revoca.
 
-        Il commento che stava qui diceva che cio che si perde nella
-        ricomposizione «non decide niente li, perche li nessuno decide un
-        accesso»: vero della proiezione come elenco, falso della **scheda**.
+        Il primo rimedio fu smettere di fondere le righe con un legame vivo, e
+        il commento concedeva che «una posizione in piu su una ricevuta e un
+        difetto di forma». **Non lo e**, e la revisione successiva l'ha
+        misurato: al primo salvataggio della scheda la proiezione passava da due
+        voci a tre, e ogni lettore posizionale slittava di uno — il destinatario
+        fiscale di una **ricevuta** (cioe il codice fiscale che una famiglia
+        porta in detrazione), i segnaposto `{{parent.N.*}}`, e l'indice con cui
+        l'approvazione di un modulo dice quale riga sta sostituendo, che di li
+        ne cancellava una viva e diversa.
 
-        Una posizione in piu su una ricevuta e un difetto di forma; un accesso
-        vivo che nessuna schermata mostra e un difetto di sicurezza. Si fondono
-        percio solo le righe che un accesso non lo aprono.
+        La fusione torna percio com'era, e il buco si chiude dall'altro lato:
+        `revokeGuardianRow` non revoca una riga ma **la voce** — tutte le righe
+        che la scheda mostra come una sola. Se la porta mostra una cosa sola,
+        toglierla deve toglierla tutta.
       */
-      const collegataViva = Boolean(riga.user_id) && !riga.revoked_at;
-      const chiave = collegataViva ? `riga:${riga.id}` : `posto:${posto}`;
+      const chiave = `posto:${posto}`;
       const gia = voci.get(chiave)?.voce;
 
       /*

@@ -563,21 +563,41 @@ const main = async () => {
 
     await tutori.refreshGuardianProjection(prisma, [figlio]);
     const proiettati = (await datiDi(figlio)).guardians || [];
+    /*
+      **Il contratto e cambiato, e va detto perche.**
+
+      Il primo rimedio a questo reperto fu smettere di fondere le righe con un
+      legame vivo, cosi che la scheda le mostrasse tutte. Il vaglio successivo
+      ha misurato il prezzo: al primo salvataggio la proiezione passava da due
+      voci a tre e **ogni lettore posizionale slittava di uno** — fra questi il
+      destinatario fiscale di una ricevuta, cioe il codice fiscale che una
+      famiglia porta in detrazione.
+
+      La fusione e percio tornata com'era, e il buco si chiude dall'altro lato:
+      la scheda mostra **una voce**, e revocarla revoca **tutte** le righe che
+      le stanno dietro. Se una porta mostra una cosa sola, toglierla deve
+      toglierla tutta — ed e la 3h a misurarlo.
+    */
     prova(
-      "3b REPERTO — la proiezione ne pubblica una sola",
-      2,
+      "3b la proiezione pubblica UNA voce per posizione",
+      1,
       proiettati.length,
       `pubblicata: ${JSON.stringify(proiettati.map((g) => g.id))}`,
     );
 
     const nascosta = righe.find((r) => !proiettati.some((g) => g.id === r.id));
-    prova("3c una riga non compare nella scheda", false, Boolean(nascosta));
+    prova(
+      "3c SEMINA — e una riga sta dietro quella voce, non accanto",
+      true,
+      Boolean(nascosta),
+      "senza una riga dietro la voce, 3h non misurerebbe niente",
+    );
 
     if (nascosta) {
       /* Chi e la persona che la riga nascosta collega? */
       prova(
-        "3d REPERTO — la riga nascosta collega comunque un'utenza viva",
-        null,
+        "3d SEMINA — la riga dietro la voce porta un'utenza viva",
+        nascosta.user_id,
         nascosta.user_id,
         `utenza: ${nascosta.user_id === ZIO_A ? "ZIO_A" : nascosta.user_id === ZIO_B ? "ZIO_B" : nascosta.user_id}`,
       );
@@ -613,8 +633,8 @@ const main = async () => {
       });
       /* La persona nascosta ha accesso all'area famiglia del minore? */
       prova(
-        '3g REPERTO — la persona della riga nascosta apre l area famiglia',
-        0,
+        '3g SEMINA — e quella persona apre davvero l area famiglia',
+        1,
         (await cruscotto.getParentLinkedAthletes(nascosta.user_id)).length,
       );
 
@@ -631,15 +651,15 @@ const main = async () => {
         .unlinkGuardianAccount(scope, { athleteId: figlio, guardianId: proiettati[0].id })
         .catch((e) => console.log('        scollega:', e.message.slice(0, 80)));
       prova(
-        '3h REPERTO — dopo «Scollega account» la persona nascosta e ancora dentro',
+        '3h PROPRIETA — «Scollega account» chiude ogni riga dietro la voce',
         0,
         (await cruscotto.getParentLinkedAthletes(nascosta.user_id)).length,
       );
 
       const esito = await riscatta(ESTRANEO, CODICE);
       prova(
-        "3f un invito che nomina la riga nascosta si riscatta",
-        200,
+        "3f DEBITO D51 — un invito che nomina la riga dietro la voce da 404",
+        404,
         esito.stato,
         `${JSON.stringify(esito.corpo?.error?.message || "ok")}`,
       );
