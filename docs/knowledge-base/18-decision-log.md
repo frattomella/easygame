@@ -7445,3 +7445,70 @@ lo nominava, il gettone di conferma non lo copriva e la cancellazione lo
 lasciava in archivio. Ora e una fetta come le altre, e l'oblio lo cancella.
 
 **Vedi anche.** ADR-0144, ADR-0140, ADR-0105, CLAUDE.md §2 e §8.
+
+## ADR-0146 — Una regola scritta in un ADR va applicata a tutti i gemelli, non a quello che si stava guardando
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+nono vaglio indipendente
+
+### Il fatto
+
+ADR-0145 aveva enunciato la regola — *«una difesa che si appoggia a un dato che
+l'attaccante controlla non e una difesa in piu: e una porta in piu»* — e
+l'aveva applicata al ramo **genitore**, togliendo il blocco che leggeva
+l'identificativo del gettone da una chiave del blob. Al ramo **allenatore**,
+che e il suo gemello riga per riga, aveva aggiunto il filtro di club e basta:
+lo aveva ristretto **su un asse solo**, lasciando che il numero da revocare
+continuasse a sceglierlo chi scrive il profilo.
+
+Misurato: un ruolo `staff`, a cui la rotta dei gettoni risponde **403**, crea un
+profilo allenatore con dentro l'identificativo dell'**invito di una famiglia**,
+poi scollega quel profilo — e l'invito della famiglia risulta revocato. Un
+permesso negato aggirato passando da una porta che non sembrava parlarne.
+
+### La decisione
+
+Il gettone di un profilo si cerca **nell'archivio dei gettoni**, fra quelli che
+nominano quel profilo, dentro quel club. Il client non sceglie piu niente, su
+nessuno dei due rami.
+
+**La regola sulla regola.** Quando un ADR enuncia un principio a partire da un
+caso, la prima cosa da fare non e scriverlo: e **cercare i gemelli** e
+applicarlo li. Un principio applicato al solo caso che lo ha generato e una
+frase, e questo pacchetto ha ormai misurato cinque volte quanto in fretta una
+frase invecchi.
+
+### Un riepilogo che conta una cosa e un atto che ne toglie un'altra
+
+ADR-0145 aveva aggiunto la fetta dei gettoni all'inventario dell'oblio, e
+scritto che «l'oblio lo chiude e lo cancella». Le due meta pero non si
+toccavano: il **riepilogo** contava i gettoni per `payload.athlete_id`, la
+**cancellazione** ne toglieva solo quelli abbinabili a una riga di tutore
+**ancora esistente** — e saltava il blocco per intero se righe non ce n'erano.
+
+Il caso lo produce la correzione del settimo vaglio: togliere un tutore dalla
+scheda revoca il gettone e cancella la riga, e da li il gettone e **orfano**. Il
+riepilogo lo contava e prometteva di cancellarlo; l'oblio ne toglieva zero, e in
+archivio restavano nome e indirizzo di una terza persona.
+
+Le due meta usano ora **la stessa domanda**, e in SQL. Un riepilogo che conta con
+un criterio e un atto che cancella con un altro non e un riepilogo: e una
+promessa.
+
+### Chi revoca senza chiamarsi revoca lascia il marchio lo stesso
+
+La sostituzione di un tutore da un'approvazione di modulo **cancellava** le
+righe. Cancellare toglie l'accesso e non lascia niente: nessun `revoked_at`,
+quindi nessuna identita in `revokedGuardianIdentities`, quindi nessuno dei tre
+canali di notifica sa dell'esclusione e nessuna schermata puo dirla. Ora revoca,
+come le porte che quel nome lo portano.
+
+### E una correzione che nessun archivio conserva non e una correzione
+
+L'etichetta d'audit corretta dall'ottavo vaglio — «Genitore sostituito», l'unico
+posto in cui si dice che una riga viva e stata tolta — viveva solo nel corpo di
+una risposta HTTP: `form-submissions.ts` non registra niente, `applied` non
+finisce sulla compilazione, e la rotta ne salvava **la lunghezza**. Ora la rotta
+salva le stringhe.
+
+**Vedi anche.** ADR-0145, ADR-0144, ADR-0105, CLAUDE.md §8.

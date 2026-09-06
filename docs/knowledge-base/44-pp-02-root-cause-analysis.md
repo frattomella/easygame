@@ -1007,3 +1007,61 @@ versione committata.
 Un taglio fatto per estremi di testo invece che per struttura porta via cio che
 gli sta accanto, e cio che gli stava accanto era la sola prova che l'operazione
 fosse avvenuta.
+
+---
+
+## Il nono vaglio indipendente (2026-09-06)
+
+**0 Critical, 3 High**, piu 2 Medium e 1 Low. Secondo giro di fila senza
+Critical — e due dei tre High stanno **esattamente accanto** a cio che l'ottavo
+vaglio aveva corretto: la meta non ristretta della porta che ha ristretto, e il
+caso adiacente della fetta che ha aggiunto.
+
+| # | gravita | dove |
+|---|---------|------|
+| R-1 | High | il gemello allenatore ristretto su un asse solo: il numero da revocare lo sceglie ancora il client |
+| R-2 | High | il riepilogo dell'oblio conta i gettoni con un criterio, la cancellazione ne toglie un altro |
+| R-3 | High | la sostituzione **cancella** invece di revocare: nessun marchio, nessun registro, nessun audit |
+| R-4 | Medium | l'etichetta d'audit corretta ieri non arriva in nessun archivio |
+| R-5 | Medium | l'archivio dei gettoni si leggeva tutto, a ogni scrittura di tutore, dentro la transazione bloccata |
+| R-6 | Low | il rapporto dell'oblio non conta cio che l'oblio ha tolto |
+
+### Il pattern nuovo: una regola applicata a meta
+
+ADR-0145 ha enunciato «una difesa che si appoggia a un dato che l'attaccante
+controlla e una porta in piu» e l'ha applicata al ramo genitore, togliendo il
+blocco. Al gemello allenatore ha aggiunto il filtro di club **e basta**.
+
+Cioe: ho scritto la regola guardando un caso, e l'ho applicata a quel caso.
+L'altro ramo — identico riga per riga, dieci schermate piu su nello stesso file
+— e rimasto com'era, e un ruolo `staff` poteva usarlo per revocare l'invito di
+una famiglia passando dall'identificativo che scrive lui.
+
+**Quando un ADR enuncia un principio a partire da un caso, la prima cosa da fare
+non e scriverlo: e cercare i gemelli e applicarlo li.**
+
+### Due correzioni di ieri che erano meta correzioni
+
+* **R-2** — «l'oblio lo chiude e lo cancella» era vero della semina in cui la
+  riga del tutore e ancora viva, e falso del caso che *un'altra correzione di
+  questo stesso pacchetto* produce: un gettone orfano, la cui riga e stata tolta
+  dalla scheda. Il riepilogo lo contava, la cancellazione no.
+* **R-4** — l'etichetta «Genitore sostituito» corretta ieri viveva solo nel
+  corpo di una risposta HTTP. Nessun archivio la conservava. Una correzione che
+  nessun archivio conserva e vacua nel senso stretto.
+
+### E due sonde vacue, di cui una mia
+
+La sonda dell'ottavo vaglio asseriva che l'inventario contenesse una fetta il
+cui nome `includes("resource_item")`: **cerca un nome, non un atto**, e non
+confronta mai il conteggio con cio che la cancellazione toglie. Da li R-2.
+
+E le asserzioni di costo del nono vaglio erano vacue a loro volta: cercavano la
+parola `athlete` nel **testo** SQL, ma una restrizione su una chiave JSON compare
+come `"payload"->$3 = $4` — il nome della chiave e un **parametro**. La soglia,
+poi, era `<= 1`, e una scansione integrale e esattamente una: la misura passava
+sia con la lettura ristretta sia con quella di tutto il club. Verificato per
+iniezione, e ri-specificato a zero.
+
+Terza volta che il pattern «un nome invece di un atto» compare, e la seconda in
+cui compare **dentro una sonda scritta per misurare quel pattern**.

@@ -83,7 +83,19 @@ export async function POST(request: Request, context: Context) {
       metadata: {
         templateId: outcome.submission.templateId,
         version: outcome.submission.version,
-        applied: outcome.applied.length,
+        /*
+          **Cosa e stato applicato, non quanto.**
+
+          Qui viveva un numero, e le stringhe — «Genitore sostituito», che e
+          l'unico posto in cui si dice che una riga viva e stata tolta —
+          morivano nel corpo della risposta HTTP. `form-submissions.ts` non
+          registra niente e `applied` non viene salvato sulla compilazione,
+          quindi questo e **l'unico** archivio che possa conservarle: chi
+          rileggeva il registro non aveva modo di sapere che un tutore era
+          sparito.
+        */
+        applied: outcome.applied,
+        appliedCount: outcome.applied.length,
       },
     });
 

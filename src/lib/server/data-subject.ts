@@ -581,18 +581,23 @@ export const previewDataSubjectErasure = async (
     lasciava in archivio: lo stesso dato, spostato in una tabella che nessuna
     schermata mostra.
   */
-  const invitiTutore = (
-    await prisma.clubResourceItem.findMany({
-      where: { organization_id: organizationId, resource_type: "access_tokens" },
-      select: { payload: true },
-    })
-  ).filter((voce) => {
-    const carico =
-      voce.payload && typeof voce.payload === "object"
-        ? (voce.payload as Record<string, any>)
-        : {};
-    return String(carico.athlete_id || "").trim() === subjectId;
-  }).length;
+  /*
+    **La stessa domanda che si fa la cancellazione**, e in SQL.
+
+    Contarli leggendo tutto l'archivio dei gettoni del club e filtrando in
+    memoria costava quanto il club e grande — su trentaduemila gettoni mezzo
+    secondo, per un numero — e soprattutto era una **seconda formulazione**
+    della stessa domanda: un riepilogo che conta con un criterio e un atto che
+    cancella con un altro non e un riepilogo, e i due sono gia divergiti una
+    volta.
+  */
+  const invitiTutore = await prisma.clubResourceItem.count({
+    where: {
+      organization_id: organizationId,
+      resource_type: "access_tokens",
+      payload: { path: ["athlete_id"], equals: subjectId },
+    },
+  });
 
   const slices: DataSubjectSlice[] = [
     {

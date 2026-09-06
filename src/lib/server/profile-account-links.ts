@@ -442,28 +442,40 @@ export const unlinkTrainerAccount = async (
     annulla lo scollegamento gia scritto sopra: e un'azione di sicurezza in
     piu, non il fatto che questa funzione esiste per registrare.
   */
-  const tokenRecordId = testo(
-    payload.accessTokenRecordId || payload.access_token_record_id,
-  );
-  if (tokenRecordId) {
-    try {
-      /*
-        **Il filtro di club, che qui mancava.**
+  /*
+    **L'invito si cerca dove vive, non dove il client dice che vive.**
 
-        L'identificativo viene dal carico del profilo allenatore, che la rotta
-        generica lascia scrivere: senza `organization_id` questa istruzione
-        poteva portare a `revoked` la riga di un **altro club**. Il gemello
-        sul ramo genitore e stato tolto del tutto — li `revocaIGettoni` fa la
-        stessa cosa meglio — mentre qui non c'e ancora un dominio dei gettoni
-        dell'allenatore che lo faccia al posto suo, quindi resta, con il
-        confine addosso.
-      */
+    Qui l'identificativo del gettone veniva da `payload.accessTokenRecordId`,
+    cioe dal carico del profilo allenatore, che la rotta generica lascia
+    scrivere. ADR-0145 aveva ristretto questa istruzione **su un asse solo** —
+    le aveva messo il filtro di club — lasciando intatto l'altro: che il numero
+    da revocare lo sceglie chi scrive il profilo.
+
+    Misurato da una revisione indipendente: un ruolo `staff`, a cui la rotta
+    dei gettoni risponde **403**, crea un profilo allenatore con dentro
+    l'identificativo dell'**invito di una famiglia**, poi scollega quel
+    profilo — e l'invito della famiglia risulta revocato. Un permesso negato
+    aggirato passando da una porta che non sembrava parlarne.
+
+    Il gettone di un allenatore lo si cerca percio come lo cerca il dominio dei
+    tutori: **nell'archivio dei gettoni**, fra quelli che nominano **questo**
+    profilo, dentro **questo** club. Il client non sceglie piu niente.
+  */
+  const daChiudere = (
+    (await prisma.clubResourceItem.findMany({
+      where: {
+        organization_id: record.organization_id,
+        resource_type: "access_tokens",
+        payload: { path: ["trainer_id"], equals: String(record.id) },
+      },
+      select: { id: true },
+    })) as Array<{ id: string }>
+  ).map((voce) => voce.id);
+
+  if (daChiudere.length) {
+    try {
       await prisma.clubResourceItem.updateMany({
-        where: {
-          id: tokenRecordId,
-          resource_type: "access_tokens",
-          organization_id: record.organization_id,
-        },
+        where: { id: { in: daChiudere } },
         data: { status: "revoked" },
       });
     } catch (error) {

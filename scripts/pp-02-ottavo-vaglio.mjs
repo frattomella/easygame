@@ -533,10 +533,27 @@ const main = async () => {
     });
 
     const dopoA = await righeDi(FIGLIO_A);
+    /*
+      **Ri-specificata: la riga sostituita ora si REVOCA, non si cancella.**
+
+      Qui si chiedeva che sparisse, ed era cio che il codice faceva. Il vaglio
+      successivo ha misurato il prezzo: cancellandola non restava `revoked_at`,
+      quindi nessuna identita in `revokedGuardianIdentities`, quindi nessuno
+      dei tre canali di notifica sapeva dell'esclusione e nessuna schermata
+      poteva dirla. Le porte che si chiamano revoca il marchio lo lasciano;
+      questa, che revoca senza chiamarsi cosi, era l'unica a buttarlo via.
+
+      La proprieta e percio: la riga resta, **marchiata**, e non apre piu.
+    */
+    const sostituitaA = dopoA.find((r) => r.id === rigaA.id);
     prova(
-      "A2 SEMINA — la riga sostituita e sparita davvero",
-      [1, false],
-      [dopoA.length, dopoA.some((r) => r.id === rigaA.id)],
+      "A2 SEMINA — la riga sostituita resta, marchiata come revocata",
+      [2, true, true],
+      [
+        dopoA.length,
+        Boolean(sostituitaA),
+        Boolean(sostituitaA?.revoked_at) && sostituitaA?.user_id === null,
+      ],
     );
     prova(
       "A3 REPERTO — tolta la riga, l'invito che la nominava e chiuso",

@@ -1255,8 +1255,31 @@ export const upsertGuardianFromFormApproval = async (
 
         if (laVoce.length) {
           await revocaIGettoni(tx, athleteId, laVoce);
-          await tx.athleteGuardian.deleteMany({
+
+          /*
+            **Si revoca, non si cancella.**
+
+            Cancellare toglieva l'accesso e **non lasciava niente**: nessun
+            `revoked_at`, quindi nessuna identita in
+            `revokedGuardianIdentities`, quindi nessuno dei tre canali di
+            notifica sapeva che quella persona era stata esclusa — e nessuna
+            schermata poteva dirlo. Le tre porte che si chiamano revoca il
+            marchio lo lasciano; questa, che revoca senza chiamarsi cosi, e
+            l'unica che lo buttava via.
+
+            Misurato da una revisione indipendente: approvando una compilazione
+            **pubblica** un ruolo con le sole chiavi dei moduli faceva sparire
+            **due** tutori collegati, e in archivio non restava una riga che li
+            nominasse.
+          */
+          await tx.athleteGuardian.updateMany({
             where: { id: { in: laVoce.map((riga) => riga.id) } },
+            data: {
+              revoked_at: new Date(),
+              user_id: null,
+              access_token_status: "revoked",
+              access_token_value: null,
+            },
           });
         }
       }
@@ -1738,22 +1761,38 @@ export const eraseGuardiansForAthlete = async (
       },
     })) as GuardianRow[];
 
+    /*
+      **Si cancella per scheda, non per riga sopravvissuta.**
+
+      La prima stesura toglieva solo i gettoni che si potevano **abbinare a una
+      riga ancora esistente**, e saltava il blocco per intero se righe non ce
+      n'erano. Ma una riga di tutore la si puo togliere dalla scheda — e da
+      quando una revisione ha chiuso quella porta, toglierla revoca il gettone
+      e cancella la riga: da li il gettone e **orfano**. Restava in archivio con
+      dentro `guardian_name` e `guardian_email` di una terza persona, e il
+      riepilogo dell'oblio lo aveva contato e promesso cancellato.
+
+      Le due meta ora usano **la stessa domanda** — «questo gettone nomina
+      questa scheda?» — perche un riepilogo che conta una cosa e un atto che ne
+      toglie un'altra non e un riepilogo: e una promessa.
+    */
     if (daCancellare.length) {
       await revocaIGettoni(tx, athleteId, daCancellare);
+    }
 
-      const gettoni = await gettoniDeiTutori(
-        tx,
-        [athleteId],
-        daCancellare.map((riga) => riga.organization_id),
-      );
-      const nominati = (gettoni.get(athleteId) || []).filter((voce) =>
-        daCancellare.some((riga) => gettoneDiQuestaRiga(voce, riga)),
-      );
-      if (nominati.length) {
-        await tx.clubResourceItem.deleteMany({
-          where: { id: { in: nominati.map((voce) => String(voce.id)) } },
-        });
-      }
+    const invitiDellaScheda = (await tx.clubResourceItem.findMany({
+      where: {
+        resource_type: "access_tokens",
+        ...(organizationId ? { organization_id: organizationId } : {}),
+        payload: { path: ["athlete_id"], equals: athleteId },
+      },
+      select: { id: true },
+    })) as Array<{ id: string }>;
+
+    if (invitiDellaScheda.length) {
+      await tx.clubResourceItem.deleteMany({
+        where: { id: { in: invitiDellaScheda.map((voce) => voce.id) } },
+      });
     }
 
     const esito = await tx.athleteGuardian.deleteMany({
@@ -2091,8 +2130,27 @@ const gettoniDeiTutori = async (
     e non e unico fra club, quindi `gettoneDiQuestaRiga` poteva combaciare
     fuori casa. Una revoca non esce dal proprio club.
   */
+  /*
+    **Ristretta alla scheda, non solo al club.**
+
+    Il filtro di club era arrivato con una revisione; restava che l'intero
+    archivio dei gettoni del club tornasse in memoria a **ogni** scrittura di
+    tutore, dentro la transazione che tiene i blocchi. Misurato: a
+    trentaduemila gettoni la proiezione passava da 7 ms a 752 ms, e la
+    cancellazione dell'interessato a 1.625 ms **con i blocchi presi**. Cresce
+    con i gettoni del club, e nessuno li cancella mai.
+
+    Il carico nomina l'atleta, e PostgreSQL sa interrogarlo: si chiedono le
+    righe di **queste** schede.
+  */
   const record = (await tx.clubResourceItem.findMany({
-    where: { resource_type: "access_tokens", organization_id: { in: club } },
+    where: {
+      resource_type: "access_tokens",
+      organization_id: { in: club },
+      OR: athleteIds.map((id) => ({
+        payload: { path: ["athlete_id"], equals: id },
+      })),
+    },
   })) as Array<Record<string, any>>;
 
   const interessati = new Set(athleteIds);
