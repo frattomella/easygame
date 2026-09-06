@@ -622,3 +622,71 @@ dal difetto opposto.
 la prima domanda non e quale delle due sia sbagliata: e **quale scenario la sua
 semina rappresenta davvero**. Qui la semina rappresentava un caso che
 l'intenzione scritta nel file non nominava.
+
+---
+
+## Il terzo vaglio indipendente (2026-09-06)
+
+**1 Critical, 3 High, 2 Medium.** Come le due volte precedenti: nessun reperto
+dentro `athlete-guardians.ts`, tutti sul bordo.
+
+| # | gravita | cosa |
+|---|---------|------|
+| R-B | Critical | il riscatto collega un tutore per una via che non passava dal predicato condiviso |
+| R-A | High | due revoche concorrenti si assolvono a vicenda: zero tessere, tutore ancora collegato |
+| R-C | High | revocare la madre revocava la riga del padre che condivide l'indirizzo di famiglia |
+| R-G | High | abbraccio mortale con il riallineamento di stagione: PP02-D34 su un'altra coppia |
+| R-E | Medium | `guardians` con un valore non-elenco cancellava tutte le righe |
+| R-H | Medium | due salvataggi concorrenti perdono un tutore (debito D49) |
+
+### Il Critical, e come l'ho generato io
+
+La revisione precedente aveva trovato che lo sweep dei gettoni era **piu
+stretto** del riscatto. Ho unito le due letture in una funzione sola e ho
+scritto nel codice: «allargare questa porta allarga anche la revoca, e non si
+puo piu allargarne una sola».
+
+**Era falso, e l'ho scritto con la sicurezza di chi ha appena misurato.** La
+funzione condivisa governa la decisione sul **ruolo**; il collegamento del
+tutore avviene piu sotto, su `parentTarget?.guardian`, che dipende dalle sole
+`athlete_id` + `guardian_id` e avviene **qualunque sia il ruolo**. Un carico con
+`role: "trainer"` e le due chiavi collegava percio un tutore che nessuna revoca
+sapeva chiudere — e riapriva la riga: `revoked_at` azzerato, utenza riscritta,
+in audit un `accessTokenRedeemed` che diceva soltanto `trainer`.
+
+Avevo unito **due domande diverse** credendole una: «questo gettone concede il
+ruolo di genitore?» e «questo gettone puo collegare un tutore?». La seconda e
+piu larga, ed e quella che la revoca deve farsi. Ora sono due funzioni con una
+relazione dichiarata — la stretta e per costruzione un sottoinsieme della larga
+— e una sonda enumera le forme di carico per verificarlo.
+
+### Il filo, tre volte su tre
+
+La revisione l'ha detto meglio di come l'avevo capito io:
+
+> le tre affermazioni di sicurezza piu forti del pacchetto sono documentate nei
+> commenti e non presidiate da nessuna prova. Ogni volta la frase e vera del
+> pezzo che e stato corretto e falsa del pezzo accanto che nessuno ha
+> riguardato.
+
+Tre affermazioni, tutte mie, tutte false: «le due porte sono larghe uguale»
+(R-B), «non c'e un ordine di acquisizione da incrociare con il rollover» (R-G),
+«non c'e uno snapshot da rimandare» (R-H, in parte).
+
+**La regola che ne ricavo.** Un commento che afferma una proprieta di sicurezza
+e un debito finche non ha una sonda che la misura. Le tre affermazioni sono ora
+tre asserzioni: l'invariante fra i due predicati, il vaglio strutturale su chi
+prende l'ordine dei blocchi, e la misura dichiarata di D49.
+
+### La sonda che non discriminava
+
+Il vaglio strutturale di R-G cercava `bloccaSchede` dentro il testo dei moduli.
+Togliendo la **chiamata** e lasciando l'`import`, restava verde: cercava il
+nome, non l'atto. Se ne e accorta la verifica di mutazione, non la lettura —
+ed e l'unica delle undici mutazioni di questa tornata a non aver discriminato.
+
+Corretta a cercare `bloccaSchede(`, e diventata rossa **subito**, su un terzo
+modulo che nessuno aveva guardato: `unlinkDirectAthleteProfile` scriveva le
+schede in massa senza prendere l'ordine. Da li il residuo vero — dentro **una**
+transazione i due sweep prendevano due lotti, e due lotti crescenti non sono un
+ordine crescente — chiuso bloccando l'unione a monte, in un lotto solo.

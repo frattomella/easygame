@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 
 import { normalizeAccessRole } from "../access-roles";
+import { bloccaSchede } from "./athlete-lock-order";
 
 import { prisma } from "./prisma";
 
@@ -304,39 +305,6 @@ export const withGuardianWriter = async <T>(
  * esegue SQL grezzo, e li non c'e concorrenza da ordinare. Un blocco che non si
  * puo prendere non deve far fallire una scrittura corretta.
  */
-const bloccaSchede = async (tx: any, athleteIds: string[]) => {
-  const ordinati = Array.from(new Set(athleteIds.filter(Boolean))).sort();
-  if (!ordinati.length) return;
-
-  try {
-    await tx.$queryRawUnsafe(
-      `SELECT "id" FROM "athletes" WHERE "id" = ANY($1::uuid[]) ORDER BY "id" FOR UPDATE`,
-      ordinati,
-    );
-  } catch (errore) {
-    /*
-      **Un `catch` muto su un blocco nasconde proprio cio che il blocco esiste
-      per evitare.**
-
-      Il ripiego serve al doppio di Prisma dei test unitari, che SQL grezzo non
-      lo esegue: li non c'e concorrenza da ordinare, e far fallire una scrittura
-      corretta sarebbe sbagliato. Ma inghiottire **tutto** inghiottiva anche un
-      `40P01`, e la transazione proseguiva avvelenata fino a morire su
-      un'istruzione successiva con un `25P02` che non nomina ne la causa ne il
-      rimedio: l'operatore leggeva «revoca non riuscita» e nessuno sapeva perche.
-
-      Passa in silenzio solo cio che dice «qui SQL grezzo non c'e». Tutto il
-      resto risale, con il suo codice.
-    */
-    const messaggio = String((errore as any)?.message || errore);
-    const nonSupportato =
-      typeof (tx as any)?.$queryRawUnsafe !== "function" ||
-      /is not a function|not implemented|non supportat/i.test(messaggio);
-
-    if (!nonSupportato) throw errore;
-  }
-};
-
 /* -------------------------------------------------------------------------
  * 3. Scrittura
  * ---------------------------------------------------------------------- */
@@ -1286,16 +1254,63 @@ export const revokeGuardianAccessInClub = async (
     const righeToccate = (await tx.athleteGuardian.findMany({
       where: dove,
     })) as GuardianRow[];
-    for (const athleteId of new Set(righeToccate.map((riga) => riga.athlete_id))) {
+
+    /*
+      **Un indirizzo di famiglia non e una persona.**
+
+      Il ramo `{ email: indirizzo }` serve a raggiungere chi non ha un'utenza:
+      un tutore dichiarato solo per recapito si revoca cosi, e senza quel ramo
+      non lo si revocherebbe affatto. Ma sulla configurazione ordinaria di
+      ADR-0114 — madre e padre, **un solo indirizzo di famiglia** — prendeva
+      anche la riga dell'altro genitore, che non aveva lasciato niente.
+
+      Il danno era doppio, e nessuno dei due richiedeva un attaccante: il padre
+      perdeva l'area famiglia del **proprio** figlio, e il suo indirizzo — che
+      e l'unico della famiglia — finiva nel registro delle identita revocate,
+      che e l'elenco con cui i promemoria del certificato medico e i solleciti
+      di pagamento decidono chi **non** deve ricevere. Risultato: nessuno
+      riceveva piu gli avvisi sulla salute del minore.
+
+      Il travaso aveva gia dovuto imparare a **non fondere due persone che
+      condividono un indirizzo**, e ne ha fatto due righe con due chiavi. Qui
+      quella distinzione si rispetta: se la revoca nomina un'utenza precisa e
+      su quella scheda esiste una riga che e **provatamente sua** — chiavata
+      sull'utenza, o che la porta addosso — allora le righe raggiunte dal solo
+      indirizzo sono di **un'altra persona**, e non si toccano.
+
+      Quando invece nessuna riga e provatamente sua, l'indirizzo resta l'unico
+      appiglio e continua a valere: una revoca che non sapesse piu revocare un
+      tutore di solo recapito sarebbe il difetto opposto.
+    */
+    const sua = (riga: GuardianRow) =>
+      Boolean(utenza) &&
+      (normalizza(riga.user_id) === utenza ||
+        normalizza(riga.identity_key) === utenza);
+
+    const perScheda = new Map<string, GuardianRow[]>();
+    for (const riga of righeToccate) {
+      const gia = perScheda.get(riga.athlete_id);
+      if (gia) gia.push(riga);
+      else perScheda.set(riga.athlete_id, [riga]);
+    }
+
+    const daRevocare = righeToccate.filter((riga) => {
+      if (!utenza || sua(riga)) return true;
+      return !(perScheda.get(riga.athlete_id) || []).some(sua);
+    });
+
+    if (!daRevocare.length) return 0;
+
+    for (const athleteId of new Set(daRevocare.map((riga) => riga.athlete_id))) {
       await revocaIGettoni(
         tx,
         athleteId,
-        righeToccate.filter((riga) => riga.athlete_id === athleteId),
+        daRevocare.filter((riga) => riga.athlete_id === athleteId),
       );
     }
 
     const esito = await tx.athleteGuardian.updateMany({
-      where: dove,
+      where: { id: { in: daRevocare.map((riga) => riga.id) } },
       data: {
         revoked_at: new Date(),
         user_id: null,
@@ -1589,7 +1604,26 @@ const proiettaRiga = (riga: GuardianRow) => ({
  * La difesa esisteva ed era semplicemente **disarmata**: il riscatto rifiuta un
  * gettone il cui record non sia attivo.
  */
-export const eCaricoDiTutore = (carico: unknown): boolean => {
+/**
+ * **Vero se riscattare questo carico puo COLLEGARE un tutore a un minore.**
+ *
+ * E la domanda che deve farsi **la revoca**, e non e la stessa che si fa il
+ * riscatto per decidere il ruolo da concedere. Averle confuse in una funzione
+ * sola e stato un difetto Critical: il riscatto risolve il tutore da
+ * `athlete_id` + `guardian_id` e lo collega **qualunque sia il ruolo scritto
+ * nel carico**, mentre la revoca chiudeva solo i gettoni che concedevano il
+ * ruolo di genitore. Un carico con `role: "trainer"` e le due chiavi
+ * collegava percio un tutore che **nessuna revoca sapeva chiudere**: chi lo
+ * aveva in tasca riapriva la riga — `revoked_at` azzerato, utenza riscritta —
+ * e rientrava nel fascicolo sanitario del minore, con in audit un
+ * `accessTokenRedeemed` che diceva soltanto `trainer`.
+ *
+ * Questa e percio la condizione **larga**, e vale la regola: cio che la revoca
+ * chiude deve contenere cio che il riscatto collega. `eCaricoDiTutore` qui
+ * sotto e un suo sottoinsieme per costruzione, e la sonda del terzo vaglio lo
+ * misura su ogni forma di carico.
+ */
+export const eCaricoCheApreUnaTutela = (carico: unknown): boolean => {
   const c =
     carico && typeof carico === "object" ? (carico as Record<string, any>) : {};
 
@@ -1598,12 +1632,30 @@ export const eCaricoDiTutore = (carico: unknown): boolean => {
   }
 
   /*
-    Le due chiavi che il riscatto legge, **nella grafia in cui le legge**:
-    `athlete_id` e `guardian_id`. Se un giorno ne accettasse anche la forma
-    in cammello, la si aggiunge **qui**, e le due porte restano larghe uguale.
+    Le due chiavi che il riscatto legge per risolvere il tutore, **nella grafia
+    in cui le legge**. Se un giorno ne accettasse anche la forma in cammello,
+    la si aggiunge **qui**: e questa la funzione che tiene insieme le due porte.
   */
-  if (!String(c.athlete_id || "").trim() || !String(c.guardian_id || "").trim()) {
-    return false;
+  return Boolean(
+    String(c.athlete_id || "").trim() && String(c.guardian_id || "").trim(),
+  );
+};
+
+/**
+ * **Vero se riscattare questo carico concede il RUOLO di genitore.**
+ *
+ * Sottoinsieme di `eCaricoCheApreUnaTutela`: un carico che non collega nessun
+ * tutore non concede il ruolo, e un carico che porta un ruolo diverso collega
+ * il tutore **senza** concederlo. La revoca non usa questa: usa quella larga.
+ */
+export const eCaricoDiTutore = (carico: unknown): boolean => {
+  if (!eCaricoCheApreUnaTutela(carico)) return false;
+
+  const c =
+    carico && typeof carico === "object" ? (carico as Record<string, any>) : {};
+
+  if (String(c.token_type || c.tokenType || "").trim() === "parent_access") {
+    return true;
   }
 
   const ruolo = normalizeAccessRole(c.role || "member") || "member";
@@ -1639,7 +1691,8 @@ const gettoniDeiTutori = async (
       riga?.payload && typeof riga.payload === "object" ? riga.payload : {};
     const atleta = String(carico.athlete_id || "").trim();
     if (!atleta || !interessati.has(atleta)) continue;
-    if (!eCaricoDiTutore(carico)) continue;
+    /* La domanda **larga**: si chiude tutto cio che puo collegare un tutore. */
+    if (!eCaricoCheApreUnaTutela(carico)) continue;
 
     const gia = per.get(atleta);
     if (gia) gia.push(riga);

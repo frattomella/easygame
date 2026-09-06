@@ -1,3 +1,4 @@
+import { bloccaSchede } from "./athlete-lock-order";
 import { prisma } from "./prisma";
 import { buildMembershipAccessScopeConditions } from "./access-scope-query";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
@@ -563,6 +564,25 @@ export const runAthleteMembershipRollover = async (options: {
         alignByCategory.set(categoryId, bucket);
       }
     }
+
+    /*
+      **L'ordine globale di acquisizione, prima di toccare le schede.**
+
+      Il ciclo qui sotto scrive **per categoria**, e l'ordine delle categorie e
+      quello di inserzione della mappa: scorrelato dagli identificativi. La
+      revoca di un tutore prende invece le stesse schede in ordine crescente di
+      identificativo, e due ordini diversi sugli stessi blocchi sono un
+      abbraccio mortale — misurato, con la revoca come vittima e niente in
+      audit.
+
+      Prendere qui i blocchi tutti insieme e nell'ordine comune costa una
+      istruzione e toglie l'incrocio: il ciclo che segue trova le righe gia
+      bloccate e non ne acquisisce di nuove. Vedi `athlete-lock-order.ts`.
+    */
+    await bloccaSchede(
+      tx,
+      [...alignByCategory.values()].flat(),
+    );
 
     for (const [categoryId, athleteIds] of alignByCategory.entries()) {
       await tx.athlete.updateMany({

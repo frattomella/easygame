@@ -35,6 +35,7 @@ import { normalizeClubSites } from "@/lib/club-sites";
 import {
   unlinkClubJsonProfiles,
   unlinkProfileResources,
+  bloccaLeSchedeDiUnaRevoca,
   unlinkParentGuardians,
   unlinkDirectAthleteProfile,
 } from "./profile-account-links";
@@ -1139,6 +1140,14 @@ export const revokeClubAccess = async (
   }
 
   const ripulito = await prisma.$transaction(async (tx) => {
+    /* L'ordine comune, in un lotto solo, prima di ogni sweep. */
+    await bloccaLeSchedeDiUnaRevoca(
+      tx,
+      tessera.organization_id,
+      tessera.user_id,
+      utente?.email || null,
+    );
+
     await tx.clubAccessScope.deleteMany({
       where: { organization_user_id: tessera.id },
     });

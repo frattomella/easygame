@@ -7000,3 +7000,72 @@ diventare rossa — e solo la sua.
 
 **Vedi anche.** ADR-0118 (un tutore e una riga), ADR-0119 (l'archivio fa valere
 il proprietario), ADR-0114 (l'indirizzo di un tutore), CLAUDE.md §2.
+
+## ADR-0138 — Un commento che afferma una proprieta di sicurezza e un debito finche non ha una sonda
+
+**Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
+terzo vaglio indipendente
+
+### Il fatto
+
+Tre revisioni indipendenti, dodici piu sei reperti, e una regolarita che non e
+piu un caso: **nessuno dentro il modulo proprietario, tutti sul confine**. La
+terza ha aggiunto l'osservazione che spiega perche.
+
+Le tre affermazioni di sicurezza piu forti del pacchetto erano scritte nei
+commenti e non erano presidiate da nessuna prova. Tutte e tre false, e tutte e
+tre scritte subito dopo aver misurato — vere del pezzo appena corretto, false
+del pezzo accanto:
+
+* «le due porte sono larghe uguale» — la funzione condivisa governava il
+  **ruolo**, mentre il collegamento del tutore avveniva per un'altra via. Un
+  gettone con `role: "trainer"` collegava un tutore che nessuna revoca chiudeva:
+  **Critical**;
+* «non c'e un ordine di acquisizione da incrociare con il rollover» — la revoca
+  blocca un elenco, e il riallineamento di stagione lo prendeva in un ordine
+  suo: PP02-D34 riaperto su un'altra coppia di tabelle;
+* «non c'e uno snapshot da rimandare» — vero della revoca, falso del
+  salvataggio della scheda (D49).
+
+### La decisione
+
+**Un'affermazione di sicurezza in un commento non vale finche non esiste
+un'asserzione che la misura.** Le tre sono diventate: l'invariante fra i due
+predicati del gettone (enumerando le forme di carico), il vaglio strutturale su
+chi prende l'ordine dei blocchi, e la misura dichiarata di D49.
+
+E il seguito di ADR-0117 su un'altra superficie: li era «una difesa che dipende
+da un'enumerazione ha un test che enumera il dominio», qui e «una difesa che
+dipende da una promessa ha un test che la verifica».
+
+### Due domande che sembravano una
+
+`eCaricoDiTutore` (concede il **ruolo** di genitore) e ora un sottoinsieme per
+costruzione di `eCaricoCheApreUnaTutela` (puo **collegare** un tutore), ed e la
+seconda che la revoca usa. La regola generale: **cio che una revoca chiude deve
+contenere cio che un riscatto apre**, e quando due predicati stanno in una
+relazione di contenimento, la relazione va scritta come asserzione, non come
+frase.
+
+### L'ordine dei blocchi ha un proprietario
+
+`athlete-lock-order.ts`. Non perche la funzione fosse duplicata — non lo era —
+ma perche da quando i domini che bloccano le schede sono due, l'ordine e un
+**patto fra loro**, e un patto scritto in casa di uno dei contraenti non e un
+patto. La regola completa: un lotto solo, crescente, prima di scrivere; poi la
+scheda, poi le sue righe figlie.
+
+### La sonda che non discriminava, e cosa ha trovato appena ha iniziato
+
+Il vaglio strutturale cercava `bloccaSchede` nel testo dei moduli. Togliendo la
+**chiamata** e lasciando l'`import` restava verde: cercava il nome, non l'atto.
+L'ha scoperto la verifica di mutazione, non la lettura — unica su undici a non
+discriminare.
+
+Corretta a cercare la chiamata, e diventata rossa subito su un terzo modulo che
+nessuno stava guardando, e di li si e visto il residuo vero: dentro **una**
+transazione i due sweep di una revoca prendevano due lotti distinti, e due lotti
+crescenti non sono un ordine crescente. Chiuso bloccando l'unione a monte.
+
+**Vedi anche.** ADR-0137 (un confine si difende dai due lati), ADR-0117
+(enumerare il dominio), ADR-0110, CLAUDE.md §2.

@@ -6833,10 +6833,23 @@ const applicaGuardieDiModifica = async (
           non si legge affatto: erano il surrogato della chiave unica, e chi
           li mandava non sapeva di mandarli.
         */
-        tutoriInArrivo =
-          "guardians" in inArrivo
-            ? readGuardianInputFromCard(inArrivo.guardians)
-            : null;
+        /*
+          **Un elenco, non una chiave presente.**
+
+          `"guardians" in inArrivo` distingue «non ne parlo» da «non ce ne
+          sono», ma promuove a dichiarazione anche un valore che un elenco non
+          e: `null`, un oggetto, una stringa. `readGuardianInputFromCard` li
+          riduce tutti a `[]`, e `[]` significa «toglili tutti» — cosi un
+          client parziale che serializzi `guardians: null` invece di ometterlo
+          cancellava in silenzio l'anagrafica dei tutori della scheda.
+
+          Una dichiarazione e percio un **elenco**. Cio che elenco non e viene
+          ignorato, come l'assenza: fra distruggere e non fare niente davanti a
+          un dato malformato, non si distrugge.
+        */
+        tutoriInArrivo = Array.isArray(inArrivo.guardians)
+          ? readGuardianInputFromCard(inArrivo.guardians)
+          : null;
 
         for (const chiave of GUARDIAN_KEYS_NON_SCRIVIBILI) {
           delete inArrivo[chiave];

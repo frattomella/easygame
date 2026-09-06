@@ -544,16 +544,18 @@ export async function POST(request: Request) {
     let role = normalizeAccessRole(payload.role || "member") || "member";
 
     /*
-      **La stessa domanda che si fa la revoca.**
+      **Il ruolo, che non e la stessa domanda della revoca.**
 
-      Questa porta accettava piu di quanto la revoca sapesse chiudere: qui
-      bastava `athlete_id` + `guardian_id` senza alcun `token_type`, mentre lo
-      sweep dei gettoni ne pretendeva uno esattamente `parent_access`. Un
-      invito coniato senza quella chiave sopravviveva percio a **ogni** revoca,
-      e chi lo aveva in tasca rientrava nel fascicolo del minore.
+      Qui si decide soltanto **quale ruolo** concedere. Il collegamento del
+      tutore avviene piu sotto, su `parentTarget?.guardian`, che dipende dalle
+      sole `athlete_id` + `guardian_id` e avviene **qualunque sia il ruolo**.
 
-      Le due letture sono ora **una funzione sola**: allargare questa porta
-      allarga anche la revoca, e non si puo piu allargarne una sola.
+      Le due domande sono percio due funzioni, e stanno in ordine:
+      `eCaricoDiTutore` (il ruolo) e un sottoinsieme di
+      `eCaricoCheApreUnaTutela` (cio che collega un tutore), ed e **quella
+      larga** che la revoca usa. Averle confuse in una funzione sola lasciava
+      passare un carico con `role: "trainer"` e le due chiavi: collegava il
+      tutore e nessuna revoca lo chiudeva.
     */
     if (eCaricoDiTutore(payload)) {
       role = "parent";

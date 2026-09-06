@@ -2725,3 +2725,24 @@ buco di accesso.
 L'elenco mostrato in area famiglia proietta anche le righe revocate con i loro
 recapiti. Nessun accesso ne deriva; e un'esposizione di dato personale fra
 tutori della stessa scheda.
+
+### D49 — Due salvataggi concorrenti della stessa scheda perdono un tutore
+
+Il salvataggio dell'anagrafica **sostituisce** l'elenco dei tutori. Due
+segreterie sulla stessa scheda, la seconda con l'elenco letto un istante prima:
+entrambe riescono, e la riga che la prima aveva appena creato sparisce — nome,
+telefono e codice fiscale di un tutore legittimo, in silenzio.
+
+Non e una corsa che l'ordine dei blocchi non governa: le due transazioni sono
+serializzate da `bloccaSchede`, ed e la semantica di sostituzione applicata a
+uno snapshot vecchio. Lo stesso esito si ottiene in sequenza con due linguette
+aperte.
+
+**Perche non si chiude qui.** Chiuderla vuol dire concorrenza ottimistica sul
+salvataggio della **scheda** — una versione che il client rimanda e il server
+verifica — e riguarda ogni campo dell'anagrafica, non i tutori. Farla dentro
+questo pacchetto la metterebbe in uno solo dei posti che ne hanno bisogno.
+
+**Perimetro di sicurezza (misurato, e verde):** nessuna riga revocata risuscita
+e nessun accesso si apre. Il danno e la perdita di un recapito, non un varco.
+Sonda: `scripts/pp-02-terzo-vaglio.mjs`, sezione R-H, che stampa la misura.

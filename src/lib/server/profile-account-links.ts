@@ -1,3 +1,4 @@
+import { bloccaSchede } from "./athlete-lock-order";
 import { athleteWithinAccessScope } from "./access-scope-query";
 import {
   findGuardianRow,
@@ -870,14 +871,23 @@ const unlinkParentCollection = (
  *
  * - **non c'e una finestra**, perche non c'e un intervallo fra lo scegliere e
  *   l'agire: e la stessa istruzione a fare tutte e due le cose;
- * - **non c'e un ordine di acquisizione** da incrociare con il rollover,
- *   perche non si prendono blocchi su un elenco;
  * - **non c'e un tetto**, perche il costo non cresce con i tesserati del club
  *   ma con le righe che riguardano davvero quella persona — i suoi figli.
  *
- * `PP02-D34` e `PP02-D33` si chiudono tutti e due, e non perche sia stata
- * messa una serratura piu grossa: perche la domanda a cui rispondevano non si
- * pone piu.
+ * `PP02-D33` si chiude, e non perche sia stata messa una serratura piu grossa:
+ * perche la domanda a cui rispondeva non si pone piu.
+ *
+ * **Correzione (2026-09-06).** Questa scheda affermava anche che «non c'e un
+ * ordine di acquisizione da incrociare con il rollover, perche non si prendono
+ * blocchi su un elenco». Era falso, e una revisione indipendente l'ha
+ * misurato: `revokeGuardianAccessInClub` **blocca un elenco** di schede, e il
+ * riallineamento di stagione le prendeva in un ordine suo. `PP02-D34` non era
+ * quindi chiuso — era spostato su un'altra coppia di tabelle.
+ *
+ * L'ordine ha ora un proprietario unico (`athlete-lock-order.ts`) e due
+ * partecipanti dichiarati. Una classe non si dichiara chiusa perche e sparita
+ * l'istanza che si stava guardando: si dichiara chiusa quando esiste un posto
+ * solo in cui l'ordine si stabilisce.
  *
  * ## Il perimetro resta quello di ADR-0110
  *
@@ -885,6 +895,54 @@ const unlinkParentCollection = (
  * e revocare una tessera. Toglie l'accesso del tutore alle schede su cui
  * compare, e nient'altro.
  */
+/**
+ * **Blocca in un colpo solo tutte le schede che una revoca completa tocchera.**
+ *
+ * Gli sweep di questo file toccano due insiemi diversi di schede: i figli su
+ * cui quella persona compare come tutore, e la sua propria scheda atleta. Ogni
+ * sweep prende i suoi blocchi in ordine crescente — ma **due lotti crescenti
+ * non sono un ordine crescente**: se la propria scheda ha un identificativo
+ * piu basso di quello di un figlio, la transazione prende prima l'alto e poi
+ * il basso, e incrocia chi le prende tutte in fila.
+ *
+ * Prenderli qui, **prima**, in un lotto solo, rende monotona l'intera revoca:
+ * gli sweep che seguono trovano le righe gia bloccate e non ne acquisiscono di
+ * nuove. Vedi `athlete-lock-order.ts`.
+ */
+export const bloccaLeSchedeDiUnaRevoca = async (
+  tx: any,
+  organizationId: string,
+  userId: string,
+  userEmail: string | null,
+) => {
+  const indirizzo = String(userEmail || "").trim().toLowerCase();
+
+  const [proprie, comeTutore] = await Promise.all([
+    tx.athlete.findMany({
+      where: { organization_id: organizationId, user_id: userId },
+      select: { id: true },
+    }),
+    tx.athleteGuardian.findMany({
+      where: {
+        organization_id: organizationId,
+        OR: [
+          { user_id: userId },
+          { identity_key: userId },
+          ...(indirizzo
+            ? [{ email: indirizzo }, { identity_key: indirizzo }]
+            : []),
+        ],
+      },
+      select: { athlete_id: true },
+    }),
+  ]);
+
+  await bloccaSchede(tx, [
+    ...proprie.map((riga: { id: string }) => riga.id),
+    ...comeTutore.map((riga: { athlete_id: string }) => riga.athlete_id),
+  ]);
+};
+
 export const unlinkParentGuardians = async (
   tx: any,
   organizationId: string,
@@ -920,6 +978,35 @@ export const unlinkParentGuardians = async (
     **conserva** quella da genitore non perde i figli.
   */
   if (!isParentAccessRole(accessRole)) {
+    /*
+      **Il conteggio va serializzato, o due revoche si assolvono a vicenda.**
+
+      Sotto `READ COMMITTED` la `DELETE` non ancora committata dell'altra
+      transazione e invisibile: due revoche in parallelo sulle due tessere
+      della stessa persona vedono **ciascuna la tessera dell'altra**, e
+      nessuna delle due chiude l'area famiglia. Esito misurato: zero tessere
+      nel club, riga tutore viva con l'utenza addosso, due righe di audit che
+      dicono entrambe «revocato».
+
+      Un blocco consultivo sulla coppia (club, persona) le mette in fila: la
+      seconda aspetta la prima, poi conta e vede zero. E **una** presa sola su
+      una chiave calcolata, non un ordine fra tabelle, quindi non aggiunge
+      nessun abbraccio mortale a quelli che questo pacchetto gia sorveglia.
+    */
+    try {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+        `easygame.tutori:${organizationId}:${userId}`,
+      );
+    } catch (errore) {
+      /* Come `bloccaSchede`: passa in silenzio solo «qui SQL grezzo non c'e». */
+      const messaggio = String((errore as any)?.message || errore);
+      const nonSupportato =
+        typeof (tx as any)?.$executeRawUnsafe !== "function" ||
+        /is not a function|not implemented|non supportat/i.test(messaggio);
+      if (!nonSupportato) throw errore;
+    }
+
     const altreTessere = await tx.organizationUser.count({
       where: {
         organization_id: organizationId,
@@ -957,6 +1044,12 @@ export const unlinkDirectAthleteProfile = async (
     where: { organization_id: organizationId, user_id: userId },
     select: { id: true },
   });
+
+  /* L'ordine comune, per chi arriva qui senza passare da una revoca completa. */
+  await bloccaSchede(
+    tx,
+    schede.map((riga: { id: string }) => riga.id),
+  );
 
   const result = await tx.athlete.updateMany({
     where: { organization_id: organizationId, user_id: userId },
