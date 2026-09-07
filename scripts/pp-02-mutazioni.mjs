@@ -348,6 +348,46 @@ const impronta = () => {
 const PRIMA = impronta();
 
 console.log("\n=== VERIFICA PER MUTAZIONE ===\n");
+
+/**
+ * **Prima di provare che una mutazione fa diventare rossa una sonda, bisogna
+ * sapere che era verde.**
+ *
+ * Sembra pedanteria e non lo e: una corsa interrotta a meta lascia una
+ * mutazione applicata, e la corsa successiva prende **quell'albero** come
+ * riferimento. Da li ogni conto torna — la sonda e gia rossa, quindi la
+ * mutazione «non la fa diventare rossa» e viene segnata come non mordente, e
+ * il confronto finale trova l'albero «identico a prima» perche era gia sporco
+ * quando si e cominciato. E successo, e ha prodotto un falso reperto su M11.
+ *
+ * E lo stesso principio che questo file esiste per applicare, rivolto contro
+ * se stesso: una sonda verde dice due cose che non si distinguono guardandola.
+ * Qui la domanda e «verde perche l'invariante vale, o verde perche sto
+ * misurando un albero che non e quello che credo?».
+ */
+const SONDE = [
+  { nome: "unita", comando: UNITA },
+  { nome: "matrice", comando: MATRICE },
+  { nome: "censimento", comando: CENSIMENTO },
+];
+
+const rosseAllaPartenza = SONDE.filter(({ comando }) => diventaRossa(comando));
+
+if (rosseAllaPartenza.length) {
+  console.log(
+    "  Le sonde non sono verdi **prima** di mutare: " +
+      rosseAllaPartenza.map((s) => s.nome).join(", "),
+  );
+  console.log(
+    "\n  Non si puo misurare se una mutazione morde partendo da un albero gia\n" +
+      "  rotto. Di solito e una corsa precedente interrotta a meta, che ha\n" +
+      "  lasciato una mutazione applicata: `git status src/` lo dice, e\n" +
+      "  `git checkout -- <file>` lo rimette a posto.\n",
+  );
+  process.exit(1);
+}
+
+console.log("  Le tre sonde sono verdi alla partenza.\n");
 console.log("  Una mutazione che lascia la sonda verde e una sonda che non misura.\n");
 
 const esiti = [];

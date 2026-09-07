@@ -600,3 +600,35 @@ viene scritto, non il giorno in cui un cliente perde una revoca.
 
 Il censimento stampa e chiude con `process.exit` **solo quando e il comando**:
 importato, e una funzione silenziosa.
+
+### La sonda che misura se stessa
+
+`pp-02-mutazioni.mjs` verifica che le sonde siano **verdi prima** di mutare, e
+si rifiuta di partire se non lo sono.
+
+Non e pedanteria: una corsa interrotta a meta lascia una mutazione applicata, e
+la corsa successiva prende quell'albero come riferimento. Da li ogni conto
+torna — la sonda e gia rossa, quindi la mutazione «non la fa diventare rossa» e
+viene segnata come non mordente, e il confronto finale trova l'albero
+«identico a prima» perche era gia sporco quando si e cominciato. E successo, e
+ha prodotto un falso reperto.
+
+E lo stesso principio che quel file esiste per applicare, rivolto contro se
+stesso: **una sonda verde dice due cose che non si distinguono guardandola.**
+Qui la domanda e «verde perche l'invariante vale, o verde perche sto misurando
+un albero che non e quello che credo?».
+
+Se la guardia scatta: `git status src/` dice quale file, `git checkout -- <file>`
+lo rimette a posto.
+
+### La diagnosi del travaso, in sola lettura
+
+`pp-02-diagnosi-travaso.mjs` conta le righe che portano **l'impronta della
+migrazione**: un marchio che convive con un'utenza (`revoked_at` o
+`contact_only` **con** `user_id`). Nessuna porta del prodotto la produce —
+ogni revoca azzera l'utenza, ogni riscatto toglie il solo-recapito — quindi una
+riga cosi viene dalla §3 del travaso.
+
+Non scrive niente e si puo eseguire su qualunque database. Serve a decidere se
+la bonifica di [16 §D-PP02-A](16-technical-debt.md) sia urgente: sul database di
+sviluppo il conto e **zero**.
