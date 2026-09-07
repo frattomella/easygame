@@ -1,6 +1,16 @@
 import { randomUUID } from "crypto";
 
 import { normalizeAccessRole } from "../access-roles";
+import {
+  isGuardianContactOnly,
+  isGuardianExcluded,
+  isGuardianRevoked,
+} from "../guardians/exclusion";
+import {
+  projectGuardianEntries,
+  type GuardianLiveInvite,
+  type GuardianRow,
+} from "../guardians/projection";
 import { bloccaSchede } from "./athlete-lock-order";
 
 import { prisma } from "./prisma";
@@ -182,6 +192,28 @@ const CHIAVI_CON_UNA_COLONNA = new Set([
   "contact_only",
   "accessRevokedAt",
   "access_revoked_at",
+  /*
+    **Anche le grafie della riga**, da quando `isGuardianExcluded` le legge.
+
+    Il predicato unico e totale sulle due forme del dominio — la riga ha
+    `revoked_at`, la voce ha `accessRevokedAt` — e questo e giusto: un
+    predicato che vale solo su meta delle forme e un predicato che qualcuno
+    chiamera sull'altra meta. Ma da quel momento un residuo storico che
+    portasse `revoked_at` dentro `data` diventerebbe un marchio, e la
+    proiezione lo spargerebbe sulla voce.
+
+    Il travaso non le ha mai scritte (la migrazione `20260906180000` toglie dal
+    residuo `accessRevokedAt` e `access_revoked_at`, e la coppia con
+    l'underscore non e mai stata una chiave del blob): l'archivio di oggi non
+    ne contiene. Si chiude comunque la strada per cui domani ci finirebbero,
+    perche l'invariante non deve dipendere da un censimento dei dati.
+  */
+  "revokedAt",
+  "revoked_at",
+  "identityKey",
+  "identity_key",
+  "position",
+  "escluseDietro",
   "linkedAt",
   "linked_at",
   "parentAccessTokenValue",
@@ -315,28 +347,13 @@ export const withGuardianWriter = async <T>(
  * 3. Scrittura
  * ---------------------------------------------------------------------- */
 
-export type GuardianRow = {
-  id: string;
-  organization_id: string;
-  athlete_id: string;
-  identity_key: string;
-  user_id: string | null;
-  email: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  phone: string | null;
-  relationship: string | null;
-  contact_only: boolean;
-  linked_at: Date | null;
-  revoked_at: Date | null;
-  access_token_value: string | null;
-  access_token_status: string | null;
-  access_token_expires_at: Date | null;
-  access_token_generated_at: Date | null;
-  legacy_id: string | null;
-  data: unknown;
-  position: number;
-};
+/**
+ * La riga vive in `@/lib/guardians/projection`, insieme alla funzione che la
+ * proietta: il tipo e la sua proiezione sono la stessa cosa detta due volte, e
+ * separarli e il modo in cui una delle due invecchia. Si riesporta qui perche
+ * questo modulo resta il punto d'ingresso del dominio.
+ */
+export type { GuardianRow };
 
 /**
  * **L'ordine che l'array aveva e la tabella non ha.**
@@ -430,6 +447,80 @@ export const findGuardianRow = async (
 /* -------------------------------------------------------------------------
  * 5. Le porte del dominio
  * ---------------------------------------------------------------------- */
+
+/**
+ * **La guardia che sta davanti a ogni porta che fa nascere un'identita.**
+ *
+ * ---
+ *
+ * ## La regola
+ *
+ * Cio che concede accesso non e scrivere un indirizzo: e scriverne uno che
+ * **corrisponde a un'utenza**. Un tutore dichiarato con un indirizzo che non
+ * appartiene a nessuno non apre niente, e la segreteria deve poterlo scrivere
+ * con il permesso sull'anagrafica. Un indirizzo che e l'utenza verificata di
+ * qualcuno apre invece l'area famiglia del minore — fascicolo sanitario
+ * compreso — e chiede la chiave che governa proprio questo.
+ *
+ * ## Perche una funzione sola
+ *
+ * Era scritta due volte, e le due stesure **divergevano**: quella del
+ * salvataggio dell'anagrafica cercava l'utenza per identificativo **e** per
+ * indirizzo; quella dell'approvazione di un modulo solo per indirizzo. Una
+ * riga la cui identita fosse un identificativo di utenza — cio che
+ * `guardianIdentityKey` produce quando la compilazione porta un `userId` —
+ * passava percio dalla seconda porta **senza chiedere niente**.
+ *
+ * Oggi nessun chiamante di quella porta manda un `userId`, quindi il buco non
+ * era raggiungibile: e esattamente la forma di difetto che questo pacchetto ha
+ * imparato a riconoscere — «il difetto non era in lui, era nel secondo
+ * chiamante, che non esiste ancora».
+ *
+ * La guardia non ha un parametro che ne allarghi o restringa la semantica:
+ * `canGrantAccess` e un fatto sul chiamante, non una scelta sulla regola.
+ */
+const assertGuardianMutationAllowed = async (
+  tx: any,
+  parametri: {
+    /** Le identita che nasceranno da questa scrittura, gia normalizzate. */
+    identitaNuove: readonly string[];
+    /** Se chi scrive porta la chiave che governa la concessione di un accesso. */
+    canGrantAccess: boolean;
+  },
+): Promise<void> => {
+  if (parametri.canGrantAccess === true) return;
+
+  const nuove = Array.from(new Set(parametri.identitaNuove.filter(Boolean)));
+  if (!nuove.length) return;
+
+  const perUuid = nuove.filter((valore) => SEMBRA_UUID.test(valore));
+  const perEmail = nuove.filter((valore) => valore.includes("@"));
+  if (!perUuid.length && !perEmail.length) return;
+
+  const utenze = (await tx.user.findMany({
+    where: {
+      OR: [
+        ...(perUuid.length ? [{ id: { in: perUuid } }] : []),
+        ...(perEmail.length
+          ? [{ email: { in: perEmail, mode: "insensitive" as const } }]
+          : []),
+      ],
+    },
+    select: { id: true, email: true },
+  })) as Array<{ id: string; email: string | null }>;
+
+  const appartengono = new Set<string>();
+  for (const utenza of utenze) {
+    appartengono.add(normalizza(utenza.id));
+    if (utenza.email) appartengono.add(normalizza(utenza.email));
+  }
+
+  if (nuove.some((chiave) => appartengono.has(chiave))) {
+    throw new Error(
+      "Accesso negato: il legame fra un tutore e un'utenza apre a quella persona l'area famiglia del minore — dato sanitario compreso — e servono sia il permesso sugli accessi sia quello sul dato clinico",
+    );
+  }
+};
 
 /**
  * **Il salvataggio dell'anagrafica, che non e un atto di concessione.**
@@ -817,39 +908,10 @@ export const saveGuardianRegistry = async (
         .map((voce) => voce.chiave as string),
     ].filter((chiave, indice, tutte) => tutte.indexOf(chiave) === indice);
 
-    if (nuove.length && !canGrantAccess) {
-      const perUuid = nuove.filter((valore) =>
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(valore),
-      );
-      const perEmail = nuove.filter((valore) => valore.includes("@"));
-
-      const utenze =
-        perUuid.length || perEmail.length
-          ? await tx.user.findMany({
-              where: {
-                OR: [
-                  ...(perUuid.length ? [{ id: { in: perUuid } }] : []),
-                  ...(perEmail.length
-                    ? [{ email: { in: perEmail, mode: "insensitive" as const } }]
-                    : []),
-                ],
-              },
-              select: { id: true, email: true },
-            })
-          : [];
-
-      const esistentiFraLeUtenze = new Set<string>();
-      for (const utenza of utenze) {
-        esistentiFraLeUtenze.add(normalizza(utenza.id));
-        if (utenza.email) esistentiFraLeUtenze.add(normalizza(utenza.email));
-      }
-
-      if (nuove.some((chiave) => esistentiFraLeUtenze.has(chiave))) {
-        throw new Error(
-          "Accesso negato: il legame fra un tutore e un'utenza apre a quella persona l'area famiglia del minore — dato sanitario compreso — e servono sia il permesso sugli accessi sia quello sul dato clinico",
-        );
-      }
-    }
+    await assertGuardianMutationAllowed(tx, {
+      identitaNuove: nuove,
+      canGrantAccess,
+    });
 
     const sopravvissute = new Set<string>();
     /* Le identita che questo salvataggio ha gia assegnato: la chiave e unica. */
@@ -1204,28 +1266,22 @@ export const upsertGuardianFromFormApproval = async (
       **corrisponde a un'utenza**. Una riga che nasce `contact_only` non apre
       niente e non ha bisogno di chiedere niente.
     */
-    if (!contactOnly && parametri.canGrantAccess !== true) {
-      const gia = await tx.athleteGuardian.findFirst({
-        where: { athlete_id: athleteId, identity_key: identityKey },
-        select: { id: true },
-      });
+    /*
+      Una riga che nasce `contact_only` non apre niente e non ha bisogno di
+      chiedere niente; una identita che esiste gia su questa scheda non
+      **nasce**, quindi non concede.
+    */
+    const giaPresente = contactOnly
+      ? null
+      : await tx.athleteGuardian.findFirst({
+          where: { athlete_id: athleteId, identity_key: identityKey },
+          select: { id: true },
+        });
 
-      if (!gia) {
-        const indirizzo = normalizza(row.email);
-        const utenza = indirizzo
-          ? await tx.user.findFirst({
-              where: { email: { equals: indirizzo, mode: "insensitive" as const } },
-              select: { id: true },
-            })
-          : null;
-
-        if (utenza) {
-          throw new Error(
-            "Accesso negato: il legame fra un tutore e un'utenza apre a quella persona l'area famiglia del minore — dato sanitario compreso — e servono sia il permesso sugli accessi sia quello sul dato clinico",
-          );
-        }
-      }
-    }
+    await assertGuardianMutationAllowed(tx, {
+      identitaNuove: contactOnly || giaPresente ? [] : [identityKey],
+      canGrantAccess: parametri.canGrantAccess,
+    });
 
     /*
       **Una riga nata da un modulo si accoda**, come faceva `guardians.push`.
@@ -1848,6 +1904,62 @@ export const revokeGuardianAccessInClub = async (
  * lo stesso dato che l'ADR dichiara chiuso, e una difesa chiusa da una porta
  * sola non e chiusa: e la stessa forma per cui esiste questo pacchetto.
  */
+/**
+ * **«Questo gettone nomina questa scheda?»**, in una forma sola.
+ *
+ * La domanda la fanno tre porte: il riepilogo dell'oblio, che la **conta**; la
+ * cancellazione della scheda, che li **cancella**; e la cancellazione
+ * dell'interessato. Erano tre `where` scritti a mano, e «un riepilogo che conta
+ * con un criterio e un atto che cancella con un altro non e un riepilogo»: i
+ * due sono gia divergiti una volta.
+ */
+export const guardianInvitesForAthleteWhere = (
+  athleteId: string,
+  organizationId?: string | null,
+) => {
+  /*
+    **Il club non e facoltativo qui, e non e la stessa cosa che sulle righe**
+    (49 §J).
+
+    Su `athlete_guardians` il filtro portante e `athlete_id`, che e una chiave
+    esterna verso una riga globalmente unica: il confine c'e per costruzione, e
+    il club e una difesa in piu. Qui invece si cerca dentro un **carico JSON**,
+    dove `athlete_id` e testo libero che chiunque possa coniare un invito nel
+    proprio club puo scrivere. Un identificativo che non e unico per
+    costruzione non si cerca senza il confine — e questa `where` non conta
+    soltanto: **cancella**.
+
+    Era uno spread condizionale, cioe la forma che ADR-0151 vieta: senza club
+    il filtro spariva invece di far fallire. Tutti i chiamanti di oggi lo
+    passano; il difetto non era in loro, era nel chiamante che non esiste
+    ancora.
+  */
+  const club = String(organizationId || "").trim();
+  if (!club) {
+    throw new Error(
+      "Accesso negato: gli inviti di una scheda si cercano solo dentro un club",
+    );
+  }
+
+  return {
+    resource_type: "access_tokens",
+    organization_id: club,
+    payload: { path: ["athlete_id"], equals: athleteId },
+  };
+};
+
+/** Quanti inviti nominano questa scheda. La stessa domanda della cancellazione. */
+export const countGuardianInvitesForAthlete = async (
+  client: any,
+  athleteId: string,
+  organizationId?: string | null,
+): Promise<number> =>
+  Number(
+    (await (client || prisma).clubResourceItem.count({
+      where: guardianInvitesForAthleteWhere(athleteId, organizationId),
+    })) || 0,
+  );
+
 export const eraseGuardianInvitesForAthlete = async (
   client: any,
   athleteId: string,
@@ -1856,11 +1968,7 @@ export const eraseGuardianInvitesForAthlete = async (
   const tx = client || prisma;
 
   const esito = await tx.clubResourceItem.deleteMany({
-    where: {
-      resource_type: "access_tokens",
-      ...(organizationId ? { organization_id: organizationId } : {}),
-      payload: { path: ["athlete_id"], equals: athleteId },
-    },
+    where: guardianInvitesForAthleteWhere(athleteId, organizationId),
   });
 
   return esito.count as number;
@@ -1915,12 +2023,32 @@ export const eraseGuardiansForAthlete = async (
       await revocaIGettoni(tx, athleteId, daCancellare);
     }
 
+    /*
+      **Il club lo sa l'archivio, e non serve chiederlo al chiamante.**
+
+      Gli inviti si cercano dentro un carico JSON, dove `athlete_id` e testo
+      libero: senza confine questa `where` cancellerebbe il gettone di un altro
+      club (49 §J). Ma renderlo obbligatorio nella firma avrebbe soltanto
+      spostato il problema sui chiamanti che non lo conoscono — e uno c'e.
+
+      Il confine giusto e **il club della scheda**, che e un fatto in archivio:
+      lo si legge invece di dedurlo o di rinunciarci. Cio che il chiamante
+      dichiara vince, perche chi lo passa lo ha gia verificato con la propria
+      guardia; se non lo dichiara, si guarda la riga.
+    */
+    const clubDellaScheda =
+      String(organizationId || "").trim() ||
+      String(
+        (
+          await tx.athlete.findUnique({
+            where: { id: athleteId },
+            select: { organization_id: true },
+          })
+        )?.organization_id || "",
+      ).trim();
+
     const invitiDellaScheda = (await tx.clubResourceItem.findMany({
-      where: {
-        resource_type: "access_tokens",
-        ...(organizationId ? { organization_id: organizationId } : {}),
-        payload: { path: ["athlete_id"], equals: athleteId },
-      },
+      where: guardianInvitesForAthleteWhere(athleteId, clubDellaScheda),
       select: { id: true },
     })) as Array<{ id: string }>;
 
@@ -2102,57 +2230,6 @@ export const findGuardianLinks = async (
  * acquisizione dei blocchi che si incrocia con il passaggio di stagione, e un
  * tetto oltre il quale la transazione scade.
  */
-/**
- * Una riga della tabella, nella forma che il blob aveva.
- *
- * Riproduce **tutto**, marchi compresi: e la condizione perche i lettori
- * storici si comportino esattamente come prima invece che «quasi». Una
- * proiezione che nascondesse le righe revocate cambierebbe, senza dirlo, chi
- * compare su un documento e chi riceve un avviso.
- */
-const proiettaRiga = (riga: GuardianRow) => ({
-  /*
-    I campi senza colonna vengono per primi: cio che segue li **vince**, cosi
-    un residuo storico non puo sovrascrivere un dato che la tabella governa.
-  */
-  ...((riga.data && typeof riga.data === "object" ? riga.data : {}) as Record<string, unknown>),
-  id: riga.id,
-  name: riga.first_name,
-  surname: riga.last_name,
-  relationship: riga.relationship,
-  email: riga.email,
-  phone: riga.phone,
-  linkedUserId: riga.user_id,
-  /*
-    **L'indirizzo di recapito e l'indirizzo che apre sono due cose diverse**, e
-    il blob le teneva in due chiavi: `email` resta dopo una revoca — al club
-    serve per scrivere a quella persona — mentre `linkedUserEmail` e il legame,
-    e con la revoca cade.
-
-    La tabella ne ha una colonna sola perche sono lo stesso testo; qui la
-    proiezione le separa di nuovo, secondo cio che la riga dice: un indirizzo
-    apre solo se la riga non e revocata e non e un solo-recapito. E la stessa
-    condizione che `findGuardianLinks` applica, scritta una seconda volta in
-    una forma che i lettori storici sanno leggere.
-  */
-  linkedUserEmail:
-    riga.revoked_at || riga.contact_only ? null : riga.email,
-  linkedAt: riga.linked_at ? new Date(riga.linked_at).toISOString() : null,
-  accessRevokedAt: riga.revoked_at ? new Date(riga.revoked_at).toISOString() : null,
-  /*
-    Un segno **falso** deve arrivare a destinazione, e non mancare: un lettore
-    che non trova la chiave e un lettore che decide da solo cosa voglia dire.
-  */
-  contactOnly: Boolean(riga.contact_only),
-  parentAccessTokenValue: riga.access_token_value,
-  parentAccessTokenStatus: riga.access_token_status,
-  parentAccessTokenExpiresAt: riga.access_token_expires_at
-    ? new Date(riga.access_token_expires_at).toISOString()
-    : null,
-  parentAccessTokenGeneratedAt: riga.access_token_generated_at
-    ? new Date(riga.access_token_generated_at).toISOString()
-    : null,
-});
 
 /**
  * **I gettoni di invito attivi che nominano questi tutori.**
@@ -2392,215 +2469,33 @@ export const refreshGuardianProjection = async (
   }
 
   /*
-    **Una riga del blob che nominava due persone e diventata due righe**, ed e
-    giusto: due identita che aprono sono due. Ma l'array aveva **una** voce, e
-    tre letture prendono i tutori per posizione — chi paga una ricevuta, quale
-    genitore compare su un documento, quale riga una pratica gia salvata stava
-    modificando.
+    **La fusione per posizione sta in `@/lib/guardians/projection`.**
 
-    La proiezione ricompone percio per **posizione**: le righe che vengono
-    dalla stessa voce del blob tornano una voce sola. L'autorita resta una riga
-    per identita; cio che si perde nella ricomposizione — la seconda utenza —
-    non decide niente li, perche li nessuno decide un accesso.
+    Era una chiusura dentro questa funzione, e li nessuna sonda poteva
+    interrogarla senza prima scrivere un club, un atleta e tre righe: sei
+    difetti su questa fusione sono stati trovati passando da un database.
+    Adesso e pura, e la sonda le passa le righe.
+
+    Qui resta l'unica parte che conosce l'archivio dei gettoni: quale invito
+    vivo nomina una riga. Il gettone si legge dove vive e non dalle colonne
+    della riga, che il travaso ha riempito una volta e nessuno aggiorna; e la
+    larghezza e **la stessa della revoca** — tutto cio che non e `revoked` —
+    perche un invito `redeemed` multi-uso il riscatto lo accetta ancora, e la
+    scheda deve poterlo vedere per chiuderlo.
   */
-  const perPosizione = (elenco: GuardianRow[], record: any[]) => {
-    const voci = new Map<string, { posto: number; voce: Record<string, unknown> }>();
-    for (const riga of elenco) {
-      const posto = Number(riga.position ?? 0);
+  const invitoVivo = (record: any[]) => (riga: GuardianRow): GuardianLiveInvite | null => {
+    const vivo = record
+      .filter((voce) => gettoneDiQuestaRiga(voce, riga))
+      .find((voce) => String(voce.status || "").trim() !== "revoked");
 
-      /*
-        **Una voce del blob resta una voce, e chi la revoca le revoca tutte.**
-
-        Il travaso produce due righe con la **stessa** posizione da ogni voce
-        del blob che dichiarava piu di un identificativo utente, e fonderle
-        faceva sparire dalla scheda una riga con l'utenza addosso: autorevole
-        per `findGuardianLinks`, invisibile alla sola porta da cui si revoca.
-
-        Il primo rimedio fu smettere di fondere le righe con un legame vivo, e
-        il commento concedeva che «una posizione in piu su una ricevuta e un
-        difetto di forma». **Non lo e**, e la revisione successiva l'ha
-        misurato: al primo salvataggio della scheda la proiezione passava da due
-        voci a tre, e ogni lettore posizionale slittava di uno — il destinatario
-        fiscale di una **ricevuta** (cioe il codice fiscale che una famiglia
-        porta in detrazione), i segnaposto `{{parent.N.*}}`, e l'indice con cui
-        l'approvazione di un modulo dice quale riga sta sostituendo, che di li
-        ne cancellava una viva e diversa.
-
-        La fusione torna percio com'era, e il buco si chiude dall'altro lato:
-        `revokeGuardianRow` non revoca una riga ma **la voce** — tutte le righe
-        che la scheda mostra come una sola. Se la porta mostra una cosa sola,
-        toglierla deve toglierla tutta.
-      */
-      const chiave = `posto:${posto}`;
-      const gia = voci.get(chiave)?.voce;
-
-      /*
-        Il gettone si legge dove vive — l'archivio dei gettoni — e non dalle
-        colonne della riga, che il travaso ha riempito una volta e nessuno
-        aggiorna. Cosi la schermata mostra il codice che il riscatto accetta
-        davvero, e una revoca lo fa sparire da tutte e due i posti insieme.
-      */
-      /*
-        **La stessa larghezza della revoca.**
-
-        `GETTONE_VIVO` elencava `active | pending | sent`, mentre la revoca e
-        stata allargata a «tutto cio che non e revocato». Un invito `redeemed`
-        multi-uso — che il riscatto accetta ancora — restava percio invisibile
-        alla scheda: il club non lo vedeva e non poteva chiuderlo dall'interfaccia.
-        Il gemello non allargato di una correzione dichiarata «su entrambe le
-        porte».
-      */
-      const vivo = record
-        .filter((voce) => gettoneDiQuestaRiga(voce, riga))
-        .find((voce) => String(voce.status || "").trim() !== "revoked");
-
-      const proiettata = {
-        ...proiettaRiga(riga),
-        ...(vivo
-          ? {
-              parentAccessTokenRecordId: String(vivo.id),
-              parentAccessTokenValue: vivo.name ?? null,
-              parentAccessTokenStatus: String(vivo.status || "active"),
-              parentAccessTokenExpiresAt:
-                (vivo.payload as any)?.expires_at ?? null,
-            }
-          : {
-              parentAccessTokenRecordId: null,
-              parentAccessTokenValue: null,
-              parentAccessTokenStatus: null,
-            }),
-      } as Record<string, unknown>;
-      if (!gia) {
-        voci.set(chiave, { posto, voce: proiettata });
-        continue;
-      }
-      /*
-        **Una voce mescola due persone: i marchi valgono quando sono d'accordo.**
-
-        La regola era «chi chiude vince»: bastava una riga revocata perche la
-        voce risultasse revocata. Nasceva per prudenza sull'**accesso** — ma
-        l'accesso lo decidono le righe, non questa proiezione (ADR-0118), e
-        intanto due lettori la usano per decidere **chi compare su un
-        documento**: l'intestatario di una ricevuta e i segnaposto
-        `{{parent.N.*}}`.
-
-        Una voce mista esiste davvero, e la crea una difesa: revocare una
-        persona **risparmia** la riga che porta l'utenza di un'altra
-        (ADR-0139). Da li una voce che porta insieme il marchio della revocata
-        e l'utenza della viva — e i due lettori, leggendo il marchio sulla
-        **voce**, toglievano dalla ricevuta un tutore **vivo**. Misurato: il
-        codice fiscale stampato passava a una terza persona, e
-        `{{parent.1.*}}` rispondeva vuoto mentre in quella posizione sedeva un
-        genitore vivo. E il danno che il commento della correzione precedente
-        dichiarava di voler evitare, prodotto dalla correzione stessa.
-
-        Un marchio vale percio per la voce solo se vale per **tutte** le righe
-        che ci stanno dietro, e l'anagrafica che la voce mostra e quella della
-        prima riga **che non sia esclusa**: la persona viva non sparisce dietro
-        chi e stato escluso, e chi e stato escluso non copre la persona viva.
-      */
-      const esclusa = (v: Record<string, unknown>) =>
-        Boolean(v.accessRevokedAt) || v.contactOnly === true;
-
-      /*
-        **E non le presta nemmeno i campi che l'altra non ha.**
-
-        La prima stesura sceglieva quale anagrafica «tenere» e poi la
-        sovrapponeva all'altra: ogni campo che la riga viva aveva vuoto veniva
-        **ereditato** da quella esclusa. E il caso ordinario, non un caso
-        limite: il club ha il codice fiscale della madre e non quello del
-        padre, e quei campi — codice fiscale, indirizzo, comune, telefono —
-        vivono in `data` e non hanno una colonna.
-
-        Esito misurato: dopo la revoca della madre, ogni ricevuta nuova usciva
-        intestata al **padre** con il **codice fiscale e l'indirizzo della
-        madre**, e `{{parent.1.phone}}` stampava il telefono di lei. Un dato
-        personale di una persona esclusa consegnato ad altri, e un documento
-        fiscalmente falso — nome di uno, codice fiscale di un'altra. Peggio del
-        difetto che la correzione chiudeva: **prima quel documento non si
-        emetteva affatto**, perche la voce risultava revocata.
-
-        Una voce che contiene una persona esclusa e una viva mostra la viva, e
-        **solo** la viva: i suoi campi vuoti restano vuoti.
-      */
-      /*
-        **Chi sta dietro la voce non sparisce dalla scheda.**
-
-        Da quando la voce mista mostra la persona viva e **solo** lei, della
-        riga esclusa non restava nessuna traccia leggibile: l'operatore non
-        poteva vedere che dietro quella posizione c'e qualcuno che il club ha
-        escluso, mentre `revokeGuardianRow` continua a revocare **per
-        posizione** — la porta che revoca ragionava su qualcosa che la porta
-        che mostra non dichiarava piu.
-
-        La traccia sta in un campo **suo**, non nei campi della voce: metterla
-        li sarebbe stato il difetto del giro prima, dove il codice fiscale
-        dell'esclusa finiva sulla ricevuta della persona viva. I due lettori
-        dei documenti guardano i campi della voce e non questo; la scheda
-        guarda questo.
-      */
-      const dietroLaVoce = (v: Record<string, unknown>) =>
-        esclusa(v)
-          ? [
-              {
-                id: v.id ?? null,
-                name: v.name ?? null,
-                surname: v.surname ?? null,
-                accessRevokedAt: v.accessRevokedAt ?? null,
-                contactOnly: v.contactOnly === true,
-              },
-            ]
-          : [];
-
-      const escluseDietro = [
-        ...((gia.escluseDietro as unknown[]) || dietroLaVoce(gia)),
-        ...dietroLaVoce(proiettata),
-      ];
-
-      const escluseTutte = esclusa(gia) && esclusa(proiettata);
-      const anagraficaDaTenere =
-        esclusa(gia) && !esclusa(proiettata) ? proiettata : gia;
-
-      voci.set(chiave, {
-        posto,
-        voce: {
-          ...anagraficaDaTenere,
-          /*
-            **I marchi si piegano con la stessa domanda che li legge.**
-
-            `esclusa` e un **OR** — revocata **oppure** di solo recapito — ma
-            i due marchi si ripiegavano con due **AND indipendenti**. Una voce
-            le cui righe fossero tutte escluse ma **in due modi diversi** — una
-            revocata, una di solo recapito — usciva percio senza **nessuno** dei
-            due marchi: viva agli occhi di chi la legge.
-
-            Misurato: la ricevuta nuova intestata alla persona che il club aveva
-            escluso, con il suo codice fiscale e il suo indirizzo. Cioe
-            esattamente cio che la correzione precedente dichiarava di chiudere.
-
-            Peggio, l'accumulatore: `gia` porta i marchi gia piegati, quindi
-            con tre righe sulla stessa posizione — un recapito, una revocata e
-            una **viva** — al secondo passo l'accumulatore li perdeva tutti e
-            due, al terzo `esclusa(gia)` rispondeva falso, e la riga viva non
-            vinceva piu: la scheda mostrava chi aveva compilato un modulo
-            pubblico, e il genitore vivo spariva.
-
-            La voce e esclusa se **tutte** le righe lo sono, con la stessa
-            domanda; e allora porta il marchio che quelle righe hanno.
-          */
-          ...(escluseDietro.length ? { escluseDietro } : {}),
-          contactOnly: escluseTutte
-            ? Boolean(gia.contactOnly || proiettata.contactOnly)
-            : false,
-          accessRevokedAt: escluseTutte
-            ? gia.accessRevokedAt || proiettata.accessRevokedAt || null
-            : null,
-        },
-      });
-    }
-    return [...voci.values()]
-      .sort((sinistra, destra) => sinistra.posto - destra.posto)
-      .map(({ voce }) => voce);
+    return vivo
+      ? {
+          id: String(vivo.id),
+          value: (vivo.name as string | null) ?? null,
+          status: String(vivo.status || "active"),
+          expiresAt: ((vivo.payload as any)?.expires_at as string | null) ?? null,
+        }
+      : null;
   };
 
   /*
@@ -2660,17 +2555,23 @@ export const refreshGuardianProjection = async (
       data: {
         data: {
           ...base,
-          guardians: perPosizione(
+          guardians: projectGuardianEntries(
             perAtleta.get(athleteId) || [],
-            gettoni.get(athleteId) || [],
+            invitoVivo(gettoni.get(athleteId) || []),
           ),
+          /*
+            I due registri si derivano con **lo stesso predicato** che decide
+            tutto il resto: il marchio di riga letto qui a mano e il marchio
+            letto da `isGuardianExcluded` altrove sono la stessa domanda, e
+            averla scritta due volte e cio che questo consolidamento chiude.
+          */
           revokedGuardianIdentities: registro(
             perAtleta.get(athleteId) || [],
-            (riga) => Boolean(riga.revoked_at),
+            (riga) => isGuardianRevoked(riga),
           ),
           contactOnlyIdentities: registro(
             perAtleta.get(athleteId) || [],
-            (riga) => Boolean(riga.contact_only),
+            (riga) => isGuardianContactOnly(riga),
           ),
         },
       },

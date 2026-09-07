@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { parseAttachmentReference } from "@/lib/attachments";
 
 import { prisma } from "./prisma";
-import { eraseGuardiansForAthlete } from "./athlete-guardians";
+import {
+  countGuardianInvitesForAthlete,
+  eraseGuardiansForAthlete,
+} from "./athlete-guardians";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { athleteWithinAccessScope } from "./access-scope-query";
@@ -614,13 +617,16 @@ export const previewDataSubjectErasure = async (
     JSON.stringify(riga?.data ?? {}).includes(subjectId),
   ).length;
 
-  const invitiTutore = await prisma.clubResourceItem.count({
-    where: {
-      organization_id: organizationId,
-      resource_type: "access_tokens",
-      payload: { path: ["athlete_id"], equals: subjectId },
-    },
-  });
+  /*
+    **La stessa `where` che la cancellazione usera**, e non una seconda
+    formulazione: il riepilogo e l'atto sono la stessa cosa detta due volte, e
+    se divergono una delle due mente. Erano gia divergiti una volta.
+  */
+  const invitiTutore = await countGuardianInvitesForAthlete(
+    prisma,
+    subjectId,
+    organizationId,
+  );
 
   const slices: DataSubjectSlice[] = [
     {

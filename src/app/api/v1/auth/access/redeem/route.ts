@@ -24,8 +24,10 @@ import {
 import { prisma } from "@/lib/server/prisma";
 import {
   eCaricoDiTutore,
+  findGuardianRow,
   linkGuardianAccount,
 } from "@/lib/server/athlete-guardians";
+import { guardianUserIdText } from "@/lib/guardians/identity";
 import { lockAthleteRow } from "@/lib/server/resources";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getResourceById, updateResource } from "@/lib/server/resources";
@@ -204,55 +206,30 @@ const loadParentAccessTarget = async (
     return null;
   }
 
-  const data =
-    athlete.data && typeof athlete.data === "object"
-      ? (athlete.data as Record<string, any>)
-      : {};
   /*
-    **Il gettone nomina una riga, e ne esistono di tre forme** (PP-02 / WP-C).
+    **Il gettone nomina una riga, e la domanda la fa il modulo proprietario**
+    (49 §I, §J).
 
-    L'elenco dentro `data` e adesso una proiezione di `athlete_guardians`, e
-    porta l'identificativo della **riga**. Un invito spedito prima del passaggio
-    porta invece la chiave che quella riga aveva nel blob, conservata su
-    `legacy_id`; e ce ne sono che non nominano nessuna riga, solo la persona.
+    Questa ricerca era scritta a mano, e il commento di allora prometteva
+    proprio cio che non faceva: «e la stessa domanda che `linkGuardianAccount`
+    fara dopo: se le due rispondessero diverso, il riscatto collegherebbe una
+    riga e ne dichiarerebbe un'altra». Le due **rispondevano** diverso, e in un
+    modo che si vede solo su una voce fusa: la guardia cercava dentro
+    `athletes.data.guardians[]`, che di una posizione condivisa pubblica un
+    identificativo **solo**, mentre `linkGuardianAccount` cerca fra le righe.
+    Un invito coniato per la riga nascosta veniva percio rifiutato con 404 —
+    una promessa fatta a una famiglia che smetteva di funzionare perche
+    l'archivio ha cambiato forma.
 
-    Si cercano nell'ordine dal piu preciso al piu largo, e la ricerca sta qui
-    perche e la stessa domanda che `linkGuardianAccount` fara dopo: se le due
-    rispondessero diverso, il riscatto collegherebbe una riga e ne dichiarerebbe
-    un'altra.
+    Adesso la domanda e `findGuardianRow`: una funzione sola, sulle **righe**,
+    con l'ordine dal piu preciso al piu largo. E cio che si passa poi al
+    collegamento e l'identificativo della riga **trovata qui**, non la maniglia
+    che il gettone portava: la guardia e l'uso interrogano cosi la stessa riga,
+    che e la prima delle due regole del confine di club.
   */
-  const guardians = Array.isArray(data.guardians) ? data.guardians : [];
+  const guardian = await findGuardianRow(prisma, athlete.id, guardianId);
 
-  const storiche = guardianId
-    ? ((await prisma.athleteGuardian.findMany({
-        where: { athlete_id: athlete.id, legacy_id: guardianId },
-        select: { id: true },
-      })) as Array<{ id: string }>)
-    : [];
-  const perChiaveStorica = new Set(storiche.map((riga) => riga.id));
-
-  const guardianIndex = guardians.findIndex((guardian: any) => {
-    const suo = String(guardian?.id || "").trim();
-    return suo === guardianId || perChiaveStorica.has(suo);
-  });
-
-  if (guardianIndex < 0) {
-    return {
-      athlete,
-      data,
-      guardians,
-      guardian: null,
-      guardianIndex,
-    };
-  }
-
-  return {
-    athlete,
-    data,
-    guardians,
-    guardian: guardians[guardianIndex],
-    guardianIndex,
-  };
+  return { athlete, guardian };
 };
 
 /**
@@ -752,13 +729,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const alreadyLinkedUserId = String(
-      trainerTarget?.record?.linkedUserId ||
-        trainerTarget?.record?.linked_user_id ||
-        parentTarget?.guardian?.linkedUserId ||
-        parentTarget?.guardian?.linked_user_id ||
-        "",
-    ).trim();
+    /*
+      **Le quattro grafie, e non due** (49 §B).
+
+      Questa lettura ne guardava due — `linkedUserId` e `linked_user_id` — su
+      una fonte che adesso e la **riga**, dove l'utenza si chiama `user_id`:
+      leggerne due voleva dire non vederla affatto, e un gettone gia collegato
+      a un'altra persona sarebbe passato. `guardianUserIdText` le legge tutte e
+      quattro, ed e la stessa funzione che usano i canali di invio.
+    */
+    const alreadyLinkedUserId =
+      String(
+        trainerTarget?.record?.linkedUserId ||
+          trainerTarget?.record?.linked_user_id ||
+          "",
+      ).trim() || guardianUserIdText(parentTarget?.guardian);
 
     if (alreadyLinkedUserId && alreadyLinkedUserId !== session.db.user_id) {
       await tracciaRiscatto({
@@ -1058,18 +1043,24 @@ export async function POST(request: Request) {
         senza questo avrebbero escluso per sempre il tutore riattivato, senza
         che niente lo dicesse.
       */
+      /*
+        **Si collega la riga che la guardia ha trovato, e non un'altra.**
+
+        Qui si passava la maniglia del gettone piu un elenco di identita — le
+        due dell'utenza di sessione e le tre grafie dell'indirizzo della voce.
+        Se la maniglia non avesse risolto, il ripiego per identita avrebbe
+        collegato una riga che **nessuna guardia aveva controllato**: due
+        genitori con un indirizzo di famiglia condiviso (ADR-0114) sono la
+        configurazione in cui quella scelta cade sulla persona sbagliata.
+
+        Si passa percio l'identificativo della riga gia risolta e **nessuna**
+        identita: la guardia e l'uso interrogano la stessa riga, e se nel
+        frattempo non c'e piu non si collega niente — che e la risposta giusta.
+      */
       await linkGuardianAccount(prisma, {
         athleteId: String(parentTarget.athlete.id),
-        guardianRowId: guardianId || null,
-        identityKeys: [
-          session.db.user_id,
-          session.db.user?.email,
-          (parentTarget.guardian as any)?.email,
-          (parentTarget.guardian as any)?.linkedUserEmail,
-          (parentTarget.guardian as any)?.linked_user_email,
-        ]
-          .map((valore) => String(valore || "").trim().toLowerCase())
-          .filter(Boolean),
+        guardianRowId: parentTarget.guardian.id,
+        identityKeys: [],
         userId: session.db.user_id,
         email: session.db.user?.email,
       });

@@ -27,6 +27,7 @@
  * Modulo **puro**: riceve i record gia caricati.
  */
 
+import { resolveDocumentGuardians } from "@/lib/guardians/documents";
 import type { CounterpartyKind } from "@/lib/accounting/model";
 
 const asText = (value: unknown) => String(value ?? "").trim();
@@ -207,9 +208,6 @@ export const resolveFiscalRecipient = (
   if (!isRecord(athlete)) return EMPTY;
 
   const data = isRecord(athlete.data) ? athlete.data : {};
-  const guardians: Record<string, any>[] = Array.isArray(data.guardians)
-    ? data.guardians.filter(isRecord)
-    : [];
 
   /*
     **Un documento nuovo non intesta a chi il club ha escluso, ne a un recapito.**
@@ -234,25 +232,31 @@ export const resolveFiscalRecipient = (
     La posizione scelta a mano dal club (`billingGuardianIndex`) non fa
     eccezione: se punta a una riga esclusa, si passa alla successiva utile.
   */
-  const intestabile = (guardian: Record<string, any>) =>
-    !firstText(guardian.accessRevokedAt, guardian.access_revoked_at) &&
-    guardian.contactOnly !== true &&
-    guardian.contact_only !== true;
+  /*
+    **Il predicato non e piu scritto qui** (49 §C, §G).
+
+    `intestabile` era la seconda di cinque stesure della stessa domanda, e
+    l'unica che leggesse `access_revoked_at` con un `firstText`: le altre
+    quattro usavano la truthiness, e nessuna leggeva le grafie della **riga**.
+    Adesso la domanda la fa `resolveDocumentGuardians`, che restituisce le voci
+    **per posizione** con `null` al posto di chi e escluso — cosi la posizione
+    non slitta, che e l'altra meta della regola.
+  */
+  const intestabili = resolveDocumentGuardians(data);
 
   const chosenIndex = Number(data.billingGuardianIndex);
   const chosen =
     Number.isInteger(chosenIndex) &&
     chosenIndex >= 0 &&
-    chosenIndex < guardians.length
-      ? guardians[chosenIndex]
+    chosenIndex < intestabili.length
+      ? intestabili[chosenIndex]
       : null;
 
-  if (chosen && intestabile(chosen)) return fromGuardian(chosen);
+  if (chosen) return fromGuardian(chosen);
 
-  const withFiscalCode = guardians.find(
+  const withFiscalCode = intestabili.find(
     (guardian) =>
-      intestabile(guardian) &&
-      firstText(guardian.fiscalCode, guardian.fiscal_code),
+      Boolean(guardian) && firstText(guardian!.fiscalCode, guardian!.fiscal_code),
   );
   if (withFiscalCode) return fromGuardian(withFiscalCode);
 
@@ -272,7 +276,7 @@ export const resolveFiscalRecipient = (
     dice «due righe non possono comparirci» e poi lascia un ramo che le fa
     comparire non dice niente.
   */
-  const primoIntestabile = guardians.find(intestabile);
+  const primoIntestabile = intestabili.find(Boolean);
   if (!athleteRecipient.name && primoIntestabile) {
     return fromGuardian(primoIntestabile);
   }

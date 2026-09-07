@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { resolveNotificationRecipientUserIds } from "@/lib/guardians/notifications";
 import {
   athleteIdsWithinAccessScope,
   athleteWithinAccessScope,
@@ -533,139 +534,20 @@ const asRecord = (value: unknown): Record<string, any> =>
  * l'area genitore, ed e cosi che la richiesta di un documento — con il nome
  * del minore — finiva nella bacheca di ogni altra famiglia
  * (`club-notifications.ts`).
+ *
+ * ---
+ *
+ * **Era la meta di una coppia di gemelli**, e la meta che restava indietro:
+ * leggeva due grafie dell'utenza dove le altre tre letture ne leggevano
+ * quattro, e confrontava il registro delle revoche solo alla fine. Misurato su
+ * una riga `{ userId, email }` con l'indirizzo nel registro: accesso si,
+ * solleciti si, promemoria si, notifiche documentali **no**.
+ *
+ * La domanda adesso e una e sta in `@/lib/guardians/notifications`. Un gemello
+ * che non c'e non puo restare indietro.
  */
-const resolveFamilyRecipients = (athlete: any): string[] => {
-  const data = asRecord(athlete?.data);
-  /*
-    **E la coppia storica, che le altre tre letture leggono gia.**
-
-    `parent1`/`parent2` sono la forma di un'anagrafica travasata e
-    **concedono** come l'elenco. Questa lettura guardava solo `guardians`,
-    quindi una famiglia travasata non riceveva **mai** una notifica
-    documentale: ne la richiesta, ne il promemoria, ne l'esito
-    dell'approvazione. La tabella di ADR-0116 verifica che le quattro letture
-    onorino le tre difese, non che partano dalle stesse **righe**.
-  */
-  const elenco = Array.isArray(data.guardians) ? data.guardians : [];
-  const storici = [
-    (data as any).parent1,
-    (data as any).parent2,
-  ].filter((riga) => riga && typeof riga === "object");
-  const tutori = elenco.length > 0 ? elenco : storici;
-
-  /*
-    **Chi e stato scollegato non riceve piu notifiche su quel minore.**
-
-    Qui si raccolgono **quattro** grafie dell'identificativo, e le notifiche
-    che ne escono — in applicazione e per email — portano il nome del minore e
-    il documento chiesto. Una riga scritta con `userId`/`user_id` sopravviveva
-    alla revoca: nessuno la ripuliva, la scheda mostrava «Account non
-    collegato», e il club non aveva ne modo di saperlo ne un pulsante per
-    toglierla.
-  */
-  const revocate = new Set(
-    (Array.isArray((data as any).revokedGuardianIdentities)
-      ? (data as any).revokedGuardianIdentities
-      : []
-    )
-      .map((valore: unknown) => String(valore || "").trim().toLowerCase())
-      .filter(Boolean),
-  );
-  /*
-    **Le tre difese, non una sola.**
-
-    Questa lettura si difendeva con il solo elenco a livello atleta, e
-    ignorava il marchio di riga e il segno di solo-recapito. Le notifiche che
-    scrive **nominano il minore** e il documento chiesto: una riga revocata
-    per marchio, o dichiarata da uno sconosciuto su un modulo pubblico,
-    continuava a riceverle.
-
-    Quattro letture dei tutori, ognuna con un sottoinsieme diverso delle tre
-    difese, e ogni sottoinsieme diverso e un buco che si scopre un round dopo.
-  */
-  const recapitiSoli = new Set<string>(
-    (Array.isArray((data as any).contactOnlyIdentities)
-      ? ((data as any).contactOnlyIdentities as unknown[])
-      : []
-    )
-      .map((valore: unknown) => String(valore || "").trim().toLowerCase())
-      .filter(Boolean),
-  );
-
-  const tutoriVivi = tutori.filter((guardian: any) => {
-    const record = asRecord(guardian);
-
-    /*
-      **Un legame dichiarato e non revocato vince**, come per l'accesso e come
-      per gli altri due canali: un invito riscattato e il club che si fa
-      garante di quella riga, e chi condivide un indirizzo di famiglia con
-      qualcuno che e stato revocato non deve perdere i propri avvisi.
-    */
-    /*
-      **Quattro grafie, come le altre tre letture.**
-
-      Questa ne leggeva due, e le altre tre — il vaglio dell'accesso, i
-      solleciti, i promemoria del certificato — quattro. Misurato su una riga
-      `{ userId, email }` con l'indirizzo nel registro: accesso si, solleciti
-      si, promemoria si, notifiche documentali **no**. Un tutore legato smetteva
-      di ricevere **solo** gli avvisi sui documenti che il club gli chiede,
-      mentre tutto il resto continuava ad arrivare: invisibile da tutte e due le
-      parti.
-
-      E il «sottoinsieme diverso» che il commento qui sopra dichiara di aver
-      chiuso, sopravvissuto in una riga.
-    */
-    const dichiarati = [
-      record.linkedUserId,
-      record.linked_user_id,
-      record.userId,
-      record.user_id,
-    ]
-      .map((valore: unknown) => String(valore || "").trim().toLowerCase())
-      .filter(Boolean);
-
-    if (dichiarati.some((voce) => !revocate.has(voce))) return true;
-
-    if (record.contactOnly || record.contact_only) return false;
-    if (record.accessRevokedAt || record.access_revoked_at) return false;
-
-    /*
-      **E il registro dei soli recapiti, che il segno di riga non regge da
-      solo.**
-
-      Il segno vive dentro il blob che la rotta generica sostituisce per
-      intero, e non sopravvive a un salvataggio ordinario dell'anagrafica. Il
-      registro sta sull'atleta — stessa forma dell'elenco delle revoche che
-      questa lettura gia consulta — e non ha righe da abbinare.
-    */
-    if (recapitiSoli.size) {
-      const suoIndirizzo = String(
-        record.email || record.linkedUserEmail || record.linked_user_email || "",
-      )
-        .trim()
-        .toLowerCase();
-      if (suoIndirizzo && recapitiSoli.has(suoIndirizzo)) return false;
-    }
-
-    return true;
-  });
-
-  const collegati = tutoriVivi
-    .flatMap((guardian: any) => [
-      asRecord(guardian).linkedUserId,
-      asRecord(guardian).linked_user_id,
-      asRecord(guardian).userId,
-      asRecord(guardian).user_id,
-    ])
-    .map((value: unknown) => asText(value))
-    .filter(Boolean);
-
-  return Array.from(
-    new Set([asText(athlete?.user_id), ...collegati].filter(Boolean)),
-  ).filter(
-    (id) => !revocate.has(String(id || "").trim().toLowerCase()),
-  ) as string[];
-};
+const resolveFamilyRecipients = (athlete: any): string[] =>
+  resolveNotificationRecipientUserIds(athlete);
 
 const notifyFamily = async (
   athlete: any,

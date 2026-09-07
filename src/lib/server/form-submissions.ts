@@ -9,6 +9,7 @@ import { canAccessClubResource } from "@/lib/access-roles";
 import { roleHasPermission } from "@/lib/permissions/catalog";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
+import { documentGuardianAt } from "@/lib/guardians/documents";
 import { upsertGuardianFromFormApproval } from "./athlete-guardians";
 import { createAttachment, deleteAttachment } from "./attachments";
 import { parseAttachmentReference } from "@/lib/attachments";
@@ -112,21 +113,6 @@ const toIso = (value: unknown) =>
   value instanceof Date ? value.toISOString() : asText(value);
 
 const denied = (message: string) => new Error(`Accesso negato: ${message}`);
-
-/**
- * Vero se una voce della proiezione dei tutori e **esclusa**: revocata, oppure
- * dichiarata come solo recapito. E lo stesso predicato dei due lettori dei
- * documenti (ADR-0149), scritto qui perche questo e il terzo.
- */
-const voceEsclusa = (voce: unknown): boolean => {
-  const v =
-    voce && typeof voce === "object" ? (voce as Record<string, any>) : {};
-  return (
-    Boolean(v.accessRevokedAt || v.access_revoked_at) ||
-    v.contactOnly === true ||
-    v.contact_only === true
-  );
-};
 
 const ensureOrganizationAccess = (
   scope: FormsAccessScope | undefined,
@@ -257,17 +243,13 @@ const loadSubjectRecords = async (
       soggetto di una compilazione, e da li l'approvazione ci scriveva sopra.
 
       E il terzo lettore posizionale, ed e il gemello che le due correzioni
-      precedenti non avevano allargato.
+      precedenti non avevano allargato: adesso i tre chiamano la **stessa**
+      funzione, e allargarne uno solo non e piu possibile.
     */
-    const guardians = Array.isArray(athlete?.data?.guardians)
-      ? athlete!.data.guardians
-      : [];
-    const index = Number(guardianSelection.recordId);
-    const voceScelta =
-      Number.isInteger(index) && index >= 0 && index < guardians.length
-        ? guardians[index]
-        : null;
-    records.guardian = voceEsclusa(voceScelta) ? null : voceScelta;
+    records.guardian = documentGuardianAt(
+      athlete?.data,
+      Number(guardianSelection.recordId),
+    );
   }
 
   for (const subject of ["trainer", "staff", "member"] as const) {
@@ -2159,19 +2141,14 @@ const eseguiDecisione = async (
       l'oggetto in quel posto porta l'identificativo della **riga**, e da li in
       poi non si ragiona piu per posizione.
     */
-    const proiezione = Array.isArray(athleteRecord?.data?.guardians)
-      ? (athleteRecord!.data.guardians as any[])
-      : [];
     const selection = review.submission.subjects.find(
       (entry) => entry.subject === "guardian",
     );
-    const index = Number(selection?.recordId);
-    const voceIndicata =
-      Number.isInteger(index) && index >= 0 && index < proiezione.length
-        ? proiezione[index]
-        : null;
     /* Come sopra: una voce esclusa non e la riga che si sta sostituendo. */
-    const rigaScelta = voceEsclusa(voceIndicata) ? null : voceIndicata;
+    const rigaScelta = documentGuardianAt(
+      athleteRecord?.data,
+      Number(selection?.recordId),
+    );
 
     /*
       **Cio che sedici stesure non erano riuscite a difendere, qui non c'e piu

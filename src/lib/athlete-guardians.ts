@@ -16,6 +16,8 @@
  * `accessTokenExpiresAt`. Normalizzarli in archivio e una migrazione a se; qui
  * si legge cio che c'e, e si legge in un posto solo.
  */
+import { resolveNotificationGuardianEntries } from "@/lib/guardians/notifications";
+
 
 /** Quanto vive un token di accesso genitore, quando nessuno lo dichiara. */
 export const PARENT_TOKEN_EXPIRY_HOURS = 72;
@@ -201,16 +203,6 @@ export type AthleteGuardianContact = {
   /** L'account collegato dichiarato in anagrafica. Vuoto quando non c'e. */
   linkedUserId: string;
 };
-
-const GUARDIAN_EMAIL_KEYS = ["email", "linkedUserEmail", "linked_user_email"];
-
-const GUARDIAN_ACCOUNT_KEYS = [
-  "linkedUserId",
-  "linked_user_id",
-  "userId",
-  "user_id",
-];
-
 /**
  * I tutori di un atleta, nelle **due forme che convivono in archivio**:
  * l'elenco `guardians` e la coppia storica `parent1` / `parent2`.
@@ -224,194 +216,42 @@ export const readAthleteGuardianContacts = (
 ): AthleteGuardianContact[] => {
   const data =
     athlete && typeof athlete === "object" && athlete.data ? athlete.data : {};
-  const record = data && typeof data === "object" ? (data as GuardianLike) : {};
-
-  const listed = Array.isArray(record.guardians) ? record.guardians : [];
-  const legacy = [record.parent1, record.parent2].filter(
-    (value) => value && typeof value === "object",
-  ) as GuardianLike[];
 
   /*
-    **Anche qui l'elenco delle identita, non solo il marchio di riga.**
+    **Era il terzo gemello, e nessuno lo chiamava cosi** (49 §H).
 
-    Da questa funzione escono i solleciti degli insoluti — che portano il
-    **link per pagare** — e le comunicazioni di gruppo. La verita sulla revoca
-    si e spostata dalla riga all'identita, perche il marchio di riga si
-    aggirava aggiungendone una sorella con lo stesso indirizzo; questa lettura
-    era rimasta indietro, quindi la riga sorella riapriva questo canale.
+    Da qui escono i solleciti degli insoluti — che portano il nome del minore,
+    l'importo e un **collegamento a gettone per pagare** — e le comunicazioni
+    di gruppo. Il censimento lo dichiarava «dominio puro lato client», non
+    canonico: cioe una presentazione. Non lo e — decide **chi riceve** — e
+    aveva percio la propria copia delle tre difese, la terza di tre, con le
+    proprie sfumature.
+
+    Adesso il filtro e `resolveNotificationGuardianEntries`, lo stesso dei
+    promemoria del certificato e delle notifiche documentali. Qui resta solo
+    cio che e davvero di questo modulo: dare alla riga un identificativo
+    stabile e un nome da mostrare.
   */
-  /*
-    **Il registro dei soli recapiti, che il segno di riga non regge da solo.**
+  const superstiti = resolveNotificationGuardianEntries(data);
 
-    Il segno vive dentro il blob che la rotta generica sostituisce per intero;
-    il registro sta sull'atleta, come quello delle revoche qui sotto, e non ha
-    righe da abbinare.
-  */
-  const recapitiSoli = new Set(
-    (Array.isArray((record as any).contactOnlyIdentities)
-      ? ((record as any).contactOnlyIdentities as unknown[])
-      : []
-    )
-      .map((valore) => String(valore || "").trim().toLowerCase())
-      .filter(Boolean),
-  );
-
-  const identitaRevocate = new Set(
-    (Array.isArray((record as any).revokedGuardianIdentities)
-      ? ((record as any).revokedGuardianIdentities as unknown[])
-      : []
-    )
-      .map((valore) => String(valore || "").trim().toLowerCase())
-      .filter(Boolean),
-  );
-
-  const rows = (listed.length > 0 ? listed : legacy).filter((riga) => {
-    const identita = (riga || {}) as GuardianLike;
-    const revocataPerIdentita = [
-      (identita as any).linkedUserId,
-      (identita as any).linked_user_id,
-      (identita as any).userId,
-      (identita as any).user_id,
-      (identita as any).linkedUserEmail,
-      (identita as any).linked_user_email,
-      (identita as any).email,
-    ].some((valore) =>
-      identitaRevocate.has(String(valore || "").trim().toLowerCase()),
-    );
-      /*
-        **Un legame dichiarato e non revocato vince, come per l'accesso.**
-
-        Senza questa uscita i canali di invio erano piu chiusi del cancello, e
-        in due modi che si vedevano solo dal lato della famiglia:
-
-        1. `contactOnly` non aveva **nessuna strada di ritorno**. Il percorso
-           normale di una nuova iscrizione — la famiglia compila il modulo
-           pubblico, la segreteria approva e le genera un invito, lei lo
-           riscatta — le dava l'area famiglia completa e **nessun invio**: ne
-           il sollecito, ne il promemoria del certificato, ne le notifiche
-           documentali. Per sempre, e senza che niente lo dicesse: la scheda
-           mostrava «Account collegato». Un invito generato dal club **per
-           quella riga** e il club che se ne fa garante;
-        2. madre e padre con lo stesso indirizzo di famiglia — configurazione
-           ordinaria — e la revoca di uno metteva quell'indirizzo nell'elenco,
-           chiudendo i canali **all'altro**, che ha il proprio legame
-           dichiarato e continua a entrare nel cruscotto.
-
-        E la stessa uscita che `athleteBelongsToParent` ha da sempre. Averla
-        qui e non li voleva dire che la stessa domanda, sulla stessa persona,
-        aveva due risposte.
-      */
-      /*
-        **Le quattro grafie, come chiunque altro le legga.**
-
-        Questa uscita ne leggeva due. Il vaglio dell'accesso, la guardia della
-        crescita e la revoca ne leggono quattro, quindi una riga scritta con
-        `userId`/`user_id` apriva il cruscotto e **non** teneva in piedi il
-        canale: la stessa persona, la stessa domanda, due risposte — che e la
-        forma esatta che ADR-0116 §3 vieta.
-      */
-    const dichiarati = [
-      (identita as any).linkedUserId,
-      (identita as any).linked_user_id,
-      (identita as any).userId,
-      (identita as any).user_id,
-    ]
-      .map((valore) => String(valore || "").trim().toLowerCase())
-      .filter(Boolean);
-
-    if (dichiarati.some((voce) => !identitaRevocate.has(voce))) return true;
-
-    if (revocataPerIdentita) return false;
-
+  return normalizeGuardianRows(
+    superstiti.map((voce) => voce.record),
+    String(athlete?.id || "senza-atleta"),
+  ).map((guardian, indice) => ({
+    id: String(guardian.id),
+    name: getGuardianDisplayName(guardian),
     /*
-      **E il segno di solo-recapito.**
+      **Un indirizzo revocato non esce, nemmeno da una riga viva.**
 
-      Da qui escono i solleciti degli insoluti — che portano il nome del
-      minore, l'importo e un **collegamento a gettone per pagare** — e le
-      comunicazioni di gruppo. Una riga `contactOnly` e un indirizzo che
-      **uno sconosciuto ha dichiarato** compilando un modulo pubblico: il
-      ragionamento scritto per l'accesso vale parola per parola anche qui, e
-      per un link di pagamento vale di piu.
-
-      Finora questo segno lo onorava **solo** il percorso di accesso: la riga
-      non apriva il cruscotto e intanto riceveva le email. Tre difese e quattro
-      letture, ognuna che ne guardava un sottoinsieme diverso.
+      L'uscita «un legame dichiarato vince» tiene in piedi la riga — ed e
+      giusto: madre e padre con l'indirizzo di famiglia condiviso, uno solo
+      revocato. Ma se la riga sopravvive portandosi dietro **quell'indirizzo**,
+      l'invio ci arriva lo stesso, e la revoca vale per il cruscotto e non per
+      la posta. Lo azzera la primitiva, per tutti e tre i canali insieme.
     */
-    if ((identita as any).contactOnly || (identita as any).contact_only) {
-      return false;
-    }
-
-  /*
-    **E il registro dei soli recapiti, che il segno di riga non regge da solo.**
-
-    Stessa forma del registro delle revoche qui sopra: vive sull'atleta, non
-    ha righe da abbinare, e sopravvive al salvataggio che sostituisce il blob.
-    Il segno sulla riga cadeva, e con lui l'unica difesa di questo canale.
-  */
-    /*
-      Il registro vale come il marchio: da qui escono i solleciti degli
-      insoluti, che portano il nome del minore e un **collegamento a gettone
-      per pagare**.
-    */
-    if (recapitiSoli.size) {
-      const suoIndirizzo = String(
-        (identita as any).email ||
-          (identita as any).linkedUserEmail ||
-          (identita as any).linked_user_email ||
-          "",
-      )
-        .trim()
-        .toLowerCase();
-      if (suoIndirizzo && recapitiSoli.has(suoIndirizzo)) return false;
-    }
-
-    /*
-      **Chi e stato scollegato non riceve piu avvisi su quel minore.**
-
-      Da qui passano i solleciti di pagamento e le comunicazioni di gruppo, che
-      portano il nome del minore, l'insoluto e un collegamento a gettone. La
-      revoca lascia in piedi l'indirizzo di **contatto** — al club serve per
-      scrivere a quella persona di sua iniziativa — ma questi invii non sono
-      una scelta del club: partono da soli, per un minore che quella persona
-      non segue piu.
-
-      E la stessa domanda a cui i promemoria del certificato hanno gia
-      risposto: due letture non possono dare due risposte.
-    */
-    const record = (riga || {}) as GuardianLike;
-    return !String(
-      (record as any).accessRevokedAt || (record as any).access_revoked_at || "",
-    ).trim();
-  });
-
-  return normalizeGuardianRows(rows, String(athlete?.id || "senza-atleta")).map(
-    (guardian) => ({
-      id: String(guardian.id),
-      name: getGuardianDisplayName(guardian),
-      /*
-        **Un indirizzo revocato non esce, nemmeno da una riga viva.**
-
-        L'uscita «un legame dichiarato vince» tiene in piedi la riga — ed e
-        giusto: madre e padre con l'indirizzo di famiglia condiviso, uno solo
-        revocato. Ma se la riga sopravvive portandosi dietro **quell'indirizzo**,
-        l'invio ci arriva lo stesso, e la revoca vale per il cruscotto e non per
-        la posta.
-
-        La riga resta, l'indirizzo revocato no: chi ha un legame dichiarato ha
-        anche un'utenza, e `buildAudienceContacts` sa ripiegare sul suo
-        indirizzo vero.
-      */
-      email: (() => {
-        const scritto = String(firstValue(guardian, GUARDIAN_EMAIL_KEYS) || "")
-          .trim()
-          .toLowerCase();
-        return scritto && identitaRevocate.has(scritto) ? "" : scritto;
-      })(),
-      linkedUserId: String(
-        firstValue(guardian, GUARDIAN_ACCOUNT_KEYS) || "",
-      ).trim(),
-    }),
-  );
+    email: superstiti[indice].linkedUserEmail.toLowerCase(),
+    linkedUserId: superstiti[indice].linkedUserId,
+  }));
 };
 
 export type GuardianAccessState =

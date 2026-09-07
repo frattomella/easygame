@@ -7823,3 +7823,105 @@ l'unita del dominio. Se non coincidono, il filtro va scritto sull'unita del
 dominio e portato nella proiezione — non il contrario.
 
 **Vedi anche.** ADR-0149, ADR-0139, ADR-0140, ADR-0118.
+
+---
+
+## ADR-0153 — Le regole di un dominio stanno in una primitiva, non in ogni consumatore
+
+**Data.** 2026-09-07 · **Stato.** Accettata · **Ambito.** PP-02, genitori e tutori
+
+### Il contesto
+
+Quindici revisioni indipendenti su questo dominio hanno prodotto settantasei
+difetti, e **tutti** stavano sul bordo: dove il modulo proprietario incontra chi
+lo chiama. Nelle ultime due tornate i reperti non erano piu difetti residui ma
+**regressioni delle correzioni precedenti**: il ciclo revisione → correzione
+locale → revisione aveva smesso di convergere.
+
+La causa, letta a posteriori, e una sola. «Questa persona e esclusa?» era scritta
+a mano in **sei** posti, con sei sfumature — `firstText` in uno, la truthiness in
+un altro, `=== true` in un terzo, e nessuno che leggesse le grafie della **riga**.
+«Quali identificativi porta questa riga?» in **quattro**, con due sottoinsiemi
+diversi delle quattro grafie. «Chi riceve un avviso nuovo?» in **tre** funzioni
+gemelle che nessuna correzione allargava tutte insieme.
+
+Correggerne una lasciava le altre, e ogni correzione ne creava una versione nuova.
+
+### La decisione
+
+**Le regole di un dominio vivono in primitive, e nessun consumatore ha il
+permesso di ricostruirle.** Le primitive stanno in `src/lib/guardians/`, sono
+pure e prive di parametri che ne cambino la semantica: un parametro di sicurezza
+e il permesso di divergere scritto nella firma.
+
+| Primitiva | Risponde a |
+|---|---|
+| `isGuardianExcluded` | «questa persona e fuori?» — un OR, sulla riga e sulla voce |
+| `foldGuardianExclusionMarks` | «e questa voce, che ne raccoglie piu di una?» |
+| `resolveGuardianIdentity` | «quali identificativi porta?» — tutte le grafie |
+| `projectGuardianEntries` | «come diventano voci queste righe?» |
+| `resolveDocumentGuardians` | «chi puo nominare un documento nuovo?» |
+| `resolveNotificationGuardians` | «chi riceve un avviso nuovo?» |
+| `assertGuardianMutationAllowed` | «chi puo far nascere un'identita?» |
+
+### Perche non bastava correggere gli endpoint
+
+Perche era gia stato fatto quindici volte. Un difetto corretto in un consumatore
+lascia intatti i suoi gemelli, e il gemello si scopre un round dopo — con in
+mezzo un cliente. La misura non e «quanti difetti restano» ma **quante volte la
+stessa regola e scritta**: finche e piu di una, il conto dei difetti e una
+variabile aleatoria.
+
+### Come si fa valere
+
+Non da una convenzione: da `scripts/pp-02-censimento.mjs`, che deriva
+dall'albero chi tocca il dominio e pretende cinque proprieta.
+
+* **C3** — chi e dichiarato canonico **importa** una primitiva che il modulo
+  **esporta davvero**. La stesura precedente cercava la parola nel testo, e un
+  **commento** che citasse `revokeGuardianRow` bastava a dichiarare canonico un
+  file che si ricostruiva le regole in casa;
+* **C5** — nessuno fuori dai moduli canonici ripiega l'OR dell'esclusione. E la
+  firma esatta del difetto, misurata sul codice con i commenti tolti.
+
+E si misura **rompendola**: `scripts/pp-02-mutazioni.mjs` reintroduce undici
+difetti veri — ognuno la riscrittura di uno gia costato una tornata — e pretende
+che la sonda corrispondente diventi rossa. Una sonda verde dice due cose che non
+si distinguono guardandola: «l'invariante vale» oppure «la sonda non la misura».
+
+### Cosa il consolidamento ha trovato, e che nessuna revisione aveva visto
+
+Tre cose, e vengono tutte dal cambio di metodo:
+
+1. **un terzo gemello delle notifiche.** `readAthleteGuardianContacts` era
+   classificato «dominio puro lato client, presentazione». Non lo e: da li
+   escono i solleciti degli insoluti — nome del minore, importo e un
+   **collegamento a gettone per pagare** — e aveva la propria copia delle tre
+   difese. Nessuna delle due tornate precedenti lo aveva allargato perche
+   nessuno lo contava fra i lettori che decidono;
+2. **la guardia del riscatto era piu stretta del legame che autorizza.** Cercava
+   dentro `athletes.data.guardians[]`, che di una posizione condivisa pubblica un
+   identificativo **solo**, mentre `linkGuardianAccount` cerca fra le righe. Un
+   invito coniato per la riga nascosta veniva rifiutato con 404 (ADR-0151, dal
+   lato opposto: qui la guardia era la piu stretta delle due);
+3. **un lettore che il censimento non vedeva.** `enrollment-requests.ts` pescava
+   il tutore dalla proiezione leggendo le quattro grafie dell'utenza e **non** i
+   marchi. Il marcatore cercava `data.guardians` e li c'era
+   `asRecord(athlete.data).guardians`: la stessa lettura, con una funzione in
+   mezzo. «Un falso positivo costa una riga di classificazione, un falso negativo
+   costa un difetto che nessuno vede» era scritto nel censimento, e il marcatore
+   era stretto lo stesso.
+
+### Le conseguenze
+
+Meno seicento righe di codice: sei stesure dell'esclusione, tre delle notifiche,
+due della guardia sulla concessione e due della `where` degli inviti diventano
+una ciascuna.
+
+E una regola che vale oltre questo pacchetto: **quando una revisione trova
+regressioni delle proprie correzioni precedenti, il difetto non e nell'endpoint —
+e nel fatto che la regola abbia piu di una casa.** Si smette di correggere
+endpoint e si consolida la classe.
+
+**Vedi anche.** ADR-0152, ADR-0151, ADR-0149, ADR-0118, ADR-0116,
+`docs/knowledge-base/49-pp-02-invarianti-tutori.md`.

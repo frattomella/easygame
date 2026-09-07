@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { resolveGuardianSubjectForUser } from "@/lib/guardians/documents";
 import {
   createDocumentRequest,
   resolveLinkedFamilyScope,
@@ -810,20 +811,22 @@ export const buildRenewalDraft = async (
   });
   if (!athlete) throw new Error("Modulo non trovato");
 
-  const guardians = Array.isArray(asRecord(athlete.data).guardians)
-    ? asRecord(athlete.data).guardians
-    : [];
-  const tutore =
-    guardians.find((guardian: any) =>
-      [
-        asRecord(guardian).linkedUserId,
-        asRecord(guardian).linked_user_id,
-        asRecord(guardian).userId,
-        asRecord(guardian).user_id,
-      ]
-        .map((value) => asText(value))
-        .includes(asText(userId)),
-    ) || null;
+  /*
+    **Chi apre il rinnovo e il soggetto della compilazione, se non e escluso.**
+
+    Questa ricerca era scritta a mano: leggeva le quattro grafie dell'utenza —
+    e faceva bene — ma **non** guardava i marchi. La guardia
+    (`resolveLinkedFamilyScope`) decide sulle **righe**, dove l'accesso si
+    decide; l'uso pescava dentro la proiezione. Due oggetti diversi per la
+    stessa domanda sono la forma che ADR-0151 vieta, ed e la stessa che ha
+    fatto rifiutare con 404 un invito legittimo dal lato del riscatto.
+
+    Il censimento non lo vedeva: il marcatore cercava `data.guardians` e qui
+    c'era `asRecord(athlete.data).guardians`. Un falso negativo del censimento
+    costa «un difetto che nessuno vede», ed e stato allargato insieme a questa
+    correzione.
+  */
+  const tutore = resolveGuardianSubjectForUser(athlete.data, userId);
 
   const records: SubjectRecords = { athlete: athlete as any, guardian: tutore };
 

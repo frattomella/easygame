@@ -553,3 +553,50 @@ di copertura fa parte del verbale, non del silenzio.
 dire che servono: riportando la difesa allo stato precedente, la prima diventa
 rossa su **23 grafie su 40** e la seconda su **22 risorse su 22**. Una sonda
 mai vista rossa non e una prova.
+
+---
+
+## Le sonde del consolidamento PP-02
+
+Chiudono il ciclo che quindici revisioni non riuscivano a far convergere
+([ADR-0153](18-decision-log.md#adr-0153--le-regole-di-un-dominio-stanno-in-una-primitiva-non-in-ogni-consumatore)),
+e vanno lette insieme: **due misurano il dominio, la terza misura le prime due.**
+
+```bash
+node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs \
+  scripts/pp-02-censimento.mjs
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-consolidamento.mjs
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-mutazioni.mjs
+```
+
+| sonda | che cosa chiede |
+|-------|------------------|
+| `pp-02-censimento.mjs` | **C1** ogni percorso che tocca il dominio e classificato; **C2** la tabella non e invecchiata; **C3** chi e dichiarato canonico **importa** una primitiva che il modulo canonico **esporta davvero**; **C4** nessuno scrive `athlete_guardians` fuori dal proprietario; **C5** nessuno fuori dai moduli canonici ripiega l'OR dell'esclusione |
+| `pp-02-consolidamento.mjs` | la matrice di regressione su PostgreSQL vero: le **diciassette situazioni** in cui il dominio si e rotto almeno una volta, piu **otto giri** di revoca e salvataggio in corsa (deadlock, revoche perse, destinatario fiscale e posizione deterministici) |
+| `pp-02-mutazioni.mjs` | **che le due sonde qui sopra mordano.** Reintroduce undici difetti veri — ognuno la riscrittura di uno gia costato una tornata — e pretende che la sonda corrispondente diventi rossa. Ripristina sempre, e verifica che l'albero sia tornato com'era |
+
+### Perche C3 non guarda piu il testo
+
+La prima stesura di C3 chiedeva `testo.includes("revokeGuardianRow")`. Un
+**commento** che citasse la primitiva bastava percio a dichiarare canonico un
+file che si ricostruiva le regole in casa — che e esattamente cio che C3 esiste
+per impedire.
+
+Oggi C3 risolve gli `import`, li fa puntare a un modulo canonico, e pretende che
+il nome importato sia fra gli **export** di quel modulo — derivati dal suo testo,
+non da un elenco scritto a mano. Una primitiva rinominata domani non lascia
+indietro una lista.
+
+### Perche la totalita si importa invece di riscriverla
+
+`tests/lib/tutori-primitive.test.mjs` importa `censimento()` da
+`scripts/pp-02-censimento.mjs` e ne deriva le proprie asserzioni. Non c'e nessun
+elenco di percorsi scritto nel test: sarebbe il secondo elenco da tenere
+d'accordo con il primo, e divergerebbe — che e il difetto di cui questo intero
+pacchetto e fatto. Un consumatore nuovo fa fallire `npm test` il giorno in cui
+viene scritto, non il giorno in cui un cliente perde una revoca.
+
+Il censimento stampa e chiude con `process.exit` **solo quando e il comando**:
+importato, e una funzione silenziosa.

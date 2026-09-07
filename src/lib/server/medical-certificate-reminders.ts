@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { resolveNotificationGuardians } from "@/lib/guardians/notifications";
 import { sendNotificationEmails } from "./email/email-service";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import {
@@ -80,226 +81,26 @@ const normalizeEmail = (value: unknown) =>
   String(value || "")
     .trim()
     .toLowerCase();
-
 /**
- * I tutori dichiarati in anagrafica, nelle due forme che convivono nei dati:
- * l'elenco `guardians` e la coppia storica `parent1`/`parent2`.
+ * I tutori dichiarati in anagrafica che possono ricevere un avviso nuovo.
+ *
+ * ---
+ *
+ * **Era la meta di una coppia di gemelli.** L'altra meta —
+ * `resolveFamilyRecipients` in `document-requests.ts` — rispondeva alla stessa
+ * domanda con un'altra funzione, e ogni tornata di correzioni ne allargava
+ * una sola: misurato su una riga `{ userId, email }`, accesso si, solleciti
+ * si, promemoria si, notifiche documentali **no**. Un tutore legato smetteva
+ * di ricevere **solo** gli avvisi sui documenti che il club gli chiede, e la
+ * cosa era invisibile da tutte e due le parti.
+ *
+ * Adesso la risposta e una, e sta in `@/lib/guardians/notifications`: le tre
+ * difese, le quattro grafie dell'utenza, l'uscita del legame dichiarato e la
+ * scelta fra elenco e coppia storica fatta sul contenuto grezzo — tutte in un
+ * posto solo. Qui resta il nome per cui i test la chiamano.
  */
-export const getGuardianRows = (athlete: any) => {
-  const data = asRecord(athlete?.data);
-
-  /*
-    **Anche l'elenco delle identita, non solo il marchio di riga.**
-
-    La verita sulla revoca si e spostata dalla riga all'identita, perche il
-    marchio di riga si aggirava aggiungendone una sorella con lo stesso
-    indirizzo — mossa che si crea da sola approvando un modulo. Questa lettura
-    e rimasta al marchio, quindi la riga sorella riapriva **questo** canale: i
-    promemoria sulla scadenza del certificato medico di un minore, risolti
-    proprio dall'indirizzo di contatto.
-  */
-  const identitaRevocate = new Set<string>(
-    (Array.isArray((data as any).revokedGuardianIdentities)
-      ? ((data as any).revokedGuardianIdentities as unknown[])
-      : []
-    )
-      .map((valore) => String(valore || "").trim().toLowerCase())
-      .filter(Boolean),
-  );
-
-  /*
-    **Il segno di solo-recapito vale anche qui.**
-
-    Un avviso sulla scadenza del certificato medico di un minore non va a un
-    indirizzo che uno sconosciuto ha dichiarato su un modulo pubblico.
-  */
-  /*
-    **Il segno di riga, e il registro che lo regge.**
-
-    Il segno vive dentro il blob che la rotta generica sostituisce per intero e
-    non sopravviveva a un salvataggio ordinario. Il registro sta sull'atleta,
-    come quello delle revoche, e non ha niente da abbinare.
-  */
-  const recapitiSoli = new Set<string>(
-    (Array.isArray((data as any).contactOnlyIdentities)
-      ? ((data as any).contactOnlyIdentities as unknown[])
-      : []
-    )
-      .map((valore) => String(valore || "").trim().toLowerCase())
-      .filter(Boolean),
-  );
-
-  const soloRecapito = (record: Record<string, any>) => {
-    if (record.contactOnly || record.contact_only) return true;
-    if (!recapitiSoli.size) return false;
-
-    const suoIndirizzo = String(
-      record.email || record.linkedUserEmail || record.linked_user_email || "",
-    )
-      .trim()
-      .toLowerCase();
-
-    return Boolean(suoIndirizzo && recapitiSoli.has(suoIndirizzo));
-  };
-
-      /*
-        **Un legame dichiarato e non revocato vince, come per l'accesso.**
-
-        Senza questa uscita i canali di invio erano piu chiusi del cancello, e
-        in due modi che si vedevano solo dal lato della famiglia:
-
-        1. `contactOnly` non aveva **nessuna strada di ritorno**. Il percorso
-           normale di una nuova iscrizione — la famiglia compila il modulo
-           pubblico, la segreteria approva e le genera un invito, lei lo
-           riscatta — le dava l'area famiglia completa e **nessun invio**: ne
-           il sollecito, ne il promemoria del certificato, ne le notifiche
-           documentali. Per sempre, e senza che niente lo dicesse: la scheda
-           mostrava «Account collegato». Un invito generato dal club **per
-           quella riga** e il club che se ne fa garante;
-        2. madre e padre con lo stesso indirizzo di famiglia — configurazione
-           ordinaria — e la revoca di uno metteva quell'indirizzo nell'elenco,
-           chiudendo i canali **all'altro**, che ha il proprio legame
-           dichiarato e continua a entrare nel cruscotto.
-
-        E la stessa uscita che `athleteBelongsToParent` ha da sempre. Averla
-        qui e non li voleva dire che la stessa domanda, sulla stessa persona,
-        aveva due risposte.
-      */
-      /*
-        **Le quattro grafie, come chiunque altro le legga.**
-
-        Questa uscita ne leggeva due. Il vaglio dell'accesso, la guardia della
-        crescita e la revoca ne leggono quattro, quindi una riga scritta con
-        `userId`/`user_id` apriva il cruscotto e **non** teneva in piedi il
-        canale: la stessa persona, la stessa domanda, due risposte — che e la
-        forma esatta che ADR-0116 §3 vieta.
-      */
-  const legameDichiaratoVivo = (record: Record<string, any>) =>
-    [record.linkedUserId, record.linked_user_id, record.userId, record.user_id]
-      .map((valore) => String(valore || "").trim().toLowerCase())
-      .filter(Boolean)
-      .some((voce) => !identitaRevocate.has(voce));
-
-  const revocataPerIdentita = (record: Record<string, any>) =>
-    [
-      record.linkedUserId,
-      record.linked_user_id,
-      record.userId,
-      record.user_id,
-      record.linkedUserEmail,
-      record.linked_user_email,
-      record.email,
-    ].some((valore) =>
-      identitaRevocate.has(String(valore || "").trim().toLowerCase()),
-    );
-  const guardians = asArray(data.guardians)
-    /*
-      **Chi e stato scollegato non riceve piu avvisi sul minore.**
-
-      Questa e la **seconda** definizione di «tutore collegato» del
-      repository, e come la prima accettava l'indirizzo di **contatto** — che
-      la revoca giustamente non cancella, perche al club serve per scrivere a
-      quella persona. Da qui pero non si scrive alla persona: si risolve il suo
-      **account** e gli si manda un avviso sul certificato medico di un minore.
-      Dopo «Scollega account» quegli avvisi continuavano ad arrivare.
-
-      La prima definizione e stata chiusa con il marchio `accessRevokedAt`;
-      questa lo legge, o la revoca resterebbe vera per l'accesso e falsa per
-      cio che si riceve.
-    */
-    .filter((guardian) => {
-      const record = asRecord(guardian);
-      if (legameDichiaratoVivo(record)) return true;
-      if (revocataPerIdentita(record) || soloRecapito(record)) return false;
-      return !firstText(record.accessRevokedAt, record.access_revoked_at);
-    })
-    .map((guardian) => {
-    const record = asRecord(guardian);
-    return {
-      linkedUserId: firstText(
-        record.linkedUserId,
-        record.linked_user_id,
-        record.userId,
-        record.user_id,
-      ),
-      /*
-        **Un indirizzo revocato non esce nemmeno da una riga superstite.**
-
-        L'uscita «un legame dichiarato vince» tiene in piedi la riga del padre,
-        che pero porta **l'indirizzo di famiglia condiviso** — lo stesso che la
-        revoca della madre ha messo nell'elenco. Da li `resolveGuardianRecipientIds`
-        lo risolveva in un'utenza, e la notifica finiva **nella bacheca della
-        madre revocata**, con il nome del minore e la scadenza del certificato.
-
-        Gli altri due canali il rimedio ce l'hanno, e diverso: uno azzera
-        l'indirizzo in uscita, l'altro filtra gli identificativi alla fine.
-        Tre canali, tre risposte — la forma che ADR-0116 §3 vieta.
-      */
-      linkedUserEmail: (() => {
-        const scritto = firstText(
-          record.email,
-          record.linkedUserEmail,
-          record.linked_user_email,
-        );
-        return scritto && identitaRevocate.has(scritto.trim().toLowerCase())
-          ? ""
-          : scritto;
-      })(),
-    };
-  });
-
-  const legacyParents = [data.parent1, data.parent2]
-    .filter(Boolean)
-    /* Il marchio vale anche sulla coppia storica, o la revoca ha un buco. */
-    .filter((guardian) => {
-      const record = asRecord(guardian);
-      if (legameDichiaratoVivo(record)) return true;
-      if (revocataPerIdentita(record) || soloRecapito(record)) return false;
-      return !firstText(record.accessRevokedAt, record.access_revoked_at);
-    })
-    .map((guardian) => {
-      const record = asRecord(guardian);
-      return {
-        linkedUserId: firstText(
-          record.linkedUserId,
-          record.linked_user_id,
-          record.userId,
-          record.user_id,
-        ),
-        /* Come sopra: la coppia storica non e un'eccezione. */
-        linkedUserEmail: (() => {
-          const scritto = firstText(
-            record.email,
-            record.linkedUserEmail,
-            record.linked_user_email,
-          );
-          return scritto && identitaRevocate.has(scritto.trim().toLowerCase())
-            ? ""
-            : scritto;
-        })(),
-      };
-    });
-
-  /*
-    **Il filtro si applica alla fine, non prima della scelta.**
-
-    La prima stesura scartava le righe revocate **dentro** `guardians`, e poi
-    sceglieva `guardians.length > 0 ? guardians : legacyParents`: un atleta i
-    cui tutori fossero **tutti** revocati si ritrovava con l'elenco vuoto e
-    ricadeva sulla coppia storica `parent1`/`parent2`. Cioe la revoca faceva
-    **comparire** destinatari invece di toglierli.
-  */
-  /*
-    **La scelta fra le due forme si fa sul contenuto grezzo, non sul filtrato.**
-
-    Ogni ramo scarta gia le righe revocate. Ma la scelta
-    `guardians.length > 0 ? guardians : legacyParents` guardava l'elenco **dopo**
-    il filtro: un atleta i cui tutori fossero **tutti** revocati si ritrovava
-    con l'elenco vuoto e ricadeva sulla coppia storica `parent1`/`parent2`.
-    Cioe la revoca faceva **comparire** destinatari invece di toglierli.
-  */
-  return asArray(data.guardians).length > 0 ? guardians : legacyParents;
-};
+export const getGuardianRows = (athlete: any) =>
+  resolveNotificationGuardians(asRecord(athlete?.data));
 
 /** La chiave con cui una notifica dice a quale promemoria corrisponde. */
 export const buildReminderKey = (

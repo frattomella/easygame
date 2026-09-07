@@ -16,6 +16,7 @@ import {
   formatAmountValue,
   formatDate,
 } from "@/lib/documents/document-view";
+import { documentGuardianAt } from "@/lib/guardians/documents";
 import { resolveFiscalRecipient } from "@/lib/documents/fiscal-recipient";
 import {
   buildInstallmentLedgers,
@@ -273,19 +274,13 @@ const buildCommonValues = (context: {
   ricevuta che cambia persona. La posizione si tiene percio dov'e, e la voce
   esclusa risponde **vuoto**: cio che era il genitore due resta il genitore due.
 */
-const guardianAt = (athlete: Record<string, any>, index: number) => {
-  const guardians = asRecord(athlete.data).guardians;
-  const list = Array.isArray(guardians) ? guardians.filter(Boolean) : [];
-  const voce = asRecord(list[index]);
-
-  const revocata = String(
-    (voce as any).accessRevokedAt || (voce as any).access_revoked_at || "",
-  ).trim();
-  const soloRecapito =
-    (voce as any).contactOnly === true || (voce as any).contact_only === true;
-
-  return revocata || soloRecapito ? asRecord(null) : voce;
-};
+/*
+  Il predicato non e piu scritto qui: `documentGuardianAt` e la **stessa**
+  funzione che usa il destinatario fiscale, e tiene insieme le due meta della
+  regola — chi e escluso risponde vuoto, e la posizione resta dov'e.
+*/
+const guardianAt = (athlete: Record<string, any>, index: number) =>
+  asRecord(documentGuardianAt(asRecord(athlete.data), index));
 
 /**
  * Le chiavi che il risolutore sa produrre, con il loro valore.
