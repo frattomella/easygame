@@ -307,6 +307,44 @@ const resolveExpectedAthletes = (
   );
 };
 
+/**
+ * **Un atleta, nella forma che l eleggibilita sa leggere.**
+ *
+ * Gli stessi campi di `loadClubAthletes`, per una riga sola: le appartenenze
+ * viaggiano con lei, perche senza di quelle `resolveExpectedAthletes` non puo
+ * dire se un evento la riguardi.
+ */
+const caricaAtletaPerInviti = async (athleteId: string) => {
+  const [athlete, memberships] = await Promise.all([
+    prisma.athlete.findUnique({
+      where: { id: athleteId },
+      select: {
+        id: true,
+        organization_id: true,
+        first_name: true,
+        last_name: true,
+        category_id: true,
+        category_name: true,
+        data: true,
+      },
+    }),
+    prisma.athleteCategoryMembership.findMany({
+      where: { athlete_id: athleteId },
+      select: {
+        athlete_id: true,
+        category_id: true,
+        category_name: true,
+        is_primary: true,
+        site_id: true,
+      },
+    }),
+  ]);
+
+  if (!athlete) throw new Error("Atleta non trovato");
+
+  return { ...athlete, category_memberships: memberships };
+};
+
 const loadClubAthletes = async (organizationId: string) => {
   const [athletes, memberships] = await Promise.all([
     prisma.athlete.findMany({
@@ -993,6 +1031,7 @@ const eventInvitationTitle = (
 const buildInvitations = ({
   club,
   events,
+  athlete,
   athleteId,
   rows,
   now,
@@ -1001,6 +1040,11 @@ const buildInvitations = ({
   club: Record<string, any>;
   /** Gli eventi del club nella forma storica, allenamenti **e** gare. */
   events: Record<string, any>[];
+  /**
+   * La riga dell’atleta, non il solo identificativo: senza di lei non si
+   * puo dire **se l’evento lo riguarda**, ed e cio che mancava.
+   */
+  athlete: Record<string, any>;
   athleteId: string;
   rows: Array<{
     training_id: string;
@@ -1016,6 +1060,40 @@ const buildInvitations = ({
   const categoryOptions = buildClubCategoryOptions({
     clubCategories: club.categories,
   });
+  const groups = buildCategoryGroups({
+    categories: categoryOptions,
+    sites: normalizeClubSites(club.club_sites),
+    groups: club.category_groups,
+  });
+
+  /*
+    **Il lato che invita e il lato che accetta devono dire la stessa cosa.**
+
+    Qui si filtrava su tre cose — la conferma richiesta, l’evento non
+    annullato, la finestra — e su **nessuna** che dicesse se l’evento
+    riguardasse questo atleta. Un club con «Pulcini» e «Under 18»: un
+    allenatore accende la conferma su una gara Under 18, e la famiglia di
+    un Pulcino se la trovava fra gli inviti aperti, con titolo, avversario
+    e ora, e il pulsante attivo.
+
+    Premendolo, `answerRsvp` rispondeva «Questo evento non riguarda
+    l’atleta: non e fra i convocabili». Il lato che legge e il lato che
+    scrive non erano d’accordo, ed e la stessa asimmetria che questo file
+    dichiara chiusa venti righe piu su.
+
+    Peggio a valle: `listPendingRsvpForAthlete` alimenta le automazioni, e
+    una gara con la conferma accesa produceva un sollecito — email o SMS —
+    a **ogni famiglia del club**.
+
+    Adesso la domanda e la stessa: `resolveExpectedAthletes`, cioe la
+    funzione che `answerRsvp` usa per rifiutare. Non si somigliano: sono la
+    stessa.
+  */
+  const eventoRiguardaLAtleta = (training: Record<string, any>) =>
+    resolveExpectedAthletes(
+      { club, training, categoryOptions, groups },
+      [athlete],
+    ).length > 0;
 
   return asArray(events)
     .map((raw) => asRecord(raw))
@@ -1026,7 +1104,14 @@ const buildInvitations = ({
 
       const startsAt = eventStartsAt(training);
       if (!startsAt) return false;
-      return startsAt.getTime() >= now.getTime() && startsAt.getTime() <= horizon.getTime();
+      if (
+        startsAt.getTime() < now.getTime() ||
+        startsAt.getTime() > horizon.getTime()
+      ) {
+        return false;
+      }
+
+      return eventoRiguardaLAtleta(training);
     })
     .map((training) => {
       const trainingId = asText(training.id);
@@ -1199,6 +1284,7 @@ export const readAthleteRsvpInvitations = async ({
   return buildInvitations({
     club,
     events,
+    athlete,
     athleteId: wantedAthleteId,
     rows,
     now,
@@ -1243,15 +1329,19 @@ export const listPendingRsvpForAthlete = async ({
   const wantedAthleteId = asText(athleteId);
   if (!wantedAthleteId) throw new Error("Atleta mancante");
 
-  let resolvedOrganizationId = asText(organizationId);
-  if (!resolvedOrganizationId) {
-    const athlete = await prisma.athlete.findUnique({
-      where: { id: wantedAthleteId },
-      select: { organization_id: true },
-    });
-    if (!athlete) throw new Error("Atleta non trovato");
-    resolvedOrganizationId = asText(athlete.organization_id);
-  }
+  /*
+    **Serve la riga dell atleta, non il suo club.**
+
+    Questa funzione leggeva la sola `organization_id`, perche gli inviti non
+    guardavano l atleta affatto. Adesso lo guardano: l eleggibilita e la stessa
+    che usa `answerRsvp`, e quella pretende le appartenenze.
+
+    Si legge sempre, non solo quando il club manca: prima il ramo si saltava
+    quando il chiamante lo passava, e sarebbe rimasto senza riga.
+  */
+  const athlete = await caricaAtletaPerInviti(wantedAthleteId);
+  const resolvedOrganizationId =
+    asText(organizationId) || asText(athlete.organization_id);
 
   const [club, events, rows] = await Promise.all([
     loadClub(resolvedOrganizationId),
@@ -1262,6 +1352,7 @@ export const listPendingRsvpForAthlete = async ({
   return buildInvitations({
     club,
     events,
+    athlete,
     athleteId: wantedAthleteId,
     rows,
     now,

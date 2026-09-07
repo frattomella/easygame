@@ -670,3 +670,121 @@ test("verificato, l'indirizzo collega come prima", async () => {
   assert.equal(esito.status, "yes");
   assert.equal(righe().length, 1);
 });
+
+/* ------------------------------------- l'invito e la risposta si accordano */
+
+/**
+ * **Chi invita e chi accetta devono dire la stessa cosa** (D-AUD-2).
+ *
+ * `buildInvitations` filtrava su tre cose — conferma richiesta, evento non
+ * annullato, finestra — e su **nessuna** che dicesse se l'evento riguardasse
+ * quell'atleta. Un club con «Pulcini» e «Under 18»: un allenatore accende la
+ * conferma su una gara Under 18, e la famiglia di un Pulcino se la trovava fra
+ * gli inviti aperti, con avversario, ora e il pulsante attivo.
+ *
+ * Premendolo, `answerRsvp` rispondeva «non e fra i convocabili». Il lato che
+ * legge e il lato che scrive non erano d'accordo.
+ *
+ * Peggio a valle: `listPendingRsvpForAthlete` alimenta le automazioni, e una
+ * gara con la conferma accesa produceva un sollecito — email o SMS — a **ogni
+ * famiglia del club**.
+ */
+
+const semeConDueCategorie = () => {
+  const semi = seed();
+
+  semi.club[0].categories = [
+    { id: "cat-pulcini", name: "Pulcini" },
+    { id: "cat-under18", name: "Under 18" },
+  ];
+
+  semi.clubEvent.push({
+    id: `evento-${CLUB.slice(0, 4)}-gara-under18`,
+    organization_id: CLUB,
+    kind: "match",
+    legacy_id: "gara-under18",
+    status: "scheduled",
+    starts_at: new Date("2026-09-09T15:00:00.000Z"),
+    rsvp_required: true,
+    rsvp_deadline: new Date("2026-09-08T18:00:00.000Z"),
+    category_id: "cat-under18",
+    category_name: "Under 18",
+    title: "Gara Under 18",
+    opponent: "ASD Lontana",
+    location: "Campo comunale",
+    payload: {},
+  });
+
+  return semi;
+};
+
+test("una gara di un'altra categoria non compare fra gli inviti", async () => {
+  fake = createFakePrisma(semeConDueCategorie());
+  setPrismaClientForTests(fake.client);
+
+  const inviti = await service.readAthleteRsvpInvitations({
+    athleteId: ATLETA,
+    userId: GENITORE,
+    now: ADESSO,
+  });
+
+  assert.equal(
+    inviti.some((invito) => invito.trainingId === "gara-under18"),
+    false,
+    "prima: la famiglia di un Pulcino riceveva l'invito alla gara Under 18",
+  );
+
+  /* Il controspecchio: cio che lo riguarda continua ad arrivare. */
+  assert.equal(
+    inviti.some((invito) => invito.trainingId === GARA),
+    true,
+    "la gara della sua categoria deve restare fra gli inviti",
+  );
+});
+
+test("e il lato che scrive dice la stessa cosa: e questa la proprieta", async () => {
+  /*
+    **La prova che tiene insieme le due meta.** Non basta che l'invito non
+    compaia: deve non comparire **perche** la risposta lo rifiuterebbe. Se un
+    giorno le due regole divergessero di nuovo, e qui che si vedrebbe — invece
+    che da una famiglia che preme un pulsante e riceve un errore.
+  */
+  fake = createFakePrisma(semeConDueCategorie());
+  setPrismaClientForTests(fake.client);
+
+  const esito = await service
+    .answerRsvp({
+      athleteId: ATLETA,
+      userId: GENITORE,
+      trainingId: "gara-under18",
+      status: "yes",
+    })
+    .then(() => "accettata")
+    .catch((errore) => String(errore?.message || errore));
+
+  assert.match(
+    String(esito),
+    /non riguarda l'atleta|non e fra i convocabili|convocabil/i,
+    `la risposta doveva essere rifiutata: ${esito}`,
+  );
+});
+
+test("i pendenti che alimentano i solleciti sono gli stessi", async () => {
+  /*
+    E la porta da cui il difetto usciva dal browser: un sollecito per ogni
+    famiglia del club, su una gara che riguardava una squadra sola.
+  */
+  fake = createFakePrisma(semeConDueCategorie());
+  setPrismaClientForTests(fake.client);
+
+  const pendenti = await service.listPendingRsvpForAthlete({
+    organizationId: CLUB,
+    athleteId: ATLETA,
+    now: ADESSO,
+  });
+
+  assert.equal(
+    pendenti.some((invito) => invito.trainingId === "gara-under18"),
+    false,
+  );
+});
