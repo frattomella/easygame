@@ -1,6 +1,9 @@
 "use client";
 
 import { sameCategory } from "@/lib/categories/identity";
+import { apiRequest } from "@/lib/api/client";
+import { leggiRigheDiAppello } from "@/lib/api/attendance-roll";
+import { readRecordedAttendance } from "@/lib/trainer-operational-alerts";
 import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
@@ -183,6 +186,17 @@ interface TrainingSession {
   categoryColor: string;
   status: "upcoming" | "completed" | "cancelled" | "annullato" | "concluded";
   attendance?: any[];
+  /**
+   * **Quanti registrati e quanti presenti**, cosi come li conta il server
+   * (P0-5).
+   *
+   * L'appello vive in `club_event_participants`, e l'elenco riga per riga lo
+   * chiede solo chi apre il registro: alle schede bastano due numeri. Prima
+   * non c'era ne l'uno ne gli altri, e ogni scheda diceva «Presenze mancanti»
+   * per sempre.
+   */
+  attendanceRecorded?: number | null;
+  attendancePresent?: number | null;
   expectedAttendees?: number;
   /**
    * **La versione su cui questa copia e stata letta** (PP-02 §O, debito
@@ -287,20 +301,38 @@ const formatTrainingSession = ({
     presenza di questo allenamento (ADR-0055).
   */
   const declaredGroupIds = readTrainingGroupIds(training);
-  const expectedAttendees =
+  /*
+    **Il denominatore lo conta l'organico di oggi, non un numero congelato**
+    (P0-5).
+
+    La squadra attesa si calcolava, ma solo **se** la riga non portava gia un
+    `expected_attendees` — e le righe piu vecchie lo portano, scritto una volta
+    e mai piu toccato. La scheda diceva «3/18» sopra un registro che elencava
+    sedici nomi: due numeri diversi per la stessa domanda, a due centimetri
+    l'uno dall'altro, e quello sbagliato era il piu visibile.
+
+    Il numero salvato resta il ripiego di chi non ha un organico da contare —
+    l'elenco non ancora caricato, o un allenamento di una categoria che non
+    esiste piu — perche «3 su 0» sarebbe peggio di un numero vecchio.
+  */
+  const attesiDallOrganico = declaredGroupIds.length
+    ? athletes.filter((athlete: any) =>
+        getAthleteGroupIds(athlete, siteIndex).some((groupId) =>
+          declaredGroupIds.includes(groupId),
+        ),
+      ).length
+    : athletes.filter((athlete: any) =>
+        athleteMatchesAnyCategory(athlete, matchedCategories, categories),
+      ).length;
+
+  const attesiSalvati =
     typeof training?.expectedAttendees === "number"
       ? training.expectedAttendees
       : typeof training?.expected_attendees === "number"
         ? training.expected_attendees
-        : declaredGroupIds.length
-          ? athletes.filter((athlete: any) =>
-              getAthleteGroupIds(athlete, siteIndex).some((groupId) =>
-                declaredGroupIds.includes(groupId),
-              ),
-            ).length
-          : athletes.filter((athlete: any) =>
-              athleteMatchesAnyCategory(athlete, matchedCategories, categories),
-            ).length;
+        : 0;
+
+  const expectedAttendees = attesiDallOrganico || attesiSalvati;
 
   const matchedLocation = findTrainingLocationOption(locations, {
     structureId: training.structureId,
@@ -365,6 +397,27 @@ const formatTrainingSession = ({
     categoryColor: getTrainingCategoryColor(training, categories),
     status: training?.status || "upcoming",
     attendance: Array.isArray(training?.attendance) ? training.attendance : [],
+    /*
+      **I due numeri dell'appello, che qui si perdevano** (P0-5).
+
+      La rotta del calendario manda quanti sono stati registrati e quanti
+      presenti; questa funzione ricostruisce la seduta campo per campo, e cio
+      che non nomina non arriva. Senza queste due righe la scheda continuava a
+      dire «Presenze mancanti» sopra un registro appena salvato, e la
+      correzione dentro `readRecordedAttendance` non aveva niente da leggere.
+    */
+    attendanceRecorded:
+      typeof training?.attendance_recorded === "number"
+        ? training.attendance_recorded
+        : typeof training?.attendanceRecorded === "number"
+          ? training.attendanceRecorded
+          : null,
+    attendancePresent:
+      typeof training?.attendance_present === "number"
+        ? training.attendance_present
+        : typeof training?.attendancePresent === "number"
+          ? training.attendancePresent
+          : null,
     expectedAttendees,
     /*
       PP-02 §O. La versione viaggia dalla lettura al salvataggio: la forma
@@ -671,6 +724,24 @@ const versioneSalvata = (risposta: any): number | null => {
         getClubWeeklySchedule(activeClub.id),
         getClubData(activeClub.id, "club_sites"),
         getClubData(activeClub.id, "category_groups"),
+        /*
+          **I due numeri dell'appello, dalla rotta che li conta** (P0-5).
+
+          Questa pagina legge gli allenamenti dalla proiezione storica
+          (`getClubTrainings`), e la proiezione non porta l'appello: l'appello
+          e righe di `club_event_participants`, non colonne dell'evento. Il
+          risultato era una scheda che diceva «Presenze mancanti» sopra un
+          registro appena salvato — anche dopo un ricaricamento.
+
+          Di qui si prendono **solo** i due conteggi. Portare l'intera lettura
+          sulla rotta canonica e il lavoro di WP-07 e non si fa in coda a una
+          correzione: sarebbe cambiare la fonte di ogni campo di questa
+          schermata per sistemare un badge.
+        */
+        apiRequest<any[]>("/api/v1/events?kind=training&include_cancelled=1", {
+          method: "GET",
+          headers: { "x-active-club-id": activeClub.id },
+        }),
       ]);
 
       const failedSections: string[] = [];
@@ -701,9 +772,39 @@ const versioneSalvata = (risposta: any): number | null => {
         ? clubCategories
         : [];
       const normalizedTrainers = Array.isArray(clubTrainers) ? clubTrainers : [];
-      const normalizedTrainings = Array.isArray(clubTrainings)
-        ? clubTrainings
-        : [];
+      /*
+        L'appello si indicizza con **tutte e due** le chiavi dell'evento: la
+        proiezione porta l'identificativo storico, la riga porta il proprio.
+      */
+      const rispostaAppello = settledResults[8];
+      const eventiConAppello: any[] =
+        rispostaAppello.status === "fulfilled"
+          ? Array.isArray(rispostaAppello.value)
+            ? rispostaAppello.value
+            : Array.isArray((rispostaAppello.value as any)?.data)
+              ? (rispostaAppello.value as any).data
+              : []
+          : [];
+      const appelloPerEvento = new Map<string, any>();
+      for (const evento of eventiConAppello) {
+        const conteggi = {
+          attendance_recorded: Number(evento?.attendance_recorded || 0),
+          attendance_present: Number(evento?.attendance_present || 0),
+        };
+        for (const chiave of [evento?.eventId, evento?.id]) {
+          const testo = String(chiave || "").trim();
+          if (testo) appelloPerEvento.set(testo, conteggi);
+        }
+      }
+
+      const normalizedTrainings = (
+        Array.isArray(clubTrainings) ? clubTrainings : []
+      ).map((training: any) => {
+        const conteggi =
+          appelloPerEvento.get(String(training?.eventId || "").trim()) ||
+          appelloPerEvento.get(String(training?.id || "").trim());
+        return conteggi ? { ...training, ...conteggi } : training;
+      });
       const normalizedWeeklySchedule = Array.isArray(clubWeeklySchedule)
         ? clubWeeklySchedule
         : [];
@@ -1122,13 +1223,39 @@ const versioneSalvata = (risposta: any): number | null => {
   );
 
   const openAttendanceSheet = React.useCallback(
-    (training: TrainingSession) => {
+    async (training: TrainingSession) => {
       const eventCategories = categories.filter((category) =>
         trainingMatchesCategory(training, category, categories),
       );
-      const existingEntries = normalizeTrainingAttendanceEntries(
+      /*
+        **L'appello gia preso si rilegge dall'archivio** (P0-5).
+
+        `training.attendance` non e mai arrivato dalla rotta del calendario:
+        questa schermata riapriva il registro sempre vuoto, e salvarlo una
+        seconda volta cancellava la prima. Le righe stanno in
+        `club_event_participants`, e le legge la rotta dei partecipanti — la
+        stessa che il perimetro dell'allenatore gia filtra.
+
+        La proiezione, se un giorno tornera a portarle, **vince**: e la copia
+        che la schermata ha gia in mano, e chiederle due volte sarebbe un giro
+        di rete per niente.
+      */
+      let existingEntries = normalizeTrainingAttendanceEntries(
         training.attendance,
       );
+
+      if (!existingEntries.length && activeClub?.id) {
+        try {
+          const righe = await leggiRigheDiAppello(
+            String((training as any).eventId || training.id || ""),
+            activeClub.id,
+          );
+          existingEntries = normalizeTrainingAttendanceEntries(righe);
+        } catch (errore) {
+          console.error("Error reading training attendance:", errore);
+        }
+      }
+
       const existingEntriesByAthleteId = new Map(
         existingEntries.map((entry) => [entry.athleteId, entry]),
       );
@@ -1213,7 +1340,7 @@ const versioneSalvata = (risposta: any): number | null => {
           ),
       });
     },
-    [categories, clubAthletes, sites],
+    [activeClub?.id, categories, clubAthletes, sites],
   );
 
   React.useEffect(() => {
@@ -1339,8 +1466,16 @@ const versioneSalvata = (risposta: any): number | null => {
   };
 
   const getTrainingAttendanceStatus = (training: TrainingSession) => {
-    const hasAttendance =
-      Array.isArray(training.attendance) && training.attendance.length > 0;
+    /*
+      **«L'appello e stato fatto?» ha una risposta sola** (P0-5).
+
+      Qui si guardava `training.attendance`, che la rotta del calendario non ha
+      mai restituito: la scheda diceva «Presenze mancanti» anche il giorno dopo
+      averlo salvato, e non c'era modo di distinguere una seduta fatta da una
+      da fare. La domanda la risolve `readRecordedAttendance`, che conosce le
+      due forme in cui l'appello puo arrivare.
+    */
+    const hasAttendance = readRecordedAttendance(training).recorded > 0;
     const canTakeAttendance = canRecordTrainingAttendance(training);
 
     if (hasAttendance) {
@@ -1363,8 +1498,14 @@ const versioneSalvata = (risposta: any): number | null => {
   };
 
   const getTrainingAttendanceSummary = (training: TrainingSession) => {
-    const present = Array.isArray(training.attendance)
-      ? training.attendance.filter((entry: any) => entry?.present).length
+    const appello = readRecordedAttendance(training);
+    /*
+      Il numero storico `attendees` resta il ripiego di chi non ha ne elenco ne
+      conteggio: e cio che le righe precedenti alla tabella portavano dentro il
+      payload.
+    */
+    const present = appello.recorded
+      ? appello.present
       : typeof training.attendees === "number"
         ? training.attendees
         : 0;

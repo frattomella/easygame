@@ -5409,6 +5409,77 @@ const resolveTrainerDashboardFilterContext = async (
 };
 
 /**
+ * **La bacheca ricostruisce la squadra, e le serve cio con cui il server l'ha
+ * decisa** (P0-5, P0-6).
+ *
+ * `?trainer_dashboard=1` non e piu un confine — lo decide il ruolo, vedi qui
+ * sotto — ma resta la dichiarazione di **chi sta chiedendo**: la bacheca
+ * dell'allenatore. E la bacheca rifa il conto dei propri atleti nel browser,
+ * perche la stessa schermata la puo aprire il club per **un altro**
+ * allenatore, e in quel caso il server manda l'intero organico.
+ *
+ * Quel conto lo fa `sameCategory`, che legge le appartenenze quando ci sono.
+ * Nella lista generica non c'erano: la categoria di un atleta vive in
+ * `athlete_category_memberships` (ADR-0038), e senza quelle righe il browser
+ * rispondeva sui soli campi di comodita della scheda. Su un club dove
+ * l'iscrizione scrive l'appartenenza — la strada normale — l'allenatore dei
+ * suoi quindici Under 15 ne vedeva **tre**, ed e l'elenco su cui si aprono
+ * l'appello e le convocazioni.
+ *
+ * Escono le sole colonne che decidono la squadra: categoria, sede, e se e la
+ * principale. Non e un'anagrafica, e non pesa sulla pagina Atleti, che questo
+ * parametro non lo manda.
+ */
+const conAppartenenzePerLaBacheca = async (
+  resource: string,
+  records: Record<string, any>[],
+  searchParams: URLSearchParams,
+  scope?: ResourceAccessScope,
+): Promise<Record<string, any>[]> => {
+  const canonico = canonicalResourceName(resource);
+  if (canonico !== "athletes" && canonico !== "simplified_athletes") {
+    return records;
+  }
+  if (searchParams.get("trainer_dashboard") !== "1") return records;
+  if (!scope?.activeOrganizationId || !records.length) return records;
+
+  const atletiId = Array.from(
+    new Set(
+      records.map((record) => String(record?.id || "").trim()).filter(Boolean),
+    ),
+  );
+  if (!atletiId.length) return records;
+
+  const righe = await prisma.athleteCategoryMembership.findMany({
+    where: {
+      organization_id: scope.activeOrganizationId as string,
+      athlete_id: { in: atletiId },
+    },
+    select: {
+      athlete_id: true,
+      category_id: true,
+      category_name: true,
+      site_id: true,
+      is_primary: true,
+    },
+  });
+
+  const perAtleta = new Map<string, any[]>();
+  for (const riga of righe) {
+    const chiave = String(riga.athlete_id);
+    perAtleta.set(chiave, [...(perAtleta.get(chiave) || []), riga]);
+  }
+
+  return records.map((record) => ({
+    ...record,
+    category_memberships:
+      perAtleta.get(String(record?.id || "")) ||
+      record.category_memberships ||
+      [],
+  }));
+};
+
+/**
  * **Un filtro che si accende su un parametro di chi chiama non e un confine.**
  *
  * Il perimetro dell'allenatore — le sue categorie, i suoi atleti — si attivava
@@ -5551,9 +5622,9 @@ const filterTrainerDashboardRecords = async (
     Su allenamenti e gare resta la categoria, perche il calendario di una
     squadra non e il dato di nessuno.
   */
-  const perGruppo =
-    context.assignedGroups.length > 0 &&
-    (resource === "athletes" || resource === "simplified_athletes");
+  const perAtleti =
+    resource === "athletes" || resource === "simplified_athletes";
+  const perGruppo = context.assignedGroups.length > 0 && perAtleti;
 
   /*
     **Il gruppo di un atleta sta nelle sue appartenenze, e la lista non le
@@ -5647,8 +5718,29 @@ const filterTrainerDashboardRecords = async (
     return filtraPerAtletaDelPerimetro(records, "athlete_id", scope);
   }
 
+  /*
+    **Le appartenenze servono anche quando il confine e la categoria** (P0-5,
+    P0-6).
+
+    Questa lettura era legata a `perGruppo`, cioe al solo allenatore con dei
+    gruppi dichiarati. Ma la categoria di un atleta vive in
+    `athlete_category_memberships` (ADR-0038) tanto quanto nel campo di
+    comodita, e `extractRecordCategoryTokens` sa gia leggerla: senza le righe
+    in mano rispondeva sui soli `category_id` della scheda.
+
+    L'effetto era la squadra dimezzata. Su un club dove l'iscrizione scrive
+    l'appartenenza — cioe la strada normale — l'allenatore dei suoi quindici
+    Under 15 ne vedeva tre: quelli che avevano **anche** il campo di comodita
+    valorizzato. Da li passano l'appello e le convocazioni, che si aprono
+    sull'elenco degli atleti del perimetro: il registro presenze di una
+    squadra intera si apriva su tre nomi.
+
+    Falliva chiuso, quindi non e mai stata una fuga; era una superficie rotta,
+    ed e la stessa forma di difetto che il commento del ramo per gruppo
+    descrive. Una query sola per l'intera pagina, come li.
+  */
   let appartenenzePerAtleta = new Map<string, any[]>();
-  if (perGruppo) {
+  if (perGruppo || perAtleti) {
     const atletiId = records
       .map((record) => String(record?.id || "").trim())
       .filter(Boolean);
@@ -5691,21 +5783,24 @@ const filterTrainerDashboardRecords = async (
   }
 
   return records.filter((record) => {
+    const conAppartenenze = perGruppo || perAtleti
+      ? {
+          ...record,
+          category_memberships:
+            appartenenzePerAtleta.get(String(record?.id || "")) ||
+            record.category_memberships ||
+            [],
+        }
+      : record;
+
     if (perGruppo) {
-      const conAppartenenze = {
-        ...record,
-        category_memberships:
-          appartenenzePerAtleta.get(String(record?.id || "")) ||
-          record.category_memberships ||
-          [],
-      };
       return context.assignedGroups.some((group) =>
         athleteMatchesGroup(conAppartenenze, group, context.siteIndex),
       );
     }
 
     const matchesCategory = hasTokenIntersection(
-      extractRecordCategoryTokens(record, context.categoryOptions),
+      extractRecordCategoryTokens(conAppartenenze, context.categoryOptions),
       context.assignedCategoryTokens,
     );
 
@@ -6040,7 +6135,14 @@ export const listResourcePage = async (
     scope,
   );
 
-  const viewed = applyListView(resource, trainerScopedRecords, searchParams);
+  const conAppartenenze = await conAppartenenzePerLaBacheca(
+    resource,
+    trainerScopedRecords,
+    searchParams,
+    scope,
+  );
+
+  const viewed = applyListView(resource, conAppartenenze, searchParams);
 
   if (!pagination) {
     return { records: viewed, meta: null };

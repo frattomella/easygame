@@ -254,6 +254,32 @@ Quattro cose da conoscere:
   (`email_not_configured`, `delivery_failed`). Con SMTP non configurato
   nessuno risulta `sent` e nessuna traccia viene scritta.
 
+## L'appello dentro il calendario
+
+`GET /api/v1/events` porta, per ogni evento, due numeri:
+
+| Campo | Che cosa dice |
+|-------|---------------|
+| `attendance_recorded` | Quante righe di appello esistono per quell'evento |
+| `attendance_present` | Quante di quelle righe dicono «presente» |
+
+Un evento senza appello risponde `0` e non l'assenza della chiave: chi
+legge fa `> 0`, e una chiave che a volte c'e e a volte no e il modo in cui
+una scheda finisce per dire «Presenze salvate» perche `undefined` non e
+`0`.
+
+Le righe in stato `pending` **non** si contano: sono nate da una risposta
+della famiglia e dal registro non sono mai passate
+(`RSVP_NEUTRAL_ATTENDANCE_STATUS`). Contarle direbbe fatto un appello che
+nessuno ha preso.
+
+L'**elenco** riga per riga non esce di qui — sarebbe migliaia di oggetti
+su un calendario di stagione — e lo chiede alla propria rotta chi deve
+prespuntare le caselle: `GET /api/v1/events/:id/participants`, che applica
+il perimetro dell'allenatore.
+
+---
+
 ## RSVP: una rotta sola, due letture e una scrittura
 
 | Metodo | Path | Chi | Cosa fa |

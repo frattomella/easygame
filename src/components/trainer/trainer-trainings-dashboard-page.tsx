@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   CalendarDays,
@@ -20,6 +20,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import { AttendanceSheet } from "@/components/trainer/AttendanceSheet";
+import {
+  leggiAppelloDellEvento,
+  type VoceDiAppello,
+} from "@/lib/api/attendance-roll";
 import { TrainerWeeklySchedulePanel } from "@/components/trainer/trainer-weekly-schedule-panel";
 import {
   ConfirmDialog,
@@ -82,6 +86,47 @@ export default function TrainerTrainingsDashboardPage() {
   } = useTrainerDashboard();
   const { showToast } = useToast();
   const [selectedTraining, setSelectedTraining] = useState<any | null>(null);
+
+  /*
+    **L'appello gia preso, prima di riaprirlo** (P0-5).
+
+    Il registro si apriva sempre vuoto: cercava `training.attendance`, che la
+    rotta del calendario non ha mai restituito. Si segnavano tre presenti su
+    sedici, si salvava, e riaprendo erano di nuovo tutti assenti — la seconda
+    passata cancellava la prima, ed e la forma peggiore in cui puo rompersi un
+    registro, perche non lo dice.
+  */
+  const [appelloSalvato, setAppelloSalvato] = useState<
+    Map<string, VoceDiAppello>
+  >(new Map());
+
+  const eventoDellAllenamento = (training: any) =>
+    String(training?.eventId || training?.event_id || training?.id || "");
+
+  useEffect(() => {
+    if (!selectedTraining || !activeClub?.id) {
+      setAppelloSalvato(new Map());
+      return;
+    }
+
+    let vivo = true;
+    void (async () => {
+      try {
+        const righe = await leggiAppelloDellEvento(
+          eventoDellAllenamento(selectedTraining),
+          activeClub.id,
+        );
+        if (vivo) setAppelloSalvato(righe);
+      } catch (errore) {
+        console.error("Error reading training attendance:", errore);
+        if (vivo) setAppelloSalvato(new Map());
+      }
+    })();
+
+    return () => {
+      vivo = false;
+    };
+  }, [selectedTraining, activeClub?.id]);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
     new Date(),
   );
@@ -211,12 +256,14 @@ export default function TrainerTrainingsDashboardPage() {
               (entry: any) => entry.athleteId === athlete.id,
             )
           : null;
+        /* Cio che e gia in archivio, se la scheda non lo porta gia. */
+        const gia = appelloSalvato.get(String(athlete.id));
 
         return {
           id: athlete.id,
           name: getAthleteDisplayName(athlete),
-          present: attendanceRecord?.present || false,
-          notes: attendanceRecord?.notes || "",
+          present: attendanceRecord?.present ?? gia?.present ?? false,
+          notes: attendanceRecord?.notes || gia?.notes || "",
           medicalCertExpiry:
             athlete?.data?.medicalCertExpiry ||
             athlete?.medical_cert_expiry ||

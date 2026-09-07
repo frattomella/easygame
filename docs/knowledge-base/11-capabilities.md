@@ -66,7 +66,7 @@ Classificazione:
 | Allenamenti | COMPLETE | `/training`, luoghi, orari, ricorrenze |
 | Programmazione settimanale | COMPLETE | `weekly_schedule`, `WeeklyTrainingSchedulePanel` |
 | Generazione automatica allenamenti | COMPLETE | `src/lib/server/training-automation.ts` + `POST /api/v1/training-automation` (un club, a mano) e `GET` (tutti i club, da cron). Dal 2026-08-28 `vercel.json` lo schedula alle **04:00**: prima esisteva ma non girava. Si autentica con `CRON_SECRET`; un club che fallisce non ferma gli altri |
-| Presenze allenamento | COMPLETE | `training_attendance`, `AttendanceSheet` |
+| Presenze allenamento | COMPLETE | `club_event_participants`, `AttendanceSheet`. Dal 2026-09-07 anche **in lettura**: l'appello si scriveva e non lo rileggeva nessuno — la rotta del calendario non ha mai portato `training.attendance`, quindi la scheda diceva «0/16 · Presenze mancanti» anche dopo un ricaricamento e riaprire il registro azzerava quello di prima. Il calendario porta ora due conteggi per evento (`attendance_recorded`, `attendance_present`) e chi apre il registro rilegge le righe da `GET /api/v1/events/:id/participants` (`src/lib/api/attendance-roll.ts`, un lettore per tutte e due le schermate) |
 | Partite | COMPLETE | `/matches`, calendario, luoghi |
 | Convocazioni | COMPLETE | `MatchConvocations` |
 | Numeri di maglia | COMPLETE | `jersey_groups`, `jersey_assignments` |
@@ -413,7 +413,7 @@ di sessione vero: 72 controlli, 72 verdi.
 | Annulla allenamento, convocazioni | COMPLETE | Passano dalle rotte del dominio eventi |
 | **Crea e sposta** un proprio allenamento o una propria gara | COMPLETE | PP-03 §11: `events.manage` era concessa al ruolo e il server la eseguiva da due Wave, e **nessuna schermata aveva il pulsante**. `TrainerEventEditorDialog` nelle due pagine del calendario; il perimetro lo fa `assertTrainerEventPerimeter` in modo «scrittura» |
 | Bacheca: avvisi del club verso un allenatore | ASSENTE | PP-03 §9.4: `resolveAudience` seleziona **atleti**, e nessun criterio nomina lo staff. Il riquadro esiste e per un allenatore resta vuoto. Debito `PP03-D3`, dependency verso PP-05 |
-| Appello su allenamento **e gara** | COMPLETE | Legge le righe, non la copia nel payload |
+| Appello su allenamento **e gara** | COMPLETE | Legge le righe, non la copia nel payload — **e adesso le rilegge**: prima del 2026-09-07 il registro si riapriva sempre vuoto |
 | Bacheca in lettura | COMPLETE | `/trainer-dashboard/board` |
 | Documenti pertinenti | COMPLETE | I propri, e i certificati del gruppo limitati allo **stato** |
 | Appuntamenti assegnati | COMPLETE | `/trainer-dashboard/appointments` |

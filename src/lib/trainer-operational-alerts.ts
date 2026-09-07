@@ -113,6 +113,54 @@ const isAttendanceEntryRecorded = (entry: any) => {
   );
 };
 
+/**
+ * **Dove sta l'appello di un evento**, e c'e una risposta sola (P0-5).
+ *
+ * Puo arrivare in due forme, e nessuna delle due e sempre disponibile:
+ *
+ *   * l'**elenco** riga per riga, che ha chi ha appena aperto il registro o
+ *     lo ha appena salvato. E la forma piu precisa — si puo restringere agli
+ *     atleti che si stanno guardando — ma la rotta del calendario non l'ha
+ *     mai portata;
+ *   * i **due numeri** che la rotta del calendario adesso manda per ogni
+ *     evento: quanti registrati e quanti presenti.
+ *
+ * Vive qui perche i lettori sono tre — questo modulo, la scheda della pagina
+ * Allenamenti e il suo riepilogo — e tre risposte diverse alla stessa domanda
+ * sono il modo in cui una schermata dice «Presenze salvate» e quella accanto
+ * «Presenze mancanti» sullo stesso allenamento.
+ */
+export const readRecordedAttendance = (training: any) => {
+  const elenco = Array.isArray(training?.attendance) ? training.attendance : [];
+
+  if (elenco.length) {
+    return {
+      /** Vero se la risposta viene dall'elenco, cioe dalla forma precisa. */
+      dallElenco: true,
+      recorded: elenco.filter((voce: any) => isAttendanceEntryRecorded(voce))
+        .length,
+      present: elenco.filter(
+        (voce: any) =>
+          voce?.present === true ||
+          PRESENT_STATUSES.has(normalizeValue(voce?.status)),
+      ).length,
+    };
+  }
+
+  const registrati = Number(
+    training?.attendance_recorded ?? training?.attendanceRecorded,
+  );
+  const presenti = Number(
+    training?.attendance_present ?? training?.attendancePresent,
+  );
+
+  return {
+    dallElenco: false,
+    recorded: Number.isFinite(registrati) ? registrati : 0,
+    present: Number.isFinite(presenti) ? presenti : 0,
+  };
+};
+
 export const getTrainingAttendanceStatus = (
   training: any,
   athletes: any[],
@@ -147,7 +195,26 @@ export const getTrainingAttendanceStatus = (
     }
   }
 
-  const registered = recordedAthleteIds.size;
+  /*
+    **Il riepilogo che arriva dal server, quando l'elenco non c'e** (P0-5).
+
+    Senza questa ricaduta ogni scheda diceva «0/16 · Presenze mancanti» anche
+    dopo aver salvato l'appello, e la bacheca chiedeva di completare cio che
+    era gia completo: la lettura non trovava mai `training.attendance`, che
+    nessuna rotta ha mai restituito.
+
+    L'elenco, quando c'e, **vince**: sopra e gia stato ristretto agli atleti
+    che si stanno guardando, mentre il numero e quello dell'evento intero. Due
+    letture della stessa cosa, e la piu precisa comanda.
+  */
+  const dalServer = readRecordedAttendance(training);
+  const senzaElenco = !dalServer.dallElenco && dalServer.recorded > 0;
+
+  const registered = senzaElenco
+    ? Math.min(dalServer.recorded, total || dalServer.recorded)
+    : recordedAthleteIds.size;
+  if (senzaElenco) present = dalServer.present;
+
   const state: TrainingAttendanceState =
     total === 0
       ? "complete"

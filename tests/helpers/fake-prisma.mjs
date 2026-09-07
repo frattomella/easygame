@@ -302,6 +302,25 @@ const matchesWhere = (record, where) => {
         if (!condition.in.includes(value)) return false;
         continue;
       }
+      /*
+        `notIn`, e mancava.
+
+        Il nome era gia in `PRISMA_FILTER_KEYS` — quindi il doppio lo
+        riconosceva come operatore — ma nessun ramo lo valutava: la condizione
+        cadeva in «non supportata», che la considera **soddisfatta**. Ogni
+        filtro `notIn` era percio un filtro che non filtrava, e i test che ne
+        dipendono passavano qualunque cosa escludessero.
+
+        Non e teorico: `listClubEvents` toglie gli eventi archiviati e
+        annullati con `status: { notIn: [...] }` (P0-3), e il conteggio
+        dell'appello toglie le righe `pending`, che sono risposte della
+        famiglia e non presenze registrate (P0-5). Con questo ramo assente il
+        doppio le contava tutte.
+      */
+      if ("notIn" in condition) {
+        if ((condition.notIn || []).includes(value)) return false;
+        continue;
+      }
       if ("not" in condition) {
         if (value === condition.not) return false;
         continue;

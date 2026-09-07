@@ -127,6 +127,27 @@ const TABELLA = {
     catalogo: true,
     canonico: false,
   },
+  /*
+    **Il perimetro dell'allenatore lo decide anche il server**, e il
+    censimento non lo vedeva.
+
+    `filterRecordsForTrainer` risponde alla stessa domanda della bacheca —
+    «questo atleta e di una squadra di questo allenatore?» — ed e la
+    risposta che **conta**, perche e quella che decide che cosa esce dalla
+    rete. Il browser rifa il conto sopra, e le due risposte devono dire la
+    stessa cosa: quando non lo dicevano, il server ne mandava ventinove e la
+    bacheca ne mostrava tre.
+
+    Non passa dalla primitiva: ha la propria catena di token
+    (`extractRecordCategoryTokens`), che legge appartenenze, colonne e
+    payload di ogni risorsa e non dei soli atleti. E il candidato piu grosso
+    alla prossima consolidazione, e finche non lo e va **dichiarato**.
+  */
+  "src/lib/server/resources.ts": {
+    decide: "che cosa esce dalla rete per un allenatore",
+    catalogo: true,
+    canonico: false,
+  },
   "src/components/trainer/trainer-dashboard-context.tsx": {
     decide: "gli atleti assegnati a questo allenatore",
     catalogo: true,

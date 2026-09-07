@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/server/prisma";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -10,6 +11,8 @@ import {
 } from "@/lib/server/events";
 import { normalizeEventKind, toEventLegacyShape } from "@/lib/events/model";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { RSVP_NEUTRAL_ATTENDANCE_STATUS } from "@/lib/server/rsvp";
+import { isPresentAttendance } from "@/lib/funding/attendance-measure";
 
 /**
  * **Il calendario del club, e l'unica porta per crearci dentro.**
@@ -38,6 +41,57 @@ const scopeFrom = async (request: Request, userId: string) => {
 const errorStatus = (error: any) =>
   String(error?.message || "").includes("Accesso negato") ? 403 : 400;
 
+/**
+ * **Quanti sono stati registrati, e quanti presenti** (P0-5).
+ *
+ * `status` dice come e andata, e una riga in stato `pending` **non e** un
+ * appello: e nata da una risposta della famiglia e dal registro non e mai
+ * passata (`RSVP_NEUTRAL_ATTENDANCE_STATUS`). Contarla direbbe fatto un
+ * appello che nessuno ha preso — la stessa distinzione che
+ * `isPresentAttendance` fa sul verso opposto, e che ADR-0099 tiene su tre
+ * colonne con tre scrittori.
+ *
+ * Un `groupBy` per l'intera pagina, che e la ragione per cui qui escono due
+ * numeri e non l'elenco.
+ */
+const leggiAppello = async (organizationId: string, eventIds: string[]) => {
+  const conteggi = new Map<
+    string,
+    { attendance_recorded: number; attendance_present: number }
+  >();
+  if (!organizationId || !eventIds.length) return conteggi;
+
+  const righe = await (prisma as any).clubEventParticipant.groupBy({
+    by: ["event_id", "status"],
+    where: {
+      organization_id: organizationId,
+      event_id: { in: eventIds },
+      status: { notIn: [RSVP_NEUTRAL_ATTENDANCE_STATUS] },
+    },
+    _count: { _all: true },
+  });
+
+  for (const riga of righe as any[]) {
+    const chiave = String(riga.event_id || "");
+    if (!chiave) continue;
+
+    const voce = conteggi.get(chiave) || {
+      attendance_recorded: 0,
+      attendance_present: 0,
+    };
+    const quante = Number(riga?._count?._all || 0);
+
+    voce.attendance_recorded += quante;
+    if (isPresentAttendance(riga)) {
+      voce.attendance_present += quante;
+    }
+
+    conteggi.set(chiave, voce);
+  }
+
+  return conteggi;
+};
+
 export async function GET(request: Request) {
   try {
     const session = await requireAuthenticatedUser(request);
@@ -63,9 +117,39 @@ export async function GET(request: Request) {
       includeCancelled: url.searchParams.get("include_cancelled") === "1",
     });
 
+    /*
+      **L'appello si scriveva e non lo rileggeva nessuno** (P0-5).
+
+      Il registro presenze salva su `club_event_participants` — la tabella
+      giusta, con il suo scrittore unico — e da li **non tornava indietro
+      niente**: questa rotta serviva le sole colonne dell'evento, e ogni
+      schermata che chiede «l'appello e stato fatto?» leggeva
+      `training.attendance`, che non e mai esistito nella risposta.
+
+      L'effetto, misurato a schermo: si segnano tre presenti su sedici, si
+      salva, e la scheda continua a dire «0/16 · Presenze mancanti» — anche
+      dopo un ricaricamento. La bacheca continua a chiedere di completare un
+      appello gia completato, e non c'e modo di distinguere una seduta fatta
+      da una da fare.
+
+      Escono **due numeri per evento**, non l'elenco: quanti sono stati
+      registrati e quanti presenti. E cio che serve a una scheda, e non pesa —
+      un `groupBy` per l'intera pagina invece di una lettura per riga. Chi
+      apre il registro chiede l'elenco vero alla rotta dei partecipanti, che
+      lo filtra sul perimetro.
+    */
+    const appello = await leggiAppello(
+      scope.activeOrganizationId as string,
+      rows.map((row) => String(row.id)),
+    );
+
     return NextResponse.json({
       data: rows.map((row) => ({
         ...toEventLegacyShape(row),
+        ...(appello.get(String(row.id)) || {
+          attendance_recorded: 0,
+          attendance_present: 0,
+        }),
         row: {
           id: row.id,
           kind: row.kind,
