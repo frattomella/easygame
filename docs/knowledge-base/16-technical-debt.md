@@ -3223,6 +3223,17 @@ lavoro.
 | **D-INT-11** | **La bacheca dell'allenatore non e stata rifatta.** Le sue **fondamenta** si: dopo D-INT-2 e ADR-0155 l'allenatore non vede piu gli allenamenti e gli atleti dell'omonima di un'altra sede, l'appello non gli apre davanti quindici atleti di trenta chilometri piu in la, e gli allenamenti generati dal cron sono eventi veri su cui puo fare l'appello. Cio che manca e la **schermata**: prossimi impegni, convocazioni, cose da fare, e i flussi a una mano su 375/768/1280/1440 | E una riscrittura responsive di una superficie intera con una fase di disegno dentro, e va verificata a schermo su quattro larghezze. Non e una cosa che si fa in coda a un'integrazione, e dichiararla fatta senza aver aperto la pagina sarebbe la forma di difetto che CLAUDE.md §11.8 descrive: il codice che c'e e non serve a nessuno | Le primitive canoniche esistono e sono misurate; il lavoro che resta e di interfaccia, non di dominio |
 | **D-INT-12** | **La pagina Account non e stata rifinita**, e il requisito «dopo il riscatto il profilo collegato compare **subito**» non e stato percorso a schermo sul ramo integrato | Vedi `D-INT-7`: e la stessa voce, e resta aperta | Il flusso e uno: riscatta un invito, e guarda se la pagina lo dice senza un secondo caricamento |
 
+### Cosa e stato chiuso dopo (2026-09-07, passata funzionale)
+
+La tabella qui sopra e il verbale della remediation e **non si riscrive**:
+quelle voci erano vere quando sono state scritte. Questo elenco dice cosa e
+successo dopo, e chi legge la tabella deve leggere anche questo.
+
+| # | Stato | Come |
+|---|-------|------|
+| **D-INT-8** | **CHIUSA** | Decisione di prodotto presa dal committente: cambiare la sede di una categoria **non** sposta gli atleti e **non** viene rifiutato. Le assegnazioni restano entita esplicite; l'editor rileva le appartenenze che il cambio rende incoerenti, ne mostra il numero **prima** della conferma e offre un riallineamento esplicito. Nessuna migrazione silenziosa. `tests/lib/cambio-sede-impatto.test.mjs` (10) |
+| **D-INT-9** | **CHIUSA** | `sortOrder` persistito sulla categoria, un solo lettore (`sortCategoryOptions` / `compareCategoryGroups`) e un solo scrittore (la pagina Categorie, con due frecce invece del trascinamento: questa pagina si apre in palestra). Il ripiego dove l'ordine manca e l'ordine di inserimento, non il nome |
+| **D-INT-10** | **CHIUSA** | L'elenco Atleti e continuo: la porzione successiva si **accoda** invece di sostituire, con un sentinello che la chiede arrivando in fondo e un pulsante che resta per la tastiera. La selezione in corso non va piu via dagli occhi. `tests/ui/elenco-atleti-continuo.test.mjs` (7), e la pagina aperta a 375/768/1280/1440 su un club da 223 atleti |
 ### I Medium della revisione ostile che restano
 
 `D-AUD-6` (il sollecito manuale che consegna il nome di un minore fuori dal

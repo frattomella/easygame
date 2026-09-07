@@ -675,18 +675,38 @@ export default function AthletesPage() {
     }
   }, [activeClub?.id]);
 
+  /*
+    **La richiesta piu recente e l'unica che ha ragione.**
+
+    L'elenco continuo puo avere due letture in volo insieme — si digita mentre
+    l'osservatore sta chiedendo la porzione successiva — e la piu lenta
+    arriverebbe **dopo**, riscrivendo l'elenco con il risultato di un filtro
+    che non e piu quello scritto nella casella. Un gettone crescente: chi torna
+    e non e l'ultimo non tocca niente.
+  */
+  const gettoneLettura = React.useRef(0);
+
   /**
-   * Una pagina dell'archivio, con i filtri correnti applicati **dal server**.
+   * Una porzione dell'archivio, con i filtri correnti applicati **dal server**.
    *
-   * Si usa solo quando l'archivio supera una pagina. Sotto la soglia i dati
+   * Si usa solo quando l'archivio supera una porzione. Sotto la soglia i dati
    * sono gia tutti in memoria e rifare il giro sulla rete a ogni carattere
    * digitato sarebbe piu lento, non piu veloce.
+   *
+   * `accoda` distingue le due domande che la stessa rotta serve: «rifai
+   * l'elenco con questi filtri» — la prima porzione — e «continua», le
+   * successive. Prima esisteva solo la prima, e ogni porzione **sostituiva**
+   * la precedente: era la paginazione classica, con due pulsanti in fondo.
    */
   const loadAthletePage = React.useCallback(
-    async (targetPage: number) => {
+    async (
+      targetPage: number,
+      { accoda = false }: { accoda?: boolean } = {},
+    ) => {
       const clubId = resolveCurrentClubId();
       if (!clubId) return;
 
+      const mio = ++gettoneLettura.current;
       setPageLoading(true);
       try {
         const result = await getClubAthletesPage(clubId, {
@@ -701,6 +721,8 @@ export default function AthletesPage() {
           categoryId: selectedGroup?.categoryId || "",
         });
 
+        if (mio !== gettoneLettura.current) return;
+
         setListMeta(result.meta);
 
         const rows = buildAthleteRows(
@@ -709,14 +731,55 @@ export default function AthletesPage() {
           buildSiteIndex(sites),
         );
         rows.sort(compareAthletesByLastName);
-        setAthletes(rows);
+
+        if (!accoda) {
+          setAthletes(rows);
+          return;
+        }
+
+        /*
+          **Accodare non e concatenare.** L'archivio puo cambiare fra due
+          letture — una segreteria che iscrive un atleta mentre qualcun altro
+          scorre — e la stessa riga tornerebbe due volte, con due caselle di
+          selezione che si spuntano insieme. Si accoda per identificativo, e
+          l'ordine resta quello del cognome.
+        */
+        setAthletes((precedenti) => {
+          const visti = new Set(precedenti.map((riga) => riga.id));
+          const aggiunte = rows.filter((riga) => !visti.has(riga.id));
+          if (!aggiunte.length) return precedenti;
+
+          const uniti = [...precedenti, ...aggiunte];
+          uniti.sort(compareAthletesByLastName);
+          return uniti;
+        });
       } finally {
-        setPageLoading(false);
+        if (mio === gettoneLettura.current) setPageLoading(false);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [categories, searchQuery, selectedGroup, siteFilter, sites, statusFilter],
   );
+
+  /**
+   * **Continua**: la porzione successiva si aggiunge a quella che si sta
+   * leggendo.
+   *
+   * Non e un pulsante «Successiva» con un altro nome. «Successiva»
+   * **sostituiva** l'elenco, e su questa pagina l'elenco e anche il posto in
+   * cui si scelgono le righe per un'azione massiva: chi ne aveva spuntate
+   * dodici e passava di pagina non le vedeva piu, e non aveva modo di sapere
+   * se erano ancora selezionate. Qui l'elenco cresce e la selezione resta
+   * sotto gli occhi.
+   */
+  const caricaAltriAtleti = React.useCallback(() => {
+    if (!paginated || pageLoading) return;
+    if (!listMeta?.hasMore) return;
+
+    const prossima = page + 1;
+    setPage(prossima);
+    void loadAthletePage(prossima, { accoda: true });
+  }, [listMeta?.hasMore, loadAthletePage, page, pageLoading, paginated]);
 
   // Load athletes and categories from database
   useEffect(() => {
@@ -739,13 +802,49 @@ export default function AthletesPage() {
     /*
       Un quarto di secondo di pausa: senza, ogni carattere digitato nella
       casella di ricerca sarebbe una query sull'archivio.
+
+      Questo effetto rifa **l'inizio** dell'elenco, e non dipende piu da
+      `page`: la porzione successiva non e un cambio di stato da cui ripartire,
+      e `caricaAltriAtleti` che la aggiunge in fondo.
     */
     const timer = window.setTimeout(() => {
-      void loadAthletePage(page);
+      void loadAthletePage(1);
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [paginated, page, loadAthletePage]);
+  }, [paginated, loadAthletePage]);
+
+  /*
+    **L'elenco continua da solo quando si arriva in fondo.**
+
+    Il sentinello e un nodo vuoto sotto l'ultima riga: quando entra nella
+    finestra, la porzione successiva parte. Il pulsante sotto resta, e non e
+    un ripiego — e la strada da tastiera, e quella per chi non vuole aspettare
+    lo scorrimento. Chi usa `IntersectionObserver` non lo vedra mai lavorare.
+  */
+  const sentinelloElenco = React.useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!paginated || !listMeta?.hasMore) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    const nodo = sentinelloElenco.current;
+    if (!nodo) return;
+
+    const osservatore = new IntersectionObserver(
+      (voci) => {
+        if (voci.some((voce) => voce.isIntersecting)) caricaAltriAtleti();
+      },
+      /*
+        Duecento pixel prima del fondo: la lettura parte mentre l'ultima riga
+        e ancora in vista, cosi chi scorre non incontra un vuoto.
+      */
+      { rootMargin: "200px" },
+    );
+
+    osservatore.observe(nodo);
+    return () => osservatore.disconnect();
+  }, [paginated, listMeta?.hasMore, caricaAltriAtleti]);
 
   useEffect(() => {
     const action = searchParams.get("action");
@@ -2709,40 +2808,53 @@ export default function AthletesPage() {
             )}
 
             {/*
-              La barra delle pagine compare **solo** quando c'e piu di una
-              pagina. Un club con settanta atleti non deve imparare che
-              esistono le pagine per usare la propria lista.
+              **L'elenco e continuo, e in fondo dice a che punto sta.**
+
+              Qui c'erano «Precedente» e «Successiva». Su questa pagina
+              l'elenco e anche il posto in cui si spuntano le righe per
+              un'azione massiva, e cambiare pagina le portava via dagli occhi:
+              chi ne aveva scelte dodici non sapeva piu se fossero ancora
+              scelte. E su un telefono la paginazione classica e una cosa che
+              si impara, non una che si usa.
+
+              Restano due cose e nessuna e decorativa: il conteggio — quante
+              righe si stanno guardando su quante ce ne sono — e il pulsante,
+              che e la strada da tastiera e quella di chi non vuole aspettare
+              lo scorrimento.
             */}
             {paginated && listMeta ? (
-              <div className="mt-4 flex flex-col items-center justify-between gap-3 rounded-2xl border p-3 sm:flex-row">
-                <p className="text-sm text-muted-foreground">
-                  Pagina {page} di{" "}
-                  {Math.max(1, Math.ceil(listMeta.total / listMeta.limit))} —{" "}
-                  {listMeta.total} atleti nell&apos;archivio
+              <div className="mt-4 flex flex-col items-center gap-3 rounded-2xl border p-3">
+                {/*
+                  Un pixel di altezza e tutta la larghezza: un nodo **senza
+                  area** non viene mai riferito come visibile, e l'osservatore
+                  resterebbe muto per sempre (misurato: 0×0, nessuno scatto).
+                */}
+                <div
+                  ref={sentinelloElenco}
+                  aria-hidden="true"
+                  className="h-px w-full"
+                />
+                <p
+                  className="text-sm text-muted-foreground"
+                  data-testid="elenco-atleti-avanzamento"
+                  aria-live="polite"
+                >
+                  {filteredAthletes.length} di {listMeta.total} atleti
                   {pageLoading ? " · caricamento…" : ""}
                 </p>
-                <div className="flex w-full gap-2 sm:w-auto">
+                {listMeta.hasMore ? (
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="flex-1 sm:flex-none"
-                    disabled={page <= 1 || pageLoading}
-                    onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    className="w-full sm:w-auto"
+                    data-testid="carica-altri-atleti"
+                    disabled={pageLoading}
+                    onClick={caricaAltriAtleti}
                   >
-                    Precedente
+                    {pageLoading ? "Caricamento…" : "Carica altri atleti"}
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 sm:flex-none"
-                    disabled={!listMeta.hasMore || pageLoading}
-                    onClick={() => setPage((current) => current + 1)}
-                  >
-                    Successiva
-                  </Button>
-                </div>
+                ) : null}
               </div>
             ) : null}
           </DashboardPageContainer>
