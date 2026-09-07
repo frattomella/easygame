@@ -182,6 +182,24 @@ type BulkActionType = AthleteBulkStatusAction | "delete" | "changeCategory";
 type PendingBulkAction = {
   scope: "selected" | "all";
   action: BulkActionType;
+  /**
+   * **Gli atleti su cui l’azione girera, risolti quando si apre la
+   * conferma** (P0-1, pilota Fortitudo Scauri).
+   *
+   * Prima non esistevano: il bersaglio si ricalcolava due volte, una per
+   * scrivere il numero nella conferma e una per eseguire, e tutte e due
+   * leggevano `athletes` — cioe **la pagina caricata**, non l’insieme
+   * filtrato. Con 213 atleti la conferma diceva 245.
+   *
+   * Due difetti in una riga: le righe caricate possono contenere lo stesso
+   * atleta piu volte (una tessera per categoria), e «tutti» significava
+   * «quelli che ho in mano adesso».
+   *
+   * Risolverli **una volta** e conservarli qui vuol dire anche che il
+   * numero mostrato e esattamente l’insieme su cui si scrive: due calcoli
+   * separati sono due risposte che un giorno divergono.
+   */
+  targetIds: string[];
   targetCategoryId?: string | null;
   /**
    * La sede da assegnare insieme alla categoria. E la procedura con cui un
@@ -1400,17 +1418,69 @@ export default function AthletesPage() {
     return "eliminare";
   };
 
-  const getBulkActionTargetIds = () => {
-    if (!pendingBulkAction) {
-      return [];
+  /**
+   * **Chi sara toccato, per davvero.**
+   *
+   * Per la selezione: gli identificativi scelti, resi distinti — la stessa
+   * persona puo comparire in due righe se ha due tessere.
+   *
+   * Per «tutti»: **tutto l’insieme filtrato**, non la pagina. Si riusa la
+   * stessa paginazione dell’export, che questo file ha gia scritto per la
+   * stessa ragione — «esportare le duecento righe che ho in mano e
+   * chiamarle gli atleti filtrati sarebbe una bugia in cima a un PDF». Su
+   * un’azione di scrittura la bugia costa di piu: e un’operazione che non
+   * tocca chi doveva toccare, e nessuno se ne accorge.
+   */
+  const risolviBersagliMassivi = async (
+    scope: "selected" | "all",
+  ): Promise<string[]> => {
+    if (scope === "selected") {
+      return Array.from(new Set(Array.from(selectedAthleteIds)));
     }
 
-    if (pendingBulkAction.scope === "selected") {
-      return Array.from(selectedAthleteIds);
-    }
-
-    return athletes.map((athlete) => athlete.id);
+    const tutti = await collectAthletesForExport();
+    return Array.from(new Set(tutti.map((athlete) => athlete.id))).filter(
+      Boolean,
+    );
   };
+
+  /**
+   * Apre la conferma con i bersagli gia risolti: il numero che si legge e
+   * l’insieme su cui si scrive.
+   */
+  const apriAzioneMassiva = async (
+    azione: Omit<PendingBulkAction, "targetIds">,
+  ) => {
+    /*
+      **Se non si sa su chi si scrive, non si apre la conferma.**
+
+      Risolvere «tutti» chiede le pagine restanti alla rete, e quella chiamata
+      puo fallire. Aprire lo stesso il dialogo vorrebbe dire far confermare
+      un'operazione su un insieme che nessuno ha potuto contare — che e la
+      forma peggiore del difetto che questa correzione chiude, non la sua
+      attenuazione.
+    */
+    let targetIds: string[] = [];
+    try {
+      targetIds = await risolviBersagliMassivi(azione.scope);
+    } catch (error) {
+      console.error("Error resolving bulk athlete targets:", error);
+      showToast(
+        "error",
+        "Non è stato possibile determinare gli atleti da aggiornare. Riprova.",
+      );
+      return;
+    }
+
+    if (!targetIds.length) {
+      showToast("error", "Nessun atleta da aggiornare");
+      return;
+    }
+
+    setPendingBulkAction({ ...azione, targetIds });
+  };
+
+  const getBulkActionTargetIds = () => pendingBulkAction?.targetIds ?? [];
 
   const getBulkActionDescription = () => {
     if (!pendingBulkAction) {
@@ -2168,7 +2238,7 @@ export default function AthletesPage() {
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
                     onClick={() =>
-                      setPendingBulkAction({
+                      apriAzioneMassiva({
                         scope: "all",
                         action: "activate",
                       })
@@ -2179,7 +2249,7 @@ export default function AthletesPage() {
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() =>
-                      setPendingBulkAction({
+                      apriAzioneMassiva({
                         scope: "all",
                         action: "deactivate",
                       })
@@ -2190,7 +2260,7 @@ export default function AthletesPage() {
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() =>
-                      setPendingBulkAction({
+                      apriAzioneMassiva({
                         scope: "all",
                         action: "suspend",
                       })
@@ -2203,7 +2273,7 @@ export default function AthletesPage() {
                   <DropdownMenuItem
                     className="text-red-600"
                     onClick={() =>
-                      setPendingBulkAction({
+                      apriAzioneMassiva({
                         scope: "all",
                         action: "delete",
                       })
@@ -2229,7 +2299,7 @@ export default function AthletesPage() {
                     variant="outline"
                     className="h-8"
                     onClick={() =>
-                      setPendingBulkAction({
+                      apriAzioneMassiva({
                         scope: "selected",
                         action: "activate",
                       })
@@ -2243,7 +2313,7 @@ export default function AthletesPage() {
                     variant="outline"
                     className="h-8"
                     onClick={() =>
-                      setPendingBulkAction({
+                      apriAzioneMassiva({
                         scope: "selected",
                         action: "deactivate",
                       })
@@ -2257,7 +2327,7 @@ export default function AthletesPage() {
                     variant="outline"
                     className="h-8"
                     onClick={() =>
-                      setPendingBulkAction({
+                      apriAzioneMassiva({
                         scope: "selected",
                         action: "suspend",
                       })
@@ -2284,7 +2354,7 @@ export default function AthletesPage() {
                     variant="outline"
                     className="h-8 text-red-600 hover:text-red-700"
                     onClick={() =>
-                      setPendingBulkAction({
+                      apriAzioneMassiva({
                         scope: "selected",
                         action: "delete",
                       })
@@ -2381,7 +2451,7 @@ export default function AthletesPage() {
                         className="justify-start rounded-2xl border-green-200 bg-green-50/60 py-6 text-left text-green-800 hover:bg-green-100"
                         disabled={!selectedAthletesCount}
                         onClick={() =>
-                          setPendingBulkAction({
+                          apriAzioneMassiva({
                             scope: "selected",
                             action: "activate",
                           })
@@ -2396,7 +2466,7 @@ export default function AthletesPage() {
                         className="justify-start rounded-2xl border-slate-200 bg-slate-50 py-6 text-left text-slate-700 hover:bg-slate-100"
                         disabled={!selectedAthletesCount}
                         onClick={() =>
-                          setPendingBulkAction({
+                          apriAzioneMassiva({
                             scope: "selected",
                             action: "deactivate",
                           })
@@ -2411,7 +2481,7 @@ export default function AthletesPage() {
                         className="justify-start rounded-2xl border-amber-200 bg-amber-50 py-6 text-left text-amber-800 hover:bg-amber-100"
                         disabled={!selectedAthletesCount}
                         onClick={() =>
-                          setPendingBulkAction({
+                          apriAzioneMassiva({
                             scope: "selected",
                             action: "suspend",
                           })
@@ -2439,7 +2509,7 @@ export default function AthletesPage() {
                         className="justify-start rounded-2xl border-red-200 bg-red-50 py-6 text-left text-red-700 hover:bg-red-100"
                         disabled={!selectedAthletesCount}
                         onClick={() =>
-                          setPendingBulkAction({
+                          apriAzioneMassiva({
                             scope: "selected",
                             action: "delete",
                           })
@@ -2472,7 +2542,7 @@ export default function AthletesPage() {
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
                             onClick={() =>
-                              setPendingBulkAction({
+                              apriAzioneMassiva({
                                 scope: "all",
                                 action: "activate",
                               })
@@ -2483,7 +2553,7 @@ export default function AthletesPage() {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() =>
-                              setPendingBulkAction({
+                              apriAzioneMassiva({
                                 scope: "all",
                                 action: "deactivate",
                               })
@@ -2494,7 +2564,7 @@ export default function AthletesPage() {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() =>
-                              setPendingBulkAction({
+                              apriAzioneMassiva({
                                 scope: "all",
                                 action: "suspend",
                               })
@@ -2507,7 +2577,7 @@ export default function AthletesPage() {
                           <DropdownMenuItem
                             className="text-red-600"
                             onClick={() =>
-                              setPendingBulkAction({
+                              apriAzioneMassiva({
                                 scope: "all",
                                 action: "delete",
                               })
@@ -2882,7 +2952,7 @@ export default function AthletesPage() {
               className="bg-blue-600 hover:bg-blue-700"
               disabled={!bulkCategoryTargetId}
               onClick={() => {
-                setPendingBulkAction({
+                apriAzioneMassiva({
                   scope: "selected",
                   action: "changeCategory",
                   targetCategoryId: bulkCategoryTargetId,
