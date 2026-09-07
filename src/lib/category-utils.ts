@@ -33,6 +33,26 @@ export type NormalizedCategoryOption = {
    * Vedi `@/lib/category-compatibility`.
    */
   compatibleCategoryIds: string[];
+  /**
+   * **Il posto di questa categoria nell'ordine del club** (D-INT-9).
+   *
+   * L'ordine con cui una societa pensa alle proprie squadre non e
+   * alfabetico: e per eta, o per importanza, o per come sono nate. Prima
+   * ogni schermata ordinava per **nome**, quindi «Allievi» veniva prima di
+   * «Under 14» e un club che pensa per fasce d'eta rileggeva le proprie
+   * squadre mescolate.
+   *
+   * Non serve una colonna: l'ordine e gia scritto, ed e quello dell'array
+   * `clubs.categories`. Quello che mancava era **leggerlo** invece di
+   * buttarlo via. Qui viaggia con l'opzione, cosi ogni consumatore ordina
+   * allo stesso modo senza doversi ricordare come.
+   *
+   * Una categoria che il catalogo non conosce — derivata da una scheda, o
+   * di un club senza anagrafica — non ha un posto: va in fondo, e li si
+   * ordina per nome, che e il ripiego onesto quando non c'e niente da
+   * rispettare.
+   */
+  sortOrder?: number | null;
 };
 
 const YEAR_PATTERN = /(\d{4})\D+(\d{4})/;
@@ -52,6 +72,24 @@ const firstNonEmptyString = (...values: unknown[]) => {
   }
 
   return "";
+};
+
+/**
+ * Il posto dichiarato da una categoria, se ce l ha.
+ *
+ * Le grafie sono tre perche il record arriva da tre strade: la colonna del
+ * club, la riga di risorsa con il suo `payload`, e cio che una schermata
+ * costruisce a mano.
+ */
+const leggiPosto = (value: Record<string, unknown>): number | null => {
+  const grezzo =
+    (value as any)?.sortOrder ??
+    (value as any)?.sort_order ??
+    (value as any)?.payload?.sortOrder ??
+    (value as any)?.payload?.sort_order;
+
+  const numero = Number(grezzo);
+  return Number.isFinite(numero) ? numero : null;
 };
 
 const toCategoryOption = (
@@ -87,6 +125,16 @@ const toCategoryOption = (
     name: name || id || "Categoria",
     color,
     compatibleCategoryIds: readCategoryCompatibilityList(value as any),
+    /*
+      **Il posto dichiarato vince su quello di fatto** (D-INT-9).
+
+      Una categoria puo portarsi dietro il proprio `sortOrder`: e quello che
+      la pagina delle categorie scrive quando qualcuno riordina. Se non ce
+      l ha, il posto glielo da la posizione nell array — cioe l ordine di
+      creazione, che e cio che il prodotto faceva prima di questa riga e resta
+      il ripiego giusto.
+    */
+    sortOrder: leggiPosto(value),
   };
 };
 
@@ -107,6 +155,7 @@ const collectCategoryOptions = (
         name: entry,
         color: null,
         compatibleCategoryIds: [],
+        sortOrder: null,
       }));
   }
 
@@ -306,6 +355,14 @@ const mergeCategoryOption = (
         ...(candidate.compatibleCategoryIds || []),
       ]),
     ),
+    /*
+      Il posto lo da il catalogo del club, mai una voce derivata da una
+      scheda: quella non sa dove il club voglia vedere la squadra.
+    */
+    sortOrder:
+      typeof current.sortOrder === "number"
+        ? current.sortOrder
+        : (candidate.sortOrder ?? null),
   };
 };
 
@@ -351,18 +408,31 @@ const deriveCategoryFromAthlete = (
   };
 };
 
+/**
+ * **L'ordine canonico delle categorie** (D-INT-9).
+ *
+ * Prima il posto che il club ha dato loro, poi — solo per chi un posto non
+ * ce l'ha — il nome. Il nome resta l'ultimo criterio e non il primo: e la
+ * differenza fra rispettare una scelta e imporne una.
+ *
+ * Chi non ha un posto va **in fondo**, e non in mezzo: sono le categorie
+ * che il catalogo del club non conosce, e metterle fra le altre
+ * suggerirebbe che il club le abbia ordinate cosi.
+ */
 const sortCategoryOptions = (categories: NormalizedCategoryOption[]) =>
-  categories
-    .slice()
-    .sort(
-      (left, right) =>
-        left.name.localeCompare(right.name, "it", {
-          sensitivity: "base",
-        }) ||
-        left.id.localeCompare(right.id, "it", {
-          sensitivity: "base",
-        }),
+  categories.slice().sort((left, right) => {
+    const sinistra =
+      typeof left.sortOrder === "number" ? left.sortOrder : Number.MAX_SAFE_INTEGER;
+    const destra =
+      typeof right.sortOrder === "number" ? right.sortOrder : Number.MAX_SAFE_INTEGER;
+
+    if (sinistra !== destra) return sinistra - destra;
+
+    return (
+      left.name.localeCompare(right.name, "it", { sensitivity: "base" }) ||
+      left.id.localeCompare(right.id, "it", { sensitivity: "base" })
     );
+  });
 
 const getCategoryReferences = (
   category: Pick<CategoryLike, "id" | "name"> | string | null | undefined,
@@ -411,10 +481,23 @@ export function buildClubCategoryOptions({
 }): NormalizedCategoryOption[] {
   const merged: NormalizedCategoryOption[] = [];
 
+  /*
+    **L'ordine e quello dell'array, e si legge qui** (D-INT-9).
+
+    `clubs.categories` e gia una sequenza, e la sequenza e la scelta del
+    club. Il posto si assegna mentre si raccoglie, perche dopo la fusione
+    l'informazione da quale posizione veniva una voce non c'e piu.
+  */
+  let posto = 0;
   [clubCategories, resourceCategories].forEach((source) => {
-    collectCategoryOptions(source).forEach((category) =>
-      mergeCategoryOption(merged, category),
-    );
+    collectCategoryOptions(source).forEach((category) => {
+      mergeCategoryOption(merged, {
+        ...category,
+        sortOrder:
+          typeof category.sortOrder === "number" ? category.sortOrder : posto,
+      });
+      posto += 1;
+    });
   });
 
   if (Array.isArray(athletes)) {

@@ -72,6 +72,14 @@ export type CategoryGroup = {
   active: boolean;
   /** Vero quando il gruppo non e configurato ma dedotto dalla sola categoria. */
   implicit: boolean;
+  /**
+   * Il posto della **categoria** nell'ordine del club (D-INT-9).
+   *
+   * I gruppi si leggono raggruppati per categoria, quindi l'ordine che
+   * conta e quello della categoria: metterli in ordine alfabetico di
+   * squadra dava una tendina che non somigliava a nessun'altra schermata.
+   */
+  categorySortOrder?: number | null;
   raw?: any;
 };
 
@@ -317,6 +325,16 @@ export const normalizeCategoryGroup = (
     notes: firstText(group?.notes, group?.note),
     active: group?.active === false ? false : true,
     implicit: false,
+    /*
+      Il posto non e del gruppo: e della sua **categoria**, e si legge dal
+      catalogo. Salvarlo sulla riga del gruppo vorrebbe dire tenerne due
+      allineati a mano (D-INT-9).
+    */
+    categorySortOrder:
+      typeof (lookup.get(normalizeReference(identity.id)) as any)?.sortOrder ===
+      "number"
+        ? (lookup.get(normalizeReference(identity.id)) as any).sortOrder
+        : null,
     raw: group,
   };
 };
@@ -376,6 +394,11 @@ export const buildCategoryGroups = ({
         notes: "",
         active: true,
         implicit: true,
+        /* Il gruppo implicito e la categoria: eredita il suo posto. */
+        categorySortOrder:
+          typeof (category as any)?.sortOrder === "number"
+            ? (category as any).sortOrder
+            : null,
       } satisfies CategoryGroup;
     })
     .filter(
@@ -560,9 +583,31 @@ export const athleteMatchesGroup = (
  * sistemare, non una sede fra le altre.
  */
 export const compareCategoryGroups = (
-  left: Pick<CategoryGroup, "categoryName" | "siteName" | "siteId">,
-  right: Pick<CategoryGroup, "categoryName" | "siteName" | "siteId">,
+  left: Pick<
+    CategoryGroup,
+    "categoryName" | "siteName" | "siteId" | "categorySortOrder"
+  >,
+  right: Pick<
+    CategoryGroup,
+    "categoryName" | "siteName" | "siteId" | "categorySortOrder"
+  >,
 ) => {
+  /*
+    **Prima il posto che il club ha dato alla categoria** (D-INT-9), e solo
+    per chi un posto non ce l'ha il nome. Chi non ce l'ha va in fondo: sono
+    le categorie che il catalogo non conosce.
+  */
+  const postoSinistra =
+    typeof left.categorySortOrder === "number"
+      ? left.categorySortOrder
+      : Number.MAX_SAFE_INTEGER;
+  const postoDestra =
+    typeof right.categorySortOrder === "number"
+      ? right.categorySortOrder
+      : Number.MAX_SAFE_INTEGER;
+
+  if (postoSinistra !== postoDestra) return postoSinistra - postoDestra;
+
   const byCategory = left.categoryName.localeCompare(right.categoryName, "it", {
     sensitivity: "base",
   });
@@ -828,3 +873,119 @@ export const filterTrainingsForAthleteGroups = <T>({
     return declared.some((id) => owned.has(id));
   });
 };
+
+/* ------------------------------------------- il cambio di sede di una categoria */
+
+/**
+ * **Un'assegnazione rimasta su una sede che la categoria non serve piu.**
+ *
+ * Una voce per sede, con dentro gli atleti che ci sono rimasti.
+ */
+export type DisallineamentoDiSede = {
+  siteId: string;
+  siteName: string;
+  athleteIds: string[];
+};
+
+/**
+ * **Che cosa diventa incoerente se questa categoria cambia sede** (P0-8).
+ *
+ * ---
+ *
+ * ## La decisione che questa funzione mette in pratica
+ *
+ * Cambiare la sede di una categoria **non sposta** gli atleti e **non si
+ * rifiuta**. L'assegnazione di un atleta a una squadra in una sede e
+ * un'entita sua: non e un attributo della categoria, e non segue la categoria
+ * quando questa si muove.
+ *
+ * Le tre risposte che sarebbero state piu comode sono tutte sbagliate:
+ *
+ * * **spostarli** significa che un atleta di Scauri diventa di Formia senza
+ *   che nessuno glielo abbia detto — e la sede e cio con cui il club decide
+ *   dove una persona si allena;
+ * * **rifiutare il cambio** blocca una configurazione legittima per uno stato
+ *   che si sistema in trenta secondi;
+ * * **lasciar correre in silenzio** e cio che il prodotto faceva, ed e il
+ *   difetto: quegli atleti uscivano da appello, convocazioni e avvisi della
+ *   propria categoria, e nessuno lo diceva a nessuno.
+ *
+ * Resta la quarta: **si fa vedere**. Il cambio avviene, e chi lo fa sa quante
+ * assegnazioni ha appena reso incoerenti e puo riallinearle con un gesto
+ * esplicito — che e un gesto suo, non una migrazione fatta di nascosto.
+ *
+ * ## Che cosa conta come incoerente
+ *
+ * Solo un'assegnazione che nomina una sede **che la categoria non servira
+ * piu**. Non lo e:
+ *
+ * * un'assegnazione **senza sede**, che e il caso dei club mono-sede e di
+ *   ogni dato precedente alle sedi;
+ * * un'assegnazione a una sede che resta fra quelle scelte;
+ * * un'assegnazione a una sede che il club ha nel frattempo disattivato — quel
+ *   disallineamento non lo produce questo cambio, e attribuirglielo
+ *   confonderebbe chi legge il numero.
+ */
+export const rilevaDisallineamentiDiSede = ({
+  categoryId,
+  siteIds,
+  athletes = [],
+  sites = [],
+}: {
+  categoryId: string;
+  /** Le sedi che la categoria servira **dopo** il salvataggio. */
+  siteIds: readonly string[];
+  athletes?: readonly unknown[];
+  sites?: readonly ClubSite[];
+}): DisallineamentoDiSede[] => {
+  const index = buildSiteIndex(sites);
+  const categoria = normalizeReference(categoryId);
+  if (!categoria) return [];
+
+  const volute = new Set(
+    siteIds
+      .map((siteId) => normalizeReference(index.resolveSiteId(siteId)))
+      .filter(Boolean),
+  );
+
+  const perSede = new Map<string, Set<string>>();
+
+  for (const athlete of athletes) {
+    const record = isRecord(athlete) ? athlete : {};
+    const athleteId = trimText(record.id);
+    if (!athleteId) continue;
+
+    for (const membership of normalizeAthleteCategoryMemberships(athlete)) {
+      if (normalizeReference(membership.categoryId) !== categoria) continue;
+
+      const sede = normalizeReference(
+        index.resolveSiteId(readSiteReference(membership)),
+      );
+      /* Senza sede non c'e niente da disallineare: vedi il commento sopra. */
+      if (!sede) continue;
+      if (volute.has(sede)) continue;
+
+      const bucket = perSede.get(sede);
+      if (bucket) bucket.add(athleteId);
+      else perSede.set(sede, new Set([athleteId]));
+    }
+  }
+
+  return Array.from(perSede.entries())
+    .map(([siteId, athleteIds]) => ({
+      siteId,
+      siteName: index.getSiteName(siteId) || siteId,
+      athleteIds: Array.from(athleteIds),
+    }))
+    .sort((left, right) =>
+      left.siteName.localeCompare(right.siteName, "it", {
+        sensitivity: "base",
+      }),
+    );
+};
+
+/** Quanti atleti in tutto, senza contarne uno due volte. */
+export const contaAtletiDisallineati = (
+  disallineamenti: readonly DisallineamentoDiSede[],
+) =>
+  new Set(disallineamenti.flatMap((voce) => voce.athleteIds)).size;

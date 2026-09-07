@@ -3,6 +3,11 @@
 import React, { useState } from "react";
 import { normalizeCategoryBirthYears } from "@/lib/category-utils";
 import { readCategoryCompatibilityList } from "@/lib/category-compatibility";
+import {
+  contaAtletiDisallineati,
+  normalizeClubSites,
+  rilevaDisallineamentiDiSede,
+} from "@/lib/club-sites";
 import { sortByName } from "@/lib/sorting";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +52,15 @@ interface CategoryEditorDialogProps {
   }[];
   /** Le sedi in cui la categoria e gia attiva, in modifica. */
   initialSiteIds?: string[];
+  /**
+   * Gli atleti del club, per **contare** cosa il cambio di sede rende
+   * incoerente (P0-8).
+   *
+   * Non servono a spostare niente: servono a poterlo dire prima. La
+   * decisione e che un cambio di sede non muove gli atleti e non si
+   * rifiuta — ma non avviene nemmeno in silenzio.
+   */
+  athletes?: unknown[];
 }
 
 const getInitialFormState = (
@@ -79,6 +93,7 @@ export function CategoryEditorDialog({
   availableCategories = [],
   availableSites = [],
   initialSiteIds = [],
+  athletes = [],
 }: CategoryEditorDialogProps) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState(
@@ -108,6 +123,46 @@ export function CategoryEditorDialog({
         ? prev.siteIds.filter((id: string) => id !== siteId)
         : [...prev.siteIds, siteId],
     }));
+
+  /**
+   * **Che cosa questo cambio rende incoerente** (P0-8).
+   *
+   * Si ricalcola a ogni tocco su una sede, cosi il numero si muove insieme
+   * alla scelta invece di comparire dopo. Chi toglie Scauri vede subito
+   * quanti atleti ci restano appesi, e puo rimettere la spunta.
+   */
+  const disallineamenti = React.useMemo(() => {
+    if (!showSites || !isEditing) return [];
+
+    return rilevaDisallineamentiDiSede({
+      categoryId: String(initialData?.id || ""),
+      siteIds: formData.siteIds,
+      athletes,
+      sites: normalizeClubSites(availableSites),
+    });
+  }, [showSites, isEditing, initialData?.id, formData.siteIds, athletes, availableSites]);
+
+  const atletiDisallineati = contaAtletiDisallineati(disallineamenti);
+
+  /**
+   * **Dove riallinearli, se chi salva lo chiede.**
+   *
+   * Vuoto significa «non riallineare»: e il predefinito, ed e la
+   * differenza fra un'operazione offerta e una migrazione silenziosa. Il
+   * salvataggio avviene comunque.
+   */
+  const [sedeDiRiallineamento, setSedeDiRiallineamento] = useState("");
+
+  React.useEffect(() => {
+    /* Una sede che non e piu fra quelle scelte non e piu una destinazione. */
+    if (
+      sedeDiRiallineamento &&
+      sedeDiRiallineamento !== "__senza_sede__" &&
+      !formData.siteIds.includes(sedeDiRiallineamento)
+    ) {
+      setSedeDiRiallineamento("");
+    }
+  }, [formData.siteIds, sedeDiRiallineamento]);
 
   const colorOptions = [
     { value: "bg-blue-500 text-white", label: "Blu" },
@@ -219,6 +274,25 @@ export function CategoryEditorDialog({
           deve poi crearli a mano da un'altra parte (ADR-0055).
         */
         siteIds: showSites ? formData.siteIds : [],
+        /*
+          **Il riallineamento e una richiesta esplicita** (P0-8).
+
+          Viaggia insieme al salvataggio ma non ne fa parte: se e vuota, il
+          cambio di sede avviene e gli atleti restano dove sono. Nessuna
+          migrazione di nascosto.
+        */
+        riallineamento:
+          atletiDisallineati > 0 && sedeDiRiallineamento
+            ? {
+                athleteIds: Array.from(
+                  new Set(disallineamenti.flatMap((voce) => voce.athleteIds)),
+                ),
+                siteId:
+                  sedeDiRiallineamento === "__senza_sede__"
+                    ? null
+                    : sedeDiRiallineamento,
+              }
+            : null,
       });
 
       if (result === false) {
@@ -411,6 +485,66 @@ export function CategoryEditorDialog({
                 </p>
               ) : null}
             </div>
+
+            {atletiDisallineati > 0 ? (
+              <div
+                className="rounded-xl border border-amber-300 bg-amber-50 p-4"
+                data-testid="impatto-cambio-sede"
+              >
+                <p className="text-sm font-medium text-amber-900">
+                  {atletiDisallineati === 1
+                    ? "1 atleta resta assegnato a una sede che questa categoria non servira piu"
+                    : `${atletiDisallineati} atleti restano assegnati a una sede che questa categoria non servira piu`}
+                </p>
+
+                <ul className="mt-2 space-y-1 text-sm text-amber-800">
+                  {disallineamenti.map((voce) => (
+                    <li key={voce.siteId}>
+                      <span className="font-medium">{voce.siteName}</span>:{" "}
+                      {voce.athleteIds.length}{" "}
+                      {voce.athleteIds.length === 1 ? "atleta" : "atleti"}
+                    </li>
+                  ))}
+                </ul>
+
+                <p className="mt-3 text-sm text-amber-800">
+                  Il salvataggio non li sposta: l&apos;assegnazione di un atleta a
+                  una squadra e una scelta a se. Finche restano su una sede che
+                  la categoria non serve, pero, non compaiono nel suo appello ne
+                  fra i convocabili.
+                </p>
+
+                <div className="mt-3 space-y-2">
+                  <Label htmlFor="riallineamento-sede" className="text-amber-900">
+                    Riallineali adesso (facoltativo)
+                  </Label>
+                  <select
+                    id="riallineamento-sede"
+                    data-testid="riallineamento-sede"
+                    value={sedeDiRiallineamento}
+                    onChange={(event) =>
+                      setSedeDiRiallineamento(event.target.value)
+                    }
+                    className="w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">Lascia come sono</option>
+                    {formData.siteIds.map((siteId: string) => {
+                      const sede = availableSites.find(
+                        (voce) => voce.id === siteId,
+                      );
+                      return (
+                        <option key={siteId} value={siteId}>
+                          Sposta su {sede?.name || siteId}
+                        </option>
+                      );
+                    })}
+                    <option value="__senza_sede__">
+                      Togli la sede (restano nella categoria, senza sede)
+                    </option>
+                  </select>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

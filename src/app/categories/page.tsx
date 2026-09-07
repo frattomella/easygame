@@ -20,12 +20,15 @@ import {
   Users,
   Calendar,
   MoreVertical,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import {
   CATEGORY_DESCRIPTION_MAX_LENGTH,
   CategoryEditorDialog,
 } from "@/components/forms/CategoryEditorDialog";
 import { CategoryDetailsDialog } from "@/components/categories/CategoryDetailsDialog";
+import { apiRequest } from "@/lib/api/client";
 import { useToast } from "@/components/ui/toast-notification";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -749,12 +752,74 @@ const buildDialogAthletesForCategory = (category: Category) =>
         );
       }
 
+      /*
+        **Il riallineamento e un'operazione a se, e avviene dopo** (P0-8).
+
+        Il cambio di sede e gia salvato: se questa parte fallisce, la
+        configurazione resta quella che l'operatore ha scelto e gli atleti
+        restano dove sono — cioe esattamente lo stato che il dialogo gli ha
+        appena descritto. Non c'e niente da annullare, e nessuno stato
+        intermedio che qualcuno debba indovinare.
+
+        Si scrive dalla rotta generica delle appartenenze, che applica il
+        perimetro di sede e categoria di chi sta salvando: un riallineamento
+        non e un permesso in piu.
+      */
+      const riallineamento = categoryData.riallineamento;
+      let riallineati = 0;
+
+      if (riallineamento?.athleteIds?.length) {
+        const appartenenze = clubAthletes
+          .filter((athlete: any) =>
+            riallineamento.athleteIds.includes(String(athlete?.id || "")),
+          )
+          .flatMap((athlete: any) =>
+            (Array.isArray(athlete?.category_memberships)
+              ? athlete.category_memberships
+              : []
+            ).filter(
+              (membership: any) =>
+                String(
+                  membership?.category_id || membership?.categoryId || "",
+                ) === String(savedCategoryId),
+            ),
+          );
+
+        for (const membership of appartenenze) {
+          try {
+            const risposta = await apiRequest(
+              `/api/v1/athlete_category_memberships/${String(membership.id)}`,
+              {
+                method: "PATCH",
+                headers: { "x-active-club-id": activeClub.id },
+                body: { site_id: riallineamento.siteId },
+              },
+            );
+            if ((risposta as any)?.error) {
+              throw new Error((risposta as any).error.message);
+            }
+            riallineati += 1;
+          } catch (errore) {
+            console.error("Error realigning athlete membership:", errore);
+          }
+        }
+      }
+
       showToast(
         "success",
         editingCategory
           ? `Categoria ${categoryData.name} modificata con successo`
           : `Categoria ${categoryData.name} aggiunta con successo`,
       );
+
+      if (riallineamento?.athleteIds?.length) {
+        showToast(
+          riallineati === riallineamento.athleteIds.length ? "success" : "error",
+          riallineati === riallineamento.athleteIds.length
+            ? `${riallineati} ${riallineati === 1 ? "assegnazione riallineata" : "assegnazioni riallineate"}`
+            : `Riallineate ${riallineati} assegnazioni su ${riallineamento.athleteIds.length}: le altre vanno sistemate dalla scheda dell'atleta`,
+        );
+      }
 
       await refetchCategories();
       setEditingCategory(false);
@@ -990,7 +1055,92 @@ const buildDialogAthletesForCategory = (category: Category) =>
     }
   };
 
-  const filteredCategories = sortByName(
+  /*
+    **L'ordine e quello del club** (D-INT-9).
+
+    Qui si ordinava per nome, e questa e la pagina in cui il club **decide**
+    l'ordine: rileggerlo alfabetizzato significava non poterlo mai vedere.
+    Un club che pensa per fasce d'eta trovava «Allievi» prima di «Under 14»,
+    e in ogni altra schermata lo stesso.
+
+    Il posto e `sortOrder` se la categoria ce l'ha, altrimenti la posizione
+    con cui e arrivata — cioe l'ordine di creazione, che e cio che il
+    prodotto faceva prima e resta il ripiego onesto.
+  */
+  const ordineDelClub = (elenco: any[]) =>
+    elenco
+      .map((category, indice) => ({ category, indice }))
+      .sort((sinistra, destra) => {
+        const postoSinistra = Number(
+          sinistra.category?.sortOrder ?? sinistra.category?.sort_order,
+        );
+        const postoDestra = Number(
+          destra.category?.sortOrder ?? destra.category?.sort_order,
+        );
+
+        const a = Number.isFinite(postoSinistra) ? postoSinistra : Number.MAX_SAFE_INTEGER;
+        const b = Number.isFinite(postoDestra) ? postoDestra : Number.MAX_SAFE_INTEGER;
+
+        if (a !== b) return a - b;
+        return sinistra.indice - destra.indice;
+      })
+      .map((voce) => voce.category);
+
+  /**
+   * **Sposta una categoria di un posto** (D-INT-9).
+   *
+   * Due pulsanti e non un trascinamento, e non e un ripiego: il
+   * trascinamento su un telefono e la cosa piu difficile da azzeccare che
+   * ci sia, e questa pagina si apre in palestra. Due frecce funzionano al
+   * primo colpo, con il pollice, e sono raggiungibili da tastiera senza
+   * scrivere niente in piu.
+   *
+   * Si riscrive il posto di **tutte** le categorie e non solo delle due
+   * scambiate: un elenco in cui alcune hanno un posto e altre no si
+   * riordina da solo alla prima aggiunta, e chi ha appena messo le squadre
+   * in ordine se le ritrova mescolate.
+   */
+  const spostaCategoria = async (categoryId: string, verso: -1 | 1) => {
+    if (!activeClub) return;
+
+    const ordinate = ordineDelClub(categories);
+    const da = ordinate.findIndex((voce: any) => voce.id === categoryId);
+    const a = da + verso;
+    if (da < 0 || a < 0 || a >= ordinate.length) return;
+
+    const riordinate = [...ordinate];
+    [riordinate[da], riordinate[a]] = [riordinate[a], riordinate[da]];
+
+    const precedenti = categories;
+    setCategories(
+      riordinate.map((voce: any, indice: number) => ({
+        ...voce,
+        sortOrder: indice,
+      })),
+    );
+
+    try {
+      for (const [indice, voce] of riordinate.entries()) {
+        const risposta = await apiRequest(
+          `/api/v1/categories/${String((voce as any).id)}`,
+          {
+            method: "PATCH",
+            headers: { "x-active-club-id": activeClub.id },
+            body: { sortOrder: indice },
+          },
+        );
+        if ((risposta as any)?.error) {
+          throw new Error((risposta as any).error.message);
+        }
+      }
+    } catch (errore) {
+      console.error("Error reordering categories:", errore);
+      setCategories(precedenti);
+      showToast("error", "Non e stato possibile salvare l'ordine");
+    }
+  };
+
+  const filteredCategories = ordineDelClub(
     categories.filter((category) => {
       const matchesQuery =
         category.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1007,7 +1157,6 @@ const buildDialogAthletesForCategory = (category: Category) =>
         (group) => !group.siteId || group.siteId === siteFilter,
       );
     }),
-    (category) => category.name,
   );
 
   return (
@@ -1132,16 +1281,57 @@ const buildDialogAthletesForCategory = (category: Category) =>
                   </Button>
                 </div>
               ) : (
-                filteredCategories.map((category) => (
+                filteredCategories.map((category, posizione) => (
                   <Card key={category.id} className="overflow-hidden">
                     <div
                       className={`h-2 ${category.color.split(" ")[0]}`}
                     ></div>
                     <CardHeader className="pb-2">
-                      <div className="flex justify-between items-start">
-                        <CardTitle className="text-lg">
-                          {category.name}
-                        </CardTitle>
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex min-w-0 items-center gap-1">
+                          {/*
+                            **L'ordine si sposta da qui** (D-INT-9).
+
+                            Due frecce e non un trascinamento: questa pagina
+                            si apre in palestra, e il trascinamento su un
+                            telefono e la cosa piu difficile da azzeccare che
+                            ci sia. Due pulsanti funzionano al primo colpo,
+                            con il pollice, e da tastiera senza aggiungere
+                            niente.
+
+                            Compaiono solo quando l'elenco non e filtrato:
+                            spostare «di un posto» dentro una vista parziale
+                            sposterebbe di un posto **che non si vede**, e il
+                            risultato sembrerebbe casuale.
+                          */}
+                          {!searchQuery && !siteFilter ? (
+                            <div className="flex flex-col">
+                              <button
+                                type="button"
+                                aria-label={`Sposta ${category.name} in su`}
+                                data-testid="sposta-su"
+                                disabled={posizione === 0}
+                                className="rounded p-0.5 text-muted-foreground transition hover:bg-muted disabled:opacity-30"
+                                onClick={() => spostaCategoria(category.id, -1)}
+                              >
+                                <ChevronUp className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`Sposta ${category.name} in giu`}
+                                data-testid="sposta-giu"
+                                disabled={posizione === filteredCategories.length - 1}
+                                className="rounded p-0.5 text-muted-foreground transition hover:bg-muted disabled:opacity-30"
+                                onClick={() => spostaCategoria(category.id, 1)}
+                              >
+                                <ChevronDown className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ) : null}
+                          <CardTitle className="truncate text-lg">
+                            {category.name}
+                          </CardTitle>
+                        </div>
                         <Badge
                           className={`${category.color} max-w-[180px] truncate`}
                           title={category.sport}
@@ -1299,6 +1489,12 @@ const buildDialogAthletesForCategory = (category: Category) =>
           name: site.name,
         }))}
         initialSiteIds={editorSiteIds}
+        /*
+          Servono a **contare** cosa il cambio di sede rende incoerente,
+          non a spostarlo (P0-8): il dialogo mostra il numero prima della
+          conferma, e il riallineamento resta un gesto esplicito.
+        */
+        athletes={clubAthletes}
       />
 
       {selectedCategory && (
