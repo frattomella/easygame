@@ -1316,6 +1316,28 @@ export default function AthletesPage() {
 
   const selectedAthletesCount = selectedAthleteIds.size;
 
+  /**
+   * **Quante persone, non quante tessere** (P0-1).
+   *
+   * `athletes` e un elenco di **appartenenze**: chi si allena con due gruppi
+   * compare due volte, ed e una scelta voluta per la griglia — «visibili»
+   * conta le righe che si vedono. Ma «Totali» e il numero di atleti del club,
+   * e nel ramo paginato lo e davvero (`listMeta.total`, che il database conta
+   * sulle persone): nel ramo non paginato era `athletes.length`, cioe le
+   * tessere. Lo stesso riquadro cambiava significato a seconda della
+   * dimensione del club — quaranta atleti di cui otto in due categorie
+   * diventavano «48» — ed e la forma esatta del difetto che P0-1 ha chiuso
+   * sull'insieme bersaglio e non qui: «213 contro 245».
+   *
+   * Vale anche per il numero sul pulsante «Azioni su tutti»: l'insieme su cui
+   * si scrive e deduplicato per identificativo, quindi annunciarne uno piu
+   * grande e promettere un'operazione piu larga di quella che parte.
+   */
+  const totaleAtletiDistinti = React.useMemo(
+    () => new Set(athletes.map((athlete) => athlete.id)).size,
+    [athletes],
+  );
+
   const getAthleteStatusLabel = (status: Athlete["status"]) =>
     ATHLETE_STATUS_LABELS[status];
 
@@ -1386,11 +1408,24 @@ export default function AthletesPage() {
    * chiedono qui, una alla volta, e solo quando qualcuno preme Esporta — che
    * e il momento giusto per pagare quel costo.
    */
-  const collectAthletesForExport = async (): Promise<Athlete[]> => {
-    if (selectedAthleteIds.size) {
-      return athletes.filter((athlete) => selectedAthleteIds.has(athlete.id));
-    }
-
+  /**
+   * **Tutto l'insieme filtrato, e non gli conta niente la selezione.**
+   *
+   * E la meta di `collectAthletesForExport` che risponde a «tutti»: sta a se
+   * perche le due domande sono diverse, e confonderle e il difetto che questa
+   * separazione chiude. L'export chiede «cosa metto sul foglio», e li la
+   * selezione **e** la risposta — chi ha spuntato dodici righe vuole quelle
+   * dodici. L'azione massiva «su tutti» chiede un'altra cosa, e la selezione
+   * non c'entra: il dialogo dice «tutti gli atleti registrati», e deve essere
+   * vero anche quando una casella e spuntata.
+   *
+   * Il difetto misurato: con una sola riga spuntata, «Rendi tutti attivi»
+   * toccava quella sola, e la conferma continuava a dire «tutti gli atleti
+   * registrati». Un'operazione che non tocca chi doveva toccare, e nessuno se
+   * ne accorge — che e la frase che sta gia scritta sopra
+   * `risolviBersagliMassivi`, sull'altro ramo dello stesso difetto.
+   */
+  const collectFilteredAthletes = async (): Promise<Athlete[]> => {
     if (!paginated || !listMeta) {
       return filteredAthletes;
     }
@@ -1422,6 +1457,18 @@ export default function AthletesPage() {
 
     collected.sort(compareAthletesByLastName);
     return collected;
+  };
+
+  /**
+   * Cio che l'export deve contenere: la selezione se c'e, altrimenti tutto
+   * l'insieme filtrato.
+   */
+  const collectAthletesForExport = async (): Promise<Athlete[]> => {
+    if (selectedAthleteIds.size) {
+      return athletes.filter((athlete) => selectedAthleteIds.has(athlete.id));
+    }
+
+    return collectFilteredAthletes();
   };
 
   const exportAthletesPdf = async () => {
@@ -1537,7 +1584,17 @@ export default function AthletesPage() {
       return Array.from(new Set(Array.from(selectedAthleteIds)));
     }
 
-    const tutti = await collectAthletesForExport();
+    /*
+      **`collectFilteredAthletes`, non `collectAthletesForExport`.**
+
+      La seconda risponde alla domanda dell'export, e la sua prima riga e «se
+      c'e una selezione, sono quelli»: chiamandola da qui, «Azioni su tutti»
+      con una casella spuntata toccava **quella sola**, mentre la conferma
+      diceva «tutti gli atleti registrati». Il menu e attivo a prescindere
+      dalla selezione, quindi il caso non e limite: e il gesto ordinario di chi
+      ha spuntato una riga, ha cambiato idea e ha aperto l'altro menu.
+    */
+    const tutti = await collectFilteredAthletes();
     return Array.from(new Set(tutti.map((athlete) => athlete.id))).filter(
       Boolean,
     );
@@ -2312,11 +2369,23 @@ export default function AthletesPage() {
                   </>
                 ) : (
                   <>
+                    {/*
+                      Persone, non tessere: `athletes` porta una riga per
+                      appartenenza, e chi si allena con due gruppi si contava
+                      due volte in questa intestazione mentre nel ramo paginato
+                      lo stesso numero lo conta il database sulle persone.
+                    */}
                     {ATHLETE_STATUSES.map((stato, indice) => (
                       <React.Fragment key={stato}>
                         {indice > 0 ? " | " : null}
                         {ATHLETE_STATUS_HEADINGS[stato]}:{" "}
-                        {athletes.filter((a) => a.status === stato).length}
+                        {
+                          new Set(
+                            athletes
+                              .filter((a) => a.status === stato)
+                              .map((a) => a.id),
+                          ).size
+                        }
                       </React.Fragment>
                     ))}
                   </>
@@ -2520,7 +2589,7 @@ export default function AthletesPage() {
                           */}
                           {paginated && listMeta
                             ? listMeta.total
-                            : athletes.length}
+                            : totaleAtletiDistinti}
                         </p>
                       </div>
                     </div>
@@ -2635,7 +2704,7 @@ export default function AthletesPage() {
                             className="bg-blue-600 hover:bg-blue-700"
                             disabled={!athletes.length}
                           >
-                            Azioni su tutti ({athletes.length})
+                            Azioni su tutti ({totaleAtletiDistinti})
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">

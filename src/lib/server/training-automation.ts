@@ -765,8 +765,20 @@ export async function runTrainingAutomationForClub(
         locationId: location?.fieldId || scheduleItem.locationId || null,
         location: location?.name || scheduleItem.location || "Campo",
         attendees: 0,
+        /*
+          **Il catalogo, che questa funzione ha gia in mano** (ADR-0155,
+          `D-AUD-27`). Senza, `categoryIdentity` mette ogni riferimento fra i
+          **nomi** e due «Under 15» su due sedi tornano a essere una sola
+          squadra: l'allenamento generato per Formia nasceva con gli attesi
+          di Formia **piu** quelli di Scauri, e quel numero finisce in colonna
+          e da li nel denominatore delle presenze.
+
+          `categoryList` e in questa funzione da centosettanta righe, e la usa
+          gia la chiave di deduplica: non passarla era una svista, non una
+          rinuncia.
+        */
         expectedAttendees: athletes.filter((athlete) =>
-          athleteMatchesAnyCategory(athlete, matchingCategoryOptions),
+          athleteMatchesAnyCategory(athlete, matchingCategoryOptions, categoryList),
         ).length,
         categoryColor: "bg-blue-500 text-white",
         status: "upcoming",

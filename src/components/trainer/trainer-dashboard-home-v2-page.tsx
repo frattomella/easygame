@@ -44,6 +44,7 @@ import {
   isTrainingMissingAttendance,
 } from "@/lib/trainer-operational-alerts";
 import { getInvalidCertificatesForConvocatedAthletes } from "@/lib/match-certificate-warnings";
+import { isCancelledEvent } from "@/lib/events/model";
 import { cn } from "@/lib/utils";
 
 const convocationBadgeClassName = (state: string) => {
@@ -78,10 +79,37 @@ export default function TrainerDashboardHomeV2Page() {
   }
 
   const now = new Date();
-  const todayTrainings = visibleTrainings
+
+  /*
+    **«Lo conto?» e «lo mostro?» sono due domande, e questa bacheca risponde
+    alla prima** (P0-3, `D-AUD-20`).
+
+    Il contesto chiede ora il calendario con `include_cancelled=1`, ed e
+    giusto: la pastiglia «Annullato» e il ripristino vivono sulla riga
+    annullata, e senza quella riga non esistono piu. Ma da quella deroga
+    discende che gli annullati entrano in `visibleTrainings` e
+    `visibleMatches` — e qui non serviva mostrarli, serviva **contarli**.
+
+    L'effetto: «Allenamenti di oggi: 3» con due annullati per maltempo, e in
+    «Prossimi impegni» un allenamento annullato accanto a uno in programma,
+    **indistinguibile** — la pastiglia di quel riquadro e la stringa fissa
+    «Allenamento». Un allenatore legge «quando torno in campo» e ci trova una
+    seduta che non ci sara.
+
+    Gli annullati restano dove servono: la pagina Allenamenti della bacheca li
+    disegna con la loro pastiglia, ed e da li che si ripristinano.
+  */
+  const impegniTrainings = visibleTrainings.filter(
+    (training: any) => !isCancelledEvent(training),
+  );
+  const impegniMatches = visibleMatches.filter(
+    (match: any) => !isCancelledEvent(match),
+  );
+
+  const todayTrainings = impegniTrainings
     .filter((training) => isSameTrainerDay(training?.startsAt, now))
     .sort(compareTrainerRecordsByStart);
-  const todayMatches = visibleMatches
+  const todayMatches = impegniMatches
     .filter((match) => isSameTrainerDay(match?.startsAt, now))
     .sort(compareTrainerRecordsByStart);
   /*
@@ -103,8 +131,8 @@ export default function TrainerDashboardHomeV2Page() {
     scorrere le stesse righe due volte su un telefono.
   */
   const prossimiImpegni = [
-    ...visibleTrainings.map((record: any) => ({ record, gara: false })),
-    ...visibleMatches.map((record: any) => ({ record, gara: true })),
+    ...impegniTrainings.map((record: any) => ({ record, gara: false })),
+    ...impegniMatches.map((record: any) => ({ record, gara: true })),
   ]
     .filter(
       ({ record }) =>

@@ -548,7 +548,25 @@ export default function MedicalPage() {
     .filter((certificate) => {
       if (!selectedCategoryOption) return true;
       const athlete = athletesById.get(certificate.athleteId);
-      return athleteMatchesAnyCategory(athlete, [selectedCategoryOption]);
+      /*
+        **Il catalogo, e qui pesa piu che altrove** (ADR-0155, `D-AUD-27`).
+
+        Senza catalogo `categoryIdentity` non sa disambiguare due omonime e
+        confronta per **etichetta**: scegliere «Under 15» dal menu — la voce di
+        Formia, con il suo identificativo — faceva comparire anche i dodici
+        ragazzi di Scauri. Su questa schermata cio che compare e lo **stato
+        sanitario di un minore**, e chi guarda puo avere un perimetro di sede
+        che quei dodici non li comprende: un filtro che allarga, su questi
+        dati, non e un filtro impreciso.
+
+        `categoryOptions` e il catalogo del club, ed e la stessa lista da cui
+        esce `selectedCategoryOption` due riquadri sopra.
+      */
+      return athleteMatchesAnyCategory(
+        athlete,
+        [selectedCategoryOption],
+        categoryOptions,
+      );
     });
 
   return (

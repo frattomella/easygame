@@ -16,6 +16,7 @@ import {
   recomputeChargeFromLedger,
 } from "@/lib/server/payment-transactions";
 import { publicErrorMessage } from "@/lib/server/api-errors";
+import { athleteWithinAccessScope } from "@/lib/server/access-scope-query";
 
 type Context = {
   params: {
@@ -105,6 +106,46 @@ export async function PATCH(request: Request, context: Context) {
     */
     assertActiveClub(scope, payment.organization_id, "il pagamento");
 
+    /*
+      **Il perimetro di sede e categoria, che questa porta non chiedeva mai**
+      (`W6-D18`).
+
+      `payments` sta fra le risorse perimetrate del registro generico
+      (`buildAccessScopeFilter`, ramo `PER_ATLETA`), e li la regola si applica
+      sia all'elenco sia alla riga singola. Questa rotta scrive **la stessa
+      riga** da un'altra porta, e chiedeva soltanto il club attivo e la
+      matrice per ruolo: un `club_manager` recintato sulla sede Nord poteva
+      riscrivere, annullare o **cancellare** la rata di un atleta della sede
+      Sud — e la cancellazione porta via a cascata incassi, storni e rimborsi.
+
+      Gli identificativi non gli mancavano nemmeno:
+      `GET /api/v1/payment-transactions` gli serviva l'intero libro cassa del
+      club, che e la seconda meta di questa voce e si chiude nello stesso
+      commit.
+
+      Si giudica sull'**atleta** della rata, con la stessa primitiva che usano
+      appuntamenti, allegati e documenti: un secondo giudizio scritto qui
+      sarebbe la terza risposta alla stessa domanda.
+    */
+    if (
+      payment.athlete_id &&
+      !(await athleteWithinAccessScope(
+        payment.organization_id,
+        String(payment.athlete_id),
+        scope,
+      ))
+    ) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Accesso negato: questa rata e di un atleta fuori dal perimetro di sede o categoria del ruolo attivo",
+          },
+        },
+        { status: 403 },
+      );
+    }
 
     const body = await request.json().catch(() => ({}));
 

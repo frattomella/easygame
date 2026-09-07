@@ -253,7 +253,47 @@ const valueReferencesAthlete = (value: unknown, tokens: Set<string>): boolean =>
     .some((entry) => tokens.has(entry));
 };
 
-const resolveMatchParticipationStatus = (match: any, athlete: any) => {
+/**
+ * **La famiglia deve vedere la stessa convocazione che il club ha fatto**
+ * (`D-AUD-9`, meta famiglia di P0-6).
+ *
+ * Questa funzione deduceva «convocato / non convocato» da **ventotto grafie**
+ * dentro `match`, `match.payload` e `match.data` — `calledAthletes`, `roster`,
+ * `lineup`, `convocations`… — e dopo ADR-0099 nessuna di quelle la scrive piu
+ * nessuno: la convocazione e `club_event_participants.convocation_status`, con
+ * il suo scrittore (`saveEventConvocations`), il suo permesso e la sua
+ * notifica. L'effetto misurato: l'allenatore convoca sedici ragazzi, il club
+ * vede la rosa, e nella bacheca di ogni famiglia la gara resta «Non
+ * registrato». Tre superfici sullo stesso fatto, e quella della famiglia
+ * leggeva l'unica copia che non viene piu aggiornata.
+ *
+ * La riga la si ha gia: e la stessa che porta la presenza dell'allenamento,
+ * caricata da `club_event_participants` e indicizzata per evento. **Decide
+ * lei**, e le grafie storiche restano solo come ripiego per le gare
+ * antecedenti alla migrazione, dove una riga non c'e.
+ *
+ * L'ordine e quello del dominio: una presenza segnata e una partecipazione;
+ * `excluded` e una decisione presa — «non giochi» — e vale `not_called`;
+ * `convocated` e la convocazione. `null` non e «non convocato»: e nessuno che
+ * ha ancora deciso, e da li si ricade sul payload.
+ */
+const resolveMatchParticipationStatus = (
+  match: any,
+  athlete: any,
+  partecipazione?: {
+    status?: unknown;
+    convocation_status?: unknown;
+  } | null,
+) => {
+  const presenza = normalizeToken(partecipazione?.status);
+  if (presenza === "present" || presenza === "presente") {
+    return "participated";
+  }
+
+  const convocazione = normalizeToken(partecipazione?.convocation_status);
+  if (convocazione === "excluded") return "not_called";
+  if (convocazione === "convocated") return "called";
+
   const tokens = getAthleteReferenceTokens(athlete);
   const data = asRecord(match?.data);
   const payload = asRecord(match?.payload);
@@ -1507,10 +1547,17 @@ export const getParentDashboardData = async (
     .sort(sortByStart);
   const matches = rawMatches
     .filter((match) => recordMatchesAthlete(match, selectedAthlete, categoryOptions))
-    .map((match) => ({
-      ...summarizeEvent(match, categoryOptions, "match"),
-      participationStatus: resolveMatchParticipationStatus(match, selectedAthlete),
-    }))
+    .map((match) => {
+      const summary = summarizeEvent(match, categoryOptions, "match");
+      return {
+        ...summary,
+        participationStatus: resolveMatchParticipationStatus(
+          match,
+          selectedAthlete,
+          attendanceByTrainingId.get(String(summary.id || "")) ?? null,
+        ),
+      };
+    })
     .sort(sortByStart);
   const now = Date.now();
   const upcomingTrainings = trainings.filter(

@@ -4126,3 +4126,84 @@ per misurarlo, un errore transitorio, un ripristino a meta — e un modo
 realistico di far entrare una regressione di sicurezza in un ramo, e l'unica
 cosa che l'ha fermata e stato il controllo sull'albero verde che quella sonda
 si era aggiunta da sola due commit prima.
+
+---
+
+## Tre chiusure della revisione ostile finale (2026-09-07)
+
+### Un gettone monouso si consuma prima di produrre effetti
+
+`POST /api/v1/auth/access/redeem` verificava «gettone gia riscattato?» a inizio
+rotta e lo marcava `redeemed` in fondo, con una quindicina di query in mezzo:
+codice, ambiguita fra club, scadenza, ruolo, soffitto del concedente, profilo,
+tessere. In quella finestra ci stavano **due** riscatti.
+
+Misurato: il club manda il codice sul gruppo di famiglia, padre e madre lo
+aprono nello stesso minuto, e la rotta risponde **200 tutte e due**. Le tessere
+sono due — gli utenti sono diversi, quindi
+`@@unique([organization_id, user_id, role])` non collide — e il registro scrive
+`redemption_count: 1`, cioe **nega l'incidente** a chi poi lo cerca. Su un
+gettone di tutore sono due account dentro il fascicolo sanitario di un minore.
+
+La regola: **il gettone si consuma con un atto solo, prima della prima
+scrittura, e dopo tutti i rifiuti legittimi.** `updateMany` condizionato sullo
+stato, `count !== 1` → 409. E la stessa disciplina che `redeemAthleteInvite`
+applicava gia sulla stessa forma di riga.
+
+Un gettone non si brucia per una richiesta che sarebbe stata rifiutata comunque:
+il claim sta **dopo** codice, scadenza, ruolo, soffitto e profilo gia collegato,
+e **prima** della tessera.
+
+### Il perimetro di sede vale anche sul denaro
+
+`payments` sta fra le risorse perimetrate del registro generico, e li la regola
+si applicava. Due porte dedicate scrivevano e leggevano **le stesse righe**
+senza consultare `scope.accessScopes`:
+
+- `GET /api/v1/payment-transactions` serviva l'**intero libro cassa** del club —
+  atleta, rata, importi, date, metodi, storni — a chiunque avesse
+  `accounting.read`, perimetro compreso. E la sorgente degli identificativi che
+  la porta accanto richiede;
+- `PATCH /api/athlete-payments/:id` li accettava e riscriveva, annullava o
+  **cancellava** la rata di un atleta di un'altra sede. La cancellazione porta
+  via a cascata incassi, storni e rimborsi.
+
+Misurato: un `club_manager` recintato sulla sede Nord ha portato da 200 a 1
+l'importo di una rata della sede Sud.
+
+Adesso l'elenco **filtra** — chi ha un perimetro vede la propria parte di prima
+nota, non zero — e la scrittura giudica sull'**atleta** della rata con
+`athleteWithinAccessScope`, la stessa primitiva di appuntamenti, allegati e
+documenti. Il controspecchio conta quanto la regola: la rata della **propria**
+sede resta scrivibile, perche un perimetro che chiude anche quella non e un
+perimetro.
+
+La lezione, che questo file ha gia scritto in altra forma: **una correzione di
+confine fatta «in quindici moduli» va cercata anche fuori da `/api/v1`.**
+`athlete-payments` sta un livello piu su, e per la seconda volta e stata l'ultima
+a essere trovata. La sonda finale scopre ora le rotte da `src/app/api`, non da
+`src/app/api/v1`.
+
+### Un identificativo malformato non e un errore del server
+
+`athletes.id` e un `uuid` in colonna: `WHERE id IN ('non-e-un-uuid')` non
+risponde «nessuno», **fallisce**, e l'errore che risale porta con se nome del
+modello, invocazione e codice PostgreSQL fino al browser di chiunque abbia una
+tessera nel club (classe `W4-R14`).
+
+Non sapere convertire un valore non e un guasto: e la prova che quel valore non
+e l'identificativo di nessuno, e in particolare di nessun atleta di questo club
+— che e esattamente cio che la guardia deve rispondere.
+
+**E non si distingue con una parola nel messaggio, ne con un codice.** Prisma
+classifica lo stesso rifiuto in due modi a seconda della forma della richiesta:
+`P2023` da una parte, un errore non mappato e senza codice dall'altra. Si chiede
+quindi **al database**: rieseguita la stessa lettura con un elenco vuoto, se
+risponde allora l'archivio c'e e a non andare bene erano i valori; se non
+risponde, l'errore originale risale intero. Una tabella irraggiungibile deve
+restare un guasto, non diventare un elegante «accesso negato» che nasconde
+un'indisponibilita.
+
+Restano da chiudere allo stesso modo `athletes/[id]/documents/[documentId]/file`
+e `forms/assets/[assetId]`, che rispondono **500** a un errore contenente
+«Accesso negato» e non passano da `publicErrorMessage`.

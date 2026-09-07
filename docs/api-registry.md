@@ -39,7 +39,13 @@ Fonte ufficiale da mantenere aggiornata:
   conto su cui il denaro e entrato) e la controparte
   (`counterparty_kind`/`_id`/`_label`): senza queste righe nello schema di
   validazione i tre campi sparivano fra la richiesta e il dominio, ed e il
-  motivo per cui `operation_type_code` era `null` su ogni incasso reale
+  motivo per cui `operation_type_code` era `null` su ogni incasso reale.
+  L'elenco e ristretto al **perimetro di sede e categoria** del ruolo attivo:
+  serviva l'intero libro cassa del club anche a chi e recintato, e con lui gli
+  identificativi delle rate su cui la porta accanto scrive (`W6-D18`). Il corpo
+  accetta anche `idempotency_key`: lo stesso invio due volte lascia **una riga
+  sola** — il blocco di riga chiudeva il sovraincasso, non la duplicazione
+  dentro la capienza — e la risposta lo dichiara con `duplicate
 - `GET /api/v1/payment-transactions/:id/document-decision` — **cosa si sta per
   emettere, prima di emetterlo**: documento proposto e perche, numero che
   verra assegnato (letto senza consumarlo), classificazione — `NON
@@ -559,7 +565,12 @@ Allenamenti e gare non hanno piu due rotte separate su due colonne JSON: hanno
 una rotta sola su una tabella sola, e il tipo e un parametro (ADR-0098).
 
 - `GET /api/v1/events` — il calendario, filtrabile per `kind`, `from`, `to`,
-  `season_id`, `site_id`, `category_id`, `group_id`, `status`
+  `season_id`, `site_id`, `category_id`, `group_id`, `status`, e
+  `include_cancelled=1` per le schermate che devono poter **riaprire** un
+  evento annullato. Ogni riga porta i due conteggi dell'appello,
+  `convocated_count` e `convocated_athlete_ids` — gli identificativi, filtrati
+  sul perimetro di chi legge: l'avviso «fra i convocati c'e un certificato
+  scaduto» chiede quali atleti, e un conteggio non li porta (`D-AUD-9`)
 - `POST /api/v1/events` — crea un evento, o un blocco con `{events: [...]}`
 - `GET /api/v1/events/:id` — un evento e i suoi partecipanti
 - `PATCH /api/v1/events/:id` — modifica con **controllo ottimistico**: il corpo
@@ -567,9 +578,15 @@ una rotta sola su una tabella sola, e il tipo e un parametro (ADR-0098).
   riceve **409**
 - `DELETE /api/v1/events/:id` — solo per un evento **senza storia**: con
   presenze, convocazioni o risposte si annulla con un `PATCH`
+- Su un evento **annullato o archiviato** l'unico atto ammesso e la
+  **riapertura**: data, fine, sede, struttura, campo, categorie, gruppi,
+  capienza e richiesta di conferma non si cambiano finche non torna in
+  programma. Titolo, note e allenatori restano correggibili
 - `GET|POST /api/v1/events/:id/participants` — convocazione
   (`action: "convoke"`) e appello (`action: "attendance"`). La risposta della
-  famiglia non passa di qui
+  famiglia non passa di qui. Un evento annullato o archiviato non ne riceve
+  piu, e lo stato si rilegge **dentro** la transazione che scrive, sotto blocco
+  di riga: un annullamento in volo non si scavalca aspettando (`D-INT-13b`)
 
 Le rotte `/api/v1/trainings` e `/api/v1/matches` **non esistono piu**:
 `trainings` e `matches` sono usciti da `CLUB_RESOURCE_TYPES`. Le due colonne

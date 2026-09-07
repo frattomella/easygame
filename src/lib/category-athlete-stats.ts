@@ -10,6 +10,7 @@ import {
 import { isCancelledEvent } from "@/lib/events/model";
 import { getConvocatedAthleteIdsFromMatch } from "@/lib/match-certificate-warnings";
 import { recordMatchesCategory } from "@/lib/trainer-dashboard-helpers";
+import { attachParticipationToEvents } from "@/lib/trainer-operational-alerts";
 
 export type CategoryAthleteStat = {
   categoryId: string;
@@ -242,8 +243,28 @@ export function calculateCategoryAthleteStats(
     }
   });
 
+  /*
+    **La convocazione e una colonna, non una grafia del payload** (`D-AUD-9`).
+
+    `getConvocatedAthleteIdsFromMatch` legge l'unione di quattordici chiavi
+    dentro la gara — `convocatedAthletes`, `calledAthletes`, `selectedAthleteIds`…
+    — e dopo ADR-0099 **nessuna di quelle la scrive piu nessuno**: la rosa e
+    `club_event_participants.convocation_status`, con il suo scrittore
+    (`saveEventConvocations`). Misurato dalla sonda
+    `scripts/audit-finale-report-canonici-probe.mjs`: si convoca un atleta
+    dalla rotta canonica, e la statistica per categoria dice «0 convocazioni»
+    per tutti — su ogni gara, per sempre.
+
+    Le righe questa funzione **le ha gia**: sono `attendance`, cioe le stesse
+    che porta `training_attendance`, e la colonna sta su quelle. Non serve una
+    seconda lettura, serve guardare la colonna giusta — e la proiezione e la
+    stessa che usa la bacheca dell'allenatore, cosi le due superfici non
+    possono divergere.
+  */
+  const matchesConRosa = attachParticipationToEvents(categoryMatches, attendance);
+
   const convocationsByAthlete = new Map<string, number>();
-  for (const match of categoryMatches) {
+  for (const match of matchesConRosa) {
     for (const convocatedId of new Set(getConvocatedAthleteIdsFromMatch(match))) {
       convocationsByAthlete.set(
         convocatedId,

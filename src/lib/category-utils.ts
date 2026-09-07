@@ -80,8 +80,16 @@ const firstNonEmptyString = (...values: unknown[]) => {
  * Le grafie sono tre perche il record arriva da tre strade: la colonna del
  * club, la riga di risorsa con il suo `payload`, e cio che una schermata
  * costruisce a mano.
+ *
+ * **Esportata perche il posto ha un lettore solo** (D-INT-9). La pagina
+ * Categorie — quella in cui il club **decide** l'ordine — ne aveva scritto
+ * uno suo, che guardava due grafie su quattro; e il suo modello di vista
+ * costruisce un oggetto chiuso in cui `sortOrder` non entrava affatto,
+ * quindi dopo un ricaricamento l'ordine appena scelto spariva. Lo stato
+ * ottimistico faceva sembrare che funzionasse: il difetto si vedeva solo
+ * alla seconda apertura.
  */
-const leggiPosto = (value: Record<string, unknown>): number | null => {
+export const readCategorySortOrder = (value: Record<string, unknown>): number | null => {
   const grezzo =
     (value as any)?.sortOrder ??
     (value as any)?.sort_order ??
@@ -134,7 +142,7 @@ const toCategoryOption = (
       creazione, che e cio che il prodotto faceva prima di questa riga e resta
       il ripiego giusto.
     */
-    sortOrder: leggiPosto(value),
+    sortOrder: readCategorySortOrder(value),
   };
 };
 

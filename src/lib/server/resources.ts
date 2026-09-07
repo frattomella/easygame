@@ -3858,6 +3858,13 @@ const assertNotAdminOnlyFromClubAggregate = (field: string) => {
 const assertNotDomainOwnedResourceItem = (
   resource: string,
   value: unknown,
+  /**
+   * Il verbo, e serve a **un** caso solo: allenamenti e gare sono chiusi in
+   * creazione e modifica e restano cancellabili, perche le righe fantasma che
+   * la porta aperta ha prodotto vanno potute portare fuori. Per tutto il resto
+   * non cambia niente: `DOMAIN_OWNED_RESOURCE_ITEM_TYPES` chiude i tre verbi.
+   */
+  verbo: "write" | "delete" = "write",
 ) => {
   assertNotAdminOnlyFromGenericRoute(resource, value);
 
@@ -3872,6 +3879,23 @@ const assertNotDomainOwnedResourceItem = (
     l'audit e entrato dalla seconda.
   */
   const tipo = resource === "club_resource_items" ? value : resource;
+
+  /*
+    **Allenamenti e gare: chiusi in scrittura, aperti in lettura.**
+
+    Un evento si scrive da `src/lib/server/events.ts`, che ha la macchina a
+    stati, il controllo ottimistico, la sovrapposizione sul campo e la
+    capienza. Ma le righe **gia esistenti** con questo tipo vanno ancora
+    lette — tre schermate le fondono — e vanno potute **cancellare**, o la
+    correzione lascerebbe dentro i fantasmi che la porta aperta ha prodotto.
+    Vedi `WRITE_ONLY_DOMAIN_OWNED_RESOURCE_ITEM_TYPES`.
+  */
+  if (verbo !== "delete" && isWriteClosedResourceItemType(tipo)) {
+    throw new Error(
+      `Accesso negato: ${String(tipo).trim()} si scrive da /api/v1/events, non dal registro generico`,
+    );
+  }
+
   if (!isDomainOwnedResourceItemType(tipo)) return;
 
   throw new Error(
@@ -3920,6 +3944,50 @@ const assertNotDomainOwnedModel = (resource: string) => {
 
 const isDomainOwnedResourceItemType = (value: unknown) =>
   (DOMAIN_OWNED_RESOURCE_ITEM_TYPES as readonly string[]).includes(
+    String(value || "").trim(),
+  );
+
+/**
+ * **Tipi che il registro generico legge e non scrive.**
+ *
+ * `DOMAIN_OWNED_RESOURCE_ITEM_TYPES` chiude **tutte e tre** le porte: la
+ * lettura per elenco, la lettura per identificativo e la scrittura. Per i tipi
+ * che ci stanno e giusto — chi legge uno sconto o un socio ha una rotta sua,
+ * e servirlo anche da qui sarebbe una seconda risposta alla stessa domanda.
+ *
+ * Allenamenti e gare no, e la differenza vale la seconda lista.
+ *
+ * **Il difetto che chiudono, e che e reale**: `POST /api/v1/club_resource_items`
+ * con `resource_type: "trainings"` rispondeva **200**. La riga non ha un
+ * `club_events` — appello e convocazioni rispondono «Evento non trovato» — ma
+ * `getClubTrainings` fonde **tre** fonti e quella e una: la riga compariva
+ * nell'elenco allenamenti, nel riquadro dei prossimi allenamenti e sulla scheda
+ * dell'atleta. E il generatore automatico la contava fra gli allenamenti gia
+ * esistenti, quindi **saltava la generazione** della fascia vera.
+ *
+ * **Perche non basta metterli nell'altra lista**, e la prima stesura di questa
+ * correzione lo aveva fatto. Chiudere anche la lettura fa tre danni che il
+ * difetto non faceva:
+ *
+ * 1. `getClubTrainings` perde una delle sue tre fonti **in silenzio** — la
+ *    chiamata risponde 403 e il chiamante la inghiotte in un `console.warn`;
+ * 2. `prisma/seed.js` semina due allenamenti dimostrativi proprio cosi: su ogni
+ *    database seminato sparirebbero da tre schermate;
+ * 3. le righe fantasma **gia in archivio** — quelle che la porta aperta ha
+ *    prodotto — diventerebbero insieme invisibili e **non cancellabili**, cioe
+ *    la correzione chiuderebbe la porta lasciando dentro i fantasmi, senza una
+ *    strada per portarli fuori.
+ *
+ * La porta da chiudere era una: **la scrittura**. Trovato dalla revisione del
+ * diff della revisione ostile finale, che ha misurato la propria correzione.
+ */
+const WRITE_ONLY_DOMAIN_OWNED_RESOURCE_ITEM_TYPES = [
+  "trainings",
+  "matches",
+] as const;
+
+const isWriteClosedResourceItemType = (value: unknown) =>
+  (WRITE_ONLY_DOMAIN_OWNED_RESOURCE_ITEM_TYPES as readonly string[]).includes(
     String(value || "").trim(),
   );
 
@@ -8541,7 +8609,7 @@ export const deleteResource = async (
       indovina un identificativo e «Accesso negato» a chi lo azzecca: cioe dire
       a un estraneo quali righe esistono.
     */
-    assertNotDomainOwnedResourceItem(resource, resource);
+    assertNotDomainOwnedResourceItem(resource, resource, "delete");
 
     const existing = await findClubResourceRecord(resource, id, scope);
     if (!existing) {
@@ -8553,7 +8621,7 @@ export const deleteResource = async (
       un corpo, quindi la guardia si applica dopo aver letto cosa si sta per
       cancellare.
     */
-    assertNotDomainOwnedResourceItem(resource, existing?.resource_type);
+    assertNotDomainOwnedResourceItem(resource, existing?.resource_type, "delete");
     assertPuoScrivereIlTipoDellaRiga(resource, existing?.resource_type, "delete", scope);
 
     /*
@@ -8641,7 +8709,7 @@ export const deleteResource = async (
     club, e un `PATCH` che cambia solo il payload non porterebbe nessun
     `resource_type` da controllare.
   */
-  assertNotDomainOwnedResourceItem(resource, existing?.resource_type);
+  assertNotDomainOwnedResourceItem(resource, existing?.resource_type, "delete");
   assertPuoScrivereIlTipoDellaRiga(resource, existing?.resource_type, "delete", scope);
   /*
     Prima il confine del club, poi la regola del denaro: chiedere «questa rata

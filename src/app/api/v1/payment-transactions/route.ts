@@ -18,6 +18,7 @@ import {
 } from "@/lib/validation";
 import { paymentTransactionInputSchema } from "@/lib/validation/schemas";
 import { publicErrorMessage } from "@/lib/server/api-errors";
+import { athleteWithinAccessScope } from "@/lib/server/access-scope-query";
 
 /**
  * Il registro degli incassi.
@@ -160,7 +161,57 @@ export async function POST(request: Request) {
     */
     const input = parseInput(paymentTransactionInputSchema, body);
 
+    /*
+      **Il perimetro vale anche in creazione, e mancava proprio qui.**
+
+      La lettura del libro cassa e la modifica di una rata sono state chiuse
+      sul perimetro di sede e categoria (`W6-D18`). La **creazione** no: un
+      ruolo recintato sulla sede Nord poteva registrare un incasso su una rata
+      della sede Sud, cioe muovere denaro su un atleta che il suo stesso
+      elenco non gli mostra. Tre porte sulla stessa riga, e due chiuse.
+
+      Si giudica sull'atleta nominato dalla richiesta, con la primitiva che
+      usano gia le altre due.
+    */
+    const atletaNominato = String(input.athleteId || "").trim();
+    if (
+      atletaNominato &&
+      !(await athleteWithinAccessScope(
+        scope.activeOrganizationId as string,
+        atletaNominato,
+        scope,
+      ))
+    ) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message:
+              "Accesso negato: questo atleta e fuori dal perimetro di sede o categoria del ruolo attivo",
+          },
+        },
+        { status: 403 },
+      );
+    }
+
     const result = await createPaymentTransaction(input, scope);
+
+    /*
+      **Il duplicato non e una creazione, e non si racconta come tale.**
+
+      La chiave di idempotenza riconosce lo stesso gesto e restituisce la riga
+      di prima. Rispondere **201** e scrivere «incasso registrato» in audit
+      farebbe ricomparire nel registro esattamente il difetto che la chiave
+      chiude: due «incasso registrato» per un solo incasso, con lo stesso
+      identificativo di riga. E il registro di audit e la superficie da cui una
+      segreteria ricostruisce chi ha incassato cosa.
+
+      Un secondo invio dello stesso gesto e **200 con la riga di prima**: non e
+      successo niente di nuovo, e la risposta lo dice.
+    */
+    if (result.duplicate) {
+      return NextResponse.json({ data: result, error: null }, { status: 200 });
+    }
 
     await recordAuditEvent({
       /*

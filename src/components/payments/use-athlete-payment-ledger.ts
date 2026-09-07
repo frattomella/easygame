@@ -370,6 +370,23 @@ export function useAthletePaymentLedger({
           */
           operation_type_code: submission.operationTypeCode,
           financial_account_id: submission.financialAccountId,
+          /*
+            **La chiave che distingue lo stesso clic due volte** (`AUD-F1`).
+
+            Il blocco di riga sulla rata chiudeva il sovraincasso e non la
+            duplicazione dentro la capienza: rata da 130, si registrano 50, il
+            clic parte due volte per rete lenta, e in archivio restano due
+            righe da 50 — cento euro accreditati per un versamento da
+            cinquanta, e nessuna delle due righe distinguibile da un incasso
+            vero.
+
+            La chiave la conia **qui** perche solo qui si sa che e lo stesso
+            gesto: due versamenti in contanti da 50 lo stesso giorno esistono,
+            e riconoscerli confrontando i campi li rifiuterebbe. Nasce a ogni
+            invio, non a ogni tentativo: se la rete cade e l'utente ripreme, e
+            ancora quel gesto.
+          */
+          idempotency_key: submission.idempotencyKey,
         },
       });
       setIsSaving(false);

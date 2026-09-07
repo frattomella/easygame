@@ -40,6 +40,7 @@ import {
 import {
   formatCategoryBirthYears,
   normalizeCategoryBirthYears,
+  readCategorySortOrder,
 } from "@/lib/category-utils";
 import { readCategoryCompatibilityList } from "@/lib/category-compatibility";
 import { sortByName } from "@/lib/sorting";
@@ -93,6 +94,17 @@ interface Category {
   trainersCount: number;
   trainingsPerWeek: number;
   color: string;
+  /**
+   * Il posto scelto dal club (D-INT-9), quando c'e.
+   *
+   * Mancava, e questo modello di vista e un oggetto **chiuso**: il valore
+   * letto dal database si fermava qui, e `ordineDelClub` — che lo legge —
+   * trovava sempre `undefined`. Lo stato ottimistico dopo una freccia faceva
+   * sembrare che l'ordine tenesse; al ricaricamento successivo l'elenco
+   * tornava all'ordine di creazione, e la pagina che **scrive** l'ordine era
+   * l'unica a non saperlo rileggere.
+   */
+  sortOrder: number | null;
   /**
    * Categorie in cui gli atleti di questa categoria possono essere utilizzati.
    * Configurazione esplicita, vedi `@/lib/category-compatibility`.
@@ -440,6 +452,7 @@ const buildCategoryViewModel = (
     ),
     color: rawCategory.color || "bg-blue-500 text-white",
     compatibleCategoryIds: readCategoryCompatibilityList(rawCategory),
+    sortOrder: readCategorySortOrder(rawCategory),
   };
 };
 
@@ -1071,15 +1084,19 @@ const buildDialogAthletesForCategory = (category: Category) =>
     elenco
       .map((category, indice) => ({ category, indice }))
       .sort((sinistra, destra) => {
-        const postoSinistra = Number(
-          sinistra.category?.sortOrder ?? sinistra.category?.sort_order,
-        );
-        const postoDestra = Number(
-          destra.category?.sortOrder ?? destra.category?.sort_order,
-        );
+        /*
+          Il posto lo legge la primitiva del dominio, non due grafie scritte
+          qui: le grafie sono quattro — la colonna del club, il `payload`
+          della riga di risorsa, e le due forme di ognuna — e questo lettore
+          ne guardava due. Un secondo lettore dello stesso valore e il modo
+          in cui due schermate finiscono per ordinare in modo diverso lo
+          stesso elenco.
+        */
+        const postoSinistra = readCategorySortOrder(sinistra.category);
+        const postoDestra = readCategorySortOrder(destra.category);
 
-        const a = Number.isFinite(postoSinistra) ? postoSinistra : Number.MAX_SAFE_INTEGER;
-        const b = Number.isFinite(postoDestra) ? postoDestra : Number.MAX_SAFE_INTEGER;
+        const a = postoSinistra ?? Number.MAX_SAFE_INTEGER;
+        const b = postoDestra ?? Number.MAX_SAFE_INTEGER;
 
         if (a !== b) return a - b;
         return sinistra.indice - destra.indice;

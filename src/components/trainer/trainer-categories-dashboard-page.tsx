@@ -42,6 +42,14 @@ export default function TrainerCategoriesDashboardPage() {
   const {
     assignedAthletes,
     assignedCategories,
+    /*
+      Il **catalogo** del club. Serve all'eleggibilita: senza, due «Under 15»
+      di due sedi si confrontano per etichetta e diventano una squadra sola,
+      e le due schede di questa pagina mostrano lo stesso organico, gli stessi
+      allenamenti e le stesse gare (ADR-0155, `D-AUD-27`). Era gia nel
+      contesto, non veniva chiesto.
+    */
+    categories,
     permissions,
     trainerProfile,
     visibleMatches,
@@ -116,18 +124,20 @@ export default function TrainerCategoriesDashboardPage() {
         <div className="grid gap-6 xl:grid-cols-2">
           {assignedCategories.map((category: any) => {
             const athletes = assignedAthletes.filter((athlete: any) =>
-              athleteMatchesCategory(athlete, category),
+              athleteMatchesCategory(athlete, category, categories),
             );
             const trainings = visibleTrainings.filter((training: any) =>
               athleteMatchesCategory(
                 { category_id: training?.categoryId, category: training?.category },
                 category,
+                categories,
               ),
             );
             const matches = visibleMatches.filter((match: any) =>
               athleteMatchesCategory(
                 { category_id: match?.categoryId, category: match?.category },
                 category,
+                categories,
               ),
             );
 

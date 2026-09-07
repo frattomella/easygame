@@ -116,9 +116,19 @@ const normalizeTrainingSession = (
       : categoryReferences.length > 0
         ? categoryReferences
         : [getTrainingCategoryLabel(training, options?.categories || [])];
+  /*
+    Il catalogo e in `options.categories`, ed e gia usato due righe sopra per
+    ricavare l'etichetta: senza, due «Under 15» di due sedi si fondono e il
+    riquadro annuncia un organico che non e quello che scendera in campo
+    (ADR-0155, `D-AUD-27`).
+  */
   const categoryAthleteCount = Array.isArray(options?.athletes)
     ? options.athletes.filter((athlete) =>
-        athleteMatchesAnyCategory(athlete, categoryCandidates),
+        athleteMatchesAnyCategory(
+          athlete,
+          categoryCandidates,
+          options?.categories || [],
+        ),
       ).length
     : 0;
 

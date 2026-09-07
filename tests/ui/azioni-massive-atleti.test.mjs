@@ -87,10 +87,40 @@ test("«tutti» chiede l’insieme filtrato intero, non la pagina", () => {
   const inizio = testo.indexOf("const risolviBersagliMassivi");
   const corpo = testo.slice(inizio, testo.indexOf("};", inizio));
 
+  /*
+    **E non passa da `collectAthletesForExport`**, che risponde a un'altra
+    domanda.
+
+    Quella funzione serve l'export, e la sua prima riga e «se c'e una
+    selezione, sono quelli» — giusto per un foglio, sbagliato qui: con una
+    sola casella spuntata, «Azioni su tutti» toccava quella sola mentre la
+    conferma diceva «tutti gli atleti registrati». Il menu resta attivo a
+    prescindere dalla selezione, quindi non e un caso limite: e il gesto di
+    chi ha spuntato una riga, ha cambiato idea e ha aperto l'altro menu.
+
+    La paginazione resta scritta una volta sola — `collectFilteredAthletes` —
+    e le due domande la riusano ognuna a modo suo.
+  */
   assert.match(
     corpo,
+    /collectFilteredAthletes\(\)/,
+    "«tutti» e tutto l'insieme filtrato, e la selezione non lo restringe",
+  );
+  assert.doesNotMatch(
+    corpo,
     /collectAthletesForExport\(\)/,
-    "si riusa la paginazione gia scritta per l’export, invece di scriverne una seconda",
+    "la funzione dell'export degrada «tutti» nella selezione",
+  );
+
+  assert.match(
+    testo,
+    /const collectFilteredAthletes = async \(\): Promise<Athlete\[\]> => \{[\s\S]{0,400}getClubAthletesPage\(/,
+    "la paginazione vive in un punto solo, e sta li",
+  );
+  assert.match(
+    testo,
+    /const collectAthletesForExport = async \(\): Promise<Athlete\[\]> => \{[\s\S]{0,300}return collectFilteredAthletes\(\);/,
+    "l'export resta quello che era: la selezione, oppure tutto l'insieme filtrato",
   );
 });
 

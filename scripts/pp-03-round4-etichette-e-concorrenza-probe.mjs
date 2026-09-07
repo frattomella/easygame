@@ -425,20 +425,34 @@ const attaccoConcorrenza = async () => {
   });
   info("B-01b · riga dopo le due scritture", riga);
 
-  /* B-02 — appello e convocazione simultanei sullo stesso evento. */
+  /*
+    B-02 — appello e convocazione simultanei sullo stesso evento.
+
+    **La rotta era sbagliata, e la sonda si fermava qui.** Chiamava
+    `POST /api/v1/events/<id>`, che non ha nessun handler: gli atti sui
+    partecipanti stanno su `/events/<id>/participants`, e le voci sono
+    `athleteId` / `status`, non `athlete_id` / `athlete_ids`. La sonda moriva
+    con `NESSUN-HANDLER` prima di misurare qualunque cosa, e restava rossa
+    per un difetto **suo**: e il reperto che l'audit finale ha riclassificato
+    da difetto di prodotto a difetto di sonda. Round 5 era stato scritto
+    apposta per eseguire cio che questa sezione impostava e non eseguiva.
+  */
   const [appello, convocazione] = await Promise.all([
-    inviaCome(bruno, `/api/v1/events/${EVT}`, {
+    inviaCome(bruno, `/api/v1/events/${EVT}/participants`, {
       method: "POST",
       body: JSON.stringify({
         action: "attendance",
-        entries: [{ athlete_id: ATLETA_A, status: "present" }],
+        entries: [{ athleteId: ATLETA_A, status: "present" }],
       }),
     }),
-    inviaCome(bruno, `/api/v1/events/${EVT}`, {
+    inviaCome(bruno, `/api/v1/events/${EVT}/participants`, {
       method: "POST",
       body: JSON.stringify({
         action: "convoke",
-        athlete_ids: [ATLETA_A, ATLETA_B],
+        entries: [
+          { athleteId: ATLETA_A, status: "convocated" },
+          { athleteId: ATLETA_B, status: "convocated" },
+        ],
       }),
     }),
   ]);
@@ -448,7 +462,7 @@ const attaccoConcorrenza = async () => {
   });
   const partecipanti = await prisma.clubEventParticipant.findMany({
     where: { event_id: EVT },
-    select: { athlete_id: true, attendance_status: true, convocation_status: true, rsvp_status: true },
+    select: { athlete_id: true, status: true, convocation_status: true, rsvp_status: true },
   });
   info("B-02b · righe di partecipazione", partecipanti);
 

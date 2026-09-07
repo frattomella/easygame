@@ -9586,3 +9586,98 @@ peggio di una assente (ADR-0147).
 **Vedi anche.** ADR-0098 (la proiezione ha uno scrittore solo), ADR-0150
 («interno» dice da quale rotta, non con quale autorita), ADR-0147,
 `docs/knowledge-base/14-security.md` §D-AUD-1.
+
+---
+
+## ADR-0157 — Su un evento non operativo l'unico atto e la riapertura, e la guardia decide dentro la transazione
+
+**Data:** 2026-09-07
+**Stato:** accettata
+**Contesto:** revisione ostile finale pre-deploy (`AUD-F2`, `AUD-F10`,
+`AUD-F11`)
+
+### Il problema, in tre forme della stessa domanda
+
+`assertEventoAperto` esisteva gia e diceva la cosa giusta: «un evento annullato
+o archiviato non riceve piu atti». La revisione ostile finale ha trovato che
+quella frase era vera in tre punti su cinque, e per tre ragioni diverse.
+
+**Prima forma — la guardia decideva fuori dalla transazione.**
+`saveEventAttendance` e `saveEventConvocations` leggevano l'evento, verificavano
+lo stato, e **poi** aprivano la transazione che scrive. Fra le due cose passano
+un permesso, due perimetri e due letture di atleti: una finestra in cui un
+`PATCH {"status":"cancelled"}` fa comodamente in tempo a committare. Misurato
+contro PostgreSQL: appello **200** e annullamento **200**, stato finale
+`cancelled`, e in archivio una riga `present`. La presenza e la misura dei
+contributi pubblici.
+
+**Seconda forma — `updateClubEvent` non poteva chiamarla, e non chiamava niente
+al suo posto.** La strada che **riapre** un evento annullato passa proprio di
+li: applicarle `assertEventoAperto` avrebbe reso l'annullamento irreversibile,
+che e il difetto `D-AUD-20` appena richiuso. Ma «non si puo negare tutto» era
+diventato «si puo tutto»: con lo stesso stato in entrata e in uscita
+`canTransitionEvent` risponde sempre di si, e un evento annullato si spostava di
+data, di campo e di squadra, con la riga **riproiettata** in `clubs.trainings`.
+
+**Terza forma — il terzo scrittore aveva una regola sua.** `canAnswerRsvp`
+negava `cancelled` e non `archived`, mentre `assertEventoAperto` li nega
+entrambi. `archived` e terminale — `TRANSITIONS` non gli lascia destinazioni —
+quindi una famiglia poteva scrivere una risposta su un evento che nessuno puo
+piu riaprire, ne annullare, ne su cui fare l'appello.
+
+### La decisione
+
+**Uno.** Lo stato di un evento si giudica **dentro** la transazione che scrive,
+su una rilettura sotto blocco di riga (`SELECT … FOR UPDATE`). Il ripiego per
+i doppi di prova, che SQL grezzo non lo eseguono, rilegge comunque lo stato
+dalla transazione.
+
+**Due.** Su un evento `cancelled` o `archived` l'unico atto ammesso e il
+**cambio di stato**, cioe la riapertura. I campi che una storia congela — istante,
+fine, sede, struttura, campo, categorie, gruppi, capienza, richiesta di conferma
+e termine — non si cambiano finche l'evento non torna in programma. Titolo, note
+e allenatori restano correggibili: annullare per maltempo e scrivere il motivo
+sono lo stesso gesto.
+
+**Tre.** La stessa regola di stato vale per tutti e tre gli scrittori delle tre
+colonne di `club_event_participants`. Un evento archiviato non riceve una
+risposta della famiglia come non riceve una presenza.
+
+### Perche l'invariante non e «l'annullamento vince la corsa»
+
+Con il blocco di riga restano **due** ordini possibili, ed entrambi sono
+coerenti: l'annullamento arriva prima e l'appello viene rifiutato; oppure
+l'appello arriva prima, e l'evento **era aperto** quando e stato registrato.
+
+Il secondo non e un difetto residuo: e la storia vera, ed e quella che ADR-0098
+vuole conservare — «un evento con una storia si annulla, non si cancella», e
+annullarlo non riscrive cio che e successo prima. Un allenatore che ha fatto
+l'appello alle 18:59 e un presidente che annulla alle 19:00 hanno fatto due cose
+entrambe vere.
+
+Cio che non deve essere possibile e la **terza**: scrivere su un evento gia
+annullato. E si misura sequenzialmente, dove non c'e nessun ordine da
+indovinare.
+
+La meta che rende la corsa innocua sta altrove, ed e la ragione per cui
+`D-INT-13b` e `D-AUD-10` andavano decise insieme: una presenza rimasta su un
+evento annullato non deve alimentare **nessuna** misura. `attendance-measure.ts`
+gia escludeva gli annullati; questa passata ha completato i due report che non
+lo facevano. Chiudere solo la scrittura avrebbe spostato il difetto dalla porta
+al conteggio.
+
+### Conseguenze
+
+- Chi vuole spostare un allenamento annullato lo riporta prima in programma. E
+  un clic in piu, e lascia in calendario il segno che l'orario di quella squadra
+  e cambiato — che senza la riapertura non ci sarebbe.
+- Un evento `archived` diventa pienamente immutabile, che e cio che quello stato
+  dichiara di essere.
+- Il confronto fra «com'e» e «come diventerebbe» si fa su due forme **normalizzate
+  allo stesso modo**: confrontare il grezzo con il normalizzato fa dire «hai
+  cambiato le categorie» a chi ha corretto il titolo.
+
+Sonde e prove: `tests/server/evento-annullato-in-corsa.test.mjs` (12,
+verificato per mutazione), `scripts/audit-finale-scritture-probe.mjs` (11/11),
+`scripts/pp-03-round5-concorrenza-e-grafie-probe.mjs` (8/8),
+`scripts/audit-finale-concorrenza-probe.mjs` (7/7).

@@ -8,6 +8,7 @@ import { getConvocatedAthleteIdsFromMatch } from "@/lib/match-certificate-warnin
 import { isCancelledEvent } from "@/lib/events/model";
 import { isPaymentExcludedFromTotals } from "@/lib/payments/payment-status-utils";
 import { recordMatchesCategory } from "@/lib/trainer-dashboard-helpers";
+import { attachParticipationToEvents } from "@/lib/trainer-operational-alerts";
 import type { NormalizedClubMovement } from "@/lib/club-financial-summary";
 
 export type ReportPeriodKey = "all" | "last30" | "last90";
@@ -40,6 +41,17 @@ export type MatchConvocationReport = {
   totalConvocations: number;
   uniqueAthletesConvocated: number;
   convocationCompletionRate: number;
+  /**
+   * **Chi**, non solo quanti (`D-AUD-9`).
+   *
+   * Il rendiconto che esce verso un ente vuole gli identificativi degli atleti
+   * convocati: una somma non dice se lo stesso ragazzo e stato convocato dieci
+   * volte o se dieci ragazzi lo sono stati una volta ciascuno, e quella
+   * differenza e esattamente cio che un contributo per la partecipazione
+   * misura. Sono distinti e in ordine, perche due letture dello stesso periodo
+   * devono produrre lo stesso elenco.
+   */
+  convocatedAthleteIds: string[];
 };
 
 export type PaymentReport = {
@@ -325,16 +337,26 @@ export const calculateCategoryReport = ({
         ),
     );
 
+  /*
+    **L'intestazione conta cio che contano le righe.**
+
+    `calculateCategoryAthleteStats` toglie gli annullati da entrambi gli elenchi
+    prima di calcolare i tassi (e lo fa dalla correzione di P0-3); questi due
+    totali no. Sulla stessa scheda, sullo stesso periodo, l'intestazione diceva
+    «20 allenamenti» e la colonna «Presenze» di ogni riga li calcolava su 15:
+    due numeri che si contraddicono a due centimetri di distanza, e nessuno dei
+    due sbagliato abbastanza da sembrarlo.
+  */
   const filteredTrainings = filterByCategory(
     periodTrainings,
     selectedCategory,
     categories,
-  );
+  ).filter((training: any) => !isCancelledEvent(training));
   const filteredMatches = filterByCategory(
     periodMatches,
     selectedCategory,
     categories,
-  );
+  ).filter((match: any) => !isCancelledEvent(match));
 
   return {
     rows,
@@ -434,22 +456,53 @@ export const calculateAttendanceReport = ({
   };
 };
 
+/**
+ * **Il rendiconto delle convocazioni legge la colonna, non il payload**
+ * (`D-AUD-9`).
+ *
+ * `getConvocatedAthleteIdsFromMatch` cerca quattordici grafie dentro la gara —
+ * `convocatedAthletes`, `calledAthletes`, `selectedAthleteIds`… — e dopo
+ * ADR-0099 **nessuna di quelle la scrive piu nessuno**: la rosa e
+ * `club_event_participants.convocation_status`, e il suo scrittore e
+ * `saveEventConvocations`. Il numero che ne usciva non era approssimato: era
+ * **zero**, su ogni gara, per sempre.
+ *
+ * Misurato da `scripts/audit-finale-report-canonici-probe.mjs`: si convoca un
+ * atleta dalla rotta canonica, si rilegge cio che la pagina `/reports` rilegge,
+ * e il rendiconto dice «0 convocazioni, 1 gara senza rosa» sulla gara appena
+ * completata. P0-6 aveva corretto le **due schermate operative**; il rendiconto
+ * — che e la superficie da cui il numero esce verso un ente — no.
+ *
+ * Le righe arrivano da `training_attendance`, che e la stessa tabella e che la
+ * pagina carica gia per le presenze: la proiezione e quella della bacheca
+ * dell'allenatore, cosi le due superfici non possono divergere.
+ *
+ * **Le gare annullate escono dal conto**, come gli allenamenti annullati ne
+ * erano gia usciti: una gara che non si e giocata non ha avuto una rosa, e
+ * contarla fra quelle «senza convocazioni» faceva scendere il tasso di
+ * completamento per eventi che non ci sono stati.
+ */
 export const calculateMatchConvocationReport = ({
   matches,
+  attendanceRecords = [],
   categories,
   selectedCategoryId,
   period,
 }: {
   matches: any[];
+  attendanceRecords?: any[];
   categories: NormalizedCategoryOption[];
   selectedCategoryId: string;
   period: ReportPeriodKey;
 }): MatchConvocationReport => {
   const selectedCategory = getSelectedCategory(categories, selectedCategoryId);
-  const filteredMatches = filterByCategory(
-    filterByPeriod(matches, period),
-    selectedCategory,
-    categories,
+  const filteredMatches = attachParticipationToEvents(
+    filterByCategory(
+      filterByPeriod(matches, period),
+      selectedCategory,
+      categories,
+    ).filter((match: any) => !isCancelledEvent(match)),
+    attendanceRecords,
   );
   const uniqueAthleteIds = new Set<string>();
   let matchesWithConvocations = 0;
@@ -474,6 +527,7 @@ export const calculateMatchConvocationReport = ({
     ),
     totalConvocations,
     uniqueAthletesConvocated: uniqueAthleteIds.size,
+    convocatedAthleteIds: Array.from(uniqueAthleteIds).sort(),
     convocationCompletionRate: filteredMatches.length
       ? Math.round((matchesWithConvocations / filteredMatches.length) * 100)
       : 0,

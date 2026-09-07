@@ -736,6 +736,59 @@ export const eventWithinTrainerPerimeter = (
  * stessa ragione, perche un atto fuori perimetro e un atto su persone che
  * non sono nel proprio.
  */
+/**
+ * **Questo evento sta nel perimetro di sede e categoria di chi guarda?**
+ *
+ * Predicato **puro**: nessuna lettura, nessuna scrittura di audit. Esiste
+ * perche la stessa domanda ha due chiamanti con due bisogni diversi — uno
+ * rifiuta la chiamata, l'altro **filtra** un elenco — e riscriverla per il
+ * secondo sarebbe la seconda risposta alla stessa domanda, che e la forma di
+ * difetto che questo file ha gia pagato piu volte.
+ *
+ * **Non e esportata**, e la ragione e il presidio `W6-22`: una funzione
+ * esportata che accetta uno `scope` deve interrogare il perimetro
+ * dell'allenatore, perche il prossimo chiamante non sapra farlo da se. Questa
+ * risponde sull'**altro** recinto e non e una porta del dominio: i suoi due
+ * chiamanti stanno in questo file, e il perimetro dell'allenatore lo chiedono
+ * loro.
+ */
+const eventWithinAccessScope = (
+  scope: EventsScope,
+  candidato: Record<string, any>,
+  modo: TrainerPerimeterMode = "lettura",
+) => {
+  const perimetro = normalizeAccessScopes(
+    (scope as { accessScopes?: readonly AccessScopeEntry[] | null })
+      .accessScopes,
+  );
+  if (!perimetro.length) return true;
+
+  const sede = candidato?.siteId ?? candidato?.site_id ?? null;
+  const elencate = Array.isArray(candidato?.category_ids)
+    ? (candidato.category_ids as unknown[])
+    : Array.isArray(candidato?.categoryIds)
+      ? (candidato.categoryIds as unknown[])
+      : [];
+  const categorie = [
+    candidato?.categoryId ?? candidato?.category_id ?? null,
+    ...elencate,
+  ].filter((valore) => asText(valore));
+
+  if (!categorie.length) {
+    return accessScopeAllows(perimetro, { siteId: sede, categoryId: null });
+  }
+
+  const dentro = (categoria: unknown) =>
+    accessScopeAllows(perimetro, {
+      siteId: sede,
+      categoryId: asText(categoria),
+    });
+
+  return modo === "scrittura"
+    ? categorie.every(dentro)
+    : categorie.some(dentro);
+};
+
 const assertAccessScopeOnEvent = async (
   scope: EventsScope,
   /*
@@ -749,60 +802,9 @@ const assertAccessScopeOnEvent = async (
   permesso: string,
   modo: TrainerPerimeterMode = "lettura",
 ) => {
-  const perimetro = normalizeAccessScopes(
-    (scope as { accessScopes?: readonly AccessScopeEntry[] | null })
-      .accessScopes,
+  const fuori = candidati.filter(
+    (candidato) => !eventWithinAccessScope(scope, candidato, modo),
   );
-  if (!perimetro.length) return;
-
-  /*
-    **Un evento multi-categoria si giudica su tutte le sue categorie**
-    (PP-01 §A), e basta che **una** stia nel perimetro.
-
-    E la stessa regola con cui l'elenco lo mostra — `hasSome` — e le due devono
-    coincidere: un evento che compare nel calendario e su cui poi ogni atto
-    viene rifiutato e la divergenza fra cio che si vede e cio che si puo, che in
-    questo repository e gia stata un difetto piu volte.
-
-    Il perimetro sugli **atleti** resta separato e piu stretto:
-    `assertAtletiDentroIlPerimetro` giudica ogni persona convocata, quindi
-    ammettere l'evento non ammette le persone fuori perimetro che ci stanno
-    dentro.
-  */
-  const dentroIlPerimetro = (candidato: Record<string, any>) => {
-    const sede = candidato?.siteId ?? candidato?.site_id ?? null;
-    const elencate = Array.isArray(candidato?.category_ids)
-      ? (candidato.category_ids as unknown[])
-      : Array.isArray(candidato?.categoryIds)
-        ? (candidato.categoryIds as unknown[])
-        : [];
-    const categorie = [
-      candidato?.categoryId ?? candidato?.category_id ?? null,
-      ...elencate,
-    ].filter((valore) => asText(valore));
-
-    if (!categorie.length) {
-      return accessScopeAllows(perimetro, { siteId: sede, categoryId: null });
-    }
-
-    /*
-      **In scrittura vale la stessa distinzione dell'altro recinto** (PP-03 §7):
-      cambiare o cancellare un evento condiviso lo toglie anche a chi lo
-      condivide, quindi lo fa chi lo vede per intero. In lettura basta una
-      categoria, ed e la regola con cui l'elenco lo mostra.
-    */
-    const dentro = (categoria: unknown) =>
-      accessScopeAllows(perimetro, {
-        siteId: sede,
-        categoryId: asText(categoria),
-      });
-
-    return modo === "scrittura"
-      ? categorie.every(dentro)
-      : categorie.some(dentro);
-  };
-
-  const fuori = candidati.filter((candidato) => !dentroIlPerimetro(candidato));
   if (!fuori.length) return;
 
   await recordPermissionDenied({
@@ -1297,6 +1299,141 @@ const assertEventoAperto = (
   );
 };
 
+/**
+ * **La guardia decide dentro la transazione che scrive** (`D-INT-13b`).
+ *
+ * `assertEventoAperto` esisteva e veniva chiamata — ma su una riga letta
+ * **prima** e **fuori** dalla transazione, senza nessun blocco. Fra la lettura
+ * che dice «l'evento e aperto» e l'`upsert` che scrive la presenza passano un
+ * permesso, due perimetri e due letture di atleti: e una finestra larga, e in
+ * quella finestra un `PATCH {"status":"cancelled"}` fa in tempo a **committare**.
+ *
+ * Misurato da `pp-03-round5-concorrenza-e-grafie-probe` (`B-03`): appello e
+ * annullamento nello stesso istante rispondono **200 tutti e due**, e in
+ * archivio resta `present` su un evento che al momento della scrittura era gia
+ * annullato. Una guardia che si puo scavalcare aspettando il momento giusto e
+ * un commento, non una guardia.
+ *
+ * Il blocco sulla riga dell'evento mette le due scritture **in fila**. Da qui
+ * in poi ci sono solo due ordini possibili, e sono entrambi coerenti:
+ * l'annullamento arriva prima e l'appello viene **rifiutato**; oppure l'appello
+ * arriva prima, e l'evento era aperto quando e stato registrato — che e la
+ * storia vera, ed e quella che ADR-0098 vuole conservare («un evento con una
+ * storia si annulla, non si cancella»). Cio che non e piu possibile e la terza:
+ * scrivere su un evento gia annullato.
+ *
+ * Il ripiego serve al doppio di Prisma dei test unitari, che SQL grezzo non lo
+ * esegue: li non c'e concorrenza da ordinare, e lo stato lo si rilegge
+ * comunque dalla transazione. Passa in silenzio solo cio che dice «qui SQL
+ * grezzo non c'e»; tutto il resto risale con il suo codice.
+ */
+const rileggiEventoBloccato = async (tx: any, eventId: string) => {
+  if (!eventId) return null;
+
+  try {
+    const righe = await tx.$queryRawUnsafe(
+      `SELECT "id", "status" FROM "club_events" WHERE "id" = $1::uuid FOR UPDATE`,
+      eventId,
+    );
+    if (Array.isArray(righe) && righe.length) return righe[0];
+    return null;
+  } catch (errore) {
+    const messaggio = String((errore as any)?.message || errore);
+    const nonSupportato =
+      typeof tx?.$queryRawUnsafe !== "function" ||
+      /is not a function|not implemented|non supportat/i.test(messaggio);
+
+    if (!nonSupportato) throw errore;
+  }
+
+  /*
+    Il ripiego **non** inghiotte: se anche la rilettura ordinaria non riesce,
+    l'errore risale. Una guardia di concorrenza che in caso di dubbio lascia
+    passare non protegge il caso per cui esiste, ed e il verso opposto a quello
+    che il resto di questo file tiene — `readTrainerEventPerimeter` risponde
+    `null` e il chiamante lo legge come «nessun evento», cioe fallisce chiuso.
+  */
+  return tx.clubEvent.findUnique({
+    where: { id: eventId },
+    select: { id: true, status: true },
+  });
+};
+
+const assertEventoApertoNellaTransazione = async (
+  tx: any,
+  eventId: string,
+  atto: string,
+) => {
+  /*
+    **Nessuna riga non e «nessun problema».** La prima stesura usciva in
+    silenzio quando la rilettura non trovava niente — e quando `eventId` era
+    vuoto — quindi la guardia non veniva eseguita affatto e la scrittura
+    proseguiva. Se qui non c'e una riga, non c'e nemmeno l'evento su cui si sta
+    scrivendo.
+  */
+  const riga = await rileggiEventoBloccato(tx, eventId);
+  if (!riga) throw new Error("Evento non trovato");
+
+  assertEventoAperto(riga, atto);
+};
+
+/**
+ * **Su un evento non operativo l'unico atto e riaprirlo.**
+ *
+ * `assertEventoAperto` chiude convocazioni e appello su un evento annullato o
+ * archiviato, e `updateClubEvent` non la puo chiamare: la strada che **riapre**
+ * un evento annullato passa proprio di li, e chiuderla lascerebbe l'annullato
+ * senza ritorno — che e il difetto `D-AUD-20`, appena richiuso.
+ *
+ * Ma «non si puo negare tutto» non vuol dire «si puo tutto». Con lo stesso
+ * stato in entrata e in uscita, `canTransitionEvent` risponde sempre di si
+ * (`source === target`) e `assertEventoNonConsolidato` esce subito quando
+ * l'evento non ha righe di partecipazione: misurato da
+ * `scripts/audit-finale-scritture-probe.mjs` (`B-01`), un
+ * `PATCH {"status":"cancelled","date":"2027-01-20"}` su un evento gia
+ * annullato risponde **200**, sposta data, campo e squadra, e la riga viene
+ * **riproiettata** in `clubs.trainings` — dove gli annullati restano.
+ *
+ * La regola e quella che il resto del dominio applica gia: un evento
+ * annullato prima si riapre e poi si sposta. La differenza non e formale — chi
+ * lo sposta da annullato non lascia in calendario nessun segno che l'orario di
+ * quella squadra sia cambiato, perche la riga non e in programma.
+ *
+ * `archived` non ha destinazioni in `TRANSITIONS`, quindi qui diventa
+ * pienamente immutabile: che e cio che quello stato dichiara di essere.
+ */
+const assertSoloRiapertura = (
+  statoEsistente: unknown,
+  /**
+   * La riga com'e, gia passata da `toEventColumns` — non la riga grezza.
+   *
+   * Confrontare il grezzo con il normalizzato fa dire «hai cambiato le
+   * categorie» a chi ha corretto il **titolo**: la normalizzazione da sola
+   * riempie `category_ids` e `rsvp_required`, e quella differenza e sua, non di
+   * chi ha scritto. Si confrontano quindi due forme costruite allo stesso modo,
+   * e cio che resta diverso lo ha chiesto la richiesta.
+   */
+  base: Record<string, any>,
+  prossimo: Record<string, any>,
+) => {
+  const stato = normalizeEventStatus(statoEsistente);
+  if (stato !== "cancelled" && stato !== "archived") return;
+
+  /* Cambiare stato **e** l'atto ammesso: e la riapertura. */
+  if (normalizeEventStatus(prossimo?.status) !== stato) return;
+
+  const toccati = campiCongelatiToccati(base, prossimo);
+  if (!toccati.length) return;
+
+  throw new Error(
+    `Questo evento e ${stato === "cancelled" ? "annullato" : "archiviato"}: ` +
+      `non se ne cambia ${toccati.join(", ")}. ` +
+      (stato === "cancelled"
+        ? "riportalo in programma, e poi spostalo."
+        : "un evento archiviato non si modifica."),
+  );
+};
+
 const assertEventoNonConsolidato = (
   esistente: Record<string, any>,
   prossimo: Record<string, any>,
@@ -1519,6 +1656,14 @@ export const updateClubEvent = async (
 
   const colonne = toEventColumns(existing.kind as EventKind, merged);
   assertEventTransition(existing.status, colonne.status);
+  assertSoloRiapertura(
+    existing.status,
+    toEventColumns(existing.kind as EventKind, {
+      ...toEventLegacyShape(existing),
+      id: existing.legacy_id ?? existing.id,
+    }),
+    colonne,
+  );
 
   const partecipanti = await prisma.clubEventParticipant.count({
     where: { organization_id: organizationId, event_id: existing.id },
@@ -1694,6 +1839,96 @@ export type ConvocationInput = {
  * un atleta non attivo resta un atleta di questo club. Qui si chiede una cosa
  * sola, ed e la piu grossa: **e di questo club?**
  */
+/**
+ * **Cio che non ha la forma di un identificativo non e un atleta di questo
+ * club** (`A-05b`, classe `W4-R14`).
+ *
+ * `athletes.id` e un `uuid` in colonna: chiedere `WHERE id IN ('non-e-un-uuid')`
+ * non risponde «nessuno», **fallisce** — e l'errore che risale porta con se il
+ * testo interno di Prisma, cioe il nome del modello, l'invocazione e il codice
+ * PostgreSQL, fino al browser di chiunque abbia una tessera nel club.
+ *
+ * Misurato da `scripts/pp-03-eventi-scope-ruoli-probe.mjs`: convocare
+ * `{"athleteId":"non-e-un-uuid"}` restituiva l'intero
+ * ``Invalid `prisma.athlete.findMany()` invocation``.
+ *
+ * La risposta giusta non e nascondere l'errore: e **non farlo nascere**. Un
+ * valore che non ha la forma di un identificativo non appartiene a questo club
+ * — e la stessa cosa che la guardia dice di un atleta di un'altra societa — e
+ * quindi finisce fra i rifiutati senza mai toccare il database, con lo stesso
+ * 403 e la stessa riga di audit.
+ */
+/**
+ * Gli atleti del club, fra quelli richiesti.
+ *
+ * **Il modo in cui questa lettura puo fallire fa parte della risposta.**
+ * `athletes.id` e un `uuid` in colonna: PostgreSQL non converte
+ * `'non-e-un-uuid'`, quindi la query non risponde «nessuno» — **fallisce**, con
+ * `P2023`. Non sapere convertire un valore non e un guasto del server: e la
+ * prova che quel valore non e l'identificativo di nessuno, e in particolare di
+ * nessun atleta di questo club — che e esattamente cio che la guardia deve
+ * dire.
+ *
+ * **Non si distingue con una parola nel messaggio, e nemmeno con un codice.**
+ * Prisma classifica lo stesso rifiuto di conversione in due modi a seconda
+ * della forma della richiesta — `P2023` da una parte, un errore **non
+ * mappato** e senza codice dall'altra — e leggere il testo di un errore per
+ * decidere e la stessa euristica che questo repository ha gia pagato altrove.
+ *
+ * Si chiede invece **al database**: rieseguita la stessa lettura con un elenco
+ * vuoto, se risponde allora l'archivio c'e e a non andare bene erano i valori;
+ * se non risponde, l'errore originale risale con tutto quello che porta. Una
+ * tabella irraggiungibile deve restare un guasto, non diventare un elegante
+ * «accesso negato» che nasconde un'indisponibilita.
+ */
+const atletiEsistentiDelClub = async (
+  organizationId: string,
+  richiesti: readonly string[],
+): Promise<Set<string>> => {
+  try {
+    const esistenti = await prisma.athlete.findMany({
+      where: { organization_id: organizationId, id: { in: [...richiesti] } },
+      select: { id: true },
+    });
+    return new Set(esistenti.map((riga) => riga.id));
+  } catch (errore: any) {
+    /*
+      **Si riprova con i soli valori che possono stare in colonna.**
+
+      La prima stesura riprovava con un elenco **vuoto**, e sbagliava due volte.
+      Un elenco vuoto non riproduce il modo di fallire: un timeout del pool o
+      uno statement timeout su un `IN` lungo lasciano passare la sonda, e
+      l'errore diventava un elegante «accesso negato» — esattamente cio che il
+      commento dichiarava di voler evitare. E restituendo l'insieme vuoto, **un**
+      identificativo malformato faceva risultare estranei anche i diciannove
+      buoni, con una riga di audit che dichiarava venti atleti fuori dal club
+      quando erano zero: un registro di sicurezza che afferma un fatto falso.
+
+      Riprovare con il **sottoinsieme ben formato** risponde a tutte e due. Se
+      quella lettura riesce, l'archivio c'e e a non andare bene erano i valori
+      scartati — che finiscono fra i rifiutati, uno per uno e nessuno di piu.
+      Se fallisce anche lei, non era una questione di valori: l'errore
+      originale risale intero, con tutto quello che porta.
+    */
+    const benFormati = [...richiesti].filter((id) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id),
+    );
+
+    if (benFormati.length === richiesti.length) throw errore;
+
+    const esistenti = await prisma.athlete
+      .findMany({
+        where: { organization_id: organizationId, id: { in: benFormati } },
+        select: { id: true },
+      })
+      .catch(() => {
+        throw errore;
+      });
+
+    return new Set(esistenti.map((riga) => riga.id));
+  }
+};
+
 const assertAtletiDelClub = async (
   scope: EventsScope,
   organizationId: string,
@@ -1705,11 +1940,7 @@ const assertAtletiDelClub = async (
   );
   if (!richiesti.length) return;
 
-  const esistenti = await prisma.athlete.findMany({
-    where: { organization_id: organizationId, id: { in: richiesti } },
-    select: { id: true },
-  });
-  const ammessi = new Set(esistenti.map((riga) => riga.id));
+  const ammessi = await atletiEsistentiDelClub(organizationId, richiesti);
   const fuori = richiesti.filter((id) => !ammessi.has(id));
   if (!fuori.length) return;
 
@@ -1870,6 +2101,12 @@ export const saveEventConvocations = async (
   const now = new Date();
 
   await prisma.$transaction(async (tx) => {
+    await assertEventoApertoNellaTransazione(
+      tx,
+      event.id,
+      "salvare le convocazioni",
+    );
+
     /*
       Chi non compare piu nell'elenco torna **indeciso**, non «escluso»:
       togliere un nome da una lista non e la stessa cosa che dire a un ragazzo
@@ -2016,6 +2253,12 @@ export const saveEventAttendance = async (
   );
 
   await prisma.$transaction(async (tx) => {
+    await assertEventoApertoNellaTransazione(
+      tx,
+      event.id,
+      "registrare le presenze",
+    );
+
     for (const entry of normalizzate) {
       await tx.clubEventParticipant.upsert({
         where: {
@@ -2123,6 +2366,130 @@ const filtraPartecipantiPerPerimetro = async <T extends { athlete_id: string | n
   if (!ammessi) return [...righe];
 
   return righe.filter((riga) => ammessi.has(asText(riga.athlete_id)));
+};
+
+/**
+ * **Chi e convocato a ognuno di questi eventi** (`D-AUD-9`).
+ *
+ * La rotta dell'elenco portava gia un `convocated_count` (P0-6), e un
+ * conteggio risponde a «quante», non a «chi». Ma le domande che le schermate
+ * fanno sulla rosa sono per nome: l'avviso «fra i convocati c'e un certificato
+ * scaduto» — che sulla pagina Gare veniva calcolato sulle grafie del payload,
+ * quindi **non si accendeva mai**, nemmeno con due certificati scaduti in
+ * rosa — vuole gli identificativi, non una somma.
+ *
+ * Passa **dai due recinti** di `listEventParticipants`, e non da uno solo.
+ *
+ * Il primo e l'**evento**: un elenco di identificativi si chiede su eventi che
+ * chi legge puo vedere, e la prima stesura di questa funzione si fidava del
+ * fatto che il chiamante glieli passasse gia filtrati. Il presidio `W6-22` l'ha
+ * respinta per questo, ed e esattamente la ragione per cui esiste: una
+ * funzione esportata che accetta uno `scope` non puo delegare il proprio
+ * recinto a chi la chiama, perche il prossimo chiamante non lo sapra. Qui si
+ * **filtra** invece di rifiutare, come fa `listClubEvents`: chiedere le rose di
+ * venti eventi non deve fallire perche uno e di un'altra squadra.
+ *
+ * Il secondo sono le **persone**: un identificativo di atleta e un dato
+ * personale quanto una riga, e servirne uno piu largo di quello che l'atto
+ * sullo stesso atleta consentirebbe e la perdita che
+ * `filtraPartecipantiPerPerimetro` esiste per chiudere. Su un allenamento
+ * congiunto l'allenatore della sola B riceve la sua meta della rosa, come
+ * riceve la sua meta dei partecipanti.
+ */
+export const listConvocatedAthleteIdsByEvent = async (
+  scope: EventsScope,
+  organizationId: string,
+  eventIds: readonly string[],
+): Promise<Map<string, string[]>> => {
+  const perEvento = new Map<string, string[]>();
+  const richiesti = Array.from(new Set(eventIds.filter(Boolean)));
+  if (!organizationId || !richiesti.length) return perEvento;
+
+  const eventi = await prisma.clubEvent.findMany({
+    where: { organization_id: organizationId, id: { in: richiesti } },
+    select: {
+      id: true,
+      category_id: true,
+      category_ids: true,
+      category_name: true,
+      group_ids: true,
+      site_id: true,
+    },
+  });
+
+  /*
+    **Il recinto si legge una volta, e poi si giudica in memoria.**
+
+    La prima stesura chiamava `assertTrainerEventPerimeter` **dentro un ciclo**,
+    un evento alla volta e dentro un `try/catch`. Tre difetti in tre righe, e la
+    revisione del diff li ha misurati tutti e tre:
+
+    1. `readTrainerEventPerimeter` fa due letture non memorizzate — il club e
+       l'utente — e non le riusa. Con il `take` predefinito di `listClubEvents`
+       a duemila, un allenatore che apre il calendario faceva partire fino a
+       **quattromila query in fila**, sulla stessa rotta il cui commento, due
+       riquadri piu su, rivendica «un `groupBy` per l'intera pagina invece di
+       una lettura per riga»;
+    2. il `catch` era **nudo**: un guasto dell'archivio dentro la lettura del
+       perimetro, o un `requireActiveOrganization` che lancia, scartavano
+       l'evento in silenzio. La rotta rispondeva **200** con le rose vuote, e
+       l'avviso «fra i convocati c'e un certificato scaduto» non si accendeva —
+       cioe lo stesso difetto che questa funzione esiste per chiudere, con un
+       200 sopra;
+    3. ogni evento fuori perimetro scriveva una riga di audit
+       `permission.denied`, perche e cio che le due `assert` fanno prima di
+       lanciare. Una lettura di elenco perfettamente legittima diventava un
+       flusso di record di violazione, e qualunque allarme costruito su quel
+       segnale ci sarebbe annegato.
+
+    Il perimetro dell'allenatore e **uno solo** per richiesta: si legge una
+    volta. Il perimetro di sede e categoria non legge affatto — sta nello
+    `scope` — e ha un predicato puro. Filtrare non e negare: qui non si scrive
+    audit, perche non c'e nessun diniego da registrare.
+  */
+  const perimetroAllenatore =
+    normalizeAccessRole(scope.activeRole) === "trainer"
+      ? await readTrainerEventPerimeter(organizationId, asText(scope.userId))
+      : null;
+  const giudicaAllenatore = normalizeAccessRole(scope.activeRole) === "trainer";
+
+  const ammessi = eventi.filter(
+    (evento) =>
+      (!giudicaAllenatore ||
+        eventWithinTrainerPerimeter(perimetroAllenatore, evento, "lettura")) &&
+      eventWithinAccessScope(scope, evento, "lettura"),
+  );
+
+  const identificativi = ammessi.map((evento) => evento.id);
+  if (!identificativi.length) return perEvento;
+
+  const righe = await prisma.clubEventParticipant.findMany({
+    where: {
+      organization_id: organizationId,
+      event_id: { in: identificativi },
+      convocation_status: "convocated",
+    },
+    select: { event_id: true, athlete_id: true },
+    orderBy: { athlete_id: "asc" },
+  });
+
+  const ammesse = await filtraPartecipantiPerPerimetro(
+    scope,
+    organizationId,
+    righe,
+  );
+
+  for (const riga of ammesse) {
+    const chiave = asText(riga.event_id);
+    const atleta = asText(riga.athlete_id);
+    if (!chiave || !atleta) continue;
+
+    const secchio = perEvento.get(chiave);
+    if (secchio) secchio.push(atleta);
+    else perEvento.set(chiave, [atleta]);
+  }
+
+  return perEvento;
 };
 
 /**

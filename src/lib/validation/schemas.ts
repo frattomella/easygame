@@ -93,6 +93,13 @@ export const paymentTransactionInputSchema = z
     allow_overpayment: z.boolean().optional(),
     allowOverpayment: z.boolean().optional(),
     /*
+      La chiave che distingue «lo stesso clic due volte» da «due incassi
+      uguali». La sceglie chi chiama, una per gesto: e la stessa disciplina
+      del registro in uscita, che il registro in entrata non aveva.
+    */
+    idempotency_key: z.string().trim().max(120).optional(),
+    idempotencyKey: z.string().trim().max(120).optional(),
+    /*
       La causale. Qui si controlla solo la **forma**: che il codice esista nel
       catalogo del club lo sa `fiscal_operation_types`, e chiederlo qui
       significherebbe una lettura del database dentro uno schema.
@@ -121,6 +128,7 @@ export const paymentTransactionInputSchema = z
     source: body.source,
     externalReference: body.external_reference ?? body.externalReference,
     allowOverpayment: Boolean(body.allow_overpayment ?? body.allowOverpayment),
+    idempotencyKey: body.idempotency_key ?? body.idempotencyKey,
     operationTypeCode: body.operation_type_code ?? body.operationTypeCode,
     financialAccountId: body.financial_account_id ?? body.financialAccountId,
     counterpartyKind: body.counterparty_kind ?? body.counterpartyKind,

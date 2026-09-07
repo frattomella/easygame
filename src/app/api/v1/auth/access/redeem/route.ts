@@ -280,6 +280,30 @@ const tracciaRiscatto = async (dati: {
 };
 
 export async function POST(request: Request) {
+  /**
+   * **Come si disfa un consumo, quando cio che viene dopo fallisce.**
+   *
+   * Il claim atomico chiude la corsa — due riscatti dello stesso gettone
+   * monouso — e sposta un rischio: da quel punto in poi restano otto
+   * scritture e un rifiuto **legittimo** di dominio (il soffitto del
+   * perimetro), e nessuno di quelli era in transazione con il consumo. Un
+   * gettone bruciato da una richiesta che il dominio ha poi rifiutato e un
+   * accesso che nessuno puo piu dare: il caso peggiore e la tessera di
+   * genitore creata e la tutela **non** collegata, senza piu un gettone per
+   * rifarla.
+   *
+   * Il rimedio e una compensazione, non una transazione: la seconda
+   * comprenderebbe l'invio di un'email e le scritture di due domini con i
+   * loro blocchi, e terrebbe aperta una transazione per tutto quel tempo.
+   * Qui si rimette lo stato che la riga aveva, e solo se il consumo era
+   * riuscito.
+   *
+   * Se anche il ripristino fallisce non si nasconde: l'errore originale e
+   * quello che l'utente deve vedere, e il gettone resta consumato — un caso
+   * raro che si risolve riemettendolo, e che l'audit del rifiuto nomina.
+   */
+  let ripristinaGettone: (() => Promise<void>) | null = null;
+
   try {
     const session = await requireAuthenticatedUser(request);
     if (!session) {
@@ -806,6 +830,95 @@ export async function POST(request: Request) {
         include: organizationUserInclude,
       });
 
+    /*
+      **Il gettone si consuma prima di produrre effetti, e con un atto solo.**
+
+      Il vaglio «gettone gia riscattato?» sta duecento righe piu su, e fra
+      quella lettura e la marcatura in fondo alla rotta passano una quindicina
+      di query: il codice, l'ambiguita fra club, la scadenza, il ruolo, il
+      soffitto del concedente, il profilo, le tessere. In quella finestra ci
+      stanno comodamente due riscatti.
+
+      Misurato da `scripts/audit-finale-concorrenza-probe.mjs` (`A-01`): il
+      club manda il codice monouso sul gruppo di famiglia, padre e madre lo
+      aprono nello stesso minuto, e la rotta risponde **200 tutte e due**. Le
+      tessere sono due, gli utenti sono diversi — quindi
+      `@@unique([organization_id, user_id, role])` non collide — e il registro
+      scrive `redemption_count: 1`, cioe **nega l'incidente** a chi poi va a
+      cercarlo. Su un gettone di tutore le tessere sono due dentro il fascicolo
+      sanitario di un minore.
+
+      La disciplina che chiude la corsa esiste gia in casa: `redeemAthleteInvite`
+      consuma l'invito con un `updateMany` condizionato sullo stato e pretende
+      `count === 1`. Qui mancava, ed e la stessa corsa sulla stessa forma di
+      riga.
+
+      Sta dopo il codice, la scadenza, il ruolo, il soffitto del concedente e
+      il profilo gia collegato, e prima della prima scrittura.
+
+      **Ma non dopo tutto**, e vale dirlo invece di lasciarlo credere: il
+      soffitto del **perimetro** (`applyRedeemAccessScopes`) si giudica piu
+      sotto, dopo che la tessera esiste, e cosi le scritture del profilo e del
+      legame di tutela. Un fallimento li lascerebbe un gettone bruciato per una
+      richiesta che il dominio ha rifiutato, cioe un accesso che nessuno puo
+      piu dare. Per questo il consumo si **disfa**: vedi `ripristinaGettone`
+      in cima al gestore.
+
+      Il multiuso lecito non passa di qui per definizione: e il caso in cui il
+      freno e il profilo, e ce l'ha gia.
+    */
+    if (!multiUsoLecito) {
+      /*
+        **La condizione e l'elenco chiuso di §2, non «tutto cio che non e
+        riscattato».**
+
+        `{ not: "redeemed" }` accetta anche `revoked` ed `expired`: una revoca
+        committata fra la lettura di riga 501 e questo punto non verrebbe vista,
+        e il claim ci scriverebbe sopra `redeemed` — **cancellando la traccia
+        della revoca** e trasformando un gettone ritirato in uno consumato. Si
+        chiede quindi la stessa cosa che chiede il vaglio: lo stato deve essere
+        uno di quelli riscattabili, e `NULL` vale `active` come li.
+      */
+      const consumato = await prisma.clubResourceItem.updateMany({
+        where: {
+          id: accessToken.id,
+          OR: [
+            { status: null },
+            { status: { in: ["active", "pending", "sent"] } },
+          ],
+        },
+        data: { status: "redeemed" },
+      });
+
+      if (consumato.count === 1) {
+        const statoDaRimettere = accessToken.status ?? null;
+        ripristinaGettone = async () => {
+          await prisma.clubResourceItem.updateMany({
+            where: { id: accessToken.id, status: "redeemed" },
+            data: { status: statoDaRimettere },
+          });
+        };
+      }
+
+      if (consumato.count !== 1) {
+        await tracciaRiscatto({
+          esito: "denied",
+          userId: session.db.user_id,
+          email: session.db.user?.email,
+          organizationId: accessToken.organization_id,
+          tokenRecordId: accessToken.id,
+          motivo: "gettone consumato da un'altra richiesta",
+        });
+        return NextResponse.json(
+          {
+            data: null,
+            error: { message: "Questo token e gia stato utilizzato" },
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     let membership = existingMembership
       ? await updateExistingMembership(
           existingMembership.id,
@@ -1085,6 +1198,15 @@ export async function POST(request: Request) {
       error: null,
     });
   } catch (error: any) {
+    /*
+      Il consumo si disfa se cio che veniva dopo non e riuscito: vedi
+      `ripristinaGettone`. Un fallimento del ripristino non copre l'errore
+      originale, che e quello che spiega cosa e successo.
+    */
+    if (ripristinaGettone) {
+      await ripristinaGettone().catch(() => {});
+    }
+
     return NextResponse.json(
       {
         data: null,

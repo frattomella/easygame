@@ -36,6 +36,14 @@ const SORGENTI = [
     e una sola delle otto chiamate lasciata senza `await` rimetterebbe in piedi
     W6-23 — convocazioni e appello su un evento fuori perimetro — senza che il
     compilatore dica niente.
+
+    `listConvocatedAthleteIdsByEvent` non compare in questo conteggio, ed e
+    deliberato: **filtra** invece di rifiutare, quindi legge il perimetro una
+    volta con `readTrainerEventPerimeter` e poi giudica in memoria. Chiamare la
+    guardia dentro un ciclo costava due letture per evento — fino a quattromila
+    su una pagina di calendario — e scriveva una riga di audit
+    `permission.denied` per ogni evento fuori recinto, cioe su una lettura
+    perfettamente legittima.
   */
   {
     file: "src/lib/server/events.ts",

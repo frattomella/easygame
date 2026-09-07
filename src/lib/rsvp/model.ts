@@ -255,6 +255,7 @@ export const readEventRsvpConfig = (
 export type RsvpDenialReason =
   | "not_required"
   | "event_cancelled"
+  | "event_closed"
   | "deadline_passed";
 
 export type RsvpAnswerability = {
@@ -267,11 +268,35 @@ export type RsvpAnswerability = {
 const DENIAL_MESSAGES: Record<RsvpDenialReason, string> = {
   not_required: "Questo allenamento non chiede una conferma di partecipazione.",
   event_cancelled: "L'allenamento e stato annullato: non serve rispondere.",
+  event_closed:
+    "Questo evento e archiviato e non riceve piu risposte. Avvisa direttamente la societa.",
   deadline_passed:
     "Il termine per rispondere e scaduto. Avvisa direttamente la societa.",
 };
 
 const CANCELLED_TOKENS = new Set(["cancelled", "canceled", "annullato", "annullata"]);
+
+/**
+ * **Gli stati che non ricevono piu atti, e perche sono due e non uno.**
+ *
+ * `events.ts` chiude `cancelled` **e** `archived` per la convocazione e per
+ * l'appello (`assertEventoAperto`); qui si negava il solo `cancelled`. Tre
+ * colonne della stessa riga, tre scrittori distinti (ADR-0086, ADR-0099) — e
+ * due regole di stato diverse fra loro, che e la forma di divergenza per cui
+ * quegli ADR esistono.
+ *
+ * `archived` e lo stato che la migrazione assegna a un evento ricostruito
+ * perche una presenza lo citava, e da li non si esce: `TRANSITIONS` non gli
+ * lascia nessuna destinazione. Una famiglia poteva quindi scrivere
+ * `rsvp_status` su un evento che nessuno puo piu riaprire, ne annullare, ne su
+ * cui fare l'appello — e la risposta restava li, in un fascicolo che il
+ * prodotto considera chiuso.
+ */
+const ARCHIVED_TOKENS = new Set(["archived", "archiviato", "archiviata"]);
+
+/** Vero se lo stato dichiarato dall'evento e «archiviato». */
+export const isArchivedEventStatus = (status: unknown) =>
+  ARCHIVED_TOKENS.has(normalizeToken(status));
 
 /** Vero se lo stato dichiarato dall'evento e «annullato», in una delle sue grafie. */
 export const isCancelledEventStatus = (status: unknown) =>
@@ -300,6 +325,7 @@ export const canAnswerRsvp = ({
   });
 
   if (isCancelledEventStatus(eventStatus)) return deny("event_cancelled");
+  if (isArchivedEventStatus(eventStatus)) return deny("event_closed");
   if (!config.required) return deny("not_required");
 
   /*

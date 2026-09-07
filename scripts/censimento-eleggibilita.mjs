@@ -169,12 +169,13 @@ const TABELLA = {
     canonico: false,
   },
 
-  /* ---------------- chi non ha il catalogo, e lo dichiara ---------------- */
   "src/lib/server/training-automation.ts": {
     decide: "quanti attesi a un allenamento generato",
-    catalogo: false,
+    catalogo: true,
     canonico: false,
   },
+
+  /* ---------------- chi non ha il catalogo, e lo dichiara ---------------- */
   "src/lib/simplified-db.ts": {
     decide: "filtri lato browser (in riduzione, WP-07)",
     catalogo: false,
@@ -187,17 +188,17 @@ const TABELLA = {
   },
   "src/app/medical/page.tsx": {
     decide: "il filtro per categoria della schermata sanitaria",
-    catalogo: false,
+    catalogo: true,
     canonico: false,
   },
   "src/components/dashboard/UpcomingTrainings.tsx": {
     decide: "il riquadro dei prossimi allenamenti",
-    catalogo: false,
+    catalogo: true,
     canonico: false,
   },
   "src/components/trainer/trainer-categories-dashboard-page.tsx": {
     decide: "l'organico mostrato all'allenatore",
-    catalogo: false,
+    catalogo: true,
     canonico: false,
   },
 };

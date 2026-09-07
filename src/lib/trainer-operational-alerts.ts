@@ -496,6 +496,105 @@ export const attachEventParticipation = <T extends Record<string, any>>(
   };
 };
 
+/**
+ * **Le righe di partecipazione riportate su un elenco di eventi** (`D-AUD-9`).
+ *
+ * `attachEventParticipation` risponde per **un** evento, e il chiamante che ne
+ * ha cento deve sapere quali righe sono sue. La chiave e l'identificativo
+ * dell'evento, e ne esistono due forme legittime sulla stessa riga: la
+ * proiezione storica porta `id` (l'identificativo di quando l'allenamento
+ * viveva nel JSON) e `eventId` (la riga di `club_events`), mentre la lettura di
+ * `training_attendance` porta `event_id` e `training_id` — che il registro
+ * traduce da `legacy_training_id`, ripiegando su `event_id` quando quello non
+ * c'e. Indicizzare sulle **due** chiavi e cio che fa incontrare un evento nato
+ * prima della migrazione con le righe scritte dopo.
+ *
+ * **Perche non basta contarle.** P0-6 ha dato al calendario un
+ * `convocated_count`, e alle due schermate operative la rilettura delle righe.
+ * Il rendiconto vuole un'altra cosa: **chi**. Un conteggio non dice se lo
+ * stesso atleta e stato convocato dieci volte o dieci atleti una volta
+ * ciascuno, e la statistica per categoria e per atleta e esattamente quella
+ * differenza.
+ */
+export const attachParticipationToEvents = <T extends Record<string, any>>(
+  events: readonly T[],
+  rows: readonly (EventParticipationRow & {
+    event_id?: unknown;
+    eventId?: unknown;
+    training_id?: unknown;
+    trainingId?: unknown;
+  })[],
+) => {
+  const lista = Array.isArray(events) ? events : [];
+  if (!lista.length) return [] as ReturnType<typeof attachEventParticipation>[];
+
+  const indice = new Map<string, EventParticipationRow[]>();
+  const deposita = (chiave: unknown, riga: EventParticipationRow) => {
+    const testo = String(chiave ?? "").trim();
+    if (!testo) return;
+    const secchio = indice.get(testo);
+    if (secchio) {
+      if (!secchio.includes(riga)) secchio.push(riga);
+    } else {
+      indice.set(testo, [riga]);
+    }
+  };
+
+  for (const riga of Array.isArray(rows) ? rows : []) {
+    deposita(riga?.event_id, riga);
+    deposita((riga as any)?.eventId, riga);
+    deposita((riga as any)?.training_id, riga);
+    deposita((riga as any)?.trainingId, riga);
+  }
+
+  return lista.map((evento) => {
+    const chiavi = [
+      (evento as any)?.eventId,
+      (evento as any)?.id,
+      (evento as any)?.event_id,
+    ];
+    const viste = new Set<EventParticipationRow>();
+    for (const chiave of chiavi) {
+      const testo = String(chiave ?? "").trim();
+      if (!testo) continue;
+      for (const riga of indice.get(testo) || []) viste.add(riga);
+    }
+
+    const proiettato = attachEventParticipation(evento, Array.from(viste));
+
+    /*
+      **Zero righe non vuol dire zero convocati, quando il server ha gia
+      risposto.**
+
+      `attachEventParticipation` azzera le quattordici grafie storiche, ed e
+      giusto: una rosa **cancellata** dalle righe non deve continuare a
+      comparire come fatta. Ma da quando la rotta del calendario serve
+      `convocated_athlete_ids` — gli identificativi che il server ha letto
+      dalle righe e filtrato sul perimetro — quella chiave non e una grafia
+      storica: e la **risposta canonica**, e azzerarla su un chiamante che le
+      righe non ce le ha in mano (la bacheca allenatore ne ha tre) toglieva
+      l'unica fonte rimasta e faceva dire «zero convocati» a ogni gara.
+
+      Quando per questo evento non e arrivata nessuna riga, si tiene quindi cio
+      che il server aveva gia detto. Quando le righe ci sono, decidono loro:
+      sono la stessa fonte, lette piu da vicino.
+    */
+    if (!viste.size) {
+      const dalServer = (evento as any)?.convocated_athlete_ids;
+      if (Array.isArray(dalServer) && dalServer.length) {
+        return {
+          ...proiettato,
+          convocatedAthleteIds: dalServer.map((id: unknown) =>
+            String(id ?? "").trim(),
+          ).filter(Boolean),
+        };
+      }
+    }
+
+    return proiettato;
+  });
+};
+
 export const buildTrainerOperationalAlerts = ({
   trainings,
   matches,

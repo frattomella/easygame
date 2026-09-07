@@ -99,6 +99,8 @@ let TUTORE_B = null;
 
 let dominio = null;
 let eventi = null;
+/** Il proprietario delle righe di `athlete_guardians` (ADR-0135). */
+let tutoriDominio = null;
 
 const scopeGestione = (userId = PRESIDENTE?.id) => ({
   userId,
@@ -365,7 +367,68 @@ const semina = async () => {
 
   dominio = await carica("src/lib/server/athlete-accounts.ts");
   eventi = await carica("src/lib/server/events.ts");
+  tutoriDominio = await carica("src/lib/server/athlete-guardians.ts");
   await preparaRotte();
+};
+
+/**
+ * **Il travaso che la migrazione fa una volta, e la semina non faceva mai.**
+ *
+ * Questa sonda scrive gli atleti con i tutori dentro `athletes.data.guardians[]`,
+ * che era la forma completa quando e stata scritta. Da WP-C il blob e una
+ * **proiezione in sola lettura** (ADR-0135, ADR-0153): l'autorita sta nelle
+ * righe di `athlete_guardians`, e le due domande che questa sonda misura di
+ * piu — «questo tutore vede questo figlio?» e «questo indirizzo e gia il
+ * recapito di un tutore?» — chiedono alle righe.
+ *
+ * Sui dati veri il travaso lo ha gia fatto la migrazione
+ * `20260905120000_pp02_tutore_e_una_riga`, che legge il blob e scrive le
+ * righe. Un atleta seminato **dopo** quella migrazione non lo riceve, quindi
+ * qui i tutori erano zero e nove prove misuravano difese **mute**: il verde di
+ * una guardia senza dati da confrontare e indistinguibile dal verde vero, ed e
+ * il modo peggiore in cui una sonda puo sbagliare.
+ *
+ * Si fa lo stesso gesto della migrazione, con il proprietario del dominio —
+ * l'archivio rifiuta ogni `INSERT` su `athlete_guardians` fuori da una
+ * transazione che abbia dichiarato `easygame.guardian_writer`.
+ *
+ * Trovato dalla revisione ostile finale del 2026-09-07, che ha stampato le
+ * righe e ne ha contate zero.
+ */
+const allineaTutoriDalBlob = async () => {
+  const schede = await prisma.athlete.findMany({
+    where: { organization_id: CLUB },
+    select: { id: true, data: true },
+  });
+
+  for (const scheda of schede) {
+    const blob = Array.isArray(scheda?.data?.guardians)
+      ? scheda.data.guardians
+      : [];
+    if (!blob.length) continue;
+
+    const gia = await prisma.athleteGuardian.count({
+      where: { athlete_id: scheda.id },
+    });
+    if (gia) continue;
+
+    await tutoriDominio.saveGuardianRegistry(prisma, {
+      organizationId: CLUB,
+      athleteId: scheda.id,
+      /*
+        **La proiezione chiama `linkedUserId` cio che la riga chiama
+        `userId`.** Passare il blob cosi com'e travasa il nome e l'indirizzo e
+        **perde il legame**, che e proprio la proprieta che meta di questa
+        sonda misura: «il tutore **provato** — `linkedUserId`, non la casella —
+        continua a vedere il figlio». La migrazione fa la stessa traduzione.
+      */
+      rows: blob.map((voce) => ({
+        ...voce,
+        userId: voce?.userId ?? voce?.linkedUserId ?? voce?.linked_user_id ?? null,
+      })),
+      canGrantAccess: true,
+    });
+  }
 };
 
 const pulisci = async () => {
@@ -2386,6 +2449,40 @@ const proveDueCappelli = async () => {
     },
   });
 
+  /*
+    **Il tutore e una riga, non una voce del blob** (ADR-0135, ADR-0153).
+
+    Questa semina scriveva Elena **solo** dentro `athletes.data.guardians[]`,
+    che era la forma completa quando e stata scritta. WP-C ha tolto al blob
+    l'autorita: `athletes.data.guardians[]` e ora una **proiezione in sola
+    lettura**, e la guardia di `sendAthleteAccountInvite` chiede alle righe di
+    `athlete_guardians` tramite `readGuardiansForAthlete`.
+
+    Con zero righe quella guardia non aveva niente da confrontare, e `P-81` e
+    `P-82b` misuravano una difesa **muta** invece che presente — il modo
+    peggiore in cui una sonda puo sbagliare, perche il verde e indistinguibile
+    da quello vero. Trovato dalla revisione ostile finale, che ha stampato le
+    righe e ne ha contate zero.
+
+    La riga si scrive dal proprietario del dominio: l'archivio rifiuta ogni
+    `INSERT` fuori da una transazione che abbia dichiarato
+    `easygame.guardian_writer`, e quella dichiarazione la fa una funzione sola.
+  */
+  await tutoriDominio.saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: ATLETA_E,
+    rows: [
+      {
+        id: "g-elena",
+        first_name: "Elena",
+        last_name: "Esposito",
+        email: CASA_E,
+        fiscal_code: "SEGRETO-E-CF-TUTORE",
+      },
+    ],
+    canGrantAccess: true,
+  });
+
   await prisma.athletePayment.create({
     data: {
       id: randomUUID(),
@@ -2462,6 +2559,26 @@ const proveDueCappelli = async () => {
     il recapito di nessun tutore, passa come prima: il fix e la distinzione,
     non la chiusura.
   */
+  /*
+    **La semina si toglie di mezzo l'invito che ha appena lasciato in volo.**
+
+    `P-81` prova un indirizzo che la guardia deve rifiutare, ma prima di quel
+    blocco l'atleta ha gia ricevuto un invito legittimo, e il dominio dichiara
+    che ce n'e **uno solo per atleta**: «reinvialo o revocalo prima di crearne
+    un altro», con il vincolo che lo fa valere. La sonda chiamava
+    `sendAthleteAccountInvite` una seconda volta e moriva sul vincolo — cioe
+    misurava la propria semina, non il prodotto, e si fermava prima delle prove
+    che seguono. Trovato dalla revisione ostile finale: la sonda era rossa
+    identica sul commit precedente, quindi non una regressione ma una semina
+    che non aveva mai fatto pulizia.
+
+    Si toglie la riga direttamente perche e allestimento di collaudo: la
+    revoca vera ha la sua rotta e le sue prove altrove.
+  */
+  await prisma.athleteAccountInvite.deleteMany({
+    where: { organization_id: CLUB, athlete_id: ATLETA_E },
+  });
+
   const invito = await dominio.sendAthleteAccountInvite(scopeGestione(), {
     athleteId: ATLETA_E,
     email: PROPRIA_E,
@@ -2613,15 +2730,19 @@ const main = async () => {
   console.log("PP-04 — collaudo dell'area atleta contro un database vero\n");
   try {
     await semina();
+    await allineaTutoriDalBlob();
     await proveInvito();
     await collegaB();
     await seminaAttivita();
+    await allineaTutoriDalBlob();
     await proveArea();
     await proveAttacco();
     await proveFamiglia();
     await proveRevoca();
     await proveMinore();
+    await allineaTutoriDalBlob();
     await proveRamoTutore();
+    await allineaTutoriDalBlob();
     await proveDueCappelli();
   } finally {
     await pulisci();

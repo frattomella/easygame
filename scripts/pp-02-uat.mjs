@@ -3202,6 +3202,29 @@ const sezioneT = async () => {
     where: { id: MARCO },
     data: { user_id: UTENTE_MARCO.id },
   });
+  /*
+    **E la tessera, che da ADR-0117 fa parte dell'accesso.** Il legame da solo
+    non basta piu: `clubsWhereStillAthlete` chiede una tessera il cui ruolo
+    risolto valga `athlete`, e lo scrittore canonico le scrive **insieme**
+    nella stessa transazione. Una semina che ne scrive una sola misura se
+    stessa.
+  */
+  await prisma.organizationUser.upsert({
+    where: {
+      organization_id_user_id_role: {
+        organization_id: CLUB,
+        user_id: UTENTE_MARCO.id,
+        role: "athlete",
+      },
+    },
+    update: {},
+    create: {
+      organization_id: CLUB,
+      user_id: UTENTE_MARCO.id,
+      role: "athlete",
+      is_primary: false,
+    },
+  });
 
   const accessoAtleta = await carica("src/lib/server/athlete-accounts.ts");
   const areaAtleta = await accessoAtleta
@@ -5118,6 +5141,39 @@ const sezioneW = async () => {
   await prisma.athlete.update({
     where: { id: MARCO },
     data: { user_id: UTENTE_RAGAZZO.id },
+  });
+  /*
+    **Il legame da solo non e piu un accesso** (ADR-0114, esteso da ADR-0117).
+
+    Questa semina scriveva `athletes.user_id` e basta, che era la forma
+    completa quando e stata scritta. Da ADR-0117 «questa persona e ancora un
+    atleta di questo club?» ha una risposta sola — `clubsWhereStillAthlete` —
+    e chiede una **tessera** il cui ruolo risolto valga `athlete`: un legame
+    puo restare indietro rispetto alla tessera, ed e da quella divergenza che
+    la porta di servizio dava su una stanza piu grande di quella d'ingresso.
+
+    Lo scrittore canonico (`redeemAthleteInvite`) scrive **le due cose
+    insieme**, dentro la stessa transazione. Una semina che ne scrive una sola
+    non prova il prodotto: prova se stessa, e da tre reperti rossi che non
+    esistono. Trovato dalla revisione ostile finale, che ha confrontato la
+    sonda con il commit precedente e l'ha vista rossa identica — cioe non una
+    regressione, ma una semina rimasta indietro di due ADR.
+  */
+  await prisma.organizationUser.upsert({
+    where: {
+      organization_id_user_id_role: {
+        organization_id: CLUB,
+        user_id: UTENTE_RAGAZZO.id,
+        role: "athlete",
+      },
+    },
+    update: {},
+    create: {
+      organization_id: CLUB,
+      user_id: UTENTE_RAGAZZO.id,
+      role: "athlete",
+      is_primary: false,
+    },
   });
 
   prova(

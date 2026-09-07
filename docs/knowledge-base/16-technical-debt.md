@@ -3296,3 +3296,231 @@ I sette High sono chiusi. Restano questi, e nessuno e sfruttabile oggi.
 | **D-AUD-27** | Low | `UpcomingTrainings`, `trainer-categories-dashboard-page` e `medical/page` chiamano l'eleggibilita **senza catalogo**, quindi per loro due omonime restano una. Il censimento li dichiara (`catalogo: false`) — non sono una sorpresa — ma due sono superfici operative | Passare il catalogo: e gia in mano a tutte e tre |
 | **D-AUD-28** | Low | `listExpiringAttachments` accetta uno `scope` e non lo consulta: nessun perimetro, ne atleti ne staff. Non raggiungibile oggi (unico chiamante e un'automazione server) | Applicare i due perimetri, o togliere il parametro che promette cio che non fa |
 | **D-AUD-29** | Low | `stripClinicalAthleteFields(data, role)` degrada all'elenco dei soli vietati quando il ruolo e `undefined` (non quando e `null`). Non raggiungibile oggi, ma la distinzione fra i due e invisibile a chi chiama | Il predefinito deve essere l'elenco dei **dichiarati**, non dei vietati |
+
+---
+
+## La revisione ostile finale pre-deploy (2026-09-07)
+
+Terza revisione ostile sull'integrato, condotta con il mandato di **dimostrare
+che EasyGame non e pronto**. Quattordici reperti trovati e chiusi, tutti
+riprodotti prima di essere corretti e verificati per mutazione dopo. Cio che
+segue e il verbale: dove si e rotto, come si e misurato, e cosa lo tiene chiuso.
+
+### Il metodo, e perche cambia il verdetto
+
+Le due revisioni precedenti avevano letto il codice. Questa ha **misurato**, e
+tre volte su quattordici la misura ha smentito la lettura, in un verso o
+nell'altro:
+
+- il rendiconto delle presenze *sembrava* rotto — le righe di
+  `club_event_participants` non hanno una colonna `training_id` — e **funziona**,
+  perche il registro generico la traduce in lettura;
+- la porta di servizio su `trainings` *sembrava* teorica e rispondeva **200**;
+- il reperto rosso di `pp-03-round4` *sembrava* un difetto di prodotto ed era un
+  difetto **della sonda**.
+
+Le sonde nuove sono tre, e restano:
+`scripts/audit-finale-report-canonici-probe.mjs` (5/5),
+`scripts/audit-finale-concorrenza-probe.mjs` (7/7),
+`scripts/audit-finale-scritture-probe.mjs` (11/11).
+
+### I reperti, per gravita
+
+| # | Gravita | Cosa | Chiuso da |
+|---|---------|------|-----------|
+| **AUD-F0** | **Critical** | **Un gettone di accesso monouso, riscattato da due persone insieme, conia due tessere.** Fra il vaglio «gettone gia riscattato?» e la marcatura in fondo alla rotta passano quindici query: il club manda il codice sul gruppo di famiglia, padre e madre lo aprono nello stesso minuto, e la rotta risponde **200 tutte e due**. Gli utenti sono diversi, quindi `@@unique([organization_id, user_id, role])` non collide; il registro scrive `redemption_count: 1`, cioe **nega l'incidente** a chi lo cerca. Su un gettone di tutore sono due account nel fascicolo sanitario di un minore | Claim atomico prima della prima scrittura: `updateMany` condizionato sullo stato, `count !== 1` → 409. E la disciplina che `redeemAthleteInvite` applicava gia sulla stessa forma di riga, e che questa rotta non aveva seguito. `audit-finale-concorrenza-probe` `A-01..A-03` |
+| **AUD-F1** | **High** | **Lo stesso incasso registrato due volte dallo stesso clic.** Il blocco di riga sulla rata chiudeva il **sovraincasso** — tre clic su 130 non incassano 150 — e non la duplicazione **dentro** la capienza: rata da 130, si registrano 50, il clic parte due volte per rete lenta, e cento euro risultano incassati per un versamento da cinquanta. Nessuna delle due righe e distinguibile da un incasso vero. Il canale online la sua unicita ce l'ha nel database (indice parziale su `external_payment_id`), e un incasso manuale ha quella colonna vuota: due canali sullo stesso denaro, uno solo difeso | `idempotency_key` coniata dalla finestra a ogni apertura, riconosciuta **dentro** il blocco di riga — cioe dopo il punto in cui la concorrenza si arbitra, che e la lezione scritta in `E8`. `tests/server/incasso-idempotenza.test.mjs` (7), mutation-verified |
+| **AUD-F2** | **High** | **`D-INT-13b`: l'appello si registra su un evento gia annullato.** La guardia esisteva e decideva su una riga letta **fuori** dalla transazione che scrive: fra quella lettura e l'`upsert` passano un permesso, due perimetri e due letture di atleti, e in quella finestra un `PATCH {"status":"cancelled"}` fa in tempo a committare. Una guardia che si scavalca aspettando il momento giusto e un commento, non una guardia | Lo stato si rilegge **dentro** la transazione, sotto `FOR UPDATE` sulla riga dell'evento. `tests/server/evento-annullato-in-corsa.test.mjs` (12), mutation-verified; `pp-03-round5` `B-03` da rosso a verde |
+| **AUD-F3** | **High** | **`D-AUD-9`: il rendiconto contava le convocazioni su un payload che nessuno scrive piu.** Non un numero approssimato: **zero**, su ogni gara, per sempre — e con esso la statistica per categoria e per atleta, e l'avviso «fra i convocati c'e un certificato scaduto», che quindi non si accendeva **mai**, nemmeno con due certificati scaduti in rosa | Il rendiconto legge le righe (`convocation_status`) con la stessa proiezione della bacheca, e porta gli **identificativi** — un conteggio non dice se lo stesso ragazzo e stato convocato dieci volte o dieci ragazzi una volta ciascuno; la rotta del calendario serve `convocated_athlete_ids`, filtrati sul perimetro di chi legge. `tests/lib/report-convocazioni-canoniche.test.mjs` (8), mutation-verified |
+| **AUD-F4** | **High** | **La famiglia non vedeva la convocazione fatta dal club.** `resolveMatchParticipationStatus` deduceva «convocato» da ventotto grafie del payload: allenatore e segreteria vedevano la rosa, e nella bacheca di ogni famiglia la gara restava «Non registrato». Tre superfici sullo stesso fatto, e quella della famiglia leggeva l'unica copia non piu aggiornata | Decide la riga di partecipazione, che la funzione aveva gia in mano per la presenza; le grafie storiche restano come ripiego per le gare antecedenti alla migrazione |
+| **AUD-F5** | **High** | **Il perimetro di sede non arrivava ai pagamenti** (`W6-D18`). `GET /api/v1/payment-transactions` serviva l'**intero libro cassa** del club a un ruolo recintato, e con lui gli identificativi delle rate; `PATCH /api/athlete-payments/:id` li accettava e riscriveva, annullava o **cancellava** la rata di un'altra sede — e la cancellazione porta via a cascata incassi, storni e rimborsi. Misurato: importo da 200 a 1 | Il perimetro sull'atleta della rata, con la stessa primitiva che usano gia appuntamenti, allegati e documenti; l'elenco **filtra** invece di negare, come fa il registro generico sulla stessa risorsa. `audit-finale-scritture-probe` `D-01..D-04`, mutation-verified |
+| **AUD-F6** | **High** | **`club_resource_items` era una seconda porta sugli allenamenti.** `POST` con `resource_type: "trainings"` rispondeva **200**. La riga non ha un `club_events` — appello e convocazioni rispondono «Evento non trovato» — ma `getClubTrainings` fonde tre fonti e quella e una: compariva in tre schermate. E il generatore automatico la contava fra gli allenamenti gia esistenti, quindi **saltava la generazione** della fascia vera | `trainings` e `matches` in `DOMAIN_OWNED_RESOURCE_ITEM_TYPES`. `audit-finale-scritture-probe` `A-01`, `A-02` |
+| **AUD-F7** | **High** | **`P0-1` era chiusa a meta: «Azioni su tutti» con una casella spuntata toccava quella sola**, mentre la conferma diceva «tutti gli atleti registrati». `risolviBersagliMassivi("all")` passava da `collectAthletesForExport`, la cui prima riga e «se c'e una selezione, sono quelli» — giusto per un foglio, sbagliato per una scrittura. E i due contatori «Totali» e «Azioni su tutti (N)» contavano le **tessere**: quaranta atleti di cui otto in due categorie diventavano quarantotto, che e la forma esatta del «213 contro 245» da cui P0-1 e nata | Due funzioni per due domande, con la paginazione scritta una volta sola; i conteggi sono di persone in tutti e due i rami. `tests/ui/azioni-massive-atleti.test.mjs`, `tests/ui/athletes-counters.test.mjs` |
+| **AUD-F8** | Medium | **`P0-3` era chiusa a meta: gli annullati restavano nella bacheca dell'allenatore.** Il contesto chiede il calendario con `include_cancelled=1` — serve al ripristino, ed e la correzione di `D-AUD-20` — e da quella deroga discendeva «Allenamenti di oggi: 3» con due annullati per maltempo, e un allenamento annullato fra i **prossimi impegni**, indistinguibile: la pastiglia di quel riquadro e la stringa fissa «Allenamento» | «Lo conto?» e «lo mostro?» separate anche nel consumatore, non solo nella rotta |
+| **AUD-F9** | Medium | **L'ordine delle categorie era scritto e non rileggibile dalla pagina che lo scrive.** `buildCategoryViewModel` e un oggetto chiuso e `sortOrder` non ci entrava: lo stato ottimistico faceva sembrare che la freccia funzionasse, e al ricaricamento successivo l'elenco tornava all'ordine di creazione. Piu un **secondo lettore** del posto, che guardava due grafie su quattro | Il modello di vista porta `sortOrder`, letto dalla primitiva del dominio (`readCategorySortOrder`, ora esportata), e il lettore della pagina delega a quella |
+| **AUD-F10** | Medium | **Un evento annullato si spostava di data, campo e squadra.** Con lo stesso stato in entrata e in uscita `canTransitionEvent` risponde sempre di si, e `assertEventoNonConsolidato` esce subito su un evento senza righe: `PATCH {"status":"cancelled","date":"2027-01-20"}` rispondeva 200 e la riga veniva **riproiettata** in `clubs.trainings`, dove gli annullati restano | Su un evento non operativo l'unico atto e la **riapertura** ([ADR-0157](18-decision-log.md)). Il ripristino resta aperto, e titolo, note e allenatori restano correggibili |
+| **AUD-F11** | Medium | **La risposta della famiglia si scriveva su un evento archiviato**, che `TRANSITIONS` non lascia riaprire, ne annullare, ne su cui fare l'appello. Tre colonne, tre scrittori, e due regole di stato diverse fra loro — che e la divergenza per cui ADR-0086 e ADR-0099 esistono | `canAnswerRsvp` chiude `archived` con il suo motivo, come `assertEventoAperto` fa gia per le altre due colonne |
+| **AUD-F12** | Medium | **Il cron fondeva le omonime di due sedi**: `athleteMatchesAnyCategory` chiamata senza catalogo, con il catalogo in mano da centosettanta righe. L'allenamento generato per Formia nasceva con gli attesi di Formia **piu** quelli di Scauri, e quel numero finisce in colonna e da li nel denominatore delle presenze. Stessa omissione su `medical/page` — dove cio che compare in piu e lo **stato sanitario di un minore** di un'altra sede — su `UpcomingTrainings` e sull'organico dell'allenatore (`D-AUD-27`) | Il catalogo passato in tutti e quattro; `scripts/censimento-eleggibilita.mjs` li dichiara ora `catalogo: true` |
+| **AUD-F13** | Low | **Un identificativo malformato faceva arrivare al browser il testo interno di Prisma** (`A-05b`, classe `W4-R14`): `athletes.id` e un `uuid`, quindi `WHERE id IN ('non-e-un-uuid')` non risponde «nessuno», **fallisce**, e l'errore risale con nome del modello, invocazione e codice PostgreSQL | Cio che non ha la forma di un identificativo non e un atleta di questo club. Non si distingue con una parola nel messaggio ne con un codice — Prisma classifica lo stesso rifiuto in due modi — quindi si chiede **al database**: rieseguita la stessa lettura con un elenco vuoto, se risponde a non andare bene erano i valori; se non risponde, l'errore originale risale intero. `pp-03-eventi-scope-ruoli-probe` da 76/77 a 77/77 |
+
+### I tre reperti rossi preesistenti, riclassificati
+
+Erano tre, e il verbale precedente li dichiarava «preesistenti e invariati». Il
+confronto storico c'era ed era corretto: le tre sonde erano state rieseguite su
+`fcedf82` e rispondevano identiche. Questa passata li ha **risolti tutti e
+tre**, e in due modi diversi — che e il punto:
+
+| Sonda | Prima | Dopo | Natura |
+|-------|-------|------|--------|
+| `pp-03-round5-concorrenza-e-grafie-probe` (`B-03`) | 7/8 | **8/8** | **Difetto di prodotto** (`AUD-F2`): l'appello si registrava su un evento annullato in corsa |
+| `pp-03-eventi-scope-ruoli-probe` (`A-05b`) | 76/77 | **77/77** | **Difetto di prodotto** (`AUD-F13`): il testo interno di Prisma arrivava al browser |
+| `pp-03-round4-etichette-e-concorrenza-probe` | si fermava | **7/7** | **Difetto della sonda.** Chiamava `POST /api/v1/events/:id`, che non ha mai avuto un handler — gli atti sui partecipanti stanno su `/events/:id/participants`, e le voci sono `athleteId`/`status`. Moriva con `NESSUN-HANDLER` prima di misurare qualunque cosa. Round 5 era stato scritto apposta per eseguire cio che questa sezione impostava e non eseguiva; ora la sezione lo esegue da se |
+
+**Una sonda rossa per un difetto proprio e peggio di nessuna sonda**: dichiara
+coperta una domanda che non ha mai posto, e la ripete a ogni passata. Le tre
+righe qui sopra sono la ragione per cui «preesistente» non e una
+classificazione sufficiente: dice che il difetto non e nuovo, non che sia stato
+capito.
+
+### Cio che si e cercato e **non** si e trovato
+
+Detto perche un audit che elenca solo cio che ha trovato non dice quanto e stato
+guardato:
+
+- **nessun IDOR cross-club sfruttabile**: `assertActiveClub` e il proprietario
+  unico del confine, e la scansione di tutti i `findUnique`/`findFirst` di
+  `src/lib/server/**` con `where: { id }` privo di `organization_id` non ha
+  lasciato residui — quelli che sembrano l'anti-pattern di ADR-0094 passano
+  tutti il club **della riga** a `resolveOrganizationScopeForUser`;
+- **nessun percorso umano ottiene autorita di sistema**: l'unico costruttore di
+  contesto di sistema e raggiungibile solo dal cron, che passa da
+  `authorizeCronRequest` (503 senza segreto, confronto a tempo costante), e la
+  `POST` umana passa **sempre** un `caller`. Nessuna rotta accetta un parametro
+  che selezioni attore, lavoro o contesto;
+- **eventi automatici e umani hanno lo stesso scrittore canonico**: il cron passa
+  da `createClubEventsBatch`, e l'unica `prisma.club.update` rimasta scrive
+  `settings.lastRunAt`;
+- **i quattro domini con matrice propria** (sport-work, accounting,
+  communications, seasons) passano davvero da `narrowDomainPermission`, e
+  nell'ordine giusto;
+- **nessun `src/lib/server/**` importato da un componente client**: 276 file con
+  `"use client"`, zero import;
+- **nessuna fuga** di `password_hash`, credenziali cifrate, token o codici OTP;
+- **convocazioni, presenze e RSVP** sono `upsert` su chiave unica: nessuna
+  perdita di aggiornamento su JSON, verificato anche sotto concorrenza vera
+  (`pp-03-round4` `B-02b`);
+- **`athlete_category_memberships`** ha il vincolo di unicita, e l'unico
+  inserimento di massa usa `skipDuplicates` con la bandiera primaria riassegnata
+  dopo — corretto anche nel caso in cui `ON CONFLICT DO NOTHING` salti la riga
+  di destinazione.
+
+### I Medium e i Low che restano
+
+Nessuno sfruttabile oggi, e nessuno blocca la finestra di migrazione.
+
+| # | Gravita | Cosa | Da dove si riparte |
+|---|---------|------|--------------------|
+| **D-AUD-21** | Medium | I due generatori coniano identificativi diversi per la stessa fascia, e la deduplica del browser legge il calendario **senza** `include_cancelled`: rigenerare una fascia che il cron ha creato e qualcuno ha annullato produce un doppione **attivo** accanto all'annullato. L'annullamento e di fatto reversibile per errore. Stessa cecita in `clearUpcomingGeneratedTrainings`, che gli annullati non li ripulisce mai | Un solo modo di nominare una fascia — la chiave del cron e gia deterministica e leggibile — e la lettura che include gli annullati |
+| **D-AUD-22** | Medium | La creazione a blocchi non controlla le sovrapposizioni. Il commento adesso lo dice invece di lasciarlo credere | Registrarlo nel risultato della generazione, che gia torna alla schermata |
+| **D-AUD-24** | Medium | La durata di un allenamento che scavalca la mezzanotte non arriva ai contributi: `getTrainingDurationHours` sottrae minuti d'orologio e per 22:00 → 00:30 restituisce `null`. Le sessioni notturne contano **zero ore** verso un ente | La durata si calcola sugli **istanti**, che il modello ora ha. E la stessa lezione del conflitto di struttura, un modulo piu in la |
+| **D-AUD-6**, **D-AUD-7**, **D-AUD-13**, **D-AUD-14** | Medium | Invariati: il sollecito manuale che consegna il nome di un minore fuori dal club; il cruscotto di famiglia che elenca i tutori revocati; `secretariat_notes` e `club_events` letti dal registro generico senza il perimetro di sede; i byte del documento d'identita raggiungibili con il solo `clinical.status_read` | — |
+| **Il rollover blocca le schede dopo le righe figlie** | Medium | `season-memberships.ts` scrive `athlete_category_memberships` e **poi** chiama `bloccaSchede`. `athlete-lock-order.ts` detta l'ordine opposto e lo nomina: «prima la scheda, poi le sue righe». Il ciclo completo non si chiude oggi — gli altri due percorsi sulle membership scrivono in autocommit — ma resta la violazione dichiarata e la corsa rollover-contro-rollover | Il lotto unico prima di ogni scrittura, come fa gia la revoca di una tessera |
+| **La cancellazione dell'interessato non e una transazione** | Medium | `data-subject.ts` cancella una decina di tabelle figlie in autocommit: un errore a meta lascia l'interessato **parzialmente cancellato** — righe figlie sparite, nome e indirizzo sulla scheda, `anonymized_at` non scritto. Su una richiesta GDPR «cancellato a meta» e indistinguibile da «non cancellato» per chi non va a guardare | Una transazione, o un marcatore di avanzamento che una schermata sappia leggere |
+| **Il pre-controllo delle sovrapposizioni e legato al giorno** | Medium | Il rilevamento lato server copre i giorni adiacenti e la mezzanotte; l'avviso del browser richiede lo **stesso giorno** e lo **stesso campo**, quindi non si accende e il salvataggio parte con `allowOverlap: false`: il server **rifiuta**, e la regola dichiarata — «la sovrapposizione e un avviso, non un muro» — e irraggiungibile proprio nei casi che il rilevamento ha appena reso visibili. Piu: l'editor dell'allenatore e la pagina Gare non mandano mai `allowOverlap` | Il pre-controllo sugli istanti, come il server |
+| **`W4-R14` sulle altre due rotte** | Medium | `athletes/[id]/documents/[documentId]/file` e `forms/assets/[assetId]` rispondono **500** a un errore che *contiene* «Accesso negato», e non passano da `publicErrorMessage`. Non e un bypass — la porta si chiude — ma e una mappatura sbagliata sul monitoraggio e un leak di implementazione, sulla rotta che consegna i byte di un certificato medico | La mappatura che le altre rotte hanno gia |
+| **`documents/:kind/:id/cancel` senza perimetro** | Medium | La **stampa** dello stesso documento applica `athleteWithinAccessScope`; l'annullamento no, e costruisce a mano uno scope che il perimetro non ce l'ha. Serve l'identificativo del documento, che le altre porte ora nascondono — da cui il Medium invece del High | La stessa primitiva della stampa |
+| **`medical-certificate-reminders` senza perimetro** | Low | Il confine di club c'e, il perimetro no: un ruolo recintato fa partire notifiche ed email a nome della societa ai tutori di un atleta fuori dal proprio perimetro, e la risposta gli conferma quanti sono. Nessun dato personale esce, ma e un effetto verso terzi e una conferma d'esistenza | `athleteWithinAccessScope`, come le altre |
+| **D-AUD-25**, **D-AUD-26** | Low | Invariati, e nessuno raggiungibile oggi: `training_automation.generate` e mappata su `events.manage`, che e anche modifica e cancellazione — il granulo del permesso e piu largo di quello della capacita; il `Set` delle capacita non e congelato (`Object.freeze` non lo tocca) e il test che lo nega prova solo l'oggetto esterno; l'attribuzione SISTEMA vive in **un punto su sei** | — |
+| **D-AUD-23**, **D-AUD-28**, **D-AUD-29** | Low | Invariati | — |
+| **`CLUB_DIRECT_UPDATE_FIELDS` elenca ancora `trainings` e `matches`** | Low | Un chiamante che passasse quelle chiavi farebbe fallire **l'intero** salvataggio del club con un 403, mentre si stava modificando l'indirizzo | Toglierle dalla tabella dei campi |
+| **`getClubTrainings` interroga una tabella che non esiste** | Low | `supabase.from("trainings")`: terza fonte morta accanto alle due vive, inghiottita da un `console.warn`, su una funzione chiamata da tre schermate | WP-07 |
+| **`D-AUD-27` per i due che restano** | Low | `simplified-db.ts` (in riduzione, WP-07) e `clothing-inventory-utils.ts` chiamano l'eleggibilita senza catalogo. Gli altri quattro sono stati chiusi | Passare il catalogo, o WP-07 |
+
+### La revisione della correzione, e i tre High che ha trovato
+
+Le correzioni di questa passata sono state a loro volta sottoposte a una
+revisione ostile, sul solo diff. Ne ha trovati **tre di gravita alta, tutti
+introdotti qui**, e vale la pena elencarli perche sono la prova che «ho
+corretto» non e una misura:
+
+| # | Cosa avevo rotto | Come |
+|---|------------------|------|
+| **AUD-R1** | **Chiudere la porta di servizio su `trainings` chiudeva anche la lettura e la cancellazione.** `DOMAIN_OWNED_RESOURCE_ITEM_TYPES` governa tre verbi, non uno: mettere `trainings` li dentro faceva perdere a `getClubTrainings` una delle sue tre fonti **in silenzio** (403 inghiottito da un `console.warn`), faceva sparire i due allenamenti del seme dimostrativo da tre schermate, e rendeva le righe fantasma **gia in archivio** insieme invisibili e non cancellabili — cioe la correzione chiudeva la porta lasciando dentro i fantasmi che quella porta aveva prodotto | Una seconda lista, `WRITE_ONLY_DOMAIN_OWNED_RESOURCE_ITEM_TYPES`, e un verbo passato alla guardia: scrittura chiusa, lettura e bonifica aperte. `audit-finale-scritture-probe` `A-03` e `A-04` lo misurano, ed erano il controspecchio che mancava |
+| **AUD-R2** | **Un N+1 di due query per evento sulla rotta del calendario.** Chiamavo la guardia del perimetro **dentro un ciclo**: fino a **quattromila letture in fila** su una pagina da duemila eventi, sulla stessa rotta il cui commento, due riquadri piu su, rivendica «un `groupBy` per l'intera pagina invece di una lettura per riga». Piu un `catch` **nudo** che inghiottiva i guasti d'archivio — la rotta rispondeva 200 con le rose vuote — e una riga di audit `permission.denied` per ogni evento fuori recinto, cioe su una lettura legittima | Il perimetro si legge una volta e si giudica in memoria. Il predicato di sede e categoria e stato **estratto** invece di riscritto: `assertAccessScopeOnEvent` e il filtro chiamano la stessa funzione |
+| **AUD-R3** | **Il claim atomico bruciava il gettone su un rifiuto legittimo.** Il commento dichiarava «sta dopo tutti i rifiuti legittimi»: era **falso**. Il soffitto del perimetro si giudica dopo, e cosi le scritture del profilo e del legame di tutela — otto punti di fallimento, nessuno in transazione con il consumo. Il caso peggiore: tessera di genitore creata, tutela **non** collegata, e nessun gettone per rifarla. Piu: `{ not: "redeemed" }` accettava anche `revoked`, quindi una revoca in corsa veniva **sovrascritta** | Il consumo si **disfa** se cio che viene dopo fallisce (`ripristinaGettone`), e la condizione e l'elenco chiuso degli stati riscattabili. Il commento adesso dice dove il claim sta davvero |
+
+Altri quattro reperti minori della stessa revisione sono stati chiusi nello
+stesso giro: la sonda `in: []` che mascherava un timeout e faceva risultare
+estranei anche gli identificativi buoni (con una riga di audit che dichiarava
+venti atleti fuori dal club quando erano zero); la guardia in transazione che
+falliva **aperta** quando la rilettura non trovava la riga; il duplicato di un
+incasso che rispondeva **201** e scriveva un audit di creazione — rimettendo nel
+registro i due «incasso registrato» che la chiave toglie dall'archivio; e la
+proiezione che azzerava `convocated_athlete_ids`, cioe la **risposta canonica
+del server**, sulle tre schermate che le righe non le hanno in mano.
+
+Ne restano due, dichiarati: la creazione di un incasso **senza rata** non passa
+dalla chiave di idempotenza (il blocco che la arbitra e sulla rata, e li non
+c'e), e `athleteIdsWithinAccessScope` carica gli identificativi dell'intero
+perimetro anche quando il filtro ne nomina uno solo.
+
+**La lezione.** Tre difetti di gravita alta in un diff di correzioni scritto per
+chiudere difetti di gravita alta, e due dei tre erano **regressioni
+funzionali**, non sviste di stile. Una correzione non e verificata dal fatto di
+essere una correzione: la sonda che misura il difetto va accompagnata dal
+controspecchio che misura cio che non deve smettere di funzionare. `A-03` e
+`A-04` di `audit-finale-scritture-probe` esistono solo per questo, e sono nate
+dopo — cioe troppo tardi per essere un merito.
+
+### I gate di questa passata (2026-09-07)
+
+| Gate | Esito |
+|------|-------|
+| `npm test` | 5.191 / 5.191 |
+| `npm run typecheck` | nessun output |
+| `npm run lint` | 0 errori, 34 warning — **gli stessi 34** |
+| `npm run build` | completato |
+| `scripts/censimento-eleggibilita.mjs` | 4/4 |
+| `scripts/pp-02-censimento.mjs` | 5/5 |
+| `scripts/pp-02-mutazioni.mjs` | 18/18, albero identico a prima |
+| `scripts/critical-automazione-sistema-probe.mjs` | 21/21 |
+| `scripts/pp-03-eventi-scope-ruoli-probe.mjs` | **77/77** (era 76/77) |
+| `scripts/pp-03-round4-etichette-e-concorrenza-probe.mjs` | **7/7** (si fermava) |
+| `scripts/pp-03-round5-concorrenza-e-grafie-probe.mjs` | **8/8** (era 7/8) |
+| `scripts/audit-finale-report-canonici-probe.mjs` | 5/5 |
+| `scripts/audit-finale-concorrenza-probe.mjs` | 9/9 |
+| `scripts/audit-finale-scritture-probe.mjs` | 13/13 |
+| `scripts/pp-02-uat.mjs` | **269/269** (era 265/269) |
+| `scripts/pp-04-atleta-probe.mjs` | **114/123** (si fermava a circa il 60%) |
+| `scripts/riscatto-perimetro.mjs` | 31/31 |
+| `scripts/pp-05-sicurezza-probe.mjs` | 14/14 |
+| `scripts/pp-05-gettone-tessera-probe.mjs` | 5/5 |
+
+### Due sonde rosse che nessuno aveva riclassificato
+
+Il verbale precedente elencava **tre** sonde rosse. Ce n'erano cinque: due non
+erano nell'elenco, e il confronto storico su `85876ee` le mostra rosse
+identiche — quindi preesistenti, e mai guardate.
+
+Entrambe per la stessa ragione, che e la terza volta che compare in questa
+passata: **una semina rimasta indietro rispetto al dominio.**
+
+`pp-02-uat` scriveva `athletes.user_id` e basta. Da ADR-0117 «questa persona e
+ancora un atleta di questo club?» ha una risposta sola, e chiede una **tessera**
+il cui ruolo risolto valga `athlete`: lo scrittore canonico
+(`redeemAthleteInvite`) le scrive **insieme**, nella stessa transazione. Con la
+tessera nella semina la sonda passa a **269/269**, e le tre prove che fallivano
+tornano a misurare il prodotto invece di se stesse.
+
+`pp-04-atleta-probe` moriva a meta su un vincolo che il dominio **dichiara** —
+«esiste gia un invito in corso per questo atleta: reinvialo o revocalo prima di
+crearne un altro» — perche la semina ne creava un secondo senza chiudere il
+primo. Tolto quello, la sonda arriva in fondo, e si vede la seconda meta del
+problema: i tutori sono seminati **solo** dentro `athletes.data.guardians[]`,
+che da WP-C e una proiezione in sola lettura (ADR-0135, ADR-0153). Con zero
+righe in `athlete_guardians`, `P-81` e `P-82b` misuravano una guardia **muta**:
+il verde di una difesa che non ha niente da confrontare e indistinguibile da
+quello vero, ed e il modo peggiore in cui una sonda puo sbagliare. Seminata la
+riga dal proprietario del dominio, le due prove diventano verdi per la ragione
+giusta.
+
+**Sui dati veri non c'e nessun difetto**, e la verifica e stata fatta prima di
+concludere: la migrazione `20260905120000_pp02_tutore_e_una_riga` legge il blob
+e scrive le righe, quindi ogni club esistente le ha. Un atleta seminato **dopo**
+quella migrazione no — ed e l'unico caso in cui il blob resta solo.
+
+### Il debito che resta sulle sonde
+
+| # | Cosa | Da dove si riparte |
+|---|------|--------------------|
+| **AUD-S1** | `pp-04-atleta-probe`: nove prove su 123 restano rosse, con **una sola causa** identificata. Le sezioni della famiglia seminano i tutori nel blob **dentro le proprie fasi**, e il legame lo scrivono come `linkedUserId` — che e il nome della **proiezione**, mentre la riga lo chiama `user_id` e lo scrive un secondo proprietario (`linkGuardianAccount`, non `saveGuardianRegistry`). Non e un difetto di prodotto: la stessa proprieta — «il tutore provato continua a vedere il figlio, prima e dopo i due gesti che tolgono l'accesso» — e misurata da `pp-02-uat`, che passa dagli scrittori canonici ed e a 269/269 | Portare le semine della famiglia sui **due** scrittori del dominio, come e stato fatto per `P-81`/`P-82b`. `allineaTutoriDalBlob` fa gia il gesto della migrazione, legame compreso, e va chiamata **dentro** le fasi invece che solo prima |
+
+**La lezione, e vale piu dei nove reperti.** Una sonda che semina scrivendo in
+archivio invece di passare dal dominio smette di misurare il prodotto nel
+momento esatto in cui il dominio cambia — e smette **in silenzio**: resta verde
+dove la difesa e diventata muta, e diventa rossa dove non c'e niente di rotto.
+Nessuna delle due cose si vede leggendo il numero in fondo.
+
+Le tre sonde nuove di questa passata seminano il minimo con Prisma e **agiscono**
+sempre dalle rotte, che e l'unico modo in cui l'invecchiamento di una semina si
+manifesta come un fallimento onesto invece che come un verde falso.

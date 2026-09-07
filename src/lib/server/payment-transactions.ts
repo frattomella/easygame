@@ -1,6 +1,10 @@
 import { prisma } from "./prisma";
 import { assertContoDelClub } from "./financial-account-guard";
 import {
+  athleteIdsWithinAccessScope,
+  buildAthleteAccessScopeConditions,
+} from "./access-scope-query";
+import {
   getOperationType,
   resolveInboundClassification,
 } from "./fiscal-config";
@@ -59,6 +63,15 @@ export type PaymentTransactionScope = {
   userId: string;
   activeOrganizationId: string | null;
   allowedOrganizationIds: string[];
+  /**
+   * Il perimetro di sede e categoria del ruolo attivo (`W6-D18`).
+   *
+   * Non era **dichiarato**, e da un tipo che non lo nomina discende un modulo
+   * che non lo consulta: la prima nota usciva intera anche per un ruolo
+   * recintato. Le rotte lo passavano gia — e lo scope che
+   * `resolveOrganizationScopeForUser` costruisce — e mancava soltanto qui.
+   */
+  accessScopes?: readonly any[] | null;
 };
 
 const denied = (message: string) => new Error(`Accesso negato: ${message}`);
@@ -118,6 +131,21 @@ const toDateOrNull = (value: unknown) => {
 
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+/**
+ * Gli atleti dentro il perimetro, oppure `null` quando non c'e perimetro.
+ *
+ * `null` e «nessun recinto» e **non** «recinto vuoto»: e la distinzione da cui
+ * nasce meta dei difetti di perimetro di questo repository, e per questo la
+ * porta il tipo di ritorno invece di un array vuoto.
+ */
+const athleteIdsWithinAccessScopeOppureTutti = async (
+  organizationId: string,
+  scope: PaymentTransactionScope | undefined,
+): Promise<string[] | null> => {
+  if (!buildAthleteAccessScopeConditions(scope as any)) return null;
+  return athleteIdsWithinAccessScope(organizationId, scope as any);
 };
 
 const transactionClient = () => (prisma as any).paymentTransaction;
@@ -182,11 +210,50 @@ export const listPaymentTransactions = async (
   const athleteId = asText(filter.athleteId);
   const paymentId = asText(filter.paymentId);
 
+  /*
+    **Il perimetro di sede e categoria** (`W6-D18`).
+
+    Questa rotta serviva **l'intero libro cassa del club** — atleta, rata,
+    importi, date, metodi, storni — a chiunque avesse `accounting.read`,
+    perimetro compreso. Due danni, non uno: il dato esce, e con lui escono gli
+    **identificativi** delle rate di atleti fuori perimetro, che sono
+    esattamente cio che serve per aprire la porta accanto
+    (`PATCH /api/athlete-payments/:id`, chiusa nello stesso commit).
+
+    Le righe si **filtrano**, non si nega la chiamata: chi ha un perimetro ha
+    diritto a vedere la propria parte di prima nota, ed e la scelta che il
+    registro generico fa gia sulla stessa risorsa.
+
+    `null` significa **nessun recinto** e non «recinto vuoto»: la segreteria
+    del club continua a vedere tutto.
+  */
+  const dentroIlPerimetro = await athleteIdsWithinAccessScopeOppureTutti(
+    organizationId,
+    scope,
+  );
+
   const rows = await transactionClient().findMany({
     where: {
       organization_id: organizationId,
       ...(athleteId ? { athlete_id: athleteId } : {}),
       ...(paymentId ? { payment_id: paymentId } : {}),
+      /*
+        **Le righe senza atleta restano.** Un incasso da un socio o da uno
+        sponsor non e il denaro di nessun atleta, quindi nessun perimetro di
+        sede o categoria lo riguarda: escluderlo toglierebbe a un ruolo
+        recintato tutta la prima nota non-atleta invece della sola parte fuori
+        perimetro. E ci sarebbe il seguito: `getSettledAmountForCharge` somma
+        da qui, e una somma che perde righe direbbe che una rata ha incassato
+        meno di quanto ha incassato — cioe consentirebbe un sovraincasso.
+      */
+      ...(dentroIlPerimetro
+        ? {
+            OR: [
+              { athlete_id: { in: dentroIlPerimetro } },
+              { athlete_id: null },
+            ],
+          }
+        : {}),
     },
     orderBy: [{ paid_at: "asc" }, { created_at: "asc" }],
   });
@@ -323,6 +390,11 @@ export type PaymentTransactionResult = {
   transaction: NormalizedPaymentTransaction;
   charge: Record<string, any> | null;
   transactions: NormalizedPaymentTransaction[];
+  /**
+   * Vero quando la chiave di idempotenza ha riconosciuto lo stesso gesto: la
+   * riga restituita e quella di prima, e non ne e nata una seconda.
+   */
+  duplicate?: boolean;
 };
 
 /* -------------------------------------------------------------- scrittura */
@@ -340,6 +412,26 @@ export type CreatePaymentTransactionInput = {
   externalReference?: unknown;
   /** Consente di incassare piu del residuo: lo decide chi chiama, non il default. */
   allowOverpayment?: boolean;
+  /**
+   * **La chiave che distingue «lo stesso clic due volte» da «due incassi
+   * uguali»** (`AUD-F1`).
+   *
+   * Il blocco di riga sulla rata chiude il **sovraincasso** — tre clic su una
+   * rata da 130 non incassano 150 — e non chiude la **duplicazione dentro la
+   * capienza**: rata da 130, la segreteria registra 50, il clic parte due
+   * volte, e due righe da 50 accreditano 100 per un versamento da 50. Nessuna
+   * delle due righe e distinguibile da un incasso vero.
+   *
+   * Misurato da `scripts/audit-finale-concorrenza-probe.mjs` (`B-01`): due
+   * `POST` identici, **201 tutti e due**.
+   *
+   * Solo chi chiama sa se il secondo invio e lo stesso gesto: due versamenti
+   * in contanti da 50 lo stesso giorno esistono, e rifiutarli confrontando i
+   * campi sarebbe peggio del difetto. La chiave e la stessa disciplina del
+   * registro **in uscita** (`sport-work-ledger.ts`), sul denaro in entrata,
+   * che finora non ne aveva nessuna.
+   */
+  idempotencyKey?: unknown;
   /**
    * Vero **solo** per un incasso confermato da un evento firmato dal
    * provider (`src/lib/server/payment-gateway.ts`).
@@ -596,6 +688,8 @@ export const createPaymentTransaction = async (
     input.financialAccountId,
   );
 
+  const idempotencyKey = asText(input.idempotencyKey) || null;
+
   const created = await (prisma as any).$transaction(async (client: any) => {
     if (paymentId) {
       /*
@@ -614,6 +708,50 @@ export const createPaymentTransaction = async (
         il blocco e sulla riga, non sulla tabella.
       */
       await lockInstallmentAndTransaction(client, paymentId);
+
+      /*
+        **La chiave si guarda dentro il blocco, che e dove la concorrenza si
+        arbitra** (`AUD-F1`).
+
+        E8 ha lasciato scritta la lezione: «un controllo applicativo di
+        unicita non e un vincolo di unicita: e un suggerimento che regge
+        finche non c'e concorrenza». Qui il suggerimento regge, perche non e
+        applicativo nel senso che quella voce condanna — sta **dentro** il
+        blocco di riga sulla rata, cioe dopo il punto in cui le due richieste
+        sono state messe in fila. La seconda legge cio che la prima ha gia
+        scritto, esattamente come per il residuo.
+
+        Il canale online la sua unicita ce l'ha nel database
+        (`payment_transactions_incasso_unico`, migrazione `20260827020000`), e
+        quella e parziale su `external_payment_id`: un incasso manuale ha
+        quella colonna vuota, quindi l'indice non lo tocca. Erano due canali
+        sullo stesso denaro e uno solo difeso.
+      */
+      if (idempotencyKey) {
+        const gia = await client.paymentTransaction.findFirst({
+          where: {
+            organization_id: organizationId,
+            payment_id: paymentId,
+            data: { path: ["idempotencyKey"], equals: idempotencyKey },
+          },
+        });
+
+        if (gia) {
+          return {
+            row: gia,
+            duplicate: true,
+            updatedCharge: await client.athletePayment.findUnique({
+              where: { id: paymentId },
+            }),
+            transactions: normalizePaymentTransactions(
+              await client.paymentTransaction.findMany({
+                where: { payment_id: paymentId },
+                orderBy: [{ paid_at: "asc" }, { created_at: "asc" }],
+              }),
+            ),
+          };
+        }
+      }
 
       /*
         Anche la **rata** si rilegge qui dentro, non solo il registro.
@@ -705,7 +843,7 @@ export const createPaymentTransaction = async (
         financial_account_id: contoVerificato,
         ...counterpartyColumns(input),
         ...settlementColumns(input.settlement),
-        data: {},
+        data: idempotencyKey ? { idempotencyKey } : {},
       },
     });
 
@@ -722,7 +860,7 @@ export const createPaymentTransaction = async (
         )
       : [];
 
-    return { row, updatedCharge, transactions };
+    return { row, updatedCharge, transactions, duplicate: false };
   });
 
   return {
@@ -731,6 +869,12 @@ export const createPaymentTransaction = async (
     ) as NormalizedPaymentTransaction,
     charge: created.updatedCharge,
     transactions: created.transactions,
+    /*
+      Vero quando la chiave ha riconosciuto lo stesso gesto: la risposta e la
+      stessa riga di prima, e chi ha chiamato non deve dedurre da un 201 che ne
+      sia nata una seconda.
+    */
+    duplicate: Boolean((created as any).duplicate),
   };
 };
 

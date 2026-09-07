@@ -44,9 +44,44 @@ test("sotto la soglia i conteggi restano, perche li i dati ci sono tutti", () =>
     /ATHLETE_STATUSES\.map\(\(stato, indice\) => \(/,
     "i conteggi si ricavano dal vocabolario, non da un elenco scritto a mano",
   );
+  /*
+    **E si contano le persone, non le tessere** (P0-1).
+
+    `athletes` porta **una riga per appartenenza**: chi si allena con due
+    gruppi compare due volte. Il conteggio era `.filter(...).length`, cioe le
+    righe — mentre nel ramo paginato lo stesso numero lo conta il database
+    sulle persone. Quaranta atleti di cui otto in due categorie diventavano
+    quarantotto, e lo stesso riquadro cambiava significato a seconda della
+    dimensione del club.
+  */
   assert.match(
     source,
-    /\{athletes\.filter\(\(a\) => a\.status === stato\)\.length\}/,
+    /new Set\(\s*athletes\s*\.filter\(\(a\) => a\.status === stato\)\s*\.map\(\(a\) => a\.id\),\s*\)\.size/,
+    "una persona con due tessere e una persona",
+  );
+});
+
+/**
+ * **«Totali» e un numero di persone, in tutti e due i rami.**
+ *
+ * Sopra la soglia lo conta il database (`listMeta.total`, che conta gli
+ * atleti); sotto la soglia era `athletes.length`, cioe le appartenenze. Il
+ * riquadro si legge allo stesso modo nei due casi, e diceva due cose diverse.
+ */
+test("«Totali» conta persone anche senza paginazione", () => {
+  assert.match(
+    source,
+    /const totaleAtletiDistinti = React\.useMemo\(\s*\(\) => new Set\(athletes\.map\(\(athlete\) => athlete\.id\)\)\.size,/,
+    "il totale distinto si calcola una volta, non a ogni punto in cui serve",
+  );
+  assert.match(
+    source,
+    /\{paginated && listMeta\s*\? listMeta\.total\s*: totaleAtletiDistinti\}/,
+  );
+  assert.match(
+    source,
+    /Azioni su tutti \(\{totaleAtletiDistinti\}\)/,
+    "il numero annunciato dal pulsante e l'insieme su cui si scrive, che e deduplicato",
   );
 });
 

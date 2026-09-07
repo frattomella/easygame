@@ -8,6 +8,7 @@ import {
   createClubEvent,
   createClubEventsBatch,
   listClubEvents,
+  listConvocatedAthleteIdsByEvent,
 } from "@/lib/server/events";
 import { normalizeEventKind, toEventLegacyShape } from "@/lib/events/model";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
@@ -176,10 +177,27 @@ export async function GET(request: Request) {
       rows.map((row) => String(row.id)),
     );
 
+    /*
+      **E chi sono i convocati** (`D-AUD-9`).
+
+      Il conteggio dice quante convocazioni ha una gara; l'avviso «fra i
+      convocati c'e un certificato scaduto» chiede **quali atleti**, e la
+      pagina Gare lo calcolava sulle grafie del payload — quindi non si
+      accendeva mai, nemmeno con due certificati scaduti in rosa. Gli
+      identificativi escono dallo stesso recinto dei partecipanti: sono un
+      dato personale quanto una riga.
+    */
+    const rosePerEvento = await listConvocatedAthleteIdsByEvent(
+      scope,
+      scope.activeOrganizationId as string,
+      rows.map((row) => String(row.id)),
+    );
+
     return NextResponse.json({
       data: rows.map((row) => ({
         ...toEventLegacyShape(row),
         ...(appello.get(String(row.id)) || CONTEGGI_A_ZERO),
+        convocated_athlete_ids: rosePerEvento.get(String(row.id)) || [],
         row: {
           id: row.id,
           kind: row.kind,

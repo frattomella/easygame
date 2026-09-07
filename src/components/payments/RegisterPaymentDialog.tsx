@@ -52,6 +52,22 @@ const formatCurrency = (value: unknown) =>
 
 const todayIsoDate = () => new Date().toISOString().slice(0, 10);
 
+/**
+ * Un identificativo per il gesto in corso.
+ *
+ * `crypto.randomUUID` non c'e su ogni browser che il prodotto dichiara di
+ * servire, e su una pagina servita in chiaro non c'e affatto: il ripiego non
+ * deve essere crittografico, deve solo essere diverso dal gesto di prima nella
+ * stessa sessione — la chiave vive dentro il perimetro di una rata.
+ */
+const coniaChiaveDelGesto = () => {
+  const globale = globalThis as any;
+  if (typeof globale?.crypto?.randomUUID === "function") {
+    return `manual:${globale.crypto.randomUUID()}`;
+  }
+  return `manual:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+};
+
 export type RegisterPaymentSubmission = {
   amount: number;
   paymentMethod: string;
@@ -68,6 +84,16 @@ export type RegisterPaymentSubmission = {
    * dell'intero incassato quote del club.
    */
   financialAccountId: string | null;
+  /**
+   * **La chiave del gesto** (`AUD-F1`).
+   *
+   * Un incasso registrato due volte dallo stesso clic entrava due volte: il
+   * blocco di riga sulla rata impediva di superare il residuo, non di
+   * duplicare dentro di esso. Chi conia la chiave e questa finestra, perche e
+   * l unico punto che sa distinguere «lo stesso invio» da «un secondo
+   * versamento uguale» — due contanti da 50 nello stesso giorno esistono.
+   */
+  idempotencyKey: string;
   /**
    * **La causale, che nessuna schermata chiedeva.**
    *
@@ -159,9 +185,22 @@ export function RegisterPaymentDialog({
     tenerli fra due aperture porterebbe l'importo della rata precedente su
     quella nuova, che e il tipo di errore che si scopre a fine mese.
   */
+  /**
+   * **La chiave del gesto, coniata a ogni apertura** (`AUD-F1`).
+   *
+   * Non a ogni invio: se la rete cade e la segreteria ripreme, quello e
+   * ancora **lo stesso** gesto, e il server deve riconoscerlo. Cambia quando
+   * la finestra si riapre, che e il momento in cui un secondo versamento
+   * uguale diventa possibile.
+   */
+  const [chiaveDelGesto, setChiaveDelGesto] = React.useState(() =>
+    coniaChiaveDelGesto(),
+  );
+
   React.useEffect(() => {
     if (!open || !ledger) return;
 
+    setChiaveDelGesto(coniaChiaveDelGesto());
     setAmount(ledger.residualAmount > 0 ? ledger.residualAmount.toFixed(2) : "");
     setPaymentMethod(methodChoices[0] || "");
     setPaidAt(todayIsoDate());
@@ -227,6 +266,7 @@ export function RegisterPaymentDialog({
       notes: notes.trim(),
       operationTypeCode: operationTypeCode || null,
       financialAccountId: financialAccountId || null,
+      idempotencyKey: chiaveDelGesto,
     });
   };
 

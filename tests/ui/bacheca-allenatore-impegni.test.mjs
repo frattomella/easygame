@@ -62,9 +62,36 @@ test("allenamenti e gare stanno nello stesso elenco, in ordine di orario", () =>
   */
   assert.match(
     senzaCommenti,
-    /const prossimiImpegni = \[\s*\.\.\.visibleTrainings\.map[\s\S]{0,200}\.\.\.visibleMatches\.map/,
+    /const prossimiImpegni = \[\s*\.\.\.impegniTrainings\.map[\s\S]{0,200}\.\.\.impegniMatches\.map/,
     "i due calendari entrano nello stesso elenco",
   );
+
+  /*
+    **E gli annullati non ci entrano** (P0-3, `D-AUD-20`).
+
+    Il contesto chiede il calendario con `include_cancelled=1`, perche la
+    pastiglia «Annullato» e il ripristino vivono sulla riga annullata. Da
+    quella deroga discendeva che un allenamento annullato compariva fra i
+    prossimi impegni **indistinguibile** da uno in programma: la pastiglia di
+    questo riquadro e la stringa fissa «Allenamento». Un allenatore legge
+    «quando torno in campo» e ci trova una seduta che non ci sara.
+  */
+  assert.match(
+    senzaCommenti,
+    /const impegniTrainings = visibleTrainings\.filter\(\s*\(training: any\) => !isCancelledEvent\(training\),\s*\);/,
+    "gli allenamenti annullati escono dagli impegni",
+  );
+  assert.match(
+    senzaCommenti,
+    /const impegniMatches = visibleMatches\.filter\(\s*\(match: any\) => !isCancelledEvent\(match\),\s*\);/,
+    "e cosi le gare annullate",
+  );
+  assert.match(
+    senzaCommenti,
+    /const todayTrainings = impegniTrainings/,
+    "e nemmeno nei conteggi di oggi: «Allenamenti di oggi: 3» con due annullati e un numero falso",
+  );
+  assert.match(senzaCommenti, /const todayMatches = impegniMatches/);
   assert.match(
     senzaCommenti,
     /compareTrainerRecordsByStart\(sinistra\.record, destra\.record\)/,

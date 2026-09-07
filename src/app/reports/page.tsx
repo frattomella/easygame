@@ -590,11 +590,25 @@ export default function ReportsPage() {
     () =>
       calculateMatchConvocationReport({
         matches: reportState.matches,
+        /*
+          **La rosa e una riga, non una grafia del payload** (`D-AUD-9`).
+          `attendanceRecords` sono le righe di `training_attendance`, che e
+          `club_event_participants`: la convocazione vive li, nella colonna
+          `convocation_status`. La pagina le caricava gia per le presenze e non
+          le passava qui, e il rendiconto delle convocazioni diceva zero.
+        */
+        attendanceRecords: reportState.attendanceRecords,
         categories: categoryOptions,
         selectedCategoryId,
         period,
       }),
-    [categoryOptions, period, reportState.matches, selectedCategoryId],
+    [
+      categoryOptions,
+      period,
+      reportState.attendanceRecords,
+      reportState.matches,
+      selectedCategoryId,
+    ],
   );
 
   /*
