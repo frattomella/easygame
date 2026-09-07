@@ -3133,3 +3133,38 @@ l'integrazione finale deve sapere, e ha due conseguenze.
 `pp-02-diagnosi-travaso.mjs` e `npx prisma migrate status`. Il deploy stesso
 **richiede autorizzazione esplicita** ([CLAUDE.md §9](../../CLAUDE.md)), perche
 ogni deploy esegue `prisma migrate deploy`.
+
+---
+
+## Debito aperto dall'integrazione finale (2026-09-07)
+
+Il ramo `integration/final-production-readiness` unisce PP-05, PP-03, PP-04 e
+PP-02 e chiude P0-4. **Non** chiude il resto del mandato Fortitudo, e questa
+tabella dice esattamente che cosa resta, perche, e da dove si riparte.
+
+La regola di lettura e la stessa del resto del documento: una voce qui e una
+cosa che **non e stata fatta**, non una cosa che si spera vada bene.
+
+| # | Cosa | Perche non e stato fatto qui | Da dove si riparte |
+|---|------|------------------------------|--------------------|
+| **D-INT-1** | **I sette P0 Fortitudo che non sono P0-4.** Conteggio degli atleti nelle azioni massive (213 contro 245: un atleta con piu tessere si conta due volte); l'allenamento cancellato che resta su cruscotti e calendario; il registro presenze; le convocazioni; la bacheca dell'allenatore; la coerenza categoria↔sede quando una categoria si sposta; l'ordinamento canonico delle categorie; la pagina atleti senza paginazione classica; il conflitto di struttura fra eventi di giorni adiacenti | Sono **sette pacchetti di prodotto**, non sette correzioni. La bacheca dell'allenatore da sola e una riscrittura responsive su quattro larghezze con flussi a una mano; il registro presenze e le convocazioni pretendono prima la consolidazione dell'eleggibilita (`D-INT-2`). L'integrazione ha chiuso P0-4 perche e la **radice condivisa** di P0-4/5/6/7 — l'identita di una categoria — e perche era l'unica dei sette a essere un difetto di dominio invece che una funzione da costruire | Ognuno con la sua lane e il suo commit. P0-1 e il piu vicino a essere una correzione sola: l'insieme bersaglio di un'azione massiva va reso un insieme di **identificativi di atleta** distinti, e «tutti» deve significare tutti i risultati filtrati e non la pagina corrente |
+| **D-INT-2** | **L'eleggibilita non e stata consolidata.** «Quali atleti appartengono a questa categoria o a questo gruppo?» ha ancora piu di una risposta nell'albero. Il censimento e stato fatto ed e questo: `category-compatibility.ts` (ADR-0030) e il modello canonico e **e gia corretto** — configurazione esplicita, per identificativo, non transitiva; `audience.ts` risolve `category_ids` per identificativo ed e corretto; `trainer-dashboard-helpers.ts` e stato corretto qui (ADR-0155); restano `parent-dashboard.ts` (`getAthleteCategoryTokens`, che normalizza **nomi**), `access-scope-query.ts`, `season-memberships.ts`, `trainer-area.ts`, `club-report-utils.ts` e `category-athlete-stats.ts` | La centralizzazione vera — un `resolveEligibleAthletes` unico che club e allenatore condividono — cambia la forma dei dati che sei schermate ricevono. Farla dentro l'integrazione avrebbe mescolato un refactor architetturale con quattro merge semantici, che e esattamente cio che CLAUDE.md §3 vieta | La primitiva esiste gia (`getAthleteCategoryEligibility`, `buildCategoryCompatibilityIndex`): il lavoro e portare i sei consumatori residui su di lei, uno per commit, e togliere il ripiego sul nome dove il catalogo c'e. `extractCategoryIdentity` e la forma che gli altri devono assumere |
+| **D-INT-3** | **Due categorie omonime restano due voci con la stessa scritta.** ADR-0155 ha tolto la **fusione**: l'Under 15 di Formia non e piu l'Under 15 di Scauri per il codice. A schermo pero i due menu, i due filtri e le due intestazioni continuano a dire «Under 15» due volte, e chi sceglie non sa quale sta scegliendo | E lavoro di interfaccia su una decina di superfici, e ha una decisione di prodotto dentro: accostare **sempre** la sede, o solo quando il nome e ambiguo. La seconda e piu pulita e piu difficile, perche l'ambiguita va calcolata dove si disegna | `getRecordDisplayCategory` e il punto unico dell'etichetta: e li che una sede si accosta, non in dieci schermate |
+| **D-INT-4** | **Il ripristino dello snapshot non e mai stato provato.** Il runbook della finestra di migrazione ([50](50-finestra-migrazione-staging.md)) dichiara il ripristino come unico rimedio, e non esistono migrazioni `down` | Provarlo significa creare uno snapshot, romperlo di proposito e ripristinarlo su un ambiente vero: e una scrittura distruttiva su staging, che richiede un'autorizzazione esplicita (CLAUDE.md §9) | Va provato **prima** della finestra vera, non durante. Un piano di rollback mai eseguito e un'ipotesi |
+| **D-INT-5** | **Le sonde precedenti a WP-C seminano ancora l'archivio sbagliato.** Restano da convertire: `wave-4-audit-concurrency-probe`, `wave-5-concurrency-probe`, `wave-5-security-probe`, `pp-04-atleta-probe`, `pp-04-round-conclusivo-probe`, e le tre `pp-03-round3-*` | Non e una regressione dell'integrazione: **misurato**, falliscono identiche su `d57ddce`, cioe su PP-02 da sola. PP-02 ha dichiarato FINAL con le proprie dieci sonde convertite e queste otto rotte dal proprio cutover | `scripts/helpers/travaso-tutori.mjs` fa il lavoro in una riga. `pp-03-revoca-sweep-probe` e `wave-6-security-probe` sono state convertite qui e mostrano la forma. `wave-6-security-probe` arriva ora a U-73 su U-74 e si ferma su un quarto strato: `reviewFormSubmission` pretende una tessera nel club che la sonda non semina |
+| **D-INT-6** | **La revisione ostile sul sistema integrato non e stata eseguita.** Ogni lane ha la propria (PP-02 quindici tornate, PP-03 sette, PP-04 quattro, PP-05 quattro), e nessuna ha guardato la **composizione** | Va fatta da revisori indipendenti sul ramo integrato, dopo i P0. Farla ora misurerebbe un sistema che sta per cambiare | Il perimetro e quello del mandato: tenancy, ruoli personalizzati, eleggibilita, eventi, tutori, autenticazione, documenti, account, denaro. Le due regressioni trovate qui dalla sola riesecuzione delle sonde (§4a e §C2 di PP-02) dicono che il metodo paga |
+| **D-INT-7** | **La pagina Account non e stata rifinita.** Club, organizzazione attiva, ruolo corrente, ruolo personalizzato, profili collegati, stato di invito e riscatto: ci sono, ma non sono stati riletti dopo il merge, e il requisito «dopo il riscatto il profilo collegato compare **subito**» non e stato verificato a schermo sul ramo integrato | Fuori dal perimetro dei quattro merge, e dipende da `D-INT-1` per la parte allenatore | Il flusso da percorrere e uno: riscatta un invito, e guarda se la pagina lo dice senza un secondo caricamento |
+
+### Una nota sul metodo, che vale piu di ogni voce
+
+Due sonde di PP-02 sono diventate rosse **dopo** il merge, e nessuna delle due
+per una difesa caduta: in tutti e due i casi la composizione con un'altra lane
+aveva prodotto una garanzia **piu stretta** di quella per cui l'asserzione era
+scritta (PP-05 che chiude il registro generico dei recapiti, PP-03 che mette la
+guardia di club attivo prima della ricerca).
+
+La tentazione, in quel punto, e allargare il codice per far tornare verde la
+sonda. Sarebbe stato riaprire una porta per una prova. Sono state corrette le
+**asserzioni**, e ognuna porta scritto accanto perche — cosi che il prossimo che
+le legga sappia che la regola vecchia non e caduta: e stata contenuta in una
+piu larga.
