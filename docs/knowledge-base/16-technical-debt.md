@@ -3471,7 +3471,7 @@ dopo — cioe troppo tardi per essere un merito.
 | `scripts/audit-finale-concorrenza-probe.mjs` | 9/9 |
 | `scripts/audit-finale-scritture-probe.mjs` | 13/13 |
 | `scripts/pp-02-uat.mjs` | **269/269** (era 265/269) |
-| `scripts/pp-04-atleta-probe.mjs` | **114/123** (si fermava a circa il 60%) |
+| `scripts/pp-04-atleta-probe.mjs` | **125/125** (si fermava a circa il 60%; 114/123 dopo la prima correzione) |
 | `scripts/riscatto-perimetro.mjs` | 31/31 |
 | `scripts/pp-05-sicurezza-probe.mjs` | 14/14 |
 | `scripts/pp-05-gettone-tessera-probe.mjs` | 5/5 |
@@ -3513,7 +3513,7 @@ quella migrazione no — ed e l'unico caso in cui il blob resta solo.
 
 | # | Cosa | Da dove si riparte |
 |---|------|--------------------|
-| **AUD-S1** | `pp-04-atleta-probe`: nove prove su 123 restano rosse, con **una sola causa** identificata. Le sezioni della famiglia seminano i tutori nel blob **dentro le proprie fasi**, e il legame lo scrivono come `linkedUserId` — che e il nome della **proiezione**, mentre la riga lo chiama `user_id` e lo scrive un secondo proprietario (`linkGuardianAccount`, non `saveGuardianRegistry`). Non e un difetto di prodotto: la stessa proprieta — «il tutore provato continua a vedere il figlio, prima e dopo i due gesti che tolgono l'accesso» — e misurata da `pp-02-uat`, che passa dagli scrittori canonici ed e a 269/269 | Portare le semine della famiglia sui **due** scrittori del dominio, come e stato fatto per `P-81`/`P-82b`. `allineaTutoriDalBlob` fa gia il gesto della migrazione, legame compreso, e va chiamata **dentro** le fasi invece che solo prima |
+| ~~**AUD-S1**~~ **CHIUSA** (2026-09-08, e la classificazione era sbagliata: vedi in fondo) | `pp-04-atleta-probe`: nove prove su 123 restavano rosse, con **una sola causa** identificata. Le sezioni della famiglia seminano i tutori nel blob **dentro le proprie fasi**, e il legame lo scrivono come `linkedUserId` — che e il nome della **proiezione**, mentre la riga lo chiama `user_id` e lo scrive un secondo proprietario (`linkGuardianAccount`, non `saveGuardianRegistry`). Non e un difetto di prodotto: la stessa proprieta — «il tutore provato continua a vedere il figlio, prima e dopo i due gesti che tolgono l'accesso» — e misurata da `pp-02-uat`, che passa dagli scrittori canonici ed e a 269/269 | Portare le semine della famiglia sui **due** scrittori del dominio, come e stato fatto per `P-81`/`P-82b`. `allineaTutoriDalBlob` fa gia il gesto della migrazione, legame compreso, e va chiamata **dentro** le fasi invece che solo prima |
 
 **La lezione, e vale piu dei nove reperti.** Una sonda che semina scrivendo in
 archivio invece di passare dal dominio smette di misurare il prodotto nel
@@ -3524,3 +3524,68 @@ Nessuna delle due cose si vede leggendo il numero in fondo.
 Le tre sonde nuove di questa passata seminano il minimo con Prisma e **agiscono**
 sempre dalle rotte, che e l'unico modo in cui l'invecchiamento di una semina si
 manifesta come un fallimento onesto invece che come un verde falso.
+
+---
+
+## `AUD-S1` chiusa, e la classificazione che l'aveva aperta era sbagliata (2026-09-08)
+
+`pp-04-atleta-probe` e a **125/125**. Ma il modo in cui ci e arrivata smentisce
+la voce che l'aveva registrata, e la smentita vale piu della chiusura.
+
+### Cio che quella voce diceva, e perche era sbagliato
+
+Diceva: «nove prove su 123 restano rosse, con **una sola causa** identificata»,
+e la causa era la semina che scrive i tutori nel blob invece che nelle righe.
+
+**Sette su nove, si.** Erano semine rimaste indietro rispetto a WP-C, e si sono
+chiuse portandole sui due scrittori del dominio — `saveGuardianRegistry` per
+l'anagrafica e `linkGuardianAccount` per il legame, che sono due proprietari
+distinti proprio perche collegare un account non e registrare un tutore
+(ADR-0135). Il travaso della semina fa ora lo stesso gesto della migrazione,
+legame compreso.
+
+**Due su nove no**, ed erano di natura opposta: `P-13` e `P-71` non misuravano
+una semina invecchiata, misuravano **attese invecchiate**. Il prodotto era
+andato avanti — con due ADR — e la sonda era rimasta ferma:
+
+| Prova | Attesa vecchia | Cosa era successo |
+|-------|----------------|-------------------|
+| `P-13` | il certificato porta **tre** chiavi | PP-02 §F ne ha aggiunte due, `detail` e `summary`, perche il ragazzo e il genitore leggessero le **stesse parole**: prima al ragazzo si diceva «Certificato mancante» per un certificato consegnato senza scadenza, mentre sulla Home il genitore leggeva «Consegnato» |
+| `P-71` | la scrittura sulle notifiche e **403** | ADR-0122 ha aperto il ramo «sono io» **deliberatamente**: senza, la campanella del ragazzo non si spegneva mai — lo stesso difetto che gli aveva spento la bacheca, sul pulsante accanto |
+
+### Come sono state chiuse: irrigidendole, non rilassandole
+
+Questa e la parte che conta. Una sonda rossa per un'attesa superata si «chiude»
+in due modi, e uno dei due e una bugia:
+
+* si allenta l'attesa fino a farla passare — e da quel momento la prova non
+  misura piu niente;
+* si guarda **cosa rendeva sicura la cosa nuova**, e si pretende quella.
+
+`P-13` ora elenca le cinque chiavi **e** pretende che `detail` e `summary` non
+portino niente di clinico: le due chiavi nuove sono descrizioni di stato —
+`describeMedicalCertificateForFamily` compone un'etichetta e una data, «Scade il
+12/03/2027» — e non leggono ne diagnosi, ne note, ne l'indirizzo del file.
+Contare le chiavi e cio che si puo fare da fuori; guardare dentro le due nuove e
+cio che serve, e l'attesa vecchia non lo faceva.
+
+`P-71` ora pretende **200** e, accanto, che la scrittura **non chiuda la
+notifica del tutore**. Cio che rende sicuro quel 200 non e il permesso: e il
+perimetro della scrittura, che filtra su `user_id` e poi su
+`notificationBelongsToAthlete`. Un 403 avrebbe misurato una porta chiusa;
+questo misura cosa succede quando e aperta, che e la domanda vera.
+
+### La lezione, che e diversa da quella della voce precedente
+
+Una sonda invecchia in **due** modi, non uno. La semina che resta indietro
+rispetto al dominio la rende rossa dove non c'e niente di rotto — ed e la
+lezione che `AUD-S1` aveva gia scritto. Ma l'**attesa** che resta indietro
+rispetto a una decisione di prodotto fa la stessa cosa, e assomiglia cosi tanto
+alla prima che si e tentati di trattarle insieme. Trattarle insieme e
+esattamente cio che questa voce aveva fatto: nove reperti, una causa. Erano
+due, e la seconda non si chiudeva toccando la sonda — si chiudeva andando a
+leggere **perche** il prodotto aveva cambiato idea.
+
+Il rischio di sbagliare quella diagnosi ha un verso solo, e non e simmetrico:
+chi crede che una prova rossa sia sempre colpa della semina la aggiusta finche
+passa, e la prima volta che il rosso era un difetto vero lo aggiusta lo stesso.

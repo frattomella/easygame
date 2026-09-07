@@ -152,6 +152,32 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+/*
+  **Questa sonda scrive, quindi dichiara dove.**
+
+  `scripts/db-guard.mjs` copre gli **script npm**; una sonda lanciata a mano
+  copiando la riga dalla propria docstring non passa di li. Diciotto sonde di
+  questo repository scrivevano su Postgres senza chiedere niente a nessuno:
+  bastava una shell con `DATABASE_URL` puntata a un ambiente condiviso — che e
+  lo stato ordinario di chi ha appena letto un dato su staging — e la prima
+  `create` partiva su dati veri.
+
+  Non e uno scenario di fantasia: e la stessa mossa che apre la finestra di
+  migrazione. Trovato preparando la prova di rollback.
+
+  L'etichetta da sola non basta e la guardia lo sa: `db-guard` confronta anche
+  l'**host**. Qui si tiene il vaglio minimo — una sonda gira solo sul database
+  di sviluppo — perche e la condizione che questa famiglia di script ha sempre
+  dichiarato in prosa senza mai verificare.
+*/
+if (process.env.EASYGAME_DB_ENV !== "development") {
+  console.error(
+    "Rifiuto: serve EASYGAME_DB_ENV=development. Questa sonda scrive sul database.",
+  );
+  process.exit(1);
+}
+
+
 const prisma = new PrismaClient();
 const carica = (rel) => import(pathToFileURL(path.resolve(rel)).href);
 

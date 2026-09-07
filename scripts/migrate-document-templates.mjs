@@ -50,11 +50,33 @@ const DRY_RUN = args.includes("--dry-run");
 const ONLY_CLUB =
   (args.find((arg) => arg.startsWith("--club=")) || "").split("=")[1] || "";
 
+/*
+  **`staging` non e un'autorizzazione, e questo era l'unico script a crederlo.**
+
+  La condizione ammetteva `EASYGAME_DB_ENV === "staging"` accanto a
+  `development`: chiunque avesse quel valore nel proprio `.env` — che
+  `.env.example` elenca fra i tre legittimi — scriveva su staging senza nessun
+  altro passaggio, mentre ogni altro percorso di scrittura pretende
+  `EASYGAME_ALLOW_SHARED_DB_WRITE=1` e un'autorizzazione esplicita.
+
+  Un'eccezione in un posto solo non e un'eccezione: e il buco che si trova
+  cercando le altre. Trovato preparando la finestra di migrazione, cioe nel
+  momento in cui una connection string di staging vive davvero in un `.env`.
+
+  Il travaso su un ambiente condiviso passa ora dalla stessa porta di tutti
+  gli altri: l'override, che stampa il proprio avviso e nomina il bersaglio.
+*/
 const DB_ENV = String(process.env.EASYGAME_DB_ENV || "").trim();
-if (!DRY_RUN && DB_ENV !== "development" && DB_ENV !== "staging") {
+const OVERRIDE =
+  String(process.env.EASYGAME_ALLOW_SHARED_DB_WRITE || "").trim() === "1";
+if (!DRY_RUN && DB_ENV !== "development" && !OVERRIDE) {
   console.error(
     `Rifiuto di scrivere: EASYGAME_DB_ENV vale "${DB_ENV || "(vuoto)"}".`,
   );
+  console.error(
+    "Su un ambiente condiviso serve autorizzazione esplicita, e poi",
+  );
+  console.error("EASYGAME_ALLOW_SHARED_DB_WRITE=1 per quel singolo comando.");
   process.exit(1);
 }
 

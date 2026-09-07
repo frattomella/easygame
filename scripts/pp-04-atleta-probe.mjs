@@ -407,11 +407,6 @@ const allineaTutoriDalBlob = async () => {
       : [];
     if (!blob.length) continue;
 
-    const gia = await prisma.athleteGuardian.count({
-      where: { athlete_id: scheda.id },
-    });
-    if (gia) continue;
-
     await tutoriDominio.saveGuardianRegistry(prisma, {
       organizationId: CLUB,
       athleteId: scheda.id,
@@ -427,6 +422,69 @@ const allineaTutoriDalBlob = async () => {
         userId: voce?.userId ?? voce?.linkedUserId ?? voce?.linked_user_id ?? null,
       })),
       canGrantAccess: true,
+    });
+
+    /*
+      **Il legame lo scrive un secondo proprietario, e non e questo.**
+
+      `saveGuardianRegistry` scrive l'anagrafica del tutore e **rifiuta** le
+      chiavi che nominano un'utenza: collegare un account a una riga di tutore
+      e un atto suo, con il suo permesso e la sua traccia, e vive in
+      `linkGuardianAccount` (ADR-0135). Il blob invece li teneva insieme, sotto
+      `linkedUserId`.
+
+      Una semina che travasa solo l'anagrafica porta quindi il nome e
+      l'indirizzo e **perde il legame** — che e esattamente la proprieta che
+      meta di questa sonda misura: «il tutore **provato**, non la casella,
+      continua a vedere il figlio». Due scrittori, due chiamate.
+    */
+    for (const voce of blob) {
+      const utenza = String(
+        voce?.userId ?? voce?.linkedUserId ?? voce?.linked_user_id ?? "",
+      ).trim();
+      if (!utenza) continue;
+
+      await tutoriDominio.linkGuardianAccount(prisma, {
+        athleteId: scheda.id,
+        userId: utenza,
+        email: voce?.email ?? null,
+        identityKeys: [voce?.id, voce?.email].filter(Boolean).map(String),
+      });
+    }
+
+    /*
+      **E il legame tolto va tolto anche dalle righe.**
+
+      Il blob dice «scollegato» mettendo  a nulla. Se la semina
+      sapesse solo **aggiungere** legami, il controspecchio della sonda —
+      «senza legame la stessa identita torna fuori» — misurerebbe un legame che
+      la semina stessa ha rimesso, cioe direbbe verde su una porta aperta.
+
+      Si scrive dal permesso dell'archivio, che e il gesto che fa anche la
+      migrazione: ogni  su  fuori da una
+      transazione che dichiari  viene rifiutato.
+    */
+    const utenzeNelBlob = new Set(
+      blob
+        .map((voce) =>
+          String(
+            voce?.userId ?? voce?.linkedUserId ?? voce?.linked_user_id ?? "",
+          ).trim(),
+        )
+        .filter(Boolean),
+    );
+
+    await tutoriDominio.withGuardianWriter(prisma, async (tx) => {
+      await tx.athleteGuardian.updateMany({
+        where: {
+          athlete_id: scheda.id,
+          user_id: { not: null },
+          ...(utenzeNelBlob.size
+            ? { user_id: { notIn: [...utenzeNelBlob] } }
+            : {}),
+        },
+        data: { user_id: null },
+      });
     });
   }
 };
@@ -806,13 +864,44 @@ const proveArea = async () => {
     prova(`P-12 la chiave «${chiave}» non esce`, false, testo.includes(chiave));
   }
 
-  /* P-13: del certificato esce lo stato, non il contenuto. */
+  /*
+    P-13: del certificato esce lo **stato**, non il contenuto.
+
+    **L'attesa era di tre chiavi, e oggi sono cinque.** PP-02 §F ha aggiunto
+    `detail` e `summary` perche il ragazzo e il genitore leggessero le
+    **stesse parole**: prima `status` valeva `missing` ogni volta che mancava
+    una data, quindi al ragazzo si diceva «Certificato mancante» per un
+    certificato che aveva consegnato, mentre sulla Home il genitore leggeva
+    «Consegnato». Lo stesso documento, due risposte opposte dentro lo stesso
+    prodotto.
+
+    Le due chiavi nuove sono **descrizioni di stato**, non contenuto clinico:
+    `describeMedicalCertificateForFamily` compone un'etichetta e una data —
+    «Scade il 12/03/2027» — e non legge ne diagnosi, ne note, ne l'indirizzo
+    del file.
+
+    Elencarle qui non allenta la prova: la **irrigidisce**, perche accanto
+    all'elenco chiuso delle chiavi si pretende ora che il loro **contenuto**
+    non porti niente di clinico. Contare le chiavi e cio che si puo fare da
+    fuori; guardare dentro le due nuove e cio che serve davvero, e la prima
+    stesura non lo faceva.
+  */
+  const ordineSalute = ["status", "statusLabel", "detail", "summary", "expiryDate"];
   prova(
-    "P-13 il certificato porta stato ed etichetta e nient'altro",
-    ["status", "statusLabel", "expiryDate"],
-    Object.keys(dati.health || {}).sort((a, b) =>
-      ["status", "statusLabel", "expiryDate"].indexOf(a) -
-      ["status", "statusLabel", "expiryDate"].indexOf(b),
+    "P-13 il certificato porta stato, etichetta e descrizione, e nient'altro",
+    ordineSalute,
+    Object.keys(dati.health || {}).sort(
+      (a, b) => ordineSalute.indexOf(a) - ordineSalute.indexOf(b),
+    ),
+  );
+  prova(
+    "P-13b e la descrizione non porta niente di clinico",
+    [],
+    ["SEGRETO-CLINICO-A", "NOTA-MEDICA-A", "SEGRETO-CLINICO-B", "NOTA-MEDICA-B"].filter(
+      (segreto) =>
+        JSON.stringify([dati.health?.detail, dati.health?.summary]).includes(
+          segreto,
+        ),
     ),
   );
 
@@ -1982,6 +2071,8 @@ const proveRamoTutore = async () => {
     },
   });
 
+  await allineaTutoriDalBlob();
+
   const SEGRETI = [
     "SEGRETO-D-QUOTA",
     "SEGRETO-D-RICEVUTA",
@@ -2023,7 +2114,40 @@ const proveRamoTutore = async () => {
     nessunSegreto(cruscotto),
   );
 
-  /* P-71: e nemmeno le scritture che il cruscotto porta con se. */
+  /*
+    P-71 — **la scrittura sulle notifiche, e perche il 200 e quello giusto.**
+
+    L'attesa era **403**, e veniva da prima di ADR-0122. Il ramo «sono io» su
+    questa rotta e stato aperto **deliberatamente**: senza, il ragazzo riceveva
+    403 e la sua campanella non si spegneva mai — lo stesso difetto che aveva
+    spento la sua bacheca, sul pulsante accanto. Una notifica che non si puo
+    chiudere e rumore, e il rumore insegna a ignorare anche cio che conta.
+
+    **Cio che rende il 200 sicuro non e il permesso: e il perimetro della
+    scrittura.** La rotta filtra su `user_id: session.db.user_id` e poi su
+    `notificationBelongsToAthlete`: chiude le notifiche **proprie**, di
+    **quel** figlio, in **quel** club. Non tocca quelle del tutore, che sono
+    righe di un'altra persona.
+
+    Percio la prova non e piu «rifiuta», ed e diventata piu stretta di prima:
+    passa, e **non tocca la riga del tutore**. Un 403 avrebbe misurato una
+    porta chiusa; questo misura cosa succede quando e aperta, che e la
+    domanda vera.
+  */
+  const notificaDelTutore = await prisma.notification.create({
+    data: {
+      id: randomUUID(),
+      organization_id: CLUB,
+      user_id: TUTORE_D.id,
+      title: "Avviso per la tutrice",
+      message: "SEGRETO-D-NOTIFICA-TUTORE",
+      type: "info",
+      read: false,
+      data: { athleteId: ATLETA_D },
+      updated_at: new Date(),
+    },
+  });
+
   const segnaLetta = await leggi(
     await rotte.notifiche.PATCH(
       comeD(`/api/parent-dashboard/${ATLETA_D}/notifications`, {
@@ -2034,9 +2158,20 @@ const proveRamoTutore = async () => {
     ),
   );
   prova(
-    "P-71 ne la scrittura sulle notifiche della famiglia: 403",
-    403,
+    "P-71 la scrittura sulle notifiche passa: e la propria campanella",
+    200,
     segnaLetta.status,
+  );
+
+  const rigaTutrice = await prisma.notification.findUnique({
+    where: { id: notificaDelTutore.id },
+    select: { read: true },
+  });
+  prova(
+    "P-71b e non chiude quelle del tutore, che sono di un'altra persona",
+    false,
+    rigaTutrice?.read ?? null,
+    "«segna tutte come lette» deve valere per chi preme, non per la famiglia",
   );
 
   /* P-72: ne i consensi, che sono decisioni di chi ha la responsabilita. */
@@ -2376,6 +2511,8 @@ const proveRamoTutore = async () => {
       },
     },
   });
+  await allineaTutoriDalBlob();
+
   prova(
     "P-79 il tutore entra sulla scheda di un ex atleta revocato: 200",
     200,
@@ -2659,6 +2796,8 @@ const proveDueCappelli = async () => {
     },
   });
 
+  await allineaTutoriDalBlob();
+
   prova(
     "P-84 il tutore PROVATO rivede il figlio, malgrado i due cappelli: 200",
     200,
@@ -2711,6 +2850,8 @@ const proveDueCappelli = async () => {
       },
     },
   });
+  await allineaTutoriDalBlob();
+
   const senzaProva = await cruscottoDiElena();
   prova(
     "P-87 senza `linkedUserId` la stessa identita torna fuori: 403",

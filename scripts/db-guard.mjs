@@ -62,6 +62,59 @@ const describeTarget = () => {
   }
 };
 
+/**
+ * **L'etichetta e l'host devono dire la stessa cosa.**
+ *
+ * Fino a qui la guardia autorizzava guardando **soltanto** `EASYGAME_DB_ENV`.
+ * `describeTarget()` sapeva gia estrarre l'host da `DATABASE_URL` — e lo
+ * stampava — ma quel valore non entrava in nessuna decisione: veniva passato
+ * all'operatore perche lo guardasse lui.
+ *
+ * Lo scenario che apre, in tre mosse tutte ordinarie:
+ *
+ * 1. serve leggere un dato su staging, e si mette la connection string Neon in
+ *    `DATABASE_URL`;
+ * 2. `EASYGAME_DB_ENV` resta `"development"`, perche per **leggere** nessuno
+ *    chiede di cambiarla;
+ * 3. il giorno dopo si lancia `npm run db:push` per allineare uno schema
+ *    locale. La guardia legge `development`, stampa l'host di Neon nella riga
+ *    di conferma, ed **esce zero**.
+ *
+ * Una guardia che ha l'host davanti e non lo guarda protegge solo chi era gia
+ * attento. E la finestra di migrazione e esattamente il momento in cui una
+ * connection string di staging vive nel `.env` di qualcuno.
+ *
+ * La regola: `development` vale solo se il database e **locale**. Ogni altro
+ * host va nominato per quello che e, e passa solo dall'override esplicito —
+ * che stampa gia il proprio avviso.
+ */
+const HOST_LOCALI = new Set([
+  "localhost",
+  "127.0.0.1",
+  "::1",
+  "0.0.0.0",
+  "host.docker.internal",
+  "postgres",
+  "db",
+]);
+
+const hostDelTarget = () => {
+  const raw = String(process.env.DATABASE_URL || "").trim();
+  if (!raw) return null;
+  try {
+    return new URL(raw).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+};
+
+const eLocale = (host) => {
+  if (!host) return false;
+  if (HOST_LOCALI.has(host)) return true;
+  /* Un indirizzo di rete privata: il Postgres in container, o una VM di casa. */
+  return /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
+};
+
 const dbEnv = String(process.env.EASYGAME_DB_ENV || "").trim().toLowerCase();
 const override =
   String(process.env.EASYGAME_ALLOW_SHARED_DB_WRITE || "").trim() === "1";
@@ -92,6 +145,28 @@ if (override) {
 }
 
 if (dbEnv === "development") {
+  const host = hostDelTarget();
+
+  if (!eLocale(host)) {
+    fail([
+      `EASYGAME_DB_ENV dice "development", ma DATABASE_URL punta a ${host || "un host che non si riesce a leggere"}.`,
+      "",
+      "Le due cose non possono contraddirsi: l'etichetta dice dove *credi* di",
+      "scrivere, l'host dice dove *scriveresti*. Quando divergono vince",
+      "l'host, perche e quello che riceve le righe.",
+      "",
+      "Succede per una ragione sola e del tutto normale: la connection string",
+      "di un ambiente condiviso e finita nel .env per **leggere** qualcosa, e",
+      "l'etichetta e rimasta indietro perche per leggere nessuno la cambia.",
+      "",
+      "Per procedere:",
+      "  - rimetti in DATABASE_URL il database di sviluppo locale; oppure",
+      "  - se devi davvero scrivere su un ambiente condiviso, serve",
+      "    autorizzazione esplicita e poi EASYGAME_ALLOW_SHARED_DB_WRITE=1",
+      "    per quel singolo comando.",
+    ]);
+  }
+
   console.log(`  Database target dichiarato: development (${describeTarget()})`);
   process.exit(0);
 }

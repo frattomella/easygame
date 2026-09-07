@@ -70,6 +70,35 @@ loadEnvFile(".env");
 
 const args = process.argv.slice(2);
 const apply = args.includes("--apply");
+
+/*
+  **Carica il `.env` da se, quindi deve guardare dove si e puntato.**
+
+  La docstring ammetteva che `db-guard.mjs` non copre gli script invocati a
+  mano, e si limitava a chiedere «autorizzazione esplicita»: una guardia
+  scritta in prosa. Ma questo script si auto-punta al database del `.env`
+  locale (due righe sopra) e con `--apply` scrive davvero — e il `.env` di chi
+  ha appena letto un dato su un ambiente condiviso punta li.
+
+  Trovato preparando la finestra di migrazione, cioe nel momento esatto in cui
+  una connection string di staging vive davvero in un `.env`.
+*/
+if (apply) {
+  const dbEnv = String(process.env.EASYGAME_DB_ENV || "").trim();
+  const override =
+    String(process.env.EASYGAME_ALLOW_SHARED_DB_WRITE || "").trim() === "1";
+
+  if (dbEnv !== "development" && !override) {
+    console.error(
+      `Rifiuto di scrivere: EASYGAME_DB_ENV vale "${dbEnv || "(vuoto)"}".`,
+    );
+    console.error(
+      "Su un ambiente condiviso serve autorizzazione esplicita, e poi",
+    );
+    console.error("EASYGAME_ALLOW_SHARED_DB_WRITE=1 per quel singolo comando.");
+    process.exit(1);
+  }
+}
 const clubFilter = (() => {
   const index = args.indexOf("--club");
   return index >= 0 ? String(args[index + 1] || "").trim() : "";
