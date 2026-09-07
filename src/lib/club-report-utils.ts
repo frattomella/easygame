@@ -5,6 +5,7 @@ import {
 } from "@/lib/category-utils";
 import { calculateCategoryAthleteStats } from "@/lib/category-athlete-stats";
 import { getConvocatedAthleteIdsFromMatch } from "@/lib/match-certificate-warnings";
+import { isCancelledEvent } from "@/lib/events/model";
 import { isPaymentExcludedFromTotals } from "@/lib/payments/payment-status-utils";
 import { recordMatchesCategory } from "@/lib/trainer-dashboard-helpers";
 import type { NormalizedClubMovement } from "@/lib/club-financial-summary";
@@ -359,11 +360,20 @@ export const calculateAttendanceReport = ({
   period: ReportPeriodKey;
 }): AttendanceReport => {
   const selectedCategory = getSelectedCategory(categories, selectedCategoryId);
+  /*
+    **Un allenamento annullato non produce presenze attese** (P0-3, D-AUD-10).
+
+    Senza questa riga `expectedAttendances` cresce anche per le sessioni che
+    non ci sono state, e `missingAttendances` — cioe «quanti appelli mancano»
+    — sale con loro. La segreteria vedeva un arretrato che non esisteva, e
+    l allenatore non aveva modo di farlo scendere: non si fa l appello di un
+    allenamento annullato.
+  */
   const filteredTrainings = filterByCategory(
     filterByPeriod(trainings, period),
     selectedCategory,
     categories,
-  );
+  ).filter((training: any) => !isCancelledEvent(training));
 
   let expectedAttendances = 0;
   let registeredAttendances = 0;

@@ -7,6 +7,7 @@ import {
   normalizeCategoryToken,
   sameCategory,
 } from "@/lib/categories/identity";
+import { isCancelledEvent } from "@/lib/events/model";
 import { getConvocatedAthleteIdsFromMatch } from "@/lib/match-certificate-warnings";
 import { recordMatchesCategory } from "@/lib/trainer-dashboard-helpers";
 
@@ -168,12 +169,27 @@ export function calculateCategoryAthleteStats(
       athleteBelongsToCategory(athlete, targetCategory, categories),
     )
     .sort(compareAthletesByLastName);
-  const categoryTrainings = (Array.isArray(trainings) ? trainings : []).filter(
-    (training) => recordMatchesCategory(training, targetCategory, categories),
-  );
-  const categoryMatches = (Array.isArray(matches) ? matches : []).filter((match) =>
-    recordMatchesCategory(match, targetCategory, categories),
-  );
+  /*
+    **Un evento annullato non e un evento a cui qualcuno e mancato** (P0-3,
+    D-AUD-10).
+
+    Qui gli annullati si contavano come tutti gli altri: annullarne cinque su
+    venti faceva scendere il tasso di presenza di **ogni** atleta dal 100% al
+    75%, e ne aggiungeva cinque al «senza risposta» — su allenamenti che non
+    ci sono mai stati.
+
+    Non e un dettaglio di visualizzazione: quel numero e cio che un allenatore
+    guarda per decidere chi chiamare. La misura dei contributi gia lo faceva
+    (`funding/attendance-measure.ts`), ed era l unico posto in cui la domanda
+    era fatta bene: adesso la primitiva e una sola e sta nel dominio degli
+    eventi.
+  */
+  const categoryTrainings = (Array.isArray(trainings) ? trainings : [])
+    .filter((training) => !isCancelledEvent(training))
+    .filter((training) => recordMatchesCategory(training, targetCategory, categories));
+  const categoryMatches = (Array.isArray(matches) ? matches : [])
+    .filter((match) => !isCancelledEvent(match))
+    .filter((match) => recordMatchesCategory(match, targetCategory, categories));
 
   /*
     Presenze e convocazioni si contano **prima**, per tutti gli atleti insieme.

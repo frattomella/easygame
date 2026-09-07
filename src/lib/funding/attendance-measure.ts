@@ -4,29 +4,22 @@ import {
   getTrainingStartTime,
   timeToMinutes,
 } from "@/lib/training-utils";
-import { normalizeEventStatus } from "@/lib/events/model";
+import { isCancelledEvent } from "@/lib/events/model";
 import {
   toFundingMeasure,
   type FundingPeriod,
   type FundingRequirementUnit,
 } from "./funding-model";
 
-/**
- * **Un allenamento annullato, in tutte le grafie che l'archivio porta.**
- *
- * Si chiede al dominio degli eventi invece di confrontare una stringa: le
- * grafie sono quattro (`cancelled`, `canceled`, `annullato`, `annullata`) e questo
- * modulo produce un numero che esce verso un ente pubblico.
- *
- * Uno stato **assente** non e un annullamento: le anagrafiche storiche non
- * lo portano, e negarle tutte sarebbe il verso opposto dello stesso errore.
- */
-const isTrainingCancelled = (training: unknown) => {
-  const record = (training || {}) as Record<string, unknown>;
-  const stato = record.status ?? record.state ?? record.stato;
-  if (stato === undefined || stato === null || stato === "") return false;
-  return normalizeEventStatus(stato) === "cancelled";
-};
+/*
+  **La domanda «e annullato?» ha una casa, e non e questa.**
+
+  Viveva qui, ed era l'unico posto in cui era fatta bene — perche questo
+  modulo produce un numero che esce verso un ente pubblico. I report di club
+  non la facevano affatto. Lo stato di un evento e del dominio degli eventi:
+  la primitiva sta li, e i tre lettori la chiedono a lei.
+*/
+const isTrainingCancelled = isCancelledEvent;
 
 /**
  * Dalle presenze EasyGame alla misura che un bando chiede (ADR-0037).

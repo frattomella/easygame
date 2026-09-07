@@ -938,8 +938,27 @@ export const listClubEvents = async (
       ];
     }
   }
+  /*
+    **`includeCancelled` non governava la cancellazione** (P0-3, D-AUD-10).
+
+    La riga diceva `if (!filters.includeCancelled) where.status = { not:
+    "archived" }`: il flag si chiama «annullati» e toglieva gli **archiviati**,
+    che sono un'altra cosa. Nessun percorso di `listClubEvents` nascondeva
+    quindi mai un evento annullato, e nessuno se ne era accorto perche il nome
+    del flag prometteva il contrario di cio che faceva.
+
+    Adesso il predefinito toglie tutti e due — un elenco «gli allenamenti del
+    mese» non contiene quelli annullati — e chiederli si dichiara. Chi vuole
+    uno stato preciso lo chiede con `status`, e allora vale quello.
+
+    Il verso e quello giusto: dimenticarsi il flag **nasconde** un evento
+    annullato invece di mostrarlo, e un evento che manca da un elenco si nota;
+    uno annullato che si conta come fatto no — ed e esattamente cio che faceva
+    scendere il tasso di presenza di ogni atleta.
+  */
   if (filters.status) where.status = normalizeEventStatus(filters.status);
-  else if (!filters.includeCancelled) where.status = { not: "archived" };
+  else if (filters.includeCancelled) where.status = { not: "archived" };
+  else where.status = { notIn: ["archived", "cancelled"] };
 
   if (filters.from || filters.to) {
     where.starts_at = {};
@@ -1139,11 +1158,30 @@ const assertNoOverlap = async (
     return [];
   }
 
-  const giorno = new Date(candidate.starts_at);
-  const inizioGiorno = new Date(giorno);
-  inizioGiorno.setUTCHours(0, 0, 0, 0);
-  const fineGiorno = new Date(giorno);
-  fineGiorno.setUTCHours(23, 59, 59, 999);
+  /*
+    **La finestra era lunga un giorno UTC, e un evento non dura un giorno
+    UTC** (D-AUD-12).
+
+    Si cercavano i candidati fra le 00:00 e le 23:59:59 **dello stesso
+    giorno** dell’inizio. Un torneo che comincia il 10 alle 20 e finisce
+    l’11 alle 2 non era quindi un candidato per un allenamento creato
+    l’11 all’una: era cominciato «un altro giorno». La formula era giusta
+    — l’intervallo si confronta sugli istanti — ma non le veniva mai dato
+    l’evento che serviva.
+
+    La finestra guarda ora **indietro di un giorno** dall’inizio del
+    candidato e avanti fino alla sua fine: niente che cominci dopo la fine
+    del candidato puo sovrapporsi, e niente che sia cominciato piu di
+    ventiquattr’ore prima puo essere ancora in corso — `resolveEndsAt`
+    rifiuta le durate piu lunghe di cosi.
+
+    Resta un intervallo su `starts_at`, quindi continua a usare l’indice
+    `(organization_id, starts_at)`.
+  */
+  const inizioGiorno = new Date(
+    new Date(candidate.starts_at).getTime() - 24 * 60 * 60 * 1000,
+  );
+  const fineGiorno = new Date(candidate.ends_at || candidate.starts_at);
 
   const altri = await prisma.clubEvent.findMany({
     where: {
@@ -2195,6 +2233,31 @@ export const createClubEventsBatch = async (
   */
   await assertTrainerEventPerimeter(scope, righe, "events.manage", "scrittura");
   await assertAccessScopeOnEvent(scope, righe, "events.manage", "scrittura");
+
+  /*
+    **La terza porta saltava le due guardie di struttura** (D-AUD-11).
+
+    `createClubEvent` chiama `assertFieldIsOpen` e `assertNoOverlap`;
+    `updateClubEvent` le chiama tutte e due; questa non ne chiamava nessuna. Un
+    calendario settimanale con una fascia alle 23:00 su un campo che chiude
+    alle 20:00 produceva trenta righe senza un errore, mentre creare **uno**
+    di quegli allenamenti a mano era un rifiuto netto.
+
+    Le due guardie non sono pero la stessa cosa, e vanno trattate diversamente:
+
+    * **l'apertura del campo e un fatto**, e il prodotto lo dichiara non
+      derogabile: una fascia fuori orario si rifiuta, qui come altrove. Si
+      rifiuta l'**intero blocco**, perche una generazione che scrivesse
+      ventinove righe su trenta lascerebbe un calendario che nessuno ha
+      chiesto e nessuno sa qual e;
+    * **la sovrapposizione e un avviso**, non un muro (PP-01 §C): due squadre
+      su meta campo sono un fatto ordinario. Qui pero non c'e nessuno a cui
+      chiedere conferma — un cron non risponde a una domanda — quindi si
+      registra e si prosegue, che e cio che farebbe la segreteria confermando.
+  */
+  for (const riga of righe) {
+    await assertFieldIsOpen(organizationId, riga);
+  }
 
   /*
     `skipDuplicates` sulla chiave (club, tipo, identificativo storico): la

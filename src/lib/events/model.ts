@@ -58,6 +58,52 @@ export const normalizeEventKind = (value: unknown): EventKind =>
  * schermate italiane e inglesi. Nessuna si perde; tutte confluiscono in una
  * delle quattro.
  */
+/**
+ * **La fine di un evento, anche quando scavalca la mezzanotte.**
+ *
+ * Vive qui e non dentro `toEventColumns` perche la stessa domanda la fanno
+ * il conflitto di struttura e il calcolo della durata: due risposte
+ * diverse sarebbero due eventi diversi a seconda di chi guarda.
+ */
+const UN_GIORNO_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * **Quanto puo durare un evento che scavalca la mezzanotte.**
+ *
+ * Serve un limite, e sceglierlo e la parte che conta. Senza, ogni ora di fine
+ * che precede quella d'inizio diventerebbe «la notte dopo»: `18:00 → 17:00`,
+ * che e un refuso di chi compila, si trasformerebbe in una sessione di
+ * ventitre ore — e la sovrapposizione di struttura la vedrebbe occupare il
+ * campo per un giorno intero.
+ *
+ * Sei ore separano i due casi con margine da entrambi i lati: un allenamento
+ * o una gara che finisce dopo mezzanotte finisce entro le quattro del mattino,
+ * e un refuso di orario produce quasi sempre una durata molto piu lunga.
+ *
+ * Oltre il limite si resta a `null`, che e cio che il prodotto faceva prima e
+ * che nessuno ha mai segnalato come un problema: e il verso giusto in cui
+ * sbagliare, perche una durata inventata sporca il conflitto di struttura e la
+ * misura dei contributi.
+ */
+const MASSIMA_SCAVALCATA_MS = 6 * 60 * 60 * 1000;
+
+export const resolveEndsAt = (
+  startsAt: Date | null | undefined,
+  endsAt: Date | null | undefined,
+): Date | null => {
+  if (!startsAt || !endsAt) return null;
+  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+    return null;
+  }
+
+  if (endsAt > startsAt) return endsAt;
+
+  const scavalcata = new Date(endsAt.getTime() + UN_GIORNO_MS);
+  const durata = scavalcata.getTime() - startsAt.getTime();
+
+  return durata > 0 && durata <= MASSIMA_SCAVALCATA_MS ? scavalcata : null;
+};
+
 export const normalizeEventStatus = (value: unknown): EventStatus => {
   const token = asToken(value);
   if (["cancelled", "canceled", "annullato", "annullata"].includes(token)) {
@@ -309,7 +355,21 @@ export const toEventColumns = (
       toIdList(source.group_ids) ??
       toIdList(source.groups),
     starts_at: startsAt,
-    ends_at: endsAt && endsAt > startsAt ? endsAt : null,
+    /*
+      **Un evento che finisce dopo mezzanotte finisce il giorno dopo.**
+
+      La riga diceva `endsAt > startsAt ? endsAt : null`, e su un 22:00 →
+      00:30 l’ora di fine cade **prima** di quella d’inizio nello stesso
+      giorno: la fine si buttava via, e l’evento diventava di un’ora. Da li
+      il conflitto di struttura non vedeva le due ore e mezza vere, e la
+      durata usata per i contributi era sbagliata per difetto.
+
+      Una fine che precede l’inizio di meno di un giorno e la stessa
+      notte: si sposta avanti di ventiquattr’ore. Una che lo precede di
+      piu e un dato sbagliato, e resta `null` — indovinare li vorrebbe
+      dire inventare una durata.
+    */
+    ends_at: resolveEndsAt(startsAt, endsAt),
     location: firstText(source.location, source.venue) || null,
     opponent: firstText(source.opponent, source.opponentName) || null,
     home_away: firstText(source.homeAway, source.home_away) || null,
@@ -570,15 +630,35 @@ export const findEventOverlaps = (
   candidate: EventOverlapCandidate,
   others: readonly EventOverlapCandidate[],
 ) => {
-  const luogo = (event: EventOverlapCandidate) =>
-    [
-      asToken(event.structure_id),
-      asToken(event.field_id),
-      asToken(event.site_id),
-    ].join("|");
+  /*
+    **«Tutta la struttura» occupa anche i suoi campi** (D-AUD-12).
 
-  const luogoCandidato = luogo(candidate);
-  if (luogoCandidato === "||") return [];
+    Il luogo era un token concatenato confrontato per uguaglianza, quindi
+    `s1||site1` — la struttura intera — e `s1|f1|site1` — un suo campo —
+    erano posti diversi. Prenotare la palestra dalle 18 alle 20 e poi il
+    campo 1 di quella palestra dalle 19 alle 21 non produceva nessun
+    avviso, ed e il caso ordinario del torneo interno.
+
+    Il confronto e ora su due assi: **il posto** (struttura o sede) deve
+    coincidere, e i **campi** collidono quando sono lo stesso oppure
+    quando uno dei due non e dichiarato — perche «nessun campo» vuol dire
+    tutta la struttura, non «un campo che non e nessuno degli altri».
+  */
+  const posto = (event: EventOverlapCandidate) =>
+    [asToken(event.structure_id), asToken(event.site_id)].join("|");
+
+  const postoCandidato = posto(candidate);
+  if (postoCandidato === "|" && !asToken(candidate.field_id)) return [];
+
+  const campoCandidato = asToken(candidate.field_id);
+
+  const stessoPosto = (other: EventOverlapCandidate) => {
+    if (posto(other) !== postoCandidato) return false;
+
+    const campoAltro = asToken(other.field_id);
+    if (!campoCandidato || !campoAltro) return true;
+    return campoAltro === campoCandidato;
+  };
 
   const inizio = instantOf(candidate.starts_at);
   const fine = instantOf(candidate.ends_at) || inizio + 60 * 60 * 1000;
@@ -587,7 +667,7 @@ export const findEventOverlaps = (
   return others.filter((other) => {
     if (other.id && candidate.id && other.id === candidate.id) return false;
     if (normalizeEventStatus(other.status) === "cancelled") return false;
-    if (luogo(other) !== luogoCandidato) return false;
+    if (!stessoPosto(other)) return false;
 
     const altroInizio = instantOf(other.starts_at);
     if (Number.isNaN(altroInizio)) return false;
@@ -796,4 +876,36 @@ export const fromEventRsvpPayload = (event: any): EventRsvpValue => {
         ? ""
         : String(event.capacity),
   };
+};
+
+/**
+ * **Un evento annullato, in tutte le grafie che l'archivio porta.**
+ *
+ * ---
+ *
+ * ## Perche vive qui
+ *
+ * Viveva in `funding/attendance-measure.ts`, che e il modulo che produce un
+ * numero verso un ente pubblico — e per questo era **l'unico** posto in cui la
+ * domanda era fatta bene. Chi contava presenze e convocazioni per i report di
+ * club non la faceva affatto: annullare cinque allenamenti su venti faceva
+ * scendere il tasso di presenza di ogni atleta dal 100% al 75%, e gli
+ * aggiungeva cinque «senza risposta» a eventi che non ci sono mai stati.
+ *
+ * Lo stato di un evento e del dominio degli eventi, e la domanda «e annullato?»
+ * ha una risposta sola. Le grafie sono quattro (`cancelled`, `canceled`,
+ * `annullato`, `annullata`), e confrontarle a mano in tre posti e il modo in
+ * cui due di quei posti ne perdono una.
+ *
+ * ## Uno stato assente non e un annullamento
+ *
+ * Le anagrafiche storiche non portano `status`, e negarle tutte sarebbe il
+ * verso opposto dello stesso errore: un club che perde vent'anni di
+ * allenamenti dai propri report.
+ */
+export const isCancelledEvent = (event: unknown) => {
+  const record = (event || {}) as Record<string, unknown>;
+  const stato = record.status ?? record.state ?? record.stato;
+  if (stato === undefined || stato === null || stato === "") return false;
+  return normalizeEventStatus(stato) === "cancelled";
 };
