@@ -340,6 +340,31 @@ export const createAttachment = async (
     owner_id: ownerId,
     organization_id: organizationId,
   });
+
+  /*
+    **E lo stesso vale per i documenti personali di chi lavora nel club.**
+
+    Il perimetro dello staff era stato messo sulle cinque porte che
+    **leggono** e su quella che cancella, e non su questa. Una segreteria —
+    che legge `trainers` legittimamente, e da li ricava gli identificativi
+    dei colleghi — poteva depositare un «contratto» nel fascicolo di un
+    altro allenatore, e poi non poterlo piu ne rileggere ne togliere: il
+    proprietario del club se lo trovava nel pannello del lavoro sportivo
+    senza poterlo attribuire a nessuno.
+
+    E l'avvelenamento dell'archivio che la rotta di caricamento gia
+    dichiara chiuso per gli atleti. La sesta porta va chiusa nello stesso
+    verso, o la difesa vale per una popolazione e non per l'altra.
+  */
+  await assertStaffDocumentPerimeter(
+    scope,
+    {
+      owner_type: ownerType,
+      owner_id: ownerId,
+      organization_id: organizationId,
+    },
+    "update",
+  );
   const content = input.content;
   if (!Buffer.isBuffer(content) || content.length === 0) {
     throw new Error("Il file e vuoto.");
@@ -506,6 +531,30 @@ const assertStaffDocumentPerimeter = async (
   );
 };
 
+/**
+ * L'indirizzo di chi sta chiedendo, letto una volta per richiesta.
+ *
+ * Una `Map` di modulo e non una cache con scadenza: vive quanto il processo
+ * e porta un dato che non e segreto — l'indirizzo di chi ha gia una
+ * sessione. Cio che si evita e duecento letture identiche dentro un ciclo.
+ */
+const indirizziDiChiChiede = new Map<string, string | null>();
+
+const emailDiChiChiede = async (userId: string) => {
+  if (indirizziDiChiChiede.has(userId)) {
+    return indirizziDiChiChiede.get(userId) ?? null;
+  }
+
+  const utente = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+
+  const email = utente?.email ?? null;
+  indirizziDiChiChiede.set(userId, email);
+  return email;
+};
+
 /** «Questa scheda di staff e la mia?» — una domanda, un predicato. */
 const profiloDelloStaffAppartieneA = async (
   organizationId: string,
@@ -525,12 +574,17 @@ const profiloDelloStaffAppartieneA = async (
 
   if (!riga) return false;
 
-  const utente = await prisma.user.findUnique({
-    where: { id: scope.userId },
-    select: { email: true },
-  });
+  /*
+    **L'indirizzo di chi chiede non cambia fra una riga e l'altra.**
 
-  return isProfileLinkedToUser(riga.payload, scope.userId, utente?.email);
+    Questa lettura stava dentro il ciclo: un club con duecento documenti di
+    staff produceva quattrocento interrogazioni per un elenco, e la meta
+    chiedeva duecento volte la stessa riga di `users`. Si tiene per la
+    durata della richiesta.
+  */
+  const email = await emailDiChiChiede(scope.userId);
+
+  return isProfileLinkedToUser(riga.payload, scope.userId, email);
 };
 const assertAttachmentWithinAccessScope = async (
   scope: AttachmentAccessScope | undefined,
@@ -778,8 +832,21 @@ export const listAttachments = async (
     try {
       await assertStaffDocumentPerimeter(scope, row);
       dopoLoStaff.push(row);
-    } catch {
-      /* Fuori perimetro: non e un errore dell'elenco, e una riga che non c'e. */
+    } catch (errore) {
+      /*
+        **«Non e tuo» e «l'archivio non risponde» non sono la stessa cosa.**
+
+        Il `catch` nudo le confondeva: un errore di connessione su una riga
+        faceva sparire in silenzio il documento **proprio** dell'allenatore
+        dal suo pannello, con un 200 e nessun log. Chi guarda vede un
+        pannello vuoto e crede che il file sia andato perduto.
+
+        Solo un diniego toglie una riga. Tutto il resto risale, perche un
+        elenco che mente sul proprio contenuto e peggio di un elenco che
+        fallisce.
+      */
+      const messaggio = String((errore as any)?.message || errore);
+      if (!messaggio.includes("Accesso negato")) throw errore;
     }
   }
 
@@ -916,7 +983,7 @@ export const deleteAttachment = async (
   ensureOrganizationAccess(scope, row.organization_id);
   /* Cancellare e l'atto piu irreversibile dei tre: vedi `replaceAttachmentContent`. */
   await assertAttachmentWithinAccessScope(scope, row);
-  await assertStaffDocumentPerimeter(scope, row);
+  await assertStaffDocumentPerimeter(scope, row, "delete");
 
   await driverFor(row.storage_driver).remove(id, row.storage_key);
   await (prisma as any).attachment.delete({ where: { id } });

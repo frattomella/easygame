@@ -37,6 +37,43 @@ type AutomationRunOptions = {
   now?: Date;
   weeklyScheduleOverride?: unknown;
   settingsOverride?: unknown;
+  /**
+   * **Chi ha chiesto la generazione, quando a chiederla e una persona.**
+   *
+   * Questa funzione ha due chiamanti: il cron, che non ha nessuno dietro, e
+   * il pulsante «Genera allenamenti», che ha una persona autenticata con un
+   * ruolo e — questo e il punto — un **perimetro**.
+   *
+   * Trattarli uguale, come faceva la prima stesura, produceva due difetti
+   * opposti e tutti e due gravi:
+   *
+   * 1. **l'audit diceva SISTEMA per un gesto umano.** Un club manager
+   *    premeva il pulsante alle 15:04 e comparivano sessanta allenamenti
+   *    attribuiti a un'automazione che non era girata. La promessa era «un
+   *    registro che attribuisce a una persona cio che non ha fatto e peggio
+   *    di uno assente»: il verso opposto e altrettanto illeggibile, perche
+   *    rende la persona irrecuperabile;
+   * 2. **il contesto di sistema lavava via il perimetro del chiamante.** Un
+   *    club manager con perimetro sulla categoria U15 non puo creare un
+   *    evento U17 dalla rotta degli eventi; passando di qui, con un
+   *    `weeklySchedule` che nomina U17, lo creava — perche lo scope
+   *    sintetico non portava nessun `accessScopes` e
+   *    `assertAccessScopeOnEvent` diventava inerte.
+   *
+   * Quando c'e una persona si usa **il suo** scope: le sue guardie, il suo
+   * perimetro, il suo nome nell'audit. Il contesto di sistema resta per chi
+   * non ha nessuno dietro.
+   */
+  caller?: {
+    scope: {
+      userId?: string | null;
+      activeOrganizationId?: string | null;
+      activeRole?: string | null;
+      allowedOrganizationIds?: string[];
+      accessScopes?: readonly any[] | null;
+    };
+    actor?: { userId?: string | null; email?: string | null };
+  };
 };
 
 type AutomationRunResult = {
@@ -770,20 +807,43 @@ export async function runTrainingAutomationForClub(
   if (generatedTrainings.length > 0) {
     const { createClubEventsBatch } = await import("./events");
 
+    /*
+      **Chi ha chiesto scrive.** Con una persona dietro si usa il suo scope
+      — perimetro compreso — e il suo nome finisce nell'audit. Senza, il
+      contesto di sistema, che non e nessuno e lo dichiara.
+    */
+    const scopeDiScrittura = options.caller
+      ? {
+          ...options.caller.scope,
+          activeOrganizationId: clubId,
+        }
+      : {
+          activeOrganizationId: clubId,
+          /* Nessun ruolo: chi scrive non e una persona, e non ne finge una. */
+          activeRole: null,
+          allowedOrganizationIds: [clubId],
+          system: createSystemExecutionContext({
+            organizationId: clubId,
+            job: "training-automation",
+            capabilities: ["training_automation.generate"],
+          }),
+        };
+
+    /*
+      **Un cron non puo correggere un calendario.**
+
+      Con una persona dietro, una fascia su un campo chiuso e un rifiuto: e
+      cio su cui puo agire. Senza, il rifiuto fermava la generazione **di
+      tutto il club** — anche degli altri sei giorni — e si interrompeva prima
+      di scrivere `lastRunAt`, quindi al giro dopo era di nuovo dovuta e
+      falliva di nuovo. Rotta per sempre, e in silenzio.
+    */
     await createClubEventsBatch(
-      {
-        activeOrganizationId: clubId,
-        /* Nessun ruolo: chi scrive non e una persona, e non ne finge una. */
-        activeRole: null,
-        allowedOrganizationIds: [clubId],
-        system: createSystemExecutionContext({
-          organizationId: clubId,
-          job: "training-automation",
-          capabilities: ["training_automation.generate"],
-        }),
-      },
+      scopeDiScrittura,
       "training",
       generatedTrainings,
+      options.caller?.actor ?? {},
+      { campoChiuso: options.caller ? "rifiuta" : "salta" },
     );
   }
 

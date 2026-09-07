@@ -227,3 +227,95 @@ test("una riga fuori perimetro sparisce dall'elenco, non lo fa fallire", async (
     [DOC_B],
   );
 });
+
+/* ==================================================================== *
+ *  3. Il deposito, che era la sesta porta
+ * ==================================================================== */
+
+test("un collega non deposita un documento nel fascicolo di un altro", async () => {
+  /*
+    **La porta che il primo giro aveva lasciato aperta**, trovata da una
+    revisione indipendente sulla remediation stessa.
+
+    Il perimetro era stato messo sulle cinque porte che leggono e su quella che
+    cancella, e non sul **deposito**. Una segreteria — che legge `trainers`
+    legittimamente, e da li ricava gli identificativi dei colleghi — poteva
+    metterci dentro un «contratto», e poi non poterlo piu ne rileggere ne
+    togliere: il proprietario del club se lo trovava nel pannello del lavoro
+    sportivo senza poterlo attribuire a nessuno.
+  */
+  const esito = await allegati
+    .createAttachment(
+      {
+        ownerType: "trainer",
+        ownerId: "scheda-b",
+        category: "contratto",
+        fileName: "finto.pdf",
+        mimeType: "application/pdf",
+        content: Buffer.from("FINTO"),
+      },
+      scopeDi(MISTER_A, "trainer"),
+    )
+    .then(() => "riuscito")
+    .catch((errore) => String(errore?.message || errore));
+
+  assert.match(String(esito), /Accesso negato/);
+});
+
+test("ma deposita nel proprio", async () => {
+  const esito = await allegati.createAttachment(
+    {
+      ownerType: "trainer",
+      ownerId: "scheda-a",
+      category: "contratto",
+      fileName: "mio.pdf",
+      mimeType: "application/pdf",
+      content: Buffer.from("MIO"),
+    },
+    scopeDi(MISTER_A, "trainer"),
+  );
+
+  assert.ok(esito?.id, "il pannello documenti dell'allenatore deve continuare a funzionare");
+});
+
+test("un errore dell'archivio non fa sparire una riga dall'elenco", async () => {
+  /*
+    **«Non e tuo» e «l'archivio non risponde» non sono la stessa cosa.**
+
+    Il `catch` nudo le confondeva: un errore su una riga faceva sparire in
+    silenzio il documento **proprio** dell'allenatore dal suo pannello, con un
+    200 e nessun log. Chi guarda vede un pannello vuoto e crede che il file sia
+    andato perduto.
+  */
+  /*
+    Il doppio e un Proxy: si avvolge invece di copiarlo, o le sue trappole
+    spariscono e il test misura un oggetto vuoto.
+  */
+  const rotto = new Proxy(fake.client, {
+    get(target, prop, receiver) {
+      if (prop === "clubResourceItem") {
+        return {
+          findFirst: async () => {
+            throw new Error("connessione interrotta");
+          },
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+  setPrismaClientForTests(rotto);
+
+  const esito = await allegati
+    .listAttachments(
+      { organizationId: CLUB, ownerType: "trainer" },
+      scopeDi(MISTER_A, "trainer"),
+    )
+    .then(() => "elenco restituito")
+    .catch((errore) => String(errore?.message || errore));
+
+  assert.match(
+    String(esito),
+    /connessione interrotta/,
+    "un elenco che mente sul proprio contenuto e peggio di uno che fallisce",
+  );
+});

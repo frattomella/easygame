@@ -58,6 +58,21 @@ export async function POST(request: NextRequest) {
     const result = await runTrainingAutomationForClub(
       scope.activeOrganizationId,
       {
+        /*
+          **Qui dietro c'e una persona, e si porta con se.**
+
+          Il pulsante «Genera allenamenti» e il cron chiamano la stessa
+          funzione. Senza questa riga la generazione girava con l'autorita
+          di sistema anche quando a premerla era un essere umano: l'audit
+          diceva SISTEMA a un'ora in cui nessun cron era passato, e il
+          perimetro di sede e categoria del chiamante spariva — un club
+          manager ristretto a una categoria poteva generarne un'altra
+          mandando un `weeklySchedule` che la nominasse.
+        */
+        caller: {
+          scope,
+          actor: { userId: session.db.user_id, email: session.db.user?.email ?? null },
+        },
         force: Boolean(body?.force ?? true),
         weeklyScheduleOverride: body?.weeklySchedule,
         settingsOverride: body?.settings,

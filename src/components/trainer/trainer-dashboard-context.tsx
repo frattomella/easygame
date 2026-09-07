@@ -17,6 +17,7 @@ import {
   getTrainerDisplayName,
   normalizeTrainerCategories,
 } from "@/lib/trainer-utils";
+import { sameCategory } from "@/lib/categories/identity";
 import { compareAthletesByLastName } from "@/lib/athlete-name-utils";
 import {
   TrainerDashboardPermissions,
@@ -300,18 +301,27 @@ const buildAssignedAthletes = (
         return false;
       }
 
-      const athleteTokens = extractCategoryTokens(athlete, categories);
+      /*
+        **Il consumatore che il censimento non vedeva** (D-INT-2).
 
+        Qui si usava `extractCategoryTokens` — la borsa che mette insieme
+        identificativi ed etichette — e si confrontava con l identificativo
+        **oppure** con il nome della categoria. Con due «Under 15» su due sedi
+        l organico di Formia entrava fra gli atleti assegnati all allenatore di
+        Scauri, ed e la squadra da cui partono appello e convocazioni.
+
+        Era il difetto P0-4 in piedi nel consumatore che ADR-0155 nomina per
+        primo. Il censimento non lo prendeva perche cercava i nomi delle
+        funzioni canoniche, e questo file chiamava quella **vecchia**: adesso
+        `extractCategoryTokens` e fra i marcatori, cosi un consumatore che la
+        usi si dichiara.
+      */
       return Array.from(categoryIds).some((categoryId) => {
         const category = categories.find(
           (entry) => normalizeValue(entry?.id) === normalizeValue(categoryId),
         );
-        const categoryName = category?.name || categoryId;
 
-        return (
-          athleteTokens.has(normalizeValue(categoryId)) ||
-          athleteTokens.has(normalizeValue(categoryName))
-        );
+        return sameCategory(athlete, category ?? { id: categoryId }, categories);
       });
     })
     .sort(compareAthletesByLastName);

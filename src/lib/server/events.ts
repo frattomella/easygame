@@ -1178,10 +1178,31 @@ const assertNoOverlap = async (
     Resta un intervallo su `starts_at`, quindi continua a usare l’indice
     `(organization_id, starts_at)`.
   */
-  const inizioGiorno = new Date(
-    new Date(candidate.starts_at).getTime() - 24 * 60 * 60 * 1000,
+  /*
+    **La fine presunta e un'ora, e la finestra deve saperlo.**
+
+    La prima stesura di questa correzione usava `candidate.ends_at ||
+    candidate.starts_at` come limite superiore. Su un evento **senza ora di
+    fine** — la forma piu comune di tutte, perche `toEventColumns` lascia
+    `ends_at` a `null` ogni volta che manca `endTime` — la finestra si chiudeva
+    sull'inizio del candidato, e un evento che cominciava dieci minuti dopo non
+    veniva nemmeno letto.
+
+    `findEventOverlaps` a quel punto gli avrebbe dato ragione: li un evento
+    senza fine dura **un'ora**. Chiudere la finestra prima significava quindi
+    non consegnargli il conflitto che avrebbe trovato — la stessa forma del
+    difetto che questa correzione doveva chiudere, girata dall'altro lato.
+
+    Il limite superiore usa la stessa regola del modello: la fine dichiarata,
+    oppure un'ora dopo l'inizio.
+  */
+  const inizioCandidato = new Date(candidate.starts_at).getTime();
+  const inizioGiorno = new Date(inizioCandidato - 24 * 60 * 60 * 1000);
+  const fineGiorno = new Date(
+    candidate.ends_at
+      ? new Date(candidate.ends_at).getTime()
+      : inizioCandidato + 60 * 60 * 1000,
   );
-  const fineGiorno = new Date(candidate.ends_at || candidate.starts_at);
 
   const altri = await prisma.clubEvent.findMany({
     where: {
@@ -2206,6 +2227,14 @@ export const createClubEventsBatch = async (
   kind: EventKind,
   inputs: readonly unknown[],
   attore: Attore = {},
+  opzioni: {
+    /**
+     * Che fare di una riga su un campo chiuso: rifiutare tutto — il
+     * predefinito, e cio che serve a una persona — oppure saltarla, che e
+     * l unica risposta possibile per un lavoro di sfondo.
+     */
+    campoChiuso?: "rifiuta" | "salta";
+  } = {},
 ) => {
   await assertEventsPermission(scope, "events.manage");
   const organizationId = requireActiveOrganization(scope);
@@ -2243,21 +2272,51 @@ export const createClubEventsBatch = async (
     alle 20:00 produceva trenta righe senza un errore, mentre creare **uno**
     di quegli allenamenti a mano era un rifiuto netto.
 
-    Le due guardie non sono pero la stessa cosa, e vanno trattate diversamente:
+    ## Perche l'apertura del campo si tratta in due modi
 
-    * **l'apertura del campo e un fatto**, e il prodotto lo dichiara non
-      derogabile: una fascia fuori orario si rifiuta, qui come altrove. Si
-      rifiuta l'**intero blocco**, perche una generazione che scrivesse
-      ventinove righe su trenta lascerebbe un calendario che nessuno ha
-      chiesto e nessuno sa qual e;
-    * **la sovrapposizione e un avviso**, non un muro (PP-01 §C): due squadre
-      su meta campo sono un fatto ordinario. Qui pero non c'e nessuno a cui
-      chiedere conferma — un cron non risponde a una domanda — quindi si
-      registra e si prosegue, che e cio che farebbe la segreteria confermando.
+    La prima stesura rifiutava sempre l'intero blocco. E la cosa giusta quando
+    a chiedere e **una persona**: un calendario scritto a meta e peggio di un
+    errore, perche nessuno sa quale meta.
+
+    E la cosa sbagliata quando a chiedere e un **cron**, e una revisione
+    indipendente lo ha misurato: un club che sposta la chiusura del campo al
+    venerdi lasciando in calendario una fascia alle 20:30 smetteva di generare
+    **tutti** gli allenamenti, anche quelli degli altri sei giorni. La
+    generazione si interrompeva prima di scrivere `lastRunAt`, quindi al giro
+    dopo era di nuovo «dovuta» e falliva di nuovo: rotta per sempre, e in
+    silenzio, perche il ciclo del cron inghiotte l'errore in un campo `reason`
+    che nessuno legge.
+
+    Un cron non puo correggere un calendario e non puo chiedere conferma.
+    Quindi salta la riga che non puo scrivere e **la restituisce**, e chi lo
+    chiama decide cosa farne. Una persona invece riceve il rifiuto, che e cio
+    su cui puo agire.
+
+    ## E la sovrapposizione non si controlla affatto, qui
+
+    Va detto invece che lasciato credere: `assertNoOverlap` **non** viene
+    chiamata da questa porta. La sovrapposizione e un avviso e non un muro
+    (PP-01 §C), e un avviso pretende qualcuno a cui darlo; in un blocco
+    generato non c'e. Un allenamento generato puo quindi sovrapporsi a un
+    altro evento senza che nessuno lo sappia: e un debito dichiarato, non una
+    cosa che questo codice fa e non dice.
   */
+  const saltate: Array<{ riga: any; motivo: string }> = [];
+
   for (const riga of righe) {
-    await assertFieldIsOpen(organizationId, riga);
+    try {
+      await assertFieldIsOpen(organizationId, riga);
+    } catch (errore) {
+      if (opzioni.campoChiuso !== "salta") throw errore;
+      saltate.push({ riga, motivo: String((errore as any)?.message || errore) });
+    }
   }
+
+  const daCreare = saltate.length
+    ? righe.filter((riga) => !saltate.some((scarto) => scarto.riga === riga))
+    : righe;
+
+  if (!daCreare.length) return [];
 
   /*
     `skipDuplicates` sulla chiave (club, tipo, identificativo storico): la
@@ -2273,7 +2332,7 @@ export const createClubEventsBatch = async (
     forma di difetto che questa lane ha gia trovato quattro volte.
   */
   const daScrivere = await Promise.all(
-    righe.map((riga) => riconciliaGrafiaDellaCategoria(organizationId, riga)),
+    daCreare.map((riga) => riconciliaGrafiaDellaCategoria(organizationId, riga)),
   );
 
   await prisma.clubEvent.createMany({ data: daScrivere, skipDuplicates: true });
@@ -2302,7 +2361,8 @@ export const createClubEventsBatch = async (
     resourceId: null,
     metadata: {
       kind,
-      generati: righe.length,
+      generati: daCreare.length,
+      ...(saltate.length ? { saltate: saltate.length } : {}),
       ...(diSistema ? { automazione: diSistema.job } : {}),
     },
   });
@@ -2312,7 +2372,7 @@ export const createClubEventsBatch = async (
       organization_id: organizationId,
       kind,
       legacy_id: {
-        in: righe
+        in: daCreare
           .map((riga) => riga.legacy_id)
           .filter((value): value is string => Boolean(value)),
       },

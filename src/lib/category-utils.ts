@@ -175,6 +175,26 @@ const collectCategoryOptions = (
 const findCategoryIndex = (
   categories: NormalizedCategoryOption[],
   candidate: NormalizedCategoryOption,
+  /**
+   * **Da dove viene questa voce.**
+   *
+   * `configurata` e cio che il club ha scritto nell’anagrafica categorie:
+   * e autorita, e due voci configurate con lo stesso nome sono **due**
+   * squadre (ADR-0155).
+   *
+   * `derivata` e cio che si ricava da una scheda atleta. Una scheda che
+   * porta un `category_id` che il catalogo non conosce piu — dopo un
+   * rinomina, una ricreazione, un import — non e una categoria nuova: e un
+   * riferimento vecchio alla stessa. Trattarla come autorita la faceva
+   * entrare nel catalogo come **seconda** «Under 15», e da li la regola
+   * dell’ambiguita cancellava il nome da tutti e due i lati: quell’atleta
+   * spariva da appello, calendario di famiglia, RSVP e report.
+   *
+   * Misurato da una revisione indipendente sulla remediation stessa: la
+   * scheda si avvelenava da sola, perche era lei a produrre l’omonima che
+   * poi la escludeva.
+   */
+  origine: "configurata" | "derivata" = "configurata",
 ) => {
   const candidateId = normalizeCategoryReference(candidate.id);
   const candidateName = normalizeCategoryReference(candidate.name);
@@ -214,7 +234,17 @@ const findCategoryIndex = (
     const existingHasOwnId = !!existingId && existingId !== existingName;
 
     if (candidateHasOwnId && existingHasOwnId) {
-      return candidateId === existingId;
+      if (candidateId === existingId) return true;
+
+      /*
+        Due identita vere e diverse: sono due squadre, **a meno che** questa
+        non venga da una scheda atleta. Un riferimento vecchio si riconosce
+        dal nome e si riunisce alla voce configurata che lo porta: non
+        entra nel catalogo come seconda omonima, e quindi non rende ambiguo
+        il nome per nessuno.
+      */
+      if (origine !== "derivata") return false;
+      return !!candidateName && candidateName === existingName;
     }
 
     return (
@@ -229,12 +259,13 @@ const findCategoryIndex = (
 const mergeCategoryOption = (
   categories: NormalizedCategoryOption[],
   candidate: NormalizedCategoryOption | null,
+  origine: "configurata" | "derivata" = "configurata",
 ) => {
   if (!candidate) {
     return;
   }
 
-  const index = findCategoryIndex(categories, candidate);
+  const index = findCategoryIndex(categories, candidate, origine);
 
   if (index === -1) {
     categories.push(candidate);
@@ -250,9 +281,18 @@ const mergeCategoryOption = (
     normalizeCategoryReference(candidate.name);
 
   categories[index] = {
+    /*
+      **Una voce derivata non porta il proprio identificativo dentro il
+      catalogo.** Se lo facesse, il riferimento vecchio di una scheda
+      diventerebbe l’identita della categoria configurata, e ogni altro
+      lettore comincerebbe a chiamarla con un nome che il club non ha piu.
+    */
     id:
-      (candidateHasDistinctId ? candidate.id : "") ||
-      (currentHasDistinctId ? current.id : "") ||
+      (origine === "derivata"
+        ? (currentHasDistinctId ? current.id : "") ||
+          (candidateHasDistinctId ? candidate.id : "")
+        : (candidateHasDistinctId ? candidate.id : "") ||
+          (currentHasDistinctId ? current.id : "")) ||
       current.id ||
       candidate.id,
     name: current.name || candidate.name || current.id || candidate.id,
@@ -380,15 +420,23 @@ export function buildClubCategoryOptions({
   if (Array.isArray(athletes)) {
     athletes.forEach((athlete) => {
       normalizeAthleteCategoryMemberships(athlete).forEach((membership) =>
-        mergeCategoryOption(merged, {
-          id: membership.categoryId,
-          name: membership.categoryName,
-          color: null,
-          compatibleCategoryIds: [],
-        }),
+        mergeCategoryOption(
+          merged,
+          {
+            id: membership.categoryId,
+            name: membership.categoryName,
+            color: null,
+            compatibleCategoryIds: [],
+          },
+          "derivata",
+        ),
       );
 
-      mergeCategoryOption(merged, deriveCategoryFromAthlete(athlete));
+      mergeCategoryOption(
+        merged,
+        deriveCategoryFromAthlete(athlete),
+        "derivata",
+      );
     });
   }
 

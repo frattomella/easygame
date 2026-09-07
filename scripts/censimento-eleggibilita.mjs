@@ -43,6 +43,16 @@ const MARCATORI = [
   /athleteMatchesCategory|athleteMatchesAnyCategory/,
   /recordMatchesCategory|recordMatchesAnyCategory/,
   /sameCategory|sameAnyCategory|categoryIdentity/,
+  /*
+    **La funzione vecchia e un marcatore quanto le nuove.**
+
+    Una revisione indipendente ha trovato un consumatore vivo che il censimento
+    non vedeva — la bacheca dell allenatore — perche chiamava
+    `extractCategoryTokens`, cioe la borsa che mette insieme identificativi ed
+    etichette, e nessuno dei marcatori la nominava. Un censimento che cerca
+    solo i nomi nuovi trova chi ha gia migrato, non chi deve ancora.
+  */
+  /extractCategoryTokens/,
   /resolveTargetCategory|athleteBelongsToCategory/,
 ];
 
@@ -116,6 +126,11 @@ const TABELLA = {
     decide: "l'organico mostrato sulla scheda di una categoria",
     catalogo: true,
     canonico: false,
+  },
+  "src/components/trainer/trainer-dashboard-context.tsx": {
+    decide: "gli atleti assegnati a questo allenatore",
+    catalogo: true,
+    canonico: true,
   },
   "src/components/trainer/trainer-trainings-dashboard-page.tsx": {
     decide: "gli allenamenti della squadra di questo allenatore",

@@ -384,3 +384,82 @@ test("l'identita separa cio che il catalogo riconosce da cio che non riconosce",
     "un nome sconosciuto non diventa un'identita",
   );
 });
+
+/* ==================================================================== *
+ *  7. Un riferimento vecchio non e una categoria nuova
+ * ==================================================================== */
+
+test("una scheda con un `category_id` che il catalogo non conosce non crea un'omonima", () => {
+  /*
+    **La regressione che la remediation aveva introdotto**, trovata da una
+    revisione indipendente sulla remediation stessa.
+
+    Un club rinomina — o ricrea, o importa — una categoria: il catalogo porta
+    `c-new`, e le schede atleta portano ancora `c-old` con lo stesso nome.
+
+    `buildClubCategoryOptions` alimenta il catalogo **anche con le categorie
+    ricavate dalle schede**. Con la regola nuova — due identita vere non si
+    fondono — `c-old` entrava come **seconda** «Under 15», e da li la regola
+    dell'ambiguita cancellava il nome da tutti e due i lati: quell'atleta
+    spariva da appello, calendario di famiglia, RSVP e report.
+
+    La scheda si avvelenava da sola: era lei a produrre l'omonima che poi la
+    escludeva.
+  */
+  const atleta = {
+    id: "atleta-1",
+    category_memberships: [
+      { category_id: "c-old", category_name: "Under 15" },
+    ],
+  };
+
+  const catalogo = utils.buildClubCategoryOptions({
+    clubCategories: [{ id: "c-new", name: "Under 15" }],
+    athletes: [atleta],
+  });
+
+  assert.equal(
+    catalogo.length,
+    1,
+    "un riferimento vecchio si riunisce alla voce configurata, non la sdoppia",
+  );
+  assert.equal(
+    catalogo[0].id,
+    "c-new",
+    "e non le ruba l'identificativo: il catalogo resta quello del club",
+  );
+
+  assert.equal(
+    helpers.recordMatchesCategory(atleta, { id: "c-new" }, catalogo),
+    true,
+    "prima: l'atleta spariva da ogni elenco della propria categoria",
+  );
+});
+
+test("ma due categorie che il club ha configurato restano due", () => {
+  /*
+    **Il controspecchio, ed e P0-4.** L'indulgenza vale solo per cio che si
+    ricava da una scheda: due voci scritte dal club nell'anagrafica sono due
+    squadre, e nessuna coincidenza di nome le unisce.
+  */
+  const catalogo = utils.buildClubCategoryOptions({
+    clubCategories: [
+      { id: U15_SCAURI, name: "Under 15" },
+      { id: U15_FORMIA, name: "Under 15" },
+    ],
+    athletes: [
+      {
+        id: "atleta-2",
+        category_memberships: [
+          { category_id: U15_FORMIA, category_name: "Under 15" },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(catalogo.length, 2);
+  assert.deepEqual(
+    catalogo.map((voce) => voce.id).sort(),
+    [U15_SCAURI, U15_FORMIA].sort(),
+  );
+});
