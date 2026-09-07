@@ -1050,7 +1050,7 @@ export async function POST(request: Request) {
         due dell'utenza di sessione e le tre grafie dell'indirizzo della voce.
         Se la maniglia non avesse risolto, il ripiego per identita avrebbe
         collegato una riga che **nessuna guardia aveva controllato**: due
-        genitori con un indirizzo di famiglia condiviso (ADR-0114) sono la
+        genitori con un indirizzo di famiglia condiviso (ADR-0127) sono la
         configurazione in cui quella scelta cade sulla persona sbagliata.
 
         Si passa percio l'identificativo della riga gia risolta e **nessuna**

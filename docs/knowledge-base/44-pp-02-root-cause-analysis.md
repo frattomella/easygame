@@ -297,7 +297,7 @@ R-2, che si chiude solo con WP-C).
 ### WP-A — **FATTO** (2026-09-05)
 
 AC-2, AC-3 e i due test di totalita
-([ADR-0117](18-decision-log.md#adr-0117--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)).
+([ADR-0130](18-decision-log.md#adr-0130--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)).
 Nessuna migrazione, nessun cambio di modello, 4 file di prodotto toccati.
 
 | | Prima | Dopo |
@@ -358,7 +358,7 @@ B**, ed e bene dirlo prima che qualcuno la implementi.
 `athletes.data.guardians[]` scrive **anche** la tabella. Ma «ogni posto che
 scrive i tutori» e un'enumerazione scritta a mano, che deve restare d'accordo
 con la realta senza che nulla lo verifichi — cioe esattamente la forma che il
-§3 descrive e che ADR-0117 esiste per rendere impossibile.
+§3 descrive e che ADR-0130 esiste per rendere impossibile.
 
 E non e un rischio teorico: **il conteggio degli scrittori e stato rifatto
 quattro volte in questo perimetro, e ogni volta cresceva** (4 → 6 → 8 → 9 →
@@ -415,7 +415,7 @@ liberi di scegliere, e esattamente la forma da cui questo pacchetto e nato.
 | | Prima | Dopo |
 |---|---|---|
 | l'autorita sui tutori | `athletes.data.guardians[]`, un array JSON senza chiave | `athlete_guardians`, unica per `(athlete_id, identity_key)` |
-| chi la scrive | diciannove istruzioni su otto file, tre delle quali nel browser | **una** funzione, e a farlo valere e un vaglio dell'archivio (ADR-0119) |
+| chi la scrive | diciannove istruzioni su otto file, tre delle quali nel browser | **una** funzione, e a farlo valere e un vaglio dell'archivio (ADR-0136) |
 | la revoca di una tessera | un ciclo su ogni tesserato del club | una `UPDATE` con un `WHERE` |
 | la ricerca dei figli di un tutore | una scansione di `athletes` in SQL grezzo dentro un array JSON | una interrogazione su un indice |
 | il riporto delle difese in `resources.ts` | cinque stesure, ~640 righe | **cancellato** |
@@ -436,7 +436,7 @@ strutturale: la rotta generica scrive attraverso un delegato **calcolato a
 runtime**, quindi nessuna ricerca testuale la trova e **nessun elenco scritto a
 mano puo essere completo per costruzione**. Un test che portasse la lista dei
 file «che oggi conosciamo» ripeterebbe lo stesso errore in forma di prova
-(ADR-0119).
+(ADR-0136).
 
 #### Il travaso di WP-B perdeva quattro identita e ne inventava quattro
 

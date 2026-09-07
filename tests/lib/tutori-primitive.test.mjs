@@ -375,7 +375,7 @@ test("D3 una persona esclusa non e il soggetto di un modulo che apre", () => {
 
 test("E1 un legame dichiarato e non revocato vince sul registro", () => {
   /*
-    Il caso ordinario di ADR-0114: madre e padre con **un solo indirizzo di
+    Il caso ordinario di ADR-0127: madre e padre con **un solo indirizzo di
     famiglia**. La revoca della madre mette quell'indirizzo nel registro, e
     senza questa uscita chiudeva i canali anche al padre.
   */
@@ -550,7 +550,7 @@ test("G4 il marchio della riga vince sul legame dichiarato (R3)", () => {
   );
 });
 
-test("G5 ma vince ancora sul registro, che e per identita (R3, ADR-0114)", () => {
+test("G5 ma vince ancora sul registro, che e per identita (R3, ADR-0127)", () => {
   /*
     L'uscita resta dov'e per la ragione per cui era nata: madre e padre con un
     solo indirizzo di famiglia, e la revoca di uno che mette quell'indirizzo

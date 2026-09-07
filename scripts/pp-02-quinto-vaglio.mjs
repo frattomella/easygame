@@ -139,7 +139,7 @@ const main = async () => {
     data: [
       utente(PRESIDENTE, email("presidente"), "Presidente"),
       utente(SEGRETARIA, email("segretaria"), "Segretaria"),
-      /* ADR-0114: l'indirizzo della madre E l'indirizzo di famiglia. */
+      /* ADR-0127: l'indirizzo della madre E l'indirizzo di famiglia. */
       utente(MADRE, FAMIGLIA, "Madre"),
       utente(PADRE, email("padre"), "Padre"),
       utente(ZIA, email("zia"), "Zia"),
@@ -192,7 +192,7 @@ const main = async () => {
   };
 
   /*
-    Configurazione ordinaria di ADR-0114, la stessa che il commento di
+    Configurazione ordinaria di ADR-0127, la stessa che il commento di
     `findGuardianLinks` descrive: madre e padre, **un indirizzo solo**.
     La riga della madre e chiavata sull'indirizzo (la segreteria l'ha
     scritta a mano); quella del padre sull'utenza (ha riscattato).
@@ -398,7 +398,7 @@ const main = async () => {
   }
 
   /* ================================================================== *
-   * §B-bis — la stessa mossa contro chi entra SOLO per indirizzo (ADR-0114)
+   * §B-bis — la stessa mossa contro chi entra SOLO per indirizzo (ADR-0127)
    * ================================================================== */
   console.log("\n§B-bis — chiudere l'accesso di un tutore mai riscattato\n");
   {
@@ -408,7 +408,7 @@ const main = async () => {
     const rigaNonno = righe.find((r) => r.identity_key === email("nonno2"));
 
     prova(
-      "D1 controllo — la zia (solo indirizzo, ADR-0114) apre l'area famiglia",
+      "D1 controllo — la zia (solo indirizzo, ADR-0127) apre l'area famiglia",
       1,
       (await cruscotto.getParentLinkedAthletes(ZIA)).filter((a) => a.id === figlio)
         .length,

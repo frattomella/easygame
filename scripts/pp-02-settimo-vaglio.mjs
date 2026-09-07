@@ -27,7 +27,7 @@
  *      IPOTESI: il predicato e `!altra || !suaUtenza || altra === suaUtenza`.
  *      `suaUtenza` e l'utenza della riga **nominata**; quando la riga nominata
  *      non ha utenza — un tutore di solo recapito, la meta ordinaria di
- *      ADR-0114 — `!suaUtenza` e vero e la regola si spegne **del tutto**:
+ *      ADR-0127 — `!suaUtenza` e vero e la regola si spegne **del tutto**:
  *      l'estensione per identita revoca allora la riga collegata di un terzo.
  *      La regola non vale «piena»: non vale affatto.
  *
@@ -368,7 +368,7 @@ const main = async () => {
   });
 
   /*
-    §B: la configurazione ordinaria di ADR-0114 — madre collegata e padre di
+    §B: la configurazione ordinaria di ADR-0127 — madre collegata e padre di
     solo recapito, **un solo indirizzo di famiglia**. Due voci, due posizioni.
   */
   const FIGLIO_C = await atleta("FiglioC", {
@@ -934,7 +934,7 @@ const main = async () => {
       giusto finche l'accesso arrivava dal gettone mai chiuso. Ora il gettone e
       chiuso (G2) e cio che resta e un fatto diverso — il reinserimento e stato
       fatto qui sopra da un **proprietario**, cioe da chi porta le due chiavi
-      che governano la concessione, e ADR-0114 dice che un indirizzo scritto
+      che governano la concessione, e ADR-0127 dice che un indirizzo scritto
       dal club **e** un legame. Pretendere zero vorrebbe dire che il club non
       puo piu rimettere un tutore che aveva tolto per sbaglio.
 

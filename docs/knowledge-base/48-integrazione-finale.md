@@ -215,7 +215,7 @@ risoluzione e diventata una scelta di nome, non di semantica.
 su quella: `access-roles.ts` esporta gia i quattro predicati e l'insieme
 gestionale, quindi la versione PP-03 e un quinto elenco scritto a mano
 (`RUOLI_GESTIONALI`) di cui non c'e bisogno — ed e esattamente la classe di
-difetto che ADR-0117 chiude. Il test di totalita di WP-A
+difetto che ADR-0130 chiude. Il test di totalita di WP-A
 (`scripts/pp-02-totalita-ruoli.mjs`) copre la forma fusa senza modifiche.
 
 L'allargamento voluto di PP-03 — `owner` entra fra i ruoli gestionali — e gia

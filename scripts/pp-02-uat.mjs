@@ -3424,7 +3424,7 @@ const sezioneW = async () => {
   /*
     **Il legame per solo indirizzo, quando non e mai stato revocato, resta.**
 
-    E la decisione ADR-0114 / PP02-D2: la segreteria scrive l'indirizzo, la
+    E la decisione ADR-0127 / PP02-D2: la segreteria scrive l'indirizzo, la
     famiglia si registra con quello, e dentro un club dove ha gia una tessera il
     legame vale. La correzione non doveva toccarla — doveva togliere l'accesso
     a chi e stato **scollegato esplicitamente**, che e un'altra cosa.
@@ -3444,7 +3444,7 @@ const sezioneW = async () => {
 
   /*
     Il legame per **solo indirizzo**: la segreteria scrive il recapito e non
-    c'e nessun riscatto. E la capability di ADR-0114, e va seminata come tale —
+    c'e nessun riscatto. E la capability di ADR-0127, e va seminata come tale —
     una riga senza utenza e senza marchio.
   */
   await tutori.saveGuardianRegistry(prisma, {
@@ -3458,7 +3458,7 @@ const sezioneW = async () => {
     "W-06 un legame per solo indirizzo, mai revocato, continua a valere",
     true,
     await cruscotto.canParentAccessAthlete(ANNA.id, FIGLIO_SOLO_EMAIL),
-    "la correzione non deve capovolgere ADR-0114",
+    "la correzione non deve capovolgere ADR-0127",
   );
 
   await prisma.athlete.deleteMany({
@@ -5240,7 +5240,7 @@ const sezioneW = async () => {
   /*
     **W-25 (High).** Revocare la madre revocava anche il padre.
 
-    Configurazione ordinaria, e quella che ADR-0114 descrive: madre e padre,
+    Configurazione ordinaria, e quella che ADR-0127 descrive: madre e padre,
     ognuno con il proprio `linkedUserId`, e **un solo indirizzo di famiglia**
     su tutte e due le righe. La ripulitura delle righe sorelle filtrava con
     `isLinkedToTarget`, che combacia anche sul solo indirizzo: al padre
@@ -5917,7 +5917,7 @@ const sezioneW = async () => {
 
   /*
     E la riga porta il segno, perche il club non e l'autore di quell'indirizzo.
-    Il ripiego di ADR-0114 resta intatto per cio che la segreteria scrive: e la
+    Il ripiego di ADR-0127 resta intatto per cio che la segreteria scrive: e la
     riga di Anna, che esisteva gia, viene **aggiornata** e non declassata.
   */
   const dopoApprovazione = (
@@ -7185,7 +7185,7 @@ const sezioneW = async () => {
     **W-47 (High).** La revoca di un genitore si propagava all'altro al primo
     salvataggio dell'anagrafica.
 
-    Configurazione ordinaria e prevista da ADR-0114: la madre ha riscattato un
+    Configurazione ordinaria e prevista da ADR-0127: la madre ha riscattato un
     invito (identificativo e indirizzo suoi), il padre entra **per l'indirizzo
     di famiglia**, che sta su tutte e due le righe. Dopo la revoca della madre
     `clearLinkedFields` le azzera gli identificativi e le lascia l'indirizzo —
@@ -7196,14 +7196,14 @@ const sezioneW = async () => {
 
     Il commento della stesura precedente prometteva proprio questo caso; era
     vero solo per il padre che porta un **identificativo riconosciuto**, cioe
-    non per quello per cui ADR-0114 esiste.
+    non per quello per cui ADR-0127 esiste.
 
     **Cosa misura adesso.** Il difetto era il **riporto per identita**: dopo la
     revoca l'identita della madre collassava sull'indirizzo di famiglia, e da
     li si spalmava sul padre. Non c'e piu ne un riporto ne un collasso —
     l'identita di una riga e fissata quando la riga nasce e la revoca e una
     colonna su quella riga — e non c'e piu nemmeno l'indirizzo condiviso, che
-    la chiave unica non ammette. Le due strade di ADR-0114 restano due (la
+    la chiave unica non ammette. Le due strade di ADR-0127 restano due (la
     madre per legame dichiarato, il padre per indirizzo scritto dal club), e la
     proprieta e la stessa: **revocare la madre non tocca il padre, ne subito ne
     al primo salvataggio.**
@@ -7519,7 +7519,7 @@ const sezioneW = async () => {
   /*
     **W-50 (High).** Il segno di solo-recapito veniva **cancellato** dalla rotta
     su una riga nuova che porta un indirizzo gia noto — e la configurazione
-    ordinaria di ADR-0114, due tutori sulla stessa email di famiglia.
+    ordinaria di ADR-0127, due tutori sulla stessa email di famiglia.
 
     Non serve nessun attaccante: due moduli pubblici approvati dalla segreteria.
     Il dominio dei moduli scrive `contactOnly` sulla riga che nasce; la rotta,
@@ -7780,7 +7780,7 @@ const sezioneW = async () => {
     Il payload e quello **vero** della scheda atleta: id **sintetici** che in
     archivio non esistono, e le righe **senza** `contactOnly`, perche nessun
     file client conosce quel campo. Con due tutori sullo stesso indirizzo di
-    famiglia — ADR-0114, la configurazione ordinaria — l'abbinamento e ambiguo
+    famiglia — ADR-0127, la configurazione ordinaria — l'abbinamento e ambiguo
     per costruzione, la riga risulta «nuova» e il segno si perde.
 
     Cinque stesure del riporto hanno spostato questo confine senza
@@ -8121,7 +8121,7 @@ const sezioneW = async () => {
     **W-59 (High).** Il registro nega **per identita, da qualunque riga**, e non
     conosce la regola «non si declassa un tutore che il club aveva scritto» che
     protegge il marchio di riga. Su un atleta la cui unica riga e
-    `{ Anna, famiglia@… }` senza legame dichiarato — la capability di ADR-0114 —
+    `{ Anna, famiglia@… }` senza legame dichiarato — la capability di ADR-0127 —
     l'approvazione di un modulo che dichiara un secondo tutore **allo stesso
     indirizzo** avvelenava quell'indirizzo, e la madre restava fuori.
   */
@@ -8487,7 +8487,7 @@ const sezioneW = async () => {
 
   /*
     **W-66.** La scrittura del registro e **atomica** con il fatto che registra:
-    e l'ottava protezione, quella che ADR-0116 non aveva mai messo per iscritto e
+    e l'ottava protezione, quella che ADR-0129 non aveva mai messo per iscritto e
     che e la ragione per cui il registro gemello non e mai caduto. Cinque
     approvazioni concorrenti perdevano voci in sei giri su sei.
 
@@ -8553,7 +8553,7 @@ const sezioneW = async () => {
     **W-67 (High).** Una revoca si perdeva **per intero** contro un salvataggio
     ordinario della scheda.
 
-    ADR-0116 chiamava «atomico» lo scrittore della revoca perche scrive righe e
+    ADR-0129 chiamava «atomico» lo scrittore della revoca perche scrive righe e
     registro nella **stessa** `update`. La forma era giusta e il comportamento
     no: `data` viene letto duecento righe prima, e fra la lettura e la scrittura
     ci sta un'altra richiesta. Misurato tre volte su tre contro PostgreSQL:
@@ -9035,7 +9035,7 @@ const sezioneW = async () => {
     **W-73 (Critical).** Il settimo scrittore di `athletes.data` — il registro
     dei soli recapiti scritto dall'approvazione di un modulo — apriva una
     transazione e rileggeva, ma **non prendeva il blocco**. Una transazione con
-    rilettura e senza blocco non serializza: e la forma che ADR-0116 aveva gia
+    rilettura e senza blocco non serializza: e la forma che ADR-0129 aveva gia
     dichiarato insufficiente, ripetuta.
 
     Misurato dalla porta del prodotto: un rinnovo approvato mentre la segreteria
@@ -9529,7 +9529,7 @@ const sezioneW = async () => {
     ridichiarando un legame — un atto deliberato di chi ha le due chiavi, che
     per progetto vince sul registro (e cosi che ci si ricollega). Chiedere che
     non conceda vorrebbe dire chiedere che una revoca sia definitiva, che
-    ADR-0116 esclude.
+    ADR-0129 esclude.
 
     Cio che **deve** essere vero in tutti e due gli ordini e che la revoca
     abbia **visto** quella scheda: il registro dell'atleta portava l'identita.

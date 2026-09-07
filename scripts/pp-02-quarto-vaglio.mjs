@@ -169,7 +169,7 @@ const main = async () => {
       utente(SEGRETARIA, email("segretaria"), "Segretaria"),
       utente(ESTRANEO, email("estraneo"), "Estraneo"),
       /*
-        ADR-0114, configurazione ordinaria: l'indirizzo della madre **e**
+        ADR-0127, configurazione ordinaria: l'indirizzo della madre **e**
         l'indirizzo di famiglia. E cio che la revoca riceve come `userEmail`.
       */
       utente(MADRE, FAMIGLIA, "Madre"),
@@ -237,7 +237,7 @@ const main = async () => {
   /*
     Un'ALTRA famiglia, un altro atleta: la zia ha il proprio account e la
     segreteria le ha scritto lo stesso indirizzo che la madre di FiglioDue usa
-    come proprio (ADR-0114: un indirizzo di famiglia solo). La zia non ha nulla
+    come proprio (ADR-0127: un indirizzo di famiglia solo). La zia non ha nulla
     a che vedere con la revoca della madre.
   */
   const FIGLIO_CINQUE = await atleta("FiglioCinque", {
@@ -418,7 +418,7 @@ const main = async () => {
     /*
       Lo stato lo produce il TRAVASO, non una scrittura a mano: una scheda in cui
       la madre compare due volte — una riga collegata e una di solo recapito con
-      lo stesso indirizzo di famiglia. E il caso ordinario di ADR-0114 visto da
+      lo stesso indirizzo di famiglia. E il caso ordinario di ADR-0127 visto da
       una scheda in cui la segreteria ha scritto la stessa persona due volte.
     */
     const figlio = FIGLIO_DUE;

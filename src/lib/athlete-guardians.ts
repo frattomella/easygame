@@ -262,7 +262,7 @@ export type GuardianAccessState =
    * **Un recapito dichiarato da chi ha compilato un modulo, non dal club.**
    *
    * Vale come indirizzo a cui scrivere e **non** come chiave dell'area
-   * famiglia: ADR-0114 fa valere l'indirizzo di contatto come legame, e quella
+   * famiglia: ADR-0127 fa valere l'indirizzo di contatto come legame, e quella
    * regola poggia sul presupposto che lo scriva la segreteria.
    */
   | "contact-only"

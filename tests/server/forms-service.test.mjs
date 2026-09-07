@@ -586,7 +586,7 @@ test("approvare crea l'atleta con i valori mostrati nell'anteprima", async () =>
   /*
     **`contactOnly` e il segno di dove viene questa riga**, e va preteso.
 
-    Un modulo pubblico lo compila chiunque, senza sessione. ADR-0114 fa valere
+    Un modulo pubblico lo compila chiunque, senza sessione. ADR-0127 fa valere
     l'indirizzo di contatto come legame, e poggia sul presupposto che lo abbia
     scritto il club: qui non regge. Bastava dichiarare il proprio indirizzo nei
     campi del tutore, farsi approvare la pratica sul minore giusto, e l'area

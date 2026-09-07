@@ -17,7 +17,7 @@
  *
  * Misurato su una riga `{ userId, email }`: accesso si, solleciti si,
  * promemoria si, notifiche documentali **no**. La stessa persona, la stessa
- * domanda, due risposte — la forma che ADR-0116 §3 vieta, sopravvissuta in una
+ * domanda, due risposte — la forma che ADR-0129 §3 vieta, sopravvissuta in una
  * riga alla correzione che dichiarava di averla chiusa.
  *
  * L'elenco delle grafie sta percio **qui**. Aggiungerne una domani la aggiunge
@@ -151,7 +151,7 @@ export const guardianRowNamedBy = (
  * `revokedGuardianIdentities` e `contactOnlyIdentities` sono elenchi derivati
  * dall'autorita a ogni scrittura (49 §H). Non sono un secondo archivio e
  * nessuna decisione di accesso li guarda: servono ai canali di invio, dove il
- * caso ordinario di ADR-0114 — due genitori, **un solo indirizzo di famiglia**
+ * caso ordinario di ADR-0127 — due genitori, **un solo indirizzo di famiglia**
  * — rende il marchio di riga insufficiente da solo.
  */
 export const readGuardianIdentityRegistry = (

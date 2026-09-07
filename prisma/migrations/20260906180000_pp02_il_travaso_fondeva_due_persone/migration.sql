@@ -8,7 +8,7 @@
 --
 -- La chiave di una riga senza utenza e il suo indirizzo, e il travaso
 -- raggruppava per chiave. Madre e padre con **un solo indirizzo di famiglia** —
--- che ADR-0114 chiama la configurazione ordinaria, non un caso limite —
+-- che ADR-0127 chiama la configurazione ordinaria, non un caso limite —
 -- collassavano percio in **una riga sola**, e `array_agg(...)[1]` teneva il
 -- primo nome, il primo rapporto, il primo telefono. Il secondo genitore
 -- spariva dall'anagrafica.

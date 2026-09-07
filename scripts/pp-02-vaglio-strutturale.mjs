@@ -386,7 +386,7 @@ const main = async () => {
 
   /*
     **Il controllo, in due versi.** Una compilazione **pubblica** crea la riga
-    e non concede niente — e la capability di ADR-0114 al contrario — e la
+    e non concede niente — e la capability di ADR-0127 al contrario — e la
     stessa mossa **con** le chiavi passa.
   */
   await tutori.upsertGuardianFromFormApproval(prisma, {
@@ -470,7 +470,7 @@ const main = async () => {
 
   /*
     Madre e padre con **un solo indirizzo di famiglia** e la configurazione
-    ordinaria di ADR-0114. Il travaso raggruppava per identita, e l'identita di
+    ordinaria di ADR-0127. Il travaso raggruppava per identita, e l'identita di
     una riga senza utenza e il suo indirizzo: le due righe collassavano in una,
     e del secondo genitore restava solo il nome del primo.
   */

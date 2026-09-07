@@ -42,7 +42,7 @@ giusto; cio che non era giusto era chi ci arrivava.
 
 ## 1. §A — Di quale figlio parliamo
 
-> Decisione: [ADR-0114](18-decision-log.md#adr-0114--il-legame-di-un-tutore-non-e-la-sua-tessera-il-suo-indirizzo-non-e-un-legame-che-apre-da-solo).
+> Decisione: [ADR-0127](18-decision-log.md#adr-0127--il-legame-di-un-tutore-non-e-la-sua-tessera-il-suo-indirizzo-non-e-un-legame-che-apre-da-solo).
 
 ### A.1 — Il legame senza tessera
 
@@ -214,7 +214,7 @@ vale la pena scriverlo: la rotta rilegge la rata dal database e verifica che
 
 ## 5. §E — Le ricevute, e cosa non deve uscirne
 
-> Decisione: [ADR-0115](18-decision-log.md#adr-0115--cio-che-la-famiglia-legge-di-un-documento-di-pagamento-e-un-elenco-chiuso).
+> Decisione: [ADR-0128](18-decision-log.md#adr-0128--cio-che-la-famiglia-legge-di-un-documento-di-pagamento-e-un-elenco-chiuso).
 
 **Il difetto non era una schermata mancante**: le ricevute si vedevano e si
 scaricavano dalla Wave 6. Era che ne usciva **troppo**.
@@ -984,7 +984,7 @@ il modo in cui si e spostato di volta in volta vale piu del difetto stesso.
 
 «Scollega account» **non revocava**. Il vaglio dell'accesso accetta quattro
 forme di legame, e la quarta e l'indirizzo di **contatto** che la segreteria
-scrive a mano sulla scheda (ADR-0114: e cosi che una famiglia entra senza
+scrive a mano sulla scheda (ADR-0127: e cosi che una famiglia entra senza
 riscattare un codice). La revoca azzerava le altre tre e quell'indirizzo — che
 al club serve — giustamente lo lasciava.
 
@@ -1183,7 +1183,7 @@ funzione che lo mostra.
 Il conto di questo pacchetto e ormai una regola: **otto** difetti su quattordici
 round sono stati aperti dalla correzione del round precedente. Sette volte la
 forma era «una difesa nuova non eredita le protezioni di quella che affianca»
-(ADR-0116). L'ottava, qui, e nuova e vale scriverla:
+(ADR-0129). L'ottava, qui, e nuova e vale scriverla:
 
 > Una correzione che **allarga un predicato per raggiungere di piu** va
 > misurata anche su chi **non** doveva raggiungere.
@@ -1220,7 +1220,7 @@ dei consensi dati dall'altro genitore. Nessun audit di concessione, e
 `accounts.athlete.manage` non veniva mai chiesta a chi concedeva.
 
 Il criterio giusto non e «chi ha compilato» ne «da quale porta»: e **chi ha
-scritto quell'indirizzo**. ADR-0114 fa valere l'indirizzo come chiave poggiando
+scritto quell'indirizzo**. ADR-0127 fa valere l'indirizzo come chiave poggiando
 sul presupposto che lo scriva il club, e l'unica compilazione di cui questo e
 vero e quella interna.
 
@@ -1410,7 +1410,7 @@ proprieta del pacchetto piu che una serie di sfortune.
 ### La revoca che si propagava all'altro genitore
 
 Configurazione ordinaria: la madre ha riscattato un invito, il padre entra per
-l'**indirizzo di famiglia** — la capability che ADR-0114 tiene aperta — e quello
+l'**indirizzo di famiglia** — la capability che ADR-0127 tiene aperta — e quello
 stesso indirizzo sta su tutte e due le righe.
 
 Dopo la revoca, `clearLinkedFields` azzera gli identificativi della madre e le
@@ -1423,10 +1423,10 @@ audit restava un `anagrafica.updated`.
 
 Il commento della stesura precedente prometteva **proprio questo caso**. Era
 vero solo per il padre che porta un identificativo gia riconosciuto, cioe non
-per quello per cui ADR-0114 esiste. Una promessa scritta in un commento non e
+per quello per cui ADR-0127 esiste. Una promessa scritta in un commento non e
 una proprieta misurata: qui la distanza fra le due e costata un round.
 
-La quarta stesura e in ADR-0116, con la regola che ne esce — «fra due errori
+La quarta stesura e in ADR-0129, con la regola che ne esce — «fra due errori
 possibili si sceglie quello che una seconda difesa copre» — e con l'id stabile
 che rende raro il dubbio.
 
@@ -1464,7 +1464,7 @@ esistenti erano **tutte verdi** mentre i due difetti erano vivi.
 Il vaglio che decide se una riga in arrivo sia «nuova» guardava se la sua
 **identita** fosse gia in archivio. Su una riga `contactOnly` l'identita e
 l'indirizzo — gli identificativi non ci sono — quindi due tutori sulla stessa
-email di famiglia, che ADR-0114 chiama la configurazione ordinaria, e la seconda
+email di famiglia, che ADR-0127 chiama la configurazione ordinaria, e la seconda
 riga risultava «conosciuta». La rotta le cancellava allora il segno che il
 dominio dei moduli le aveva appena scritto.
 
@@ -1500,7 +1500,7 @@ l'indirizzo di una persona revocata **non** riapre l'accesso.
 
 ### Cosa insegna
 
-Due lezioni, e sono in ADR-0116 perche valgono oltre questo caso.
+Due lezioni, e sono in ADR-0129 perche valgono oltre questo caso.
 
 La prima: **una seconda difesa e tale solo se ha un gate diverso**. La
 giustificazione scritta un round prima — «tanto lo copre la guardia della
@@ -1572,7 +1572,7 @@ misurato, non dedotto:
   aggira con array, maiuscole o le sei grafie dell'identificativo;
 - **`roundInstallmentsToFive`**: 200.000 giri di fuzz dal lato della revisione,
   50.000 dal mio, zero difetti su quattro proprieta;
-- **`stessaPersona` nella revoca**: ha retto ogni configurazione di ADR-0114.
+- **`stessaPersona` nella revoca**: ha retto ogni configurazione di ADR-0127.
 
 E dove resta fragile: nei **chiamanti** dei domini induriti, non nei domini. La
 funzione che ripartisce le rate e a prova di fuzz; e `generateInstallmentPreview`
@@ -1587,7 +1587,7 @@ stesure non avevano chiuso. Il ventunesimo ha misurato la difesa nuova e ne ha
 trovati **tre** difetti, tutti suoi, tutti nati nel round che l'aveva scritta.
 
 E la quarta volta che questo pacchetto paga la stessa forma: **una difesa nuova
-nasce senza le protezioni di quella che affianca.** ADR-0116 la descrive dal
+nasce senza le protezioni di quella che affianca.** ADR-0129 la descrive dal
 quattordicesimo round, con una checklist di sette protezioni — e averla scritta
 non e bastato a farsela applicare.
 
@@ -1617,7 +1617,7 @@ tutore che la segreteria aveva scritto**. Il registro nega per identita, da
 qualunque riga.
 
 Misurato con il flusso ordinario: un atleta la cui unica riga e
-`{ Anna, famiglia@… }` senza legame dichiarato — la capability di ADR-0114 — e
+`{ Anna, famiglia@… }` senza legame dichiarato — la capability di ADR-0127 — e
 un modulo che dichiara un secondo tutore **allo stesso indirizzo di famiglia**.
 La segreteria approva, legge «Genitore aggiunto», e la madre perde accesso e
 invii.
@@ -1674,7 +1674,7 @@ esisteva, e nessuno lo misurava.
 ### L'ottava protezione, che nessuno aveva scritto
 
 La domanda posta alla revisione era: il registro dei soli recapiti e **davvero**
-equivalente a quello delle revoche in tutte e sette le protezioni di ADR-0116?
+equivalente a quello delle revoche in tutte e sette le protezioni di ADR-0129?
 
 La risposta e stata che tre non erano pari — e che **ne mancava un'ottava che
 l'elenco non nomina**: lo scrittore del gemello e **atomico con il fatto che
@@ -1769,7 +1769,7 @@ cio che il primo ha scritto.
 
 La regola del round precedente era «si rilegge il **codice** della difesa che si
 sta copiando, non il suo elenco di proprieta». Andava spinta un passo piu in la,
-e adesso e in ADR-0116:
+e adesso e in ADR-0129:
 
 > Una proprieta di concorrenza non si legge nel codice: si **misura** con due
 > richieste in parallelo.
@@ -1846,7 +1846,7 @@ round — un lost update su `athletes.data` — su uno scrittore che il censimen
 
 Il registro dei soli recapiti, scritto dall'approvazione di un modulo, apriva
 una transazione e rileggeva **senza prendere il blocco**. E la forma che
-ADR-0116 dichiara insufficiente da due round, ripetuta nel round che quella
+ADR-0129 dichiara insufficiente da due round, ripetuta nel round che quella
 lezione l'aveva scritta. Il commento sopra il codice affermava il contrario.
 
 Misurato dalla porta del prodotto: un rinnovo approvato mentre la segreteria
@@ -1945,7 +1945,7 @@ La prima stesura di `W-79` chiedeva che il genitore restasse fuori. Con il
 blocco sul club le due scritture si serializzano, e se il salvataggio arriva
 **dopo** la revoca allora sta ridichiarando un legame: un atto deliberato di
 chi ha le due chiavi, che per progetto vince sul registro. Chiedere che non
-conceda vorrebbe dire chiedere che una revoca sia definitiva, che ADR-0116
+conceda vorrebbe dire chiedere che una revoca sia definitiva, che ADR-0129
 esclude.
 
 Cio che deve essere vero in **tutti e due** gli ordini e che la revoca abbia
@@ -2091,7 +2091,7 @@ WP-C+D non prova a rispondere per la sesta volta. Toglie la domanda:
 `athlete_guardians` diventa l'autorita, unica per `(athlete_id, identity_key)`,
 e `athletes.data.guardians[]` resta come proiezione in sola lettura che nessuna
 decisione di accesso guarda. Il dettaglio sta in
-[ADR-0118](18-decision-log.md) e in [KB 44](44-pp-02-root-cause-analysis.md).
+[ADR-0135](18-decision-log.md) e in [KB 44](44-pp-02-root-cause-analysis.md).
 
 **Cosa e caduto insieme alla forma:**
 
@@ -2119,6 +2119,6 @@ come le altre.**
 **Perche questa volta la forma non puo tornare.** Non perche sia stata scritta
 una difesa migliore, ma perche l'invariante e uscita dal codice: l'archivio
 rifiuta ogni scrittura sui tutori che non venga dal modulo proprietario
-([ADR-0119](18-decision-log.md)). Un elenco di file «che oggi conosciamo» era
+([ADR-0136](18-decision-log.md)). Un elenco di file «che oggi conosciamo» era
 stato sbagliato cinque volte da chi il documento lo aveva letto; un vaglio
 dell'archivio non ha un elenco da tenere aggiornato.

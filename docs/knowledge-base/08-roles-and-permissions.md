@@ -996,6 +996,6 @@ proprieta non nasce dalla tessera ma da `clubs.creator_id`.
 dominio da `ACCESS_ROLE_ALIASES` e lo esercita tutto, e chiede due proprieta
 per ogni grafia: che il legame che compete a quel ruolo cada, e che gli altri
 tre **non** cadano
-([ADR-0117](18-decision-log.md#adr-0117--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)).
+([ADR-0130](18-decision-log.md#adr-0130--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)).
 Un alias nuovo in `ROLE_ALIASES` entra nella prova senza che nessuno tocchi la
 prova.

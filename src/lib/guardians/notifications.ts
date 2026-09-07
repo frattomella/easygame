@@ -33,7 +33,7 @@
  * canali erano piu chiusi del cancello, e in due modi che si vedevano solo dal
  * lato della famiglia — il percorso normale di una nuova iscrizione dava
  * l'area famiglia completa e **nessun invio**; e madre e padre con lo stesso
- * indirizzo di famiglia (ADR-0114) perdevano i canali **tutti e due** quando
+ * indirizzo di famiglia (ADR-0127) perdevano i canali **tutti e due** quando
  * se ne revocava uno.
  */
 
@@ -157,7 +157,7 @@ export const resolveNotificationGuardianEntries = (
         solleciti degli insoluti con il link per pagare.
 
         L'uscita esiste per un'altra ragione, e resta: i **registri** sono
-        elenchi di identita, e un indirizzo di famiglia condiviso (ADR-0114) vi
+        elenchi di identita, e un indirizzo di famiglia condiviso (ADR-0127) vi
         finisce dentro revocando **l'altro** genitore. E li che un legame
         dichiarato deve poter vincere — sul registro, mai sul marchio, che e
         l'autorita della propria riga.

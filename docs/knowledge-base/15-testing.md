@@ -457,7 +457,7 @@ EASYGAME_DB_ENV=development node --experimental-strip-types \
 ```
 
 Non sono due sonde in piu. Sono la forma di prova che
-[ADR-0117](18-decision-log.md#adr-0117--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)
+[ADR-0130](18-decision-log.md#adr-0130--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)
 prescrive, e la differenza dalle altre e una sola: **il dominio non e scritto
 nel file**.
 
@@ -487,13 +487,13 @@ EASYGAME_DB_ENV=development node --experimental-strip-types \
 | `pp-02-travaso-equivalente.mjs` | chi apriva il fascicolo di un minore leggendo il blob lo apre leggendo la tabella, **e chi il blob teneva fuori resta fuori**: ventiquattro grafie storiche, una scheda per grafia | eseguita contro il travaso precedente, **11 righe rosse su 23** (4 identita perse, 4 inventate) |
 
 **Non sono sonde di totalita** e la differenza vale la pena scriverla.
-ADR-0117 chiede che una difesa che dipende da un'**enumerazione** abbia un test
+ADR-0130 chiede che una difesa che dipende da un'**enumerazione** abbia un test
 che enumera il dominio. Qui il dominio non e enumerabile: gli scrittori possibili
 di una tabella sono «tutti i file che esistono e tutti quelli che esisteranno».
 
 La prima sonda risponde spostando l'invariante **fuori dal codice**: non prova
 che un elenco di scrittori sia completo, prova che l'archivio rifiuta chiunque
-non si dichiari (ADR-0119). La seconda misura un'**equivalenza fra due
+non si dichiari (ADR-0136). La seconda misura un'**equivalenza fra due
 predicati** invece di una copertura.
 
 **La terza prova della prima sonda e la piu importante**, e va letta insieme
@@ -504,7 +504,7 @@ cioe una difesa che rifiuta tutto, che non e una difesa ma un guasto.
 **Una divergenza dichiarata resta misurata, non esentata.** Dove il passaggio
 alla tabella cambia risposta di proposito, la seconda sonda non chiude un occhio:
 pretende **esattamente** la risposta dichiarata, e se domani cambiasse — in un
-verso o nell'altro — la riga diventa rossa. Sono due, e stanno in ADR-0118.
+verso o nell'altro — la riga diventa rossa. Sono due, e stanno in ADR-0135.
 
 **Il predicato vecchio vive dentro la sonda.** Fino al cutover chiamava
 `getParentLinkedAthletes`, cioe la porta vera; dopo, quella porta legge la

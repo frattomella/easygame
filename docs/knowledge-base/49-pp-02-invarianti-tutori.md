@@ -58,7 +58,7 @@ dedurre l'autorita da li.
 Lo fa valere l'**archivio**, non il documento: un vaglio PostgreSQL rifiuta
 `INSERT`/`UPDATE`/`DELETE` su `athlete_guardians` fuori da una transazione che
 abbia dichiarato `SET LOCAL "easygame.guardian_writer"`, e quella riga la scrive
-una funzione sola (ADR-0118, ADR-0119).
+una funzione sola (ADR-0135, ADR-0136).
 
 **Misurato da:** `pp-02-proprietario-tutore` (il vaglio morde; disabilitandolo
 la sonda diventa rossa), `pp-02-censimento` C4 (nessuno scrive fuori dal modulo),
@@ -206,7 +206,7 @@ esistere, ma sono **derivati dall'autorita** a ogni scrittura: non sono un
 secondo archivio, e nessuna rotta li scrive.
 
 **Misurato da:** `pp-02-secondo-vaglio` 1a–1f (con il caso ordinario di
-ADR-0114: due genitori, un solo indirizzo di famiglia).
+ADR-0127: due genitori, un solo indirizzo di famiglia).
 
 ---
 
@@ -368,7 +368,7 @@ azzera `contact_only` nella stessa `UPDATE`. Esiste lo stesso, e la produce la
 
 Su una riga cosi vale §C senza deroghe: **e esclusa, e non riceve.** L'uscita
 «un legame dichiarato vince» resta, ma vale sui **registri** — che sono elenchi
-di identita, e dove un indirizzo di famiglia condiviso (ADR-0114) finisce per
+di identita, e dove un indirizzo di famiglia condiviso (ADR-0127) finisce per
 colpa di un altro — **mai sul marchio**, che e l'autorita della riga su se
 stessa.
 

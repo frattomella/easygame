@@ -16,7 +16,7 @@
  * )
  * ```
  *
- * L'indirizzo **non e unico per persona** — e il presupposto di ADR-0114 e la
+ * L'indirizzo **non e unico per persona** — e il presupposto di ADR-0127 e la
  * ragione per cui `revokeGuardianAccessInClub` ha imparato a risparmiare la
  * riga che porta l'utenza di un altro (ADR-0139). Da li due esiti:
  *
@@ -234,7 +234,7 @@ const main = async () => {
 
   console.log("\n  La configurazione che il difetto colpisce\n");
   console.log(
-    "  Due righe della stessa scheda con lo stesso indirizzo: e ADR-0114,\n" +
+    "  Due righe della stessa scheda con lo stesso indirizzo: e ADR-0127,\n" +
       "  madre e padre con un solo indirizzo di famiglia. La revoca di una\n" +
       "  metteva quell'indirizzo nel registro, e il travaso marcava l'altra.\n",
   );

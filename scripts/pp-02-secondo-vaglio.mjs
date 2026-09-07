@@ -146,7 +146,7 @@ const main = async () => {
   console.log("\n  1 — i due registri di difesa e il salvataggio ordinario\n");
 
   /*
-    **Il caso ordinario di ADR-0114**: madre collegata — la sua riga e chiavata
+    **Il caso ordinario di ADR-0127**: madre collegata — la sua riga e chiavata
     sull'**utenza** — e un secondo genitore che porta lo **stesso indirizzo di
     famiglia**. Revocata la madre, il marchio sta sulla sua riga; ma la riga
     del padre porta quell'indirizzo, e i tre canali di notifica risolvono

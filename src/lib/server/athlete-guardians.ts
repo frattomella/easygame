@@ -70,7 +70,7 @@ import { prisma } from "./prisma";
  *    riscattando un invito — che e l'atto tracciato che la scrive.
  * 3. **`contact_only` marca un recapito, non una chiave**: una riga nata da un
  *    modulo pubblico vale come indirizzo a cui scrivere e non apre l'area
- *    famiglia (ADR-0114 poggia sul presupposto che l'indirizzo lo scriva il
+ *    famiglia (ADR-0127 poggia sul presupposto che l'indirizzo lo scriva il
  *    club, e li quel presupposto non c'e).
  * 4. **Un salvataggio d'anagrafica non concede accessi.** Puo aggiornare cio
  *    che esiste e togliere righe; non puo far **crescere** l'insieme delle
@@ -443,7 +443,7 @@ export const readGuardiansForAthlete = async (
  *
  * L'ordine non e una comodita: cercare prima per identita farebbe collegare
  * **il padre** a un invito spedito alla madre, perche in una famiglia
- * l'indirizzo e uno solo (ADR-0114). La riga vince sempre sulla persona.
+ * l'indirizzo e uno solo (ADR-0127). La riga vince sempre sulla persona.
  */
 export const findGuardianRow = async (
   client: any,
@@ -575,7 +575,7 @@ const assertGuardianMutationAllowed = async (
  * |---|---|
  * | una riga **revocata** non si toglie e non si riapre | il salvataggio ordinario che riaccendeva un accesso — il difetto per cui `resources.ts` ha scritto cinque volte il riporto delle difese |
  * | `user_id` non si scrive da qui | «un legame con una famiglia non si crea scrivendo l'anagrafica»: il legame nasce riscattando un invito, che e tracciato e revocabile |
- * | una **identita nuova** richiede `canGrantAccess` | scrivere un indirizzo e un atto che apre il fascicolo sanitario di un minore (ADR-0114), e chiede la chiave che governa proprio questo |
+ * | una **identita nuova** richiede `canGrantAccess` | scrivere un indirizzo e un atto che apre il fascicolo sanitario di un minore (ADR-0127), e chiede la chiave che governa proprio questo |
  * | `contact_only` non si toglie da qui | il segno di una riga nata da un modulo pubblico lo toglie solo un invito riscattato |
  *
  * **Cosa e sparito rispetto al blob.** Non c'e piu niente da «abbinare»: la
@@ -693,7 +693,7 @@ export const saveGuardianRegistry = async (
           quella riga, e la revoca la raggiungeva: perdeva tutto, e in audit
           restava un salvataggio d'anagrafica;
         - **l'identita sempre** — e due genitori con **un indirizzo di famiglia**
-          (la configurazione ordinaria di ADR-0114) collassavano in uno: la
+          (la configurazione ordinaria di ADR-0127) collassavano in uno: la
           seconda riga non veniva nominata da nessun elemento e spariva, con il
           suo codice fiscale.
 
@@ -1230,7 +1230,7 @@ export const saveGuardianRegistry = async (
  * piu**, non perche sia stata messa una serratura piu grossa.
  *
  * `contactOnly` lo decide chi chiama, e il criterio e uno solo: **l'ha scritto
- * il club?** ADR-0114 fa valere l'indirizzo come chiave poggiando su quel
+ * il club?** ADR-0127 fa valere l'indirizzo come chiave poggiando su quel
  * presupposto, e una compilazione pubblica non lo soddisfa.
  */
 export const upsertGuardianFromFormApproval = async (
@@ -1349,7 +1349,7 @@ export const upsertGuardianFromFormApproval = async (
       **Il segno si mette solo su una riga che nasce.**
 
       Applicarlo anche all'aggiornamento declasserebbe a solo-recapito un
-      tutore che la segreteria aveva scritto mesi prima — che ADR-0114 dichiara
+      tutore che la segreteria aveva scritto mesi prima — che ADR-0127 dichiara
       valido — perche uno sconosciuto ha compilato il modulo pubblico su quel
       minore. Nel blob questa distinzione richiedeva di sapere se l'indice
       corrispondesse a una riga esistente; qui la fa la `upsert`.
@@ -1390,7 +1390,7 @@ export const upsertGuardianFromFormApproval = async (
         segnaposto `{{parent.N.*}}`, il destinatario fiscale di una ricevuta e
         i tre canali di notifica.
 
-        ADR-0114 fa valere l'indirizzo come chiave poggiando su un presupposto:
+        ADR-0127 fa valere l'indirizzo come chiave poggiando su un presupposto:
         **l'ha scritto il club**. Una compilazione pubblica non e il club, ed e
         esattamente cio che `contactOnly` dice. Da una compilazione pubblica si
         riempie percio solo cio che e **vuoto** — un telefono che mancava e un
@@ -1739,7 +1739,7 @@ export const revokeGuardianRow = async (
         nominata non porta un'utenza — che e il caso di ogni riga di solo
         recapito. Non valeva «piena»: non valeva affatto.
 
-        Misurato dalla rotta vera, sulla configurazione ordinaria di ADR-0114:
+        Misurato dalla rotta vera, sulla configurazione ordinaria di ADR-0127:
         l'operatore scollega il **padre**, che un account non ce l'ha, e
         l'estensione per indirizzo porta dentro la riga della **madre**, che
         viene revocata. In audit c'e solo il padre.
@@ -1870,7 +1870,7 @@ export const revokeGuardianAccessInClub = async (
       Il ramo `{ email: indirizzo }` serve a raggiungere chi non ha un'utenza:
       un tutore dichiarato solo per recapito si revoca cosi, e senza quel ramo
       non lo si revocherebbe affatto. Ma sulla configurazione ordinaria di
-      ADR-0114 — due genitori, **un solo indirizzo di famiglia** — raggiunge
+      ADR-0127 — due genitori, **un solo indirizzo di famiglia** — raggiunge
       anche la riga dell'altro.
 
       La stesura precedente provava a distinguerli per **scheda**: «se qui c'e
@@ -2219,7 +2219,7 @@ export const findGuardianLinks = async (
     con due chiavi diverse: il travaso da a una riga che dichiarava
     `linkedUserId` la chiave dell'utenza — e le lascia l'indirizzo **di
     famiglia** come recapito — e a una riga senza identificativo la chiave
-    dell'indirizzo. E la configurazione ordinaria di ADR-0114: madre e padre,
+    dell'indirizzo. E la configurazione ordinaria di ADR-0127: madre e padre,
     un indirizzo solo.
 
     Revocare la madre chiude **la sua riga**. Ma la riga del padre porta lo
@@ -2597,7 +2597,7 @@ export const refreshGuardianProjection = async (
     revocata continuava ad arrivare fra i destinatari: gli avvisi sulla salute
     di un minore, e il sollecito con il link per pagare.
 
-    Il difetto nasceva dal caso ordinario di ADR-0114: madre e padre con **un
+    Il difetto nasceva dal caso ordinario di ADR-0127: madre e padre con **un
     solo indirizzo di famiglia**. Revocare la madre chiude la sua riga, ma la
     riga del padre porta lo stesso indirizzo, e da li quei lettori risolvevano
     di nuovo l'utenza della madre.

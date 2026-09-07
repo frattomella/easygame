@@ -7,7 +7,7 @@ import test, { before } from "node:test";
  *
  * La sonda contro PostgreSQL misura le porte vere; qui si misura la **regola**,
  * e la si misura su tutto il suo dominio invece che su qualche caso scelto a
- * mano — la forma che ADR-0117 prescrive.
+ * mano — la forma che ADR-0130 prescrive.
  *
  * Il dominio non e un elenco scritto qui dentro: e il prodotto cartesiano di
  * tutti i sottoinsiemi di due assi, generato. Se un giorno la risoluzione

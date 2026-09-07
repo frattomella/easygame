@@ -1386,7 +1386,7 @@ travasarli creava legami che non esistevano.
 `20260906090000_pp02_il_tutore_ha_un_solo_scrittore`: `athlete_guardians`
 accetta un `INSERT` o un `UPDATE` solo dentro una transazione che abbia
 dichiarato `SET LOCAL "easygame.guardian_writer" = 'on'`, e quella riga la
-scrive una funzione sola (ADR-0119). **Una migrazione che tocca i tutori deve
+scrive una funzione sola (ADR-0136). **Una migrazione che tocca i tutori deve
 dichiararlo anche lei**, e si vede nel diff.
 
 **`athletes.data.guardians[]` resta come proiezione in sola lettura.** La

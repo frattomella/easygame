@@ -6218,7 +6218,7 @@ questa decisione, non un'aggiunta accanto.
 
 ---
 
-## ADR-0114 — Il legame di un tutore non e la sua tessera; il suo indirizzo non e un legame che apre da solo
+## ADR-0127 — Il legame di un tutore non e la sua tessera; il suo indirizzo non e un legame che apre da solo
 
 **Data:** 2026-09-04 · **Contesto:** PP-02 §A
 
@@ -6268,7 +6268,7 @@ dirlo**, su pagine che parlano di importi e di certificati medici.
 
 ---
 
-## ADR-0115 — Cio che la famiglia legge di un documento di pagamento e un elenco chiuso
+## ADR-0128 — Cio che la famiglia legge di un documento di pagamento e un elenco chiuso
 
 **Data:** 2026-09-04 · **Contesto:** PP-02 §E
 
@@ -6304,11 +6304,11 @@ riga, dove serve a riconoscere il documento che si ha in mano.
 
 ---
 
-## ADR-0116 — L'accesso di un tutore si revoca per **identita**, e una difesa nuova non eredita niente
+## ADR-0129 — L'accesso di un tutore si revoca per **identita**, e una difesa nuova non eredita niente
 
 **Contesto.** «Scollega account» non revocava. Il vaglio del legame accetta
 quattro forme, e la quarta e l'indirizzo di **contatto** che la segreteria
-scrive sulla scheda — la strada che ADR-0114 tiene aperta perche una famiglia
+scrive sulla scheda — la strada che ADR-0127 tiene aperta perche una famiglia
 entri senza riscattare un codice. La revoca azzerava le altre tre e
 quell'indirizzo lo lasciava, perche al club serve per scrivere a quella persona.
 La scheda diceva «Account non collegato» e la persona vedeva ancora tutto.
@@ -6467,7 +6467,7 @@ controlla.
 2. **`guardians[].accessRevokedAt`** — il marchio sulla singola riga, che
    racconta la storia di quella riga e nega il **ripiego** sull'indirizzo.
 3. **`guardians[].contactOnly`** — il segno di una riga nata da una
-   compilazione **senza autore dimostrato**. ADR-0114 fa valere l'indirizzo di
+   compilazione **senza autore dimostrato**. ADR-0127 fa valere l'indirizzo di
    contatto come legame, e poggia su un presupposto che li non regge: che lo
    abbia scritto **il club**. Un modulo pubblico lo compila chiunque.
 
@@ -6521,7 +6521,7 @@ riga in archivio»:
 3. **per identita**, dove l'identita di una riga revocata **collassa
    sull'indirizzo** — la revoca azzera gli identificativi e l'indirizzo lo
    lascia, perche al club serve. Su madre e padre con un unico indirizzo di
-   famiglia (ADR-0114, la configurazione ordinaria) il padre finiva per avere la
+   famiglia (ADR-0127, la configurazione ordinaria) il padre finiva per avere la
    **stessa identita** della madre revocata, e al primo salvataggio ereditava il
    suo marchio.
 
@@ -6624,7 +6624,7 @@ a salvare — misurati, 1.079 combinazioni su 1.536.
 
 ---
 
-## ADR-0117 — Una difesa che dipende da un'enumerazione ha un test che **enumera il dominio**
+## ADR-0130 — Una difesa che dipende da un'enumerazione ha un test che **enumera il dominio**
 
 **Contesto.** Ventotto round di revisione ostile su PP-02. Dal quattordicesimo
 in poi ogni round ha trovato almeno un High, e tre round consecutivi hanno
@@ -6716,7 +6716,7 @@ scrivono insieme), ADR-0110 (scollegare non e revocare).
 
 ---
 
-## ADR-0118 — Un tutore e una riga, e l'autorita non e piu il blob
+## ADR-0135 — Un tutore e una riga, e l'autorita non e piu il blob
 
 **Stato**: accettata (2026-09-06, PP-02 / WP-C+D).
 
@@ -6747,7 +6747,7 @@ Le quattro regole, tutte in `src/lib/server/athlete-guardians.ts`:
 2. **la revoca e un fatto sulla riga** (`revoked_at`), e la toglie solo il
    riscatto di un invito — l'atto tracciato e revocabile;
 3. **`contact_only` marca un recapito, non una chiave**: una riga nata da un
-   modulo pubblico non apre l'area famiglia, perche il presupposto di ADR-0114
+   modulo pubblico non apre l'area famiglia, perche il presupposto di ADR-0127
    — che l'indirizzo lo scriva il club — li non c'e;
 4. **un salvataggio dell'anagrafica non concede accessi**: puo aggiornare come
    si chiama una persona e dove la si raggiunge, non se apre il fascicolo.
@@ -6821,15 +6821,15 @@ dichiara chiusa perche e sparita l'istanza che si stava guardando.
 precedenti hanno sbagliato cinque domande diverse, tutte discendenti dall'unica
 domanda senza risposta. Tenere il blob come autorita e aggiungere un blocco piu
 grosso: e cio che ha prodotto il deadlock con il rollover, e la scelta fra i due
-difetti era gia stata riconosciuta come non-vittoria in ADR-0116.
+difetti era gia stata riconosciuta come non-vittoria in ADR-0129.
 
-**Vedi anche.** ADR-0119 (l'archivio fa valere il proprietario), ADR-0114 (il
-legame di un tutore), ADR-0116 (la revoca per identita — superata da questa),
+**Vedi anche.** ADR-0136 (l'archivio fa valere il proprietario), ADR-0127 (il
+legame di un tutore), ADR-0129 (la revoca per identita — superata da questa),
 ADR-0110 (scollegare non e revocare), KB 44 (l'analisi della causa).
 
 ---
 
-## ADR-0119 — Un proprietario di dominio lo fa valere l'archivio, non il documento
+## ADR-0136 — Un proprietario di dominio lo fa valere l'archivio, non il documento
 
 **Stato**: accettata (2026-09-06, PP-02 / WP-C).
 
@@ -6913,7 +6913,7 @@ Un test che elenca i file autorizzati: e la forma che ha gia fallito cinque
 volte. Un `GRANT` per ruolo di database: il prodotto usa una connessione sola,
 quindi non distinguerebbe il proprietario dal resto dell'applicazione.
 
-**Vedi anche.** ADR-0118 (un tutore e una riga), ADR-0117 (un'enumerazione ha un
+**Vedi anche.** ADR-0135 (un tutore e una riga), ADR-0130 (un'enumerazione ha un
 test che enumera il dominio), CLAUDE.md §2.
 
 ## ADR-0137 — Un confine si difende dai due lati, e le due letture sono una funzione sola
@@ -6943,7 +6943,7 @@ chi e revocato, chi e solo un recapito — sparivano a **ogni** salvataggio di
 **qualunque** scheda. Non sono decorativi: tre canali di notifica leggono di li
 per sapere chi **non** deve ricevere, e senza di loro una persona revocata che
 condivide l'indirizzo di famiglia con un genitore attivo — il caso ordinario di
-ADR-0114 — tornava a ricevere gli avvisi sulla salute del minore e il sollecito
+ADR-0127 — tornava a ricevere gli avvisi sulla salute del minore e il sollecito
 con il link per pagare.
 
 Le chiavi si riportano ora **derivandole dalla costante** che le dichiara: una
@@ -6998,8 +6998,8 @@ qualcosa. Le cinque correzioni hanno quindici asserzioni e sei controlli, e ogni
 correzione e stata rimessa indietro una per una per vedere la sua asserzione
 diventare rossa — e solo la sua.
 
-**Vedi anche.** ADR-0118 (un tutore e una riga), ADR-0119 (l'archivio fa valere
-il proprietario), ADR-0114 (l'indirizzo di un tutore), CLAUDE.md §2.
+**Vedi anche.** ADR-0135 (un tutore e una riga), ADR-0136 (l'archivio fa valere
+il proprietario), ADR-0127 (l'indirizzo di un tutore), CLAUDE.md §2.
 
 ## ADR-0138 — Un commento che afferma una proprieta di sicurezza e un debito finche non ha una sonda
 
@@ -7034,7 +7034,7 @@ un'asserzione che la misura.** Le tre sono diventate: l'invariante fra i due
 predicati del gettone (enumerando le forme di carico), il vaglio strutturale su
 chi prende l'ordine dei blocchi, e la misura dichiarata di D49.
 
-E il seguito di ADR-0117 su un'altra superficie: li era «una difesa che dipende
+E il seguito di ADR-0130 su un'altra superficie: li era «una difesa che dipende
 da un'enumerazione ha un test che enumera il dominio», qui e «una difesa che
 dipende da una promessa ha un test che la verifica».
 
@@ -7067,7 +7067,7 @@ nessuno stava guardando, e di li si e visto il residuo vero: dentro **una**
 transazione i due sweep di una revoca prendevano due lotti distinti, e due lotti
 crescenti non sono un ordine crescente. Chiuso bloccando l'unione a monte.
 
-**Vedi anche.** ADR-0137 (un confine si difende dai due lati), ADR-0117
+**Vedi anche.** ADR-0137 (un confine si difende dai due lati), ADR-0130
 (enumerare il dominio), ADR-0110, CLAUDE.md §2.
 
 ## ADR-0139 — Davanti a un'identita ambigua su un dato sanitario di un minore si chiude
@@ -7079,7 +7079,7 @@ quarto vaglio indipendente
 
 Una revoca nomina una persona con un'utenza e un indirizzo. Le righe che porta
 l'utenza sono **sue** con certezza. Le righe raggiunte dal solo indirizzo sono
-**ambigue**: su un indirizzo di famiglia — la configurazione che ADR-0114
+**ambigue**: su un indirizzo di famiglia — la configurazione che ADR-0127
 chiama ordinaria — dietro quell'indirizzo possono esserci due genitori, oppure
 la stessa persona dichiarata due volte, e il dato non lo dice.
 
@@ -7139,7 +7139,7 @@ nessuna schermata mostra e un difetto di sicurezza. Si fondono percio solo le
 righe che un accesso non lo aprono.
 
 **Vedi anche.** ADR-0138 (un commento e un debito finche non ha una sonda),
-ADR-0137, ADR-0114, ADR-0105 (diritti dell'interessato).
+ADR-0137, ADR-0127, ADR-0105 (diritti dell'interessato).
 
 ## ADR-0140 — La revoca non e la colonna: e la coppia che la riga revocata conserva
 
@@ -7202,7 +7202,7 @@ apre il fascicolo sanitario di un minore, ed e la forma esatta contro cui quel
 vaglio era stato scritto. Ora e obbligatorio, come nel gemello, e nega su
 `!== true`. Due porte sulla stessa proprieta si somigliano o divergono.
 
-**Vedi anche.** ADR-0139, ADR-0138, ADR-0114, CLAUDE.md §2.
+**Vedi anche.** ADR-0139, ADR-0138, ADR-0127, CLAUDE.md §2.
 
 ## ADR-0141 — Una difesa che vive nell'archivio ha una sonda che la confronta con la migrazione
 
@@ -7222,10 +7222,10 @@ testo intero, che PostgreSQL riscrive a modo suo, ma le condizioni che deve
 contenere, **estratte dal file**. Una condizione aggiunta domani viene pretesa
 senza che nessuno debba ricordarsene.
 
-E il seguito di ADR-0117 su una terza superficie: li il dominio era un'enum, poi
+E il seguito di ADR-0130 su una terza superficie: li il dominio era un'enum, poi
 un elenco di moduli, qui e il corpo di una funzione dell'archivio.
 
-**Vedi anche.** ADR-0119 (l'archivio fa valere il proprietario), ADR-0117.
+**Vedi anche.** ADR-0136 (l'archivio fa valere il proprietario), ADR-0130.
 
 ## ADR-0142 — La posizione e una chiave di fatto, e va tenuta unica
 
@@ -7294,7 +7294,7 @@ mostra.
 La regola vale percio piena sull'**estensione per identita**, che e inferenza
 nostra, e non sulla **voce**, che e intenzione dichiarata.
 
-**Vedi anche.** ADR-0139, ADR-0140, ADR-0141, ADR-0118.
+**Vedi anche.** ADR-0139, ADR-0140, ADR-0141, ADR-0135.
 
 ## ADR-0143 — Una difesa dell'archivio si misura tentando di violarla
 
@@ -7322,7 +7322,7 @@ E la scrittura deve toccare una **riga che esiste**: la prima stesura scriveva s
 un atleta inesistente e restava verde con il vaglio spento, perche un trigger di
 riga su zero righe non scatta. La stessa forma di errore che stava misurando.
 
-**Vedi anche.** ADR-0141, ADR-0138, ADR-0117.
+**Vedi anche.** ADR-0141, ADR-0138, ADR-0130.
 
 ## ADR-0144 — Cio che sta dietro una voce e nominato con lei, e si sposta con lei
 
@@ -7384,7 +7384,7 @@ revocava la riga della madre raggiunta per indirizzo, e in audit c'era solo il
 padre. Una riga con un'utenza qualunque, raggiunta per inferenza da una riga che
 non ne porta nessuna, e di qualcuno di cui non sappiamo niente: non si tocca.
 
-**Vedi anche.** ADR-0142, ADR-0139, ADR-0140, ADR-0114.
+**Vedi anche.** ADR-0142, ADR-0139, ADR-0140, ADR-0127.
 
 ## ADR-0145 — Le porte che tolgono un tutore sono tre, e nessuna si chiama revoca
 
@@ -7637,7 +7637,7 @@ l'indirizzo di contatto di un tutore — l'indirizzo di famiglia, stampato su og
 email del club — lo dichiarava in un modulo pubblico con il **proprio** nome, e
 la riga della madre si ritrovava a chiamarsi come lui.
 
-ADR-0114 fa valere l'indirizzo come chiave poggiando su un presupposto:
+ADR-0127 fa valere l'indirizzo come chiave poggiando su un presupposto:
 **l'ha scritto il club**. Una compilazione pubblica non e il club, ed e
 esattamente cio che `contactOnly` dice. Da una compilazione pubblica si riempie
 percio solo cio che e **vuoto**: un telefono che mancava e un dato in piu, un
@@ -7653,7 +7653,7 @@ chiuso il giorno prima — allora il riepilogo prometteva e l'atto non toglieva.
 Se riepilogo e atto divergono, una delle due mente; e il conteggio va fatto con
 **lo stesso criterio** dell'atto, non con uno equivalente.
 
-**Vedi anche.** ADR-0147, ADR-0146, ADR-0145, ADR-0114, ADR-0105.
+**Vedi anche.** ADR-0147, ADR-0146, ADR-0145, ADR-0127, ADR-0105.
 
 ## ADR-0149 — Un documento nuovo non nomina chi il club ha escluso
 
@@ -7707,14 +7707,14 @@ scheda, arriva intatta fino a un documento ufficiale.
 difesa ha marcato, ogni suo lettore va guardato uno per uno: il marchio dice
 «non decide un accesso», non «non decide niente».
 
-**Vedi anche.** ADR-0140, ADR-0114, ADR-0148.
+**Vedi anche.** ADR-0140, ADR-0127, ADR-0148.
 
 ## ADR-0150 — «Interno» dice da quale rotta, non con quale autorita
 
 **Data.** 2026-09-06 · **Stato.** Accettato · **Contesto.** PP-02 / WP-C+D,
 dodicesimo vaglio indipendente
 
-ADR-0114 fa valere l'indirizzo di un tutore come chiave poggiando su un
+ADR-0127 fa valere l'indirizzo di un tutore come chiave poggiando su un
 presupposto: **l'ha scritto il club**. L'approvazione di una compilazione lo
 traduceva in `source === "internal"`, e `source` lo scrive la rotta interna, la
 cui guardia era la sola chiave di **lettura** dei moduli.
@@ -7727,13 +7727,13 @@ esistente si ritrovava il nome di chi aveva compilato.
 scrittura e chiede la chiave delle pratiche (`forms.submissions.review`), non
 quella della lettura. Chi non ce l'ha ha comunque la porta pubblica, dove
 l'indirizzo vale come recapito e non come legame — che e esattamente la
-distinzione che ADR-0114 stabilisce.
+distinzione che ADR-0127 stabilisce.
 
 **La regola.** Un campo che dice **da dove** viene un dato non dice **con quale
 autorita** e stato scritto. Se una difesa poggia sull'autorita, il campo da
 guardare non e la provenienza: e il permesso di chi ha scritto.
 
-**Vedi anche.** ADR-0114, ADR-0148.
+**Vedi anche.** ADR-0127, ADR-0148.
 
 ## ADR-0151 — La guardia e la scrittura devono interrogare la stessa riga
 
@@ -7814,7 +7814,7 @@ esclusa**. La persona viva non sparisce dietro chi e stato escluso, e chi e
 stato escluso non copre la persona viva.
 
 La vecchia regola — «chi chiude vince» — era nata per prudenza sull'**accesso**.
-Ma l'accesso lo decidono le righe, non questa proiezione (ADR-0118): applicarla
+Ma l'accesso lo decidono le righe, non questa proiezione (ADR-0135): applicarla
 qui non proteggeva niente e faceva danno a valle.
 
 **La regola.** Quando una difesa si applica a una proiezione che **aggrega**,
@@ -7822,7 +7822,7 @@ la domanda da farsi e su che cosa si sta filtrando: l'unita della proiezione o
 l'unita del dominio. Se non coincidono, il filtro va scritto sull'unita del
 dominio e portato nella proiezione — non il contrario.
 
-**Vedi anche.** ADR-0149, ADR-0139, ADR-0140, ADR-0118.
+**Vedi anche.** ADR-0149, ADR-0139, ADR-0140, ADR-0135.
 
 ---
 
@@ -7923,7 +7923,7 @@ regressioni delle proprie correzioni precedenti, il difetto non e nell'endpoint 
 e nel fatto che la regola abbia piu di una casa.** Si smette di correggere
 endpoint e si consolida la classe.
 
-**Vedi anche.** ADR-0152, ADR-0151, ADR-0149, ADR-0118, ADR-0116,
+**Vedi anche.** ADR-0152, ADR-0151, ADR-0149, ADR-0135, ADR-0129,
 `docs/knowledge-base/49-pp-02-invarianti-tutori.md`.
 
 ---
@@ -7997,7 +7997,7 @@ travaso marca per **identita** senza azzerare l'utenza.
 Su una riga cosi vale §C senza deroghe: **e esclusa, e non riceve**. L'uscita
 «un legame dichiarato e non revocato vince» resta, ma vale sui **registri** —
 elenchi di identita, dove un indirizzo di famiglia condiviso finisce per colpa
-di un altro (ADR-0114) — e **mai sul marchio**, che e l'autorita della riga su
+di un altro (ADR-0127) — e **mai sul marchio**, che e l'autorita della riga su
 se stessa.
 
 Una prova della UAT pretendeva l'opposto, su una voce costruita a mano. Non e
@@ -8012,6 +8012,6 @@ ne sono state rese visibili: il blob storico che tornava autorita di fatto a
 zero righe (§A), l'ordine di due `if` che faceva ricevere un escluso (§C, §H),
 e una voce non-oggetto che faceva slittare i lettori posizionali (§G).
 
-**Vedi anche.** ADR-0153, ADR-0152, ADR-0151, ADR-0118, ADR-0114,
+**Vedi anche.** ADR-0153, ADR-0152, ADR-0151, ADR-0135, ADR-0127,
 `docs/knowledge-base/49-pp-02-invarianti-tutori.md`,
 `docs/knowledge-base/16-technical-debt.md` §D-PP02-A..D.

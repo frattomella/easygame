@@ -2578,7 +2578,7 @@ presidio e sulla classe e non sul caso: nessun file sotto `src/app/api` o
 
 L'accesso di un tutore a un atleta si toglie per **identita**, non per riga, e
 la decisione con le sue ragioni sta in
-[ADR-0116](18-decision-log.md#adr-0116--laccesso-di-un-tutore-si-revoca-per-identita-e-una-difesa-nuova-non-eredita-niente).
+[ADR-0129](18-decision-log.md#adr-0129--laccesso-di-un-tutore-si-revoca-per-identita-e-una-difesa-nuova-non-eredita-niente).
 
 Tre difese, tutte dentro `athletes.data`:
 
@@ -2684,7 +2684,7 @@ Tre difese, tutte dentro `athletes.data`:
 Le undici righe qui sopra sono undici difese, e sono state scritte in
 ventotto round. Hanno una cosa in comune: **difendono tutte lo stesso blob**.
 Ogni volta che una reggeva, la successiva nasceva accanto senza ereditarne le
-protezioni — e ADR-0116 lo aveva gia scritto come regola.
+protezioni — e ADR-0129 lo aveva gia scritto come regola.
 
 Non erano difese sbagliate. Erano risposte a una domanda che non ha risposta:
 «quale riga in arrivo corrisponde a quale riga in archivio», su un array senza
@@ -2708,7 +2708,7 @@ smette di essere **permesso**:
 
 1. **la scrittura della tabella** e sorvegliata dall'**archivio**: un vaglio
    rifiuta ogni `INSERT`/`UPDATE` fuori da una transazione che si sia dichiarata
-   scrittore (ADR-0119). Non e un elenco di file, quindi non invecchia;
+   scrittore (ADR-0136). Non e un elenco di file, quindi non invecchia;
 2. **la scrittura della proiezione** dentro `athletes.data` e sorvegliata dal
    codice: la rotta generica toglie `guardians`, `revokedGuardianIdentities` e
    `contactOnlyIdentities` dal corpo. E una difesa piu debole della prima, e va

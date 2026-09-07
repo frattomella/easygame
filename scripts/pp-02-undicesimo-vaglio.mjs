@@ -1343,7 +1343,7 @@ const main = async () => {
       organizationId: CLUB,
       athleteId: FIGLIO_E,
       /*
-        La configurazione ordinaria di ADR-0114: la segreteria scrive
+        La configurazione ordinaria di ADR-0127: la segreteria scrive
         l'indirizzo di contatto, e **quello** e l'identita della riga.
       */
       rows: [

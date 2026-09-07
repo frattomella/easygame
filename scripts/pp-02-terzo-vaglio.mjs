@@ -450,7 +450,7 @@ const main = async () => {
   console.log("\n§3 — la scheda TRAVASATA: un indirizzo, due genitori\n");
   {
     /*
-      La configurazione ordinaria di ADR-0114, prodotta come la produce
+      La configurazione ordinaria di ADR-0127, prodotta come la produce
       l'archivio vero: il travaso della migrazione su un blob storico.
       La madre dichiara `linkedUserId` (chiave = utenza), il padre no
       (chiave = indirizzo di famiglia).

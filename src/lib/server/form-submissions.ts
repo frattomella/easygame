@@ -2113,7 +2113,7 @@ const eseguiDecisione = async (
     /*
       **Un indirizzo dichiarato da uno sconosciuto non e una credenziale.**
 
-      ADR-0114 fa valere l'indirizzo di contatto di un tutore come legame: la
+      ADR-0127 fa valere l'indirizzo di contatto di un tutore come legame: la
       segreteria lo scrive, la famiglia si registra con quello, ed entra senza
       riscattare un codice. Quella decisione poggia su un presupposto che qui
       non regge — che l'indirizzo lo abbia **scritto il club**.
@@ -2127,7 +2127,7 @@ const eseguiDecisione = async (
 
       Il criterio non e «chi ha compilato» ne «da quale porta»: e **chi ha
       scritto quell'indirizzo**, e l'unica compilazione di cui il presupposto
-      di ADR-0114 sia vero e quella interna. Un genitore autenticato ha
+      di ADR-0127 sia vero e quella interna. Un genitore autenticato ha
       dimostrato il **proprio** legame, non quello di un terzo che dichiara.
     */
     const compilataDalClub = asText(row.source) === "internal";

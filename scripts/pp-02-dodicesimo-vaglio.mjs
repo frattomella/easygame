@@ -56,9 +56,9 @@
  *
  *  §C  form-submissions.ts:2100-2111 — «Il criterio non e «chi ha compilato»
  *      ne «da quale porta»: e **chi ha scritto quell'indirizzo**, e l'unica
- *      compilazione di cui il presupposto di ADR-0114 sia vero e quella
+ *      compilazione di cui il presupposto di ADR-0127 sia vero e quella
  *      interna.»
- *      E athlete-guardians.ts:1213-1231 (commit 53ede47) — «ADR-0114 fa valere
+ *      E athlete-guardians.ts:1213-1231 (commit 53ede47) — «ADR-0127 fa valere
  *      l'indirizzo come chiave poggiando su un presupposto: **l'ha scritto il
  *      club**. Una compilazione pubblica non e il club, ed e esattamente cio
  *      che `contactOnly` dice.»
@@ -1117,7 +1117,7 @@ const main = async () => {
         "`source: \"internal\"` (form-submissions.ts:1063), e la sua unica guardia " +
         "e `canAccessClubResource(role, \"forms\", \"read\")`: la **lettura**. " +
         "`compilataDalClub` legge poi quel `source` come «l'ha scritto il club», " +
-        "che e il presupposto di ADR-0114. " +
+        "che e il presupposto di ADR-0127. " +
         `risposta=${JSON.stringify(inviato.corpo?.error?.message ?? null)}`,
     );
 

@@ -2607,7 +2607,7 @@ export const syncClubAggregateField = async (
  * Misurato tre volte su tre contro PostgreSQL, con una revoca e un salvataggio
  * dell'anagrafica in parallelo.
  *
- * ADR-0116 chiama «atomico» lo scrittore che scrive il fatto e la difesa nella
+ * ADR-0129 chiama «atomico» lo scrittore che scrive il fatto e la difesa nella
  * **stessa** `update`. Non basta: una `update` sola su un valore letto prima e
  * un lost update classico. L'atomicita si ottiene qui — si blocca la riga, si
  * **rilegge** dentro il blocco, e si scrive cio che si e appena letto.
@@ -6748,7 +6748,7 @@ const applicaGuardieDiModifica = async (
 
     `PATCH /api/v1/auth/user` lascia cambiare il proprio indirizzo e **azzera**
     `email_verified_at`, ed e su quell'azzeramento che poggia l'apertura
-    dell'area famiglia per indirizzo di contatto (ADR-0114): un indirizzo vale
+    dell'area famiglia per indirizzo di contatto (ADR-0127): un indirizzo vale
     come legame solo se e verificato, perche per averlo verificato bisogna
     avere letto quella casella.
 
@@ -7525,7 +7525,7 @@ export const updateResource = async (
               solleciti di pagamento leggono di li per sapere **chi non deve
               ricevere**. Senza il registro, una persona revocata che condivide
               l'indirizzo di famiglia con un genitore attivo — il caso ordinario
-              di ADR-0114 — tornava fra i destinatari degli avvisi sulla salute
+              di ADR-0127 — tornava fra i destinatari degli avvisi sulla salute
               del minore e del sollecito con il link per pagare.
 
               Si riportano percio le chiavi che il modulo proprietario dichiara,

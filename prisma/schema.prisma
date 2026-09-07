@@ -523,7 +523,7 @@ model AthleteGuardian {
   relationship String?
 
   /// **Un recapito a cui scrivere, non una chiave dell'area famiglia.**
-  /// ADR-0114 fa valere l'indirizzo di contatto come legame, e quella regola
+  /// ADR-0127 fa valere l'indirizzo di contatto come legame, e quella regola
   /// poggia sul presupposto che lo scriva la segreteria: un indirizzo arrivato
   /// da un modulo pubblico vale come recapito e basta.
   contact_only Boolean @default(false)

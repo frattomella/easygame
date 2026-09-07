@@ -116,7 +116,7 @@ const conSeme = (guardiano) => {
 
 test("l'indirizzo di contatto, da solo, e un legame", async () => {
   /*
-    E la decisione ADR-0114: la segreteria scrive l'indirizzo, la famiglia si
+    E la decisione ADR-0127: la segreteria scrive l'indirizzo, la famiglia si
     registra con quello, e dentro un club dove ha gia una tessera il legame
     vale. Questa prova esiste per il verso opposto — perche la correzione della
     revoca **non deve** capovolgerla.
@@ -283,7 +283,7 @@ test("un legame dichiarato riapre, perche e cosi che ci si ricollega", async () 
 
 test("una riga tutore nata da un modulo pubblico non apre l'area famiglia", async () => {
   /*
-    ADR-0114 fa valere l'indirizzo di contatto come legame, e poggia su un
+    ADR-0127 fa valere l'indirizzo di contatto come legame, e poggia su un
     presupposto: che lo abbia scritto **il club**. Un modulo pubblico lo
     compila chiunque, senza sessione.
 
@@ -341,7 +341,7 @@ test("il rinnovo che la famiglia invia non le toglie l'accesso", async () => {
 
     Il genitore rinnovava, la segreteria approvava, e al caricamento dopo lui
     trovava «Accesso negato». Colpiva esattamente le famiglie che entrano nel
-    modo che ADR-0114 prevede: quelle che non hanno riscattato un gettone.
+    modo che ADR-0127 prevede: quelle che non hanno riscattato un gettone.
 
     Cio che distingue lo sconosciuto e che la sua compilazione **non ha un
     autore dimostrato**.
@@ -364,7 +364,7 @@ test("il criterio del marchio e chi ha scritto l'indirizzo, non chi ha compilato
     **Tre stesure, e le prime due si vedono solo insieme.**
 
     `contactOnly` marca la riga tutore nata da una compilazione di cui il club
-    non e l'autore, perche ADR-0114 fa valere l'indirizzo come **chiave** e
+    non e l'autore, perche ADR-0127 fa valere l'indirizzo come **chiave** e
     quella regola poggia sul presupposto che lo scriva la segreteria.
 
     - `source !== "internal"`, applicato anche al ramo che **aggiorna**,
