@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test, { before, beforeEach } from "node:test";
-import { createHash } from "node:crypto";
 
 import { createFakePrisma } from "../helpers/fake-prisma.mjs";
 
@@ -19,10 +18,28 @@ import { createFakePrisma } from "../helpers/fake-prisma.mjs";
  */
 
 const UTENTE = "11111111-0000-4000-8000-000000000aaa";
+/*
+  **Il riferimento opaco, non l'UUID** (PP-05, M-1 del secondo round della
+  revisione ostile). Le rotte e il dominio accettano l'UUID nudo **solo** da
+  chi ha gia una sessione su quell'account: qui non c'e nessuna sessione, e
+  questa e la forma in cui il flusso vero arriva — la registrazione restituisce
+  il riferimento, non l'identificativo.
+*/
+const RIFERIMENTO = "verify_0123456789abcdef0123456789abcdef";
+const DESTINATARIO = "persona@example.invalid";
 const CODICE = "654321";
 const TOKEN_RESET = "token-di-reset-lungo-e-imprevedibile";
 
-const impronta = (valore) => createHash("sha256").update(valore).digest("hex");
+/*
+  **L'impronta la calcola il codice di produzione, non il test.**
+
+  Prima era una riga di SHA-256 nuda scritta qui: quando `hashOtpCode` e
+  diventato un HMAC con il pepe e con il legame a canale, scopo e utente
+  (PP-05), questo file e diventato rosso — ed e giusto che lo sia diventato,
+  perche una copia dell'impronta scritta nel test avrebbe continuato a passare
+  qualunque cosa facesse la produzione. Adesso si chiama la stessa funzione.
+*/
+let impronta;
 
 let flussi;
 let MAX_OTP_ATTEMPTS;
@@ -34,7 +51,7 @@ const challenge = (over = {}) => ({
   user_id: UTENTE,
   channel: "email",
   purpose: "verify_email",
-  target: "persona@example.invalid",
+  target: DESTINATARIO,
   code_hash: impronta(CODICE),
   expires_at: new Date(Date.now() + 10 * 60_000),
   consumed_at: null,
@@ -47,12 +64,12 @@ const seed = () => ({
   user: [
     {
       id: UTENTE,
-      email: "persona@example.invalid",
+      email: DESTINATARIO,
       first_name: "Anna",
       last_name: "Rossi",
       password_hash: "x",
       email_verified_at: null,
-      token_verification_id: null,
+      token_verification_id: RIFERIMENTO,
     },
   ],
   authVerificationChallenge: [challenge()],
@@ -62,6 +79,19 @@ const seed = () => ({
 before(async () => {
   process.env.DATABASE_URL ||= "postgresql://test:test@127.0.0.1:5432/test";
   flussi = await import("../../src/lib/server/auth-workflows.ts");
+  /*
+    **Il destinatario entra nell'impronta** (PP-05, CRITICAL del quarto round
+    della revisione ostile): un codice nasce per un recapito, e se l'account
+    cambia recapito fra l'emissione e il consumo quel codice non prova piu
+    niente. Qui il destinatario e sempre l'indirizzo dell'utente della
+    fixture, che e anche il `target` della riga.
+  */
+  impronta = (
+    valore,
+    purpose = "verify_email",
+    channel = "email",
+    target = DESTINATARIO,
+  ) => flussi.hashOtpCode(valore, { userId: UTENTE, channel, purpose, target });
   ({ MAX_OTP_ATTEMPTS } = await import("../../src/lib/auth/otp-policy.ts"));
   ({ __setPrismaClientForTests: setPrismaClientForTests } = await import(
     "../../src/lib/server/prisma.ts"
@@ -79,7 +109,7 @@ const riga = (id = "ch-verifica") =>
 test("dodici codici sbagliati intrecciati: contati fino al tetto, e la challenge si chiude", async () => {
   const esiti = await Promise.allSettled(
     Array.from({ length: 12 }, (_, i) =>
-      flussi.confirmEmailVerification(UTENTE, String(100000 + i)),
+      flussi.confirmEmailVerification(RIFERIMENTO, String(100000 + i)),
     ),
   );
 
@@ -97,7 +127,7 @@ test("dodici codici sbagliati intrecciati: contati fino al tetto, e la challenge
   assert.equal(riga().consumed_at, null);
 
   await assert.rejects(
-    () => flussi.confirmEmailVerification(UTENTE, CODICE),
+    () => flussi.confirmEmailVerification(RIFERIMENTO, CODICE),
     /Codice non valido o scaduto/,
     "dopo la raffica il codice giusto non apre piu niente",
   );
@@ -105,19 +135,28 @@ test("dodici codici sbagliati intrecciati: contati fino al tetto, e la challenge
 });
 
 test("controspecchio: due errori e poi il codice giusto verificano l'indirizzo", async () => {
-  await assert.rejects(() => flussi.confirmEmailVerification(UTENTE, "000000"));
-  await assert.rejects(() => flussi.confirmEmailVerification(UTENTE, "111111"));
+  await assert.rejects(() => flussi.confirmEmailVerification(RIFERIMENTO, "000000"));
+  await assert.rejects(() => flussi.confirmEmailVerification(RIFERIMENTO, "111111"));
 
-  const utente = await flussi.confirmEmailVerification(UTENTE, CODICE);
+  const { user: utente, purpose } = await flussi.confirmEmailVerification(
+    RIFERIMENTO,
+    CODICE,
+  );
 
   assert.ok(utente.email_verified_at, "l'indirizzo risulta verificato");
+  /*
+    Lo scopo torna insieme all'utente (PP-05, ADR-0134): e cio su cui la rotta
+    decide se aprire una sessione, e qui la challenge e stata scritta come
+    `verify_email`, che **non** ne apre nessuna.
+  */
+  assert.equal(purpose, "verify_email");
   assert.equal(riga().attempts, 3);
   assert.ok(riga().consumed_at, "la challenge usata si consuma");
 });
 
 test("la challenge e monouso anche sotto dieci codici giusti intrecciati", async () => {
   const esiti = await Promise.allSettled(
-    Array.from({ length: 10 }, () => flussi.confirmEmailVerification(UTENTE, CODICE)),
+    Array.from({ length: 10 }, () => flussi.confirmEmailVerification(RIFERIMENTO, CODICE)),
   );
 
   assert.equal(
@@ -132,7 +171,7 @@ test("reset password: il token giusto non consuma tentativi se la password che s
     challenge({
       id: "ch-reset",
       purpose: "reset_password",
-      code_hash: impronta(TOKEN_RESET),
+      code_hash: impronta(TOKEN_RESET, "reset_password"),
     }),
   );
 
@@ -180,7 +219,7 @@ test("reset password, controspecchio: il token giusto e una password valida camb
     challenge({
       id: "ch-reset",
       purpose: "reset_password",
-      code_hash: impronta(TOKEN_RESET),
+      code_hash: impronta(TOKEN_RESET, "reset_password"),
     }),
   );
 

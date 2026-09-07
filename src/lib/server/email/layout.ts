@@ -1,40 +1,50 @@
 /**
  * Guscio HTML condiviso per le email EasyGame.
  *
- * Prima ogni chiamata costruiva la propria stringa HTML, senza logo e senza
- * identita visiva. Qui l'unica cosa che cambia da un'email all'altra e
- * `bodyHtml`: intestazione, piede pagina e URL del logotipo restano fissi.
+ * **Da PP-05B questo file non compone piu niente**: e l'adattatore fra i
+ * chiamanti che avevano gia una stringa HTML in mano e l'Email Template Core
+ * (`template-core.ts`), che e il solo posto in cui si scrive markup per la
+ * posta. La firma resta identica perche cambiarla avrebbe toccato quattro
+ * moduli in una volta senza cambiare cio che parte; cio che cambia e che
+ * adesso **anche questa strada** sa presentarsi con il marchio del club.
  *
- * Il logotipo va servito da un URL assoluto: i client di posta non caricano
- * percorsi relativi ne componenti React, solo un <img src> raggiungibile.
- * `NEXT_PUBLIC_APP_URL` e lo stesso valore usato per i link di reset
- * password (vedi `getAppBaseUrl` in `auth-workflows.ts`), duplicato qui per
- * non introdurre un accoppiamento tra i due moduli.
+ * Chi scrive una email nuova non passa di qui: compone dei blocchi e chiama
+ * `renderEmailDocument`, che gli da anche il testo semplice. `renderEmailLayout`
+ * restituisce solo HTML, ed e la ragione per cui non e la strada consigliata.
  */
-const getEmailAssetBaseUrl = () =>
-  (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001").replace(
-    /\/+$/,
-    "",
-  );
+import {
+  EASYGAME_BRAND,
+  renderEmailDocument,
+  type EmailBrand,
+} from "./template-core";
 
-/** Logotipo blu: le email hanno sempre sfondo chiaro. */
-export const getEmailLogoUrl = () =>
-  `${getEmailAssetBaseUrl()}/images/brand/logotipo-b.png`;
+export { getEmailLogoUrl } from "./template-core";
 
 export const renderEmailLayout = ({
   bodyHtml,
+  brand = EASYGAME_BRAND,
+  preheader,
 }: {
   bodyHtml: string;
-}): string => `
-  <div style="background:#f8fafc;padding:32px 16px;font-family:Arial, sans-serif;">
-    <div style="max-width:560px;margin:0 auto;">
-      <div style="padding-bottom:24px;">
-        <img src="${getEmailLogoUrl()}" alt="EasyGame" width="140" height="28" style="display:block;border:0;" />
-      </div>
-      <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:24px;color:#0f172a;">
-        ${bodyHtml}
-      </div>
-      <p style="margin:24px 0 0;color:#94a3b8;font-size:12px;">EasyGame</p>
-    </div>
-  </div>
-`;
+  /**
+   * Il marchio con cui presentarsi. Predefinito EasyGame: i chiamanti che
+   * esistevano prima di PP-05B continuano a comportarsi esattamente come
+   * prima, e chi manda per conto di un club lo dichiara.
+   */
+  brand?: EmailBrand;
+  preheader?: string;
+}): string =>
+  renderEmailDocument({
+    brand,
+    preheader,
+    /*
+      `raw` perche il markup arriva gia reso da chi chiama, e sfuggirlo di
+      nuovo lo mostrerebbe come testo. E l'unico blocco che si fida, ed e la
+      ragione per cui `template-core.ts` lo documenta come via d'uscita: chi
+      passa di qui si assume la responsabilita del proprio escaping.
+
+      Il `text` e vuoto di proposito: questa funzione restituisce solo HTML, e
+      il testo semplice lo compone gia chi chiama accanto al `bodyHtml`.
+    */
+    blocks: [{ kind: "raw", html: bodyHtml, text: "" }],
+  }).html;

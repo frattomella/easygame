@@ -1,16 +1,28 @@
 import { NextResponse } from "next/server";
-import { isPhoneVerificationEnabled } from "@/lib/auth/provider-policy";
+import {
+  getPhoneNormalizationMessage,
+  normalizePhoneNumber,
+} from "@/lib/auth/phone-number";
 import { publicErrorMessage } from "@/lib/server/api-errors";
 import { prisma } from "@/lib/server/prisma";
 import {
   buildSessionPayload,
   getSessionFromRequest,
   hashPassword,
+  verifyPassword,
 } from "@/lib/server/auth";
 import {
   getPasswordPolicyMessage,
   validatePassword,
 } from "@/lib/auth/password-policy";
+import {
+  AUTH_RATE_LIMITS,
+  consumeRequestRateLimits,
+  getRequestIp,
+  rateLimitHeaders,
+} from "@/lib/server/auth-rate-limit";
+import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
+import { stripProtectedUserMetadata } from "@/lib/auth/user-metadata-policy";
 
 export async function GET(request: Request) {
   const session = await getSessionFromRequest(request);
@@ -44,31 +56,41 @@ export async function PATCH(request: Request) {
             .toLowerCase()
         : undefined;
     /*
-      **Le chiavi che il soggetto di un dato non puo scrivere su se stesso.**
+      **Le chiavi che il soggetto di un dato non puo scrivere su se stesso**
+      — e l'elenco **non e piu qui**, che e il punto.
 
       `user_metadata` e una colonna JSON libera, e va bene che lo sia: e il
       posto dove una persona tiene le sue preferenze. Ma da qui si scriveva
       **qualunque** chiave, e `isPlatformAdminUser` ne leggeva una: `role`.
-      Da un account qualunque — un genitore, un atleta, uno appena registrato
-      e senza club — bastava
-      `{"user_metadata":{"role":"platform_admin"}}` per diventare
-      amministratore della piattaforma alla richiesta successiva.
+      Bastava `{"user_metadata":{"role":"platform_admin"}}` da un account
+      qualunque. Poi il lettore ne ha imparata una quarta, `emailVerified`, e
+      l'elenco non e stato aggiornato: il terzo round della revisione ostile ha
+      rifatto la stessa strada con un nome diverso.
 
-      Il controllo di `platform-admin.ts` non legge piu quel campo, e questa
-      lista e la seconda meta della stessa correzione: due difese per lo stesso
-      privilegio, perche una sola prima o poi si dimentica.
+      **La regola che lo chiude in generale**, e non solo per un nome: le
+      chiavi che `buildUserMetadata` **calcola** non si scrivono. Sono una
+      proiezione di colonne vere, ricalcolate e sovrascritte a ogni
+      serializzazione: persisterle non cambia cio che il browser legge, e
+      cambia **solo** cio che leggono i chiamanti lato server. Una scrittura
+      senza effetto visibile e con un effetto invisibile e la forma peggiore che
+      possa avere.
+
+      **E la ragione per cui l'elenco e emigrato** (quinto round, MEDIUM). Il
+      commento che stava qui prometteva «due difese per lo stesso privilegio,
+      perche una sola prima o poi si dimentica». Erano davvero due — questa e
+      quella del registro generico, che scrive la **stessa colonna** su
+      `PATCH /api/v1/users/<la propria riga>` — ma erano due elenchi
+      **diversi**, sette nomi contro tre, e nessuno li confrontava. Due difese
+      si tengono uguali solo se sono la stessa riga: ora stanno in
+      `src/lib/auth/user-metadata-policy.ts` e le importano entrambe.
     */
-    const CHIAVI_NON_SCRIVIBILI = ["role", "app_metadata", "is_platform_admin"];
-
     const metadataGrezzo =
       (typeof body?.data === "object" && body.data) ||
       (typeof body?.user_metadata === "object" && body.user_metadata) ||
       {};
 
-    const metadata = Object.fromEntries(
-      Object.entries(metadataGrezzo).filter(
-        ([chiave]) => !CHIAVI_NON_SCRIVIBILI.includes(chiave),
-      ),
+    const metadata = stripProtectedUserMetadata(
+      metadataGrezzo as Record<string, unknown>,
     ) as Record<string, any>;
     const phone =
       metadata.phone !== undefined
@@ -122,9 +144,122 @@ export async function PATCH(request: Request) {
       }
     }
 
+    /*
+      **Il numero si normalizza qui come alla registrazione.**
+
+      Senza normalizzazione lo stesso numero scritto in due modi produceva due
+      valori diversi in colonna, e il legame fra challenge e numero corrente
+      (`verifyInternalChallenge`) non si sarebbe mai chiuso: la persona avrebbe
+      ricevuto l'SMS e il codice sarebbe stato rifiutato, senza capire perche.
+      Un numero vuoto **non e** un modo per togliersi il cellulare: e
+      obbligatorio, e chi lo cancella riceve lo stesso rifiuto di chi lo scrive
+      male.
+    */
+    let phoneNormalizzato: string | undefined;
+    if (phone !== undefined) {
+      const numero = normalizePhoneNumber(phone);
+      if (!numero.valid) {
+        return NextResponse.json(
+          {
+            data: { user: null },
+            error: {
+              message: getPhoneNormalizationMessage(numero.reason),
+              code: "INVALID_PHONE",
+            },
+          },
+          { status: 400 },
+        );
+      }
+      phoneNormalizzato = numero.e164;
+    }
+
     const emailChanged = email !== undefined && email !== session.db.user.email;
     const phoneChanged =
-      phone !== undefined && phone !== String(session.db.user.phone || "");
+      phoneNormalizzato !== undefined &&
+      phoneNormalizzato !== String(session.db.user.phone || "");
+
+    /*
+      **Cambiare recapito richiede la password corrente (chiude W4-R13).**
+
+      Era registrato come debito: «chiedere anche la password corrente e la
+      difesa che manca ancora». Con PP-05 non e piu rimandabile, perche il
+      recapito e diventato un **fattore**: chi possiede una sessione altrui —
+      un browser lasciato aperto, un Bearer sfuggito — poteva sostituire
+      indirizzo e numero con i propri, verificarli, e diventare il titolare
+      dell'account a tutti gli effetti, con il proprietario chiuso fuori dal suo
+      stesso recupero password.
+
+      La password corrente e cio che una sessione rubata **non** porta con se.
+      Vale per l'indirizzo, per il numero e per la password nuova; non vale per
+      nome, cognome e preferenze, che non sono fattori.
+    */
+    if (emailChanged || phoneChanged || requestedPassword !== undefined) {
+      /*
+        **Un tetto ai tentativi, e una riga nel registro** (MEDIUM-7 della
+        revisione ostile PP-05A).
+
+        La richiesta della password attuale e nata contro la sessione rubata, e
+        senza contatore la sessione rubata poteva semplicemente **indovinarla**:
+        misurati venticinque tentativi di fila senza un solo 429, e nessun
+        evento di audit a raccontarlo. Il contatore si consuma **prima** del
+        confronto, altrimenti conterebbe i successi e non i tentativi.
+      */
+      const cambioRateLimit = await consumeRequestRateLimits([
+        {
+          policy: AUTH_RATE_LIMITS.credentialChangeIp,
+          identifier: `credential:ip:${getRequestIp(request)}`,
+        },
+        {
+          policy: AUTH_RATE_LIMITS.credentialChangeAccount,
+          identifier: `credential:account:${session.db.user_id}`,
+        },
+      ]);
+      if (cambioRateLimit) {
+        return NextResponse.json(
+          {
+            data: { user: null },
+            error: {
+              message: "Troppi tentativi. Riprova più tardi.",
+              code: "RATE_LIMITED",
+            },
+          },
+          { status: 429, headers: rateLimitHeaders(cambioRateLimit) },
+        );
+      }
+
+      const currentPassword = String(body?.currentPassword || "");
+      const passwordCorretta =
+        Boolean(currentPassword) &&
+        (await verifyPassword(currentPassword, session.db.user.password_hash));
+
+      if (!passwordCorretta) {
+        await recordAuditEvent({
+          action: AUDIT_ACTIONS.authLoginFailure,
+          outcome: "failure",
+          actorUserId: session.db.user_id,
+          actorEmail: session.db.user.email,
+          request,
+          /*
+            Il motivo dice **quale porta** e stata provata: senza, questa riga
+            si confonderebbe con un login sbagliato, e chi legge il registro
+            non saprebbe che qualcuno con una sessione valida stava provando a
+            cambiare i recapiti.
+          */
+          metadata: { reason: "wrong_current_password_on_credential_change" },
+        });
+        return NextResponse.json(
+          {
+            data: { user: null },
+            error: {
+              message:
+                "Per cambiare email, cellulare o password serve la password attuale.",
+              code: "CURRENT_PASSWORD_REQUIRED",
+            },
+          },
+          { status: 403 },
+        );
+      }
+    }
 
     const updated = await prisma.user.update({
       where: { id: session.db.user_id },
@@ -141,13 +276,17 @@ export async function PATCH(request: Request) {
           metadata.lastName !== undefined
             ? String(metadata.lastName || "")
             : undefined,
-        phone: phone !== undefined ? phone || null : undefined,
+        phone: phoneNormalizzato,
+        /*
+          **Cambio recapito → nuova verifica.** Le due righe c'erano gia; cio
+          che mancava era che qualcuno le facesse valere, e a farle valere e il
+          legame fra challenge e destinatario in `verifyInternalChallenge`:
+          senza, un codice emesso per il recapito vecchio confermava quello
+          nuovo, e l'azzeramento era teatro.
+        */
         email_verified_at: emailChanged ? null : undefined,
         phone_verified_at: phoneChanged ? null : undefined,
-        phone_verification_required:
-          phone !== undefined
-            ? Boolean(phone) && isPhoneVerificationEnabled()
-            : undefined,
+        phone_verification_required: phone !== undefined ? true : undefined,
         organization_name:
           metadata.organizationName !== undefined
             ? metadata.organizationName || null
@@ -181,7 +320,7 @@ export async function PATCH(request: Request) {
       Chiedere **anche** la password corrente e la difesa che manca ancora, ed
       e una modifica a due schermate: e registrata come debito (W4-R13).
     */
-    if (emailChanged || requestedPassword !== undefined) {
+    if (emailChanged || phoneChanged || requestedPassword !== undefined) {
       await prisma.session.deleteMany({
         where: {
           user_id: session.db.user_id,

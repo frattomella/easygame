@@ -13,6 +13,10 @@ import {
   normalizeAccessRole,
   parseCustomRoleValue,
 } from "@/lib/access-roles";
+import {
+  maskPhoneNumber,
+  normalizePhoneNumber,
+} from "@/lib/auth/phone-number";
 
 export const SESSION_COOKIE_NAME = "easygame_session";
 const SESSION_DURATION_SECONDS = 60 * 60 * 24 * 14;
@@ -111,6 +115,47 @@ export const serializeAuthUser = (user: {
   updated_at: user.updated_at.toISOString(),
   user_metadata: buildUserMetadata(user),
 });
+
+/**
+ * Passa dalla forma canonica perche il mascheramento conti le cifre giuste:
+ * una riga scritta prima di PP-05 puo contenere `340 123 4567`, e mascherare
+ * quella stringa lascerebbe visibile una cifra in piu del previsto. Gemello di
+ * `maskStoredPhone` in `auth-workflows.ts`, che non si puo importare da qui:
+ * quel modulo importa questo, e il ciclo sarebbe reale.
+ */
+const mascheraNumeroInArchivio = (phone: string) => {
+  const numero = normalizePhoneNumber(phone);
+  return maskPhoneNumber(numero.valid ? numero.e164 : phone);
+};
+
+/**
+ * **La stessa persona, per chi non ha ancora una sessione** (MEDIUM-5 della
+ * revisione ostile PP-05A).
+ *
+ * Le rotte di login e di conferma rispondono anche **senza** creare una
+ * sessione: il 403 `PHONE_NOT_VERIFIED`, e la conferma di un recapito che non
+ * apre una porta. In quelle risposte `verification.phone` usciva mascherato —
+ * era stato mascherato apposta — e `user.user_metadata.phone` usciva **in
+ * chiaro nello stesso corpo, tre righe piu sotto**. Il controllo c'era ed era
+ * inefficace, che e la forma peggiore di un controllo.
+ *
+ * Qui il numero e mascherato come nel resto del flusso di verifica: prefisso e
+ * ultime tre cifre, che bastano a chi lo riconosce e non bastano a comporlo.
+ * Chi ha una sessione continua a leggere il proprio numero per intero da
+ * `serializeAuthUser`, che e cio che serve al modulo del profilo.
+ */
+export const serializeAuthUserWithoutSession = (
+  user: Parameters<typeof serializeAuthUser>[0],
+): AuthSessionUser => {
+  const serializzato = serializeAuthUser(user);
+  return {
+    ...serializzato,
+    user_metadata: {
+      ...serializzato.user_metadata,
+      phone: user.phone ? mascheraNumeroInArchivio(user.phone) : undefined,
+    },
+  };
+};
 
 export const buildSessionPayload = (
   user: Parameters<typeof serializeAuthUser>[0],

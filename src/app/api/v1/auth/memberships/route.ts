@@ -97,11 +97,50 @@ export async function GET(request: Request) {
      * che decide il ruolo attivo. Due copie divergerebbero, e la copia che
      * mente sarebbe proprio quella che disegna il menu.
      */
-    const idCoerenti = new Set(
-      (await risolviTessere(tessereGrezze)).map((tessera) => tessera.id),
-    );
+    const tessereRisolte = await risolviTessere(tessereGrezze);
+    const idCoerenti = new Set(tessereRisolte.map((tessera) => tessera.id));
     const memberships = tessereGrezze.filter((tessera) =>
       idCoerenti.has(tessera.id),
+    );
+
+    /**
+     * **Il ruolo che esce di qui e il gettone, non lo slug nudo.**
+     *
+     * Dependency di PP-03, chiusa qui perche questa rotta e di PP-05.
+     *
+     * Il browser salva cio che riceve in `activeClub.role` e poi chiede
+     * `roleHasPermission(activeClub.role, chiave)`. Uno **slug** senza chiavi —
+     * `custom:trainer:preparatori` — dice al catalogo «nessuna chiave», quindi
+     * **ogni** ruolo personalizzato riceveva `false` su **ogni** chiave lato
+     * interfaccia: le caselle spuntate nella schermata dei ruoli non
+     * accendevano niente. Consumatori misurati da PP-03: la coda di verifica
+     * documenti (`src/app/documenti/page.tsx`), la sezione account e i diritti
+     * dell'interessato nella scheda atleta, la gestione accessi.
+     *
+     * Il difetto **falliva chiuso** — il server decide sempre con
+     * `scope.activeRole`, che il gettone ce l'ha — quindi non usciva niente e
+     * non passava nessuna scrittura: mancava la superficie.
+     *
+     * **Non concede niente in piu**, e per tre ragioni distinte:
+     *
+     * 1. il gettone porta le chiavi **ristrette** del ruolo di club, cioe un
+     *    sottoinsieme di quelle del ruolo base (ADR-0102). Oggi il browser
+     *    riceve **meno** del dovuto, non di piu;
+     * 2. e lo **stesso valore** che `resolveOrganizationScopeForUser` gia
+     *    costruisce e che `/api/v1/auth/session` gia restituisce: non e una
+     *    divulgazione nuova, e la fine di un'incoerenza fra due rotte;
+     * 3. il client lo rimanda al server nell'intestazione
+     *    `x-active-access-role`, e li **non viene creduto**: il risolutore ne
+     *    tiene lo slug stabile, ritrova la tessera in archivio e **ricostruisce
+     *    le chiavi dalle proprie righe**. Un gettone contraffatto con chiavi in
+     *    piu non ne aggiunge nessuna.
+     *
+     * Le tessere canoniche non hanno gettone e restano al proprio nome.
+     */
+    const gettonePerTessera = new Map(
+      tessereRisolte
+        .filter((tessera) => tessera.token)
+        .map((tessera) => [tessera.id, tessera.token as string]),
     );
 
     const ridotto = (club: any) =>
@@ -159,6 +198,8 @@ export async function GET(request: Request) {
 
       return {
         ...membership,
+        /* Il gettone per le tessere personalizzate; lo slug per le canoniche. */
+        role: gettonePerTessera.get(membership.id) || membership.role,
         access_kind: "membership",
         is_ownership_record: false,
         linked_athlete_ids: linkedAthleteIds,

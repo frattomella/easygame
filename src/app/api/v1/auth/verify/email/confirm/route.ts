@@ -3,11 +3,18 @@ import {
   readRequestId,
   reportServerError,
 } from "@/lib/server/observability";
-import { attachSessionCookie, serializeAuthUser } from "@/lib/server/auth";
 import {
+  attachSessionCookie,
+  getSessionFromRequest,
+  serializeAuthUserWithoutSession,
+} from "@/lib/server/auth";
+import {
+  VerificationRejected,
   buildPendingVerificationResponse,
+  challengePurposeCanMintSession,
   confirmEmailVerification,
   finalizeVerifiedSession,
+  findUserByVerificationReference,
 } from "@/lib/server/auth-workflows";
 import {
   AUTH_RATE_LIMITS,
@@ -15,6 +22,7 @@ import {
   getRequestIp,
   rateLimitHeaders,
 } from "@/lib/server/auth-rate-limit";
+import type { AuthRateLimitResult } from "@/lib/auth/rate-limit-policy";
 
 export async function POST(request: Request) {
   try {
@@ -32,14 +40,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const rateLimit = await consumeRequestRateLimits([
-      {
-        policy: AUTH_RATE_LIMITS.otpConfirm,
-        identifier: `email:${userId}:${getRequestIp(request)}`,
-      },
-    ]);
-    if (rateLimit) {
-      return NextResponse.json(
+    /* Due assi, come sulla conferma del telefono (PP-05). */
+    const troppiTentativi = (esito: AuthRateLimitResult) =>
+      NextResponse.json(
         {
           data: null,
           error: {
@@ -47,18 +50,59 @@ export async function POST(request: Request) {
             code: "RATE_LIMITED",
           },
         },
-        { status: 429, headers: rateLimitHeaders(rateLimit) },
+        { status: 429, headers: rateLimitHeaders(esito) },
       );
-    }
 
-    const verifiedUser = await confirmEmailVerification(userId, code);
-    const finalized = await finalizeVerifiedSession(verifiedUser.id);
+    const perRete = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.otpConfirmIp,
+        identifier: `email:ip:${getRequestIp(request)}`,
+      },
+    ]);
+    if (perRete) return troppiTentativi(perRete);
+
+    /*
+      **L'UUID nudo vale solo per chi ha gia una sessione su quell'account**
+      (M-1 del secondo round). Chi arriva dalla pagina Account manda il proprio
+      identificativo e ha la sessione; chi arriva dalla registrazione o dal
+      login manda il riferimento opaco. Nessun altro puo pilotare questa rotta
+      su un account che non e suo.
+    */
+    const sessioneCorrente = await getSessionFromRequest(request);
+
+    /*
+      **L'asse «per account» si consuma sull'account, non sulla stringa**
+      (quinto round della revisione ostile, MEDIUM). Vedi la rotta gemella del
+      telefono per la ragione per esteso.
+    */
+    const utente = await findUserByVerificationReference(
+      userId,
+      sessioneCorrente?.db.user_id,
+    );
+    const perAccount = await consumeRequestRateLimits([
+      {
+        policy: AUTH_RATE_LIMITS.otpConfirm,
+        identifier: `email:account:${utente?.id || userId}`,
+      },
+    ]);
+    if (perAccount) return troppiTentativi(perAccount);
+
+    const { user: verifiedUser, purpose } = await confirmEmailVerification(
+      userId,
+      code,
+      sessioneCorrente?.db.user_id,
+    );
+
+    /* Stessa regola della rotta gemella (CRITICAL-1, ADR-0134). */
+    const finalized = challengePurposeCanMintSession(purpose)
+      ? await finalizeVerifiedSession(verifiedUser.id)
+      : { session: null, verification: null };
 
     if (!finalized.session) {
       const pending = await buildPendingVerificationResponse(verifiedUser.id);
       return NextResponse.json({
         data: {
-          user: serializeAuthUser(pending.user),
+          user: serializeAuthUserWithoutSession(pending.user),
           session: null,
           verification: pending.verification,
         },
@@ -78,7 +122,8 @@ export async function POST(request: Request) {
     attachSessionCookie(response, finalized.session);
     return response;
   } catch (error: any) {
-    if (error?.message !== "Codice non valido o scaduto") {
+    /* Un errore del server non e un codice sbagliato: vedi la rotta gemella. */
+    if (!(error instanceof VerificationRejected)) {
       /*
         **Non l'errore intero** (ADR-0019: i log non devono contenere dati personali).
         Il messaggio di un errore di validazione dell'ORM porta con se l'oggetto che
@@ -92,6 +137,13 @@ export async function POST(request: Request) {
         route: "/api/v1/auth/verify/email/confirm",
         method: "POST",
       });
+      return NextResponse.json(
+        {
+          data: null,
+          error: { message: "Verifica non riuscita" },
+        },
+        { status: 500 },
+      );
     }
     return NextResponse.json(
       {

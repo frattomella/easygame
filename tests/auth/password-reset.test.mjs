@@ -38,12 +38,32 @@ test("il token di reset e casuale, lungo e salvato solo come hash", () => {
     "il token deve essere casuale da 32 byte",
   );
   assert.ok(
-    WORKFLOWS.includes("code_hash: hashOtpCode(token)"),
+    WORKFLOWS.includes("code_hash: hashOtpCode(token, {"),
     "il token deve essere salvato come hash, mai in chiaro",
   );
   assert.ok(
     !WORKFLOWS.includes("code_hash: token"),
     "il token non deve mai essere salvato in chiaro",
+  );
+
+  /*
+    **E l'impronta deve essere pepata (PP-05).**
+
+    Uno SHA-256 nudo bastava per un token da 32 byte e **non** bastava per un
+    OTP a sei cifre, che passa dalla stessa funzione: un milione di valori si
+    precalcolano, e chi legge la colonna legge il codice. Il pepe vive
+    nell'ambiente, non nel database, quindi un dump da solo non basta piu.
+    Questa asserzione sta qui — e non solo fra i test dell'OTP — perche i due
+    canali condividono la primitiva e devono restare condannati a migliorare
+    insieme.
+  */
+  assert.ok(
+    WORKFLOWS.includes('createHmac("sha256", otpPepper())'),
+    "l'impronta deve essere un HMAC con un pepe fuori dal database",
+  );
+  assert.ok(
+    !/createHash\("sha256"\)\s*\.update\(code\)/.test(WORKFLOWS),
+    "nessuna impronta di codice deve essere uno SHA-256 nudo",
   );
 });
 

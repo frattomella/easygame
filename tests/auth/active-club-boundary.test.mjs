@@ -163,14 +163,163 @@ test("con l'elenco configurato vale l'indirizzo, e nient'altro", async () => {
   try {
     const { isPlatformAdminUser } = await import("../../src/lib/platform-admin.ts");
 
-    assert.equal(isPlatformAdminUser({ email: "capo@easygame.it" }), true);
+    assert.equal(
+      isPlatformAdminUser({
+        email: "capo@easygame.it",
+        email_verified_at: new Date(),
+      }),
+      true,
+    );
     assert.equal(
       isPlatformAdminUser({ email: "chiunque@example.it", role: "platform_admin" }),
       false,
       "l'elenco e la condizione, non un ramo alternativo",
     );
+
+    /*
+      **E l'indirizzo dev'essere provato** (PP-05, H-1 del secondo round).
+
+      Prima di PP-05 questa riga era sicura per una ragione che non stava qui:
+      un indirizzo non verificato non produceva **nessuna sessione**, quindi
+      non poteva valere come identita da nessuna parte. ADR-0132 ha tolto quel
+      cancello, e l'elenco degli indirizzi vive in una variabile
+      `NEXT_PUBLIC_*`, cioe e pubblicato a ogni browser: chi registrasse un
+      indirizzo di quell'elenco non ancora presente in `users` sarebbe stato
+      amministratore di piattaforma alla richiesta successiva.
+    */
+    assert.equal(
+      isPlatformAdminUser({ email: "capo@easygame.it" }),
+      false,
+      "un indirizzo mai verificato non concede la piattaforma",
+    );
+    assert.equal(
+      isPlatformAdminUser({
+        email: "capo@easygame.it",
+        user_metadata: { emailVerified: true },
+      }),
+      true,
+      "vale anche la forma serializzata, che e quella che vede il client: li `emailVerified` lo scrive `buildUserMetadata` dalla colonna",
+    );
+
+    /*
+      **E le due forme non sono equivalenti** (PP-05, CRITICAL del terzo round).
+
+      La stesura precedente accettava le due sorgenti in `OR`, e quell'`OR`
+      riapriva per intero il difetto che questa funzione era stata scritta per
+      chiudere: `user_metadata` e una colonna JSON **libera, scritta dal suo
+      stesso soggetto**, quindi bastava un `PATCH /auth/user` con
+      `{"data":{"emailVerified":true}}` — che non cambia nessun fattore, e non
+      passa nemmeno dal cancello della password attuale — per farsi la prova da
+      soli.
+
+      Chi porta la **colonna** viene giudicato su quella e su nient'altro. Solo
+      chi non ce l'ha — cioe chi non puo averla, perche la colonna non
+      attraversa la serializzazione — ricade sulla proiezione, che a quel punto
+      l'ha scritta il server.
+    */
+    assert.equal(
+      isPlatformAdminUser({
+        email: "capo@easygame.it",
+        email_verified_at: null,
+        user_metadata: { emailVerified: true },
+      }),
+      false,
+      "con la colonna presente e vuota, un campo che il soggetto si scrive addosso non e una prova",
+    );
   } finally {
     if (originale === undefined) delete process.env.EASYGAME_PLATFORM_ADMIN_EMAILS;
     else process.env.EASYGAME_PLATFORM_ADMIN_EMAILS = originale;
+  }
+});
+
+/**
+ * **Le proiezioni calcolate non si scrivono** (PP-05, CRITICAL del terzo round).
+ *
+ * `buildUserMetadata` **ricalcola** `emailVerified`, `phoneVerified`,
+ * `phoneVerificationRequired`, `role` e `isClubCreator` da colonne vere a ogni
+ * serializzazione. Persisterli nella colonna JSON non cambia quindi cio che il
+ * browser legge — viene sovrascritto — e cambia solo cio che leggono i
+ * chiamanti **lato server**, che hanno in mano la riga grezza. Una scrittura
+ * senza effetto visibile e con un effetto invisibile e la forma peggiore che
+ * possa avere: era la strada con cui un indirizzo dell'elenco degli
+ * amministratori, **mai verificato**, si concedeva la piattaforma.
+ *
+ * La blocklist e la seconda di due difese indipendenti; la prima e in
+ * `platform-admin.ts`, e la sonda `pp-05-sicurezza-probe.mjs` (S10) misura che
+ * ciascuna delle due, da sola, chiude la catena.
+ */
+test("le proiezioni che il server calcola non si scrivono, e la lista e una sola", async () => {
+  const politica = await import("../../src/lib/auth/user-metadata-policy.ts");
+
+  for (const chiave of [
+    "role",
+    "app_metadata",
+    "is_platform_admin",
+    "emailVerified",
+    "phoneVerified",
+    "phoneVerificationRequired",
+    "isClubCreator",
+  ]) {
+    assert.equal(
+      politica.isProtectedUserMetadataKey(chiave),
+      true,
+      `\`${chiave}\` e una proiezione o un privilegio: il suo soggetto non la scrive`,
+    );
+  }
+
+  const ripulito = politica.stripProtectedUserMetadata({
+    tema: "scuro",
+    emailVerified: true,
+    role: "platform_admin",
+  });
+  assert.deepEqual(ripulito, { tema: "scuro" }, "la lista si applica davvero");
+
+  /*
+    **E le due porte che scrivono quella colonna importano la stessa riga.**
+
+    Il terzo round aveva corretto **una** delle due, lasciando scritto nel
+    commento «due difese per lo stesso privilegio, perche una sola prima o poi
+    si dimentica». Erano davvero due, ma erano due **elenchi diversi** — sette
+    nomi contro tre — e nessuno li confrontava. Due difese si tengono uguali
+    solo se sono la stessa riga: questa prova e cio che impedisce a un terzo
+    elenco di nascere.
+  */
+  const { readFileSync } = await import("node:fs");
+  for (const file of [
+    "src/app/api/v1/auth/user/route.ts",
+    "src/lib/server/resources.ts",
+  ]) {
+    const sorgente = readFileSync(file, "utf8");
+    assert.match(
+      sorgente,
+      /stripProtectedUserMetadata/,
+      `${file} deve passare dal punto unico, non tenere una lista propria`,
+    );
+    /*
+      La **dichiarazione**, non la menzione: i commenti raccontano l'elenco che
+      c'era, ed e giusto che lo facciano.
+    */
+    assert.ok(
+      !/const\s+(CHIAVI_NON_SCRIVIBILI|PROTECTED_USER_FIELDS)\s*=/.test(sorgente),
+      `${file} non deve dichiarare un secondo elenco proprio`,
+    );
+  }
+});
+
+/**
+ * Il contrappunto della prova precedente: le chiavi che **non** sono
+ * proiezioni restano scrivibili, perche `user_metadata` e il posto dove una
+ * persona tiene le sue preferenze e va bene che lo sia. Una blocklist che
+ * cresce senza un criterio finisce per bloccare tutto.
+ */
+test("le preferenze di una persona restano scrivibili: la lista non e un divieto generale", async () => {
+  const politica = await import("../../src/lib/auth/user-metadata-policy.ts");
+
+  for (const chiave of ["firstName", "lastName", "phone", "name", "tema"]) {
+    assert.equal(
+      politica.isProtectedUserMetadataKey(chiave),
+      false,
+      `\`${chiave}\` e un dato della persona, non una proiezione: deve restare scrivibile`,
+    );
   }
 });

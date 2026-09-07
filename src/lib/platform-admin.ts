@@ -64,11 +64,69 @@ export const isPlatformAdminEmail = (email?: string | null) => {
  * `user_metadata.role` **non vale mai**: e un dato che il suo soggetto scrive.
  * Un privilegio che si concede da se non e un privilegio.
  */
+/**
+ * **L'indirizzo vale come identita solo se e stato provato** (PP-05).
+ *
+ * Qui arrivano **due forme** della stessa persona, e non sono equivalenti:
+ *
+ * - la **riga del database**, che i chiamanti lato server hanno in mano. Porta
+ *   `email_verified_at`, che e una colonna scritta solo dalla conferma di un
+ *   OTP, dall'adozione OAuth o dal consumo di un token di reset — cioe da
+ *   qualcosa che ha attraversato la casella. Porta **anche** `user_metadata`,
+ *   che e una colonna JSON **libera, scritta dal suo stesso soggetto**;
+ * - la **proiezione verso il client**, che `/auth/complete` e le due pagine
+ *   `private/` ricevono. Non ha la colonna, e porta `user_metadata.emailVerified`
+ *   che pero **non e** quello dell'archivio: `buildUserMetadata` lo ricalcola
+ *   dalla colonna a ogni serializzazione, sovrascrivendo cio che c'era.
+ *
+ * **La prima forma decide con la colonna e con nient'altro.** La stesura
+ * precedente accettava le due sorgenti in `OR`, e quell'`OR` riapriva per
+ * intero il difetto che questa funzione era stata scritta per chiudere
+ * (terzo round della revisione ostile, CRITICAL): un `PATCH /auth/user` con
+ * `{"data":{"emailVerified":true}}` — che non cambia nessun fattore, quindi non
+ * passa nemmeno dal cancello della password attuale — persisteva il valore in
+ * `user_metadata`, e alla richiesta successiva un indirizzo dell'elenco **mai
+ * verificato** valeva come amministratore di piattaforma.
+ *
+ * La distinzione fra le due forme non e una supposizione sulla loro forma: e
+ * la presenza della colonna. Chi ce l'ha viene giudicato su quella; solo chi
+ * non ce l'ha — cioe chi non puo averla, perche la colonna non attraversa la
+ * serializzazione — ricade sulla proiezione, che a quel punto e stata scritta
+ * dal server.
+ */
+const indirizzoProvato = (user: any) => {
+  if (user && "email_verified_at" in user) {
+    return Boolean(user.email_verified_at);
+  }
+  return Boolean(user?.user_metadata?.emailVerified);
+};
+
 export const isPlatformAdminUser = (user: any) => {
   const email = String(user?.email || "").trim().toLowerCase();
 
   if (getPlatformAdminEmails().length > 0) {
-    return isPlatformAdminEmail(email);
+    /*
+      **Un indirizzo non verificato non concede la piattaforma** (H-1 del
+      secondo round della revisione ostile PP-05).
+
+      Fino a PP-05 questa riga era sicura per una ragione che non stava qui:
+      `finalizeVerifiedSession` sollevava «Email non verificata» e un indirizzo
+      non provato **non produceva nessuna sessione**, quindi non poteva valere
+      come identita da nessuna parte. ADR-0132 ha tolto quel cancello — con una
+      buona ragione — e questa riga e rimasta a decidere sul solo indirizzo.
+
+      L'elenco degli indirizzi vive in `NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS`,
+      cioe e **pubblicato a ogni browser**. Chiunque registrasse un indirizzo di
+      quell'elenco non ancora presente in `users` — o se lo intestasse da
+      `PATCH /auth/user` — era amministratore di piattaforma alla richiesta
+      successiva: dati di pagamento di ogni societa, piani, profilo fiscale,
+      conto Stripe.
+
+      La regola generale: quando si toglie un cancello, si cerca **chi si
+      appoggiava a quel cancello**. Qui c'era un secondo punto,
+      `parent-dashboard.ts`, che il proprio controllo lo faceva gia da se.
+    */
+    return isPlatformAdminEmail(email) && indirizzoProvato(user);
   }
 
   /*

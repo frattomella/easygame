@@ -2511,6 +2511,816 @@ debito con il loro motivo in [16 — Debito tecnico](16-technical-debt.md)
 (`W6-D30`…`W6-D33`). Nessuno di loro e un accesso cross-tenant, una fuga di
 dato di minore o clinico, o denaro che esce due volte.
 
+## PP-05 — un recapito verificato e un canale di accesso (2026-09-04)
+
+Revisione ostile indipendente sulla lane PP-05A, misurata contro PostgreSQL
+reale: **1 Critical, 2 High, 5 Medium, 3 Low**. Tutte le prove stanno in
+`scripts/pp-05-sicurezza-probe.mjs` e sono state verificate **per mutazione**
+(rimossa la guardia, la riga torna rossa). Il verbale completo della lane e in
+[46](46-pp-05-onboarding-comunicazioni.md).
+
+### CRITICAL — la presa di possesso che sopravviveva a entrambi gli sfratti
+
+**Come si faceva.** Registro un account con l'indirizzo email di un'altra
+persona e **il mio numero di cellulare**, e verifico il numero. Uso il prodotto.
+Quando la vittima arriva davvero — con Google, che l'indirizzo lo certifica —
+l'adozione azzera la mia password e cancella le mie sessioni, **e lascia il mio
+numero sulla sua riga**. Chiedo allora un codice a `/verify/phone/send`, lo
+ricevo sul mio telefono, e `/verify/phone/confirm` mi **restituisce una
+sessione**. La vittima, nel frattempo, e chiusa fuori: il mio numero le blocca
+la creazione della sessione, e la sua password e appena stata azzerata.
+
+Lo stesso valeva per l'altro meccanismo di sfratto: il reset password
+cancellava le sessioni e non toccava il canale che le faceva rinascere.
+
+**La lezione, che vale oltre questo caso.** Un elenco di modi per entrare —
+password, recapito verificato, gettone, accesso esterno — senza **un punto
+unico che li revochi tutti insieme** e un elenco che prima o poi ne dimentica
+uno. La correzione non e stata «aggiungere il telefono allo sfratto»: e stata
+dare allo sfratto un nome e un posto, `sfrattaOccupante`, cosi che la prossima
+credenziale che si aggiunge abbia una casa evidente dove essere chiusa.
+
+**Le due difese, indipendenti.**
+
+1. `sfrattaOccupante` azzera password, sessioni, `phone`, `phone_verified_at` e
+   `token_verification_id`. Il numero azzerato **non** blocca la vittima:
+   `isPhoneVerificationBlocking` pretende che un numero ci sia.
+2. `challengePurposeCanMintSession`: un codice apre una sessione solo se lo
+   scopo della challenge e `signup` o `login`, cioe solo se una password e
+   appena stata presentata. Un codice chiesto da `/verify/<canale>/send`
+   conferma il recapito e risponde `session: null`.
+
+Vedi [ADR-0134](18-decision-log.md).
+
+### HIGH — l'elenco dei trasporti SMS in due copie, divergenti
+
+`provider-policy.ts` e `sms-service.ts` conoscevano ciascuno per conto proprio
+i nomi validi di `SMS_PROVIDER`, e sbagliavano in **direzioni opposte**:
+
+- `SMS_PROVIDER=noop` — l'unico valore riconosciuto — faceva **bloccare**
+  l'accesso in attesa di un codice che `NoopSmsProvider` per contratto non
+  spedisce: ogni account nuovo restava fuori per sempre, con la challenge
+  scritta in archivio e nessuno a riceverla;
+- il nome di un operatore vero non era riconosciuto, quindi la verifica **si
+  spegneva in silenzio**. E il verso peggiore in assoluto, perche succede
+  esattamente quando qualcuno crede di aver completato la configurazione.
+
+Ora l'elenco e uno, puro (`src/lib/auth/sms-transport.ts`), e porta la
+proprieta che decide: **`delivers`**. Un nome sconosciuto viene segnalato una
+volta dal punto unico degli errori, senza il valore dentro.
+
+### HIGH — pompaggio di SMS verso un numero altrui dalla registrazione
+
+`rate-limit-policy.ts` prometteva che `otpSendTarget` fermasse il pompaggio
+«anche quando l'attaccante si crea account nuovi». La registrazione consumava
+solo `registerIp` e `registerIdentity`, cioe i due assi che l'attaccante
+sceglie. Misurati **dieci SMS all'ora verso un numero scelto** da un solo
+indirizzo IP, moltiplicabili cambiando rete; ogni invio invalidava alla vittima
+il codice appena ricevuto.
+
+Il contatore per destinatario si consuma ora **prima** di sapere se l'indirizzo
+email esista gia — cosi i due rami costano uguale e non diventano un oracolo —
+e quando e esaurito **l'SMS non parte**, senza cambiare la risposta.
+
+### MEDIUM — il numero mascherato accanto al numero in chiaro
+
+`verification.phone` usciva mascherato, e `user_metadata.phone` usciva **in
+chiaro nello stesso corpo, tre righe piu sotto**. Un controllo che c'e ed e
+inefficace e peggio di un controllo che manca, perche chi legge il codice lo
+conta come fatto. `serializeAuthUserWithoutSession` per le tre risposte senza
+sessione.
+
+### MEDIUM — indovinare la password attuale, senza tetto e senza traccia
+
+`PATCH /api/v1/auth/user` chiede la password attuale per cambiare un fattore, ed
+e la difesa introdotta **contro la sessione rubata**. Non contava i tentativi:
+misurati venticinque di fila senza un 429, e nessun evento di audit. Chi aveva
+la sessione poteva rendere permanente un accesso temporaneo — esattamente cio
+che quella richiesta doveva impedire. Ora dieci per account in un quarto d'ora,
+e il tentativo sbagliato lascia una riga di audit che dice **quale porta** e
+stata provata.
+
+### LOW — una difesa che si apriva quando una variabile mancava
+
+`shouldExposeVerificationPreviewCode` chiedeva `NODE_ENV !== "production"`:
+`NODE_ENV` **assente** apriva. Su Vercel vale sempre `production` e il rischio
+pratico era basso, ma la forma era sbagliata — quando un ambiente non si
+dichiara, non lo si indovina. Ora nega anche su `staging` e `preview`, e senza
+`NODE_ENV` chiede `EASYGAME_DB_ENV=development`.
+
+Il **secondo round** ha poi mostrato che negare tre nomi non basta (vedi sotto,
+L-3): l'elenco e diventato di ammissione.
+
+### Rischio residuo dichiarato
+
+- **Il pepe delle impronte OTP ricade su `DATABASE_URL`** se nessuna delle tre
+  variabili dedicate e impostata. Chi ha estratto un dump ha quasi certamente
+  anche la stringa di connessione con cui l'ha estratto, e in quel caso il
+  milione di codici a sei cifre torna enumerabile. `AUTH_OTP_SECRET` va
+  impostato negli ambienti condivisi ([13](13-environments.md)). Il ripiego
+  resta perche un'installazione locale deve funzionare senza segreti.
+- ~~**Un utente solo-OAuth non puo aggiungere il cellulare**~~ (debito PP05-D1,
+  **chiuso nel secondo round**): la strada era «Password dimenticata» e
+  bisognava indovinarla. Ora la pagina Account porta il pulsante «Ricevi un
+  link per impostarla» accanto agli avvisi di verifica. Non apre nessuna strada
+  nuova — chiunque puo chiedere quel link dalla pagina di accesso — e la
+  password si imposta **dalla casella**, non dalla sessione. Vale anche per chi
+  ha appena subito uno sfratto, che e l'altra popolazione senza password.
+- **`maskPhoneNumber` rivela la lunghezza** del numero: e un mascheramento, non
+  un segreto.
+
+### Sull'email (PP-05B)
+
+- **L'escaping non e piu una scelta di chi chiama**: i blocchi del template
+  core prendono testo, non markup. Il blocco `raw` e l'unica via d'uscita, e ha
+  due soli utenti dichiarati — i modelli di messaggio del club e il riepilogo
+  giornaliero — che sfuggono i valori dei segnaposto per conto proprio.
+- **Nessuna immagine remota** in una email a marchio club: sarebbe un
+  tracciatore verso le famiglie di un club, spesso minori, e nessuno ha
+  dichiarato quel trasferimento. Un logo diventa `<img>` solo se e servito
+  dalla nostra origine.
+- **`sandbox=""` sugli iframe dell'anteprima**: un `srcDoc` eredita l'origine
+  della pagina che lo contiene, quindi il markup di un template girava con i
+  cookie di un amministratore di piattaforma. E la superficie piu facile da
+  dimenticare in una pagina che «mostra e basta».
+- **L'anteprima non spedisce**, e non e un commento: un test monta un trasporto
+  finto, costruisce l'intero catalogo, conta zero invii, e poi manda un
+  messaggio con lo stesso doppio per provare che il primo zero non e vacuo.
+
+---
+
+## PP-05 — secondo round della revisione ostile (2026-09-05)
+
+Un round intero rilanciato **dopo** le correzioni del primo, con lo stesso
+metodo: reviewer indipendente col mandato di rompere, misura contro PostgreSQL
+reale, e ogni fix accompagnato da una prova che **fallisce senza il fix**.
+Esito: **1 Critical, 1 High, 2 Medium, 3 Low**. Le prove stanno in
+`scripts/pp-05-sicurezza-probe.mjs` (S1-S9) e in
+`tests/auth/verifica-recapiti-dalle-rotte.test.mjs`, e sono verificate **per
+mutazione**.
+
+### CRITICAL — il legame con l'accesso esterno sopravviveva allo sfratto
+
+Il primo round aveva dato allo sfratto un nome e un posto, e gli aveva fatto
+chiudere password, sessioni e telefono. Ne restava **uno**, ed era il piu
+forte.
+
+**La catena misurata.** L'attaccante collega il **proprio** Google a un account
+proprio, con indirizzo verificato: nessuno sfratto scatta, perche non c'e
+niente da sfrattare. Poi cambia l'indirizzo dell'account in quello della
+vittima, usando la propria password. E aspetta. Quando la vittima arriva da
+Google, lo sfratto scatta e le restituisce l'account — ma la riga in
+`external_accounts` dell'attaccante e ancora li, e `findOrCreateOAuthUser`
+risolve **per `provider_account_id` prima di ogni altra cosa**. Al suo accesso
+successivo l'attaccante rientra sull'account della vittima con tutto quello che
+nel frattempo ci ha messo. La seconda difesa del primo round — «un codice apre
+una sessione solo se la porta era gia aperta» — non lo vede nemmeno, perche
+quel rientro non passa da nessuna challenge.
+
+**La correzione.** `sfrattaOccupante` cancella **tutti** i legami esterni, e lo
+stesso fa il ramo di sfratto di `confirmPasswordReset`. Chi adotta l'account
+ricrea il proprio subito dopo, in `upsertExternalAccount`: un legame che non si
+ricrea non era di chi ha appena dimostrato di possedere l'indirizzo.
+
+**La lezione, di nuovo la stessa del primo round, e per questo vale scriverla.**
+Il primo round aveva concluso «serve un punto unico che li revochi tutti
+insieme». Il punto unico era stato creato, e gli era stato dato un elenco
+**incompleto**. Un punto unico non e una garanzia: e un posto dove guardare.
+Quando si aggiunge un modo di entrare, si va li.
+
+### HIGH — l'amministratore di piattaforma su un indirizzo mai verificato
+
+Fino a PP-05, `isPlatformAdminUser` era sicura **per una ragione che non stava
+in quella funzione**: `finalizeVerifiedSession` sollevava «Email non
+verificata», quindi un indirizzo non provato non produceva nessuna sessione e
+non poteva valere come identita da nessuna parte. ADR-0132 ha tolto quel
+cancello — con una buona ragione — e la riga e rimasta a decidere sul **solo
+indirizzo**.
+
+L'elenco vive in `NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS`, cioe e
+**pubblicato a ogni browser**. Chiunque registrasse un indirizzo di
+quell'elenco non ancora presente in `users` — o se lo intestasse da
+`PATCH /auth/user` — era amministratore di piattaforma alla richiesta
+successiva: dati di pagamento di ogni societa, piani, profilo fiscale, conto
+Stripe. La correzione del secondo round pretende anche un indirizzo
+**provato**, e accettava come prova `email_verified_at` **oppure** la sua
+proiezione `user_metadata.emailVerified`, per i chiamanti che vedono la forma
+serializzata.
+
+> **Quell'`OR` e durato un round.** Era la seconda sorgente a non valere
+> niente, e il terzo round l'ha sfruttata per riaprire il difetto per intero:
+> vedi «terzo round», sotto. La forma di oggi **distingue le due forme che
+> riceve** invece di accettarle entrambe — chi porta la colonna e giudicato su
+> quella e su nient'altro.
+
+**La regola generale, che vale oltre questo caso**: quando si toglie un
+cancello, si cerca **chi si appoggiava a quel cancello**. Qui c'era un secondo
+punto, `parent-dashboard.ts`, che il proprio controllo lo faceva gia da se.
+
+### MEDIUM-1 — l'UUID di un account non e un segreto, e apriva le rotte di verifica
+
+`findUserByVerificationReference` accettava **sia** il riferimento opaco **sia**
+l'UUID dell'utente, e `verification.userId` usciva in chiaro come UUID da ogni
+risposta senza sessione. Due conseguenze:
+
+1. la rotazione di `token_verification_id` nello sfratto era **teatro**:
+   l'occupante non aveva bisogno del riferimento nuovo, perche l'UUID non cambia
+   mai e lo aveva gia;
+2. gli UUID utente circolano in molte proiezioni club-scoped, quindi chi ne
+   aveva raccolti poteva pilotare `/verify/<canale>/send` e `/confirm` su
+   account altrui, e **distinguere un identificativo vero da uno inventato** dal
+   modo in cui rispondevano — cioe l'enumerazione che il resto della lane aveva
+   chiuso, riaperta da una porta laterale.
+
+Da qui in avanti l'UUID nudo vale **solo per chi ha gia una sessione su quel
+medesimo account**: e il caso della pagina Account, dove non si rivela niente
+che chi chiama non sappia gia di se stesso. Chiunque altro deve portare il
+riferimento opaco, che `ensureVerificationReference` crea se manca e che le
+risposte senza sessione emettono al posto dell'UUID. Prova S9, piu tre prove
+sulle rotte vere.
+
+### MEDIUM-2 — il contatore per destinatario contava meta
+
+`hashTarget` fa `trim().toLowerCase()`, che per un indirizzo email e la
+normalizzazione giusta e per un numero non lo e affatto: `3401234567` e
+`+393401234567` sono lo stesso destinatario e producevano **due secchielli**. Il
+tetto raddoppiava esattamente sulle righe scritte prima di PP-05 — cioe su tutte
+quelle esistenti — perche la rotta di login leggeva la colonna grezza e quelle
+di verifica il numero normalizzato. La canonicalizzazione sta ora dentro
+`buildOtpTargetCounterKey` e non nei chiamanti: un chiamante che se la dimentica
+non produce un errore, produce un contatore che conta meta.
+
+Difetto gemello nella registrazione: si consumava il contatore sul numero del
+**corpo della richiesta** e poi si mandava l'SMS a `pendingUser.phone`, il
+numero **in archivio**. I due potevano essere diversi, e allora l'asse si
+aggirava in un gesto — si ri-registra il proprio indirizzo passando ogni volta
+un numero usa-e-getta, e l'SMS parte verso il numero della vittima con il suo
+secchiello gia pieno. Ora si conta **il numero che riceve**.
+
+### LOW
+
+- **L-1** — `resolveSmsTransport` leggeva l'oggetto letterale con l'accesso
+  diretto: `SMS_PROVIDER=constructor` e `SMS_PROVIDER=__proto__` restituivano un
+  valore veritiero e passavano per «configurato», **spegnendo la segnalazione di
+  configurazione errata** — cioe la cosa che quel modulo esiste per accendere.
+  Nessun bypass (`delivers` restava `undefined`), ma la forma era sbagliata: ora
+  `Object.hasOwn`, e `smsTransportDelivers` confronta con `=== true`.
+- **L-2** — `sendPasswordResetChallenge` catturava il `P2002` ma non il **log**:
+  il logger di Prisma stampa l'invocazione prima ancora che il codice
+  applicativo veda l'errore, e quelle righe escono **fuori** dal punto unico
+  degli errori. Una lettura prima dell'inserimento toglie il caso comune — il
+  secondo clic sul pulsante — e la corsa vera resta al `catch`, che e il posto
+  giusto per lei.
+- **L-3** — `shouldExposeVerificationPreviewCode` negava tre nomi di ambiente e
+  ammetteva tutto il resto: `NODE_ENV=prod` passava, perche non e nessuno dei
+  tre. Ora e un elenco di **ammissione** (`development`, `test`, `local`). Un
+  elenco di negazione va tenuto aggiornato contro l'ingegno di chi scrive le
+  variabili; uno di ammissione no.
+- **L-5** — `/verify/email/send` teneva un `console.error` con la sua deroga
+  scritta a mano. La deroga era difendibile — usciva solo un codice — ma un
+  secondo posto da cui si scrive nei log e un secondo posto da controllare, e la
+  riga non portava l'identificativo di richiesta. Ora passa da
+  `reportServerError`.
+
+### Coverage gaps del secondo round
+
+Dichiarati dal reviewer e **non** chiusi in questa lane:
+
+- il flusso OAuth e stato attaccato sul ramo di **adozione**; il consenso
+  iniziale presso il fornitore (state, PKCE, redirect URI) non e stato
+  rimisurato in PP-05, perche non e cambiato;
+- nessuna misura di **timing** vera e propria: l'anti-enumeration e verificata
+  sull'**uguaglianza dei corpi e degli stati**, non sulla distribuzione dei
+  tempi di risposta. Un oracolo temporale resterebbe invisibile a queste prove;
+- l'invio SMS e sempre passato da un **doppio**: nessuna proprieta di un
+  operatore reale (consegna, stato di recapito, alias mittente) e misurata, e
+  non puo esserlo finche la scelta del fornitore e aperta;
+- la superficie di anteprima e provata su **chi puo entrare** e su **cosa non
+  spedisce**; non e stata attaccata come applicazione (per esempio con un
+  catalogo manomesso), perche il catalogo e un valore del sorgente e non un dato.
+
+---
+
+## PP-05 — terzo round della revisione ostile (2026-09-05)
+
+Terzo reviewer indipendente, sulla lane **intera** e con le correzioni dei due
+round precedenti gia dentro. Esito: **1 Critical, 3 Low/Osservazione**. Il
+Critical e istruttivo piu del difetto in se, perche e **il fix del round
+precedente ad averlo aperto**.
+
+### CRITICAL — l'indirizzo si dichiarava verificato da solo, e il fix di H-1 cadeva
+
+Il secondo round aveva chiuso H-1 pretendendo un **indirizzo provato** prima di
+concedere l'amministrazione di piattaforma. La funzione accettava come prova
+**due sorgenti in `OR`**:
+
+```
+Boolean(user?.email_verified_at) || Boolean(user?.user_metadata?.emailVerified)
+```
+
+La prima e una colonna scritta solo da qualcosa che ha attraversato la casella.
+**La seconda e una colonna JSON libera, scritta dal suo stesso soggetto** — la
+stessa colonna che una Wave precedente aveva gia dovuto disinnescare per
+`role`, e per la stessa ragione. La blocklist di `PATCH /api/v1/auth/user`
+conosceva tre nomi (`role`, `app_metadata`, `is_platform_admin`) e non
+`emailVerified`: nel frattempo il lettore ne aveva imparato un quarto, e nessuno
+ha aggiornato la lista.
+
+**La catena misurata.** L'elenco degli amministratori vive in
+`NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS`, cioe e **pubblicato a ogni
+browser**. Si occupa un indirizzo di quell'elenco non ancora registrato — la
+casella non serve, perche l'indirizzo non si verifica — e si manda
+`PATCH /auth/user {"data":{"emailVerified":true}}`. **Non cambia nessun
+fattore**, quindi non passa nemmeno dal cancello della password attuale. Alla
+richiesta successiva: `/api/v1/admin/*`, `/api/v1/platform/payments`,
+`/api/v1/maintenance`, il profilo fiscale e i conti Stripe di ogni societa, e le
+due pagine `private/`.
+
+**Le due difese, indipendenti** — e la sonda misura che **ciascuna da sola**
+chiude la catena (S10, verificata per mutazione in due varianti):
+
+1. **`isPlatformAdminUser` distingue le due forme che riceve.** Chi porta la
+   **colonna** — i chiamanti lato server, che hanno in mano la riga — viene
+   giudicato su quella e su nient'altro. Solo chi non ce l'ha, cioe la
+   proiezione verso il client (`/auth/complete` e le due pagine `private/`),
+   ricade su `user_metadata.emailVerified`; e li quel campo non e quello
+   dell'archivio, perche `buildUserMetadata` lo **ricalcola dalla colonna** a
+   ogni serializzazione. La distinzione non e una supposizione sulla forma
+   dell'oggetto: e la presenza della colonna.
+2. **La blocklist del `PATCH` rifiuta tutte le proiezioni calcolate**, non solo
+   quella trovata: `emailVerified`, `phoneVerified`,
+   `phoneVerificationRequired`, `isClubCreator`, oltre a `role`, `app_metadata`
+   e `is_platform_admin`. Le preferenze vere di una persona restano scrivibili,
+   e un test lo presidia: una blocklist che cresce senza un criterio finisce per
+   bloccare tutto.
+
+**Le due lezioni, e la seconda e piu utile della prima.**
+
+- Una **proiezione calcolata non si scrive**. `buildUserMetadata` ricostruisce
+  quei campi da colonne vere a ogni serializzazione, quindi persisterli non
+  cambia cio che il browser legge — viene sovrascritto — e cambia **solo** cio
+  che leggono i chiamanti lato server. Una scrittura senza effetto visibile e
+  con un effetto invisibile e la forma peggiore che possa avere: non c'e niente,
+  nell'interfaccia, che segnali che e successa.
+- **Un `OR` fra due sorgenti vale quanto la piu debole delle due.** Il fix
+  aggiungeva una condizione per irrobustire una decisione, e l'ha indebolita,
+  perche la condizione ammetteva una sorgente che l'interessato controlla. La
+  comodita che l'ha motivata era vera — tre chiamanti vedono la forma
+  serializzata — ma la risposta giusta a «due chiamanti portano due forme» e
+  **distinguerle**, non accettarle entrambe.
+
+### LOW / Osservazione — non chiusi, e perche
+
+- **`prisma:error Unique constraint failed (user_id, channel)` sotto
+  concorrenza vera.** Il logger interno di Prisma stampa prima che il codice
+  applicativo veda l'errore, quindi quelle righe escono fuori dal punto unico.
+  Il pre-read aggiunto al ramo reset (L-2 del secondo round) toglie il caso
+  comune — il secondo clic — non la corsa vera. Contenuto: i soli **nomi** dei
+  campi, nessun valore e nessun dato personale. E igiene di osservabilita, e la
+  correzione giusta e la configurazione del logger, che non appartiene a questa
+  lane. Annotato come debito **PP05-D7**.
+- **L'`href` dell'invito atleta non passa da `sanitizeEmailUrl`.**
+  Non sfruttabile oggi — il link e composto dal server, base da variabile
+  d'ambiente e gettone casuale — ma e l'unico URL-in-attributo del sistema email
+  rimasto fuori dal filtro, ed e anche reso nell'anteprima.
+  `src/lib/server/athlete-accounts.ts` e di **PP-04** nel contratto di ownership
+  parallelo: la frontiera non si attraversa. Gia registrato come dependency
+  verso PP-04 e come debito **PP05-D4**, che ne esce allargato.
+- **Saturazione del secchiello SMS per destinatario.** Registrando account con
+  indirizzi usa-e-getta e **il numero della vittima** si consuma il contatore
+  condiviso di quel numero (5 all'ora), e per quell'ora l'SMS legittimo della
+  vittima non parte. E in parte **intrinseco** a un tetto per destinatario:
+  toglierlo riaprirebbe HIGH-3 del primo round, che e molto peggio. Reversibile,
+  limitato, nessun dato esposto. Annotato come debito **PP05-D8**.
+
+### Coverage gaps del terzo round
+
+Dichiarati dal reviewer:
+
+- **OAuth vivo**: nessun provider configurato, quindi Google e Microsoft non
+  sono stati esercitati end-to-end; il ramo del tenant Microsoft condiviso e
+  verificato per lettura e dalla sonda S1.
+- **Concorrenza sui tre assi di rate limit**: il reviewer si e appoggiato alle
+  sonde del repository invece di scriverne una propria e indipendente.
+- **Riscatto del gettone di club**: non attaccato in profondita.
+- **SMTP/IMAP amministrativi**: letti, non sottoposti a fuzzing.
+- **Segnaposto dei modelli di messaggio**: verificato il percorso di escaping e
+  i sanificatori, non fatto fuzzing esaustivo dei blocchi con carichi avversari.
+- **Enumerazione per tempi**: valutata per lettura — `bcrypt` gira sui due rami
+  — e **non** misurata con un campionamento statistico. E lo stesso gap del
+  secondo round, e resta aperto.
+
+---
+
+## PP-05 — quarto round della revisione ostile (2026-09-05)
+
+Quarto reviewer indipendente, sulla lane intera e con le correzioni dei tre
+round precedenti gia dentro. Esito: **2 Critical, 0 High, 1 Medium, 1 Low**.
+
+I due Critical hanno **la stessa radice**, che nessuno dei tre round precedenti
+aveva nominata: **un token di reset non era legato al recapito per cui era
+nato, e nessuna delle logiche di sfratto spegneva cio che l'occupante teneva
+gia in mano.**
+
+E la terza volta di fila che il difetto nasce **dal fix del round prima** — non
+per una svista di chi lo ha scritto, ma per una ragione strutturale che a
+questo punto vale la pena scrivere per esteso: **ogni difesa nuova sposta il
+confine di cio che conta, e cio che conta va poi riguardato tutto.** ADR-0132
+ha reso mutabile un indirizzo che prima era di fatto immutabile, e da quel
+momento «il token e legato all'account» ha smesso di significare «il token e
+legato alla casella».
+
+### CRITICAL-1 — un token nasce per un recapito, e valeva per l'account
+
+`confirmPasswordReset` cercava la challenge per `user_id`, `channel`,
+`purpose`, `consumed_at` ed `expires_at`. **Non per `target`** — mentre
+`verifyInternalChallenge`, cioe la strada degli OTP, il destinatario lo aveva
+nel `where` da sempre. La colonna `target` sulla riga c'era ed era scritta
+correttamente: nessuno la leggeva.
+
+La catena misurata, e l'attaccante e chiunque sappia registrarsi:
+
+1. l'elenco degli amministratori vive in
+   `NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS`, cioe e **pubblicato a ogni
+   browser**. Si sceglie un indirizzo di quell'elenco non ancora registrato;
+2. ci si registra con un **indirizzo proprio** e il proprio numero, si verifica
+   il telefono (scopo `signup`, quindi una sessione si apre), e l'indirizzo
+   resta non verificato;
+3. `POST /password/forgot` **sul proprio indirizzo**: il token arriva nella
+   propria casella, legittimamente;
+4. `PATCH /auth/user` cambia l'indirizzo in quello dell'amministratore. Passa
+   dal cancello della password attuale, che l'attaccante ha, ed e giusto che
+   passi: cambiare il proprio indirizzo e una funzione del prodotto. Il cambio
+   azzera `email_verified_at`, com'e giusto;
+5. `POST /password/reset` consuma il token. Nessun controllo sul destinatario,
+   e il consumo scrive `email_verified_at` **sull'indirizzo nuovo**, sulla
+   teoria «chi apre il link controlla la casella» — che dopo il passo 4 **non e
+   piu vera**;
+6. `isPlatformAdminUser` risponde `true`. Alla richiesta successiva: dati di
+   pagamento di ogni societa, piani, profilo fiscale, conti Stripe.
+
+Il difetto **non e** il cambio di indirizzo, ed e importante dirlo: e la
+**teoria del token**. Un token dimostra il possesso del recapito a cui e stato
+consegnato, e di nessun altro.
+
+**Due difese indipendenti**, e la sonda misura che **ciascuna da sola** chiude
+la catena:
+
+1. il destinatario entra nel `where` di `confirmPasswordReset`, come lo era da
+   sempre per gli OTP;
+2. il destinatario entra nel **legame crittografico** dell'impronta
+   (`hashOtpCode`, che ora lega canale, scopo, utente **e destinatario**). Chi
+   verifica passa il destinatario **corrente**, mai `challenge.target`: prendere
+   il valore dalla riga renderebbe il legame vero per costruzione, cioe vacuo.
+
+La seconda esiste perche le due sono davvero indipendenti: un `where` e una
+riga che si puo dimenticare **in uno dei chiamanti** — ed e esattamente cio che
+era successo — mentre un legame crittografico vale per chiunque chiami, anche
+per chi lo dimentica.
+
+### CRITICAL-2 — lo sfratto toglieva le righe, non cio che l'occupante aveva in mano
+
+`sfrattaOccupante` azzerava password e numero, ruotava il riferimento pubblico,
+cancellava sessioni e legami `external_accounts` — quest'ultimo aggiunto dal
+secondo round, proprio per la stessa ragione. Non toccava
+`auth_verification_challenges`: **un token gia emesso sopravviveva allo
+sfratto**, e ne vive trenta.
+
+La catena: si occupa un indirizzo libero, ci si chiede subito un reset, e si
+**aspetta**. La vittima arriva davvero dal proprio Google, lo sfratto scatta e
+le restituisce l'account. A quel punto l'indirizzo risulta verificato — l'ha
+verificato lei — quindi il ramo di sfratto di `confirmPasswordReset` non scatta
+nemmeno, e il token dell'occupante **sovrascrive la password** della persona a
+cui l'account e appena stato restituito, lasciandole intatto il legame Google.
+L'attaccante entra con la propria password.
+
+Chiuso spegnendo tutte le challenge vive dentro lo sfratto, e — caso simmetrico
+— dentro il reset password: chi cambia la password perche sospetta di essere
+stato compromesso non deve trovarsi in casa un codice altrui ancora valido, e
+un codice `login` gia emesso e una porta gia aperta.
+
+**Una challenge viva e un canale di accesso.** ADR-0134 dice che sfrattare
+significa chiuderli tutti, e questo e il terzo canale che si aggiunge a
+quell'elenco in tre round: password, telefono, sessioni, legami esterni,
+challenge. L'elenco si allunga di uno **ogni volta che qualcuno guarda** — che
+e il modo giusto di leggere «un punto unico non e una garanzia, e un posto dove
+guardare».
+
+### MEDIUM — l'SMS della registrazione e un oracolo di enumerazione
+
+Le risposte HTTP della registrazione sono indistinguibili — stesso corpo,
+stesso stato, tempi entro pochi millisecondi, tutto misurato — ma la
+**consegna dell'SMS** no: sul ramo dell'indirizzo gia occupato l'SMS parte solo
+se la password coincide, mentre per un indirizzo libero parte sempre. Chi
+registra un indirizzo candidato **col proprio numero** scopre dall'arrivo o
+meno del messaggio se quell'indirizzo esista gia.
+
+Registrato come **PP05-D9** e non chiuso, con la ragione scritta: le tre
+correzioni possibili sono peggiori del difetto. Mandare comunque un SMS
+significherebbe spedire verso un numero che nessuno ha ancora provato, cioe
+riaprire HIGH-3 del primo round; non mandarlo mai spegnerebbe la ripresa di una
+registrazione interrotta, che e un caso reale; e distinguere «chi sta
+registrando davvero quel numero» da «chi lo sta sondando» pretende il
+**possesso**, cioe proprio cio che l'SMS deve ancora provare. Il tetto per
+destinatario limita comunque la misura a cinque tentativi l'ora **per numero**,
+e il numero e quello dell'attaccante.
+
+### LOW — le righe `prisma:error` anche sul percorso OTP
+
+Stessa forma gia registrata come PP05-D7 per il reset: sotto reinvii simultanei
+il logger interno di Prisma stampa la violazione dell'indice unico parziale
+**prima** che il `catch` la veda. La proprieta di sicurezza regge — una sola
+challenge viva, misurato — ed e igiene di osservabilita. PP05-D7 si allarga
+invece di moltiplicarsi.
+
+### Coverage gaps del quarto round
+
+Dichiarati dal reviewer:
+
+- **`/private/email-preview` e «invio da anteprima»**: verificati per **lettura**
+  (guardia di sessione piu `isPlatformAdminSession`, `sandbox=""`, catalogo che
+  non chiama il punto di invio). Non esercitata la pagina con una richiesta
+  reale; la proprieta «non spedisce» resta misurata da
+  `tests/email/anteprima-non-spedisce.test.mjs`, che passa.
+- **OAuth**: esercitato `findOrCreateOAuthUser` direttamente, **non** il flusso
+  completo `state`/CSRF/redirect ne lo scambio del codice.
+- **Leak di segreti SMTP**: solo lettura. Non iniettato un errore SMTP reale
+  per ispezionare l'uscita del logger.
+- **Manipolazione di `X-Forwarded-For`**: solo lettura di `getRequestIp`. E lo
+  stesso perimetro di PP05-D5, che resta aperto.
+- **Corsa reset-contro-sfratto sotto concorrenza vera**: CRITICAL-2 dimostrato
+  in sequenza deterministica e non come corsa parallela — e non serve, perche
+  la finestra e l'intera vita del token.
+- **Gettone dei ruoli personalizzati**: letto, non montato contraffatto contro
+  una rotta protetta. Lo misura pero `scripts/pp-05-gettone-tessera-probe.mjs`
+  (prova G5), scritta per la dependency di PP-03.
+- **Enumerazione per tempi**: misurata sui corpi, sugli stati e su un delta di
+  latenza, **non** con un campionamento statistico. E il gap che si ripete in
+  tre round su quattro, e a questo punto e un limite del metodo.
+
+---
+
+## PP-05 — quinto round della revisione ostile (2026-09-05)
+
+Round intero sulla lane, con le correzioni dei quattro round precedenti gia
+dentro. Esito: **1 Critical, 0 High, 2 Medium**.
+
+I quattro round precedenti avevano guardato **una porta sola**, e con
+crescente attenzione: `/api/v1/auth/**`. Il Critical di questo round non e
+dentro quella porta. E la stessa colonna, dall'altra parte.
+
+### CRITICAL — il registro generico scriveva i recapiti, e nessuna delle sette difese girava li
+
+`PATCH /api/v1/users/<la propria riga>` filtra il corpo sullo **schema Prisma**
+e negava tre nomi: `role`, `app_metadata`, `is_platform_admin`. Ogni altra
+colonna scalare di `User` passava — `email`, `email_verified_at`, `phone`,
+`phone_verified_at`, `phone_verification_required`, `password_hash`,
+`token_verification_id`, `is_club_creator` — cioe **tutti i recapiti e tutte le
+credenziali**.
+
+Le tre catene, misurate contro PostgreSQL con le rotte vere
+(`sonda A-1…A-10`, poi `tests/server/platform-boundary.test.mjs`):
+
+1. **amministratore di piattaforma con una richiesta sola.** L'elenco degli
+   indirizzi vive in `NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS`, cioe e
+   pubblicato a ogni browser. Ci si registra, si verifica il **proprio** numero
+   — del tutto legittimo — e si manda
+   `{"email":"<indirizzo dell'elenco>","email_verified_at":"<adesso>"}`.
+   `isPlatformAdminUser` giudica sulla colonna, che il quarto round aveva
+   appena reso la fonte sicura;
+2. **un'occupazione che sopravvive allo sfratto OAuth.** Ci si scrive
+   `email_verified_at` addosso e **poi** si cambia `email` in quello della
+   vittima: `eraOccupatoSenzaProva` e falso, quindi `sfrattaOccupante` **non
+   viene chiamato**. Le cinque difese accumulate dentro lo sfratto non sono
+   state aggirate: non sono state eseguite;
+3. **l'area famiglia di un minore.** Il legame per indirizzo di contatto si fida
+   di un indirizzo **provato**: intestarsi quello di un tutore apriva diagnosi,
+   allergie, terapie e anagrafica del minore.
+
+**La correzione e un elenco di ammissione**, `WRITABLE_USER_FIELDS`
+(`src/lib/server/resources.ts`): `first_name`, `last_name`,
+`organization_name`, `user_metadata`, `updated_at`. Da qui si scrive
+**anagrafica**; recapiti e credenziali si scrivono dal loro punto di ingresso
+unico, `/api/v1/auth/**` (CLAUDE.md §2). Un elenco di negazione va aggiornato
+contro ogni colonna che qualcuno aggiungera domani, e in quattro round questo
+repository ha dimostrato **tre volte** che non succede.
+
+Nello stesso commit sparisce dal registro generico anche la traduzione
+`password` → `password_hash`: era la riga che aveva reso sfruttabile
+l'`upsert` per email di una revisione precedente, ed era rimasta viva senza
+nessun chiamante.
+
+### MEDIUM-1 — due difese contro lo stesso privilegio, tenute in due elenchi diversi
+
+Le chiavi proibite dentro `user_metadata` vivevano in due liste, una per porta:
+
+    auth/user  = [app_metadata, emailVerified, isClubCreator, is_platform_admin,
+                  phoneVerificationRequired, phoneVerified, role]
+    resources  = [app_metadata, is_platform_admin, role]
+
+Il terzo round ne aveva corretta **una**, lasciando scritto nel commento «due
+difese per lo stesso privilegio, perche una sola prima o poi si dimentica». La
+seconda era gia dimenticata mentre quella frase veniva scritta.
+
+L'elenco sta ora in `src/lib/auth/user-metadata-policy.ts` — modulo puro,
+nessun Prisma, nessuna rete — e le due porte importano `stripProtectedUser
+Metadata`. Un test presidia che nessuna delle due **dichiari** una lista
+propria: duplicare una difesa non la raddoppia, raddoppia i posti in cui
+dimenticarsi di aggiornarla.
+
+### MEDIUM-2 — l'asse «per account» dei contatori si consumava su una stringa scelta dal chiamante
+
+Le quattro rotte di verifica accettano nel corpo un `userId` che **non e**
+l'identificativo dell'account: e il riferimento opaco, oppure l'UUID nudo per
+chi ha gia una sessione su quell'account. Il contatore «per account» si
+consumava su **quella stringa**, e lo stesso account si nomina in piu modi — il
+riferimento corrente, l'UUID, e un riferimento **appena ruotato**, cosa che il
+prodotto fa da se in tre punti. Un secchiello per nome vuol dire un asse
+azzerabile su richiesta.
+
+**Misurato contro PostgreSQL con le rotte vere**, due nomi dello stesso account,
+sei richieste per nome, tetto dichiarato cinque:
+
+| rotta | prima | dopo |
+|---|---|---|
+| `POST /auth/verify/phone/confirm` | **10 passate su 12** | 5 |
+| `POST /auth/verify/email/confirm` | **10 passate su 12** | 5 |
+| `POST /auth/verify/phone/send` | 5 (mascherato) | 5 |
+| `POST /auth/verify/email/send` | 5 (mascherato) | 5 |
+
+**Dove pesa davvero e la conferma**, e non e un caso: li quel contatore e cio
+che limita i tentativi di indovinare un codice a sei cifre **oltre** i cinque
+della challenge, e non c'e nessun secondo asse che copra l'errore. Sulle due
+rotte di invio l'asse per **destinatario** — stesso tetto, chiave l'impronta del
+recapito — arriva nel caso comune alla stessa conclusione, ed e la ragione per
+cui li il difetto non si vedeva. Si separano quando il recapito cambia: il
+secchiello per destinatario e nuovo perche il destinatario e nuovo, e quello per
+account non deve esserlo. E la forma in cui la prova di regressione lo misura.
+
+**La correzione**: l'asse per **rete** resta prima della risoluzione del
+riferimento — cosi provare un riferimento a caso costa quanto provarne uno
+valido, e copre il costo della lettura — e l'asse per account si consuma
+**dopo**, su `utente?.id || userId`. Il ripiego sulla stringa grezza non e
+pigrizia: senza, la differenza fra i due 429 direbbe quali riferimenti esistono.
+
+**Nessun secondo esemplare altrove.** Passati in rassegna tutti i chiamanti di
+`consumeRequestRateLimits`: gli altri assi per identita sono consumati su
+`session.db.user_id` (cambio credenziali), sull'indirizzo normalizzato
+(login, registrazione, reset) o sull'impronta di un gettone che **e** il
+segreto (link di pagamento, riscatto accesso, stato iscrizione) — cioe su
+valori che il chiamante non puo moltiplicare a piacere.
+
+---
+
+## PP-05 — giro conclusivo di attacco (2026-09-05)
+
+Eseguito **dopo** le correzioni del quinto round, sulla superficie che il brief
+della lane elenca. Esito: **Critical 0 · High 0 · Medium 0 · Low 0**, su
+`scripts/pp-05-giro-conclusivo-probe.mjs`, **29 prove**.
+
+Un giro che non trova niente vale solo se e scritto: altrimenti la volta dopo
+si riguarda cio che era gia sicuro e non cio che nessuno ha mai aperto. Quella
+sonda **resta**, ed e la mappa di dove si e guardato.
+
+| Superficie del brief | Prove | Esito |
+|---|---|---|
+| Iniezione HTML nei template (nome club, nome atleta, oggetto) | C1-a…e | il carico ostile diventa entita in ogni blocco, compreso `alt` e `title` |
+| Esfiltrazione via link | C2-a…c | otto schemi rifiutati, cinque forme di colore rifiutate, i tre schemi utili passano |
+| Esfiltrazione via immagini remote | C3-a…d | logo di club fuori origine e `data:` ricadono sul **nome scritto**; nel markup reso zero immagini di terzi |
+| Iniezione di intestazioni SMTP | C4-a…b | un oggetto con CR/LF non fabbrica nessuna intestazione, nessun `Bcc` |
+| Segreti SMTP nei log o nell'anteprima | C5-c | sei stringhe cercate nel catalogo, nessuna trovata |
+| Accesso non autorizzato all'anteprima | C5-e…f | sessione **e** ruolo di piattaforma, piu `sandbox=""` |
+| Invio reale scatenato da un'anteprima | C5-a | otto voci costruite, zero invii con trasporto strumentato |
+| Entropia insufficiente | C6-a…c | 150 codici distinti, dieci cifre in **ogni** posizione, zeri iniziali presenti, nessun codice in archivio |
+| Corsa fra send e confirm | C7 | otto conferme simultanee dello stesso codice: **una** vince |
+| Escalation via cambio recapito | C9 | l'indirizzo si cambia, la prova si azzera, il controllo di piattaforma risponde no |
+| Rate limiting su un asse scelto dal chiamante | vedi MEDIUM-2 | quattro esemplari, tutti chiusi; nessun quinto |
+| Enumerazione via risposte o tempi | S9, S5, `registrazione-dalla-rotta` | gia misurata nei round precedenti, non ripetuta |
+
+### Tre prove sbagliate, e cosa insegnano
+
+Il primo passaggio della sonda usciva **26/29**. Nessuno dei tre rossi era un
+difetto del prodotto: erano tre prove che misuravano la cosa sbagliata. Vale la
+pena scriverlo, perche una prova sbagliata che passa e peggio di una che
+fallisce, e queste fallivano solo per fortuna.
+
+1. **«nessun gestore d'evento in linea»** cercava `on\w+=` sul markup intero, e
+   trovava `onerror=` **dentro** `&lt;img src=x onerror=alert(2)&gt;` — cioe
+   dentro la prova che l'escaping aveva funzionato. Si cerca ora su cio che
+   resta tolte le sequenze fra `&lt;` e `&gt;`.
+2. **«il testo semplice non porta markup»** era una proprieta sbagliata da
+   volere: sfuggire la parte `text/plain` mostrerebbe `&lt;` a chi legge la
+   posta in testo. La proprieta giusta e che quel testo **non finisca mai dove
+   viene interpretato** — nel messaggio e `text/plain`, e nell'unica pagina che
+   lo mostra e un figlio JSX, mentre in `srcDoc` finisce solo l'HTML.
+3. **l'iniezione di intestazioni SMTP** era misurata con `jsonTransport`, che
+   restituisce i campi com'erano senza costruire nessuna intestazione: il CR/LF
+   ricompariva intatto e sembrava un difetto. Con `streamTransport` escono i
+   byte veri, e il compositore piega l'oggetto su una riga sola.
+
+Il terzo caso lascia anche un **limite dichiarato**: quella difesa e una
+proprieta di `nodemailer`, non una normalizzazione di EasyGame. La prova serve
+a sapere quando smettera di valere.
+
+### Coverage gaps dichiarati del giro conclusivo
+
+Un gap dichiarato vale piu di una copertura affermata.
+
+1. **Nessuna pagina React esercitata da una richiesta vera.** Il runner e
+   `node --experimental-strip-types`, che toglie i tipi e **non compila JSX**:
+   nessun componente di questo repository e mai stato reso da un test
+   ([15](15-testing.md)). Restano fuori i due `redirect` della pagina di
+   anteprima, misurati sul sorgente.
+2. **Consegna reale di email e SMS: non misurata**, per vincolo del mandato.
+   Le sonde guardano la riga in archivio, la risposta della rotta e il MIME
+   composto, mai una casella.
+3. **Enumerazione per tempi: nessun campionamento statistico.** Misurata sui
+   corpi, sugli stati e su un delta di latenza. E il gap che si ripete in tutti
+   i round, ed e un limite del metodo.
+4. **Il giro OAuth completo** — scambio del codice, `state`, redirect — non e
+   stato attaccato: esercitato `findOrCreateOAuthUser` direttamente.
+5. **Iniezione di intestazioni: misurato l'oggetto, non il destinatario.** Un
+   indirizzo con CR/LF non e stato provato, perche gli indirizzi in questa lane
+   non arrivano mai dal client: escono da `users.email` e da
+   `guardians[].email`, gia normalizzati.
+6. **`X-Forwarded-For` contraffatto**: solo lettura di `getRequestIp`. E il
+   perimetro di PP05-D5, che resta aperto ed e precedente alla lane.
+
+---
+
+## Un atleta di questo club, e nessun altro (Critical, 2026-09-05)
+
+**Il difetto.** `saveEventConvocations` e `saveEventAttendance`
+(`src/lib/server/events.ts`) verificavano **l'evento** — che appartenesse al
+club attivo (`assertActiveClub`), che stesse nel perimetro dell'allenatore
+(`assertTrainerEventPerimeter`), che il ruolo avesse il permesso — e **non
+verificavano gli atleti**.
+
+L'unica guardia sul lato atleta, `assertAtletiDentroIlPerimetro`, esce alla
+prima riga quando il ruolo attivo non dichiara un perimetro di sede o categoria:
+
+```ts
+if (!buildAthleteAccessScopeConditions(scope)) return;
+```
+
+Quel perimetro nasce dalle righe di `club_access_scopes`, che **solo un ruolo
+personalizzato ristretto possiede**. Un `trainer` ordinario, un `owner`, la
+segreteria: nessuno di loro ne ha, quindi per **tutti** loro non veniva
+eseguito nessun controllo sull'atleta. E
+`club_event_participants.athlete_id` non e nemmeno una chiave esterna — e una
+colonna di testo libero (`prisma/schema.prisma`, `model ClubEventParticipant`).
+
+**La gravita.** Non e un errore di visualizzazione: e una **scrittura
+cross-tenant**. Misurato dalle porte vere, con un allenatore ordinario del club
+A, contro PostgreSQL:
+
+| atto | prima | dopo |
+|------|-------|------|
+| convocare l'atleta del club **B** | **accettato**, riga scritta | negato, 0 righe |
+| segnarne la **presenza** | **accettato**, riga scritta | negato, 0 righe |
+| un identificativo che non nomina nessun atleta | **accettato**, riga scritta | negato, 0 righe |
+| un elenco misto (uno dentro, uno fuori) | **accettato per intero** | negato per intero, 0 righe |
+
+Le due conseguenze che rendono il difetto Critical e non High: **convocare fa
+partire l'invito alla famiglia** di quel minore — quindi il difetto esce dal
+sistema e raggiunge una persona — e **la presenza e il dato su cui
+`src/lib/server/funding.ts` rendiconta i contributi pubblici**, quindi entra in
+una dichiarazione verso un ente.
+
+**La regola, adesso.** `assertAtletiDelClub` gira su **entrambe** le porte,
+prima di ogni altra guardia sul lato atleta e senza condizioni sul ruolo:
+
+> Ogni identificativo di atleta che arriva da un client deve esistere in
+> `athletes` **con l'`organization_id` del club attivo**. Se anche uno solo non
+> c'e, la chiamata e negata.
+
+**Rifiuta l'elenco intero, non filtra.** Una guardia che scartasse gli estranei
+e scrivesse il resto risponderebbe «riuscito» a chi ha chiesto una cosa diversa
+da quella che e stata fatta: e la stessa forma del 200 muto chiuso altrove
+(KB 09). Se un nome e fuori, non entra nessuno.
+
+**Che cosa questa guardia NON e**, e va detto perche una guardia troppo stretta
+non e piu sicura, e rotta:
+
+- **non e il perimetro di categoria** — convocare un atleta del club fuori
+  dalla propria categoria e lecito, e `isExtraCategory` esiste per dichiararlo;
+- **non e lo stato del tesseramento** — un atleta non piu attivo resta un
+  atleta di questo club;
+- **non sostituisce** `assertAtletiDentroIlPerimetro`, che resta e continua a
+  restringere per sede e categoria i ruoli che dichiarano un perimetro.
+
+**Le prove.** `scripts/eventi-perimetro-atleti.mjs` (14 sonde contro PostgreSQL
+vero, dalle porte vere, con un allenatore ordinario) piu cinque test in
+`tests/server/eventi-servizio.test.mjs`. Entrambi **verificati per mutazione**:
+togliendo la guardia la sonda passa da 14/14 a 6/14 e quattro dei cinque test
+diventano rossi. Il quinto — «la guardia non e il perimetro di categoria ne lo
+stato del tesseramento» — resta verde, ed e giusto cosi: e la meta che dice se
+la correzione e stretta al punto sbagliato.
+
+**`rsvp.ts` non era colpito**, ed e stato verificato: risolve
+l'`organization_id` **dall'atleta** (`athlete.organization_id`) e rifiuta un
+club dichiarato che non coincida, quindi da li una riga cross-tenant non puo
+nascere.
 
 ---
 

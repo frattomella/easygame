@@ -978,16 +978,23 @@ const createApiSupabaseClient = () => ({
       email,
       password,
       data,
+      currentPassword,
     }: {
       email?: string;
       password?: string;
       data?: AuthMetadata;
+      /**
+       * La password attuale, obbligatoria quando si cambia email, cellulare o
+       * password (PP-05). Non viene mai memorizzata: attraversa la richiesta e
+       * basta.
+       */
+      currentPassword?: string;
     }) {
       const response = await apiRequest<{ user: MockUser | null }>(
         "/api/v1/auth/user",
         {
           method: "PATCH",
-          body: { email, password, data },
+          body: { email, password, data, currentPassword },
         },
       );
 

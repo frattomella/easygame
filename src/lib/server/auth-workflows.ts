@@ -1,5 +1,6 @@
 import {
   createHash,
+  createHmac,
   randomBytes,
   randomInt,
   randomUUID,
@@ -8,7 +9,12 @@ import {
 import { prisma } from "./prisma";
 import { createSessionForUser, hashPassword } from "./auth";
 import {
+  EMAIL_OTP_TTL_MINUTES,
   MAX_OTP_ATTEMPTS,
+  OTP_RESEND_COOLDOWN_SECONDS,
+  OTP_CODE_LENGTH,
+  PHONE_OTP_TTL_MINUTES,
+  resolveOtpResendDecision,
   shouldExposeVerificationPreviewCode,
 } from "../auth/otp-policy";
 import {
@@ -16,18 +22,27 @@ import {
   validatePassword,
 } from "../auth/password-policy";
 import {
+  canDeliverPhoneOtp,
   isPhoneVerificationEnabled,
-  isPhoneVerificationProviderConfigured,
+  isPhoneVerificationRequired,
+  isSmsTransportConfigured,
 } from "../auth/provider-policy";
+import { maskPhoneNumber, normalizePhoneNumber } from "../auth/phone-number";
 import {
   isEmailDeliveryConfigured,
   sendTransactionalEmail,
 } from "./email/email-service";
-import { renderEmailLayout } from "./email/layout";
+import { sendSms } from "./sms/sms-service";
+import {
+  EASYGAME_BRAND,
+  renderEmailDocument,
+} from "./email/template-core";
 
 export {
+  canDeliverPhoneOtp,
   isPhoneVerificationEnabled,
-  isPhoneVerificationProviderConfigured,
+  isPhoneVerificationRequired,
+  isSmsTransportConfigured,
 } from "../auth/provider-policy";
 
 type VerificationChannel = "email" | "phone";
@@ -43,8 +58,39 @@ type VerificationDispatchResult = {
   previewCode: string | null;
 };
 
-const EMAIL_CODE_TTL_MINUTES = 15;
-const PHONE_CODE_TTL_MINUTES = 10;
+const EMAIL_CODE_TTL_MINUTES = EMAIL_OTP_TTL_MINUTES;
+const PHONE_CODE_TTL_MINUTES = PHONE_OTP_TTL_MINUTES;
+
+/**
+ * **Il codice sbagliato non e un errore di sistema.**
+ *
+ * Un errore con questo nome non viene registrato dal punto unico degli errori:
+ * e la cosa piu comune che succede su questi endpoint, e riempirne i log
+ * significa non vedere piu quelli veri. Le rotte lo riconoscono dal messaggio;
+ * la classe esiste perche riconoscerlo dal messaggio e fragile e perche il
+ * ripiego sul messaggio resta come seconda difesa.
+ */
+export class VerificationRejected extends Error {
+  readonly code: "INVALID_OR_EXPIRED_CODE" | "RESEND_TOO_SOON";
+  readonly retryAfterSeconds: number | null;
+
+  constructor(
+    code:
+      | "INVALID_OR_EXPIRED_CODE"
+      | "RESEND_TOO_SOON" = "INVALID_OR_EXPIRED_CODE",
+    retryAfterSeconds: number | null = null,
+  ) {
+    super(
+      code === "RESEND_TOO_SOON"
+        ? "Attendi prima di richiedere un altro codice"
+        : "Codice non valido o scaduto",
+    );
+    this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
+    this.name = "VerificationRejected";
+  }
+}
+
 const DEFAULT_WIDGETS = [
   "metrics",
   "activities",
@@ -59,36 +105,174 @@ const slugify = (value: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-
 const asMetadataRecord = (value: unknown): Record<string, any> =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, any>)
     : {};
 
-const createOtpCode = () => randomInt(100000, 1_000_000).toString();
+/**
+ * Sei cifre uniformi su **tutto** l'intervallo, zeri iniziali compresi.
+ *
+ * `randomInt(100000, 1_000_000)` — la forma di prima — non produceva mai un
+ * codice che comincia per zero: novecentomila valori invece di un milione.
+ */
+const createOtpCode = () =>
+  randomInt(0, 10 ** OTP_CODE_LENGTH)
+    .toString()
+    .padStart(OTP_CODE_LENGTH, "0");
 
-const hashOtpCode = (code: string) =>
-  createHash("sha256").update(code).digest("hex");
+/**
+ * **Il pepe delle impronte OTP.**
+ *
+ * Stessa catena di ripieghi del contatore di frequenza
+ * (`auth-rate-limit.ts`), e per la stessa ragione: un'installazione che non ha
+ * dichiarato un segreto proprio deve comunque avere un valore che non e nel
+ * database.
+ */
+const otpPepper = () =>
+  process.env.AUTH_OTP_SECRET ||
+  process.env.AUTH_RATE_LIMIT_SECRET ||
+  process.env.CRON_SECRET ||
+  process.env.DATABASE_URL ||
+  "easygame-local";
+
+/**
+ * **L'impronta di un codice a sei cifre non e un'impronta, se e uno SHA nudo.**
+ *
+ * `sha256(codice)` su un codice a sei cifre e reversibile in un istante: un
+ * milione di valori, una tabella precalcolata, e chi legge la colonna
+ * `code_hash` legge il codice. Il requisito «OTP memorizzato in forma sicura,
+ * mai in chiaro» non era soddisfatto — era soddisfatto *alla lettera* e non
+ * nella sostanza, che e il modo peggiore.
+ *
+ * Un HMAC con un pepe che vive **nell'ambiente e non nel database** chiude
+ * quella strada: chi porta via un dump non ha il pepe, e senza il pepe il
+ * milione di valori non si puo enumerare.
+ *
+ * L'impronta lega **canale, scopo, utente e destinatario**. Serve a rendere
+ * inutile lo spostamento di una riga: un `code_hash` copiato dalla challenge
+ * email di un account sulla challenge telefono di un altro non corrisponde piu
+ * a niente.
+ *
+ * ## Perche il destinatario, e perche non bastava il `where`
+ *
+ * Il destinatario e entrato nel legame al **quarto round** della revisione
+ * ostile, che lo ha usato per diventare amministratore di piattaforma. Un
+ * codice — o un token di reset — nasce **per un recapito**, non per un
+ * account: se l'account cambia indirizzo fra l'emissione e il consumo, quel
+ * codice non prova piu niente su chi lo porta. Le rotte OTP lo sapevano e
+ * mettevano il destinatario nel `where`; la rotta di reset **no**, ed e stata
+ * la porta.
+ *
+ * La difesa e nel legame e non solo nel `where` perche le due sono
+ * **indipendenti**: un `where` e una riga che si puo dimenticare in uno dei
+ * chiamanti — ed e esattamente cio che era successo — mentre un legame
+ * crittografico vale per chiunque chiami, anche per chi lo dimentica. Chi
+ * verifica passa il destinatario **corrente**, mai `challenge.target`: usare il
+ * valore salvato sulla riga renderebbe il legame vero per costruzione, cioe
+ * vacuo.
+ *
+ * ## Cosa succede alle challenge gia emesse
+ *
+ * Diventano inverificabili, e va bene: vivono cinque o quindici minuti — il
+ * token di reset trenta — e chi si trova a cavallo del rilascio richiede il
+ * codice. Non c'e migrazione, perche non c'e niente da conservare.
+ */
+export const hashOtpCode = (
+  code: string,
+  binding: {
+    userId: string;
+    channel: string;
+    purpose: string;
+    target: string;
+  },
+) =>
+  createHmac("sha256", otpPepper())
+    .update(
+      `${binding.channel}:${binding.purpose}:${binding.userId}:${binding.target}:${code}`,
+    )
+    .digest("hex");
+
+/** Il destinatario, come impronta: i contatori non tengono numeri in chiaro. */
+const hashTarget = (target: string) =>
+  createHash("sha256")
+    .update(
+      `${otpPepper()}:target:${String(target || "")
+        .trim()
+        .toLowerCase()}`,
+    )
+    .digest("hex");
+
+/**
+ * **La chiave del contatore per destinatario, dalla forma canonica.**
+ *
+ * `hashTarget` fa solo `trim().toLowerCase()`, che per un indirizzo email e
+ * la normalizzazione giusta e per un numero non lo e affatto: `3401234567` e
+ * `+393401234567` sono lo stesso destinatario e producevano **due
+ * secchielli** (M-4 del secondo round della revisione ostile). Il tetto
+ * raddoppiava esattamente sulle righe scritte prima di PP-05 — cioe su tutte
+ * quelle esistenti — perche la rotta di login leggeva la colonna grezza e
+ * quelle di verifica il numero normalizzato.
+ *
+ * La canonicalizzazione sta **qui e non nei chiamanti**: un chiamante che se
+ * la dimentica non produce un errore, produce un contatore che conta meta.
+ */
+export const buildOtpTargetCounterKey = (target: string) => {
+  const numero = normalizePhoneNumber(target);
+  return hashTarget(numero.valid ? numero.e164 : target);
+};
 
 const getAppBaseUrl = () =>
   process.env.AUTH_BASE_URL ||
   process.env.NEXT_PUBLIC_APP_URL ||
   "http://localhost:3001";
 
-const getPreviewCode = (sent: boolean, code: string) =>
-  !sent && shouldExposeVerificationPreviewCode() ? code : null;
+/**
+ * Il codice restituito nella risposta, in sviluppo.
+ *
+ * **Il `sent` non entra piu nella decisione.** Prima era
+ * `!sent && shouldExposeVerificationPreviewCode()`: il codice si vedeva solo
+ * quando la consegna **falliva**. Con un trasporto configurato — anche una
+ * sandbox, anche un doppio di prova — la consegna riesce, e chi sviluppa
+ * restava senza codice proprio quando aveva finalmente un canale da provare.
+ * Era una condizione nata come ripiego («se non parte, almeno leggilo») e
+ * diventata un ostacolo.
+ *
+ * La difesa e una sola e non cambia: `shouldExposeVerificationPreviewCode()`
+ * vuole `NODE_ENV !== "production"` **e** `AUTH_ALLOW_TEST_CODES === "true"`.
+ * In produzione non c'e nessuna combinazione di variabili che faccia uscire un
+ * codice da qui.
+ */
+const getPreviewCode = (_sent: boolean, code: string) =>
+  shouldExposeVerificationPreviewCode() ? code : null;
 
 export const createVerificationReference = () =>
   `verify_${randomBytes(24).toString("hex")}`;
 
-export const findUserByVerificationReference = async (reference: string) => {
+/**
+ * **L'identificativo di verifica e un segreto; l'UUID di un utente no.**
+ *
+ * Questa funzione accettava **entrambi**, e la seconda strada rendeva vana la
+ * prima (M-1 del secondo round della revisione ostile). Due conseguenze:
+ *
+ * 1. la rotazione di `token_verification_id` nello sfratto era **teatro**:
+ *    l'occupante non aveva bisogno del riferimento nuovo, perche l'UUID
+ *    dell'account non cambia e lo aveva gia — esce in chiaro come
+ *    `verification.userId` da ogni risposta senza sessione;
+ * 2. gli UUID utente circolano in molte proiezioni club-scoped, quindi chi ne
+ *    aveva raccolti poteva pilotare `/verify/<canale>/send` e `/confirm` su
+ *    account altrui, e distinguere un identificativo vero da uno inventato dal
+ *    modo in cui rispondevano.
+ *
+ * Da qui in avanti l'UUID nudo vale **solo per chi ha gia una sessione su
+ * quell'account**: e il caso della pagina Account, dove non si sta rivelando
+ * niente che chi chiama non sappia gia di se stesso. Chi non ha sessione deve
+ * portare il riferimento opaco, che e un segreto lungo e non si indovina.
+ */
+export const findUserByVerificationReference = async (
+  reference: string,
+  sessionUserId?: string | null,
+) => {
   const normalizedReference = String(reference || "").trim();
   if (!normalizedReference) return null;
 
@@ -105,32 +289,122 @@ export const findUserByVerificationReference = async (reference: string) => {
     return null;
   }
 
+  if (!sessionUserId || String(sessionUserId) !== normalizedReference) {
+    return null;
+  }
+
   return prisma.user.findUnique({ where: { id: normalizedReference } });
 };
 
-const buildVerificationPayload = (user: {
+/**
+ * Il riferimento opaco di un account, creandolo se non c'e.
+ *
+ * Serve alle risposte senza sessione: prima ci usciva l'UUID, che non e un
+ * segreto e non cambia mai.
+ */
+export const ensureVerificationReference = async (user: {
+  id: string;
+  token_verification_id?: string | null;
+}) => {
+  if (user.token_verification_id) return user.token_verification_id;
+  const reference = createVerificationReference();
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { token_verification_id: reference },
+  });
+  return reference;
+};
+
+/**
+ * Il numero in archivio, come si mostra a chi non ha ancora una sessione.
+ *
+ * Passa dalla forma canonica perche il mascheramento conti le cifre giuste:
+ * `340 123 4567` e `+393401234567` hanno lunghezze diverse e produrrebbero due
+ * maschere diverse per lo stesso numero. Un numero illeggibile resta
+ * mascherato lo stesso — mai restituito in chiaro per il fatto di essere
+ * scritto male.
+ */
+export const maskStoredPhone = (phone?: string | null) => {
+  if (!phone) return null;
+  const numero = normalizePhoneNumber(phone);
+  return maskPhoneNumber(numero.valid ? numero.e164 : String(phone));
+};
+
+const buildVerificationPayload = async (user: {
   id: string;
   email: string;
   phone?: string | null;
+  token_verification_id?: string | null;
   email_verified_at?: Date | null;
   phone_verified_at?: Date | null;
   phone_verification_required?: boolean;
 }) => ({
-  userId: user.id,
+  /*
+    **Il riferimento opaco, non l'UUID** (M-1 del secondo round). L'UUID di un
+    account non e un segreto e non cambia mai: farlo uscire da una risposta
+    senza sessione rendeva vana la rotazione fatta dallo sfratto, e dava a
+    chiunque lo raccogliesse una chiave per pilotare le rotte di verifica.
+  */
+  userId: await ensureVerificationReference(user),
   email: user.email,
-  phone: user.phone || null,
+  /*
+    **Il numero si mostra mascherato.** Questa struttura esce da rotte che si
+    raggiungono senza sessione (registrazione, login non completato, invio e
+    conferma del codice): restituire il numero per intero significherebbe che
+    chi ha un identificativo di verifica legge il cellulare del titolare.
+    Prefisso e ultime tre cifre bastano a chi si sta verificando per
+    riconoscere il proprio, e non bastano a nessun altro per comporlo.
+  */
+  phone: maskStoredPhone(user.phone),
   emailRequired: !user.email_verified_at,
-  phoneRequired:
-    isPhoneVerificationEnabled() &&
-    Boolean(user.phone_verification_required && user.phone) &&
-    !user.phone_verified_at,
+  phoneRequired: isPhoneVerificationBlocking(user),
 });
 
-const buildTwilioAuthHeader = () =>
-  `Basic ${Buffer.from(
-    `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`,
-  ).toString("base64")}`;
+/**
+ * **«Account non pienamente attivato», in una riga sola (ADR-0132).**
+ *
+ * Un account e non pienamente attivato quando **richiede** la verifica del
+ * telefono e non l'ha ancora ottenuta. L'unica limitazione che ne discende e
+ * quella dichiarata: **non si crea una sessione**. Non ce ne sono altre, e non
+ * se ne inventano: chi e dentro resta dentro, chi deve entrare verifica prima.
+ *
+ * L'email non entra in questa definizione. Da PP-05 l'indirizzo e obbligatorio
+ * ma si verifica **dopo**: un'email non verificata non impedisce l'accesso, si
+ * vede sulla pagina Account con la sua chiamata all'azione, e porta con se una
+ * sola limitazione, definita in `findOrCreateOAuthUser`.
+ */
+export const isPhoneVerificationBlocking = (user: {
+  phone?: string | null;
+  phone_verified_at?: Date | null;
+  phone_verification_required?: boolean;
+}) =>
+  isPhoneVerificationRequired() &&
+  Boolean(user.phone_verification_required && user.phone) &&
+  !user.phone_verified_at;
 
+/**
+ * Apre una challenge nuova e chiude quelle vive dello stesso canale.
+ *
+ * ## Le tre cose che questa funzione fa e prima non faceva
+ *
+ * **1. Il cooldown.** Se una challenge dello stesso canale e nata da meno di
+ * `OTP_RESEND_COOLDOWN_SECONDS`, non se ne apre un'altra: si solleva
+ * `RESEND_TOO_SOON` e **la challenge esistente resta viva**. Prima ogni invio
+ * chiudeva il precedente, quindi due clic sul pulsante «rimanda» rendevano
+ * inutile il codice appena arrivato — e chi conosceva un identificativo poteva
+ * tenere un account permanentemente inverificabile invalidandogli il codice a
+ * ripetizione.
+ *
+ * **2. Si chiude tutto il canale, non solo lo stesso scopo.** Il `where`
+ * portava anche `purpose`, quindi una challenge `signup` e una `verify_phone`
+ * convivevano: due codici validi insieme sullo stesso numero, e la verifica —
+ * che il proposito non lo guardava — accettava il piu recente dei due. Adesso
+ * chi apre chiude, per canale, con l'unica eccezione del reset password, che ha
+ * un flusso e una vita sue.
+ *
+ * **3. Il `target` e quello passato, e la verifica lo ricontrolla.** Vedi
+ * `verifyInternalChallenge`.
+ */
 const createInternalChallenge = async ({
   userId,
   channel,
@@ -144,85 +418,172 @@ const createInternalChallenge = async ({
   target: string;
   expiresInMinutes: number;
 }) => {
-  const code = createOtpCode();
+  const adesso = new Date();
 
-  await prisma.authVerificationChallenge.updateMany({
+  const ultima = await prisma.authVerificationChallenge.findFirst({
     where: {
       user_id: userId,
       channel,
-      purpose,
+      purpose: { not: "reset_password" },
       consumed_at: null,
+      expires_at: { gt: adesso },
     },
-    data: {
-      consumed_at: new Date(),
-    },
+    orderBy: { created_at: "desc" },
   });
 
-  await prisma.authVerificationChallenge.create({
-    data: {
-      user_id: userId,
-      channel,
-      purpose,
-      target,
-      code_hash: hashOtpCode(code),
-      expires_at: new Date(Date.now() + expiresInMinutes * 60 * 1000),
-    },
-  });
+  const rinvio = resolveOtpResendDecision(ultima?.created_at || null, adesso);
+  if (!rinvio.allowed) {
+    throw new VerificationRejected("RESEND_TOO_SOON", rinvio.retryAfterSeconds);
+  }
+
+  const code = createOtpCode();
+
+  /*
+    **Chiudere e aprire sono una cosa sola, e il database lo fa rispettare.**
+
+    Le due scritture erano separate, e in sequenza il risultato era giusto. In
+    parallelo no: N richieste simultanee eseguono prima tutti gli `UPDATE` — che
+    non trovano niente da chiudere, perche nessuno ha ancora inserito — e poi
+    tutti gli `INSERT`. La sonda contro Postgres lo ha misurato (P3, dodici
+    reinvii simultanei): **dodici challenge vive, dodici codici validi insieme**.
+    Il cooldown si scavalcava mandando le richieste insieme invece che in fila, e
+    dodici codici validi con cinque tentativi ciascuno moltiplicano per dodici le
+    probabilita di indovinarne uno.
+
+    Adesso le due scritture stanno in una transazione, e — cio che conta
+    davvero — l'invariante «una challenge viva per utente e canale» e un
+    **indice unico parziale** (migrazione `20260904120000_pp05_...`): non e piu
+    una cosa che questo codice promette, e una cosa che il database non lascia
+    accadere. Chi perde la corsa riceve una violazione di unicita, e qui la si
+    traduce nel cooldown — che e la risposta vera: un codice valido esiste gia
+    ed e gia partito.
+  */
+  try {
+    await prisma.$transaction([
+      prisma.authVerificationChallenge.updateMany({
+        where: {
+          user_id: userId,
+          channel,
+          purpose: { not: "reset_password" },
+          consumed_at: null,
+        },
+        data: {
+          consumed_at: adesso,
+        },
+      }),
+      prisma.authVerificationChallenge.create({
+        data: {
+          user_id: userId,
+          channel,
+          purpose,
+          target,
+          code_hash: hashOtpCode(code, {
+            userId,
+            channel,
+            purpose,
+            target,
+          }),
+          /*
+            **`created_at` si scrive, non si lascia al database.** Il cooldown lo
+            confronta con `new Date()` dell'applicazione: mescolare l'orologio di
+            Postgres con quello del processo fa durare il cooldown un po' di piu o
+            un po' di meno a seconda della deriva fra i due, e su una finestra di
+            sessanta secondi la deriva conta.
+          */
+          created_at: adesso,
+          expires_at: new Date(adesso.getTime() + expiresInMinutes * 60 * 1000),
+          /*
+            **Lo stato iniziale si scrive, non si eredita dallo schema.** Sono i
+            valori predefiniti delle colonne, quindi Postgres li metterebbe
+            comunque; scriverli rende la riga completa nel momento in cui nasce,
+            indipendentemente da dove vivano i default — ed e la differenza fra un
+            `where: { consumed_at: null }` che trova la riga e uno che non la trova
+            perche la colonna, in quel momento, non e stata ancora popolata da
+            nessuno.
+          */
+          consumed_at: null,
+          attempts: 0,
+        },
+      }),
+    ]);
+  } catch (error: any) {
+    /*
+      `P2002` e la violazione di unicita di Prisma. Qui vuol dire una cosa
+      sola: un'altra richiesta simultanea ha gia aperto la challenge di questo
+      canale. Non e un errore da registrare — e la corsa che l'indice esiste
+      per perdere — e la risposta corretta e la stessa del cooldown.
+    */
+    if (error?.code === "P2002") {
+      throw new VerificationRejected(
+        "RESEND_TOO_SOON",
+        OTP_RESEND_COOLDOWN_SECONDS,
+      );
+    }
+    throw error;
+  }
 
   return code;
 };
 
-const sendPhoneViaTwilioVerify = async (phone: string) => {
-  if (!isPhoneVerificationProviderConfigured()) {
-    return false;
-  }
-
-  const body = new URLSearchParams({
-    To: phone,
-    Channel: "sms",
-  });
-
-  const response = await fetch(
-    `https://verify.twilio.com/v2/Services/${process.env.TWILIO_VERIFY_SERVICE_SID}/Verifications`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: buildTwilioAuthHeader(),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: body.toString(),
-    },
-  );
-
-  if (!response.ok) {
-    /* eslint-disable-next-line no-console -- l'esito di una consegna Twilio: codice del provider, nessun errore */
-    console.error("Twilio verification delivery failed", {
-      status: response.status,
-    });
-  }
-  return response.ok;
-};
+/**
+ * Il testo dell'SMS, in un posto solo.
+ *
+ * Corto e senza link, per tre ragioni pratiche: sta in un solo segmento
+ * GSM-7 (costa un SMS e non due), si legge dalla schermata di blocco senza
+ * aprire niente, e non insegna a nessuno che EasyGame manda link via SMS —
+ * che e la cosa che rende credibile il messaggio di chi imita EasyGame.
+ */
+export const buildPhoneVerificationSmsText = (code: string) =>
+  `EasyGame: il tuo codice di verifica e ${code}. Scade tra ${PHONE_CODE_TTL_MINUTES} minuti. Non condividerlo con nessuno.`;
 
 /**
  * L'HTML dell'email di verifica, estratto per essere richiamabile anche
  * dall'anteprima di sviluppo (`/private/email-preview`) senza duplicare il
  * markup: la preview deve mostrare esattamente quello che si spedisce.
  */
-export const buildVerificationEmailHtml = ({
+/**
+ * **Marchio EasyGame, e non e una scelta di stile** (PP-05B, ADR-0133).
+ *
+ * La verifica di un recapito la manda EasyGame, non il club: chi la riceve
+ * deve poter distinguere questo messaggio da una comunicazione della propria
+ * societa, perche e l'unico dei due che gli chiede di digitare qualcosa. Un
+ * codice che arriva con il logo di chiunque insegna a fidarsi di chiunque.
+ *
+ * Restituisce **le due forme**: prima il testo semplice si scriveva a mano
+ * accanto all'HTML, in una stringa che gia divergeva — diceva «Il tuo codice
+ * EasyGame e …» dove l'HTML diceva «Verifica accesso EasyGame».
+ */
+export const buildVerificationEmail = ({
   firstName,
   code,
 }: {
   firstName?: string | null;
   code: string;
-}): string =>
-  renderEmailLayout({
-    bodyHtml: `
-      <h2 style="margin:0 0 12px;">Verifica accesso EasyGame</h2>
-      <p>Ciao ${escapeHtml(firstName || "")}, usa questo codice per completare l'accesso:</p>
-      <div style="font-size: 32px; font-weight: 700; letter-spacing: 8px; padding: 16px 0;">${code}</div>
-      <p>Il codice scade tra ${EMAIL_CODE_TTL_MINUTES} minuti.</p>
-    `,
+}) => {
+  const nome = String(firstName || "").trim();
+  return renderEmailDocument({
+    brand: EASYGAME_BRAND,
+    preheader: `Il tuo codice scade tra ${EMAIL_CODE_TTL_MINUTES} minuti.`,
+    blocks: [
+      { kind: "heading", text: "Verifica accesso EasyGame" },
+      {
+        kind: "text",
+        text: nome
+          ? `Ciao ${nome}, usa questo codice per completare l'accesso:`
+          : "Usa questo codice per completare l'accesso:",
+      },
+      { kind: "code", value: code },
+      {
+        kind: "text",
+        text: `Il codice scade tra ${EMAIL_CODE_TTL_MINUTES} minuti e vale una volta sola.`,
+      },
+      {
+        kind: "footnote",
+        text: "Se non hai richiesto tu questo codice, ignora il messaggio: senza il codice non succede niente.",
+      },
+    ],
   });
+};
 
 export const sendEmailVerificationChallenge = async (
   user: {
@@ -240,11 +601,15 @@ export const sendEmailVerificationChallenge = async (
     expiresInMinutes: EMAIL_CODE_TTL_MINUTES,
   });
 
+  const { html, text } = buildVerificationEmail({
+    firstName: user.first_name,
+    code,
+  });
   const delivery = await sendTransactionalEmail({
     to: user.email,
     subject: "Verifica il tuo account EasyGame",
-    text: `Il tuo codice EasyGame è ${code}. Scade tra ${EMAIL_CODE_TTL_MINUTES} minuti.`,
-    html: buildVerificationEmailHtml({ firstName: user.first_name, code }),
+    text,
+    html,
   });
 
   return {
@@ -253,6 +618,19 @@ export const sendEmailVerificationChallenge = async (
   };
 };
 
+/**
+ * **Il codice lo fa EasyGame, l'operatore lo porta. Sempre (ADR-0131).**
+ *
+ * Prima c'erano due meccanismi: con Twilio configurato il codice lo generava e
+ * lo verificava Twilio, senza Twilio lo generava e lo verificava questo file.
+ * Due implementazioni della stessa cosa, con due comportamenti diversi — tetto
+ * dei tentativi, scadenza, consumo monouso e corsa fra invio e conferma valgono
+ * solo nella seconda — e con la piu debole attiva **proprio in produzione**,
+ * cioe l'unico posto dove Twilio era configurato. Nessun test poteva vederlo,
+ * perche nei test Twilio non c'era mai.
+ *
+ * Adesso la challenge si scrive sempre, e il trasporto e solo un trasporto.
+ */
 export const sendPhoneVerificationChallenge = async (
   user: {
     id: string;
@@ -260,48 +638,74 @@ export const sendPhoneVerificationChallenge = async (
   },
   purpose: VerificationPurpose = "signup",
 ): Promise<VerificationDispatchResult> => {
-  if (!user.phone) {
-    return {
-      sent: false,
-      previewCode: null,
-    };
-  }
-
-  if (isPhoneVerificationProviderConfigured()) {
-    const sent = await sendPhoneViaTwilioVerify(user.phone);
-    return {
-      sent,
-      previewCode: null,
-    };
+  /*
+    Si normalizza qui e non ci si fida della colonna: una riga scritta prima di
+    PP-05 puo contenere `340 123 4567`, e il legame fra challenge e numero
+    corrente (`verifyInternalChallenge`) confronta forme canoniche. Un numero
+    illeggibile non apre nessuna challenge e non fa partire nessun SMS.
+  */
+  const numero = normalizePhoneNumber(user.phone);
+  if (!numero.valid) {
+    return { sent: false, previewCode: null };
   }
 
   const code = await createInternalChallenge({
     userId: user.id,
     channel: "phone",
     purpose,
-    target: user.phone,
+    target: numero.e164,
     expiresInMinutes: PHONE_CODE_TTL_MINUTES,
   });
 
+  const delivery = await sendSms({
+    to: numero.e164,
+    text: buildPhoneVerificationSmsText(code),
+  });
+
   return {
-    sent: false,
-    previewCode: getPreviewCode(false, code),
+    sent: delivery.status === "sent",
+    previewCode: getPreviewCode(delivery.status === "sent", code),
   };
 };
 
+/**
+ * **Una challenge vale per il destinatario per cui e nata, e per nessun altro.**
+ *
+ * Il difetto che chiude (PP-05). La ricerca era per `user_id` e `channel` e
+ * basta: il `target` scritto sulla riga non veniva mai riletto. Bastava
+ * quindi:
+ *
+ * 1. registrarsi con il proprio numero e farsi mandare il codice;
+ * 2. cambiare il numero del profilo con quello di un altro — la scrittura
+ *    azzera `phone_verified_at`, ed e giusto che lo faccia;
+ * 3. confermare con il codice ricevuto **sul proprio** numero.
+ *
+ * Il risultato era `phone_verified_at` valorizzato su un numero che nessuno
+ * aveva mai verificato: la regola «cambio numero → nuova verifica» esisteva
+ * nella riga che azzera la colonna e non esisteva in quella che la riscrive.
+ * Lo stesso vale per l'indirizzo email.
+ *
+ * Adesso il destinatario corrente entra nel `where`, in forma canonica. Se non
+ * corrisponde, la challenge non si trova, e non si trova **senza spendere un
+ * tentativo**: non c'e niente da consumare su una riga che non riguarda questo
+ * destinatario.
+ */
 const verifyInternalChallenge = async ({
   userId,
   channel,
+  target,
   code,
 }: {
   userId: string;
   channel: VerificationChannel;
+  target: string;
   code: string;
 }) => {
   const challenge = await prisma.authVerificationChallenge.findFirst({
     where: {
       user_id: userId,
       channel,
+      target,
       // Le challenge di reset password hanno un token lungo e un flusso
       // proprio: non devono essere consumate da una conferma OTP, altrimenti
       // un reset in corso verrebbe invalidato da un tentativo di verifica.
@@ -317,15 +721,41 @@ const verifyInternalChallenge = async ({
   });
 
   if (!challenge) {
-    throw new Error("Codice non valido o scaduto");
+    throw new VerificationRejected();
   }
 
-  const esito = await spendiUnTentativo(
-    challenge.id,
-    challenge.code_hash === hashOtpCode(code),
+  /*
+    Il confronto e a tempo costante come quello del reset password. Su un
+    codice a sei cifre la differenza pratica e nulla — il tetto dei tentativi
+    chiude molto prima di qualunque misura — ma un confronto fra impronte si
+    scrive cosi, e avere due primitive diverse per la stessa cosa nello stesso
+    file e il modo in cui una delle due resta indietro.
+  */
+  const fornita = Buffer.from(
+    hashOtpCode(code, {
+      userId,
+      channel,
+      purpose: challenge.purpose,
+      /*
+        Il destinatario **chiesto**, non `challenge.target`. Il `where` qui
+        sopra li ha gia dichiarati uguali, quindi il valore e lo stesso — ma
+        prenderlo dalla riga renderebbe il legame vero per costruzione, cioe
+        una seconda difesa che non difende da niente. Preso dal parametro, se
+        un giorno il `where` perdesse `target` — che e esattamente cio che era
+        successo alla rotta di reset — l'impronta non corrisponderebbe lo
+        stesso.
+      */
+      target,
+    }),
+    "hex",
   );
+  const attesa = Buffer.from(challenge.code_hash, "hex");
+  const corrisponde =
+    fornita.length === attesa.length && timingSafeEqual(fornita, attesa);
+
+  const esito = await spendiUnTentativo(challenge.id, corrisponde);
   if (esito !== "valido") {
-    throw new Error("Codice non valido o scaduto");
+    throw new VerificationRejected();
   }
 
   return challenge;
@@ -411,85 +841,181 @@ const prendiUnTentativo = async (challengeId: string) => {
   return speso.count === 1;
 };
 
-const verifyPhoneWithTwilio = async (phone: string, code: string) => {
-  const body = new URLSearchParams({
-    To: phone,
-    Code: code,
-  });
+/**
+ * **Quali codici fanno nascere una sessione, e quali no** (PP-05, ADR-0134).
+ *
+ * Un OTP telefono non e una password, ma la conferma ne produceva una sessione
+ * **sempre**, per chiunque presentasse l'identificativo dell'account e il
+ * codice. Su un account occupato — registrato con l'indirizzo di un'altra
+ * persona — quello era un secondo ingresso che nessuno dei due meccanismi di
+ * sfratto chiudeva: la revisione ostile ha misurato la presa di possesso
+ * completa, senza password e senza codici di prova, dopo che l'adozione OAuth
+ * aveva gia azzerato la password dell'occupante.
+ *
+ * La regola: **il codice apre una porta solo se la porta era gia stata
+ * aperta**. `signup` — l'account e appena nato da questa richiesta, che
+ * portava una password — e `login`, dove la password e appena stata
+ * verificata. Un codice chiesto da `/verify/<canale>/send` ha scopo `verify_email` o
+ * `verify_phone`: verifica il recapito e basta, e chi lo chiede da dentro
+ * l'area Account una sessione ce l'ha gia.
+ */
+const SCOPI_CHE_APRONO_UNA_SESSIONE = new Set<VerificationPurpose>([
+  "signup",
+  "login",
+]);
 
-  const response = await fetch(
-    `https://verify.twilio.com/v2/Services/${process.env.TWILIO_VERIFY_SERVICE_SID}/VerificationCheck`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: buildTwilioAuthHeader(),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: body.toString(),
+export const challengePurposeCanMintSession = (purpose: string) =>
+  SCOPI_CHE_APRONO_UNA_SESSIONE.has(purpose as VerificationPurpose);
+
+/**
+ * **Lo sfratto di un occupante chiude tutti i canali, non solo la password.**
+ *
+ * Chiude CRITICAL-1 della revisione ostile PP-05A. Prima si azzerava la
+ * password e si cancellavano le sessioni, e sembrava bastare. Non bastava: il
+ * **numero di cellulare** dell'occupante restava sulla riga, e il numero e un
+ * canale con cui si rientra — `/verify/phone/send` piu `/verify/phone/confirm`
+ * — mentre la vittima restava chiusa fuori, perche il telefono altrui le
+ * bloccava la sessione.
+ *
+ * Si azzerano quindi anche il numero, la sua verifica e il riferimento
+ * pubblico di verifica. Il numero azzerato **non** lascia la vittima bloccata:
+ * `isPhoneVerificationBlocking` pretende che un numero ci sia, e senza numero
+ * non blocca — la vittima lo riscrive dalla propria area Account.
+ *
+ * `phone_verification_required` resta acceso di proposito: e una proprieta
+ * dell'account, e il giorno in cui la vittima scrive il proprio numero deve
+ * tornare a valere.
+ */
+const sfrattaOccupante = async (userId: string) => {
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      password_hash: await hashPassword(randomBytes(32).toString("hex")),
+      phone: null,
+      phone_verified_at: null,
+      token_verification_id: createVerificationReference(),
     },
-  );
+  });
+  await prisma.session.deleteMany({ where: { user_id: userId } });
+  /*
+    **E i legami con gli accessi esterni**, che erano il canale piu forte di
+    tutti e sopravvivevano a entrambe le versioni precedenti di questa
+    funzione (secondo round della revisione ostile, C-1).
 
-  if (!response.ok) {
-    throw new Error("Codice SMS non valido");
-  }
+    La catena misurata: l'attaccante collega il **proprio** Google a un account
+    proprio con indirizzo verificato — nessuno sfratto, perche non c'e niente
+    da sfrattare — poi cambia l'indirizzo in quello della vittima con la
+    propria password, e aspetta. Quando la vittima arriva da Google, lo sfratto
+    scatta e le ridà l'account; ma il legame `external_accounts` dell'attaccante
+    e ancora li, e `findOrCreateOAuthUser` risolve **per `provider_account_id`
+    prima di ogni altra cosa**. Al suo accesso successivo l'attaccante rientra
+    sull'account della vittima con tutto quello che nel frattempo ci ha messo,
+    e la seconda difesa — «un codice apre una sessione solo se la porta era gia
+    aperta» — non lo vede nemmeno, perche quel rientro non passa da nessuna
+    challenge.
 
-  const payload = (await response.json()) as { status?: string };
-  if (payload.status !== "approved") {
-    throw new Error("Codice SMS non valido");
-  }
+    Si cancellano **tutti**: chi adotta l'account ricrea il proprio subito
+    dopo, in `upsertExternalAccount`. Un legame che non si ricrea e un legame
+    che non era di chi ha appena dimostrato di possedere l'indirizzo.
+  */
+  await prisma.externalAccount.deleteMany({ where: { user_id: userId } });
+  /*
+    **E le challenge gia emesse**, che erano il canale rimasto (quarto round
+    della revisione ostile, CRITICAL).
+
+    Uno sfratto toglieva all'occupante tutto cio che **esisteva come riga sul
+    suo account** — password, numero, sessioni, legami esterni — e non cio che
+    l'occupante **teneva gia in mano**. Un token di reset vive trenta minuti e
+    lo si chiede prima: la catena misurata e occupare un indirizzo libero,
+    chiedersi un reset, aspettare che la vittima arrivi davvero da Google, e
+    consumare il token **dopo** lo sfratto. A quel punto l'indirizzo risulta
+    verificato — l'ha verificato la vittima — quindi il ramo di sfratto del
+    reset non scatta nemmeno, e la password dell'attaccante sovrascrive quella
+    della persona a cui l'account e appena stato restituito.
+
+    Il legame col destinatario chiude anche questa catena quando l'indirizzo e
+    cambiato; qui non e cambiato — occupante e vittima hanno lo stesso — e
+    percio serve la seconda mano. Una challenge viva **e** un canale di
+    accesso: ADR-0134 dice che sfrattare significa chiuderli tutti, e l'elenco
+    dei canali si allunga di uno ogni volta che qualcuno guarda.
+  */
+  await prisma.authVerificationChallenge.updateMany({
+    where: { user_id: userId, consumed_at: null },
+    data: { consumed_at: new Date() },
+  });
 };
 
 export const confirmEmailVerification = async (
   userReference: string,
   code: string,
+  sessionUserId?: string | null,
 ) => {
-  const user = await findUserByVerificationReference(userReference);
-  if (!user) throw new Error("Codice non valido o scaduto");
+  const user = await findUserByVerificationReference(userReference, sessionUserId);
+  if (!user) throw new VerificationRejected();
 
-  await verifyInternalChallenge({
+  const challenge = await verifyInternalChallenge({
     userId: user.id,
     channel: "email",
+    target: user.email,
     code,
   });
 
-  return prisma.user.update({
-    where: { id: user.id },
-    data: {
-      email_verified_at: new Date(),
-    },
+  /*
+    **Si scrive solo se l'indirizzo e ancora quello.** Fra l'emissione della
+    challenge e la conferma qualcuno puo aver cambiato l'indirizzo da un'altra
+    sessione: la scrittura condizionata fa fallire quella corsa invece di
+    stampare «verificato» sull'indirizzo nuovo. `updateMany` con il `where`,
+    non `update` con l'id.
+  */
+  const scritto = await prisma.user.updateMany({
+    where: { id: user.id, email: user.email },
+    data: { email_verified_at: new Date() },
   });
+  if (scritto.count !== 1) throw new VerificationRejected();
+
+  const aggiornato = await prisma.user.findUnique({ where: { id: user.id } });
+  if (!aggiornato) throw new VerificationRejected();
+  return { user: aggiornato, purpose: challenge.purpose };
 };
 
 export const confirmPhoneVerification = async (
   userReference: string,
   code: string,
+  sessionUserId?: string | null,
 ) => {
-  const user = await findUserByVerificationReference(userReference);
+  const user = await findUserByVerificationReference(userReference, sessionUserId);
 
   if (!user) {
-    throw new Error("Codice non valido o scaduto");
+    throw new VerificationRejected();
   }
 
-  if (!user.phone) {
-    throw new Error("Telefono non disponibile");
+  const numero = normalizePhoneNumber(user.phone);
+  if (!numero.valid) {
+    /*
+      Stesso errore di un codice sbagliato, di proposito: «telefono non
+      disponibile» diceva a chi provava identificativi a caso che quello
+      corrispondeva a un account privo di numero. Anti-enumeration
+      (14-security.md): la risposta non distingue i casi.
+    */
+    throw new VerificationRejected();
   }
 
-  if (isPhoneVerificationProviderConfigured()) {
-    await verifyPhoneWithTwilio(user.phone, code);
-  } else {
-    await verifyInternalChallenge({
-      userId: user.id,
-      channel: "phone",
-      code,
-    });
-  }
-
-  return prisma.user.update({
-    where: { id: user.id },
-    data: {
-      phone_verified_at: new Date(),
-    },
+  const challenge = await verifyInternalChallenge({
+    userId: user.id,
+    channel: "phone",
+    target: numero.e164,
+    code,
   });
+
+  const scritto = await prisma.user.updateMany({
+    where: { id: user.id, phone: user.phone },
+    data: { phone_verified_at: new Date() },
+  });
+  if (scritto.count !== 1) throw new VerificationRejected();
+
+  const aggiornato = await prisma.user.findUnique({ where: { id: user.id } });
+  if (!aggiornato) throw new VerificationRejected();
+  return { user: aggiornato, purpose: challenge.purpose };
 };
 
 export const ensurePrimaryClubForUser = async (userId: string) => {
@@ -570,20 +1096,29 @@ export const finalizeVerifiedSession = async (userId: string) => {
     throw new Error("Utente non trovato");
   }
 
-  if (!user.email_verified_at) {
-    throw new Error("Email non verificata");
-  }
+  /*
+    **L'email non blocca piu la sessione (ADR-0132).**
 
-  if (
-    isPhoneVerificationEnabled() &&
-    user.phone_verification_required &&
-    user.phone &&
-    !user.phone_verified_at
-  ) {
+    Prima questa riga sollevava «Email non verificata» e nessun account senza
+    indirizzo confermato poteva entrare — nemmeno per vedere la pagina che gli
+    chiedeva di confermarlo. Su un'installazione senza SMTP configurato quello
+    era un blocco totale: l'account si creava e non si poteva usare, e la
+    schermata che lo diceva era irraggiungibile.
+
+    La regola nuova: l'indirizzo e **obbligatorio** e si verifica **dopo**. Chi
+    non l'ha verificato entra, e trova sulla pagina Account l'avviso «Email non
+    verificata» con il pulsante che manda il codice. La limitazione che
+    l'accompagna e una sola, ed e in `findOrCreateOAuthUser`: un indirizzo non
+    verificato **non vale come identita**, quindi non protegge l'account da chi
+    quell'indirizzo lo possiede davvero e lo dimostra.
+
+    Il telefono invece blocca, ed e l'unico blocco: `isPhoneVerificationBlocking`.
+  */
+  if (isPhoneVerificationBlocking(user)) {
     return {
       user,
       session: null,
-      verification: buildVerificationPayload(user),
+      verification: await buildVerificationPayload(user),
     };
   }
 
@@ -601,7 +1136,7 @@ export const finalizeVerifiedSession = async (userId: string) => {
   return {
     user: refreshedUser,
     session,
-    verification: buildVerificationPayload(refreshedUser),
+    verification: await buildVerificationPayload(refreshedUser),
   };
 };
 
@@ -723,12 +1258,20 @@ type OAuthProviderConfig = {
  * sta attaccando. Un tenant nominato e invece una directory sola, la cui
  * amministrazione e nota.
  */
-const MICROSOFT_SHARED_TENANTS = new Set(["common", "organizations", "consumers"]);
+const MICROSOFT_SHARED_TENANTS = new Set([
+  "common",
+  "organizations",
+  "consumers",
+]);
 
 /** Due indirizzi sono lo stesso indirizzo. Confronto normalizzato, come al login. */
 const sameEmail = (a: unknown, b: unknown) =>
-  String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase() &&
-  String(a ?? "").trim() !== "";
+  String(a ?? "")
+    .trim()
+    .toLowerCase() ===
+    String(b ?? "")
+      .trim()
+      .toLowerCase() && String(a ?? "").trim() !== "";
 
 const microsoftTenant = () =>
   String(process.env.MICROSOFT_TENANT_ID || "").trim() || "common";
@@ -1030,6 +1573,42 @@ export const findOrCreateOAuthUser = async ({
 
   if (existingUser) {
     const existingMetadata = asMetadataRecord(existingUser.user_metadata);
+
+    /*
+      **L'unica limitazione di un'email non verificata (ADR-0132).**
+
+      Da PP-05 un account con l'indirizzo non confermato ha una sessione. Cio
+      apre una strada che prima era chiusa da sola: registro un account con
+      `vittima@example.com`, non verifico niente, e uso il prodotto. Quando la
+      vittima arriva davvero — con Google, che l'indirizzo lo certifica — questo
+      ramo la fa entrare **dentro** il conto che ho occupato, e io ci resto
+      insieme a lei, con la mia password ancora buona e le mie sessioni ancora
+      aperte.
+
+      Chi dimostra di possedere l'indirizzo ha piu titolo di chi lo ha solo
+      scritto in un modulo. Quindi, quando un account mai verificato viene
+      adottato da un accesso esterno che certifica quell'indirizzo, la
+      credenziale dell'occupante **decade**: password sostituita con un valore
+      casuale che nessuno conosce, sessioni chiuse tutte. Non si cancella
+      niente e non si perde niente: chi era il legittimo proprietario e non
+      aveva mai verificato usa «Password dimenticata» e rientra dall'indirizzo
+      che ora e provato suo.
+
+      Non tocca chi si era gia collegato con lo stesso `sub` (ramo di sopra) ne
+      chi aveva l'indirizzo gia verificato: li nessuna occupazione e possibile.
+    */
+    const eraOccupatoSenzaProva = !existingUser.email_verified_at;
+    if (eraOccupatoSenzaProva) {
+      /*
+        **Anche il numero, non solo la password** (CRITICAL-1 della revisione
+        ostile PP-05A). Azzerare la sola password lasciava all'occupante un
+        secondo ingresso — il proprio cellulare sulla riga della vittima, con
+        cui `/verify/phone/confirm` gli restituiva una sessione — e chiudeva
+        fuori la vittima, a cui quel numero altrui bloccava l'accesso.
+      */
+      await sfrattaOccupante(existingUser.id);
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id: existingUser.id },
       data: {
@@ -1091,9 +1670,19 @@ export const getAuthCapabilities = async () => {
   const emailConfigured = await isEmailDeliveryConfigured();
   return {
     emailVerification: true,
-    phoneVerification: isPhoneVerificationEnabled(),
+    /*
+      **Il numero si chiede sempre.** Prima questa chiave diceva alla schermata
+      di registrazione se mostrare il campo «Cellulare», e senza Twilio il
+      campo spariva. Oggi il campo c'e sempre, perche il numero e obbligatorio
+      per regola di prodotto; queste chiavi dicono invece se il codice si puo
+      **consegnare** e se la verifica **blocca** l'accesso, che sono le due
+      cose che dipendono davvero dall'installazione.
+    */
+    phoneNumberRequired: true,
+    phoneVerification: canDeliverPhoneOtp(),
+    phoneVerificationRequired: isPhoneVerificationRequired(),
     emailProviderConfigured: emailConfigured,
-    phoneProviderConfigured: isPhoneVerificationProviderConfigured(),
+    phoneProviderConfigured: isSmsTransportConfigured(),
     testCodesEnabled: shouldExposeVerificationPreviewCode(),
     providers: getEnabledOAuthProviders().map((provider) => ({
       id: provider.id,
@@ -1114,7 +1703,7 @@ export const buildPendingVerificationResponse = async (userId: string) => {
   return {
     user,
     session: null,
-    verification: buildVerificationPayload(user),
+    verification: await buildVerificationPayload(user),
   };
 };
 
@@ -1135,30 +1724,54 @@ export const PASSWORD_RESET_GENERIC_MESSAGE =
 const createPasswordResetToken = () => randomBytes(32).toString("hex");
 
 export const findUserByEmailForPasswordReset = async (email: string) => {
-  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const normalizedEmail = String(email || "")
+    .trim()
+    .toLowerCase();
   if (!normalizedEmail) return null;
   return prisma.user.findUnique({ where: { email: normalizedEmail } });
 };
 
-/** Estratto per la stessa ragione di `buildVerificationEmailHtml`. */
-export const buildPasswordResetEmailHtml = ({
+/**
+ * Estratto per la stessa ragione di `buildVerificationEmail`, e con lo stesso
+ * marchio: chi reimposta una password sta parlando con EasyGame.
+ *
+ * `resetUrl` finiva dentro un `href` **senza passare da niente**: e generato
+ * qui, quindi non era sfruttabile, ma era l'unico punto del prodotto in cui un
+ * URL entrava in un attributo senza controllo. Adesso passa da
+ * `sanitizeEmailUrl` come tutti gli altri, e se un giorno la base dell'URL
+ * arrivera dalla configurazione la difesa sara gia in piedi.
+ */
+export const buildPasswordResetEmail = ({
   firstName,
   resetUrl,
 }: {
   firstName?: string | null;
   resetUrl: string;
-}): string =>
-  renderEmailLayout({
-    bodyHtml: `
-      <h2 style="margin:0 0 12px;">Reimposta la password</h2>
-      <p>Ciao ${escapeHtml(firstName || "")}, hai richiesto di reimpostare la password del tuo account EasyGame.</p>
-      <p style="padding: 20px 0;">
-        <a href="${resetUrl}" style="background:#2563eb;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600;">Scegli una nuova password</a>
-      </p>
-      <p>Il link scade tra ${PASSWORD_RESET_TTL_MINUTES} minuti e può essere usato una sola volta.</p>
-      <p style="color:#64748b;font-size:13px;">Se non hai richiesto tu il reset, ignora questa email: la password resta invariata.</p>
-    `,
+}) => {
+  const nome = String(firstName || "").trim();
+  return renderEmailDocument({
+    brand: EASYGAME_BRAND,
+    preheader: `Il link scade tra ${PASSWORD_RESET_TTL_MINUTES} minuti.`,
+    blocks: [
+      { kind: "heading", text: "Reimposta la password" },
+      {
+        kind: "text",
+        text: nome
+          ? `Ciao ${nome}, hai richiesto di reimpostare la password del tuo account EasyGame.`
+          : "Hai richiesto di reimpostare la password del tuo account EasyGame.",
+      },
+      { kind: "cta", label: "Scegli una nuova password", url: resetUrl },
+      {
+        kind: "text",
+        text: `Il link scade tra ${PASSWORD_RESET_TTL_MINUTES} minuti e può essere usato una sola volta.`,
+      },
+      {
+        kind: "footnote",
+        text: "Se non hai richiesto tu il reset, ignora questa email: la password resta invariata.",
+      },
+    ],
   });
+};
 
 export const sendPasswordResetChallenge = async (user: {
   id: string;
@@ -1168,42 +1781,112 @@ export const sendPasswordResetChallenge = async (user: {
   const token = createPasswordResetToken();
 
   // Un solo token di reset valido per volta.
-  await prisma.authVerificationChallenge.updateMany({
+  /*
+    **Le due scritture in una transazione, e la corsa la perde il database**
+    (LOW-9 della revisione ostile PP-05A).
+
+    La migrazione `20260904120000_pp05_una_challenge_viva_per_canale` ha messo
+    un indice unico parziale anche sui token di reset, e questo ramo non era
+    stato adeguato: sei richieste simultanee producevano due token e quattro
+    violazioni `P2002`, che risalivano fino al logger di Prisma — quattro righe
+    di errore **fuori** dal punto unico — mentre la rotta le assorbiva nel suo
+    messaggio generico. Chi guardava lo schermo leggeva «ti abbiamo inviato le
+    istruzioni» senza che fosse partito niente.
+
+    Stessa forma di `createInternalChallenge`: transazione, e la violazione
+    tradotta in «esiste gia un token vivo», che qui vuol dire «l'email e gia
+    partita». Chi chiama risponde comunque con il messaggio generico, quindi
+    non nasce nessuna enumerazione.
+  */
+  const adesso = new Date();
+
+  /*
+    **Il `P2002` si evita, non solo si cattura** (L-2 del secondo round).
+
+    Il `catch` qui sotto ferma l'eccezione, non il **log**: il logger di Prisma
+    stampa `prisma:error Unique constraint failed` con l'invocazione dentro
+    prima ancora che il codice applicativo veda l'errore, e quelle righe
+    escono **fuori** dal punto unico degli errori (CLAUDE.md §2). Con sei
+    richieste simultanee erano cinque righe di rumore su una rotta che
+    funziona.
+
+    Una lettura prima dell'inserimento non risolve la corsa — due richieste
+    davvero simultanee la superano entrambe — ma toglie il caso comune, che e
+    il secondo clic sul pulsante. La corsa vera resta al `catch`, che e il
+    posto giusto per lei.
+  */
+  const giaVivo = await prisma.authVerificationChallenge.findFirst({
     where: {
       user_id: user.id,
       channel: "email",
       purpose: "reset_password",
       consumed_at: null,
+      expires_at: { gt: adesso },
     },
-    data: { consumed_at: new Date() },
+    select: { created_at: true },
   });
+  if (giaVivo) {
+    const rinvio = resolveOtpResendDecision(giaVivo.created_at, adesso);
+    if (!rinvio.allowed) return { sent: false, previewCode: null };
+  }
 
-  await prisma.authVerificationChallenge.create({
-    data: {
-      user_id: user.id,
-      channel: "email",
-      purpose: "reset_password",
-      target: user.email,
-      code_hash: hashOtpCode(token),
-      expires_at: new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000),
-    },
-  });
+  try {
+    await prisma.$transaction([
+      prisma.authVerificationChallenge.updateMany({
+        where: {
+          user_id: user.id,
+          channel: "email",
+          purpose: "reset_password",
+          consumed_at: null,
+        },
+        data: { consumed_at: adesso },
+      }),
+      prisma.authVerificationChallenge.create({
+        data: {
+          user_id: user.id,
+          channel: "email",
+          purpose: "reset_password",
+          target: user.email,
+          code_hash: hashOtpCode(token, {
+            userId: user.id,
+            channel: "email",
+            purpose: "reset_password",
+            target: user.email,
+          }),
+          created_at: adesso,
+          expires_at: new Date(
+            adesso.getTime() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000,
+          ),
+          consumed_at: null,
+          attempts: 0,
+        },
+      }),
+    ]);
+  } catch (error: any) {
+    if (error?.code === "P2002") {
+      /*
+        Un token vivo esiste gia ed e gia partito verso la casella: mandarne un
+        secondo non aiuterebbe nessuno. Si risponde «non inviato» senza codice
+        di anteprima, e la rotta lo copre con il messaggio generico di sempre.
+      */
+      return { sent: false, previewCode: null };
+    }
+    throw error;
+  }
 
   const resetUrl = `${getAppBaseUrl()}/auth/reset-password?uid=${encodeURIComponent(
     user.id,
   )}&token=${encodeURIComponent(token)}`;
 
+  const { html, text } = buildPasswordResetEmail({
+    firstName: user.first_name,
+    resetUrl,
+  });
   const delivery = await sendTransactionalEmail({
     to: user.email,
     subject: "Reimposta la password EasyGame",
-    text:
-      `Hai richiesto di reimpostare la password del tuo account EasyGame.\n\n` +
-      `Apri questo link entro ${PASSWORD_RESET_TTL_MINUTES} minuti:\n${resetUrl}\n\n` +
-      `Se non hai richiesto tu il reset, ignora questa email: la password resta invariata.`,
-    html: buildPasswordResetEmailHtml({
-      firstName: user.first_name,
-      resetUrl,
-    }),
+    text,
+    html,
   });
 
   return {
@@ -1236,11 +1919,36 @@ export const confirmPasswordReset = async ({
     throw new Error("Link di reset non valido o scaduto");
   }
 
+  /*
+    **Il token e nato per un indirizzo, e vale solo per quell'indirizzo**
+    (CRITICAL del quarto round della revisione ostile).
+
+    Questo `where` filtrava utente, canale, scopo e vita della riga, e **non il
+    destinatario** — mentre `verifyInternalChallenge`, per gli OTP, lo faceva
+    da sempre. La differenza fra i due era invisibile finche l'indirizzo di un
+    account non poteva cambiare sotto un token vivo; da PP-05 puo, e la catena
+    misurata era questa: ci si registra con un indirizzo proprio, si chiede il
+    reset **sul proprio** indirizzo, si cambia l'indirizzo in uno dell'elenco
+    `NEXT_PUBLIC_EASYGAME_PLATFORM_ADMIN_EMAILS` — che e pubblicato a ogni
+    browser — e si consuma il token. Il consumo scrive `email_verified_at`
+    sulla teoria «chi apre il link controlla la casella», che dopo il cambio
+    **non e piu vera**: l'indirizzo dell'amministratore risultava provato senza
+    che nessuna email lo avesse mai raggiunto.
+
+    Il difetto non e il cambio di indirizzo, che e legittimo e passa dalla
+    password attuale. E la **teoria del token**: un token dimostra il possesso
+    del recapito a cui e stato consegnato, e di nessun altro.
+
+    Due difese indipendenti, e ciascuna chiude la catena da sola: il
+    destinatario entra in questo `where`, e — per chi un giorno lo togliesse di
+    nuovo — entra nel legame crittografico dell'impronta (`hashOtpCode`).
+  */
   const challenge = await prisma.authVerificationChallenge.findFirst({
     where: {
       user_id: user.id,
       channel: "email",
       purpose: "reset_password",
+      target: user.email,
       consumed_at: null,
       expires_at: { gt: new Date() },
     },
@@ -1263,7 +1971,16 @@ export const confirmPasswordReset = async ({
     throw new Error("Link di reset non valido o scaduto");
   }
 
-  const provided = Buffer.from(hashOtpCode(normalizedToken), "hex");
+  const provided = Buffer.from(
+    hashOtpCode(normalizedToken, {
+      userId: user.id,
+      channel: "email",
+      purpose: "reset_password",
+      // L'indirizzo **corrente**, non `challenge.target`: vedi `hashOtpCode`.
+      target: user.email,
+    }),
+    "hex",
+  );
   const expected = Buffer.from(challenge.code_hash, "hex");
   const matches =
     provided.length === expected.length && timingSafeEqual(provided, expected);
@@ -1307,6 +2024,33 @@ export const confirmPasswordReset = async ({
 
   const password_hash = await hashPassword(password);
 
+  /*
+    **Il reset su un account mai verificato e uno sfratto** (CRITICAL-1 della
+    revisione ostile PP-05A).
+
+    Il caso: qualcuno registra un account con l'indirizzo di un'altra persona e
+    **il proprio numero**. La vittima arriva, fa «Password dimenticata», e
+    rientra — ma l'occupante rientrava anche lui, dal telefono: chiedeva un
+    codice a `/verify/phone/send` e `/verify/phone/confirm` gli restituiva una
+    sessione sull'account della vittima. Il reset cancellava le sessioni e non
+    toccava il canale che le faceva rinascere.
+
+    Chi apre il link ha dimostrato di controllare **la casella**, non il
+    numero: il numero non ha nessun titolo per sopravvivere.
+
+    **Il prezzo, dichiarato.** Un utente legittimo che non aveva mai verificato
+    l'indirizzo e che dimentica la password perde il numero e lo riscrive: un
+    SMS in piu, una volta. Non si applica a chi l'indirizzo l'aveva gia
+    verificato — li nessuna occupazione era possibile, e il numero resta.
+  */
+  const sfratto = user.email_verified_at
+    ? {}
+    : {
+        phone: null,
+        phone_verified_at: null,
+        token_verification_id: createVerificationReference(),
+      };
+
   await prisma.$transaction([
     prisma.authVerificationChallenge.update({
       where: { id: challenge.id },
@@ -1318,10 +2062,39 @@ export const confirmPasswordReset = async ({
         password_hash,
         // Chi ha aperto il link ha dimostrato di controllare la casella.
         ...(user.email_verified_at ? {} : { email_verified_at: new Date() }),
+        ...sfratto,
       },
     }),
     // Un reset invalida ogni sessione aperta, ovunque.
     prisma.session.deleteMany({ where: { user_id: user.id } }),
+    /*
+      **E ogni altra challenge viva**, per la stessa ragione per cui invalida
+      le sessioni: un codice `login` o `signup` gia emesso e una porta gia
+      aperta, e `challengePurposeCanMintSession` la lascia coniare una
+      sessione. Chi ha appena cambiato la password perche sospetta di essere
+      stato compromesso non deve trovarsi in casa un codice altrui ancora
+      valido — e il caso simmetrico del CRITICAL del quarto round, dove era lo
+      sfratto a lasciare vivo un token.
+    */
+    prisma.authVerificationChallenge.updateMany({
+      where: {
+        user_id: user.id,
+        id: { not: challenge.id },
+        consumed_at: null,
+      },
+      data: { consumed_at: new Date() },
+    }),
+    /*
+      **E, sullo sfratto, anche i legami con gli accessi esterni** (C-1 del
+      secondo round). Cancellare le sole sessioni lasciava all'occupante il
+      canale piu forte: un `external_accounts` superstite riapre l'account al
+      suo prossimo accesso, senza passare da nessuna challenge. Chi ha appena
+      dimostrato di possedere la casella ricollega il proprio in un clic; chi
+      non lo ricollega non era suo.
+    */
+    ...(user.email_verified_at
+      ? []
+      : [prisma.externalAccount.deleteMany({ where: { user_id: user.id } })]),
   ]);
 
   return { userId: user.id, email: user.email };

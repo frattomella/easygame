@@ -1578,14 +1578,16 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     name: "auth.memberships",
     method: "GET",
     path: "/api/v1/auth/memberships",
-    description: "Elenco club dell'account con ruoli e proprieta",
+    description:
+      "Elenco club dell'account con ruoli e proprieta. Il campo `role` di ogni riga e il **gettone** della tessera (`custom:<base>:<nome>#<chiavi>`) per un ruolo personalizzato, e lo slug canonico altrimenti: e lo stesso valore di `scope.activeRole`, e serve al browser per chiedere `roleHasPermission` — lo slug nudo direbbe «nessuna chiave». Rimandato come `x-active-access-role` non viene creduto: le chiavi si ricostruiscono dall'archivio",
     mobile_ready: true,
   },
   {
     name: "auth.memberships.activate",
     method: "POST",
     path: "/api/v1/auth/memberships/activate",
-    description: "Imposta il club attivo dell'account",
+    description:
+      "Imposta il club attivo dell'account. Il campo `role` di ogni riga e il **gettone** della tessera (`custom:<base>:<nome>#<chiavi>`) per un ruolo personalizzato, e lo slug canonico altrimenti: e lo stesso valore di `scope.activeRole`, e serve al browser per chiedere `roleHasPermission` — lo slug nudo direbbe «nessuna chiave». Rimandato come `x-active-access-role` non viene creduto: le chiavi si ricostruiscono dall'archivio; `resolved_role` resta il **ruolo base**",
     mobile_ready: true,
   },
   {
@@ -1606,28 +1608,33 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     name: "auth.verify.email.send",
     method: "POST",
     path: "/api/v1/auth/verify/email/send",
-    description: "Invio codice verifica email",
+    description:
+      "Invio codice verifica email. " +
+      "Il campo `userId` accetta il **riferimento opaco** (`token_verification_id`, emesso come `verification.userId` dalle risposte senza sessione), e l'UUID nudo dell'account **solo** da chi ha gia una sessione su quel medesimo account (ADR-0134 §6)",
     mobile_ready: true,
   },
   {
     name: "auth.verify.email.confirm",
     method: "POST",
     path: "/api/v1/auth/verify/email/confirm",
-    description: "Conferma verifica email e finalizzazione sessione",
+    description:
+      "Conferma verifica email. Apre una sessione **solo** se la challenge era di registrazione o di login (PP-05, ADR-0134); un codice chiesto da /verify/email/send conferma l'indirizzo e risponde session: null. Il campo `userId` accetta il **riferimento opaco** (`token_verification_id`, emesso come `verification.userId` dalle risposte senza sessione), e l'UUID nudo dell'account **solo** da chi ha gia una sessione su quel medesimo account (ADR-0134 §6)",
     mobile_ready: true,
   },
   {
     name: "auth.verify.phone.send",
     method: "POST",
     path: "/api/v1/auth/verify/phone/send",
-    description: "Invio codice verifica telefono",
+    description:
+      "Invio codice verifica telefono via SMS. Risposta opaca: riferimento ignoto, utente senza numero, numero gia verificato e invio riuscito rispondono tutti { sent: true }. Rate limit su tre assi: account, destinatario (per impronta in forma canonica E.164) e indirizzo IP. Il campo `userId` accetta il **riferimento opaco** (`token_verification_id`, emesso come `verification.userId` dalle risposte senza sessione), e l'UUID nudo dell'account **solo** da chi ha gia una sessione su quel medesimo account (ADR-0134 §6)",
     mobile_ready: true,
   },
   {
     name: "auth.verify.phone.confirm",
     method: "POST",
     path: "/api/v1/auth/verify/phone/confirm",
-    description: "Conferma verifica telefono e finalizzazione sessione",
+    description:
+      "Conferma verifica telefono. Apre una sessione **solo** se la challenge era di registrazione o di login (PP-05, ADR-0134); un codice chiesto da /verify/phone/send conferma il numero e risponde session: null. Il campo `userId` accetta il **riferimento opaco** (`token_verification_id`, emesso come `verification.userId` dalle risposte senza sessione), e l'UUID nudo dell'account **solo** da chi ha gia una sessione su quel medesimo account (ADR-0134 §6)",
     mobile_ready: true,
   },
   {

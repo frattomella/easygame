@@ -16,7 +16,9 @@ export type AuthRateLimitPolicy = {
     | "payment_link_view"
     | "payment_link_checkout"
     | "enrollment_status"
-    | "access_token_redeem";
+    | "access_token_redeem"
+    /** Cambio di un fattore su un account gia autenticato (PP-05). */
+    | "credential_change";
   limit: number;
   windowMs: number;
 };
@@ -35,6 +37,66 @@ export const AUTH_RATE_LIMITS = {
   registerIp: { scope: "register", limit: 10, windowMs: 60 * 60_000 },
   otpSend: { scope: "otp_send", limit: 3, windowMs: 10 * 60_000 },
   otpConfirm: { scope: "otp_confirm", limit: 5, windowMs: 15 * 60_000 },
+  /*
+    **Tre assi, e non uno solo (PP-05).**
+
+    Il contatore degli OTP contava una chiave sola, `canale:utente:indirizzoIP`.
+    Chi cambia rete cambia chiave: con una manciata di indirizzi in uscita si
+    facevano partire tutti gli SMS che si volevano **verso il numero di un
+    altro**, e ogni invio invalidava il codice che la vittima aveva appena
+    ricevuto. Costava soldi al club e rendeva l'account inverificabile.
+
+    Da qui in avanti gli assi sono tre e si contano tutti:
+
+    - **per account** — ferma chi martella un identificativo che ha scoperto,
+      da qualunque rete;
+    - **per destinatario** (numero in E.164, oppure indirizzo email), sempre
+      come **impronta** e mai in chiaro: e l'asse che ferma il pompaggio di SMS
+      verso un numero, anche quando l'attaccante si crea account nuovi;
+    - **per indirizzo IP** — ferma chi prova tanti account diversi.
+
+    Cinque invii all'ora coprono chi non riceve l'SMS e riprova con calma;
+    venti per indirizzo coprono una rete condivisa. Il cooldown di
+    `otp-policy.ts` e una cosa diversa e vive accanto a questi: dice «non
+    adesso», non «non piu».
+  */
+  otpSendAccount: { scope: "otp_send", limit: 5, windowMs: 60 * 60_000 },
+  otpSendTarget: { scope: "otp_send", limit: 5, windowMs: 60 * 60_000 },
+  otpSendIp: { scope: "otp_send", limit: 20, windowMs: 60 * 60_000 },
+  /*
+    Sulla conferma il tetto vero e quello della challenge — cinque tentativi e
+    poi e carta straccia, in una scrittura condizionata sola. Questi due
+    contatori servono a cio che quel tetto non copre: chi si fa emettere
+    challenge nuove per avere tentativi nuovi. Per account restano cinque in un
+    quarto d'ora; per indirizzo trenta, che copre una rete condivisa e non
+    copre nessuna enumerazione.
+  */
+  otpConfirmIp: { scope: "otp_confirm", limit: 30, windowMs: 15 * 60_000 },
+  /*
+    **Cambiare un fattore ha un tetto** (MEDIUM-7 della revisione ostile
+    PP-05A).
+
+    `PATCH /api/v1/auth/user` chiede la password attuale per cambiare email,
+    cellulare o password — ed e la difesa introdotta proprio contro la sessione
+    rubata. Ma non contava i tentativi: la revisione ne ha misurati **25 di
+    fila senza mai un 429**, e nessun evento di audit. Chi aveva la sessione
+    poteva indovinare la password con calma, cioe rendere permanente un accesso
+    temporaneo — esattamente cio che quella richiesta doveva impedire.
+
+    Dieci in un quarto d'ora per account: e la stessa larghezza del login, e
+    non c'e ragione perche una porta secondaria sia piu larga di quella
+    principale.
+  */
+  credentialChangeAccount: {
+    scope: "credential_change",
+    limit: 10,
+    windowMs: 15 * 60_000,
+  },
+  credentialChangeIp: {
+    scope: "credential_change",
+    limit: 30,
+    windowMs: 15 * 60_000,
+  },
   /*
     Aprire un modulo pubblico e gratuito ma non illimitato: sessanta aperture
     in un quarto d'ora da uno stesso indirizzo bastano a una famiglia che

@@ -43,7 +43,7 @@ import {
   stripPersonCredentials,
 } from "@/lib/health/permissions";
 import { Prisma } from "@prisma/client";
-import { hashPassword } from "./auth";
+import { stripProtectedUserMetadata } from "../auth/user-metadata-policy";
 import {
   lockInstallmentAndTransaction,
   recomputeChargeFromLedger,
@@ -52,10 +52,6 @@ import {
   isPaymentExcludedFromTotals,
   isPaymentPaidLike,
 } from "@/lib/payments/payment-status-utils";
-import {
-  getPasswordPolicyMessage,
-  validatePassword,
-} from "../auth/password-policy";
 import {
   assertAnagraficaIsValid,
   normalizeAnagraficaText,
@@ -1188,14 +1184,73 @@ const withCompatibilityAliases = (
 };
 
 /**
- * I campi di un utente che il registro generico non scrive **mai**.
+ * **I soli campi di `users` che il registro generico scrive.**
  *
- * `role` e quella che decide chi amministra la piattaforma quando non c'e un
- * elenco di indirizzi configurato; `app_metadata` e `is_platform_admin` sono le
- * altre due che il controllo ha letto o potrebbe leggere. Un privilegio che si
- * concede da se non e un privilegio.
+ * ## Perche un elenco di ammissione e non uno di negazione
+ *
+ * Qui c'era `PROTECTED_USER_FIELDS`, tre nomi negati — `role`,
+ * `app_metadata`, `is_platform_admin` — e tutto il resto passava, perche il
+ * corpo e filtrato **sullo schema Prisma**: ogni colonna scalare di `User`
+ * sopravvive a `togliRelazioni`. Restavano quindi scrivibili da
+ * `PATCH /api/v1/users/<la propria riga>`: `email`, `email_verified_at`,
+ * `phone`, `phone_verified_at`, `phone_verification_required`,
+ * `password_hash`, `token_verification_id`, `is_club_creator`.
+ *
+ * Cioe **tutti i recapiti e tutte le credenziali**, dalla porta che non ha
+ * nessuna delle difese dell'altra. `PATCH /api/v1/auth/user` ne ha accumulate
+ * sette in quattro round — la password attuale come cancello, il tetto ai
+ * tentativi con la traccia di audit, l'azzeramento della verifica al cambio
+ * recapito, la normalizzazione dell'indirizzo, la chiusura delle altre
+ * sessioni, la blocklist delle proiezioni calcolate, il rifiuto di un
+ * indirizzo gia in uso — e questa ne aveva tre.
+ *
+ * ## Le tre catene misurate (quinto round della revisione ostile, CRITICAL)
+ *
+ * 1. **Amministratore di piattaforma dalle sole rotte pubbliche.** L'elenco
+ *    degli indirizzi vive in una variabile `NEXT_PUBLIC_*`. Ci si registra, si
+ *    verifica il **proprio** numero — cosa del tutto legittima — e si manda una
+ *    richiesta sola: `{"email":"<indirizzo dell'elenco>","email_verified_at":
+ *    "<adesso>"}`. `isPlatformAdminUser` giudica sulla **colonna**, e la
+ *    giudica sicura «perche la colonna un utente non se la scrive»: se la
+ *    scriveva da qui.
+ * 2. **Un'occupazione che sopravvive allo sfratto OAuth.** Ci si scrive
+ *    `email_verified_at` addosso e poi si cambia `email` in quello della
+ *    vittima: la colonna di verifica **resta**, quindi
+ *    `eraOccupatoSenzaProva` e falso e `sfrattaOccupante` **non viene
+ *    chiamato**. Le cinque difese accumulate dentro lo sfratto diventano
+ *    irraggiungibili: non sono state aggirate, non sono state eseguite.
+ * 3. **L'area famiglia di un minore.** Il legame per indirizzo di contatto si
+ *    fida di un indirizzo **provato**: intestarsi quello di un tutore apriva
+ *    diagnosi, allergie, terapie e anagrafica del minore.
+ *
+ * ## La regola, che e di CLAUDE.md §2
+ *
+ * Un dominio ha un punto di ingresso unico. I recapiti e le credenziali di
+ * `users` sono di `src/app/api/v1/auth/**`, e da qui si scrive solo cio che e
+ * **anagrafica**. Un elenco di ammissione lo rende vero anche per la colonna
+ * che qualcuno aggiungera domani: un elenco di negazione va aggiornato contro
+ * ogni colonna futura, e in quattro round questo repository ha dimostrato tre
+ * volte che non succede.
+ *
+ * `users` e una risorsa **personale** e non creabile dal registro (crearla per
+ * conto di altri e gia `Accesso negato`), quindi questo elenco governa la sola
+ * modifica della propria riga.
  */
-const PROTECTED_USER_FIELDS = ["role", "app_metadata", "is_platform_admin"] as const;
+const WRITABLE_USER_FIELDS = [
+  "first_name",
+  "last_name",
+  "organization_name",
+  "user_metadata",
+  "updated_at",
+] as const;
+
+/*
+  Le chiavi che non si scrivono **dentro** `user_metadata` non stanno piu qui:
+  stanno in `src/lib/auth/user-metadata-policy.ts`, e le due rotte che scrivono
+  quella colonna importano la **stessa riga**. Il quinto round della revisione
+  ostile ha misurato che le due liste, tenute separate, erano diverse — sette
+  nomi contro tre — e che nessuno le confrontava.
+*/
 
 const serializeUser = (record: Record<string, any>) => {
   const next = clone(record);
@@ -1796,40 +1851,29 @@ const normalizeModelInput = async (
     delete next.club_access;
 
     /*
-      **Cio che un utente non scrive su se stesso.**
+      **Cio che un utente scrive su se stesso, ed e un elenco chiuso.**
 
-      Da quando `users` e una risorsa **personale** — una riga si legge e si
-      corregge solo se e la propria — il registro generico non e piu una porta
-      verso gli altri. Resta pero una porta verso il proprio privilegio: la
-      colonna `role` e quella che `isPlatformAdminUser` legge quando non c'e un
-      elenco di indirizzi configurato, e `PATCH /api/v1/users/<me>` la
-      scriveva come una colonna qualunque.
-
-      Il ruolo di piattaforma lo assegna chi gia lo ha, dalle rotte sotto
-      `/api/v1/admin`. `user_metadata.role` non conta piu niente, e qui si
-      toglie comunque: due difese per lo stesso privilegio, perche una sola
-      prima o poi si dimentica.
+      Vedi `WRITABLE_USER_FIELDS` per la ragione per esteso e per le tre catene
+      misurate. In breve: da qui si scrive **anagrafica**, e i recapiti e le
+      credenziali si scrivono da `/api/v1/auth/user`, che e il loro punto di
+      ingresso unico (CLAUDE.md §2). Non si nega e non si spiega quale campo si
+      e tolto: dire «`email_verified_at` non si scrive qui» insegnerebbe a
+      cercare le altre.
     */
-    for (const campo of PROTECTED_USER_FIELDS) delete next[campo];
-
-    if (
-      next.user_metadata &&
-      typeof next.user_metadata === "object" &&
-      !Array.isArray(next.user_metadata)
-    ) {
-      for (const campo of PROTECTED_USER_FIELDS) {
-        delete (next.user_metadata as Record<string, any>)[campo];
-      }
+    const ammessi = new Set<string>(WRITABLE_USER_FIELDS);
+    for (const campo of Object.keys(next)) {
+      /*
+        `id` resta: e la chiave della riga, non un dato che si sta scrivendo, e
+        `assertRecordAccess` ha gia preteso che sia la propria.
+      */
+      if (campo === "id") continue;
+      if (!ammessi.has(campo)) delete next[campo];
     }
 
-    if (next.password) {
-      const password = String(next.password);
-      const passwordPolicy = validatePassword(password, next.email);
-      if (!passwordPolicy.valid) {
-        throw new Error(getPasswordPolicyMessage(passwordPolicy));
-      }
-      next.password_hash = await hashPassword(password);
-      delete next.password;
+    if (next.user_metadata !== undefined) {
+      next.user_metadata = stripProtectedUserMetadata(
+        next.user_metadata as Record<string, unknown>,
+      );
     }
 
     next.user_metadata =

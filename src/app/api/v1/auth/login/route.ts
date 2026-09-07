@@ -10,13 +10,16 @@ import {
 } from "@/lib/server/prisma";
 import {
   attachSessionCookie,
-  serializeAuthUser,
+  serializeAuthUserWithoutSession,
   verifyPassword,
 } from "@/lib/server/auth";
 import {
+  VerificationRejected,
+  buildOtpTargetCounterKey,
+  ensureVerificationReference,
   finalizeVerifiedSession,
-  isPhoneVerificationEnabled,
-  sendEmailVerificationChallenge,
+  isPhoneVerificationBlocking,
+  maskStoredPhone,
   sendPhoneVerificationChallenge,
 } from "@/lib/server/auth-workflows";
 import {
@@ -138,78 +141,89 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!user.email_verified_at) {
-      const emailVerificationPolicy = resolveEmailVerificationPolicy(
-        await isEmailDeliveryConfigured(),
-      );
-      if (emailVerificationPolicy.canSendOtp) {
-        const otpRateLimit = await consumeRequestRateLimits([
-          {
-            policy: AUTH_RATE_LIMITS.otpSend,
-            identifier: `email:${user.id}:${ip}`,
-          },
-        ]);
-        if (otpRateLimit) return rateLimitedResponse(otpRateLimit);
-      }
+    /*
+      **L'email non ferma piu il login (ADR-0132).**
 
-      const emailChallenge = emailVerificationPolicy.canSendOtp
-        ? await sendEmailVerificationChallenge(user, "login")
-        : { sent: false, previewCode: null };
-      return NextResponse.json(
-        {
-          data: {
-            user: serializeAuthUser(user),
-            session: null,
-            verification: {
-              userId: user.id,
-              email: user.email,
-              phone: user.phone || null,
-              emailRequired: true,
-              phoneRequired: Boolean(
-                isPhoneVerificationEnabled() &&
-                  user.phone_verification_required &&
-                  user.phone,
-              ),
-              emailPreviewCode: emailChallenge.previewCode,
-            },
-          },
-          error: {
-            message: "Email non verificata",
-            code: "EMAIL_NOT_VERIFIED",
-          },
-        },
-        { status: 403 },
-      );
-    }
+      Qui c'era un 403 `EMAIL_NOT_VERIFIED` che rimandava indietro chiunque non
+      avesse confermato l'indirizzo, e su un'installazione senza SMTP quel ramo
+      non poteva nemmeno mandare il codice: l'account restava inutilizzabile per
+      sempre. La regola nuova e che l'indirizzo e obbligatorio e si verifica
+      **dopo**; l'avviso e la chiamata all'azione vivono sulla pagina Account,
+      che adesso si puo raggiungere.
 
-    if (
-      isPhoneVerificationEnabled() &&
-      user.phone_verification_required &&
-      user.phone &&
-      !user.phone_verified_at
-    ) {
+      Resta il blocco del telefono, ed e l'unico: sotto, `finalizeVerifiedSession`
+      restituisce `session: null` quando `isPhoneVerificationBlocking`, e questa
+      rotta risponde 403 `PHONE_NOT_VERIFIED` mandando il codice. Un ramo solo
+      invece dei due che c'erano: chi decide che cosa blocchi e il dominio, non
+      la rotta, ed e la ragione per cui prima le due condizioni erano scritte
+      qui **e** dentro `finalizeVerifiedSession`, con il rischio di divergere.
+    */
+    if (isPhoneVerificationBlocking(user)) {
       const otpRateLimit = await consumeRequestRateLimits([
         {
-          policy: AUTH_RATE_LIMITS.otpSend,
-          identifier: `phone:${user.id}:${ip}`,
+          policy: AUTH_RATE_LIMITS.otpSendIp,
+          identifier: `phone:ip:${ip}`,
+        },
+        {
+          policy: AUTH_RATE_LIMITS.otpSendAccount,
+          identifier: `phone:account:${user.id}`,
+        },
+        /*
+          **Anche l'asse per destinatario** (HIGH-3 della revisione ostile
+          PP-05A). Mancava qui come mancava nella registrazione: il numero e
+          l'unica cosa che l'attaccante non puo cambiare a costo zero, e quindi
+          l'unico asse che conta davvero contro il pompaggio di SMS. Qui serve
+          la password, quindi la strada e stretta — ma il contatore per numero
+          e condiviso con le altre rotte, ed e li che deve maturare.
+        */
+        {
+          policy: AUTH_RATE_LIMITS.otpSendTarget,
+          /* La forma canonica la impone `buildOtpTargetCounterKey` (M-4). */
+          identifier: `phone:target:${buildOtpTargetCounterKey(
+            String(user.phone || ""),
+          )}`,
         },
       ]);
       if (otpRateLimit) return rateLimitedResponse(otpRateLimit);
 
+      /*
+        Il cooldown non deve trasformare un login in un errore: se il codice e
+        partito da meno di un minuto, quello che la persona ha in mano e ancora
+        buono, e la risposta e la stessa.
+      */
       const phoneChallenge = await sendPhoneVerificationChallenge(
         user,
         "login",
-      );
+      ).catch((error) => {
+        if (
+          error instanceof VerificationRejected &&
+          error.code === "RESEND_TOO_SOON"
+        ) {
+          return { sent: false, previewCode: null };
+        }
+        throw error;
+      });
+
+      const riferimento = await ensureVerificationReference(user);
+
       return NextResponse.json(
         {
           data: {
-            user: serializeAuthUser(user),
+            user: serializeAuthUserWithoutSession(user),
             session: null,
             verification: {
-              userId: user.id,
+              /*
+                **Il riferimento opaco, non l'UUID** (M-1 del secondo round).
+                Qui usciva `user.id` in chiaro: un valore che non cambia mai,
+                che l'occupante di un account aveva gia, e che rendeva vana la
+                rotazione del riferimento fatta dallo sfratto. Il riferimento
+                si crea se manca: e un segreto lungo, e si puo ruotare.
+              */
+              userId: riferimento,
               email: user.email,
-              phone: user.phone,
-              emailRequired: false,
+              /* Mascherato: vedi `buildVerificationPayload`. */
+              phone: maskStoredPhone(user.phone),
+              emailRequired: !user.email_verified_at,
               phoneRequired: true,
               phonePreviewCode: phoneChallenge.previewCode,
             },
@@ -228,7 +242,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           data: {
-            user: serializeAuthUser(finalized.user),
+            user: serializeAuthUserWithoutSession(finalized.user),
             session: null,
             verification: finalized.verification,
           },
