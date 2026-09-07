@@ -335,7 +335,7 @@ di sessione vero: 72 controlli, 72 verdi.
 |-----------|-------|------|
 | Calendario unico | COMPLETE | `/calendar`: allenamenti e gare insieme, filtrabili per tipo, sede, categoria, gruppo e intervallo. Prima non esisteva niente da unire, perche non esisteva un'entita comune da elencare (ADR-0098) |
 | Evento sportivo come riga | COMPLETE | `club_events`, `src/lib/server/events.ts` unico scrittore, `GET/POST /api/v1/events` |
-| RSVP configurabile dalla schermata | COMPLETE | Il toggle «chiedi conferma», la scadenza e la capienza entrano nei form di allenamento e gara. Il dominio RSVP esisteva da due Wave e **nessun evento lo richiedeva mai**: era una funzione che nessuna schermata sapeva accendere (W5-05) |
+| RSVP configurabile dalla schermata | COMPLETE | Il toggle «chiedi conferma», la scadenza e la capienza entrano nei form di allenamento e gara. Il dominio RSVP esisteva da due Wave e **nessun evento lo richiedeva mai**: era una funzione che nessuna schermata sapeva accendere (W5-05). **PP-03 §11.3**: la casella viveva pero solo nei due moduli della segreteria, che stanno in `MANAGEMENT_PATH_PREFIXES` e che un allenatore non apre — quindi il riquadro «Hanno risposto», che `rsvp.read` gli concede, restava strutturalmente vuoto salvo che la segreteria spuntasse la casella al posto suo. `TrainerEventEditorDialog` monta ora lo stesso `EventRsvpFields`, con gli stessi convertitori; misurato dal browser a 375 px fino alla riga in archivio, e sulle rotte vere da `scripts/pp-03-rsvp-accensione-probe.mjs` (10/10) |
 | RSVP sulle gare | COMPLETE | Il dominio era cablato su `trainings`; adesso l'evento e uno solo |
 | Convocazione come fatto | COMPLETE | Colonna su `club_event_participants`, con permesso, audit e notifica. Prima era un campo nel payload della gara in dieci grafie |
 | Presenze sulle gare | COMPLETE | Stessa riga della convocazione e della risposta (ADR-0099) |
@@ -404,6 +404,8 @@ di sessione vero: 72 controlli, 72 verdi.
 | Permessi trainer applicati alla sessione | COMPLETE | Da `GET /api/v1/trainer/preferences` (5A) |
 | Calendario dei propri gruppi | COMPLETE | Perimetro implicito sul ruolo |
 | Annulla allenamento, convocazioni | COMPLETE | Passano dalle rotte del dominio eventi |
+| **Crea e sposta** un proprio allenamento o una propria gara | COMPLETE | PP-03 §11: `events.manage` era concessa al ruolo e il server la eseguiva da due Wave, e **nessuna schermata aveva il pulsante**. `TrainerEventEditorDialog` nelle due pagine del calendario; il perimetro lo fa `assertTrainerEventPerimeter` in modo «scrittura» |
+| Bacheca: avvisi del club verso un allenatore | ASSENTE | PP-03 §9.4: `resolveAudience` seleziona **atleti**, e nessun criterio nomina lo staff. Il riquadro esiste e per un allenatore resta vuoto. Debito `PP03-D3`, dependency verso PP-05 |
 | Appello su allenamento **e gara** | COMPLETE | Legge le righe, non la copia nel payload |
 | Bacheca in lettura | COMPLETE | `/trainer-dashboard/board` |
 | Documenti pertinenti | COMPLETE | I propri, e i certificati del gruppo limitati allo **stato** |

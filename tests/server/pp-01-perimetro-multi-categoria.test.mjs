@@ -142,13 +142,54 @@ test("§A · senza perimetro dichiarato si vede tutto, come prima", async () => 
   );
 });
 
-test("§A · l'atto su un evento che tocca il proprio perimetro e ammesso", async () => {
-  await eventi.updateClubEvent(scope([CAT_B]), EVENTO_AB, {
+/**
+ * **Leggere e cambiare non sono la stessa domanda** (PP-03 §7).
+ *
+ * Questo test diceva: «l'atto su un evento che tocca il proprio perimetro e
+ * ammesso», e misurava una `updateClubEvent` sull'evento **condiviso** A+B da
+ * parte di chi ha il solo perimetro B. Era la regola di **lettura** di
+ * ADR-0111 usata come guardia di scrittura, e da li una revisione ostile ha
+ * ricavato un attacco: con lo stesso 200 si riscrivono le categorie a `["B"]`,
+ * e dopo quel PATCH chi ha il perimetro A — che sull'evento aveva gia fatto
+ * l'appello — riceve 403 e non lo trova piu da nessuna parte.
+ *
+ * Un evento condiviso lo cambia chi lo vede **per intero**. L'atto sul proprio
+ * resta ammesso, ed e cio che il test misura adesso.
+ */
+test("§A · l'atto sul proprio evento e ammesso, su quello condiviso no", async () => {
+  await eventi.updateClubEvent(scope([CAT_A, CAT_B]), EVENTO_AB, {
     title: "Corretto",
   });
 
   const riga = fake.rows("clubEvent").find((r) => r.id === EVENTO_AB);
   assert.equal(riga.title, "Corretto");
+
+  await assert.rejects(
+    () =>
+      eventi.updateClubEvent(scope([CAT_B]), EVENTO_AB, {
+        title: "Me lo prendo",
+      }),
+    /Accesso negato/,
+    "il perimetro sulla sola B cambia un evento che e anche di A",
+  );
+
+  const dopo = fake.rows("clubEvent").find((r) => r.id === EVENTO_AB);
+  assert.equal(dopo.title, "Corretto", "e la riga non e cambiata");
+});
+
+test("§A · ma l'evento condiviso resta leggibile a chi ne ha una categoria", async () => {
+  /*
+    Il verso opposto: stringere la scrittura non deve stringere la lettura.
+    ADR-0111 resta intero sul calendario, ed e la ragione per cui esiste.
+  */
+  const elenco = await eventi.listClubEvents(scope([CAT_B]), {
+    kind: "training",
+  });
+
+  assert.deepEqual(
+    elenco.map((riga) => riga.id),
+    [EVENTO_AB],
+  );
 });
 
 test("§A · l'atto su un evento fuori da ogni sua categoria e respinto", async () => {

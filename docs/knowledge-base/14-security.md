@@ -3245,6 +3245,178 @@ Un gap dichiarato vale piu di una copertura affermata.
    `guardians[].email`, gia normalizzati.
 6. **`X-Forwarded-For` contraffatto**: solo lettura di `getRequestIp`. E il
    perimetro di PP05-D5, che resta aperto ed e precedente alla lane.
+---
+
+## PP-03 — Le due porte del terzo round (2026-09-05)
+
+Verbale completo in [47 — PP-03 Trainer](47-pp-03-trainer.md) §9. Qui restano
+le due regole che valgono oltre l'area allenatore.
+
+### Una riga indirizzata a qualcuno non e protetta dal confine del club
+
+`applyRecipientScope` filtrava l'elenco delle notifiche per destinatario e
+`assertRecordAccess` — che e il punto comune di `getResourceById`,
+`updateResource` e `deleteResource` — guardava soltanto il club. Con
+l'identificativo in mano, un qualunque membro **leggeva, riscriveva e
+cancellava** la notifica di un altro, riepilogo economico di una famiglia in
+arretrato compreso.
+
+**La regola generale.** Quando una risorsa dichiara un destinatario, il
+destinatario e parte del confine, e va verificato **su ogni verbo**, non solo
+sull'elenco. Una correzione che chiude la lista e lascia aperta la lettura per
+identificativo non e una correzione: e uno spostamento.
+
+Vale per `RECIPIENT_SCOPED_RESOURCES` (`notifications`,
+`simplified_notifications`) e per ogni risorsa che vi si aggiungera: la guardia
+sta nell'insieme, non nel nome.
+
+### Su una colonna JSON libera il dato clinico si dichiara per ammissione
+
+[ADR-0126](18-decision-log.md). Il taglio del contenuto clinico dentro
+`medical_certificates.data` era un elenco di campi **vietati**, e una revisione
+ostile lo ha aggirato scrivendo il campo con un nome italiano: `diagnosi`,
+`referto`, `terapia` uscivano interi a chi ha soltanto `clinical.status_read`.
+
+**La regola generale.** Un elenco di vietati e sostenibile solo dove l'insieme
+dei campi e **chiuso**, cioe su uno schema fisso. Dentro una colonna `data`
+l'insieme non e chiuso, e la difesa va invertita: si dichiara cosa passa.
+
+Il costo e dichiarato e va nella direzione giusta — un campo dimenticato manca
+a schermo, e si nota; un campo dimenticato nell'altro verso e un referto che
+esce, e non se ne accorge nessuno. `athletes.data` resta sull'elenco di
+vietati per una ragione misurata, non per inerzia: e annotata come `PP03-D5` in
+[16 — Debito tecnico](16-technical-debt.md).
+
+## PP-03 — Le quattro porte del quinto round (2026-09-05)
+
+Verbale completo in [47 — PP-03 Trainer](47-pp-03-trainer.md) §15. Qui restano
+le quattro regole che valgono oltre l'area allenatore. Nessuna delle quattro e
+un difetto di ruolo: sono tutte **una regola giusta applicata a una fonte
+sbagliata**, o applicata a una porta sola.
+
+### Una grafia che arriva con la richiesta non e una grafia
+
+Il perimetro dell'allenatore ammetteva una categoria se **una qualunque** delle
+sue grafie — identificativo o nome — stava nell'insieme. La regola e giusta: sono
+la stessa cosa detta in due modi. La fonte no: `category_name` arriva **con il
+corpo della richiesta**, quindi bastava dichiarare come nome l'identificativo di
+una categoria propria per scrivere sotto la categoria di un altro.
+
+**La regola generale.** Due grafie sono la stessa cosa solo se lo dice un
+**registro**, non se lo dice chi chiama. Le grafie si risolvono lato server, una
+volta, contro il registro del club; il confronto resta poi sugli
+identificativi, cioe su cio che va in colonna.
+
+E un registro puo essere ambiguo: se un nome coincide con l'identificativo di
+un'altra riga, o appartiene a due righe, non risolve niente — la voce resta se
+stessa e fallisce chiuso. Un'ambiguita risolta a favore di chi chiede e la
+contraffazione rifatta dal registro invece che dalla richiesta.
+
+### Due assi di perimetro: uno decide in lettura, tutti e due in scrittura
+
+Dove un perimetro ha piu assi (gruppo e categoria, sede e categoria), un ramo che
+`return`-a sul primo asse **spegne** il secondo. Misurato: un evento con un
+gruppo proprio e la categoria di un altro veniva accettato in scrittura, perche
+il ramo dei gruppi usciva prima.
+
+**La regola generale.** In *lettura* un asse piu preciso puo decidere da solo
+(ADR-0055: il gruppo distingue due squadre che condividono la categoria). Su un
+**atto** gli assi stanno in **AND**, che e gia la regola di ADR-0103. E l'asse che
+l'oggetto **non dichiara** non conta: un evento di soli gruppi, tutti propri,
+resta suo — l'AND si fa fra gli assi dichiarati, non fra tutti quelli esistenti.
+
+### Il perimetro segue la riga anche dalla porta del contenitore
+
+Le risorse di club non hanno una tabella propria: sono righe di
+`club_resource_items`, e il registro le serve **per nome** e **per contenitore**.
+La proiezione risolveva gia il tipo della riga e proiettava come se fosse stata
+chiesta per nome; il **perimetro** no — arrivava col nome del contenitore, che
+negli insiemi filtrati non c'e. Da li uscivano le note di segreteria interne alla
+direzione e quelle indirizzate a un altro allenatore, in elenco, per
+identificativo, e nel conteggio di `meta.total`.
+
+**La regola generale.** Ogni difesa che si accende su un **nome di risorsa** deve
+risolvere il nome allo stesso modo in cui lo risolve la proiezione. Se un file
+dichiara per iscritto che esiste una seconda porta — e `resources.ts` lo
+dichiarava — quella dichiarazione vale per **tutte** le guardie, non per la prima
+che qualcuno ha corretto.
+
+E il corollario che la correzione ha imparato a sue spese: un vaglio si applica
+alla **forma** su cui e stato scritto. Filtrare la riga grezza con una funzione
+scritta per la riga proiettata non fa uscire niente e fa sparire tutto — una nota
+legittima che scompare e un difetto tanto quanto un segreto che esce, e una prova
+che guarda solo i segreti direbbe «chiuso».
+
+### Chi vede lo stato e non il contenuto legge l'anagrafica per elenco di ammessi
+
+L'inversione di [ADR-0126](18-decision-log.md) valeva per
+`medical_certificates.data`; `athletes.data` — la stessa colonna libera — era
+rimasta sull'elenco dei vietati, e il quinto round l'ha vinta con contenitori dal
+nome nuovo (`schedaSanitaria`, `anamnesi[]`) e campi dal nome italiano.
+
+**Le tre regole generali.**
+
+1. **Un contenitore si dichiara.** Dentro una colonna libera, un valore composto
+   — oggetto o elenco — esce solo se il suo nome e nell'elenco degli ammessi: un
+   contenitore e il posto in cui il testo libero si nasconde, e nessun elenco di
+   divieti ne indovina il nome.
+2. **Si dichiara anche la forma, non solo il nome.** Un nome ammesso senza una
+   forma dichiarata e l'elenco dei vietati che rientra dalla finestra: `source`
+   e una provenienza, cioe una parola, e con un oggetto dentro portava fuori un
+   referto.
+3. **L'anagrafica di un altro si serve per elenco di ammessi.** Chi ha
+   `clinical.status_read` e **non** `clinical.read` legge `athletes.data` per
+   ammissione, come gia legge la scheda di un collega
+   (`CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE`). Il lettore si definisce con un
+   **predicato sulle chiavi**, non con un nome di ruolo, cosi la regola vale
+   anche per i ruoli di club che derivano da `trainer`. La famiglia non ha
+   nessuna delle due chiavi e resta fuori: legge la scheda del proprio figlio.
+
+Il prezzo di ogni inversione e lo stesso e va dichiarato: un campo dimenticato
+**manca a schermo**, e si nota. Nell'altro verso e un referto che esce, e non se
+ne accorge nessuno. In questa lane il prezzo si e pagato subito — una delle
+cinque grafie della scadenza del certificato mancava dall'elenco, e un test
+esistente l'ha fatto fallire nello stesso commit.
+
+`PP03-D5` — il debito che teneva `athletes.data` sull'elenco dei vietati — e
+**chiuso** da questa correzione.
+
+### Le tre regole che il sesto round ha aggiunto alle tre di sopra
+
+Il round successivo ha riattaccato le tre regole qui sopra e le ha vinte due
+volte. Le due riaperture non hanno trovato una svista: hanno trovato la
+**stessa forma** del difetto un livello piu sotto. Quello che segue e cio che
+mancava, e vale oltre il dato clinico.
+
+4. **Un predicato di sicurezza ha un solo termine, o il verso si inverte.**
+   Il lettore ristretto era «ha la chiave dello stato **e non** quella del
+   contenuto». Un ruolo a cui la societa toglie **anche** la chiave dello stato
+   non ha nessuna delle due, quindi non era «quel lettore», quindi leggeva la
+   colonna **intera**: togliere una casella dava **piu** dato. La domanda giusta
+   nomina la cosa che si protegge — *hai titolo al contenuto?* — e chi non ce
+   l'ha sta dalla parte stretta, qualunque sia la ragione per cui non ce l'ha.
+   Una congiunzione dentro un predicato di sicurezza va letta due volte: la
+   seconda chiedendosi chi cade **fuori** da entrambi i termini.
+
+5. **Un contenitore ammesso non e un lasciapassare per cio che ha dentro.**
+   Ammettere `guardians` per nome e lasciarlo passare intero riporta il testo
+   libero esattamente dove lo si era tolto. Di una voce di contenitore escono i
+   campi dichiarati, e **solo se semplici**: un valore composto sotto un nome
+   ammesso e il secondo posto in cui si nasconde un referto.
+
+6. **Un elenco di negati non sa niente di cio che non conosce.** Chi filtra
+   togliendo i nomi vietati da un elenco di nomi **dichiarati** lascia passare
+   tutto cio che quell'elenco non contiene — una grafia al singolare, un tipo
+   scritto a mano, una colonna di testo libero su cui hanno scritto in quindici.
+   Chi ha titolo a un **sottoinsieme** va servito per elenco di ammessi; l'elenco
+   dei negati resta valido solo per chi ha titolo a **tutto**, dove un nome
+   sconosciuto e una riga storica da non far sparire.
+
+**E una regola che non riguarda gli elenchi ma le porte**, e questa lane l'ha
+trovata cinque volte nello stesso file: quando una risorsa si raggiunge sia per
+**elenco** sia per **identificativo**, la guardia va nel punto comune ai verbi,
+non nell'elenco. Un filtro di elenco corretto e una lettura per id senza guardia
+sono la stessa risorsa con due risposte diverse, e chi attacca prova la seconda.
 
 ---
 

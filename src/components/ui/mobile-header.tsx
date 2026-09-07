@@ -88,10 +88,25 @@ const MobileHeader = ({ className }: MobileHeaderProps) => {
       }
     }
 
-    // Determine menu type based on pathname
-    if (pathname?.includes("trainer")) {
+    /*
+      **`includes` non e un'area, e un pezzo di stringa** (PP-03 §13).
+
+      Le due aree sono `/trainer-dashboard` e `/parent-view`, e questa riga
+      chiedeva `pathname.includes("trainer")`: ci finivano dentro `/trainers` e
+      `/trainers/<id>`, che sono schermate **gestionali** della segreteria. Su
+      un telefono, chi apriva la scheda di un allenatore dall'area di gestione
+      si vedeva comparire un menu intitolato «ALLENATORE».
+
+      Il confine si chiede per prefisso, come lo chiede `mobile-layout-wrapper`
+      tre righe piu in la per decidere se mostrare l'intestazione: due modi di
+      rispondere alla stessa domanda erano gia la ragione del difetto.
+    */
+    const area = (prefisso: string) =>
+      pathname === prefisso || pathname?.startsWith(`${prefisso}/`);
+
+    if (area("/trainer-dashboard")) {
       setMenuType("trainer");
-    } else if (pathname?.includes("parent")) {
+    } else if (area("/parent-view")) {
       setMenuType("parent");
     } else {
       setMenuType("admin");
@@ -210,27 +225,32 @@ const MobileHeader = ({ className }: MobileHeaderProps) => {
     },
   ];
 
-  // Trainer menu sections
-  const trainerSections = [
-    {
-      id: "trainer",
-      label: "ALLENATORE",
-      items: [
-        {
-          href: "/trainer-dashboard",
-          icon: <LayoutDashboard size={18} />,
-          label: "Dashboard",
-        },
-        {
-          href: "/training",
-          icon: <Calendar size={18} />,
-          label: "Allenamenti",
-        },
-        { href: "/matches", icon: <Calendar size={18} />, label: "Gare" },
-        { href: "/athletes", icon: <Users size={18} />, label: "Atleti" },
-      ],
-    },
-  ];
+  /*
+    PP-03 §13. **Lo stesso trattamento di W6-21, sull'altra area.**
+
+    Qui c'erano quattro voci: `/trainer-dashboard`, `/training`, `/matches`,
+    `/athletes`. Le ultime tre sono percorsi **gestionali**
+    (`MANAGEMENT_PATH_PREFIXES` in `access-roles.ts`), e
+    `canAccessPath("trainer", "/training")` e `false`: a un allenatore
+    promettevano tre pagine che non puo aprire.
+
+    E non si vedevano, perche `mobile-layout-wrapper` esclude
+    `/trainer-dashboard` da questa intestazione: erano codice inerte tenuto in
+    vita da un'esclusione altrove, e l'unico modo in cui uscivano era il
+    difetto corretto qui sopra — `includes("trainer")` che agganciava
+    `/trainers/<id>` e mostrava a un **gestore** un menu intitolato
+    «ALLENATORE».
+
+    L'area allenatore ha il proprio guscio, `trainer-dashboard-club-shell`, con
+    la propria navigazione mobile costruita dalle stesse chiavi di permesso
+    della barra laterale — e con un test che pretende che le due liste
+    coincidano.
+  */
+  const trainerSections: Array<{
+    id: string;
+    label: string;
+    items: Array<{ href: string; icon: React.ReactNode; label: string }>;
+  }> = [];
 
   /*
     W6-21. **Quattro voci che non portavano da nessuna parte.**

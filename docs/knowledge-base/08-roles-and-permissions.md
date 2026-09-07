@@ -903,6 +903,19 @@ il legame. `accounts.trainer.manage` e `accounts.parent.manage` (gestione,
 stessa forma di `accounts.athlete.manage`) coprono ora lo scollegamento
 puro, fatto da `src/lib/server/profile-account-links.ts`.
 
+**Il ruolo di una tessera si risolve, non si legge (2026-09-04, PP-03).** Lo
+sweep che `revokeClubAccess` esegue dopo aver cancellato una tessera decideva
+quali profili slegare confrontando `organization_users.role` con insiemi di
+stringhe scritti dentro `profile-account-links.ts`. Un ruolo **personalizzato**
+porta in colonna il proprio slug (`custom:trainer:preparatori`, ADR-0102), che
+nessuno di quegli insiemi conteneva: la tessera spariva e la scheda restava
+«Account collegato» a un'utenza senza piu accesso. Gli insiemi sono spariti; il
+ruolo passa da `normalizeAccessRole`, la sola funzione che conosce gli alias e
+che davanti a uno slug ne estrae la **base**. Regola generale: **nessuna
+guardia confronta `organization_users.role` con una stringa**, perche quella
+colonna porta uno slug ogni volta che il club ha un ruolo suo. Verbale in
+[47 — PP-03](47-pp-03-trainer.md) §3.
+
 `/audit` sta fra i percorsi **gestionali** e non fra quelli amministrativi, ed e
 deliberato: a decidere e la chiave, non il prefisso. Metterlo fra gli
 amministrativi lo avrebbe chiuso a ogni ruolo diverso da proprietario e gestore
@@ -969,3 +982,90 @@ in `tests/server/ruoli-personalizzati-rotte.test.mjs`. La seconda esiste perche
 la guardia nuova rende il soffitto irraggiungibile per la strada che lo provava:
 va esercitato dove **resta** raggiungibile, cioe su un `club_manager` canonico
 che tenta di concedere una chiave di direzione.
+
+## PP-03 — Un lettore si definisce con un predicato, non con un nome di ruolo (2026-09-05)
+
+Verbale in [47 — PP-03 Trainer](47-pp-03-trainer.md) §15.4.
+
+`athletes.data` si legge adesso **per elenco di ammessi** da chi ha
+`clinical.status_read` e **non** `clinical.read` — cioe da chi vede lo *stato* del
+certificato e non il suo *contenuto*, che e la frase con cui
+[CLAUDE.md §2](../../CLAUDE.md) descrive il dominio del dato sanitario.
+
+**La forma conta quanto la regola.** Scrivere quel lettore come
+`normalizeAccessRole(role) === "trainer"` sarebbe stato piu breve e sbagliato per
+tre ragioni che questo repository ha gia pagato:
+
+- un **ruolo personalizzato** basato su `trainer` normalizza sulla base, quindi
+  sarebbe stato incluso per caso e non per decisione — e se domani il club gli
+  concedesse `clinical.read`, il taglio resterebbe acceso su chi ha titolo di
+  leggere (e la forma opposta del difetto di §4, dove la normalizzazione toglieva
+  le chiavi concesse);
+- un ruolo **nuovo** che vede lo stato e non il contenuto nascerebbe senza il
+  taglio, e nessuno se ne accorgerebbe: e esattamente cio che e successo a
+  `stripPersonCredentials`, scritto per `trainer` e non applicato a
+  `collaborator`;
+- la **famiglia** non ha nessuna delle due chiavi, quindi non e questo lettore, e
+  il predicato lo dice da solo: non serve un'eccezione con il nome del ruolo
+  dentro.
+
+La regola generale: **quando una proiezione dipende da cosa un ruolo puo vedere,
+la condizione si scrive sulle chiavi, non sul nome.** Il nome del ruolo e un
+riassunto; le chiavi sono la decisione.
+
+Il predicato vive in `src/lib/health/permissions.ts` (`readerSeesStatusOnly`),
+che e il proprietario del dominio: non e stato riscritto in `resources.ts`, che
+si limita a passargli il ruolo attivo dello scope.
+
+### E un predicato sulle chiavi ha **un solo termine** (PP-03 §16.1)
+
+La regola qui sopra e giusta e non basta: conta anche **quante** chiavi entrano
+nella condizione. Il lettore ristretto del dato clinico era scritto cosi:
+
+```ts
+hasHealthPermission(role, "clinical.status_read") && !hasHealthPermission(role, "clinical.read")
+```
+
+cioe «vede lo stato **e non** il contenuto». Sembra la trascrizione fedele della
+frase, e apre il verso opposto: un ruolo di club a cui la societa **toglie
+anche** `clinical.status_read` non ha nessuna delle due chiavi, quindi non e
+«questo lettore», quindi cade nel ramo largo e legge **piu** dell'allenatore
+canonico. Togliere una casella dava piu dato — **un privilegio invertito**.
+
+Un predicato che decide una **proiezione** deve nominare la cosa che protegge, e
+una sola:
+
+```ts
+!hasHealthPermission(role, "clinical.read")
+```
+
+*Hai titolo al contenuto?* Chi non ce l'ha sta dalla parte stretta, qualunque sia
+la ragione per cui non ce l'ha — chiave mai concessa, chiave revocata, ruolo
+sconosciuto, ruolo assente. Cosi il predicato fallisce **chiuso** anche su
+`null`, `""` e un nome che il dizionario non riconosce.
+
+`readerSeesStatusOnly` resta in `src/lib/health/permissions.ts` e non decide piu
+la proiezione: risponde a una domanda vera e **diversa** — «questa persona vede
+lo stato del certificato?» — che e quella delle schede sanitarie. Due domande,
+due predicati; erano uno solo, e faceva male il secondo mestiere.
+
+**Come si controlla, in generale.** Ogni volta che una condizione di sicurezza
+contiene una congiunzione, va letta due volte: la seconda chiedendosi **chi cade
+fuori da entrambi i termini**, e in quale ramo finisce.
+
+### Un elenco di negati non sa niente di cio che non conosce (PP-03 §17.3)
+
+Stessa forma, sui **tipi** invece che sui ruoli. `club_resource_items` toglieva
+dall'elenco i tipi che il ruolo attivo non puo leggere, filtrando l'elenco dei
+tipi **dichiarati**: una riga con un tipo che quell'elenco non contiene — una
+grafia al singolare, un tipo scritto a mano su una colonna di testo libero — non
+era fra i negati, quindi passava a chiunque.
+
+Chi ha titolo a un **sottoinsieme** si serve per elenco di **ammessi**. L'elenco
+dei negati resta valido solo per chi ha titolo a **tutto**, dove un nome
+sconosciuto e una riga storica da non far sparire a chi la possiede.
+
+E la guardia va nel **punto comune ai verbi**: quando una risorsa si raggiunge
+sia per elenco sia per identificativo, un filtro d'elenco corretto e una lettura
+per id senza guardia sono la stessa risorsa con due risposte diverse — e chi
+attacca prova la seconda.

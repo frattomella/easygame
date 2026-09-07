@@ -35,7 +35,19 @@ const MISTER_SENZA_SCHEDA = "33333333-6c00-4000-8000-000000000ccc";
 const SUO = "eeeeeeee-6c00-4000-8000-000000000001";
 const ALTRUI = "eeeeeeee-6c00-4000-8000-000000000002";
 
+/** Categoria `prima`: **fuori** dal perimetro di `MISTER_STAFF`, che ha `u15`. */
 const ATLETA = "dddddddd-6c00-4000-8000-000000000001";
+/**
+ * Categoria `u15`: **dentro** il perimetro di `MISTER_STAFF`.
+ *
+ * Aggiunto da PP-03. Il caso legittimo di §6 usava `ATLETA`, che sta in
+ * `prima`: passava perche il perimetro sulle **persone** non si accendeva mai
+ * per un allenatore ordinario — la sua unica guardia leggeva
+ * `club_access_scopes`, dove un allenatore non ha righe. Chiusa quella falla,
+ * il caso legittimo va scritto con un atleta che e davvero suo, altrimenti il
+ * test non misura piu «il suo lavoro funziona» ma «il recinto non c'e».
+ */
+const ATLETA_SUO = "dddddddd-6c00-4000-8000-000000000002";
 
 let eventi;
 let rsvp;
@@ -129,6 +141,16 @@ const seed = () => ({
       last_name: "Rossi",
       category_id: "prima",
       category_name: "Prima squadra",
+      data: {},
+      category_memberships: [],
+    },
+    {
+      id: ATLETA_SUO,
+      organization_id: CLUB,
+      first_name: "Luca",
+      last_name: "Bianchi",
+      category_id: "u15",
+      category_name: "Under 15",
       data: {},
       category_memberships: [],
     },
@@ -381,11 +403,33 @@ test("l'allenatore fa l'appello sul proprio allenamento", async () => {
   const righe = await eventi.saveEventAttendance(
     scope("trainer", MISTER_STAFF),
     SUO,
-    [{ athleteId: ATLETA, status: "present" }],
+    [{ athleteId: ATLETA_SUO, status: "present" }],
   );
 
   assert.equal(righe.length, 1);
   assert.equal(righe[0].status, "present");
+});
+
+test("PP-03 · sul proprio allenamento, l'appello di un atleta di un'altra categoria e respinto", async () => {
+  /*
+    Il rovescio del test qui sopra, e la ragione per cui quello ha dovuto
+    cambiare atleta: **l'evento ammesso non ammette chiunque**. `SUO` e
+    l'allenamento `u15` del mister, e `ATLETA` sta in `prima`. Prima di PP-03
+    questa chiamata riusciva, perche la guardia sulle persone si accendeva
+    solo per chi ha righe in `club_access_scopes` — e un allenatore ordinario
+    non ne ha nessuna.
+
+    La convocazione fuori quota resta possibile, ma la fa chi vede tutto il
+    club: non e piu una cosa che l'allenatore decide da solo sul dato di un
+    minore che non e suo.
+  */
+  await assert.rejects(
+    () =>
+      eventi.saveEventAttendance(scope("trainer", MISTER_STAFF), SUO, [
+        { athleteId: ATLETA, status: "present" },
+      ]),
+    /Accesso negato/,
+  );
 });
 
 /* ============================= 7 · la direzione non passa di qui ========= */

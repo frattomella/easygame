@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { reportServerError } from "./observability";
 import { canonicalResourceName } from "@/lib/resource-aliases";
 import { guardianAccessIdentities } from "./parent-dashboard";
 import {
@@ -42,6 +43,7 @@ import {
   stripGuardianAccessTokens,
   stripPersonCredentials,
 } from "@/lib/health/permissions";
+import { isReminderVisibleToTrainer } from "@/lib/reminder-targeting";
 import { Prisma } from "@prisma/client";
 import { stripProtectedUserMetadata } from "../auth/user-metadata-policy";
 import {
@@ -815,6 +817,94 @@ const assertRecordAccess = (
     return;
   }
 
+  /*
+    **Una riga indirizzata a qualcuno e di chi la riceve, non di chi e nel
+    club.**
+
+    `applyRecipientScope` chiude l'**elenco** e lo chiude bene: da
+    `GET /api/v1/notifications` escono solo la propria e quelle di tutti. Ma la
+    riga singola non passava di li. `getResourceById`, `updateResource` e
+    `deleteResource` chiamano questa funzione, che guardava soltanto il club:
+    con l'identificativo in mano, un qualunque membro del club **leggeva,
+    riscriveva e cancellava** la notifica indirizzata a un altro — compreso il
+    riepilogo economico di una famiglia in arretrato, che e esattamente il dato
+    per cui `RECIPIENT_SCOPED_RESOURCES` esiste.
+
+    E la stessa forma dell'errore che questo file ha gia commesso due volte, e
+    che il commento di `assertNotAdminOnlyFromGenericRoute` nomina per esteso:
+    la correzione era andata **nell'elenco**, e la porta accanto — la lettura
+    per identificativo — era rimasta aperta. Il verso della guardia e lo stesso
+    di `applyRecipientScope`, e non e una seconda regola: `user_id` nullo vuol
+    dire «di tutti», qualunque altro valore vuol dire «di quella persona».
+
+    La cancellazione e la parte peggiore: una lettura si ripara chiudendola,
+    una riga cancellata non torna.
+  */
+  if (RECIPIENT_SCOPED_RESOURCES.has(resource) && scope.userId) {
+    const destinatario = record.user_id;
+    if (
+      destinatario !== null &&
+      destinatario !== undefined &&
+      String(destinatario) !== String(scope.userId)
+    ) {
+      throw new Error(
+        "Accesso negato: le notifiche si leggono per il proprio destinatario",
+      );
+    }
+  }
+
+  /*
+    **E il contenitore ha la sua riga singola, esattamente come l'elenco**
+    (PP-03 §17.3).
+
+    `buildWhereFromSearchParams` toglie gia dall'**elenco** di
+    `/api/v1/club_resource_items` i tipi che il ruolo attivo non puo leggere:
+    «la domanda giusta non e "questo tipo e riservato alla direzione", e
+    "questo ruolo lo puo leggere"». Vero, e scritto solo per l'elenco. La
+    lettura **per identificativo** non passa di li, e il sesto round l'ha
+    misurata su sei tipi verso un allenatore canonico:
+
+        GET /api/v1/discounts/<id>                 403
+        GET /api/v1/club_resource_items/<id>       200   (la stessa riga)
+
+    e lo stesso per `procure`, `sponsors`, `payment_plans`,
+    `clothing_inventory` e `opening_hours` — cioe gli sconti concessi alle
+    famiglie, le deleghe legali e i piani di pagamento. La porta per nome dava
+    403, quella per contenitore consegnava.
+
+    E la **quinta** volta che questo file sbaglia nella stessa direzione, ed e
+    la forma che il commento di `assertRecordAccess` piu su gia nomina per
+    esteso: la correzione va nell'elenco e la porta accanto resta aperta. Per
+    questo la guardia sta **qui**, che e il punto comune dei tre verbi, e non
+    dentro ciascuno di essi.
+
+    **`read` e il pavimento, non il soffitto.** Chi non puo leggere un tipo non
+    puo nemmeno riscriverlo o cancellarlo; le scritture hanno gia in piu
+    `assertPuoScrivereIlTipoDellaRiga`, che giudica il tipo **dichiarato** nel
+    corpo. Le due si sommano: quella guarda cio che la richiesta chiede di
+    diventare, questa cio che la riga in archivio gia e.
+
+    **E un tipo che il registro non conosce fallisce chiuso.** La sonda ha
+    scritto una nota di segreteria con il tipo al **singolare** —
+    `secretariat_note` — e quella grafia non sta in `CLUB_RESOURCE_TYPES`,
+    quindi non entrava nell'elenco dei negati e passava. `canAccessClubResource`
+    risponde per allenatore, collaboratore e segreteria su un elenco di
+    **ammessi**, quindi a una grafia che non conosce risponde «no»: la
+    correzione chiude anche quella senza inseguire le grafie una per una, che
+    e la cosa che questo repository ha gia smesso di fare due volte.
+  */
+  if (resource === "club_resource_items") {
+    const tipoDellaRiga = String(record.resource_type || "").trim();
+    if (
+      tipoDellaRiga &&
+      !canAccessClubResource(scope.activeRole, tipoDellaRiga, "read")
+    ) {
+      throw new Error(
+        `Accesso negato: il ruolo attivo non puo leggere ${tipoDellaRiga}`,
+      );
+    }
+  }
+
   const suoClub = resolveRecordOrganizationId(resource, record);
 
   /*
@@ -1282,6 +1372,27 @@ const serializeClubResourceItem = (record: Record<string, any>) =>
   });
 
 /**
+ * **La riga di club nella forma in cui esce dalla rotta** (PP-03 §15.3).
+ *
+ * Una risorsa di club vive in `club_resource_items` con i propri campi dentro
+ * `payload`, e ogni funzione di vaglio — `isReminderVisibleToTrainer` prima di
+ * tutte — e scritta sulla forma **piatta**, quella che il client riceve. Le due
+ * porte pero consegnavano due forme diverse: l'elenco per nome filtra dopo la
+ * proiezione, il contenitore e la lettura per identificativo prima.
+ *
+ * Sulla forma grezza il vaglio non trovava i campi e negava tutto — non un dato
+ * che esce, una nota legittima che sparisce. Qui si appiattisce, e resta una
+ * funzione sola: `serializeClubResourceItem`, cioe la proiezione vera.
+ *
+ * Una riga gia piatta (nessun `payload`) si restituisce identica: e la stessa
+ * riga, non una copia, perche chi chiama torna all'originale per riferimento.
+ */
+const comeEsceDalRegistro = (record: Record<string, any>) =>
+  record && typeof record === "object" && "payload" in record
+    ? serializeClubResourceItem(record)
+    : record;
+
+/**
  * **Le colonne del club che escono comunque, e quelle che non escono mai.**
  *
  * `payment_pin` e stato tolto dalle colonne **proiettabili** — quelle che un
@@ -1621,7 +1732,14 @@ const proiettaSenzaDatoClinico = (
   }
 
   if (resource === "athletes" || resource === "simplified_athletes") {
-    const data = stripClinicalAthleteFields(record.data);
+    /*
+      Il ruolo si passa perche `athletes.data` si legge **al contrario** per chi
+      vede lo stato e non il contenuto (PP-03 §15.4): li escono i campi
+      dichiarati e nient'altro, che e la stessa forma di
+      `proiettaPersonaPerAllenatore` per la scheda di un collega. La famiglia
+      non ha nessuna delle due chiavi sanitarie e non ci rientra.
+    */
+    const data = stripClinicalAthleteFields(record.data, scope.activeRole);
     return data === record.data ? record : { ...record, data };
   }
 
@@ -3912,10 +4030,50 @@ export const buildWhereFromSearchParams = (
       (tipo) => !canAccessClubResource(scope?.activeRole, tipo, "read"),
     );
 
-    where.resource_type = {
-      ...(where.resource_type ? { equals: where.resource_type } : {}),
-      notIn: [...DOMAIN_OWNED_RESOURCE_ITEM_TYPES, ...riservate],
-    };
+    /*
+      **E un elenco di negati non sa niente di cio che non conosce**
+      (PP-03 §17.3).
+
+      `riservate` si costruisce filtrando `CLUB_RESOURCE_TYPES`, cioe i tipi
+      **dichiarati**. Una riga con un tipo che quell'elenco non contiene non e
+      in `riservate`, quindi non e in `notIn`, quindi passa — a chiunque. Il
+      sesto round l'ha misurato scrivendo una nota di segreteria con il tipo al
+      **singolare**:
+
+          GET /api/v1/club_resource_items?resource_type=secretariat_note
+            -> 200, e l'allenatore legge il promemoria interno della direzione
+
+      e la stessa riga usciva anche dall'elenco senza filtro. Non e una grafia
+      inventata dalla sonda per il gusto di inventarla: e come si comporta una
+      colonna di **testo libero** su cui quindici collezioni hanno scritto in
+      momenti diversi, e questo file conosce gia il prezzo di inseguire le
+      grafie una per una.
+
+      La forma giusta e la stessa che ADR-0126 e §16.2 hanno gia imposto sul
+      dato clinico: **si dichiara cosa passa**. Chi legge un sottoinsieme dei
+      tipi dichiarati legge **solo** quello, e un tipo che il registro non
+      conosce resta fuori.
+
+      La direzione canonica — per cui `riservate` e vuoto, cioe chi legge
+      **tutti** i tipi dichiarati — tiene l'elenco dei negati: li un tipo
+      sconosciuto e una riga storica da non far sparire a chi ha comunque
+      titolo a vederla tutta. Sbagliare in un verso nasconde una riga a chi la
+      possiede; nell'altro consegna un promemoria interno a un allenatore.
+    */
+    where.resource_type = riservate.length
+      ? {
+          ...(where.resource_type ? { equals: where.resource_type } : {}),
+          in: CLUB_RESOURCE_TYPES.filter(
+            (tipo) =>
+              !(DOMAIN_OWNED_RESOURCE_ITEM_TYPES as readonly string[]).includes(
+                tipo,
+              ) && canAccessClubResource(scope?.activeRole, tipo, "read"),
+          ),
+        }
+      : {
+          ...(where.resource_type ? { equals: where.resource_type } : {}),
+          notIn: [...DOMAIN_OWNED_RESOURCE_ITEM_TYPES, ...riservate],
+        };
   }
 
   if (RESOURCE_CONFIG[resource]?.kind === "club_resource") {
@@ -4720,6 +4878,7 @@ const applyListView = (
  * appartiene.
  */
 const TRAINER_DASHBOARD_FILTERED_RESOURCES = new Set([
+  "secretariat_notes",
   "athletes",
   "simplified_athletes",
   "club_events",
@@ -4733,7 +4892,60 @@ const TRAINER_DASHBOARD_FILTERED_RESOURCES = new Set([
     del gruppo operativo.
   */
   "athlete_category_memberships",
+  /*
+    **Lo stato del certificato lo vede chi ha `clinical.status_read`, dei
+    **propri** atleti** (PP-03 §7). Le due risorse stavano in
+    `TRAINER_READ_RESOURCES` e **non** qui: il perimetro dell'allenatore non le
+    toccava in nessuna forma, e da `GET /api/v1/medical_certificates` usciva lo
+    stato sanitario di minori di un'altra squadra.
+  */
+  "medical_certificates",
+  "simplified_certificates",
 ]);
+
+/**
+ * Le risorse che si giudicano sulla **persona a cui appartengono**, non sulla
+ * categoria della riga: la riga porta un `athlete_id` e nient'altro con cui
+ * decidere.
+ */
+const RISORSE_PER_ATLETA_DELL_ALLENATORE = new Set([
+  "medical_certificates",
+  "simplified_certificates",
+]);
+
+/**
+ * Tiene solo le righe la cui persona sta nel perimetro dell'allenatore.
+ *
+ * Passa da `athleteIdsWithinTrainerPerimeter`, che e la **stessa** risposta
+ * che compone l'elenco atleti: un secondo giudizio scritto qui sarebbe la
+ * prossima divergenza. Torna le righe intatte quando chi legge non e un
+ * allenatore — `null` non e l'insieme vuoto.
+ */
+const filtraPerAtletaDelPerimetro = async (
+  records: Record<string, any>[],
+  campo: string,
+  scope?: ResourceAccessScope,
+) => {
+  const organizationId = String(scope?.activeOrganizationId || "").trim();
+  if (!organizationId) return records;
+
+  const atletiId = records
+    .map((record) => String(record?.[campo] || "").trim())
+    .filter(Boolean);
+  if (!atletiId.length) return records;
+
+  const ammessi = await athleteIdsWithinTrainerPerimeter(
+    organizationId,
+    atletiId,
+    scope,
+  );
+  if (!ammessi) return records;
+
+  const dentro = new Set(ammessi);
+  return records.filter((record) =>
+    dentro.has(String(record?.[campo] || "").trim()),
+  );
+};
 
 const toArrayValue = (value: unknown): any[] =>
   Array.isArray(value) ? value : [];
@@ -4842,6 +5054,19 @@ const extractRecordCategoryTokens = (
       record.category_name,
       record.categoryName,
       record.categories,
+      /*
+        **Tutte le categorie di un evento, non la sola primaria** (PP-01 §A,
+        ADR-0111). La colonna `club_events.category_ids` esiste proprio perche
+        un allenamento di tre categorie ne dichiarava una sola, e qui non era
+        letta: nel registro generico l'allenatore della **seconda** categoria
+        di un allenamento congiunto non vedeva i partecipanti del proprio
+        stesso allenamento. Falliva chiuso, che e il verso giusto in cui
+        sbagliare, ma resta una superficie rotta.
+      */
+      record.category_ids,
+      record.categoryIds,
+      source.category_ids,
+      source.categoryIds,
       source.category,
       source.category_id,
       source.categoryId,
@@ -4870,6 +5095,26 @@ const isProfileLinkedToUser = (
 ) => {
   const source = toObjectPayload(profile);
   const linkedCandidates = [
+    /*
+      **La terza forma di legame, e qui mancava.**
+
+      `findClubTrainerProfile` (`events.ts`) la riconosce e lo dichiara: un club
+      che scrive la scheda dell'allenatore usando **l'identificativo
+      dell'utenza** come id del profilo e un club legittimo, e quel legame vale.
+      Questa funzione no, e le due decidono la stessa cosa: chi e l'allenatore
+      che sta guardando.
+
+      Due proprietari della stessa domanda danno due risposte. Qui la
+      divergenza falliva **chiusa** e per questo non si era vista: il dominio
+      degli eventi riconosceva l'allenatore e gli mostrava il calendario, e
+      l'elenco atleti — che passa di qui — non lo riconosceva e gli rispondeva
+      con **zero atleti**. Un allenatore con il calendario pieno e la squadra
+      vuota, senza nessun errore da nessuna parte.
+
+      Si e vista quando il perimetro degli atleti e arrivato anche al riepilogo
+      RSVP: da li in poi le due risposte si toccano, e la piu stretta vince.
+    */
+    profile?.id,
     profile?.linkedUserId,
     profile?.linked_user_id,
     profile?.userId,
@@ -5015,6 +5260,7 @@ const resolveTrainerDashboardFilterContext = async (
       trainerTokens: new Set<string>(),
       assignedGroups: [] as CategoryGroup[],
       siteIndex,
+      trainerProfile: null as Record<string, any> | null,
     };
   }
 
@@ -5078,6 +5324,12 @@ const resolveTrainerDashboardFilterContext = async (
       ? clubGroups.filter((group) => assignedGroupIds.has(group.id))
       : [],
     siteIndex,
+    /*
+      La scheda serve al vaglio delle note di segreteria, che non si decide
+      per categoria ma per **destinatario**: e la sola regola del perimetro
+      dell'allenatore che guarda la persona e non la squadra.
+    */
+    trainerProfile,
   };
 };
 
@@ -5101,13 +5353,111 @@ const filterTrainerDashboardRecords = async (
   records: Record<string, any>[],
   searchParams: URLSearchParams,
   scope?: ResourceAccessScope,
-) => {
+  /** Le righe sono gia nella forma piatta con cui escono dalla rotta. */
+  giaPiatte = false,
+): Promise<Record<string, any>[]> => {
   if (
     normalizeAccessRole(scope?.activeRole) !== "trainer" ||
     !scope?.userId ||
-    !scope.activeOrganizationId ||
-    !TRAINER_DASHBOARD_FILTERED_RESOURCES.has(canonicalResourceName(resource))
+    !scope.activeOrganizationId
   ) {
+    return records;
+  }
+
+  /*
+    **La seconda porta sulle stesse righe vale anche per il perimetro**
+    (PP-03 §15.3).
+
+    `serializeRecord` gia risolve il **tipo della riga** quando la si chiede dal
+    contenitore, e proietta come se fosse stata chiesta per nome: il commento in
+    testa a quella funzione dichiara per esteso che «`club_resource_items` e la
+    seconda porta sulle stesse righe». Ci passava la **proiezione**, e non il
+    **perimetro**.
+
+    Misurato dal quinto round: `secretariat_notes` non ha una tabella propria —
+    e una riga di `club_resource_items` — e il nome canonico che arrivava qui
+    era quello del **contenitore**, che in `TRAINER_DASHBOARD_FILTERED_RESOURCES`
+    non c'e.
+
+        GET /api/v1/secretariat_notes                              1 riga
+        GET /api/v1/club_resource_items?resource_type=secretariat_notes   3 righe
+        GET /api/v1/club_resource_items/<id della nota interna>    200
+
+    Uscivano il promemoria interno della direzione sulla morosita di una
+    famiglia e la nota nominale su un procedimento disciplinare verso un
+    collega. E la **quarta** volta che questo file sbaglia nella stessa
+    direzione — la correzione va nell'elenco, la porta accanto resta aperta — ed
+    e la porta che il file aveva gia nominato.
+
+    Il vaglio non viene riscritto: le righe si smistano per il tipo che portano
+    con se e si rimandano alla **stessa** funzione, che le giudica come se
+    fossero state chieste per nome. Le righe di un tipo che il perimetro non
+    tocca passano come prima.
+  */
+  if (canonicalResourceName(resource) === "club_resource_items") {
+    const perTipo = new Map<string, Record<string, any>[]>();
+    const origine = new Map<Record<string, any>, Record<string, any>>();
+    for (const record of records) {
+      const tipo = canonicalResourceName(String(record?.resource_type || ""));
+      if (!TRAINER_DASHBOARD_FILTERED_RESOURCES.has(tipo)) continue;
+      const giudicabile = comeEsceDalRegistro(record);
+      origine.set(giudicabile, record);
+      const gruppo = perTipo.get(tipo);
+      if (gruppo) gruppo.push(giudicabile);
+      else perTipo.set(tipo, [giudicabile]);
+    }
+    if (!perTipo.size) return records;
+
+    const ammesse = new Set<Record<string, any>>();
+    for (const [tipo, righe] of perTipo) {
+      for (const riga of await filterTrainerDashboardRecords(
+        tipo,
+        righe,
+        searchParams,
+        scope,
+        true,
+      )) {
+        const originale = origine.get(riga);
+        if (originale) ammesse.add(originale);
+      }
+    }
+    return records.filter((record) => {
+      const tipo = canonicalResourceName(String(record?.resource_type || ""));
+      return !TRAINER_DASHBOARD_FILTERED_RESOURCES.has(tipo) || ammesse.has(record);
+    });
+  }
+
+  /*
+    **Una riga di club si giudica nella forma in cui esce** (PP-03 §15.3).
+
+    Le risorse di club vivono in `club_resource_items` con i propri campi dentro
+    `payload`, e ogni funzione di vaglio — `isReminderVisibleToTrainer` prima di
+    tutte — e scritta sulla forma **piatta**, quella che esce dalla rotta. Le
+    due porte pero consegnavano due forme diverse: l'elenco per nome filtrava
+    dopo la proiezione, il contenitore e la lettura per identificativo prima.
+
+    Sulla forma grezza il vaglio non trovava i campi e negava **tutto**: non un
+    dato che esce, ma una nota legittima che sparisce. Si appiattisce qui, una
+    volta, e la riga che si restituisce resta quella d'origine.
+  */
+  if (
+    !giaPiatte &&
+    RESOURCE_CONFIG[canonicalResourceName(resource)]?.kind === "club_resource"
+  ) {
+    const piatte = records.map(comeEsceDalRegistro);
+    const ammesse = new Set(
+      await filterTrainerDashboardRecords(
+        resource,
+        piatte,
+        searchParams,
+        scope,
+        true,
+      ),
+    );
+    return records.filter((_, indice) => ammesse.has(piatte[indice]));
+  }
+
+  if (!TRAINER_DASHBOARD_FILTERED_RESOURCES.has(canonicalResourceName(resource))) {
     return records;
   }
 
@@ -5151,7 +5501,19 @@ const filterTrainerDashboardRecords = async (
     Una query sola per l'intera pagina: risolverlo riga per riga
     trasformerebbe l'appello di una giornata in centinaia di letture.
   */
-  if (resource === "club_event_participants") {
+  /*
+    **`resource` grezzo o canonico: il file usava tutti e due** (PP-03 §7).
+
+    La decisione di filtrare, in cima, guarda `canonicalResourceName(resource)`;
+    questo ramo confrontava il nome **grezzo**. `training_attendance` e l'alias
+    storico della stessa tabella: entrava nel filtro e poi cadeva nel ramo degli
+    atleti, dove non trova nessun token di categoria — quindi
+    `GET /club_event_participants` rispondeva con cinque righe e
+    `GET /training_attendance` con **zero**. Falliva chiuso, quindi non era una
+    fuga; era la stessa schermata che a seconda del nome mostrava tutto o
+    niente.
+  */
+  if (canonicalResourceName(resource) === "club_event_participants") {
     const eventiId = Array.from(
       new Set(
         records
@@ -5180,9 +5542,34 @@ const filterTrainerDashboardRecords = async (
         .map((evento: { id: string }) => String(evento.id)),
     );
 
-    return records.filter((record) =>
+    const dentroL_evento = records.filter((record) =>
       ammessi.has(String(record?.event_id || "")),
     );
+
+    /*
+      **L'evento ammesso non ammette le persone dell'evento**, di nuovo e su
+      questa porta: il registro generico serve le stesse righe che
+      `listEventParticipants` gia filtra, e qui il vaglio si fermava
+      all'evento. Su un allenamento congiunto A+B uscivano stato di presenza,
+      stato di convocazione e la **nota in testo libero** su un minore che
+      l'elenco atleti dello stesso allenatore non gli mostra.
+    */
+    return filtraPerAtletaDelPerimetro(dentroL_evento, "athlete_id", scope);
+  }
+
+  /*
+    **Lo stato del certificato e dei propri atleti** (PP-03 §7).
+
+    `medical_certificates` e `simplified_certificates` stanno in
+    `TRAINER_READ_RESOURCES` perche `clinical.status_read` risponde alla
+    domanda operativa «puo scendere in campo?». Quella domanda pero riguarda i
+    **propri** atleti, e qui non c'era nessun perimetro in nessuna forma:
+    usciva lo stato sanitario di minori di un'altra squadra, e con esso
+    l'identificativo della riga — la chiave con cui bussare alle porte
+    successive.
+  */
+  if (RISORSE_PER_ATLETA_DELL_ALLENATORE.has(canonicalResourceName(resource))) {
+    return filtraPerAtletaDelPerimetro(records, "athlete_id", scope);
   }
 
   let appartenenzePerAtleta = new Map<string, any[]>();
@@ -5206,6 +5593,26 @@ const filterTrainerDashboardRecords = async (
         ]);
       }
     }
+  }
+
+  /*
+    **Le note di segreteria hanno un destinatario, e non lo guardava il
+    server.**
+
+    `secretariat_notes` sta in `TRAINER_READ_RESOURCES` — l'allenatore deve
+    poterle leggere — ma la rotta le serviva **tutte**: la nota interna della
+    segreteria («la famiglia non paga da tre mesi»), e la nota indirizzata per
+    nome a un **altro** allenatore. Il vaglio esisteva, e viveva solo nel
+    browser (`isReminderVisibleToTrainer` nel contesto della dashboard): un
+    filtro che sta dopo la rete non e un confine, il dato e gia uscito.
+
+    La regola non viene riscritta qui: e la stessa funzione pura che il
+    browser usa gia, applicata dove decide.
+  */
+  if (canonicalResourceName(resource) === "secretariat_notes") {
+    return records.filter((record) =>
+      isReminderVisibleToTrainer(record, context.trainerProfile as any),
+    );
   }
 
   return records.filter((record) => {
@@ -5240,6 +5647,88 @@ const filterTrainerDashboardRecords = async (
 
     return false;
   });
+};
+
+/**
+ * **Quali atleti l'allenatore puo toccare** — la stessa risposta dell'elenco,
+ * chiesta dal dominio degli eventi.
+ *
+ * Esiste perche il recinto dell'allenatore ha **due** forme e finora solo una
+ * arrivava alle persone. Il perimetro di sede e categoria vive in
+ * `club_access_scopes` e lo traduce `access-scope-query.ts`; il perimetro di
+ * un allenatore vive invece nella **scheda** dentro `clubs.trainers` /
+ * `clubs.staff_members`, e lo sa solo questo file. Un allenatore ordinario non
+ * ha nessuna riga in `club_access_scopes`: per chi guardava solo quelle, il suo
+ * recinto era **assente**, cioe «tutto il club».
+ *
+ * Misurato: l'allenatore della categoria B, su un allenamento congiunto A+B
+ * che ADR-0111 gli fa legittimamente vedere, segnava la presenza di un minore
+ * della categoria A — un atleta che il suo stesso elenco non gli mostra — e la
+ * convocazione manda un invito alla famiglia di quel minore.
+ *
+ * Torna `null` quando il lettore **non** e un allenatore: nessun recinto di
+ * scheda da applicare, e il chiamante non deve confondere «nessun recinto» con
+ * «recinto vuoto». Altrimenti torna il sottoinsieme ammesso, calcolato
+ * passando le righe vere per lo **stesso** filtro che compone l'elenco: una
+ * seconda implementazione della stessa regola sarebbe la prossima divergenza.
+ */
+export const athleteIdsWithinTrainerPerimeter = async (
+  organizationId: string,
+  athleteIds: readonly string[],
+  scope?: ResourceAccessScope,
+): Promise<string[] | null> => {
+  if (
+    normalizeAccessRole(scope?.activeRole) !== "trainer" ||
+    !scope?.userId ||
+    !scope.activeOrganizationId
+  ) {
+    return null;
+  }
+
+  const richiesti = Array.from(
+    new Set(athleteIds.map((id) => String(id || "").trim()).filter(Boolean)),
+  );
+  if (!richiesti.length) return [];
+
+  /*
+    **L'errore del driver non esce dalla rete** (PP-03 §7).
+
+    `athletes.id` e una colonna `@db.Uuid`: chiedere `in: ["non-e-un-uuid"]`
+    non e un `where` che non trova niente, e un errore del **driver**. Il route
+    handler della convocazione rimanda al client `error.message`, e da li
+    usciva l'invocazione Prisma per intero — nome del modello, nome del metodo,
+    codice SQLSTATE — cioe esattamente cio che `observability.ts` esiste per
+    non far uscire (CLAUDE.md §2). Su un errore diverso, per esempio di
+    vincolo, lo stesso canale porterebbe fuori il record che si stava
+    scrivendo.
+
+    Non si filtrano gli identificativi per forma: `athletes.id` non e un UUID
+    ovunque nella storia di questo prodotto, e scartare in silenzio direbbe
+    «fuori perimetro» a un atleta che c'e. Si riduce l'errore, che e la
+    risposta che il repository ha gia deciso.
+  */
+  let righe: unknown[];
+  try {
+    righe = await prisma.athlete.findMany({
+      where: { organization_id: organizationId, id: { in: richiesti } },
+    });
+  } catch (errore) {
+    reportServerError(errore, {
+      route: "athleteIdsWithinTrainerPerimeter",
+    });
+    throw new Error(
+      "Accesso negato: uno degli atleti indicati non e un identificativo valido",
+    );
+  }
+
+  const ammessi = await filterTrainerDashboardRecords(
+    "athletes",
+    righe as Record<string, any>[],
+    new URLSearchParams(),
+    scope,
+  );
+
+  return ammessi.map((riga) => String(riga.id));
 };
 
 export type ListResourceResult = {
@@ -5380,8 +5869,40 @@ export const listResourcePage = async (
     options,
   );
 
+  /*
+    **Il perimetro dell'allenatore e un filtro dopo la query, e non ha un
+    parametro.**
+
+    Questa riga elencava i due parametri storici — `trainer_scope` e
+    `trainer_id` — ed era giusta quando il filtro si chiedeva. Dal momento in
+    cui il perimetro e diventato **implicito sul ruolo** (D-5: «non c'e nessun
+    parametro da omettere per uscirne») la domanda non e piu «e stato chiesto
+    un filtro?», ma «ne verra applicato uno?».
+
+    Finche guardava i parametri, `take/skip` e `count` giravano **prima** di
+    `filterTrainerDashboardRecords`: a un allenatore con tre atleti nel
+    perimetro `meta.total` dichiarava i quindici del club, e `hasMore` gli
+    offriva pagine che non contenevano niente. La cardinalita di un insieme che
+    non si puo vedere e comunque un'informazione su quell'insieme, e le pagine
+    vuote sono il modo in cui l'interfaccia lo mette per iscritto.
+  */
+  const trainerPerimeterApplies =
+    normalizeAccessRole(scope?.activeRole) === "trainer" &&
+    Boolean(scope?.userId) &&
+    Boolean(scope?.activeOrganizationId) &&
+    /*
+      Il contenitore entra insieme alle risorse che contiene (PP-03 §15.3):
+      qui le righe non ci sono ancora, quindi il loro tipo non si puo leggere, e
+      dichiarare che il perimetro **non** si applica farebbe contare al database
+      le righe che il filtro toglie subito dopo — cioe `meta.total` 3 dove ne
+      escono 1, che e lo stesso difetto di §10.1 da un'altra porta.
+    */
+    (canonicalResourceName(resource) === "club_resource_items" ||
+      TRAINER_DASHBOARD_FILTERED_RESOURCES.has(canonicalResourceName(resource)));
+
   const hasPostQueryFilters =
     Boolean(season) ||
+    trainerPerimeterApplies ||
     Boolean(searchParams.get("trainer_scope") || searchParams.get("trainer_id"));
 
   const canPaginateInDatabase = Boolean(pagination) && !hasPostQueryFilters;
@@ -5404,7 +5925,29 @@ export const listResourcePage = async (
     canPaginateInDatabase ? delegate.count({ where }) : Promise.resolve(null),
   ]);
 
-  const serializedRecords = records
+  /*
+    **Il perimetro del contenitore si applica sulla riga grezza** (PP-03 §15.3).
+
+    Il tipo di una riga di `club_resource_items` sta in `resource_type`, e la
+    proiezione qui sotto non lo porta con se: passa alla forma della risorsa che
+    la riga **e**, non del contenitore da cui e stata chiesta. Filtrare dopo
+    vorrebbe dire non sapere piu cosa si sta filtrando.
+
+    Si fa quindi prima, sulla riga come sta in archivio — che e esattamente cio
+    che `getResourceById` gia fa da questa stessa porta, e due ordini diversi
+    per la stessa domanda sono la prossima divergenza.
+  */
+  const recordsDentroIlPerimetro =
+    canonicalResourceName(resource) === "club_resource_items"
+      ? await filterTrainerDashboardRecords(
+          resource,
+          records as Record<string, any>[],
+          searchParams,
+          scope,
+        )
+      : (records as Record<string, any>[]);
+
+  const serializedRecords = recordsDentroIlPerimetro
     .map((record: Record<string, any>) => serializeRecord(resource, record, scope))
     .filter(Boolean) as Record<string, any>[];
 

@@ -7,6 +7,8 @@ import {
   CalendarDays,
   ClipboardCheck,
   ListChecks,
+  Pencil,
+  Plus,
   Search,
   Trophy,
 } from "lucide-react";
@@ -18,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import { AttendanceSheet } from "@/components/trainer/AttendanceSheet";
 import { MatchConvocations } from "@/components/trainer/MatchConvocations";
+import { TrainerEventEditorDialog } from "@/components/trainer/trainer-event-editor-dialog";
 import { ResponsiveMatchesCalendar } from "@/components/trainer/ResponsiveMatchesCalendar";
 import {
   Dialog,
@@ -71,6 +74,7 @@ export default function TrainerMatchesDashboardPage() {
     matchConvocationDeadlineDays,
     permissions,
     reload,
+    structures,
     visibleMatches,
   } = useTrainerDashboard();
   const { showToast } = useToast();
@@ -88,6 +92,8 @@ export default function TrainerMatchesDashboardPage() {
   const [attendanceRows, setAttendanceRows] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+  const [editorAperto, setEditorAperto] = useState(false);
+  const [garaInModifica, setGaraInModifica] = useState<any | null>(null);
   const focusedMatchId = searchParams.get("focus");
 
   if (!permissions.navigation.matches) {
@@ -334,6 +340,29 @@ export default function TrainerMatchesDashboardPage() {
                     </Button>
                   ) : null}
                   {/*
+                    La modifica compare solo su una gara **non ancora
+                    iniziata**: spostare l'orario di una gara gia giocata non e
+                    una correzione del calendario, e una riscrittura della
+                    storia, e per quella esiste la strada della segreteria
+                    (ADR-0112).
+                  */}
+                  {permissions.actions.manageTrainingStatus &&
+                  match?.startsAt &&
+                  match.startsAt > now ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl border-slate-300 text-slate-700 hover:bg-slate-50"
+                      onClick={() => {
+                        setGaraInModifica(match);
+                        setEditorAperto(true);
+                      }}
+                    >
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Modifica
+                    </Button>
+                  ) : null}
+                  {/*
                     L'appello compare solo su una gara **gia iniziata**: prima
                     non c'e niente da registrare, e un pulsante che si puo
                     premere ma non ha senso premere insegna che l'applicazione
@@ -367,6 +396,39 @@ export default function TrainerMatchesDashboardPage() {
         eyebrow="Dashboard trainer"
         title="Gare"
         subtitle="Programma, storico e convocazioni."
+        actions={
+          /*
+            **La gara mancava di piu dell'allenamento** (§11): qui non c'era
+            nemmeno «Annulla». `events.manage` e concessa all'allenatore e il
+            server la esegue; questa pagina sapeva soltanto convocare e fare
+            l'appello su gare che qualcun altro aveva messo in calendario.
+          */
+          permissions.actions.manageTrainingStatus ? (
+            <Button
+              className="w-full rounded-2xl bg-blue-600 hover:bg-blue-700 sm:w-auto"
+              onClick={() => {
+                setGaraInModifica(null);
+                setEditorAperto(true);
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Nuova gara
+            </Button>
+          ) : null
+        }
+      />
+
+      <TrainerEventEditorDialog
+        open={editorAperto}
+        kind="match"
+        event={garaInModifica}
+        assignedCategories={assignedCategories}
+        structures={structures}
+        onOpenChange={setEditorAperto}
+        onSaved={async (messaggio) => {
+          await reload();
+          showToast("success", messaggio);
+        }}
       />
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

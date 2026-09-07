@@ -8,6 +8,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Pencil,
+  Plus,
   RotateCcw,
   Search,
   XCircle,
@@ -56,6 +58,7 @@ import {
 } from "@/lib/trainer-operational-alerts";
 import { saveTrainingAttendance } from "@/lib/simplified-db";
 import { updateTrainerClubItem } from "@/lib/trainer-club-items";
+import { TrainerEventEditorDialog } from "@/components/trainer/trainer-event-editor-dialog";
 import {
   buildTrainingLocationOptions,
   type TrainingLocationOption,
@@ -93,6 +96,8 @@ export default function TrainerTrainingsDashboardPage() {
     scoprirlo».
   */
   const [scheduleOpen, setScheduleOpen] = useState(true);
+  const [editorAperto, setEditorAperto] = useState(false);
+  const [eventoInModifica, setEventoInModifica] = useState<any | null>(null);
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
     title: string;
@@ -337,6 +342,32 @@ export default function TrainerTrainingsDashboardPage() {
                     </Button>
                   ) : null}
 
+                  {/*
+                    **Spostare di mezz'ora un proprio allenamento** (§11).
+
+                    Il verbo che mancava. Compare accanto ad «Annulla» e sotto
+                    la stessa chiave, perche sono la stessa domanda — questo
+                    allenatore tocca il calendario? — e su un evento gia
+                    annullato non compare: prima si ripristina, poi si sposta.
+                  */}
+                  {permissions.actions.manageTrainingStatus &&
+                  !["annullato", "cancelled"].includes(
+                    String(training?.status || "").toLowerCase(),
+                  ) ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-slate-300 text-slate-700 hover:bg-slate-50"
+                      onClick={() => {
+                        setEventoInModifica(training);
+                        setEditorAperto(true);
+                      }}
+                    >
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Modifica
+                    </Button>
+                  ) : null}
+
                   {permissions.actions.manageTrainingStatus &&
                   !["annullato", "cancelled"].includes(
                     String(training?.status || "").toLowerCase(),
@@ -415,6 +446,50 @@ export default function TrainerTrainingsDashboardPage() {
         eyebrow="Dashboard trainer"
         title="Allenamenti"
         subtitle="Presenze, settimana e storico."
+        actions={
+          /*
+            **Il pulsante che `events.manage` non aveva** (§11).
+
+            La chiave e concessa all'allenatore e il server la esegue — creare
+            e modificare un allenamento di una **propria** categoria rispondono
+            200, farlo su una categoria altrui 403 — e questa pagina offriva
+            soltanto «Annulla» e «Ripristina». Due dei tre verbi erano
+            irraggiungibili per il ruolo che li possiede.
+
+            Il gate e `manageTrainingStatus`, la stessa chiave che governa gia
+            l'annullamento da questa pagina: e la leva con cui un club decide
+            se questo allenatore tocca il calendario o solo l'appello. Non e la
+            guardia — la guardia e `assertTrainerEventPerimeter` in modo
+            «scrittura» — ed e per questo che non serve una chiave nuova: una
+            casella in piu che non protegge niente sarebbe la sesta leva muta
+            che questa area ha gia collezionato.
+          */
+          permissions.actions.manageTrainingStatus ? (
+            <Button
+              className="w-full rounded-2xl bg-blue-600 hover:bg-blue-700 sm:w-auto"
+              onClick={() => {
+                setEventoInModifica(null);
+                setEditorAperto(true);
+              }}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Nuovo allenamento
+            </Button>
+          ) : null
+        }
+      />
+
+      <TrainerEventEditorDialog
+        open={editorAperto}
+        kind="training"
+        event={eventoInModifica}
+        assignedCategories={assignedCategories}
+        structures={structures}
+        onOpenChange={setEditorAperto}
+        onSaved={async (messaggio) => {
+          await reload();
+          showToast("success", messaggio);
+        }}
       />
 
       {uniqueVisibleTrainings.length === 0 ? (

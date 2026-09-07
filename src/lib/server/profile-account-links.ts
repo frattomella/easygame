@@ -7,6 +7,10 @@ import {
 } from "./audit";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { roleHasPermission } from "@/lib/permissions/catalog";
+import {
+  normalizeAccessRole,
+  type CanonicalAccessRole,
+} from "@/lib/access-roles";
 import { syncClubAggregateField } from "./resources";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
@@ -298,9 +302,34 @@ const caricaAllenatoreDelClubAttivo = async (
     un allenatore reale porta l'identificativo **logico**
     (`trainer-<istante>-<casuale>`).
   */
+  /*
+    **Il club si filtra nella query, non dopo.**
+
+    Le due letture cercavano in tutto l'archivio e il club veniva controllato
+    solo dopo, su cio che era gia stato trovato. Chiudeva, ma due conseguenze
+    la rendevano comunque sbagliata:
+
+    - `payload.path=["id"]` **non e unico**. L'identificativo logico di un
+      allenatore (`trainer-<istante>-<casuale>`) puo ripetersi fra due club, e
+      `findFirst` ne sceglie uno qualsiasi: se sceglieva quello dell'altro
+      club, l'operatore si sentiva rispondere «Accesso negato» su un
+      allenatore **proprio**, esistente e legittimo;
+    - la coppia «non trovato» / «accesso negato» diceva a chi provava se un
+      identificativo esiste in **qualche** club, che e l'oracolo che
+      CLAUDE.md §8 vieta chiedendo il filtro `organization_id` in ogni query.
+
+    `assertActiveClub` resta: e la seconda cintura, non la prima.
+  */
+  const organizationId = testo(scope.activeOrganizationId);
+  if (!organizationId) throw new Error("Accesso negato: nessun club attivo");
+
   const perUuid = isUuid(id)
     ? await prisma.clubResourceItem.findFirst({
-        where: { id, resource_type: { in: [...TIPI_ALLENATORE] } },
+        where: {
+          id,
+          organization_id: organizationId,
+          resource_type: { in: [...TIPI_ALLENATORE] },
+        },
       })
     : null;
 
@@ -308,6 +337,7 @@ const caricaAllenatoreDelClubAttivo = async (
     perUuid ||
     (await prisma.clubResourceItem.findFirst({
       where: {
+        organization_id: organizationId,
         resource_type: { in: [...TIPI_ALLENATORE] },
         payload: { path: ["id"], equals: id },
       },
@@ -555,23 +585,62 @@ export const unlinkGuardianAccount = async (
  *  scopa sono la duplicazione che CLAUDE.md §2 vieta.
  * ========================================================================= */
 
-export const TRAINER_ROLES = new Set(["trainer", "allenatore", "coach"]);
-export const PARENT_ROLES = new Set(["parent", "genitore", "guardian", "tutore"]);
-export const ATHLETE_ROLES = new Set(["athlete", "atleta", "player"]);
-export const STAFF_ROLES = new Set([
-  "admin",
-  "manager",
-  "gestore",
-  "staff",
-  "member",
-  "socio",
+/**
+ * **Il ruolo di una tessera si risolve, non si legge.**
+ *
+ * Lo sweep confrontava `organization_users.role` con quattro insiemi di
+ * stringhe scritti qui — `["trainer","allenatore","coach"]` e compagnia. Il
+ * confronto e a valle di due cose che quegli insiemi non sanno:
+ *
+ * - **Un ruolo personalizzato porta uno slug** (ADR-0102): in colonna c'e
+ *   `custom:trainer:preparatori`, non `trainer`. Nessuno dei quattro insiemi
+ *   lo contiene, quindi per lo sweep quella tessera non e di nessun ruolo, e
+ *   revocarla non slegava **niente**. La scheda allenatore restava «Account
+ *   collegato» a un'utenza che nel club non aveva piu una tessera: la coppia
+ *   esatta di stati che questo modulo esiste per non lasciare piu indietro.
+ * - **Gli alias canonici sono un elenco solo**, e vive in `access-roles.ts`.
+ *   Le copie locali ne avevano perse per strada — `allenatrice`, `tutor`,
+ *   `giocatore`, `amministratore`, `segreteria`, `membro` — e ne avevano una
+ *   (`socio`) che il dizionario canonico non riconosce affatto. Ogni alias
+ *   mancante e una revoca che lascia un riferimento vivo.
+ *
+ * `normalizeAccessRole` risponde a entrambe: riconosce gli alias e, davanti a
+ * uno slug, ne estrae la **base**. La base sta nello slug per costruzione
+ * (`buildCustomRoleValue`), e `club-roles.ts` scrive slug e `custom_role_id`
+ * insieme: risolvere dallo slug non chiede una seconda lettura e da la stessa
+ * risposta di `club_roles.base_role`.
+ *
+ * Registrato da PP-04 come dependency verso PP-03 (misurata su PostgreSQL:
+ * dopo `revokeClubAccess` la persona non ha piu tessere e `athletes.user_id`
+ * punta ancora a lei).
+ *
+ * **Una differenza voluta:** `owner` entra fra i ruoli gestionali. Non c'era,
+ * e non per una ragione: un secondo proprietario si puo revocare (solo il
+ * **fondatore** e protetto, e lo e per la sua `clubs.creator_id`, non per la
+ * tessera), e la sua scheda in `staff_members` restava collegata come tutte
+ * le altre.
+ */
+const ruoloBase = (value: unknown): CanonicalAccessRole | "" =>
+  normalizeAccessRole(testo(value));
+
+const RUOLI_GESTIONALI = new Set<CanonicalAccessRole>([
+  "owner",
+  "club_manager",
   "collaborator",
-  "collaboratore",
+  "staff",
 ]);
+
+const eAllenatore = (value: unknown) => ruoloBase(value) === "trainer";
+const eGenitore = (value: unknown) => ruoloBase(value) === "parent";
+const eAtleta = (value: unknown) => ruoloBase(value) === "athlete";
+const eGestionale = (value: unknown) => {
+  const base = ruoloBase(value);
+  return Boolean(base) && RUOLI_GESTIONALI.has(base as CanonicalAccessRole);
+};
 
 const getProfileRole = (record: any) => {
   const data = isRecord(record?.data) ? record.data : {};
-  return normalizeToken(record?.role || data.role);
+  return record?.role || data.role;
 };
 
 const shouldUnlinkProfileForRole = (
@@ -579,15 +648,14 @@ const shouldUnlinkProfileForRole = (
   accessRole: string,
   resourceType: "trainers" | "staff_members",
 ) => {
-  const normalizedRole = normalizeToken(accessRole);
   const profileRole = getProfileRole(record);
 
-  if (TRAINER_ROLES.has(normalizedRole)) {
-    return resourceType === "trainers" || TRAINER_ROLES.has(profileRole);
+  if (eAllenatore(accessRole)) {
+    return resourceType === "trainers" || eAllenatore(profileRole);
   }
 
-  if (STAFF_ROLES.has(normalizedRole)) {
-    return resourceType === "staff_members" && !TRAINER_ROLES.has(profileRole);
+  if (eGestionale(accessRole)) {
+    return resourceType === "staff_members" && !eAllenatore(profileRole);
   }
 
   return false;
@@ -622,8 +690,7 @@ export const unlinkProfileResources = async (
   userEmail: string | null,
   accessRole: string,
 ) => {
-  const normalizedRole = normalizeToken(accessRole);
-  if (!TRAINER_ROLES.has(normalizedRole) && !STAFF_ROLES.has(normalizedRole)) {
+  if (!eAllenatore(accessRole) && !eGestionale(accessRole)) {
     return 0;
   }
 
@@ -632,7 +699,7 @@ export const unlinkProfileResources = async (
     where: {
       organization_id: organizationId,
       resource_type: {
-        in: TRAINER_ROLES.has(normalizedRole)
+        in: eAllenatore(accessRole)
           ? ["trainers", "staff_members"]
           : ["staff_members"],
       },
@@ -672,8 +739,7 @@ export const unlinkClubJsonProfiles = async (
   userEmail: string | null,
   accessRole: string,
 ) => {
-  const normalizedRole = normalizeToken(accessRole);
-  if (!TRAINER_ROLES.has(normalizedRole) && !STAFF_ROLES.has(normalizedRole)) {
+  if (!eAllenatore(accessRole) && !eGestionale(accessRole)) {
     return 0;
   }
 
@@ -683,7 +749,7 @@ export const unlinkClubJsonProfiles = async (
   });
   if (!club) return 0;
 
-  const trainers = TRAINER_ROLES.has(normalizedRole)
+  const trainers = eAllenatore(accessRole)
     ? unlinkProfileCollection(club.trainers, userId, userEmail, accessRole, "trainers")
     : { next: club.trainers, changed: false };
   const staffMembers = unlinkProfileCollection(
@@ -736,7 +802,7 @@ export const unlinkParentGuardians = async (
   userEmail: string | null,
   accessRole: string,
 ) => {
-  if (!PARENT_ROLES.has(normalizeToken(accessRole))) return 0;
+  if (!eGenitore(accessRole)) return 0;
 
   const athletes = await tx.athlete.findMany({
     where: { organization_id: organizationId },
@@ -782,7 +848,7 @@ export const unlinkDirectAthleteProfile = async (
   userId: string,
   accessRole: string,
 ) => {
-  if (!ATHLETE_ROLES.has(normalizeToken(accessRole))) return 0;
+  if (!eAtleta(accessRole)) return 0;
 
   const result = await tx.athlete.updateMany({
     where: { organization_id: organizationId, user_id: userId },

@@ -4,6 +4,7 @@ import {
   athleteWithinAccessScope,
   buildAthleteAccessScopeConditions,
 } from "./access-scope-query";
+import { athleteIdsWithinTrainerPerimeter } from "./resources";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
@@ -56,6 +57,20 @@ export type AttachmentAccessScope = {
    * scaricato cosi la carta d'identita di un minore di un'altra sede.
    */
   accessScopes?: readonly AccessScopeEntry[] | null;
+  /**
+   * Il ruolo attivo, perche **l'allenatore ha un secondo recinto**.
+   *
+   * `accessScopes` porta le righe di `club_access_scopes`, e un allenatore
+   * ordinario **non ne ha nessuna**: il suo perimetro vive nella scheda dentro
+   * `clubs.trainers`. Per il taglio qui sopra il suo perimetro era quindi
+   * assente, e «assente» vale «tutto il club» (ADR-0103): l'allenatore di una
+   * categoria scaricava la carta d'identita di un minore di un'altra.
+   *
+   * L'ironia misurata da una revisione ostile: un allenatore con ruolo
+   * **personalizzato** e uno scope di categoria era protetto; quello **base**
+   * no. La difesa c'era e si accendeva sulla persona sbagliata.
+   */
+  activeRole?: string | null;
 };
 
 const denied = (message: string) => new Error(`Accesso negato: ${message}`);
@@ -418,11 +433,25 @@ const assertAttachmentWithinAccessScope = async (
   if (!atleta || !club) return;
 
   const dentro = await athleteWithinAccessScope(club, atleta, scope);
-  if (dentro) return;
+  if (!dentro) {
+    throw denied(
+      "questo documento appartiene a una persona fuori dal perimetro di sede o categoria dell'accesso",
+    );
+  }
 
-  throw denied(
-    "questo documento appartiene a una persona fuori dal perimetro di sede o categoria dell'accesso",
-  );
+  /*
+    **Il secondo recinto, quello dell'allenatore.** Si somma, non si sostituisce:
+    un allenatore con anche righe di `club_access_scopes` deve passare
+    entrambi. `athleteIdsWithinTrainerPerimeter` torna `null` per chi non e
+    allenatore — «nessun recinto» non e «recinto vuoto» — e per gli altri passa
+    la riga vera per lo stesso filtro che compone l'elenco atleti.
+  */
+  const suoi = await athleteIdsWithinTrainerPerimeter(club, [atleta], scope);
+  if (suoi && !suoi.includes(atleta)) {
+    throw denied(
+      "questo documento appartiene a una persona fuori dal perimetro dell'allenatore",
+    );
+  }
 };
 
 export const replaceAttachmentContent = async (
@@ -611,20 +640,45 @@ export const listAttachments = async (
       String(row?.owner_type || "").trim().toLowerCase() === "athlete",
   );
 
-  if (!diAtleti.length || !buildAthleteAccessScopeConditions(scope)) {
+  if (!diAtleti.length) {
     return rows.map((row: Record<string, any>) => serializeAttachment(row));
   }
 
-  const ammessi = new Set(
-    await athleteIdsWithinAccessScope(organizationId, scope),
+  /*
+    **I due recinti si sommano.** Il primo — sede e categoria — vive in
+    `club_access_scopes` e lo conosce `athleteIdsWithinAccessScope`. Il secondo
+    e quello dell'allenatore, che vive nella scheda dentro `clubs.trainers` e
+    che questa funzione non chiedeva affatto: un allenatore base non ha righe
+    di perimetro, quindi la condizione `buildAthleteAccessScopeConditions` era
+    `null` e l'elenco usciva **intero**, con `owner_id` di ogni atleta del club
+    — cioe la chiave d'ingresso di tutte le altre porte.
+
+    Ognuno dei due torna `null` quando non ha niente da dire, e `null` non e
+    l'insieme vuoto: si intersecano solo quelli che rispondono.
+  */
+  const perScope = buildAthleteAccessScopeConditions(scope)
+    ? await athleteIdsWithinAccessScope(organizationId, scope)
+    : null;
+  const perAllenatore = await athleteIdsWithinTrainerPerimeter(
+    organizationId,
+    diAtleti.map((row: Record<string, any>) => String(row?.owner_id || "").trim()),
+    scope,
   );
+
+  if (!perScope && !perAllenatore) {
+    return rows.map((row: Record<string, any>) => serializeAttachment(row));
+  }
+
+  const ammesso = (atleta: string) =>
+    (!perScope || perScope.includes(atleta)) &&
+    (!perAllenatore || perAllenatore.includes(atleta));
 
   return rows
     .filter((row: Record<string, any>) => {
       if (String(row?.owner_type || "").trim().toLowerCase() !== "athlete") {
         return true;
       }
-      return ammessi.has(String(row?.owner_id || "").trim());
+      return ammesso(String(row?.owner_id || "").trim());
     })
     .map((row: Record<string, any>) => serializeAttachment(row));
 };

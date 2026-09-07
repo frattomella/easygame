@@ -13,6 +13,7 @@ import {
   SurfacePanel,
   formatDate,
 } from "@/components/trainer/trainer-dashboard-shared";
+import { SPORT_WORK_ROLE_LABELS } from "@/lib/sport-work/model";
 import { cn } from "@/lib/utils";
 
 /**
@@ -251,8 +252,27 @@ export default function TrainerCompensationDashboardPage() {
                     className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
                   >
                     <div className="flex items-start justify-between gap-3">
+                      {/*
+                        **La qualifica e un gettone, non una frase.**
+
+                        `sport_work_relationships.role` porta un valore del
+                        vocabolario di `sport-work/model.ts` — `COACH`,
+                        `ATHLETIC_TRAINER`, `OTHER` — e qui usciva grezzo: la
+                        scheda diceva «COACH» all'allenatore e «OTHER» a chi il
+                        club non aveva saputo classificare. Lo stato accanto
+                        passava gia da una tabella di etichette; la qualifica
+                        no, ed era l'unica delle due a farsi leggere da chi non
+                        ha scritto il codice.
+
+                        L'etichetta si prende dal proprietario del vocabolario,
+                        non da una quarta copia locale: `model.ts` e un modulo
+                        puro e le altre schermate del lavoro sportivo la
+                        importano gia da li.
+                      */}
                       <p className="font-semibold text-slate-950">
-                        {relationship.role}
+                        {SPORT_WORK_ROLE_LABELS[
+                          relationship.role as keyof typeof SPORT_WORK_ROLE_LABELS
+                        ] || relationship.role}
                       </p>
                       <Badge className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
                         {RELATIONSHIP_STATUS_LABELS[relationship.status] ||

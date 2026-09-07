@@ -6218,6 +6218,65 @@ questa decisione, non un'aggiunta accanto.
 
 ---
 
+## ADR-0126 — Su una colonna JSON libera il dato clinico si dichiara per ammissione
+
+> **Numero.** Questa decisione era nata come `0125`, scelto lasciando un varco
+> perche PP-04 e PP-05 stavano scrivendo in parallelo poco sotto. In
+> integrazione il varco si e rivelato troppo stretto: anche PP-04 aveva preso
+> `0125`, e la sua catena di riferimenti incrociati (`0117`→`0122`→`0123`→
+> `0124`→`0125`) e la piu costosa da spostare. PP-04 tiene `0114`–`0125`, e
+> questa decisione si sposta a `0126`. Un numero e un'etichetta, non un
+> identificativo.
+
+**Contesto.** [CLAUDE.md §2](../../CLAUDE.md) assegna il dato sanitario a
+`src/lib/health/permissions.ts` con una regola sola: *chi vede lo **stato** del
+certificato non vede per cio stesso il **contenuto** clinico, e il default sul
+contenuto e negato*.
+
+Il modulo la applicava con due elenchi di **campi vietati**:
+`CLINICAL_ATHLETE_FIELDS` per `athletes.data` e `CLINICAL_CERTIFICATE_FIELDS`
+per `medical_certificates`. Su un record a schema fisso quella forma si sostiene
+— le colonne si contano, e l'insieme e chiuso. Dentro una colonna `data` no,
+perche `data` non ha colonne: l'elenco diventa una scommessa sui nomi che
+qualcuno usera.
+
+La scommessa e stata persa tre volte, e le prime due si erano chiuse
+allargando l'elenco:
+
+1. il ramo `data` del certificato applicava l'elenco dell'**anagrafica**, e
+   `data.attachmentId` usciva — la chiave per bussare ai byte;
+2. l'elenco era scritto in `snake_case` mentre il dominio scrive in
+   `camelCase`, e copriva quindi meta prodotto;
+3. una revisione ostile ha misurato sulle rotte vere che bastava scrivere
+   `data: { diagnosi, referto, terapia }` — nomi italiani, che nessuno dei due
+   elenchi conteneva — perche il contenuto tornasse intero a chi ha soltanto
+   `clinical.status_read`. E con essi qualunque nome che un club, un'importazione
+   o una migrazione inventera domani.
+
+**La decisione.** Dentro `medical_certificates.data` si dichiara **cosa passa**,
+non cosa si ferma. `NON_CLINICAL_CERTIFICATE_DATA_FIELDS` e l'elenco degli
+ammessi, e oggi contiene una chiave sola: `source`, che dice da dove arriva la
+riga e non cosa dice il medico. Tutto il resto sparisce, compreso cio che non e
+un oggetto — una stringa libera non si ispeziona campo per campo, e la forma
+sbagliata non e un motivo per fidarsi.
+
+Il primo livello del certificato **resta** un elenco di vietati, e non e
+un'incoerenza: li lo schema e fisso, l'insieme e chiuso, ed enumerare i campi
+di contenuto e enumerare tutto.
+
+**Il prezzo, dichiarato.** Se il prodotto comincera a scrivere in `data` un
+campo davvero non clinico che serve a chi legge lo stato, quel campo va
+**aggiunto all'elenco**, e finche non lo e sparisce. E il verso giusto in cui
+sbagliare: si nota un campo che manca, non un referto che esce.
+
+**Cosa non decide.** `athletes.data` resta su un elenco di vietati. Non e una
+svista: quella colonna porta l'anagrafica intera — recapiti, taglie, note
+organizzative, consensi — e invertire il verso li vorrebbe dire enumerare cio
+che il prodotto scrive da anni in una colonna libera, cioe rompere ogni
+schermata che legge un campo non previsto. La stessa domanda su quella colonna
+e annotata come debito (`PP03-D5`), non chiusa qui: la differenza fra le due e
+che dentro il certificato **niente** e legittimamente non clinico salvo la
+provenienza, e dentro l'anagrafica quasi tutto lo e.
 ## ADR-0131 — Il codice OTP e di EasyGame; l'operatore SMS e **solo un trasporto**
 
 **Data:** 2026-09-04 · **Stato:** accettato, con **una decisione commerciale

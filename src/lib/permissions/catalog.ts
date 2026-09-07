@@ -274,8 +274,24 @@ const ENTRIES: readonly PermissionEntry[] = [
   {
     key: "appointments.manage",
     domain: "appointments",
+    /*
+      **L'etichetta prometteva meta di cio che la chiave fa, a chi non lo puo
+      fare.**
+
+      Diceva «…e configurare la disponibilita», ed e vero per chi amministra il
+      club: gli slot di ricevimento chiedono questa chiave. Ma
+      `assertPuoConfigurareLaDisponibilita` (`server/appointments.ts`) li nega
+      comunque a un allenatore — e giustamente, perche gli orari in cui la
+      societa riceve non sono una riga di nessuno, sono la configurazione del
+      club. Un club che spuntava questa casella per un ruolo personalizzato
+      basato su `trainer` leggeva una promessa che il server smentisce con un
+      403: e la casella che non fa cio che dice, vietata da CLAUDE.md §11.5.
+
+      La chiave non cambia, ne cambia il suo elenco di ruoli: cambia
+      l'etichetta, che e la sola cosa che era falsa.
+    */
     label:
-      "Confermare, rifiutare, riprogrammare o annullare un appuntamento, e configurare la disponibilita",
+      "Confermare, rifiutare, riprogrammare o annullare un appuntamento (la disponibilita del club la configura chi lo amministra)",
     roles: [...GESTIONE, "trainer"],
   },
 

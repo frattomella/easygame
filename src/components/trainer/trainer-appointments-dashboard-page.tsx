@@ -174,9 +174,28 @@ export default function ClubAppointmentsDashboardPage() {
     const inCorso = busyId === appointment.id;
 
     return (
+      /*
+        **`min-w-0` sulla scheda, che e la casella della griglia.**
+
+        La larghezza minima automatica di un elemento di griglia e il suo
+        `min-content`, e dentro la scheda c'e un titolo `truncate` — cioe
+        `white-space: nowrap` — che di `min-content` ha l'intera riga di testo.
+        La colonna non poteva quindi scendere sotto quella misura: a 375 px la
+        scheda restava larga 634 px e il `<main>` la **tagliava**, perche
+        dichiara `overflow-x-hidden`.
+
+        Tagliata, non scorrevole: il documento non traboccava — la misura di
+        §12 e rimasta a zero su tutte e quattro le larghezze — e sul telefono
+        sparivano lo stato dell'appuntamento e il terzo pulsante, «Rifiuta».
+
+        Il `min-w-0` sul blocco del testo qui sotto era gia scritto e non
+        bastava: quello lascia scendere il **figlio flex**, questo lascia
+        scendere la **casella della griglia**. Servono entrambi, e solo insieme
+        il `truncate` fa il proprio mestiere invece di gonfiare l'antenato.
+      */
       <article
         key={appointment.id}
-        className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+        className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
       >
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">

@@ -940,6 +940,33 @@ Nel Blocco A e successo su `/organization` a 768 px: la barra delle nove
 schede allargava il guscio del club a 1022 px e «Salva Modifiche» finiva fuori
 schermo. Vedi [D34](16-technical-debt.md).
 
+### E vale identica per una casella di griglia (PP-03, 2026-09-05)
+
+La stessa regola, un livello piu su, e con un modo di fallire **peggiore**: la
+larghezza minima automatica di una casella di griglia vale `min-content`, quindi
+una traccia `auto` non scende sotto il `min-content` di cio che contiene. Un
+solo `truncate` dentro la scheda — cioe `white-space: nowrap` — basta a portare
+quel `min-content` all'intera riga di testo.
+
+**Come si misura.** Non con
+`documentElement.scrollWidth - clientWidth`: il guscio dichiara
+`overflow-x-hidden` sul `<main>`, quindi un contenuto piu largo dello schermo
+**non fa traboccare il documento**, viene ritagliato e sparisce. La domanda
+giusta e la seconda:
+
+    esiste un elemento con `overflow-x: hidden`
+    il cui `scrollWidth` supera il proprio `clientWidth`?
+
+Escludendo gli elementi `truncate`, per i quali quella disuguaglianza e
+esattamente il troncamento che si voleva.
+
+In PP-03 e successo su `/trainer-dashboard/appointments` a 375 px: `main`
+375/671, ogni scheda appuntamento larga 634 px, e di ognuna sparivano lo stato e
+il pulsante «Rifiuta» — una transizione che il dominio dichiarava ammessa e che
+da un telefono era irraggiungibile. Il `min-w-0` sul blocco di testo dentro la
+scheda c'era gia: **non copre** la casella della griglia. Servono entrambi. Vedi
+[47 §12.1](47-pp-03-trainer.md).
+
 ### La riga di comandi di un elenco va a capo
 
 `flex w-full flex-wrap gap-2 sm:w-auto`, non `flex gap-2`. Due elenchi
