@@ -3963,9 +3963,21 @@ presenze, convocazioni, RSVP ed eleggibilita**.
 Il mandato non era rileggere le lane — ognuna ha gia la propria revisione, PP-02
 quindici tornate — ma **rompere la composizione**.
 
-**Esito: 1 Critical, 3 High, 6 Medium, 8 Low.** Uno dei tre revisori dichiara
+**Esito: 1 Critical, 7 High, 6 Medium, 8 Low.** Uno dei tre revisori dichiara
 esplicitamente zero Critical e zero High sul proprio perimetro, e vale come
 risultato quanto gli altri due.
+
+> **Correzione del 2026-09-07, e vale la pena leggerla.** La prima stesura di
+> questa riga diceva «3 High». Erano **sette**: il revisore degli eventi ne
+> aveva segnalati cinque e ne erano stati riportati tre, tenendo per buono un
+> conteggio fatto a occhio invece di ricontarli dal verbale.
+>
+> I quattro non contati — il confronto per nome nell'appello, la radice
+> condivisa di `athleteMatchesCategory`, la fusione del catalogo delle
+> categorie e il calendario della famiglia — sono stati chiusi lo stesso, da
+> D-INT-2 e da ADR-0155, insieme a quelli contati. Il numero era comunque
+> sbagliato, e un verbale che sottostima e peggio di uno assente: lo si usa
+> per decidere se si e pronti.
 
 Due reperti sono stati **corretti in questa tornata** e sono segnati come tali.
 Il resto e registrato in [16 — Debito tecnico](16-technical-debt.md) §D-AUD-*.

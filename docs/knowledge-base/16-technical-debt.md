@@ -3206,3 +3206,31 @@ difesa era **inerte** su ogni percorso alimentato da `buildClubCategoryOptions`
 E la ragione per cui una revisione sull'integrato non e la somma delle
 revisioni delle lane: una correzione puo essere giusta, avere le sue prove
 verdi, e non arrivare mai al punto in cui serve.
+
+---
+
+## Debito dalla remediation (2026-09-07, seconda tornata)
+
+Il Critical e i sette High della revisione ostile sono chiusi. Queste sono le
+voci che restano, e la prima e l'unica che pretende una **decisione**, non del
+lavoro.
+
+| # | Cosa | Perche non e stato chiuso | Da dove si riparte |
+|---|------|---------------------------|--------------------|
+| **D-INT-8** | **Quando una categoria cambia sede, i suoi atleti spariscono.** La configurazione e gia corretta e **misurata**: A → B archivia il gruppo vecchio invece di cancellarlo, A+B → B ne archivia uno solo, B → nessuna sede non lascia gruppi attivi, e una sede disattivata non e piu una sede su cui aprirne. Cio che nessuno tocca e l'**appartenenza dell'atleta**, che porta il proprio `site_id`: da quel momento l'identificativo di gruppo che ne esce non corrisponde a nessun gruppo attivo, e quegli atleti escono da appello, convocazioni e avvisi della propria categoria | **E una decisione di prodotto, non una riga**, e le tre risposte possibili sono tutte difendibili: gli atleti **si spostano** con la categoria (ma allora un atleta di Scauri diventa di Formia senza che nessuno glielo abbia detto, e la sede e cio con cui il club decide dove si allena); **restano dove sono** senza categoria (che e cio che succede oggi, ma in silenzio); il cambio **si rifiuta** finche l'organico non e stato spostato (la piu onesta e la piu scomoda). Sceglierne una di nascosto dentro un commit di integrazione sarebbe decidere per il club come si chiamano le sue squadre | `tests/lib/categoria-cambia-sede.test.mjs` misura gia tutti e cinque gli scenari, **compreso il difetto**: la prova che lo descrive lo dice nel proprio commento. Scelta la risposta, quella prova cambia di segno e diventa l'invariante |
+| **D-INT-9** | **L'ordinamento canonico delle categorie non esiste.** Non c'e un `sort_order` persistito: `compareCategoryGroups` ordina per **nome** di categoria e poi di sede, e le altre schermate ordinano ciascuna a modo proprio. Un club che pensa alle proprie squadre in ordine di eta le rivede in ordine alfabetico, e in due schermate diverse in due ordini diversi | Non e difficile, ed e per questo che va fatto bene: serve una colonna, una migrazione, un punto di scrittura (la pagina categorie, con il trascinamento) e **un solo lettore** che tutte le schermate chiedano. Farlo a meta — l'ordine su una schermata e non sulle altre — e peggio di non farlo, perche insegna che l'ordine non e affidabile | L'ordinamento per nome non deve restare come ripiego dove il `sort_order` manca: ricadrebbe sulla stessa fusione di ADR-0155. Il ripiego giusto e l'ordine di inserimento |
+| **D-INT-10** | **La pagina atleti ha ancora la paginazione classica.** Il requisito chiede una lista continua con resa pigra. Il **comportamento** che contava e gia corretto: dopo P0-1 l'azione «tutti» prende l'insieme filtrato intero e non la pagina caricata, quindi il difetto che la paginazione produceva non c'e piu | E lavoro di interfaccia con una scelta di resa dentro (virtualizzazione o no, e a quale soglia), e non ha effetti sulla correttezza di nessuna scrittura | `collectAthletesForExport` e gia il lettore che scorre tutte le pagine: la lista continua ha di fatto il proprio caricatore gia scritto |
+| **D-INT-11** | **La bacheca dell'allenatore non e stata rifatta.** Le sue **fondamenta** si: dopo D-INT-2 e ADR-0155 l'allenatore non vede piu gli allenamenti e gli atleti dell'omonima di un'altra sede, l'appello non gli apre davanti quindici atleti di trenta chilometri piu in la, e gli allenamenti generati dal cron sono eventi veri su cui puo fare l'appello. Cio che manca e la **schermata**: prossimi impegni, convocazioni, cose da fare, e i flussi a una mano su 375/768/1280/1440 | E una riscrittura responsive di una superficie intera con una fase di disegno dentro, e va verificata a schermo su quattro larghezze. Non e una cosa che si fa in coda a un'integrazione, e dichiararla fatta senza aver aperto la pagina sarebbe la forma di difetto che CLAUDE.md §11.8 descrive: il codice che c'e e non serve a nessuno | Le primitive canoniche esistono e sono misurate; il lavoro che resta e di interfaccia, non di dominio |
+| **D-INT-12** | **La pagina Account non e stata rifinita**, e il requisito «dopo il riscatto il profilo collegato compare **subito**» non e stato percorso a schermo sul ramo integrato | Vedi `D-INT-7`: e la stessa voce, e resta aperta | Il flusso e uno: riscatta un invito, e guarda se la pagina lo dice senza un secondo caricamento |
+
+### I Medium della revisione ostile che restano
+
+`D-AUD-6` (il sollecito manuale che consegna il nome di un minore fuori dal
+club), `D-AUD-7` (il cruscotto di famiglia che elenca i tutori revocati),
+`D-AUD-9` (le convocazioni contate su un payload che nessuno scrive piu),
+`D-AUD-13` (`secretariat_notes` e `club_events` letti dal registro generico
+senza il perimetro di sede), `D-AUD-14` (i byte del documento d'identita
+raggiungibili con il solo `clinical.status_read`).
+
+`D-AUD-10` e `D-AUD-11` sono stati chiusi con P0-3 e il conflitto di
+struttura; `D-AUD-12` con la finestra e il token del luogo.
