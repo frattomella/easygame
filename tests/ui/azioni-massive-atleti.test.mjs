@@ -140,3 +140,51 @@ test("nessuna apertura scavalca il risolutore", () => {
     "l’unica chiamata diretta ammessa e quella dentro `apriAzioneMassiva`",
   );
 });
+
+/* ==================================================================== *
+ *  Gli annullati: «lo conto?» e «lo mostro?» sono due domande
+ * ==================================================================== */
+
+test("le superfici che mostrano lo stato chiedono anche gli annullati", () => {
+  /*
+    **La regressione che P0-3 aveva introdotto** (D-AUD-20), trovata da una
+    revisione indipendente sulla remediation.
+
+    Togliere gli annullati dal predefinito della rotta era giusto per i
+    **conteggi**: un evento che non si e svolto non e un evento a cui qualcuno
+    e mancato. Ma stringere la lettura ha risposto anche alla domanda
+    sbagliata: dal calendario e dalla bacheca dell'allenatore gli annullati
+    sono spariti.
+
+    Le conseguenze non erano cosmetiche: la segreteria non poteva piu
+    distinguere «martedi e stato annullato» da «martedi non e mai esistito», e
+    il flusso di **ripristino** della pagina allenamenti — «un allenamento
+    annullato non compare: prima si ripristina, poi si sposta» — era diventato
+    irraggiungibile. Si annullava e non si tornava piu indietro.
+  */
+  const calendario = readFileSync(
+    path.join(process.cwd(), "src", "app", "calendar", "page.tsx"),
+    "utf8",
+  );
+  assert.match(
+    calendario,
+    /include_cancelled: "1"/,
+    "il calendario disegna la pastiglia «Annullato»: deve poterla raggiungere",
+  );
+
+  const bacheca = readFileSync(
+    path.join(
+      process.cwd(),
+      "src",
+      "components",
+      "trainer",
+      "trainer-dashboard-context.tsx",
+    ),
+    "utf8",
+  );
+  assert.equal(
+    (bacheca.match(/include_cancelled=1/g) || []).length,
+    2,
+    "allenamenti e gare: il ripristino vale per tutti e due",
+  );
+});

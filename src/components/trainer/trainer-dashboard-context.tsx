@@ -564,11 +564,23 @@ export function TrainerDashboardProvider({
           rotta (ADR-0098). Il perimetro dell'allenatore lo applica il server:
           non c'e piu un parametro da omettere per uscirne.
         */
-        apiRequest<any[]>("/api/v1/events?kind=training", {
+        /*
+          **Gli annullati arrivano, perche questa schermata li usa** (D-AUD-20).
+
+          P0-3 ha tolto gli annullati dal predefinito della rotta, ed era giusto
+          per i conteggi: un evento che non si e svolto non e un evento a cui
+          qualcuno e mancato. Ma «lo conto?» e «lo mostro?» sono due domande.
+
+          La pagina degli allenamenti dell allenatore ha un flusso di
+          **ripristino** — «un allenamento annullato non compare: prima si
+          ripristina, poi si sposta» — e senza la riga annullata quel flusso e
+          irraggiungibile: si annulla e non si torna piu indietro.
+        */
+        apiRequest<any[]>("/api/v1/events?kind=training&include_cancelled=1", {
           method: "GET",
           headers: activeClubHeaders,
         }),
-        apiRequest<any[]>("/api/v1/events?kind=match", {
+        apiRequest<any[]>("/api/v1/events?kind=match&include_cancelled=1", {
           method: "GET",
           headers: activeClubHeaders,
         }),

@@ -134,6 +134,23 @@ export default function CalendarPage() {
             kind: tipo,
             from: `${da}T00:00:00.000Z`,
             to: `${a}T23:59:59.999Z`,
+            /*
+              **Un allenamento annullato si vede: e per questo che si annulla
+              invece di cancellarlo** (D-AUD-20).
+
+              P0-3 ha tolto gli annullati dal predefinito di `listClubEvents`,
+              ed era giusto per i **conteggi**: un evento che non si e svolto
+              non e un evento a cui qualcuno e mancato. Ma «lo conto?» e «lo
+              mostro?» sono due domande, e stringere la lettura le ha risposte
+              tutte e due insieme.
+
+              Da qui l annullato spariva: la segreteria non poteva piu
+              distinguere «martedi e stato annullato» da «martedi non e mai
+              esistito», e non poteva riaprirlo — perche riaprire vuol dire
+              vederlo. Questa pagina disegna gia la sua pastiglia «Annullato»,
+              che era diventata irraggiungibile.
+            */
+            include_cancelled: "1",
           }),
           getClubData(activeClub.id, "categories"),
           getClubData(activeClub.id, "club_sites"),
