@@ -3234,3 +3234,22 @@ raggiungibili con il solo `clinical.status_read`).
 
 `D-AUD-10` e `D-AUD-11` sono stati chiusi con P0-3 e il conflitto di
 struttura; `D-AUD-12` con la finestra e il token del luogo.
+
+---
+
+## Debito dalla seconda revisione ostile (2026-09-07)
+
+I sette High sono chiusi. Restano questi, e nessuno e sfruttabile oggi.
+
+| # | Gravita | Cosa | Da dove si riparte |
+|---|---------|------|--------------------|
+| **D-AUD-20** | Medium | **Gli eventi annullati sono spariti dal calendario, che era fatto per mostrarli.** Il predefinito nuovo di `listClubEvents` toglie `cancelled`, e nessuna schermata manda `include_cancelled`: la pastiglia «Annullato» che il calendario disegna e diventata irraggiungibile, e un evento annullato non si puo piu riaprire perche non si vede. La correzione di P0-3 ha risolto il conteggio e ha stretto troppo la lettura | Le due domande sono diverse: «lo conto?» e «lo mostro?». I report devono continuare a escluderli; il calendario deve mostrarli con la loro pastiglia. Il flag esiste gia: va mandato |
+| **D-AUD-21** | Medium | **I due generatori coniano identificativi diversi per la stessa fascia**: il cron `auto:<chiave>`, il browser `training-<data>-<slot>`. `skipDuplicates` non puo unificarli, quindi rigenerare dal calendario settimanale una fascia che il cron ha gia creato e poi annullata produce un doppione attivo | Un solo modo di nominare una fascia. La chiave del cron e gia deterministica e leggibile: il browser deve usare quella |
+| **D-AUD-22** | Medium | **La creazione a blocchi non controlla le sovrapposizioni.** Il commento adesso lo dice invece di lasciarlo credere, ma resta vero: un allenamento generato puo occupare un campo gia occupato senza che nessuno lo sappia | Un avviso pretende qualcuno a cui darlo. La forma giusta e probabilmente registrarlo nel risultato della generazione, che gia torna alla schermata |
+| **D-AUD-23** | Medium | **`categoryIdentity` rialloca a ogni token**, e `sameCategory` ricalcola l'identita della categoria per ogni record. Su `training/page.tsx` il costo e allenamenti x atleti x categorie x token x catalogo | `conosciute` e invariante per catalogo e si issa fuori; l'identita del lato «categoria» e invariante per ciclo esterno. Nessuna delle due cambia la semantica |
+| **D-AUD-24** | Medium | **La durata di un allenamento che scavalca la mezzanotte non arriva ai contributi.** `resolveEndsAt` ora tiene la fine, ma `getTrainingDurationHours` sottrae **minuti d'orologio** da `HH:mm`: per un 22:00 → 00:30 fa `30 − 1320 < 0` e restituisce `null`. Le sessioni notturne restano contate zero ore | La durata si calcola sugli **istanti**, che il modello ora ha. E la stessa lezione del conflitto di struttura, un modulo piu in la |
+| **D-AUD-25** | Low | `training_automation.generate` e mappata su `events.manage`, che e la stessa chiave di modifica e cancellazione: la capacita e stretta, il **permesso** no. E l'attribuzione SISTEMA vive solo in `createClubEventsBatch`: un contesto di sistema che passasse da `updateClubEvent` sarebbe registrato senza nessun attore | Un permesso per l'azione (`events.create`), oppure l'attribuzione spostata dentro `recordAuditEvent` |
+| **D-AUD-26** | Low | `Object.freeze` sul contesto non congela il `Set` delle capacita: si possono aggiungere dopo la costruzione, scavalcando il vaglio del costruttore. Piu: un diniego di sistema non registra il nome del lavoro | Congelare anche il `Set`; passare `job` al diniego |
+| **D-AUD-27** | Low | `UpcomingTrainings`, `trainer-categories-dashboard-page` e `medical/page` chiamano l'eleggibilita **senza catalogo**, quindi per loro due omonime restano una. Il censimento li dichiara (`catalogo: false`) — non sono una sorpresa — ma due sono superfici operative | Passare il catalogo: e gia in mano a tutte e tre |
+| **D-AUD-28** | Low | `listExpiringAttachments` accetta uno `scope` e non lo consulta: nessun perimetro, ne atleti ne staff. Non raggiungibile oggi (unico chiamante e un'automazione server) | Applicare i due perimetri, o togliere il parametro che promette cio che non fa |
+| **D-AUD-29** | Low | `stripClinicalAthleteFields(data, role)` degrada all'elenco dei soli vietati quando il ruolo e `undefined` (non quando e `null`). Non raggiungibile oggi, ma la distinzione fra i due e invisibile a chi chiama | Il predefinito deve essere l'elenco dei **dichiarati**, non dei vietati |

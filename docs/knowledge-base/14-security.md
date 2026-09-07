@@ -4058,3 +4058,71 @@ cui correttezza dipende dal chiamante invece che da se.
 * **`trainer-area.ts`**, l'unico dei sei sospetti dell'eleggibilita a
   comportarsi secondo ADR-0155: passa il catalogo grezzo, quindi la difesa
   sull'ambiguita si accende.
+
+---
+
+## Seconda revisione ostile: sulla remediation stessa (2026-09-07)
+
+Due revisori indipendenti in sola lettura, con un mandato solo: **rompere la
+correzione**. Il codice scritto per chiudere il Critical e i sette High era
+il meno riletto del repository, e una revisione che non lo guardasse
+misurerebbe tutto tranne cio che e appena cambiato.
+
+**Esito: 0 Critical, 7 High, 6 Medium, 5 Low.** Nessuno dei sette era
+preesistente: li ha introdotti la remediation.
+
+E il risultato che vale piu di ogni altro in questo documento, ed e la
+ragione per cui la seconda tornata si fa: **la correzione di un difetto e
+codice nuovo, e il codice nuovo si comporta come tutto il codice nuovo.**
+
+### I sette High, e cosa avevano in comune
+
+| # | Reperto | La forma |
+|---|---------|----------|
+| **R-1** | Il contesto di sistema copriva anche il **pulsante**: `POST /api/v1/training-automation` e il cron chiamano la stessa funzione, e l'audit diceva SISTEMA per un gesto umano | **Due chiamanti, un'autorita sola** |
+| **R-2** | Lo stesso contesto **lavava via il perimetro** del chiamante: un club manager ristretto a una categoria ne generava un'altra mandando un calendario che la nominasse | **Due chiamanti, un'autorita sola** |
+| **R-3** | La finestra della sovrapposizione, chiusa all'indietro, si era aperta **in avanti**: su un evento senza ora di fine il limite superiore cadeva sul suo inizio, e non gli si consegnava piu il conflitto che `findEventOverlaps` avrebbe trovato | **Una correzione che sposta il difetto** |
+| **R-4** | Una fascia su un campo chiuso fermava la generazione di **tutto il club**, si interrompeva prima di scrivere `lastRunAt`, e falliva di nuovo a ogni giro. In silenzio | **Una regola giusta per una persona, applicata a un cron** |
+| **R-5** | Una scheda con un `category_id` che il catalogo non conosce piu **produceva l'omonima che poi la escludeva**: entrava nel catalogo come seconda «Under 15», e la regola dell'ambiguita cancellava il nome da tutti e due i lati | **Due correzioni che si compongono male** |
+| **R-6** | `trainer-dashboard-context.tsx` — il consumatore che ADR-0155 nomina per primo — usava ancora `extractCategoryTokens`, e il censimento non lo vedeva perche cercava i nomi **nuovi** | **Un censimento che trova chi ha gia migrato** |
+| **R-7** | Il perimetro dei documenti dello staff copriva le cinque porte che leggono e quella che cancella, non il **deposito** | **La sesta porta, di nuovo** |
+
+Tutti e sette corretti, con la prova e il controspecchio. I Medium e i Low
+sono in [16 — Debito tecnico](16-technical-debt.md).
+
+### Tre lezioni che non erano nuove, e sono tornate lo stesso
+
+**Un'autorita nuova va data a un chiamante, non a una funzione.** R-1 e R-2
+sono lo stesso difetto letto dai due lati: `runTrainingAutomationForClub`
+fabbricava il contesto di sistema **dentro di se**, quindi ogni suo chiamante
+lo ereditava — compreso quello che aveva gia una persona, un ruolo e un
+perimetro. L'autorita si passa dall'alto; una funzione che se la costruisce da
+sola la da a chiunque la chiami.
+
+**Una correzione puo spostare un difetto invece di chiuderlo.** R-3 aveva la
+sua prova, verde, sul caso che chiudeva — l'evento della sera prima — e non
+sul caso che apriva. La domanda da farsi non e «la correzione funziona?» ma
+«che cosa ho reso irraggiungibile?».
+
+**Un censimento cerca cio che sa nominare.** R-6 e il difetto originale in
+piedi nel consumatore piu importante, e il censimento diceva verde: cercava
+`sameCategory` e `categoryIdentity`, cioe **i nomi di chi aveva gia migrato**.
+Adesso cerca anche `extractCategoryTokens`, cioe il nome di chi non lo ha
+ancora fatto. Un censimento che elenca solo i buoni non trova i cattivi.
+
+### E una nota di igiene, perche e stata una sonda a salvare la tornata
+
+`pp-02-mutazioni` si e rifiutata di girare dicendo che l'albero era **gia
+rotto**. Aveva ragione: una sua corsa interrotta a meta — un errore di
+filesystem su Windows durante il ripristino — aveva lasciato applicata una
+mutazione in `athlete-guardians.ts`, cioe **una guardia di sicurezza
+rimossa**.
+
+`npm test` era passato lo stesso, 5112 su 5112, perche quella difesa la misura
+la sonda e non la suite.
+
+Non e mai finita in un commit. Ma la sequenza — una sonda che rompe il codice
+per misurarlo, un errore transitorio, un ripristino a meta — e un modo
+realistico di far entrare una regressione di sicurezza in un ramo, e l'unica
+cosa che l'ha fermata e stato il controllo sull'albero verde che quella sonda
+si era aggiunta da sola due commit prima.
