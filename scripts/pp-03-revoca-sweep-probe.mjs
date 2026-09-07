@@ -34,6 +34,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
+import { travasaTutori } from "./helpers/travaso-tutori.mjs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -254,6 +255,21 @@ const semina = async () => {
       updated_at: new Date(),
     },
   });
+
+  /*
+    **I tutori seminati diventano righe** (integrazione, WP-C).
+
+    Questa sonda e precedente al passaggio dell’autorita: seminava i tutori
+    dentro `athletes.data.guardians[]`, che fino a WP-B era l’archivio e dopo
+    WP-C e una **proiezione**. Senza questa riga la sonda misura un club
+    **senza tutori** — e dice che l’area famiglia non si apre, che e vero e
+    non e il difetto che sta cercando.
+
+    Il travaso e lo stesso `INSERT ... SELECT` della migrazione vera,
+    ristretto ai club di questa sonda: si misura lo stato in cui il prodotto
+    si trovera, non uno stato costruito a mano piu ordinato del vero.
+  */
+  await travasaTutori(prisma, [CLUB]);
 
   return { misterCustom, misterAlias, segreteria, genitore, atleta };
 };

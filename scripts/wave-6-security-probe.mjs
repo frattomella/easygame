@@ -42,6 +42,7 @@ import { PrismaClient } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { travasaTutori } from "./helpers/travaso-tutori.mjs";
 
 if (process.env.EASYGAME_DB_ENV !== "development") {
   console.error("Rifiuto: serve EASYGAME_DB_ENV=development.");
@@ -414,8 +415,26 @@ const semina = async () => {
       {
         id: ATLETA_A,
         organization_id: CLUB_A,
-        /* Il legame che `canParentAccessAthlete` riconosce. */
-        user_id: utenti.parent.id,
+        /*
+          **Il legame di un genitore e una riga di tutore, non `athletes.user_id`**
+          (integrazione PP-02 x PP-04).
+
+          Questa riga diceva «il legame che `canParentAccessAthlete`
+          riconosce» e scriveva il genitore dentro `user_id`, che e la colonna
+          dell’account **dell’atleta stesso** — l’unica scrittrice e
+          `athlete-accounts.ts` (ADR-0104). Funzionava perche il vaglio
+          accettava anche quel ramo.
+
+          Da ADR-0122 quel ramo e **esclusivo**: chi porta `athletes.user_id`
+          e quella scheda, non la sua famiglia, e il cruscotto gli si chiude.
+          E da WP-C l’autorita sul tutore e `athlete_guardians`, che
+          `travasaTutori` deriva dalla proiezione qui sotto.
+
+          Il genitore e percio un **tutore dichiarato**: `linkedUserId`, che e
+          cio che il riscatto di un invito scrive, e la forma che ha in
+          produzione.
+        */
+        user_id: null,
         first_name: "Minore",
         last_name: "Alfa",
         category_id: CATEGORIA,
@@ -427,6 +446,15 @@ const semina = async () => {
           bloodType: "0+",
           medications: "Salbutamolo",
           phone: "3330000000",
+          guardians: [
+            {
+              id: "uat6s-tutore-a",
+              name: "Genitore",
+              surname: "Alfa",
+              relationship: "Madre",
+              linkedUserId: utenti.parent.id,
+            },
+          ],
         },
         updated_at: new Date(),
       },
@@ -444,13 +472,25 @@ const semina = async () => {
       {
         id: ATLETA_B,
         organization_id: CLUB_B,
-        user_id: utenti.parentB.id,
+        /* Come ATLETA_A: il genitore e un tutore dichiarato, non l’account. */
+        user_id: null,
         first_name: "Minore",
         last_name: "Beta",
         category_id: CATEGORIA,
         category_name: "Under 15",
         status: "active",
-        data: { allergies: "Glutine" },
+        data: {
+          allergies: "Glutine",
+          guardians: [
+            {
+              id: "uat6s-tutore-b",
+              name: "Genitore",
+              surname: "Beta",
+              relationship: "Madre",
+              linkedUserId: utenti.parentB.id,
+            },
+          ],
+        },
         updated_at: new Date(),
       },
     ],
@@ -502,6 +542,20 @@ const semina = async () => {
       },
     ],
   });
+
+  /*
+    **I tutori seminati diventano righe** (integrazione, WP-C).
+
+    Questa sonda e precedente al passaggio dell’autorita: seminava i tutori
+    dentro `athletes.data.guardians[]`, che fino a WP-B era l’archivio e dopo
+    WP-C e una **proiezione**. Senza questa riga la sonda misura un club
+    **senza tutori**, e si ferma sulla semina con «questo atleta non risulta
+    collegato a questo account»: vero, e non il difetto che sta cercando.
+
+    Il travaso e lo stesso `INSERT ... SELECT` della migrazione vera,
+    ristretto ai club di questa sonda.
+  */
+  await travasaTutori(prisma, [CLUB_A, CLUB_B]);
 
   /* Un fascicolo documentale vero nel club A. */
   const scopeStaffA = scopeDi(utenti.staff.id, CLUB_A, "staff");
@@ -6194,8 +6248,29 @@ const u70 = async () => {
   const vittima = await utente("uat6s-vittima-u70@example.invalid", "Vittima");
   const CODICE = "654321";
 
-  const nuovaChallenge = () =>
-    prisma.authVerificationChallenge.create({
+  /*
+    **Una sola challenge viva per canale, e a dirlo e il database** (PP-05).
+
+    Questa sonda ne creava due di fila per la stessa coppia (utenza, canale):
+    in sequenza andava bene, e l’indice unico parziale introdotto da PP-05 —
+    la difesa contro le dodici challenge vive sotto raffica — la rifiuta.
+
+    Chiudere la precedente e cio che fa `createInternalChallenge` in
+    produzione: la sonda semina ora come semina il prodotto, invece di
+    scavalcare l’invariante che sta misurando altrove.
+  */
+  const nuovaChallenge = async () => {
+    await prisma.authVerificationChallenge.updateMany({
+      where: {
+        user_id: vittima.id,
+        channel: "email",
+        consumed_at: null,
+        purpose: { not: "reset_password" },
+      },
+      data: { consumed_at: new Date() },
+    });
+
+    return prisma.authVerificationChallenge.create({
       data: {
         user_id: vittima.id,
         channel: "email",
@@ -6205,6 +6280,7 @@ const u70 = async () => {
         expires_at: new Date(Date.now() + 10 * 60_000),
       },
     });
+  };
 
   const conferma = (codice, indirizzo) =>
     rotte.confermaEmail.POST(
