@@ -463,3 +463,86 @@ test("ma due categorie che il club ha configurato restano due", () => {
     [U15_SCAURI, U15_FORMIA].sort(),
   );
 });
+
+/* ==================================================================== *
+ *  6. Un riferimento puo essere una stringa, e la stringa e il riferimento
+ * ==================================================================== */
+
+test("un identificativo nudo nomina la propria categoria", () => {
+  /*
+    **La porta che non si apriva** (P0-6).
+
+    `collectCategoryTokens` leggeva solo le **chiavi** di un oggetto: su
+    `sameCategory(atleta, "<identificativo>")` non trovava niente da nessuna
+    parte e il confronto rispondeva sempre no. Non e un caso limite: e la forma
+    con cui una schermata chiede «gli atleti di questa categoria» quando ha in
+    mano l'identificativo e non la voce di catalogo, ed e cio che la pagina
+    Gare passa — `[match.categoryId, match.category]`.
+
+    Misurato sul club di prova: la finestra delle convocazioni si apriva su
+    **zero** atleti con quindici iscritti a quella squadra. Falliva chiuso,
+    quindi non e mai stata una fusione fra omonime: era una porta chiusa.
+  */
+  const atleta = {
+    id: "atleta-9",
+    category_memberships: [
+      { category_id: U15_SCAURI, category_name: "Under 15" },
+    ],
+  };
+
+  assert.equal(
+    utils.athleteMatchesCategory(atleta, U15_SCAURI, CATALOGO),
+    true,
+    "l'identificativo nudo e un riferimento come la voce di catalogo",
+  );
+  assert.equal(
+    utils.athleteMatchesAnyCategory(atleta, [U15_SCAURI, "Under 15"], CATALOGO),
+    true,
+    "ed e la forma che la pagina Gare usa per aprire le convocazioni",
+  );
+});
+
+test("una stringa non scavalca il catalogo: due omonime restano due", () => {
+  /*
+    Il controspecchio. La stringa passa dalla **stessa** risoluzione: diventa
+    identificativo solo se il catalogo la riconosce, e un nome che ne nomina
+    due non ne nomina nessuna (ADR-0155).
+  */
+  const diScauri = {
+    id: "atleta-10",
+    category_memberships: [
+      { category_id: U15_SCAURI, category_name: "Under 15" },
+    ],
+  };
+
+  assert.equal(
+    utils.athleteMatchesCategory(diScauri, U15_FORMIA, CATALOGO),
+    false,
+    "l'identificativo dell'altra sede non lo riguarda",
+  );
+  assert.equal(
+    utils.athleteMatchesCategory(diScauri, "Under 15", CATALOGO),
+    false,
+    "e il nome ne nomina due: non ne nomina nessuna",
+  );
+});
+
+test("senza catalogo la stringa resta l'unica strada, e funziona", () => {
+  /*
+    Un club che non ha mai aperto la pagina delle categorie non ha catalogo, e
+    i suoi record portano solo etichette: li il ripiego sul nome e tutto cio
+    che c'e, e deve continuare a rispondere.
+  */
+  const atleta = { id: "atleta-11", category_name: "Under 15" };
+
+  assert.equal(
+    utils.athleteMatchesCategory(atleta, "Under 15", []),
+    true,
+    "senza catalogo due etichette uguali sono la stessa squadra",
+  );
+  assert.equal(
+    utils.athleteMatchesCategory(atleta, "Under 17", []),
+    false,
+    "e due etichette diverse no",
+  );
+});

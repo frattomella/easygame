@@ -2,7 +2,7 @@
 
 import { sameCategory } from "@/lib/categories/identity";
 import { apiRequest } from "@/lib/api/client";
-import { leggiRigheDiAppello } from "@/lib/api/attendance-roll";
+import { listEventParticipants } from "@/lib/events/client";
 import { readRecordedAttendance } from "@/lib/trainer-operational-alerts";
 import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
@@ -1246,9 +1246,8 @@ const versioneSalvata = (risposta: any): number | null => {
 
       if (!existingEntries.length && activeClub?.id) {
         try {
-          const righe = await leggiRigheDiAppello(
+          const righe = await listEventParticipants(
             String((training as any).eventId || training.id || ""),
-            activeClub.id,
           );
           existingEntries = normalizeTrainingAttendanceEntries(righe);
         } catch (errore) {

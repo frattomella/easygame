@@ -203,15 +203,24 @@ test("le due schermate che aprono il registro leggono lo stesso archivio", () =>
     dell'allenatore — e correggerne una sola sarebbe stato il difetto di prima
     con meta della sua superficie. Il lettore e uno.
   */
-  for (const file of [
-    "src/app/training/page.tsx",
-    "src/components/trainer/trainer-trainings-dashboard-page.tsx",
+  for (const [file, lettore] of [
+    ["src/app/training/page.tsx", "listEventParticipants"],
+    [
+      "src/components/trainer/trainer-trainings-dashboard-page.tsx",
+      "readEventAttendanceRoll",
+    ],
   ]) {
     const sorgente = readFileSync(file, "utf8");
+
     assert.match(
       sorgente,
-      /from "@\/lib\/api\/attendance-roll"/,
-      `${file}: deve rileggere l'appello dall'archivio prima di riaprire il registro`,
+      new RegExp(`${lettore}\\(`),
+      `${file}: deve rileggere l'appello dalle righe prima di riaprire il registro`,
+    );
+    assert.match(
+      sorgente,
+      /from "@\/lib\/events\/client"/,
+      `${file}: e deve farlo con il client del dominio eventi, non con una seconda copia`,
     );
   }
 });

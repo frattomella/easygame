@@ -51,7 +51,12 @@ import {
   Table2,
 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
-import { createEvent } from "@/lib/events/client";
+import {
+  createEvent,
+  listEventParticipants,
+  listEvents,
+  saveEventConvocations,
+} from "@/lib/events/client";
 import { AddMatchForm } from "@/components/forms/AddMatchForm";
 import { MultipleAddMatchForm } from "@/components/forms/MultipleAddMatchForm";
 import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
@@ -277,6 +282,11 @@ export default function MatchesPage() {
   const [showConvocationsModal, setShowConvocationsModal] = useState(false);
   const [showEditMatchModal, setShowEditMatchModal] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+  /*
+    **La rosa gia convocata, letta dalle righe** (P0-6, `D-AUD-9`). Vedi
+    `handleOpenConvocations`.
+  */
+  const [rosaConvocata, setRosaConvocata] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [matchesViewMode, setMatchesViewMode] = useState<"cards" | "table">(
     "cards",
@@ -353,12 +363,41 @@ export default function MatchesPage() {
 
         // Load matches from club data
         const matchesData = await getClubData(activeClub.id, "matches");
+
+        /*
+          **Quante convocazioni ha ogni gara, dalla rotta che le conta**
+          (P0-6).
+
+          Questa pagina legge le gare dalla proiezione storica, e la proiezione
+          non porta le convocazioni: sono righe di `club_event_participants`,
+          non colonne dell'evento. La tabella diceva «0 convocati» accanto a
+          «Completate», sulla stessa riga. Di qui si prende **solo** il
+          conteggio: portare l'intera lettura sulla rotta canonica e il lavoro
+          di WP-07, non la correzione di un numero sbagliato.
+        */
+        const eventiGara = await listEvents({
+          kind: "match",
+          include_cancelled: "1",
+        }).catch(() => [] as any[]);
+        const convocatiPerGara = new Map<string, number>();
+        for (const evento of eventiGara) {
+          const quanti = Number((evento as any)?.convocated_count || 0);
+          for (const chiave of [(evento as any)?.eventId, (evento as any)?.id]) {
+            const testo = String(chiave || "").trim();
+            if (testo) convocatiPerGara.set(testo, quanti);
+          }
+        }
+
         const transformedMatches = (
           Array.isArray(matchesData) ? matchesData : []
         ).map((match: any) => {
           const normalizedMatch = {
             ...match,
             date: new Date(match.date),
+            convocated_count:
+              convocatiPerGara.get(String(match?.eventId || "").trim()) ??
+              convocatiPerGara.get(String(match?.id || "").trim()) ??
+              null,
           };
 
           return {
@@ -760,7 +799,39 @@ export default function MatchesPage() {
     }
   };
 
-  const handleOpenConvocations = (match: Match) => {
+  /**
+   * Apre le convocazioni leggendo le **righe**, non la copia dentro il payload
+   * (P0-6, `D-AUD-9`).
+   *
+   * La finestra si apriva su `selectedMatch.convocatedAthletes`, cioe su una
+   * chiave del payload della gara che **nessuno scrive piu**: la convocazione
+   * e una colonna di `club_event_participants` con il suo scrittore
+   * (ADR-0099). Chi apriva una gara gia convocata dalla bacheca
+   * dell'allenatore trovava la rosa vuota, e salvando la cancellava.
+   *
+   * Si legge prima di aprire, come fa la bacheca: aprire e poi correggere
+   * farebbe lampeggiare una rosa vuota, e chi tocca una casella in quel mezzo
+   * secondo la perde.
+   */
+  const handleOpenConvocations = async (match: Match) => {
+    setRosaConvocata([]);
+    try {
+      const righe = await listEventParticipants(String(match?.id || ""));
+      setRosaConvocata(
+        (Array.isArray(righe) ? righe : [])
+          .filter(
+            (riga: any) =>
+              String(riga?.convocation_status || "")
+                .trim()
+                .toLowerCase() === "convocated",
+          )
+          .map((riga: any) => String(riga?.athlete_id || "").trim())
+          .filter(Boolean),
+      );
+    } catch (error) {
+      console.error("Errore lettura convocazioni:", error);
+      showToast("error", "Errore nel caricamento delle convocazioni");
+    }
     setSelectedMatch(match);
     setShowConvocationsModal(true);
   };
@@ -786,33 +857,53 @@ export default function MatchesPage() {
     }
 
     try {
-      // Update in database
-      const currentMatches = await getClubData(activeClub.id, "matches");
-      const updatedMatches = currentMatches.map((match: any) =>
-        match.id === data.matchId
-          ? {
-              ...match,
-              convocatedAthletes: data.convocatedAthletes,
-              convocationEntries: data.convocationEntries,
-              convocationsStatus: "completed",
-              updated_at: new Date().toISOString(),
-            }
-          : match,
-      );
-      await updateClubData(activeClub.id, "matches", updatedMatches);
+      /*
+        **La convocazione e un fatto, non un campo del payload** (ADR-0099,
+        P0-6).
 
-      // Update local state
-      const updatedLocalMatches = matches.map((match) =>
-        match.id === data.matchId
-          ? {
-              ...match,
-              convocatedAthletes: data.convocatedAthletes,
-              convocationEntries: data.convocationEntries,
-              convocationsStatus: "completed" as const,
-            }
-          : match,
+        Qui si riscriveva `clubs.matches` con `updateClubData`, cioe la
+        **proiezione in sola lettura** degli eventi: il server la rifiuta —
+        «`matches` e una proiezione degli eventi e si scrive da
+        /api/v1/events» — quindi questa schermata non salvava una convocazione
+        **da nessuna parte**, e mostrava solo un errore generico. La stessa
+        gara convocata dalla bacheca dell'allenatore, che passa dallo
+        scrittore giusto, funzionava: due porte per lo stesso fatto, e una
+        chiusa.
+
+        Le voci portano gia il fuori quota: era l'unica informazione che la
+        vecchia forma sapeva dire, ed e quella che il rendiconto distingue.
+      */
+      await saveEventConvocations(
+        String(data.matchId),
+        (data.convocationEntries?.length
+          ? data.convocationEntries
+          : (data.convocatedAthletes || []).map((id: any) => ({
+              athleteId: id,
+            }))
+        ).map((entry: any) => ({
+          athleteId: String(entry?.athleteId || entry?.id || entry),
+          status: "convocated",
+          isExtraCategory: Boolean(entry?.isExtraCategory),
+        })),
       );
-      setMatches(updatedLocalMatches);
+
+      setRosaConvocata(data.convocatedAthletes || []);
+      /*
+        Lo stato locale porta il conteggio, che e cio che la tabella mostra:
+        le righe vere le rileggera il prossimo caricamento della pagina.
+      */
+      setMatches(
+        matches.map((match) =>
+          match.id === data.matchId
+            ? {
+                ...match,
+                convocated_count: (data.convocatedAthletes || []).length,
+                convocationsStatus: "completed" as const,
+              }
+            : match,
+        ),
+      );
+      showToast("success", "Convocazioni salvate correttamente");
       setShowConvocationsModal(false);
     } catch (error) {
       console.error("Error saving convocations:", error);
@@ -944,8 +1035,18 @@ export default function MatchesPage() {
                 {tableMatches.map((match, index) => {
                   const certificateWarning =
                     getInvalidCertificatesForConvocatedAthletes(match, athletes);
-                  const convocatedCount =
-                    getConvocatedAthleteIdsFromMatch(match).length;
+                  /*
+                    **Il conteggio lo fa il server** (P0-6): la convocazione e
+                    una riga di `club_event_participants`, e
+                    `getConvocatedAthleteIdsFromMatch` cerca dieci grafie
+                    dentro il payload che nessuno scrive piu. La riga diceva
+                    «0 convocati» accanto a «Completate», sulla stessa gara.
+                  */
+                  const convocatedCount = Number.isFinite(
+                    Number((match as any).convocated_count),
+                  )
+                    ? Number((match as any).convocated_count)
+                    : getConvocatedAthleteIdsFromMatch(match).length;
                   const canManageMatch =
                     getEffectiveMatchStatus(match) === "upcoming";
 
@@ -2233,7 +2334,12 @@ export default function MatchesPage() {
             }),
           )}
           onSave={handleSaveConvocations}
-          savedConvocations={selectedMatch.convocatedAthletes || []}
+          /* La rosa arriva dalle righe (P0-6); il payload resta il ripiego. */
+          savedConvocations={
+            rosaConvocata.length
+              ? rosaConvocata
+              : selectedMatch.convocatedAthletes || []
+          }
           savedConvocationEntries={selectedMatch.convocationEntries || []}
         />
       )}

@@ -54,39 +54,72 @@ const errorStatus = (error: any) =>
  * Un `groupBy` per l'intera pagina, che e la ragione per cui qui escono due
  * numeri e non l'elenco.
  */
+type ConteggiDellEvento = {
+  attendance_recorded: number;
+  attendance_present: number;
+  convocated_count: number;
+};
+
+const CONTEGGI_A_ZERO: ConteggiDellEvento = {
+  attendance_recorded: 0,
+  attendance_present: 0,
+  convocated_count: 0,
+};
+
 const leggiAppello = async (organizationId: string, eventIds: string[]) => {
-  const conteggi = new Map<
-    string,
-    { attendance_recorded: number; attendance_present: number }
-  >();
+  const conteggi = new Map<string, ConteggiDellEvento>();
   if (!organizationId || !eventIds.length) return conteggi;
 
-  const righe = await (prisma as any).clubEventParticipant.groupBy({
-    by: ["event_id", "status"],
-    where: {
-      organization_id: organizationId,
-      event_id: { in: eventIds },
-      status: { notIn: [RSVP_NEUTRAL_ATTENDANCE_STATUS] },
-    },
-    _count: { _all: true },
-  });
+  const voce = (eventId: string) => {
+    const chiave = String(eventId || "");
+    if (!conteggi.has(chiave)) conteggi.set(chiave, { ...CONTEGGI_A_ZERO });
+    return conteggi.get(chiave)!;
+  };
 
-  for (const riga of righe as any[]) {
-    const chiave = String(riga.event_id || "");
-    if (!chiave) continue;
+  const [appello, convocazioni] = await Promise.all([
+    (prisma as any).clubEventParticipant.groupBy({
+      by: ["event_id", "status"],
+      where: {
+        organization_id: organizationId,
+        event_id: { in: eventIds },
+        status: { notIn: [RSVP_NEUTRAL_ATTENDANCE_STATUS] },
+      },
+      _count: { _all: true },
+    }),
+    /*
+      **Le convocazioni sono una colonna diversa, con uno scrittore diverso**
+      (ADR-0099, P0-6).
 
-    const voce = conteggi.get(chiave) || {
-      attendance_recorded: 0,
-      attendance_present: 0,
-    };
+      `convocation_status` vale `convocated` o `excluded`, e `null` significa
+      «nessuno ha ancora deciso» — non «non convocato», che e una decisione
+      presa. Si contano le sole convocate: e cio che la scheda della gara
+      chiede, e contare anche le escluse direbbe che una rosa e stata fatta
+      quando qualcuno ha solo tolto un nome.
+    */
+    (prisma as any).clubEventParticipant.groupBy({
+      by: ["event_id"],
+      where: {
+        organization_id: organizationId,
+        event_id: { in: eventIds },
+        convocation_status: "convocated",
+      },
+      _count: { _all: true },
+    }),
+  ]);
+
+  for (const riga of appello as any[]) {
+    if (!riga?.event_id) continue;
+
     const quante = Number(riga?._count?._all || 0);
+    const conto = voce(riga.event_id);
 
-    voce.attendance_recorded += quante;
-    if (isPresentAttendance(riga)) {
-      voce.attendance_present += quante;
-    }
+    conto.attendance_recorded += quante;
+    if (isPresentAttendance(riga)) conto.attendance_present += quante;
+  }
 
-    conteggi.set(chiave, voce);
+  for (const riga of convocazioni as any[]) {
+    if (!riga?.event_id) continue;
+    voce(riga.event_id).convocated_count = Number(riga?._count?._all || 0);
   }
 
   return conteggi;
@@ -146,10 +179,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       data: rows.map((row) => ({
         ...toEventLegacyShape(row),
-        ...(appello.get(String(row.id)) || {
-          attendance_recorded: 0,
-          attendance_present: 0,
-        }),
+        ...(appello.get(String(row.id)) || CONTEGGI_A_ZERO),
         row: {
           id: row.id,
           kind: row.kind,

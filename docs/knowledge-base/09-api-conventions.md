@@ -262,6 +262,7 @@ Quattro cose da conoscere:
 |-------|---------------|
 | `attendance_recorded` | Quante righe di appello esistono per quell'evento |
 | `attendance_present` | Quante di quelle righe dicono «presente» |
+| `convocated_count` | Quante righe della gara sono **convocate** |
 
 Un evento senza appello risponde `0` e non l'assenza della chiave: chi
 legge fa `> 0`, e una chiave che a volte c'e e a volte no e il modo in cui
@@ -272,6 +273,10 @@ Le righe in stato `pending` **non** si contano: sono nate da una risposta
 della famiglia e dal registro non sono mai passate
 (`RSVP_NEUTRAL_ATTENDANCE_STATUS`). Contarle direbbe fatto un appello che
 nessuno ha preso.
+
+`convocated_count` conta le sole `convocated`: `excluded` e una decisione
+opposta, e `null` significa che nessuno ha ancora deciso — non «non
+convocato», che e una decisione presa.
 
 L'**elenco** riga per riga non esce di qui — sarebbe migliaia di oggetti
 su un calendario di stagione — e lo chiede alla propria rotta chi deve

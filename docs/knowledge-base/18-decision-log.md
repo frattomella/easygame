@@ -9421,6 +9421,27 @@ la forma di una colonna storica mai bonificata. Senza quel ritorno il ripiego
 scatterebbe lo stesso, e le unirebbe su una parola che non e l'identita di
 nessuna delle due.
 
+### Postilla (2026-09-07): un riferimento puo essere una stringa
+
+`collectCategoryTokens` leggeva le **chiavi** di un oggetto e nient'altro.
+Su `sameCategory(atleta, "<identificativo>")` — cioe quando chi chiede ha
+in mano l'identificativo e non la voce di catalogo — non trovava niente da
+nessuna parte, e il confronto rispondeva sempre **no**.
+
+Non e un caso limite: e la forma con cui la pagina Gare chiede i
+convocabili, `[match.categoryId, match.category]`. La finestra delle
+convocazioni si apriva su **zero** atleti con quindici iscritti a quella
+squadra, e nessun test la copriva perche tutti passavano voci di catalogo.
+
+Falliva **chiuso** — non e mai stata una fusione fra omonime, che e cio che
+questa decisione impedisce — ma una porta che non si apre e un difetto
+quanto una che si apre troppo. La stringa passa ora dalla stessa
+risoluzione: diventa identificativo solo se il catalogo la riconosce, un
+nome che ne nomina due non ne nomina nessuna, e senza catalogo resta il
+ripiego per nome. Copertura in
+`tests/lib/categoria-identita-non-nome.test.mjs` (tre prove, con il loro
+controspecchio).
+
 **Vedi anche.** ADR-0030 (la compatibilita fra categorie e configurazione
 esplicita, mai una deduzione dal nome: e la stessa lezione, quattro mesi
 prima), ADR-0120, `docs/knowledge-base/16-technical-debt.md` §D-INT-1..4.

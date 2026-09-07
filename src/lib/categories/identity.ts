@@ -129,6 +129,32 @@ const readEntry = (value: any): string[] => {
  * risoluzione qui sotto, che il catalogo lo interroga davvero.
  */
 export const collectCategoryTokens = (record: any): Set<string> => {
+  /*
+    **Un riferimento puo essere una stringa, e la stringa e il riferimento.**
+
+    Questa funzione leggeva solo le **chiavi** di un oggetto: su
+    `sameCategory(atleta, "<identificativo>")` non trovava niente da nessuna
+    parte e il confronto rispondeva sempre **no**. Non e un caso limite: e la
+    forma con cui una schermata chiede «gli atleti di questa categoria»
+    quando ha in mano l'identificativo e non la voce di catalogo — e la
+    pagina Gare lo fa, passando `[match.categoryId, match.category]`.
+    L'effetto misurato: la finestra delle convocazioni si apriva su **zero**
+    atleti, con quindici iscritti a quella squadra.
+
+    Falliva chiuso, quindi non e mai stata una fusione fra omonime; era una
+    porta che non si apriva. La regola di ADR-0155 vale identica: la stringa
+    passa dalla stessa risoluzione sul catalogo, e diventa identificativo solo
+    se il catalogo la riconosce.
+  */
+  if (record === null || record === undefined || typeof record !== "object") {
+    const tokens = new Set<string>();
+    for (const grezzo of flatten(record).flatMap(readEntry)) {
+      tokens.add(normalizeCategoryToken(grezzo));
+    }
+    tokens.delete("");
+    return tokens;
+  }
+
   const source = asSource(record);
 
   const grezzi = [

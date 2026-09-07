@@ -80,6 +80,21 @@ export default function TrainerMatchesDashboardPage() {
   const { showToast } = useToast();
   const [selectedMatch, setSelectedMatch] = useState<any | null>(null);
   /*
+    **La rosa gia convocata, prima di riaprirla** (P0-6, `D-AUD-9`).
+
+    La finestra si apriva su `getConvocatedAthleteIds(selectedMatch)`, che
+    cerca dieci grafie dentro il payload della gara e nessuna di quelle la
+    scrive piu nessuno: la convocazione e una colonna di
+    `club_event_participants` con il suo scrittore (ADR-0099). Si convocavano
+    undici atleti, si salvava, e riaprendo la finestra non ne risultava
+    convocato nessuno — la seconda passata cancellava la rosa, e non lo
+    diceva.
+
+    E la stessa strada che l'appello della gara percorre gia qui sotto: le
+    righe sono l'unica verita, e sono quelle che si aprono.
+  */
+  const [rosaConvocata, setRosaConvocata] = useState<string[]>([]);
+  /*
     **L'appello anche sulla gara** (W5, §14).
 
     La presenza a una gara era irraggiungibile: c'era la convocazione — chi
@@ -160,6 +175,43 @@ export default function TrainerMatchesDashboardPage() {
           athlete?.data?.category_name ||
           null,
       }));
+  };
+
+  /**
+   * Apre le convocazioni leggendo le **righe**, non la copia dentro il payload
+   * (P0-6, `D-AUD-9`).
+   *
+   * Prima si apriva su `getConvocatedAthleteIds(match)`, che cerca dieci
+   * grafie dentro il payload della gara e nessuna di quelle la scrive piu
+   * nessuno: la convocazione e una colonna di `club_event_participants` con il
+   * suo scrittore (ADR-0099). Si convocavano undici atleti, si salvava, e
+   * riaprendo non ne risultava convocato nessuno — la seconda passata
+   * cancellava la rosa, senza dirlo.
+   *
+   * Si legge **prima** di aprire, come fa gia l'appello della gara qui sotto:
+   * aprire e poi correggere farebbe lampeggiare una rosa vuota, e chi tocca
+   * una casella in quel mezzo secondo la perde.
+   */
+  const openConvocations = async (match: any) => {
+    setRosaConvocata([]);
+    try {
+      const righe = await listEventParticipants(String(match?.id || ""));
+      setRosaConvocata(
+        (Array.isArray(righe) ? righe : [])
+          .filter(
+            (riga: any) =>
+              String(riga?.convocation_status || "")
+                .trim()
+                .toLowerCase() === "convocated",
+          )
+          .map((riga: any) => String(riga?.athlete_id || "").trim())
+          .filter(Boolean),
+      );
+    } catch (error) {
+      console.error("Errore lettura convocazioni:", error);
+      showToast("error", "Errore nel caricamento delle convocazioni");
+    }
+    setSelectedMatch(match);
   };
 
   /**
@@ -331,7 +383,7 @@ export default function TrainerMatchesDashboardPage() {
                     <Button
                       size="sm"
                       className="bg-blue-600 hover:bg-blue-700"
-                      onClick={() => setSelectedMatch(match)}
+                      onClick={() => { void openConvocations(match); }}
                     >
                       <ListChecks className="mr-2 h-4 w-4" />
                       {hasSavedConvocations
@@ -492,7 +544,7 @@ export default function TrainerMatchesDashboardPage() {
             athletes={assignedAthletes}
             getMatchAthletes={getMatchAthletes}
             deadlineDays={matchConvocationDeadlineDays}
-            onSelectMatch={setSelectedMatch}
+            onSelectMatch={(match: any) => { void openConvocations(match); }}
           />
         </SurfacePanel>
       ) : (
@@ -563,7 +615,16 @@ export default function TrainerMatchesDashboardPage() {
               showToast("error", "Errore nel salvataggio delle convocazioni");
             }
           }}
-          savedConvocations={getConvocatedAthleteIds(selectedMatch)}
+          /*
+            La rosa arriva dalle **righe** (P0-6). Il payload resta il ripiego
+            finche le righe non sono state lette: un attimo, e in quell'attimo
+            e meglio mostrare cio che c'era che mostrare una rosa vuota.
+          */
+          savedConvocations={
+            rosaConvocata.length
+              ? rosaConvocata
+              : getConvocatedAthleteIds(selectedMatch)
+          }
           savedConvocationEntries={
             selectedMatch.convocationEntries ||
             selectedMatch.convocation_entries ||

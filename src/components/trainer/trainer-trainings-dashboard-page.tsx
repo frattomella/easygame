@@ -21,9 +21,9 @@ import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import { AttendanceSheet } from "@/components/trainer/AttendanceSheet";
 import {
-  leggiAppelloDellEvento,
+  readEventAttendanceRoll,
   type VoceDiAppello,
-} from "@/lib/api/attendance-roll";
+} from "@/lib/events/client";
 import { TrainerWeeklySchedulePanel } from "@/components/trainer/trainer-weekly-schedule-panel";
 import {
   ConfirmDialog,
@@ -112,9 +112,8 @@ export default function TrainerTrainingsDashboardPage() {
     let vivo = true;
     void (async () => {
       try {
-        const righe = await leggiAppelloDellEvento(
+        const righe = await readEventAttendanceRoll(
           eventoDellAllenamento(selectedTraining),
-          activeClub.id,
         );
         if (vivo) setAppelloSalvato(righe);
       } catch (errore) {

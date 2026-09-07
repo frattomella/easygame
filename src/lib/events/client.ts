@@ -127,3 +127,51 @@ export const listEventParticipants = async (id: string) => {
   );
   return unwrap(response, "Impossibile leggere i partecipanti") || [];
 };
+
+export type VoceDiAppello = {
+  present: boolean;
+  notes: string;
+};
+
+const PRESENTI_IN_APPELLO = new Set(["present", "presente", "attended"]);
+
+/**
+ * **L'appello gia preso, indicizzato per atleta** (P0-5).
+ *
+ * Il registro presenze scrive su `club_event_participants` — lo scrittore e
+ * uno, `saveEventAttendance` (ADR-0099) — e **nessuna schermata lo
+ * rileggeva**. Le due che aprono il registro cercavano `training.attendance`,
+ * un array che la rotta del calendario non ha mai restituito: si segnavano tre
+ * presenti su sedici, si salvava, e riaprendo erano di nuovo tutti assenti. La
+ * seconda passata cancellava la prima, e non lo diceva.
+ *
+ * Sta qui, accanto a `listEventParticipants` su cui poggia, perche le
+ * schermate sono due — la pagina Allenamenti del club e la bacheca
+ * dell'allenatore — e una sola delle due corretta sarebbe stato il difetto di
+ * prima con meta della sua superficie.
+ *
+ * Una riga con `status` vuoto o `pending` **non e** un appello: e una
+ * convocazione, o una risposta della famiglia, e sono colonne diverse con
+ * scrittori diversi. Un evento senza appello risponde una mappa vuota, che e
+ * cio che rispondeva prima: chi apre il registro trova le caselle da spuntare.
+ */
+export const readEventAttendanceRoll = async (id: string) => {
+  const mappa = new Map<string, VoceDiAppello>();
+  const evento = String(id || "").trim();
+  if (!evento) return mappa;
+
+  for (const riga of (await listEventParticipants(evento)) as any[]) {
+    const atleta = String(riga?.athlete_id || riga?.athleteId || "").trim();
+    const stato = String(riga?.status || "")
+      .trim()
+      .toLowerCase();
+    if (!atleta || !stato || stato === "pending") continue;
+
+    mappa.set(atleta, {
+      present: PRESENTI_IN_APPELLO.has(stato),
+      notes: String(riga?.notes || "").trim(),
+    });
+  }
+
+  return mappa;
+};

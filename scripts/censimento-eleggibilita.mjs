@@ -227,7 +227,18 @@ const tracciati = execFileSync(
 
 const trovati = [];
 for (const percorso of tracciati) {
-  const testo = readFileSync(percorso, "utf8");
+  /*
+    Un file **cancellato e non ancora messo in scena** e ancora nell'indice, e
+    aprirlo faceva morire il censimento con un `ENOENT` al posto di un verbale.
+    Un percorso che non c'e non decide niente: si salta.
+  */
+  let testo;
+  try {
+    testo = readFileSync(percorso, "utf8");
+  } catch (errore) {
+    if (errore?.code === "ENOENT") continue;
+    throw errore;
+  }
   if (MARCATORI.some((regex) => regex.test(testo))) trovati.push(percorso);
 }
 

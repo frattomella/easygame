@@ -284,6 +284,33 @@ export const getConvocatedAthleteIds = (match: any) => {
   return getConvocatedAthleteIdsFromMatch(match);
 };
 
+/**
+ * **Quante convocazioni ha questa gara** (P0-6, `D-AUD-9`).
+ *
+ * La convocazione e una colonna di `club_event_participants`
+ * (`convocation_status`) con il suo scrittore, `saveEventConvocations`
+ * (ADR-0099). Qui pero si contava `getConvocatedAthleteIds`, che cerca **dieci
+ * grafie diverse dentro il payload della gara** — `convocatedAthletes`,
+ * `calledAthletes`, `selectedAthleteIds`… — e nessuna di quelle la scrive piu
+ * nessuno.
+ *
+ * L'effetto, misurato a schermo: si convocano undici atleti su sedici, si
+ * salva, e la scheda continua a dire «0/16». La rosa c'era, in archivio, e la
+ * schermata da cui era stata fatta non la sapeva dire — ed e la stessa forma
+ * di difetto del registro presenze (P0-5), sulla colonna accanto.
+ *
+ * Il conteggio del server **vince**, perche legge la colonna giusta. Il
+ * payload resta il ripiego di una riga che il server non ha ancora contato.
+ */
+const readConvocatedCount = (match: any) => {
+  const dalServer = Number(
+    match?.convocated_count ?? match?.convocatedCount,
+  );
+  if (Number.isFinite(dalServer)) return dalServer;
+
+  return getConvocatedAthleteIds(match).length;
+};
+
 export const getMatchConvocationStatus = ({
   match,
   totalAthletes,
@@ -296,7 +323,7 @@ export const getMatchConvocationStatus = ({
   now?: Date;
 }) => {
   const status = normalizeValue(match?.status);
-  const convocated = getConvocatedAthleteIds(match).length;
+  const convocated = readConvocatedCount(match);
   const startsAt = match?.startsAt ? new Date(match.startsAt) : null;
 
   if (CANCELLED_STATUSES.has(status)) {
