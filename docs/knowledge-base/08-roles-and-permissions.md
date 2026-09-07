@@ -357,6 +357,86 @@ campo (ADR-0058).
 risolvono il legame e sono l'unico controllo. Questo modulo decide cosa vede chi
 guarda il fascicolo **di qualcun altro**.
 
+> **Aggiornamento PP-04 (2026-09-05, [ADR-0122](18-decision-log.md#adr-0122--chi-e-latleta-non-e-anche-la-propria-famiglia) e [ADR-0123](18-decision-log.md#adr-0123--essere-una-scheda-non-e-un-campo-e-unidentita-che-la-revoca-non-cancella)).**
+> **Genitore e atleta hanno lo stesso gate ma non lo stesso legame**, e la
+> distinzione non era scritta da nessuna parte.
+>
+> `getParentLinkedAthletes` risolve **due** legami: il **tutore**, che e
+> `guardians[].linkedUserId` o l'indirizzo verificato, e l'**atleta stesso**,
+> che e `athletes.user_id`. Dal primo esce il cruscotto della famiglia — quote,
+> ricevute, anagrafica dei tutori, contenuto clinico; dal secondo l'area
+> atleta, che di quello stesso dominio proietta l'elenco chiuso
+> `CAMPI_AREA_ATLETA`. Non danno diritto alle stesse cose.
+>
+> Tre regole ne governano oggi il confine:
+>
+> 1. **il ramo diretto e esclusivo.** Chi e quella scheda non passa dal ramo
+>    del tutore, nemmeno quando il proprio indirizzo compare fra quelli dei
+>    tutori — cioe nel caso normale del minore invitato sulla casella di
+>    famiglia;
+> 2. **il ramo diretto e chiuso per predefinito.** `allowSelfAthleteLink` vale
+>    `false` se non lo si chiede: lo dichiarano quattro chiamanti soli
+>    (`readAthleteAreaOverview`, la bacheca, `authorizeAnsweringUser` in
+>    `rsvp.ts`, `GET /api/v1/auth/memberships`), e un test li conta. Una rotta
+>    nuova che se ne dimentichi **chiude** una porta invece di aprirla;
+> 3. **«essere quella scheda» e un'identita, non un campo.** La risposta
+>    poggia su `athletes.user_id` **piu** gli inviti accettati in
+>    `athlete_account_invites`, perche la revoca e lo scollegamento azzerano il
+>    campo e senza la seconda meta il gesto che toglie l'accesso lo riapriva
+>    dal ramo accanto.
+>
+> Le due meta della domanda — «e ancora un atleta di questo club?» e «e, o e
+> stata, l'account di questa scheda?» — vivono nello stesso modulo,
+> `src/lib/server/athlete-membership.ts`, perche due elenchi separati
+> divergono: e il difetto di ADR-0117.
+>
+> **Quarta regola ([ADR-0124](18-decision-log.md#adr-0124--unidentita-puo-portare-due-cappelli-e-il-ramo-esclusivo-deve-saperlo), 2026-09-05): un'identita puo portare due cappelli.**
+> Le prime tre guardano tutte in una direzione — chi non deve entrare, entra.
+> Nella direzione opposta erano troppo larghe: invitare un minore sulla casella
+> di famiglia lega `athletes.user_id` **all'utenza del genitore**, perche
+> `risolviUtenza` trova l'utenza che quell'indirizzo ha gia. Il genitore
+> perdeva il figlio dal proprio cruscotto, e ne la revoca ne lo scollegamento
+> glielo restituivano.
+>
+> Il ramo diretto resta esclusivo verso chi e **soltanto** quella scheda. Chi e
+> anche un tutore **provato** passa dal ramo del tutore. «Provato» vale
+> `guardians[].linkedUserId` — una decisione che qualcuno ha preso e che il
+> riscatto del token registra — e **non** `guardians[].email`, che e un
+> recapito e che e precisamente il vettore del Critical di ADR-0122. In codice
+> sono due predicati distinti: `isGuardianLinkedById` per questa domanda,
+> `isGuardianLinkedToUser` per far entrare una famiglia.
+>
+> E il caso si smette di crearlo: `sendAthleteAccountInvite` rifiuta con **400**
+> un indirizzo che e gia il recapito di un tutore di quella stessa scheda, o
+> che risolve a un'utenza gia legata come tutore. Un accesso che vive nella
+> casella del tutore non e l'accesso dell'atleta.
+>
+> **Quinta regola ([ADR-0125](18-decision-log.md), 2026-09-05): l'esclusione e
+> durevole, l'ammissione e viva.** La stessa condizione faceva due lavori
+> opposti. Come **esclusione** dal ramo del tutore deve durare — senza durata,
+> il gesto che toglie l'accesso lo riapre (ADR-0123). Come **ammissione** alle
+> superfici proprie dell'atleta — la bacheca, l'RSVP — vuole il legame **vivo**,
+> perche e esattamente cio che lo scollegamento toglie. Vinceva la durata: dopo
+> «Scollega account» l'area atleta rispondeva 403 e la bacheca 200, e la
+> vecchia utenza continuava a leggere una scheda **ceduta a un'altra persona**,
+> senza che nessun gesto del pannello la chiudesse fuori. In codice sono due
+> espressioni: `eLaPersonaStessa` (durevole) esclude, `legameVivo` ammette.
+>
+> **Sesta regola (stesso ADR): un'utenza e l'accesso di una scheda sola.** La
+> guardia esisteva e interrogava `athletes.user_id`, che lo scrive il
+> **riscatto**: fra due inviti quel campo e vuoto, e due fratelli su una casella
+> di famiglia sola finivano a condividere un'identita. Adesso il rifiuto sta
+> **in due punti**: sull'invito, con un 400 che parla a chi lo ha appena
+> mandato; e dentro la transazione del riscatto, che e l'unico posto che possa
+> davvero garantirlo.
+>
+> **E i lettori di `athletes.user_id` sono tre, non due.** ADR-0117 ne aveva
+> contati due; `GET /api/v1/auth/athlete-profile/:athleteId` era il terzo, e
+> consegnava il fascicolo **clinico intero** su un legame che poteva
+> sopravvivere alla tessera. Adesso chiama `clubsWhereStillAthlete` come gli
+> altri due.
+
+
 **Dove le tre chiavi vengono applicate** (2026-09-01, dopo la sonda di
 sicurezza). Fino a 5J erano dichiarate e mai chieste: si registrava un
 certificato medico senza passare da nessuna di esse. Adesso il registro generico

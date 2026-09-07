@@ -49,6 +49,11 @@ export async function POST(request: Request, context: Context) {
     }
 
     const athleteId = String(context.params.athleteId || "").trim();
+    /*
+      **Il denaro lo muove chi ha la responsabilita, non il ragazzo**
+      (ADR-0118): il legame diretto non basta, serve un legame di tutela. E il
+      predefinito, da ADR-0122: qui non c'e niente da chiedere.
+    */
     if (!(await canParentAccessAthlete(session.db.user_id, athleteId))) {
       return NextResponse.json(
         {

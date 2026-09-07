@@ -382,7 +382,14 @@ const authorizeAnsweringUser = async (userId: string, athleteId: string) => {
 
   if (!athlete) throw new Error("Atleta non trovato");
 
-  const linked = await canParentAccessAthlete(userId, athlete.id);
+  const linked = await canParentAccessAthlete(userId, athlete.id, {
+    /*
+      **Questa e una superficie che l'atleta usa davvero** (ADR-0122): il
+      predefinito e restrittivo, e chi serve l'atleta lo dichiara. E il verso
+      giusto — dimenticarsene chiude una porta invece di aprirla.
+    */
+    allowSelfAthleteLink: true,
+  });
   if (!linked) {
     /*
       **Qui il permesso e il legame, e il legame e l'unica cosa che nega.** Il

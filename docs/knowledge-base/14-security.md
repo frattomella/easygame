@@ -2071,10 +2071,138 @@ PATCH  /api/v1/athletes/<id> {user_id}      -> 403
 upsert /api/v1/athletes      {id, user_id}  -> 200, legame scritto
 ```
 
-e da li `GET /api/v1/athlete-accounts/me`, che non chiede ne ruolo ne tessera
-perche risolve la scheda **da quel campo**, consegnava a un'utenza senza alcuna
+e da li `GET /api/v1/athlete-accounts/me`, che non chiedeva ne ruolo ne tessera
+perche risolveva la scheda **da quel campo**, consegnava a un'utenza senza alcuna
 tessera nel club l'area completa di un minore, dato sanitario compreso, senza
 invito e senza audit. Lo stesso ramo cancellava i contenitori clinici.
+
+> **Aggiornamento PP-04 (2026-09-04, [ADR-0114](18-decision-log.md#adr-0114--larea-di-un-atleta-si-apre-sulla-tessera-non-sul-legame-superstite)).**
+> Quella rotta adesso **chiede anche la tessera**: `findAthleteProfileForUser`
+> onora `athletes.user_id` solo se la persona ha ancora, in quel club, una
+> tessera il cui ruolo risolto e `athlete` — oppure e `clubs.creator_id`. E la
+> seconda linea sulla stessa porta: la prima chiude chi scrive il legame senza
+> averne diritto, questa chiude chi lo **conserva** dopo che la tessera e
+> sparita. Due strade producevano quel legame superstite, entrambe misurate
+> contro il database vero: il cambio di ruolo (`assignClubRole` cancella le
+> tessere sostituite senza chiamare nessuno sweep) e la revoca di una tessera il
+> cui slug non e fra i tre di `ATHLETE_ROLES`. Vedi PP04-D1 e PP04-D2 in
+> [16](16-technical-debt.md).
+
+> **Aggiornamento PP-04 (2026-09-04, [ADR-0116](18-decision-log.md#adr-0116--un-accesso-a-nome-di-un-minore-si-dichiara-non-si-clicca)).**
+> Aprire un accesso EasyGame **a nome di un minore** era un gesto senza attrito
+> e senza traccia: nessun controllo sull'eta, e nessuna riga che dicesse che
+> qualcuno lo aveva autorizzato. Adesso l'invito a un atleta minorenne — o
+> senza data di nascita, che si tratta allo stesso modo — pretende
+> `acknowledgeMinor === true`, e l'audit dell'invito porta `minor` e
+> `guardian_acknowledged`. **Non e un controllo di autorizzazione**: risponde
+> 400 e non 403, perche il ruolo puo compiere l'azione. E la registrazione di
+> una decisione che il repository non e in grado di prendere da solo — le tre
+> domande legali ancora aperte sono elencate nell'ADR.
+
+> **Aggiornamento PP-04 (2026-09-04, [ADR-0117](18-decision-log.md#adr-0117--la-stessa-domanda-per-i-due-lettori-dello-stesso-campo) e [ADR-0118](18-decision-log.md#adr-0118--il-cruscotto-della-famiglia-lo-apre-un-tutore)).**
+> **Chiudere una porta non basta se il campo ha due lettori.** ADR-0114 ha
+> chiuso `findAthleteProfileForUser`; `athleteBelongsToParent` in
+> `parent-dashboard.ts` legge lo **stesso** `athletes.user_id` e non si faceva
+> quella domanda. Misurato contro PostgreSQL con **zero tessere** nel club:
+> `GET /api/v1/athlete-accounts/me` rispondeva 403 e
+> `GET /api/parent-dashboard/<la stessa scheda>` rispondeva 200, con quote,
+> ricevute, anagrafica dei tutori e contenuto clinico; e
+> `PATCH .../notifications` **scriveva**. La domanda vive ora in un modulo
+> solo, `src/lib/server/athlete-membership.ts`, e i due lettori la chiamano.
+>
+> Nello stesso giro: l'elenco chiuso `CAMPI_AREA_ATLETA` valeva sulla
+> **proiezione** e non sulla **rotta**, quindi un atleta in regola apriva il
+> cruscotto della propria famiglia e riceveva il payload intero — incluso
+> l'indirizzo del file del certificato medico, che
+> `src/lib/health/permissions.ts` nega al ruolo `athlete`. Le rotte del
+> cruscotto passano ora `allowSelfAthleteLink: false`: quelle le apre un
+> **tutore**.
+>
+> Regola generale che ne esce, e che vale oltre questo caso: **quando si
+> stringe la lettura di una colonna, si cercano tutti i suoi lettori.** Un
+> `grep` sul nome della colonna costa un minuto; qui la differenza fra i due
+> lettori valeva un payload intero.
+
+> **Aggiornamento PP-04 (2026-09-05, [ADR-0122](18-decision-log.md#adr-0122--chi-e-latleta-non-e-anche-la-propria-famiglia)).**
+> **Il fix qui sopra aveva solo spostato il difetto.** Una seconda revisione
+> ostile ha misurato che ne `ancoraAtleta` (ADR-0117) ne
+> `allowSelfAthleteLink` (ADR-0118) venivano raggiunti:
+> `athleteBelongsToParent` prova prima il ramo diretto e **poi** quello del
+> tutore, e `isGuardianLinkedToUser` accetta `guardians[].email` come ripiego
+> di `linkedUserEmail`. La casella di famiglia e scritta due volte per come il
+> prodotto funziona — la segreteria la mette nel tutore e su quella stessa
+> casella invita il ragazzo — quindi l'utenza dell'atleta usciva dal ramo del
+> tutore e riceveva di nuovo il payload intero. Anche con **zero** tessere.
+>
+> Due mosse. Il ramo diretto e ora **esclusivo**: chi porta `athletes.user_id`
+> e quella scheda, non la sua famiglia, e per lui il ramo del tutore non viene
+> nemmeno valutato. E il predefinito di `allowSelfAthleteLink` si **inverte**:
+> vale `false` se non lo si chiede, cosi dimenticarsene chiude una porta
+> invece di aprirla. Lo dichiarano quattro chiamanti — l'area atleta, la
+> bacheca, l'RSVP e `GET /api/v1/auth/memberships` — e un test li conta.
+>
+> Regola generale, e vale oltre questo caso: **una guardia posta su un ramo non
+> difende gli altri rami della stessa funzione**, e un predefinito permissivo
+> con deroghe negative sparse vale quanto la memoria di chi scrive la prossima
+> rotta. Il verso giusto e quello in cui l'errore chiude.
+
+> **Aggiornamento PP-04 (2026-09-05, [ADR-0123](18-decision-log.md#adr-0123--essere-una-scheda-non-e-un-campo-e-unidentita-che-la-revoca-non-cancella)).**
+> **La guardia era scritta sul campo che la revoca cancella.** ADR-0122 chiude
+> il ramo del tutore a chi porta `athletes.user_id`; `unlinkAthleteAccount` e
+> `revokeAthleteAccess` azzerano proprio quel campo. Dopo il gesto, la stessa
+> persona ricadeva nel ramo del tutore — dove la coincidenza della casella
+> vale come legame — e il cruscotto della famiglia tornava a rispondere 200
+> mentre l'area atleta rispondeva 403. Il gesto con cui il club toglie
+> l'accesso era il gesto che lo riapriva, **piu largo di prima**.
+>
+> L'identita durevole la porta `athlete_account_invites`: un invito
+> **accettato** dice «questa utenza e diventata l'account di questa scheda», e
+> ne la revoca ne lo scollegamento lo cancellano.
+> `athleteCardsEverOwnedByUser` in `src/lib/server/athlete-membership.ts` la
+> legge, accanto a `clubsWhereStillAthlete`.
+>
+> Regola generale: **una guardia che poggia su un campo che un'altra
+> operazione azzera non e una guardia, e una coincidenza.** Prima di scrivere
+> una condizione di accesso su una colonna, si cerca chi la mette a `null`.
+>
+> **Resta aperto e non e di PP-04.** Lo stesso ramo ha la stessa debolezza sul
+> **genitore revocato**: `clearLinkedFields` non azzera `guardians[].email`,
+> che e il campo su cui `isGuardianLinkedToUser` ricade. Un genitore revocato
+> con una tessera residua nel club continua a leggere e a scrivere del minore.
+> Preesistente a PP-04, in dominio PP-02/PP-03: debito **PP04-D8**, con la
+> riproduzione.
+>
+> **Aggiornamento PP-04 (2026-09-05, [ADR-0125](18-decision-log.md), round
+> conclusivo).** L'identita durevole qui sopra ha poi fatto **un lavoro di
+> troppo**. Serviva a **escludere** dal ramo del tutore; e finita anche ad
+> **ammettere** alle superfici proprie dell'atleta — la bacheca, l'RSVP — che
+> invece vogliono il legame **vivo**, perche e esattamente cio che lo
+> scollegamento toglie. Dopo «Scollega account» l'area atleta rispondeva 403 e
+> `GET .../board` **200**, con la scrittura «l'ho letto»; e quando il club
+> affidava la scheda a **un'altra persona**, la vecchia utenza continuava a
+> leggerne la bacheca, senza che nessun gesto del pannello la chiudesse fuori.
+>
+> Regola generale, seconda meta di quella qui sopra: **una condizione di
+> accesso che risponde a due domande risponde male ad almeno una.** Se una
+> guardia serve a escludere e ad ammettere, sono due espressioni, non una.
+>
+> Nello stesso round, altre due dello stesso ceppo. I lettori di
+> `athletes.user_id` erano **tre**, non due: `athlete-profile/[athleteId]`
+> consegnava il fascicolo **clinico intero** su un legame sopravvissuto alla
+> tessera, e con un legame ereditato (PP04-D6) quel fascicolo era di **un'altra
+> persona**. E la guardia «due atleti non finiscono sulla stessa utenza»
+> interrogava `athletes.user_id`, che lo scrive il **riscatto**: fra due inviti
+> quel campo e vuoto, quindi due fratelli su una casella di famiglia sola
+> condividevano un'identita e quell'identita apriva la bacheca di entrambe le
+> schede. Riproduzione: `scripts/pp-04-round-conclusivo-probe.mjs`, 112 prove.
+> **Aggiornamento PP-04 (2026-09-04, [ADR-0119](18-decision-log.md#adr-0119--il-token-dinvito-si-consuma-dentro-la-transazione-e-a-condizione)).**
+> Il riscatto dell'invito atleta leggeva la riga **fuori** dalla transazione e
+> dentro la aggiornava per identificativo: due riscatti simultanei dello stesso
+> token passavano entrambi, e ne uscivano due `sendPasswordResetChallenge`,
+> cioe **due token di reset validi da un gesto solo**. Il replay sequenziale
+> era gia respinto — e la concorrenza a passare, e un fake Prisma non la mostra.
+> Il consumo e ora `updateMany` con `status: "sent"` nel `where`, dentro la
+> transazione.
 
 Non era la prima volta che questa coppia si divideva: il perimetro di sede era
 gia stato aggiunto all'`upsert` una revisione fa. Le guardie ora stanno in

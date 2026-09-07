@@ -56,6 +56,13 @@ const errorStatus = (error: any) =>
  * per chi arrivasse da una rotta scritta domani.
  */
 const scopeFor = async (userId: string, athleteId: string) => {
+  /*
+    **Un consenso lo esprime chi ne ha la responsabilita** (ADR-0118). Per un
+    minore e il tutore — `CONSENT_SUBJECT_KINDS` porta `guardian` proprio per
+    questo — e il legame diretto `athletes.user_id` non e quella
+    responsabilita. Il dominio ha poi il proprio `assertSubjectMayDecide`:
+    due controlli, e nessuno dei due e ridondante.
+  */
   if (!(await canParentAccessAthlete(userId, athleteId))) {
     throw new Error("Accesso negato: atleta non collegato");
   }

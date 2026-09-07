@@ -519,3 +519,91 @@ test("l'evento porta la categoria, la fine e la presenza registrata", async () =
   assert.equal(evento.location, "Palestra comunale");
   assert.equal(evento.attendanceStatus, "present");
 });
+
+/* ==================================================================== *
+ *  3. Il nome della squadra, e le categorie che escono (PP-04)
+ * ==================================================================== */
+
+/**
+ * **«Le mie squadre» stampava due UUID.**
+ *
+ * `athlete_category_memberships.category_name` e nullable, e lo e davvero: la
+ * popola il rinnovo di stagione, e non la popola nessun altro percorso che
+ * crei un'appartenenza. Il ripiego di `serializeAthleteCard` era
+ * `membership.category_id`, cioe un identificativo, sotto il titolo di una
+ * pagina che si chiama «Le mie squadre».
+ *
+ * L'ha trovato **guardando lo schermo con una sessione vera**, non un test:
+ * ogni controllo sui nomi dei campi passava, perche il campo c'era e aveva un
+ * valore. E la forma di CLAUDE.md §11.8 in cui il codice non manca — dice una
+ * cosa che non serve a nessuno.
+ */
+test("il nome della squadra si risolve dal catalogo del club quando la colonna e vuota", async () => {
+  const seme = semeArea();
+  seme.athlete[0].category_memberships = [
+    {
+      category_id: "cat-1",
+      /* Come la scrive chi non e il rinnovo di stagione: senza nome. */
+      category_name: null,
+      site_id: "sede-1",
+      is_primary: true,
+    },
+  ];
+
+  const fake = createFakePrisma(seme);
+  setPrismaClientForTests(fake.client);
+
+  const area = await dominio.readAthleteAreaOverview(UTENTE_ATLETA);
+
+  assert.equal(area.categories.length, 1);
+  assert.equal(
+    area.categories[0].name,
+    "Under 15",
+    "il catalogo del club e l'autorita: `clubs.categories` porta il nome",
+  );
+  assert.equal(
+    area.categories[0].name,
+    area.categories[0].name.replace(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      "UN-UUID",
+    ),
+    "e non un identificativo",
+  );
+});
+
+/**
+ * **Delle categorie di un evento escono solo le sue** (ADR-0120).
+ *
+ * L'incrocio con le squadre dell'atleta lo faceva la schermata, e un filtro
+ * nel client non e un filtro: la rotta risponde a `curl`. Non uscivano i nomi
+ * — nessuna superficie dell'atleta risolve un identificativo — ma la
+ * cardinalita e la correlazione: quanti gruppi tocca un evento, e quali
+ * eventi ne condividono uno.
+ */
+test("l'evento non porta all'atleta le categorie che non sono sue", async () => {
+  const seme = semeArea();
+  const allenamento = seme.club[0].trainings[0];
+
+  /* L'evento e congiunto: la sua e la primaria, l'altra e di un'altra squadra. */
+  allenamento.categories = ["cat-1", "cat-di-un-altro"];
+  allenamento.categoryIds = ["cat-1", "cat-di-un-altro"];
+  seme.athlete[0].organization = seme.club[0];
+
+  const fake = createFakePrisma(seme);
+  setPrismaClientForTests(fake.client);
+
+  const area = await dominio.readAthleteAreaOverview(UTENTE_ATLETA);
+  const evento = [...area.trainings.upcoming, ...area.trainings.history][0];
+
+  assert.ok(evento, "l'allenamento compare");
+  assert.deepEqual(
+    evento.categories,
+    ["cat-1"],
+    "esce la sua, e solo la sua",
+  );
+  assert.equal(
+    JSON.stringify(area).includes("cat-di-un-altro"),
+    false,
+    "e da nessun'altra parte dell'area",
+  );
+});

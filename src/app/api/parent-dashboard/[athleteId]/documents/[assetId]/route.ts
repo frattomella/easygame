@@ -31,6 +31,17 @@ export async function GET(request: Request, context: Context) {
     const dashboard = await getParentDashboardData(
       session.db.user_id,
       context.params.athleteId,
+      /*
+        **Il cruscotto della famiglia lo apre un tutore** (ADR-0118, ADR-0122).
+
+        Da qui esce il payload intero — quote, ricevute, anagrafica dei tutori,
+        contenuto clinico e indirizzo del file del certificato — mentre
+        l'atleta di quella scheda ne riceve, dalla propria area, l'elenco
+        chiuso di `CAMPI_AREA_ATLETA`. Non c'e niente da dichiarare: dopo
+        ADR-0122 il legame diretto e **chiuso per predefinito**, e questa riga
+        e qui perche il prossimo lettore non lo riapra credendo di correggere
+        una dimenticanza.
+      */
     );
     if (!dashboard) {
       return NextResponse.json(

@@ -51,6 +51,13 @@ export async function POST(request: Request, context: ContestoAtleta) {
       await sendAthleteAccountInvite(risolto.scope, {
         athleteId: context.params.athleteId,
         email: String(corpo.email ?? ""),
+        /*
+          **`=== true` e non un truthy** (ADR-0116): la conferma sul minore
+          e una dichiarazione, e la stringa `"false"` — che e cio che arriva
+          da una form mal serializzata — e truthy. Il dominio ricontrolla con
+          la stessa severita: qui si normalizza, non si autorizza.
+        */
+        acknowledgeMinor: corpo.acknowledgeMinor === true,
       }),
       201,
     );

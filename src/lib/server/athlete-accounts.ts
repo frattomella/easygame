@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "crypto";
 import { reportServerError } from "./observability";
 import { athleteWithinAccessScope } from "./access-scope-query";
+import { clubsWhereStillAthlete } from "./athlete-membership";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
 import { prisma } from "./prisma";
@@ -11,6 +12,7 @@ import {
 import { hashPassword } from "./auth";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { roleHasPermission } from "@/lib/permissions/catalog";
+import { normalizeAccessRole } from "@/lib/access-roles";
 import {
   AUDIT_ACTIONS,
   recordAuditEvent,
@@ -19,7 +21,10 @@ import {
 import { sendTransactionalEmail } from "./email/email-service";
 import { renderEmailLayout } from "./email/layout";
 import { sendPasswordResetChallenge } from "./auth-workflows";
-import { getParentDashboardData } from "./parent-dashboard";
+import {
+  getParentDashboardData,
+  guardianAccessIdentities,
+} from "./parent-dashboard";
 import { readAthleteRsvpInvitations } from "./rsvp";
 import { escapeHtml } from "@/lib/documents/document-view";
 
@@ -138,6 +143,73 @@ const assertEmail = (value: string) => {
   }
 };
 
+/* ========================================================================= *
+ *  Il minorenne (PP-04, ADR-0116)
+ * ========================================================================= */
+
+/**
+ * **La maggiore eta, e perche la data mancante conta come minore.**
+ *
+ * Il numero e lo stesso di `src/lib/server/data-subject.ts` e la regola di
+ * lettura pure: una data assente o illeggibile **si tratta come minore**. In
+ * una societa sportiva un'anagrafica senza data di nascita e quasi sempre un
+ * ragazzo inserito in fretta, e il default prudente costa una conferma in piu
+ * (ADR-0105).
+ *
+ * I due valori sono ripetuti qui invece che importati, e non e una svista:
+ * `data-subject.ts` e il proprietario dei diritti dell'interessato e non
+ * esporta questa domanda — esporta un inventario polimorfo su sei indici che
+ * qui non serve a niente. Se la soglia cambiasse per legge, i due posti vanno
+ * cambiati insieme, ed e scritto in tutti e due.
+ */
+const ETA_MAGGIORE = 18;
+
+export const athleteIsMinor = (birthDate: unknown, now = new Date()) => {
+  if (!birthDate) return true;
+  const nato = new Date(birthDate as any);
+  if (Number.isNaN(nato.getTime())) return true;
+
+  const diciotto = new Date(nato);
+  diciotto.setFullYear(diciotto.getFullYear() + ETA_MAGGIORE);
+  return diciotto.getTime() > now.getTime();
+};
+
+/**
+ * **Dare un accesso proprio a un minore e una decisione, non un clic.**
+ *
+ * EasyGame non ha — e questa lane non se la inventa — una policy che dica se
+ * un tredicenne possa avere un accesso proprio, chi debba autorizzarlo, e come
+ * lo si prova. Finche quella policy non esiste, il comportamento e il piu
+ * conservativo che il prodotto sappia gia esprimere: **il gesto non passa in
+ * silenzio**. Chi lo compie dichiara, in modo esplicito e registrato
+ * nell'audit, che chi ha la responsabilita genitoriale lo ha autorizzato.
+ *
+ * E la stessa forma della cancellazione di un minore (ADR-0105): non un
+ * divieto — vietare deciderebbe una policy tanto quanto permettere — ma una
+ * conferma separata che lascia un nome, un'ora e un club accanto alla scelta.
+ * Il giorno in cui la policy vera arriva, questa e la riga che dice **chi**
+ * aveva deciso prima.
+ *
+ * Non e un errore di autorizzazione e **non porta la stringa «Accesso
+ * negato»**: il ruolo puo fare questa cosa, e la dichiarazione a mancare. Il
+ * route handler generico lo mappa quindi su 400, che e cio che e.
+ */
+const assertMinoreAutorizzato = (
+  atleta: { birth_date?: Date | string | null },
+  acknowledgeMinor: unknown,
+  now = new Date(),
+) => {
+  const minore = athleteIsMinor(atleta.birth_date, now);
+  if (minore && acknowledgeMinor !== true) {
+    throw new Error(
+      "Questo atleta risulta minorenne, o non ha una data di nascita in anagrafica: " +
+        "per aprirgli un accesso EasyGame serve la conferma esplicita che chi ne ha la " +
+        "responsabilita genitoriale lo ha autorizzato.",
+    );
+  }
+  return minore;
+};
+
 /*
   **Il token esiste in chiaro solo qui dentro.**
 
@@ -218,6 +290,8 @@ const caricaAtletaDelClubAttivo = async (
       user_id: true,
       first_name: true,
       last_name: true,
+      /* La data di nascita: e cio a cui `athleteIsMinor` risponde (ADR-0116). */
+      birth_date: true,
       data: true,
     },
   });
@@ -250,8 +324,30 @@ const caricaAtletaDelClubAttivo = async (
 
 export type AthleteAccountState = {
   athleteId: string;
-  /** `none` | `invited` | `active`. Si **deriva**, non si scrive. */
-  status: "none" | "invited" | "active";
+  /**
+   * `none` | `invited` | `active` | `revoked`. Si **deriva**, non si scrive.
+   *
+   * **Il quarto stato e stato aggiunto da PP-04**, e non e una sfumatura.
+   * Prima, un accesso revocato tornava indistinguibile da un accesso mai
+   * aperto: entrambi «Nessun account». La segreteria che riapriva la scheda il
+   * giorno dopo non aveva modo di sapere se quell'atleta non era mai stato
+   * invitato o se qualcuno gli aveva **tolto** l'accesso — che sono la stessa
+   * schermata e due fatti opposti, e il secondo e quello su cui si telefona.
+   *
+   * La storia lo diceva gia, in fondo al pannello; ma uno stato che si legge
+   * solo scorrendo un elenco non e lo stato, e cio che il pannello dichiarava
+   * in testa era falso.
+   */
+  status: "none" | "invited" | "active" | "revoked";
+  /**
+   * **Vero quando l'anagrafica dice minorenne, e anche quando non dice
+   * niente** (ADR-0116). Non e una decorazione della schermata: e il campo su
+   * cui il pannello sa di dover chiedere la conferma che il dominio pretende.
+   *
+   * Non esce la data di nascita, che qui non serve a niente: la domanda e
+   * «serve la conferma?», e la risposta e un booleano.
+   */
+  isMinor: boolean;
   /** L'utenza collegata, quando l'accesso e attivo. Mai l'hash, mai il token. */
   account: {
     userId: string;
@@ -267,6 +363,18 @@ export type AthleteAccountState = {
     expiresAt: string;
     expired: boolean;
   } | null;
+  /**
+   * L'indirizzo a cui l'ultima cosa e stata mandata, e quando.
+   *
+   * Vivono fuori da `invite` perche `invite` e **solo quello vivo**: dopo una
+   * revoca o una scadenza quel ramo e nullo, e con esso spariva dallo schermo
+   * anche «a chi» e «quando», che sono le due domande che si fanno proprio in
+   * quel momento.
+   */
+  lastInviteEmail: string | null;
+  lastInviteAt: string | null;
+  /** Quando l'accesso e stato tolto, se e stato tolto. */
+  revokedAt: string | null;
   /** La storia: ogni invito, con il suo esito. Nessun token, in nessuna riga. */
   history: {
     id: string;
@@ -331,9 +439,67 @@ export const readAthleteAccountState = async (
       (riga) => riga.status === "sent" && new Date(riga.expires_at) > adesso,
     ) || null;
 
+  /*
+    **«Revocato» si deriva, come tutto il resto** (PP-04).
+
+    Non c'e una colonna da tenere allineata, e non ne va aggiunta una: la
+    revoca ha gia lasciato due tracce diverse, e sono queste due che vanno
+    lette insieme.
+
+    - un invito **accettato** e la prova che un accesso e esistito. Se adesso
+      non c'e nessuna utenza collegata, qualcuno gliel'ha tolto: e la revoca
+      dell'**accesso**;
+    - un invito **revocato** e la revoca di un invito che non era ancora
+      diventato un accesso.
+
+    Sono due fatti diversi e la scheda li distingue nella storia; qui contano
+    per la stessa cosa — «l'accesso c'era o stava per esserci, e non c'e piu» —
+    perche la domanda a cui lo stato deve rispondere e «devo rimandarlo?».
+
+    **Un invito solo scaduto non e una revoca**: nessuno ha deciso niente,
+    e semplicemente passato del tempo. Resta `none`, e la data dell'ultimo
+    invito dice perche.
+  */
+  const ultimo = inviti[0] || null;
+
+  /*
+    **La domanda si fa all'ultimo invito, non a uno qualunque** (PP-04,
+    ADR-0121).
+
+    La stesura precedente cercava, in tutta la storia, *un* invito accettato
+    oppure *un* invito con `revoked_at`. Ma `revoked_at` non lo scrive solo una
+    revoca: lo scrive `chiudiInvitoVivo(..., "revoked")`, che e cio che fanno
+    **il reinvio** e **il cambio di indirizzo**. Un invito reinviato — o mandato
+    all'indirizzo corretto — che poi **scade** lasciava dietro di se una riga
+    revocata, e il pannello dichiarava «Accesso revocato» a un atleta che non
+    ne aveva mai avuto uno, con una `revokedAt` che era la data del reinvio.
+
+    Il commento qui sopra diceva gia la cosa giusta — «un invito solo scaduto
+    non e una revoca» — e la derivazione non la realizzava: e il difetto piu
+    difficile da vedere, quello in cui l'intento e scritto e il codice dice
+    altro.
+
+    Sulla riga piu recente le due clausole di ADR-0115 restano intere:
+    `accepted_at` dice che un accesso e esistito e adesso non c'e piu;
+    `revoked_at` dice che l'invito e stato tolto prima di diventarlo. Una riga
+    solo `expired` non dice ne l'una ne l'altra.
+  */
+  const revocato =
+    !utente && !vivo && Boolean(ultimo?.accepted_at || ultimo?.revoked_at);
+
   return {
     athleteId: atleta.id,
-    status: utente ? "active" : vivo ? "invited" : "none",
+    status: utente
+      ? "active"
+      : vivo
+        ? "invited"
+        : revocato
+          ? "revoked"
+          : "none",
+    isMinor: athleteIsMinor(atleta.birth_date, adesso),
+    lastInviteEmail: ultimo?.email ?? null,
+    lastInviteAt: iso(ultimo?.sent_at),
+    revokedAt: revocato ? iso(ultimo?.revoked_at) : null,
     account: utente
       ? {
           userId: utente.id,
@@ -492,7 +658,16 @@ export type AthleteInviteResult = {
  */
 export const sendAthleteAccountInvite = async (
   scope: AthleteAccountsScope,
-  input: { athleteId: string; email: string },
+  input: {
+    athleteId: string;
+    email: string;
+    /**
+     * Obbligatoriamente `true` quando l'atleta e minorenne, o quando la data
+     * di nascita manca (ADR-0116). Dichiara che chi ha la responsabilita
+     * genitoriale ha autorizzato l'accesso, e finisce nell'audit.
+     */
+    acknowledgeMinor?: boolean;
+  },
 ): Promise<AthleteInviteResult> => {
   await assertPuoGestireAccessi(scope, input.athleteId);
   const atleta = await caricaAtletaDelClubAttivo(scope, input.athleteId);
@@ -503,8 +678,49 @@ export const sendAthleteAccountInvite = async (
     );
   }
 
+  /*
+    **Prima dell'email, e prima di creare l'utenza.** Un rifiuto che arrivasse
+    dopo `risolviUtenza` lascerebbe in archivio un'utenza senza credenziali
+    nata da un gesto che il dominio ha poi rifiutato: e un residuo, ed e per un
+    minore.
+  */
+  const minore = assertMinoreAutorizzato(atleta, input.acknowledgeMinor);
+
   const email = normalizeEmail(input.email);
   assertEmail(email);
+
+  /*
+    **Un accesso mandato alla casella del tutore non e l'accesso dell'atleta**
+    (ADR-0124).
+
+    `risolviUtenza` non crea una seconda utenza per un indirizzo che ne ha gia
+    una: la **trova**. Se quell'indirizzo e il recapito di un tutore di questa
+    stessa scheda, cio che nasce da qui non e l'account del ragazzo — e un
+    secondo cappello sull'account del genitore. Le conseguenze sono due, e
+    nessuna delle due e cio che la segreteria crede di fare:
+
+    1. la mail con il link di riscatto, e da li in poi ogni notifica
+       dell'«atleta», arrivano nella casella del genitore. Il minore non
+       riceve nessuna credenziale propria: il gesto che ADR-0116 fa dichiarare
+       — «gli apro un accesso suo» — non e il gesto che avviene;
+    2. quella identita diventa insieme l'account della scheda e un tutore, e
+       `athleteBelongsToParent` deve poi decidere quale dei due e. ADR-0124 le
+       da una risposta, ma la risposta migliore e non creare la domanda.
+
+    Percio si rifiuta, e si dice cosa fare. **Non e un errore di
+    autorizzazione** e non porta «Accesso negato»: il ruolo puo compiere
+    l'azione, e l'indirizzo a essere quello sbagliato. Il route handler
+    generico lo mappa su 400, come per la dichiarazione mancante di ADR-0116.
+  */
+  const identitaDeiTutori = guardianAccessIdentities(atleta.data);
+  if (identitaDeiTutori.has(email)) {
+    throw new Error(
+      "Questo indirizzo e gia il recapito di un tutore di questa scheda: l'invito " +
+        "arriverebbe nella casella del tutore e l'accesso nascerebbe sulla sua utenza, " +
+        "non su una dell'atleta. Usa un indirizzo dell'atleta, oppure togli quel " +
+        "recapito dai tutori.",
+    );
+  }
 
   const club = await prisma.club.findUnique({
     where: { id: atleta.organization_id },
@@ -528,6 +744,64 @@ export const sendAthleteAccountInvite = async (
   if (giaAtleta && giaAtleta.id !== atleta.id) {
     throw new Error(
       "Questo indirizzo e gia collegato alla scheda di un altro atleta",
+    );
+  }
+
+  /*
+    **E nemmeno quello di un altro atleta gia invitato** (PP-04, ADR-0125).
+
+    La guardia qui sopra dichiara di chiudere «due atleti sulla stessa
+    utenza», e guarda `athletes.user_id` — che il **riscatto** scrive. Fra due
+    inviti quel campo e ancora vuoto, quindi la domanda arrivava sempre troppo
+    presto. Il round conclusivo lo ha misurato contro PostgreSQL con la
+    sequenza piu normale che una segreteria possa fare — due fratelli, una
+    casella di famiglia sola, i due inviti mandati prima che qualcuno clicchi:
+    entrambi passavano, entrambi si riscattavano, e due schede finivano a
+    portare la **stessa** `user_id`.
+
+    Da li in poi il prodotto sceglie: `findAthleteProfileForUser` prende il
+    primo candidato, e l'altro ragazzo non ha nessun accesso mentre il club
+    legge «Accesso attivo». E `eLaPersonaStessa` risponde di si per tutte e
+    due, quindi quell'unica identita apre la bacheca di entrambe le schede.
+
+    Una casella, un atleta. La coppia con l'invito ancora vivo e la seconda
+    meta della stessa domanda, e va fatta qui perche qui c'e ancora una
+    persona a cui dirlo.
+  */
+  const giaInvitato = await prisma.athleteAccountInvite.findFirst({
+    where: {
+      user_id: user.id,
+      status: "sent",
+      athlete_id: { not: atleta.id },
+    },
+    select: { athlete_id: true },
+  });
+  if (giaInvitato) {
+    throw new Error(
+      "Questo indirizzo ha gia un invito in corso sulla scheda di un altro " +
+        "atleta: una casella puo essere l'accesso di un atleta solo. Revoca " +
+        "quell'invito, oppure usa un indirizzo diverso per questa scheda.",
+    );
+  }
+
+  /*
+    **La stessa domanda dall'altro capo** (ADR-0124).
+
+    La guardia sull'indirizzo copre il caso in cui il recapito del tutore e
+    scritto per esteso. Ma un tutore puo essere legato per `linkedUserId` a
+    un'utenza il cui indirizzo e cambiato, e allora la coincidenza non si vede
+    dalla casella: si vede dall'utenza risolta.
+
+    Qui `risolviUtenza` e gia passata, e va bene: se l'indirizzo non aveva
+    un'utenza, quella appena creata non puo essere il tutore di nessuno, e
+    questo ramo non scatta. Scatta solo su un'utenza **preesistente**, quindi
+    non lascia nessun residuo.
+  */
+  if (identitaDeiTutori.has(String(user.id).trim().toLowerCase())) {
+    throw new Error(
+      "Questa utenza e gia collegata come tutore di questa scheda: l'accesso " +
+        "dell'atleta nascerebbe sulla stessa identita del tutore. Usa un'utenza " +
+        "dell'atleta.",
     );
   }
 
@@ -605,6 +879,14 @@ export const sendAthleteAccountInvite = async (
       /* Un'utenza nuova o una che esisteva gia: e la domanda che si fa dopo. */
       account_created: creata,
       delivered,
+      /*
+        **Chi ha aperto un accesso a un minore, e quando** (ADR-0116). L'audit
+        porta gia attore, ruolo, club e ora: qui si aggiunge il fatto che
+        rende quella riga interessante, cioe che il soggetto era un minore e
+        che la responsabilita genitoriale e stata dichiarata.
+      */
+      minor: minore,
+      guardian_acknowledged: minore ? true : null,
     },
   });
 
@@ -680,9 +962,21 @@ export const resendAthleteAccountInvite = async (
 
   await chiudiInvitoVivo(atleta.organization_id, atleta.id, "revoked");
 
+  /*
+    **Il reinvio non chiede di nuovo la conferma sul minore**, e non e una
+    scappatoia: la decisione e gia stata presa e registrata quando l'invito che
+    stiamo rimandando e nato — stessa persona, stesso indirizzo, stesso link
+    verso la stessa casella. Chiederla di nuovo trasformerebbe una conferma in
+    una casella da spuntare a ogni clic, che e il modo in cui una conferma
+    smette di significare qualcosa.
+
+    Il cambio di indirizzo, che manda il link a una casella **diversa**, la
+    richiede eccome: vedi `changeAthleteAccountEmail`.
+  */
   return sendAthleteAccountInvite(scope, {
     athleteId: atleta.id,
     email: vivo.email,
+    acknowledgeMinor: true,
   });
 };
 
@@ -696,7 +990,16 @@ export const resendAthleteAccountInvite = async (
  */
 export const changeAthleteAccountEmail = async (
   scope: AthleteAccountsScope,
-  input: { athleteId: string; email: string },
+  input: {
+    athleteId: string;
+    email: string;
+    /**
+     * Come per il primo invito, e per la stessa ragione: il link va a una
+     * casella **diversa** da quella su cui la decisione era stata presa
+     * (ADR-0116).
+     */
+    acknowledgeMinor?: boolean;
+  },
 ): Promise<AthleteInviteResult> => {
   await assertPuoGestireAccessi(scope, input.athleteId);
   const atleta = await caricaAtletaDelClubAttivo(scope, input.athleteId);
@@ -712,7 +1015,11 @@ export const changeAthleteAccountEmail = async (
 
   await chiudiInvitoVivo(atleta.organization_id, atleta.id, "revoked");
 
-  return sendAthleteAccountInvite(scope, { athleteId: atleta.id, email });
+  return sendAthleteAccountInvite(scope, {
+    athleteId: atleta.id,
+    email,
+    acknowledgeMinor: input.acknowledgeMinor,
+  });
 };
 
 /* ========================================================================= *
@@ -739,6 +1046,42 @@ export const revokeAthleteAccess = async (
 
   const utenteCollegato = asText(atleta.user_id) || null;
 
+  /*
+    **Le tessere da togliere si scelgono per identita, non per slug** (PP-04).
+
+    `role: "athlete"` toglieva **solo** la riga scritta con quella parola. Una
+    tessera con lo slug italiano, o quella di un **ruolo personalizzato** il cui
+    `base_role` e `athlete` (ADR-0102), sopravviveva alla revoca: la persona
+    restava dentro il club come atleta, con il ruolo che le era stato dato,
+    dopo che il club aveva letto «Accesso revocato».
+
+    `normalizeAccessRole` e il vocabolario del repository e conosce gli alias;
+    per il ruolo personalizzato la risposta sta su `club_roles.base_role`, che
+    si legge — non si scrive — dal proprietario di quel dominio.
+  */
+  const tessereDaTogliere = utenteCollegato
+    ? (
+        await prisma.organizationUser.findMany({
+          where: {
+            organization_id: atleta.organization_id,
+            user_id: utenteCollegato,
+          },
+          select: {
+            id: true,
+            role: true,
+            custom_role: { select: { base_role: true } },
+          },
+        })
+      )
+        .filter(
+          (tessera) =>
+            normalizeAccessRole(
+              tessera.custom_role?.base_role || tessera.role,
+            ) === "athlete",
+        )
+        .map((tessera) => tessera.id)
+    : [];
+
   await prisma.$transaction(async (tx) => {
     if (utenteCollegato) {
       await tx.athlete.update({
@@ -746,13 +1089,14 @@ export const revokeAthleteAccess = async (
         data: { user_id: null },
       });
 
-      await tx.organizationUser.deleteMany({
-        where: {
-          organization_id: atleta.organization_id,
-          user_id: utenteCollegato,
-          role: "athlete",
-        },
-      });
+      if (tessereDaTogliere.length) {
+        await tx.clubAccessScope.deleteMany({
+          where: { organization_user_id: { in: tessereDaTogliere } },
+        });
+        await tx.organizationUser.deleteMany({
+          where: { id: { in: tessereDaTogliere } },
+        });
+      }
     }
 
     const vivo = await tx.athleteAccountInvite.findFirst({
@@ -769,6 +1113,34 @@ export const revokeAthleteAccess = async (
         where: { id: vivo.id },
         data: { status: "revoked", revoked_at: new Date() },
       });
+    } else if (utenteCollegato) {
+      /*
+        **Quando si revoca un accesso attivo non c'e nessun invito vivo**: c'e
+        un invito **accettato**, e finora la revoca non lasciava su di lui
+        nessun segno. Conseguenza: lo stato «Accesso revocato» si poteva
+        dedurre, ma non si poteva dire **quando**.
+
+        Lo `status` resta `accepted` — quell'invito e stato accettato davvero, e
+        riscriverlo cancellerebbe un fatto — e si scrive solo `revoked_at`, che
+        e la data in cui l'accesso nato da quell'invito e stato tolto. Le due
+        colonne dicono due cose diverse e adesso le dicono entrambe.
+      */
+      const accettato = await tx.athleteAccountInvite.findFirst({
+        where: {
+          organization_id: atleta.organization_id,
+          athlete_id: atleta.id,
+          status: "accepted",
+          revoked_at: null,
+        },
+        orderBy: { sent_at: "desc" },
+      });
+
+      if (accettato) {
+        await tx.athleteAccountInvite.update({
+          where: { id: accettato.id },
+          data: { revoked_at: new Date() },
+        });
+      }
     }
   });
 
@@ -958,6 +1330,32 @@ export const acceptAthleteAccountInvite = async (
   const senzaCredenzialiNote = !utente.email_verified_at;
 
   await prisma.$transaction(async (tx) => {
+    /*
+      **Una utenza, una scheda — e la decisione la prende chi scrive**
+      (PP-04, ADR-0125).
+
+      `sendAthleteAccountInvite` chiede gia due volte se questo indirizzo
+      appartiene a un altro atleta, ma entrambe le domande arrivano prima che
+      il legame esista: fra i due inviti `athletes.user_id` e ancora vuoto, e
+      due inviti emessi sulla stessa casella superavano tutti e due il
+      controllo. Chi puo rispondere davvero e questo punto, che e l'unico
+      scrittore del campo, dentro la transazione che lo scrive.
+
+      Misurato contro PostgreSQL prima del fix: due schede con la stessa
+      `user_id`, il prodotto che ne sceglieva una, e quell'unica identita che
+      apriva la bacheca di entrambe.
+    */
+    const altraScheda = await tx.athlete.findFirst({
+      where: { user_id: utente.id, id: { not: atleta.id } },
+      select: { id: true },
+    });
+    if (altraScheda) {
+      throw new Error(
+        "Questo indirizzo e gia l'accesso della scheda di un altro atleta: " +
+          "chiedi alla societa un indirizzo diverso per questa scheda.",
+      );
+    }
+
     await tx.athlete.update({
       where: { id: atleta.id },
       data: { user_id: utente.id },
@@ -1020,25 +1418,34 @@ export const acceptAthleteAccountInvite = async (
     await applyMembershipAccessScopes(tx, tessera.id, perimetri);
 
     /*
-      **Il gettone si consuma con una condizione, non con una scrittura.**
+      *(La stessa corsa e stata trovata in modo indipendente dal closeout
+      P0-2, con la stessa chiusura: `updateMany` condizionato sullo stato. Le
+      due misure concordano.)*
 
-      Lo stato era stato letto **prima** della transazione e riscritto qui senza
-      ricontrollarlo: due riscatti simultanei dello stesso invito leggevano
-      entrambi `sent`, e passavano entrambi. Misurato dalla porta vera, due
-      chiamate in parallelo: **due successi su due**. La tessera restava una
-      sola per via del `findFirst` che precede la creazione — cioe per
-      fortuna, non per costruzione — ma l invito risultava accettato due volte
-      e la seconda persona otteneva un legame che il primo aveva gia preso.
+      **Il consumo e qui, ed e condizionato** (PP-04, ADR-0119).
 
-      La condizione sta dentro l istruzione: vince chi la trova ancora `sent`,
-      e il secondo trova zero righe e fa rotolare indietro tutta la
-      transazione. E la stessa forma di ADR-0109 — un contatore che difende si
-      scrive in una istruzione condizionata sola, mai «letto e poi scritto».
+      La lettura che ha deciso «questo invito e `sent`» sta **fuori** dalla
+      transazione, e fra quella lettura e questa scrittura passa un'attesa di
+      rete. Con un `update` per identificativo, due riscatti simultanei dello
+      stesso token superavano entrambi il controllo e scrivevano entrambi:
+      misurato contro PostgreSQL, due 200, due righe di audit `accepted` e —
+      la parte che conta — **due `sendPasswordResetChallenge`**, cioe due token
+      di reset validi emessi da un gesto solo.
+
+      `updateMany` con `status: "sent"` nel `where` sposta la decisione dentro
+      la transazione e la fa prendere al database, che e l'unico che puo
+      prenderla: la riga si aggiorna una volta sola, e il secondo tentativo
+      conta zero e aborta la transazione.
+
+      Un fake Prisma non avrebbe mai mostrato questo: e la classe di difetti
+      per cui la sonda della lane parla con PostgreSQL vero.
     */
     const consumato = await tx.athleteAccountInvite.updateMany({
       where: { id: invito.id, status: "sent" },
       data: { status: "accepted", accepted_at: new Date() },
     });
+    if (consumato.count !== 1) throw nonValido();
+
     if (consumato.count !== 1) throw nonValido();
 
     if (senzaCredenzialiNote) {
@@ -1218,6 +1625,22 @@ export const CAMPI_AREA_ATLETA = {
     "location",
     "status",
     "categoryName",
+    /*
+      **Le altre categorie dell'evento** (PP-04, sopra ADR-0111).
+
+      `categoryName` e l'etichetta della sola **primaria**. Su un allenamento
+      congiunto — che e il caso in cui questa domanda si pone — l'atleta ci
+      entra spesso per la **seconda** categoria, e leggeva il nome di una
+      squadra che non e la sua.
+
+      Qui escono gli **identificativi**, che e cio che la colonna
+      `club_events.category_ids` contiene; i nomi li mette la schermata
+      incrociandoli con `categories`, cioe con le squadre **di questo atleta**.
+      Portare qui il catalogo delle categorie del club vorrebbe dire far uscire
+      dall'elenco chiuso l'organigramma della societa per stampare
+      un'etichetta.
+    */
+    "categories",
     "opponent",
     "attendanceStatus",
   ],
@@ -1229,6 +1652,7 @@ export const CAMPI_AREA_ATLETA = {
     "location",
     "status",
     "categoryName",
+    "categories",
     "opponent",
     "participationStatus",
   ],
@@ -1287,6 +1711,28 @@ export const CAMPI_AREA_ATLETA = {
   notifica: ["id", "title", "message", "type", "read", "created_at"],
 } as const satisfies Record<string, readonly CampoProiettato[]>;
 
+/**
+ * **Delle categorie di un evento escono solo le sue** (PP-04, ADR-0120).
+ *
+ * `categories` e nato per rispondere a «con quale delle mie squadre ci vado?»,
+ * su un allenamento congiunto in cui `categoryName` — l'etichetta della sola
+ * primaria — e il nome di una squadra che non e la sua. L'incrocio lo faceva
+ * pero **la schermata**, e il server consegnava l'array intero.
+ *
+ * Un filtro nel client non e un filtro: la rotta risponde a `curl`. Da li
+ * uscivano gli identificativi dei gruppi a cui l'atleta **non** appartiene —
+ * non i nomi, che nessuna superficie dell'atleta risolve, ma la cardinalita e
+ * la correlazione: quanti gruppi tocca un evento, e quali eventi condividono
+ * un gruppo. Filtrare qui non costa niente e chiude anche l'inferenza.
+ */
+const soloLeMieCategorie = (righe: any[], mie: ReadonlySet<string>) =>
+  righe.map((riga) => ({
+    ...riga,
+    categories: Array.isArray(riga?.categories)
+      ? riga.categories.filter((id: unknown) => mie.has(String(id)))
+      : [],
+  }));
+
 const proiettaAreaAtleta = (
   dati: Record<string, any>,
   invitiRsvp: Awaited<ReturnType<typeof readAthleteRsvpInvitations>>,
@@ -1294,6 +1740,15 @@ const proiettaAreaAtleta = (
   const atleta = (dati.athlete || {}) as Record<string, any>;
   const club = (dati.club || {}) as Record<string, any>;
   const salute = (dati.health || {}) as Record<string, any>;
+
+  /* Gli identificativi delle squadre di questo atleta: vedi soloLeMieCategorie. */
+  const mieCategorie = new Set<string>(
+    (Array.isArray(atleta.categories) ? atleta.categories : [])
+      .map((categoria: any) => String(categoria?.id ?? ""))
+      .filter(Boolean),
+  );
+  const evento = (righe: unknown, campi: readonly CampoProiettato[]) =>
+    soloLeMieCategorie(soloCampi(righe, campi), mieCategorie);
 
   return {
     me: {
@@ -1352,18 +1807,12 @@ const proiettaAreaAtleta = (
       expiryDate: salute.expiryDate || null,
     },
     trainings: {
-      upcoming: soloCampi(
-        dati.trainings?.upcoming,
-        CAMPI_AREA_ATLETA.allenamento,
-      ),
-      history: soloCampi(
-        dati.trainings?.history,
-        CAMPI_AREA_ATLETA.allenamento,
-      ),
+      upcoming: evento(dati.trainings?.upcoming, CAMPI_AREA_ATLETA.allenamento),
+      history: evento(dati.trainings?.history, CAMPI_AREA_ATLETA.allenamento),
     },
     matches: {
-      upcoming: soloCampi(dati.matches?.upcoming, CAMPI_AREA_ATLETA.gara),
-      history: soloCampi(dati.matches?.history, CAMPI_AREA_ATLETA.gara),
+      upcoming: evento(dati.matches?.upcoming, CAMPI_AREA_ATLETA.gara),
+      history: evento(dati.matches?.history, CAMPI_AREA_ATLETA.gara),
     },
     /** Le convocazioni ancora da rispondere: e la sola cosa che gli e chiesta. */
     rsvp: invitiRsvp,
@@ -1386,12 +1835,12 @@ const proiettaAreaAtleta = (
       matchesPlayed: (dati.matches?.history || []).length,
       attendanceRate: dati.analytics?.attendanceRate ?? 0,
       nextTraining:
-        soloCampi(
+        evento(
           dati.analytics?.nextTraining ? [dati.analytics.nextTraining] : [],
           CAMPI_AREA_ATLETA.allenamento,
         )[0] || null,
       nextMatch:
-        soloCampi(
+        evento(
           dati.analytics?.nextMatch ? [dati.analytics.nextMatch] : [],
           CAMPI_AREA_ATLETA.gara,
         )[0] || null,
@@ -1404,19 +1853,76 @@ export type AthleteAreaOverview = ReturnType<typeof proiettaAreaAtleta>;
 /**
  * L'atleta di questa utenza, o `null`.
  *
- * **La domanda e `athletes.user_id`, e nient'altro.** Non l'indirizzo email,
- * che un utente puo cambiarsi da solo, e non il legame di tutela, che apre
- * l'area famiglia e non questa: un atleta e se stesso, non i propri fratelli.
+ * **La domanda e `athletes.user_id`**, e non l'indirizzo email — che un utente
+ * puo cambiarsi da solo — ne il legame di tutela, che apre l'area famiglia e
+ * non questa: un atleta e se stesso, non i propri fratelli.
+ *
+ * ## Ma il legame da solo non basta (PP-04)
+ *
+ * Perche un legame puo **restare indietro rispetto alla tessera**, e allora
+ * apre una porta che nessuno crede piu aperta. Due strade, misurate contro
+ * PostgreSQL vero e contro le rotte vere con
+ * `scripts/pp-04-atleta-probe.mjs`:
+ *
+ * **P-45, il cambio di ruolo.** `assignClubRole` applica «un ruolo alla volta
+ * per persona e per club»: assegnare un ruolo nuovo **cancella** le altre
+ * tessere, con `organizationUser.delete` e `reason: "replaced_by_new_role"`.
+ * Quel ramo non chiama nessuno sweep — `unlinkDirectAthleteProfile` vive solo
+ * dentro `revokeClubAccess` e dentro `memberships/delete`. Quindi: la
+ * segreteria cambia a un atleta il ruolo in «Collaboratore», la tessera
+ * `athlete` sparisce, `athletes.user_id` resta, e l'area atleta rispondeva
+ * **200** — allenamenti, presenze, documenti, stato del certificato, recapiti.
+ *
+ * **P-52, la revoca della tessera.** `unlinkDirectAthleteProfile` riconosce
+ * **lo slug** (`ATHLETE_ROLES` = `athlete`, `atleta`, `player`) e non
+ * l'identita: `giocatore` e `giocatrice` sono alias legittimi in
+ * `ROLE_ALIASES` e da quell'insieme mancano. La tessera se ne va, il legame
+ * resta, e la persona che non appartiene piu al club apre ancora la sua area.
+ *
+ * La correzione non e un secondo elenco di slug — ne nascerebbe un terzo il
+ * giorno dopo. E cambiare la **domanda**: non «questo legame esiste», ma
+ * **«questa persona e ancora un atleta di quel club?»**. Risponde di si una
+ * tessera il cui ruolo — risolto, alias e ruoli personalizzati compresi —
+ * e `athlete`; oppure l'essere il fondatore del club, la cui appartenenza non
+ * nasce da una tessera ma da `clubs.creator_id` e che percio non si potrebbe
+ * chiudere fuori da casa propria.
+ *
+ * E la stessa forma della lezione di PP-02: **una revoca vale sull'identita,
+ * non sulla riga che si e guardata.**
+ *
+ * ## Perche il primo atleta «ancora in essere», e non il primo
+ *
+ * Perche altrimenti un legame morto in un club **nasconderebbe** un legame
+ * vivo in un altro: la funzione tornava la riga piu vecchia e si fermava li, e
+ * chi fosse stato atleta in due societa avrebbe visto la porta chiusa invece
+ * dell'area della societa in cui gioca ancora.
  */
 export const findAthleteProfileForUser = async (userId: string) => {
   const id = asText(userId);
   if (!id) return null;
 
-  return prisma.athlete.findFirst({
+  const candidati = await prisma.athlete.findMany({
     where: { user_id: id },
     select: { id: true, organization_id: true },
     orderBy: { created_at: "asc" },
   });
+  if (!candidati.length) return null;
+
+  /*
+    **La domanda vive in un modulo solo** (ADR-0117). Stava qui, e lo stesso
+    campo aveva un secondo lettore — `athleteBelongsToParent` in
+    `parent-dashboard.ts` — che non se la faceva: la porta d'ingresso era
+    chiusa e quella di servizio no. Copiarla li avrebbe rifatto il difetto di
+    partenza, che e due elenchi che divergono.
+  */
+  const eAncoraAtleta = await clubsWhereStillAthlete(
+    id,
+    candidati.map((riga) => riga.organization_id),
+  );
+
+  return (
+    candidati.find((riga) => eAncoraAtleta.has(riga.organization_id)) || null
+  );
 };
 
 /**
@@ -1434,7 +1940,14 @@ export const readAthleteAreaOverview = async (
     throw negato("nessuna scheda atleta collegata a questo account");
   }
 
-  const dati = await getParentDashboardData(userId, profilo.id);
+  const dati = await getParentDashboardData(userId, profilo.id, {
+    /*
+      **Questa e una superficie che l'atleta usa davvero** (ADR-0122): il
+      predefinito e restrittivo, e chi serve l'atleta lo dichiara. E il verso
+      giusto — dimenticarsene chiude una porta invece di aprirla.
+    */
+    allowSelfAthleteLink: true,
+  });
   if (!dati) {
     throw negato("nessuna scheda atleta collegata a questo account");
   }

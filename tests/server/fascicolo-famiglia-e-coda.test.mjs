@@ -100,6 +100,28 @@ const seed = () => ({
       role: "owner",
       is_primary: true,
     },
+    /*
+      **Il tutore ha una tessera `parent`, e nella vita vera ce l'ha.**
+
+      Riscattare il token di accesso genitore (`/api/v1/auth/access/redeem`)
+      scrive due cose insieme: la riga `organization_users` con ruolo
+      `parent` e `guardians[].linkedUserId` sulla scheda. Senza la tessera
+      `getParentLinkedAthletes` non arriva nemmeno a considerare l'atleta,
+      perche il suo elenco di candidati parte dai club in cui la persona
+      **appartiene** — o dagli atleti che portano il suo `user_id`, che e la
+      colonna dell'atleta stesso.
+
+      Il ruolo qui non concede niente: `resolveLinkedFamilyScope` mette
+      `activeRole: null` di proposito, ed e cio che i test qui sotto
+      verificano. La tessera serve a rendere la fixture uno stato che
+      esiste.
+    */
+    {
+      id: "ou-tutore",
+      organization_id: CLUB,
+      user_id: GENITORE,
+      role: "parent",
+    },
   ],
   club: [
     { id: CLUB, slug: "club", name: "Club", document_templates: [] },
@@ -111,9 +133,32 @@ const seed = () => ({
       organization_id: CLUB,
       first_name: "Marco",
       last_name: "Rossi",
-      /* Il legame vero: e questo, e non una membership, a fare il genitore. */
-      user_id: GENITORE,
+      /*
+        **Il legame del genitore e una riga di `data.guardians`, non
+        `athletes.user_id`** (PP-04, ADR-0117).
+
+        Questa fixture scriveva il genitore dentro `user_id`, che e la
+        colonna dell'account **dell'atleta stesso** — l'unica scrittrice e
+        `athlete-accounts.ts`, che insieme al legame crea la tessera
+        `athlete` (ADR-0104). Un genitore li dentro e uno stato che nella
+        vita vera non esiste, e da quando il ramo diretto pretende una
+        tessera di atleta viva, una fixture cosi misura il caso sbagliato.
+
+        Il tutore vive in `athletes.data.guardians[].linkedUserId`, e da li
+        `getParentLinkedAthletes` lo riconosce **senza** nessuna tessera nel
+        club: che e esattamente cio che questi test vogliono dimostrare.
+      */
+      user_id: null,
       data: {
+        guardians: [
+          {
+            id: "tutore-1",
+            name: "Anna",
+            surname: "Rossi",
+            relationship: "Madre",
+            linkedUserId: GENITORE,
+          },
+        ],
         /*
           L'array JSON di prima resta nell'anagrafica: il travaso e
           un'operazione a se. Se l'area famiglia lo leggesse ancora, questo

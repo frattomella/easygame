@@ -11,6 +11,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { athleteWithinAccessScope } from "@/lib/server/access-scope-query";
+import { clubsWhereStillAthlete } from "@/lib/server/athlete-membership";
 import { prisma } from "@/lib/server/prisma";
 
 type Context = {
@@ -60,7 +61,36 @@ export async function GET(request: Request, context: Context) {
     );
   }
 
-  const directAthleteAccess = athlete.user_id === session.db.user_id;
+  /*
+    **Il legame diretto vale finche la tessera vale, e questa e la terza
+    porta** (PP-04, ADR-0125 — estende ADR-0117).
+
+    `athletes.user_id` da solo rispondeva di si, e un legame puo sopravvivere
+    alla tessera: `unlinkDirectAthleteProfile` decide guardando lo **slug**
+    (PP04-D1/D9), e `assignClubRole` cancella le tessere sostituite senza
+    chiamare nessuno sweep (PP04-D2). ADR-0117 ha imposto la domanda a due
+    lettori — `findAthleteProfileForUser` e `athleteBelongsToParent` — e li ha
+    contati come tutti. Erano tre.
+
+    Misurato contro PostgreSQL con il gesto vero della segreteria (Gestione
+    Accessi -> Revoca su una tessera con l'alias `giocatrice`): **zero tessere
+    nel club**, e questa rotta rispondeva 200 con allergie, note mediche,
+    certificati interi e il codice fiscale del tutore. Peggio, il campo non
+    porta sempre l'atleta — PP04-D6, e il flusso che ADR-0124 chiama normale ci
+    mette l'identita di un **genitore**: cio che usciva non era il fascicolo di
+    chi lo leggeva, era quello di un altro.
+
+    La domanda non si riscrive: e `clubsWhereStillAthlete`, la stessa funzione
+    che rispondeva agli altri due. Un terzo elenco sarebbe il difetto di
+    partenza con un nome nuovo.
+  */
+  const directAthleteAccess =
+    athlete.user_id === session.db.user_id &&
+    (
+      await clubsWhereStillAthlete(session.db.user_id, [
+        athlete.organization_id,
+      ])
+    ).has(athlete.organization_id);
 
   /*
     **L'autorizzazione si chiede al risolutore, non si ricostruisce a mano.**

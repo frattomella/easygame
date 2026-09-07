@@ -69,6 +69,16 @@ const seed = () => ({
     { id: "m2", organization_id: CLUB, user_id: ALLENATORE, role: "trainer" },
     { id: "m3", organization_id: CLUB, user_id: GENITORE, role: "parent" },
   ],
+  /*
+    **Tutti e tre maggiorenni, e la data c'e.**
+
+    Non e un dettaglio della fixture: da ADR-0116 un atleta minorenne — o
+    senza data di nascita, che si tratta allo stesso modo — non riceve un
+    invito senza la conferma esplicita sulla responsabilita genitoriale.
+    Questi test misurano l'invito, il reinvio, il cambio di indirizzo e la
+    revoca, non quella conferma: il minore ha il suo file,
+    `pp-04-minori.test.mjs`, dove la conferma e il soggetto.
+  */
   athlete: [
     {
       id: ATLETA,
@@ -76,6 +86,7 @@ const seed = () => ({
       user_id: null,
       first_name: "Luca",
       last_name: "Rossi",
+      birth_date: new Date("1998-04-12T00:00:00.000Z"),
       status: "active",
       created_at: new Date("2026-01-01T00:00:00.000Z"),
       data: { email: "luca@famiglia.it", phone: "3330000000" },
@@ -86,6 +97,7 @@ const seed = () => ({
       user_id: null,
       first_name: "Sara",
       last_name: "Bianchi",
+      birth_date: new Date("1999-07-03T00:00:00.000Z"),
       status: "active",
       created_at: new Date("2026-01-02T00:00:00.000Z"),
       data: {},
@@ -96,6 +108,7 @@ const seed = () => ({
       user_id: null,
       first_name: "Marco",
       last_name: "Verdi",
+      birth_date: new Date("1997-11-21T00:00:00.000Z"),
       status: "active",
       created_at: new Date("2026-01-03T00:00:00.000Z"),
       data: {},
@@ -695,9 +708,29 @@ test("il legame e `athletes.user_id`, non l'indirizzo email", async () => {
   assert.equal(profilo, null);
 });
 
-test("i propri recapiti si correggono, l'anagrafica della societa no", async () => {
+/**
+ * **Il legame da solo non apre piu niente** (PP-04).
+ *
+ * Da PP-04 `findAthleteProfileForUser` chiede, oltre al legame, che la persona
+ * sia **ancora un atleta di quel club**: una tessera il cui ruolo risolto e
+ * `athlete`, oppure l'essere il fondatore. La fixture scriveva solo
+ * `athletes.user_id`, cioe uno stato che nella vita vera non esiste —
+ * `acceptAthleteAccountInvite` scrive il legame **e** la tessera nella stessa
+ * transazione, proprio perche l'uno senza l'altra e la porta che PP-04 chiude.
+ */
+const collegaAtleta = () => {
   fake.rows("athlete").find((riga) => riga.id === ATLETA).user_id =
     UTENTE_ATLETA;
+  fake.rows("organizationUser").push({
+    id: "m-atleta",
+    organization_id: CLUB,
+    user_id: UTENTE_ATLETA,
+    role: "athlete",
+  });
+};
+
+test("i propri recapiti si correggono, l'anagrafica della societa no", async () => {
+  collegaAtleta();
 
   const esito = await dominio.updateOwnAthleteContacts(UTENTE_ATLETA, {
     phone: "3339999999",
@@ -727,8 +760,7 @@ test("i propri recapiti si correggono, l'anagrafica della societa no", async () 
 });
 
 test("un indirizzo di contatto malformato non entra in anagrafica", async () => {
-  fake.rows("athlete").find((riga) => riga.id === ATLETA).user_id =
-    UTENTE_ATLETA;
+  collegaAtleta();
 
   await assert.rejects(
     () =>
@@ -1157,4 +1189,98 @@ test("ogni rotta dell'accesso atleta chiede la sessione, tranne il riscatto", ()
       `${rotta} non chiede una sessione`,
     );
   }
+});
+
+/* ==================================================================== *
+ *  PP-04: il menu, le rotte e i titoli devono dire la stessa cosa
+ * ==================================================================== */
+
+/**
+ * **Il difetto tipico non e il codice mancante, e il codice irraggiungibile**
+ * (CLAUDE.md §11 punto 8).
+ *
+ * Una pagina nuova dell'area atleta vive in tre posti che nessuno tiene
+ * insieme: il file di rotta sotto `app/athlete-dashboard/`, la voce in
+ * `ATHLETE_NAV_ITEMS` — che alimenta **sia** la sidebar del desktop **sia** il
+ * menu del telefono — e il titolo in `TITOLI` dentro il guscio. Chi ne dimentica
+ * uno ottiene, nell'ordine: una pagina che esiste e non si raggiunge; una voce
+ * di menu che porta a 404; un'intestazione che dice «La mia area» su ogni
+ * pagina.
+ *
+ * La Wave 6 ha trovato tre volte la prima forma. Qui i tre elenchi si
+ * confrontano fra loro: aggiungere una pagina senza cablarla fa fallire il
+ * test invece di passare inosservato.
+ *
+ * L'unica eccezione dichiarata e `/athlete-dashboard/attiva`, che **non e
+ * dentro l'area**: e la porta di chi ha appena ricevuto l'invito e non ha
+ * ancora una password, e per questo il layout la lascia fuori dalla guardia.
+ */
+test("PP-04 · ogni pagina dell'area atleta e nel menu, e ogni voce di menu ha la sua pagina", () => {
+  const FUORI_DALL_AREA = new Set(["/athlete-dashboard/attiva"]);
+
+  const cartella = path.join(RADICE, "app", "athlete-dashboard");
+  const rotte = new Set();
+  const visita = (corrente, prefisso) => {
+    for (const voce of readdirSync(corrente)) {
+      const completo = path.join(corrente, voce);
+      if (statSync(completo).isDirectory()) {
+        visita(completo, `${prefisso}/${voce}`);
+      } else if (voce === "page.tsx") {
+        rotte.add(prefisso);
+      }
+    }
+  };
+  visita(cartella, "/athlete-dashboard");
+
+  const sidebar = readFileSync(
+    path.join(RADICE, "components", "athlete", "athlete-sidebar.tsx"),
+    "utf8",
+  );
+  const elenco = sidebar.slice(
+    sidebar.indexOf("export const ATHLETE_NAV_ITEMS"),
+    sidebar.indexOf("] as const;"),
+  );
+  const voci = [...elenco.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]);
+
+  assert.ok(voci.length >= 10, "il menu dell'atleta ha le sue voci");
+
+  const guscio = readFileSync(
+    path.join(RADICE, "components", "athlete", "athlete-area-shell.tsx"),
+    "utf8",
+  );
+  const titoli = guscio.slice(
+    guscio.indexOf("const TITOLI"),
+    guscio.indexOf("const mobileNavSections"),
+  );
+
+  /* 1. Ogni voce di menu porta a una pagina che esiste davvero. */
+  for (const href of voci) {
+    assert.ok(
+      rotte.has(href),
+      `la voce di menu ${href} non ha un page.tsx: porta a 404`,
+    );
+    assert.ok(
+      titoli.includes(`"${href}"`),
+      `la voce di menu ${href} non ha un titolo nel guscio`,
+    );
+  }
+
+  /* 2. Ogni pagina dell'area e raggiungibile da quel menu. */
+  for (const rotta of rotte) {
+    if (FUORI_DALL_AREA.has(rotta)) continue;
+    assert.ok(
+      voci.includes(rotta),
+      `${rotta} esiste e nessun menu la raggiunge`,
+    );
+  }
+
+  /*
+    3. Il menu del telefono e **lo stesso elenco**, non una seconda copia.
+    Una copia diverge, e diverge in silenzio: e la forma con cui il difetto
+    si e ripresentato ogni volta.
+  */
+  assert.ok(
+    guscio.includes("ATHLETE_NAV_ITEMS.map("),
+    "il menu del telefono deve derivare da ATHLETE_NAV_ITEMS, non riscriverlo",
+  );
 });

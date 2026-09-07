@@ -166,7 +166,26 @@ export async function GET(request: Request) {
     const figli: string[] = [];
     const seStesso: string[] = [];
     if (accessiFamiglia.length) {
-      const linkedAthletes = await getParentLinkedAthletes(session.db.user_id);
+      const linkedAthletes = await getParentLinkedAthletes(
+        session.db.user_id,
+        {
+          /*
+            **Qui l'atleta e se stesso, e serve che lo sia** (PP-04, ADR-0122).
+
+            Il predefinito di `getParentLinkedAthletes` e restrittivo: chi
+            serve davvero l'atleta lo dichiara, cosi una rotta nuova che se ne
+            dimentichi chiude una porta invece di aprirla. Questa e una delle
+            quattro che lo dichiarano, e non per il payload — che qui non esce
+            — ma per `seStesso`, cioe `linked_athlete_ids` del ruolo `athlete`.
+
+            Senza, `getAccessRedirectPath("athlete", …)` non trova nessun
+            legame e rimanda su `/account` chi era esattamente dov'era
+            autorizzato a stare: la stessa forma del difetto che il commento
+            qui sopra descrive per il genitore, sull'altro ruolo.
+          */
+          allowSelfAthleteLink: true,
+        },
+      );
       for (const athlete of linkedAthletes) {
         /*
           **L'elenco non si filtra per club, e non e una svista.**

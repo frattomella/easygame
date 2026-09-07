@@ -23,6 +23,10 @@ import { dedupeTrainings } from "@/lib/training-utils";
 */
 import { listAttachments } from "./attachments";
 import {
+  athleteCardsEverOwnedByUser,
+  clubsWhereStillAthlete,
+} from "./athlete-membership";
+import {
   buildFamilyDocumentAreas,
   type FamilyDocumentAreas,
   type FamilyDossierFile,
@@ -202,6 +206,33 @@ export const guardianAccessIdentities = (data: unknown): Set<string> => {
   return identita;
 };
 
+/**
+ * **Il legame del tutore, ma solo nella forma che qualcuno ha deciso**
+ * (PP-04, ADR-0124).
+ *
+ * `linkedUserId` non nasce da una coincidenza: lo scrive il riscatto del token
+ * di collegamento, cioe un atto — il club invita quell'indirizzo come tutore e
+ * quella persona riscatta. `guardians[].email` invece e un **recapito**, e la
+ * segreteria lo scrive per poter telefonare.
+ *
+ * I due si equivalgono quando si tratta di far entrare una famiglia
+ * (`isGuardianLinkedToUser` li tiene insieme, ed e voluto). Non si equivalgono
+ * quando la domanda e l'opposto: «questa identita, che e anche l'account di
+ * questa scheda, e **anche** un tutore?». Li la coincidenza di casella e
+ * esattamente il vettore del Critical di ADR-0122, e la decisione registrata
+ * e esattamente cio che lo distingue.
+ */
+const isGuardianLinkedById = (guardian: Record<string, any>, userId: string) =>
+  sameId(
+    firstText(
+      guardian.linkedUserId,
+      guardian.linked_user_id,
+      guardian.userId,
+      guardian.user_id,
+    ),
+    userId,
+  );
+
 const isGuardianLinkedToUser = (
   guardian: Record<string, any>,
   userId: string,
@@ -240,17 +271,151 @@ const isGuardianLinkedToUser = (
   );
 };
 
+/**
+ * **Il legame diretto vale finche la tessera vale** (PP-04, ADR-0117).
+ *
+ * `athletes.user_id` da solo rispondeva di si, e un legame puo sopravvivere
+ * alla tessera: due strade lo producono, e ADR-0114 le ha chiuse sull'area
+ * atleta senza che nessuno chiudesse **questo** lettore, che dello stesso
+ * campo consegna strettamente di piu — denaro, tutori, contenuto clinico, e
+ * delle scritture. Misurato: con zero tessere nel club,
+ * `/api/v1/athlete-accounts/me` rispondeva 403 e `/api/parent-dashboard/<la
+ * stessa scheda>` rispondeva 200.
+ *
+ * `ancoraAtleta` e l'insieme dei club in cui questa persona e ancora un atleta,
+ * e lo calcola `clubsWhereStillAthlete`: **una funzione sola per i due
+ * lettori**, perche due elenchi separati divergono ed e il difetto di partenza.
+ *
+ * Il ramo del **tutore** resta senza tessera: un tutore puo legittimamente non
+ * averne nessuna nel club, ed e la ragione per cui questa area non gira su un
+ * permesso di ruolo. Quel ramo non e pero piu una **seconda strada** per chi
+ * porta gia `athletes.user_id`: vedi ADR-0122 nel corpo.
+ */
 const athleteBelongsToParent = (
   athlete: any,
   userId: string,
-  userEmail?: string | null,
+  userEmail: string | null | undefined,
+  ancoraAtleta: ReadonlySet<string>,
+  schedeProprie: ReadonlySet<string>,
 ) => {
-  if (sameId(athlete?.user_id, userId)) {
-    return true;
+  /*
+    **Chi e l'atleta non e anche la propria famiglia** (ADR-0122).
+
+    Una seconda revisione ostile ha misurato che la guardia qui sopra si
+    aggirava con un dato che il prodotto **produce da se**: `linkedUserEmail`
+    ricade su `guardian.email`, e un minore lo si invita sulla casella di
+    famiglia — la stessa che la segreteria ha scritto nel tutore. Con quella
+    coincidenza `athleteBelongsToParent` usciva dal ramo del tutore e non
+    vedeva mai ne `ancoraAtleta` ne `allowSelfAthleteLink`: l'ex atleta senza
+    piu nessuna tessera riceveva di nuovo quote, codice fiscale del tutore,
+    diagnosi e l'indirizzo del file del certificato.
+
+    Il Critical del primo round non era stato chiuso: era stato spostato su una
+    precondizione che il flusso stesso dell'invito crea.
+
+    Chi porta `athletes.user_id` **e** quella scheda, non la sua famiglia:
+    per lui vale il ramo diretto e solo quello, qualunque cosa dica l'elenco
+    dei tutori. Il tutore vero — un'altra persona — non e toccato.
+  */
+  /*
+    **E «essere quella scheda» non e un campo: e un'identita** (ADR-0123).
+
+    Un terzo giro di revisione ha misurato che la condizione qui sopra era
+    scritta **sul campo che la revoca cancella**. `unlinkAthleteAccount` e
+    `revokeAthleteAccess` azzerano `athletes.user_id`, e da quel momento la
+    stessa persona tornava a passare dal ramo del tutore, dove la coincidenza
+    della casella vale come legame: l'area atleta rispondeva 403 e il
+    cruscotto della famiglia 200, sulla **stessa** scheda appena revocata.
+
+    Cioe: il gesto con cui il club toglie l'accesso era il gesto che lo
+    riapriva, piu largo di prima.
+
+    L'identita durevole la porta `athlete_account_invites`: un invito
+    **accettato** dice «questa utenza e diventata l'account di questa scheda»,
+    e ne la revoca ne lo scollegamento lo cancellano. `schedeProprie` e
+    l'insieme che ne esce, unito al legame vivo.
+  */
+  /*
+    **Due domande, non una** (PP-04, ADR-0125).
+
+    Il round conclusivo ha misurato che questa condizione faceva due lavori
+    **opposti** con una riga sola.
+
+    Come **esclusione** dal ramo del tutore deve essere durevole, ed e la
+    ragione per cui ADR-0123 l'ha portata sull'invito accettato: senza durata,
+    il gesto che toglie l'accesso lo riapre piu largo di prima.
+
+    Come **ammissione** alle superfici proprie dell'atleta — la bacheca e
+    l'RSVP, cioe cio che il ramo diretto dichiarato apre — vuole invece il
+    legame **vivo**: li «essere stato quella scheda» non e «essere quella
+    scheda», ed e esattamente cio che lo scollegamento toglie.
+
+    Con una condizione sola vinceva la durata, e lo scollegamento non chiudeva
+    niente. Misurato contro PostgreSQL e le rotte vere: dopo «Scollega
+    account» `GET /api/v1/athlete-accounts/me` rispondeva 403 e
+    `GET /api/parent-dashboard/<la stessa scheda>/board` **200**, con la
+    scrittura «l'ho letto» inclusa. E il caso che pesa e il seguito: il club
+    scollega e invita **un'altra persona** su quella scheda — che e il motivo
+    per cui lo scollegamento esiste — e la vecchia utenza continuava a leggere
+    la bacheca e a rispondere alle convocazioni di una scheda che non era piu
+    sua. Nessun gesto sul pannello la chiudeva fuori: `revokeAthleteAccess`
+    toglie le tessere di chi e collegato **adesso**, cioe del nuovo titolare.
+  */
+  const legameVivo = sameId(athlete?.user_id, userId);
+  const eLaPersonaStessa =
+    legameVivo || schedeProprie.has(String(athlete?.id || ""));
+
+  /*
+    **Ma un'identita sola puo portare due cappelli** (ADR-0124).
+
+    Un quarto giro di revisione ostile ha misurato il verso opposto dei tre
+    precedenti. Il flusso che ADR-0122 descrive come normale — il minore
+    invitato sulla casella di famiglia — non crea un account del minore: crea
+    **il secondo cappello dell'account del genitore**, perche `risolviUtenza`
+    trova l'utenza che quell'indirizzo ha gia. Da quel momento
+    `athletes.user_id` e l'identita del padre, `eLaPersonaStessa` risponde di
+    si, e il cortocircuito lo mandava sul cancello dell'atleta: il padre
+    perdeva il figlio dal proprio cruscotto di famiglia.
+
+    E non lo riprendeva piu. Revoca e scollegamento azzerano il campo, ma
+    l'invito accettato di ADR-0123 resta: **il gesto che avrebbe dovuto
+    rimediare non rimediava**, e il figlio spariva per sempre. Misurato:
+    `scripts/pp-04-atleta-probe.mjs`, P-83…P-86.
+
+    Il ramo diretto resta esclusivo verso chi e **soltanto** quella scheda. Chi
+    e anche un tutore **provato** di quella scheda passa dal ramo del tutore,
+    come vi passerebbe se non fosse mai stato invitato.
+
+    «Provato» vale `linkedUserId`, e non la casella: `isGuardianLinkedById`,
+    non `isGuardianLinkedToUser`. La differenza e tutta qui, e regge il
+    Critical — l'ex atleta di ADR-0122/0123 ha la coincidenza dell'indirizzo e
+    **non** ha nessuna decisione registrata accanto, quindi resta al cancello.
+    Chi invece ha `linkedUserId` sulla riga del tutore ce l'ha perche il club
+    ha invitato quell'indirizzo come tutore e quella persona ha riscattato: un
+    accesso che quella identita aveva gia, e che il legame con la scheda
+    dell'atleta non puo toglierle.
+  */
+  const tutoreProvato = getGuardianRows(athlete).some((guardian) =>
+    isGuardianLinkedById(guardian, userId),
+  );
+
+  if (eLaPersonaStessa && !tutoreProvato) {
+    /*
+      L'esclusione la decide `eLaPersonaStessa`, che e durevole; l'ammissione
+      la decide `legameVivo`, che non lo e. Chi e stato l'account di questa
+      scheda e non lo e piu **non torna dal ramo del tutore** — la condizione
+      del `return` lo tiene qui — e non entra nemmeno dal proprio (ADR-0125).
+    */
+    return (
+      legameVivo && ancoraAtleta.has(String(athlete?.organization_id || ""))
+    );
   }
 
-  return getGuardianRows(athlete).some((guardian) =>
-    isGuardianLinkedToUser(guardian, userId, userEmail),
+  return (
+    tutoreProvato ||
+    getGuardianRows(athlete).some((guardian) =>
+      isGuardianLinkedToUser(guardian, userId, userEmail),
+    )
   );
 };
 
@@ -797,7 +962,17 @@ export const getFamilyDocumentAreas = async (
   userId: string,
   athlete: { id: string; organization_id: string },
   club: any,
-  options: { now?: Date } = {},
+  /*
+    **`allowSelfAthleteLink` arriva da chi ha aperto il cruscotto** (ADR-0122).
+
+    Il fascicolo si richiude da se, con la sua guardia e il suo predefinito
+    restrittivo: senza questo passaggio l'area atleta — che di ogni carta
+    mostra il titolo e lo stato — riceveva un `Accesso negato` da dentro il
+    proprio payload. Ripassare qui la stessa risposta che il dominio ha gia
+    dato evita l'alternativa peggiore: due idee di chi sia una famiglia, in due
+    file, che il giorno che una cambia dicono cose diverse.
+  */
+  options: { now?: Date; allowSelfAthleteLink?: boolean } = {},
 ): Promise<FamilyDocumentAreas> => {
   const organizationId = String(athlete?.organization_id || "");
   const scope = {
@@ -812,7 +987,10 @@ export const getFamilyDocumentAreas = async (
   const entries = (await getDocumentDossier(
     scope,
     { subjectKind: "athlete", subjectId: athlete.id },
-    { now: options.now },
+    {
+      now: options.now,
+      allowSelfAthleteLink: options.allowSelfAthleteLink === true,
+    },
   )) as unknown as FamilyDossierInput[];
 
   /*
@@ -870,7 +1048,28 @@ export const getFamilyDocumentAreas = async (
   };
 };
 
-const serializeAthleteCard = (athlete: any) => {
+/**
+ * **Il nome della squadra, e perche non basta la colonna denormalizzata**
+ * (PP-04).
+ *
+ * `athlete_category_memberships.category_name` e nullable, e lo e davvero:
+ * la popola `season-memberships.ts` sul rinnovo di stagione, e non la popola
+ * nessun altro percorso che crei un'appartenenza. Il ripiego era
+ * `membership.category_id`, cioe uno UUID — e la schermata «Le mie squadre»
+ * dell'area atleta stampava, sotto il titolo, due identificativi.
+ *
+ * L'ha trovato **guardando lo schermo**, non un test: e la forma di
+ * incompletezza che CLAUDE.md §11.8 descrive, quella in cui il codice c'e e
+ * dice una cosa che non serve a nessuno.
+ *
+ * Il catalogo del club e l'autorita, e `resolveCategoryLabel` la interroga
+ * gia per gli eventi. L'identificativo resta l'ultimo ripiego: meglio uno
+ * UUID che «Senza categoria» su una squadra che esiste.
+ */
+const serializeAthleteCard = (
+  athlete: any,
+  categoryOptions: NormalizedCategoryOption[] = [],
+) => {
   const data = asRecord(athlete?.data);
 
   return {
@@ -890,7 +1089,10 @@ const serializeAthleteCard = (athlete: any) => {
     categories: asArray(athlete.category_memberships).map(
       (membership: any) => ({
         id: membership.category_id,
-        name: membership.category_name || membership.category_id,
+        name:
+          firstText(membership.category_name) ||
+          resolveCategoryLabel(membership.category_id, categoryOptions) ||
+          membership.category_id,
         siteId: membership.site_id || null,
         isPrimary: Boolean(membership.is_primary),
       }),
@@ -950,7 +1152,58 @@ const serializeParentStructureBooking = (
   paymentStatus: booking.paymentStatus,
 });
 
-export const getParentLinkedAthletes = async (userId: string) => {
+/**
+ * **Da quale legame si sta entrando** (PP-04, ADR-0118).
+ *
+ * Due legami diversi aprono questa area, e non danno diritto alle stesse cose:
+ *
+ * - il **tutore**, che e la famiglia, e per cui l'area e stata scritta;
+ * - l'**atleta stesso**, per il quale `athletes.user_id` esiste perche l'area
+ *   atleta riusa questo dominio come sorgente — e poi ne proietta un elenco
+ *   chiuso di campi (`CAMPI_AREA_ATLETA`), che e dove denaro, tutori e
+ *   contenuto clinico restano fuori.
+ *
+ * Il difetto misurato da una revisione ostile: l'elenco chiuso vale sulla
+ * proiezione, **non sulla rotta**. Un atleta perfettamente in regola apriva
+ * `GET /api/parent-dashboard/<la propria scheda>` e riceveva il payload
+ * intero — le quote e le ricevute della famiglia, la diagnosi e l'indirizzo
+ * del file del certificato, l'anagrafica dei tutori. Il commento che dice
+ * «fuori dall'elenco, e non per dimenticanza» era vero su una rotta sola.
+ *
+ * `allowSelfAthleteLink` messo a vero apre il ramo diretto: senza di lui
+ * questo dominio serve **solo** chi entra come tutela.
+ *
+ * ## Il predefinito e restrittivo, e non lo e sempre stato (ADR-0122)
+ *
+ * Il primo giro l'aveva lasciato permissivo, e le cinque rotte del cruscotto
+ * di famiglia dichiaravano `false`. Una seconda revisione ostile ha misurato
+ * che quella forma non chiudeva niente: bastava dimenticarsi la dichiarazione
+ * su **una** rotta perche la porta si riaprisse, e la rotta che se ne
+ * dimenticava non lo diceva a nessuno.
+ *
+ * Il verso e adesso l'altro: **dimenticarsene chiude una porta invece di
+ * aprirla**. Un chiamante nuovo nasce servendo la tutela, e chi serve davvero
+ * l'atleta lo dichiara — oggi sono quattro, ognuno con il suo commento:
+ *
+ * | Chiamante | Perche |
+ * |---|---|
+ * | `readAthleteAreaOverview` (`athlete-accounts.ts`) | e la sorgente dell'area atleta, che ne proietta `CAMPI_AREA_ATLETA` |
+ * | `GET /api/parent-dashboard/:id/board` | la bacheca dell'area atleta |
+ * | `authorizeAnsweringUser` (`rsvp.ts`) | l'atleta risponde alla propria convocazione |
+ * | `GET /api/v1/auth/memberships` | `linked_athlete_ids` del ruolo `athlete`, da cui dipende il rientro nell'area |
+ *
+ * Tutto il resto — il payload intero, i **byte** dei documenti, le strutture,
+ * il checkout, i consensi, gli appuntamenti, il fascicolo, le pratiche
+ * d'iscrizione — resta di chi ha la responsabilita.
+ */
+export type ParentAccessOptions = {
+  allowSelfAthleteLink?: boolean;
+};
+
+export const getParentLinkedAthletes = async (
+  userId: string,
+  { allowSelfAthleteLink = false }: ParentAccessOptions = {},
+) => {
   /*
     **Tre domande su `userId`, e nessuna dipende dall'altra.**
 
@@ -1039,9 +1292,58 @@ export const getParentLinkedAthletes = async (userId: string) => {
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
   });
 
+  /*
+    **Le schede di cui questa persona e, o e stata, l'account** (ADR-0123).
+
+    Il legame vivo `athletes.user_id` piu gli inviti **accettati** che la
+    revoca non cancella. Si chiede sempre, anche quando il ramo diretto e
+    chiuso, perche non serve ad aprirlo: serve a impedire che chi e stato
+    quella scheda rientri dal ramo del tutore quando il club gli ha appena
+    tolto l'accesso.
+
+    Una interrogazione per l'intero elenco, non una per riga.
+  */
+  const schedeProprie = new Set(
+    candidateAthletes
+      .filter((athlete) => sameId(athlete.user_id, userId))
+      .map((athlete) => String(athlete.id)),
+  );
+  (
+    await athleteCardsEverOwnedByUser(
+      userId,
+      candidateAthletes.map((athlete) => ({
+        id: String(athlete.id),
+        organization_id: String(athlete.organization_id),
+      })),
+    )
+  ).forEach((athleteId) => schedeProprie.add(athleteId));
+
+  /*
+    I club in cui questa persona e **ancora un atleta**: serve solo al ramo del
+    legame diretto, e si chiede una volta sola per l'intero elenco invece che
+    per riga (ADR-0117). Si interroga soltanto sui club delle **sue** schede:
+    sugli altri la domanda non si pone.
+  */
+  const ancoraAtleta = allowSelfAthleteLink
+    ? await clubsWhereStillAthlete(
+        userId,
+        candidateAthletes
+          .filter((athlete) => schedeProprie.has(String(athlete.id)))
+          .map((athlete) => athlete.organization_id),
+      )
+    : new Set<string>();
+
   const uniqueAthletes = new Map<string, (typeof candidateAthletes)[number]>();
   candidateAthletes.forEach((athlete) => {
-    if (athleteBelongsToParent(athlete, userId, verifiedEmail)) {
+    if (
+      athleteBelongsToParent(
+        athlete,
+        userId,
+        verifiedEmail,
+        ancoraAtleta,
+        schedeProprie,
+      )
+    ) {
       uniqueAthletes.set(athlete.id, athlete);
     }
   });
@@ -1069,14 +1371,16 @@ export const getParentLinkedAthletes = async (userId: string) => {
 export const canParentAccessAthlete = async (
   userId: string,
   athleteId: string,
+  opzioni: ParentAccessOptions = {},
 ) => {
-  const linkedAthletes = await getParentLinkedAthletes(userId);
+  const linkedAthletes = await getParentLinkedAthletes(userId, opzioni);
   return linkedAthletes.some((athlete) => sameId(athlete.id, athleteId));
 };
 
 export const getParentDashboardData = async (
   userId: string,
   requestedAthleteOrClubId: string,
+  opzioni: ParentAccessOptions = {},
 ) => {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -1087,7 +1391,7 @@ export const getParentDashboardData = async (
       last_name: true,
     },
   });
-  const linkedAthletes = await getParentLinkedAthletes(userId);
+  const linkedAthletes = await getParentLinkedAthletes(userId, opzioni);
   const requestedId = String(requestedAthleteOrClubId || "").trim();
   const selectedAthlete =
     linkedAthletes.find((athlete) => sameId(athlete.id, requestedId)) ||
@@ -1316,7 +1620,11 @@ export const getParentDashboardData = async (
     userId,
     selectedAthlete,
     club,
-    { now: new Date(now) },
+    {
+      now: new Date(now),
+      /* Vedi ADR-0122: il legame con cui si e entrati viaggia con la richiesta. */
+      allowSelfAthleteLink: opzioni.allowSelfAthleteLink === true,
+    },
   );
   const certificates = medicalCertificates.map((certificate) => ({
     ...certificate,
@@ -1443,7 +1751,7 @@ export const getParentDashboardData = async (
       opening_hours: club.opening_hours,
     },
     athlete: {
-      ...serializeAthleteCard(selectedAthlete),
+      ...serializeAthleteCard(selectedAthlete, categoryOptions),
       user_id: selectedAthlete.user_id,
       /*
         **`data` usciva grezza, accanto ai tutori gia sanificati.**
@@ -1460,7 +1768,9 @@ export const getParentDashboardData = async (
       */
       data: stripGuardianAccessTokens(selectedAthlete.data),
       guardians: getGuardianRows(selectedAthlete),
-      linkedAthletes: linkedAthletes.map(serializeAthleteCard),
+      linkedAthletes: linkedAthletes.map((athlete) =>
+        serializeAthleteCard(athlete, categoryOptions),
+      ),
     },
     health: {
       certificates,

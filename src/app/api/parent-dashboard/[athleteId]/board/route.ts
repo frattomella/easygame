@@ -35,7 +35,22 @@ const errorStatus = (error: any) =>
   String(error?.message || "").includes("Accesso negato") ? 403 : 400;
 
 const requireLinkedAthlete = async (userId: string, athleteId: string) => {
-  if (!(await canParentAccessAthlete(userId, athleteId))) {
+  if (
+    !(await canParentAccessAthlete(userId, athleteId, {
+      /*
+        **La bacheca la legge anche l'atleta, ed e questa la rotta** (ADR-0122).
+
+        L'area atleta non ne ha una propria: una seconda rotta sarebbe una
+        seconda idea di «chi puo leggere questo avviso». Il predefinito del
+        dominio e pero restrittivo — il cruscotto della famiglia lo apre chi ha
+        la responsabilita — quindi chi serve l'atleta lo **dichiara**, ed e il
+        verso giusto: dimenticarsene chiude una porta invece di aprirla.
+
+        Qui esce un elenco di annunci, non il payload della famiglia.
+      */
+      allowSelfAthleteLink: true,
+    }))
+  ) {
     throw new Error("Accesso negato: atleta non collegato a questo account");
   }
 

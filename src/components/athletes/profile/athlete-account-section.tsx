@@ -13,6 +13,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -43,9 +44,16 @@ import { roleHasPermission } from "@/lib/permissions/catalog";
  * che non era successa, e l'atleta restava senza accesso senza che nessuno lo
  * sapesse.
  *
- * La sezione dice **tre stati** e non uno: nessun account, invito inviato,
- * accesso attivo. E mostra la **storia**, perche la domanda che arriva dopo —
- * «ma glielo abbiamo mandato?» — non la risponde nessuno stato corrente.
+ * La sezione dice **quattro stati** e non uno: nessun account, invito inviato,
+ * accesso attivo, **accesso revocato**. E mostra la **storia**, perche la
+ * domanda che arriva dopo — «ma glielo abbiamo mandato?» — non la risponde
+ * nessuno stato corrente.
+ *
+ * Il quarto e di PP-04. Un accesso revocato diceva «Nessun account»: la stessa
+ * scritta di un atleta mai invitato, per il fatto opposto. Accanto allo stato
+ * ci sono adesso anche **a chi** e stato mandato l'ultimo invito e **quando** —
+ * che fuori dallo stato «invitato» sparivano dallo schermo proprio nel momento
+ * in cui qualcuno se lo chiede.
  *
  * **Nessuna password compare in questa schermata, in nessun ramo**, e non e
  * una scelta di interfaccia: non ne esiste una da mostrare. Il server manda un
@@ -54,7 +62,9 @@ import { roleHasPermission } from "@/lib/permissions/catalog";
 
 type StatoAccesso = {
   athleteId: string;
-  status: "none" | "invited" | "active";
+  status: "none" | "invited" | "active" | "revoked";
+  /** Vero anche quando la data di nascita manca del tutto (ADR-0116). */
+  isMinor: boolean;
   account: {
     userId: string;
     email: string;
@@ -67,6 +77,9 @@ type StatoAccesso = {
     sentAt: string;
     expiresAt: string;
   } | null;
+  lastInviteEmail: string | null;
+  lastInviteAt: string | null;
+  revokedAt: string | null;
   history: {
     id: string;
     email: string;
@@ -182,6 +195,14 @@ export function AthleteAccountSection({
   const [errore, setErrore] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [inCorso, setInCorso] = useState(false);
+  /*
+    **La conferma sulla responsabilita genitoriale** (ADR-0116). Non e uno
+    stato del server: e la dichiarazione che si sta facendo adesso, e riparte
+    da spenta a ogni apertura del pannello e dopo ogni gesto riuscito. Una
+    casella che restasse spuntata fra un atleta e l'altro sarebbe una
+    dichiarazione che nessuno ha piu fatto.
+  */
+  const [tutoreAutorizza, setTutoreAutorizza] = useState(false);
 
   /*
     La stessa chiave che il server chiede. Nasconderla a chi non ce l'ha non e
@@ -222,8 +243,15 @@ export function AthleteAccountSection({
   }, [carica, puoGestire]);
 
   useEffect(() => {
-    setEmail(stato?.invite?.email || suggestedEmail || "");
-  }, [stato?.invite?.email, suggestedEmail]);
+    /*
+      Dopo una revoca l'indirizzo giusto da riproporre e **quello a cui si era
+      gia mandato**, non quello in anagrafica: se differiscono, e perche
+      qualcuno aveva gia corretto il primo.
+    */
+    setEmail(
+      stato?.invite?.email || stato?.lastInviteEmail || suggestedEmail || "",
+    );
+  }, [stato?.invite?.email, stato?.lastInviteEmail, suggestedEmail]);
 
   const agisci = useCallback(
     async (
@@ -236,6 +264,7 @@ export function AthleteAccountSection({
         const risposta = await apiRequest(percorso, opzioni as any);
         if (risposta.error) throw new Error(risposta.error.message);
         showToast("success", successo);
+        setTutoreAutorizza(false);
         await carica();
       } catch (caught: any) {
         showToast("error", caught?.message || "Operazione non riuscita");
@@ -248,6 +277,14 @@ export function AthleteAccountSection({
 
   if (!puoGestire) return null;
 
+  /*
+    Il pulsante resta spento finche la dichiarazione non c'e. Non e il
+    presidio — il presidio e il dominio, che rifiuta comunque — ma un pulsante
+    acceso che risponde 400 e il difetto che questa Wave ha trovato dieci
+    volte.
+  */
+  const mancaLaConferma = Boolean(stato?.isMinor) && !tutoreAutorizza;
+
   const corpo = (
     <div className="space-y-4">
         {caricamento ? (
@@ -257,6 +294,12 @@ export function AthleteAccountSection({
         ) : stato ? (
           <>
             {/* ------------------------------------------------ lo stato -- */}
+            {/*
+              **Quattro stati, non tre** (PP-04). «Accesso revocato» era
+              indistinguibile da «Nessun account»: la stessa scritta per un
+              atleta mai invitato e per uno a cui l'accesso e stato **tolto**,
+              che sono i due fatti opposti su cui la segreteria telefona.
+            */}
             <div className="flex flex-wrap items-center gap-2">
               {stato.status === "active" ? (
                 <Badge className="bg-emerald-600 hover:bg-emerald-600">
@@ -267,6 +310,11 @@ export function AthleteAccountSection({
                 <Badge variant="secondary">
                   <Mail className="mr-1 h-3 w-3" />
                   Invito inviato
+                </Badge>
+              ) : stato.status === "revoked" ? (
+                <Badge variant="destructive">
+                  <ShieldOff className="mr-1 h-3 w-3" />
+                  Accesso revocato
                 </Badge>
               ) : (
                 <Badge variant="outline">Nessun account</Badge>
@@ -282,8 +330,30 @@ export function AthleteAccountSection({
                   {stato.invite.email} · inviato il {quando(stato.invite.sentAt)}
                   , scade il {quando(stato.invite.expiresAt)}
                 </span>
+              ) : stato.lastInviteEmail ? (
+                /*
+                  Fuori dallo stato «invitato» il ramo `invite` e nullo, e con
+                  lui sparivano dallo schermo «a chi» e «quando» — che sono
+                  esattamente le due domande che ci si fa **dopo** una revoca o
+                  una scadenza.
+                */
+                <span className="text-sm text-slate-600">
+                  {stato.lastInviteEmail} · ultimo invito il{" "}
+                  {quando(stato.lastInviteAt)}
+                  {stato.revokedAt
+                    ? `, revocato il ${quando(stato.revokedAt)}`
+                    : ""}
+                </span>
               ) : null}
             </div>
+
+            {stato.status === "revoked" ? (
+              <p className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-900">
+                Questo atleta aveva un accesso a EasyGame e non ce l&apos;ha
+                piu. Se deve rientrare, mandagli un invito nuovo: il vecchio
+                link non funziona.
+              </p>
+            ) : null}
 
             {/* ----------------------------------------------- le azioni -- */}
             {stato.status === "active" ? (
@@ -334,6 +404,43 @@ export function AthleteAccountSection({
                   />
                 </div>
 
+                {/*
+                  **La conferma sul minore** (ADR-0116).
+
+                  EasyGame non ha una policy che dica se un minore possa avere
+                  un accesso proprio, chi lo autorizzi e come lo si provi: e una
+                  decisione legale che il repository non puo prendere. Finche
+                  non c'e, il gesto non passa in silenzio — chi lo compie
+                  dichiara, e la dichiarazione finisce nell'audit con il suo
+                  nome e la sua ora.
+
+                  La casella e qui perche la conferma la deve dare una persona,
+                  non il codice che compone la richiesta: il server la pretende
+                  comunque, e nasconderla soltanto lascerebbe un pulsante che
+                  risponde 400. E la stessa forma della cancellazione di un
+                  minore (ADR-0105), che sta due pannelli piu sotto sulla
+                  stessa scheda.
+                */}
+                {stato.isMinor ? (
+                  <label className="flex max-w-2xl items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <Checkbox
+                      className="mt-0.5"
+                      checked={tutoreAutorizza}
+                      onCheckedChange={(valore) =>
+                        setTutoreAutorizza(valore === true)
+                      }
+                      aria-label="Confermo che chi ha la responsabilita genitoriale ha autorizzato l'accesso"
+                    />
+                    <span>
+                      Questo atleta risulta <strong>minorenne</strong>, o non ha
+                      una data di nascita in anagrafica. Confermo che chi ne ha
+                      la <strong>responsabilita genitoriale</strong> ha
+                      autorizzato l&apos;apertura di un accesso EasyGame a suo
+                      nome.
+                    </span>
+                  </label>
+                ) : null}
+
                 <div className="flex flex-wrap gap-2">
                   {stato.status === "invited" ? (
                     <>
@@ -354,11 +461,17 @@ export function AthleteAccountSection({
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={inCorso || !email.trim()}
+                        disabled={inCorso || !email.trim() || mancaLaConferma}
                         onClick={() => {
                           void agisci(
                             `/api/v1/athlete-accounts/${athleteId}/email`,
-                            { method: "POST", body: { email } },
+                            {
+                              method: "POST",
+                              body: {
+                                email,
+                                acknowledgeMinor: tutoreAutorizza,
+                              },
+                            },
                             "Invito mandato al nuovo indirizzo",
                           );
                         }}
@@ -385,17 +498,22 @@ export function AthleteAccountSection({
                   ) : (
                     <Button
                       size="sm"
-                      disabled={inCorso || !email.trim()}
+                      disabled={inCorso || !email.trim() || mancaLaConferma}
                       onClick={() => {
                         void agisci(
                           `/api/v1/athlete-accounts/${athleteId}`,
-                          { method: "POST", body: { email } },
+                          {
+                            method: "POST",
+                            body: { email, acknowledgeMinor: tutoreAutorizza },
+                          },
                           "Invito inviato",
                         );
                       }}
                     >
                       <UserPlus className="mr-2 h-4 w-4" />
-                      Invita l&apos;atleta
+                      {stato.status === "revoked"
+                        ? "Invita di nuovo"
+                        : "Invita l’atleta"}
                     </Button>
                   )}
                 </div>
