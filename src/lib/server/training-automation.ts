@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/server/prisma";
+import { createSystemExecutionContext } from "@/lib/server/system-actor";
 import { normalizeTrainerList } from "@/lib/trainer-utils";
 import {
   athleteMatchesAnyCategory,
@@ -679,10 +680,29 @@ export async function runTrainingAutomationForClub(
             )
             .filter(Boolean)
         : [];
-      const trainingId =
-        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-          ? crypto.randomUUID()
-          : `training-${trainingDate}-${scheduleItem.id || generatedTrainings.length + 1}`;
+      /*
+        **L'identificativo di un allenamento generato e la sua posizione, non
+        un sorteggio.**
+
+        Qui c'era `crypto.randomUUID()`. Con un identificativo casuale la
+        chiave unica `(organization_id, kind, legacy_id)` non puo fare il
+        proprio mestiere: due esecuzioni del cron sulla stessa fascia
+        producono due valori diversi, `skipDuplicates` non riconosce niente, e
+        nascono due allenamenti dove ce n'e uno. Sotto concorrenza — due
+        istanze del cron, o il cron e il pulsante insieme — la deduplica in
+        memoria (`existingKeys`) non aiuta: ognuna vede l'archivio com'era
+        prima dell'altra.
+
+        L'identita di un allenamento ricorrente e gia stata definita in questo
+        file, ed e `duplicateKey`: giorno, ora, luogo, squadra. Usarla come
+        identificativo storico sposta la deduplica **dentro il database**, che
+        e l'unico posto che vede tutte e due le esecuzioni.
+
+        Il valore e stabile fra esecuzioni e leggibile in un `SELECT`, ed e la
+        ragione per cui non e una impronta: chi guarda una riga deve poter
+        capire da quale fascia viene senza ricalcolare niente.
+      */
+      const trainingId = `auto:${duplicateKey}`;
 
       generatedTrainings.push({
         id: trainingId,
@@ -722,13 +742,63 @@ export async function runTrainingAutomationForClub(
   }
 
   const lastRunAt = now.toISOString();
+
+  /*
+    **La generazione passa dal comando canonico, e non tocca la proiezione.**
+
+    Qui c'era `prisma.club.update({ data: { trainings: … } })`, cioe l'unica
+    scrittura di `clubs.trainings` fuori da `events.ts` in tutto l'albero. Il
+    registro generico quella colonna la difende in due punti
+    (`CLUB_PROJECTED_FIELDS`, `assertNotDomainOwnedModel`); questa porta la
+    aggirava, e le conseguenze erano due:
+
+    * cio che generava **non aveva una riga** in `club_events`, quindi appello,
+      convocazioni e RSVP rispondevano «Evento non trovato»: un allenamento
+      che si vede e su cui non si puo fare niente;
+    * la prima proiezione successiva — cioe il primo evento che qualcuno
+      salvasse — lo **cancellava**, perche `projectEventsToClubColumn` riscrive
+      la colonna per intero dalle righe. Senza errore e senza audit.
+
+    Adesso si creano le righe e la colonna la riallinea il proprietario, che e
+    l'unico verso ammesso (ADR-0098). Da qui in avanti un allenamento generato
+    e un allenamento: si modifica, si annulla, si conclude, tiene l'appello e
+    litiga per il campo come tutti gli altri.
+
+    L'autorita e un contesto di sistema legato a **questo** club e con una
+    capacita sola. Non e il proprietario, non e un'utenza, e l'audit lo dice.
+  */
+  if (generatedTrainings.length > 0) {
+    const { createClubEventsBatch } = await import("./events");
+
+    await createClubEventsBatch(
+      {
+        activeOrganizationId: clubId,
+        /* Nessun ruolo: chi scrive non e una persona, e non ne finge una. */
+        activeRole: null,
+        allowedOrganizationIds: [clubId],
+        system: createSystemExecutionContext({
+          organizationId: clubId,
+          job: "training-automation",
+          capabilities: ["training_automation.generate"],
+        }),
+      },
+      "training",
+      generatedTrainings,
+    );
+  }
+
+  /*
+    `settings` resta di questo modulo: `lastRunAt` dice quando l'automazione ha
+    girato, non e una proiezione degli eventi, e nessun altro lo scrive.
+  */
   await prisma.club.update({
     where: { id: clubId },
     data: {
-      trainings: dedupeTrainings([...currentStoredTrainings, ...generatedTrainings]),
       settings: buildStoredAutomationSettings(club.settings, lastRunAt),
     },
   });
+
+  void currentStoredTrainings;
 
   return {
     ran: true,

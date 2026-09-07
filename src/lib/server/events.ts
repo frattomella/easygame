@@ -8,6 +8,13 @@ import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { normalizeAccessRole } from "@/lib/access-roles";
 import { roleHasPermission } from "@/lib/permissions/catalog";
 import {
+  isSystemExecutionContext,
+  systemContextAllows,
+  SYSTEM_ACTOR_ROLE,
+  type SystemCapability,
+  type SystemExecutionContext,
+} from "./system-actor";
+import {
   accessScopeAllows,
   accessScopeValues,
   normalizeAccessScopes,
@@ -88,6 +95,15 @@ export type EventsScope = {
    * anche alla guardia sulle **persone**, che e quella che mancava.
    */
   accessScopes?: readonly AccessScopeEntry[] | null;
+  /**
+   * **Il contesto di un lavoro di sfondo**, quando a scrivere non e nessuno.
+   *
+   * Vive solo sul server, non nasce da una richiesta e non e un ruolo:
+   * `activeRole` resta `null` accanto a lui. Vedi `system-actor.ts` per la
+   * forma e `PERMESSI_DI_SISTEMA` qui sotto per cio che questo dominio gli
+   * concede — che e un permesso solo.
+   */
+  system?: SystemExecutionContext | null;
 };
 
 type Attore = {
@@ -103,6 +119,52 @@ type Attore = {
  * rischio di dimenticarlo — una guardia attesa a meta non ferma niente — lo
  * presidia `tests/server/guardie-attese.test.mjs`, che rilegge questo file.
  */
+/**
+ * **Quali permessi di *questo* dominio una capacita di sistema puo esercitare.**
+ *
+ * La traduzione vive qui e non in `system-actor.ts`, ed e la riga che tiene
+ * separate due cose che sarebbe comodo confondere: quel modulo dice **chi**
+ * sta agendo, questa tabella dice **cosa gli concede il dominio degli
+ * eventi**. Cosi dichiarare una capacita nuova non apre niente finche il
+ * dominio interessato non la nomina.
+ *
+ * `training_automation.generate` porta `events.manage` e **basta**: la
+ * generazione crea allenamenti, non convoca, non segna presenze e non legge
+ * risposte delle famiglie. Un elenco piu largo sarebbe il cancello globale
+ * scritto in una grafia piu lunga.
+ */
+const PERMESSI_DI_SISTEMA: Readonly<
+  Record<SystemCapability, ReadonlySet<string>>
+> = {
+  "training_automation.generate": new Set(["events.manage"]),
+};
+
+/**
+ * **Il permesso, per un contesto di sistema.**
+ *
+ * Tre condizioni, tutte necessarie, e nessuna e «e il sistema»:
+ *
+ * 1. il contesto dichiara la capacita **e** riguarda questo club
+ *    (`systemContextAllows` le chiede insieme apposta);
+ * 2. quella capacita, in **questo** dominio, e mappata su un permesso;
+ * 3. il permesso richiesto e fra quelli mappati.
+ *
+ * Il diniego lascia la stessa riga di audit di un diniego umano: un lavoro di
+ * sfondo che prova una cosa che non gli spetta e un fatto da registrare quanto
+ * una persona che ci prova.
+ */
+const sistemaPuo = (
+  contesto: unknown,
+  permesso: string,
+  organizationId: string,
+) => {
+  for (const capacita of Object.keys(PERMESSI_DI_SISTEMA) as SystemCapability[]) {
+    if (!systemContextAllows(contesto, capacita, organizationId)) continue;
+    if (PERMESSI_DI_SISTEMA[capacita].has(permesso)) return true;
+  }
+  return false;
+};
+
 const assertEventsPermission = async (
   scope: EventsScope,
   permesso:
@@ -112,6 +174,21 @@ const assertEventsPermission = async (
     | "events.attendance"
     | "rsvp.read",
 ) => {
+  /*
+    **Il contesto di sistema non e un ruolo, e non passa da `roleHasPermission`.**
+
+    `scope.activeRole` resta `null` per un lavoro di sfondo: non si finge il
+    proprietario, e nessuna guardia che legga il ruolo lo scambia per una
+    persona. La strada e separata apposta — chi legge questo file deve poter
+    vedere in una riga che le due autorita non si toccano.
+  */
+  if (
+    scope.system &&
+    sistemaPuo(scope.system, permesso, asText(scope.activeOrganizationId))
+  ) {
+    return;
+  }
+
   if (!roleHasPermission(scope.activeRole, permesso)) {
     await recordPermissionDenied({
       scope,
@@ -127,6 +204,33 @@ const requireActiveOrganization = (scope: EventsScope) => {
   if (!organizationId) {
     throw negato("nessun club attivo selezionato");
   }
+
+  /*
+    **Un contesto di sistema vale per il suo club, e per nessun altro.**
+
+    **Seconda linea, e oggi non e osservabile: va detto.** A rendere
+    impossibile la scrittura cross-club e `systemContextAllows`, che chiede
+    capacita e club **insieme** — e le chiede insieme apposta, perche separarle
+    vorrebbe dire ammettere un chiamante che verifica l'una e dimentica
+    l'altro. Ogni comando di questo dominio passa da `assertEventsPermission`
+    prima di arrivare qui, quindi togliendo queste due righe la sonda resta
+    verde: e una difesa inerte nel senso di ADR-0147.
+
+    Resta perche il costo e due confronti e cio che copre e un comando futuro
+    che chiami `requireActiveOrganization` **senza** aver chiesto il permesso —
+    la forma di difetto che questo repository ha gia trovato quattro volte, e
+    sempre su una porta nuova aggiunta accanto a una vecchia. Non e pero questa
+    riga a fermare l'attacco misurato dalla prova G, e chi legge non deve
+    crederlo: la prova che misura il legame e diretta, su
+    `systemContextAllows`.
+  */
+  if (scope.system && !isSystemExecutionContext(scope.system)) {
+    throw negato("contesto di sistema non valido");
+  }
+  if (scope.system && scope.system.organizationId !== organizationId) {
+    throw negato("il contesto di sistema non riguarda questo club");
+  }
+
   return organizationId;
 };
 
@@ -2112,15 +2216,32 @@ export const createClubEventsBatch = async (
   await prisma.clubEvent.createMany({ data: daScrivere, skipDuplicates: true });
   await projectEventsToClubColumn(organizationId, kind);
 
+  /*
+    **Chi ha agito, e se non e stato nessuno lo dice.**
+
+    Con un contesto di sistema non c'e nessun utente: `actorUserId` e
+    `actorEmail` restano `null` — non si conia un'identita per riempire una
+    colonna — e il ruolo porta `system:automation` piu il nome del lavoro.
+
+    E il requisito che regge tutti gli altri: un registro che attribuisse a una
+    persona una scrittura che non ha fatto sarebbe peggio di un registro
+    assente, perche gli si crede.
+  */
+  const diSistema = isSystemExecutionContext(scope.system) ? scope.system : null;
+
   await recordAuditEvent({
     action: AUDIT_ACTIONS.eventCreated,
-    actorUserId: attore.userId || null,
-    actorEmail: attore.email || null,
-    actorRole: scope.activeRole || null,
+    actorUserId: diSistema ? null : attore.userId || null,
+    actorEmail: diSistema ? null : attore.email || null,
+    actorRole: diSistema ? SYSTEM_ACTOR_ROLE : scope.activeRole || null,
     organizationId,
     resource: "club_events",
     resourceId: null,
-    metadata: { kind, generati: righe.length },
+    metadata: {
+      kind,
+      generati: righe.length,
+      ...(diSistema ? { automazione: diSistema.job } : {}),
+    },
   });
 
   return prisma.clubEvent.findMany({

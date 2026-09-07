@@ -9424,3 +9424,144 @@ nessuna delle due.
 **Vedi anche.** ADR-0030 (la compatibilita fra categorie e configurazione
 esplicita, mai una deduzione dal nome: e la stessa lezione, quattro mesi
 prima), ADR-0120, `docs/knowledge-base/16-technical-debt.md` §D-INT-1..4.
+
+---
+
+## ADR-0156 — Un lavoro di sfondo agisce come sistema, su un club solo e con una capacita dichiarata
+
+**Data:** 2026-09-07 · **Stato:** accettato · **Lane:** integrazione finale
+(Critical D-AUD-1)
+
+### Il fatto
+
+`training-automation.ts` generava allenamenti scrivendo **a mano**
+`clubs.trainings`. Quella colonna e una proiezione in sola lettura con uno
+scrittore solo (ADR-0098), e il registro generico la difende in due punti —
+`CLUB_PROJECTED_FIELDS` e `assertNotDomainOwnedModel`. La generazione era
+l'unica porta dell'albero che quella difesa la aggirava.
+
+Due conseguenze, e la seconda peggiore della prima:
+
+1. cio che generava **non aveva una riga** in `club_events`. Appello,
+   convocazioni e RSVP partono tutti da `findClubEvent`, quindi rispondevano
+   «Evento non trovato»: un allenamento che si vede sul calendario e su cui non
+   si puo fare niente;
+2. la prima proiezione successiva — il primo evento che chiunque salvasse — li
+   **cancellava tutti**, perche `projectEventsToClubColumn` riscrive la colonna
+   per intero dalle righe. Senza errore, senza audit, senza che nessuno potesse
+   ricostruire cosa fosse sparito.
+
+Il gemello lato browser (`simplified-db.ts`) era gia stato corretto e passava
+dal comando canonico. E stata corretta **una copia sola**.
+
+### La domanda che bloccava la correzione ovvia
+
+Far passare la generazione da `createClubEventsBatch` si ferma subito su una
+domanda che il prodotto non aveva mai dovuto rispondere: **con quale autorita
+scrive un lavoro che nessuno ha chiesto?** Il comando pretende uno scope, e uno
+scope nasce da una sessione. Il cron non ne ha una.
+
+### Le tre risposte scartate, e perche
+
+1. **Fingere il proprietario.** Uno scope con `activeRole: "owner"` passa ogni
+   guardia senza scrivere una riga nuova, ed e la strada che ogni prodotto
+   prende almeno una volta. Da quel momento pero l'audit dice che **un essere
+   umano** ha fatto una cosa che non ha fatto. Un registro che mente su chi ha
+   agito e peggio di un registro assente, perche gli si crede.
+2. **Un cancello globale.** Un `if (isSystem) return;` dentro le guardie e una
+   riga sola, e trasforma «il sistema puo fare questa cosa» in «il sistema puo
+   fare tutto». La seconda non l'ha decisa nessuno, e il giorno in cui un
+   lavoro di sfondo nuovo avesse un difetto avrebbe l'autorita per propagarlo
+   ovunque.
+3. **Coniare un'utenza di servizio.** Una credenziale in piu da custodire, e
+   un'identita che puo accedere anche **da fuori**: si sposta il problema dal
+   codice all'operatore.
+
+### La decisione
+
+Un **contesto di esecuzione di sistema** esplicito
+(`src/lib/server/system-actor.ts`), che non e un ruolo e non e un'utenza:
+
+* **vive solo sul server.** Non nasce da una richiesta, non si serializza verso
+  il browser, non ha un gettone. Un oggetto che ne avesse la forma arrivando da
+  un JSON non passerebbe la guardia: `capabilities` e un `Set`, e un array no;
+* **e legato a un club solo.** `organizationId` e obbligatorio e il costruttore
+  fallisce senza. Il ciclo del cron ne costruisce uno **per iterazione**, non
+  uno riusato;
+* **porta un elenco chiuso di capacita.** Non «il sistema», ma «questo lavoro,
+  per questa cosa». Una capacita che l'elenco non conosce e un **errore**, non
+  un contesto muto: un refuso che producesse un contesto valido-ma-impotente
+  darebbe un lavoro che non funziona e non lo dice (ADR-0147);
+* **e congelato.** Non gli si aggiungono capacita dopo averlo costruito.
+
+**La traduzione capacita → permesso vive nel dominio che concede**, non
+nell'attore. `system-actor.ts` dice *chi* sta agendo; `events.ts` dice quali dei
+**suoi** permessi la capacita `training_automation.generate` puo esercitare, e
+ne dichiara **uno**: `events.manage`. La generazione crea allenamenti, non
+convoca, non segna presenze e non legge risposte delle famiglie.
+
+Cosi non esiste un posto in cui aggiungere una capacita apra qualcosa che il
+suo dominio non ha approvato — e non esiste un `isSystem` che scavalchi.
+
+**Capacita e club si chiedono insieme.** `systemContextAllows(contesto,
+capacita, club)` non si scompone in due funzioni, e non e una scelta di stile:
+due funzioni separate ammettono un chiamante che verifica l'una e dimentica
+l'altro, e quello sarebbe il varco cross-club — un lavoro avviato per il club A
+che scrive nel club B.
+
+**L'audit dice chi non ha agito.** Con un contesto di sistema `actorUserId` e
+`actorEmail` restano `null` — non si conia un'identita per riempire una colonna
+— e il ruolo porta `system:automation` piu il nome del lavoro.
+
+### L'identita di un allenamento ricorrente
+
+La correzione ha portato con se un secondo difetto, che il passaggio al dominio
+ha reso visibile: l'identificativo generato era `crypto.randomUUID()`.
+
+Con un identificativo casuale la chiave unica `(organization_id, kind,
+legacy_id)` non puo fare il proprio mestiere. Due esecuzioni sulla stessa
+fascia producono due valori diversi, `skipDuplicates` non riconosce niente, e
+nascono due allenamenti dove ce n'e uno. Sotto concorrenza la deduplica in
+memoria non aiuta: ognuna delle esecuzioni vede l'archivio com'era prima delle
+altre.
+
+L'identita di un allenamento ricorrente era gia definita in quel file — giorno,
+ora, luogo, squadra — e si chiamava `duplicateKey`. Usarla come identificativo
+storico sposta la deduplica **dentro il database**, che e l'unico posto che
+vede tutte le esecuzioni. Il valore e stabile e leggibile in un `SELECT`, ed e
+la ragione per cui non e un'impronta: chi guarda una riga deve poter capire da
+quale fascia viene senza ricalcolare niente.
+
+### Come si fa valere
+
+* `scripts/critical-automazione-sistema-probe.mjs` — 21 prove contro PostgreSQL
+  vero: la riga esiste, la proiezione e coerente, il salvataggio successivo non
+  cancella, ripetere non duplica, **tre esecuzioni simultanee su un club
+  vergine** restano una riga per fascia, il contesto del club A non scrive nel
+  club B, un contesto senza capacita non e «il sistema puo tutto», e
+  l'allenamento generato si modifica, si annulla, si cancella e tiene l'appello
+  come tutti gli altri;
+* `tests/server/attore-di-sistema.test.mjs` — 9 prove sulla **forma**
+  dell'autorita, fra cui il legame capacita↔club misurato in faccia invece che
+  di riflesso;
+* **quattro mutazioni**, e ognuna morde su una prova diversa: l'identificativo
+  che torna casuale (idempotenza e concorrenza), il cancello globale, l'audit
+  che torna a nominare una persona.
+
+### Una difesa che si dichiara inerte
+
+Il confronto fra `scope.system.organizationId` e il club attivo dentro
+`requireActiveOrganization` **non e osservabile**: `systemContextAllows` lega
+gia le due cose, e ogni comando passa da `assertEventsPermission` prima.
+Togliendolo la sonda resta verde.
+
+Resta perche copre un comando futuro che chiami `requireActiveOrganization`
+senza aver chiesto il permesso — la forma di difetto che questo repository ha
+gia trovato quattro volte, sempre su una porta nuova aggiunta accanto a una
+vecchia. Ma il commento lo dice: non e quella riga a fermare l'attacco, e chi
+legge non deve crederlo. Una difesa inerte spacciata per la difesa vera e
+peggio di una assente (ADR-0147).
+
+**Vedi anche.** ADR-0098 (la proiezione ha uno scrittore solo), ADR-0150
+(«interno» dice da quale rotta, non con quale autorita), ADR-0147,
+`docs/knowledge-base/14-security.md` §D-AUD-1.
