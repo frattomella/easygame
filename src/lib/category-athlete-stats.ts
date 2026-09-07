@@ -2,7 +2,11 @@ import {
   compareAthletesByLastName,
   getAthleteDisplayName,
 } from "@/lib/athlete-name-utils";
-import { athleteMatchesCategory } from "@/lib/category-utils";
+import {
+  categoryIdentity,
+  normalizeCategoryToken,
+  sameCategory,
+} from "@/lib/categories/identity";
 import { getConvocatedAthleteIdsFromMatch } from "@/lib/match-certificate-warnings";
 import { recordMatchesCategory } from "@/lib/trainer-dashboard-helpers";
 
@@ -98,34 +102,53 @@ const getTrainingAttendanceEntries = (training: any, attendance: any[] = []) => 
   return [...embeddedEntries, ...externalEntries];
 };
 
+/**
+ * **La categoria di cui si sta facendo il conto** (D-INT-2, ADR-0155).
+ *
+ * Qui c'era `find` con un `||` fra identificativo e nome, cioe: davanti a due
+ * «Under 15» su due sedi rispondeva **la prima**, e il blocco di report
+ * usciva con dentro i due organici mescolati — mentre per l'altra categoria
+ * non usciva nessun blocco.
+ *
+ * Adesso risolve la primitiva: se il riferimento nomina una categoria sola, e
+ * quella; se ne nomina due, non ne nomina nessuna, e si ricade sul
+ * riferimento cosi com'e — che non e l'identificativo di nessuna e quindi non
+ * ruba l'organico a nessuna delle due.
+ */
 const resolveTargetCategory = (
   categoryId: string,
   categories: Array<{ id?: string | null; name?: string | null }> = [],
 ) => {
-  const normalizedCategoryId = normalizeValue(categoryId);
-  const matchedCategory = categories.find(
-    (category) =>
-      normalizeValue(category?.id) === normalizedCategoryId ||
-      normalizeValue(category?.name) === normalizedCategoryId,
-  );
+  const identita = categoryIdentity({ id: categoryId }, categories);
 
-  return (
-    matchedCategory || {
-      id: categoryId,
-      name: categoryId,
+  for (const category of categories) {
+    if (
+      category?.id &&
+      identita.identificativi.has(normalizeCategoryToken(category.id))
+    ) {
+      return category;
     }
-  );
+  }
+
+  return { id: categoryId, name: categoryId };
 };
 
+/**
+ * **Una domanda, una risposta** (D-INT-2).
+ *
+ * Qui c'era un `||` fra le **due** risposte canoniche di allora:
+ * `athleteMatchesCategory` senza catalogo (quindi incapace di distinguere due
+ * omonime) **oppure** `recordMatchesCategory` con il catalogo. Un `||` fra una
+ * regola stretta e una larga vale sempre la larga: la meta corretta non poteva
+ * restringere niente, e la correzione di una delle due non si sarebbe vista.
+ *
+ * Adesso le due sono la stessa funzione, e questa la chiama una volta.
+ */
 const athleteBelongsToCategory = (
   athlete: any,
   category: { id?: string | null; name?: string | null },
   categories: Array<{ id?: string | null; name?: string | null }> = [],
-) =>
-  athleteMatchesCategory(athlete, {
-    id: normalizeId(category?.id),
-    name: normalizeId(category?.name),
-  }) || recordMatchesCategory(athlete, category, categories);
+) => sameCategory(athlete, category, categories);
 
 export function calculateCategoryAthleteStats(
   categoryId: string,

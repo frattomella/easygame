@@ -1,5 +1,6 @@
 "use client";
 
+import { sameCategory } from "@/lib/categories/identity";
 import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
@@ -234,46 +235,28 @@ const normalizeTrainingCategoryReference = (value: unknown) =>
     .trim()
     .toLowerCase();
 
+/**
+ * **La quarta copia privata di «questo record e di questa categoria»**
+ * (D-INT-2, D-AUD-5).
+ *
+ * Qui c'era un confronto scritto a mano che metteva identificativi ed
+ * etichette nello stesso elenco su tutti e due i lati. Con due categorie
+ * omonime su due sedi — la configurazione ordinaria di una societa
+ * multi-sede — l'intersezione era non vuota, e l'appello di un allenamento
+ * di Scauri si apriva **anche** sugli atleti di Formia.
+ *
+ * Quelle presenze non restavano sullo schermo: `assertAtletiDelClub`
+ * controlla il club e basta, e un allenatore ordinario non ha un perimetro
+ * di sede, quindi «Segna tutti presenti» le scriveva. Da li passavano a
+ * `funding/attendance-measure.ts`, cioe a un contributo rendicontato.
+ *
+ * Adesso risponde la primitiva, con il catalogo del club in mano.
+ */
 const trainingMatchesCategory = (
   training: any,
   category: { id?: string | null; name?: string | null },
-) => {
-  const nestedTrainingCategories = Array.isArray(training?.categories)
-    ? training.categories.flatMap((value: any) =>
-        value && typeof value === "object"
-          ? [
-              value.id,
-              value.name,
-              value.categoryId,
-              value.category_id,
-              value.categoryName,
-              value.category_name,
-            ]
-          : [value],
-      )
-    : [];
-  const trainingReferences = [
-    ...nestedTrainingCategories,
-    training?.categoryId,
-    training?.category_id,
-    training?.category?.id,
-    training?.category?.name,
-    training?.category,
-    training?.categoryName,
-    training?.category_name,
-  ]
-    .map(normalizeTrainingCategoryReference)
-    .filter(Boolean);
-
-  const categoryReferences = [category?.id, category?.name]
-    .map(normalizeTrainingCategoryReference)
-    .filter(Boolean);
-
-  return categoryReferences.some((reference) =>
-    trainingReferences.includes(reference),
-  );
-};
-
+  catalog: Array<{ id?: string | null; name?: string | null }> = [],
+) => sameCategory(training, category, catalog);
 const formatTrainingSession = ({
   training,
   categories,
@@ -295,7 +278,7 @@ const formatTrainingSession = ({
   }
 
   const matchedCategories = categories.filter((category: any) =>
-    trainingMatchesCategory(training, category),
+    trainingMatchesCategory(training, category, categories),
   );
 
   /*
@@ -316,7 +299,7 @@ const formatTrainingSession = ({
               ),
             ).length
           : athletes.filter((athlete: any) =>
-              athleteMatchesAnyCategory(athlete, matchedCategories),
+              athleteMatchesAnyCategory(athlete, matchedCategories, categories),
             ).length;
 
   const matchedLocation = findTrainingLocationOption(locations, {
@@ -968,6 +951,7 @@ const versioneSalvata = (risposta: any): number | null => {
         trainingMatchesCategory(
           { categories: trainingData.categories || [] },
           category,
+          categories,
         ),
       );
       const selectedTrainers = trainers.filter((trainer) =>
@@ -1067,7 +1051,7 @@ const versioneSalvata = (risposta: any): number | null => {
       // Calculate expected attendees
       const allAthletes = await getClubAthletes(activeClub.id);
       const expectedAttendees = allAthletes.filter((athlete: any) =>
-        athleteMatchesAnyCategory(athlete, selectedCategories),
+        athleteMatchesAnyCategory(athlete, selectedCategories, categories),
       ).length;
 
       // Update local state
@@ -1140,7 +1124,7 @@ const versioneSalvata = (risposta: any): number | null => {
   const openAttendanceSheet = React.useCallback(
     (training: TrainingSession) => {
       const eventCategories = categories.filter((category) =>
-        trainingMatchesCategory(training, category),
+        trainingMatchesCategory(training, category, categories),
       );
       const existingEntries = normalizeTrainingAttendanceEntries(
         training.attendance,
@@ -1177,7 +1161,7 @@ const versioneSalvata = (risposta: any): number | null => {
         groupAthletes ??
         (eventCategories.length > 0
           ? activeAthletes.filter((athlete: any) =>
-              athleteMatchesAnyCategory(athlete, eventCategories),
+              athleteMatchesAnyCategory(athlete, eventCategories, categories),
             )
           : activeAthletes);
       const savedOutsideCategoryAthletes = clubAthletes.filter(

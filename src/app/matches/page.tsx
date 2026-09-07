@@ -1903,11 +1903,17 @@ export default function MatchesPage() {
                         convocationStats={categories.map((category) => {
                           let categoryAthletes = athletes.filter(
                             (athlete: any) => {
-                              return athleteMatchesAnyCategory(athlete, [
-                                category,
-                                category.id,
-                                category.name,
-                              ]);
+                              /*
+                                Il catalogo viaggia con la domanda (D-INT-2):
+                                senza, due «Under 15» su due sedi producono
+                                **una** riga di convocabili con dentro tutti e
+                                due i gruppi.
+                              */
+                              return athleteMatchesAnyCategory(
+                                athlete,
+                                [category, category.id, category.name],
+                                categories,
+                              );
                             },
                           );
 
@@ -2181,10 +2187,16 @@ export default function MatchesPage() {
             const baseAthletes =
               perGruppo ??
               athletes.filter((athlete: any) =>
-                athleteMatchesAnyCategory(athlete, [
-                  selectedMatch.categoryId,
-                  selectedMatch.category,
-                ]),
+                /*
+                  Il ripiego quando la gara non dichiara gruppi: e il catalogo
+                  a distinguere le due omonime, e senza di lui l elenco dei
+                  convocabili le fonde (D-INT-2).
+                */
+                athleteMatchesAnyCategory(
+                  athlete,
+                  [selectedMatch.categoryId, selectedMatch.category],
+                  categories,
+                ),
               );
             const savedConvocationEntries =
               normalizeMatchConvocationEntries(selectedMatch);

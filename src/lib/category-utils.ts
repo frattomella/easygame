@@ -1,4 +1,9 @@
 import {
+  sameAnyCategory,
+  sameCategory,
+  type CategoryCatalogEntry,
+} from "@/lib/categories/identity";
+import {
   getAthleteCategoryReferences as getNormalizedAthleteCategoryReferences,
   getPrimaryAthleteCategoryMembership,
   normalizeAthleteCategoryMemberships,
@@ -390,22 +395,46 @@ export function buildClubCategoryOptions({
   return sortCategoryOptions(merged);
 }
 
+/**
+ * **Questo atleta e di questa categoria?**
+ *
+ * ---
+ *
+ * ## La correzione (D-INT-2, ADR-0155)
+ *
+ * Qui c'era la seconda delle due risposte canoniche alla stessa domanda, e
+ * faceva la stessa cosa nello stesso modo sbagliato dell'altra: metteva
+ * l'identificativo di una categoria e la sua **etichetta** nello stesso elenco
+ * — su tutti e due i lati — e intersecava. Con due categorie omonime su due
+ * sedi l'intersezione e non vuota, e le due squadre diventavano una.
+ *
+ * Adesso delega alla primitiva del dominio. Le due risposte canoniche sono
+ * **una**, e le regole stanno li (`src/lib/categories/identity.ts`).
+ *
+ * ## Il `catalog`, e perche e opzionale
+ *
+ * Disambiguare due omonime si puo solo con il catalogo del club in mano: senza,
+ * «Under 15» e una parola e basta. Il parametro e in coda e ha un valore
+ * predefinito perche i chiamanti sono quattordici e non tutti hanno il
+ * catalogo a portata — e chi non ce l'ha continua a funzionare **esattamente
+ * come prima**, sul ripiego per nome.
+ *
+ * Non e un compromesso mascherato: senza catalogo l'ambiguita non e
+ * conoscibile, e fingere di risolverla sarebbe peggio che ripiegare. Chi
+ * distingue due sedi il catalogo lo passa, e `scripts/censimento-eleggibilita.mjs`
+ * dice chi ancora non lo fa.
+ */
 export const athleteMatchesCategory = (
   athlete: unknown,
   category: Pick<CategoryLike, "id" | "name"> | string | null | undefined,
-) => {
-  const athleteReferences = getAthleteCategoryReferences(athlete);
-  const categoryReferences = getCategoryReferences(category);
-
-  return categoryReferences.some((reference) =>
-    athleteReferences.includes(reference),
-  );
-};
+  catalog: readonly CategoryCatalogEntry[] = [],
+) => sameCategory(athlete, category, catalog);
 
 export const athleteMatchesAnyCategory = (
   athlete: unknown,
   categories: Array<Pick<CategoryLike, "id" | "name"> | string> = [],
-) => categories.some((category) => athleteMatchesCategory(athlete, category));
+  catalog: readonly CategoryCatalogEntry[] = [],
+) => sameAnyCategory(athlete, categories, catalog);
 
 const toNumber = (value: unknown) => {
   if (value === null || value === undefined || value === "") {

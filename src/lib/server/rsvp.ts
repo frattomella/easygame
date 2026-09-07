@@ -13,6 +13,10 @@ import {
 } from "@/lib/communications/permissions";
 import { isTrainerAccessRole } from "@/lib/access-roles";
 import {
+  categoryIdentity,
+  normalizeCategoryToken,
+} from "@/lib/categories/identity";
+import {
   athleteMatchesAnyCategory,
   buildClubCategoryOptions,
 } from "@/lib/category-utils";
@@ -244,21 +248,62 @@ const resolveExpectedAthletes = (
   */
   if (!references.length) return athletes;
 
+  /*
+    **Se l'evento sa dire quale categoria e, si guarda quella e basta**
+    (D-INT-2, ADR-0155).
+
+    Qui l'elenco delle categorie volute si costruiva **per nome**: ogni voce
+    del catalogo il cui nome coincidesse con un riferimento dell'allenamento
+    entrava fra le attese. Con due «Under 15» su due sedi entravano tutte e
+    due, e da li un atleta di Formia risultava atteso a un allenamento di
+    Scauri — quindi `answerRsvp` accettava la sua risposta, e la sua nota alla
+    famiglia compariva nel riepilogo dell'altro allenatore.
+
+    `categoryIdentity` risolve i riferimenti dell'evento **sul catalogo del
+    club**: se ne esce almeno un identificativo, le attese sono quelle e
+    nessun'altra.
+
+    Il ripiego per nome resta per il caso in cui non ne esca nessuno — un club
+    senza catalogo, o un riferimento storico che il catalogo non conosce — ed e
+    voluto che resti **largo**: qui chiudere a zero vorrebbe dire un «senza
+    risposta» vuoto proprio dove la funzione serve, e sul verso della
+    domanda («chi ci si aspetta?») chiedere a qualcuno in piu costa meno che
+    dimenticare qualcuno.
+  */
+  const identitaEvento = categoryIdentity(
+    context.training,
+    context.categoryOptions,
+  );
+
+  if (identitaEvento.identificativi.size) {
+    const volute = context.categoryOptions.filter((option) =>
+      identitaEvento.identificativi.has(normalizeCategoryToken(option.id)),
+    );
+
+    return athletes.filter((athlete) =>
+      athleteMatchesAnyCategory(athlete, volute, context.categoryOptions),
+    );
+  }
+
   const matchingOptions = references.map((reference) => ({
     id: reference,
     name: reference,
   }));
 
   return athletes.filter((athlete) =>
-    athleteMatchesAnyCategory(athlete, [
-      ...matchingOptions,
-      ...context.categoryOptions.filter((option) =>
-        references.some(
-          (reference) =>
-            sameId(option.id, reference) || sameId(option.name, reference),
+    athleteMatchesAnyCategory(
+      athlete,
+      [
+        ...matchingOptions,
+        ...context.categoryOptions.filter((option) =>
+          references.some(
+            (reference) =>
+              sameId(option.id, reference) || sameId(option.name, reference),
+          ),
         ),
-      ),
-    ]),
+      ],
+      context.categoryOptions,
+    ),
   );
 };
 

@@ -1,4 +1,5 @@
 import { normalizeAthleteStatus } from "@/lib/athletes/status";
+import { categoryIdentity, sameCategory } from "@/lib/categories/identity";
 import { prisma } from "@/lib/server/prisma";
 import { stripGuardianAccessTokens } from "@/lib/health/permissions";
 import {
@@ -171,89 +172,21 @@ export const notificationBelongsToAthlete = (
 
 
 
-const getAthleteCategoryTokens = (
-  athlete: any,
-  categories: NormalizedCategoryOption[] = [],
-) => {
-  const data = asRecord(athlete?.data);
-  const memberships = asArray(athlete?.category_memberships).concat(
-    asArray(data.categoryMemberships),
-    asArray(data.category_memberships),
-  );
-  const rawValues = [
-    athlete?.category_id,
-    athlete?.category_name,
-    data.category,
-    data.categoryId,
-    data.category_id,
-    data.categoryName,
-    data.category_name,
-    asArray(data.categories),
-    memberships.map((membership) => [
-      membership?.category_id,
-      membership?.categoryId,
-      membership?.category_name,
-      membership?.categoryName,
-    ]),
-  ].flat(3);
+/*
+  **Qui vivevano le tre funzioni della sesta copia privata** (D-INT-2).
 
-  const tokens = new Set<string>();
-  rawValues.forEach((value) => {
-    const text =
-      isRecord(value) ? firstText(value.id, value.name, value.label) : firstText(value);
-    if (!text) return;
+  `getAthleteCategoryTokens`, `getRecordCategoryTokens` e
+  `hasTokenIntersection` costruivano un insieme di token che mescolava
+  identificativi ed **etichette** — `tokens.add(normalizeToken(text))`
+  accanto a `tokens.add(normalizeToken(resolveCategoryLabel(...)))` — e lo
+  intersecavano. Con due categorie omonime su due sedi l'intersezione era
+  non vuota, e la famiglia di una si trovava sul calendario il programma
+  dell'altra.
 
-    tokens.add(normalizeToken(text));
-    tokens.add(normalizeToken(resolveCategoryLabel(text, categories)));
-  });
-
-  return tokens;
-};
-
-const getRecordCategoryTokens = (
-  record: any,
-  categories: NormalizedCategoryOption[] = [],
-) => {
-  const source = asRecord(record);
-  const data = asRecord(source.data);
-  const rawValues = [
-    source.category,
-    source.categoryId,
-    source.category_id,
-    source.categoryName,
-    source.category_name,
-    source.categoryIds,
-    source.category_ids,
-    source.categories,
-    data.category,
-    data.categoryId,
-    data.category_id,
-    data.categoryName,
-    data.category_name,
-    data.categories,
-  ].flatMap((value) => {
-    if (Array.isArray(value)) return value;
-    if (typeof value === "string" && value.includes(",")) {
-      return value.split(",").map((entry) => entry.trim());
-    }
-    return [value];
-  });
-
-  const tokens = new Set<string>();
-  rawValues.forEach((value) => {
-    const text =
-      isRecord(value) ? firstText(value.id, value.name, value.label) : firstText(value);
-    if (!text) return;
-
-    tokens.add(normalizeToken(text));
-    tokens.add(normalizeToken(resolveCategoryLabel(text, categories)));
-  });
-
-  return tokens;
-};
-
-const hasTokenIntersection = (left: Set<string>, right: Set<string>) =>
-  Array.from(left).some((token) => right.has(token));
+  `recordMatchesAthlete` passa ora dalla primitiva del dominio, e queste
+  non le chiamava piu nessuno. Sono state tolte invece che lasciate: una
+  copia della regola che nessuno usa e una copia che qualcuno riusera.
+*/
 
 const getAthleteReferenceTokens = (athlete: any) => {
   const data = asRecord(athlete?.data);
@@ -396,19 +329,42 @@ const normalizeAttendanceStatus = (status: unknown) => {
   return "unknown";
 };
 
+/**
+ * **Questo allenamento riguarda questo figlio?** (D-INT-2, ADR-0155)
+ *
+ * Qui c'era la sesta copia privata del confronto fra categorie, e come le
+ * altre cinque metteva identificativi ed **etichette** nello stesso insieme:
+ * `tokens.add(normalizeToken(text))` accanto a
+ * `tokens.add(normalizeToken(resolveCategoryLabel(...)))`.
+ *
+ * Con due «Under 15» su due sedi l'intersezione era non vuota, e la famiglia
+ * di Formia si trovava sul calendario **l'intero programma della squadra di
+ * Scauri** — allenamenti, gare, e per ogni gara lo stato di partecipazione del
+ * proprio figlio a un evento che non lo riguardava.
+ *
+ * Adesso risponde la primitiva del dominio. Resta il ramo che apre tutto
+ * quando **nessuno dei due** dichiara una categoria: e il club mono-categoria,
+ * che non ha mai compilato quel campo, e li restringere a zero vuoterebbe il
+ * calendario invece di separare due squadre.
+ */
 const recordMatchesAthlete = (
   record: any,
   athlete: any,
   categories: NormalizedCategoryOption[],
 ) => {
-  const recordTokens = getRecordCategoryTokens(record, categories);
-  const athleteTokens = getAthleteCategoryTokens(athlete, categories);
+  const delRecord = categoryIdentity(record, categories);
+  const dellAtleta = categoryIdentity(athlete, categories);
 
-  if (recordTokens.size === 0 && athleteTokens.size === 0) {
+  const recordNonDichiara =
+    delRecord.identificativi.size === 0 && delRecord.nomi.size === 0;
+  const atletaNonDichiara =
+    dellAtleta.identificativi.size === 0 && dellAtleta.nomi.size === 0;
+
+  if (recordNonDichiara && atletaNonDichiara) {
     return true;
   }
 
-  return hasTokenIntersection(recordTokens, athleteTokens);
+  return sameCategory(record, athlete, categories);
 };
 
 const getEventDate = (event: any) => {
@@ -1172,7 +1128,7 @@ export const getParentLinkedAthletes = async (
     include: {
       organization: true,
       /*
-        W6-14. Un atleta puo stare in piu categorie, e `getAthleteCategoryTokens`
+        W6-14. Un atleta puo stare in piu categorie, e `recordMatchesAthlete`
         legge questa relazione per decidere quali allenamenti e quali gare
         riguardano questo figlio. Senza popolarla, il calendario perdeva le
         attivita della seconda squadra.

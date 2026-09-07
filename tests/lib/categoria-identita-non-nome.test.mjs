@@ -291,7 +291,77 @@ test("e il catalogo vero fa accendere la difesa di ADR-0155", () => {
 });
 
 /* ==================================================================== *
- *  5. La forma della risposta: identificativi e nomi separati
+ *  5. L'eleggibilita: chi e convocabile, chi e all'appello (D-INT-2)
+ * ==================================================================== */
+
+test("`athleteMatchesAnyCategory` con il catalogo separa le due sedi", () => {
+  /*
+    **E la porta di appello e convocazioni.**
+
+    Le due erano risposte canoniche **diverse** alla stessa domanda: questa
+    serviva RSVP, convocazioni, statistiche e cinque schermate; l'altra le
+    bacheche dell'allenatore. Adesso sono la stessa funzione, e questa prova
+    misura che lo siano davvero — non che si somiglino.
+  */
+  const diFormia = {
+    category_memberships: [{ category_id: U15_FORMIA, category_name: "Under 15" }],
+  };
+
+  assert.equal(
+    utils.athleteMatchesAnyCategory(diFormia, [{ id: U15_FORMIA }], CATALOGO),
+    true,
+    "l'atleta e convocabile per la propria squadra",
+  );
+  assert.equal(
+    utils.athleteMatchesAnyCategory(diFormia, [{ id: U15_SCAURI }], CATALOGO),
+    false,
+    "prima: compariva nell'appello dell'altra sede, e «Segna tutti presenti» lo scriveva",
+  );
+});
+
+test("senza catalogo si comporta come prima: nessuna regressione per chi non ne ha uno", () => {
+  const senzaCatalogo = {
+    category_memberships: [{ category_id: U15_FORMIA, category_name: "Under 15" }],
+  };
+
+  assert.equal(
+    utils.athleteMatchesAnyCategory(senzaCatalogo, [{ id: U15_FORMIA }]),
+    true,
+  );
+  assert.equal(
+    utils.athleteMatchesAnyCategory(senzaCatalogo, [{ name: "Under 15" }]),
+    true,
+    "il ripiego per nome resta dove il catalogo non c'e",
+  );
+});
+
+test("le due risposte canoniche danno la stessa risposta, sugli stessi ingressi", () => {
+  /*
+    **La prova che le tiene una sola.**
+
+    `athleteMatchesCategory` e `recordMatchesCategory` erano due funzioni con
+    due idee. Se un giorno divergessero di nuovo — perche qualcuno «corregge»
+    una delle due — questa prova lo direbbe prima che lo dica un allenatore.
+  */
+  const casi = [
+    [{ category_id: U15_SCAURI }, { id: U15_FORMIA }],
+    [{ category_id: U15_SCAURI }, { id: U15_SCAURI }],
+    [{ category_name: "Under 15" }, { id: U15_SCAURI }],
+    [{ category_name: "Amatori" }, { name: "Amatori" }],
+    [{ category_memberships: [{ category_id: U17_SCAURI }] }, { id: U17_SCAURI }],
+  ];
+
+  for (const [record, categoria] of casi) {
+    assert.equal(
+      utils.athleteMatchesCategory(record, categoria, CATALOGO),
+      helpers.recordMatchesCategory(record, categoria, CATALOGO),
+      `le due divergono su ${JSON.stringify(record)} / ${JSON.stringify(categoria)}`,
+    );
+  }
+});
+
+/* ==================================================================== *
+ *  6. La forma della risposta: identificativi e nomi separati
  * ==================================================================== */
 
 test("l'identita separa cio che il catalogo riconosce da cio che non riconosce", () => {
