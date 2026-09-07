@@ -427,6 +427,25 @@ const main = async () => {
   /*
     L'apertura per indirizzo di contatto poggia sul fatto che `email_verified_at`
     si guadagni leggendo quella casella. Il registro generico lo scriveva.
+
+    **Integrazione PP-02 x PP-05: la difesa e diventata piu stretta, e
+    l'asserzione va con lei.**
+
+    PP-02 aveva chiuso il buco lasciando cambiare l’indirizzo dal registro
+    generico e **spegnendo** la verifica: la prova chiedeva percio
+    `["rubato…", null]`. PP-05 ha poi ridotto quella porta a un elenco chiuso
+    (`WRITABLE_USER_FIELDS`: nome, cognome, ragione sociale, preferenze):
+    recapiti e credenziali si scrivono **solo** da `/api/v1/auth/user`, che
+    e il loro punto di ingresso unico.
+
+    Le due regole non si contraddicono: la seconda contiene la prima. Chi
+    non puo cambiare l’indirizzo da qui non puo nemmeno portarsi dietro una
+    verifica guadagnata su un altro. Cio che va misurato dopo il merge e
+    quindi la proprieta **composta** — dal registro generico non si muove ne
+    l'indirizzo ne la sua verifica — e non il meccanismo con cui PP-02 la
+    otteneva da sola. Misurare il meccanismo vecchio qui vorrebbe dire
+    chiedere a qualcuno, un giorno, di riaprire la porta per far tornare
+    verde una sonda.
   */
   await risorse
     .updateResource(
@@ -440,10 +459,23 @@ const main = async () => {
   const dopoScrittura = await prisma.user.findUnique({ where: { id: ESTRANEO } });
 
   prova(
-    "4a cambiare indirizzo dal registro generico spegne la verifica",
-    [email("rubato"), null],
-    [dopoScrittura?.email, dopoScrittura?.email_verified_at],
-    "prima: si dichiarava verificato, e si apriva il fascicolo di un minore",
+    "4a dal registro generico non si muove ne l’indirizzo ne la verifica",
+    [email("estraneo"), true],
+    [dopoScrittura?.email, Boolean(dopoScrittura?.email_verified_at)],
+    "prima: si dichiarava verificato, e si apriva il fascicolo di un minore. " +
+      "La verifica che resta e quella del **proprio** indirizzo, guadagnata dal " +
+      "seme: non e stata ne concessa ne trasportata su un indirizzo nuovo.",
+  );
+
+  /*
+    E il controllo che rende la prova qui sopra capace di dire ROSSO:
+    l’indirizzo rubato non compare da nessuna parte.
+  */
+  prova(
+    "4a-bis e l’indirizzo altrui non e finito addosso a nessuno",
+    0,
+    await prisma.user.count({ where: { email: email("rubato") } }),
+    "se questa riga esiste, la porta si e riaperta",
   );
 
   /*

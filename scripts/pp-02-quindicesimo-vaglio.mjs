@@ -850,10 +850,30 @@ const main = async () => {
       )
       .then(() => "riuscito")
       .catch((error) => String(error?.message || ""));
+    /*
+      **Integrazione PP-02 x PP-03: la riga non si raggiunge piu affatto.**
+
+      PP-02 aveva chiuso il difetto facendo uscire la ricerca con `null`, e
+      la risposta diventava «Allenatore non trovato» — indistinguibile da
+      «non esiste», che e la forma giusta per non dire a chi chiede se una
+      riga esista in un altro club.
+
+      PP-03 ha poi messo la guardia di club attivo **prima** della ricerca:
+      da qui la risposta e «nessun club attivo», cioe un rifiuto che parla
+      del **chiamante** e non dell’archivio. Non e una fuga — non dice
+      niente di nessun altro club — ed e piu presto della precedente.
+
+      La proprieta da misurare resta una sola: **da uno scope senza club
+      attivo non esce nessuna riga di un altro club**. Vale se la risposta e
+      un rifiuto, di qualunque delle due forme; non varrebbe se fosse
+      «riuscito». La sonda accetta percio entrambe le porte e rifiuta il
+      successo, che e cio che il difetto produceva.
+    */
     prova(
-      "C2 — con uno scope senza club attivo la ricerca non esce dal proprio club",
+      "C2 — con uno scope senza club attivo non esce nessuna riga altrui",
       true,
-      /non trovat/i.test(String(esitoModulo)),
+      /non trovat/i.test(String(esitoModulo)) ||
+        /nessun club attivo/i.test(String(esitoModulo)),
       "`organization_id: scope.activeOrganizationId ?? undefined` — con Prisma " +
         "un `undefined` **toglie** il filtro, che e la forma che " +
         "`chiudiGliInvitiDelProfilo` dichiara vietata dieci righe piu sotto e " +
