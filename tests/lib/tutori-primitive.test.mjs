@@ -34,8 +34,10 @@ import {
   resolveGuardianIdentity,
   guardianUserIdText,
   guardianEmailText,
+  guardianRowNamedBy,
   readGuardianIdentityRegistry,
 } from "../../src/lib/guardians/identity.ts";
+import { guardianIdentityCandidates } from "../../src/lib/server/athlete-guardians.ts";
 import { projectGuardianEntries } from "../../src/lib/guardians/projection.ts";
 import {
   documentGuardianAt,
@@ -470,6 +472,161 @@ test("E6 l'utenza dell'atleta entra fra i destinatari, e il registro la filtra",
   });
 
   assert.deepEqual(atletaRevocato, ["u-padre"]);
+});
+
+/* ============================ G. i reperti della revisione indipendente */
+
+test("G1 un residuo dentro `data` non marca una riga viva (R6)", () => {
+  /*
+    `projectGuardianRow` non riemette le grafie della **riga**, e il predicato
+    unico — totale sulle due forme, e deve esserlo — le leggeva dal residuo.
+    Un tutore vivo risultava escluso: spariva dal destinatario fiscale, dai
+    segnaposto e dal soggetto di una pratica, e con `billingGuardianIndex`
+    puntato su di lui chi paga cambiava persona.
+  */
+  for (const chiave of ["revoked_at", "revokedAt", "contact_only", "contactOnly"]) {
+    const [voce] = projectGuardianEntries([
+      riga({
+        id: "vivo",
+        position: 0,
+        first_name: "Vivo",
+        data: { fiscalCode: "CF-VIVO", [chiave]: "2020-01-01T00:00:00.000Z" },
+      }),
+    ]);
+
+    assert.equal(
+      isGuardianExcluded(voce),
+      false,
+      `un residuo \`${chiave}\` non e un marchio`,
+    );
+    assert.equal(voce.fiscalCode, "CF-VIVO", "e il dato utile resta");
+  }
+});
+
+test("G2 il residuo non presta nemmeno un'utenza o una chiave (R6)", () => {
+  const [voce] = projectGuardianEntries([
+    riga({
+      id: "vivo",
+      position: 0,
+      data: { user_id: "u-fantasma", identity_key: "chiave-fantasma" },
+    }),
+  ]);
+
+  assert.equal(voce.linkedUserId, null);
+  assert.equal(voce.identity_key, undefined);
+  assert.equal(voce.user_id, undefined);
+});
+
+test("G3 una voce non-oggetto occupa il suo posto e non fa slittare (R12)", () => {
+  const data = { guardians: [null, { id: "1", name: "Padre" }] };
+
+  assert.equal(documentGuardianAt(data, 0), null, "il posto 0 non e il padre");
+  assert.equal(documentGuardianAt(data, 1)?.name, "Padre");
+  assert.equal(resolveDocumentGuardians(data).length, 2);
+});
+
+test("G4 il marchio della riga vince sul legame dichiarato (R3)", () => {
+  /*
+    La §3 del travaso marca `contact_only` **per identita** senza azzerare
+    `user_id`: nasce una riga esclusa che porta un'utenza. L'uscita «un legame
+    dichiarato vince» stava prima del marchio, e quella riga riceveva su tutti
+    e tre i canali — promemoria, notifiche documentali e solleciti degli
+    insoluti con il link per pagare.
+  */
+  assert.deepEqual(
+    resolveNotificationGuardians({
+      guardians: [{ userId: "u-madre", email: "madre@x.it", contactOnly: true }],
+    }),
+    [],
+  );
+
+  assert.deepEqual(
+    resolveNotificationGuardians({
+      guardians: [
+        { userId: "u-madre", email: "madre@x.it", accessRevokedAt: "2026-01-01" },
+      ],
+    }),
+    [],
+  );
+});
+
+test("G5 ma vince ancora sul registro, che e per identita (R3, ADR-0114)", () => {
+  /*
+    L'uscita resta dov'e per la ragione per cui era nata: madre e padre con un
+    solo indirizzo di famiglia, e la revoca di uno che mette quell'indirizzo
+    nel registro. La riga viva del padre non porta marchi, e non deve perdere
+    i propri canali.
+  */
+  const destinatari = resolveNotificationGuardians({
+    guardians: [
+      { userId: "u-padre", email: "famiglia@x.it" },
+      { userId: "u-madre", email: "famiglia@x.it", accessRevokedAt: "2026-01-01" },
+    ],
+    revokedGuardianIdentities: ["u-madre", "famiglia@x.it"],
+  });
+
+  assert.equal(destinatari.length, 1);
+  assert.equal(destinatari[0].linkedUserId, "u-padre");
+});
+
+test("G6 se la proiezione ha girato, il blob storico e morto (R5)", () => {
+  /*
+    «Ogni lettore storico consulta la coppia solo quando `guardians` e vuoto, e
+    dopo il travaso non lo e piu» era falso: torna vuoto appena si toglie
+    l'ultima riga — il gesto piu ordinario che ci sia — e il travaso non
+    cancella `parent1`/`parent2`. L'ex tutore continuava a ricevere per sempre.
+  */
+  assert.deepEqual(
+    resolveNotificationGuardians({
+      guardians: [],
+      parent1: { email: "storica@x.it", linkedUserId: "u-storica" },
+    }),
+    [],
+    "l'autorita ha parlato, e ha detto «nessuno»",
+  );
+
+  /* Senza la chiave, invece, la proiezione non ha mai girato: il blob vale. */
+  const maiProiettato = resolveNotificationGuardians({
+    parent1: { email: "storica@x.it", linkedUserId: "u-storica" },
+  });
+  assert.equal(maiProiettato.length, 1);
+});
+
+test("G7 la maniglia di un gettone nomina la riga in tutte e tre le forme (R1)", () => {
+  /*
+    «Cio che la revoca chiude deve contenere cio che il riscatto collega.» Le
+    due porte se lo chiedevano con due predicati diversi: un invito coniato
+    sull'indirizzo era riscattabile e **non** chiudibile.
+  */
+  const r = {
+    id: "11111111-1111-4111-8111-111111111111",
+    legacy_id: "guardian-0-vecchio",
+    identity_key: "madre@x.it",
+  };
+
+  assert.equal(guardianRowNamedBy(r, r.id), true);
+  assert.equal(guardianRowNamedBy(r, "guardian-0-vecchio"), true);
+  assert.equal(guardianRowNamedBy(r, "Madre@X.IT"), true, "la chiave si normalizza");
+  assert.equal(guardianRowNamedBy(r, "estraneo@x.it"), false);
+  assert.equal(guardianRowNamedBy(r, ""), false);
+  assert.equal(guardianRowNamedBy({ identity_key: "" }, ""), false);
+});
+
+test("G8 la guardia vede tutte le identita che la riga si portera (R2)", () => {
+  /*
+    `guardianIdentityKey` sceglie l'utenza quando c'e, e l'indirizzo usciva dal
+    vaglio: una riga nasceva viva con l'indirizzo verificato di un terzo, e
+    `findGuardianLinks` apriva a quella persona l'area famiglia del minore.
+  */
+  assert.deepEqual(
+    guardianIdentityCandidates({ userId: "U-1", email: "Madre@X.IT" }),
+    ["u-1", "madre@x.it"],
+  );
+  assert.deepEqual(guardianIdentityCandidates({ email: "Madre@X.IT" }), [
+    "madre@x.it",
+  ]);
+  assert.deepEqual(guardianIdentityCandidates({ legacyId: "L-9" }), ["riga:L-9"]);
+  assert.deepEqual(guardianIdentityCandidates({}), []);
 });
 
 /* ===================================================== F. la totalita */

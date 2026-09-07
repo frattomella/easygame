@@ -2833,3 +2833,73 @@ decisa da una revisione sull'insieme dei permessi, non dentro questo pacchetto.
 
 La traccia intanto non mente piu: quando una riga viva viene sostituita, il
 registro dice «Genitore **sostituito**», non «aggiunto».
+
+---
+
+## PP-02 — cosa il consolidamento e la sua revisione lasciano aperto (2026-09-07)
+
+Il consolidamento strutturale ([ADR-0153](18-decision-log.md#adr-0153--le-regole-di-un-dominio-stanno-in-una-primitiva-non-in-ogni-consumatore))
+e la revisione indipendente che lo ha attaccato chiudono sei invarianti
+falsificate. Restano queste, **dichiarate e non chiuse**.
+
+### D-PP02-A · La migrazione revoca il co-genitore per indirizzo condiviso
+
+`prisma/migrations/20260906180000_pp02_il_travaso_fondeva_due_persone/migration.sql`,
+§3: le due `UPDATE` propagano il marchio confrontando il registro storico con
+`identity_key`, `user_id` **e `email`**. L'indirizzo non e unico per persona —
+e il presupposto di ADR-0114 e la ragione di ADR-0139.
+
+Effetto: madre e padre con un solo indirizzo di famiglia, la madre nel registro
+storico delle revoche, e il travaso marca **anche la riga del padre**, che ha
+la propria utenza. Nessuna schermata, nessun audit, nessuna revoca: il padre
+perde l'area famiglia al deploy.
+
+`revokeGuardianAccessInClub` ha imparato questa lezione (`diUnAltraPersona`);
+la migrazione no. **La migrazione e gia applicata**, quindi la correzione non e
+una modifica al file: e una migrazione di bonifica che deve decidere, riga per
+riga, quali revoche fossero reali — e quella decisione non e automatizzabile
+senza il registro di audit. Va istruita con il cliente, e **richiede
+autorizzazione esplicita** ([CLAUDE.md §8](../../CLAUDE.md)).
+
+Nel frattempo la riga marcata cosi si comporta correttamente: e esclusa, e non
+riceve (49 §C). Il difetto e che non doveva esserlo.
+
+### D-PP02-B · `escluseDietro` non ha un lettore
+
+Il campo esiste, la proiezione lo deriva correttamente e **nessuna schermata lo
+mostra**. La ragione dichiarata in 49 §F — «la scheda deve poter dire che
+dietro una voce c'e qualcuno che il club ha escluso, altrimenti la porta che
+revoca ragiona per posizione su qualcosa che la porta che mostra non dichiara»
+— non e realizzata.
+
+E l'errore n. 8 di CLAUDE.md nella sua forma piu comune: non codice mancante,
+**codice irraggiungibile**. Va aggiunto alla scheda atleta o tolto.
+
+### D-PP02-C · `guardian_id` non e vagliato al conio di un invito
+
+`guardaIlConioDiUnGettone` (`resources.ts`) vaglia `role` e toglie la firma del
+coniatore; **non** vaglia `guardian_id`, che il client sceglie. R1 della
+revisione passava di li: un invito coniato sulla chiave d'identita invece che
+sull'identificativo di riga.
+
+Il difetto e chiuso alla radice giusta — la revoca adesso chiude tutto cio che
+il riscatto risolve — ma imporre al conio che `guardian_id` nomini una riga
+**di quella scheda** lo chiuderebbe una seconda volta, e piu vicino a dove
+nasce. Fuori scope qui perche tocca la rotta generica.
+
+### D-PP02-D · Nessuna bonifica dei residui in `athlete_guardians.data`
+
+`CHIAVI_CON_UNA_COLONNA` impedisce che le chiavi di colonna e di sicurezza
+**nascano** nel residuo, e `residuoSicuro` impedisce che quelle gia in archivio
+**escano** nella proiezione. Nessuna delle due le **toglie** da dove sono: lo
+fa solo `residuo()`, e solo quando quella scheda viene risalvata.
+
+Non e urgente — la difesa in lettura e totale, ed e li che si decide — ma
+finche i residui esistono, un lettore nuovo che dimenticasse di passare dalla
+proiezione li troverebbe.
+
+### Cosa il contratto continua a non coprire
+
+Vedi la coda di [49](49-pp-02-invarianti-tutori.md): rollover di stagione sotto
+contesa, riscatto cross-club sul ramo genitore, una persona con due utenze
+sulla stessa scheda, `unlinkClubJsonProfiles`.

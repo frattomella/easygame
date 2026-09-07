@@ -39,11 +39,25 @@ import { normalizeGuardianIdentity, resolveGuardianIdentity } from "./identity";
 export const readGuardianEntries = (data: unknown): GuardianLike[] => {
   const d = asGuardianRecord(data);
   const elenco = Array.isArray(d.guardians) ? d.guardians : [];
-  return elenco.filter(
-    (voce): voce is GuardianLike =>
-      Boolean(voce) && typeof voce === "object" && !Array.isArray(voce),
-  );
+
+  /*
+    **Una voce che non e un oggetto occupa comunque il suo posto.**
+
+    Qui si **filtrava**, e un `null` dentro l'array faceva scorrere di uno
+    tutti i lettori posizionali: `documentGuardianAt(…, 0)` rispondeva con il
+    genitore due. E lo stesso slittamento che questo pacchetto ha gia pagato
+    con il codice fiscale stampato su una ricevuta, prodotto da una difesa
+    contro un dato malformato invece che da una riga esclusa.
+
+    Un elemento non-oggetto diventa percio una voce **vuota**: non porta
+    identita, non e escluso, e non e nessuno — ma il suo posto resta.
+  */
+  return elenco.map((voce) => asGuardianRecord(voce));
 };
+
+/** Vero se questa voce non dice niente di nessuno: nessuna chiave utile. */
+export const isEmptyGuardianEntry = (voce: unknown): boolean =>
+  Object.keys(asGuardianRecord(voce)).length === 0;
 
 /**
  * **Le voci che un documento nuovo puo nominare, per posizione.**
@@ -55,7 +69,14 @@ export const resolveDocumentGuardians = (
   data: unknown,
 ): (GuardianLike | null)[] =>
   readGuardianEntries(data).map((voce) =>
-    isGuardianExcluded(voce) ? null : voce,
+    /*
+      **Vuota, esclusa e assente sono la stessa risposta**: quella posizione non
+      ha un soggetto. Lasciar passare una voce vuota avrebbe fatto rispondere a
+      `billingGuardianIndex` un intestatario **senza nome e senza codice
+      fiscale** invece di far cadere la scelta sulla successiva utile — cioe un
+      documento vuoto al posto di uno corretto.
+    */
+    isEmptyGuardianEntry(voce) || isGuardianExcluded(voce) ? null : voce,
   );
 
 /**

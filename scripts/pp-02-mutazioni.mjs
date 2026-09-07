@@ -149,8 +149,8 @@ const MUTAZIONI = [
     tocca: () =>
       applica(
         "src/lib/guardians/documents.ts",
-        "  readGuardianEntries(data).map((voce) =>\n    isGuardianExcluded(voce) ? null : voce,\n  );",
-        "  readGuardianEntries(data).filter((voce) => !isGuardianExcluded(voce));",
+        "  readGuardianEntries(data).map((voce) =>",
+        "  readGuardianEntries(data).filter((voce) => !isGuardianExcluded(voce)).map((voce) =>",
       ),
   },
   {
@@ -167,16 +167,17 @@ const MUTAZIONI = [
       ),
   },
   {
-    nome: "M6  la scelta fra elenco e coppia storica torna sul filtrato",
+    nome: "M6  un indirizzo revocato esce da una riga superstite",
     nota:
-      "un atleta i cui tutori fossero **tutti** revocati ricadeva su " +
-      "`parent1`/`parent2`: la revoca faceva comparire destinatari.",
+      "l'uscita «un legame dichiarato vince» tiene in piedi la riga del padre, " +
+      "che pero porta l'indirizzo di famiglia condiviso: la notifica finiva " +
+      "nella bacheca della madre revocata, con il nome del minore.",
     sonda: UNITA,
     tocca: () =>
       applica(
         "src/lib/guardians/notifications.ts",
-        "  const elenco = readGuardianEntries(d);\n  if (elenco.length > 0) return elenco;",
-        "  const elenco = readGuardianEntries(d).filter(\n    (riga) => !isGuardianRevoked(riga),\n  );\n  if (elenco.length > 0) return elenco;",
+        '        linkedUserEmail:\n          scritto && revocate.has(normalizeGuardianIdentity(scritto)) ? "" : scritto,',
+        "        linkedUserEmail: scritto,",
       ),
   },
   {
@@ -201,7 +202,7 @@ const MUTAZIONI = [
     tocca: () =>
       applica(
         "src/lib/server/athlete-guardians.ts",
-        "  return (\n    (eUnIdentificativo && candidate.find((riga) => riga.id === chiave)) ||\n    candidate.find((riga) => riga.legacy_id === chiave) ||\n    candidate.find((riga) => riga.identity_key === normalizza(chiave)) ||\n    null\n  );",
+        "  return (\n    (eUnIdentificativo && candidate.find((riga) => riga.id === chiave)) ||\n    candidate.find((riga) => riga.legacy_id === chiave) ||\n    candidate.find((riga) => riga.identity_key === normalizza(chiave)) ||\n    candidate.find((riga) => guardianRowNamedBy(riga, chiave)) ||\n    null\n  );",
         "  return (\n    (eUnIdentificativo &&\n      candidate.find((riga) => riga.id === chiave && !riga.contact_only)) ||\n    null\n  );",
       ),
   },
@@ -229,6 +230,84 @@ const MUTAZIONI = [
         "src/lib/guardians/documents.ts",
         "    resolveDocumentGuardians(data).find(",
         "    readGuardianEntries(data).find(",
+      ),
+  },
+  {
+    nome: "M12  la revoca chiude meno di quanto il riscatto colleghi",
+    nota:
+      "un invito coniato sull'indirizzo era riscattabile e non chiudibile: " +
+      "la revoca lo lasciava attivo e la scheda non lo mostrava.",
+    sonda: MATRICE,
+    tocca: () =>
+      applica(
+        "src/lib/guardians/identity.ts",
+        "    cercata === String(r.id ?? \"\") ||\n    cercata === String(r.legacy_id ?? \"\") ||\n    (Boolean(r.identity_key) && normale === normalizeGuardianIdentity(r.identity_key))",
+        "    cercata === String(r.id ?? \"\") || cercata === String(r.legacy_id ?? \"\")",
+      ),
+  },
+  {
+    nome: "M13  la guardia vede la chiave e non l'indirizzo",
+    nota:
+      "con `{ userId, email }` insieme la chiave e l'utenza, e l'indirizzo " +
+      "verificato di un terzo usciva dal vaglio: area famiglia aperta senza permesso.",
+    sonda: MATRICE,
+    tocca: () =>
+      applica(
+        "src/lib/server/athlete-guardians.ts",
+        "        contactOnly || giaPresente ? [] : guardianIdentityCandidates(row),",
+        "        contactOnly || giaPresente ? [] : [identityKey],",
+      ),
+  },
+  {
+    nome: "M14  il legame dichiarato vince anche sul marchio di riga",
+    nota:
+      "una riga `contact_only` che porta un'utenza — cio che la §3 del travaso " +
+      "produce — riceveva su tutti e tre i canali.",
+    sonda: UNITA,
+    tocca: () =>
+      applica(
+        "src/lib/guardians/notifications.ts",
+        "      if (isGuardianExcludedPerRiga(riga)) return false;\n\n      /* Un legame dichiarato e non revocato vince **sul registro**. */\n      if (identita.userIds.some((voce) => !revocate.has(voce))) return true;",
+        "      if (identita.userIds.some((voce) => !revocate.has(voce))) return true;\n      if (isGuardianExcludedPerRiga(riga)) return false;",
+      ),
+  },
+  {
+    nome: "M15  l'elenco vuoto fa risuscitare il blob storico",
+    nota:
+      "tolta l'ultima riga di tutore, l'ex tutore continuava a ricevere per " +
+      "sempre i solleciti con il nome del minore e il link per pagare.",
+    sonda: UNITA,
+    tocca: () =>
+      applica(
+        "src/lib/guardians/notifications.ts",
+        "  if (Array.isArray(d.guardians)) return elenco;",
+        "  if (elenco.length > 0) return elenco;",
+      ),
+  },
+  {
+    nome: "M16  il residuo torna a portare i marchi nella voce",
+    nota:
+      "un `revoked_at` dentro `data` marcava un tutore **vivo**: spariva dal " +
+      "destinatario fiscale, e chi paga cambiava persona.",
+    sonda: UNITA,
+    tocca: () =>
+      applica(
+        "src/lib/guardians/projection.ts",
+        "  ...residuoSicuro(riga.data),",
+        "  ...((riga.data && typeof riga.data === \"object\" ? riga.data : {}) as Record<\n    string,\n    unknown\n  >),",
+      ),
+  },
+  {
+    nome: "M17  una voce non-oggetto torna a far slittare le posizioni",
+    nota:
+      "lo stesso slittamento gia pagato con il codice fiscale stampato su una " +
+      "ricevuta, prodotto da una difesa contro un dato malformato.",
+    sonda: UNITA,
+    tocca: () =>
+      applica(
+        "src/lib/guardians/documents.ts",
+        "  return elenco.map((voce) => asGuardianRecord(voce));",
+        "  return elenco.filter(\n    (voce) => Boolean(voce) && typeof voce === \"object\" && !Array.isArray(voce),\n  );",
       ),
   },
   {

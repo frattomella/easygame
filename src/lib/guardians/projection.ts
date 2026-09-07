@@ -89,17 +89,61 @@ const iso = (valore: Date | null | undefined): string | null =>
  * proiezione che nascondesse le righe revocate cambierebbe, senza dirlo, chi
  * compare su un documento e chi riceve un avviso.
  */
+/**
+ * **Il residuo non porta metadati di sicurezza, mai.**
+ *
+ * I campi senza colonna vengono per primi nella proiezione, e cio che segue li
+ * vince: e la difesa perche un residuo storico non sovrascriva un dato che la
+ * tabella governa. Regge finche la proiezione **riemette** la chiave — e per
+ * le grafie della **riga** non lo fa: `revoked_at` e `revokedAt` non compaiono
+ * fra i campi della voce, quindi un residuo che li portasse sopravviveva, e
+ * `isGuardianExcluded` — che e totale sulle due forme, e deve esserlo — li
+ * leggeva come un marchio.
+ *
+ * Esito misurato: un tutore **vivo** risultava escluso. Spariva dal
+ * destinatario fiscale, dai segnaposto e dal soggetto di una pratica; con
+ * `billingGuardianIndex` puntato su di lui, chi paga cambiava persona su ogni
+ * ricevuta emessa da li in avanti.
+ *
+ * La scrittura di quelle chiavi e gia chiusa (`CHIAVI_CON_UNA_COLONNA`), ma un
+ * elenco di chiavi vietate protegge solo cio che **nascera**: qui si toglie
+ * anche a cio che e gia in archivio, e senza una migrazione. Un'invariante non
+ * deve dipendere da un censimento dei dati.
+ */
+const CHIAVI_DI_SICUREZZA_NEL_RESIDUO = [
+  "accessRevokedAt",
+  "access_revoked_at",
+  "revokedAt",
+  "revoked_at",
+  "contactOnly",
+  "contact_only",
+  "linkedUserId",
+  "linked_user_id",
+  "userId",
+  "user_id",
+  "identityKey",
+  "identity_key",
+  "escluseDietro",
+] as const;
+
+const residuoSicuro = (valore: unknown): Record<string, unknown> => {
+  if (!valore || typeof valore !== "object" || Array.isArray(valore)) return {};
+
+  const pulito = { ...(valore as Record<string, unknown>) };
+  for (const chiave of CHIAVI_DI_SICUREZZA_NEL_RESIDUO) delete pulito[chiave];
+  return pulito;
+};
+
 export const projectGuardianRow = (
   riga: GuardianRow,
 ): Record<string, unknown> => ({
   /*
     I campi senza colonna vengono per primi: cio che segue li **vince**, cosi
-    un residuo storico non puo sovrascrivere un dato che la tabella governa.
+    un residuo storico non puo sovrascrivere un dato che la tabella governa. E
+    cio che la tabella governa e **stato tolto** dal residuo, perche non tutte
+    le grafie che decidono vengono riemesse qui sotto.
   */
-  ...((riga.data && typeof riga.data === "object" ? riga.data : {}) as Record<
-    string,
-    unknown
-  >),
+  ...residuoSicuro(riga.data),
   id: riga.id,
   name: riga.first_name,
   surname: riga.last_name,

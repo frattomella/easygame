@@ -4239,6 +4239,25 @@ const sezioneW = async () => {
     invio** — ne sollecito, ne promemoria del certificato, ne notifiche
     documentali. Per sempre, e senza che niente lo dicesse.
   */
+  /*
+    **La forma che il riscatto produce davvero** (correzione post-consolidamento).
+
+    Questa prova costruiva a mano una voce `{ contactOnly: true, linkedUserId }`
+    e pretendeva che ricevesse. Quella coppia e **incoerente per costruzione**:
+    l'unico scrittore di `user_id` e il riscatto, e il riscatto azzera
+    `contact_only` nella stessa `UPDATE` (49 §I). Verificato sul percorso vero —
+    approvazione `contactOnly: true` → `linkGuardianAccount` — la riga esce
+    `contact_only: false, user_id: <anna>` e tutti e tre i canali consegnano.
+
+    La coppia esiste lo stesso, e la produce la §3 del travaso, che marca per
+    **identita** senza azzerare l'utenza. Li vale la regola opposta: e una riga
+    esclusa, e una riga esclusa non riceve (§C). Tenere la vecchia forma voleva
+    dire pretendere che una voce esclusa ricevesse — cioe l'inverso del
+    contratto — e su quella pretesa i tre canali consegnavano davvero.
+
+    La prova conserva la propria intenzione (dopo un riscatto la famiglia torna
+    a ricevere) sulla forma giusta, e ne aggiunge il rovescio.
+  */
   const riscattata = {
     id: "x",
     data: {
@@ -4247,7 +4266,7 @@ const sezioneW = async () => {
           id: "t",
           name: "Famiglia nuova",
           email: ANNA.email,
-          contactOnly: true,
+          contactOnly: false,
           linkedUserId: ANNA.id,
         },
       ],
@@ -4262,6 +4281,32 @@ const sezioneW = async () => {
       promemoriaW23.getGuardianRows(riscattata).length,
     ],
     "prima: area famiglia aperta e zero invii, per sempre",
+  );
+
+  /* Il rovescio: la coppia incoerente del travaso e una riga esclusa. */
+  const marcataDalTravaso = {
+    id: "x",
+    data: {
+      guardians: [
+        {
+          id: "t",
+          name: "Marcata dal travaso",
+          email: ANNA.email,
+          contactOnly: true,
+          linkedUserId: ANNA.id,
+        },
+      ],
+    },
+  };
+
+  prova(
+    "W-23a-bis una riga di solo recapito non riceve, nemmeno se porta un'utenza",
+    [0, 0],
+    [
+      contattiW23.readAthleteGuardianContacts(marcataDalTravaso).length,
+      promemoriaW23.getGuardianRows(marcataDalTravaso).length,
+    ],
+    "il marchio della riga vince sul legame dichiarato: e l'autorita della riga su se stessa",
   );
 
   /*

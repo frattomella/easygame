@@ -979,6 +979,165 @@ const main = async () => {
     prova("18d e la posizione della riga viva non si muove", 0, posizioneInstabile);
   }
 
+  /* ================ 19 — i reperti della revisione indipendente ============ */
+
+  dice("19  i reperti della revisione post-consolidamento");
+  {
+    /* R1 — un invito coniato sulla chiave d'identita, non sull'id di riga. */
+    const atleta = await creaAtleta("Reperti");
+    const riga = randomUUID();
+    await scrivi(atleta, {
+      id: riga,
+      position: 0,
+      first_name: "Madre",
+      email: email("madre"),
+      identity_key: email("madre"),
+    });
+    await tutori.refreshGuardianProjection(prisma, [atleta]);
+
+    const gettone = randomUUID();
+    await prisma.clubResourceItem.create({
+      data: {
+        id: gettone,
+        organization_id: CLUB,
+        resource_type: "access_tokens",
+        name: "REPERTO-1",
+        status: "active",
+        /* La maniglia e l'INDIRIZZO: la terza forma di `guardian_id`. */
+        payload: {
+          athlete_id: atleta,
+          guardian_id: email("madre"),
+          token_type: "parent_access",
+        },
+        updated_at: new Date(),
+      },
+    });
+
+    /* La scheda deve vederlo: se non lo vede, non c'e porta da cui chiuderlo. */
+    await tutori.refreshGuardianProjection(prisma, [atleta]);
+    const vociPrima = await voci(atleta);
+    prova(
+      "19a la scheda vede un gettone coniato sull'indirizzo",
+      gettone,
+      vociPrima[0]?.parentAccessTokenRecordId ?? null,
+    );
+
+    await tutori.revokeGuardianRow(prisma, {
+      athleteId: atleta,
+      guardianRowId: riga,
+      organizationId: CLUB,
+    });
+
+    prova(
+      "19b e la revoca lo chiude: cio che chiude contiene cio che collega",
+      "revoked",
+      (await prisma.clubResourceItem.findUnique({ where: { id: gettone } }))?.status,
+    );
+
+    /*
+      La guardia del riscatto risolve **ancora** quella riga — ed e giusto,
+      perche un invito legittimo per una riga nascosta deve funzionare. Cio che
+      chiude il rientro e lo stato del gettone, che la rotta rifiuta.
+    */
+    prova(
+      "19c la riga resta risolvibile, ed e il gettone a essere chiuso",
+      riga,
+      (await tutori.findGuardianRow(prisma, atleta, email("madre")))?.id ?? null,
+    );
+
+    /* R2 — la guardia della concessione vede l'indirizzo anche con un userId. */
+    const atletaB = await creaAtleta("RepertiB");
+    let negato = null;
+    try {
+      await tutori.upsertGuardianFromFormApproval(prisma, {
+        organizationId: CLUB,
+        athleteId: atletaB,
+        row: {
+          userId: randomUUID(),
+          email: email("madre"),
+          firstName: "Intruso",
+          extra: {},
+        },
+        contactOnly: false,
+        canGrantAccess: false,
+      });
+    } catch (errore) {
+      negato = String(errore?.message || "");
+    }
+
+    prova(
+      "19d senza il permesso non si scrive l'indirizzo di un'utenza, nemmeno con un userId",
+      true,
+      Boolean(negato?.includes("Accesso negato")),
+    );
+    prova(
+      "19e e nessuna riga e nata",
+      0,
+      await prisma.athleteGuardian.count({ where: { athlete_id: atletaB } }),
+    );
+
+    /* R3 — una riga di solo recapito che porta un'utenza non riceve. */
+    const atletaC = await creaAtleta("RepertiC");
+    await scrivi(atletaC, {
+      position: 0,
+      first_name: "Esclusa",
+      email: email("madre"),
+      identity_key: MADRE,
+      user_id: MADRE,
+      contact_only: true,
+    });
+    await tutori.refreshGuardianProjection(prisma, [atletaC]);
+    const schedaC = await leggiScheda(atletaC);
+
+    prova("19f un solo recapito con utenza non riceve promemoria", [],
+      promemoria.getGuardianRows(schedaC));
+    prova("19g ne solleciti", [], recapiti.readAthleteGuardianContacts(schedaC));
+
+    /* R5 — tolta l'ultima riga, il blob storico non risuscita. */
+    const atletaD = await creaAtleta("RepertiD", {
+      parent1: { name: "Storica", email: email("madre"), linkedUserId: MADRE },
+    });
+    await scrivi(atletaD, {
+      position: 0,
+      first_name: "Viva",
+      email: email("viva"),
+      identity_key: email("viva"),
+    });
+    await tutori.refreshGuardianProjection(prisma, [atletaD]);
+
+    await tutori.saveGuardianRegistry(prisma, {
+      organizationId: CLUB,
+      athleteId: atletaD,
+      canGrantAccess: true,
+      rows: [],
+    });
+
+    const schedaD = await leggiScheda(atletaD);
+    prova("19h tolta l'ultima riga, l'autorita dice «nessuno»", [],
+      schedaD?.data?.guardians ?? null);
+    prova("19i e il blob storico non risuscita", [],
+      promemoria.getGuardianRows(schedaD));
+    prova("19j nemmeno per i solleciti", [],
+      recapiti.readAthleteGuardianContacts(schedaD));
+
+    /* R6 — un residuo dentro `data` non marca una riga viva. */
+    const atletaE = await creaAtleta("RepertiE", { billingGuardianIndex: 0 });
+    await scrivi(atletaE, {
+      position: 0,
+      first_name: "Vivo",
+      email: email("vivo2"),
+      identity_key: email("vivo2"),
+      data: { fiscalCode: "CF-VIVO", revoked_at: "2020-01-01T00:00:00.000Z" },
+    });
+    await tutori.refreshGuardianProjection(prisma, [atletaE]);
+
+    prova(
+      "19k un residuo `revoked_at` non esclude un tutore vivo",
+      "CF-VIVO",
+      fiscale.resolveFiscalRecipient(await leggiScheda(atletaE)).fiscalCode,
+    );
+  }
+
   /* ------------------------------------------------------------- riepilogo */
 
   const ko = esiti.filter((e) => !e.ok);

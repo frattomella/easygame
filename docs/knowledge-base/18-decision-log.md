@@ -7925,3 +7925,93 @@ endpoint e si consolida la classe.
 
 **Vedi anche.** ADR-0152, ADR-0151, ADR-0149, ADR-0118, ADR-0116,
 `docs/knowledge-base/49-pp-02-invarianti-tutori.md`.
+
+---
+
+## ADR-0154 — Allargare una porta obbliga ad allargare la sua gemella
+
+**Data.** 2026-09-07 · **Stato.** Accettata · **Ambito.** PP-02 · **Segue** ADR-0153
+
+### Il contesto
+
+Il consolidamento di ADR-0153 ha centralizzato le regole del dominio dei
+tutori. Una revisione indipendente ostile ha poi attaccato le invarianti e ne
+ha falsificate sei. **Due erano regressioni del consolidamento stesso**, e
+hanno la stessa forma: unificare o allargare qualcosa e aver guardato una meta
+sola.
+
+1. **La guardia del riscatto e stata allargata, la revoca no.** Cercare la riga
+   con `findGuardianRow` — che risolve tutte e tre le forme di `guardian_id` —
+   era giusto: un invito coniato per una riga nascosta dietro una voce fusa
+   veniva rifiutato con 404. Ma la funzione che **chiude** i gettoni ne
+   guardava due. Un invito coniato sulla chiave d'identita diventava percio
+   riscattabile e non chiudibile: la revoca lo lasciava `active`, la scheda non
+   lo mostrava — quindi non c'era porta da cui toglierlo — e chi lo aveva in
+   tasca rientrava con `revoked_at` azzerato e l'utenza di un altro riscritta.
+
+2. **Due guardie sono diventate una, e una ha perso un ramo.** Quella del
+   salvataggio cercava l'utenza per identificativo **e** per indirizzo; quella
+   dell'approvazione solo per indirizzo. L'unificazione ha tenuto il primo ramo
+   e ha **espresso la domanda con `guardianIdentityKey`**, che sceglie: con
+   `{ userId, email }` insieme la chiave e l'utenza, e l'indirizzo — che e cio
+   che apre, perche `findGuardianLinks` cerca per indirizzo su una riga viva —
+   usciva dal vaglio.
+
+### La decisione
+
+**Quando due porte rispondono alla stessa domanda, la domanda e una funzione**,
+e allargarla le allarga insieme. `guardianRowNamedBy` risponde a «questa
+maniglia nomina questa riga?» per il riscatto e per la revoca; non esistono piu
+due predicati che possano divergere.
+
+**E quando due guardie diventano una, si verifica che l'unione sia un
+soprainsieme di entrambe**, non che una delle due sopravviva. La distinzione
+che mancava ha adesso due nomi: `guardianIdentityKey` risponde a «su cosa
+questa riga e unica», `guardianIdentityCandidates` a «quali identita si portera
+addosso». La guardia della concessione chiede la seconda — chiedere la prima
+era la domanda sbagliata, non un ramo dimenticato.
+
+### Il corollario sul predicato totale
+
+Rendere `isGuardianExcluded` capace di leggere anche le grafie della **riga** —
+`revoked_at`, `contact_only` — era giusto: «un predicato che vale solo su meta
+delle forme del proprio dominio e un predicato che qualcuno chiamera sull'altra
+meta». Ma la proiezione **non riemette** quelle due chiavi, e un residuo
+storico dentro `athlete_guardians.data` che le portasse diventava da quel
+momento un **marchio**: un tutore vivo risultava escluso, spariva dal
+destinatario fiscale e chi paga cambiava persona.
+
+**Chi allarga un lettore deve chiudere le strade da cui entra il dato che
+adesso legge.** Non basta vietarne la scrittura futura (`CHIAVI_CON_UNA_COLONNA`):
+un elenco di chiavi vietate protegge solo cio che nascera, e l'invariante non
+deve dipendere da un censimento dei dati gia in archivio. La proiezione toglie
+percio i metadati di sicurezza dal residuo **in lettura**.
+
+### La coppia incoerente, e chi ha ragione
+
+`contact_only = true` **con** `user_id` non e uno stato che il dominio possa
+produrre: l'unico scrittore di `user_id` e il riscatto, e il riscatto azzera
+`contact_only` nella stessa `UPDATE`. Esiste lo stesso, perche la §3 del
+travaso marca per **identita** senza azzerare l'utenza.
+
+Su una riga cosi vale §C senza deroghe: **e esclusa, e non riceve**. L'uscita
+«un legame dichiarato e non revocato vince» resta, ma vale sui **registri** —
+elenchi di identita, dove un indirizzo di famiglia condiviso finisce per colpa
+di un altro (ADR-0114) — e **mai sul marchio**, che e l'autorita della riga su
+se stessa.
+
+Una prova della UAT pretendeva l'opposto, su una voce costruita a mano. Non e
+stata piegata al codice: e stata **corretta sulla forma che il riscatto produce
+davvero** — verificata end-to-end, tre canali su tre — e le e stato aggiunto il
+rovescio, che misura la regola nuova.
+
+### Il resto
+
+Le altre quattro invarianti falsificate erano preesistenti al consolidamento e
+ne sono state rese visibili: il blob storico che tornava autorita di fatto a
+zero righe (§A), l'ordine di due `if` che faceva ricevere un escluso (§C, §H),
+e una voce non-oggetto che faceva slittare i lettori posizionali (§G).
+
+**Vedi anche.** ADR-0153, ADR-0152, ADR-0151, ADR-0118, ADR-0114,
+`docs/knowledge-base/49-pp-02-invarianti-tutori.md`,
+`docs/knowledge-base/16-technical-debt.md` §D-PP02-A..D.

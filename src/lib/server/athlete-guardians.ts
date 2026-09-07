@@ -6,6 +6,7 @@ import {
   isGuardianExcluded,
   isGuardianRevoked,
 } from "../guardians/exclusion";
+import { guardianRowNamedBy } from "../guardians/identity";
 import {
   projectGuardianEntries,
   type GuardianLiveInvite,
@@ -153,6 +154,36 @@ export const guardianIdentityKey = (input: GuardianInput): string | null => {
 };
 
 /**
+ * **Tutte le identita che una riga scritta con questi campi si portera
+ * addosso**, non solo quella su cui e unica.
+ *
+ * La differenza e costata un difetto di autorita. `guardianIdentityKey`
+ * **sceglie** — l'utenza se c'e, altrimenti l'indirizzo — ed e giusto, perche
+ * quella e la chiave. Ma la guardia che decide se questa scrittura **concede
+ * un accesso** non deve chiedersi «su cosa e unica»: deve chiedersi «quali
+ * identita apriranno il fascicolo dopo». Sono due domande, e l'unificazione
+ * delle due guardie aveva risposto alla prima.
+ *
+ * Con `{ userId, email }` insieme, la chiave e l'utenza e l'**indirizzo usciva
+ * dal vaglio**: una riga nasceva viva con l'indirizzo verificato di un terzo,
+ * e `findGuardianLinks` apriva a quella persona l'area famiglia del minore —
+ * dato clinico compreso — senza che nessuno avesse il permesso sugli accessi.
+ */
+export const guardianIdentityCandidates = (
+  input: GuardianInput,
+): string[] => {
+  const chiave = guardianIdentityKey(input);
+
+  return Array.from(
+    new Set(
+      [chiave, normalizza(input.userId), normalizza(input.email)].filter(
+        Boolean,
+      ) as string[],
+    ),
+  );
+};
+
+/**
  * **Cio che la scheda porta su una persona e la tabella non ha una colonna per
  * tenere.**
  *
@@ -216,6 +247,7 @@ const CHIAVI_CON_UNA_COLONNA = new Set([
   "escluseDietro",
   "linkedAt",
   "linked_at",
+  "parentAccessTokenRecordId",
   "parentAccessTokenValue",
   "parentAccessTokenStatus",
   "parentAccessTokenExpiresAt",
@@ -436,10 +468,18 @@ export const findGuardianRow = async (
     orderBy: ORDINE_STABILE,
   })) as GuardianRow[];
 
+  /*
+    L'ordine — dal piu preciso al piu largo — resta, perche decide **quale**
+    riga vince quando piu di una risponde. Ma la domanda «questa maniglia
+    nomina questa riga?» e `guardianRowNamedBy`, la stessa che si fa la revoca
+    quando chiude i gettoni: due predicati diversi sulla stessa domanda erano
+    l'invito riscattabile e non chiudibile.
+  */
   return (
     (eUnIdentificativo && candidate.find((riga) => riga.id === chiave)) ||
     candidate.find((riga) => riga.legacy_id === chiave) ||
     candidate.find((riga) => riga.identity_key === normalizza(chiave)) ||
+    candidate.find((riga) => guardianRowNamedBy(riga, chiave)) ||
     null
   );
 };
@@ -1278,8 +1318,18 @@ export const upsertGuardianFromFormApproval = async (
           select: { id: true },
         });
 
+    /*
+      **Tutte le identita che la riga si portera addosso, non solo la chiave.**
+
+      Passare `[identityKey]` faceva uscire dal vaglio l'**indirizzo** ogni
+      volta che il carico portava anche un `userId`: `guardianIdentityKey`
+      sceglie l'utenza, e l'indirizzo — che e cio che apre, perche
+      `findGuardianLinks` cerca per indirizzo su una riga viva — non veniva
+      mai confrontato con le utenze esistenti.
+    */
     await assertGuardianMutationAllowed(tx, {
-      identitaNuove: contactOnly || giaPresente ? [] : [identityKey],
+      identitaNuove:
+        contactOnly || giaPresente ? [] : guardianIdentityCandidates(row),
       canGrantAccess: parametri.canGrantAccess,
     });
 
@@ -1967,8 +2017,17 @@ export const eraseGuardianInvitesForAthlete = async (
 ): Promise<number> => {
   const tx = client || prisma;
 
+  /*
+    Come sopra: senza confine non si cerca. La scheda e gia sparita quando
+    questa porta la chiama — e la cancellazione di una risorsa — quindi il club
+    lo si legge dal chiamante e basta: se non lo sa, non c'e nessun invito che
+    si possa dire suo.
+  */
+  const club = String(organizationId || "").trim();
+  if (!club) return 0;
+
   const esito = await tx.clubResourceItem.deleteMany({
-    where: guardianInvitesForAthleteWhere(athleteId, organizationId),
+    where: guardianInvitesForAthleteWhere(athleteId, club),
   });
 
   return esito.count as number;
@@ -2045,12 +2104,30 @@ export const eraseGuardiansForAthlete = async (
             select: { organization_id: true },
           })
         )?.organization_id || "",
-      ).trim();
+      ).trim() ||
+      /*
+        L'ultima strada: le righe che si stanno cancellando. Le porta la stessa
+        scheda, e ognuna dichiara il proprio club.
+      */
+      String(daCancellare[0]?.organization_id || "").trim();
 
-    const invitiDellaScheda = (await tx.clubResourceItem.findMany({
-      where: guardianInvitesForAthleteWhere(athleteId, clubDellaScheda),
-      select: { id: true },
-    })) as Array<{ id: string }>;
+    /*
+      **Senza club non si cerca, e non si fallisce: non c'e niente da
+      cancellare che sia di qualcuno.**
+
+      Il caso e la scheda che non esiste piu — nessuna riga, nessun atleta da
+      cui leggere il club. Sollevare sarebbe stato un «Accesso negato» su una
+      cancellazione che non ha nulla da fare, e ha rotto un chiamante che il
+      club non lo passa. Cercare senza confine avrebbe cancellato l'invito di
+      un altro club: e il difetto che la guardia esiste per impedire, e resta
+      impedito perche non si cerca affatto.
+    */
+    const invitiDellaScheda = clubDellaScheda
+      ? ((await tx.clubResourceItem.findMany({
+          where: guardianInvitesForAthleteWhere(athleteId, clubDellaScheda),
+          select: { id: true },
+        })) as Array<{ id: string }>)
+      : [];
 
     if (invitiDellaScheda.length) {
       await tx.clubResourceItem.deleteMany({
@@ -2383,13 +2460,24 @@ const gettoniDeiTutori = async (
   return per;
 };
 
-/** Vero se questo gettone nomina questa riga di tutore. */
+/**
+ * Vero se questo gettone nomina questa riga di tutore.
+ *
+ * **La domanda e `guardianRowNamedBy`, ed e la stessa che si fa il riscatto.**
+ * Questa lettura guardava due delle tre forme di `guardian_id` — mancava la
+ * chiave d'identita — mentre `findGuardianRow` le guarda tutte e tre. Da li un
+ * invito coniato sull'indirizzo era riscattabile e **non chiudibile**: la
+ * revoca lo lasciava `active`, `invitoVivo` non lo agganciava e la scheda non
+ * lo mostrava, e chi lo aveva in tasca rientrava con `revoked_at` azzerato e
+ * l'utenza di un altro riscritta sulla riga.
+ *
+ * E la regola scritta dieci righe piu su, applicata a una porta sola: cio che
+ * la revoca chiude deve **contenere** cio che il riscatto collega.
+ */
 const gettoneDiQuestaRiga = (record: any, riga: GuardianRow) => {
   const carico =
     record?.payload && typeof record.payload === "object" ? record.payload : {};
-  const nominato = String(carico.guardian_id || "").trim();
-  if (!nominato) return false;
-  return nominato === riga.id || nominato === riga.legacy_id;
+  return guardianRowNamedBy(riga, carico.guardian_id);
 };
 
 const GETTONE_VIVO = new Set(["active", "pending", "sent"]);

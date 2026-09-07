@@ -50,7 +50,7 @@ import {
   readGuardianIdentityRegistry,
   resolveGuardianIdentity,
 } from "./identity";
-import { readGuardianEntries } from "./documents";
+import { isEmptyGuardianEntry, readGuardianEntries } from "./documents";
 
 export type NotificationGuardian = {
   /** L'utenza a cui recapitare, gia scelta fra quelle non revocate. */
@@ -89,8 +89,38 @@ export type NotificationGuardianEntry = NotificationGuardian & {
  */
 const sorgente = (data: unknown): GuardianLike[] => {
   const d = asGuardianRecord(data);
-  const elenco = readGuardianEntries(d);
-  if (elenco.length > 0) return elenco;
+
+  /*
+    Le voci vuote non sono destinatari per costruzione — non portano ne
+    utenza ne indirizzo — e toglierle **non cambia chi riceve**. Non e il
+    filtro che decideva l'emptiness: quello sta nella riga dopo, e guarda
+    l'array grezzo.
+  */
+  const elenco = readGuardianEntries(d).filter(
+    (voce) => !isEmptyGuardianEntry(voce),
+  );
+
+  /*
+    **Se la proiezione ha girato, il blob storico e morto** (49 §A).
+
+    La scelta era «l'elenco se non e vuoto, altrimenti la coppia storica», e la
+    giustificazione diceva: «ogni lettore storico consulta la coppia solo
+    quando `guardians` e vuoto, e dopo il travaso non lo e piu». **Non e
+    vero**: `guardians` torna vuoto appena si toglie l'ultima riga di tutore —
+    il gesto piu ordinario che ci sia — e il travaso non cancella
+    `parent1`/`parent2` da `athletes.data`.
+
+    Esito misurato: tolta l'ultima voce, l'ex tutore continuava a ricevere per
+    sempre i solleciti degli insoluti — con il nome del minore e il link per
+    pagare — i promemoria del certificato e le notifiche documentali. Il blob
+    non porta marchi, e nessun registro derivato lo copre: era un'autorita di
+    fatto, che §A vieta.
+
+    La domanda giusta non e «l'elenco e vuoto?» ma **«la proiezione esiste?»**.
+    `refreshGuardianProjection` scrive sempre la chiave, anche a zero righe:
+    se c'e, l'autorita ha parlato, e ha detto «nessuno».
+  */
+  if (Array.isArray(d.guardians)) return elenco;
 
   return [d.parent1, d.parent2]
     .filter((riga): riga is GuardianLike => Boolean(riga) && typeof riga === "object")
@@ -114,7 +144,27 @@ export const resolveNotificationGuardianEntries = (
     .filter((riga) => {
       const identita = resolveGuardianIdentity(riga);
 
-      /* Un legame dichiarato e non revocato vince, come per l'accesso. */
+      /*
+        **Il marchio della riga viene prima, e vince su tutto** (49 §C).
+
+        L'uscita qui sotto — «un legame dichiarato e non revocato vince» —
+        stava **prima**, e quindi il marchio della riga non veniva mai
+        consultato per chi porta un'utenza. Su una riga `contact_only` che
+        porta anche `user_id` — configurazione che la §3 del travaso produce,
+        perche marca per identita senza azzerare l'utenza — la voce risultava
+        esclusa per `isGuardianExcluded` e **riceveva lo stesso**, su tutti e
+        tre i canali: promemoria del certificato, notifiche documentali e
+        solleciti degli insoluti con il link per pagare.
+
+        L'uscita esiste per un'altra ragione, e resta: i **registri** sono
+        elenchi di identita, e un indirizzo di famiglia condiviso (ADR-0114) vi
+        finisce dentro revocando **l'altro** genitore. E li che un legame
+        dichiarato deve poter vincere — sul registro, mai sul marchio, che e
+        l'autorita della propria riga.
+      */
+      if (isGuardianExcludedPerRiga(riga)) return false;
+
+      /* Un legame dichiarato e non revocato vince **sul registro**. */
       if (identita.userIds.some((voce) => !revocate.has(voce))) return true;
 
       /*
@@ -126,7 +176,7 @@ export const resolveNotificationGuardianEntries = (
         return false;
       }
 
-      if (isGuardianExcludedPerInvio(riga, recapitiSoli)) return false;
+      if (identita.emails.some((voce) => recapitiSoli.has(voce))) return false;
 
       return true;
     })
@@ -161,19 +211,14 @@ export const resolveNotificationGuardians = (
   resolveNotificationGuardianEntries(data).map(({ record: _riga, ...recapito }) => recapito);
 
 /**
- * Il marchio di riga piu il registro dei soli recapiti: il segno vive dentro
- * il blob che la rotta generica sostituisce per intero, e il registro sta
- * sull'atleta.
+ * **Il marchio della riga**, che e l'autorita della riga su se stessa.
+ *
+ * Sta separato dai due registri perche i due hanno forza diversa: il marchio
+ * non si aggira e non ammette uscite, i registri sono elenchi di **identita** e
+ * un indirizzo condiviso vi finisce dentro per colpa di qualcun altro.
  */
-const isGuardianExcludedPerInvio = (
-  riga: GuardianLike,
-  recapitiSoli: ReadonlySet<string>,
-): boolean => {
-  if (isGuardianContactOnly(riga) || isGuardianRevoked(riga)) return true;
-  if (!recapitiSoli.size) return false;
-
-  return resolveGuardianIdentity(riga).emails.some((voce) => recapitiSoli.has(voce));
-};
+const isGuardianExcludedPerRiga = (riga: GuardianLike): boolean =>
+  isGuardianContactOnly(riga) || isGuardianRevoked(riga);
 
 /**
  * **Le utenze a cui recapitare una notifica su questo atleta**: i tutori vivi

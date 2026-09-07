@@ -107,6 +107,45 @@ export const resolveGuardianIdentity = (voce: unknown): GuardianIdentity => {
 };
 
 /**
+ * **Questa maniglia nomina questa riga?**
+ *
+ * ---
+ *
+ * ## La regola, e perche ha una funzione sola
+ *
+ * «Cio che la revoca chiude deve contenere cio che il riscatto collega.» Il
+ * gettone di un invito porta un `guardian_id`, e ne esistono **tre** forme:
+ * l'identificativo della riga, la chiave che quella riga aveva nel blob
+ * (`legacy_id`), e la sua chiave d'identita — l'indirizzo o l'utenza.
+ *
+ * Le due porte se lo chiedevano con due predicati diversi: chi **risolve** per
+ * riscattare guardava tutte e tre le forme, chi **chiude** per revocare solo
+ * due. Un invito coniato sull'indirizzo era percio riscattabile e non
+ * chiudibile: la revoca lo lasciava `active`, la scheda non lo mostrava — e
+ * quindi non c'era schermata da cui toglierlo — e chi lo aveva in tasca
+ * rientrava con `revoked_at` azzerato e l'utenza riscritta.
+ *
+ * Il difetto non stava in nessuna delle due porte: stava nell'esistere di due
+ * predicati. Adesso e uno, e allargarlo li allarga insieme.
+ */
+export const guardianRowNamedBy = (
+  riga: unknown,
+  maniglia: unknown,
+): boolean => {
+  const cercata = String(maniglia ?? "").trim();
+  if (!cercata) return false;
+
+  const r = asGuardianRecord(riga);
+  const normale = normalizeGuardianIdentity(cercata);
+
+  return (
+    cercata === String(r.id ?? "") ||
+    cercata === String(r.legacy_id ?? "") ||
+    (Boolean(r.identity_key) && normale === normalizeGuardianIdentity(r.identity_key))
+  );
+};
+
+/**
  * **Un registro di identita**, nella forma in cui i lettori lo interrogano.
  *
  * `revokedGuardianIdentities` e `contactOnlyIdentities` sono elenchi derivati

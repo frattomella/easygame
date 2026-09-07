@@ -318,3 +318,63 @@ Resta l'elenco qui sotto, con una riga in meno: le **revoche concorrenti** e il
 * una persona con **due utenze** sulla stessa scheda;
 * le fette di `data-subject.ts` diverse da quelle dei tutori e dei gettoni;
 * `unlinkClubJsonProfiles`.
+
+---
+
+## La revisione post-consolidamento (2026-09-07)
+
+Una revisione indipendente ostile ha attaccato le invarianti di questo
+documento e ne ha falsificate **sei**, tutte riprodotte prima di correggerle.
+Il consolidamento non le ha create tutte — ma le ha rese **misurabili in un
+posto solo**, ed e la ragione per cui si sono viste.
+
+| # | Invariante falsificata | Dove viveva |
+|---|---|---|
+| R1 | §I — la revoca chiudeva **meno** di quanto il riscatto collegasse: un invito coniato sulla chiave d'identita era riscattabile e non chiudibile, e la scheda non lo mostrava | due predicati per la stessa domanda |
+| R2 | §I — la guardia della concessione vedeva **la chiave** e non l'indirizzo: con `{ userId, email }` insieme, l'indirizzo verificato di un terzo usciva dal vaglio | l'unificazione delle due guardie |
+| R3 | §C, §H — «un legame dichiarato vince» stava **prima** del marchio di riga: una riga di solo recapito che porta un'utenza riceveva su tutti e tre i canali | l'ordine di due `if` |
+| R5 | §A — con zero righe i tre canali risuscitavano `parent1`/`parent2`: il blob tornava a essere **autorita di fatto** | la scelta fatta su «l'elenco e vuoto?» |
+| R6 | §C al contrario — un residuo `revoked_at` dentro `data` marcava un tutore **vivo**, e chi paga cambiava persona | il predicato totale, contro una proiezione che non riemette tutte le grafie |
+| R12 | §G — una voce non-oggetto faceva **slittare** i lettori posizionali | una difesa contro un dato malformato |
+
+**La correzione e sempre nella primitiva**, mai nell'endpoint: sei fatti
+cambiati in cinque file di `src/lib/guardians/` piu due nel proprietario.
+
+### Le tre regole che ne escono
+
+1. **Allargare una porta obbliga ad allargare la sua gemella.** R1 nasce dal
+   consolidamento stesso: la guardia del riscatto e stata resa piu larga — e
+   giustamente — mentre la funzione che chiude i gettoni e rimasta dov'era.
+   «Cio che la revoca chiude deve contenere cio che il riscatto collega» era
+   gia scritta; adesso e **una funzione sola** (`guardianRowNamedBy`), e
+   allargarla li allarga insieme.
+2. **Unificare due guardie e sceglierne una.** R2: la guardia unica ha ereditato
+   il ramo per identificativo di utenza e **perso** quello per indirizzo. Una
+   funzione che decide su «l'identita su cui la riga e unica» non risponde alla
+   domanda «quali identita apriranno il fascicolo»: sono due, e adesso hanno
+   due nomi (`guardianIdentityKey`, `guardianIdentityCandidates`).
+3. **Un predicato totale obbliga la proiezione a essere totale.** R6: rendere
+   `isGuardianExcluded` capace di leggere anche le grafie della **riga** — che
+   e giusto — ha reso pericoloso un residuo che prima nessuno guardava. Chi
+   allarga un lettore deve chiudere le strade da cui entra il dato che adesso
+   legge.
+
+### Il caso che il contratto vieta, e che la revisione ha chiarito
+
+La coppia `contact_only = true` **con** `user_id` e **incoerente per
+costruzione**: l'unico scrittore di `user_id` e il riscatto, e il riscatto
+azzera `contact_only` nella stessa `UPDATE`. Esiste lo stesso, e la produce la
+§3 del travaso — che marca per **identita** senza azzerare l'utenza.
+
+Su una riga cosi vale §C senza deroghe: **e esclusa, e non riceve.** L'uscita
+«un legame dichiarato vince» resta, ma vale sui **registri** — che sono elenchi
+di identita, e dove un indirizzo di famiglia condiviso (ADR-0114) finisce per
+colpa di un altro — **mai sul marchio**, che e l'autorita della riga su se
+stessa.
+
+### Cosa la revisione ha attaccato e non ha piegato
+
+§E (nessun campo passa da una riga esclusa), §D4 (un salvataggio ordinario non
+sposta chi paga), §F (un salvataggio che rimanda `escluseDietro` non lo
+scrive), il confine di club (nessun `undefined` che allarghi un filtro), e la
+larghezza del riscatto (nessun invito legittimo ha smesso di funzionare).
