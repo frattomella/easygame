@@ -2842,7 +2842,7 @@ Il consolidamento strutturale ([ADR-0153](18-decision-log.md#adr-0153--le-regole
 e la revisione indipendente che lo ha attaccato chiudono sei invarianti
 falsificate. Restano queste, **dichiarate e non chiuse**.
 
-### D-PP02-A · La migrazione revoca il co-genitore per indirizzo condiviso
+### D-PP02-A · La migrazione revoca il co-genitore per indirizzo condiviso — CHIUSO, exposure 0
 
 `prisma/migrations/20260906180000_pp02_il_travaso_fondeva_due_persone/migration.sql`,
 §3: le due `UPDATE` propagano il marchio confrontando il registro storico con
@@ -2863,6 +2863,36 @@ autorizzazione esplicita** ([CLAUDE.md §8](../../CLAUDE.md)).
 
 Nel frattempo la riga marcata cosi si comporta correttamente: e esclusa, e non
 riceve (49 §C). Il difetto e che non doveva esserlo.
+
+#### Misurato, e chiuso (2026-09-07)
+
+`pp-02-diagnosi-travaso.mjs` e stato eseguito **in sola lettura imposta dal
+server** (`transaction_read_only = on` sull'endpoint diretto Neon) sul database
+di staging/pilota `neondb`, quello del pilota **Fortitudo Scauri**.
+
+| | |
+|---|---|
+| club | 6, di cui Fortitudo Scauri con **307 atleti** |
+| atleti | 520 |
+| atleti con `revokedGuardianIdentities` come array | **0** |
+| atleti con `contactOnlyIdentities` come array | **0** |
+| voci con un indirizzo condiviso sulla stessa scheda | **0** |
+| righe che la §3 marcherebbe (predicato simulato sul blob) | **0** |
+
+**Exposure: zero, e non per fortuna.** La §3 si accende solo su un atleta il cui
+blob porti uno dei due registri, e su staging **nessun atleta li porta in
+nessuna forma**. Il difetto e reale nella logica della migrazione e non ha
+nessuna riga su cui manifestarsi.
+
+R4 si chiude percio come **difetto latente storico con exposure 0**: la logica
+resta sbagliata per una scheda che venisse travasata portando un registro, e la
+regola giusta e scritta in ADR-0154, ma non c'e niente da bonificare e nessuna
+migrazione di rimedio da scrivere.
+
+**Se un giorno un registro comparisse** — un ripristino da un backup
+pre-PP-02, o un club nuovo importato da una fonte che li scrive — la diagnosi
+va rieseguita **prima** del deploy che applica il travaso. E il solo momento in
+cui il difetto potrebbe mordere.
 
 ### D-PP02-B · `escluseDietro` non ha un lettore
 
@@ -2903,3 +2933,36 @@ proiezione li troverebbe.
 Vedi la coda di [49](49-pp-02-invarianti-tutori.md): rollover di stagione sotto
 contesa, riscatto cross-club sul ramo genitore, una persona con due utenze
 sulla stessa scheda, `unlinkClubJsonProfiles`.
+
+### D-PP02-E · Staging e indietro di quattro migrazioni: PP-02 non e ancora li
+
+Misurato il 2026-09-07 con `npx prisma migrate status` sul database di
+staging/pilota, in sola lettura:
+
+```
+Following migrations have not yet been applied:
+  20260905120000_pp02_tutore_e_una_riga
+  20260906090000_pp02_il_tutore_ha_un_solo_scrittore
+  20260906100000_pp02_il_travaso_perdeva_e_inventava
+  20260906180000_pp02_il_travaso_fondeva_due_persone
+```
+
+`athlete_guardians` **non esiste** su staging: il pilota Fortitudo Scauri —
+307 atleti — gira ancora sul percorso pre-PP-02, con i tutori dentro
+`athletes.data.guardians[]` e nessuna autorita di riga.
+
+Non e un debito del dominio: e un **fatto operativo** che chiunque prepari
+l'integrazione finale deve sapere, e ha due conseguenze.
+
+1. **Niente di PP-02 e stato provato su dati veri.** Tutte le sonde girano sul
+   database di sviluppo. Il primo deploy che applichera queste quattro
+   migrazioni fara il travaso su 520 atleti in una volta sola.
+2. **Il travaso su staging e piccolo, ed e una fortuna.** Il blob contiene in
+   tutto **sei** voci di tutore su 520 schede, e nessun registro: e la ragione
+   per cui D-PP02-A ha exposure zero. Non e una proprieta che sopravvivera a un
+   club vero che compili l'anagrafica.
+
+**Prima di quel deploy** vanno rieseguite, contro staging e in sola lettura,
+`pp-02-diagnosi-travaso.mjs` e `npx prisma migrate status`. Il deploy stesso
+**richiede autorizzazione esplicita** ([CLAUDE.md §9](../../CLAUDE.md)), perche
+ogni deploy esegue `prisma migrate deploy`.

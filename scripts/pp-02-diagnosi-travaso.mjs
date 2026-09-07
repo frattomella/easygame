@@ -67,9 +67,113 @@
 
 import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+/**
+ * **Quale database si sta leggendo, e detto ad alta voce.**
+ *
+ * Una diagnosi che non dichiara su cosa ha girato e una diagnosi su cui non si
+ * puo decidere. `DIAGNOSI_DATABASE_URL` la punta altrove senza toccare `.env`:
+ * e la difesa contro l'errore n. 7 di CLAUDE.md — «eseguire un comando
+ * credendo di essere su un DB locale» — al rovescio, cioe credere di essere
+ * altrove e leggere invece il proprio.
+ */
+const URL_SCELTA = String(
+  process.env.DIAGNOSI_DATABASE_URL || process.env.DATABASE_URL || "",
+).trim();
 
-const conta = async (sql) => Number((await prisma.$queryRawUnsafe(sql))[0]?.c ?? 0);
+if (!URL_SCELTA) {
+  console.error(
+    "Nessuna connection string: DIAGNOSI_DATABASE_URL o DATABASE_URL.",
+  );
+  process.exit(1);
+}
+
+/** L'indirizzo senza credenziali: host, porta e database. */
+const senzaSegreti = (url) => {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.port ? `:${u.port}` : ""}${u.pathname}`;
+  } catch {
+    return "(connection string non interpretabile)";
+  }
+};
+
+/**
+ * **Sola lettura imposta dal server, non promessa dal codice.**
+ *
+ * `default_transaction_read_only=on` viaggia nei parametri di connessione:
+ * PostgreSQL rifiuta **qualunque** scrittura su questa connessione, anche se
+ * qualcuno domani aggiungesse una query sbagliata a questo file. Una garanzia
+ * che dipende dal fatto che io abbia letto bene il codice non e una garanzia.
+ *
+ * Il pooler potrebbe non passarlo: in quel caso resta il vaglio qui sotto, che
+ * rifiuta ogni istruzione che non cominci per `SELECT`, e l'esito lo dichiara.
+ */
+const conUrlDiSolaLettura = (url) => {
+  try {
+    const u = new URL(url);
+    u.searchParams.set("options", "-c default_transaction_read_only=on");
+    return u.toString();
+  } catch {
+    return url;
+  }
+};
+
+/**
+ * **Il pooler non passa `options`, l'endpoint diretto si.**
+ *
+ * Su Neon la connection string dell'applicazione punta al **pooler**, che
+ * rifiuta la connessione se le si aggiunge `options` — quindi non si puo
+ * imporre la sola lettura da li. L'endpoint diretto (`DIRECT_URL`, lo stesso
+ * database senza `-pooler` nel nome) la accetta: verificato,
+ * `transaction_read_only = on`.
+ *
+ * Si tenta percio con il vincolo e si ripiega senza, dicendo quale delle due
+ * ha funzionato. Ripiegare **in silenzio** su una garanzia piu debole sarebbe
+ * la forma di difetto che questo pacchetto ha passato quindici tornate a
+ * togliere.
+ */
+const apri = async () => {
+  const conVincolo = new PrismaClient({
+    datasources: { db: { url: conUrlDiSolaLettura(URL_SCELTA) } },
+  });
+
+  try {
+    await conVincolo.$queryRawUnsafe("SELECT 1");
+    return { client: conVincolo, imposta: true };
+  } catch {
+    await conVincolo.$disconnect().catch(() => {});
+  }
+
+  return {
+    client: new PrismaClient({ datasources: { db: { url: URL_SCELTA } } }),
+    imposta: false,
+  };
+};
+
+const { client: prisma, imposta: VINCOLO_DAL_SERVER } = await apri();
+
+/**
+ * **Il vaglio: qui passa solo cio che comincia per `SELECT`.**
+ *
+ * `$queryRawUnsafe` esegue quello che gli si da. Le istruzioni di questo file
+ * sono tutte letture, ma «sono tutte letture» e un'affermazione su un testo, e
+ * questo pacchetto ha imparato che un'affermazione su un testo non e una
+ * difesa. Il vaglio la rende una proprieta del codice.
+ */
+const soloLettura = (sql) => {
+  const pulita = sql.trim().replace(/^\(+/, "").trimStart();
+  if (!/^SELECT\b/i.test(pulita)) {
+    throw new Error(
+      `Questa sonda legge e basta: rifiutata un'istruzione che non e una SELECT.\n${sql.slice(0, 120)}`,
+    );
+  }
+  return sql;
+};
+
+const conta = async (sql) =>
+  Number((await prisma.$queryRawUnsafe(soloLettura(sql)))[0]?.c ?? 0);
+
+const righe = async (sql) => prisma.$queryRawUnsafe(soloLettura(sql));
 
 const riga = (etichetta, valore, allarme) =>
   console.log(
@@ -78,6 +182,24 @@ const riga = (etichetta, valore, allarme) =>
 
 const main = async () => {
   console.log("\n=== DIAGNOSI DEL TRAVASO DEI TUTORI (sola lettura) ===\n");
+  console.log(`  database : ${senzaSegreti(URL_SCELTA)}`);
+
+  /* Se il server ha accettato il vincolo, lo dice lui — non lo diciamo noi. */
+  const [{ ro }] = await righe(
+    `SELECT current_setting('transaction_read_only') AS ro`,
+  );
+  console.log(
+    `  lettura  : ${
+      String(ro) === "on"
+        ? "imposta dal server (transaction_read_only = on)"
+        : "solo il vaglio del codice — il pooler non passa `options`; " +
+          "per il vincolo dal server usa l'endpoint diretto (DIRECT_URL)"
+    }`,
+  );
+  if (String(ro) === "on" && !VINCOLO_DAL_SERVER) {
+    console.log("  (nota: vincolo attivo ma non richiesto da questa sonda)");
+  }
+  console.log("");
 
   const totali = await conta(`SELECT count(*)::int c FROM athlete_guardians`);
   const revocate = await conta(
@@ -161,6 +283,49 @@ const main = async () => {
   riga("righe con metadati di sicurezza nel residuo", residui);
 
   const allarmi = revocateConUtenza + recapitoConUtenza + sospette;
+
+  /*
+    **Per club, perche la decisione e per club.** Un pilota si chiude o si
+    rimanda guardando le proprie righe, non un totale che le mescola a quelle
+    di chiunque altro.
+  */
+  const perClub = await righe(
+    `SELECT c."name" AS club,
+            count(*) FILTER (WHERE g."id" IS NOT NULL)::int AS righe,
+            count(*) FILTER (WHERE g."revoked_at" IS NOT NULL)::int AS revocate,
+            count(*) FILTER (WHERE g."contact_only" = true)::int AS recapiti,
+            count(*) FILTER (
+              WHERE (g."revoked_at" IS NOT NULL OR g."contact_only" = true)
+                AND g."user_id" IS NOT NULL
+            )::int AS impronta
+       FROM "clubs" c
+       JOIN "athlete_guardians" g ON g."organization_id" = c."id"
+      GROUP BY c."name"
+      ORDER BY impronta DESC, righe DESC`,
+  );
+
+  if (perClub.length) {
+    console.log("\n  Per club\n");
+    console.log(
+      "    " +
+        "CLUB".padEnd(34) +
+        "RIGHE".padStart(7) +
+        "REVOC.".padStart(8) +
+        "RECAP.".padStart(8) +
+        "IMPRONTA".padStart(10),
+    );
+    for (const r of perClub) {
+      console.log(
+        "    " +
+          String(r.club ?? "—").slice(0, 33).padEnd(34) +
+          String(r.righe).padStart(7) +
+          String(r.revocate).padStart(8) +
+          String(r.recapiti).padStart(8) +
+          String(r.impronta).padStart(10) +
+          (Number(r.impronta) > 0 ? "   <<<" : ""),
+      );
+    }
+  }
 
   console.log("\n" + "=".repeat(70));
   if (allarmi === 0) {
