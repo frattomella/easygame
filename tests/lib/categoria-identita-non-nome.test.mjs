@@ -1,0 +1,243 @@
+/**
+ * **L'identita di una categoria e il suo identificativo, non il suo nome.**
+ *
+ * ---
+ *
+ * ## Perche questo file esiste
+ *
+ * `recordMatchesCategory` ha otto consumatori — le tre bacheche
+ * dell'allenatore, il pannello settimanale, gli avvisi operativi, le
+ * statistiche per categoria e i report di club — e **nessun test**. Il difetto
+ * P0-4 del pilota Fortitudo Scauri viveva li dentro: l'insieme dei token
+ * mescolava identificativi ed etichette, e due categorie omonime su due sedi
+ * diverse si intersecavano **sul nome**.
+ *
+ * Il pilota lo ha misurato dalla schermata: l'allenatore dell'Under 15 di
+ * Formia apriva la propria bacheca e vedeva gli allenamenti dell'Under 15 di
+ * Scauri, e nessun filtro li separava.
+ *
+ * ## Cosa misura
+ *
+ * Le tre proprieta della regola, piu i due controlli che la rendono capace di
+ * dire rosso:
+ *
+ * 1. due categorie omonime con identificativi diversi **non** si fondono;
+ * 2. il ripiego sul nome resta per i club senza catalogo;
+ * 3. un nome che ne nomina due non ne nomina nessuna.
+ */
+
+import test from "node:test";
+import assert from "node:assert/strict";
+
+const helpers = await import("../../src/lib/trainer-dashboard-helpers.ts");
+const utils = await import("../../src/lib/category-utils.ts");
+
+const U15_SCAURI = "11111111-1111-4111-8111-111111111111";
+const U15_FORMIA = "22222222-2222-4222-8222-222222222222";
+const U17_SCAURI = "33333333-3333-4333-8333-333333333333";
+
+/* Il catalogo vero di una societa multi-sede: due squadre, un nome solo. */
+const CATALOGO = [
+  { id: U15_SCAURI, name: "Under 15" },
+  { id: U15_FORMIA, name: "Under 15" },
+  { id: U17_SCAURI, name: "Under 17" },
+];
+
+/* ==================================================================== *
+ *  1. Due categorie omonime restano due
+ * ==================================================================== */
+
+test("un allenamento dell'Under 15 di Scauri non e dell'Under 15 di Formia", () => {
+  const allenamento = { category_id: U15_SCAURI, category_name: "Under 15" };
+
+  assert.equal(
+    helpers.recordMatchesCategory(allenamento, { id: U15_SCAURI }, CATALOGO),
+    true,
+    "la propria categoria deve corrispondere",
+  );
+
+  assert.equal(
+    helpers.recordMatchesCategory(allenamento, { id: U15_FORMIA }, CATALOGO),
+    false,
+    "prima di P0-4: il nome «Under 15» faceva combaciare le due sedi",
+  );
+});
+
+test("e vale anche quando la categoria arriva con il nome scritto accanto", () => {
+  /*
+    E la forma vera dei record del prodotto: la colonna denormalizzata
+    `category_name` viaggia insieme all'identificativo. Se il nome bastasse a
+    far combaciare, questa prova sarebbe verde per il motivo sbagliato.
+  */
+  const gara = { categoryId: U15_FORMIA, categoryName: "Under 15" };
+  const scauri = { id: U15_SCAURI, name: "Under 15" };
+
+  assert.equal(helpers.recordMatchesCategory(gara, scauri, CATALOGO), false);
+});
+
+test("un atleta con due appartenenze corrisponde a tutte e due, e solo a quelle", () => {
+  const atleta = {
+    category_memberships: [
+      { category_id: U15_FORMIA, category_name: "Under 15" },
+      { category_id: U17_SCAURI, category_name: "Under 17" },
+    ],
+  };
+
+  assert.equal(helpers.recordMatchesCategory(atleta, { id: U15_FORMIA }, CATALOGO), true);
+  assert.equal(helpers.recordMatchesCategory(atleta, { id: U17_SCAURI }, CATALOGO), true);
+  assert.equal(
+    helpers.recordMatchesCategory(atleta, { id: U15_SCAURI }, CATALOGO),
+    false,
+    "l'omonima dell'altra sede non e una sua appartenenza",
+  );
+});
+
+/* ==================================================================== *
+ *  2. Il ripiego sul nome resta per chi non ha un catalogo
+ * ==================================================================== */
+
+test("senza catalogo due record che nominano la stessa categoria combaciano", () => {
+  /*
+    **Il controllo che impedisce di chiudere tutto.** Un club che non ha mai
+    aperto la pagina delle categorie non ha un catalogo, e i suoi record
+    portano solo etichette: se la regola nuova chiudesse anche qui, spegnerebbe
+    la bacheca invece di separare due squadre.
+  */
+  const allenamento = { category_name: "Pulcini" };
+
+  assert.equal(helpers.recordMatchesCategory(allenamento, { name: "Pulcini" }, []), true);
+  assert.equal(helpers.recordMatchesCategory(allenamento, { name: "Esordienti" }, []), false);
+});
+
+test("e resta anche quando il catalogo esiste ma non conosce quel nome", () => {
+  const allenamento = { category_name: "Amatori" };
+
+  assert.equal(
+    helpers.recordMatchesCategory(allenamento, { name: "Amatori" }, CATALOGO),
+    true,
+    "una categoria fuori catalogo non deve sparire dalla bacheca",
+  );
+});
+
+/* ==================================================================== *
+ *  3. Un nome che ne nomina due non ne nomina nessuna
+ * ==================================================================== */
+
+test("un riferimento per solo nome a una categoria omonima non ne apre nessuna", () => {
+  /*
+    Un record storico che porta «Under 15» e basta non dice quale delle due
+    sia. La risposta onesta non e «la prima»: sceglierla sarebbe la fusione di
+    prima, con un passaggio in meno.
+  */
+  const storico = { category_name: "Under 15" };
+
+  assert.equal(helpers.recordMatchesCategory(storico, { id: U15_SCAURI }, CATALOGO), false);
+  assert.equal(helpers.recordMatchesCategory(storico, { id: U15_FORMIA }, CATALOGO), false);
+});
+
+test("e due riferimenti per solo nome, tutti e due ambigui, non combaciano", () => {
+  /*
+    **La prova che rende load-bearing il `continue` sull'ambiguita.**
+
+    Qui nessuno dei due lati porta un identificativo: senza quel `continue`
+    entrambi finirebbero fra i **nomi**, il ripiego scatterebbe — perche il
+    ripiego vale proprio quando gli identificativi mancano — e le due «Under
+    15» tornerebbero a essere la stessa. E la fusione di P0-4 per la porta di
+    servizio, e non la vedrebbe nessun'altra prova di questo file.
+
+    Con il catalogo che ne conosce due, la risposta e no: non si sa di quale si
+    stia parlando, e due «non lo so» non fanno un «e la stessa».
+  */
+  assert.equal(
+    helpers.recordMatchesCategory(
+      { category_name: "Under 15" },
+      { name: "Under 15" },
+      CATALOGO,
+    ),
+    false,
+  );
+
+  /* Il controspecchio: se il nome ne nomina una sola, i due combaciano. */
+  assert.equal(
+    helpers.recordMatchesCategory(
+      { category_name: "Under 17" },
+      { name: "Under 17" },
+      CATALOGO,
+    ),
+    true,
+  );
+});
+
+test("un'etichetta fuori catalogo non unisce due categorie che sanno chi sono", () => {
+  /*
+    **La prova che rende load-bearing il ritorno anticipato.**
+
+    Due categorie diverse, tutte e due riconosciute dal catalogo, e tutte e due
+    con accanto la stessa etichetta libera che il catalogo **non** conosce —
+    la forma che prende una colonna storica mai bonificata, o un `data.category`
+    scritto a mano anni fa.
+
+    Senza il ritorno anticipato il ripiego sui nomi scatterebbe lo stesso, e le
+    due si unirebbero su una parola che non e l'identita di nessuna delle due.
+    Chi sa dire chi e ha gia risposto.
+  */
+  const record = { category_id: U15_SCAURI, data: { category: "Prima squadra" } };
+  const altra = { id: U17_SCAURI, data: { category: "Prima squadra" } };
+
+  assert.equal(helpers.recordMatchesCategory(record, altra, CATALOGO), false);
+
+  /* Il controspecchio: senza catalogo l'etichetta e tutto cio che si ha. */
+  assert.equal(
+    helpers.recordMatchesCategory(
+      { data: { category: "Prima squadra" } },
+      { data: { category: "Prima squadra" } },
+      [],
+    ),
+    true,
+  );
+});
+
+test("`resolveCategoryId` non sceglie piu la prima fra due omonime", () => {
+  assert.equal(
+    utils.resolveCategoryId("Under 17", CATALOGO),
+    U17_SCAURI,
+    "un nome che ne nomina una sola risolve, e deve continuare a farlo",
+  );
+
+  assert.equal(
+    utils.resolveCategoryId("Under 15", CATALOGO),
+    "Under 15",
+    "prima di P0-4: rispondeva sempre l'identificativo della prima delle due",
+  );
+
+  assert.equal(
+    utils.resolveCategoryId(U15_FORMIA, CATALOGO),
+    U15_FORMIA,
+    "l'identificativo resta la strada che non e mai ambigua",
+  );
+});
+
+/* ==================================================================== *
+ *  4. La forma della risposta: identificativi e nomi separati
+ * ==================================================================== */
+
+test("l'identita separa cio che il catalogo riconosce da cio che non riconosce", () => {
+  const misto = { category_id: U17_SCAURI, categoryName: "Amatori" };
+  const identita = helpers.extractCategoryIdentity(misto, CATALOGO);
+
+  assert.equal(
+    identita.identificativi.has(U17_SCAURI.toLowerCase()),
+    true,
+    "cio che il catalogo riconosce diventa un identificativo",
+  );
+  assert.equal(
+    identita.nomi.has("amatori"),
+    true,
+    "cio che non riconosce resta un nome, e vale come ripiego",
+  );
+  assert.equal(
+    identita.identificativi.has("amatori"),
+    false,
+    "un nome sconosciuto non diventa un'identita",
+  );
+});

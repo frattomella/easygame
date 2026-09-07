@@ -457,11 +457,27 @@ export const resolveCategoryId = (raw: unknown, categories: CategoryLike[]) => {
     return String(byId.id);
   }
 
-  const byName = categories.find(
+  /*
+    **Un nome che ne nomina due non ne nomina nessuna** (P0-4, Fortitudo).
+
+    Qui c'era `find`, che prende la **prima**. Un club con due categorie che si
+    chiamano tutte e due «Under 15» — una a Scauri, una a Formia, che e la
+    configurazione ordinaria di una societa multi-sede — vedeva quindi ogni
+    riferimento per nome cadere sempre sulla stessa, in silenzio: le due
+    squadre si fondevano, e l'allenatore della seconda si trovava davanti gli
+    atleti della prima.
+
+    Il nome non e un identificativo, e quando ne nomina piu di una la risposta
+    onesta non e «la prima»: e «non lo so». Si restituisce il valore com'e, che
+    non e l'identificativo di nessuna categoria e percio non ne apre nessuna.
+    Chi deve distinguerle passa l'identificativo, ed e cio che ogni scrittura
+    recente gia fa.
+  */
+  const perNome = categories.filter(
     (category) => String(category?.name || "").trim() === value,
   );
-  if (byName?.id) {
-    return String(byName.id);
+  if (perNome.length === 1 && perNome[0]?.id) {
+    return String(perNome[0].id);
   }
 
   return value;

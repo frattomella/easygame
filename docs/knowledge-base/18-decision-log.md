@@ -9324,3 +9324,103 @@ e una voce non-oggetto che faceva slittare i lettori posizionali (§G).
 **Vedi anche.** ADR-0153, ADR-0152, ADR-0151, ADR-0135, ADR-0127,
 `docs/knowledge-base/49-pp-02-invarianti-tutori.md`,
 `docs/knowledge-base/16-technical-debt.md` §D-PP02-A..D.
+
+---
+
+## ADR-0155 — L'identita di una categoria e il suo identificativo; il nome e un'etichetta
+
+**Data:** 2026-09-07 · **Stato:** accettato · **Lane:** integrazione finale
+(P0-4, pilota Fortitudo Scauri)
+
+### Il fatto
+
+Fortitudo Scauri ha due sedi e, su due sedi, due categorie che si chiamano
+tutte e due «Under 15». E la configurazione ordinaria di una societa
+multi-sede, non un caso limite: il nome di una categoria descrive una fascia
+d'eta, e le fasce d'eta sono le stesse ovunque.
+
+L'allenatore dell'Under 15 di Formia apriva la propria bacheca e vedeva gli
+allenamenti dell'Under 15 di Scauri. Nessun filtro li separava, perche per il
+prodotto erano **una categoria sola**.
+
+### Dove viveva
+
+`recordMatchesCategory` (`src/lib/trainer-dashboard-helpers.ts`) confrontava
+due insiemi prodotti da `extractCategoryTokens`, e quell'insieme mette **nella
+stessa borsa** l'identificativo di una categoria e la sua etichetta risolta:
+
+```ts
+tokens.add(normalizeTrainerDashboardValue(rawValue));
+tokens.add(normalizeTrainerDashboardValue(resolvedId));
+tokens.add(normalizeTrainerDashboardValue(resolvedLabel));   // <- qui
+```
+
+Due categorie omonime producono percio insiemi che si intersecano sul nome, e
+l'intersezione e la risposta. Otto consumatori — le tre bacheche
+dell'allenatore, il pannello settimanale, gli avvisi operativi, le statistiche
+per categoria, i report di club — e **nessun test**.
+
+La stessa forma viveva una seconda volta, piu in basso: `resolveCategoryId`
+cercava per nome con `find`, cioe prendeva **la prima** delle due. Ogni
+riferimento per nome cadeva sempre sulla stessa categoria, in silenzio.
+
+### La decisione
+
+**L'identita di una categoria e il suo identificativo. Il nome serve a
+leggerla, non a riconoscerla.**
+
+Tre regole, e sono una sola letta da tre lati:
+
+1. **Un valore diventa un identificativo se il catalogo del club lo
+   riconosce** — per identificativo, oppure per nome quando quel nome ne nomina
+   **una sola**.
+
+2. **Un nome che ne nomina due non nomina nessuna.** Non entra fra gli
+   identificativi e non entra fra i nomi: sceglierne una sarebbe la fusione di
+   prima con un passaggio in meno, e rispondere «la prima» a una domanda
+   ambigua e il modo piu silenzioso di dare il figlio sbagliato a un
+   allenatore. `resolveCategoryId` restituisce percio il valore com'e, che non
+   e l'identificativo di nessuna categoria.
+
+3. **Il ripiego sui nomi resta, e vale solo quando almeno uno dei due lati non
+   porta identificativi.** Un club che non ha mai aperto la pagina delle
+   categorie non ha un catalogo, e i suoi record portano solo etichette:
+   chiudere anche li spegnerebbe la bacheca invece di separare due squadre. Ma
+   se tutti e due i lati sanno dire chi sono e non coincidono, sono due
+   categorie diverse — e il fatto che si chiamino uguale non le rende la
+   stessa.
+
+La funzione che risponde e `extractCategoryIdentity`, che restituisce **due**
+insiemi separati (`identificativi`, `nomi`) invece di una borsa sola. La
+separazione e la correzione: finche i due vivono nello stesso insieme, ogni
+consumatore puo confonderli di nuovo.
+
+### Cosa **non** decide
+
+Non tocca la **disambiguazione a schermo**, che il pilota chiede e che resta
+aperta: due «Under 15» in un menu a tendina restano due voci con la stessa
+scritta finche qualcuno non vi accosta la sede. E un lavoro di interfaccia, non
+di identita, ed e registrato come debito (`D-INT-3`).
+
+Non tocca `getRecordDisplayCategory`, che risolve un'**etichetta** da mostrare:
+li il nome e esattamente cio che serve, e due omonime danno giustamente la
+stessa scritta.
+
+### Come si fa valere
+
+`tests/lib/categoria-identita-non-nome.test.mjs`, dieci prove. Ognuna delle tre
+regole ha la sua, con il **controspecchio** che impedisce di soddisfarla
+chiudendo tutto, e le tre difese sono state misurate per **mutazione**:
+rompendo il `continue` sull'ambiguita, il ritorno anticipato, o il conteggio di
+`resolveCategoryId`, diventa rossa una prova diversa ogni volta.
+
+La prova che rende load-bearing il ritorno anticipato non e ovvia e vale la
+pena nominarla: due categorie **entrambe** riconosciute dal catalogo che
+portano accanto la stessa etichetta libera che il catalogo **non** conosce —
+la forma di una colonna storica mai bonificata. Senza quel ritorno il ripiego
+scatterebbe lo stesso, e le unirebbe su una parola che non e l'identita di
+nessuna delle due.
+
+**Vedi anche.** ADR-0030 (la compatibilita fra categorie e configurazione
+esplicita, mai una deduzione dal nome: e la stessa lezione, quattro mesi
+prima), ADR-0120, `docs/knowledge-base/16-technical-debt.md` §D-INT-1..4.

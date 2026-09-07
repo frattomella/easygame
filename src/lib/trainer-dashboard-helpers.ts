@@ -161,15 +161,102 @@ export const getRecordDisplayCategory = (
   return resolveCategoryLabel(firstValue, categories);
 };
 
+/**
+ * **Cosa nomina questo record: identificativi da una parte, nomi dall'altra.**
+ *
+ * ---
+ *
+ * ## Il difetto che chiude (P0-4, pilota Fortitudo Scauri)
+ *
+ * `extractCategoryTokens` mette nello **stesso** insieme l'identificativo di
+ * una categoria e la sua etichetta, e `recordMatchesCategory` intersecava quel
+ * miscuglio. Due categorie diverse che si chiamano allo stesso modo — «Under
+ * 15» a Scauri e «Under 15» a Formia, cioe la configurazione ordinaria di una
+ * societa multi-sede — producono percio insiemi che si intersecano **sul
+ * nome**, e per il prodotto diventano una categoria sola.
+ *
+ * Misurato sul pilota: l'allenatore di una delle due vedeva gli allenamenti e
+ * gli atleti dell'altra, e i due elenchi non si potevano piu separare da
+ * nessuna schermata.
+ *
+ * ## La regola
+ *
+ * L'identita di una categoria e il suo **identificativo**. Il nome e
+ * un'etichetta: serve a leggerla, non a riconoscerla.
+ *
+ * Un valore diventa un identificativo se il catalogo del club lo riconosce —
+ * per identificativo, oppure per nome quando quel nome ne nomina **una sola**.
+ * Un nome che ne nomina due non entra da nessuna parte: non e ambiguo per
+ * caso, e sceglierne una sarebbe la fusione di prima con un passaggio in meno.
+ *
+ * Il ripiego sui nomi resta, e serve: un club che non ha mai aperto la pagina
+ * delle categorie non ha un catalogo, e i suoi record portano solo etichette.
+ * Ma vale **solo quando almeno uno dei due lati non porta identificativi**: se
+ * li portano entrambi e non coincidono, sono due categorie diverse, e il fatto
+ * che si chiamino uguale non le rende la stessa.
+ */
+export const extractCategoryIdentity = (
+  record: any,
+  categories: Array<{ id?: string | null; name?: string | null }> = [],
+) => {
+  const identificativi = new Set<string>();
+  const nomi = new Set<string>();
+
+  const conosciute = categories.filter((category) => category?.id);
+
+  for (const grezzo of Array.from(extractCategoryTokens(record, []))) {
+    if (!grezzo) continue;
+
+    const perId = conosciute.find(
+      (category) => normalizeTrainerDashboardValue(category.id) === grezzo,
+    );
+    if (perId?.id) {
+      identificativi.add(normalizeTrainerDashboardValue(perId.id));
+      continue;
+    }
+
+    const perNome = conosciute.filter(
+      (category) => normalizeTrainerDashboardValue(category.name) === grezzo,
+    );
+    if (perNome.length === 1) {
+      identificativi.add(normalizeTrainerDashboardValue(perNome[0].id));
+      continue;
+    }
+
+    /* Ambiguo nel catalogo: non nomina nessuna categoria, e non entra. */
+    if (perNome.length > 1) continue;
+
+    nomi.add(grezzo);
+  }
+
+  return { identificativi, nomi };
+};
+
 export const recordMatchesCategory = (
   record: any,
   category: any,
   categories: Array<{ id?: string | null; name?: string | null }> = [],
 ) => {
-  const recordTokens = extractCategoryTokens(record, categories);
-  const categoryTokens = extractCategoryTokens(category, categories);
+  const delRecord = extractCategoryIdentity(record, categories);
+  const dellaCategoria = extractCategoryIdentity(category, categories);
 
-  return Array.from(categoryTokens).some((token) => recordTokens.has(token));
+  for (const id of dellaCategoria.identificativi) {
+    if (delRecord.identificativi.has(id)) return true;
+  }
+
+  /*
+    Se tutti e due i lati sanno dire chi sono, la risposta e gia stata data: due
+    identificativi diversi sono due categorie diverse, e il nome non le unisce.
+  */
+  if (delRecord.identificativi.size && dellaCategoria.identificativi.size) {
+    return false;
+  }
+
+  for (const nome of dellaCategoria.nomi) {
+    if (delRecord.nomi.has(nome)) return true;
+  }
+
+  return false;
 };
 
 export const recordMatchesAnyCategory = (
