@@ -3950,3 +3950,99 @@ che ne restano, e che valgono per qualunque dominio con un proprietario unico:
 
 Sonda permanente: `scripts/pp-02-secondo-vaglio.mjs` (15 asserzioni, 6
 controlli) piu T-13/T-15 in `scripts/pp-02-totalita-ruoli.mjs`.
+
+---
+
+## Revisione ostile sul sistema integrato (2026-09-07)
+
+Tre revisori indipendenti in sola lettura sul ramo
+`integration/final-production-readiness`, con un mandato ciascuno: **tenancy e
+autorita sui tutori**, **ruoli, perimetro e dato clinico**, **eventi,
+presenze, convocazioni, RSVP ed eleggibilita**.
+
+Il mandato non era rileggere le lane — ognuna ha gia la propria revisione, PP-02
+quindici tornate — ma **rompere la composizione**.
+
+**Esito: 1 Critical, 3 High, 6 Medium, 8 Low.** Uno dei tre revisori dichiara
+esplicitamente zero Critical e zero High sul proprio perimetro, e vale come
+risultato quanto gli altri due.
+
+Due reperti sono stati **corretti in questa tornata** e sono segnati come tali.
+Il resto e registrato in [16 — Debito tecnico](16-technical-debt.md) §D-AUD-*.
+
+### La distinzione che governa la tabella
+
+Quasi tutti i reperti sono **preesistenti**: vivono nella base comune delle
+quattro lane e non li ha prodotti il merge. Questo non li rende meno gravi, ma
+cambia chi deve chiuderli e quando, e la colonna «origine» lo dice per ognuno.
+
+Un reperto solo era **della composizione**, ed e quello che vale la pena
+leggere per primo (§D-AUD-2).
+
+### 1 Critical
+
+| # | Reperto | Origine |
+|---|---------|---------|
+| **D-AUD-1** | **Il generatore di allenamenti scrive `clubs.trainings` a mano, e cio che genera non esiste come evento.** `src/lib/server/training-automation.ts:725` fa `prisma.club.update({ data: { trainings: … } })` e non chiama mai `createClubEventsBatch`. La colonna e pero una **proiezione in sola lettura** con uno scrittore solo (ADR-0098), e `projectEventsToClubColumn` la riscrive **per intero** dalle righe a ogni salvataggio di un evento. Due conseguenze: gli allenamenti generati non hanno una riga, quindi presenze, convocazioni e RSVP rispondono «Evento non trovato»; e il primo evento che qualcuno salva li **cancella tutti**, senza errore e senza audit. Il gemello lato browser (`simplified-db.ts:3807`) e gia stato corretto e chiama `createEventsBatchRemote`: e stata corretta una copia sola | **preesistente** — presente in `aa62e16`, la base comune di tutte e quattro le lane |
+
+**Perche non e stato chiuso qui.** La correzione e mandare la generazione da
+`createClubEventsBatch`, che pretende uno `EventsScope`. La rotta autenticata
+ce l'ha; il **cron** no, e nell'albero non esiste nessuno scope interno o di
+sistema. Chiuderlo vuol dire percio decidere **con quale autorita la
+generazione notturna scrive un evento** — quale attore finisce in audit, e se
+il perimetro dell'allenatore le si applica. E una decisione di prodotto, non
+una riga, e inventarne una di nascosto in un commit di integrazione sarebbe
+esattamente il genere di cosa che ADR-0150 chiama per nome.
+
+### 3 High
+
+| # | Reperto | Origine |
+|---|---------|---------|
+| **D-AUD-3** | **Un allenatore qualunque scarica i byte dei documenti dei colleghi.** `TRAINER_READ_RESOURCES` contiene `trainers` **e** `staff_members`; `assertAttachmentWithinAccessScope` applica un perimetro **solo** a `owner_type === "athlete"`; e `customRoleReachesResource` risponde `true` per una risorsa con `keys: []`. Quindi anche un `custom:trainer:*` con **zero** caselle spuntate ottiene da `GET /api/v1/attachments?owner_type=trainer` l'indice e poi i byte di contratti e documenti d'identita di ogni collega. Contraddice due decisioni che la composizione afferma altrove: `CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE`, che a un allenatore toglie codice fiscale e indirizzo di un collega, e la riserva di `sport_work` alla direzione «perche dice quanto guadagna una persona». Il contratto lo dice. Sola lettura: le scritture sono negate | preesistente |
+| **D-AUD-4** | **`stripClinicalAthleteFields` senza ruolo sull'export dell'interessato.** `data-subject.ts:1019` lo chiama con **un argomento**, quindi `readerReadsDeclaredAthleteFieldsOnly` non si attiva e resta il solo **elenco dei vietati**: un campo clinico scritto sotto un nome inventato (`data.diagnosi`, `data.referto`) sopravvive. La porta gemella — `athlete-profile/[athleteId]/route.ts` — e stata corretta e passa il ruolo, e il suo commento descrive questo attacco parola per parola. Un `custom:club_manager:*` con `data_subject.export` e **senza** `clinical.read` lo esporta in un file che poi si consegna a una famiglia | preesistente |
+| **D-AUD-5** | **Il registro presenze sceglie gli atleti per nome.** `training/page.tsx:237-275` e `:1142-1182` sono una quarta e una quinta copia privata del confronto fra categorie, e incrociano identificativi con etichette. Con due categorie omonime su due sedi, «Segna tutti presenti» scrive presenze su atleti di trenta chilometri piu in la: `assertAtletiDelClub` controlla il **club** e basta, e un allenatore ordinario non ha `accessScopes`, quindi il perimetro non morde. Queste presenze alimentano `funding/attendance-measure.ts` | preesistente |
+
+### 6 Medium, 8 Low
+
+Registrati per esteso in [16 — Debito tecnico](16-technical-debt.md) §D-AUD-6..19.
+In sintesi: il sollecito manuale del certificato che consegna il nome di un
+minore fuori dal club (l'unico chiamante che non passa `organizationId`); il
+cruscotto di famiglia che elenca i tutori **revocati** senza dirlo, unico
+consumatore dei nove che non applica `isGuardianExcluded`; le convocazioni
+contate su un payload che nessuno scrive piu, quindi sempre zero; gli eventi
+**annullati** che restano nella proiezione e falsano i tassi di presenza; la
+creazione a blocchi che salta le due guardie di struttura che la creazione
+singola applica; la finestra di sovrapposizione lunga un giorno UTC, che non
+vede un evento cominciato il giorno prima; `secretariat_notes` e `club_events`
+letti dal registro generico senza il perimetro di sede; piu quattro difese la
+cui correttezza dipende dal chiamante invece che da se.
+
+### 2 corretti in questa tornata
+
+| # | Reperto | Origine |
+|---|---------|---------|
+| **D-AUD-2** | **Il catalogo delle categorie fondeva cio che ADR-0155 aveva appena separato.** `buildClubCategoryOptions` riuniva due voci per **nome**, e con due «Under 15» su due sedi ne restituiva **una**. Il danno era doppio: la difesa di `extractCategoryIdentity` non poteva accendersi — `perNome.length` valeva al massimo uno per costruzione — e un allenamento che dichiarava la categoria sparita veniva attribuito all'altra, perche il suo nome risolveva sull'unica voce rimasta. Non piu una fusione: **uno scambio**. Corretto: due identita vere si riuniscono solo se coincidono; il nome resta l'unica strada quando almeno una delle due non ha un identificativo suo, che e il caso per cui la funzione e nata. Tre prove nuove, con il controspecchio | **della composizione**: ADR-0155 e di questa tornata, e la sua difesa era inerte su ogni percorso alimentato da quel catalogo |
+| **D-AUD-8** | **I documenti storici della famiglia rispondevano 403.** Il ripiego di `parent-dashboard/[athleteId]/documents/[assetId]` leggeva `dashboard.athlete.data`, che PP-02 §E ha ridotto a `address` e `medicalVisits`: `getSharedDocumentsFromAthlete` non trovava piu niente, ogni identificativo storico riceveva «Documento non visibile», e la `prisma.asset.findFirst` sotto era diventata codice morto. Corretto leggendo la riga dal server per la sola domanda «il club lo ha condiviso?»: la lista chiusa governa **cio che esce verso il browser** e resta chiusa, e di quella riga non esce niente | preesistente su PP-02 (§E e il suo ripiego non si sono mai incontrati) |
+
+### Cio che ha tenuto, e va detto
+
+* **Nessun IDOR cross-club.** Le rotte di famiglia, atleta, documenti,
+  strutture, bacheca e checkout ricavano tutte `organization_id` **dalla riga**
+  e mai dal client, e riverificano l'accoppiata atleta↔club dove il legame e il
+  cancello. Convocazione e presenza passano da `assertAtletiDelClub`, che
+  rifiuta l'elenco intero invece di filtrarlo.
+* **La funzione fusa a mano regge.** `getParentLinkedAthletes` — la ricucitura
+  piu pericolosa dell'integrazione — non lascia rientrare ne un tutore revocato
+  ne una coincidenza di indirizzo, e il caso dei due cappelli (ADR-0125) e
+  gestito. `saveGuardianRegistry` non scrive mai `user_id`, quindi salvare
+  un'anagrafica non fabbrica un legame dichiarato.
+* **Nessuna scalata di perimetro.** Zero righe = tutto il club, e una riga che
+  non porta il valore dell'asse ristretto **non passa**: verificato in tutti e
+  cinque i lettori.
+* **Le quattro matrici private** (sport-work, contabilita, comunicazioni,
+  stagioni) passano tutte da `narrowDomainPermission`. Non ne esiste una quinta.
+* **La cancellazione di `RUOLI_GESTIONALI` non ha perso niente**: l'insieme
+  locale di PP-03 era identico a `MANAGEMENT_ROLES`, `owner` compreso.
+* **`trainer-area.ts`**, l'unico dei sei sospetti dell'eleggibilita a
+  comportarsi secondo ADR-0155: passa il catalogo grezzo, quindi la difesa
+  sull'ambiguita si accende.

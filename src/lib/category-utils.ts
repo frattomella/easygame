@@ -174,9 +174,43 @@ const findCategoryIndex = (
   const candidateId = normalizeCategoryReference(candidate.id);
   const candidateName = normalizeCategoryReference(candidate.name);
 
+  /*
+    **Un'identita vera non si fonde con un'altra identita vera** (ADR-0155).
+
+    Questa funzione esiste per riunire la **stessa** categoria che arriva da
+    piu fonti, e alcune di quelle fonti portano solo il nome: quando manca
+    l'identificativo, `normalizeCategoryOption` ci mette il nome, e il nome
+    diventa l'unica cosa su cui riunirle.
+
+    Il confronto per nome era pero incondizionato, e questo era la fusione di
+    P0-4 un piano piu su di dove e stata corretta. Due categorie di un club
+    multi-sede che si chiamano tutte e due «Under 15» — con **due
+    identificativi veri e diversi** — venivano riunite in una voce sola, e
+    l'altra spariva dal catalogo. Da li in giu il danno e doppio, e il secondo
+    e peggiore del primo:
+
+    * la difesa di `extractCategoryIdentity` non puo piu accendersi, perche il
+      catalogo che riceve non contiene piu due omonime: `perNome.length` vale
+      al massimo uno per costruzione;
+    * un allenamento che dichiara la categoria **sparita** viene attribuito
+      all'altra, perche il suo `category_name` risolve sull'unica voce
+      rimasta. Non e piu una fusione: e uno scambio.
+
+    La regola e percio: se tutti e due sanno dire chi sono, si riuniscono solo
+    quando lo dicono **allo stesso modo**. Il nome resta l'unica strada quando
+    almeno uno dei due non ha un identificativo suo — che e il caso per cui
+    questa funzione e nata.
+  */
+  const candidateHasOwnId = !!candidateId && candidateId !== candidateName;
+
   return categories.findIndex((category) => {
     const existingId = normalizeCategoryReference(category.id);
     const existingName = normalizeCategoryReference(category.name);
+    const existingHasOwnId = !!existingId && existingId !== existingName;
+
+    if (candidateHasOwnId && existingHasOwnId) {
+      return candidateId === existingId;
+    }
 
     return (
       (!!candidateId &&

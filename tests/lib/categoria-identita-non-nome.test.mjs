@@ -218,7 +218,80 @@ test("`resolveCategoryId` non sceglie piu la prima fra due omonime", () => {
 });
 
 /* ==================================================================== *
- *  4. La forma della risposta: identificativi e nomi separati
+ *  4. Il catalogo non deve fondere cio che la regola tiene separato
+ * ==================================================================== */
+
+test("`buildClubCategoryOptions` non fonde due omonime con identificativi veri", () => {
+  /*
+    **La stessa fusione, un piano piu su.**
+
+    Una revisione indipendente sul ramo integrato ha misurato che correggere
+    `recordMatchesCategory` non bastava: `buildClubCategoryOptions` riuniva le
+    due «Under 15» in **una voce sola** prima ancora che la regola le vedesse.
+    Da li il danno era doppio, e il secondo peggiore del primo:
+
+    * la difesa di `extractCategoryIdentity` non poteva accendersi, perche il
+      catalogo che riceveva non conteneva piu due omonime;
+    * un allenamento che dichiarava la categoria **sparita** veniva attribuito
+      all'altra, perche il suo nome risolveva sull'unica voce rimasta. Non una
+      fusione: uno scambio.
+  */
+  const catalogo = utils.buildClubCategoryOptions({
+    clubCategories: [
+      { id: U15_SCAURI, name: "Under 15" },
+      { id: U15_FORMIA, name: "Under 15" },
+      { id: U17_SCAURI, name: "Under 17" },
+    ],
+  });
+
+  assert.equal(catalogo.length, 3, "prima: le due omonime diventavano una");
+  assert.deepEqual(
+    catalogo.map((voce) => voce.id).sort(),
+    [U15_SCAURI, U15_FORMIA, U17_SCAURI].sort(),
+  );
+});
+
+test("ma continua a riunire la stessa categoria che arriva da due fonti", () => {
+  /*
+    **Il controspecchio.** La funzione esiste per questo: una fonte porta
+    l'identificativo, un'altra solo il nome. Se la correzione chiudesse anche
+    qui, ogni catalogo composto da piu fonti si sdoppierebbe.
+  */
+  const catalogo = utils.buildClubCategoryOptions({
+    clubCategories: [{ id: U17_SCAURI, name: "Under 17" }, { name: "Under 17" }],
+  });
+
+  assert.equal(catalogo.length, 1);
+  assert.equal(catalogo[0].id, U17_SCAURI);
+});
+
+test("e il catalogo vero fa accendere la difesa di ADR-0155", () => {
+  /*
+    Le due correzioni vanno misurate **insieme**: e la composizione a reggere
+    la proprieta, e ognuna delle due da sola non la regge.
+  */
+  const catalogo = utils.buildClubCategoryOptions({
+    clubCategories: [
+      { id: U15_SCAURI, name: "Under 15" },
+      { id: U15_FORMIA, name: "Under 15" },
+    ],
+  });
+
+  const allenamento = { category_id: U15_SCAURI, category_name: "Under 15" };
+
+  assert.equal(
+    helpers.recordMatchesCategory(allenamento, { id: U15_SCAURI }, catalogo),
+    true,
+  );
+  assert.equal(
+    helpers.recordMatchesCategory(allenamento, { id: U15_FORMIA }, catalogo),
+    false,
+    "prima: il catalogo fuso mandava l'allenamento sull'unica voce rimasta",
+  );
+});
+
+/* ==================================================================== *
+ *  5. La forma della risposta: identificativi e nomi separati
  * ==================================================================== */
 
 test("l'identita separa cio che il catalogo riconosce da cio che non riconosce", () => {

@@ -3168,3 +3168,41 @@ sonda. Sarebbe stato riaprire una porta per una prova. Sono state corrette le
 **asserzioni**, e ognuna porta scritto accanto perche — cosi che il prossimo che
 le legga sappia che la regola vecchia non e caduta: e stata contenuta in una
 piu larga.
+
+---
+
+## Debito dalla revisione ostile sull'integrato (2026-09-07)
+
+Verbale completo in [14 — Sicurezza](14-security.md) §«Revisione ostile sul
+sistema integrato». Qui vivono le voci, con la colonna che conta di piu:
+**origine**, cioe se il reperto lo ha prodotto il merge o se vive nella base
+comune delle quattro lane.
+
+`D-AUD-2` e `D-AUD-8` non compaiono: sono stati corretti nella stessa tornata.
+
+| # | Gravita | Cosa | Origine | Da dove si riparte |
+|---|---------|------|---------|--------------------|
+| **D-AUD-1** | **Critical** | Il generatore di allenamenti scrive `clubs.trainings` a mano (`training-automation.ts:725`) invece di passare da `createClubEventsBatch`. Cio che genera non ha una riga in `club_events` — quindi presenze, convocazioni e RSVP non lo trovano — e la prima proiezione di un evento qualunque lo **cancella**, senza errore e senza audit | preesistente (`aa62e16`) | Il gemello lato browser e gia corretto (`simplified-db.ts:3807`). Prima serve pero decidere **con quale autorita il cron scrive un evento**: `createClubEventsBatch` pretende uno `EventsScope` e la rotta autenticata ce l'ha, il cron no, e nell'albero non esiste uno scope di sistema |
+| **D-AUD-3** | High | Un allenatore, anche `custom:trainer:*` a zero caselle, legge i byte di contratti e documenti d'identita di ogni collega: `TRAINER_READ_RESOURCES` include `trainers` e `staff_members`, il perimetro degli allegati vale solo per `owner_type: athlete`, e una risorsa con `keys: []` e raggiungibile da ogni ruolo personalizzato | preesistente | O il perimetro sale anche sugli allegati non-atleta, o `trainers`/`staff_members` escono da `TRAINER_READ_RESOURCES` per la parte documentale. La prima e piu giusta e piu larga |
+| **D-AUD-4** | High | `stripClinicalAthleteFields` chiamata **senza ruolo** in `data-subject.ts:1019`: resta il solo elenco dei vietati, e un campo clinico sotto un nome inventato sopravvive all'export. La porta gemella e gia corretta e passa `ruoloEffettivo` | preesistente | Una riga: passare il ruolo, come fa `athlete-profile/[athleteId]/route.ts`. Stessa omissione latente in `form-submissions.ts:1268` e `:2592`, oggi innocua solo perche `DYNAMIC_FIELDS` e un vocabolario chiuso |
+| **D-AUD-5** | High | Il registro presenze (`training/page.tsx`) porta due copie private del confronto fra categorie e incrocia identificativi con etichette: con due omonime su due sedi, «Segna tutti presenti» scrive presenze su atleti dell'altra sede, e da li passano al calcolo dei contributi | preesistente | Portarle su `extractCategoryIdentity` (ADR-0155). E la stessa correzione gia fatta in `trainer-dashboard-helpers.ts`, applicata ai due gemelli che non sono stati toccati |
+| **D-AUD-6** | Medium | Il sollecito manuale del certificato consegna il nome di un minore fuori dal club: `resolveGuardianRecipientIds` risolve per indirizzo **senza pretendere la verifica** e applica il filtro di tessera solo se il chiamante passa `organizationId`. Dei tre chiamanti, la rotta manuale e l'unico che non lo passa | preesistente | Rendere `organizationId` obbligatorio, e pretendere `email_verified_at` come fa gia `findGuardianLinks` |
+| **D-AUD-7** | Medium | Il cruscotto della famiglia elenca i tutori **revocati** e le righe di solo recapito come tutori correnti: `readGuardiansForAthlete` e il lettore d'autorita e non filtra `revoked_at` — giustamente — ma questo e l'unico dei nove consumatori che non applica `isGuardianExcluded` prima di consegnare al browser | preesistente | Una riga in `parent-dashboard.ts:1878`: filtrare con la primitiva del dominio, come fanno gli altri otto |
+| **D-AUD-9** | Medium | Le convocazioni nei report di club si leggono da `match.convocations` e dalle grafie del payload, che dopo ADR-0099 **nessuno scrive piu**: ogni atleta risulta convocato zero volte | preesistente | Leggerle da `club_event_participants.convocation_status`, che e dove vivono |
+| **D-AUD-10** | Medium | Gli eventi **annullati** restano nella proiezione (`events.ts:953` esclude `archived`, non `cancelled`) e `includeCancelled` non governa la cancellazione. I report li contano fra gli allenamenti previsti: annullarne cinque su venti fa scendere il tasso di presenza di ognuno dal 100% al 75% | preesistente | Decidere una volta che cosa significa «annullato» per la proiezione e per i conteggi, e applicarlo nei due posti insieme |
+| **D-AUD-11** | Medium | `createClubEventsBatch` non chiama ne `assertFieldIsOpen` ne `assertNoOverlap`, che la creazione singola e la modifica applicano entrambe. Un orario fuori apertura passa a blocchi e viene rifiutato uno per uno | preesistente | Le due guardie accettano gia un elenco: e dove sono le altre due del blocco |
+| **D-AUD-12** | Medium | La finestra della sovrapposizione e **un giorno UTC di `starts_at`**: un evento cominciato il giorno prima e finito dopo mezzanotte non e mai un candidato. La formula in se e corretta e su istanti. Piu: una prenotazione di struttura senza campo non collide con una del campo, perche il luogo e un token concatenato confrontato per uguaglianza | preesistente | Allargare la finestra all'indietro della durata massima ammessa, e far collidere il token «tutta la struttura» con quelli dei suoi campi |
+| **D-AUD-13** | Medium | `secretariat_notes` e `club_events` letti dal registro generico non hanno un ramo in `buildAccessScopeFilter`: un ruolo gestionale con perimetro di sede legge le note di ogni sede, e il calendario di ogni sede. La porta di dominio degli eventi il perimetro lo applica — due porte sulle stesse righe, decide la piu larga | preesistente | Aggiungere i due rami. Le scritture sono gia bloccate da `assertNotDomainOwnedModel` |
+| **D-AUD-14** | Medium | I byte del documento d'identita di un atleta sono raggiungibili da chi ha il solo `clinical.status_read`: la proiezione JSON toglie `identityDocuments`, l'allegato no, perche l'innalzamento a `clinical.read` scatta solo sul certificato medico. Mitigato: qui il perimetro di sede e categoria si applica | preesistente | Trattare `documento-identita` come il certificato nell'innalzamento |
+| **D-AUD-15..19** | Low | `owner_type: guardian` dichiarato ma non coperto dal perimetro (latente: nessuno lo scrive oggi); tre confronti di ruolo con la stringa `"owner"` nelle rotte delle tessere; `sorgente()` che tratta la chiave `guardians` come proiezione anche su schede mai risalvate dopo la migrazione; `allowSelfAthleteLink` messo dentro lo scope del fascicolo e mai riletto da nessuno; e due difese (`revokeGuardianAccessInClub`, il filtro di revoca di `findGuardianLinks`) la cui correttezza dipende dal fatto che il chiamante passi `userId` — oggi lo passa sempre, ma la firma lo rende opzionale | preesistenti | Nessuna e sfruttabile oggi. La classe pero e quella che questo repository ha imparato a temere: una difesa che dipende da chi la chiama non e una difesa |
+
+### Il reperto che valeva l'intera revisione
+
+`D-AUD-2` era **della composizione**, e non lo avrebbe trovato nessuna delle
+revisioni di lane: ADR-0155 e stato scritto in questa stessa tornata, e la sua
+difesa era **inerte** su ogni percorso alimentato da `buildClubCategoryOptions`
+— che fondeva per nome cio che la regola nuova aveva appena separato.
+
+E la ragione per cui una revisione sull'integrato non e la somma delle
+revisioni delle lane: una correzione puo essere giusta, avere le sue prove
+verdi, e non arrivare mai al punto in cui serve.

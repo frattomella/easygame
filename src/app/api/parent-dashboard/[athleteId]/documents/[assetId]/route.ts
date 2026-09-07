@@ -89,11 +89,41 @@ export async function GET(request: Request, context: Context) {
       });
     }
 
-    const document = getSharedDocumentsFromAthlete({
-      id: dashboard.athlete.id,
-      organization_id: dashboard.club.id,
-      data: dashboard.athlete.data,
-    }).find((item) => item.assetId === context.params.assetId);
+    /*
+      **L'archivio storico non sta nel payload, e da PP-02 §E non ci sta piu.**
+
+      Questo ripiego leggeva `dashboard.athlete.data`, che era la riga `data`
+      grezza. PP-02 §E l'ha ridotta a un elenco chiuso — oggi `address` e
+      `medicalVisits` e basta — e da quel momento
+      `getSharedDocumentsFromAthlete`, che cerca `sharedDocuments`,
+      `parentDocuments` e le loro grafie, non trovava **mai** niente: ogni
+      identificativo storico riceveva 403 «Documento non visibile», e la
+      `prisma.asset.findFirst` qui sotto era diventata codice morto.
+
+      Le due riduzioni non si contraddicono, e la distinzione e questa: la
+      lista chiusa governa **cio che esce verso il browser**, e resta chiusa.
+      Qui invece si sta rispondendo a una domanda diversa — «questo documento
+      il club lo ha condiviso con la famiglia?» — e quella domanda si fa alla
+      riga, sul server, senza che niente di quella riga esca.
+
+      Il legame e gia provato: `getParentDashboardData` ha risposto qui sopra,
+      e senza il suo esito non si arriva a questa riga. Cio che si legge e
+      soltanto il segno `visibleToParent`, e i byte li consegna comunque
+      `buildStoredFileResponse` dopo il vaglio sul bucket e sul percorso.
+    */
+    const scheda = await prisma.athlete.findFirst({
+      where: {
+        id: dashboard.athlete.id,
+        organization_id: dashboard.club.id,
+      },
+      select: { id: true, organization_id: true, data: true },
+    });
+
+    const document = scheda
+      ? getSharedDocumentsFromAthlete(scheda).find(
+          (item) => item.assetId === context.params.assetId,
+        )
+      : undefined;
 
     if (!document?.visibleToParent) {
       return NextResponse.json(
