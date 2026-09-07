@@ -714,6 +714,13 @@ export function MatchConvocations({
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
                 <Checkbox
+                  /*
+                    **Una casella senza nome non e usabile** (P0-6). Il nome
+                    dell'atleta e accanto, non dentro: chi legge con lo schermo
+                    sentiva sedici volte «casella di controllo» e nessun nome,
+                    su una schermata che decide chi va in campo.
+                  */
+                  aria-label={`Convoca: ${athlete.name}`}
                   checked={isSelected}
                   onCheckedChange={(checked) =>
                     handleSetAthleteSelected(athleteId, checked === true)

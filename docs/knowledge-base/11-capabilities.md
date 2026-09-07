@@ -414,6 +414,7 @@ di sessione vero: 72 controlli, 72 verdi.
 | **Crea e sposta** un proprio allenamento o una propria gara | COMPLETE | PP-03 §11: `events.manage` era concessa al ruolo e il server la eseguiva da due Wave, e **nessuna schermata aveva il pulsante**. `TrainerEventEditorDialog` nelle due pagine del calendario; il perimetro lo fa `assertTrainerEventPerimeter` in modo «scrittura» |
 | Bacheca: avvisi del club verso un allenatore | ASSENTE | PP-03 §9.4: `resolveAudience` seleziona **atleti**, e nessun criterio nomina lo staff. Il riquadro esiste e per un allenatore resta vuoto. Debito `PP03-D3`, dependency verso PP-05 |
 | Appello su allenamento **e gara** | COMPLETE | Legge le righe, non la copia nel payload — **e adesso le rilegge**: prima del 2026-09-07 il registro si riapriva sempre vuoto |
+| Prossimi impegni sulla home dell'allenatore | COMPLETE | Allenamenti e gare **insieme**, in ordine di orario, con l'azione che appartiene a ciascuno. Prima la home rispondeva solo su oggi: il riquadro esisteva dentro un `div` `hidden` e leggeva un elenco vuoto |
 | Bacheca in lettura | COMPLETE | `/trainer-dashboard/board` |
 | Documenti pertinenti | COMPLETE | I propri, e i certificati del gruppo limitati allo **stato** |
 | Appuntamenti assegnati | COMPLETE | `/trainer-dashboard/appointments` |

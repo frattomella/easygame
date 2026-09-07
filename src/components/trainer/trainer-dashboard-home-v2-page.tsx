@@ -84,7 +84,43 @@ export default function TrainerDashboardHomeV2Page() {
   const todayMatches = visibleMatches
     .filter((match) => isSameTrainerDay(match?.startsAt, now))
     .sort(compareTrainerRecordsByStart);
-  const nextMatches: any[] = [];
+  /*
+    **I prossimi impegni, che erano scritti e nascosti** (P0-7, `D-INT-11`).
+
+    La home rispondeva a «che cosa succede **oggi**»: due riquadri sul giorno
+    corrente e l'agenda gare della settimana. Cio che un allenatore chiede
+    aprendo la bacheca il martedi — «quando torno in campo, e con chi» — non
+    c'era. Il codice per disegnarlo c'era: viveva dentro un `div` con la classe
+    `hidden` e leggeva un `nextMatches` inizializzato a elenco vuoto. E la
+    forma di difetto che CLAUDE.md §11.8 descrive: non manca il codice, manca
+    la strada che ci arriva.
+
+    Allenamenti e gare stanno **insieme** e in ordine di orario, perche la
+    settimana di un allenatore e una sola: separarli lo costringe a leggere due
+    elenchi e fondere le date a mente.
+
+    Oggi resta fuori: ha gia i suoi due riquadri, e ripeterlo qui farebbe
+    scorrere le stesse righe due volte su un telefono.
+  */
+  const prossimiImpegni = [
+    ...visibleTrainings.map((record: any) => ({ record, gara: false })),
+    ...visibleMatches.map((record: any) => ({ record, gara: true })),
+  ]
+    .filter(
+      ({ record }) =>
+        record?.startsAt &&
+        record.startsAt > now &&
+        !isSameTrainerDay(record.startsAt, now),
+    )
+    /*
+      Che cosa sia lo si sa da **dove viene**, non da un campo da indovinare:
+      i due elenchi arrivano gia separati dal contesto.
+    */
+    .sort((sinistra, destra) =>
+      compareTrainerRecordsByStart(sinistra.record, destra.record),
+    )
+    .slice(0, 6);
+
   const matchOfTheDay = todayMatches[0] || null;
   const trainerDisplayName =
     trainerProfile?.name ||
@@ -416,77 +452,140 @@ export default function TrainerDashboardHomeV2Page() {
               router.push(`/trainer-dashboard/matches?focus=${match.id}`)
             }
           />
-          <div className="hidden">
-          {nextMatches.length > 0 ? (
-            <div className="space-y-3">
-              {nextMatches.slice(0, 4).map((match) => {
-                const matchAthletes = getAthletesForRecord(match);
-                const convocationStatus = getMatchConvocationStatus({
-                  match,
-                  totalAthletes: matchAthletes.length,
-                  deadlineDays: matchConvocationDeadlineDays,
-                  now,
-                });
-                const certificateWarning = getInvalidCertificatesForConvocatedAthletes(
-                  match,
-                  assignedAthletes,
-                );
-
-                return (
-                  <CompactEntityCard
-                    key={match.id}
-                    title={match.title || `vs ${match.opponent || "Gara"}`}
-                    badge={
-                      <Badge
-                        className={convocationBadgeClassName(
-                          convocationStatus.state,
-                        )}
-                      >
-                        {convocationStatus.convocated}/{convocationStatus.total}
-                      </Badge>
-                    }
-                    lines={[
-                      <span key="category">
-                        <Badge className="border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-50">
-                          {match.displayCategory ||
-                            match.category ||
-                            "Categoria"}
-                        </Badge>
-                      </span>,
-                      <span key="date">
-                        {formatDate(match.date)} · {formatTimeRange(match.time)}
-                      </span>,
-                      <span key="opponent">
-                        vs {match.opponent || "Avversario da definire"}
-                      </span>,
-                      <span key="convocations">
-                        {getMatchConvocationLabel(convocationStatus.state)}
-                      </span>,
-                      ...(certificateWarning.hasInvalidCertificates
-                        ? [
-                            <span key="certificate-warning">
-                              <MatchCertificateWarningBadge warning={certificateWarning} />
-                            </span>,
-                          ]
-                        : []),
-                    ]}
-                    onClick={() =>
-                      router.push(`/trainer-dashboard/matches?focus=${match.id}`)
-                    }
-                  />
-                );
-              })}
-            </div>
-          ) : (
-            <SectionEmptyState
-              title="Nessuna gara programmata"
-              description="Calendario gare vuoto."
-            />
-          )}
-          </div>
         </SurfacePanel>
         ) : null}
       </div>
+
+      {/*
+        **Prossimi impegni** (P0-7, `D-INT-11`): allenamenti e gare insieme, in
+        ordine di orario. Vedi il commento su `prossimiImpegni`.
+      */}
+      <SurfacePanel
+        title="Prossimi impegni"
+        icon={Clock3}
+        action={
+          <Button
+            variant="outline"
+            className="rounded-2xl"
+            onClick={() => router.push("/trainer-dashboard/trainings")}
+          >
+            Apri calendario
+          </Button>
+        }
+      >
+        {prossimiImpegni.length > 0 ? (
+          <div
+            className="space-y-3"
+            data-testid="prossimi-impegni"
+          >
+            {prossimiImpegni.map(({ record: impegno, gara: eGara }) => {
+              const atleti = getAthletesForRecord(impegno);
+              const convocazioni = eGara
+                ? getMatchConvocationStatus({
+                    match: impegno,
+                    totalAthletes: atleti.length,
+                    deadlineDays: matchConvocationDeadlineDays,
+                    now,
+                  })
+                : null;
+              const avvisoCertificati = eGara
+                ? getInvalidCertificatesForConvocatedAthletes(
+                    impegno,
+                    assignedAthletes,
+                  )
+                : null;
+              const destinazione = eGara
+                ? `/trainer-dashboard/matches?focus=${impegno.id}`
+                : `/trainer-dashboard/trainings?focus=${impegno.id}`;
+
+              return (
+                <CompactEntityCard
+                  key={`${eGara ? "gara" : "allenamento"}:${getTrainingStableKey(impegno)}`}
+                  title={
+                    impegno.title ||
+                    (eGara
+                      ? `vs ${impegno.opponent || "Gara"}`
+                      : "Allenamento")
+                  }
+                  badge={
+                    <Badge
+                      className={
+                        eGara
+                          ? convocationBadgeClassName(
+                              convocazioni?.state || "not_due_yet",
+                            )
+                          : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50"
+                      }
+                    >
+                      {eGara
+                        ? `${convocazioni?.convocated ?? 0}/${convocazioni?.total ?? 0}`
+                        : "Allenamento"}
+                    </Badge>
+                  }
+                  lines={[
+                    <span key="quando" className="font-medium text-slate-700">
+                      {formatDate(impegno.date)} ·{" "}
+                      {formatTimeRange(impegno.time, impegno.endTime)}
+                    </span>,
+                    <span key="categoria">
+                      {impegno.displayCategory ||
+                        impegno.category ||
+                        "Categoria"}
+                    </span>,
+                    <span key="dove">
+                      {eGara
+                        ? formatMatchLocationLabel(impegno)
+                        : impegno.location || "Luogo da definire"}
+                    </span>,
+                    ...(eGara && convocazioni
+                      ? [
+                          <span key="convocazioni">
+                            {getMatchConvocationLabel(convocazioni.state)}
+                          </span>,
+                        ]
+                      : []),
+                    ...(avvisoCertificati?.hasInvalidCertificates
+                      ? [
+                          <span key="certificati">
+                            <MatchCertificateWarningBadge
+                              warning={avvisoCertificati}
+                            />
+                          </span>,
+                        ]
+                      : []),
+                  ]}
+                  actions={
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                      onClick={() => router.push(destinazione)}
+                    >
+                      {eGara ? (
+                        <>
+                          <ListChecks className="mr-2 h-4 w-4" />
+                          Convocazioni
+                        </>
+                      ) : (
+                        <>
+                          <CalendarDays className="mr-2 h-4 w-4" />
+                          Apri
+                        </>
+                      )}
+                    </Button>
+                  }
+                  onClick={() => router.push(destinazione)}
+                />
+              );
+            })}
+          </div>
+        ) : (
+          <SectionEmptyState
+            title="Nessun impegno in programma"
+            description="Dopo oggi il calendario e libero."
+          />
+        )}
+      </SurfacePanel>
 
       {permissions.widgets.assignedCategories ||
       permissions.widgets.assignedAthletes ? (

@@ -327,6 +327,14 @@ export function AttendanceSheet({
                       >
                         <Checkbox
                           id={`attendance-${athlete.id}`}
+                          /*
+                            **Una casella senza nome non e usabile** (P0-5). Il
+                            nome dell'atleta e accanto, non dentro: chi legge
+                            con lo schermo sente sedici volte «casella di
+                            controllo» e nessun nome. Qui si segnano le
+                            presenze di un minore.
+                          */
+                          aria-label={`Presente: ${athlete.name}`}
                           checked={isPresent}
                           onCheckedChange={(checked) =>
                             handleSetPresence(athlete.id, checked === true)
