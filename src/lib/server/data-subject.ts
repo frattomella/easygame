@@ -1021,9 +1021,33 @@ export const exportDataSubject = async (
     "clinical.read",
   );
 
+  /*
+    **Il taglio si fa con il ruolo in mano** (D-AUD-3, revisione ostile
+    sull'integrato).
+
+    `stripClinicalAthleteFields` si chiamava qui **senza ruolo**, e senza ruolo
+    applica il solo elenco dei **vietati**: un campo clinico scritto sotto un
+    nome che quell'elenco non prevede — `data.diagnosi`, `data.referto` — ci
+    passa attraverso. La colonna e JSON libera, quindi inventarne uno e alla
+    portata di chiunque compili una scheda.
+
+    Con il ruolo si attiva invece l'elenco dei **dichiarati**: esce cio che il
+    dominio ha nominato, e non cio che non ha vietato. E la differenza fra una
+    difesa che elenca i nemici e una che elenca gli amici, e su una colonna
+    libera solo la seconda regge.
+
+    La porta gemella — `GET /api/v1/auth/athlete-profile/<id>` — era gia stata
+    corretta, e il suo commento descrive questo attacco parola per parola. Una
+    permission che ha effetto su una porta e non sull'altra non e una
+    permission: qui il vettore e piu grave, perche l'export e un **file** che
+    poi si consegna a una famiglia.
+  */
   const atletaProiettato = puoLeggereIlClinico
     ? athlete
-    : { ...athlete, data: stripClinicalAthleteFields(athlete?.data) };
+    : {
+        ...athlete,
+        data: stripClinicalAthleteFields(athlete?.data, scope?.activeRole),
+      };
 
   /*
     **E la credenziale non esce nemmeno da qui, a nessuno.**

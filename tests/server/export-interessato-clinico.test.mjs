@@ -56,10 +56,34 @@ test("il contenuto clinico esce solo a chi ha la chiave", async () => {
     /stripClinicalCertificateFields\(/,
     "i certificati devono passare dal taglio del dominio, non uscire interi",
   );
+  /*
+    **E il taglio si fa con il ruolo in mano** (D-AUD-4).
+
+    Questa riga pretendeva la forma `stripClinicalAthleteFields(athlete?.data)`,
+    cioe la chiamata **senza ruolo** — che e esattamente il difetto che una
+    revisione ostile ha poi misurato. Senza ruolo resta il solo elenco dei
+    **vietati**, e un campo clinico scritto sotto un nome inventato
+    (`data.diagnosi`, `data.referto`) ci passa attraverso: la colonna e JSON
+    libera, e inventare un nome e alla portata di chi compila una scheda.
+
+    Con il ruolo si attiva l'elenco dei **dichiarati**: esce cio che il dominio
+    ha nominato, non cio che non ha vietato. Su una colonna libera solo la
+    seconda regge, ed e la stessa correzione gia fatta sulla porta gemella
+    (`athlete-profile/[athleteId]/route.ts`).
+
+    La prova ora pretende il ruolo. Una prova che fissa la forma difettosa non
+    e una difesa: e un ostacolo alla correzione.
+  */
   assert.match(
     testo,
-    /stripClinicalAthleteFields\(athlete\?\.data\)/,
-    "anche la riga dell'atleta porta contenuto clinico dentro `data`",
+    /stripClinicalAthleteFields\(\s*athlete\?\.data,\s*scope\?\.activeRole,?\s*\)/,
+    "il taglio dell'anagrafica deve ricevere il ruolo, o vale solo l'elenco dei vietati",
+  );
+
+  assert.equal(
+    /stripClinicalAthleteFields\(athlete\?\.data\)/.test(testo),
+    false,
+    "la chiamata senza ruolo non deve piu esistere",
   );
 });
 

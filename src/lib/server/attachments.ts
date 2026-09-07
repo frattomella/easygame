@@ -4,7 +4,11 @@ import {
   athleteWithinAccessScope,
   buildAthleteAccessScopeConditions,
 } from "./access-scope-query";
-import { athleteIdsWithinTrainerPerimeter } from "./resources";
+import {
+  athleteIdsWithinTrainerPerimeter,
+  isProfileLinkedToUser,
+} from "./resources";
+import { canAccessClubResource } from "@/lib/access-roles";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
@@ -421,6 +425,113 @@ export const createAttachment = async (
  * Gli allegati che non appartengono a un atleta non sono toccati: il perimetro
  * parla di sedi e categorie, che sono di una persona.
  */
+/**
+ * **I documenti personali di chi lavora nel club non li legge un collega**
+ * (D-AUD-3, revisione ostile sull’integrato).
+ *
+ * ---
+ *
+ * ## Il difetto
+ *
+ * Un allegato eredita i permessi da cio a cui e attaccato, e
+ * `attachment-permissions.ts` lo dice in testa con l’esempio giusto: «il
+ * contratto di un collaboratore, se si legge il lavoro sportivo».
+ *
+ * La tabella pero mappa `trainer -> trainers` e `staff -> staff_members`, e
+ * quelle due risorse un allenatore le **legge** (`TRAINER_READ_RESOURCES`).
+ * Il perimetro qui sotto non le tocca — parla di atleti — e una risorsa che
+ * dichiara `keys: []` e raggiungibile da ogni ruolo personalizzato. Tre
+ * cose ciascuna ragionevole, che insieme aprivano una porta:
+ *
+ *     GET /api/v1/attachments?owner_type=trainer   -> l’indice
+ *     GET /api/v1/attachments/<id>                 -> i byte
+ *
+ * cioe contratti, documenti d’identita e assicurazioni di **ogni collega**,
+ * a un allenatore qualunque — anche a un `custom:trainer:*` con zero
+ * caselle spuntate. Contraddice due decisioni che il prodotto afferma
+ * altrove: `CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE`, che a un allenatore
+ * toglie codice fiscale e indirizzo di un collega, e la riserva di
+ * `sport_work` alla direzione «perche dice quanto guadagna una persona». Il
+ * contratto lo dice.
+ *
+ * ## La regola
+ *
+ * Due sole strade, ed e la stessa forma del perimetro degli atleti qui
+ * sotto: **chi amministra il lavoro sportivo**, oppure **la persona
+ * stessa** sulla propria scheda.
+ *
+ * La seconda non e una concessione: il pannello documenti dell’allenatore
+ * esiste perche un allenatore carichi e rilegga i **propri** documenti, e
+ * chiuderla spegnerebbe una funzione invece di chiudere una porta. A dire
+ * «questa scheda e la mia» e `isProfileLinkedToUser`, cioe lo stesso
+ * predicato con cui il perimetro dell’allenatore riconosce la sua scheda:
+ * due risposte alla stessa domanda divergono, ed e il difetto di partenza.
+ */
+const TIPI_PERSONALI_DELLO_STAFF = new Set(["trainer", "staff"]);
+
+const assertStaffDocumentPerimeter = async (
+  scope: AttachmentAccessScope | undefined,
+  row: {
+    owner_type?: string | null;
+    owner_id?: string | null;
+    organization_id?: string | null;
+  },
+  action: "read" | "update" | "delete" = "read",
+) => {
+  if (!scope) return;
+
+  const tipo = String(row?.owner_type || "").trim().toLowerCase();
+  if (!TIPI_PERSONALI_DELLO_STAFF.has(tipo)) return;
+
+  /* Chi amministra il lavoro sportivo: e la risorsa da cui questi ereditano. */
+  if (canAccessClubResource(scope.activeRole, "sport_work", action)) return;
+
+  const club = String(row?.organization_id || "").trim();
+  const scheda = String(row?.owner_id || "").trim();
+  if (!club || !scheda) {
+    /*
+      Una riga che non dice a chi appartiene non si apre a nessuno: non
+      sapere di chi e un file non e una ragione per mostrarlo.
+    */
+    throw denied(
+      "i documenti personali di chi lavora nel club li vede chi amministra il lavoro sportivo",
+    );
+  }
+
+  const propria = await profiloDelloStaffAppartieneA(club, tipo, scheda, scope);
+  if (propria) return;
+
+  throw denied(
+    "i documenti personali di chi lavora nel club li vede chi amministra il lavoro sportivo, o la persona stessa",
+  );
+};
+
+/** «Questa scheda di staff e la mia?» — una domanda, un predicato. */
+const profiloDelloStaffAppartieneA = async (
+  organizationId: string,
+  tipo: string,
+  schedaId: string,
+  scope: AttachmentAccessScope,
+) => {
+  const resourceType = tipo === "staff" ? "staff_members" : "trainers";
+
+  const riga = await prisma.clubResourceItem.findFirst({
+    where: {
+      organization_id: organizationId,
+      resource_type: resourceType,
+      payload: { path: ["id"], equals: schedaId },
+    },
+  });
+
+  if (!riga) return false;
+
+  const utente = await prisma.user.findUnique({
+    where: { id: scope.userId },
+    select: { email: true },
+  });
+
+  return isProfileLinkedToUser(riga.payload, scope.userId, utente?.email);
+};
 const assertAttachmentWithinAccessScope = async (
   scope: AttachmentAccessScope | undefined,
   row: { owner_type?: string | null; owner_id?: string | null; organization_id?: string | null },
@@ -493,6 +604,7 @@ export const replaceAttachmentContent = async (
     su tutte quelle che li toccano.
   */
   await assertAttachmentWithinAccessScope(scope, existing);
+  await assertStaffDocumentPerimeter(scope, existing, "update");
 
   const content = input.content;
   if (!Buffer.isBuffer(content) || content.length === 0) {
@@ -572,6 +684,7 @@ export const getAttachmentMetadata = async (
     anche loro. E il nome del file nomina la persona.
   */
   await assertAttachmentWithinAccessScope(scope, row);
+  await assertStaffDocumentPerimeter(scope, row);
 
   return serializeAttachment(row);
 };
@@ -593,6 +706,7 @@ export const readAttachment = async (
   if (!row) return null;
   ensureOrganizationAccess(scope, row.organization_id);
   await assertAttachmentWithinAccessScope(scope, row);
+  await assertStaffDocumentPerimeter(scope, row);
 
   const content = await driverFor(row.storage_driver).get(id, row.storage_key);
   if (!content) return null;
@@ -635,13 +749,47 @@ export const listAttachments = async (
     calcola sulle appartenenze e non su questa tabella: l'insieme degli
     atleti ammessi si chiede una volta sola al proprietario del perimetro.
   */
-  const diAtleti = rows.filter(
+  /*
+    **E l'elenco e la porta di servizio anche dei documenti dello staff**
+    (D-AUD-3).
+
+    Il commento qui sopra vale parola per parola per una seconda popolazione:
+    `GET /api/v1/attachments?owner_type=trainer` restituiva a un allenatore
+    qualunque l'indice dei contratti e dei documenti d'identita di ogni
+    collega — nome del file, categoria, e l'identificativo con cui poi si
+    chiedono i byte.
+
+    Il perimetro si applica **riga per riga** e non con un `where`, per la
+    stessa ragione dell'altro: dire «questa scheda e la mia» pretende di
+    leggere la scheda, e il filtro non e esprimibile su questa tabella.
+
+    Una riga che non passa **sparisce** invece di far fallire l'elenco: un
+    allenatore che apre il proprio pannello documenti deve vedere i propri, non
+    un errore perche nel club ne esistono altri.
+  */
+  const dopoLoStaff: Record<string, any>[] = [];
+  for (const row of rows as Record<string, any>[]) {
+    const tipo = String(row?.owner_type || "").trim().toLowerCase();
+    if (!TIPI_PERSONALI_DELLO_STAFF.has(tipo)) {
+      dopoLoStaff.push(row);
+      continue;
+    }
+
+    try {
+      await assertStaffDocumentPerimeter(scope, row);
+      dopoLoStaff.push(row);
+    } catch {
+      /* Fuori perimetro: non e un errore dell'elenco, e una riga che non c'e. */
+    }
+  }
+
+  const diAtleti = dopoLoStaff.filter(
     (row: Record<string, any>) =>
       String(row?.owner_type || "").trim().toLowerCase() === "athlete",
   );
 
   if (!diAtleti.length) {
-    return rows.map((row: Record<string, any>) => serializeAttachment(row));
+    return dopoLoStaff.map((row: Record<string, any>) => serializeAttachment(row));
   }
 
   /*
@@ -666,14 +814,14 @@ export const listAttachments = async (
   );
 
   if (!perScope && !perAllenatore) {
-    return rows.map((row: Record<string, any>) => serializeAttachment(row));
+    return dopoLoStaff.map((row: Record<string, any>) => serializeAttachment(row));
   }
 
   const ammesso = (atleta: string) =>
     (!perScope || perScope.includes(atleta)) &&
     (!perAllenatore || perAllenatore.includes(atleta));
 
-  return rows
+  return dopoLoStaff
     .filter((row: Record<string, any>) => {
       if (String(row?.owner_type || "").trim().toLowerCase() !== "athlete") {
         return true;
@@ -768,6 +916,7 @@ export const deleteAttachment = async (
   ensureOrganizationAccess(scope, row.organization_id);
   /* Cancellare e l'atto piu irreversibile dei tre: vedi `replaceAttachmentContent`. */
   await assertAttachmentWithinAccessScope(scope, row);
+  await assertStaffDocumentPerimeter(scope, row);
 
   await driverFor(row.storage_driver).remove(id, row.storage_key);
   await (prisma as any).attachment.delete({ where: { id } });

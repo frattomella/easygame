@@ -1259,13 +1259,27 @@ export const reviewFormSubmission = async (
     selections,
   );
 
+  /*
+    **Il ruolo viaggia con il taglio** (D-AUD-4).
+
+    Queste due chiamate erano senza ruolo, come quella dell’export
+    dell’interessato: restava il solo elenco dei **vietati**, e un campo
+    clinico scritto sotto un nome inventato ci passava attraverso.
+
+    Qui non era sfruttabile — cio che esce passa da `DYNAMIC_FIELDS`, che e
+    un vocabolario chiuso — ma la sicurezza veniva da **un’altra** difesa, e
+    sarebbe bastato aggiungere un campo dinamico per scoprire questa.
+
+    Una difesa che regge per una ragione che non e la sua cade il giorno in
+    cui quella ragione cambia, e nessuno collega le due cose.
+  */
   const records = hasHealthPermission(scope.activeRole, "clinical.read")
     ? recordsInteri
     : (Object.fromEntries(
         Object.entries(recordsInteri).map(([soggetto, riga]) => [
           soggetto,
           riga && soggetto === "athlete"
-            ? { ...riga, data: stripClinicalAthleteFields((riga as any).data) }
+            ? { ...riga, data: stripClinicalAthleteFields((riga as any).data, scope.activeRole) }
             : riga,
         ]),
       ) as typeof recordsInteri);
@@ -2589,7 +2603,7 @@ export const buildCompileContext = async (
         Object.entries(records).map(([soggetto, riga]) => [
           soggetto,
           riga
-            ? { ...riga, data: stripClinicalAthleteFields((riga as any).data) }
+            ? { ...riga, data: stripClinicalAthleteFields((riga as any).data, scope.activeRole) }
             : riga,
         ]),
       );

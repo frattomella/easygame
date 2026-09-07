@@ -5163,7 +5163,7 @@ const isTrainerLikeProfile = (profile: any) => {
   return ["trainer", "allenatore", "coach"].includes(role);
 };
 
-const isProfileLinkedToUser = (
+export const isProfileLinkedToUser = (
   profile: any,
   userId: string,
   userEmail?: string | null,
