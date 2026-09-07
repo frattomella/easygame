@@ -6,11 +6,14 @@ import {
   stripClinicalAthleteFields,
 } from "@/lib/health/permissions";
 import { canAccessClubResource } from "@/lib/access-roles";
+import { roleHasPermission } from "@/lib/permissions/catalog";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
+import { documentGuardianAt } from "@/lib/guardians/documents";
+import { upsertGuardianFromFormApproval } from "./athlete-guardians";
 import { createAttachment, deleteAttachment } from "./attachments";
 import { parseAttachmentReference } from "@/lib/attachments";
-import { createResource, updateResource } from "./resources";
+import { createResource, lockAthleteRow, updateResource } from "./resources";
 import { sendNotificationEmails } from "./email/email-service";
 import {
   findPublicFormBySlug,
@@ -40,6 +43,7 @@ import {
   fieldIsFile,
   formatAnswer,
   getSchemaSubjects,
+  isEnrollmentForm,
   normalizeFormSchema,
   type FormSchema,
   type FormSubmissionFile,
@@ -124,6 +128,24 @@ const ensureOrganizationAccess = (
     dominio, e non aveva nessuna porta.
   */
   if (!canAccessClubResource(scope.activeRole, "forms", "read")) {
+    throw denied("le compilazioni della societa le legge chi ci lavora dentro");
+  }
+
+  /*
+    **E la chiave, perche il registro generico da solo non bastava.**
+
+    La voce di catalogo dei moduli diceva `keys: []`, e
+    `customRoleReachesResource` su una voce senza chiavi risponde `true`
+    **incondizionatamente**: un ruolo di club con una casella sola — o con
+    nessuna — leggeva ogni pratica di iscrizione online del club. Codice
+    fiscale, data di nascita, indirizzo, telefono e tutori di ogni minore
+    iscritto.
+
+    La motivazione scritta era «i moduli hanno le proprie rotte di dominio», ma
+    quelle rotte autorizzano **proprio** con `canAccessClubResource(role,
+    "forms", …)`: il rimando era circolare, e in mezzo non c'era niente.
+  */
+  if (!roleHasPermission(scope.activeRole, "forms.submissions.read")) {
     throw denied("le compilazioni della societa le legge chi ci lavora dentro");
   }
 };
@@ -212,14 +234,22 @@ const loadSubjectRecords = async (
     (selection) => selection.subject === "guardian",
   );
   if (guardianSelection) {
-    const guardians = Array.isArray(athlete?.data?.guardians)
-      ? athlete!.data.guardians
-      : [];
-    const index = Number(guardianSelection.recordId);
-    records.guardian =
-      Number.isInteger(index) && index >= 0 && index < guardians.length
-        ? guardians[index]
-        : null;
+    /*
+      **Una voce esclusa non e un soggetto.**
+
+      I due lettori dei documenti scartano le voci revocate e quelle di solo
+      recapito (ADR-0149); questo — che sceglie di **quale tutore** parla una
+      pratica — non lo faceva. Una voce apertamente revocata diventava percio il
+      soggetto di una compilazione, e da li l'approvazione ci scriveva sopra.
+
+      E il terzo lettore posizionale, ed e il gemello che le due correzioni
+      precedenti non avevano allargato: adesso i tre chiamano la **stessa**
+      funzione, e allargarne uno solo non e piu possibile.
+    */
+    records.guardian = documentGuardianAt(
+      athlete?.data,
+      Number(guardianSelection.recordId),
+    );
   }
 
   for (const subject of ["trainer", "staff", "member"] as const) {
@@ -279,6 +309,12 @@ type SubmissionRow = {
   respondent_name: string | null;
   respondent_email: string | null;
   submitted_at: Date;
+  /*
+    **Chi ha compilato, quando lo si sa.** E cio che distingue lo sconosciuto
+    che apre un link pubblico dalla famiglia che rinnova dalla propria area: il
+    trasporto (`source`) per entrambe vale `public`.
+  */
+  submitted_by?: string | null;
   reviewed_at: Date | null;
   review_note: string | null;
   template?: { title: string } | null;
@@ -643,6 +679,96 @@ const riscontroDelDuplicato = (
   receiptReference: "",
 });
 
+/**
+ * **Questo modulo si compila una volta sola, e per questo soggetto e gia
+ * successo?** (PP-02 §J)
+ *
+ * La deduplicazione a finestra difende dal **gesto** ripetuto — dieci minuti,
+ * stesse risposte — e continua a farlo. Questa difende dalla **compilazione**
+ * ripetuta, che e un'altra cosa: fuori da quella finestra, o cambiando una
+ * virgola, la stessa iscrizione si poteva rimandare tre volte, e in segreteria
+ * arrivavano tre pratiche da leggere per capire quale valesse.
+ *
+ * **Una pratica respinta non blocca**: e proprio il caso in cui la famiglia
+ * deve poter rimandare. Contano le vive — in attesa e approvate.
+ *
+ * **Senza un soggetto risolvibile non si vincola niente.** Una compilazione
+ * pubblica di chi non e ancora in anagrafica non ha un atleta su cui contare, e
+ * inventare un conteggio per indirizzo email significherebbe bloccare due
+ * fratelli iscritti dallo stesso genitore. La conseguenza va detta al club: il
+ * vincolo vale sul rinnovo di chi e gia in archivio.
+ */
+const assertNonGiaCompilato = async (
+  match: PublicFormMatch,
+  selections: FormSubjectSelection[],
+) => {
+  if (!match.schema.settings.singleSubmission) return;
+
+  /*
+    **Solo i soggetti `athlete`, e non tutti i `recordId`.**
+
+    Il `recordId` di un tutore non e un identificativo: e la **posizione**
+    nell'elenco dei guardians — `"0"`, `"1"` — ed e cosi che lo legge chi lo
+    consuma. Contarlo fra i soggetti significava che la seconda famiglia in
+    assoluto riceveva «questo modulo e gia stato compilato», perche quasi ogni
+    compilazione indica il primo tutore.
+
+    Il difetto viveva gia nel vaglio in memoria; portare il filtro nel database
+    lo ha reso **fedele a una regola sbagliata**, ed e il verso in cui una
+    correzione di prestazioni peggiora una correttezza.
+  */
+  const soggetti = selections
+    .filter((selection) => asText(selection.subject) === "athlete")
+    .map((selection) => asText(selection.recordId))
+    .filter(Boolean);
+  if (!soggetti.length) return;
+
+  /*
+    **Il filtro sul soggetto lo fa il database, e il vaglio lo rifa la memoria.**
+
+    Qui c'era `take: 500` e nessun filtro sul soggetto: su un modulo di
+    iscrizione di un club grande la compilazione di un atleta poteva **non**
+    stare nelle ultime cinquecento, e il vincolo sarebbe caduto in silenzio —
+    proprio sui club per cui serve.
+
+    `array_contains` diventa un `@>` di Postgres, che su un array JSON accetta
+    un oggetto **parziale**: la riga passa se contiene una selezione con quel
+    soggetto e quell'identificativo, qualunque etichetta porti accanto.
+
+    Il vaglio in memoria resta, e non e una ripetizione: se un domani questa
+    condizione non venisse valutata — un doppio di prova che non la conosce, un
+    cambio di adattatore — restituirebbe **piu** righe, non meno, e la seconda
+    lettura decide comunque. Il verso in cui si sbaglia e quello sicuro.
+  */
+  const vive = (await (prisma as any).formSubmission.findMany({
+    where: {
+      organization_id: match.organizationId,
+      template_id: match.templateId,
+      status: { in: ["pending", "approved"] },
+      OR: soggetti.map((recordId) => ({
+        subjects: { array_contains: [{ subject: "athlete", recordId }] },
+      })),
+    },
+    select: { subjects: true },
+  })) as Array<{ subjects: unknown }>;
+
+  const gia = vive.some((riga) =>
+    normalizeSelections(riga.subjects).some(
+      (selection) =>
+        asText(selection.subject) === "athlete" &&
+        soggetti.includes(asText(selection.recordId)),
+    ),
+  );
+
+  if (gia) {
+    throw new FormSubmissionError(
+      "Questo modulo e gia stato compilato e non si puo inviare di nuovo. Se serve una correzione, scrivi alla segreteria.",
+      409,
+      {},
+    );
+  }
+};
+
 const storeSubmission = async ({
   match,
   input,
@@ -684,6 +810,23 @@ const storeSubmission = async ({
 
   const gemella = await trovaGemella(match.organizationId, dedupKey);
   if (gemella) return riscontroDelDuplicato(gemella, match);
+
+  /*
+    Prima di caricare gli allegati, che e il lavoro costoso: un modulo gia
+    compilato non deve far depositare una seconda copia di un certificato
+    medico per poi rifiutare la pratica che lo citava.
+
+    **E non vale sul desk.** `storeSubmission` e la coda comune di tre strade,
+    e il vincolo era applicato a tutte e tre: la segretaria che ricompilava un
+    modulo per correggere un dato per conto della famiglia riceveva l'errore
+    scritto **per la famiglia** — «se serve una correzione, scrivi alla
+    segreteria» — cioe l'istruzione di scrivere a se stessa, e come unica
+    uscita respingere la pratica esistente. «Una volta sola» e una promessa
+    fatta a chi compila da fuori, non un divieto per chi tiene il registro.
+  */
+  if (source !== "internal") {
+    await assertNonGiaCompilato(match, selections);
+  }
 
   const files = await storeSubmissionFiles({
     organizationId: match.organizationId,
@@ -858,7 +1001,24 @@ export const submitRenewalForm = async (
     throw new FormSubmissionError("Modulo non disponibile", 404);
   }
 
-  const seasons = await readClubSeasonState(match.organizationId);
+  /*
+    **Il tipo lo decide il modulo, non la porta da cui si entra.**
+
+    Questa funzione e la strada con cui una famiglia invia un modulo pubblicato
+    *per un proprio figlio*, e per una Wave l'unico modulo che ci passava era
+    il rinnovo: da li il nome, e da li `kind: "renewal"` scritto fisso. Quando
+    il fascicolo ha aperto la stessa strada a **tutti** i moduli pubblicati,
+    quella costante ha iniziato a mentire: un questionario di gradimento
+    arrivava in segreteria come pratica di rinnovo.
+
+    Una compilazione che non e un'iscrizione non porta nemmeno una stagione:
+    la stagione e cio che una pratica di iscrizione decide, e un questionario
+    non decide niente.
+  */
+  const iscrizione = isEnrollmentForm(match.schema);
+  const seasons = iscrizione
+    ? await readClubSeasonState(match.organizationId)
+    : null;
 
   return storeSubmission({
     match,
@@ -874,8 +1034,8 @@ export const submitRenewalForm = async (
     ],
     submittedBy: asText(userId) || null,
     requireNarrowMimeTypes: true,
-    kind: "renewal",
-    seasonId: seasons.activeSeasonId || null,
+    kind: iscrizione ? "renewal" : "submission",
+    seasonId: seasons?.activeSeasonId || null,
   });
 };
 
@@ -891,6 +1051,19 @@ export const submitInternalForm = async (
   scope: FormsAccessScope,
   input: SubmitFormInput & { templateId: string; subjects?: unknown },
 ) => {
+  /*
+    La chiave, non la matrice del ruolo **base**: `canAccessClubResource`
+    guarda il ruolo base, quindi un ruolo personalizzato con la sola casella
+    della lettura passerebbe lo stesso — e la lettura e proprio cio che questa
+    guardia deve smettere di accettare. I moduli hanno due chiavi, e quella che
+    dice «lavoro sulle pratiche» e la seconda.
+  */
+  if (!roleHasPermission(scope.activeRole, "forms.submissions.review")) {
+    throw denied(
+      "compilare un modulo a nome della societa e di chi gestisce le pratiche",
+    );
+  }
+
   const compilable = await resolveCompilableVersion(scope, input.templateId);
   const selections = normalizeSelections(input.subjects);
 
@@ -1699,6 +1872,22 @@ export const decideFormSubmission = async (
 ): Promise<ReviewOutcome> => {
   const row = await loadSubmissionRow(scope, id);
 
+  /*
+    **Decidere non e leggere**, e finora lo era.
+
+    Approvare crea atleti, appartenenze, consensi e documenti; respingere
+    chiude l'iscrizione di una famiglia con il proprio nome sulla decisione. Il
+    ramo di rifiuto scrive per di piu con una `prisma.formSubmission.update`
+    diretta, senza passare da `resources.ts` e senza un secondo vaglio: era
+    governato dal solo permesso di **lettura**, e quello — vedi sopra — non
+    filtrava nessuno.
+  */
+  if (!roleHasPermission(scope.activeRole, "forms.submissions.review")) {
+    throw denied(
+      "approvare o respingere un'iscrizione e di chi gestisce le pratiche",
+    );
+  }
+
   if (normalizeStatus(row.status) !== "pending") {
     throw new Error("Questa compilazione e gia stata esaminata.");
   }
@@ -1916,33 +2105,172 @@ const eseguiDecisione = async (
       );
     }
 
-    const guardians = Array.isArray(athleteRecord?.data?.guardians)
-      ? [...athleteRecord!.data.guardians]
-      : [];
-    const selection = review.submission.subjects.find(
-      (entry) => entry.subject === "guardian",
-    );
-    const index = Number(selection?.recordId);
     const patch = buildGuardianPatch(
       applyValues(guardianChange),
       records.guardian || null,
     );
 
-    if (Number.isInteger(index) && index >= 0 && index < guardians.length) {
-      guardians[index] = { ...guardians[index], ...patch };
-      applied.push(`Genitore aggiornato: ${guardianChange.recordLabel}`);
-    } else {
-      guardians.push(patch);
-      applied.push(`Genitore aggiunto: ${guardianChange.recordLabel}`);
-    }
+    /*
+      **Un indirizzo dichiarato da uno sconosciuto non e una credenziale.**
 
-    const updated = await updateResource(
-      "athletes",
-      athleteId,
-      { data: { ...(athleteRecord?.data || {}), guardians } },
-      scope,
+      ADR-0127 fa valere l'indirizzo di contatto di un tutore come legame: la
+      segreteria lo scrive, la famiglia si registra con quello, ed entra senza
+      riscattare un codice. Quella decisione poggia su un presupposto che qui
+      non regge — che l'indirizzo lo abbia **scritto il club**.
+
+      Un modulo pubblico lo compila chiunque, senza sessione. Bastava conoscere
+      lo slug e il nome di un minore tesserato: si dichiarava il proprio
+      indirizzo nei campi `guardian.*`, la segreteria approvava, e da quel
+      momento l'area famiglia di quel bambino era aperta a chi si registrava
+      con quell'indirizzo. Allergie, farmaci, i byte del certificato medico, le
+      ricevute, e la revoca dei consensi dati dall'altro genitore.
+
+      Il criterio non e «chi ha compilato» ne «da quale porta»: e **chi ha
+      scritto quell'indirizzo**, e l'unica compilazione di cui il presupposto
+      di ADR-0127 sia vero e quella interna. Un genitore autenticato ha
+      dimostrato il **proprio** legame, non quello di un terzo che dichiara.
+    */
+    const compilataDalClub = asText(row.source) === "internal";
+
+    /*
+      **La riga che questa compilazione stava modificando.**
+
+      Il `recordId` di un tutore e la sua **posizione** nell'elenco, e lo dice
+      gia il commento di `loadSubjectRecords`. La posizione la conserva la
+      proiezione — che il modulo proprietario riscrive ordinata — quindi
+      l'oggetto in quel posto porta l'identificativo della **riga**, e da li in
+      poi non si ragiona piu per posizione.
+    */
+    const selection = review.submission.subjects.find(
+      (entry) => entry.subject === "guardian",
     );
-    athleteRecord = updated as any;
+    /* Come sopra: una voce esclusa non e la riga che si sta sostituendo. */
+    const rigaScelta = documentGuardianAt(
+      athleteRecord?.data,
+      Number(selection?.recordId),
+    );
+
+    /*
+      **Cio che sedici stesure non erano riuscite a difendere, qui non c'e piu
+      da difendere** (PP-02 / WP-C).
+
+      Sparisce il registro `contactOnlyIdentities`, che era il surrogato di una
+      chiave: il segno viveva sulla riga, la riga non aveva un id stabile, e
+      cinque stesure del riporto in `resources.ts` non riuscivano a farlo
+      sopravvivere a un salvataggio ordinario. Sparisce con lui la regola
+      «non avvelenare un indirizzo gia in uso», perche una `upsert` su
+      un'identita che esiste **aggiorna** invece di creare, e il segno si mette
+      solo su cio che nasce.
+
+      E sparisce `PP02-D33`: l'elenco dei tutori non si legge, non si modifica
+      in memoria e non si rimanda. Cinque approvazioni concorrenti sullo stesso
+      atleta scrivono cinque righe — o la stessa riga cinque volte, se nominano
+      la stessa persona. La corsa non si perde perche non c'e piu uno snapshot
+      da rimandare.
+    */
+    /* Le righe prima della scrittura: servono a dire se ne e nata una. */
+    const righeTutore = (await prisma.athleteGuardian.findMany({
+      where: { athlete_id: athleteId },
+      select: { id: true },
+    })) as Array<{ id: string }>;
+
+    const scritta = await upsertGuardianFromFormApproval(prisma, {
+      organizationId,
+      athleteId,
+      row: {
+        /*
+          **Vince l'indirizzo dichiarato, non quello della riga scelta.**
+
+          `patch` parte dalla riga **selezionata**, e la sua proiezione porta
+          `linkedUserEmail` valorizzato per ogni riga viva che non sia di solo
+          recapito. Leggerlo per primo voleva dire che l'indirizzo scritto nel
+          modulo non vincesse **mai**: l'`upsert` cadeva sulla chiave della
+          persona gia presente e le riscriveva nome e cognome.
+
+          Misurato da una revisione indipendente, dalla rotta vera, con una
+          compilazione **pubblica** e un ruolo che porta solo le chiavi dei
+          moduli: la riga della madre — identita, indirizzo, utenza — si
+          ritrovava il nome di un estraneo, e da li i segnaposto
+          `{{parent.N.*}}`, il destinatario fiscale di una ricevuta e i tre
+          canali di notifica nominavano lui. L'audit diceva «Genitore
+          aggiornato», vero alla lettera e falso per chi lo legge.
+
+          Il corollario e che `replacesGuardianRowId` — documentato per «quando
+          la modifica ne cambia l'identita, cioe l'indirizzo» — non poteva mai
+          entrare in gioco, perche l'identita non cambiava mai.
+
+          L'indirizzo del modulo viene percio per primo. Gli altri due restano
+          come ripiego per le compilazioni che non ne dichiarano uno: li la
+          riga scelta e l'unica cosa che dica di chi si parla.
+        */
+        email:
+          asText(patch.email) ||
+          asText(patch.linkedUserEmail) ||
+          asText(patch.linked_user_email),
+        firstName: asText(patch.name),
+        lastName: asText(patch.surname),
+        phone: asText(patch.phone),
+        relationship: asText(patch.relationship),
+        /*
+          Il codice fiscale di un tutore arriva dal modulo di iscrizione ed e
+          cio che finisce sulla ricevuta che una famiglia porta in detrazione:
+          si conserva, insieme a tutto cio che la tabella non ha una colonna
+          per tenere.
+        */
+        extra: patch as Record<string, unknown>,
+      },
+      contactOnly: !compilataDalClub,
+      /*
+        Approvare una pratica non e un atto di concessione piu di quanto lo sia
+        salvare un'anagrafica: chi la compie chiede la stessa chiave. Un ruolo
+        ristretto ai soli moduli si scriveva altrimenti addosso il fascicolo
+        sanitario di un minore qualunque, con «Genitore aggiunto» in audit.
+      */
+      canGrantAccess:
+        roleHasPermission(scope.activeRole, "accounts.athlete.manage") &&
+        hasHealthPermission(scope.activeRole, "clinical.read"),
+      replacesGuardianRowId: rigaScelta ? asText(rigaScelta.id) : null,
+    });
+
+    /*
+      **La traccia dice cio che e successo, non cio che si voleva fare.**
+
+      Quando `rigaScelta.id !== scritta.id` non e stato «aggiunto» un genitore:
+      ne e stato scritto uno **al posto di un altro**, e quello di prima e
+      stato cancellato. Il caso in cui la traccia diceva la cosa piu lontana
+      dal vero era esattamente quello in cui una riga viva spariva, e chi
+      rileggeva il registro non aveva modo di saperlo.
+    */
+    /*
+      **«Aggiunto» solo se e nata una riga.**
+
+      L'`upsert` cade sulla chiave dell'identita dichiarata: quando quella
+      identita esiste gia, non nasce niente — la riga viene aggiornata. Senza
+      confrontarlo con cio che c'era prima, la traccia diceva «Genitore
+      aggiunto» proprio nel caso in cui nessuna riga era stata aggiunta, ed e il
+      caso in cui una compilazione pubblica cade su un tutore gia presente:
+      quello in cui leggere il registro serve di piu.
+    */
+    const erano = new Set(righeTutore.map((riga) => String(riga.id)));
+    const nata = Boolean(scritta && !erano.has(String(scritta.id)));
+
+    applied.push(
+      rigaScelta && scritta && asText(rigaScelta.id) === scritta.id
+        ? `Genitore aggiornato: ${guardianChange.recordLabel}`
+        : rigaScelta
+          ? `Genitore sostituito: ${guardianChange.recordLabel}`
+          : nata
+            ? `Genitore aggiunto: ${guardianChange.recordLabel}`
+            : `Genitore aggiornato: ${guardianChange.recordLabel}`,
+    );
+
+    /*
+      La scheda si rilegge perche la proiezione dentro `data` e appena cambiata,
+      e cio che segue — consensi, documenti, allegati — la usa.
+    */
+    athleteRecord = (await prisma.athlete.findUnique({
+      where: { id: athleteId },
+    })) as any;
   }
 
   /*

@@ -3084,84 +3084,131 @@ export async function getClubWeeklySchedule(clubId: string) {
   }
 }
 
+/**
+ * **Toglie dal programma cio che punta a una categoria che non c'e piu.**
+ *
+ * PP-02 §O (debito PP01-D1). Questa funzione scriveva `clubs.trainings`
+ * **direttamente dal browser**, con un `PATCH /api/v1/clubs` che portava
+ * l'array intero. Da [ADR-0098](../../docs/knowledge-base/18-decision-log.md)
+ * quella colonna e una **proiezione in sola lettura** delle righe di
+ * `club_events` e ha un solo scrittore: `resources.ts` rifiuta la scrittura
+ * con un 403, quindi il pulsante «Rimuovi allenamenti in programma»
+ * **falliva sempre** — e falliva con «Errore durante la pulizia degli
+ * allenamenti», cioe un messaggio che parla d'altro.
+ *
+ * Adesso le due meta prendono due strade, perche sono due cose diverse:
+ *
+ * * il **programma settimanale** e una configurazione del club e resta su
+ *   `clubs.weekly_schedule`, che nessuna proiezione governa;
+ * * gli **allenamenti in programma** sono eventi, e si cancellano dal dominio
+ *   degli eventi — uno per uno, con `deleteEventIfEmpty`, che rifiuta di
+ *   cancellare cio che ha lasciato una traccia. Un allenamento su cui qualcuno
+ *   ha gia fatto l'appello non si distrugge perche la sua categoria e stata
+ *   rinominata: si annulla, e la storia resta leggibile.
+ *
+ * **Cio che non si e potuto togliere si dichiara.** L'esito porta
+ * `keptWithHistory`: un conteggio silenziosamente diverso da quello promesso
+ * e il modo in cui una pulizia sembra riuscita e non lo e.
+ */
 export async function cleanupOrphanScheduledTrainings(
   clubId: string,
   missingCategoryReferences: string[],
 ) {
-  try {
-    const normalizedMissingReferences = dedupeStringList(
-      (Array.isArray(missingCategoryReferences) ? missingCategoryReferences : []).map(
-        (reference) => String(reference || "").trim().toLowerCase(),
+  const normalizedMissingReferences = dedupeStringList(
+    (Array.isArray(missingCategoryReferences) ? missingCategoryReferences : []).map(
+      (reference) => String(reference || "").trim().toLowerCase(),
+    ),
+  );
+
+  if (!normalizedMissingReferences.length) {
+    return {
+      removedWeeklyScheduleItems: [],
+      removedUpcomingTrainings: [],
+      keptWithHistory: [],
+    };
+  }
+
+  const { data: clubData, error } = await supabase
+    .from("clubs")
+    .select("weekly_schedule, trainings")
+    .eq("id", clubId)
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  const currentWeeklySchedule = Array.isArray(clubData?.weekly_schedule)
+    ? clubData.weekly_schedule
+    : [];
+  const currentTrainings = Array.isArray(clubData?.trainings)
+    ? clubData.trainings
+    : [];
+
+  const matchesMissingCategory = (record: any) =>
+    getTrainingCategoryReferences(record).some((reference) =>
+      normalizedMissingReferences.includes(
+        String(reference || "").trim().toLowerCase(),
       ),
     );
 
-    if (!normalizedMissingReferences.length) {
-      return {
-        removedWeeklyScheduleItems: [],
-        removedUpcomingTrainings: [],
-      };
-    }
+  const removedWeeklyScheduleItems = currentWeeklySchedule.filter((record: any) =>
+    matchesMissingCategory(record),
+  );
+  const nextWeeklySchedule = currentWeeklySchedule.filter(
+    (record: any) => !matchesMissingCategory(record),
+  );
 
-    const { data: clubData, error } = await supabase
-      .from("clubs")
-      .select("weekly_schedule, trainings")
-      .eq("id", clubId)
-      .single();
+  const daTogliere = currentTrainings.filter(
+    (record: any) =>
+      matchesMissingCategory(record) && isScheduledTraining(record),
+  );
 
-    if (error) {
-      throw error;
-    }
-
-    const currentWeeklySchedule = Array.isArray(clubData?.weekly_schedule)
-      ? clubData.weekly_schedule
-      : [];
-    const currentTrainings = Array.isArray(clubData?.trainings)
-      ? clubData.trainings
-      : [];
-
-    const matchesMissingCategory = (record: any) =>
-      getTrainingCategoryReferences(record).some((reference) =>
-        normalizedMissingReferences.includes(
-          String(reference || "").trim().toLowerCase(),
-        ),
-      );
-
-    const removedWeeklyScheduleItems = currentWeeklySchedule.filter((record: any) =>
-      matchesMissingCategory(record),
-    );
-    const nextWeeklySchedule = currentWeeklySchedule.filter(
-      (record: any) => !matchesMissingCategory(record),
-    );
-
-    const removedUpcomingTrainings = currentTrainings.filter(
-      (record: any) =>
-        matchesMissingCategory(record) && isScheduledTraining(record),
-    );
-    const nextTrainings = currentTrainings.filter(
-      (record: any) =>
-        !(matchesMissingCategory(record) && isScheduledTraining(record)),
-    );
-
+  /*
+    Il programma settimanale per primo: e la sorgente che **rigenera** gli
+    allenamenti. Toglierlo dopo vorrebbe dire che, fra le due scritture, il
+    motore delle automazioni puo ricreare cio che si sta cancellando.
+  */
+  if (removedWeeklyScheduleItems.length) {
     const { error: updateError } = await supabase
       .from("clubs")
-      .update({
-        weekly_schedule: nextWeeklySchedule,
-        trainings: nextTrainings,
-      })
+      .update({ weekly_schedule: nextWeeklySchedule })
       .eq("id", clubId);
 
     if (updateError) {
       throw updateError;
     }
-
-    return {
-      removedWeeklyScheduleItems,
-      removedUpcomingTrainings,
-    };
-  } catch (error) {
-    console.error("Error cleaning orphan scheduled trainings:", error);
-    throw error;
   }
+
+  const { deleteEventIfEmpty } = await import("@/lib/events/client");
+  const removedUpcomingTrainings: any[] = [];
+  const keptWithHistory: any[] = [];
+
+  for (const training of daTogliere) {
+    const id = String(training?.id || "").trim();
+    if (!id) continue;
+
+    try {
+      await deleteEventIfEmpty(id);
+      removedUpcomingTrainings.push(training);
+    } catch (error) {
+      /*
+        Il server rifiuta di cancellare un evento con presenze, convocazioni o
+        risposte delle famiglie. Non e un guasto: e la regola, e va **detta**
+        invece di far fallire l'intera pulizia per una riga.
+      */
+      keptWithHistory.push({
+        training,
+        reason: String((error as any)?.message || error),
+      });
+    }
+  }
+
+  return {
+    removedWeeklyScheduleItems,
+    removedUpcomingTrainings,
+    keptWithHistory,
+  };
 }
 
 /**

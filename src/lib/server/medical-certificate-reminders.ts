@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { resolveNotificationGuardians } from "@/lib/guardians/notifications";
 import { sendNotificationEmails } from "./email/email-service";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import {
@@ -80,51 +81,26 @@ const normalizeEmail = (value: unknown) =>
   String(value || "")
     .trim()
     .toLowerCase();
-
 /**
- * I tutori dichiarati in anagrafica, nelle due forme che convivono nei dati:
- * l'elenco `guardians` e la coppia storica `parent1`/`parent2`.
+ * I tutori dichiarati in anagrafica che possono ricevere un avviso nuovo.
+ *
+ * ---
+ *
+ * **Era la meta di una coppia di gemelli.** L'altra meta —
+ * `resolveFamilyRecipients` in `document-requests.ts` — rispondeva alla stessa
+ * domanda con un'altra funzione, e ogni tornata di correzioni ne allargava
+ * una sola: misurato su una riga `{ userId, email }`, accesso si, solleciti
+ * si, promemoria si, notifiche documentali **no**. Un tutore legato smetteva
+ * di ricevere **solo** gli avvisi sui documenti che il club gli chiede, e la
+ * cosa era invisibile da tutte e due le parti.
+ *
+ * Adesso la risposta e una, e sta in `@/lib/guardians/notifications`: le tre
+ * difese, le quattro grafie dell'utenza, l'uscita del legame dichiarato e la
+ * scelta fra elenco e coppia storica fatta sul contenuto grezzo — tutte in un
+ * posto solo. Qui resta il nome per cui i test la chiamano.
  */
-export const getGuardianRows = (athlete: any) => {
-  const data = asRecord(athlete?.data);
-  const guardians = asArray(data.guardians).map((guardian) => {
-    const record = asRecord(guardian);
-    return {
-      linkedUserId: firstText(
-        record.linkedUserId,
-        record.linked_user_id,
-        record.userId,
-        record.user_id,
-      ),
-      linkedUserEmail: firstText(
-        record.email,
-        record.linkedUserEmail,
-        record.linked_user_email,
-      ),
-    };
-  });
-
-  const legacyParents = [data.parent1, data.parent2]
-    .filter(Boolean)
-    .map((guardian) => {
-      const record = asRecord(guardian);
-      return {
-        linkedUserId: firstText(
-          record.linkedUserId,
-          record.linked_user_id,
-          record.userId,
-          record.user_id,
-        ),
-        linkedUserEmail: firstText(
-          record.email,
-          record.linkedUserEmail,
-          record.linked_user_email,
-        ),
-      };
-    });
-
-  return guardians.length > 0 ? guardians : legacyParents;
-};
+export const getGuardianRows = (athlete: any) =>
+  resolveNotificationGuardians(asRecord(athlete?.data));
 
 /** La chiave con cui una notifica dice a quale promemoria corrisponde. */
 export const buildReminderKey = (

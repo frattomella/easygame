@@ -192,9 +192,27 @@ function normalizeAvailability(input: any): FieldAvailabilityV2 {
   }
 
   // legacy
+  /*
+    **PP-02 §L. Gli orari non si inventano, nemmeno qui.**
+
+    Questa e una **seconda** copia di `normalizeAvailability`, e portava gli
+    stessi due ripieghi `18:00`/`22:00` di quella del dominio. Da quando la
+    fascia vincola la prenotazione della famiglia, il dominio non li mette piu:
+    lasciarli qui vorrebbe dire che il club **vede** una fascia che il server
+    non applica — due risposte alla stessa domanda, che e il modo in cui una
+    schermata comincia a mentire.
+
+    Che le copie siano due resta un difetto suo, e sta fra i residui.
+  */
   const days: string[] = Array.isArray(input.days) ? input.days : [];
-  const startTime = String(input.startTime || "18:00").slice(0, 5);
-  const endTime = String(input.endTime || "22:00").slice(0, 5);
+  const startTime = String(input.startTime || "").slice(0, 5);
+  const endTime = String(input.endTime || "").slice(0, 5);
+  if (!startTime || !endTime) {
+    return WEEK_DAYS.reduce((acc, d) => {
+      acc[d.key] = [];
+      return acc;
+    }, {} as FieldAvailabilityV2);
+  }
 
   const out: FieldAvailabilityV2 = WEEK_DAYS.reduce((acc, d) => {
     acc[d.key] = [];

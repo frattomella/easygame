@@ -35,6 +35,14 @@ import { apiRequest } from "@/lib/api/client";
  * sarebbe un clic in piu tutti i giorni.
  */
 
+type Appartenenza = {
+  id: string;
+  name: string;
+  siteId: string | null;
+  siteName: string | null;
+  isPrimary: boolean;
+};
+
 type Figlio = {
   id: string;
   name: string;
@@ -42,6 +50,9 @@ type Figlio = {
   clubName: string;
   clubLogoUrl: string | null;
   categoryName: string | null;
+  categories?: Appartenenza[];
+  birthYear?: number | null;
+  status?: string | null;
   avatarUrl: string | null;
 };
 
@@ -52,6 +63,40 @@ const iniziali = (nome: string) =>
     .slice(0, 2)
     .map((parte) => parte[0]?.toUpperCase() || "")
     .join("") || "?";
+
+/**
+ * **Le squadre del figlio, come si leggono su una riga sola.**
+ *
+ * PP-02 §B. Una categoria per riga: nome, e la sede **solo quando c'e** — su un
+ * club mono-sede ogni riga porterebbe la stessa parola, che e rumore. La
+ * primaria non viene marcata: qui si sceglie un figlio, non si amministra una
+ * squadra, e «(principale)» accanto a una categoria su due e una distinzione
+ * che alla famiglia non serve per scegliere.
+ */
+const squadre = (figlio: Figlio) => {
+  const righe = (figlio.categories || [])
+    .map((categoria) =>
+      categoria.siteName
+        ? `${categoria.name} (${categoria.siteName})`
+        : categoria.name,
+    )
+    .filter(Boolean);
+
+  if (righe.length) return righe.join(" · ");
+  return figlio.categoryName || "";
+};
+
+/*
+  Un figlio non piu attivo si dichiara **prima** di entrare. La sua area resta
+  aperta — pagamenti e documenti di un'annata chiusa sono suoi, e toglierli
+  vorrebbe dire cancellare la storia — ma una schermata che elenca due nomi
+  identici, uno iscritto e uno no, senza dirlo, promette due iscrizioni vive.
+*/
+const ETICHETTE_STATO: Record<string, string> = {
+  suspended: "Sospeso",
+  loan: "In prestito",
+  inactive: "Non piu iscritto",
+};
 
 function ScegliFiglio() {
   const router = useRouter();
@@ -162,15 +207,30 @@ function ScegliFiglio() {
               ) : null}
               <AvatarFallback>{iniziali(figlio.name)}</AvatarFallback>
             </Avatar>
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-semibold text-slate-950">
-                {figlio.name}
-              </p>
-              <p className="truncate text-sm text-slate-600">
-                {[figlio.clubName, figlio.categoryName]
+            {/*
+              Tre righe e non una: nome, chi e (anno e stato), dove gioca. A
+              375 px il testo va a capo invece di essere troncato — su una
+              schermata di scelta l'informazione tagliata e il motivo per cui
+              si sceglie male.
+            */}
+            <div className="min-w-0 flex-1 space-y-0.5">
+              <p className="font-semibold text-slate-950">{figlio.name}</p>
+              <p className="text-sm text-slate-600">
+                {[
+                  figlio.birthYear ? `Classe ${figlio.birthYear}` : "",
+                  figlio.clubName,
+                ]
                   .filter(Boolean)
-                  .join(" · ") || "Categoria da assegnare"}
+                  .join(" · ")}
               </p>
+              <p className="text-sm text-slate-500">
+                {squadre(figlio) || "Categoria da assegnare"}
+              </p>
+              {figlio.status && ETICHETTE_STATO[figlio.status] ? (
+                <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                  {ETICHETTE_STATO[figlio.status]}
+                </span>
+              ) : null}
             </div>
             <ArrowRight className="h-5 w-5 shrink-0 text-slate-400" />
           </button>

@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { parseAttachmentReference } from "@/lib/attachments";
 
 import { prisma } from "./prisma";
+import {
+  countGuardianInvitesForAthlete,
+  eraseGuardiansForAthlete,
+} from "./athlete-guardians";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { canManageClubConfiguration } from "@/lib/access-roles";
 import { athleteWithinAccessScope } from "./access-scope-query";
@@ -102,9 +106,19 @@ const asText = (value: unknown) => String(value ?? "").trim();
  * **Solo l'atleta, in V1.**
  *
  * Gli altri soggetti dei consensi — `person`, `member`, `guardian` — non hanno
- * una tabella propria: un tutore vive dentro `athletes.data.guardians`, e
- * cancellarlo significa riscrivere l'anagrafica di un altro. E un lavoro
- * diverso, e farlo a meta sarebbe peggio che dichiararlo.
+ * ancora una **strada di ingresso** propria: non si puo chiedere «cancella
+ * questo tutore» nominando lui.
+ *
+ * **Correzione (2026-09-06).** La motivazione scritta qui prima — «un tutore
+ * vive dentro `athletes.data.guardians`, e cancellarlo significa riscrivere
+ * l'anagrafica di un altro» — non e piu vera da PP-02 / WP-C: un tutore e una
+ * riga di `athlete_guardians`, con nome, cognome, indirizzo, telefono, codice
+ * fiscale e data di nascita. L'ostacolo dichiarato non esiste piu; resta da
+ * fare la strada di ingresso, ed e in `16-technical-debt.md`.
+ *
+ * Cio che **non** poteva restare e che quella tabella non fosse dichiarata
+ * qui: `eraseDataSubject` la cancellava senza che il riepilogo la nominasse,
+ * e il gettone di conferma non la copriva. Ora e una fetta come le altre.
  */
 export const DATA_SUBJECT_KINDS = ["athlete"] as const;
 export type DataSubjectKind = (typeof DATA_SUBJECT_KINDS)[number];
@@ -555,7 +569,87 @@ export const previewDataSubjectErasure = async (
 
   const moduli = await readFormSubmissionsForSubject(organizationId, subjectId);
 
+  const tutori = await prisma.athleteGuardian.count({
+    where: { organization_id: organizationId, athlete_id: subjectId },
+  });
+
+  /*
+    **Il settimo indice: il carico di un invito di tutore.**
+
+    La schermata che conia un invito ci scrive dentro `guardian_name` e
+    `guardian_email`. E percio un posto dove vive una persona — di terzi, per
+    giunta — e questa scheda dichiara di essere l'unico posto in cui si
+    dichiara dove vive una persona. Non essendoci, il riepilogo non lo nominava
+    e il gettone di conferma non lo copriva, mentre la cancellazione lo
+    lasciava in archivio: lo stesso dato, spostato in una tabella che nessuna
+    schermata mostra.
+  */
+  /*
+    **La stessa domanda che si fa la cancellazione**, e in SQL.
+
+    Contarli leggendo tutto l'archivio dei gettoni del club e filtrando in
+    memoria costava quanto il club e grande — su trentaduemila gettoni mezzo
+    secondo, per un numero — e soprattutto era una **seconda formulazione**
+    della stessa domanda: un riepilogo che conta con un criterio e un atto che
+    cancella con un altro non e un riepilogo, e i due sono gia divergiti una
+    volta.
+  */
+  /*
+    **Le notifiche: l'atto le distrugge, il riepilogo non le nominava.**
+
+    `eraseDataSubject` cancella le notifiche che citano il soggetto, e nessuna
+    delle fette le dichiarava: il gettone di conferma non le copriva, e chi
+    conferma non sapeva cosa stesse distruggendo. Questa scheda dichiara di
+    essere «l'unico posto in cui si dichiara dove vive una persona», e qui
+    cancellava un indice che non dichiarava.
+
+    E il verso opposto del difetto gemello di ieri — allora il riepilogo
+    prometteva e l'atto non toglieva; qui l'atto toglie e il riepilogo tace. Un
+    riepilogo e un atto sono la stessa cosa detta due volte: se divergono, una
+    delle due mente.
+  */
+  const notifiche = (
+    await (prisma as any).notification.findMany({
+      where: { organization_id: organizationId },
+      select: { id: true, data: true },
+    })
+  ).filter((riga: any) =>
+    JSON.stringify(riga?.data ?? {}).includes(subjectId),
+  ).length;
+
+  /*
+    **La stessa `where` che la cancellazione usera**, e non una seconda
+    formulazione: il riepilogo e l'atto sono la stessa cosa detta due volte, e
+    se divergono una delle due mente. Erano gia divergiti una volta.
+  */
+  const invitiTutore = await countGuardianInvitesForAthlete(
+    prisma,
+    subjectId,
+    organizationId,
+  );
+
   const slices: DataSubjectSlice[] = [
+    {
+      table: "athlete_guardians",
+      label: "Genitori e tutori dichiarati sulla scheda",
+      index: "foreign_key",
+      count: Number(tutori || 0),
+      disposal: "delete",
+    },
+    {
+      table: "club_resource_items",
+      label: "Inviti all'area famiglia (portano nome e indirizzo del tutore)",
+      index: "json",
+      count: Number(invitiTutore || 0),
+      disposal: "delete",
+    },
+    {
+      table: "notifications",
+      label: "Notifiche che nominano questa persona",
+      index: "foreign_key",
+      count: Number(notifiche || 0),
+      disposal: "delete",
+    },
     {
       table: "medical_certificates",
       label: "Certificati medici",
@@ -1317,6 +1411,22 @@ export const eraseDataSubject = async (
     e negli anni ci e finito dentro di tutto — tutori, indirizzi, note. Un
     elenco di chiavi da ripulire sarebbe incompleto il giorno dopo.
   */
+  /*
+    **I tutori si cancellano, e non basta azzerare il blob** (PP-02 / WP-C).
+
+    La cancellazione dell'interessato lascia in piedi la **riga** dell'atleta
+    come segnaposto — rate, incassi, fatture e ricevute la nominano, e un
+    movimento di denaro senza beneficiario e cio che le guardie fiscali
+    esistono per impedire. Ma proprio per questo la cascata su
+    `athlete_guardians` **non scatta**: nessuno cancella la riga padre.
+
+    Senza questa chiamata, dopo il passaggio all'autorita relazionale una
+    cancellazione avrebbe lasciato in archivio nome, indirizzo e telefono di
+    sua madre — dati di terzi, dentro una tabella che nessuna schermata
+    mostra piu. Azzerare `data` sarebbe sembrato sufficiente, e non lo era.
+  */
+  await eraseGuardiansForAthlete(prisma, subjectId, organizationId);
+
   await (prisma as any).athlete.update({
     where: { id: subjectId },
     data: {
@@ -1328,6 +1438,14 @@ export const eraseDataSubject = async (
       jersey_number: null,
       user_id: null,
       status: "inactive",
+      /*
+        Il marchio vive **anche** come colonna (`anonymized_at`, WP-B): una
+        colonna non si perde riscrivendo il blob accanto, ed e esattamente la
+        ragione per cui quella colonna e stata aggiunta — e fino a qui non la
+        scriveva nessuno. La chiave dentro `data` resta perche la guardia
+        della rotta generica la legge ancora.
+      */
+      anonymized_at: now,
       data: { anonymizedAt: now.toISOString() },
     },
   });

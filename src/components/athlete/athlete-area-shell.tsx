@@ -12,6 +12,7 @@ import type { MobileNavSection } from "@/components/layout/MobileTopBar";
 import { Button } from "@/components/ui/button";
 
 import AthleteSidebar, { ATHLETE_NAV_ITEMS } from "./athlete-sidebar";
+import { apiRequest } from "@/lib/api/client";
 import { useAthleteArea } from "./athlete-area-context";
 
 /**
@@ -79,6 +80,39 @@ export default function AthleteAreaShell({
           showMobileHubLink={false}
           mobileNavSections={mobileNavSections}
           notificationCount={data?.notificationsUnread || 0}
+          notifications={data?.notifications || null}
+          /*
+            Anche il ragazzo segna letta una riga, e anche per lui il registro
+            generico del club e chiuso: senza questo la sua campanella non si
+            sarebbe **mai** spenta.
+          */
+          onMarkRead={(id: string) => {
+            void apiRequest(
+              `/api/parent-dashboard/${encodeURIComponent(
+                String(data?.me?.id || ""),
+              )}/notifications`,
+              { method: "PATCH", body: { id } },
+            ).then(() => refresh());
+          }}
+          /*
+            **La stessa identita e le stesse notifiche del genitore.**
+
+            Due difetti gemelli, corretti per il genitore e non per il ragazzo:
+            la targhetta leggeva `activeClub` da `localStorage` — che alla
+            prima pittura dice «EasyGame · Nessuna stagione attiva» — e il
+            pannello del campanello andava a chiedere le notifiche al registro
+            generico del club, chiuso anche per questo ruolo.
+          */
+          clubIdentity={
+            data
+              ? {
+                  name: data.club?.name || "EasyGame",
+                  seasonLabel: data.club?.seasonLabel || null,
+                  logoUrl: data.club?.logoUrl || null,
+                  seasonHref: null,
+                }
+              : null
+          }
         />
 
         <main className={dashboardMainClassName}>

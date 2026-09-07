@@ -592,6 +592,20 @@ dal client — si legge dalla riga dell'atleta.
   iscrizione e rinnovo, con lo stato e cio che il club aspetta
 - `GET|POST /api/v1/family/enrollment-requests/renewal` — la bozza di rinnovo
   precompilata e il suo invio
+- `GET /api/v1/family/online-forms?athlete_id=…` — i moduli online pubblicati
+  dal club con lo stato di **questo figlio** (PP-02 §G): da compilare, inviato,
+  completato, scaduto. Ogni voce dice anche `isEnrollment`. L'elenco non filtra
+  per tipo — risponde a «cosa ti chiede il club», e un questionario lo e — e il
+  pulsante porta **sempre** dentro l'area famiglia, perche fuori di li l'invio
+  sarebbe anonimo e perderebbe il legame con il figlio. Quel campo dice con
+  quali parole la schermata deve parlare, e se la pratica che nascera porta una
+  stagione: mandare tutti al rinnovo faceva arrivare in segreteria questionari
+  da approvare come iscrizioni
+- `GET|PUT /api/v1/appointments/config` — come riceve il club (PP-02 §K): se le
+  famiglie possono chiedere un appuntamento, e per quali motivi. La legge
+  chiunque abbia una tessera nel club — serve anche a chi fissa un appuntamento
+  dal desk; la **famiglia non passa di qui**, riceve gli stessi motivi dentro il
+  proprio cruscotto. La scrittura e di chi amministra
 
 `GET /api/v1/documents/receipt/:id` accetta adesso **anche** il legame: la
 ricevuta era elencata e non scaricabile perche il gate era di ruolo.

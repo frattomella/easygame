@@ -16,6 +16,12 @@ import {
 import { createClubNotifications } from "./club-notifications";
 import { sendNotificationEmails } from "./email/email-service";
 import { canParentAccessAthlete } from "./parent-dashboard";
+import {
+  familyCanRequestAppointment,
+  findAppointmentType,
+  normalizeAppointmentsConfig,
+  type AppointmentsConfig,
+} from "@/lib/appointments/config";
 /*
   I tutori di un atleta li sa risolvere una funzione sola, e sta li: e la
   stessa che i promemoria dei certificati usano per decidere a chi scrivere.
@@ -420,6 +426,15 @@ export type AppointmentInput = {
   durationMinutes?: number | null;
   timezone?: string | null;
   reason?: string | null;
+  /**
+   * **Il tipo di appuntamento scelto fra quelli che il club accetta**
+   * (PP-02 §K).
+   *
+   * Quando c'e, e lui a dare il motivo: il nome del tipo. Quando il club non ne
+   * ha configurato nessuno resta vuoto, e il motivo torna a essere il testo
+   * che la famiglia scrive.
+   */
+  typeId?: string | null;
   notes?: string | null;
   internalNotes?: string | null;
   idempotencyKey?: string | null;
@@ -1260,6 +1275,86 @@ export type AppointmentSlotInput = {
   notes?: string | null;
 };
 
+/* ---------------------------------- la configurazione del club (PP-02 §K) */
+
+/**
+ * **Cosa il club accetta, e se le famiglie possono chiedere.**
+ *
+ * Vive in `clubs.settings.appointments` perche e un elenco corto che il club
+ * scrive per se e non ha una storia da conservare: cambiarne una voce non deve
+ * riscrivere gli appuntamenti gia presi, che portano il **motivo** con se.
+ *
+ * La lettura non chiede nessun permesso perche non ne ha uno da chiedere: la
+ * chiama il cruscotto della famiglia — che ha gia verificato il legame con
+ * l'atleta e ne ricava il club — e la schermata della segreteria, che ha gia
+ * una tessera. Alla famiglia escono comunque i soli motivi **prenotabili**: il
+ * filtro lo applica chi compone il payload, non questa funzione, che restituisce
+ * la configurazione com'e.
+ *
+ * La scrittura passa dallo stesso gate della disponibilita — chi amministra —
+ * perche e la stessa domanda: come riceve questo club.
+ */
+export const readAppointmentsConfig = async (
+  organizationId: string,
+): Promise<AppointmentsConfig> => {
+  const club = await prisma.club.findUnique({
+    where: { id: asText(organizationId) },
+    select: { settings: true },
+  });
+
+  const settings =
+    club?.settings && typeof club.settings === "object"
+      ? (club.settings as Record<string, any>)
+      : {};
+
+  return normalizeAppointmentsConfig(settings.appointments);
+};
+
+export const saveAppointmentsConfig = async (
+  scope: AppointmentsScope,
+  input: unknown,
+  attore: Attore = {},
+): Promise<AppointmentsConfig> => {
+  assertPuoConfigurareLaDisponibilita(scope);
+  const organizationId = requireActiveOrganization(scope);
+
+  const config = normalizeAppointmentsConfig(input);
+
+  const club = await prisma.club.findUnique({
+    where: { id: organizationId },
+    select: { settings: true },
+  });
+  const settings =
+    club?.settings && typeof club.settings === "object"
+      ? (club.settings as Record<string, any>)
+      : {};
+
+  /*
+    Si riscrive **una chiave**, non l'oggetto: `settings` porta stagioni,
+    configurazione fiscale e altro, e sostituirlo con cio che questa schermata
+    conosce e il modo in cui una pagina cancella i dati di un'altra.
+  */
+  await prisma.club.update({
+    where: { id: organizationId },
+    data: { settings: { ...settings, appointments: config } as any },
+  });
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.appointmentConfigChanged,
+    organizationId,
+    actorUserId: attore.userId || scope.userId || null,
+    actorRole: scope.activeRole || null,
+    resource: "appointment_config",
+    resourceId: organizationId,
+    metadata: {
+      familyBookingEnabled: config.familyBookingEnabled,
+      types: config.types.length,
+    },
+  }).catch(() => false);
+
+  return config;
+};
+
 export const listAppointmentSlots = async (scope: AppointmentsScope) => {
   if (
     !roleHasPermission(scope.activeRole, "appointments.read") &&
@@ -1279,7 +1374,33 @@ const colonneSlot = (input: AppointmentSlotInput) => {
   if (!/^\d{1,2}:\d{2}$/.test(start) || !/^\d{1,2}:\d{2}$/.test(end)) {
     throw new Error("Orario di inizio e di fine non validi");
   }
-  if (end <= start) throw new Error("L'orario di fine deve seguire quello di inizio");
+
+  /*
+    **Due orari si confrontano in minuti, non come parole.**
+
+    Il confronto era `end <= start` fra **stringhe**: alfabeticamente
+    `"9:00" > "10:00"`, quindi una fascia di ricevimento `9:00` → `10:00`
+    veniva rifiutata come «la fine deve seguire l'inizio», mentre `10:00` →
+    `9:00` veniva **creata** e poi non generava nessuno slot. Cosi anche
+    `25:00` → `26:00`: accettata, e inerte. La segreteria vedeva una fascia
+    salvata e la famiglia nessun orario disponibile, senza niente che lo
+    spiegasse.
+  */
+  const inMinuti = (orario: string) => {
+    const [ore, minuti] = orario.split(":");
+    return Number(ore) * 60 + Number(minuti);
+  };
+
+  const daMinuti = inMinuti(start);
+  const aMinuti = inMinuti(end);
+
+  if (daMinuti >= 24 * 60 || aMinuti > 24 * 60 || inMinuti(start) % 1 !== 0) {
+    throw new Error("Orario di inizio e di fine non validi");
+  }
+
+  if (aMinuti <= daMinuti) {
+    throw new Error("L'orario di fine deve seguire quello di inizio");
+  }
 
   const weekday =
     input.weekday === null || input.weekday === undefined
@@ -1534,13 +1655,86 @@ export const listFamilyFreeSlots = async (
   query: Omit<AvailabilityQuery, "assignedToUserId">,
 ) => calcolaDisponibilita(ctx.organizationId, { ...query, now: query.now ?? new Date() });
 
+/**
+ * **Il motivo scelto e la porta aperta, sulla riprogrammazione come sulla
+ * richiesta** (PP-02 §K, correzione della revisione indipendente).
+ *
+ * Le due guardie nuove erano **solo** su `requestFamilyAppointment`, e la
+ * riprogrammazione ne usciva da entrambe:
+ *
+ * * un club che aveva spento «Le famiglie possono prenotare» continuava ad
+ *   accettare riprogrammazioni — e riprogrammare **crea una riga nuova**
+ *   (ADR-0101), quindi l'interruttore non chiudeva la porta: la socchiudeva;
+ * * il `typeId` non arrivava fin qui, e la schermata **obbliga** a sceglierlo:
+ *   la persona sceglieva un motivo, e l'appuntamento riprogrammato conservava
+ *   quello vecchio, senza errore e senza avviso.
+ */
+const risolviMotivoDellaFamiglia = async (
+  organizationId: string,
+  input: AppointmentInput,
+  motivoCorrente?: string | null,
+) => {
+  const configurazione = await readAppointmentsConfig(organizationId);
+  if (!familyCanRequestAppointment(configurazione)) {
+    throw new Error(
+      "Questa societa non riceve richieste di appuntamento online: contatta la segreteria",
+    );
+  }
+
+  const tipoRichiesto = asText(input.typeId);
+  const tipo = tipoRichiesto
+    ? findAppointmentType(configurazione, tipoRichiesto)
+    : null;
+
+  if (tipoRichiesto && (!tipo || !tipo.bookable)) {
+    /*
+      Un tipo che non esiste e uno che il club tiene per se ricevono lo stesso
+      rifiuto: dire «esiste ma non e per te» racconterebbe la configurazione
+      interna a chi prova gli identificativi.
+    */
+    throw new Error("Il motivo scelto non e disponibile per la prenotazione");
+  }
+
+  if (tipo) return tipo.name;
+
+  /*
+    **Basta che il club abbia dichiarato dei motivi**, non che ne abbia lasciato
+    almeno uno prenotabile (F3 della seconda revisione). Un club i cui motivi
+    sono **tutti** «solo dal desk» ha detto la cosa piu chiara di tutte: le
+    richieste le decide lui. Guardare i soli prenotabili lo riportava al testo
+    libero, cioe all'opposto.
+  */
+  if (configurazione.types.length) {
+    /*
+      **Con i motivi configurati il testo libero non entra piu, in nessuna
+      forma.**
+
+      Resta una sola strada: il motivo **che c'era gia**. Un appuntamento
+      chiesto prima che il club configurasse i tipi si deve poter spostare
+      senza che la famiglia sia costretta a reinventarlo — ma non si deve
+      poterlo **riscrivere**, altrimenti la riprogrammazione diventa la porta
+      da cui il testo libero rientra: si sposta l'orario e nel frattempo si
+      scrive quello che si vuole.
+    */
+    const corrente = asText(motivoCorrente);
+    if (!corrente) {
+      throw new Error("Scegli il motivo dell'appuntamento fra quelli proposti");
+    }
+    return corrente;
+  }
+
+  const scritto = asText(input.reason) || asText(motivoCorrente);
+  if (!scritto) throw new Error("Il motivo dell'appuntamento e obbligatorio");
+  return scritto;
+};
+
 export const requestFamilyAppointment = async (
   ctx: FamilyAppointmentContext,
   input: AppointmentInput,
 ) => {
   const timezone = asText(input.timezone) || DEFAULT_APPOINTMENT_TIMEZONE;
-  const reason = asText(input.reason);
-  if (!reason) throw new Error("Il motivo dell'appuntamento e obbligatorio");
+
+  const reason = await risolviMotivoDellaFamiglia(ctx.organizationId, input);
 
   const startsAt = risolviIstante(input, timezone);
   if (!startsAt) throw new Error("Giorno e orario dell'appuntamento non validi");
@@ -1651,10 +1845,38 @@ export const rescheduleFamilyAppointment = async (
   if (!row) throw new Error("Richiesta appuntamento non trovata");
   assertRigaDellaFamiglia(ctx, row);
 
+  /*
+    Le stesse due guardie della richiesta, e per la stessa ragione: spostare un
+    appuntamento **crea una riga nuova** (ADR-0101), quindi e una richiesta a
+    tutti gli effetti. Il motivo corrente entra come ripiego, cosi un
+    appuntamento chiesto prima che il club configurasse i tipi si puo spostare
+    senza reinventarne il motivo.
+  */
+  const reason = await risolviMotivoDellaFamiglia(
+    ctx.organizationId,
+    input,
+    row.reason,
+  );
+
+  /*
+    **La sede si omette, non si azzera** (F9 della seconda revisione).
+
+    La rotta manda sempre la chiave, e `null` significa «togli la sede»: la
+    riga nuova la perdeva. Ma la disponibilita si calcola con
+    `input.siteId ?? row.site_id`, cioe ricade sulla **vecchia** — si validava
+    contro una sede e si scriveva senza. Omettendola, entrambi i rami leggono
+    la stessa cosa.
+  */
+  const { siteId, ...restoDellInput } = input;
   const esito = await riprogramma(
     ctx.scope,
     row,
-    { ...input, outsideAvailability: false },
+    {
+      ...restoDellInput,
+      ...(asText(siteId) ? { siteId: asText(siteId) } : {}),
+      reason,
+      outsideAvailability: false,
+    },
     "family",
     { userId: ctx.userId },
     { userId: ctx.userId },

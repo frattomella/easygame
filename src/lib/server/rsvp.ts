@@ -375,19 +375,50 @@ export type RsvpAnswerResult = {
  * l'area genitore e l'RSVP direbbero cose diverse.
  */
 const authorizeAnsweringUser = async (userId: string, athleteId: string) => {
+  /*
+    **La proiezione porta cio che serve a decidere, non solo a riconoscere.**
+
+    Questa riga serviva a due domande: «di chi e questo atleta» e — da quando
+    la risposta si vaglia contro il pubblico dell'evento — «questo evento lo
+    riguarda». La seconda si risponde con la categoria e con le appartenenze,
+    e la proiezione non le portava: `resolveExpectedAthletes` riceveva una
+    riga senza `category_id`, senza `category_name` e senza
+    `category_memberships`, quindi **non riconosceva nessuno** e rifiutava
+    ogni risposta.
+
+    Il lato lettura la riga la carica intera; il lato scrittura no. Le due
+    meta chiamavano la stessa funzione su **due forme diverse dello stesso
+    atleta** — che e l'asimmetria di sempre, un piano piu in basso.
+  */
   const athlete = await prisma.athlete.findUnique({
     where: { id: athleteId },
-    select: { id: true, organization_id: true, user_id: true, data: true },
+    select: {
+      id: true,
+      organization_id: true,
+      user_id: true,
+      data: true,
+      category_id: true,
+      category_name: true,
+      category_memberships: true,
+    },
   });
 
   if (!athlete) throw new Error("Atleta non trovato");
 
+  /*
+    **Qui il ragazzo risponde per se, ed e voluto** (ADR-0122).
+
+    Tre righe piu sotto il ruolo con cui si risponde e **derivato** dal fatto
+    che l'atleta sia chi chiede (`actingRole = "athlete"`): questa e una delle
+    superfici in cui un sedicenne conferma la propria presenza, e chiuderla
+    sarebbe stato spegnere una funzione invece di chiudere una porta.
+
+    Il cruscotto della famiglia — denaro, tutori, documenti, consensi — non lo
+    chiede, e per lui un atleta non e tutore di se stesso. Il predefinito del
+    dominio e infatti restrittivo, e chi serve l'atleta lo **dichiara**: e il
+    verso giusto, perche dimenticarsene chiude una porta invece di aprirla.
+  */
   const linked = await canParentAccessAthlete(userId, athlete.id, {
-    /*
-      **Questa e una superficie che l'atleta usa davvero** (ADR-0122): il
-      predefinito e restrittivo, e chi serve l'atleta lo dichiara. E il verso
-      giusto — dimenticarsene chiude una porta invece di aprirla.
-    */
     allowSelfAthleteLink: true,
   });
   if (!linked) {
@@ -472,6 +503,34 @@ export const answerRsvp = async ({
 
   if (!answerability.allowed) {
     throw new Error(answerability.message);
+  }
+
+  /*
+    **Si risponde per un evento a cui l'atleta e atteso.**
+
+    Il vaglio verificava il legame con **l'atleta** (giusto), che l'evento
+    fosse del club (giusto) e che la finestra fosse aperta (giusto). Nessuno
+    guardava se quell'atleta appartenga al **pubblico** dell'evento: un
+    genitore di un Pulcino poteva rispondere «ci sara» su un allenamento
+    dell'Under 18, e la riga entrava nel riepilogo che l'allenatore legge.
+
+    La funzione che lo sa esiste da sempre — `resolveExpectedAthletes`, che
+    guarda prima il gruppo operativo e poi la categoria (ADR-0055) — ed era
+    usata **solo in lettura**. Il lato lettura e il lato scrittura dello stesso
+    fatto rispondevano a due regole diverse: la forma di asimmetria che questo
+    repository paga da nove round.
+
+    Un evento **senza** riferimenti di categoria riguarda tutti, ed e la forma
+    con cui i club mono-categoria hanno sempre salvato: li non si restringe
+    niente, come in lettura.
+  */
+  const contesto = buildEventContext(club, asRecord(training));
+  const attesi = resolveExpectedAthletes(contesto, [athlete]);
+
+  if (!attesi.length) {
+    throw new Error(
+      "Questo evento non riguarda l'atleta: non e fra i convocabili.",
+    );
   }
 
   const answeredAt = new Date(now.getTime());

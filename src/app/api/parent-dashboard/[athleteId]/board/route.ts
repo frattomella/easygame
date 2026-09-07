@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { canParentAccessAthlete } from "@/lib/server/parent-dashboard";
 import { prisma } from "@/lib/server/prisma";
@@ -35,19 +36,28 @@ const errorStatus = (error: any) =>
   String(error?.message || "").includes("Accesso negato") ? 403 : 400;
 
 const requireLinkedAthlete = async (userId: string, athleteId: string) => {
+  /*
+    **La bacheca la legge anche l'atleta, ed e questa la rotta** (ADR-0122).
+
+    L'area atleta non ne ha una propria: la propria bacheca la legge da qui, ed
+    e l'unica chiamata che fa verso una rotta esterna. Una seconda rotta
+    sarebbe una seconda idea di «chi puo leggere questo avviso».
+
+    Il predefinito del dominio e pero restrittivo — il cruscotto della famiglia
+    lo apre chi ha la responsabilita — quindi chi serve l'atleta lo
+    **dichiara**, ed e il verso giusto: dimenticarsene chiude una porta invece
+    di aprirla. Chiudere il ramo «sono io» su tutte le rotte della famiglia
+    aveva infatti spento questa schermata: il ragazzo apriva la bacheca e
+    leggeva «Accesso negato», e il club smetteva di registrare le letture degli
+    atleti.
+
+    Una bacheca non e il fascicolo della famiglia: sono gli avvisi che il club
+    manda **a lui**, e qui esce un elenco di annunci, non il payload della
+    famiglia. Sul denaro e sui tutori il ramo resta chiuso.
+  */
   if (
     !(await canParentAccessAthlete(userId, athleteId, {
-      /*
-        **La bacheca la legge anche l'atleta, ed e questa la rotta** (ADR-0122).
-
-        L'area atleta non ne ha una propria: una seconda rotta sarebbe una
-        seconda idea di «chi puo leggere questo avviso». Il predefinito del
-        dominio e pero restrittivo — il cruscotto della famiglia lo apre chi ha
-        la responsabilita — quindi chi serve l'atleta lo **dichiara**, ed e il
-        verso giusto: dimenticarsene chiude una porta invece di aprirla.
-
-        Qui esce un elenco di annunci, non il payload della famiglia.
-      */
+      /* Il ramo diretto, dichiarato: vedi ADR-0122 qui sopra. */
       allowSelfAthleteLink: true,
     }))
   ) {
@@ -95,7 +105,7 @@ export async function GET(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: [],
-        error: { message: error?.message || "Errore lettura bacheca" },
+        error: { message: publicErrorMessage(error, "Errore lettura bacheca") },
       },
       { status: errorStatus(error) },
     );
@@ -152,7 +162,7 @@ export async function POST(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore lettura annuncio" },
+        error: { message: publicErrorMessage(error, "Errore lettura annuncio") },
       },
       { status: errorStatus(error) },
     );

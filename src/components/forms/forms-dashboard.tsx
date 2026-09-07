@@ -36,7 +36,11 @@ import {
   type FormTemplateSummary,
 } from "@/lib/forms/model";
 import { FORM_SUBJECTS } from "@/lib/forms/dynamic-fields";
-import { DISTRIBUTABLE_FORM_CATALOG, FORM_CATALOG } from "@/lib/forms/catalog";
+import {
+  buildFormFromCatalog,
+  DISTRIBUTABLE_FORM_CATALOG,
+  FORM_CATALOG,
+} from "@/lib/forms/catalog";
 import * as formsApi from "@/lib/api/forms";
 
 /**
@@ -640,6 +644,34 @@ export function FormsDashboard() {
                           Del contenuto risponde {entry.editorialOwner} —
                           riletto il {formatDate(entry.lastReviewedAt)}
                         </p>
+                        {/*
+                          **PP-02 §J. Cosa c'e dentro, prima di adottarlo.**
+
+                          La scheda diceva titolo, descrizione e provenienza, e
+                          non una parola su **cosa chiede** il modulo. Per
+                          saperlo bisognava adottarlo, cioe creare una copia nel
+                          club, aprirla e poi eventualmente cancellarla: tre
+                          gesti per rispondere alla sola domanda che conta
+                          davanti a un catalogo.
+
+                          Non e un'anteprima resa: e l'elenco dei campi, che e
+                          cio che distingue due modelli dallo stesso titolo.
+                        */}
+                        <details className="group">
+                          <summary className="cursor-pointer text-xs font-medium text-blue-700 hover:underline">
+                            Cosa chiede questo modulo
+                          </summary>
+                          <ul className="mt-2 space-y-1 text-xs text-slate-600">
+                            {buildFormFromCatalog(entry).fields.map(
+                              (campo) => (
+                                <li key={campo.id} className="break-words">
+                                  · {campo.label}
+                                  {campo.required ? " (obbligatorio)" : ""}
+                                </li>
+                              ),
+                            )}
+                          </ul>
+                        </details>
                       </div>
                       <div className="shrink-0">
                         {adottato ? (
@@ -655,7 +687,9 @@ export function FormsDashboard() {
                             disabled={Boolean(adoptingKey)}
                           >
                             <Plus className="mr-2 h-4 w-4" />
-                            {adoptingKey === entry.key ? "Adozione..." : "Adotta"}
+                            {adoptingKey === entry.key
+                              ? "Adozione..."
+                              : "Usa modello"}
                           </Button>
                         )}
                       </div>

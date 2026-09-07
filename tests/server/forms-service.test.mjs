@@ -583,7 +583,44 @@ test("approvare crea l'atleta con i valori mostrati nell'anteprima", async () =>
   assert.equal(atleta.organization_id, CLUB_A);
   assert.equal(atleta.first_name, "Mario");
   assert.equal(atleta.last_name, "Rossi");
-  assert.deepEqual(atleta.data.guardians, [{ phone: "3331234567" }]);
+  /*
+    **`contactOnly` e il segno di dove viene questa riga**, e va preteso.
+
+    Un modulo pubblico lo compila chiunque, senza sessione. ADR-0127 fa valere
+    l'indirizzo di contatto come legame, e poggia sul presupposto che lo abbia
+    scritto il club: qui non regge. Bastava dichiarare il proprio indirizzo nei
+    campi del tutore, farsi approvare la pratica sul minore giusto, e l'area
+    famiglia di quel bambino si apriva a chi si registrava con quell'indirizzo.
+
+    Approvare una pratica non deve poter concedere un accesso: chi la compie
+    non ha modo di sapere che quella riga sarebbe una chiave.
+  */
+  /*
+    **La riga nasce con un identificativo, e adesso e quello della riga vera**
+    (PP-02 / WP-C).
+
+    Prima l'id lo assegnava `resources.ts` a ogni riga tutore che ne fosse
+    priva, perche il riporto delle difese doveva indovinare quale riga fosse
+    quale — ed e da li che una revoca si propagava all'altro genitore. Adesso
+    l'identificativo e quello di `athlete_guardians`, e cio che si legge dentro
+    `data.guardians` e una **proiezione** con una forma dichiarata: si
+    verificano i campi che questa approvazione decide, non l'assenza di quelli
+    che la proiezione porta sempre.
+  */
+  const [tutoreCreato] = atleta.data.guardians;
+  assert.ok(String(tutoreCreato.id || "").trim(), "la riga nasce con un id");
+  assert.equal(tutoreCreato.phone, "3331234567");
+  assert.equal(
+    tutoreCreato.contactOnly,
+    true,
+    "una riga nata da una compilazione che il club non ha scritto e un recapito",
+  );
+  assert.equal(
+    tutoreCreato.linkedUserId ?? null,
+    null,
+    "e non porta nessun legame: approvare non concede un accesso",
+  );
+  assert.equal(tutoreCreato.email ?? null, null);
   assert.equal(esito.submission.status, "approved");
   assert.ok(esito.applied.length > 0);
 });

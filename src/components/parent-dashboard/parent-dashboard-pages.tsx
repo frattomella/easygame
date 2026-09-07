@@ -80,6 +80,13 @@ import { getTrainingStableKey } from "@/lib/training-utils";
   e due copie sarebbero due badge diversi sullo stesso documento.
 */
 import { getFamilyDocumentStateClassName } from "@/lib/documents/family-dossier";
+import { withPayableInstalment } from "@/lib/payments/family-checkout";
+import { apiRequest } from "@/lib/api/client";
+import {
+  describeFieldAvailability,
+  instantFromLocalTime,
+  isWithinFieldAvailability,
+} from "@/lib/structures-utils";
 import {
   useParentDashboard,
   type AppointmentSlot,
@@ -108,6 +115,21 @@ const normalizeText = (value: unknown) =>
   String(value || "")
     .trim()
     .toLowerCase();
+
+/**
+ * Lo stato di un **atleta**, che non e lo stato di un evento.
+ *
+ * Le stesse quattro parole della schermata di scelta del figlio: se un giorno
+ * divergessero, una delle due mentirebbe.
+ */
+const etichettaStatoAtleta = (status: unknown) => {
+  const normalizzato = normalizeText(status);
+  if (normalizzato === "suspended") return "Sospeso";
+  if (normalizzato === "loan") return "In prestito";
+  if (normalizzato === "inactive") return "Non piu iscritto";
+  if (normalizzato === "active") return "Iscritto";
+  return "";
+};
 
 const getStatusLabel = (status: unknown) => {
   const normalized = normalizeText(status);
@@ -153,12 +175,62 @@ const getStatusLabel = (status: unknown) => {
   return "In programma";
 };
 
+/**
+ * Il tono di uno stato di **appuntamento**, che ha il suo vocabolario.
+ *
+ * Sei stati terminali su otto sono negativi o neutri, e nessuno di loro esiste
+ * nel vocabolario degli eventi.
+ */
+const classeStatoAppuntamento = (status: unknown) => {
+  const normalizzato = normalizeText(status);
+
+  if (normalizzato === "completed") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (normalizzato === "confirmed") {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+  if (
+    [
+      "rejected",
+      "cancelled_by_family",
+      "cancelled_by_club",
+      "no_show",
+    ].includes(normalizzato)
+  ) {
+    return "border-red-200 bg-red-50 text-red-700";
+  }
+  if (normalizzato === "rescheduled") {
+    return "border-slate-200 bg-slate-100 text-slate-600";
+  }
+
+  /* `requested`, e qualunque cosa il dominio aggiunga domani. */
+  return "border-amber-200 bg-amber-50 text-amber-700";
+};
+
 const getStatusClassName = (status: unknown) => {
   const normalized = normalizeText(status);
   if (
-    ["completed", "concluded", "concluso", "conclusa", "paid", "pagato", "saldato", "approved", "approvato", "valid"].includes(
-      normalized,
-    )
+    /*
+      `confirmed` mancava, e una prenotazione di struttura confermata cadeva sul
+      ripiego azzurro — lo stesso tono di uno stato che non si conosce — mentre
+      il lato club la dipinge verde. Due schermate, lo stesso fatto, due colori.
+    */
+    [
+      "completed",
+      "concluded",
+      "concluso",
+      "conclusa",
+      "paid",
+      "pagato",
+      "saldato",
+      "approved",
+      "approvato",
+      "valid",
+      "confirmed",
+      "confermata",
+      "confermato",
+    ].includes(normalized)
   ) {
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
   }
@@ -556,11 +628,32 @@ export function ParentDashboardHome() {
     dominio: qui c'era una terza scrittura degli stessi tre nomi, e non
     conosceva «in scadenza».
   */
-  const certificateLabel = data.health.statusLabel;
+  /*
+    PP-02 §F. La riga completa — stato **e** data — la compone il dominio.
+    `familySummary` e `familyLabel` restano facoltativi nel tipo perche il
+    payload puo arrivare dalla cache di una sessione aperta prima del
+    rilascio: il ripiego e cio che si leggeva prima, non una stringa inventata.
+  */
+  const certificateLabel = data.health.familyLabel || data.health.statusLabel;
+  const certificateSummary =
+    data.health.familySummary || data.health.statusLabel;
+  const certificateDetail = data.health.familyDetail || null;
+  /*
+    **La CTA guarda `familyState`, non `status`.**
+
+    `status` non distingue «consegnato senza scadenza» da «mancante»: e la
+    distinzione che §F ha introdotto, e la prima stesura la faceva arrivare
+    nell'etichetta e in nessuna delle decisioni che ne dipendono. L'atleta con
+    un certificato consegnato e senza data leggeva «Consegnato» e sotto
+    «Aggiorna il certificato» — cioe gli si chiedeva di rifare una cosa che ha
+    gia fatto, mentre quello che manca lo deve completare la segreteria.
+  */
+  const statoFamiglia = data.health.familyState || data.health.status;
   const certificatoDaRifare =
-    data.health.status === "expiring" ||
-    data.health.status === "expired" ||
-    data.health.status === "missing";
+    statoFamiglia === "expiring" ||
+    statoFamiglia === "expired" ||
+    statoFamiglia === "missing";
+  const certificatoDaCompletare = statoFamiglia === "undated";
 
   return (
     <div className="space-y-6">
@@ -601,11 +694,18 @@ export function ParentDashboardHome() {
               : data.athlete.category_name || "Categoria da assegnare"
           }
         />
+        {/*
+          PP-02 §F. Il riquadro diceva **solo** lo stato: «Certificato valido»,
+          e la data viveva trenta centimetri piu in basso, in un'altra card.
+          Uno stato senza la sua data non risponde alla domanda che una
+          famiglia si fa guardandolo, che non e «va bene?» ma «fino a quando?».
+        */}
         <MetricCard
           icon={HeartPulse}
           title="Certificato"
           value={certificateLabel}
-          tone={data.health.status === "valid" ? "emerald" : "amber"}
+          note={certificateDetail || undefined}
+          tone={statoFamiglia === "valid" ? "emerald" : "amber"}
         />
         <MetricCard
           icon={CreditCard}
@@ -668,24 +768,28 @@ export function ParentDashboardHome() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="font-semibold text-slate-950">{certificateLabel}</p>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Certificato medico
+                </p>
                 {/*
-                  W6-17. La data e quella del certificato che **governa**, e
-                  arriva dal server: qui si leggeva `certificates[0]`, cioe la
-                  prima riga di un elenco ordinato per scadenza crescente —
-                  tipicamente il certificato piu vecchio. La Home accostava
-                  «Certificato valido» alla data di uno gia scaduto.
+                  W6-17. La data e quella del certificato che **governa**: qui
+                  si leggeva `certificates[0]`, cioe la prima riga di un elenco
+                  ordinato per scadenza crescente — tipicamente il certificato
+                  piu vecchio. La Home accostava «Certificato valido» alla data
+                  di uno gia scaduto.
 
-                  W6-16. La data si mostra **sempre**, in tutti e quattro gli
-                  stati: e la cosa che una famiglia deve poter leggere per
-                  sapere se ha tempo.
+                  W6-16. La data si mostra **sempre**, in tutti gli stati: e la
+                  cosa che una famiglia deve poter leggere per sapere se ha
+                  tempo.
+
+                  PP-02 §F. Stato e data adesso sono **una riga sola**, e la
+                  compone il dominio: erano due paragrafi, e la resa della data
+                  la faceva questa schermata con il fuso del lettore — in un
+                  fuso positivo un certificato che scade il primo giugno si
+                  leggeva «Scade il 31/05».
                 */}
-                <p className="mt-1 text-sm text-slate-500">
-                  {data.health.expiryDate
-                    ? data.health.status === "expired"
-                      ? `Scaduto il ${formatDate(data.health.expiryDate)}`
-                      : `Scade il ${formatDate(data.health.expiryDate)}`
-                    : "Data di scadenza non disponibile"}
+                <p className="mt-1 font-semibold text-slate-950">
+                  {certificateSummary}
                 </p>
                 {/*
                   W6-18. Sapere che il certificato scade fra dieci giorni e
@@ -706,6 +810,11 @@ export function ParentDashboardHome() {
                   >
                     Aggiorna il certificato
                   </Button>
+                ) : certificatoDaCompletare ? (
+                  <p className="mt-3 text-sm text-slate-600">
+                    Il certificato risulta consegnato: la data di scadenza la
+                    completa la segreteria.
+                  </p>
                 ) : null}
               </div>
               <div className="rounded-2xl bg-slate-50 p-4">
@@ -801,7 +910,17 @@ export function ParentAthletePage() {
                 },
                 { label: "Nazionalita", value: athlete.nationality },
                 { label: "Genere", value: athlete.gender },
-                { label: "Stato", value: getStatusLabel(athlete.status) },
+                {
+                  /*
+                    **M5.** Passava dal `getStatusLabel` degli eventi, che non
+                    conosce `active`, `inactive`, `suspended` e `loan`: ogni
+                    figlio, iscritto o no, leggeva «In programma» sulla propria
+                    scheda. Compreso quello non piu iscritto, per cui §B ha
+                    appena scritto l'etichetta giusta sulla schermata di scelta.
+                  */
+                  label: "Stato",
+                  value: etichettaStatoAtleta(athlete.status),
+                },
               ]}
             />
           </CardContent>
@@ -969,11 +1088,24 @@ export function ParentAthletePage() {
             />
           </div>
 
+          {/*
+            **Qui il pulsante non c'e**, e non e una dimenticanza.
+
+            La Home rendeva `showPayNow` senza passare ne il gestore ne il
+            motivo del canale, e il componente ricadeva sulla frase «Il
+            pagamento online non e attivo su questa schermata» — accanto a un
+            pulsante grigio, **anche quando il club incassa online benissimo**.
+            E la contraddizione che §D e nato per chiudere, sopravvissuta in una
+            delle tre superfici.
+
+            Il pagamento vive su Pagamenti, dove il pulsante funziona e dove il
+            motivo, quando manca qualcosa, e quello vero. Un riepilogo non deve
+            fingere di essere anche una cassa.
+          */}
           <EnrollmentPaymentBreakdown
             summary={paymentSummary}
             payments={data.payments.items}
             mode="parent"
-            showPayNow
           />
 
           {enrollment.notes ? (
@@ -1185,6 +1317,38 @@ export function ParentPaymentsPage() {
   );
 
   /*
+    **PP-02 §D. Perche il pulsante e spento, scritto dove si vede.**
+
+    Il motivo esisteva in due posti sbagliati: dentro un `title` del browser —
+    che su un telefono non esiste — e dentro un errore rosso **dopo** il clic,
+    per il caso peggiore, quello del club che gli incassi online non li ha mai
+    configurati. In quel caso il pulsante era **acceso**, e prometteva.
+
+    Adesso il canale arriva dal server insieme al resto (`payments.online`), la
+    domanda «c'e una rata aperta?» la fa il dominio, e le due cose si compongono
+    in un solo dominio puro, cosi le tre schermate che se lo chiedono dicono la
+    stessa frase.
+  */
+  const statoPagamento = useMemo(
+    () => withPayableInstalment(data?.payments.online, Boolean(rataDaPagare)),
+    [data?.payments.online, rataDaPagare],
+  );
+
+  /*
+    PP-02 §E. Un elenco solo, ordinato per data decrescente: una famiglia
+    cerca «l'ultima ricevuta», non «l'ultima ricevuta fra quelle che non sono
+    fatture».
+  */
+  const documentiDiPagamento = useMemo(
+    () =>
+      [...(data?.payments.receipts || []), ...(data?.payments.invoices || [])]
+        .sort((a, b) =>
+          String(b.issueDate || "").localeCompare(String(a.issueDate || "")),
+        ),
+    [data?.payments.receipts, data?.payments.invoices],
+  );
+
+  /*
     Una rata per volta, scelta da chi paga. Il pulsante in cima resta e apre
     la **prima** aperta — e cio che una famiglia intende premendolo — ma con un
     piano a piu rate «la prima» non e sempre quella che si vuole saldare, e
@@ -1203,22 +1367,27 @@ export function ParentPaymentsPage() {
     if (!data?.athlete.id || !rata?.id) return;
     setPagamentoInCorso(true);
     try {
-      const risposta = await fetch(
+      /*
+        **PP-02. Il trasporto e `apiRequest`, non un `fetch` nudo.**
+
+        CLAUDE.md §2 lo dice per un componente client, e qui c'era la sola
+        eccezione rimasta di questo file. Non e una formalita: con il `fetch`
+        nudo la richiesta non porta l'intestazione del club attivo e, sul 401,
+        nessuno avvisa la sessione — il genitore vedeva un errore rosso invece
+        di essere riportato al login.
+      */
+      const risposta = await apiRequest<{ url?: string }>(
         `/api/parent-dashboard/${data.athlete.id}/checkout`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ payment_id: rata.id }),
-        },
+        { method: "POST", body: { payment_id: rata.id } },
       );
-      const payload = await risposta.json().catch(() => ({}));
-      if (!risposta.ok || payload?.error) {
+
+      if (risposta.error) {
         throw new Error(
-          payload?.error?.message || "Pagamento online non disponibile",
+          risposta.error.message || "Pagamento online non disponibile",
         );
       }
-      if (payload?.data?.url) {
-        window.location.href = payload.data.url;
+      if (risposta.data?.url) {
+        window.location.href = risposta.data.url;
         return;
       }
       throw new Error("Pagamento online non disponibile");
@@ -1237,23 +1406,36 @@ export function ParentPaymentsPage() {
         title="Pagamenti"
         subtitle="Iscrizione, scadenze e ricevute."
         actions={
-          <Button
-            disabled={!rataDaPagare || pagamentoInCorso}
-            /*
-              **Mai `onClick={apriPagamento}`.** `Button` spande le props su un
-              `<button>` nativo, quindi il primo argomento sarebbe l'evento:
-              verrebbe scambiato per la rata scelta e il pulsante uscirebbe
-              senza aprire niente. La rata la sceglie la funzione.
-            */
-            onClick={() => void apriPagamento()}
-            title={
-              rataDaPagare
-                ? "Apre il pagamento sicuro del club"
-                : "Nessuna rata da saldare"
-            }
-          >
-            {pagamentoInCorso ? "Apertura…" : "Paga ora"}
-          </Button>
+          /*
+            PP-02 §D. Il motivo sta **accanto** al pulsante, non dentro un
+            `title` che su un telefono non esiste. Con il canale spento il
+            pulsante e spento e la frase spiega perche; con una rata aperta e
+            il canale acceso non c'e nessuna frase da leggere.
+          */
+          <div className="flex flex-col items-stretch gap-1 sm:items-end">
+            <Button
+              disabled={!statoPagamento.available || pagamentoInCorso}
+              /*
+                **Mai `onClick={apriPagamento}`.** `Button` spande le props su un
+                `<button>` nativo, quindi il primo argomento sarebbe l'evento:
+                verrebbe scambiato per la rata scelta e il pulsante uscirebbe
+                senza aprire niente. La rata la sceglie la funzione.
+              */
+              onClick={() => void apriPagamento()}
+              title={
+                statoPagamento.available
+                  ? "Apre il pagamento sicuro del club"
+                  : statoPagamento.message
+              }
+            >
+              {pagamentoInCorso ? "Apertura…" : "Paga ora"}
+            </Button>
+            {statoPagamento.message ? (
+              <p className="max-w-sm text-xs leading-5 text-slate-500 sm:text-right">
+                {statoPagamento.message}
+              </p>
+            ) : null}
+          </div>
         }
       />
       <div className="grid gap-4 md:grid-cols-3">
@@ -1288,53 +1470,98 @@ export function ParentPaymentsPage() {
             onPayNow={rataDaPagare ? () => void apriPagamento() : undefined}
             onPayInstalment={(rata) => void apriPagamento(rata)}
             payNowPending={pagamentoInCorso}
+            /*
+              PP-02 §D. Solo il motivo che riguarda il **canale**: «non ci sono
+              rate da saldare» il dettaglio del piano lo sa gia dire meglio di
+              qui, perche distingue fra «il club non ne ha ancora emesse» e
+              «risulta tutto saldato», e quelle due frasi non sono la stessa.
+            */
+            payNowUnavailableReason={
+              statoPagamento.blocker &&
+              statoPagamento.blocker !== "nothing_due"
+                ? statoPagamento.message
+                : null
+            }
           />
         </CardContent>
       </Card>
+      {/*
+        **PP-02 §E. Le ricevute e le fatture sono lo stesso elenco.**
+
+        Erano due card con due liste identiche, e la seconda compariva solo se
+        c'era almeno una fattura. Per una famiglia sono la stessa cosa — la
+        carta che dimostra di aver pagato — e quale delle due il club emetta
+        dipende dal suo regime fiscale, non da lei. Distinguerle in due
+        riquadri chiedeva alla famiglia di conoscere una distinzione che non e
+        sua; il tipo resta scritto sulla riga, dove serve a riconoscere il
+        documento che si ha in mano.
+
+        Ogni riga porta le sette cose chieste: data, figlio, causale, importo,
+        stato, visualizza e scarica. «Visualizza» e «Scarica» aprono la stessa
+        rotta — quella che ristampa il documento dallo snapshot congelato — e
+        sono due gesti diversi sullo stesso file: guardarlo adesso, o tenerlo.
+      */}
       <Card className="border-slate-200 shadow-sm">
         <CardHeader>
-          <CardTitle>Ricevute</CardTitle>
+          <CardTitle>Ricevute e documenti di pagamento</CardTitle>
         </CardHeader>
         <CardContent>
-          {data.payments.receipts.length === 0 ? (
+          {documentiDiPagamento.length === 0 ? (
             <EmptyState text="Nessuna ricevuta disponibile." />
           ) : (
             <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              {/*
-                La riga e passata da due blocchi a tre quando «Scarica» si e
-                affiancato all'importo. A 375 px una descrizione con una parola
-                lunga la porta oltre il bordo, e il contenitore ha
-                `overflow-hidden`: il pulsante non sporge, viene **tagliato**.
-                Cioe la ricevuta torna a non essere scaricabile, che e
-                esattamente il difetto appena chiuso.
-              */}
-              {data.payments.receipts.map((receipt) => (
-                <div
-                  key={receipt.id}
-                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-950">
-                      {receipt.description || receipt.receipt_number || "Ricevuta"}
+              {documentiDiPagamento.map((documento) => (
+                <div key={documento.id} className="space-y-2 px-4 py-3">
+                  {/*
+                    A 375 px la riga si impila: la coppia importo/azioni andava
+                    a capo dentro un contenitore con `overflow-hidden`, e il
+                    pulsante non sporgeva — veniva **tagliato**. Cioe la
+                    ricevuta tornava a non essere scaricabile.
+                  */}
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <p className="min-w-0 font-semibold text-slate-950">
+                      {documento.description || documento.number}
                     </p>
-                    <p className="text-sm text-slate-500">
-                      {formatDate(receipt.issue_date)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="font-semibold">
-                      {formatCurrency(receipt.amount)}
+                    <span className="shrink-0 font-semibold text-slate-950">
+                      {formatCurrency(documento.amount)}
                     </span>
-                    {/*
-                      La ricevuta si stampa dalla rotta che la ristampa dallo
-                      snapshot: il gate e adesso il **legame**, non il ruolo.
-                    */}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+                    <span>
+                      {documento.kind === "invoice" ? "Fattura" : "Ricevuta"}
+                    </span>
+                    <span aria-hidden>·</span>
+                    <span>{documento.number}</span>
+                    <span aria-hidden>·</span>
+                    <span>{formatDate(documento.issueDate)}</span>
+                    {documento.athleteName ? (
+                      <>
+                        <span aria-hidden>·</span>
+                        <span>{documento.athleteName}</span>
+                      </>
+                    ) : null}
+                    <span
+                      className={
+                        documento.status === "cancelled"
+                          ? "rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
+                          : "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800"
+                      }
+                    >
+                      {documento.statusLabel}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
                     <Button asChild size="sm" variant="outline">
                       <a
-                        href={`/api/v1/documents/receipt/${receipt.id}`}
+                        href={documento.downloadPath}
                         target="_blank"
                         rel="noreferrer"
                       >
+                        Visualizza
+                      </a>
+                    </Button>
+                    <Button asChild size="sm" variant="outline">
+                      <a href={documento.downloadPath} download>
                         Scarica
                       </a>
                     </Button>
@@ -1345,58 +1572,6 @@ export function ParentPaymentsPage() {
           )}
         </CardContent>
       </Card>
-
-      {/*
-        W6-19. **Le fatture erano nel payload e non le disegnava nessuno.**
-
-        Il server le calcola, il tipo le dichiara, e il controllo di accesso
-        sul documento le prevede gia — `kind === "invoice"` passa dallo stesso
-        gate del legame delle ricevute. Mancava la card: una famiglia che
-        riceve fattura invece di ricevuta vedeva un elenco vuoto e nessuna
-        spiegazione.
-      */}
-      {data.payments.invoices.length > 0 ? (
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader>
-            <CardTitle>Fatture</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              {data.payments.invoices.map((invoice) => (
-                <div
-                  key={invoice.id}
-                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-950">
-                      {invoice.description ||
-                        invoice.invoice_number ||
-                        "Fattura"}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      {formatDate(invoice.issue_date)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="font-semibold">
-                      {formatCurrency(invoice.amount)}
-                    </span>
-                    <Button asChild size="sm" variant="outline">
-                      <a
-                        href={`/api/v1/documents/invoice/${invoice.id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Scarica
-                      </a>
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
     </div>
   );
 }
@@ -1425,9 +1600,15 @@ export function ParentPaymentsPage() {
  * 2. **DOCUMENTI** — l'archivio di cio che e stato consegnato e non chiede
  *    niente: in verifica, approvato. Con data, tipo e download.
  * 3. **MODULI ONLINE** — non sono file. Sono compilazioni che il club pubblica
- *    e il genitore riempie, e vivono nella pagina Iscrizione, che e la loro. Qui
- *    c'e il rimando: fingere di ospitarli sarebbe la seconda implementazione di
- *    un dominio che ne ha gia una.
+ *    e il genitore riempie, e vivono nella pagina Iscrizione, che e la loro.
+ *
+ *    **PP-02 §G**: qui c'era il solo rimando, e il posto era giusto — ospitare
+ *    il motore due volte sarebbe la seconda implementazione di un dominio che
+ *    ne ha gia una — ma la card non rispondeva alla domanda per cui esiste, che
+ *    e la stessa delle altre due: **cosa devo ancora fare**. Adesso l'elenco e
+ *    qui, con lo stato di questo figlio, letto da
+ *    GET /api/v1/family/online-forms, e il gesto continua ad aprirsi dove il
+ *    modulo vive.
  *
  * Una voce sta in **una** area sola. La regola — «la famiglia deve ancora fare
  * qualcosa?» — vive in `src/lib/documents/family-dossier.ts`, dove un test la
@@ -1453,6 +1634,14 @@ export function ParentDocumentsPage() {
   /* La riga su cui si sta caricando. Vuoto = il caricamento spontaneo. */
   const [voceAperta, setVoceAperta] = useState("");
   /*
+    PP-02 §G. I moduli online di **questo figlio**, con il loro stato. Non
+    entrano nel payload del cruscotto: sono una lettura che serve a una
+    schermata sola, e metterla li vorrebbe dire pagarla su tutte e tredici.
+    `null` distingue «sto ancora leggendo» da «non ce ne sono»: le due frasi
+    che una famiglia legge sono diverse.
+  */
+  const [moduliOnline, setModuliOnline] = useState<any[] | null>(null);
+  /*
     **Due moduli, due stati.**
 
     Prima ce n'era uno solo, condiviso fra il modulo della riga aperta e il
@@ -1474,6 +1663,30 @@ export function ParentDocumentsPage() {
   const [azzeraRichiesta, setAzzeraRichiesta] = useState(0);
   const [azzeraSpontaneo, setAzzeraSpontaneo] = useState(0);
   const [inCaricamento, setInCaricamento] = useState(false);
+  /*
+    PP-02 §G. Un elenco vuoto e una risposta vera — «il club non ne ha
+    pubblicati» — e un errore di lettura non deve travestirsi da quella: qui
+    fallire lascia `null`, cioe «sto ancora leggendo», che e cio che la
+    schermata sa gia dire senza mentire.
+  */
+  const athleteId = data?.athlete.id;
+  useEffect(() => {
+    if (!athleteId) return;
+    let annullato = false;
+
+    void (async () => {
+      const risposta = await apiRequest<any[]>(
+        `/api/v1/family/online-forms?athlete_id=${encodeURIComponent(athleteId)}`,
+      );
+      if (annullato || risposta.error) return;
+      setModuliOnline(Array.isArray(risposta.data) ? risposta.data : []);
+    })();
+
+    return () => {
+      annullato = true;
+    };
+  }, [athleteId]);
+
   if (!data) return null;
 
   const daFare = data.documents.required;
@@ -1527,6 +1740,7 @@ export function ParentDocumentsPage() {
       setInCaricamento(false);
     }
   };
+
 
   return (
     <div className="space-y-6">
@@ -1787,29 +2001,133 @@ export function ParentDocumentsPage() {
       </Card>
 
       {/* -------------------------------------------------- MODULI ONLINE --- */}
+      {/*
+        **PP-02 §G. L'area diceva dove sono, non cosa manca.**
+
+        Erano una frase e un pulsante verso la pagina Iscrizione. Il posto era
+        giusto — i moduli vivono li, e ospitarne una seconda copia sarebbe la
+        seconda implementazione di un dominio che ne ha gia una — ma la card non
+        rispondeva alla domanda per cui esiste, che e la stessa delle altre due:
+        **cosa devo ancora fare.** Per saperlo bisognava aprire un'altra pagina
+        e leggerne due elenchi.
+
+        Adesso l'elenco e qui, con lo stato di **questo figlio**, e il gesto
+        continua ad aprirsi dove il modulo vive.
+      */}
       <Card className="border-slate-200 shadow-sm">
         <CardHeader>
           <CardTitle>Moduli online</CardTitle>
           <p className="text-sm text-slate-500">
-            Non sono file da caricare: si compilano qui dentro, e il club li
-            riceve firmati.
+            Non sono file da caricare: si compilano online, e il club li riceve
+            gia compilati.
           </p>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-slate-600">
-            I moduli che il club ha pubblicato — iscrizione, rinnovo,
-            questionari — stanno nella pagina Iscrizione, insieme allo stato
-            della pratica. Un modulo gia compilato non si ricompila.
-          </p>
+        <CardContent className="space-y-3">
+          {moduliOnline === null ? (
+            <p className="text-sm text-slate-500">Carico i moduli…</p>
+          ) : moduliOnline.length === 0 ? (
+            <EmptyState text="Il club non ha pubblicato nessun modulo online." />
+          ) : (
+            <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              {moduliOnline.map((modulo) => (
+                <div key={modulo.publicSlug} className="space-y-2 px-4 py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <p className="min-w-0 font-semibold text-slate-950">
+                      {modulo.title}
+                    </p>
+                    <span
+                      className={
+                        modulo.state === "completed"
+                          ? "shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800"
+                          : modulo.state === "expired"
+                            ? "shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
+                            : modulo.state === "submitted"
+                              ? "shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800"
+                              : "shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900"
+                      }
+                    >
+                      {modulo.stateLabel}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+                    {modulo.athleteName ? (
+                      <span>{modulo.athleteName}</span>
+                    ) : null}
+                    {modulo.dueDate ? (
+                      <>
+                        <span aria-hidden>·</span>
+                        <span>Entro il {formatDate(modulo.dueDate)}</span>
+                      </>
+                    ) : null}
+                    {modulo.completedAt ? (
+                      <>
+                        <span aria-hidden>·</span>
+                        <span>Inviato il {formatDate(modulo.completedAt)}</span>
+                      </>
+                    ) : null}
+                  </div>
+                  {/*
+                    Una CTA sola, e solo quando c'e qualcosa da fare. Un modulo
+                    completato che si compila una volta sola non ha un pulsante:
+                    accenderlo per poi rifiutare l'invio e la stessa promessa
+                    mancata che «Paga ora» faceva prima di §D.
+                  */}
+                  {modulo.canSubmit ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        /*
+                          **Si compila qui dentro, sempre**, e il tipo della
+                          pratica lo decide il modulo (`isEnrollment`), non la
+                          porta.
+
+                          Ci sono voluti due tentativi. Il difetto di partenza
+                          era che ogni modulo diventava una pratica di
+                          **rinnovo**: un questionario di gradimento arrivava
+                          in segreteria da approvare. Il primo rimedio mandava
+                          i moduli generici alla pagina pubblica
+                          `/forms/<slug>`, che e **anonima**: l'invio nasceva
+                          senza soggetto e senza autore, quindi il legame con
+                          il figlio si perdeva, la card restava «Da compilare»
+                          per sempre anche dopo dieci invii, e l'interruttore
+                          «una volta sola» del club diventava inerte. Il
+                          genitore usciva anche dal guscio dell'area famiglia
+                          senza una via di rientro.
+
+                          La destinazione non era il problema: lo era il tipo
+                          scritto fisso all'arrivo. Adesso lo si deriva.
+                        */
+                        router.push(
+                          `/parent-view/${data.athlete.id}/enrollment?modulo=${encodeURIComponent(modulo.publicSlug)}`,
+                        )
+                      }
+                    >
+                      <FileText className="mr-2 h-4 w-4" />
+                      {modulo.state === "submitted" ? "Compila di nuovo" : "Compila"}
+                    </Button>
+                  ) : modulo.state === "completed" ? (
+                    <p className="text-xs text-slate-500">
+                      Gia compilato: non si puo inviare di nuovo. Se serve una
+                      correzione, scrivi alla segreteria.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      Il club non accetta piu risposte per questo modulo.
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           <Button
             variant="outline"
-            className="shrink-0"
+            className="w-full sm:w-auto"
             onClick={() =>
               router.push(`/parent-view/${data.athlete.id}/enrollment`)
             }
           >
-            <FileText className="mr-2 h-4 w-4" />
-            Vai ai moduli
+            Vai a iscrizione e pratiche
           </Button>
         </CardContent>
       </Card>
@@ -1890,7 +2208,14 @@ export function ParentSecretariatPage() {
     cancelAppointment,
   } = useParentDashboard();
   const { showToast } = useToast();
-  const [form, setForm] = useState({ reason: "", notes: "" });
+  const [form, setForm] = useState({ reason: "", notes: "", typeId: "" });
+  /*
+    PP-02 §K. I motivi che il club accetta. Vuoto = il club non ne ha
+    configurati, e il campo libero resta.
+  */
+  const tipiAppuntamento: any[] = data?.appointments?.config?.types || [];
+  const prenotazioniAperte =
+    data?.appointments?.config?.familyBookingEnabled !== false;
   const [slots, setSlots] = useState<AppointmentSlot[]>([]);
   const [slotsState, setSlotsState] = useState<"loading" | "ready" | "error">(
     "loading",
@@ -1952,7 +2277,7 @@ export function ParentSecretariatPage() {
     activeDay?.slots.find((slot) => slot.startsAt === selectedStartsAt) || null;
 
   const resetForm = () => {
-    setForm({ reason: "", notes: "" });
+    setForm({ reason: "", notes: "", typeId: "" });
     setSelectedStartsAt("");
     setEditingAppointmentId(null);
   };
@@ -1960,7 +2285,29 @@ export function ParentSecretariatPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!form.reason.trim()) {
+    /*
+      **Un motivo storico e un motivo.**
+
+      Il dominio ha un ramo esplicito: con i tipi configurati e senza `typeId`,
+      riprogrammando si conserva il **motivo corrente**, perche un appuntamento
+      chiesto prima che il club configurasse i tipi si deve poter spostare
+      senza che la famiglia sia costretta a reinventarlo.
+
+      La schermata non ci arrivava mai. `startEditAppointment` cerca il tipo
+      per nome, su un testo libero non lo trova, lascia `typeId` vuoto — e
+      questa guardia rifiutava. La tendina era vuota, il campo libero non veniva
+      reso, e l'unica uscita era scegliere un motivo **diverso**: cioe
+      riscrivere la richiesta che si voleva solo spostare.
+    */
+    const motivoConservato = Boolean(
+      editingAppointmentId && form.reason.trim(),
+    );
+
+    if (
+      tipiAppuntamento.length
+        ? !form.typeId && !motivoConservato
+        : !form.reason.trim()
+    ) {
       showToast("error", "Indica il motivo dell'appuntamento.");
       return;
     }
@@ -1972,6 +2319,7 @@ export function ParentSecretariatPage() {
 
     const richiesta = {
       reason: form.reason,
+      typeId: form.typeId,
       notes: form.notes,
       startsAt: selectedSlot.startsAt,
       slotId: selectedSlot.slotId,
@@ -2001,8 +2349,17 @@ export function ParentSecretariatPage() {
 
   const startEditAppointment = (appointment: Record<string, any>) => {
     setEditingAppointmentId(String(appointment.id));
+    /*
+      PP-02 §K. Riprogrammando si ritrova il tipo scelto, non un campo vuoto:
+      il motivo e lo stesso, cambia l'orario. Il confronto e sul **nome**,
+      perche e cio che l'appuntamento porta con se — cambiare la
+      configurazione domani non deve riscrivere cio che e stato chiesto ieri.
+    */
+    const motivo = appointment.reason || appointment.title || "";
     setForm({
-      reason: appointment.reason || appointment.title || "",
+      reason: motivo,
+      typeId:
+        tipiAppuntamento.find((tipo: any) => tipo.name === motivo)?.id || "",
       notes: appointment.notes || "",
     });
     /*
@@ -2047,7 +2404,23 @@ export function ParentSecretariatPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {slotsState === "loading" ? (
+            {/*
+              PP-02 §K. Se il club ha chiuso le richieste online lo si dice
+              **prima**, invece di lasciare compilare un modulo che il server
+              rifiutera: e la stessa regola di «Paga ora» in §D.
+            */}
+            {!prenotazioniAperte ? (
+              <div className="space-y-2 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <p className="font-medium text-slate-900">
+                  Le richieste online non sono attive.
+                </p>
+                <p>
+                  Questa societa non riceve richieste di appuntamento
+                  dall&apos;applicazione: puoi contattare la segreteria negli
+                  orari indicati in questa pagina.
+                </p>
+              </div>
+            ) : slotsState === "loading" ? (
               <p
                 className="text-sm text-slate-500"
                 role="status"
@@ -2088,20 +2461,68 @@ export function ParentSecretariatPage() {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="appointment-reason">Motivo</Label>
-                  <Input
-                    id="appointment-reason"
-                    value={form.reason}
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        reason: event.target.value,
-                      }))
-                    }
-                    placeholder="Es. consegna del certificato medico"
-                  />
-                </div>
+                {/*
+                  **PP-02 §K. Il motivo si sceglie, quando il club lo ha
+                  dichiarato.**
+
+                  Era un campo libero, e in coda arrivavano «info», «parlare col
+                  mister», «pagamento?»: chi riceveva doveva interpretare la
+                  richiesta prima di poterla assegnare. Quando il club non ha
+                  configurato nessun tipo il campo libero resta, ed e giusto: i
+                  tipi restringono, la loro assenza non e un divieto.
+                */}
+                {tipiAppuntamento.length ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="appointment-type">Motivo</Label>
+                    <Select
+                      value={form.typeId}
+                      onValueChange={(value) =>
+                        setForm((current) => ({ ...current, typeId: value }))
+                      }
+                    >
+                      <SelectTrigger id="appointment-type">
+                        <SelectValue placeholder="Scegli il motivo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tipiAppuntamento.map((tipo: any) => (
+                          <SelectItem key={tipo.id} value={tipo.id}>
+                            {tipo.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {/*
+                      Riprogrammando un appuntamento chiesto **prima** che il
+                      club configurasse i tipi, il motivo storico non e in
+                      elenco: si dice che resta quello, invece di lasciare una
+                      tendina vuota che sembra un errore.
+                    */}
+                    {editingAppointmentId &&
+                    !form.typeId &&
+                    form.reason.trim() ? (
+                      <p className="text-xs text-slate-500">
+                        Motivo attuale: {form.reason.trim()}. Lascialo com&apos;e
+                        per spostare soltanto l&apos;orario, oppure scegline uno
+                        nuovo.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="appointment-reason">Motivo</Label>
+                    <Input
+                      id="appointment-reason"
+                      value={form.reason}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          reason: event.target.value,
+                        }))
+                      }
+                      placeholder="Es. consegna del certificato medico"
+                    />
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="appointment-day">Giorno</Label>
@@ -2251,17 +2672,82 @@ export function ParentSecretariatPage() {
                         {appointment.notes}
                       </span>
                     ) : null}
+                    {/*
+                      Il motivo della risposta della segreteria: senza, un
+                      rifiuto e una porta chiusa senza spiegazione, e la
+                      famiglia non sa cosa correggere per riprovare.
+                    */}
+                    {appointment.decision_note ? (
+                      <span className="mt-1 block text-sm text-amber-800">
+                        Risposta della segreteria: {appointment.decision_note}
+                      </span>
+                    ) : null}
                   </div>
+                  {/*
+                    **La riga legge cio che la proiezione le manda.**
+
+                    Prima non ne leggeva niente. `toFamilyAppointment` calcola
+                    `status_label`, `decision_note`, `can_reschedule` e
+                    `can_cancel`, e la schermata li ignorava tutti e quattro:
+
+                    - il badge passava dal `getStatusLabel` locale, scritto per
+                      il vocabolario degli **eventi**. `cancelled_by_family`,
+                      `cancelled_by_club`, `rescheduled` e `no_show` non ci
+                      sono, e cadevano tutti sul ripiego «In programma». Una
+                      famiglia che disdiceva il proprio appuntamento leggeva la
+                      conferma della disdetta e poi, nella riga, che
+                      l'appuntamento **e in programma**;
+                    - «Elimina» compariva quando lo stato non era `"cancelled"`,
+                      che non e nel codominio: la condizione era **sempre vera**.
+                      Il pulsante stava su ogni riga storica — rifiutata,
+                      conclusa, gia annullata — e premendolo si otteneva il
+                      messaggio interno del dominio sulle transizioni non
+                      ammesse;
+                    - `decision_note` non era disegnata da nessuna parte. E il
+                      motivo del rifiuto, cioe la sola cosa che rende utile una
+                      risposta negativa: la segreteria lo scriveva e la famiglia
+                      leggeva «Rifiutato» e basta.
+
+                    Chi puo fare cosa lo dice il dominio, che conosce le
+                    transizioni. Qui non si ricalcola: si obbedisce.
+                  */}
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge
                       variant="outline"
-                      className={cn("border", getStatusClassName(appointment.status))}
+                      className={cn(
+                        "border",
+                        /*
+                          **Il colore segue l'etichetta, o si contraddicono.**
+
+                          `getStatusClassName` e l'altra meta dello stesso
+                          vocabolario degli eventi da cui l'etichetta e appena
+                          uscita: conosce `"cancelled"`, non
+                          `cancelled_by_family`, `cancelled_by_club`,
+                          `rescheduled` e `no_show`. Tutti e quattro cadevano
+                          sul ripiego azzurro, che e il tono di «in programma»:
+                          chi disdiceva leggeva «Annullato dalla famiglia»
+                          dentro una pastiglia identica a quella di un
+                          appuntamento vivo. Su una lista il colore si legge
+                          prima del testo.
+                        */
+                        classeStatoAppuntamento(appointment.status),
+                      )}
                     >
-                      {getStatusLabel(appointment.status)}
+                      {appointment.status_label ||
+                        getStatusLabel(appointment.status)}
                     </Badge>
-                    {["pending", "requested", "richiesto"].includes(
-                      normalizeText(appointment.status),
-                    ) ? (
+                    {/*
+                      **M1.** `can_reschedule` dice che il **dominio** lo
+                      consente; `prenotazioniAperte` dice che il club accetta
+                      richieste, e riprogrammare crea una richiesta nuova
+                      (ADR-0101). Senza il secondo, il pulsante si disegnava,
+                      impostava lo stato di modifica e poi non succedeva
+                      niente a schermo: il modulo non viene reso quando le
+                      richieste sono chiuse. Disdire invece resta possibile —
+                      chiudere le richieste non e intrappolare chi ne ha gia
+                      una.
+                    */}
+                    {appointment.can_reschedule && prenotazioniAperte ? (
                       <Button
                         type="button"
                         variant="outline"
@@ -2272,7 +2758,7 @@ export function ParentSecretariatPage() {
                         Modifica
                       </Button>
                     ) : null}
-                    {normalizeText(appointment.status) !== "cancelled" ? (
+                    {appointment.can_cancel ? (
                       <Button
                         type="button"
                         variant="outline"
@@ -2280,7 +2766,7 @@ export function ParentSecretariatPage() {
                         onClick={() => setDaDisdire(appointment)}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
-                        Elimina
+                        Disdici
                       </Button>
                     ) : null}
                   </div>
@@ -2336,18 +2822,20 @@ export function ParentStructuresPage() {
   const { showToast } = useToast();
   const structures = data?.structures?.items || [];
   const bookings = data?.structures?.bookings || [];
-  const linkedAthletes = data?.athlete.linkedAthletes?.length
-    ? data.athlete.linkedAthletes
-    : data?.athlete
-      ? [data.athlete]
-      : [];
+  /*
+    **Il figlio non e una scelta di questo modulo**, ed e W6-13 che lo ha
+    deciso: il contesto lo porta la rotta. Restavano pero `linkedAthletes`,
+    calcolato e mai letto, e `form.athleteId`, che nessun controllo scriveva e
+    che l'invio non usava — sotto lo si legge da `data.athlete.id`. Uno stato
+    che nessuno aggiorna e un invito a fidarsene: e cosi che il corpo della
+    prenotazione era arrivato a poter sovrascrivere il figlio.
+  */
   const [form, setForm] = useState({
     structureId: "",
     fieldId: "",
     date: new Date().toISOString().split("T")[0],
     startTime: "18:00",
     endTime: "19:00",
-    athleteId: data?.athlete.id || "",
     notes: "",
   });
   if (!data) return null;
@@ -2370,14 +2858,46 @@ export function ParentStructuresPage() {
       return;
     }
 
-    const start = new Date(`${form.date}T${form.startTime}`);
-    const end = new Date(`${form.date}T${form.endTime}`);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    /*
+      **PP-02 §L. L'ora digitata si legge nel fuso del club.**
+
+      `new Date("2027-03-01T18:00")` senza suffisso lo interpreta nel fuso del
+      **dispositivo**, e la fascia si valida in quello del club: per un genitore
+      con il telefono su un altro fuso le due cose non erano lo stesso orario.
+      La schermata mostrava «Lun 18:00-22:00» e poi rifiutava le 21:30; e nel
+      verso opposto le 17:30 passavano, e il club si trovava in agenda le 18:30.
+    */
+    const start = instantFromLocalTime(form.date, form.startTime);
+    const end = instantFromLocalTime(form.date, form.endTime);
+    if (!start || !end) {
       showToast("error", "Inserisci data e orari validi");
       return;
     }
     if (start.getTime() >= end.getTime()) {
       showToast("error", "L'orario di fine deve essere successivo all'inizio");
+      return;
+    }
+
+    /*
+      **PP-02 §L. La fascia si controlla anche qui, e non solo qui.**
+
+      Il presidio vero e sulla rotta — chi conosce gli identificativi non passa
+      dal modulo — ma farlo dire **prima** al browser evita alla famiglia un
+      giro sulla rete per sentirsi rifiutare un orario che la stessa schermata
+      le stava mostrando come fuori fascia. Le due domande usano la stessa
+      funzione: due implementazioni sarebbero due risposte diverse.
+    */
+    const campoScelto = currentFields.find(
+      (item: any) => String(item.id) === form.fieldId,
+    );
+    if (campoScelto && !isWithinFieldAvailability(campoScelto, start, end)) {
+      const fasce = describeFieldAvailability(campoScelto);
+      showToast(
+        "error",
+        fasce
+          ? `Il campo non e disponibile in quell'orario. Fasce aperte: ${fasce}`
+          : "Il campo non e disponibile in quell'orario",
+      );
       return;
     }
 
@@ -2556,8 +3076,16 @@ export function ParentStructuresPage() {
                     onChange={(event) => patchForm({ date: event.target.value })}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
+                {/*
+                  PP-02 §N. Due orari stanno affiancati e ci stanno anche a
+                  375 px — ma con `flex-wrap` e una larghezza minima **si
+                  impilano da soli** quando non ci stanno, invece di stringersi
+                  finche il controllo nativo dell'ora non si legge piu. Una
+                  griglia a due colonne senza punto di rottura non ha questa
+                  uscita.
+                */}
+                <div className="flex flex-wrap gap-3">
+                  <div className="min-w-[9rem] flex-1 space-y-2">
                     <Label>Ora inizio</Label>
                     <Input
                       type="time"
@@ -2567,7 +3095,7 @@ export function ParentStructuresPage() {
                       }
                     />
                   </div>
-                  <div className="space-y-2">
+                  <div className="min-w-[9rem] flex-1 space-y-2">
                     <Label>Ora fine</Label>
                     <Input
                       type="time"
@@ -2638,7 +3166,18 @@ export function ParentContactsPage() {
   const { data } = useParentDashboard();
   if (!data) return null;
 
-  const sitoDelClub = data.club.website;
+  /*
+    **L4.** Il campo lato club e un `<Input>` senza `type="url"`, quindi ci
+    finisce dentro `www.asd.it` almeno quanto `https://www.asd.it`. Messo
+    dritto in un `href`, il primo e un percorso **relativo**: il pulsante «Sito
+    web» portava la famiglia su `/parent-view/<figlio>/www.asd.it`.
+  */
+  const sitoGrezzo = String(data.club.website || "").trim();
+  const sitoDelClub = sitoGrezzo
+    ? /^https?:\/\//i.test(sitoGrezzo)
+      ? sitoGrezzo
+      : `https://${sitoGrezzo}`
+    : "";
 
   return (
     <div className="space-y-6">

@@ -244,6 +244,34 @@ const semina = async () => {
     },
   });
 
+  /*
+    **Il tutore e una riga** (PP-02 / WP-C).
+
+    La scheda porta ancora l'elenco dentro `data`, ma quello e una
+    **proiezione**: l'autorita e `athlete_guardians`, e ci si scrive solo dal
+    modulo proprietario. La chiave storica resta su `legacy_id`, che e la
+    strada con cui un invito coniato **prima** del passaggio continua a
+    nominare la persona giusta — ed e proprio quella strada che le prove R-50 e
+    R-51 percorrono.
+  */
+  const { saveGuardianRegistry } = await carica(
+    "src/lib/server/athlete-guardians.ts",
+  );
+  await saveGuardianRegistry(prisma, {
+    organizationId: CLUB,
+    athleteId: ATLETA,
+    rows: [
+      {
+        legacyId: "guardian-riscatto",
+        firstName: "Anna",
+        lastName: "Riscatto",
+        relationship: "Madre",
+        email: U_GENITORE.email,
+      },
+    ],
+    canGrantAccess: true,
+  });
+
   await prisma.athleteCategoryMembership.create({
     data: {
       id: randomUUID(),
@@ -601,17 +629,18 @@ const main = async () => {
   const esitoG = await riscatta(U_TUTORE, "TUTTOKEN001");
   prova("R-50 il riscatto del tutore riesce", 200, esitoG.stato);
 
-  const schedaConTutore = await prisma.athlete.findUnique({
-    where: { id: ATLETA },
-    select: { data: true },
+  /*
+    La riga si legge dove vive adesso. La chiave con cui l'invito la nomina e
+    quella storica, e il legame si scrive sulla riga: sono due cose diverse, e
+    prima si confondevano perche stavano nello stesso oggetto JSON.
+  */
+  const rigaTutore = await prisma.athleteGuardian.findFirst({
+    where: { athlete_id: ATLETA, legacy_id: "guardian-riscatto" },
   });
-  const rigaTutore = (schedaConTutore?.data?.guardians || []).find(
-    (r) => r?.id === "guardian-riscatto",
-  );
   prova(
     "R-51 e collega esattamente quella riga tutore",
     U_TUTORE.id,
-    rigaTutore?.linkedUserId || null,
+    rigaTutore?.user_id || null,
   );
 
   const dopoTutore = await perimetroDi(U_TUTORE.id);

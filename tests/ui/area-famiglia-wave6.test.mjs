@@ -180,9 +180,28 @@ test("W6-13 · notifiche, bacheca e prenotazioni parlano del figlio scelto", () 
     server.includes("const notificheDelFiglio = notifications.filter("),
     "le notifiche che nominano un atleta devono nominare questo",
   );
+
+  /*
+    **La stessa domanda, una risposta sola.**
+
+    L'attribuzione (`data.athleteId`, che i promemoria sui certificati
+    scrivono) era letta a mano qui, e la rotta che segna letto non la leggeva
+    affatto: la pastiglia contava le notifiche del figlio scelto e «segna tutte
+    come lette» ne chiudeva tutte quelle del genitore in quel club. Un genitore
+    con due figli spegneva le notifiche dell'altro senza saperlo.
+
+    Adesso il predicato e esportato, e le due parti lo **chiamano**: e questa
+    la proprieta da tenere ferma, non il modo in cui e scritta.
+  */
   assert.ok(
-    server.includes('asRecord(notification.data).athleteId'),
-    "l'attribuzione esiste gia nel dato: i promemoria sui certificati la scrivono",
+    server.includes("export const notificationBelongsToAthlete"),
+    "il predicato vive dove vive la lettura che riempie la bacheca",
+  );
+  assert.ok(
+    leggi("app/api/parent-dashboard/[athleteId]/notifications/route.ts").includes(
+      "notificationBelongsToAthlete(notification, athleteId)",
+    ),
+    "e la rotta che segna letto chiama lo stesso, invece di riscriverlo",
   );
 
   const consegne = leggi("lib/server/communication-deliveries.ts");
@@ -209,9 +228,26 @@ test("W6-14 · le appartenenze si caricano tutte, non solo la primaria", () => {
     server.includes("category_memberships: true,"),
     "la relazione non veniva nemmeno caricata: il calendario perdeva la seconda squadra",
   );
+  /*
+    **Il presidio guardava la riga, e la riga si e spostata** (PP-02 §B).
+
+    La composizione delle categorie e uscita da `serializeAthleteCard` ed e
+    diventata una funzione sua, perche la schermata di scelta del figlio ne ha
+    bisogno **senza** il resto della scheda. La proprieta di W6-14 non e
+    cambiata di una virgola — tutte le appartenenze, con la primaria dichiarata
+    — e adesso si verifica dove vive, invece che sulla sua vecchia grafia.
+  */
   assert.ok(
-    server.includes("categories: asArray(athlete.category_memberships).map("),
-    "e la famiglia deve vederle tutte, con la primaria dichiarata",
+    server.includes("asArray(athlete?.category_memberships).map("),
+    "le appartenenze si mappano tutte, non si prende la primaria",
+  );
+  assert.ok(
+    server.includes("isPrimary: Boolean(membership.is_primary),"),
+    "e la primaria e dichiarata, non dedotta dall'ordine",
+  );
+  assert.ok(
+    server.includes("categories: serializeAthleteCategories(athlete),"),
+    "la scheda della famiglia le porta tutte",
   );
 });
 
@@ -241,11 +277,25 @@ test("W6-16/17 · lo stato del certificato lo dice il dominio, e la data esce co
 test("W6-16/17/18 · la data si legge nei quattro stati, e c'e dove portare il nuovo", () => {
   const pagine = leggi(PAGINE);
 
-  assert.ok(pagine.includes("Scaduto il "));
-  assert.ok(pagine.includes("Scade il "));
+  /*
+    **Le tre frasi si sono spostate nel dominio** (PP-02 §F), e il presidio le
+    segue li. Non e un indebolimento: prima le componeva la schermata, con la
+    resa della data nel fuso del lettore — e in un fuso positivo un certificato
+    che scade il primo giugno si leggeva «Scade il 31/05». Adesso le compone
+    `describeMedicalCertificateForFamily`, che dichiara il fuso, e la schermata
+    stampa cio che riceve.
+  */
+  const dominio = leggi("lib/medical-certificates.ts");
+
+  assert.ok(dominio.includes("`Scaduto il ${formatted}`"));
+  assert.ok(dominio.includes("`Scade il ${formatted}`"));
   assert.ok(
-    pagine.includes("Data di scadenza non disponibile"),
+    dominio.includes("Data di scadenza non disponibile"),
     "quando la data manca va detto, non taciuto",
+  );
+  assert.ok(
+    pagine.includes("certificateSummary"),
+    "e la schermata deve stampare la riga, altrimenti la frase esiste e non si legge",
   );
   assert.ok(
     pagine.includes("Aggiorna il certificato"),
@@ -294,10 +344,33 @@ test("W6-18 · il tipo del documento arriva al server, e il file viaggia come fi
 
 test("W6-19 · le fatture hanno una schermata", () => {
   const pagine = leggi(PAGINE);
-  assert.ok(pagine.includes("<CardTitle>Fatture</CardTitle>"));
+
+  /*
+    **PP-02 §E ha unito i due riquadri, e il presidio segue la proprieta.**
+
+    Erano due card con due liste identiche, e la seconda compariva solo se
+    c'era almeno una fattura. Per una famiglia sono la stessa cosa — la carta
+    che dimostra di aver pagato — e quale delle due il club emetta dipende dal
+    suo regime fiscale, non da lei.
+
+    Cio che W6-19 presidiava resta intero: **una fattura si vede e si
+    scarica**. Adesso lo si verifica sull'elenco unico, che le porta entrambe,
+    e sul percorso di scarico che il server compone.
+  */
   assert.ok(
-    pagine.includes("/api/v1/documents/invoice/"),
-    "il gate del legame su `invoice` esisteva gia: mancava la card",
+    pagine.includes("<CardTitle>Ricevute e documenti di pagamento</CardTitle>"),
+  );
+  assert.ok(
+    pagine.includes("data?.payments.invoices"),
+    "le fatture devono entrare nell'elenco, non restare nel payload",
+  );
+  assert.ok(
+    pagine.includes('documento.kind === "invoice" ? "Fattura" : "Ricevuta"'),
+    "e devono restare riconoscibili: il tipo sta sulla riga",
+  );
+  assert.ok(
+    leggi(SERVER).includes("/api/v1/documents/${kind}/"),
+    "il gate del legame su `invoice` esisteva gia: il percorso lo compone il server",
   );
 });
 

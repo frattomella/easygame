@@ -287,6 +287,21 @@ export const AUDIT_ACTIONS = {
   appointmentCancelled: "appointment.cancelled",
   appointmentClosed: "appointment.closed",
   appointmentSlotChanged: "appointment.slot.changed",
+  /*
+    Cambiare **come il club riceve** — se accetta richieste online e per quali
+    motivi — non e cambiare una fascia di disponibilita. Le due cose passavano
+    dalla stessa voce, e nel registro non si distinguevano piu.
+  */
+  appointmentConfigChanged: "appointment.config.changed",
+
+  /*
+    **La prenotazione di una struttura da parte della famiglia** (PP-02 §L).
+
+    Era l'unica azione della famiglia che non lasciava nessuna traccia: finiva
+    dentro `clubs.structures[].bookings`, un array JSON senza storia, e la
+    domanda «chi ha chiesto questo campo, e quando» non era rispondibile.
+  */
+  structureBookingRequested: "structure_booking.requested",
 
   /*
     L'accesso EasyGame di un atleta (Wave 6, lane 6C). Sono **tre** azioni e
@@ -697,6 +712,14 @@ export const recordPermissionDenied = async (input: {
  */
 export const AUDIT_VISIBLE_METADATA_KEYS: readonly string[] = [
   "action",
+  /*
+    `applied` porta il **tipo** delle modifiche che l'approvazione di una
+    compilazione ha scritto — «Genitore sostituito», non chi. Senza questa
+    riga la colonna le conserva e il lettore le nasconde, che e il modo in cui
+    una correzione al registro puo essere scritta e non servire a niente.
+  */
+  "applied",
+  "appliedCount",
   "base_role",
   "count",
   "method",

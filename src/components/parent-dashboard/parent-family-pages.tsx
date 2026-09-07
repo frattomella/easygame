@@ -209,11 +209,30 @@ export function ParentNotificationsPage() {
     notifica che non si puo chiudere e rumore, e il rumore insegna a
     ignorare anche cio che conta.
   */
+  /*
+    **L'id nella barra dell'indirizzo puo essere quello del club.**
+
+    `/parent-view/<idClub>` e una forma viva e non un caso limite: e dove
+    `token-verification` manda **ogni** genitore e ogni atleta dopo la verifica,
+    e il guscio ci pianta sopra il `basePath` per tutta la sessione. Il
+    cruscotto la risolve — cerca fra i figli quello di quel club — ma la rotta
+    delle notifiche no: `canParentAccessAthlete(utente, idClub)` e falso, e
+    risponde 403.
+
+    Ogni altra chiamata di questo file e del contesto usa la forma con il
+    ripiego, `data?.athlete.id || athleteRouteId`; questa era rimasta con il
+    parametro grezzo. Risultato: il pulsante «Segna tutte come lette» —
+    l'unico comando che la campanella della famiglia ha — rispondeva «Accesso
+    negato: atleta non collegato» proprio sul percorso da cui quasi tutti
+    entrano.
+  */
+  const idAtleta = data?.athlete.id || athleteRouteId;
+
   const segnaTutteLette = async () => {
     setInCorso(true);
     try {
       const esito = await apiRequest<unknown>(
-        `/api/parent-dashboard/${athleteRouteId}/notifications`,
+        `/api/parent-dashboard/${idAtleta}/notifications`,
         { method: "PATCH", body: { all: true } },
       );
       if (esito?.error) {
@@ -474,7 +493,6 @@ export function ParentCalendarPage() {
       );
   }, [data, tipo]);
 
-  const figli = data?.athlete.linkedAthletes || [];
 
   return (
     <div className="space-y-6">
@@ -845,8 +863,26 @@ export function ParentEnrollmentPage() {
           ) : (
             pratiche.map((pratica: any) => {
               const stato = etichetta(pratica.state || pratica.status);
-              const mancanti = Array.isArray(pratica.missingDocuments)
-                ? pratica.missingDocuments
+              /*
+                **Il nome giusto e `pendingDocuments`.**
+
+                Il server lo calcola per ogni pratica — due query a testa — e
+                lo spedisce; qui si leggeva `missingDocuments`, che nessun
+                produttore emette. `mancanti` era quindi sempre vuoto, e con
+                lui sparivano l'elenco «Il club aspetta:» **e** il pulsante
+                «Carica documenti»: cioe la seconda meta di cio che il
+                sottotitolo di questa pagina promette, «a che punto e la tua
+                domanda, e cosa manca».
+
+                Il gemello pubblico invece funziona, e legge il nome giusto: uno
+                sconosciuto con il link della ricevuta vedeva **piu** di un
+                genitore autenticato.
+
+                Il tipo non poteva accorgersene perche la riga arriva come
+                `any` — ed e la ragione per cui adesso non arriva piu.
+              */
+              const mancanti = Array.isArray(pratica.pendingDocuments)
+                ? pratica.pendingDocuments
                 : [];
               return (
                 <article
@@ -856,10 +892,15 @@ export function ParentEnrollmentPage() {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="font-semibold text-slate-950">
+                        {/*
+                          `kindLabel` lo calcola e lo manda il server, e
+                          conosce tutti e tre i tipi. Il ternario ne conosceva
+                          due: una compilazione con il modello cancellato si
+                          presentava come «Iscrizione».
+                        */}
                         {pratica.templateTitle ||
-                          (pratica.kind === "renewal"
-                            ? "Rinnovo"
-                            : "Iscrizione")}
+                          pratica.kindLabel ||
+                          "Pratica"}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
                         Inviata il {formatDate(pratica.submittedAt)}

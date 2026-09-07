@@ -1,3 +1,26 @@
+/**
+ * **Una ricevuta o una fattura, come la legge una famiglia** (PP-02 §E).
+ *
+ * Sette campi piu il figlio: data, numero, causale, importo, stato e la strada
+ * per scaricarlo. Cio che manca — chi lo ha emesso, la classificazione
+ * contabile, le chiavi di riconciliazione della cassa del club — non manca per
+ * distrazione: e il club che parla con se stesso, e usciva perche la riga
+ * veniva mandata intera.
+ */
+export type FamilyFiscalDocument = {
+  id: string;
+  kind: "receipt" | "invoice";
+  number: string;
+  issueDate: string | null;
+  amount: number;
+  description: string;
+  status: string;
+  statusLabel: string;
+  athleteId: string | null;
+  athleteName: string | null;
+  downloadPath: string;
+};
+
 export type ParentDashboardData = {
   user: {
     id: string;
@@ -52,9 +75,15 @@ export type ParentDashboardData = {
       id: string;
       name: string;
       siteId: string | null;
+      /**
+       * Il nome della sede, risolto dal server (PP-02 §B). `null` sul club
+       * mono-sede e su ogni riga che non dichiara una sede.
+       */
+      siteName?: string | null;
       isPrimary: boolean;
     }>;
     status?: string | null;
+    avatar_url?: string | null;
     jersey_number?: string | null;
     email?: string | null;
     phone?: string | null;
@@ -86,6 +115,18 @@ export type ParentDashboardData = {
      */
     status: "valid" | "expiring" | "expired" | "missing";
     statusLabel: string;
+    /**
+     * PP-02 §F. Lo stato come lo legge la famiglia, con la voce che a
+     * `status` manca: `undated` — il certificato **c'e** ma non dichiara una
+     * scadenza, che non e la stessa cosa di non averlo.
+     */
+    familyState?: "valid" | "expiring" | "expired" | "missing" | "undated";
+    /** «Valido», «In scadenza», «Scaduto», «Consegnato», «Mancante». */
+    familyLabel?: string;
+    /** «Scade il 01/06/2027» · «Scaduto il 03/01/2026» · «Data di scadenza non disponibile». */
+    familyDetail?: string;
+    /** Le due cose insieme: «Valido — Scade il 01/06/2027». */
+    familySummary?: string;
     /** La scadenza del certificato che **governa**, non del primo in elenco. */
     expiryDate: string | null;
     allergies: any[];
@@ -99,8 +140,25 @@ export type ParentDashboardData = {
     totalPaid: number;
     remaining: number;
     summary?: Record<string, any>;
-    receipts: Array<Record<string, any>>;
-    invoices: Array<Record<string, any>>;
+    /**
+     * **Il canale di incasso online del club** (PP-02 §D).
+     *
+     * `available` accende il pulsante; `message` e cio che si legge quando e
+     * spento. Facoltativo perche il payload puo arrivare dalla cache di una
+     * sessione aperta prima del rilascio.
+     */
+    online?: {
+      available: boolean;
+      blocker: "not_configured" | "temporarily_unavailable" | "nothing_due" | null;
+      message: string;
+    };
+    /**
+     * **Elenco chiuso** (PP-02 §E): prima usciva l'intera riga del documento,
+     * con chi lo ha emesso, la classificazione contabile e le chiavi di
+     * riconciliazione del club.
+     */
+    receipts: FamilyFiscalDocument[];
+    invoices: FamilyFiscalDocument[];
   };
   enrollment?: Record<string, any>;
   documents: {
@@ -127,12 +185,39 @@ export type ParentDashboardData = {
   appointments: {
     items: Array<Record<string, any>>;
     openingHours?: any;
+    /**
+     * **Come riceve questo club** (PP-02 §K): se accetta richieste online, e
+     * per quali motivi. Facoltativo perche il payload puo arrivare dalla cache
+     * di una sessione aperta prima del rilascio.
+     */
+    config?: {
+      familyBookingEnabled: boolean;
+      types: Array<{ id: string; name: string }>;
+    };
   };
   structures?: {
     items: Array<Record<string, any>>;
     bookings: Array<Record<string, any>>;
   };
-  notifications: Array<Record<string, any>>;
+  /**
+   * **La forma che il server manda davvero**, non `Record<string, any>`.
+   *
+   * La proiezione e un elenco chiuso di sette campi da quando le notifiche di
+   * club — che possono nominare altre famiglie dentro `data` — hanno smesso di
+   * uscire per spread. Dichiararla qui serve a una cosa sola, e non e
+   * l'eleganza: con `any` un componente che legge un nome sbagliato compila,
+   * e in questo pacchetto e successo due volte (`missingDocuments` invece di
+   * `pendingDocuments`, e i quattro campi promessi da `AppointmentSlot`).
+   */
+  notifications: Array<{
+    id: string;
+    title: string;
+    message: string;
+    type: string;
+    read: boolean;
+    created_at: string | null;
+    updated_at: string | null;
+  }>;
   /** Quante fra quelle mostrate non sono ancora state lette (W6-20). */
   notificationsUnread: number;
   analytics: {

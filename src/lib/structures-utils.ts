@@ -169,9 +169,25 @@ export function normalizeAvailability(input: any): FieldAvailabilityV2 {
   }
 
   const days: string[] = Array.isArray(input.days) ? input.days : [];
-  const startTime = String(input.startTime || "18:00").slice(0, 5);
-  const endTime = String(input.endTime || "22:00").slice(0, 5);
+  const startTime = String(input.startTime || "").slice(0, 5);
+  const endTime = String(input.endTime || "").slice(0, 5);
   const out = normalizeAvailability(null);
+
+  /*
+    **PP-02 §L. Gli orari non si inventano piu.**
+
+    Qui c'erano due ripieghi — `"18:00"` e `"22:00"` — e finche nessuno
+    confrontava la fascia con una richiesta erano innocui: servivano a
+    disegnare qualcosa. Da quando `isWithinFieldAvailability` **vincola**, un
+    campo con la sola forma storica `{ days: [...] }` e senza orari
+    diventerebbe aperto solo dalle diciotto alle ventidue, e la famiglia
+    leggerebbe un rifiuto che nomina orari che il club non ha mai scritto.
+
+    E la stessa lezione di W6-D03: il silenzio non e una scelta, e riempirlo
+    con un valore plausibile lo trasforma in una scelta che nessuno ha fatto.
+    Senza orari la giornata resta **senza fasce**, cioe senza vincolo.
+  */
+  if (!startTime || !endTime) return out;
 
   days.forEach((day) => {
     if (out[day]) out[day] = [{ start: startTime, end: endTime }];
@@ -359,3 +375,354 @@ export function getVisibleBookableStructures(structures: ClubStructure[]) {
     .filter((structure) => structure.fields.length > 0);
 }
 
+
+/* ==================================================================== */
+/*  PP-02 §L — la fascia dichiarata vale anche sulla rotta              */
+/* ==================================================================== */
+
+/**
+ * Il fuso in cui si leggono le fasce di disponibilita di un campo.
+ *
+ * Una fascia e scritta `18:00`-`22:00`: e un orario **locale**, non un istante.
+ * La prenotazione arriva invece come istante assoluto, perche il browser
+ * compone `new Date("2027-03-01T18:00")` e lo manda in ISO. Per confrontarle
+ * serve dichiarare in che fuso «18:00» e le diciotto — ed e lo stesso fuso che
+ * il dominio degli appuntamenti dichiara da sempre.
+ */
+export const DEFAULT_STRUCTURE_TIMEZONE = "Europe/Rome";
+
+/** Il giorno della settimana come lo scrive `WEEK_DAYS`, e l'ora locale. */
+const WEEKDAY_KEY_BY_EN: Record<string, string> = {
+  Mon: "Lun",
+  Tue: "Mar",
+  Wed: "Mer",
+  Thu: "Gio",
+  Fri: "Ven",
+  Sat: "Sab",
+  Sun: "Dom",
+};
+
+export function describeInstantForAvailability(
+  value: Date,
+  timeZone: string = DEFAULT_STRUCTURE_TIMEZONE,
+) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    weekday: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(value);
+
+  const read = (type: string) =>
+    parts.find((part) => part.type === type)?.value || "";
+
+  return {
+    dayKey: WEEKDAY_KEY_BY_EN[read("weekday")] || "",
+    /*
+      **La data, e non solo il nome del giorno.**
+
+      Il confronto guardava `dayKey`, che si ripete ogni sette giorni: una
+      prenotazione dal lunedi al lunedi **successivo** passava, perche i due
+      «Lun» sono lo stesso nome. E con la finestra della mezzanotte passava
+      anche il lunedi 18:00 → mercoledi 00:00, trenta ore, che la rotta non
+      limita in nessun altro modo.
+    */
+    date: `${read("year")}-${read("month")}-${read("day")}`,
+    minutes: Number(read("hour")) * 60 + Number(read("minute")),
+  };
+}
+
+const toMinutes = (value: string) => {
+  const [hours, minutes] = String(value || "")
+    .split(":")
+    .map((part) => Number(part));
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+};
+
+/**
+ * **La prenotazione sta dentro una fascia dichiarata?**
+ *
+ * PP-02 §L. Il divieto sulla prenotabilita esisteva gia sulla rotta (W6-54); la
+ * **disponibilita** no: la schermata mostrava le fasce e il modulo lasciava
+ * scegliere data e ora libere, con due `<input>`. Una famiglia poteva chiedere
+ * il campo alle tre di notte, e il server accettava — poi qualcuno in segreteria
+ * avrebbe dovuto rifiutare a mano una richiesta che non doveva potersi fare.
+ *
+ * **Un campo che non dichiara nessuna fascia non e vincolato**, e non e una
+ * dimenticanza: e la lezione di W6-D03. Chi non ha mai compilato quel riquadro
+ * non ha espresso una scelta, e trasformare il silenzio in «chiuso sempre»
+ * spegnerebbe le prenotazioni di ogni club che non lo ha configurato — cioe
+ * romperebbe una funzione per farne rispettare una che nessuno ha impostato. La
+ * conseguenza va detta ai club: finche le fasce non ci sono, l'orario non e
+ * vincolato.
+ *
+ * **Una prenotazione che scavalca la mezzanotte e fuori**, perche una fascia
+ * appartiene a un giorno e non ce n'e nessuna che possa contenerla.
+ */
+/**
+ * Il giorno di calendario successivo a `YYYY-MM-DD`.
+ *
+ * Passa da `Date.UTC`, che non conosce fusi ne ora legale: qui non si sta
+ * spostando un istante, si sta girando una pagina del calendario.
+ */
+const giornoSuccessivo = (data: string) => {
+  const [anno, mese, giorno] = data.split("-").map(Number);
+  if (!anno || !mese || !giorno) return "";
+
+  const dopo = new Date(Date.UTC(anno, mese - 1, giorno + 1));
+  return `${dopo.getUTCFullYear()}-${String(dopo.getUTCMonth() + 1).padStart(2, "0")}-${String(dopo.getUTCDate()).padStart(2, "0")}`;
+};
+
+export function isWithinFieldAvailability(
+  field: Pick<StructureField, "availability">,
+  start: Date,
+  end: Date,
+  timeZone: string = DEFAULT_STRUCTURE_TIMEZONE,
+): boolean {
+  const availability = normalizeAvailability(field?.availability);
+  const fasce = Object.values(availability).flat();
+  if (!fasce.length) return true;
+
+  const inizio = describeInstantForAvailability(start, timeZone);
+  const fine = describeInstantForAvailability(end, timeZone);
+
+  if (!inizio.dayKey || !inizio.date) return false;
+
+  /*
+    **La mezzanotte chiude la giornata, non ne apre un'altra — ma solo quella
+    dopo.**
+
+    Una prenotazione che finisce alle 00:00 non scavalca niente: e l'ultimo
+    istante della sera, e il calendario la scrive gia sul giorno seguente. La
+    prima stesura di questa finestra chiedeva soltanto «un giorno diverso, e
+    mezzanotte», e su quel «diverso» passavano trenta ore: lunedi 18:00 →
+    mercoledi 00:00. Adesso il giorno seguente e **calcolato**, non dedotto dal
+    nome.
+
+    E si calcola **sul calendario**, non aggiungendo ventiquattro ore
+    all'istante: nella notte in cui l'orologio va avanti quelle ventiquattro
+    ore scavalcano il giorno seguente e atterrano su quello dopo ancora, e una
+    prenotazione 23:00 → 00:00 dentro una fascia dichiarata veniva rifiutata.
+    Un giorno l'anno, e nessuno avrebbe saputo dire perche.
+  */
+  const dataSeguente = giornoSuccessivo(inizio.date);
+
+  /*
+    **E la prenotazione che scavalca, non solo la fascia.**
+
+    La finestra si fermava alla **mezzanotte** del giorno seguente
+    (`fine.minutes === 0`), quindi su un campo aperto `Ven 22:00-02:00` la
+    richiesta `23:00 → 01:00` — cioe quella che quella fascia esiste per
+    accogliere — veniva rifiutata elencando nel messaggio la fascia stessa. Le
+    due meta separate passavano, quella che le usa insieme no: la fascia era
+    stata aperta e la prenotazione restava chiusa.
+
+    Una prenotazione puo percio finire **nella notte** del giorno seguente. Non
+    piu in la: le fasce di un campo non durano piu di ventiquattr'ore, e
+    accettare oltre vorrebbe dire non guardare piu niente.
+  */
+  const stessoGiorno = fine.date === inizio.date;
+  const notteSeguente = fine.date === dataSeguente;
+
+  if (!stessoGiorno && !notteSeguente) return false;
+  const fineMinuti = notteSeguente ? 24 * 60 + fine.minutes : fine.minutes;
+
+  /*
+    **Una fascia notturna vale, e prima veniva stampata e rifiutata.**
+
+    `22:00`-`02:00` e una fascia che una persona scrive senza pensarci — la
+    palestra chiude alle due — e l'editor la salva. `fineFascia <= da` la
+    scartava pero **tutta**, e intanto `describeFieldAvailability` continuava a
+    elencarla: la richiesta delle 22:30 veniva rifiutata con «Fasce aperte: Ven
+    22:00-02:00», cioe citando la fascia che la conteneva. Non correggibile da
+    nessuno dei due lati.
+
+    Una fascia che scavalca si legge come cio che e: dalle 22:00 fino alle 02:00
+    del **giorno dopo**. Le sue due meta si guardano percio da due giorni
+    diversi — la sera dal proprio giorno, la notte dal giorno seguente,
+    traslata di ventiquattro ore — e una prenotazione le trova da tutte e due.
+  */
+  const giornoPrima = (chiave: string) => {
+    const indice = WEEK_DAYS.findIndex((giorno) => giorno.key === chiave);
+    if (indice < 0) return "";
+    return WEEK_DAYS[(indice + WEEK_DAYS.length - 1) % WEEK_DAYS.length].key;
+  };
+
+  const fasceApplicabili: Array<{ da: number; a: number }> = [];
+
+  for (const slot of availability[inizio.dayKey] || []) {
+    const da = toMinutes(slot.start);
+    const a = toMinutes(slot.end);
+    if (da === null || a === null) continue;
+
+    /*
+      Una fascia che finisce a `00:00` chiude a mezzanotte — tranne quando
+      **comincia** a mezzanotte: `00:00`-`00:00` e come si scrive una fascia
+      lasciata a zero, e leggerla «aperto tutto il giorno» aprirebbe il campo
+      alle tre di notte a chi non ha configurato niente.
+    */
+    const fineFascia = a <= da ? (da > 0 ? a + 24 * 60 : a) : a;
+    if (fineFascia <= da) continue;
+    fasceApplicabili.push({ da, a: fineFascia });
+  }
+
+  /* La coda notturna della fascia di ieri, riportata su oggi. */
+  for (const slot of availability[giornoPrima(inizio.dayKey)] || []) {
+    const da = toMinutes(slot.start);
+    const a = toMinutes(slot.end);
+    if (da === null || a === null || a >= da || da === 0) continue;
+    fasceApplicabili.push({ da: da - 24 * 60, a });
+  }
+
+  /*
+    **Due fasce contigue coprono la loro unione.**
+
+    Il vaglio chiedeva che la prenotazione stesse **dentro una sola** fascia:
+    un campo aperto `09:00-11:00` e `11:00-13:00` — che e come si scrive un
+    orario spezzato da un turno — rifiutava le 10:00 → 12:00 elencando nel
+    messaggio le due fasce che insieme la contengono. Un rifiuto che cita la
+    ragione per cui non doveva esserci.
+
+    Le fasce che si toccano o si sovrappongono si uniscono percio prima del
+    confronto. Quelle separate restano separate, ed e giusto: fra le 11 e le 15
+    il campo e chiuso davvero.
+  */
+  const unite = fasceApplicabili
+    .slice()
+    .sort((sinistra, destra) => sinistra.da - destra.da)
+    .reduce<Array<{ da: number; a: number }>>((elenco, fascia) => {
+      const ultima = elenco[elenco.length - 1];
+      if (ultima && fascia.da <= ultima.a) {
+        ultima.a = Math.max(ultima.a, fascia.a);
+        return elenco;
+      }
+      elenco.push({ ...fascia });
+      return elenco;
+    }, []);
+
+  return unite.some(
+    (fascia) => inizio.minutes >= fascia.da && fineMinuti <= fascia.a,
+  );
+}
+
+/**
+ * Le fasce di un campo, scritte come le legge una persona.
+ *
+ * Serve al messaggio di rifiuto: «fuori dagli orari» senza dire **quali** e un
+ * rifiuto che non si puo correggere.
+ */
+export function describeFieldAvailability(
+  field: Pick<StructureField, "availability">,
+): string {
+  const availability = normalizeAvailability(field?.availability);
+
+  return WEEK_DAYS.map((day) => {
+    const slots = availability[day.key] || [];
+    if (!slots.length) return "";
+    return `${day.key} ${slots.map((slot) => `${slot.start}-${slot.end}`).join(", ")}`;
+  })
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/**
+ * **L'istante di un giorno e un'ora, letti nel fuso dichiarato.**
+ *
+ * PP-02 §L. Il modulo della famiglia componeva
+ * `new Date("2027-03-01T18:00")`, che Node e il browser interpretano nel fuso
+ * **del dispositivo**. La fascia si valida invece in `Europe/Rome`: per un
+ * genitore all'estero — o semplicemente con il telefono su un altro fuso — le
+ * due cose non erano lo stesso orario, e la schermata mostrava «Lun
+ * 18:00-22:00» rifiutando poi le 21:30 che quella fascia contiene.
+ *
+ * Il verso opposto era peggio: le 17:30 di Londra passavano, e il club si
+ * trovava in agenda le 18:30.
+ *
+ * Non serve una libreria: si prende l'istante come se fosse UTC, si guarda in
+ * che ora lo rende il fuso di destinazione, e si corregge della differenza.
+ *
+ * **Le iterazioni sono due, e la seconda non e una cerimonia.** Misurato: con
+ * una sola, il 28 marzo 2027 alle 01:30 a Roma tornava 00:30. La prima stima
+ * cade oltre il salto dell'ora legale, prende l'offset **sbagliato** — quello
+ * di dopo — e sbaglia di un'ora. La seconda passata ricalcola l'offset
+ * sull'istante corretto e chiude, perche a quel punto i due stanno dallo stesso
+ * lato della transizione.
+ *
+ * Resta un caso senza risposta giusta, e vale la pena dirlo: **l'ora che non
+ * esiste** — le 02:30 del giorno in cui l'orologio salta da 02:00 a 03:00. Non
+ * c'e nessun istante che la renda, e la funzione restituisce il primo istante
+ * successivo, come qualunque libreria.
+ *
+ * **E lo fa scegliendo, non per fortuna.** La prima stesura lo dichiarava e
+ * basta, e a Roma era vero perche l'iterazione capitava dalla parte giusta.
+ * Misurato altrove non lo era: a New York le 02:30 del 14 marzo 2027 tornavano
+ * **01:30**, e a Santiago le 00:30 del 5 settembre tornavano le 23:30 **del
+ * giorno prima** — una prenotazione chiesta per un giorno finiva in agenda su
+ * quello precedente. Quando la stima non si chiude, le candidate sono due, una
+ * per ciascuno dei due offset a cavallo del salto: si prende la **piu tarda**,
+ * che e l'istante subito dopo il buco in tutti e due i versi.
+ */
+export function instantFromLocalTime(
+  day: string,
+  time: string,
+  timeZone: string = DEFAULT_STRUCTURE_TIMEZONE,
+): Date | null {
+  const giorno = String(day || "").trim().slice(0, 10);
+  const ora = String(time || "").trim().slice(0, 5);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(giorno) || !/^\d{2}:\d{2}$/.test(ora)) {
+    return null;
+  }
+
+  const comeUtc = new Date(`${giorno}T${ora}:00.000Z`);
+  if (Number.isNaN(comeUtc.getTime())) return null;
+
+  const formato = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  /** Quanto il fuso sposta l'orologio, all'istante dato. */
+  const scarto = (istante: Date) => {
+    const parti = formato.formatToParts(istante);
+    const leggi = (tipo: string) =>
+      Number(parti.find((parte) => parte.type === tipo)?.value || "0");
+
+    const reso = Date.UTC(
+      leggi("year"),
+      leggi("month") - 1,
+      leggi("day"),
+      leggi("hour") === 24 ? 0 : leggi("hour"),
+      leggi("minute"),
+    );
+
+    return reso - istante.getTime();
+  };
+
+  const primaStima = new Date(comeUtc.getTime() - scarto(comeUtc));
+  const secondaStima = new Date(comeUtc.getTime() - scarto(primaStima));
+
+  /*
+    Se la seconda stima rende l'ora chiesta, e quella: i due offset stanno dallo
+    stesso lato della transizione e il conto ha chiuso.
+  */
+  if (scarto(secondaStima) === comeUtc.getTime() - secondaStima.getTime()) {
+    return secondaStima;
+  }
+
+  /*
+    Altrimenti l'ora **non esiste**, e le due stime sono le due candidate a
+    cavallo del salto: la piu tarda e il primo istante dopo il buco. Senza
+    questa riga il verso dipendeva dal segno dell'offset del fuso.
+  */
+  return new Date(Math.max(primaStima.getTime(), secondaStima.getTime()));
+}

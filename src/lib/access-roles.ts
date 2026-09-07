@@ -58,6 +58,20 @@ const ROLE_ALIASES: Record<string, CanonicalAccessRole> = {
   giocatrice: "athlete",
 };
 
+/**
+ * **Il dominio canonico del ruolo, enumerabile.**
+ *
+ * Serve al *test di totalita* (KB 44, §4): una difesa che dipende da un
+ * insieme di grafie deve avere una prova che **deriva** le grafie da qui e le
+ * esercita tutte, non una prova che ne elenca a mano quelle a cui l'autore ha
+ * pensato. Un elenco scritto nel test e il sesto elenco da tenere d'accordo.
+ *
+ * Chi aggiunge un alias a `ROLE_ALIASES` estende automaticamente la prova.
+ */
+export const ACCESS_ROLE_ALIASES: readonly string[] = Object.freeze(
+  Object.keys(ROLE_ALIASES),
+);
+
 const MANAGEMENT_ROLES = new Set<CanonicalAccessRole>([
   "owner",
   "club_manager",

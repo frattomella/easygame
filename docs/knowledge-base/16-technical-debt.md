@@ -1351,6 +1351,15 @@ e `totalPending` / `totalOverdue` che ne ripartiscono il residuo, come fa
 
 ## Debito aperto dal passaggio di stagione e dai giri automatici (W1-A e W1-C, 2026-08-28)
 
+### STAG-01 — ~~Il gemello del validatore troncato vive ancora nella dashboard genitori~~ — CHIUSO (2026-09-04, PP-02 §A)
+
+Chiuso **togliendo il ramo invece di correggerlo**: un identificativo che non e
+nessuno dei propri figli non e una richiesta a cui rispondere con un figlio a
+caso, e con il ripiego e sparito anche l'ultimo uso del validatore. Vedi
+[ADR-0127](18-decision-log.md#adr-0127--il-legame-di-un-tutore-non-e-la-sua-tessera-il-suo-indirizzo-non-e-un-legame-che-apre-da-solo).
+La descrizione storica resta qui sotto perche spiega **come** un controllo puo
+non controllare senza che nessuno se ne accorga.
+
 ### STAG-01 — Il gemello del validatore troncato vive ancora nella dashboard genitori
 
 `src/lib/server/parent-dashboard.ts:17` porta la stessa forma di UUID a
@@ -2303,8 +2312,8 @@ e il posto dove riscrivere un chiamante o cambiare la forma di un elenco.
 
 | # | Cosa | Perche non e stato corretto li |
 |---|---|---|
-| **PP01-D1** | `cleanupOrphanScheduledTrainings` (`src/lib/simplified-db.ts`) scrive `clubs.trainings` **direttamente dal browser**, passando da `PATCH /api/v1/clubs`. `resources.ts` lo rifiuta da ADR-0098 — «e una proiezione degli eventi e si scrive da `/api/v1/events`» — quindi il pulsante «Rimuovi allenamenti in programma» della pagina Allenamenti **fallisce sempre**, con un messaggio che parla d'altro | E un chiamante che nessuno ha migrato al dominio degli eventi quando ADR-0098 ha chiuso la porta. Migrarlo e una correzione con il suo commit e il suo test, non un ritocco dentro una lane di altri difetti |
-| **PP01-D2** | La modifica di un allenamento dal browser non manda la **versione**: `updateEvent(id, data)` senza terzo argomento, quindi `expectedVersion` e `null` e ricade su `existing.version`. Il controllo ottimistico di ADR-0098 non puo mai fallire su quel percorso, ed e proprio il percorso delle due segretarie che salvano insieme | Mandare la versione senza avere un percorso di ricarica sul conflitto trasformerebbe un salvataggio riuscito in un errore che la segreteria non sa risolvere. Le due cose vanno insieme |
+| ~~**PP01-D1**~~ | **CHIUSO (2026-09-04, PP-02 §O).** La pulizia passa adesso dal dominio degli eventi: il programma settimanale resta su `clubs.weekly_schedule`, che nessuna proiezione governa, e gli allenamenti in programma si cancellano uno per uno con `deleteEventIfEmpty` — che rifiuta cio che ha lasciato una traccia. L'esito porta `keptWithHistory`, perche un conteggio silenziosamente diverso da quello promesso e il modo in cui una pulizia sembra riuscita e non lo e. La conferma e passata da `window.confirm` al dialogo dell'applicazione. Descrizione storica: `cleanupOrphanScheduledTrainings` (`src/lib/simplified-db.ts`) scrive `clubs.trainings` **direttamente dal browser**, passando da `PATCH /api/v1/clubs`. `resources.ts` lo rifiuta da ADR-0098 — «e una proiezione degli eventi e si scrive da `/api/v1/events`» — quindi il pulsante «Rimuovi allenamenti in programma» della pagina Allenamenti **fallisce sempre**, con un messaggio che parla d'altro | E un chiamante che nessuno ha migrato al dominio degli eventi quando ADR-0098 ha chiuso la porta. Migrarlo e una correzione con il suo commit e il suo test, non un ritocco dentro una lane di altri difetti |
+| ~~**PP01-D2**~~ | **CHIUSO (2026-09-04, PP-02 §O).** La versione viaggia dalla lettura al salvataggio (`formatTrainingSession` la conserva, `updateEvent` la rimanda), e sul conflitto la pagina **ricarica** invece di limitarsi a dirlo: lasciare la ricarica come istruzione vuol dire che chi non la esegue riceve lo stesso errore per sempre. Descrizione storica: la modifica di un allenamento dal browser non mandava la **versione**: `updateEvent(id, data)` senza terzo argomento, quindi `expectedVersion` e `null` e ricade su `existing.version`. Il controllo ottimistico di ADR-0098 non puo mai fallire su quel percorso, ed e proprio il percorso delle due segretarie che salvano insieme | Mandare la versione senza avere un percorso di ricarica sul conflitto trasformerebbe un salvataggio riuscito in un errore che la segreteria non sa risolvere. Le due cose vanno insieme |
 | **PP01-D3** | `historicalCategoryName` viene scritto in due punti di `src/app/training/page.tsx` e **non lo legge nessuno** | Codice morto trovato tracciando le categorie. Toglierlo e una pulizia, e va con le altre |
 | **PP01-D4** | `buildAthleteRows` (`src/app/athletes/page.tsx`) emette **una riga per appartenenza**: un atleta in due categorie compare due volte nell'elenco, e i contatori per stato lo contano due volte | Tocca la forma dell'elenco e la sua paginazione, non i filtri di stato che PP-01 doveva correggere |
 | **PP01-D5** | `/permissions` **non** ha l'esclusione dei ruoli personalizzati che `/dashboard/access-management` ha (`access-roles.ts`). Un `custom:*` passa la guardia di rotta; `getClubSettings` **inghiotte il 403** e la pagina mostra tutti i venticinque interruttori accesi a prescindere dalla configurazione reale; il salvataggio poi fallisce. E la divergenza fra cio che si vede e cio che si puo, su una pagina di permessi | E un difetto di autorizzazione su una pagina che PP-01 doveva **analizzare** e non modificare (§M: KEEP PARTIAL). Va corretto con il suo commit e il suo test di ruolo |
@@ -2478,6 +2487,147 @@ atterrare. Le due correzioni vanno insieme: la mappatura del `catch` serve
 proprio perche la guardia nuova solleva «Accesso negato», e separarle
 produrrebbe prima un file che risponde 403 per una guardia che non c'e, e poi
 un conflitto d'integrazione su un file conteso.
+## Debito aperto da PP-02 (2026-09-04)
+
+Trovato mentre si riproducevano i difetti di
+[43 — PP-02](43-pp-02-area-famiglia.md). Ogni voce dice **perche** non e stata
+chiusa li.
+
+| # | Cosa | Perche non e stato corretto li |
+|---|---|---|
+| **PP02-D1** | `findClubsWhereUserIsGuardian` (`src/lib/server/parent-dashboard.ts`) e una **scansione di `athletes`**: la domanda «in quali club questa persona compare come tutore» attraversa un array JSON con una funzione per riga, e una funzione per riga non e indicizzabile. Costa una scansione per ogni lettura dell'area famiglia | La chiusura vera non e un indice: e **materializzare il legame** in una tabella con la sua chiave esterna, cioe togliere il tutore da `athletes.data.guardians`. E una migrazione che tocca cinque letture diverse dello stesso campo (SOLL-02) e il proprietario del dominio: un WP, non una riga dentro una lane di correzioni. Fino ad allora il costo lo pagano solo le famiglie, una volta per lettura, e restituisce poche righe |
+| **PP02-D2** | **L'indirizzo di contatto di un tutore non apre un club in cui non ha gia una tessera**, ed e una **decisione**, non un difetto ([ADR-0127](18-decision-log.md#adr-0127--il-legame-di-un-tutore-non-e-la-sua-tessera-il-suo-indirizzo-non-e-un-legame-che-apre-da-solo)). Resta pero il fatto che la KB descrive quel percorso come il modo in cui «una famiglia entra senza riscattare un codice», e in un club nuovo quel modo **non funziona**: la segreteria scrive l'indirizzo, la famiglia si registra, e non trova nessun figlio finche non riceve un invito | Allargarlo capovolge una proprieta di sicurezza che la Wave 5 ha chiuso per nome — «un atleta di un altro club non e un figlio» — e con essa il rischio che un refuso su un dominio diffuso consegni a uno sconosciuto il fascicolo sanitario di un minore. **E una scelta del proprietario del prodotto**, e va fatta insieme al percorso di invito, non al posto suo |
+| **PP02-D3** | La prenotazione di una struttura da parte della famiglia vive in `clubs.structures[].bookings`, un array JSON: nessuna riga, nessuna versione, nessun controllo di concorrenza. Due famiglie che prenotano lo stesso campo nello stesso istante si sovrascrivono, e il conflitto lo cerca un `filter` in memoria | E la stessa famiglia di D2 (doppia rappresentazione dei dati di club) e la stessa che ADR-0098 ha chiuso per gli eventi e ADR-0101 per gli appuntamenti. La chiusura e una tabella `structure_bookings` con l'indice unico parziale: un WP con la sua migrazione. PP-02 ha ristretto la finestra rileggendo dentro la transazione, e lo dichiara: **non e un controllo di concorrenza** |
+| **PP02-D4** | Il **prezzo** non entra nella prenotazione della famiglia: le tariffe del campo si vedono, ma la richiesta salvata non porta nessun importo (`booking.amount` resta indefinito), e nessun incasso nasce da li | Legare la prenotazione al denaro vuol dire farla passare da `payment_transactions`, che e il proprietario del dominio: e una capability nuova, non una correzione. Finche non c'e, le tariffe restano un'informazione e la richiesta un impegno che la segreteria incassa come crede |
+| **PP02-D5** | La **disponibilita di un campo** si legge nel fuso `Europe/Rome`, dichiarato come costante: le strutture non portano un proprio fuso e il club non lo configura | Per ogni club italiano e corretto, ed e lo stesso ripiego che il dominio degli appuntamenti dichiara da sempre (`DEFAULT_APPOINTMENT_TIMEZONE`). Renderlo configurabile e una decisione di prodotto — e va fatta **insieme** per appuntamenti e strutture, non su una superficie sola |
+| **PP02-D7** | `normalizeAvailability` esiste **due volte**: in `src/lib/structures-utils.ts` (il dominio) e in `src/app/structures/page.tsx`, con lo stesso corpo. PP-02 ha dovuto togliere i ripieghi `18:00`/`22:00` da **entrambe**, perche una schermata che mostra una fascia che il server non applica e una schermata che mente | Fondere le due tocca la pagina delle strutture del club, che PP-02 non doveva modificare: e una pulizia con il suo commit. Fino ad allora ogni cambiamento al dominio va replicato a mano, e questa riga esiste per ricordarlo |
+| **PP02-D6** | I **tipi di appuntamento** sono configurazione in `clubs.settings.appointments`, e un appuntamento gia preso porta il **nome** del motivo, non un riferimento. Rinominare un tipo non riscrive la storia — che e voluto — ma vuol dire che «quanti colloqui abbiamo fatto quest'anno» si risponde per stringa | Un riferimento stabile richiederebbe una tabella e una migrazione, e con essa la domanda su cosa fare degli appuntamenti storici. Per un elenco di cinque voci che il club scrive per se, il nome basta e il costo no |
+| **PP02-D8** | Non c'e **rate limit** sulle rotte di famiglia: il limitatore di questo repository copre `api/public/**` e due rotte admin. Una famiglia autenticata puo ripetere una richiesta di prenotazione senza tetto, e ogni richiesta fa un read-modify-write dell'intero array `clubs.structures` — la colonna che ogni pagina del club rilegge | Il terzo round lo ha nominato accanto al difetto della durata illimitata, che **e** stato chiuso (tetto di un giorno, rifiuto del passato): con quello chiuso resta il volume, non piu la singola riga assurda. Un limitatore sulle rotte autenticate e una scelta trasversale — riguarda tutte le famiglie di rotte, non l'area famiglia — e va fatta una volta sola, non qui |
+| **PP02-D9** | `saveAppointmentsConfig` legge `clubs.settings`, cambia una chiave e riscrive, **fuori da una transazione**. Una scrittura concorrente su un'altra chiave dello stesso oggetto — stagioni, configurazione fiscale — fatta da un'altra schermata nella stessa finestra viene persa | E la stessa famiglia di D3 e della doppia rappresentazione: `settings` e un oggetto JSON con molti proprietari e nessun controllo di versione. La chiusura non e una transazione in piu qui, e dare a ogni dominio la sua colonna o la sua tabella. La sonda P-108 prova la sequenzialita, e va detto che **non** prova la concorrenza |
+| **PP02-D10** | Il legame di un tutore si **ricalcola** due o tre volte per richiesta, e ogni volta scandisce `athletes` di tutta la piattaforma. Su `/consents` sono tre letture (rotta, scope, dominio), su `/documents` due, sul cruscotto due | E il costo di D1 moltiplicato: la chiusura vera resta materializzare il legame in una tabella con la sua chiave esterna, e finche `athletes.data.guardians` e un array JSON ogni chiamante che chiede «e suo figlio?» paga una scansione. Una memoizzazione per richiesta la ridurrebbe a una, ed e un WP con la sua misura — non una riga dentro una lane di correzioni |
+| **PP02-D11** | Una prenotazione di struttura chiesta dalla famiglia si conferma o si rifiuta **solo** dalla scheda della singola struttura (`/structures/[id]`): la schermata che le elenca mostra un contatore e nient'altro, e il modello delle notifiche non ha un campo per il collegamento | Il flusso e completo — la riga si scrive, il club la puo cambiare di stato — ma la strada per arrivarci non e disegnata. Il settimo round lo ha segnalato come funzione incompleta, e in parte lo e: `pending` **blocca** lo slot, quindi una richiesta che nessuno trova tiene occupato un campo. PP-02 ha messo il percorso in `data.link` e lo ha nominato nel testo dell'avviso; renderlo cliccabile vuol dire toccare il modello delle notifiche, che ha molti scrittori |
+| **PP02-D12** | Il doppio di Prisma non implementa i filtri di **relazione** (`some`/`every`/`none`, `is`/`isNot`): cadono nel ripiego «condizione non supportata, quindi soddisfatta» | Tre operatori sono stati aggiunti durante PP-02 dopo altrettanti round (`array_contains`, `isEmpty`, piu `has`/`hasSome` gia presenti), ma i filtri di relazione sono un'altra classe e richiedono al doppio di sapere unire due collezioni. Le proprieta che ci si appoggiano — il perimetro di sede e categoria — sono gia provate contro PostgreSQL vero, e il test di PP-01 lo dichiara per esteso. Il rischio non e teorico: e che qualcuno domani scriva un test **nuovo** su un filtro di relazione e lo veda verde per il motivo sbagliato |
+| **PP02-D13** | Due righe tutore **senza identificativo** allo stesso indirizzo non sono distinguibili: revocarne una revoca l'indirizzo, e quindi anche l'altra | Non e un difetto della revoca, e il limite del dato — li l'indirizzo **e** l'identita. Si chiude solo dando a ogni riga un identificativo stabile, cioe materializzando i tutori in una tabella (vedi **PP02-D1** e **PP02-D10**). Finche l'anagrafica e un array JSON, la configurazione ADR-0127 pura (indirizzo scritto dalla segreteria, nessun codice riscattato) su due genitori allo stesso indirizzo si comporta come una persona sola |
+| **PP02-D14** | «Quale indirizzo e di questo tutore» ha due ordini di lettura: il vaglio dell'accesso legge `linkedUserEmail → linked_user_email → email`, i due canali di invio leggono `email → linkedUserEmail → linked_user_email` | Oggi e inerte, perche il vaglio della revoca guarda **tutte e sette** le grafie e l'indirizzo scelto viene comunque azzerato se e revocato: nessuna combinazione misurata fa uscire un indirizzo che non doveva uscire. Allinearli pero **sposta la posta** delle righe che portano entrambi i campi con valori diversi — dall'indirizzo di famiglia a quello dell'account — e non e un cambiamento da fare dentro una lane di correzioni di sicurezza. E la stessa asimmetria che questo pacchetto ha gia pagato tre volte, quindi va chiusa con una decisione esplicita su **quale** dei due sia il recapito |
+| **PP02-D15** | Il ramo che **aggiorna** un tutore esistente all'approvazione di un modulo non marca `contactOnly`, per scelta dichiarata (non si declassa una riga che il club aveva scritto). Il verso opposto non e dichiarato: una compilazione **anonima** che la segreteria associa a un tutore esistente puo sostituirne l'`email`, che e una chiave dell'area famiglia, senza che la riga porti alcun segno | C'e una persona nel mezzo che approva, e vede «Genitore aggiornato»: non e una scrittura automatica. Ma quella schermata non dice che sta consegnando un accesso, e chi approva non ha modo di saperlo. La chiusura non e un marchio in piu — declassare la riga riaprirebbe il difetto per cui la regola esiste — e un avviso nella schermata di approvazione quando il modulo **cambia l'indirizzo** di un tutore gia collegato |
+| **PP02-D16** | `tests/ui/pp-02-superfici.test.mjs` (28 test), `responsive-invariants.test.mjs` (36) e `area-famiglia-wave6.test.mjs` (14) provano il comportamento dei componenti con `readFileSync` + `includes`: **zero import**. Misurato al quindicesimo round spegnendo tre funzioni e lasciando intatte le stringhe cercate — campanella della famiglia, «Cambia figlio», elenco dei moduli online: **28/28 verdi con tre funzioni morte** | La suite non ha `jsdom` ne `react-dom`, quindi oggi il comportamento di un componente non e **misurabile**. Le proprieta che vivono sul server sono provate dalle sonde contro PostgreSQL; quelle che vivono nel browser non sono provate da nessuno. La chiusura e un motore di rendering nella suite (un WP con la sua misura), non un'asserzione piu furba: un grep piu stretto e piu fragile, non piu vero |
+| **PP02-D17** | L'insieme delle identita e allineato al **cancello** ma non ai tre canali di invio: su 96 forme di riga misurate al quindicesimo round, 35 hanno cruscotto aperto e un canale chiuso, e una ha cruscotto chiuso con solleciti e promemoria aperti — e il sollecito porta il **collegamento a gettone per pagare** | Il verso che apre e chiuso (il cancello e piu stretto dei canali in 35 casi su 36, non piu largo). Cio che resta e una **incoerenza**, non un buco: la stessa persona riceve e non vede, o vede e non riceve. La chiusura vera e una lettura sola dei tutori — `guardianDeclaredIds` ne ha unificate due su otto — e vuole toccare quattro moduli con quattro storie diverse: e un WP, non una riga |
+| **PP02-D18** | Riconcedere l'accesso a un tutore **dall'anagrafica** (riscrivendogli il legame dichiarato) apre il cruscotto e lascia l'identita nel registro delle revoche: i canali di invio restano chiusi, senza audit e senza niente a schermo | Contraddice «un accesso ridato si ridà per intero», che il riscatto rispetta. Non si chiude togliendo l'identita dal registro in `resources.ts` — li e in **sola lettura** per progetto (ADR-0129), e renderla scrivibile riaprirebbe il difetto per cui quella regola esiste. La strada e una schermata che dica «questa persona e stata revocata: per riattivarla, genera un invito», cioe UI, non un ramo in piu nella rotta generica |
+| **PP02-D19** | `saveClubStructures` sostituisce l'array intero da uno snapshot del client: una prenotazione di famiglia accettata mentre la segreteria tiene aperta la pagina delle strutture sparisce, dopo aver risposto 200, scritto l'audit e mandato la notifica | E la classe «ultimo che salva vince» su un blob JSON, la stessa che il conflitto ottimistico chiude altrove nel prodotto. Va chiusa con una versione sulla riga, non con un rattoppo: `clubs.structures` ha piu scrittori e il campo `version` non c'e. Misurato leggendo il chiamante, non con due transazioni concorrenti |
+| **PP02-D20** | La ricevuta pubblica anonima elenca **tutte** le richieste documentali aperte del minore, non quelle della pratica che la ricevuta rappresenta | Chi ha il link vede piu di quanto la pagina promette. Non e un IDOR — il link e una credenziale a 32 byte, con impronta SHA-256 e confronto a tempo costante — ma e un perimetro piu largo del necessario, e la correzione vuole legare la richiesta alla pratica, cioe una colonna che oggi non c'e |
+| **PP02-D21** | Quattro implementazioni di «quanti atleti sono attesi a un allenamento», con precedenze opposte, e `clubs.trainings` ha **due** scrittori: `training-automation.ts` scrive `prisma.club.update({trainings})` direttamente, contro ADR-0098 | E il denominatore di ogni percentuale di presenza, e cambia fra la creazione (`0/40`), il ricaricamento (`0/12`) e il widget. La causa materiale e il secondo scrittore: finche esiste, allineare le quattro letture non serve. La chiusura e portare quella scrittura dentro `events.ts`, che e un WP con la sua misura |
+| **PP02-D22** | Uno sconto **disattivato** continua a scontare, e uno **rinominato** smette in silenzio: ne `resolveSelectedDiscounts` ne `calculateDiscountAmount` guardano `discount.active`, e l'atleta memorizza il **titolo** dello sconto invece dell'id | Misurato: disattivato → sconta ancora 60 EUR; rinominato → il dovuto sale di 60 EUR a tutti gli atleti che lo avevano, senza avviso e senza storico. La chiusura vera e memorizzare l'id — una migrazione dei dati esistenti, non una riga — e va fatta insieme al vaglio su `active`, o disattivare uno sconto diventerebbe un aumento silenzioso |
+| **PP02-D23** | Lo sconto si applica **sopra** l'importo scritto a mano: `manuale 300 + sconto 10% → 270` | Un importo negoziato e per definizione gia scontato. Cambiarlo pero sposta i totali di ogni atleta con un importo manuale **e** uno sconto, cioe e una decisione di prodotto con un impatto sui conti gia scritti: va presa dal club, non dentro una lane di correzioni |
+| **PP02-D24** | Percentuali di sconto non limitate a 100 (150% su 600 EUR stampa «Sconti −900,00 EUR», e il totale e clampato ma l'etichetta no) e quattro parser di importi di cui uno solo legge le migliaia (`"1.200,00"` → **1,20 EUR** in tre su quattro) | Raggiungibili da API o seed, non dai campi umani (`type="number"`). Sono la stessa classe: piu letture della stessa nozione, e la chiusura e unificarle, non correggerle una per una |
+| **PP02-D25** | Il gettone di invito di un tutore porta `guardian_email` e **nessuno lo verifica**: chi ha il codice, chiunque sia, diventa tutore dichiarato di quel minore e la sua eventuale revoca viene azzerata | Il codice si copia negli appunti e il club lo consegna come vuole — a voce, in chat, di persona — quindi legare il riscatto a quell'indirizzo **chiuderebbe fuori** le famiglie che si registrano con un altro indirizzo, che e la configurazione ordinaria di ADR-0127. Le due chiusure possibili sono entrambe decisioni di prodotto: **consegnare** l'invito per email (e allora vincolarlo), oppure dichiarare che il codice e un titolo al portatore e mostrarlo nella schermata che lo genera. Mitigazioni gia in essere: 2^45 di entropia, uso singolo, 10 riscatti/ora per utenza e 30 per indirizzo IP |
+| **PP02-D26** | La campanella dell'**area atleta** suona solo per i documenti: dei sette produttori di notifiche, solo `document-requests.ts` risolve i destinatari includendo `athletes.user_id`. Appuntamenti, promemoria del certificato, comunicazioni del club e solleciti passano tutti da `guardians[]` | Un ragazzo con il proprio accesso (ADR-0104) vede l'appuntamento confermato nella sua area e la campanella a zero; quella della madre suona. Non e un buco di sicurezza ma una promessa a meta, e la chiusura tocca quattro risolutori di destinatari con storie diverse: e un WP, non una riga. Il gate non lo vede perche l'area atleta e provata per **proiezione** e per «la rotta risponde», mai per «esiste una notifica per lui» |
+| **PP02-D27** | La campanella dell'**allenatore** e tre sorgenti scollegate: il numero conta gli avvisi operativi, il pannello legge la tabella `notifications`, «vedi tutte» torna agli avvisi operativi. Il terzo guscio non passa `onMarkRead` | Nessuna perdita di dati fra utenti (`applyRecipientScope` restringe la lettura generica a `user_id = se stesso oppure nullo`): e un'incoerenza fra badge, pannello e pagina. Va chiusa decidendo **che cosa conta** quella campanella, che e una domanda di prodotto |
+| **PP02-D28** | L'etichetta della causale non e congelata sui `payment_transactions`: la colonna `operation_type_label_snapshot` non esiste su quella tabella, e la vista del registro fa `ot.label` in join **vivo** mentre per le altre tre sorgenti fa `COALESCE(snapshot, label)` | Un club che rinomina una causale vede **riscritti retroattivamente** tutti gli incassi passati delle famiglie nel rendiconto per voce: un prospetto stampato a marzo stampa diverso a maggio senza che nessun movimento sia cambiato — cioe il difetto che ADR-0106 esiste per impedire, ancora vivo sulla popolazione di righe piu grande. La chiusura e una colonna piu una migrazione della vista: va fatta con la sua misura, non dentro una lane di correzioni |
+| **PP02-D29** | `reverseSettlement` ricalcola ogni storno parziale dal rapporto sull'importo **originale**: un pagamento rimborsato in piu tranche restituisce una commissione diversa da quella trattenuta (misurato: 156 centesimi restituiti contro 155 trattenuti su due rimborsi da 65 EUR; 208 contro 213 su tredici da 10) | La scorciatoia «rimborso pieno» che protegge l'ultimo centesimo non scatta mai quando il rimborso arriva in piu volte — che e l'esempio del modulo stesso. Serve che lo storno sappia **quanto e gia stato stornato**, cioe uno stato che oggi non c'e: e un WP |
+| **PP02-D30** | Il perimetro del gruppo operativo di un allenatore vale in **lettura** (`getResourceById`, elenchi) e non in **scrittura**: `updateResource` e `deleteResource` non richiamano `filterTrainerDashboardRecords` | Oggi non e raggiungibile — la rotta generica nega `update` e `delete` al ruolo `trainer` su tutte e cinque le risorse filtrate — ma il commento accanto al filtro promette «lo stesso filtro, non un secondo giudizio», e la meta in scrittura non c'e. Il giorno in cui un ruolo con quel perimetro ottiene la scrittura, entra da li: misurato, un allenatore di Under 12 riscrive l'anagrafica di un atleta di Under 15 e ne cancella il legame della madre |
+| **PP02-D31** | `generateInstallmentPreview` produce una rata da **0,00** senza nessun avviso, e le due schermate che la chiamano bloccano il salvataggio solo su `warnings.length > 0`: due rate «a saldo» su un piano da 600 EUR danno `[600, 0]`. Misurato su 200.000 piani casuali: 11.891 con due o piu rate a saldo, 133 con una sola | `roundInstallmentsToFive` e a prova di fuzz (200.000 giri, zero difetti): lo zero nasce **a monte**, da `preserveIndexes` che esclude l'ultimo indice e da un elenco di avvisi che copre solo `percentageTotal > 100` e `fixedTotal > total`. Si indurisce la funzione e il difetto si sposta di un anello: la chiusura e un avviso nuovo — «una rata resterebbe a zero» — piu il vincolo nelle due schermate, cioe una riga di prodotto e non di dominio |
+| **PP02-D32** | La coppia storica `parent1`/`parent2` non entra nel riporto delle difese: `resources.ts` legge e riscrive solo `data.guardians`, quindi un marchio `accessRevokedAt` scritto su `parent1` da «Scollega account» sparisce al primo salvataggio dell'anagrafica | L'accesso resta chiuso — il registro delle identita revocate lo tiene, e i quattro lettori di notifiche lo onorano — quindi oggi si perde solo la ridondanza. E la stessa asimmetria che il registro dei soli recapiti ha appena chiuso per l'altra difesa, su un contenitore che il riporto non guarda affatto: la chiusura coerente e portare la coppia storica dentro il riporto, o completare la migrazione verso `guardians` |
+| **PP02-D33** | Cinque approvazioni concorrenti di moduli sullo stesso atleta perdono righe tutore: tutte rispondono «Genitore aggiunto», e in anagrafica ne arrivano due o tre. Misurato sei giri su sei prima del blocco di riga | Il blocco introdotto in questo round mette in fila le scritture su `athletes.data`, quindi la corsa non si perde piu **fra** i quattro scrittori che lo prendono. Resta pero che `decideFormSubmission` legge l array dei tutori **prima** della transazione e lo rimanda: due approvazioni serializzate scrivono ognuna il proprio snapshot, e la seconda non vede la riga della prima. La chiusura e leggere i tutori **dentro** il blocco, cioe portare l intera decisione sotto la stessa transazione della scrittura: e un cambio di forma di `eseguiDecisione`, non una riga |
+| **PP02-D34** | Lo sweep della revoca non puo avere insieme **correttezza** e **assenza di deadlock**: scegliere le schede fuori dal blocco fa sfuggire quella che acquista il tutore mentre la revoca gira (5 giri su 5); bloccarle tutte con un `FOR UPDATE` sul club chiude quella finestra e va in abbraccio mortale con il rollover di stagione, che prende le stesse righe in ordine di scansione (5 giri su 5, misurato dal log di PostgreSQL) | **Ricaratterizzato al round 28**: la finestra non e «stretta». Misurata dalle due porte vere in parallelo con 20 ms di sfasamento, il tutore revocato legge ancora il secondo figlio **5 giri su 5** sia su un club da 40 tesserati (revoca in 49 ms) sia su uno da 400 (222 ms): la finestra e **l'intera durata dello sweep** e cresce con i tesserati. La scelta fatta resta la meno dannosa, il deadlock fa fallire **ogni** revoca durante un passaggio di stagione, con un messaggio generico e nulla in audit. Non si chiude con una terza stesura del ciclo: si chiude quando la revoca diventa **una riga da aggiornare** invece di un ciclo su un blob — nessuna scansione, nessun blocco per riga, nessun ordine di acquisizione da incrociare |
+| **PP02-D35** — **CHIUSO** (WP-A) | I quattro sweep di `revokeClubAccess` decidono se lavorare confrontando `organization_users.role` con quattro **insiemi di letterali** (`profile-account-links.ts:893-896`), mentre il resto del prodotto decide con `normalizeAccessRole`, che di alias ne conosce **36**. Quattordici grafie canoniche — fra cui `tutor`, `giocatore`, `club_manager`, `segreteria` — e **tutte** le forme di slug personalizzato `custom:<base>:<nome>` sono invisibili agli sweep. Misurato dalle porte vere: revoca riuscita, tessera cancellata, audit scritto, e il genitore apre ancora il fascicolo del minore | Non si chiude allungando i quattro elenchi — sarebbe la quinta volta. Si chiude togliendoli: gli sweep chiedono `normalizeAccessRole` e `parseCustomRoleValue`. Vedi [44 — AC-2](44-pp-02-root-cause-analysis.md) |
+| **PP02-D36** — **CHIUSO** (WP-A) | `PATCH /api/v1/[resource]/[id]` legge il corpo con `body?.data ?? body`; il `POST` della stessa rotta ha `resolveCreatePayload`, con una euristica scritta apposta per non confondere l'involucro con il contenuto. Su `athletes`, che ha una colonna `data`, un `PATCH` con il corpo non incartato risponde **200 senza scrivere niente**. Nessun client del prodotto e colpito oggi (incartano tutti), ma un salvataggio che *toglie* un tutore diventerebbe un no-op silenzioso | Un corpo, una regola, tre verbi: `resolveCreatePayload` sale in un modulo condiviso dalle due rotte. Vedi [44 — AC-3](44-pp-02-root-cause-analysis.md) |
+| **PP02-D37** — **CHIUSO** (WP-A) | **La classe, non il caso.** Tre round consecutivi hanno trovato il difetto piu grave nella stessa forma: una difesa vera e provata che copre **un valore su N** di un'enumerazione ricopiata a mano — un verbo su tre (round 26), una risorsa su due (round 27), una grafia di ruolo su ventidue (round 28). Ogni volta la chiusura e stata allungare l'elenco, e la correzione del round 27 ha introdotto il quinto elenco. Le sonde non lo vedono perche esercitano il valore che chi ha scritto la difesa aveva in mente: la copertura e alta, la **varieta** e bassa | Regola proposta: ogni enumerazione che governa una difesa ha un test che **enumera il dominio canonico** derivandolo dalla fonte unica, e fallisce quando compare un valore non coperto. Vedi [44](44-pp-02-root-cause-analysis.md) |
+
+### WP-A — cosa si e chiuso, e con quale misura (2026-09-05)
+
+Il primo dei quattro interventi di [44 — l'analisi della causa](44-pp-02-root-cause-analysis.md):
+AC-2, AC-3 e i due test di totalita che ne discendono
+([ADR-0130](18-decision-log.md#adr-0130--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)).
+Nessuna migrazione, nessun cambio di modello.
+
+| Debito | Esito | Come e stato misurato |
+|--------|-------|------------------------|
+| **PP02-D35** (R-1, High) | **CHIUSO** | I quattro `Set` di letterali sono spariti da `profile-account-links.ts`: i quattro sweep chiedono `isTrainerAccessRole` / `isManagementAccessRole` / `isParentAccessRole` / `isAthleteAccessRole`, che passano tutti da `normalizeAccessRole` e risolvono percio i 36 alias **e** il ruolo base di uno slug personalizzato. `scripts/pp-02-totalita-ruoli.mjs`: 6/6 su 40 grafie, e **rosso su 23 grafie** riportando la difesa vecchia |
+| **PP02-D36** (R-3) | **CHIUSO** | `src/lib/server/resource-request-payload.ts` e l'unico lettore del corpo per i tre verbi. `scripts/pp-02-totalita-corpo.mjs`: 10/10, e **rosso su 22 risorse su 22** riportando la difesa vecchia |
+| **PP02-D37** (la classe) | **CHIUSO come regola** | La regola e scritta in ADR-0130 e ha due esecutori veri. Resta aperto il lavoro di **applicarla alle altre enumerazioni** del prodotto: qui sotto |
+
+**Due cose che la misura ha corretto nell'analisi.** Vale la pena scriverle
+perche in entrambi i casi il numero della KB era piu ottimista del vero, ed e
+la seconda volta in questo perimetro (vedi la nota in coda ad ADR-0129).
+
+- **PP02-D35 diceva «quattordici grafie».** Sono **diciannove**: il vecchio
+  `STAFF_ROLES` non conteneva nessuna delle cinque forme di `owner`
+  (`owner`, `proprietario`, `proprietaria`, `club_creator`, `club-creator`),
+  quindi revocare la tessera di un proprietario **non** scollegava la sua
+  scheda staff. Con le quattro forme `custom:` fanno ventitre. Il conteggio
+  della RCA era stato dedotto leggendo i due elenchi, non eseguendoli.
+- **PP02-D36 era classificato Medium, con la nota «nessun client e colpito
+  oggi, incartano tutti».** La sonda dice altro: sulla difesa vecchia,
+  **ventidue risorse su ventidue** accettavano un `PATCH` con il corpo non
+  incartato, rispondevano **200 e non scrivevano niente**. Non era una
+  particolarita di `athletes`: era **qualunque** corpo della forma
+  `{ ...campi, data: {...} }` su **qualunque** risorsa — `categories`,
+  `club_sites`, `trainers`, `staff_members`, `sponsors`, `payment_plans`,
+  `document_templates`, `weekly_schedule` e le altre. La gravita reale e
+  perdita di dati silenziosa sull'intera superficie di scrittura generica; era
+  stata sottostimata perche dedotta dalla forma del codice invece che
+  eseguita.
+
+**Cosa resta aperto di PP02-D37.** La regola ha due esecutori; le enumerazioni
+del prodotto sono di piu. Non e stato fatto il censimento delle altre — a
+partire da `RISORSE_CHE_SI_MODIFICANO_DA_UN_POSTO_SOLO`, che la RCA nomina
+come il quinto elenco scritto a mano e che oggi **non ha** un test che lo
+derivi dalle guardie di `updateResource`. E un WP, e va aperto con il suo
+censimento.
+
+**Cosa NON chiude WP-A.** `PP02-D33`, `PP02-D34` e la ricaratterizzazione di
+R-2 restano intatti: si chiudono solo quando un tutore diventa **una riga**
+(AC-1, cioe WP-B/C/D). WP-A e indipendente da quel lavoro e non lo anticipa.
+
+### D-MIG-1 — la storia delle migrazioni non riproduce il modello (scoperto in WP-B, 2026-09-05)
+
+**Come si e visto.** Validando la migrazione di WP-B: creato un database vuoto
+e applicato `prisma migrate deploy`, tutte e 55 le migrazioni passano. Ma il
+confronto fra il risultato e il modello
+
+```bash
+npx prisma migrate diff --from-url <db-vuoto-migrato> \
+  --to-schema-datamodel prisma/schema.prisma --script
+```
+
+produce **39 istruzioni** di scarto. Nessuna riguarda `athlete_guardians` o
+`anonymized_at` — la migrazione nuova produce esattamente il suo pezzo di
+modello — ma il resto dello scarto era gia li:
+
+- indici con nomi non canonici, che il modello vorrebbe rinominare
+  (`accounting_entries_org_account_date_idx`,
+  `club_event_participants_org_athlete_rsvp_idx`,
+  `membership_events_org_type_idx`, e altri undici);
+- vincoli di chiave esterna con nome proprio scritto a mano
+  (`..._conto_dello_stesso_club` su quattro tabelle);
+- `DEFAULT` su `id` e `updated_at` presenti nel database e assenti nel modello,
+  su una dozzina di tabelle;
+- un indice unico su `document_templates_v2` che il modello dichiara e le
+  migrazioni non creano.
+
+**Perche conta.** Non e cosmesi. `prisma migrate deploy` gira **a ogni deploy**
+(`vercel-build`), e staging e produzione nascono da quella storia. Se lo schema
+che la storia produce non e quello che il modello dichiara, allora:
+
+- il client Prisma e generato su un modello che il database non ha esattamente;
+- una migrazione futura generata da `prisma migrate dev` conterra anche questo
+  scarto accumulato, mescolando la correzione voluta con dodici modifiche non
+  volute — che e il modo in cui una migrazione diventa rischiosa senza che
+  nessuno l'abbia decisa;
+- oggi non si puo dire «lo schema di staging e quello del modello», e nessuno
+  se ne accorge finche un indice mancante non diventa una query lenta o un
+  vincolo mancante non lascia entrare una riga.
+
+**Come si chiude.** Non dentro una lane di correzioni: e una migrazione di
+riconciliazione con la sua misura, che porti la storia a produrre il modello e
+riduca lo scarto a zero, piu un gate che lo verifichi (`migrate diff` fra la
+storia e il modello deve essere vuoto). Va aperto come WP con il suo censimento
+delle 39 istruzioni, decidendo per ognuna se vince il database o il modello.
+
+**Mitigazione oggi**: nessuna necessaria in emergenza — lo scarto e fatto di
+nomi e di default, non di colonne mancanti, e il prodotto gira. Ma va sanato
+prima che qualcuno generi una migrazione con `prisma migrate dev` su questo
+schema.
 ### D-EV-1 — `club_event_participants.athlete_id` non ha una chiave esterna
 
 `prisma/schema.prisma`, `model ClubEventParticipant`: `athlete_id String` —
@@ -2579,3 +2729,407 @@ adesso subito dopo la tessera, e un suo rifiuto solleva **prima** che il
 gettone venga consumato. Chiuderla davvero vuol dire portare le cinque
 scritture sotto la stessa transazione, e `updateResource` non accetta oggi un
 client di transazione: e un WP, non una riga.
+
+### PP02-D34 — la misura definitiva della finestra (2026-09-06)
+
+`scripts/pp-02-revoca-atomica.mjs` sostituisce la caratterizzazione del round
+28, che era gia una correzione di una precedente e **ancora** non era la misura
+giusta.
+
+**Cosa misurava W-79, e perche non bastava.** «La revoca vede anche una scheda
+toccata mentre gira»: una taglia di club, **uno** sfasamento. Un istante in cui
+la finestra non si apre. La RCA lo chiama per nome: la copertura e alta, la
+varieta e bassa.
+
+**Cosa misurava il round 28.** Due porte in parallelo con lo sfasamento fissato
+a 20 ms: 5 giri su 5. Meglio, ma sempre **un** punto della finestra.
+
+**Cosa si misura adesso.** Lo sfasamento non si indovina: si **percorre**. La
+revoca viene cronometrata, e la scrittura concorrente — il salvataggio
+ordinario dell'anagrafica, da `updateResource` — viene inserita a sette
+frazioni diverse della sua durata. Su un club di 60 schede con lo stesso
+tutore, revoca da **499 ms**:
+
+| sfasamento | la scheda sfugge alla revoca? |
+|------------|-------------------------------|
+| 0% | no — la scrittura arriva prima che l'elenco sia scelto |
+| 10%, 25%, 40%, 55%, 70%, 85% | **si**, tutte |
+
+**Sei sfasamenti su sette.** Non e «una corsa rara» e non e nemmeno «una
+finestra stretta»: e **tutta** la scansione tranne il suo primo istante. Su
+quelle sei schede il tutore revocato entra ancora — tessera cancellata, audit
+scritto, fascicolo del minore aperto.
+
+E la ragione per cui la sonda vive: fino a quando non diventa verde, R-2 e
+aperto e **PP-02 non e FINAL**. Diventera verde quando lo sweep smettera di
+essere una scansione su un blob e diventera una `UPDATE` sola su
+`athlete_guardians` (AC-1, WP-C+D): non c'e piu un elenco scelto prima, quindi
+non c'e piu un dopo in cui infilarsi.
+
+---
+
+## PP-02 / WP-C+D — cosa si chiude quando un tutore diventa una riga (2026-09-06)
+
+Il travaso di WP-B aveva creato la tabella e non l'aveva resa autorevole: nessun
+codice di prodotto la leggeva o la scriveva. WP-C+D sposta l'autorita, e con lei
+cadono cinque voci di questo registro — non perche siano state corrette una per
+una, ma perche la forma da cui nascevano non c'e piu.
+
+| Debito | Stato | Cosa lo chiude, e come si e misurato |
+|---|---|---|
+| **R-2** (High) | **CHIUSO** | La revoca di una tessera era un ciclo su ogni tesserato del club: ~840 ms su un club da 60 atleti, e la scheda che acquistava il tutore mentre girava sfuggiva a **7 sfasamenti su 7**. Adesso e una `UPDATE` con un `WHERE` su un indice: ~84 ms, **0 su 7**. `scripts/pp-02-revoca-atomica.mjs`, che percorre la finestra invece di indovinare uno sfasamento |
+| **PP02-D34** | **CHIUSO** | Le due proprieta che «non si ottenevano insieme» — nessuna scheda sfugge, e nessun abbraccio mortale con il passaggio di stagione — adesso si ottengono tutte e due, e non per un compromesso migliore: non c'e piu una scansione da cui la finestra nasca, ne un elenco su cui prendere blocchi in un ordine da incrociare con quello del rollover. Cade anche il tetto oltre il quale la transazione scadeva, perche il costo non cresce piu con i tesserati del club |
+| **PP02-D33** | **CHIUSO** | Cinque approvazioni concorrenti di moduli sullo stesso atleta perdevano righe tutore, 6 giri su 6. La causa era che `decideFormSubmission` leggeva l'array **prima** della transazione e lo rimandava: due decisioni serializzate scrivevano ognuna il proprio snapshot. Adesso l'elenco non si legge affatto — e una `upsert` su `(athlete_id, identity_key)` — quindi non c'e uno snapshot da rimandare. **Si chiude perche la domanda non si pone piu**, non perche sia stata messa una serratura piu grossa |
+| **PP02-D1** | **CHIUSO** | «La chiusura vera e materializzare il legame in una tabella con la sua chiave esterna». La ricerca dei figli di un tutore era una scansione di `athletes` in SQL grezzo dentro un array JSON — non indicizzabile, e con un `catch` largo che la faceva degradare **in silenzio** a «nessun club» per tutte le famiglie del sistema. Adesso e una interrogazione su `(organization_id, user_id)` piu un indice sull'indirizzo |
+| **PP02-D13** | **RIDIMENSIONATO** | «Due righe senza identificativo allo stesso indirizzo non sono distinguibili nemmeno in principio». Resta vero come enunciato, e smette di essere un rischio: una riga senza utenza e senza indirizzo riceve adesso una chiave **sua** (`riga:<identificativo>`), coniata insieme alla riga, quindi due sconosciuti diversi non collassano piu in uno |
+
+### Cosa questo lavoro **non** chiude, e va detto
+
+| Debito | Stato | Perche resta |
+|---|---|---|
+| **PP02-D38** (nuovo, Low) | **APERTO** | `athletes.data.parents`, `.tutors`, `.tutori` sono **dato morto**: un censimento indipendente dei lettori non ne ha trovato **nessuno** in tutto `src/`, e il travaso non li legge — leggerli inventerebbe legami che nessun predicato riconosceva, ed e uno dei quattro difetti che la sonda del travaso ha misurato. Restano in archivio perche cancellare un dato senza bisogno e un'altra classe di errore. Vanno tolti con una migrazione dedicata, dopo aver contato quante schede li portino |
+| **PP02-D39** (nuovo, Medium) | **APERTO** | La finestra dichiarata da ADR-0135: scrivere oggi l'indirizzo di un'utenza che **nascera domani** produce il legame senza passare dal vaglio dei due permessi. Chiuderla vorrebbe dire negare la correzione di un refuso in un'email, che e il lavoro di tutti i giorni di una segreteria — e il difetto che due stesure precedenti hanno gia pagato. Si chiude con un vaglio al momento della **registrazione** dell'utenza, non a quello della scrittura dell'indirizzo |
+| **PP02-D40** (nuovo, Medium) | **APERTO** | La **proiezione** `athletes.data.guardians[]` resta, e con lei restano i tre lettori che prendono i tutori **per posizione**: `billingGuardianIndex` (di chi e il codice fiscale su una ricevuta), i segnaposto `{{parent.1.*}}`, e il `recordId` di una compilazione gia salvata. La posizione e adesso una colonna e l'ordine e deterministico, quindi il rischio e chiuso; ma tre letture che decidono un fatto fiscale o il nome su un documento continuano a farlo per posizione invece che per persona. Vanno spostate su un riferimento esplicito, ed e un lavoro con conseguenze fuori dal prodotto: cambia chi paga una fattura |
+| **PP02-D41** (nuovo, Low) | **APERTO** | Esistono **due** `getGuardianRows`: quella di `parent-dashboard.ts` (che dopo WP-C non decide piu niente) e quella **esportata** da `medical-certificate-reminders.ts`, che decide chi riceve gli avvisi sul certificato di un minore. Leggono le stesse righe con regole diverse — una conta sei grafie dell'identificativo, l'altra quattro. Adesso leggono tutte e due la **proiezione**, quindi i marchi non si perdono piu; ma restano due nozioni di «tutore» per due domande diverse, e almeno tre canali di notifica non sono d'accordo su quali grafie facciano di una persona un destinatario |
+| **PP02-D42** (nuovo, Low) | **APERTO** | Il gettone di invito del tutore vive ancora **in chiaro** su `athlete_guardians.access_token_value`. Per l'atleta ADR-0104 conserva la sola impronta; qui il travaso ha portato cio che esisteva, e non ha cambiato il meccanismo. E lo stesso debito che WP-B aveva gia scritto sul campo |
+
+### Il conteggio degli scrittori, rifatto da zero
+
+Il censimento e stato rifatto contro il codice invece che aggiornato: sono
+**diciannove istruzioni di scrittura in grado di cambiare uno stato di tutore,
+su otto file**, e non sedici. Le tre in piu vivono nel **browser**
+(`simplified-db.ts`): compongono il blob e lo mandano alla rotta generica, e
+nessun censimento precedente le aveva nominate.
+
+E la ragione per cui l'invariante e stata messa nell'archivio invece che in un
+test: la rotta generica scrive attraverso un delegato **calcolato a runtime**,
+quindi un elenco derivato da una ricerca testuale non puo essere completo per
+costruzione (ADR-0136).
+
+### PP02-D34 e tornato una volta, prima di chiudersi (2026-09-06)
+
+Vale la pena scriverlo, perche l'errore non e stato nel codice ma **nel modo di
+dichiarare chiusa una classe**.
+
+WP-C ha tolto il ciclo dello sweep e il blocco sull'intero club, e le note del
+lavoro dichiaravano: «non ci sono blocchi per riga, quindi non c'e un ordine di
+acquisizione da incrociare con nessun altro». Era vero per i blocchi **tolti**,
+e falso per quelli rimasti:
+
+| Chi | Prende prima | Poi |
+|---|---|---|
+| il salvataggio dell'anagrafica | `athletes` (`lockAthleteRow`) | `athlete_guardians` |
+| la revoca di una tessera | `athlete_guardians` | `athletes` (la proiezione) |
+
+Due ordini opposti sulle stesse due tabelle. PostgreSQL:
+
+```
+deadlock detected: Process 340958 waits for ShareLock on transaction 320432;
+blocked by process 340944. Process 340944 waits for ShareLock on transaction 320433...
+```
+
+Quando la vittima e la revoca, la schermata dice «revocato» e la persona e
+ancora dentro — il modo di fallire da cui PP-02 e nato.
+
+**Chiuso** con un ordine solo per tutti (`bloccaSchede`): prima la scheda, poi
+le sue righe, e le schede in ordine crescente di identificativo. Non e il blocco
+che D34 descriveva — quello prendeva quattrocento schede in ordine di
+scansione — ma le schede su cui quella persona compare davvero: i suoi figli.
+
+**La lezione.** Una classe di difetto non si dichiara chiusa perche e sparita
+**l'istanza** che si stava guardando. Il deadlock non nasceva dal ciclo: nasceva
+da **due ordini di acquisizione incrociati**, e togliere il ciclo ne ha tolto
+uno lasciando l'altro. La domanda giusta non era «c'e ancora quel blocco?» ma
+«esiste un ordine solo?».
+
+Lo ha trovato una sonda — `W-72` e `W-79` — mentre veniva riscritta per il
+modello nuovo, e non una revisione del codice: la coppia di transazioni che lo
+produce non e evidente leggendo nessuna delle due funzioni da sola.
+
+
+## PP-02 — cosa il secondo vaglio indipendente ha lasciato aperto (2026-09-06)
+
+Cinque reperti chiusi (ADR-0137). Qui sotto cio che la revisione ha dichiarato
+di **non** aver misurato: sono lacune di copertura, non difetti trovati.
+
+### D43 — Il rollover di stagione e la revoca di tesseramento non sono stati attaccati
+
+La revisione non ha toccato il passaggio di stagione ne la cancellazione di un
+tesseramento. Le affermazioni su `bloccaSchede` e sull'ordine di acquisizione
+dei blocchi rispetto al passaggio di stagione restano quindi **non misurate**
+da questa revisione — non smentite, non confermate.
+
+**Dove.** `src/lib/server/seasons.ts`, `src/lib/server/athlete-membership.ts`.
+
+### D44 — La concorrenza vera resta misurata solo in sequenza
+
+Le sonde di questo pacchetto serializzano: due segreterie che salvano la stessa
+scheda **simultaneamente**, due approvazioni di modulo concorrenti e l'ordine di
+acquisizione dei blocchi sotto contesa non sono stati riprodotti. La revoca
+concorrente con un salvataggio in volo e invece misurata.
+
+### D45 — `scripts/provision-staging-e2e.mjs` scrive ancora il blob
+
+Lo script di provisioning semina i tutori dentro `athletes.data.guardians[]`,
+che dopo WP-C e una proiezione: l'area famiglia di uno staging appena
+provisionato non si apre. Va portato su `saveGuardianRegistry`.
+
+### D46 — Tre letture del riscatto passano dalla proiezione, non dall'autorita
+
+`loadParentAccessTarget` e `alreadyLinkedUserId` leggono `athletes.data`. Non
+decidono un accesso — quello lo decide `findGuardianLinks` sulle righe — ma
+sono la classe di lettura che questo pacchetto ha speso ventotto round a
+spostare, e vanno riportate sull'autorita.
+
+### D47 — L'approvazione di un modulo preferisce `linkedUserEmail`
+
+Se una compilazione propone un indirizzo diverso da quello gia collegato, il
+cambio proposto viene silenziosamente ignorato. E una perdita di dato, non un
+buco di accesso.
+
+### D48 — Il cruscotto della famiglia pubblica i recapiti di un tutore revocato
+
+L'elenco mostrato in area famiglia proietta anche le righe revocate con i loro
+recapiti. Nessun accesso ne deriva; e un'esposizione di dato personale fra
+tutori della stessa scheda.
+
+### D49 — Due salvataggi concorrenti della stessa scheda perdono un tutore
+
+Il salvataggio dell'anagrafica **sostituisce** l'elenco dei tutori. Due
+segreterie sulla stessa scheda, la seconda con l'elenco letto un istante prima:
+entrambe riescono, e la riga che la prima aveva appena creato sparisce — nome,
+telefono e codice fiscale di un tutore legittimo, in silenzio.
+
+Non e una corsa che l'ordine dei blocchi non governa: le due transazioni sono
+serializzate da `bloccaSchede`, ed e la semantica di sostituzione applicata a
+uno snapshot vecchio. Lo stesso esito si ottiene in sequenza con due linguette
+aperte.
+
+**Perche non si chiude qui.** Chiuderla vuol dire concorrenza ottimistica sul
+salvataggio della **scheda** — una versione che il client rimanda e il server
+verifica — e riguarda ogni campo dell'anagrafica, non i tutori. Farla dentro
+questo pacchetto la metterebbe in uno solo dei posti che ne hanno bisogno.
+
+**Perimetro di sicurezza (misurato, e verde):** nessuna riga revocata risuscita
+e nessun accesso si apre. Il danno e la perdita di un recapito, non un varco.
+Sonda: `scripts/pp-02-terzo-vaglio.mjs`, sezione R-H, che stampa la misura.
+
+### D50 — Un tutore non ha una strada di ingresso propria fra i diritti dell'interessato
+
+`DATA_SUBJECT_KINDS` contiene solo `athlete`: non si puo chiedere «cancella
+questo tutore» nominando lui. La motivazione storica — «un tutore vive dentro
+`athletes.data.guardians`, e cancellarlo significa riscrivere l'anagrafica di un
+altro» — **non e piu vera** da WP-C: e una riga con una chiave.
+
+La parte urgente e stata fatta: `athlete_guardians` e ora una fetta
+dell'inventario, quindi il riepilogo la nomina e il gettone di conferma la
+copre. Resta da fare la strada di ingresso per il soggetto `guardian`.
+
+### D51 — Un invito che nomina la riga dietro una voce della scheda da 404
+
+`loadParentAccessTarget` cerca il tutore dentro `athletes.data.guardians`, che
+pubblica **una voce per posizione**. Un gettone coniato fuori dall'interfaccia
+che nomini una delle righe fuse dietro quella voce non si riscatta: 404.
+
+Non e un buco di sicurezza — e il verso restrittivo — ed e irraggiungibile dal
+conio odierno, perche la scheda quell'identificativo non lo pubblica. Va chiuso
+risolvendo il bersaglio del riscatto sull'**autorita** invece che sulla
+proiezione, insieme a D46.
+
+### D52 — Un salvataggio ordinario cancella la riga nascosta dietro una voce
+
+La proiezione ricompone i tutori per posizione e la scheda mostra una voce dove
+il travaso puo aver messo due righe. Il salvataggio cancella ogni riga viva che
+non sia nominata, e la scheda quella riga non la nomina: il primo salvataggio
+ordinario la distrugge — un tutore legittimo perde l'accesso senza una revoca e
+senza una riga di audit.
+
+Non e un varco (toglie, non concede) ed e la stessa famiglia di D49: il rimedio
+sta nel far portare al salvataggio l'insieme delle righe che la voce rappresenta,
+non un id solo. Ipotesi lasciata dal sesto vaglio, **non ancora misurata**.
+
+### D53 — Le posizioni delle righe revocate non si rinumerano
+
+Le righe in arrivo prendono come `position` l'indice dell'array; le righe
+revocate conservano la loro e non vengono rinumerate. Due righe possono percio
+condividere una posizione, e la proiezione le fonde con la regola «chi chiude
+vince»: un tutore **vivo** comparirebbe come revocato.
+
+Sarebbe un falso senso di revoca — la schermata dice chiuso, l'archivio dice
+aperto — ed e la direzione piu pericolosa fra le due. Ipotesi lasciata dal sesto
+vaglio, **non ancora misurata**: e la prima cosa che il vaglio successivo deve
+attaccare.
+
+### D52 e D53 — chiusi (2026-09-06)
+
+Erano le due ipotesi lasciate dal sesto vaglio interrotto. Il vaglio successivo
+le ha misurate: erano **vere tutte e due**, ed erano **la stessa cosa** — la
+posizione era diventata una chiave che nessuno teneva unica. Chiusi da ADR-0142.
+
+### D54 — La deroga della cascata e tenuta stretta dal vincolo esterno, non dall'elenco delle colonne
+
+Il vaglio d'archivio deroga per l'azzeramento del riferimento a un'utenza
+cancellata, e il commento della migrazione dice «ogni altro campo deve restare
+com'era». In realta fissa **quattro** colonne su dodici: restano libere
+`position` (che decide che cosa si fonde e che cosa si revoca), `legacy_id` (che
+decide quale gettone nomina la riga), `access_token_*`, `first_name`, `data`,
+`linked_at`.
+
+**Non e sfruttabile**, e la ragione non e quella scritta: la premessa della
+deroga (`user_id` valorizzato ma inesistente in `users`) non e ricostruibile a
+riposo, perche la chiave esterna la rifiuta. La deroga vive solo dentro la
+cascata che PostgreSQL genera, che scrive quella colonna e nessun'altra.
+
+A tenerla stretta e quindi il **vincolo esterno**. Se un giorno la FK diventasse
+`NO ACTION` con azzeramento a mano, otto colonne si aprirebbero e nessun commento
+lo direbbe. La migrazione e applicata e non si tocca: la correzione va fatta
+quando una migrazione successiva tocchera quel vaglio, elencando le colonne o
+dichiarando la dipendenza dalla FK.
+
+### D55 — Togliere un tutore non chiede la chiave della concessione
+
+`canGrantAccess` governa la **crescita** dell'insieme delle identita che aprono
+il fascicolo, non la sua riduzione: un ruolo che sa scrivere una scheda puo
+**togliere** un tutore senza portare ne `accounts.athlete.manage` ne
+`clinical.read`, e lo stesso vale sulla porta dell'approvazione di un modulo.
+
+E coerente fra le due porte e dichiarato dal modulo, quindi non e
+un'asimmetria; ma togliere un tutore a un minore e un atto distruttivo, e la
+domanda «quale permesso lo governa» non ha ancora una risposta scritta. Va
+decisa da una revisione sull'insieme dei permessi, non dentro questo pacchetto.
+
+La traccia intanto non mente piu: quando una riga viva viene sostituita, il
+registro dice «Genitore **sostituito**», non «aggiunto».
+
+---
+
+## PP-02 — cosa il consolidamento e la sua revisione lasciano aperto (2026-09-07)
+
+Il consolidamento strutturale ([ADR-0153](18-decision-log.md#adr-0153--le-regole-di-un-dominio-stanno-in-una-primitiva-non-in-ogni-consumatore))
+e la revisione indipendente che lo ha attaccato chiudono sei invarianti
+falsificate. Restano queste, **dichiarate e non chiuse**.
+
+### D-PP02-A · La migrazione revoca il co-genitore per indirizzo condiviso — CHIUSO, exposure 0
+
+`prisma/migrations/20260906180000_pp02_il_travaso_fondeva_due_persone/migration.sql`,
+§3: le due `UPDATE` propagano il marchio confrontando il registro storico con
+`identity_key`, `user_id` **e `email`**. L'indirizzo non e unico per persona —
+e il presupposto di ADR-0127 e la ragione di ADR-0139.
+
+Effetto: madre e padre con un solo indirizzo di famiglia, la madre nel registro
+storico delle revoche, e il travaso marca **anche la riga del padre**, che ha
+la propria utenza. Nessuna schermata, nessun audit, nessuna revoca: il padre
+perde l'area famiglia al deploy.
+
+`revokeGuardianAccessInClub` ha imparato questa lezione (`diUnAltraPersona`);
+la migrazione no. **La migrazione e gia applicata**, quindi la correzione non e
+una modifica al file: e una migrazione di bonifica che deve decidere, riga per
+riga, quali revoche fossero reali — e quella decisione non e automatizzabile
+senza il registro di audit. Va istruita con il cliente, e **richiede
+autorizzazione esplicita** ([CLAUDE.md §8](../../CLAUDE.md)).
+
+Nel frattempo la riga marcata cosi si comporta correttamente: e esclusa, e non
+riceve (49 §C). Il difetto e che non doveva esserlo.
+
+#### Misurato, e chiuso (2026-09-07)
+
+`pp-02-diagnosi-travaso.mjs` e stato eseguito **in sola lettura imposta dal
+server** (`transaction_read_only = on` sull'endpoint diretto Neon) sul database
+di staging/pilota `neondb`, quello del pilota **Fortitudo Scauri**.
+
+| | |
+|---|---|
+| club | 6, di cui Fortitudo Scauri con **307 atleti** |
+| atleti | 520 |
+| atleti con `revokedGuardianIdentities` come array | **0** |
+| atleti con `contactOnlyIdentities` come array | **0** |
+| voci con un indirizzo condiviso sulla stessa scheda | **0** |
+| righe che la §3 marcherebbe (predicato simulato sul blob) | **0** |
+
+**Exposure: zero, e non per fortuna.** La §3 si accende solo su un atleta il cui
+blob porti uno dei due registri, e su staging **nessun atleta li porta in
+nessuna forma**. Il difetto e reale nella logica della migrazione e non ha
+nessuna riga su cui manifestarsi.
+
+R4 si chiude percio come **difetto latente storico con exposure 0**: la logica
+resta sbagliata per una scheda che venisse travasata portando un registro, e la
+regola giusta e scritta in ADR-0154, ma non c'e niente da bonificare e nessuna
+migrazione di rimedio da scrivere.
+
+**Se un giorno un registro comparisse** — un ripristino da un backup
+pre-PP-02, o un club nuovo importato da una fonte che li scrive — la diagnosi
+va rieseguita **prima** del deploy che applica il travaso. E il solo momento in
+cui il difetto potrebbe mordere.
+
+### D-PP02-B · `escluseDietro` non ha un lettore
+
+Il campo esiste, la proiezione lo deriva correttamente e **nessuna schermata lo
+mostra**. La ragione dichiarata in 49 §F — «la scheda deve poter dire che
+dietro una voce c'e qualcuno che il club ha escluso, altrimenti la porta che
+revoca ragiona per posizione su qualcosa che la porta che mostra non dichiara»
+— non e realizzata.
+
+E l'errore n. 8 di CLAUDE.md nella sua forma piu comune: non codice mancante,
+**codice irraggiungibile**. Va aggiunto alla scheda atleta o tolto.
+
+### D-PP02-C · `guardian_id` non e vagliato al conio di un invito
+
+`guardaIlConioDiUnGettone` (`resources.ts`) vaglia `role` e toglie la firma del
+coniatore; **non** vaglia `guardian_id`, che il client sceglie. R1 della
+revisione passava di li: un invito coniato sulla chiave d'identita invece che
+sull'identificativo di riga.
+
+Il difetto e chiuso alla radice giusta — la revoca adesso chiude tutto cio che
+il riscatto risolve — ma imporre al conio che `guardian_id` nomini una riga
+**di quella scheda** lo chiuderebbe una seconda volta, e piu vicino a dove
+nasce. Fuori scope qui perche tocca la rotta generica.
+
+### D-PP02-D · Nessuna bonifica dei residui in `athlete_guardians.data`
+
+`CHIAVI_CON_UNA_COLONNA` impedisce che le chiavi di colonna e di sicurezza
+**nascano** nel residuo, e `residuoSicuro` impedisce che quelle gia in archivio
+**escano** nella proiezione. Nessuna delle due le **toglie** da dove sono: lo
+fa solo `residuo()`, e solo quando quella scheda viene risalvata.
+
+Non e urgente — la difesa in lettura e totale, ed e li che si decide — ma
+finche i residui esistono, un lettore nuovo che dimenticasse di passare dalla
+proiezione li troverebbe.
+
+### Cosa il contratto continua a non coprire
+
+Vedi la coda di [49](49-pp-02-invarianti-tutori.md): rollover di stagione sotto
+contesa, riscatto cross-club sul ramo genitore, una persona con due utenze
+sulla stessa scheda, `unlinkClubJsonProfiles`.
+
+### D-PP02-E · Staging e indietro di quattro migrazioni: PP-02 non e ancora li
+
+Misurato il 2026-09-07 con `npx prisma migrate status` sul database di
+staging/pilota, in sola lettura:
+
+```
+Following migrations have not yet been applied:
+  20260905120000_pp02_tutore_e_una_riga
+  20260906090000_pp02_il_tutore_ha_un_solo_scrittore
+  20260906100000_pp02_il_travaso_perdeva_e_inventava
+  20260906180000_pp02_il_travaso_fondeva_due_persone
+```
+
+`athlete_guardians` **non esiste** su staging: il pilota Fortitudo Scauri —
+307 atleti — gira ancora sul percorso pre-PP-02, con i tutori dentro
+`athletes.data.guardians[]` e nessuna autorita di riga.
+
+Non e un debito del dominio: e un **fatto operativo** che chiunque prepari
+l'integrazione finale deve sapere, e ha due conseguenze.
+
+1. **Niente di PP-02 e stato provato su dati veri.** Tutte le sonde girano sul
+   database di sviluppo. Il primo deploy che applichera queste quattro
+   migrazioni fara il travaso su 520 atleti in una volta sola.
+2. **Il travaso su staging e piccolo, ed e una fortuna.** Il blob contiene in
+   tutto **sei** voci di tutore su 520 schede, e nessun registro: e la ragione
+   per cui D-PP02-A ha exposure zero. Non e una proprieta che sopravvivera a un
+   club vero che compili l'anagrafica.
+
+**Prima di quel deploy** vanno rieseguite, contro staging e in sola lettura,
+`pp-02-diagnosi-travaso.mjs` e `npx prisma migrate status`. Il deploy stesso
+**richiede autorizzazione esplicita** ([CLAUDE.md §9](../../CLAUDE.md)), perche
+ogni deploy esegue `prisma migrate deploy`.

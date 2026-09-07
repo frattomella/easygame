@@ -5,6 +5,7 @@ import { clubsWhereStillAthlete } from "./athlete-membership";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
 import { prisma } from "./prisma";
+import { lockAthleteRow } from "./resources";
 import {
   applyMembershipAccessScopes,
   deriveAthleteAccessScopes,
@@ -21,10 +22,9 @@ import {
 import { sendTransactionalEmail } from "./email/email-service";
 import { renderEmailLayout } from "./email/layout";
 import { sendPasswordResetChallenge } from "./auth-workflows";
-import {
-  getParentDashboardData,
-  guardianAccessIdentities,
-} from "./parent-dashboard";
+import { getParentDashboardData } from "./parent-dashboard";
+import { readGuardiansForAthlete } from "./athlete-guardians";
+import { resolveGuardianIdentity } from "@/lib/guardians/identity";
 import { readAthleteRsvpInvitations } from "./rsvp";
 import { escapeHtml } from "@/lib/documents/document-view";
 
@@ -712,7 +712,31 @@ export const sendAthleteAccountInvite = async (
     l'azione, e l'indirizzo a essere quello sbagliato. Il route handler
     generico lo mappa su 400, come per la dichiarazione mancante di ADR-0116.
   */
-  const identitaDeiTutori = guardianAccessIdentities(atleta.data);
+  /*
+    **La domanda si fa alle righe, non al blob** (ADR-0135).
+
+    PP-04 aveva scritto questa guardia su `athletes.data.guardians[]` con un
+    lettore suo (`guardianAccessIdentities`). WP-C ha tolto al blob l'autorita
+    e con lei quel lettore: i recapiti dei tutori di questa scheda stanno in
+    `athlete_guardians`, e a dire quali identita porta una riga e la primitiva
+    del dominio, non una raccolta scritta qui (ADR-0153).
+  */
+  const identitaDeiTutori = new Set(
+    (await readGuardiansForAthlete(prisma, atleta.id)).flatMap((riga) => {
+      /*
+        **Utenze e indirizzi insieme, perche le domande sono due.**
+
+        Questa guardia si fa **due volte**: qui sull'indirizzo scritto, e piu
+        sotto sull'utenza che `risolviUtenza` ha trovato — un tutore legato per
+        utenza puo avere cambiato casella, e allora la coincidenza non si vede
+        dal recapito. Un insieme che portasse solo gli indirizzi renderebbe la
+        seconda domanda muta: `.has(user.id)` non troverebbe mai niente, e la
+        difesa sarebbe inerte invece che assente (ADR-0147).
+      */
+      const identita = resolveGuardianIdentity(riga);
+      return [...identita.userIds, ...identita.emails];
+    }),
+  );
   if (identitaDeiTutori.has(email)) {
     throw new Error(
       "Questo indirizzo e gia il recapito di un tutore di questa scheda: l'invito " +
@@ -1801,9 +1825,23 @@ const proiettaAreaAtleta = (
      * Lo **stato** del certificato e la sua data. Nient'altro: non i
      * certificati, non le allergie, non le note mediche.
      */
+    /*
+      **Le stesse parole che legge la famiglia.**
+
+      Questa area si costruisce dallo stesso `getParentDashboardData`, e
+      teneva le tre chiavi vecchie: `status` vale `"missing"` ogni volta che
+      non c'e una data, cioe **anche** quando il certificato e stato
+      consegnato senza scadenza. Al ragazzo si diceva «Certificato mancante»
+      per una cosa che aveva gia fatto, mentre sulla Home il genitore leggeva
+      «Consegnato»: lo stesso documento, due risposte opposte dentro lo stesso
+      prodotto. E' la distinzione che PP-02 §F e nato per introdurre, arrivata
+      su una superficie sola.
+    */
     health: {
-      status: salute.status || "missing",
-      statusLabel: salute.statusLabel || "",
+      status: salute.familyState || salute.status || "missing",
+      statusLabel: salute.familyLabel || salute.statusLabel || "",
+      detail: salute.familyDetail || "",
+      summary: salute.familySummary || "",
       expiryDate: salute.expiryDate || null,
     },
     trainings: {
@@ -1940,12 +1978,19 @@ export const readAthleteAreaOverview = async (
     throw negato("nessuna scheda atleta collegata a questo account");
   }
 
+  /*
+    **L'unico punto che apre il ramo diretto verso il cruscotto** (ADR-0122).
+
+    Il ragazzo non e tutore di se stesso, e le rotte della famiglia glielo
+    dicono: il predefinito del dominio e restrittivo, e chi serve davvero
+    l'atleta lo dichiara. E il verso giusto — dimenticarsene chiude una porta
+    invece di aprirla.
+
+    Qui i dati servono davvero: e da questo cruscotto che si ricava la
+    proiezione ristretta dell'area atleta, che di suo mostra molto meno —
+    niente denaro, niente tutori, niente altri atleti.
+  */
   const dati = await getParentDashboardData(userId, profilo.id, {
-    /*
-      **Questa e una superficie che l'atleta usa davvero** (ADR-0122): il
-      predefinito e restrittivo, e chi serve l'atleta lo dichiara. E il verso
-      giusto — dimenticarsene chiude una porta invece di aprirla.
-    */
     allowSelfAthleteLink: true,
   });
   if (!dati) {
@@ -2040,9 +2085,47 @@ export const updateOwnAthleteContacts = async (
 
   if (!modificati.length) return { athleteId: atleta.id, updated: [] };
 
-  await prisma.athlete.update({
-    where: { id: atleta.id },
-    data: { data: prossimo as never },
+  /*
+    **Il quinto scrittore di `athletes.data`, che il blocco non lo prendeva.**
+
+    Questa strada — il ragazzo che corregge da se telefono, indirizzo o email —
+    legge il blob, ne fonde sei campi e lo riscrive **per intero**. Senza blocco
+    e senza rilettura era un lost update come gli altri, e il verso era
+    deterministico e sfavorevole: il self-service non ha guardie, quindi e
+    sempre il piu veloce a leggere e il piu lento a scrivere.
+
+    Misurato tre volte su tre: «Scollega account» in parallelo a un salvataggio
+    del proprio numero di telefono, e la revoca **spariva per intero** —
+    registro vuoto, riga tutore intatta, persona revocata di nuovo dentro il
+    fascicolo del minore. La segreteria aveva la conferma a schermo e la riga di
+    audit.
+
+    Un censimento dichiarava «quattro scrittori»; erano sei. Adesso questo
+    prende lo stesso blocco degli altri e rifonde i sei campi su cio che legge
+    **dentro**: cio che un altro ha scritto nel frattempo resta scritto.
+  */
+  await prisma.$transaction(async (client: any) => {
+    await lockAthleteRow(client, atleta.id);
+
+    const fresca = await client.athlete.findUnique({
+      where: { id: atleta.id },
+      select: { data: true },
+    });
+
+    const base =
+      fresca?.data && typeof fresca.data === "object" && !Array.isArray(fresca.data)
+        ? (fresca.data as Record<string, unknown>)
+        : {};
+
+    const aggiornato: Record<string, unknown> = { ...base };
+    for (const campo of modificati) {
+      aggiornato[campo] = prossimo[campo];
+    }
+
+    await client.athlete.update({
+      where: { id: atleta.id },
+      data: { data: aggiornato as never },
+    });
   });
 
   await recordAuditEvent({

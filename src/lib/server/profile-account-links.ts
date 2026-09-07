@@ -1,3 +1,11 @@
+import { bloccaSchede } from "./athlete-lock-order";
+import { athleteWithinAccessScope } from "./access-scope-query";
+import {
+  findGuardianRow,
+  revokeGuardianAccessInClub,
+  revokeGuardianRow,
+} from "./athlete-guardians";
+import { normalizeGuardianRows } from "@/lib/athlete-guardians";
 import { prisma } from "./prisma";
 import { reportServerError } from "./observability";
 import {
@@ -5,13 +13,15 @@ import {
   recordAuditEvent,
   recordPermissionDenied,
 } from "./audit";
+import {
+  isAthleteAccessRole,
+  isManagementAccessRole,
+  isParentAccessRole,
+  isTrainerAccessRole,
+} from "@/lib/access-roles";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { roleHasPermission } from "@/lib/permissions/catalog";
-import {
-  normalizeAccessRole,
-  type CanonicalAccessRole,
-} from "@/lib/access-roles";
-import { syncClubAggregateField } from "./resources";
+import { lockAthleteRow, syncClubAggregateField } from "./resources";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
 /**
@@ -234,6 +244,18 @@ export const clearLinkedFields = (
     ...record,
     linkedUserId: null,
     linked_user_id: null,
+    /*
+      **Anche `userId` e `user_id`**, che concedono e che nessuno ripuliva.
+
+      `resolveFamilyRecipients` in `document-requests.ts` raccoglie **quattro**
+      grafie dell'identificativo, non due: una riga tutore scritta con
+      `user_id` sopravviveva alla revoca e continuava a ricevere le notifiche
+      documentali su quel minore — che ne portano il nome e il documento
+      chiesto. Il cruscotto no, perche la sua proiezione quelle due grafie le
+      lascia cadere; la campanella si. Due letture, due risposte.
+    */
+    userId: null,
+    user_id: null,
     linkedUserEmail: null,
     linked_user_email: null,
     linkedUserIds: removeTargetFromList(record.linkedUserIds, userId, userEmail),
@@ -248,6 +270,29 @@ export const clearLinkedFields = (
     linked_at: null,
     accessTokenRecordId: null,
     access_token_record_id: null,
+    /*
+      **La revoca scrive un negativo, e non basta cancellare i positivi.**
+
+      Il legame che concede l'accesso ha **quattro** forme, e la quarta e
+      l'indirizzo di **contatto** che la segreteria scrive a mano sulla scheda
+      (`guardian.email`). Quell'indirizzo qui non si tocca — deve restare,
+      perche il club deve poter continuare a scrivere a quella persona — e
+      finche non c'era questo campo la conseguenza era che **la revoca non
+      revocava**: la scheda diceva «Account non collegato», il dialogo aveva
+      promesso «non vedra piu calendario, pagamenti e documenti del minore», e
+      la persona continuava a vedere tutto, byte del certificato medico
+      compresi.
+
+      Non e un caso limite: e il percorso normale di una separazione, di un
+      affido che cambia, di un tutore che il club toglie. Cancellare
+      l'indirizzo avrebbe risolto l'accesso distruggendo un dato che serve; un
+      negativo esplicito toglie l'accesso e lascia il dato.
+
+      Un riscatto successivo riscrive `linkedUserId`, e quello vince: il
+      marchio nega il **ripiego** sull'indirizzo, non un legame dichiarato.
+    */
+    accessRevokedAt: new Date().toISOString(),
+    access_revoked_at: new Date().toISOString(),
   };
 
   if (isRecord(record.data)) {
@@ -333,15 +378,49 @@ const caricaAllenatoreDelClubAttivo = async (
       })
     : null;
 
+  /*
+    **Il confine dentro la query, non dopo.**
+
+    ADR-0151 lo ha imparato sul riscatto: un identificativo che il client
+    sceglie non e una chiave, e cercarlo **senza** filtro di club significa
+    trovare la riga di chiunque — con `findFirst` senza `ORDER BY`, quale sia
+    lo decide l'ordine fisico. Quella regola era stata scritta nel riscatto e
+    non qui, benche il commento sopra dichiari le due porte parenti.
+
+    Misurato: un ex allenatore conosce il proprio identificativo logico (sta
+    nell'URL della sua scheda e nel carico del suo invito), si crea un club — e
+    chiunque puo crearsene uno — e ci conia un profilo con lo stesso
+    identificativo. Da quel momento il club legittimo riceve **403** su
+    «Scollega account», con un messaggio che dice «non appartiene al club
+    attivo». La funzione muore **prima** di chiudere l'invito, che resta
+    `active`: e di nuovo «la strada per rifarlo» lasciata aperta.
+
+    Non serve nemmeno un attaccante: un `UPDATE` sposta la tupla in coda,
+    quindi basta che una segreteria corregga il telefono del proprio allenatore
+    perche la riga altrui passi davanti.
+  */
+  /*
+    **Senza un club attivo non si cerca affatto.**
+
+    `?? undefined` e la forma che questo stesso file dichiara vietata dieci
+    righe piu sotto: con Prisma un campo `undefined` in un `where` **toglie**
+    il filtro invece di restringerlo, quindi uno scope senza club attivo
+    tornava a cercare in tutto l'archivio. Non e raggiungibile dalla rotta —
+    un'altra guardia scatta prima — ma una difesa che dipende da chi la chiama
+    non e una difesa: e la stessa lezione che questo pacchetto ha gia scritto
+    due volte.
+  */
   const record =
     perUuid ||
-    (await prisma.clubResourceItem.findFirst({
-      where: {
-        organization_id: organizationId,
-        resource_type: { in: [...TIPI_ALLENATORE] },
-        payload: { path: ["id"], equals: id },
-      },
-    }));
+    (testo(scope.activeOrganizationId)
+      ? await prisma.clubResourceItem.findFirst({
+          where: {
+            organization_id: String(scope.activeOrganizationId),
+            resource_type: { in: [...TIPI_ALLENATORE] },
+            payload: { path: ["id"], equals: id },
+          },
+        })
+      : null);
 
   if (!record) throw new Error("Allenatore non trovato");
   assertActiveClub(scope, record.organization_id, "l'allenatore");
@@ -361,6 +440,140 @@ export type UnlinkTrainerAccountResult = {
  * tocca gli altri profili della stessa utenza: un atleta collegato altrove
  * non lo sa nemmeno.
  */
+/**
+ * **Chiude gli inviti che nominano un profilo. Da un posto solo.**
+ *
+ * Undici revisioni indipendenti hanno trovato **nove volte** la stessa forma:
+ * una porta impara a chiudere l'invito e la sua gemella no. Ogni volta la
+ * correzione era giusta e stava in un posto solo, e ogni volta il giro
+ * successivo trovava l'altra porta.
+ *
+ * Il rimedio non e correggere anche quella: e **non avere due posti**. Chi
+ * scollega un profilo — «Scollega account», la revoca della tessera, l'uscita
+ * volontaria dal club, la cancellazione del profilo — chiama questa.
+ *
+ * ## Le due grafie
+ *
+ * `club_resource_items.id` e una colonna UUID; il carico di un profilo porta
+ * un identificativo **logico** (`trainer-<istante>-<casuale>`), ed e quello
+ * che il gettone ricopia. Cercarne una sola non combacia con **nessun gettone
+ * del prodotto**: una difesa inerte, che da fuori e identica a una che
+ * funziona (ADR-0147). Si cercano tutte e due.
+ */
+/**
+ * Le chiavi con cui il carico di un invito puo nominare un profilo.
+ *
+ * Oggi il conio ne scrive **una sola** — `trainer_id` — anche per le voci di
+ * staff, perche la schermata che conia serve tutti e due i tipi. Le si cercano
+ * comunque tutte: cercare un soprainsieme costa un `OR` e non puo mai essere
+ * **inerte**, mentre lasciare che sia il chiamante a scegliere la chiave
+ * significa che un chiamante puo sceglierne una che non combacia con niente —
+ * ed e successo, nel commit che aveva appena definito quel difetto.
+ */
+const CHIAVI_CHE_NOMINANO_UN_PROFILO = ["trainer_id", "staff_id"] as const;
+
+export const chiudiGliInvitiDelProfilo = async (
+  client: any,
+  parametri: {
+    organizationId: string;
+    /** L'identificativo di riga e quello logico: quello che c'e. */
+    identificativi: Array<string | null | undefined>;
+  },
+): Promise<number> => {
+  const tx = client || prisma;
+
+  const nomi = [
+    ...new Set(parametri.identificativi.map((v) => testo(v)).filter(Boolean)),
+  ] as string[];
+  /*
+    **Il club non e facoltativo.** Con Prisma un `organization_id: undefined`
+    non restringe: **toglie il filtro**, e una revoca uscirebbe dal proprio
+    club. Il gemello che cancella questa guardia ce l'ha; questa no.
+  */
+  if (!nomi.length || !testo(parametri.organizationId)) return 0;
+
+  const daChiudere = (
+    (await tx.clubResourceItem.findMany({
+      where: {
+        organization_id: parametri.organizationId,
+        resource_type: "access_tokens",
+        /*
+          **Tutto cio che non e gia chiuso** — e `NULL` non e chiuso.
+
+          Il primo filtro elencava `active | pending | sent` e lasciava fuori
+          `redeemed`, che il riscatto accetta quando l'invito e multi-uso. Il
+          secondo, `status: { not: "revoked" }`, ha introdotto un terzo caso:
+          la colonna e **nullable**, e in SQL `status <> 'revoked'` **non**
+          seleziona le righe con `NULL`. Il riscatto invece legge
+          `status || "active"` e le accetta, e la rotta generica lascia coniare
+          un invito senza stato.
+
+          Il gemello dei tutori filtra in memoria, dove `String(null || "")`
+          non e `"revoked"` e quindi passa: le due porte hanno larghezza
+          diversa per una differenza fra SQL e JavaScript che nessuno dei due
+          commenti nominava.
+        */
+        OR: nomi.flatMap((valore) =>
+          CHIAVI_CHE_NOMINANO_UN_PROFILO.map((chiave) => ({
+            payload: { path: [chiave], equals: valore },
+            status: { not: "revoked" as const },
+          })),
+        ).concat(
+          nomi.flatMap((valore) =>
+            CHIAVI_CHE_NOMINANO_UN_PROFILO.map((chiave) => ({
+              payload: { path: [chiave], equals: valore },
+              status: null as any,
+            })),
+          ),
+        ),
+      },
+      select: { id: true },
+    })) as Array<{ id: string }>
+  ).map((voce) => voce.id);
+
+  if (!daChiudere.length) return 0;
+
+  const esito = await tx.clubResourceItem.updateMany({
+    where: { id: { in: daChiudere } },
+    data: { status: "revoked" },
+  });
+
+  return esito.count as number;
+};
+
+/**
+ * **Cancella** gli inviti di un profilo, invece di chiuderli.
+ *
+ * Serve quando il profilo se ne va del tutto: il carico dell'invito porta nome,
+ * indirizzo e telefono della persona, e un invito che sopravvive al profilo e
+ * un archivio di dati personali che nessuna schermata mostra piu.
+ */
+export const eraseProfileInvites = async (
+  client: any,
+  organizationId: string,
+  identificativi: Array<string | null | undefined>,
+): Promise<number> => {
+  const tx = client || prisma;
+  const nomi = [
+    ...new Set(identificativi.map((v) => testo(v)).filter(Boolean)),
+  ] as string[];
+  if (!organizationId || !nomi.length) return 0;
+
+  const esito = await tx.clubResourceItem.deleteMany({
+    where: {
+      organization_id: organizationId,
+      resource_type: "access_tokens",
+      OR: nomi.flatMap((valore) =>
+        CHIAVI_CHE_NOMINANO_UN_PROFILO.map((chiave) => ({
+          payload: { path: [chiave], equals: valore },
+        })),
+      ),
+    },
+  });
+
+  return esito.count as number;
+};
+
 export const unlinkTrainerAccount = async (
   scope: ProfileAccountLinksScope,
   input: { trainerId: string; reason?: string | null },
@@ -379,7 +592,85 @@ export const unlinkTrainerAccount = async (
   const linkedUserId =
     testo(payload.linkedUserId || payload.linked_user_id) || null;
 
+  /*
+    **L'invito si chiude prima dell'uscita anticipata.**
+
+    Questa funzione usciva subito quando il profilo non risultava collegato, e
+    il blocco che chiude l'invito stava dopo: un profilo **non collegato** con
+    un invito ancora `active` usciva da «Scollega account» con l'invito
+    intatto, e chi lo aveva in tasca entrava lo stesso.
+
+    La porta gemella del tutore non ha questa uscita — `revocaIGettoni` chiude
+    l'invito anche su una riga senza utenza — ed e la forma giusta: cio che si
+    chiude non e il legame, e la **strada per rifarlo**.
+  */
+  /*
+    **Le due grafie dell'identificativo, che questo file gia conosce.**
+
+    `club_resource_items.id` e una colonna UUID; il gettone di un allenatore
+    porta l'identificativo **logico** — `trainer-<istante>-<casuale>` — perche
+    e quello che il profilo pubblica. `caricaAllenatoreDelClubAttivo` qui
+    sopra e `loadTrainerAccessTarget` nel riscatto cercano entrambe le forme
+    apposta; cercarne una sola non trova **nessun gettone del prodotto**.
+
+    Cercandone una sola questa istruzione non combaciava mai: il caso onesto —
+    la direzione conia, l'allenatore riscatta, poi lo si scollega — usciva con
+    il gettone ancora vivo, e chi lo aveva in tasca rientrava nel club con una
+    tessera nuova. La correzione che ha tolto la chiave scelta dal client aveva
+    messo al suo posto una chiave che non combacia con niente: una difesa
+    inerte e indistinguibile da una difesa assente, finche non la si misura.
+  */
+  const invitiChiusi = await chiudiGliInvitiDelProfilo(prisma, {
+    organizationId: record.organization_id,
+    identificativi: [record.id, (payload as Record<string, any>).id],
+  }).catch((error) => {
+    reportServerError(error, {
+      metadata: {
+        trainerId: record.id,
+        esito: "[profile-account-links] revoca token allenatore non riuscita",
+      },
+    });
+    return 0;
+  });
+
   if (!linkedUserId) {
+    /*
+      **Se qui si e chiuso un invito, il registro lo dice e il carico lo sa.**
+
+      La chiusura dell'invito e stata spostata prima di questa uscita, e la
+      riga di audit e rimasta dopo: un invito veniva revocato e **nessun
+      archivio lo diceva** — la forma che questo repository ha gia corretto due
+      volte. E il carico continuava a dichiararlo `active` mentre la riga era
+      `revoked`, cioe due archivi che dicono cose diverse sullo stesso fatto.
+    */
+    if (invitiChiusi) {
+      await prisma.clubResourceItem.update({
+        where: { id: record.id },
+        data: {
+          payload: {
+            ...(payload as Record<string, unknown>),
+            accessTokenStatus: "revoked",
+            access_token_status: "revoked",
+          },
+        },
+      });
+
+      await recordAuditEvent({
+        action: AUDIT_ACTIONS.trainerAccountUnlinked,
+        actorUserId: scope.userId,
+        actorEmail: scope.actorEmail,
+        actorRole: scope.activeRole,
+        organizationId: record.organization_id,
+        resource: record.resource_type,
+        resourceId: record.id,
+        metadata: {
+          unlinked_user_id: null,
+          count: invitiChiusi,
+          reason: testo(input.reason) || null,
+        },
+      });
+    }
+
     return { trainerId: record.id, unlinkedUserId: null };
   }
 
@@ -423,25 +714,25 @@ export const unlinkTrainerAccount = async (
     annulla lo scollegamento gia scritto sopra: e un'azione di sicurezza in
     piu, non il fatto che questa funzione esiste per registrare.
   */
-  const tokenRecordId = testo(
-    payload.accessTokenRecordId || payload.access_token_record_id,
-  );
-  if (tokenRecordId) {
-    try {
-      await prisma.clubResourceItem.updateMany({
-        where: { id: tokenRecordId, resource_type: "access_tokens" },
-        data: { status: "revoked" },
-      });
-    } catch (error) {
-      reportServerError(error, {
-        metadata: {
-          trainerId: record.id,
-          esito: "[profile-account-links] revoca token allenatore non riuscita",
-        },
-      });
-    }
-  }
+  /*
+    **L'invito si cerca dove vive, non dove il client dice che vive.**
 
+    Qui l'identificativo del gettone veniva da `payload.accessTokenRecordId`,
+    cioe dal carico del profilo allenatore, che la rotta generica lascia
+    scrivere. ADR-0145 aveva ristretto questa istruzione **su un asse solo** —
+    le aveva messo il filtro di club — lasciando intatto l'altro: che il numero
+    da revocare lo sceglie chi scrive il profilo.
+
+    Misurato da una revisione indipendente: un ruolo `staff`, a cui la rotta
+    dei gettoni risponde **403**, crea un profilo allenatore con dentro
+    l'identificativo dell'**invito di una famiglia**, poi scollega quel
+    profilo — e l'invito della famiglia risulta revocato. Un permesso negato
+    aggirato passando da una porta che non sembrava parlarne.
+
+    Il gettone di un allenatore lo si cerca percio come lo cerca il dominio dei
+    tutori: **nell'archivio dei gettoni**, fra quelli che nominano **questo**
+    profilo, dentro **questo** club. Il client non sceglie piu niente.
+  */
   await recordAuditEvent({
     action: AUDIT_ACTIONS.trainerAccountUnlinked,
     actorUserId: scope.userId,
@@ -474,6 +765,27 @@ const caricaAtletaDelClubAttivo = async (
   if (!atleta) throw new Error("Atleta non trovato");
   assertActiveClub(scope, atleta.organization_id, "l'atleta");
 
+  /*
+    **E il perimetro di sede e categoria, che questa porta non chiedeva.**
+
+    Il gemello che gestisce l'accesso degli atleti ce l'ha; questa — l'unica
+    porta con cui si **revoca** un tutore — no, benche lo scope dichiari
+    `accessScopes` e nessuna riga lo leggesse.
+
+    Il verso pericoloso non e la lettura: e che la revoca **scrive**. Un
+    collaboratore recintato sulla sede Nord poteva chiamarla su un minore
+    della sede Sud e mettere l'identita del tutore vero nell'elenco delle
+    revoche, chiudendogli l'accesso su ogni canale — cruscotto, promemoria del
+    certificato, solleciti, notifiche documentali. E per uscirne serve un
+    **riscatto**, cioe coniare un gettone, che e della direzione: un ruolo
+    perimetrato poteva togliere cio che non puo ridare.
+  */
+  if (!(await athleteWithinAccessScope(atleta.organization_id, atleta.id, scope))) {
+    throw new Error(
+      "Accesso negato: questo atleta e fuori dal tuo perimetro",
+    );
+  }
+
   return atleta;
 };
 
@@ -486,9 +798,37 @@ export type UnlinkGuardianAccountResult = {
 /**
  * Scollega l'utenza dal genitore **indicato** di questo atleta.
  *
- * Il genitore vive dentro `athletes.data.guardians[]` (`athlete-guardians.ts`):
- * non e una riga a se, quindi non ha una tessera propria da toccare — solo
- * l'elemento dell'elenco cambia, in una sola scrittura del campo `data`.
+ * ---
+ *
+ * ## Cosa e sparito da qui (PP-02 / WP-C)
+ *
+ * Trecentocinquanta righe, e nessuna era una funzionalita.
+ *
+ * Un tutore viveva dentro `athletes.data.guardians[]`, un array **senza
+ * chiave**, quindi «scollega quello li» voleva prima dire *quale*. La risposta
+ * era una ricerca per identificativo che poteva nominarne due, un ripiego che
+ * ricalcolava gli id sintetici al volo, una chiave storica per `parent1` e
+ * `parent2`, e la ripulitura di tutte le righe **sorelle** della stessa
+ * persona, perche l'indirizzo di famiglia e uno solo e la revoca doveva
+ * seguire la persona e non la riga.
+ *
+ * Poi il blocco: la scheda si bloccava, il blob si rileggeva **dentro** il
+ * blocco e la ripulitura si rifaceva su quello — perche il client
+ * dell'anagrafica rimanda **sempre** l'array dei tutori, e bastavano due
+ * persone in segreteria sulla stessa scheda perche la revoca sparisse per
+ * intero. Misurato tre volte su tre: schermata con la conferma, riga di audit
+ * scritta, registro vuoto, e la persona revocata che continuava a leggere
+ * allergie, farmaci e i byte del certificato del minore.
+ *
+ * Infine il registro delle identita revocate, che era il **surrogato di una
+ * chiave**: serviva perche il marchio sulla riga si aggirava aggiungendone una
+ * sorella con lo stesso indirizzo.
+ *
+ * Adesso il tutore e una riga con una chiave, e questa funzione e una
+ * `UPDATE`. Non c'e uno snapshot da rimandare, quindi non c'e una corsa da
+ * perdere; non c'e un elenco da percorrere, quindi non c'e un blocco da
+ * prendere; non c'e un id da indovinare, perche l'identificativo che la scheda
+ * manda **e** quello della riga.
  */
 export const unlinkGuardianAccount = async (
   scope: ProfileAccountLinksScope,
@@ -502,61 +842,47 @@ export const unlinkGuardianAccount = async (
   );
   const atleta = await caricaAtletaDelClubAttivo(scope, input.athleteId);
 
-  const data = isRecord(atleta.data) ? (atleta.data as Record<string, any>) : {};
-  const guardians = toArray(data.guardians);
   const guardianId = testo(input.guardianId);
-  const index = guardians.findIndex((entry) => testo(entry?.id) === guardianId);
-
-  if (index < 0) {
-    throw new Error("Genitore non trovato nella scheda atleta");
+  if (!guardianId) {
+    throw new Error("Genitore non trovato su questa scheda");
   }
 
-  const guardian = guardians[index] || {};
-  const linkedUserId = testo(
-    guardian.linkedUserId || guardian.linked_user_id,
-  ) || null;
+  /*
+    Si legge **prima** per due ragioni: sapere a chi si sta togliendo l'accesso,
+    che e cio che finisce in audit, e distinguere «non esiste» da «esiste ed e
+    gia scollegato». La revoca vera e una istruzione sola, subito sotto.
+  */
+  const riga = await findGuardianRow(prisma, atleta.id, guardianId);
 
-  if (!linkedUserId) {
-    return { athleteId: atleta.id, guardianId, unlinkedUserId: null };
+  if (!riga) {
+    throw new Error("Genitore non trovato su questa scheda");
   }
 
-  const linkedUserEmail =
-    testo(guardian.linkedUserEmail || guardian.linked_user_email) || null;
-  const { next } = clearLinkedFields(guardian, linkedUserId, linkedUserEmail);
-  const nextGuardian = {
-    ...next,
-    parentAccessTokenStatus: "revoked",
-    parent_access_token_status: "revoked",
-  };
+  const linkedUserId = riga.user_id;
 
-  const nextGuardians = guardians.map((entry, position) =>
-    position === index ? nextGuardian : entry,
-  );
-
-  await prisma.athlete.update({
-    where: { id: atleta.id },
-    data: { data: { ...data, guardians: nextGuardians } },
+  await revokeGuardianRow(prisma, {
+    athleteId: atleta.id,
+    guardianRowId: riga.id,
+    organizationId: atleta.organization_id,
   });
 
-  const tokenRecordId = testo(
-    guardian.parentAccessTokenRecordId || guardian.parent_access_token_record_id,
-  );
-  if (tokenRecordId) {
-    try {
-      await prisma.clubResourceItem.updateMany({
-        where: { id: tokenRecordId, resource_type: "access_tokens" },
-        data: { status: "revoked" },
-      });
-    } catch (error) {
-      reportServerError(error, {
-        metadata: {
-          athleteId: atleta.id,
-          guardianId,
-          esito: "[profile-account-links] revoca token genitore non riuscita",
-        },
-      });
-    }
-  }
+  /*
+    **Il gettone lo chiude gia `revokeGuardianRow`, e lo chiude meglio.**
+
+    Qui c'era un blocco che leggeva l'identificativo del gettone da
+    `athletes.data.parentAccessTokenRecordId` — una chiave che la rotta
+    generica **non** toglie da cio che riceve, quindi scrivibile dal client — e
+    lo passava a un `updateMany` **senza filtro di club**. Un ruolo a zero
+    caselle spuntate poteva percio depositare l'identificativo del gettone di
+    un **altro club** e farlo revocare da qui: una scrittura fuori dal proprio
+    club, contro CLAUDE.md §8.
+
+    Non serviva a niente: `revokeGuardianRow` chiama `revocaIGettoni`, che i
+    gettoni li cerca nell'archivio dei gettoni — filtrati per club, e abbinati
+    alla riga per `guardian_id`, non per una chiave che il client puo scrivere.
+    Una difesa che si appoggia a un dato che l'attaccante controlla non e una
+    difesa in piu: e una porta in piu.
+  */
 
   await recordAuditEvent({
     action: AUDIT_ACTIONS.guardianAccountUnlinked,
@@ -585,58 +911,32 @@ export const unlinkGuardianAccount = async (
  *  scopa sono la duplicazione che CLAUDE.md §2 vieta.
  * ========================================================================= */
 
-/**
- * **Il ruolo di una tessera si risolve, non si legge.**
+/* ------------------------------------------------------------------- *
+ *  Il vocabolario del ruolo e uno solo (AC-2 della RCA, KB 44)
  *
- * Lo sweep confrontava `organization_users.role` con quattro insiemi di
- * stringhe scritti qui — `["trainer","allenatore","coach"]` e compagnia. Il
- * confronto e a valle di due cose che quegli insiemi non sanno:
+ *  Qui vivevano quattro `Set` di letterali — diciannove grafie in tutto —
+ *  che dovevano restare d'accordo con `ROLE_ALIASES` di `access-roles.ts`,
+ *  che di grafie ne conosce trentasei, piu le quattro forme di
+ *  `custom:<base>:<nome>` che `assignClubRole` scrive **da se**.
  *
- * - **Un ruolo personalizzato porta uno slug** (ADR-0102): in colonna c'e
- *   `custom:trainer:preparatori`, non `trainer`. Nessuno dei quattro insiemi
- *   lo contiene, quindi per lo sweep quella tessera non e di nessun ruolo, e
- *   revocarla non slegava **niente**. La scheda allenatore restava «Account
- *   collegato» a un'utenza che nel club non aveva piu una tessera: la coppia
- *   esatta di stati che questo modulo esiste per non lasciare piu indietro.
- * - **Gli alias canonici sono un elenco solo**, e vive in `access-roles.ts`.
- *   Le copie locali ne avevano perse per strada — `allenatrice`, `tutor`,
- *   `giocatore`, `amministratore`, `segreteria`, `membro` — e ne avevano una
- *   (`socio`) che il dizionario canonico non riconosce affatto. Ogni alias
- *   mancante e una revoca che lascia un riferimento vivo.
+ *  Non restavano d'accordo, e nulla lo verificava: **diciannove** grafie
+ *  (`tutor`, `giocatore`, `giocatrice`, `club_manager`, `administrator`,
+ *  `amministratore`, `segreteria`, `secretary`, `membro`, `allenatrice`,
+ *  piu le cinque forme di `owner`) e **tutti** gli slug personalizzati erano
+ *  invisibili ai quattro sweep — ventitre valori su quaranta. La revoca
+ *  riusciva, la tessera spariva, l'audit la registrava — e il profilo
+ *  restava collegato a un'utenza senza tessera.
  *
- * `normalizeAccessRole` risponde a entrambe: riconosce gli alias e, davanti a
- * uno slug, ne estrae la **base**. La base sta nello slug per costruzione
- * (`buildCustomRoleValue`), e `club-roles.ts` scrive slug e `custom_role_id`
- * insieme: risolvere dallo slug non chiede una seconda lettura e da la stessa
- * risposta di `club_roles.base_role`.
+ *  Il conteggio e misurato, non dedotto: la RCA ne dichiarava quattordici
+ *  perche aveva confrontato i due elenchi a vista, e le cinque grafie di
+ *  `owner` mancavano da entrambe le letture. Le conta
+ *  `scripts/pp-02-totalita-ruoli.mjs` riportando la difesa vecchia.
  *
- * Registrato da PP-04 come dependency verso PP-03 (misurata su PostgreSQL:
- * dopo `revokeClubAccess` la persona non ha piu tessere e `athletes.user_id`
- * punta ancora a lei).
- *
- * **Una differenza voluta:** `owner` entra fra i ruoli gestionali. Non c'era,
- * e non per una ragione: un secondo proprietario si puo revocare (solo il
- * **fondatore** e protetto, e lo e per la sua `clubs.creator_id`, non per la
- * tessera), e la sua scheda in `staff_members` restava collegata come tutte
- * le altre.
- */
-const ruoloBase = (value: unknown): CanonicalAccessRole | "" =>
-  normalizeAccessRole(testo(value));
-
-const RUOLI_GESTIONALI = new Set<CanonicalAccessRole>([
-  "owner",
-  "club_manager",
-  "collaborator",
-  "staff",
-]);
-
-const eAllenatore = (value: unknown) => ruoloBase(value) === "trainer";
-const eGenitore = (value: unknown) => ruoloBase(value) === "parent";
-const eAtleta = (value: unknown) => ruoloBase(value) === "athlete";
-const eGestionale = (value: unknown) => {
-  const base = ruoloBase(value);
-  return Boolean(base) && RUOLI_GESTIONALI.has(base as CanonicalAccessRole);
-};
+ *  Gli sweep non hanno piu un vocabolario proprio: chiedono ai predicati
+ *  canonici, che passano tutti da `normalizeAccessRole` e risolvono percio
+ *  sia gli alias sia il ruolo base di uno slug personalizzato. Un'unica
+ *  fonte, e il test di totalita la enumera tutta.
+ * ------------------------------------------------------------------- */
 
 const getProfileRole = (record: any) => {
   const data = isRecord(record?.data) ? record.data : {};
@@ -650,12 +950,12 @@ const shouldUnlinkProfileForRole = (
 ) => {
   const profileRole = getProfileRole(record);
 
-  if (eAllenatore(accessRole)) {
-    return resourceType === "trainers" || eAllenatore(profileRole);
+  if (isTrainerAccessRole(accessRole)) {
+    return resourceType === "trainers" || isTrainerAccessRole(profileRole);
   }
 
-  if (eGestionale(accessRole)) {
-    return resourceType === "staff_members" && !eAllenatore(profileRole);
+  if (isManagementAccessRole(accessRole)) {
+    return resourceType === "staff_members" && !isTrainerAccessRole(profileRole);
   }
 
   return false;
@@ -690,7 +990,8 @@ export const unlinkProfileResources = async (
   userEmail: string | null,
   accessRole: string,
 ) => {
-  if (!eAllenatore(accessRole) && !eGestionale(accessRole)) {
+  const trainerRole = isTrainerAccessRole(accessRole);
+  if (!trainerRole && !isManagementAccessRole(accessRole)) {
     return 0;
   }
 
@@ -699,9 +1000,7 @@ export const unlinkProfileResources = async (
     where: {
       organization_id: organizationId,
       resource_type: {
-        in: eAllenatore(accessRole)
-          ? ["trainers", "staff_members"]
-          : ["staff_members"],
+        in: trainerRole ? ["trainers", "staff_members"] : ["staff_members"],
       },
     },
     select: { id: true, payload: true, resource_type: true },
@@ -721,6 +1020,36 @@ export const unlinkProfileResources = async (
     const result = clearLinkedFields(resource.payload, userId, userEmail);
     if (!result.changed) continue;
 
+    /*
+      **Anche qui si chiude l'invito, e non solo il puntatore.**
+
+      `clearLinkedFields` azzera `accessTokenRecordId` — cioe il **puntatore**
+      — e la riga di `club_resource_items` che quel puntatore nominava restava
+      `active`. Misurato: la Gestione accessi revoca la tessera, risponde
+      `revoked: true`, il profilo risulta scollegato, e chi aveva il codice in
+      tasca lo riscatta e **si ritrova la tessera ricreata**.
+
+      Le due gemelle dello stesso sweep l'invito lo chiudono gia — quella del
+      tutore e quella dell'atleta, con un commento che dice «due porte per lo
+      stesso fatto devono lasciare lo stesso stato». Questa no, ed era la nona
+      volta che questo pacchetto trovava quella forma.
+    */
+    await chiudiGliInvitiDelProfilo(tx, {
+      organizationId,
+      identificativi: [
+        resource.id,
+        (resource.payload as Record<string, any>)?.id,
+      ],
+    }).catch((error) => {
+      reportServerError(error, {
+        metadata: {
+          profileId: resource.id,
+          esito: "[profile-account-links] revoca invito profilo non riuscita",
+        },
+      });
+      return 0;
+    });
+
     await tx.clubResourceItem.update({
       where: { id: resource.id },
       data: { payload: result.next },
@@ -739,7 +1068,8 @@ export const unlinkClubJsonProfiles = async (
   userEmail: string | null,
   accessRole: string,
 ) => {
-  if (!eAllenatore(accessRole) && !eGestionale(accessRole)) {
+  const trainerRole = isTrainerAccessRole(accessRole);
+  if (!trainerRole && !isManagementAccessRole(accessRole)) {
     return 0;
   }
 
@@ -749,7 +1079,7 @@ export const unlinkClubJsonProfiles = async (
   });
   if (!club) return 0;
 
-  const trainers = eAllenatore(accessRole)
+  const trainers = trainerRole
     ? unlinkProfileCollection(club.trainers, userId, userEmail, accessRole, "trainers")
     : { next: club.trainers, changed: false };
   const staffMembers = unlinkProfileCollection(
@@ -794,44 +1124,197 @@ const unlinkParentCollection = (
   return { next, changed };
 };
 
-/** Ripulisce `athletes.data.guardians[]` (ed elenchi storici) di tutti gli atleti del club. */
+/**
+ * **La revoca di una tessera, in una istruzione** (PP-02 / WP-C).
+ *
+ * ---
+ *
+ * ## Cosa c'era qui, e perche non poteva funzionare
+ *
+ * Duecentosettanta righe che percorrevano **ogni tesserato del club**: per
+ * ognuno un blocco di riga, una rilettura del blob, una ripulitura in memoria
+ * di quattro collezioni piu la coppia storica, la registrazione dell'identita
+ * nel registro delle revoche, e una `update`.
+ *
+ * Da quella forma discendevano due difetti che **non si potevano chiudere
+ * insieme**, ed e questo che rende il reperto `R-2` diverso da un difetto
+ * ordinario:
+ *
+ * - scegliere le schede **fuori** dal blocco lascia sfuggire quella che
+ *   acquista il tutore mentre la revoca gira. Misurato dalle due porte vere in
+ *   parallelo: su un club da 60 atleti la revoca dura ~840 ms, e a **sette
+ *   sfasamenti su sette** la scheda scritta nel frattempo sfuggiva — la
+ *   finestra non e stretta, e **tutta la durata della scansione**, e cresce
+ *   con i tesserati;
+ * - bloccarle **tutte** con un `FOR UPDATE` sul club chiude quella finestra e
+ *   va in abbraccio mortale con il passaggio di stagione, che prende le stesse
+ *   righe in un ordine scorrelato (gli id sono UUID). Cinque giri su cinque,
+ *   dal log di PostgreSQL: «Revoca dell'accesso non riuscita», tessera ancora
+ *   li, il genitore ancora dentro, e **niente in audit**.
+ *
+ * Piu un tetto: oltre ~1.100 schede toccate la transazione scadeva.
+ *
+ * ## Perche adesso il problema non si pone
+ *
+ * Non e stata scelta la meno dannosa delle due: e sparita la scansione.
+ *
+ * Un tutore e una riga di `athlete_guardians` con un indice su
+ * `(organization_id, user_id)`. «Togli l'accesso a questa persona in questo
+ * club» e percio una `UPDATE` con un `WHERE`, e da li:
+ *
+ * - **non c'e una finestra**, perche non c'e un intervallo fra lo scegliere e
+ *   l'agire: e la stessa istruzione a fare tutte e due le cose;
+ * - **non c'e un tetto**, perche il costo non cresce con i tesserati del club
+ *   ma con le righe che riguardano davvero quella persona — i suoi figli.
+ *
+ * `PP02-D33` si chiude, e non perche sia stata messa una serratura piu grossa:
+ * perche la domanda a cui rispondeva non si pone piu.
+ *
+ * **Correzione (2026-09-06).** Questa scheda affermava anche che «non c'e un
+ * ordine di acquisizione da incrociare con il rollover, perche non si prendono
+ * blocchi su un elenco». Era falso, e una revisione indipendente l'ha
+ * misurato: `revokeGuardianAccessInClub` **blocca un elenco** di schede, e il
+ * riallineamento di stagione le prendeva in un ordine suo. `PP02-D34` non era
+ * quindi chiuso — era spostato su un'altra coppia di tabelle.
+ *
+ * L'ordine ha ora un proprietario unico (`athlete-lock-order.ts`) e due
+ * partecipanti dichiarati. Una classe non si dichiara chiusa perche e sparita
+ * l'istanza che si stava guardando: si dichiara chiusa quando esiste un posto
+ * solo in cui l'ordine si stabilisce.
+ *
+ * ## Il perimetro resta quello di ADR-0110
+ *
+ * Questa funzione **non tocca `organization_users`**: scollegare un profilo non
+ * e revocare una tessera. Toglie l'accesso del tutore alle schede su cui
+ * compare, e nient'altro.
+ */
+/**
+ * **Blocca in un colpo solo tutte le schede che una revoca completa tocchera.**
+ *
+ * Gli sweep di questo file toccano due insiemi diversi di schede: i figli su
+ * cui quella persona compare come tutore, e la sua propria scheda atleta. Ogni
+ * sweep prende i suoi blocchi in ordine crescente — ma **due lotti crescenti
+ * non sono un ordine crescente**: se la propria scheda ha un identificativo
+ * piu basso di quello di un figlio, la transazione prende prima l'alto e poi
+ * il basso, e incrocia chi le prende tutte in fila.
+ *
+ * Prenderli qui, **prima**, in un lotto solo, rende monotona l'intera revoca:
+ * gli sweep che seguono trovano le righe gia bloccate e non ne acquisiscono di
+ * nuove. Vedi `athlete-lock-order.ts`.
+ */
+export const bloccaLeSchedeDiUnaRevoca = async (
+  tx: any,
+  organizationId: string,
+  userId: string,
+  userEmail: string | null,
+) => {
+  const indirizzo = String(userEmail || "").trim().toLowerCase();
+
+  const [proprie, comeTutore] = await Promise.all([
+    tx.athlete.findMany({
+      where: { organization_id: organizationId, user_id: userId },
+      select: { id: true },
+    }),
+    tx.athleteGuardian.findMany({
+      where: {
+        organization_id: organizationId,
+        OR: [
+          { user_id: userId },
+          { identity_key: userId },
+          ...(indirizzo
+            ? [{ email: indirizzo }, { identity_key: indirizzo }]
+            : []),
+        ],
+      },
+      select: { athlete_id: true },
+    }),
+  ]);
+
+  await bloccaSchede(tx, [
+    ...proprie.map((riga: { id: string }) => riga.id),
+    ...comeTutore.map((riga: { athlete_id: string }) => riga.athlete_id),
+  ]);
+};
+
 export const unlinkParentGuardians = async (
   tx: any,
   organizationId: string,
   userId: string,
   userEmail: string | null,
   accessRole: string,
+  membershipId?: string | null,
 ) => {
-  if (!eGenitore(accessRole)) return 0;
+  /*
+    **Due strade portano qui, e il ruolo della tessera ne conosce una sola.**
 
-  const athletes = await tx.athlete.findMany({
-    where: { organization_id: organizationId },
-    select: { id: true, data: true },
-  });
-  const collectionKeys = ["guardians", "parents", "tutors", "tutori"];
-  let updated = 0;
+    La prima e ovvia: si revoca la tessera `parent`, e l'area famiglia si
+    chiude con lei.
 
-  for (const athlete of athletes) {
-    const data = isRecord(athlete.data) ? { ...athlete.data } : {};
-    let changed = false;
+    La seconda la si vedeva solo guardando la chiave: `organization_users` e
+    unica per `(organization_id, user_id, role)`, non per persona — una
+    persona puo avere **piu tessere** nello stesso club. Chi era tutore
+    collegato di un minore e portava una tessera di ruolo diverso (allenatore,
+    socio, un ruolo personalizzato su base non-parent) usciva percio da questo
+    controllo con `return 0`: la tessera spariva, l'audit scriveva
+    `clubRoleRevoked`, la schermata diceva revocato — e la riga del tutore
+    restava **viva con l'utenza addosso**. Quella persona, senza piu nessuna
+    tessera nel club, continuava a vedere l'area famiglia completa del minore:
+    calendario, rate, ricevute, documenti, certificato, dato clinico.
 
-    for (const key of collectionKeys) {
-      if (!Array.isArray(data[key])) continue;
+    Il ruolo non e percio la domanda giusta da solo. Si chiude quando la
+    tessera revocata **e** quella di genitore, oppure quando dopo di lei quella
+    persona nel club **non ne ha piu nessuna**: e la revoca completa di cui
+    parla ADR-0110, e un legame che le sopravvive e esattamente il riferimento
+    dangling che questo modulo esiste per non lasciare.
 
-      const result = unlinkParentCollection(data[key], userId, userEmail);
-      if (result.changed) {
-        data[key] = result.next;
-        changed = true;
-      }
+    Il verso opposto resta protetto: chi perde la tessera da allenatore ma
+    **conserva** quella da genitore non perde i figli.
+  */
+  if (!isParentAccessRole(accessRole)) {
+    /*
+      **Il conteggio va serializzato, o due revoche si assolvono a vicenda.**
+
+      Sotto `READ COMMITTED` la `DELETE` non ancora committata dell'altra
+      transazione e invisibile: due revoche in parallelo sulle due tessere
+      della stessa persona vedono **ciascuna la tessera dell'altra**, e
+      nessuna delle due chiude l'area famiglia. Esito misurato: zero tessere
+      nel club, riga tutore viva con l'utenza addosso, due righe di audit che
+      dicono entrambe «revocato».
+
+      Un blocco consultivo sulla coppia (club, persona) le mette in fila: la
+      seconda aspetta la prima, poi conta e vede zero. E **una** presa sola su
+      una chiave calcolata, non un ordine fra tabelle, quindi non aggiunge
+      nessun abbraccio mortale a quelli che questo pacchetto gia sorveglia.
+    */
+    try {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+        `easygame.tutori:${organizationId}:${userId}`,
+      );
+    } catch (errore) {
+      /* Come `bloccaSchede`: passa in silenzio solo «qui SQL grezzo non c'e». */
+      const messaggio = String((errore as any)?.message || errore);
+      const nonSupportato =
+        typeof (tx as any)?.$executeRawUnsafe !== "function" ||
+        /is not a function|not implemented|non supportat/i.test(messaggio);
+      if (!nonSupportato) throw errore;
     }
 
-    if (!changed) continue;
-
-    await tx.athlete.update({ where: { id: athlete.id }, data: { data } });
-    updated += 1;
+    const altreTessere = await tx.organizationUser.count({
+      where: {
+        organization_id: organizationId,
+        user_id: userId,
+        ...(membershipId ? { id: { not: membershipId } } : {}),
+      },
+    });
+    if (altreTessere > 0) return 0;
   }
 
-  return updated;
+  return revokeGuardianAccessInClub(tx, {
+    organizationId,
+    userId,
+    email: userEmail,
+  });
 };
 
 /**
@@ -848,12 +1331,59 @@ export const unlinkDirectAthleteProfile = async (
   userId: string,
   accessRole: string,
 ) => {
-  if (!eAtleta(accessRole)) return 0;
+  if (!isAthleteAccessRole(accessRole)) return 0;
+
+  const schede = await tx.athlete.findMany({
+    where: { organization_id: organizationId, user_id: userId },
+    select: { id: true },
+  });
+
+  /* L'ordine comune, per chi arriva qui senza passare da una revoca completa. */
+  await bloccaSchede(
+    tx,
+    schede.map((riga: { id: string }) => riga.id),
+  );
 
   const result = await tx.athlete.updateMany({
     where: { organization_id: organizationId, user_id: userId },
     data: { user_id: null },
   });
+
+  /*
+    **Un invito ancora vivo e una strada di ritorno, e va chiusa con la porta.**
+
+    Le due porte che revocano l'accesso di un atleta facevano due cose diverse:
+    quella della scheda (`revokeAthleteAccess`) marca «revocato» l'invito
+    ancora in piedi, questa no. E `acceptAthleteAccountInvite` guarda soltanto
+    stato, scadenza e `athletes.user_id` — che questa funzione ha appena
+    azzerato.
+
+    Misurato in sequenza, senza nessuna concorrenza: revoca dalla Gestione
+    accessi, schermata «revocato», riga di audit — e il ragazzo apre l'email che
+    aveva gia ricevuto, `user_id` torna al suo posto e nasce una tessera nuova.
+    Da li `/api/v1/athlete-accounts/me`, che per progetto non chiede ne ruolo ne
+    tessera, riapre l'area atleta completa.
+
+    Due porte per lo stesso fatto devono lasciare lo stesso stato, o quella piu
+    debole diventa la strada che si prende.
+  */
+  for (const scheda of schede) {
+    const vivo = await tx.athleteAccountInvite.findFirst({
+      where: {
+        organization_id: organizationId,
+        athlete_id: scheda.id,
+        status: "sent",
+      },
+      orderBy: { sent_at: "desc" },
+    });
+
+    if (vivo) {
+      await tx.athleteAccountInvite.update({
+        where: { id: vivo.id },
+        data: { status: "revoked", revoked_at: new Date() },
+      });
+    }
+  }
 
   return result.count || 0;
 };

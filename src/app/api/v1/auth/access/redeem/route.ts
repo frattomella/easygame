@@ -22,6 +22,13 @@ import {
   type AccessScopeEntry,
 } from "@/lib/roles/access-scope";
 import { prisma } from "@/lib/server/prisma";
+import {
+  eCaricoDiTutore,
+  findGuardianRow,
+  linkGuardianAccount,
+} from "@/lib/server/athlete-guardians";
+import { guardianUserIdText } from "@/lib/guardians/identity";
+import { lockAthleteRow } from "@/lib/server/resources";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { getResourceById, updateResource } from "@/lib/server/resources";
 
@@ -108,7 +115,7 @@ const loadTrainerAccessTarget = async (
           organization_id: organizationId,
           resource_type: { in: ["trainers", "staff_members"] },
         },
-        select: { id: true },
+        select: { id: true, resource_type: true },
       })
     : null;
 
@@ -120,26 +127,67 @@ const loadTrainerAccessTarget = async (
           resource_type: { in: ["trainers", "staff_members"] },
           payload: { path: ["id"], equals: trainerId },
         },
-        select: { id: true },
+        select: { id: true, resource_type: true },
       });
 
-  if (!perUuid && !perIdLogico) return null;
+  const trovata = perUuid || perIdLogico;
+  if (!trovata) return null;
 
-  try {
-    return {
-      resource: "trainers",
-      record: await getResourceById("trainers", trainerId),
-    } as const;
-  } catch {
-    try {
-      return {
-        resource: "staff_members",
-        record: await getResourceById("staff_members", trainerId),
-      } as const;
-    } catch {
-      return null;
-    }
-  }
+  /*
+    **Il ripiego si prende quando il primo tentativo non trova, non quando
+    solleva.**
+
+    Qui il ramo `staff_members` stava dentro un `catch`, e
+    `getResourceById` senza `scope` **non solleva** quando la riga non c'e:
+    `assertRecordAccess` esce con `if (!scope || !record) return`. Il primo
+    tentativo restituiva percio `{ resource: "trainers", record: null }` senza
+    eccezione, il `catch` non scattava mai, e il ripiego era **codice morto**:
+    l'onboarding a gettone di una voce di staff rispondeva 404 e non era
+    possibile.
+
+    Il difetto era invisibile perche **mascherava** un altro difetto: finche
+    nessun invito di staff si riscattava, il fatto che la revoca non lo
+    chiudesse non apriva niente. Due difetti che si nascondono a vicenda
+    restano tutti e due, e il giorno in cui si corregge il primo il secondo
+    diventa uno sfruttamento — misurato: chiudendo questo, la revoca di una
+    tessera di staff lasciava rientrare la persona.
+
+    Si guarda percio **cio che si e trovato**, non se si e sollevato.
+  */
+  /*
+    **Si legge la riga che la guardia ha trovato, non un'altra con lo stesso
+    nome.**
+
+    La guardia qui sopra cerca con il filtro di club — ed e giusta. Poi il
+    codice **buttava via la risposta** e richiamava `getResourceById` con
+    l'identificativo **logico** e senza `scope`: e in `findClubResourceRecord`
+    uno `scope` assente significa nessun filtro di club, e nessun ordinamento.
+    La domanda giusta veniva fatta, e la risposta veniva scartata.
+
+    L'identificativo logico lo sceglie il client — un `id` non-UUID finisce nel
+    carico senza vincolo di unicita, nemmeno fra club — quindi chi gestisce un
+    club qualunque poteva coniarne uno uguale a quello di un profilo altrui,
+    riscattare, e farsi scrivere l'utenza **sulla scheda dell'altro club**.
+    Misurato: nove tentativi su dieci dirottati, e quale club risponda lo
+    decideva l'ordine fisico delle tuple.
+
+    Da qui in poi si nomina la riga per **identificativo di riga**, che e unico
+    e che la guardia ha gia verificato appartenere a questo club. La stessa
+    risposta dice anche il **tipo**, quindi il ripiego non serve piu.
+  */
+  const record = await getResourceById(
+    trovata.resource_type as "trainers" | "staff_members",
+    trovata.id,
+  ).catch(() => null);
+
+  if (!record) return null;
+
+  return {
+    resource: trovata.resource_type as "trainers" | "staff_members",
+    record,
+    /** L'identificativo **di riga**: e con questo che si scrive. */
+    rowId: trovata.id,
+  } as const;
 };
 
 const loadParentAccessTarget = async (
@@ -158,32 +206,30 @@ const loadParentAccessTarget = async (
     return null;
   }
 
-  const data =
-    athlete.data && typeof athlete.data === "object"
-      ? (athlete.data as Record<string, any>)
-      : {};
-  const guardians = Array.isArray(data.guardians) ? data.guardians : [];
-  const guardianIndex = guardians.findIndex(
-    (guardian: any) => String(guardian?.id || "").trim() === guardianId,
-  );
+  /*
+    **Il gettone nomina una riga, e la domanda la fa il modulo proprietario**
+    (49 §I, §J).
 
-  if (guardianIndex < 0) {
-    return {
-      athlete,
-      data,
-      guardians,
-      guardian: null,
-      guardianIndex,
-    };
-  }
+    Questa ricerca era scritta a mano, e il commento di allora prometteva
+    proprio cio che non faceva: «e la stessa domanda che `linkGuardianAccount`
+    fara dopo: se le due rispondessero diverso, il riscatto collegherebbe una
+    riga e ne dichiarerebbe un'altra». Le due **rispondevano** diverso, e in un
+    modo che si vede solo su una voce fusa: la guardia cercava dentro
+    `athletes.data.guardians[]`, che di una posizione condivisa pubblica un
+    identificativo **solo**, mentre `linkGuardianAccount` cerca fra le righe.
+    Un invito coniato per la riga nascosta veniva percio rifiutato con 404 —
+    una promessa fatta a una famiglia che smetteva di funzionare perche
+    l'archivio ha cambiato forma.
 
-  return {
-    athlete,
-    data,
-    guardians,
-    guardian: guardians[guardianIndex],
-    guardianIndex,
-  };
+    Adesso la domanda e `findGuardianRow`: una funzione sola, sulle **righe**,
+    con l'ordine dal piu preciso al piu largo. E cio che si passa poi al
+    collegamento e l'identificativo della riga **trovata qui**, non la maniglia
+    che il gettone portava: la guardia e l'uso interrogano cosi la stessa riga,
+    che e la prima delle due regole del confine di club.
+  */
+  const guardian = await findGuardianRow(prisma, athlete.id, guardianId);
+
+  return { athlete, guardian };
 };
 
 /**
@@ -513,13 +559,23 @@ export async function POST(request: Request) {
       );
     }
 
-    const tokenType = String(payload.token_type || payload.tokenType || "").trim();
     let role = normalizeAccessRole(payload.role || "member") || "member";
 
-    if (
-      tokenType === "parent_access" ||
-      (athleteId && guardianId && (!payload.role || role === "member"))
-    ) {
+    /*
+      **Il ruolo, che non e la stessa domanda della revoca.**
+
+      Qui si decide soltanto **quale ruolo** concedere. Il collegamento del
+      tutore avviene piu sotto, su `parentTarget?.guardian`, che dipende dalle
+      sole `athlete_id` + `guardian_id` e avviene **qualunque sia il ruolo**.
+
+      Le due domande sono percio due funzioni, e stanno in ordine:
+      `eCaricoDiTutore` (il ruolo) e un sottoinsieme di
+      `eCaricoCheApreUnaTutela` (cio che collega un tutore), ed e **quella
+      larga** che la revoca usa. Averle confuse in una funzione sola lasciava
+      passare un carico con `role: "trainer"` e le due chiavi: collegava il
+      tutore e nessuna revoca lo chiudeva.
+    */
+    if (eCaricoDiTutore(payload)) {
       role = "parent";
     }
 
@@ -673,13 +729,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const alreadyLinkedUserId = String(
-      trainerTarget?.record?.linkedUserId ||
-        trainerTarget?.record?.linked_user_id ||
-        parentTarget?.guardian?.linkedUserId ||
-        parentTarget?.guardian?.linked_user_id ||
-        "",
-    ).trim();
+    /*
+      **Le quattro grafie, e non due** (49 §B).
+
+      Questa lettura ne guardava due — `linkedUserId` e `linked_user_id` — su
+      una fonte che adesso e la **riga**, dove l'utenza si chiama `user_id`:
+      leggerne due voleva dire non vederla affatto, e un gettone gia collegato
+      a un'altra persona sarebbe passato. `guardianUserIdText` le legge tutte e
+      quattro, ed e la stessa funzione che usano i canali di invio.
+    */
+    const alreadyLinkedUserId =
+      String(
+        trainerTarget?.record?.linkedUserId ||
+          trainerTarget?.record?.linked_user_id ||
+          "",
+      ).trim() || guardianUserIdText(parentTarget?.guardian);
 
     if (alreadyLinkedUserId && alreadyLinkedUserId !== session.db.user_id) {
       await tracciaRiscatto({
@@ -932,7 +996,8 @@ export async function POST(request: Request) {
     });
 
     if (trainerId && trainerTarget?.record) {
-      await updateResource(trainerTarget.resource, trainerId, {
+      /* Per riga, non per identificativo logico: vedi `loadTrainerAccessTarget`. */
+      await updateResource(trainerTarget.resource, trainerTarget.rowId, {
         linkedUserId: session.db.user_id,
         linked_user_id: session.db.user_id,
         linkedUserEmail: session.db.user.email,
@@ -951,42 +1016,53 @@ export async function POST(request: Request) {
         token: payload.one_time === false ? String(accessToken.name || "") : "",
       });
     }
-
     if (parentTarget?.guardian) {
-      const updatedGuardians = parentTarget.guardians.map((guardian: any) =>
-        String(guardian?.id || "").trim() === guardianId
-          ? {
-              ...guardian,
-              linkedUserId: session.db.user_id,
-              linked_user_id: session.db.user_id,
-              linkedUserEmail: session.db.user.email,
-              linked_user_email: session.db.user.email,
-              linkedAt: nowIso,
-              linked_at: nowIso,
-              parentAccessTokenRecordId: accessToken.id,
-              parent_access_token_record_id: accessToken.id,
-              parentAccessTokenStatus:
-                payload.one_time === false ? "active" : "redeemed",
-              parent_access_token_status:
-                payload.one_time === false ? "active" : "redeemed",
-              parentAccessTokenRedeemedAt: nowIso,
-              parent_access_token_redeemed_at: nowIso,
-              parentAccessTokenValue:
-                payload.one_time === false ? String(accessToken.name || "") : "",
-              parent_access_token_value:
-                payload.one_time === false ? String(accessToken.name || "") : "",
-            }
-          : guardian,
-      );
+      /*
+        **Il riscatto e l'unico atto che apre, e adesso e una riga**
+        (PP-02 / WP-C).
 
-      await prisma.athlete.update({
-        where: { id: parentTarget.athlete.id },
-        data: {
-          data: {
-            ...parentTarget.data,
-            guardians: updatedGuardians,
-          },
-        },
+        Qui c'erano centosessanta righe, ed erano tre scritture in corsa fra
+        loro: l'elemento dell'array, il registro delle identita revocate e il
+        registro dei solo-recapito. Tutti e tre dentro lo stesso blob, tutti e
+        tre da rileggere sotto blocco perche il valore letto a inizio richiesta
+        era gia vecchio — una revoca committata nel frattempo si vedeva la
+        propria riga **risuscitata**, `linkedUserId` riscritto e
+        `accessRevokedAt` azzerato.
+
+        Le tre difese vivevano in tre posti perche la riga non aveva una
+        chiave: il marchio sulla riga si aggirava aggiungendone una sorella con
+        lo stesso indirizzo, quindi serviva un registro a livello di scheda, e
+        il registro andava tenuto d'accordo con la riga.
+
+        Adesso sono **una** riga con una chiave, e scioglierle e una `UPDATE`:
+        `revoked_at` a nullo, `contact_only` a falso, l'utenza scritta. Non c'e
+        niente da rileggere perche non c'e niente da rimandare.
+
+        Cosa resta vero, e va detto: un accesso ridato si ridà **per intero** —
+        anche i promemoria del certificato medico, che guardano il marchio e
+        senza questo avrebbero escluso per sempre il tutore riattivato, senza
+        che niente lo dicesse.
+      */
+      /*
+        **Si collega la riga che la guardia ha trovato, e non un'altra.**
+
+        Qui si passava la maniglia del gettone piu un elenco di identita — le
+        due dell'utenza di sessione e le tre grafie dell'indirizzo della voce.
+        Se la maniglia non avesse risolto, il ripiego per identita avrebbe
+        collegato una riga che **nessuna guardia aveva controllato**: due
+        genitori con un indirizzo di famiglia condiviso (ADR-0127) sono la
+        configurazione in cui quella scelta cade sulla persona sbagliata.
+
+        Si passa percio l'identificativo della riga gia risolta e **nessuna**
+        identita: la guardia e l'uso interrogano la stessa riga, e se nel
+        frattempo non c'e piu non si collega niente — che e la risposta giusta.
+      */
+      await linkGuardianAccount(prisma, {
+        athleteId: String(parentTarget.athlete.id),
+        guardianRowId: parentTarget.guardian.id,
+        identityKeys: [],
+        userId: session.db.user_id,
+        email: session.db.user?.email,
       });
     }
 

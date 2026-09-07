@@ -214,7 +214,7 @@ export function RenewalForm({
           className="flex items-center gap-2 text-sm text-slate-600"
         >
           <Loader2 className="h-4 w-4 animate-spin" />
-          Preparo il modulo di rinnovo…
+          Preparo il modulo…
         </p>
       </div>
     );
@@ -262,7 +262,8 @@ export function RenewalForm({
             {draft.form.title}
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Rinnovo per {draft.athleteName}
+            {draft.isEnrollment === false ? "Per" : "Rinnovo per"}{" "}
+            {draft.athleteName}
             {draft.seasonLabel ? (
               <>
                 {" · stagione "}
@@ -295,7 +296,7 @@ export function RenewalForm({
         {foundDraft ? (
           <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
             <p className="text-sm font-semibold text-amber-900">
-              Avevi gia iniziato a compilare questo rinnovo
+              Avevi gia iniziato a compilare questo modulo
             </p>
             <p className="text-sm text-amber-900">
               E rimasto su questo dispositivo e non e stato inviato. Allegati e
@@ -398,7 +399,7 @@ export function RenewalForm({
           ) : (
             <Send className="mr-2 h-4 w-4" />
           )}
-          Invia il rinnovo
+          {draft.isEnrollment === false ? "Invia il modulo" : "Invia il rinnovo"}
         </Button>
       </form>
     </section>

@@ -16,6 +16,8 @@
  * `accessTokenExpiresAt`. Normalizzarli in archivio e una migrazione a se; qui
  * si legge cio che c'e, e si legge in un posto solo.
  */
+import { resolveNotificationGuardianEntries } from "@/lib/guardians/notifications";
+
 
 /** Quanto vive un token di accesso genitore, quando nessuno lo dichiara. */
 export const PARENT_TOKEN_EXPIRY_HOURS = 72;
@@ -106,7 +108,19 @@ const TOKEN_GENERATED_KEYS = [
   "accessTokenGeneratedAt",
 ];
 
-const LINKED_USER_KEYS = ["linkedUserId", "linked_user_id"];
+/*
+  **Quattro grafie: il badge deve dire cio che il cancello decide.**
+
+  Ne leggeva due, e una riga collegata con `userId` mostrava «Account non
+  collegato» mentre apriva l'area famiglia. Un badge che contraddice il cancello
+  e peggio di nessun badge.
+*/
+const LINKED_USER_KEYS = [
+  "linkedUserId",
+  "linked_user_id",
+  "userId",
+  "user_id",
+];
 
 export const getGuardianDisplayName = (guardian: GuardianLike): string =>
   [guardian?.name, guardian?.surname].filter(Boolean).join(" ").trim() ||
@@ -124,18 +138,46 @@ export const getGuardianDisplayName = (guardian: GuardianLike): string =>
 export const normalizeGuardianRows = (
   items: GuardianLike[],
   fallbackSeed: string | number = "senza-dati",
-): GuardianLike[] =>
-  (Array.isArray(items) ? items : []).map((guardian, index) => ({
-    ...guardian,
-    id:
+): GuardianLike[] => {
+  /*
+    **Un id deve nominare una persona sola, e questo poteva nominarne due.**
+
+    L'id nasce dal dato piu l'indice, e sembra percio unico. Non lo e, per due
+    ragioni che si incontrano: la scheda atleta **salva** le righe cosi
+    normalizzate, quindi l'id sintetico finisce in archivio; e
+    `form-submissions.ts` fa `guardians.push` di righe **senza** id. Basta
+    allora cancellare una riga — le altre scalano di posto — perche una riga
+    gia salvata come `guardian-1-<indirizzo>` si ritrovi accanto a una riga
+    senza id che a quel posto genera **lo stesso** identificativo.
+
+    Misurato: due righe con lo stesso id, il clic su «Scollega account» della
+    nonna che revoca il **padre**, l'audit che nomina il padre, e la schermata
+    che segna «Account non collegato» su tutte e due. Lo stesso id collidente
+    faceva copiare il marchio della revoca sulla riga sbagliata al primo
+    salvataggio dell'anagrafica.
+
+    Un id gia visto viene percio disambiguato con la sua posizione. Resta
+    stabile fra due montaggi della stessa scheda — che e la ragione per cui
+    non e un contatore — e smette di essere ambiguo.
+  */
+  const visti = new Set<string>();
+
+  return (Array.isArray(items) ? items : []).map((guardian, index) => {
+    const base =
       guardian?.id ||
       `guardian-${index}-${String(
         guardian?.email || guardian?.phone || guardian?.name || fallbackSeed,
       )
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-+|-+$/g, "")}`,
-  }));
+        .replace(/^-+|-+$/g, "")}`;
+
+    const id = visti.has(String(base)) ? `${base}--${index}` : String(base);
+    visti.add(id);
+
+    return { ...guardian, id };
+  });
+};
 
 /**
  * Un tutore visto come **recapito**: chi e, dove lo si raggiunge, e se ha un
@@ -161,16 +203,6 @@ export type AthleteGuardianContact = {
   /** L'account collegato dichiarato in anagrafica. Vuoto quando non c'e. */
   linkedUserId: string;
 };
-
-const GUARDIAN_EMAIL_KEYS = ["email", "linkedUserEmail", "linked_user_email"];
-
-const GUARDIAN_ACCOUNT_KEYS = [
-  "linkedUserId",
-  "linked_user_id",
-  "userId",
-  "user_id",
-];
-
 /**
  * I tutori di un atleta, nelle **due forme che convivono in archivio**:
  * l'elenco `guardians` e la coppia storica `parent1` / `parent2`.
@@ -184,33 +216,56 @@ export const readAthleteGuardianContacts = (
 ): AthleteGuardianContact[] => {
   const data =
     athlete && typeof athlete === "object" && athlete.data ? athlete.data : {};
-  const record = data && typeof data === "object" ? (data as GuardianLike) : {};
 
-  const listed = Array.isArray(record.guardians) ? record.guardians : [];
-  const legacy = [record.parent1, record.parent2].filter(
-    (value) => value && typeof value === "object",
-  ) as GuardianLike[];
+  /*
+    **Era il terzo gemello, e nessuno lo chiamava cosi** (49 §H).
 
-  const rows = listed.length > 0 ? listed : legacy;
+    Da qui escono i solleciti degli insoluti — che portano il nome del minore,
+    l'importo e un **collegamento a gettone per pagare** — e le comunicazioni
+    di gruppo. Il censimento lo dichiarava «dominio puro lato client», non
+    canonico: cioe una presentazione. Non lo e — decide **chi riceve** — e
+    aveva percio la propria copia delle tre difese, la terza di tre, con le
+    proprie sfumature.
 
-  return normalizeGuardianRows(rows, String(athlete?.id || "senza-atleta")).map(
-    (guardian) => ({
-      id: String(guardian.id),
-      name: getGuardianDisplayName(guardian),
-      email: String(firstValue(guardian, GUARDIAN_EMAIL_KEYS) || "")
-        .trim()
-        .toLowerCase(),
-      linkedUserId: String(
-        firstValue(guardian, GUARDIAN_ACCOUNT_KEYS) || "",
-      ).trim(),
-    }),
-  );
+    Adesso il filtro e `resolveNotificationGuardianEntries`, lo stesso dei
+    promemoria del certificato e delle notifiche documentali. Qui resta solo
+    cio che e davvero di questo modulo: dare alla riga un identificativo
+    stabile e un nome da mostrare.
+  */
+  const superstiti = resolveNotificationGuardianEntries(data);
+
+  return normalizeGuardianRows(
+    superstiti.map((voce) => voce.record),
+    String(athlete?.id || "senza-atleta"),
+  ).map((guardian, indice) => ({
+    id: String(guardian.id),
+    name: getGuardianDisplayName(guardian),
+    /*
+      **Un indirizzo revocato non esce, nemmeno da una riga viva.**
+
+      L'uscita «un legame dichiarato vince» tiene in piedi la riga — ed e
+      giusto: madre e padre con l'indirizzo di famiglia condiviso, uno solo
+      revocato. Ma se la riga sopravvive portandosi dietro **quell'indirizzo**,
+      l'invio ci arriva lo stesso, e la revoca vale per il cruscotto e non per
+      la posta. Lo azzera la primitiva, per tutti e tre i canali insieme.
+    */
+    email: superstiti[indice].linkedUserEmail.toLowerCase(),
+    linkedUserId: superstiti[indice].linkedUserId,
+  }));
 };
 
 export type GuardianAccessState =
   | "linked"
   | "token-active"
   | "token-expired"
+  /**
+   * **Un recapito dichiarato da chi ha compilato un modulo, non dal club.**
+   *
+   * Vale come indirizzo a cui scrivere e **non** come chiave dell'area
+   * famiglia: ADR-0127 fa valere l'indirizzo di contatto come legame, e quella
+   * regola poggia sul presupposto che lo scriva la segreteria.
+   */
+  | "contact-only"
   | "not-linked";
 
 export type GuardianAccessStatus = {
@@ -236,6 +291,11 @@ const ACCESS_STATUS: Record<GuardianAccessState, GuardianAccessStatus> = {
     label: "Token scaduto",
     className: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50",
   },
+  "contact-only": {
+    state: "contact-only",
+    label: "Solo recapito",
+    className: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50",
+  },
   "not-linked": {
     state: "not-linked",
     label: "Account non collegato",
@@ -256,8 +316,67 @@ const ACCESS_STATUS: Record<GuardianAccessState, GuardianAccessStatus> = {
 export const getGuardianAccessStatus = (
   guardian: GuardianLike,
   nowMs: number = Date.now(),
+  /**
+   * **Il registro dell'atleta, quando chi chiama ce l'ha.**
+   *
+   * Il segno vive sulla riga **e** in un registro a livello di atleta, e a
+   * decidere e il registro: una riga puo quindi essere «solo recapito» senza
+   * portarne traccia. Senza questo argomento il badge diceva «Account non
+   * collegato» a un tutore che il cancello sta rifiutando, e il club non aveva
+   * modo di capire perche.
+   */
+  contactOnlyIdentities: Iterable<string> = [],
+  /*
+    **E chi chiama deve avere quel registro davvero.**
+
+    La prima stesura del cablaggio lo leggeva da `athlete.data` nella scheda
+    atleta, dove lo stato e un oggetto **chiuso** costruito campo per campo e
+    una chiave `data` non esiste: il terzo argomento era sempre vuoto e questa
+    funzione tornava a leggere il solo marchio di riga. La correzione c'era e
+    non girava — un tutore rifiutato dal cancello compariva come «Account non
+    collegato», e alla segreteria non veniva detto ne perche ne come rimediare.
+  */
 ): GuardianAccessStatus => {
+  const recapitiSoli = new Set(
+    [...contactOnlyIdentities]
+      .map((valore) => String(valore || "").trim().toLowerCase())
+      .filter(Boolean),
+  );
   if (firstValue(guardian, LINKED_USER_KEYS)) return ACCESS_STATUS.linked;
+
+  /*
+    **La difesa che governa l'accesso al dato sanitario di un minore era
+    invisibile in ogni schermata.**
+
+    `contactOnly` decide se un indirizzo apra o no l'area famiglia — allergie,
+    farmaci, byte del certificato — e non compariva da nessuna parte: una
+    revisione lo ha misurato con un `grep` su tutto `src/components` e
+    `src/app`, zero occorrenze. Prima e dopo che quel segno cadesse, la scheda
+    mostrava **la stessa riga e lo stesso badge**, mentre il vaglio dell'accesso
+    passava da «no» a «si».
+
+    Il club non aveva modo di vedere che una riga e solo un recapito, ne di
+    accorgersi che il segno era caduto. E la forma dell'errore n. 8 di
+    CLAUDE.md — un dato che decide un accesso e che nessuna schermata sa
+    accendere — applicata a una **difesa** invece che a una funzione, ed e per
+    questo che il difetto e rimasto vivo cinque round.
+  */
+  const suoIndirizzo = String(
+    (guardian as any)?.email ||
+      (guardian as any)?.linkedUserEmail ||
+      (guardian as any)?.linked_user_email ||
+      "",
+  )
+    .trim()
+    .toLowerCase();
+
+  if (
+    (guardian as any)?.contactOnly ||
+    (guardian as any)?.contact_only ||
+    (suoIndirizzo && recapitiSoli.has(suoIndirizzo))
+  ) {
+    return ACCESS_STATUS["contact-only"];
+  }
 
   const status = String(firstValue(guardian, TOKEN_STATUS_KEYS) || "")
     .trim()

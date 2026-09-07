@@ -431,6 +431,9 @@ export default function AthleteProfilePage() {
     Periodo della stagione attiva: e il ripiego del pro-rata quando il piano
     lo accende senza dichiarare il proprio periodo (RC Fix 1, punto 4).
   */
+  const recapitiSoloContatto: string[] =
+    (athlete as any)?.contactOnlyIdentities || [];
+
   const [activeSeasonPeriod, setActiveSeasonPeriod] = useState<{
     startDate: string;
     endDate: string;
@@ -754,6 +757,8 @@ export default function AthleteProfilePage() {
           clothingSizes: resolvedClothingSizes,
           identityDocuments: normalizedCollections.identityDocuments,
           enrollmentDocuments: normalizedCollections.enrollmentDocuments,
+          /* Il registro decide chi entra: senza, il badge non lo sa dire. */
+          contactOnlyIdentities: athletePayload?.contactOnlyIdentities || [],
         });
         setClubCategoryOptions(normalizedCategoryOptions);
         setAthleteCategoryAnalytics(categoryAnalytics);
@@ -3796,7 +3801,7 @@ export default function AthleteProfilePage() {
                             </div>
                             {(() => {
                               const accessStatus =
-                                getGuardianAccessStatus(guardian);
+                                getGuardianAccessStatus(guardian, Date.now(), recapitiSoloContatto);
                               const tokenValue =
                                 guardian.parentAccessTokenValue ||
                                 guardian.parent_access_token_value ||

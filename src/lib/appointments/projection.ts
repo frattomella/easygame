@@ -154,7 +154,16 @@ export const toFamilyAppointment = (
     person: extra.person ?? "",
     athlete_id: row.athlete_id ?? null,
     athlete_name: extra.athleteName ?? "",
-    requested_by_user_id: row.requested_by_user_id ?? null,
+    /*
+      **`requested_by_user_id` non esce**, e non e una dimenticanza.
+
+      Su una riga nata dal desk quel campo porta **l'operatore del club** che
+      l'ha scritta, non la famiglia. Nessuna schermata lo disegnava, ma usciva
+      nella risposta — e ripetendo su piu appuntamenti si ricostruiva l'elenco
+      di chi lavora in segreteria e di chi riceve in quali giorni. E lo stesso
+      dato che `toFamilyFreeSlot` qui sotto dichiara di aver tolto dagli slot,
+      per la stessa ragione: una risposta e cio che si pubblica.
+    */
     slot_id: row.slot_id ?? null,
     site_id: row.site_id ?? null,
     version: row.version ?? 1,

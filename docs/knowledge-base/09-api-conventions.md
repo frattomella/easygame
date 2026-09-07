@@ -1176,3 +1176,57 @@ di scrittura, quattro indici gia adatti alla lettura, e zero lettori:
 `prisma.auditLog.findMany` non compariva in nessun handler.
 
 Lo scope di club e **obbligatorio**, e la chiave e `audit.read`, di direzione.
+
+
+---
+
+## Il corpo della rotta generica si legge in **un** modo solo (WP-A, 2026-09-05)
+
+`/api/v1/[resource]` accetta due forme di corpo, ed e voluto:
+
+```jsonc
+{ "first_name": "Marco", "status": "active" }          // il contenuto, nudo
+{ "data": { "first_name": "Marco" }, "mode": "upsert" } // il contenuto, incartato
+```
+
+Distinguerle non e banale, perche **alcune risorse hanno una colonna che si
+chiama `data`** — `athletes` fra le altre. Un corpo come
+`{ "first_name": "Marco", "data": { "note": "..." } }` non e un involucro: e una
+scheda che porta il suo campo `data`.
+
+La regola, dichiarata in `src/lib/server/resource-request-payload.ts`:
+
+> Un corpo e un **involucro** quando porta `data` e, accanto, solo roba da
+> involucro: una chiave di servizio dichiarata (`mode`, `meta`), oppure niente.
+> In ogni altro caso il corpo **e gia** il contenuto.
+
+**Perche sta scritto in un ADR-adiacente e non in una funzione qualsiasi.**
+Fino a WP-A questa regola esisteva **due volte**: `resolveCreatePayload` nella
+rotta di collezione (`POST` e `upsert`), e `body?.data ?? body` — che scarta
+sempre — nella rotta di riga (`PATCH`). Le due divergevano, e la divergenza non
+usciva con un errore: usciva con **200**.
+
+Misurato riportando la difesa vecchia: **ventidue risorse su ventidue** fra
+quelle scrivibili dalla rotta generica accettavano un `PATCH` della forma
+`{ ...campi, data: {...} }`, rispondevano 200 e **non scrivevano nessuno dei
+campi**. `categories`, `club_sites`, `trainers`, `staff_members`, `sponsors`,
+`payment_plans`, `document_templates`, `weekly_schedule` e le altre.
+
+**Adesso i tre verbi chiamano la stessa funzione**, e ce n'e una seconda
+accanto:
+
+| funzione | che cosa fa |
+|----------|-------------|
+| `resolveResourcePayload(body)` | scioglie l'involucro **se** e un involucro |
+| `assertWritableResourcePayload(payload, resource)` | rifiuta con **400** un corpo che, dopo la risoluzione, non porta nessun campo |
+
+La seconda chiude la meta piu insidiosa del difetto: una richiesta di scrittura
+che non chiede di scrivere niente e un errore, non un 200. Chi ha chiamato,
+altrimenti, crede di aver salvato.
+
+**Il verdetto e lo stesso sui tre verbi**, e non e una promessa: lo misura
+`scripts/pp-02-totalita-corpo.mjs`, che per ogni risorsa raggiungibile scrive
+dal `POST` con un corpo nudo, riscrive dal `PATCH` con un corpo nudo e rilegge
+dalla `GET`. Le risorse che il dominio rifiuta di creare dalla rotta generica —
+27 su 49, ognuna con la sua rotta propria — vengono **stampate con il motivo**,
+non saltate in silenzio.

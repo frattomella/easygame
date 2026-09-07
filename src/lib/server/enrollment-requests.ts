@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { resolveGuardianSubjectForUser } from "@/lib/guardians/documents";
 import {
   createDocumentRequest,
   resolveLinkedFamilyScope,
@@ -23,6 +24,7 @@ import {
 } from "@/lib/forms/enrollment-receipt";
 import {
   isEnrollmentForm,
+  isFormClosed,
   normalizeFormSchema,
   type FormSchema,
 } from "@/lib/forms/model";
@@ -410,6 +412,16 @@ export type RenewalDraftView = RenewalDraft & {
   athleteId: string;
   athleteName: string;
   clubName: string;
+  /**
+   * **Se cio che si sta compilando e un'iscrizione.**
+   *
+   * La schermata del rinnovo e una sola, e i moduli online del fascicolo
+   * passano tutti di li: senza questo campo parlerebbe di rinnovo anche su un
+   * questionario di gradimento, e la stagione comparirebbe su una pratica che
+   * nessuna stagione ha.
+   */
+  isEnrollment: boolean;
+
   form: {
     title: string;
     description: string;
@@ -544,6 +556,243 @@ export const listFamilyRenewalForms = async (
     }));
 };
 
+/* -------------------------------------------------- i moduli online (§G) */
+
+/**
+ * Lo stato di un modulo online come lo legge una famiglia.
+ *
+ * **«In compilazione» non c'e, e non e una dimenticanza.** Una bozza vive nel
+ * deposito locale del browser che l'ha cominciata: il server non la conosce, e
+ * dichiararla vorrebbe dire mostrare «in compilazione» a chi apre da un altro
+ * telefono e non trova niente. Cio che il server sa dire e cio che e successo:
+ * niente, inviato, chiuso.
+ */
+export type FamilyOnlineFormState =
+  | "todo"
+  | "submitted"
+  | "completed"
+  | "expired";
+
+export const FAMILY_ONLINE_FORM_LABELS: Record<FamilyOnlineFormState, string> = {
+  todo: "Da compilare",
+  submitted: "Inviato",
+  completed: "Completato",
+  expired: "Scaduto",
+};
+
+export type FamilyOnlineForm = {
+  publicSlug: string;
+  title: string;
+  athleteName: string;
+  state: FamilyOnlineFormState;
+  stateLabel: string;
+  /** La data oltre la quale il club non accetta piu risposte. */
+  dueDate: string | null;
+  /** Quando questa famiglia lo ha inviato, se lo ha fatto. */
+  completedAt: string | null;
+  /** Il club ha dichiarato che si compila una volta sola (PP-02 §J). */
+  singleSubmission: boolean;
+  /** Se un invio e ancora possibile: e cio che accende la CTA. */
+  canSubmit: boolean;
+  /**
+   * **Se questo modulo e un'iscrizione**, e quindi dove porta il pulsante.
+   *
+   * Questo elenco non filtra per tipo, ed e giusto: risponde a «cosa ti chiede
+   * il club», e un questionario lo e. Ma la CTA mandava **tutti** al flusso di
+   * rinnovo, che apre `RenewalForm` sotto il titolo «Rinnova l'iscrizione» e
+   * invia con `kind: "renewal"`: un questionario di gradimento arrivava in
+   * segreteria etichettato come una pratica di rinnovo, da esaminare e
+   * approvare — e approvarla avrebbe scritto anagrafica da risposte che non
+   * sono un'iscrizione.
+   *
+   * L'elenco non doveva restringersi: doveva restringersi la **destinazione**.
+   */
+  isEnrollment: boolean;
+};
+
+/**
+ * **I moduli online del club, con lo stato di questa famiglia** (PP-02 §G).
+ *
+ * L'area «Moduli online» del fascicolo era un **rimando**: una frase e un
+ * pulsante verso la pagina Iscrizione. Il rimando non era sbagliato — i moduli
+ * vivono li, e ospitarli due volte sarebbe la seconda implementazione di un
+ * dominio che ne ha gia una — ma non rispondeva alla domanda per cui quella
+ * card esiste: **cosa mi manca da compilare, e cosa ho gia fatto**. Per saperlo
+ * bisognava aprire un'altra pagina e leggerne due elenchi.
+ *
+ * Qui non nasce nessun dominio nuovo: si mettono accanto due letture che gia
+ * esistono — i moduli pubblicati e le pratiche di questa famiglia — e se ne
+ * ricava lo stato.
+ *
+ * **Nessun filtro sul tipo**, a differenza di `listFamilyRenewalForms`. Quella
+ * risponde a «cosa puoi rinnovare» e un questionario non e un rinnovo; questa
+ * risponde a «cosa ti chiede il club», e un questionario lo e.
+ */
+export const listFamilyOnlineForms = async (
+  userId: string,
+  athleteId: string,
+  now: Date = new Date(),
+): Promise<FamilyOnlineForm[]> => {
+  const scope = await resolveLinkedFamilyScope(asText(userId), asText(athleteId));
+  const organizationId = asText(scope.activeOrganizationId);
+  if (!organizationId) return [];
+
+  const righe = (await (prisma as any).formTemplate.findMany({
+    where: {
+      organization_id: organizationId,
+      status: "published",
+      public_enabled: true,
+      published_version: { gt: 0 },
+    },
+    select: {
+      id: true,
+      public_slug: true,
+      title: true,
+      published_version: true,
+    },
+    orderBy: { title: "asc" },
+    take: 50,
+  })) as Array<{
+    id: string;
+    public_slug: string | null;
+    title: string | null;
+    published_version: number;
+  }>;
+
+  const candidati = righe.filter((riga) => asText(riga.public_slug));
+  if (!candidati.length) return [];
+
+  const versioni = (await (prisma as any).formTemplateVersion.findMany({
+    where: {
+      organization_id: organizationId,
+      OR: candidati.map((riga) => ({
+        template_id: riga.id,
+        version: riga.published_version,
+      })),
+    },
+    select: { template_id: true, schema_json: true },
+  })) as Array<{ template_id: string; schema_json: unknown }>;
+
+  const schemi = new Map(
+    versioni.map((versione) => [
+      versione.template_id,
+      normalizeFormSchema(versione.schema_json),
+    ]),
+  );
+
+  /*
+    Le pratiche di **questo figlio**, non della famiglia: la card sta dentro il
+    fascicolo di un atleta, e dire «completato» perche lo ha fatto il fratello
+    e il modo piu diretto di far saltare un'iscrizione.
+  */
+  const atleta = asText(athleteId);
+  const inviate = (await (prisma as any).formSubmission.findMany({
+    where: {
+      organization_id: organizationId,
+      template_id: { in: candidati.map((riga) => riga.id) },
+      status: { in: ["pending", "approved"] },
+      /*
+        Il filtro sul figlio lo fa il database: senza, un tetto di
+        cinquecento righe su un club grande poteva lasciare fuori proprio la
+        compilazione di questo atleta, e la card avrebbe detto «Da compilare»
+        a chi lo aveva gia fatto. `array_contains` diventa un `@>`, che su un
+        array JSON accetta un oggetto parziale.
+
+        Il vaglio in memoria resta e decide comunque: una condizione non
+        valutata restituirebbe **piu** righe, non meno.
+      */
+      subjects: { array_contains: [{ recordId: atleta }] },
+    },
+    select: { template_id: true, subjects: true, submitted_at: true },
+    orderBy: { submitted_at: "desc" },
+  })) as Array<{
+    template_id: string;
+    subjects: unknown;
+    submitted_at: Date | null;
+  }>;
+
+  const ultimaPerModulo = new Map<string, Date | null>();
+  for (const riga of inviate) {
+    if (athleteOfSubjects(riga.subjects) !== atleta) continue;
+    if (!ultimaPerModulo.has(riga.template_id)) {
+      ultimaPerModulo.set(riga.template_id, riga.submitted_at ?? null);
+    }
+  }
+
+  /*
+    **Il nome si legge dalla riga, non da una seconda scansione.**
+
+    Qui c'era `getParentLinkedAthletes`, che risolve il legame con una
+    scansione di `athletes` su tutti i club — la stessa che
+    `resolveLinkedFamilyScope` ha gia fatto due righe sopra per autorizzare
+    questa chiamata. Due scansioni per un nome, su una rotta che si apre a ogni
+    visita del fascicolo.
+  */
+  const riga = await prisma.athlete.findFirst({
+    where: { id: atleta, organization_id: organizationId },
+    select: { first_name: true, last_name: true },
+  });
+  const nomeAtleta = [asText(riga?.first_name), asText(riga?.last_name)]
+    .filter(Boolean)
+    .join(" ");
+
+  return candidati
+    .map((riga) => ({ riga, schema: schemi.get(riga.id) }))
+    .filter(
+      (voce): voce is { riga: (typeof candidati)[number]; schema: FormSchema } =>
+        Boolean(voce.schema),
+    )
+    .map(({ riga, schema }) => {
+      const inviato = ultimaPerModulo.has(riga.id);
+      const completedAt = toIso(ultimaPerModulo.get(riga.id) ?? null);
+      const chiuso = isFormClosed(schema, now);
+      const unaVoltaSola = Boolean(schema.settings.singleSubmission);
+      const iscrizione = isEnrollmentForm(schema);
+
+      /*
+        L'ordine e voluto. «Completato» vince su «scaduto»: chi lo ha gia
+        mandato non deve leggere che e in ritardo. E «inviato» resta distinto da
+        «completato» perche su un modulo che si puo rimandare la famiglia deve
+        sapere che **puo** — per esempio per correggere un dato.
+      */
+      const state: FamilyOnlineFormState =
+        inviato && unaVoltaSola
+          ? "completed"
+          : inviato
+            ? "submitted"
+            : chiuso
+              ? "expired"
+              : "todo";
+
+      return {
+        publicSlug: asText(riga.public_slug),
+        isEnrollment: iscrizione,
+        title: schema.title || asText(riga.title) || "Modulo",
+        athleteName: nomeAtleta,
+        state,
+        stateLabel: FAMILY_ONLINE_FORM_LABELS[state],
+        dueDate: asText(schema.settings.closeAt) || null,
+        completedAt,
+        singleSubmission: unaVoltaSola,
+        /*
+          **E il termine vale anche su un modulo gia inviato.**
+
+          `chiuso` era consultato solo sul ramo «non inviato»: un modulo con il
+          termine passato, che questa famiglia aveva gia mandato e che si puo
+          rimandare, usciva `submitted` con la CTA accesa. Premendo «Compila di
+          nuovo» si finiva su un riquadro rosso «Modulo non trovato» — perche
+          `findPublicFormBySlug` scarta i moduli chiusi — che non dice nemmeno
+          che il termine e scaduto.
+
+          E l'invariante scritta accanto alla CTA stessa: accendere un pulsante
+          per poi rifiutare l'invio e la promessa mancata che «Paga ora» faceva
+          prima di §D.
+        */
+        canSubmit: !chiuso && (state === "todo" || state === "submitted"),
+      };
+    });
+};
+
 export const buildRenewalDraft = async (
   userId: string,
   input: { athleteId: string; publicSlug: string },
@@ -562,23 +811,38 @@ export const buildRenewalDraft = async (
   });
   if (!athlete) throw new Error("Modulo non trovato");
 
-  const guardians = Array.isArray(asRecord(athlete.data).guardians)
-    ? asRecord(athlete.data).guardians
-    : [];
-  const tutore =
-    guardians.find((guardian: any) =>
-      [
-        asRecord(guardian).linkedUserId,
-        asRecord(guardian).linked_user_id,
-        asRecord(guardian).userId,
-        asRecord(guardian).user_id,
-      ]
-        .map((value) => asText(value))
-        .includes(asText(userId)),
-    ) || null;
+  /*
+    **Chi apre il rinnovo e il soggetto della compilazione, se non e escluso.**
+
+    Questa ricerca era scritta a mano: leggeva le quattro grafie dell'utenza —
+    e faceva bene — ma **non** guardava i marchi. La guardia
+    (`resolveLinkedFamilyScope`) decide sulle **righe**, dove l'accesso si
+    decide; l'uso pescava dentro la proiezione. Due oggetti diversi per la
+    stessa domanda sono la forma che ADR-0151 vieta, ed e la stessa che ha
+    fatto rifiutare con 404 un invito legittimo dal lato del riscatto.
+
+    Il censimento non lo vedeva: il marcatore cercava `data.guardians` e qui
+    c'era `asRecord(athlete.data).guardians`. Un falso negativo del censimento
+    costa «un difetto che nessuno vede», ed e stato allargato insieme a questa
+    correzione.
+  */
+  const tutore = resolveGuardianSubjectForUser(athlete.data, userId);
 
   const records: SubjectRecords = { athlete: athlete as any, guardian: tutore };
-  const stagioni = await readClubSeasonState(organizationId).catch(() => null);
+
+  /*
+    **La stagione la porta solo un'iscrizione.**
+
+    `submitRenewalForm` ha imparato a non intestare nessuna stagione a una
+    compilazione che non e un rinnovo; la bozza no, e chiamava
+    `readClubSeasonState` sempre. Cosi un questionario di gradimento si apriva
+    sotto la scritta «Rinnovo per Marco Rossi · stagione 2026/27»: la pratica
+    diceva il vero e la pagina no.
+  */
+  const iscrizione = isEnrollmentForm(match.schema);
+  const stagioni = iscrizione
+    ? await readClubSeasonState(organizationId).catch(() => null)
+    : null;
 
   const draft = buildRenewalDraftAnswers({
     schema: match.schema,
@@ -593,6 +857,12 @@ export const buildRenewalDraft = async (
     athleteName:
       `${asText(athlete.first_name)} ${asText(athlete.last_name)}`.trim(),
     clubName: match.club.name,
+    /*
+      **Come si chiama cio che si sta compilando.** La schermata e una sola —
+      i moduli online del fascicolo passano tutti di qui — e senza questo campo
+      parlerebbe sempre di rinnovo, anche su un questionario.
+    */
+    isEnrollment: iscrizione,
     form: {
       title: match.schema.title,
       description: match.schema.description,

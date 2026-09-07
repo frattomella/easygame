@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { canParentAccessAthlete } from "@/lib/server/parent-dashboard";
 import { prisma } from "@/lib/server/prisma";
@@ -121,7 +122,7 @@ export async function GET(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: [],
-        error: { message: error?.message || "Errore lettura consensi" },
+        error: { message: publicErrorMessage(error, "Errore lettura consensi") },
       },
       { status: errorStatus(error) },
     );
@@ -175,7 +176,7 @@ export async function POST(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore registrazione consenso" },
+        error: { message: publicErrorMessage(error, "Errore registrazione consenso") },
       },
       { status: errorStatus(error) },
     );

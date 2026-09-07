@@ -183,6 +183,17 @@ interface TrainingSession {
   status: "upcoming" | "completed" | "cancelled" | "annullato" | "concluded";
   attendance?: any[];
   expectedAttendees?: number;
+  /**
+   * **La versione su cui questa copia e stata letta** (PP-02 §O, debito
+   * PP01-D2).
+   *
+   * Il controllo ottimistico di ADR-0098 esiste dalla Wave 6 e da questa
+   * schermata **non poteva mai fallire**: `updateEvent(id, data)` partiva
+   * senza terzo argomento, quindi il server ricadeva sulla versione corrente e
+   * scriveva sempre. Due segretarie che salvavano insieme tornavano a «vince
+   * l'ultimo», in silenzio.
+   */
+  version?: number | null;
 }
 
 type TrainingPersonOption = {
@@ -372,6 +383,16 @@ const formatTrainingSession = ({
     status: training?.status || "upcoming",
     attendance: Array.isArray(training?.attendance) ? training.attendance : [],
     expectedAttendees,
+    /*
+      PP-02 §O. La versione viaggia dalla lettura al salvataggio: la forma
+      storica la porta gia (`toEventLegacyShape`), e qui si perdeva.
+    */
+    version:
+      typeof training?.version === "number"
+        ? training.version
+        : typeof source?.version === "number"
+          ? source.version
+          : null,
   };
 };
 
@@ -505,6 +526,8 @@ export default function TrainingPage() {
   const [shouldRenderSchedule, setShouldRenderSchedule] = useState(false);
   const [cleaningMissingCategories, setCleaningMissingCategories] =
     useState(false);
+  /* PP-02 §O: la conferma e un dialogo dell'applicazione, non del sistema. */
+  const [puliziaCategorieAperta, setPuliziaCategorieAperta] = useState(false);
   const [loadWarning, setLoadWarning] = useState<string | null>(null);
   const scheduleSectionRef = React.useRef<HTMLDivElement | null>(null);
   const { showToast } = useToast();
@@ -605,10 +628,55 @@ export default function TrainingPage() {
     window.history.replaceState(window.history.state, "", nextUrl);
   }, []);
 
-  const loadData = React.useCallback(async () => {
+/**
+ * **Il messaggio del server, e la ricarica quando serve.**
+ *
+ * I due pulsanti «Annulla» e «Ripristina» adesso mandano la versione, quindi
+ * possono fallire per conflitto — per esempio se qualcun altro ha salvato le
+ * convocazioni, che la incrementano. I loro rami d'errore pero inghiottivano
+ * il messaggio e non ricaricavano: la versione locale restava vecchia e ogni
+ * tentativo successivo falliva allo stesso modo, per sempre, finche non si
+ * ricaricava la pagina a mano.
+ *
+ * E la stessa forma della High appena chiusa sulla modifica, sui due pulsanti
+ * accanto.
+ */
+const messaggioDiErrore = (error: any, ripiego: string) => {
+  const messaggio = String(error?.message || "").trim();
+  return messaggio || ripiego;
+};
+
+/**
+ * **La versione che il server ha appena scritto.**
+ *
+ * `PATCH /api/v1/events/[id]` risponde con la riga aggiornata sotto `row`,
+ * piu la sua forma storica appiattita. La versione si legge di li: senza, la
+ * copia in memoria resta a quella **di prima** del salvataggio, e il controllo
+ * ottimistico del salvataggio successivo fallisce contro una modifica che ha
+ * fatto la stessa persona un istante prima.
+ */
+const versioneSalvata = (risposta: any): number | null => {
+  if (typeof risposta?.row?.version === "number") return risposta.row.version;
+  if (typeof risposta?.version === "number") return risposta.version;
+  return null;
+};
+
+  /**
+   * **Ricarica, e restituisce cio che ha ricaricato.**
+   *
+   * Serve al ramo del conflitto ottimistico: dopo la ricarica il modale di
+   * modifica va risincronizzato sulla riga fresca, e leggerlo da `trainings`
+   * subito dopo darebbe la copia vecchia — lo stato di React non e ancora
+   * cambiato dentro la stessa funzione.
+   */
+  const loadData = React.useCallback(async (): Promise<
+    TrainingSession[] | undefined
+  > => {
     if (!activeClub?.id) {
-      return;
+      return undefined;
     }
+
+    let risultato: TrainingSession[] | undefined;
 
     try {
       const settledResults = await Promise.allSettled([
@@ -712,7 +780,10 @@ export default function TrainingPage() {
         .filter(Boolean)
         .sort(compareTrainingsByStart) as TrainingSession[];
 
-      setTrainings(dedupeTrainings(formattedTrainings));
+      const elencoFresco = dedupeTrainings(formattedTrainings);
+      setTrainings(elencoFresco);
+
+      risultato = elencoFresco;
 
       if (failedSections.length > 0) {
         setLoadWarning(
@@ -728,6 +799,7 @@ export default function TrainingPage() {
       );
       showToast("error", "Errore nel caricamento dei dati");
     }
+    return risultato;
   }, [activeClub?.id, showToast]);
 
   // Load data from database
@@ -781,16 +853,22 @@ export default function TrainingPage() {
     };
   }, [missingUpcomingTrainingCategories, missingWeeklyScheduleCategories]);
 
-  const handleCleanupMissingCategories = React.useCallback(async () => {
+  /*
+    **PP-02 §O. La pulizia esce dal browser, e l'esito dice la verita.**
+
+    Erano due difetti in dieci righe. La funzione scriveva `clubs.trainings`
+    direttamente e il server la rifiutava da ADR-0098, quindi il pulsante
+    falliva **sempre**; e la conferma era un `window.confirm`, che e la stessa
+    finestra di sistema che PP-01 ha tolto da questa pagina per la
+    sovrapposizione.
+
+    E l'esito contava cio che si voleva togliere, non cio che si e tolto: un
+    allenamento con l'appello gia fatto non si cancella — si annulla — e il
+    dominio lo rifiuta con un messaggio che lo dice. Adesso quel rifiuto si
+    **conta e si nomina**, invece di scomparire dentro un totale.
+  */
+  const eseguiPuliziaCategorie = React.useCallback(async () => {
     if (!activeClub?.id || !missingCategoryPanel?.references.length) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      "Rimuovere solo gli allenamenti in programma collegati a categorie non piu disponibili? Gli allenamenti storici resteranno salvati.",
-    );
-
-    if (!confirmed) {
       return;
     }
 
@@ -801,31 +879,80 @@ export default function TrainingPage() {
         missingCategoryPanel.references,
       );
 
-      const removedCount =
-        (Array.isArray(result?.removedWeeklyScheduleItems)
-          ? result.removedWeeklyScheduleItems.length
-          : 0) +
-        (Array.isArray(result?.removedUpcomingTrainings)
-          ? result.removedUpcomingTrainings.length
-          : 0);
+      /*
+        **Due conteggi, perche sono due cose.** Una riga del programma
+        settimanale non e un allenamento in programma: sommarle e chiamarle
+        «allenamenti» dava un numero che non torna con cio che si vede sparire
+        dal calendario.
+      */
+      const righeDelProgramma = Array.isArray(
+        result?.removedWeeklyScheduleItems,
+      )
+        ? result.removedWeeklyScheduleItems.length
+        : 0;
+      const allenamentiRimossi = Array.isArray(result?.removedUpcomingTrainings)
+        ? result.removedUpcomingTrainings.length
+        : 0;
+      const rimossi = righeDelProgramma + allenamentiRimossi;
+      const dettaglioRimossi = [
+        allenamentiRimossi
+          ? `${allenamentiRimossi} allenamenti in programma`
+          : "",
+        righeDelProgramma
+          ? `${righeDelProgramma} righe del programma settimanale`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" e ");
+      const trattenuti = Array.isArray(result?.keptWithHistory)
+        ? result.keptWithHistory.length
+        : 0;
 
       await loadData();
-      showToast(
-        "success",
-        removedCount > 0
-          ? `Ripuliti ${removedCount} allenamenti programmati collegati a categorie eliminate`
-          : "Nessun allenamento programmato da ripulire",
-      );
+
+      if (!rimossi && !trattenuti) {
+        showToast("success", "Nessun allenamento programmato da ripulire");
+      } else if (trattenuti) {
+        /*
+          Una pulizia che lascia indietro qualcosa non e riuscita: chi legge
+          deve sapere che gli resta del lavoro a mano.
+
+          **E il ramo senza niente da rimuovere esiste**, ed e proprio quello
+          per cui questo messaggio e stato scritto: quando ogni allenamento
+          orfano ha gia l'appello fatto, i due elenchi tornano vuoti e
+          `dettaglioRimossi` e la stringa vuota. La prima stesura scriveva
+          «Rimossi . 3 non si possono cancellare», che non e una frase.
+        */
+        showToast(
+          "warning",
+          dettaglioRimossi
+            ? `Rimossi ${dettaglioRimossi}. ${trattenuti} non si possono cancellare perche hanno gia presenze o risposte: vanno annullati uno per uno.`
+            : `Non e stato rimosso niente: ${trattenuti} allenamenti hanno gia presenze o risposte e vanno annullati uno per uno.`,
+        );
+      } else {
+        showToast(
+          "success",
+          `Rimossi ${dettaglioRimossi}, collegati a categorie eliminate`,
+        );
+      }
     } catch (error) {
       console.error("Error cleaning orphan scheduled trainings:", error);
       showToast(
         "error",
-        "Errore durante la pulizia degli allenamenti con categorie non rilevate",
+        error instanceof Error && error.message
+          ? error.message
+          : "Errore durante la pulizia degli allenamenti con categorie non rilevate",
       );
     } finally {
       setCleaningMissingCategories(false);
+      setPuliziaCategorieAperta(false);
     }
   }, [activeClub?.id, loadData, missingCategoryPanel, showToast]);
+
+  const handleCleanupMissingCategories = React.useCallback(() => {
+    if (!activeClub?.id || !missingCategoryPanel?.references.length) return;
+    setPuliziaCategorieAperta(true);
+  }, [activeClub?.id, missingCategoryPanel]);
 
   const handleAddTraining = async (trainingData: any) => {
     if (!activeClub?.id) {
@@ -1677,12 +1804,29 @@ export default function TrainingPage() {
                                         }
 
                                         try {
-                                          await cancelEvent(training.id);
+                                          /*
+                                            Anche qui la versione: partendo
+                                            senza, il server ricadeva sulla
+                                            corrente e la incrementava, e la
+                                            copia locale non lo sapeva. Il primo
+                                            salvataggio dopo un «Annulla»
+                                            falliva per un conflitto che non
+                                            esisteva.
+                                          */
+                                          const annullato = await cancelEvent(
+                                            training.id,
+                                            training.version ?? null,
+                                          );
+                                          const versioneAnnullata =
+                                            versioneSalvata(annullato);
 
                                           const updatedTrainings = trainings.map((t) =>
                                             t.id === training.id
                                               ? {
                                                   ...t,
+                                                  version:
+                                                    versioneAnnullata ??
+                                                    t.version,
                                                   status: "annullato" as const,
                                                 }
                                               : t,
@@ -1699,8 +1843,20 @@ export default function TrainingPage() {
                                           );
                                           showToast(
                                             "error",
-                                            "Errore durante l'annullamento",
+                                            messaggioDiErrore(
+                                              error,
+                                              "Errore durante l'annullamento",
+                                            ),
                                           );
+                                          if (
+                                            /modificato da qualcun altro/i.test(
+                                              String(
+                                                (error as any)?.message || "",
+                                              ),
+                                            )
+                                          ) {
+                                            await loadData();
+                                          }
                                         }
                                       }}
                                     >
@@ -1722,12 +1878,21 @@ export default function TrainingPage() {
                                         }
 
                                         try {
-                                          await restoreEvent(training.id);
+                                          const ripristinato =
+                                            await restoreEvent(
+                                              training.id,
+                                              training.version ?? null,
+                                            );
+                                          const versioneRipristinata =
+                                            versioneSalvata(ripristinato);
 
                                           const updatedTrainings = trainings.map((t) =>
                                             t.id === training.id
                                               ? {
                                                   ...t,
+                                                  version:
+                                                    versioneRipristinata ??
+                                                    t.version,
                                                   status: "upcoming" as const,
                                                 }
                                               : t,
@@ -1744,8 +1909,20 @@ export default function TrainingPage() {
                                           );
                                           showToast(
                                             "error",
-                                            "Errore durante il ripristino",
+                                            messaggioDiErrore(
+                                              error,
+                                              "Errore durante il ripristino",
+                                            ),
                                           );
+                                          if (
+                                            /modificato da qualcun altro/i.test(
+                                              String(
+                                                (error as any)?.message || "",
+                                              ),
+                                            )
+                                          ) {
+                                            await loadData();
+                                          }
                                         }
                                       }}
                                     >
@@ -2329,15 +2506,41 @@ export default function TrainingPage() {
               };
 
 
-              // Save to database
-              await updateEvent(updatedTraining.id, updateData);
+              /*
+                **PP-02 §O. La versione parte con la modifica.**
 
+                Senza, `expectedVersion` era `null` e il server ricadeva sulla
+                versione corrente: il controllo ottimistico non poteva fallire,
+                e due segretarie che salvavano insieme tornavano a «vince
+                l'ultimo». Il messaggio del server dice gia di ricaricare; qui
+                si ricarica **davvero**, cosi la seconda persona non deve
+                ricordarsene.
+              */
+              const salvato = await updateEvent(
+                updatedTraining.id,
+                updateData,
+                editingTraining.version ?? null,
+              );
+
+              /*
+                **La versione torna indietro, e va scritta.**
+
+                Mandarla non bastava: la copia in memoria veniva ricomposta
+                campo per campo e `version` non era fra i campi, quindi restava
+                quella **di prima**. Il modale non si chiude da solo dopo un
+                salvataggio riuscito, percio la seconda modifica di fila
+                ripartiva da una versione gia consumata e si sentiva rispondere
+                «modificato da qualcun altro» con nessun altro che aveva toccato
+                niente.
+              */
+              const versioneNuova = versioneSalvata(salvato);
 
               // Update the training in the local state
               const updatedTrainings = trainings.map((t) =>
                 t.id === updatedTraining.id
                   ? {
                       ...t,
+                      version: versioneNuova ?? t.version,
                       title: updatedTraining.title,
                       date: new Date(updatedTraining.date),
                       time: updatedTraining.time,
@@ -2353,6 +2556,16 @@ export default function TrainingPage() {
                   : t,
               );
               setTrainings(updatedTrainings);
+              /*
+                E il modale resta aperto: va risincronizzato anche lui, o la
+                riga fresca vive solo nell'elenco sotto.
+              */
+              setEditingTraining((corrente) =>
+                corrente && corrente.id === updatedTraining.id
+                  ? updatedTrainings.find((t) => t.id === updatedTraining.id) ||
+                    corrente
+                  : corrente,
+              );
               showToast(
                 "success",
                 `Allenamento ${updatedTraining.title} modificato e salvato con successo`,
@@ -2372,6 +2585,34 @@ export default function TrainingPage() {
                 "error",
                 messaggio || "Errore durante la modifica dell'allenamento",
               );
+              /*
+                **PP-02 §O. Sul conflitto si ricarica, e non lo si chiede.**
+
+                Il server dice «ricarica la pagina e riprova», ed e la cosa
+                giusta da dire; ma lasciarla come istruzione vuol dire che chi
+                non la esegue continua a salvare su una versione vecchia e a
+                ricevere lo stesso errore per sempre. Qui la ricarica avviene, e
+                il modulo resta aperto con i dati freschi sotto.
+
+                Solo sul conflitto: su un campo congelato o su una
+                sovrapposizione ricaricare butterebbe via cio che la persona ha
+                appena scritto, senza servire a niente.
+              */
+              if (/modificato da qualcun altro/i.test(messaggio)) {
+                /*
+                  Ricaricare l'elenco non bastava: il modale legge
+                  `editingTraining`, che e una copia a se stante. Senza questa
+                  risincronizzazione ogni nuovo tentativo dallo stesso modale
+                  rimandava la **stessa** versione stantia, e l'errore si
+                  ripeteva per sempre — cioe l'opposto di cio che il commento
+                  qui sopra promette.
+                */
+                const freschi = await loadData();
+                const fresco = freschi?.find(
+                  (t) => t.id === updatedTraining.id,
+                );
+                if (fresco) setEditingTraining(fresco);
+              }
             }
           }}
           training={{
@@ -2417,6 +2658,45 @@ export default function TrainingPage() {
           }
         />
       )}
+
+      {/*
+        PP-02 §O. La conferma della pulizia, dentro l'applicazione. Dice
+        esattamente cosa succede alle due meta — il programma settimanale e gli
+        allenamenti gia in calendario — e cosa **non** succede allo storico,
+        che e la domanda che una segreteria si fa prima di premere.
+      */}
+      <AlertDialog
+        open={puliziaCategorieAperta}
+        onOpenChange={(open) => {
+          if (!open) setPuliziaCategorieAperta(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Rimuovere gli allenamenti in programma?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Vengono tolti dal programma settimanale e dal calendario soltanto
+              gli allenamenti ancora da svolgere collegati a categorie che non
+              esistono piu. Gli allenamenti gia svolti restano, e quelli su cui
+              e stato fatto l&apos;appello o e arrivata una risposta non si
+              cancellano: vanno annullati uno per uno.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void eseguiPuliziaCategorie();
+              }}
+            >
+              Rimuovi
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={showDeleteTraining}

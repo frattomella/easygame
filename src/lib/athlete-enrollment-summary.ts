@@ -34,6 +34,7 @@ export const getAthleteEnrollmentSummary = ({
   payments = [],
   athletePayments = [],
   expectedIncomeEntries = [],
+  seasonPeriod = null,
 }: {
   athlete: Record<string, any> | null;
   athleteId?: string | null;
@@ -42,6 +43,26 @@ export const getAthleteEnrollmentSummary = ({
   payments?: any[];
   athletePayments?: any[];
   expectedIncomeEntries?: any[];
+  /**
+   * **Il periodo della stagione attiva, che e il ripiego del pro-rata.**
+   *
+   * `calculateAthleteExpectedIncome` lo accetta da sempre come
+   * `fallbackPeriod`: serve quando il piano accende il pro-rata **senza**
+   * dichiarare un proprio periodo, che e la configurazione ordinaria. Questo
+   * ponte — l'unica strada verso l'area famiglia — non lo aveva ne in firma ne
+   * nel tipo, e non lo inoltrava.
+   *
+   * Misurato su un piano da 600 EUR con pro-rata acceso e iscrizione al 1°
+   * febbraio: la scheda atleta calcolava **300** (`reason: applied`, perche la
+   * pagina il periodo lo passa), l'area famiglia **600**
+   * (`reason: missing-period`). La famiglia leggeva «Totale dovuto 600,00 €»
+   * e «Residuo 600,00 €» sopra un elenco di due rate da 150, e quel residuo
+   * non sarebbe mai sceso a zero: le rate in archivio sommano 300.
+   *
+   * Due numeri per lo stesso atleta, e quello sbagliato era quello che vede
+   * chi deve pagare.
+   */
+  seasonPeriod?: { startDate: string; endDate: string } | null;
 }) => {
   const athleteRecord = asRecord(athlete);
   const data = asRecord(athleteRecord.data);
@@ -74,6 +95,7 @@ export const getAthleteEnrollmentSummary = ({
     discounts,
     payments: normalizedPayments,
     expectedIncomeEntries,
+    seasonPeriod,
   });
 
   return {

@@ -82,6 +82,7 @@ export function EnrollmentPaymentBreakdown({
   onPayNow,
   onPayInstalment,
   payNowPending = false,
+  payNowUnavailableReason = null,
   showPaymentHistory = true,
   showSettlementTotals = true,
 }: {
@@ -104,6 +105,16 @@ export function EnrollmentPaymentBreakdown({
    */
   onPayInstalment?: (payment: Record<string, any>) => void;
   payNowPending?: boolean;
+  /**
+   * **Perche il pagamento online non e disponibile adesso** (PP-02 §D).
+   *
+   * Il canale di incasso e una proprieta del **club**, e questo componente
+   * conosce solo le rate: senza questa prop scriveva «Il pagamento si apre
+   * dalla singola rata» accanto a pulsanti che rispondevano con un errore.
+   * Quando c'e, vince sulla didascalia ricavata dalle rate e spegne anche i
+   * pulsanti di riga.
+   */
+  payNowUnavailableReason?: string | null;
   showPaymentHistory?: boolean;
   /**
    * «Totale dovuto», «Residuo» e «Pagato».
@@ -142,7 +153,24 @@ export function EnrollmentPaymentBreakdown({
   const rateAttive = paymentItems.filter(
     (payment) => !isCancelledPayment(payment),
   );
-  const payNowHint = payNowPending
+  /*
+    **PP-02 §D. Il canale non lo sa questa schermata, e adesso glielo si dice.**
+
+    I quattro casi qui sotto si ricavano dalle **rate**, che questo componente
+    ha in mano. Il quinto no: se la societa non ha configurato gli incassi
+    online, o se il fornitore sta ancora verificando il conto, questa
+    schermata non ha modo di saperlo — e infatti scriveva «Il pagamento si apre
+    dalla singola rata, qui sotto» accanto a righe i cui pulsanti rispondevano
+    con un errore rosso.
+
+    Quando il motivo arriva da fuori vince, e spegne anche i pulsanti di riga:
+    lasciarli accesi accanto a una frase che dice che non si puo pagare e la
+    stessa contraddizione, spostata di dieci centimetri.
+  */
+  const canaleSpento = String(payNowUnavailableReason || "").trim();
+  const payNowHint = canaleSpento
+    ? canaleSpento
+    : payNowPending
     ? "Ti stiamo portando al pagamento sicuro del club."
     : onPayNow
       ? "Si apre il pagamento sicuro del club"
@@ -203,8 +231,10 @@ export function EnrollmentPaymentBreakdown({
             */}
             <Button
               className="w-full md:w-auto"
-              disabled={!onPayNow || payNowPending}
-              onClick={onPayNow ? () => onPayNow() : undefined}
+              disabled={!onPayNow || payNowPending || Boolean(canaleSpento)}
+              onClick={
+                onPayNow && !canaleSpento ? () => onPayNow() : undefined
+              }
             >
               <CreditCard className="mr-2 h-4 w-4" />
               {payNowPending ? "Apertura…" : "Paga ora"}
@@ -456,7 +486,7 @@ export function EnrollmentPaymentBreakdown({
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={payNowPending}
+                          disabled={payNowPending || Boolean(canaleSpento)}
                           onClick={() => onPayInstalment(payment)}
                         >
                           Paga

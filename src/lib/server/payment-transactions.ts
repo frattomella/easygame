@@ -1,6 +1,9 @@
 import { prisma } from "./prisma";
 import { assertContoDelClub } from "./financial-account-guard";
-import { getOperationType } from "./fiscal-config";
+import {
+  getOperationType,
+  resolveInboundClassification,
+} from "./fiscal-config";
 import { isActivityScope } from "@/lib/fiscal/operation-types";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import type { FrozenSettlement } from "@/lib/payments/commission";
@@ -431,6 +434,18 @@ const risolviAmbito = async (
 
   if (isActivityScope(dichiarato)) return normalizeActivityScope(dichiarato);
 
+  /*
+    **E il verso, e lo stato della causale, si chiedono al proprietario.**
+
+    Questa lettura vagliava l'**esistenza** e nient'altro: un incasso di una
+    famiglia si registrava con una causale prevista per le **uscite** — misurato
+    122 EUR sotto «Compenso sportivo» — e una causale **disattivata** passava
+    qui mentre gli altri due scrittori la rifiutano. Tre scrittori della stessa
+    colonna, tre regole diverse.
+
+    `resolveInboundClassification` e il proprietario del vaglio (ADR-0106) e
+    solleva lui: qui si chiede, non si riscrive.
+  */
   const causale = await getOperationType({ organizationId, code });
 
   /*
@@ -448,6 +463,13 @@ const risolviAmbito = async (
       `La causale «${code}» non e nel catalogo del club: configurala fra le causali, oppure registra l'incasso senza classificarlo.`,
     );
   }
+
+  /*
+    E qui, dopo aver dato la risposta che questa rotta gia dava sul codice
+    sconosciuto, si chiede al proprietario il resto della regola: il **verso**
+    del fatto e lo stato della causale.
+  */
+  await resolveInboundClassification({ organizationId, code });
 
   return normalizeActivityScope(causale.activityScope);
 };

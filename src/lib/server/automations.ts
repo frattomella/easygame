@@ -1513,25 +1513,60 @@ const writeInAppCopy = async ({
   if (!claim.claimed) return;
 
   try {
-    await (prisma as any).notification.create({
-      data: {
-        organization_id: clubId,
-        user_id: recipientUserId,
-        title: subject,
-        message: text,
-        type: `automation_${rule.trigger}`,
-        read: false,
-        data: { source: "automation", trigger: rule.trigger, dedupKey },
-      },
+    /*
+      **Una riga in bacheca vuole un destinatario, e l'atleta di cui parla.**
+
+      `recipientUserId` e nullo quando la famiglia non ha un account: la sua
+      strada e l'email, che questo stesso invio percorre. La riga in bacheca
+      invece restava senza indirizzo, e la lettura del cruscotto la mostrava a
+      **tutti** i genitori del club — con il nome del minore, l'importo e il
+      collegamento a gettone per pagare. Non si poteva nemmeno segnare letta.
+
+      E l'atleta si scrive: il filtro per figlio guarda `data.athleteId`, e
+      senza quel campo un sollecito compariva sulla schermata dell'altro figlio.
+    */
+    if (recipientUserId) {
+      await (prisma as any).notification.create({
+        data: {
+          organization_id: clubId,
+          user_id: recipientUserId,
+          title: subject,
+          message: text,
+          type: `automation_${rule.trigger}`,
+          read: false,
+          data: {
+            source: "automation",
+            trigger: rule.trigger,
+            dedupKey,
+            ...(athleteId ? { athleteId } : {}),
+          },
+        },
+      });
+    }
+    /*
+      **Un invio che non parte non si registra «inviato».**
+
+      Senza un destinatario la riga in bacheca non si scrive piu — e giusto
+      — ma il rendiconto continuava a dire «in app, inviato» al club, per
+      famiglie che non hanno un account e che quella notizia non l'hanno mai
+      vista. `DeliveryStatus` ha gia `skipped`, ed e usato altrove: era
+      disponibile, e diceva la verita.
+    */
+    const consegnato = Boolean(recipientUserId);
+
+    await settleDelivery({
+      id: claim.id,
+      organizationId: claim.organizationId,
+      status: consegnato ? "sent" : "skipped",
+      now,
     });
-    await settleDelivery({ id: claim.id, organizationId: claim.organizationId, status: "sent", now });
     deliveries.push({
       trigger: rule.trigger,
       channel: "in_app",
       recipient: recipientEmail,
       athleteName,
-      status: "sent",
-      reason: null,
+      status: consegnato ? "sent" : "skipped",
+      reason: consegnato ? null : "nessun account a cui recapitarla",
     });
   } catch {
     await settleDelivery({

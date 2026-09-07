@@ -183,18 +183,37 @@ export const ENROLLMENT_NOT_AVAILABLE_MESSAGE =
 
 /* ------------------------------------------------------- che cosa e questa */
 
-/** Iscrizione nuova, oppure rinnovo di una gia esistente. */
-export const ENROLLMENT_KINDS = ["enrollment", "renewal"] as const;
+/**
+ * Iscrizione nuova, rinnovo di una gia esistente, oppure **una compilazione
+ * che non e ne l'una ne l'altra**.
+ *
+ * La terza voce e nata da un difetto: un club pubblica un «Questionario
+ * gradimento», la famiglia lo compila dal fascicolo, e in segreteria arrivava
+ * una pratica etichettata **«Rinnovo»** — da esaminare e approvare, quando
+ * approvarla avrebbe scritto anagrafica da risposte che non sono
+ * un'iscrizione. Il primo rimedio fu mandare quei moduli alla pagina pubblica
+ * anonima: si perdeva pero il legame con il figlio, e la card del fascicolo
+ * restava «Da compilare» per sempre.
+ *
+ * Il vocabolario aveva due voci e il fatto ne chiedeva tre. Adesso ce ne sono
+ * tre, e la famiglia resta dentro la sua area.
+ */
+export const ENROLLMENT_KINDS = ["enrollment", "renewal", "submission"] as const;
 
 export type EnrollmentKind = (typeof ENROLLMENT_KINDS)[number];
 
 export const ENROLLMENT_KIND_LABELS: Record<EnrollmentKind, string> = {
   enrollment: "Iscrizione",
   renewal: "Rinnovo",
+  submission: "Compilazione",
 };
 
-export const normalizeEnrollmentKind = (value: unknown): EnrollmentKind =>
-  asText(value) === "renewal" ? "renewal" : "enrollment";
+export const normalizeEnrollmentKind = (value: unknown): EnrollmentKind => {
+  const testo = asText(value);
+  if (testo === "renewal") return "renewal";
+  if (testo === "submission") return "submission";
+  return "enrollment";
+};
 
 /* ---------------------------------------------------------- lo stato */
 

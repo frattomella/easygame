@@ -166,23 +166,32 @@ export async function GET(request: Request) {
     const figli: string[] = [];
     const seStesso: string[] = [];
     if (accessiFamiglia.length) {
+      /*
+        **Qui l'atleta e se stesso, e serve che lo sia** (PP-04, ADR-0122).
+
+        Il predefinito di `getParentLinkedAthletes` e restrittivo: chi serve
+        davvero l'atleta lo dichiara, cosi una rotta nuova che se ne dimentichi
+        chiude una porta invece di aprirla. Questa e una delle rotte che lo
+        dichiarano, e non per il payload — che qui non esce — ma per
+        `seStesso`, cioe `linked_athlete_ids` del ruolo `athlete`.
+
+        Il ciclo qui sotto separa infatti due elenchi: i **figli** (tutela) e
+        **se stesso** (la propria scheda). Il secondo si ricava filtrando
+        questi risultati per `user_id`, quindi senza il ramo «sono io» resta
+        sempre vuoto — e `linked_athlete_ids` della tessera `athlete` esce
+        vuoto a ogni ricaricamento, perche `AuthProvider` fa vincere il server
+        sulla copia locale.
+
+        Da li `getAccessRedirectPath("athlete", { linkedAthleteIds: [] })`
+        risponde `/account` invece di `/athlete-dashboard`: un ragazzo che apre
+        un segnalibro vecchio veniva depositato fuori dalla propria area. E la
+        stessa forma del difetto che il commento qui sopra descrive per il
+        genitore, sull'altro ruolo.
+      */
       const linkedAthletes = await getParentLinkedAthletes(
         session.db.user_id,
         {
-          /*
-            **Qui l'atleta e se stesso, e serve che lo sia** (PP-04, ADR-0122).
-
-            Il predefinito di `getParentLinkedAthletes` e restrittivo: chi
-            serve davvero l'atleta lo dichiara, cosi una rotta nuova che se ne
-            dimentichi chiude una porta invece di aprirla. Questa e una delle
-            quattro che lo dichiarano, e non per il payload — che qui non esce
-            — ma per `seStesso`, cioe `linked_athlete_ids` del ruolo `athlete`.
-
-            Senza, `getAccessRedirectPath("athlete", …)` non trova nessun
-            legame e rimanda su `/account` chi era esattamente dov'era
-            autorizzato a stare: la stessa forma del difetto che il commento
-            qui sopra descrive per il genitore, sull'altro ruolo.
-          */
+          /* Il ramo diretto, dichiarato: vedi ADR-0122 qui sopra. */
           allowSelfAthleteLink: true,
         },
       );
@@ -198,7 +207,16 @@ export async function GET(request: Request) {
           di nuovo il legame a ogni lettura — e questo elenco governa solo
           quale percorso il browser puo aprire.
         */
-        figli.push(String(athlete.id));
+        /*
+          **La propria scheda non e un figlio.** Con il ramo diretto la riga
+          dell'atleta entra nell'elenco, e senza questa distinzione finirebbe
+          fra i «figli» di chi e insieme genitore e atleta: la guardia d'area
+          gli aprirebbe la propria scheda dentro l'area genitore, dove poi il
+          server — che il ramo «sono io» non lo chiede — risponderebbe di no.
+        */
+        if (String(athlete.user_id || "") !== session.db.user_id) {
+          figli.push(String(athlete.id));
+        }
         /*
           L'atleta e se stesso, non i propri fratelli: chi entra con il ruolo
           atleta apre la **propria** scheda, e il legame di tutela vale solo

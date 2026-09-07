@@ -12,6 +12,7 @@ import { requireAuthenticatedUser } from "@/lib/server/auth";
 import {
   unlinkClubJsonProfiles,
   unlinkProfileResources,
+  bloccaLeSchedeDiUnaRevoca,
   unlinkParentGuardians,
   unlinkDirectAthleteProfile,
 } from "@/lib/server/profile-account-links";
@@ -101,6 +102,14 @@ export async function POST(request: Request) {
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      /* L'ordine comune, in un lotto solo, prima di ogni sweep. */
+      await bloccaLeSchedeDiUnaRevoca(
+        tx,
+        membership.organization_id,
+        session.db.user_id,
+        session.db.user.email,
+      );
+
       const clubJsonProfiles = await unlinkClubJsonProfiles(
         tx,
         membership.organization_id,
@@ -121,6 +130,7 @@ export async function POST(request: Request) {
         session.db.user_id,
         session.db.user.email,
         membership.role,
+        membership.id,
       );
       const athleteProfiles = await unlinkDirectAthleteProfile(
         tx,

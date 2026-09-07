@@ -13,6 +13,7 @@ import { useParams, usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
+import type { FamilyFreeSlotView } from "@/lib/appointments/projection";
 import type { ParentDashboardData } from "./parent-dashboard-types";
 
 /**
@@ -23,25 +24,25 @@ import type { ParentDashboardData } from "./parent-dashboard-types";
  * un orario digitato a mano che non cade esattamente su uno slot viene
  * rifiutato. La famiglia deve poter scegliere fra questi, non comporne uno.
  */
-export type AppointmentSlot = {
-  slotId: string | null;
-  source: "slot" | "opening_hours";
-  siteId: string | null;
-  assignedToUserId: string | null;
-  /** L'istante di inizio in ISO: e il solo campo che il server confronta. */
-  startsAt: string;
-  endsAt: string;
-  /** Giorno `YYYY-MM-DD` e ora `HH:MM` gia risolti nel fuso del club. */
-  day: string;
-  time: string;
-  durationMinutes: number;
-  capacity: number;
-  taken: number;
-  remaining: number;
-};
+/*
+  **E la proiezione, non un tipo scritto a mano che le somiglia.**
+
+  La prima stesura lo ridichiarava, e prometteva quattro campi che il server
+  non manda: `assignedToUserId`, `capacity`, `taken`, `remaining`. Nessuno li
+  leggeva — ma un tipo che dichiara un campo assente e un invito a leggerlo, e
+  chi lo avesse fatto avrebbe trovato `undefined` senza che niente lo avvisasse.
+  `toFamilyFreeSlot` decide cosa esce; qui si prende quella decisione, non se ne
+  scrive una seconda.
+*/
+export type AppointmentSlot = FamilyFreeSlotView;
 
 type AppointmentInput = {
   reason: string;
+  /**
+   * Il motivo scelto fra quelli che il club accetta (PP-02 §K). Quando c'e, e
+   * lui a dare il motivo: il server usa il **nome** del tipo, non questo id.
+   */
+  typeId?: string;
   /**
    * L'istante dello slot scelto. Sostituisce il giorno e l'ora liberi: erano
    * due campi che producevano quasi sempre un orario fuori griglia, e un
@@ -121,15 +122,38 @@ const missingProviderContext: ParentDashboardContextValue = {
 const ParentDashboardContext =
   createContext<ParentDashboardContextValue>(missingProviderContext);
 
-const getParentDashboardCacheKey = (athleteId: string) =>
-  athleteId ? `easygame:parent-dashboard:${athleteId}` : "";
+/**
+ * **La chiave porta anche chi legge, e non e un dettaglio.**
+ *
+ * Era intestata al solo atleta, e `sessionStorage` non viene ripulito da
+ * nessuna parte all'uscita. Su una postazione condivisa — la segreteria di una
+ * ASD, il computer di casa — il genitore A apriva l'area del figlio e usciva;
+ * B entrava nella stessa scheda e apriva quell'indirizzo, e il provider
+ * dipingeva il cruscotto del figlio di A dalla cache — allergie, rate,
+ * documenti — finche il server non rispondeva «Accesso negato».
+ *
+ * Finche la guardia d'area negava, quella pittura non arrivava mai. Aprendo
+ * l'area famiglia — necessario, perche il ruolo non sa dire chi e tutore di
+ * chi — il riparo e caduto, ed e giusto che il riparo sia qui: una cache di
+ * lettura si intesta a chi legge, non a cosa legge.
+ */
+const getParentDashboardCacheKey = (athleteId: string, userId?: string | null) => {
+  if (!athleteId) return "";
+  const chi = String(userId || "").trim();
+  return chi
+    ? `easygame:parent-dashboard:${chi}:${athleteId}`
+    : `easygame:parent-dashboard:${athleteId}`;
+};
 
-const readCachedParentDashboard = (athleteId: string) => {
+const readCachedParentDashboard = (
+  athleteId: string,
+  userId?: string | null,
+) => {
   if (typeof window === "undefined" || !athleteId) return null;
 
   try {
     const raw = window.sessionStorage.getItem(
-      getParentDashboardCacheKey(athleteId),
+      getParentDashboardCacheKey(athleteId, userId),
     );
     return raw ? (JSON.parse(raw) as ParentDashboardData) : null;
   } catch {
@@ -137,9 +161,42 @@ const readCachedParentDashboard = (athleteId: string) => {
   }
 };
 
+/**
+ * Butta via la copia in cache di un figlio.
+ *
+ * Serve a una cosa sola: quando il server dice che il legame non c'e piu,
+ * cio che resta in `sessionStorage` e il passato, e mostrarlo e una revoca
+ * che non si vede.
+ */
+const clearCachedParentDashboard = (
+  routeId: string,
+  athleteId?: string | null,
+  userId?: string | null,
+) => {
+  if (typeof window === "undefined") return;
+
+  /*
+    **Due chiavi, perche due ne scrive `writeCachedParentDashboard`**: quella
+    del percorso e quella dell'atleta, che differiscono sulla forma storica
+    `/parent-view/<idClub>`. Cancellarne una sola lasciava in archivio una
+    copia che una navigazione successiva poteva ripescare per una pittura.
+  */
+  for (const chiave of [routeId, athleteId]) {
+    if (!chiave) continue;
+    try {
+      window.sessionStorage.removeItem(
+        getParentDashboardCacheKey(chiave, userId),
+      );
+    } catch {
+      // Se la cache non si puo toccare, azzerare lo stato basta da solo.
+    }
+  }
+};
+
 const writeCachedParentDashboard = (
   routeId: string,
   nextData: ParentDashboardData,
+  userId?: string | null,
 ) => {
   if (typeof window === "undefined") return;
 
@@ -147,13 +204,13 @@ const writeCachedParentDashboard = (
     const serialized = JSON.stringify(nextData);
     if (routeId) {
       window.sessionStorage.setItem(
-        getParentDashboardCacheKey(routeId),
+        getParentDashboardCacheKey(routeId, userId),
         serialized,
       );
     }
     if (nextData.athlete?.id && nextData.athlete.id !== routeId) {
       window.sessionStorage.setItem(
-        getParentDashboardCacheKey(nextData.athlete.id),
+        getParentDashboardCacheKey(nextData.athlete.id, userId),
         serialized,
       );
     }
@@ -177,10 +234,10 @@ export function ParentDashboardProvider({
     .filter(Boolean)[1];
   const athleteRouteId = String(params?.id || routeIdFromPath || "");
   const [data, setData] = useState<ParentDashboardData | null>(() =>
-    readCachedParentDashboard(athleteRouteId),
+    readCachedParentDashboard(athleteRouteId, user?.id),
   );
   const [loading, setLoading] = useState(
-    () => !readCachedParentDashboard(athleteRouteId),
+    () => !readCachedParentDashboard(athleteRouteId, user?.id),
   );
   const [error, setError] = useState<string | null>(null);
   const dataRef = useRef<ParentDashboardData | null>(null);
@@ -190,13 +247,13 @@ export function ParentDashboardProvider({
   }, [data]);
 
   useEffect(() => {
-    const cachedData = readCachedParentDashboard(athleteRouteId);
+    const cachedData = readCachedParentDashboard(athleteRouteId, user?.id);
     if (!cachedData) return;
 
     setData(cachedData);
     setLoading(false);
     setError(null);
-  }, [athleteRouteId]);
+  }, [athleteRouteId, user?.id]);
 
   const refresh = useCallback(async () => {
     if (authLoading) {
@@ -233,7 +290,7 @@ export function ParentDashboardProvider({
       }
 
       setData(payload.data);
-      writeCachedParentDashboard(athleteRouteId, payload.data);
+      writeCachedParentDashboard(athleteRouteId, payload.data, user?.id);
 
       if (typeof window !== "undefined" && payload.data?.club) {
         /*
@@ -284,6 +341,26 @@ export function ParentDashboardProvider({
           Adesso la stagione la risolve il server e viaggia nel payload: qui si
           trasporta, non si ricalcola.
         */
+        /*
+          **L'area famiglia e un accesso, non un travestimento.**
+
+          Questo oggetto conservava `...stored`, cioe anche `membershipId` e
+          `accessKey` — l'**identita della tessera del club** — e ci scriveva
+          sopra `role: "parent"`. Ne usciva un accesso che dichiara la tessera
+          da dirigente e il ruolo da genitore, e le due meta si contraddicono:
+          `findStoredAccessMembership` ritrova la tessera vera (owner) proprio
+          grazie a quei due campi, e poi il ruolo salvato la sovrascrive.
+
+          Misurato: il presidente il cui figlio gioca nel club apre
+          `/parent-view/<figlio>`, il trasporto comincia a mandare
+          `x-active-access-role: parent` a ogni richiesta — 403 immediati su
+          tutto il gestionale — e al primo ricaricamento il ciclo si chiude.
+          Per uscirne bisogna indovinare il selettore d'accesso in `/account`.
+
+          Chi entra nell'area famiglia sta usando **quell'**accesso: la tessera
+          del club non e sua e non va portata dentro. Le due identita restano
+          percio separate, e tornare al gestionale ritrova la propria.
+        */
         const activeClub = {
           ...stored,
           id: payload.data.club.id,
@@ -293,6 +370,9 @@ export function ParentDashboardProvider({
           activeSeasonLabel: payload.data.club.activeSeasonLabel ?? null,
           role: "parent",
           roleLabel: "Genitore",
+          membershipId: null,
+          accessKey: null,
+          accessKind: "guardian",
           linkedAthleteIds,
           linkedAthleteId: linkedAthleteIds[0] || null,
         };
@@ -309,6 +389,31 @@ export function ParentDashboardProvider({
         nextError?.message || "Errore caricamento dashboard genitore";
       setError(message);
       showToast("error", message);
+
+      /*
+        **Una revoca deve vedersi.**
+
+        Il ramo d'errore lasciava `data` com'era, e lo shell mostra la
+        schermata d'errore solo quando `data` non c'e: con la copia in
+        `sessionStorage` gia in pagina, un genitore a cui il club ha **tolto
+        il legame** continuava a vedere il cruscotto intero — importi, stato
+        del certificato, tutori — con un avviso di passaggio e nessuna via
+        d'uscita disegnata. I byte erano gia in quel browser, quindi non e una
+        fuga di dati: e una revoca che non si vede, ed e peggio, perche chi
+        guarda non ha modo di sapere che sta leggendo il passato.
+
+        Si azzera **solo** quando il server ha detto che il legame o la
+        sessione non ci sono piu. Un guasto di rete non deve cancellare cio
+        che si stava leggendo.
+      */
+      if (/Accesso negato|non collegat|sessione/i.test(String(message))) {
+        setData(null);
+        clearCachedParentDashboard(
+          athleteRouteId,
+          dataRef.current?.athlete?.id,
+          user?.id,
+        );
+      }
     } finally {
       setLoading(false);
     }

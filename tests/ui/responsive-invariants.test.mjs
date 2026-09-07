@@ -51,6 +51,19 @@ const TOUCHED = [
     apre per spegnere una regola, spesso di corsa e spesso dal telefono.
   */
   "app/communications/automazioni/page.tsx",
+  /*
+    **PP-02 §N: le superfici dell'area famiglia.** E la parte del prodotto che
+    si apre piu spesso da un telefono — in palestra, in macchina, la sera — e
+    quella su cui PP-02 ha spostato di piu: la scelta del figlio, l'identita
+    nel guscio, la riga delle ricevute, l'elenco dei moduli online e la scelta
+    del motivo di un appuntamento.
+  */
+  "app/parent-view/page.tsx",
+  "components/parent-dashboard/parent-dashboard-pages.tsx",
+  "components/parent-dashboard/parent-family-pages.tsx",
+  "components/parent-dashboard/parent-dashboard-shell.tsx",
+  "components/parent-dashboard/ParentSidebar.tsx",
+  "app/appuntamenti/page.tsx",
 ];
 
 test("nessuna griglia resta a due colonne a 375 px", () => {
@@ -702,13 +715,20 @@ test("i comandi di un appuntamento vanno a capo invece di uscire", () => {
  * l'apertura a 375 px. Presidiano la classe di difetti che si scrive senza
  * accorgersene.
  *
- * Nota su cio che **non** e in elenco: `parent-dashboard-pages.tsx` e
- * anteriore alla Wave 5 e la Wave 5 ne ha cambiato la sola pagina Pagamenti.
- * Sta qui sotto con l'invariante mirata sulla riga della ricevuta, non nella
- * lista generale: metterci un file di duemila righe che nessuno ha riscritto
- * vorrebbe dire presidiare codice che non e stato guardato.
+ * `parent-dashboard-pages.tsx` era **fuori** da questo elenco, con una nota
+ * che diceva perche: era anteriore alla Wave 5, che ne aveva cambiato la sola
+ * pagina Pagamenti, e presidiare tremila righe mai riscritte sarebbe stato
+ * presidiare codice che nessuno aveva guardato.
+ *
+ * PP-02 ne ha cambiate **915**. La ragione della nota e scaduta, e il file e
+ * adesso la superficie piu grande dell'area famiglia: ci vivono la scheda
+ * atleta, i moduli online, le prenotazioni e il checkout, cioe le schermate
+ * che una famiglia apre dal telefono. Oggi non ha nessuna violazione — e il
+ * momento giusto per metterlo sotto presidio, perche domani ne avra una e
+ * nessuno se ne accorgera.
  */
 const PARENT_DASHBOARD = [
+  "components/parent-dashboard/parent-dashboard-pages.tsx",
   "components/parent-dashboard/parent-family-pages.tsx",
   "components/parent-dashboard/parent-dashboard-shell.tsx",
   "components/parent-dashboard/ParentSidebar.tsx",
@@ -829,10 +849,23 @@ test("il guscio della famiglia non cresce con il proprio contenuto", () => {
  * A 375 px basta una descrizione con una parola lunga.
  */
 test("la riga di una ricevuta va a capo invece di tagliare «Scarica»", () => {
+  /*
+    PP-02 §E. La riga e passata da tre blocchi a quattro — si sono aggiunti il
+    figlio, il numero e lo stato — e da una riga sola a tre impilate. La
+    proprieta non cambia: dentro un contenitore con `overflow-hidden` niente
+    deve stare su una riga rigida, altrimenti non sporge, viene **tagliato**.
+  */
+  const source = read("components/parent-dashboard/parent-dashboard-pages.tsx");
+
   assert.match(
-    read("components/parent-dashboard/parent-dashboard-pages.tsx"),
-    /className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"/,
-    "descrizione, importo e «Scarica» su una riga fissa non stanno a 375 px",
+    source,
+    /className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"/,
+    "descrizione e importo su una riga fissa non stanno a 375 px",
+  );
+  assert.match(
+    source,
+    /className="flex flex-wrap gap-2"/,
+    "«Visualizza» e «Scarica» devono poter andare a capo",
   );
 });
 

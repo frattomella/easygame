@@ -1,7 +1,15 @@
 import { prisma } from "./prisma";
 import { reportServerError } from "./observability";
 import { canonicalResourceName } from "@/lib/resource-aliases";
-import { guardianAccessIdentities } from "./parent-dashboard";
+import {
+  GUARDIAN_KEYS_NON_SCRIVIBILI,
+  readGuardianInputFromCard,
+  refreshGuardianProjection,
+  saveGuardianRegistry,
+  type GuardianInput,
+  eraseGuardianInvitesForAthlete,
+} from "./athlete-guardians";
+import { eraseProfileInvites } from "./profile-account-links";
 import {
   customRoleReachesResource,
   roleHasPermission,
@@ -39,7 +47,6 @@ import {
   hasHealthPermission,
   stripClinicalAthleteFields,
   stripClinicalCertificateFields,
-  restoreGuardianAccessTokens,
   stripGuardianAccessTokens,
   stripPersonCredentials,
 } from "@/lib/health/permissions";
@@ -580,6 +587,33 @@ const RISORSE_CLINICHE = new Set([
 ]);
 
 const RISORSE_CON_SCHEDA_ATLETA = new Set(["athletes", "simplified_athletes"]);
+
+/**
+ * **Le risorse le cui difese vivono dentro `updateResource`, e solo li.**
+ *
+ * La rotta generica ha tre verbi e le difese sono cresciute su uno: il blocco
+ * di riga, la rilettura, il riporto delle difese del tutore, la guardia sulla
+ * cancellazione dell'interessato, il vaglio degli importi di una rata gia
+ * saldata e il ricalcolo del ledger stanno **tutti** nella modifica.
+ *
+ * Un `upsert` su una riga che esiste e una modifica, e deve passare di li. La
+ * prima stesura di questa regola nominava le **schede atleta**, e le rate no:
+ * misurato subito dopo, un `POST` con `mode: "upsert"` da una Segreteria
+ * cambiava l'importo di una rata **saldata**, ne spostava la scadenza, e la
+ * spostava **su un altro atleta** — cosi che una famiglia trovasse nella propria
+ * area la quota del figlio di un'altra, mentre l'incasso restava intestato alla
+ * prima. Nessun ricalcolo, nessun blocco.
+ *
+ * L'elenco sta qui, con un nome che dice **perche** una risorsa ci appartiene:
+ * chi aggiunge una guardia alla modifica di una risorsa nuova deve aggiungerla
+ * anche a questo insieme, o la sua difesa nasce con una porta aperta.
+ */
+const RISORSE_CHE_SI_MODIFICANO_DA_UN_POSTO_SOLO = new Set([
+  "athletes",
+  "simplified_athletes",
+  "payments",
+  "simplified_payments",
+]);
 
 /**
  * Vero se il valore e «niente»: assente, nullo, testo vuoto, elenco vuoto,
@@ -2721,6 +2755,35 @@ export const syncClubAggregateField = async (
   });
 };
 
+/**
+ * **Il blocco sulla riga di un atleta, per chi scrive `athletes.data`.**
+ *
+ * `athletes.data` e un blob che ogni scrittore legge, modifica e riscrive per
+ * intero. Finche lo si fa su uno **snapshot letto prima**, due scritture
+ * concorrenti si cancellano a vicenda — ed e la forma con cui una revoca si
+ * perde: la segreteria preme «Scollega account», l'audit la registra, e un
+ * salvataggio ordinario della scheda partito un istante prima riscrive
+ * `guardians` com'erano. La persona revocata continua a leggere allergie,
+ * farmaci e i byte del certificato del minore.
+ *
+ * Misurato tre volte su tre contro PostgreSQL, con una revoca e un salvataggio
+ * dell'anagrafica in parallelo.
+ *
+ * ADR-0129 chiama «atomico» lo scrittore che scrive il fatto e la difesa nella
+ * **stessa** `update`. Non basta: una `update` sola su un valore letto prima e
+ * un lost update classico. L'atomicita si ottiene qui — si blocca la riga, si
+ * **rilegge** dentro il blocco, e si scrive cio che si e appena letto.
+ *
+ * Chi scrive `athletes.data` prende questo blocco. Sono quattro: la rotta
+ * generica, «Scollega account», lo sweep della revoca di tessera e il riscatto.
+ */
+export const lockAthleteRow = async (client: any, athleteId: string) => {
+  const id = String(athleteId || "").trim();
+  if (!id) return;
+
+  await client.$queryRaw`SELECT id FROM athletes WHERE id = ${id}::uuid FOR UPDATE`;
+};
+
 const newResourceItemId = () =>
   typeof globalThis.crypto?.randomUUID === "function"
     ? globalThis.crypto.randomUUID()
@@ -4472,6 +4535,18 @@ const resolvePagination = (
         : 0;
 
   return { limit, offset };
+};
+
+/** Lo stesso delegato, ma legato al client di una transazione. */
+const clientDelegate = (client: any, resource: string) => {
+  const config = RESOURCE_CONFIG[resource];
+  if (!config) {
+    throw new Error(`Unsupported resource: ${resource}`);
+  }
+
+  return config.kind === "club_resource"
+    ? client.clubResourceItem
+    : client[config.delegate as string];
 };
 
 const getDelegate = (resource: string) => {
@@ -6493,8 +6568,19 @@ export const createResource = async (
     Il lato precedente e vuoto: non c'e niente da conservare, e ogni legame
     presente e **nuovo**.
   */
+  /**
+   * Le righe tutore che il corpo portava, gia tolte da `data`. Si scrivono
+   * **dopo** che la riga esiste, perche una riga tutore nomina un atleta.
+   */
+  let tutoriDaScrivere: GuardianInput[] | null = null;
+
   if (mode === "create" && RISORSE_CON_SCHEDA_ATLETA.has(resource)) {
-    await applicaGuardieDiModifica(resource, normalized, null, scope);
+    tutoriDaScrivere = await applicaGuardieDiModifica(
+      resource,
+      normalized,
+      null,
+      scope,
+    );
   }
 
   if (mode === "upsert") {
@@ -6522,10 +6608,48 @@ export const createResource = async (
             visitato. Anche la sonda U-39 esercitava tre porte su quattro.
           */
           await assertRecordWithinAccessScope(resource, esistente, scope);
+
+          /*
+            **Un `upsert` su una riga che esiste e una modifica: la fa fare a chi
+            la sa fare.**
+
+            Questo ramo eseguiva le guardie a mano e poi scriveva per conto suo.
+            Andava bene finche la modifica di un atleta era «le guardie piu una
+            `update`»; da tre round non lo e piu: c'e un blocco sulla riga, una
+            rilettura dentro il blocco, il riporto delle difese sulla riga
+            fresca, la guardia sulla cancellazione dell'interessato e lo strip
+            del suo marchio. Tutto in `updateResource`, e niente qui.
+
+            Misurato, con uno scope **Segreteria** e non un attaccante:
+            `POST` con `mode: "upsert"` riscriveva una scheda cancellata su
+            richiesta dell'interessato — nome, stato e dati clinici tornati, e il
+            tutore staccato dalla cancellazione di nuovo dentro il fascicolo del
+            minore; scriveva `anonymizedAt` bloccando la scheda per sempre;
+            cambiava l'importo di una rata **saldata**; e spostava una rata
+            saldata **su un altro atleta**, cosi che la famiglia di uno vedesse
+            la quota del figlio di un'altra. E in corsa con «Scollega account»
+            perdeva la revoca 4 volte su 4.
+
+            E la terza volta che questa funzione paga la stessa forma — il
+            commento qui sotto ne racconta gia due — e la ragione e sempre la
+            stessa: **una rotta con tre verbi, e la difesa attaccata a uno**. Qui
+            si smette di riscriverla: il ramo che aggiorna **e** la modifica, e
+            passa da li.
+          */
+          if (RISORSE_CHE_SI_MODIFICANO_DA_UN_POSTO_SOLO.has(resource)) {
+            return (await updateResource(
+              resource,
+              String(esistente.id),
+              input,
+              scope,
+              options,
+            )) as any;
+          }
+
           /*
             **E le stesse guardie della modifica**, perche questo ramo modifica.
           */
-          await applicaGuardieDiModifica(
+          tutoriDaScrivere = await applicaGuardieDiModifica(
             resource,
             normalized,
             esistente,
@@ -6538,6 +6662,31 @@ export const createResource = async (
             registrazione passa da `auth/register`, che non ha scope.
           */
           throw new Error("Accesso negato alla risorsa del club");
+        } else if (RISORSE_CON_SCHEDA_ATLETA.has(resource)) {
+          /*
+            **Un `upsert` che crea e una creazione, e va vagliato come tale.**
+
+            Le guardie giravano in questo ramo **solo se la riga esisteva**, e
+            il vaglio della creazione qui sopra si accende su
+            `mode === "create"`: un `upsert` con un identificativo nuovo non
+            incontrava ne l'uno ne l'altro. Nasceva quindi una scheda con
+            `athletes.user_id` scritto dal registro generico — la colonna che
+            ADR-0104 riserva al proprio dominio — e con un legame di famiglia
+            gia dentro, senza i due permessi e senza audit.
+
+            E il **terzo** ramo della stessa funzione: la lezione scritta poche
+            righe piu su — «i due rami devono chiamare la stessa funzione» — era
+            stata applicata a due su tre.
+
+            Il lato precedente e vuoto, come per la creazione: non c'e niente da
+            conservare, e ogni legame presente e nuovo.
+          */
+          tutoriDaScrivere = await applicaGuardieDiModifica(
+            resource,
+            normalized,
+            null,
+            scope,
+          );
         }
       }
 
@@ -6579,6 +6728,29 @@ export const createResource = async (
         create: normalized,
         include: getModelInclude(resource),
       });
+
+      /*
+        **I tutori si scrivono dove hanno una chiave, non dentro il blob.**
+
+        PP-02 / WP-C. Il corpo della richiesta li portava dentro `data`, e le
+        guardie della modifica li hanno gia tolti da li: qui si consegnano al
+        modulo proprietario, che e l'unico a cui l'archivio permette di
+        scrivere `athlete_guardians`.
+
+        Dopo la riga e non prima, perche una riga tutore nomina un atleta e
+        prima l'atleta non esisteva.
+      */
+      if (tutoriDaScrivere) {
+        await saveGuardianRegistry(prisma, {
+          organizationId: String(record.organization_id || ""),
+          athleteId: String(record.id),
+          rows: tutoriDaScrivere,
+          canGrantAccess:
+            !scope ||
+            (roleHasPermission(scope.activeRole, "accounts.athlete.manage") &&
+              hasHealthPermission(scope.activeRole, "clinical.read")),
+        });
+      }
 
       if (resource === "users") {
         await syncUserClubAccess(record.id, input.club_access, scope);
@@ -6655,6 +6827,22 @@ export const createResource = async (
     data: normalized,
     include: getModelInclude(resource),
   });
+
+  /*
+    **I tutori si scrivono dopo la riga**, per la stessa ragione del ramo
+    `upsert`: una riga tutore nomina un atleta, e prima l'atleta non c'era.
+  */
+  if (tutoriDaScrivere) {
+    await saveGuardianRegistry(prisma, {
+      organizationId: String(record.organization_id || ""),
+      athleteId: String(record.id),
+      rows: tutoriDaScrivere,
+      canGrantAccess:
+        !scope ||
+        (roleHasPermission(scope.activeRole, "accounts.athlete.manage") &&
+          hasHealthPermission(scope.activeRole, "clinical.read")),
+    });
+  }
 
   if (resource === "users") {
     await syncUserClubAccess(record.id, input.club_access, scope);
@@ -7122,12 +7310,60 @@ const guardFiscalDocumentIntegrity = (
  *
  * Modifica `normalized` in luogo dove la regola e una **conservazione**.
  */
+/**
+ * **Le guardie della modifica, e cio che questa funzione non fa piu.**
+ *
+ * Restituisce le righe tutore che il corpo della richiesta portava, gia
+ * tradotte e gia **tolte** da `normalized.data`. Non le scrive: chi le scrive e
+ * il modulo proprietario, e lo fa dentro la stessa transazione della riga —
+ * perche il salvataggio della scheda e la scrittura dei tutori o riescono
+ * insieme o non riescono.
+ *
+ * `null` significa «questa scrittura non nomina i tutori», che e diverso da
+ * «li nomina e sono zero»: la prima non tocca l'insieme, la seconda lo svuota.
+ */
 const applicaGuardieDiModifica = async (
   resource: string,
   normalized: Record<string, any>,
   existing: Record<string, any> | null | undefined,
   scope?: ResourceAccessScope,
-) => {
+): Promise<GuardianInput[] | null> => {
+  let tutoriInArrivo: GuardianInput[] | null = null;
+
+  /*
+    **La verifica di un indirizzo non si dichiara: si dimostra.**
+
+    `PATCH /api/v1/auth/user` lascia cambiare il proprio indirizzo e **azzera**
+    `email_verified_at`, ed e su quell'azzeramento che poggia l'apertura
+    dell'area famiglia per indirizzo di contatto (ADR-0127): un indirizzo vale
+    come legame solo se e verificato, perche per averlo verificato bisogna
+    avere letto quella casella.
+
+    Il registro generico scriveva la stessa riga **senza** quella regola. Una
+    revisione indipendente lo ha misurato: chiunque abbia una tessera qualunque
+    in un club, e sia proprietario di un club suo — cioe chiunque, registrando
+    una societa —, si scriveva addosso l'indirizzo di contatto del tutore di un
+    altro bambino **gia verificato**, e apriva allergie, note cliniche,
+    ricevute, consensi e i byte del certificato medico di quel minore.
+
+    Qui la colonna diventa non scrivibile, e cambiare indirizzo da questa porta
+    **spegne** la verifica come fa la porta dedicata: le due strade non possono
+    dare due risposte diverse alla stessa domanda.
+  */
+  if (resource === "users" && normalized && typeof normalized === "object") {
+    delete (normalized as any).email_verified_at;
+
+    const indirizzoNuovo = String((normalized as any).email ?? "").trim().toLowerCase();
+    const indirizzoVecchio = String((existing as any)?.email ?? "").trim().toLowerCase();
+
+    if (
+      "email" in normalized &&
+      indirizzoNuovo &&
+      indirizzoNuovo !== indirizzoVecchio
+    ) {
+      (normalized as any).email_verified_at = null;
+    }
+  }
     /*
       **`athletes.user_id` non si scrive dal registro generico.**
 
@@ -7144,164 +7380,69 @@ const applicaGuardieDiModifica = async (
       account, senza audit e senza revoca.
     */
     /*
-      **Un legame con una famiglia non si crea scrivendo l'anagrafica.**
+      **I tutori escono dal blob, e con loro esce tutto cio che li difendeva.**
 
-      `guardians[].linkedUserId` decide chi e famiglia di quel minore, e
-      `canParentAccessAthlete` lo legge per aprire il cruscotto: nome,
-      recapiti, **allergie, visite mediche, farmaci**. Chiunque potesse
-      scrivere l'anagrafica se lo scriveva addosso — misurato con un ruolo
-      personalizzato **senza** `clinical.read` — e leggeva dalla porta accanto
-      cio che la chiave gli negava. Nell'audit restava un `anagrafica.updated`:
-      la famiglia vera non aveva modo di vederlo ne di toglierlo.
+      PP-02 / WP-C. Qui sopra vivevano seicentoquaranta righe, e non erano
+      seicentoquaranta righe di funzionalita: erano cinque stesure successive
+      del **riporto delle difese**, piu due registri di scheda che erano il
+      surrogato di una chiave, piu la guardia sulla crescita delle identita.
 
-      Il legame nasce **riscattando un gettone**, che e un atto tracciato e
-      revocabile. Qui si nega che l'insieme dei legami **cresca**: toglierne
-      uno resta possibile — e cosi si scollega — e un salvataggio ordinario
-      che rimanda indietro gli stessi legami non cambia niente e passa.
-    */
-    /*
-      **`data` nullo spegneva tutte e tre le guardie dell'anagrafica.**
+      Tutte rispondevano alla stessa domanda, e la domanda era sbagliata:
+      «quale riga in arrivo corrisponde a quale riga in archivio». Non ha
+      risposta su un array senza chiave, e le quattro risposte provate lo
+      dimostrano una per una — per `id`, e le righe che nascono da
+      `guardians.push` un id non ce l'hanno; per **posizione**, e la posizione
+      la sceglie chi chiama; per **identita**, e l'identita di una riga revocata
+      collassa sull'indirizzo di famiglia, quindi il padre ereditava il marchio
+      della madre; per `id` con ripiego sull'identita, e restava il caso di due
+      righe che l'id non ce l'hanno.
 
-      Le condizioni erano `normalized.data && existing?.data`, cioe due
-      valori **veri**. Un salvataggio con `data: null` — o `""`, o `0` —
-      le attraversava tutte, e al salvataggio successivo anche `existing.data`
-      era falso: la seconda scrittura poteva aggiungere il legame che la
-      guardia sorveglia, senza incontrarla.
+      Adesso la domanda non si pone: un tutore e una riga con una chiave in
+      `athlete_guardians`, e questa rotta non la scrive. Prende cio che il
+      client manda, lo consegna al modulo proprietario, e toglie la chiave dal
+      blob — perche cio che resta dentro `athletes.data.guardians` e una
+      **proiezione in sola lettura** che il proprietario riscrive, e che nessuna
+      decisione di accesso guarda piu.
 
-      Misurato in due passi, da un ruolo personalizzato senza `clinical.read`:
-      il primo cancellava allergie, farmaci, certificati e i codici di accesso
-      della famiglia; il secondo lo rendeva tutore di quel minore.
-
-      La domanda giusta non e «c'e un `data` valorizzato?» ma «questa
-      scrittura tocca `data`?». Cio che manca dal lato precedente vale come
-      oggetto vuoto: non c'era niente da conservare, ed e diverso da «non
-      guardo».
+      Cio che spariva a ogni salvataggio non puo piu sparire: non e piu li.
     */
     if (
-      scope &&
       (resource === "athletes" || resource === "simplified_athletes") &&
       "data" in normalized
     ) {
-      /*
-        **Non una seconda funzione: la stessa.**
+      const inArrivo =
+        normalized.data && typeof normalized.data === "object"
+          ? (normalized.data as Record<string, any>)
+          : null;
 
-        La copia locale percorreva tutto `data` e contava solo le stringhe.
-        Due difetti misurati da questo: un valore in **array** le passava
-        davanti (`String(["a@b.c"]) === "a@b.c"`), e la chiave `email` di
-        **primo livello** — il recapito dell'atleta, non di un tutore —
-        veniva sorvegliata, negando alla segreteria di correggerlo.
+      if (inArrivo) {
+        /*
+          Le righe si leggono **prima** di togliere la chiave, perche sono cio
+          che il salvataggio vuole davvero dire. Il resto — i due registri —
+          non si legge affatto: erano il surrogato della chiave unica, e chi
+          li mandava non sapeva di mandarli.
+        */
+        /*
+          **Un elenco, non una chiave presente.**
 
-        Entrambi spariscono chiedendo l'insieme a chi lo usa per decidere.
-      */
-      const prima = guardianAccessIdentities(existing?.data ?? {});
+          `"guardians" in inArrivo` distingue «non ne parlo» da «non ce ne
+          sono», ma promuove a dichiarazione anche un valore che un elenco non
+          e: `null`, un oggetto, una stringa. `readGuardianInputFromCard` li
+          riduce tutti a `[]`, e `[]` significa «toglili tutti» — cosi un
+          client parziale che serializzi `guardians: null` invece di ometterlo
+          cancellava in silenzio l'anagrafica dei tutori della scheda.
 
-      const dopo = guardianAccessIdentities(normalized.data ?? {});
-      const cresciute = [...dopo].filter((id) => !prima.has(id));
+          Una dichiarazione e percio un **elenco**. Cio che elenco non e viene
+          ignorato, come l'assenza: fra distruggere e non fare niente davanti a
+          un dato malformato, non si distrugge.
+        */
+        tutoriInArrivo = Array.isArray(inArrivo.guardians)
+          ? readGuardianInputFromCard(inArrivo.guardians)
+          : null;
 
-      /*
-        **Un'identita che non appartiene a nessuno non concede niente.**
-
-        La stesura precedente negava ogni **crescita** dell'insieme. Una
-        revisione ha misurato il prezzo: correggere un refuso nell'email di un
-        tutore cambia l'insieme, quindi veniva rifiutato — e una «Segreteria»
-        modellata come ruolo di club non poteva piu correggere un indirizzo
-        sbagliato, che e il lavoro di tutti i giorni.
-
-        Cio che concede accesso non e scrivere un indirizzo: e scriverne uno
-        che **corrisponde a un'utenza**. Si guarda quindi se le identita nuove
-        esistono davvero — per identificativo o per email — e solo allora la
-        scrittura e una concessione.
-
-        Resta una finestra, e va detta: scrivere oggi l'indirizzo di un'utenza
-        che **nascera domani** produce il legame senza passare di qui. Chiuderla
-        vorrebbe dire negare la correzione di un'email, cioe il difetto che
-        questa riga esiste per non rifare. E scritta in `16-technical-debt.md`.
-      */
-      const nuovi = cresciute.length
-        ? await (async () => {
-            const perId = cresciute.filter((valore) => isUuid(valore));
-            const perEmail = cresciute.filter((valore) => valore.includes("@"));
-
-            const utenze = await prisma.user.findMany({
-              where: {
-                OR: [
-                  ...(perId.length ? [{ id: { in: perId } }] : []),
-                  ...(perEmail.length
-                    ? [{ email: { in: perEmail, mode: "insensitive" as const } }]
-                    : []),
-                ],
-              },
-              select: { id: true, email: true },
-            });
-
-            const esistenti = new Set<string>();
-            for (const utenza of utenze) {
-              esistenti.add(String(utenza.id).trim().toLowerCase());
-              if (utenza.email) {
-                esistenti.add(String(utenza.email).trim().toLowerCase());
-              }
-            }
-
-            return cresciute.filter((valore) => esistenti.has(valore));
-          })()
-        : [];
-
-      /*
-        **Scrivere un legame di famiglia concede due cose, e servono
-        entrambe le chiavi.**
-
-        Tre stesure di questa riga, e la terza le corregge tutte e due.
-
-        La prima chiedeva `clinical.read`, perche il cruscotto della famiglia
-        mostra allergie, farmaci e visite. Una revisione ha misurato che un
-        legame concede molto di piu — documenti condivisi, RSVP, appuntamenti,
-        checkout — e che chi aveva la sola vista clinica se lo scriveva addosso.
-
-        La seconda ha **sostituito** la chiave invece di aggiungerla, e ha
-        aperto il verso opposto: un ruolo con `accounts.athlete.manage` e
-        **senza** `clinical.read` si legava a un minore qualunque e ne apriva
-        il fascicolo sanitario. Misurato: 4307 byte con allergie, farmaci e
-        certificato, a un ruolo a cui il club la vista clinica l'aveva tolta.
-
-        Un legame apre **l'area famiglia**, e l'area famiglia contiene il dato
-        sanitario: le due cose non si separano, quindi non si separano nemmeno
-        le due chiavi. Chi scrive un legame deve poter vedere cio che sta
-        concedendo — `clinical.read` — ed essere autorizzato a concedere un
-        accesso — `accounts.athlete.manage`.
-
-        Entrambe appartengono alla **gestione**, quindi segreteria e
-        collaboratore canonici lavorano come prima. Un ruolo di club a cui ne
-        manca una non aggiunge tutori: se il club vuole delegarlo, spunta le
-        due caselle — che e esattamente cio per cui l'editor esiste.
-
-        E la crescita si misura sulle **identita**, non sui campi: correggere
-        un refuso in un'email che non appartiene a nessuna utenza non concede
-        niente, e non passa di qui.
-      */
-      if (
-        nuovi.length &&
-        !(
-          roleHasPermission(scope.activeRole, "accounts.athlete.manage") &&
-          hasHealthPermission(scope.activeRole, "clinical.read")
-        )
-      ) {
-        await recordPermissionDenied({
-          scope: {
-            userId: scope.userId,
-            activeRole: scope.activeRole,
-            activeOrganizationId: scope.activeOrganizationId,
-          },
-          permission: "accounts.athlete.manage",
-          resource: "athletes",
-          resourceId: String((existing as any)?.id || ""),
-          metadata: {
-            nuovi_legami: nuovi.length,
-            reason: "guardian_link_from_generic_route",
-          },
-        });
-        throw new Error(
-          "Accesso negato: il legame fra un tutore e un'utenza apre a quella persona l'area famiglia del minore — dato sanitario compreso — e servono sia il permesso sugli accessi sia quello sul dato clinico",
-        );
+        for (const chiave of GUARDIAN_KEYS_NON_SCRIVIBILI) {
+          delete inArrivo[chiave];
+        }
       }
     }
 
@@ -7498,56 +7639,25 @@ const applicaGuardieDiModifica = async (
       }
 
       /*
-        **La stessa regola vale per il codice con cui entra la famiglia.**
+        **Il codice con cui entra la famiglia non ha piu una strada per
+        sparire** (PP-02 / WP-C).
 
-        `data.guardians[].parentAccessTokenValue` viene tolto in lettura a
-        chiunque non abbia una direzione canonica. La scheda letta cosi e
-        rimandata indietro cancellava il codice: la famiglia non entrava piu, e
+        Qui c'era il ripristino del gettone dentro `data.guardians[]`: la
+        scheda letta da chi non vede le credenziali tornava indietro senza il
+        codice, e il salvataggio lo cancellava — la famiglia non entrava piu, e
         nessuno aveva chiesto di revocarlo.
 
-        Il difetto e identico a quello clinico qui sopra — un'assenza scambiata
-        per una cancellazione — ma non poteva essere risolto dallo stesso ciclo,
-        perche quello guarda le chiavi di primo livello e il gettone e dentro un
-        elemento di un elenco.
+        Non serve piu, e non perche sia stato irrobustito: perche
+        `data.guardians` non e piu scrivibile da questa rotta. Il gettone vive
+        su `athlete_guardians`, dove il client non arriva, e cio che compare
+        nel blob e una proiezione che il modulo proprietario riscrive. Una
+        difesa che non ha piu niente da difendere si toglie.
       */
-      if (!vedeICredenzialiDiAccesso(scope?.activeRole)) {
-        /*
-          Il **secondo** argomento e `normalized.data`, non `nuovo`: la fusione
-          che conserva il clinico e gia avvenuta, e ripartire da `nuovo` la
-          butterebbe via. E il genere di errore che si vede solo a runtime, e la
-          sonda lo ha visto.
-        */
-        normalized.data = restoreGuardianAccessTokens(
-          precedente,
-          normalized.data,
-        );
-
-        /*
-          **Qui c'era una guardia contro la sparizione di una credenziale, e
-          non e difendibile.**
-
-          Pretendeva che chi non vede un gettone non potesse farlo sparire, e
-          confrontava gli insiemi di valori prima e dopo. Tre revisioni l'hanno
-          smontata da tre lati diversi:
-
-            * **non protegge**. Togliere un tutore fa sparire il suo gettone
-              ed e un atto legittimo che la segreteria compie ogni giorno:
-              chi vuole distruggere una credenziale toglie il tutore, e la
-              guardia non ha niente da dire;
-            * **blocca il lavoro vero**. I tutori gia in archivio non hanno
-              l'`id` — lo assegna il browser — quindi ogni salvataggio della
-              loro scheda perdeva l'aggancio e veniva **rifiutato**. Quelle
-              schede erano diventate non modificabili;
-            * **nega a chi deve**. «Scollega account» e un pulsante che
-              l'interfaccia mostra alla segreteria, che poi riceveva un 403.
-
-          Resta il **ripristino**, che e la difesa vera e non ha questi
-          effetti: cio che non e stato ricevuto torna com'era, e cio che si
-          toglie deliberatamente si toglie.
-        */
-      }
     }
+
+  return tutoriInArrivo;
 };
+
 export const updateResource = async (
   resource: string,
   id: string,
@@ -7784,6 +7894,20 @@ export const updateResource = async (
     );
   }
 
+  /*
+    **La data di creazione non si riscrive, da nessuna delle porte.**
+
+    Il ramo `upsert` toglieva `created_at` dal corpo, con il commento «vale per
+    **ogni** risorsa che un upsert puo raggiungere». Il reinstradamento a
+    `updateResource` ha saltato quella riga, e `updateResource` lo strip non lo
+    aveva mai avuto: misurato, la data di iscrizione di un tesserato si
+    riportava al 1999 da tutte e due le porte.
+
+    Una data di creazione che si riscrive non e una data di creazione:
+    l'anzianita di un socio e la ricostruzione di un audit poggiano su quella.
+  */
+  delete (normalized as any).created_at;
+
   assertAnagraficaIsValid(resource, normalized, existing);
   normalizeAnagraficaText(resource, normalized);
   await guardPlatformOwnedClubSettings(
@@ -7805,7 +7929,37 @@ export const updateResource = async (
     );
   }
 
-  await applicaGuardieDiModifica(resource, normalized, existing, scope);
+  /*
+    **Per un atleta il vaglio si rifa dentro il blocco.**
+
+    Le guardie qui sotto confrontano cio che arriva con cio che c'e in
+    archivio, e `existing` e stato letto **prima**: fra la lettura e la
+    scrittura ci sta un'altra richiesta, e le difese che questa rotta riporta —
+    i due marchi e i due registri — verrebbero riportate da uno stato gia
+    vecchio. E la stessa corsa che fa perdere una revoca, vista dall'altro lato.
+
+    Si blocca percio la riga, la si rilegge, e si rifa il vaglio su quella:
+    chi arriva secondo vede cio che il primo ha scritto.
+  */
+  /*
+    **Il ramo protetto vale per la riga, non per il campo.**
+
+    La condizione chiedeva anche `"data" in normalized`, e con lei ci stavano
+    dentro il blocco, la rilettura e la guardia sulla cancellazione: un `PATCH`
+    che non porta `data` cadeva su una `update` nuda. `eraseDataSubject` azzera
+    otto colonne piu il blob, e la guardia ne difendeva **una**.
+
+    Misurato: `PATCH /api/v1/athletes/<id>` con `{"first_name":"Mario"}` su una
+    scheda cancellata su richiesta dell'interessato — riuscito, nome e stato
+    tornati. La porta e aperta a segreteria e collaboratore, non al solo
+    proprietario.
+  */
+  const atletaConData =
+    resource === "athletes" || resource === "simplified_athletes";
+
+  if (!atletaConData) {
+    await applicaGuardieDiModifica(resource, normalized, existing, scope);
+  }
 
   const record = importi.ricalcola
     ? await (prisma as any).$transaction(async (client: any) => {
@@ -7830,11 +7984,161 @@ export const updateResource = async (
           include: getModelInclude(resource),
         });
       })
-    : await delegate.update({
-        where: { id },
-        data: normalized,
-        include: getModelInclude(resource),
-      });
+    : atletaConData
+      ? await (prisma as any).$transaction(async (client: any) => {
+          await lockAthleteRow(client, id);
+
+          const fresca = await clientDelegate(client, resource).findUnique({
+            where: { id },
+          });
+
+          /*
+            **Una cancellazione dell'interessato non si riscrive.**
+
+            `eraseDataSubject` azzera `athletes.data` per intero e lascia un
+            solo campo, `anonymizedAt`: la riga resta come segnaposto perche
+            rate, incassi e ricevute la nominano, ma la persona non c'e piu.
+
+            Bastava pero una scheda atleta lasciata aperta in un'altra scheda
+            del browser: il salvataggio ordinario rimandava la copia che il
+            client aveva in memoria e **ricostruiva tutto** — nome, allergie,
+            righe dei tutori — e il genitore che la cancellazione aveva
+            staccato rientrava nell'area famiglia. In audit restava un
+            `anagrafica.updated`. Non serviva nemmeno una corsa: bastava la
+            sequenza.
+
+            La guardia gemella esiste da tempo (`assertPersonalDataDisposed`)
+            ma presidia la **cancellazione della riga**, cioe l'altro verso.
+            Il diritto all'oblio ha bisogno di tutti e due: non si cancella una
+            riga che ha ancora dati addosso, e non si rimettono dati su una
+            riga che e stata cancellata.
+          */
+          /*
+            **E il marchio non si scrive da qui.**
+
+            La guardia legge il marchio dalla riga fresca, e niente impediva a
+            un client di **metterlo**: un salvataggio ordinario con
+            `data.anonymizedAt` valorizzato passava, e da quel momento la scheda
+            non si salvava piu — con un messaggio che parla di una cancellazione
+            che nessuno ha chiesto, e senza nessuna strada per toglierlo.
+            Peggio: il client della scheda rimanda `{...datiCorrenti}`, quindi
+            se la chiave finisce li dentro una volta si ripropaga da sola.
+
+            Il marchio lo scrive `eraseDataSubject` e nessun altro: qui si
+            conserva quello che c'e in archivio, come i due registri.
+          */
+          const marchioInArchivio = ((fresca as any)?.data as any)?.anonymizedAt;
+
+          if ("data" in normalized) {
+            const inArrivo = (normalized as any).data;
+            if (inArrivo && typeof inArrivo === "object") {
+              if (marchioInArchivio) {
+                (inArrivo as any).anonymizedAt = marchioInArchivio;
+              } else {
+                delete (inArrivo as any).anonymizedAt;
+              }
+            }
+          }
+
+          const giaCancellata = Boolean(marchioInArchivio);
+
+          if (giaCancellata) {
+            throw new Error(
+              "Questa anagrafica e stata cancellata su richiesta dell'interessato: non si puo riscriverla",
+            );
+          }
+
+          const tutoriDaScrivere = await applicaGuardieDiModifica(
+            resource,
+            normalized,
+            fresca || existing,
+            scope,
+          );
+
+          /*
+            **I tutori si scrivono qui dentro, e prima della riga.**
+
+            PP-02 / WP-C. Dentro **questa** transazione, che e la stessa in cui
+            la scheda si salva: il salvataggio dell'anagrafica e la scrittura
+            dei tutori o riescono insieme o non riescono. Prima della riga
+            perche il modulo proprietario, finito di scrivere, rifa la
+            proiezione dentro `athletes.data` — e la `update` qui sotto la
+            leggerebbe vecchia se girasse per prima.
+          */
+          if (tutoriDaScrivere) {
+            await saveGuardianRegistry(client, {
+              organizationId: String(
+                (fresca as any)?.organization_id ||
+                  (existing as any)?.organization_id ||
+                  "",
+              ),
+              athleteId: String(id),
+              rows: tutoriDaScrivere,
+              canGrantAccess:
+                !scope ||
+                (roleHasPermission(scope.activeRole, "accounts.athlete.manage") &&
+                  hasHealthPermission(scope.activeRole, "clinical.read")),
+            });
+          }
+
+          /*
+            **La proiezione si rifa dalla tabella, sempre.**
+
+            Non e un riporto di cio che il client ha mandato: e cio che
+            l'autorita contiene, riscritto dentro il blob perche i lettori
+            storici — il destinatario fiscale di una ricevuta, i segnaposto
+            `{{parent.1.*}}`, la scheda, la segreteria — continuino a leggere
+            la forma che conoscono. Rifarla a **ogni** salvataggio la rende
+            auto-riparante: se una scrittura concorrente l'avesse persa,
+            torna al primo salvataggio successivo.
+          */
+          await refreshGuardianProjection(client, [String(id)]);
+          const proiettata = await clientDelegate(client, resource).findUnique({
+            where: { id },
+            select: { data: true },
+          });
+          if (normalized.data && typeof normalized.data === "object") {
+            /*
+              **Tutte e tre, non solo la prima.**
+
+              La proiezione riscrive dentro `athletes.data` l'elenco dei tutori
+              **e i due registri** — chi e revocato, chi e solo un recapito — e
+              subito dopo questa `update` sovrascrive `data` con cio che il
+              client ha mandato, da cui le tre chiavi erano appena state tolte.
+              Riportandone indietro una sola, le altre due sparivano a **ogni**
+              salvataggio di **qualunque** scheda.
+
+              Non sono decorative: i promemoria del certificato medico e i
+              solleciti di pagamento leggono di li per sapere **chi non deve
+              ricevere**. Senza il registro, una persona revocata che condivide
+              l'indirizzo di famiglia con un genitore attivo — il caso ordinario
+              di ADR-0127 — tornava fra i destinatari degli avvisi sulla salute
+              del minore e del sollecito con il link per pagare.
+
+              Si riportano percio le chiavi che il modulo proprietario dichiara,
+              **derivandole dalla sua costante**: una quarta chiave aggiunta li
+              torna indietro da sola, senza che nessuno se ne ricordi qui.
+            */
+            const dallaProiezione = ((proiettata?.data as any) || {}) as Record<
+              string,
+              unknown
+            >;
+            for (const chiave of GUARDIAN_KEYS_NON_SCRIVIBILI) {
+              (normalized.data as any)[chiave] = dallaProiezione[chiave] ?? [];
+            }
+          }
+
+          return clientDelegate(client, resource).update({
+            where: { id },
+            data: normalized,
+            include: getModelInclude(resource),
+          });
+        })
+      : await delegate.update({
+          where: { id },
+          data: normalized,
+          include: getModelInclude(resource),
+        });
 
   if (resource === "users") {
     await syncUserClubAccess(record.id, input.club_access, scope);
@@ -7918,6 +8222,63 @@ export const updateResource = async (
  * denaro. Il vincolo `RESTRICT` sul database e l'altra meta: questa frase
  * spiega, quello vale anche per chi non passa dall'applicazione.
  */
+/**
+ * **Il segnaposto di una cancellazione non si cancella: il denaro lo nomina.**
+ *
+ * `eraseDataSubject` **non** toglie la riga dell'atleta, e lo scrive: rate,
+ * incassi, fatture e ricevute la nominano con una chiave `SetNull`, e portarla
+ * via lascerebbe movimenti di denaro **senza beneficiario** — cio che le guardie
+ * fiscali di questo file esistono per impedire.
+ *
+ * Nessuna guardia lo impediva pero davvero: dopo la cancellazione le tabelle
+ * che `assertPersonalDataDisposed` conta sono vuote, quindi quella guardia
+ * lascia passare. Misurato — riga anonimizzata piu una rata da 250 EUR gia
+ * pagata: la cancellazione riusciva e la rata restava con `athlete_id` nullo.
+ *
+ * La regola giusta non e sulla cancellazione dell'interessato, ed e piu larga:
+ * un atleta che ha una storia di denaro non si cancella, si disattiva. Qui si
+ * guarda percio il denaro, non il marchio.
+ */
+const assertAthleteHasNoMoneyTrail = async (
+  resource: string,
+  athleteId?: string | null,
+) => {
+  if (resource !== "athletes" && resource !== "simplified_athletes") return;
+  const id = String(athleteId || "").trim();
+  if (!id) return;
+
+  /*
+    **La domanda e «ha toccato denaro», non «ha una riga di piano».**
+
+    La prima stesura contava le rate con un importo maggiore di zero,
+    qualunque fosse lo stato: una scheda creata per sbaglio, a cui il piano
+    quote si aggancia da solo, non si cancellava piu — e nemmeno una scheda
+    con una rata **annullata**, cioe un fatto contabile che questo stesso file
+    dichiara altrove come non contabile (`isPaymentExcludedFromTotals`).
+
+    La guardia gemella dice il principio: «un atleta senza liquidazioni resta
+    cancellabile, perche correggere un'anagrafica sbagliata non e cancellare
+    denaro». Cio che non si puo perdere e l'**intestatario di un movimento**:
+    un incasso, o una rata che un incasso lo ha gia visto.
+  */
+  const [rate, incassi] = await Promise.all([
+    (prisma as any).athletePayment.count({
+      where: {
+        athlete_id: id,
+        amount: { gt: 0 },
+        status: { in: ["paid", "partial", "settled", "refunded"] },
+      },
+    }),
+    (prisma as any).paymentTransaction.count({ where: { athlete_id: id } }),
+  ]);
+
+  if (rate > 0 || incassi > 0) {
+    throw new Error(
+      "Questo atleta ha una storia di pagamenti: si disattiva, non si cancella — cancellarlo lascerebbe movimenti di denaro senza intestatario",
+    );
+  }
+};
+
 const assertAthleteHasNoSettledFunding = async (
   resource: string,
   athleteId: string,
@@ -8092,6 +8453,28 @@ export const deleteResource = async (
     */
     assertNotDomainOwnedResourceItem(resource, existing?.resource_type);
     assertPuoScrivereIlTipoDellaRiga(resource, existing?.resource_type, "delete", scope);
+
+    /*
+      **L'invito se ne va con il profilo.**
+
+      Il carico di un invito di allenatore o di staff porta `trainer_name`,
+      `trainer_email` e `trainer_phone`: lo stesso genere di dato per cui
+      l'invito di un tutore viene cancellato insieme alla scheda. Un invito che
+      sopravvive al profilo e un archivio di dati personali che nessuna
+      schermata mostra piu — e nessun percorso lo cancellava mai, perche
+      `DATA_SUBJECT_KINDS` conosce solo l'atleta.
+    */
+    if (
+      ["trainers", "staff_members"].includes(
+        String(existing?.resource_type || ""),
+      )
+    ) {
+      await eraseProfileInvites(prisma, String(existing.organization_id || ""), [
+        String(existing.id),
+        (existing as any)?.payload?.id,
+      ]);
+    }
+
     const record = await delegate.delete({
       where: { id: existing.id },
     });
@@ -8166,6 +8549,7 @@ export const deleteResource = async (
   await assertPaymentHasNoEconomicHistory(resource, existing?.id);
   await assertDocumentNotIssued(resource, existing);
   await assertAthleteHasNoSettledFunding(resource, existing?.id);
+  await assertAthleteHasNoMoneyTrail(resource, existing?.id);
   /*
     ADR-0019. Le guardie qui sopra sono tutte **fiscali**: proteggono il denaro
     e i documenti emessi. Nessuna proteggeva la **persona**, e cancellare un
@@ -8183,6 +8567,23 @@ export const deleteResource = async (
     existing?.organization_id,
   );
   await assertClubHasNoFiscalHistory(resource, existing?.id);
+
+  /*
+    **Gli inviti della scheda se ne vanno con la scheda.**
+
+    Le righe di tutore le porta via la cascata; il loro **invito** no, ed e una
+    riga di `club_resource_items` con dentro nome e indirizzo di un terzo. La
+    cancellazione dell'interessato lo cancella gia (ADR-0145); questa porta —
+    che nessun riepilogo precede — lo lasciava in archivio.
+  */
+  if (resource === "athletes" || resource === "simplified_athletes") {
+    await eraseGuardianInvitesForAthlete(
+      prisma,
+      String(id),
+      (existing as any)?.organization_id || null,
+    );
+  }
+
 
   const record = await delegate.delete({
     where: { id },

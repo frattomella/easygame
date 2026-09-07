@@ -107,33 +107,19 @@ const seed = () => ({
       organization_id: CLUB,
       first_name: "Mario",
       last_name: "Rossi",
+      /* Il legame vero: e questo, e non una membership, a fare il genitore. */
       /*
-        **Il legame del genitore e una riga di `data.guardians`, non
-        `athletes.user_id`** (PP-04, ADR-0117).
-
-        Questa fixture scriveva il genitore dentro `user_id`, che e la
-        colonna dell'account **dell'atleta stesso** — l'unica scrittrice e
-        `athlete-accounts.ts`, che insieme al legame crea la tessera
-        `athlete` (ADR-0104). Un genitore li dentro e uno stato che nella
-        vita vera non esiste, e da quando il ramo diretto pretende una
-        tessera di atleta viva, una fixture cosi misura il caso sbagliato.
-
-        Il tutore vive in `athletes.data.guardians[].linkedUserId`, e da li
-        `getParentLinkedAthletes` lo riconosce **senza** nessuna tessera nel
-        club: che e esattamente cio che questi test vogliono dimostrare.
+        Il legame di un genitore vive in `data.guardians`. Questa fixture usava
+        `athletes.user_id`, che dice un'altra cosa — «questo atleta ha il
+        proprio accesso» — e funzionava solo perche il vaglio accettava anche
+        quel ramo. Da li passava tutta l'area famiglia, e un ragazzo leggeva i
+        recapiti dei tutori, le note mediche e le ricevute della famiglia.
       */
-      user_id: null,
       data: {
         guardians: [
-          {
-            id: "tutore-1",
-            name: "Anna",
-            surname: "Rossi",
-            relationship: "Madre",
-            linkedUserId: GENITORE,
-          },
+          { id: "tutore-genitore", name: "Genitore", linkedUserId: GENITORE },
         ],
-      },
+},
     },
     {
       id: ATLETA_ALTRUI,

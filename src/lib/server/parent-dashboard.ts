@@ -1,3 +1,4 @@
+import { normalizeAthleteStatus } from "@/lib/athletes/status";
 import { prisma } from "@/lib/server/prisma";
 import { stripGuardianAccessTokens } from "@/lib/health/permissions";
 import {
@@ -6,11 +7,30 @@ import {
   type NormalizedCategoryOption,
 } from "@/lib/category-utils";
 import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
-import { normalizeActiveClubSeason } from "@/lib/club-seasons";
+import {
+  normalizeActiveClubSeason,
+  normalizeClubSeasons,
+} from "@/lib/club-seasons";
+import { normalizeClubSites } from "@/lib/club-sites";
+import { reportServerError } from "@/lib/server/observability";
+import {
+  findGuardianLinks,
+  readGuardiansForAthlete,
+} from "@/lib/server/athlete-guardians";
+import { resolveCheckoutReadiness } from "@/lib/server/connect-accounts";
+import { normalizePaymentSettings } from "@/lib/payments/payment-config-utils";
+import { resolveFamilyCheckoutChannel } from "@/lib/payments/family-checkout";
+import {
+  bookableAppointmentTypes,
+  familyCanRequestAppointment,
+  normalizeAppointmentsConfig,
+} from "@/lib/appointments/config";
 import {
   getLatestMedicalCertificateExpiry,
   getMedicalCertificateAvailability,
   getMedicalCertificateAvailabilityLabel,
+  getMedicalCertificateFamilyState,
+  describeMedicalCertificateForFamily,
 } from "@/lib/medical-certificates";
 import { toFamilyFreeSlot } from "@/lib/appointments/projection";
 import { getAthleteEnrollmentSummary } from "@/lib/athlete-enrollment-summary";
@@ -41,16 +61,15 @@ import {
 } from "@/lib/structures-utils";
 
 /*
-  Mancava il trattino fra la variante e il nodo: `[89ab][0-9a-f]{12}` sono
-  tredici caratteri di fila dove lo UUID ne ha quattro, un trattino e dodici.
-  Nessun identificativo reale corrispondeva mai — e siccome l'unico uso e
-  «se **non** e uno UUID allora ricadi sul primo atleta collegato», la ricaduta
-  scattava sempre: chiedere l'atleta di un altro non otteneva un rifiuto, ma il
-  proprio primo figlio, e un genitore con figli in due club poteva vedersi
-  presentare quello sbagliato. Il ramo del rifiuto era codice morto.
+  **Lo UUID non si controlla piu, perche non c'e piu niente da decidere.**
+
+  Serviva a un ramo solo — «se **non** e uno UUID allora ricadi sul primo
+  atleta collegato» — e la forma del pattern era rotta (mancava il trattino fra
+  la variante e il nodo), quindi la ricaduta scattava sempre. La Wave 6 corresse
+  la forma; PP-02 §A ha tolto la ricaduta, e con lei l'ultimo uso: un
+  identificativo che non e nessuno dei propri figli **non e** una richiesta a
+  cui rispondere con un figlio a caso.
 */
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const isRecord = (value: unknown): value is Record<string, any> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -84,80 +103,9 @@ const toIso = (value: unknown) => {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
 
-const getGuardianRows = (athlete: any) => {
-  const data = asRecord(athlete?.data);
-  const guardians = asArray(data.guardians).map((guardian, index) => ({
-    id:
-      firstText(
-        guardian?.id,
-        guardian?.guardianId,
-        guardian?.email,
-        guardian?.phone,
-      ) || `guardian-${index}`,
-    name: firstText(guardian?.name, guardian?.firstName, guardian?.first_name),
-    surname: firstText(
-      guardian?.surname,
-      guardian?.lastName,
-      guardian?.last_name,
-    ),
-    relationship: firstText(guardian?.relationship, guardian?.role),
-    email: firstText(guardian?.email),
-    phone: firstText(guardian?.phone),
-    linkedUserId: firstText(guardian?.linkedUserId, guardian?.linked_user_id),
-    linkedUserEmail: firstText(
-      guardian?.linkedUserEmail,
-      guardian?.linked_user_email,
-    ),
-  }));
 
-  const legacyParents = [data.parent1, data.parent2]
-    .filter(Boolean)
-    .map((guardian, index) => ({
-      id:
-        firstText(guardian?.id, guardian?.email, guardian?.phone) ||
-        `legacy-parent-${index + 1}`,
-      name: firstText(guardian?.name, guardian?.firstName, guardian?.first_name),
-      surname: firstText(
-        guardian?.surname,
-        guardian?.lastName,
-        guardian?.last_name,
-      ),
-      relationship: firstText(guardian?.relationship) || "Genitore",
-      email: firstText(guardian?.email),
-      phone: firstText(guardian?.phone),
-      linkedUserId: firstText(guardian?.linkedUserId, guardian?.linked_user_id),
-      linkedUserEmail: firstText(
-        guardian?.linkedUserEmail,
-        guardian?.linked_user_email,
-      ),
-    }));
 
-  return guardians.length > 0 ? guardians : legacyParents;
-};
 
-/**
- * **I campi che dimostrano un legame fra un tutore e un'utenza.**
- *
- * Vive qui, esportato, perche due posti devono guardare la **stessa** lista:
- * questo predicato, che apre il cruscotto della famiglia, e la guardia di
- * `resources.ts` che impedisce di scriversi un legame addosso. Una revisione
- * ha misurato la divergenza — la guardia sorvegliava due campi, il predicato
- * ne leggeva cinque — e da quella distanza si passava.
- */
-export const GUARDIAN_LINK_FIELDS: readonly string[] = [
-  "linkedUserId",
-  "linked_user_id",
-  "userId",
-  "user_id",
-  "linkedUserEmail",
-  "linked_user_email",
-  /*
-    L'email di **contatto** e la settima, e non e un errore: e il campo con
-    cui una famiglia entra senza riscattare un codice, e `U-06` lo verifica
-    per nome. Sta in questa lista proprio perche scriverla concede accesso.
-  */
-  "email",
-] as const;
 
 /**
  * **Le identita che, scritte su un tutore, aprono il cruscotto della
@@ -179,245 +127,49 @@ export const GUARDIAN_LINK_FIELDS: readonly string[] = [
  * identita da tenere allineata, e non ci sono contenitori da enumerare: si
  * parte dagli stessi `getGuardianRows` che il predicato usa.
  */
-export const guardianAccessIdentities = (data: unknown): Set<string> => {
-  const identita = new Set<string>();
-
-  for (const guardian of getGuardianRows({ data })) {
-    /*
-      Le stesse due letture di `isGuardianLinkedToUser`, e con lo stesso
-      `firstText`: e li che un array diventa la sua stringa.
-    */
-    const perId = firstText(
-      (guardian as any).linkedUserId,
-      (guardian as any).linked_user_id,
-      (guardian as any).userId,
-      (guardian as any).user_id,
-    );
-    const perEmail = firstText(
-      (guardian as any).linkedUserEmail,
-      (guardian as any).linked_user_email,
-      (guardian as any).email,
-    );
-
-    if (perId) identita.add(perId.trim().toLowerCase());
-    if (perEmail) identita.add(perEmail.trim().toLowerCase());
-  }
-
-  return identita;
-};
-
 /**
- * **Il legame del tutore, ma solo nella forma che qualcuno ha deciso**
- * (PP-04, ADR-0124).
+ * **Le identita a cui il club ha tolto l'accesso a questo atleta.**
  *
- * `linkedUserId` non nasce da una coincidenza: lo scrive il riscatto del token
- * di collegamento, cioe un atto — il club invita quell'indirizzo come tutore e
- * quella persona riscatta. `guardians[].email` invece e un **recapito**, e la
- * segreteria lo scrive per poter telefonare.
+ * Il marchio sulla **riga** non bastava, e il nono round lo ha misurato in due
+ * mosse: il riporto del marchio si aggancia all'`id` della riga, quindi
+ * bastava aggiungerne una **nuova** con lo stesso indirizzo e un `id` diverso
+ * — o cambiare l'`id` a quella che c'era — per ritrovarsi una riga pulita che
+ * il ripiego sull'indirizzo accetta. E la stessa cosa succedeva da sola
+ * approvando un modulo di iscrizione in cui la persona si dichiara tutore: il
+ * dominio dei moduli fa `guardians.push(...)` di un oggetto nuovo.
  *
- * I due si equivalgono quando si tratta di far entrare una famiglia
- * (`isGuardianLinkedToUser` li tiene insieme, ed e voluto). Non si equivalgono
- * quando la domanda e l'opposto: «questa identita, che e anche l'account di
- * questa scheda, e **anche** un tutore?». Li la coincidenza di casella e
- * esattamente il vettore del Critical di ADR-0122, e la decisione registrata
- * e esattamente cio che lo distingue.
+ * L'errore era di livello: **l'accesso si concede a un'identita, non a una
+ * riga**. Percio la revoca si registra sull'atleta, e vale per chiunque si
+ * presenti con quell'identita, da qualunque riga.
+ *
+ * Resta reversibile, ed e importante che lo sia: un riscatto successivo
+ * riscrive il legame **dichiarato**, che vince sul ripiego, e toglie
+ * l'identita da questo elenco.
  */
-const isGuardianLinkedById = (guardian: Record<string, any>, userId: string) =>
-  sameId(
-    firstText(
-      guardian.linkedUserId,
-      guardian.linked_user_id,
-      guardian.userId,
-      guardian.user_id,
-    ),
-    userId,
-  );
-
-const isGuardianLinkedToUser = (
-  guardian: Record<string, any>,
-  userId: string,
-  userEmail?: string | null,
-) => {
-  const linkedUserId = firstText(
-    guardian.linkedUserId,
-    guardian.linked_user_id,
-    guardian.userId,
-    guardian.user_id,
-  );
-  /*
-    **L'email di contatto vale come legame, ed e voluto.**
-
-    E il modo in cui una famiglia entra senza riscattare un codice: la
-    segreteria scrive l'indirizzo del genitore, e quel genitore — che a quel
-    punto ha un'utenza con la **stessa email verificata** — trova il figlio.
-    Una sonda lo verifica per nome (`U-06`), quindi non e un residuo: e una
-    capability.
-
-    Ma allora **scrivere quell'indirizzo e un atto che concede l'accesso
-    clinico**, perche il cruscotto di famiglia mostra allergie, farmaci e
-    visite. Il permesso che serve non e quello sull'anagrafica: e
-    `clinical.read`, e la guardia sta in `resources.ts`, dove la scrittura
-    passa. Qui si dice solo che il legame e questo.
-  */
-  const linkedUserEmail = firstText(
-    guardian.linkedUserEmail,
-    guardian.linked_user_email,
-    guardian.email,
-  );
-
-  return (
-    sameId(linkedUserId, userId) ||
-    (!!userEmail && sameId(linkedUserEmail, userEmail))
-  );
-};
-
 /**
- * **Il legame diretto vale finche la tessera vale** (PP-04, ADR-0117).
+ * **Questa notifica parla di questo figlio.**
  *
- * `athletes.user_id` da solo rispondeva di si, e un legame puo sopravvivere
- * alla tessera: due strade lo producono, e ADR-0114 le ha chiuse sull'area
- * atleta senza che nessuno chiudesse **questo** lettore, che dello stesso
- * campo consegna strettamente di piu — denaro, tutori, contenuto clinico, e
- * delle scritture. Misurato: con zero tessere nel club,
- * `/api/v1/athlete-accounts/me` rispondeva 403 e `/api/parent-dashboard/<la
- * stessa scheda>` rispondeva 200.
+ * Una notifica che **nomina** un atleta (`data.athleteId`) e di quel figlio;
+ * una che non ne nomina nessuno parla del club, e vale per tutti.
  *
- * `ancoraAtleta` e l'insieme dei club in cui questa persona e ancora un atleta,
- * e lo calcola `clubsWhereStillAthlete`: **una funzione sola per i due
- * lettori**, perche due elenchi separati divergono ed e il difetto di partenza.
- *
- * Il ramo del **tutore** resta senza tessera: un tutore puo legittimamente non
- * averne nessuna nel club, ed e la ragione per cui questa area non gira su un
- * permesso di ruolo. Quel ramo non e pero piu una **seconda strada** per chi
- * porta gia `athletes.user_id`: vedi ADR-0122 nel corpo.
+ * Vive qui, esportata, perche due posti devono dare la stessa risposta: la
+ * lettura che riempie la bacheca e il conteggio della pastiglia, e la rotta
+ * che segna letto. Non lo davano: la pastiglia contava le notifiche **del
+ * figlio scelto**, e «segna tutte come lette» ne chiudeva **tutte** quelle del
+ * genitore in quel club. Un genitore con due figli apriva la schermata di uno,
+ * leggeva «(3)», premeva, e spegneva anche le sei dell'altro — che nessuno
+ * aveva letto e che nessuna schermata avrebbe piu mostrato come nuove.
  */
-const athleteBelongsToParent = (
-  athlete: any,
-  userId: string,
-  userEmail: string | null | undefined,
-  ancoraAtleta: ReadonlySet<string>,
-  schedeProprie: ReadonlySet<string>,
+export const notificationBelongsToAthlete = (
+  notification: unknown,
+  athleteId: string,
 ) => {
-  /*
-    **Chi e l'atleta non e anche la propria famiglia** (ADR-0122).
-
-    Una seconda revisione ostile ha misurato che la guardia qui sopra si
-    aggirava con un dato che il prodotto **produce da se**: `linkedUserEmail`
-    ricade su `guardian.email`, e un minore lo si invita sulla casella di
-    famiglia — la stessa che la segreteria ha scritto nel tutore. Con quella
-    coincidenza `athleteBelongsToParent` usciva dal ramo del tutore e non
-    vedeva mai ne `ancoraAtleta` ne `allowSelfAthleteLink`: l'ex atleta senza
-    piu nessuna tessera riceveva di nuovo quote, codice fiscale del tutore,
-    diagnosi e l'indirizzo del file del certificato.
-
-    Il Critical del primo round non era stato chiuso: era stato spostato su una
-    precondizione che il flusso stesso dell'invito crea.
-
-    Chi porta `athletes.user_id` **e** quella scheda, non la sua famiglia:
-    per lui vale il ramo diretto e solo quello, qualunque cosa dica l'elenco
-    dei tutori. Il tutore vero — un'altra persona — non e toccato.
-  */
-  /*
-    **E «essere quella scheda» non e un campo: e un'identita** (ADR-0123).
-
-    Un terzo giro di revisione ha misurato che la condizione qui sopra era
-    scritta **sul campo che la revoca cancella**. `unlinkAthleteAccount` e
-    `revokeAthleteAccess` azzerano `athletes.user_id`, e da quel momento la
-    stessa persona tornava a passare dal ramo del tutore, dove la coincidenza
-    della casella vale come legame: l'area atleta rispondeva 403 e il
-    cruscotto della famiglia 200, sulla **stessa** scheda appena revocata.
-
-    Cioe: il gesto con cui il club toglie l'accesso era il gesto che lo
-    riapriva, piu largo di prima.
-
-    L'identita durevole la porta `athlete_account_invites`: un invito
-    **accettato** dice «questa utenza e diventata l'account di questa scheda»,
-    e ne la revoca ne lo scollegamento lo cancellano. `schedeProprie` e
-    l'insieme che ne esce, unito al legame vivo.
-  */
-  /*
-    **Due domande, non una** (PP-04, ADR-0125).
-
-    Il round conclusivo ha misurato che questa condizione faceva due lavori
-    **opposti** con una riga sola.
-
-    Come **esclusione** dal ramo del tutore deve essere durevole, ed e la
-    ragione per cui ADR-0123 l'ha portata sull'invito accettato: senza durata,
-    il gesto che toglie l'accesso lo riapre piu largo di prima.
-
-    Come **ammissione** alle superfici proprie dell'atleta — la bacheca e
-    l'RSVP, cioe cio che il ramo diretto dichiarato apre — vuole invece il
-    legame **vivo**: li «essere stato quella scheda» non e «essere quella
-    scheda», ed e esattamente cio che lo scollegamento toglie.
-
-    Con una condizione sola vinceva la durata, e lo scollegamento non chiudeva
-    niente. Misurato contro PostgreSQL e le rotte vere: dopo «Scollega
-    account» `GET /api/v1/athlete-accounts/me` rispondeva 403 e
-    `GET /api/parent-dashboard/<la stessa scheda>/board` **200**, con la
-    scrittura «l'ho letto» inclusa. E il caso che pesa e il seguito: il club
-    scollega e invita **un'altra persona** su quella scheda — che e il motivo
-    per cui lo scollegamento esiste — e la vecchia utenza continuava a leggere
-    la bacheca e a rispondere alle convocazioni di una scheda che non era piu
-    sua. Nessun gesto sul pannello la chiudeva fuori: `revokeAthleteAccess`
-    toglie le tessere di chi e collegato **adesso**, cioe del nuovo titolare.
-  */
-  const legameVivo = sameId(athlete?.user_id, userId);
-  const eLaPersonaStessa =
-    legameVivo || schedeProprie.has(String(athlete?.id || ""));
-
-  /*
-    **Ma un'identita sola puo portare due cappelli** (ADR-0124).
-
-    Un quarto giro di revisione ostile ha misurato il verso opposto dei tre
-    precedenti. Il flusso che ADR-0122 descrive come normale — il minore
-    invitato sulla casella di famiglia — non crea un account del minore: crea
-    **il secondo cappello dell'account del genitore**, perche `risolviUtenza`
-    trova l'utenza che quell'indirizzo ha gia. Da quel momento
-    `athletes.user_id` e l'identita del padre, `eLaPersonaStessa` risponde di
-    si, e il cortocircuito lo mandava sul cancello dell'atleta: il padre
-    perdeva il figlio dal proprio cruscotto di famiglia.
-
-    E non lo riprendeva piu. Revoca e scollegamento azzerano il campo, ma
-    l'invito accettato di ADR-0123 resta: **il gesto che avrebbe dovuto
-    rimediare non rimediava**, e il figlio spariva per sempre. Misurato:
-    `scripts/pp-04-atleta-probe.mjs`, P-83…P-86.
-
-    Il ramo diretto resta esclusivo verso chi e **soltanto** quella scheda. Chi
-    e anche un tutore **provato** di quella scheda passa dal ramo del tutore,
-    come vi passerebbe se non fosse mai stato invitato.
-
-    «Provato» vale `linkedUserId`, e non la casella: `isGuardianLinkedById`,
-    non `isGuardianLinkedToUser`. La differenza e tutta qui, e regge il
-    Critical — l'ex atleta di ADR-0122/0123 ha la coincidenza dell'indirizzo e
-    **non** ha nessuna decisione registrata accanto, quindi resta al cancello.
-    Chi invece ha `linkedUserId` sulla riga del tutore ce l'ha perche il club
-    ha invitato quell'indirizzo come tutore e quella persona ha riscattato: un
-    accesso che quella identita aveva gia, e che il legame con la scheda
-    dell'atleta non puo toglierle.
-  */
-  const tutoreProvato = getGuardianRows(athlete).some((guardian) =>
-    isGuardianLinkedById(guardian, userId),
-  );
-
-  if (eLaPersonaStessa && !tutoreProvato) {
-    /*
-      L'esclusione la decide `eLaPersonaStessa`, che e durevole; l'ammissione
-      la decide `legameVivo`, che non lo e. Chi e stato l'account di questa
-      scheda e non lo e piu **non torna dal ramo del tutore** — la condizione
-      del `return` lo tiene qui — e non entra nemmeno dal proprio (ADR-0125).
-    */
-    return (
-      legameVivo && ancoraAtleta.has(String(athlete?.organization_id || ""))
-    );
-  }
-
-  return (
-    tutoreProvato ||
-    getGuardianRows(athlete).some((guardian) =>
-      isGuardianLinkedToUser(guardian, userId, userEmail),
-    )
-  );
+  const citato = asRecord(asRecord(notification).data).athleteId;
+  if (!citato) return true;
+  return sameId(String(citato), athleteId);
 };
+
+
 
 const getAthleteCategoryTokens = (
   athlete: any,
@@ -980,6 +732,12 @@ export const getFamilyDocumentAreas = async (
     activeOrganizationId: organizationId,
     activeRole: null as string | null,
     allowedOrganizationIds: [organizationId],
+    /*
+      L'area atleta legge da qui lo **stato** dei propri documenti — non i
+      byte, che la sua proiezione non espone. Senza questo, chiuderla ai
+      ragazzi avrebbe spento la loro stanza invece di chiudere una porta.
+    */
+    allowSelfAthleteLink: Boolean(options.allowSelfAthleteLink),
   };
 
   const { getDocumentDossier } = await import("./document-requests");
@@ -1049,23 +807,75 @@ export const getFamilyDocumentAreas = async (
 };
 
 /**
- * **Il nome della squadra, e perche non basta la colonna denormalizzata**
- * (PP-04).
+ * **I nomi delle sedi di un club, indicizzati per identificativo.**
  *
- * `athlete_category_memberships.category_name` e nullable, e lo e davvero:
- * la popola `season-memberships.ts` sul rinnovo di stagione, e non la popola
- * nessun altro percorso che crei un'appartenenza. Il ripiego era
- * `membership.category_id`, cioe uno UUID — e la schermata «Le mie squadre»
- * dell'area atleta stampava, sotto il titolo, due identificativi.
- *
- * L'ha trovato **guardando lo schermo**, non un test: e la forma di
- * incompletezza che CLAUDE.md §11.8 descrive, quella in cui il codice c'e e
- * dice una cosa che non serve a nessuno.
- *
- * Il catalogo del club e l'autorita, e `resolveCategoryLabel` la interroga
- * gia per gli eventi. L'identificativo resta l'ultimo ripiego: meglio uno
- * UUID che «Senza categoria» su una squadra che esiste.
+ * PP-02 §B. Si costruisce dalla riga del club che l'atleta gia porta con se
+ * (`include: { organization: true }`), e non da una lettura in piu: un
+ * genitore con figli in due club ne ha due diversi, e prendere «le sedi del
+ * club attivo» avrebbe messo il nome della sede sbagliata accanto alla
+ * categoria del secondo figlio.
  */
+const buildSiteNameIndex = (club: any) => {
+  const index = new Map<string, string>();
+
+  normalizeClubSites(club?.club_sites).forEach((site) => {
+    const id = String(site?.id || "").trim().toLowerCase();
+    const name = String(site?.name || "").trim();
+    if (id && name) index.set(id, name);
+  });
+
+  return index;
+};
+
+/**
+ * **Le appartenenze di un atleta, con la sede scritta per esteso.**
+ *
+ * Sta fuori da `serializeAthleteCard` perche la schermata di scelta del figlio
+ * ne ha bisogno **senza** il resto della scheda: li deve uscire un elenco
+ * chiuso di campi, e comporlo prendendo una chiave da una scheda intera
+ * significherebbe che un campo nuovo sulla scheda arriva anche li.
+ */
+const serializeAthleteCategories = (
+  athlete: any,
+  categoryOptions: NormalizedCategoryOption[] = [],
+) => {
+  const siteNames = buildSiteNameIndex(athlete?.organization);
+
+  return asArray(athlete?.category_memberships).map((membership: any) => ({
+    id: membership.category_id,
+    /*
+      **Il nome della squadra, e perche non basta la colonna denormalizzata**
+      (PP-04).
+
+      `athlete_category_memberships.category_name` e nullable, e lo e davvero:
+      la popola `season-memberships.ts` sul rinnovo di stagione, e non la popola
+      nessun altro percorso che crei un'appartenenza. Il ripiego era
+      `membership.category_id`, cioe uno UUID — e la schermata «Le mie squadre»
+      dell'area atleta stampava, sotto il titolo, due identificativi.
+
+      Il catalogo del club e l'autorita, e `resolveCategoryLabel` la interroga
+      gia per gli eventi. L'identificativo resta l'ultimo ripiego: meglio uno
+      UUID che «Senza categoria» su una squadra che esiste.
+    */
+    name:
+      firstText(membership.category_name) ||
+      resolveCategoryLabel(membership.category_id, categoryOptions) ||
+      membership.category_id,
+    siteId: membership.site_id || null,
+    /*
+      PP-02 §B. La sede era un identificativo, e un identificativo non e
+      un'informazione: due categorie su due sedi diverse si leggevano come due
+      righe con accanto due UUID. Il nome si risolve dove il club e in mano, e
+      resta `null` quando la riga non dichiara una sede — cioe su ogni club
+      mono-sede, dove nominarla sarebbe rumore.
+    */
+    siteName: membership.site_id
+      ? siteNames.get(String(membership.site_id).trim().toLowerCase()) || null
+      : null,
+    isPrimary: Boolean(membership.is_primary),
+  }));
+};
+
 const serializeAthleteCard = (
   athlete: any,
   categoryOptions: NormalizedCategoryOption[] = [],
@@ -1086,18 +896,14 @@ const serializeAthleteCard = (
       dedotta. La famiglia deve poterle vedere tutte: e la squadra del
       proprio figlio, non un dettaglio amministrativo.
     */
-    categories: asArray(athlete.category_memberships).map(
-      (membership: any) => ({
-        id: membership.category_id,
-        name:
-          firstText(membership.category_name) ||
-          resolveCategoryLabel(membership.category_id, categoryOptions) ||
-          membership.category_id,
-        siteId: membership.site_id || null,
-        isPrimary: Boolean(membership.is_primary),
-      }),
-    ),
+    categories: serializeAthleteCategories(athlete, categoryOptions),
     status: athlete.status,
+    /*
+      PP-02 §A. La foto: la schermata di scelta la mostrava gia — e il modo
+      piu rapido di riconoscere il proprio figlio — e il guscio, che di quello
+      stesso figlio dice il nome su ogni pagina, non l'aveva.
+    */
+    avatar_url: athlete.avatar_url || firstText(data.avatar) || null,
     jersey_number: firstText(athlete.jersey_number, data.jerseyNumber, data.jersey_number),
     email: firstText(data.email, data.athleteEmail, data.athlete_email),
     phone: firstText(data.phone, data.mobile, data.athletePhone, data.athlete_phone),
@@ -1109,6 +915,68 @@ const serializeAthleteCard = (
     birth_place: firstText(data.birthPlace, data.birth_place),
     nationality: firstText(data.nationality),
     gender: firstText(data.gender),
+  };
+};
+
+/**
+ * **Un documento di pagamento, come lo legge una famiglia.**
+ *
+ * PP-02 §E. Sette campi piu il figlio a cui si riferisce, e nient'altro. Cio
+ * che resta fuori non e un dettaglio di comodo:
+ *
+ * | Campo escluso | Perche |
+ * |---|---|
+ * | `issued_by`, `cancelled_by` | chi in segreteria ha emesso o annullato: e una persona, e non riguarda la famiglia |
+ * | `operation_type_code`, `snapshot` | la classificazione contabile congelata: il club la usa per il proprio rendiconto |
+ * | `transaction_id`, `invoice_id`, `payment_id` | le chiavi con cui il club riconcilia la propria cassa |
+ * | `data`, `file_url` | un JSON libero e un percorso di archivio, entrambi senza contratto |
+ * | `series`, `sequence`, `document_year` | il numero completo c'e gia; questi sono la sua meccanica |
+ *
+ * **Lo stato** invece esce, ed e la ragione per cui `cancelled_at` non e
+ * semplicemente omesso: una ricevuta annullata deve leggersi «Annullata», non
+ * sparire. Una famiglia che ha in mano la copia cartacea di un documento
+ * annullato deve poterlo capire dall'applicazione, non scoprirlo in segreteria.
+ */
+const serializeFamilyFiscalDocument = (
+  kind: "receipt" | "invoice",
+  row: any,
+  athlete: any,
+) => {
+  const annullato = Boolean(row?.cancelled_at);
+
+  return {
+    id: row.id,
+    kind,
+    /** «Ricevuta n. 12/2026» oppure «Fattura n. 4/2026». */
+    number:
+      firstText(row.receipt_number, row.invoice_number) ||
+      (kind === "receipt" ? "Ricevuta" : "Fattura"),
+    issueDate: toIso(row.issue_date),
+    amount: Number(row.amount ?? 0),
+    /** La causale come e stata scritta sul documento, non quella contabile. */
+    description: firstText(row.description),
+    /** `issued` | `cancelled`: e cio che la famiglia deve poter distinguere. */
+    status: annullato ? "cancelled" : firstText(row.status) || "issued",
+    statusLabel: annullato ? "Annullata" : "Emessa",
+    /*
+      Il figlio, per nome — e per **cio che la riga porta con se**, non per
+      distinguerla dalle altre: l'elenco e gia letto con
+      `where: { athlete_id: selectedAthlete.id }`, quindi contiene un figlio
+      solo e questo nome e sempre lo stesso.
+
+      Serve a chi scarica il documento e lo ritrova in una cartella sei mesi
+      dopo, e a chi legge la riga fuori dal contesto della schermata che l'ha
+      chiesta. La prima stesura lo motivava con una famiglia di due figli che
+      confronta importi simili: quello scenario, con questa query, non puo
+      verificarsi.
+    */
+    athleteId: row.athlete_id || null,
+    athleteName:
+      row.athlete_id && sameId(row.athlete_id, athlete?.id)
+        ? getAthleteDisplayName(athlete)
+        : null,
+    /** La rotta che ristampa il documento dallo snapshot, gia autorizzata per legame. */
+    downloadPath: `/api/v1/documents/${kind}/${encodeURIComponent(row.id)}`,
   };
 };
 
@@ -1153,7 +1021,36 @@ const serializeParentStructureBooking = (
 });
 
 /**
- * **Da quale legame si sta entrando** (PP-04, ADR-0118).
+ * **Di quali atleti questa persona e tutore.**
+ *
+ * PP-02 / WP-C. Qui prima c'erano **tre** cose, e ognuna aveva il proprio
+ * difetto:
+ *
+ * 1. una scansione in SQL grezzo di tutta la tabella `athletes` — «esiste,
+ *    dentro un array JSON, un oggetto con una di queste quattro grafie uguale a
+ *    questo valore» — che nessun indice poteva aiutare, e che un `catch` largo
+ *    faceva degradare in silenzio a «nessun club»;
+ * 2. un insieme di **candidati** che portava in memoria ogni atleta di ogni
+ *    club in cui la persona avesse una tessera;
+ * 3. un vaglio in memoria (`athleteBelongsToParent`) che girava **dopo**, su
+ *    quell'insieme, e quindi non poteva vedere un figlio che l'insieme non
+ *    contenesse.
+ *
+ * Adesso e una interrogazione su una tabella con una chiave. Il legame ha una
+ * riga, la riga ha un indice, e chi decide e l'archivio. Chiude `PP02-D1`, che
+ * diceva esattamente questo: «la chiusura vera e materializzare il legame in
+ * una tabella con la sua chiave esterna».
+ *
+ * **Le due strade restano due, e la differenza non e una sfumatura.**
+ * L'utenza vale ovunque, perche nasce dal riscatto di un invito: e un atto
+ * della persona, tracciato e revocabile. L'indirizzo di contatto lo scrive la
+ * segreteria a mano — e un refuso su un dominio diffuso e l'indirizzo
+ * verificato di qualcun altro — quindi vale **solo dove quella persona ha gia
+ * una tessera**, e solo se l'indirizzo e verificato. Le due regole vivono in
+ * `findGuardianLinks`, nel modulo proprietario, perche sono regole di dominio
+ * e non di questa schermata.
+ *
+ * ## Da quale legame si sta entrando (PP-04, ADR-0118)
  *
  * Due legami diversi aprono questa area, e non danno diritto alle stesse cose:
  *
@@ -1207,14 +1104,9 @@ export const getParentLinkedAthletes = async (
   /*
     **Tre domande su `userId`, e nessuna dipende dall'altra.**
 
-    Erano tre `await` in fila. Su Neon da Vercel ogni lettura paga un giro di
-    rete: in fila costano tre attese, insieme una. La misura del §27
-    (`npm run wave6:perf`) conta le attese iniettando una latenza fissa, ed e
-    li che si vedono — il conteggio delle interrogazioni non cambia, il tempo
-    che una famiglia aspetta si.
-
-    L'elenco degli atleti resta dopo, perche quello **dipende** davvero dalle
-    prime due: e la quarta attesa, e non si puo togliere.
+    Su Neon da Vercel ogni lettura paga un giro di rete: in fila costano tre
+    attese, insieme una. La misura del §27 (`npm run wave6:perf`) conta le
+    attese iniettando una latenza fissa.
   */
   const [user, memberships, ownedClubs] = await Promise.all([
     prisma.user.findUnique({
@@ -1234,25 +1126,17 @@ export const getParentLinkedAthletes = async (
   /*
     **L'indirizzo vale come legame solo se e verificato.**
 
-    Un tutore si collega al suo account redimendo un token, e allora c'e
-    `linked_user_id`. Finche non lo ha fatto vale anche la corrispondenza con
-    l'indirizzo di contatto che la segreteria ha scritto sulla scheda — ed e
-    quella corrispondenza che apriva la porta.
-
     `PATCH /api/v1/auth/user` lascia cambiare il proprio indirizzo con qualunque
     altro non ancora registrato. Chiunque avesse **una qualsiasi** tessera nel
-    club — genitore di suo figlio, atleta, allenatore — poteva scrivere
-    l'indirizzo del tutore di un'altra famiglia e leggere di quel minore
-    pagamenti, fatture, **certificati medici** e documenti d'identita, poi
-    rimettere il proprio.
-
-    Il cambio azzera pero `email_verified_at`, e il login non rilascia sessioni
-    a un indirizzo non verificato: pretendere qui la verifica chiude la strada
-    senza toccare il tutore vero, che per avere una sessione ha gia dovuto
-    dimostrare di leggere quella casella.
+    club poteva scrivere l'indirizzo del tutore di un'altra famiglia e leggere
+    di quel minore pagamenti, fatture, **certificati medici** e documenti
+    d'identita, poi rimettere il proprio. Il cambio azzera pero
+    `email_verified_at`, e pretendere qui la verifica chiude la strada senza
+    toccare il tutore vero.
   */
   const verifiedEmail = user?.email_verified_at ? user.email : null;
-  const organizationIds = Array.from(
+
+  const organizationIdsForEmail = Array.from(
     new Set(
       memberships
         .map((membership) => membership.organization_id)
@@ -1260,32 +1144,38 @@ export const getParentLinkedAthletes = async (
     ),
   );
 
-  const candidateAthletes = await prisma.athlete.findMany({
-    where: {
-      OR: [
-        { user_id: userId },
-        ...(organizationIds.length
-          ? [{ organization_id: { in: organizationIds } }]
-          : []),
-      ],
-    },
+  const legami = await findGuardianLinks(prisma, {
+    userId,
+    verifiedEmail,
+    organizationIdsForEmail,
+  });
+
+  const athleteIds = Array.from(new Set(legami.map((legame) => legame.athlete_id)));
+
+  /*
+    **«E un mio figlio» e «sono io» non sono la stessa domanda.**
+
+    Il ramo «sono io» apre tutta l'area famiglia — nome, **indirizzo e telefono
+    dei propri tutori**, che sono dati di terzi, la riga `data` grezza, allergie
+    e note mediche, e da `/documents/<id>` i **byte** del certificato. Percio va
+    **chiesto**, e lo chiede solo l'area atleta, che da questi stessi dati
+    costruisce la propria proiezione ristretta.
+  */
+  const strade: any[] = [];
+  if (allowSelfAthleteLink) strade.push({ user_id: userId });
+  if (athleteIds.length) strade.push({ id: { in: athleteIds } });
+
+  if (!strade.length) return [];
+
+  const candidati = await prisma.athlete.findMany({
+    where: { OR: strade },
     include: {
       organization: true,
       /*
-        W6-14. **Le appartenenze non venivano nemmeno caricate.**
-
-        Un atleta puo stare in piu categorie — la tabella esiste, ha
-        `is_primary` e `site_id`, e il dominio sa gia leggerla — e la
-        famiglia ne vedeva **una**: i due campi piatti `category_id` e
-        `category_name`, cioe la primaria.
-
-        Non era solo un'etichetta mancante: `getAthleteCategoryTokens`
-        legge `athlete.category_memberships` per decidere quali allenamenti
-        e quali gare riguardano questo figlio. Con la relazione mai
-        popolata ricadeva sulla sola categoria primaria, quindi **il
-        calendario perdeva le attivita della seconda squadra**. Un ragazzo
-        che si allena con l'Under 15 e gioca con la prima squadra vedeva
-        meta dei propri impegni.
+        W6-14. Un atleta puo stare in piu categorie, e `getAthleteCategoryTokens`
+        legge questa relazione per decidere quali allenamenti e quali gare
+        riguardano questo figlio. Senza popolarla, il calendario perdeva le
+        attivita della seconda squadra.
       */
       category_memberships: true,
     },
@@ -1304,14 +1194,14 @@ export const getParentLinkedAthletes = async (
     Una interrogazione per l'intero elenco, non una per riga.
   */
   const schedeProprie = new Set(
-    candidateAthletes
+    candidati
       .filter((athlete) => sameId(athlete.user_id, userId))
       .map((athlete) => String(athlete.id)),
   );
   (
     await athleteCardsEverOwnedByUser(
       userId,
-      candidateAthletes.map((athlete) => ({
+      candidati.map((athlete) => ({
         id: String(athlete.id),
         organization_id: String(athlete.organization_id),
       })),
@@ -1327,30 +1217,63 @@ export const getParentLinkedAthletes = async (
   const ancoraAtleta = allowSelfAthleteLink
     ? await clubsWhereStillAthlete(
         userId,
-        candidateAthletes
+        candidati
           .filter((athlete) => schedeProprie.has(String(athlete.id)))
           .map((athlete) => athlete.organization_id),
       )
     : new Set<string>();
 
-  const uniqueAthletes = new Map<string, (typeof candidateAthletes)[number]>();
-  candidateAthletes.forEach((athlete) => {
-    if (
-      athleteBelongsToParent(
-        athlete,
-        userId,
-        verifiedEmail,
-        ancoraAtleta,
-        schedeProprie,
-      )
-    ) {
-      uniqueAthletes.set(athlete.id, athlete);
+  /*
+    **Il ramo diretto e esclusivo, e chi lo giudica e la riga** (ADR-0124).
+
+    Qui PP-04 e PP-02 si incontrano. PP-04 aveva scritto questa regola su
+    `athletes.data.guardians[]`, che WP-C ha tolto dall'autorita: «e un tutore
+    provato?» non si chiede piu al blob, si chiede alle righe che
+    `findGuardianLinks` ha gia restituito. La distinzione che regge il
+    Critical e la stessa — `linkedUserId` contro la casella — e nel modello
+    relazionale e la colonna `user_id` contro il ripiego sull'indirizzo
+    verificato: un legame **dichiarato** contro una coincidenza di recapito.
+
+    Chi e (o e stato) l'account di questa scheda e **non** ha accanto una
+    decisione registrata come tutore non rientra dal ramo del tutore: per lui
+    vale il legame vivo, e solo dentro un club in cui e ancora un atleta.
+    L'ex atleta senza piu nessuna tessera resta fuori, ed e il difetto che
+    ADR-0122 e ADR-0123 hanno chiuso; chi porta due cappelli — l'account della
+    scheda **e** un tutore dichiarato — passa dal ramo del tutore come vi
+    passerebbe se non fosse mai stato invitato (ADR-0125).
+  */
+  const tutoreDichiarato = new Set(
+    legami
+      .filter((legame) => sameId(legame.user_id, userId))
+      .map((legame) => String(legame.athlete_id)),
+  );
+
+  return candidati.filter((athlete) => {
+    const scheda = String(athlete.id);
+    const legameVivo = sameId(athlete.user_id, userId);
+    const eLaPersonaStessa = legameVivo || schedeProprie.has(scheda);
+
+    if (eLaPersonaStessa && !tutoreDichiarato.has(scheda)) {
+      /*
+        L'esclusione la decide `eLaPersonaStessa`, che e durevole; l'ammissione
+        la decide `legameVivo`, che non lo e. Chi e stato l'account di questa
+        scheda e non lo e piu **non torna dal ramo del tutore** — questa
+        condizione lo tiene qui — e non entra nemmeno dal proprio (ADR-0125).
+      */
+      return (
+        legameVivo && ancoraAtleta.has(String(athlete.organization_id || ""))
+      );
     }
+
+    /*
+      Chi arriva qui o porta una riga di tutore viva — e `findGuardianLinks` ha
+      gia applicato la revoca per identita e la regola dell'indirizzo
+      verificato — oppure e un tutore dichiarato di una scheda che e anche la
+      propria.
+    */
+    return true;
   });
-
-  return Array.from(uniqueAthletes.values());
 };
-
 /**
  * **Questo genitore puo accedere a questo atleta?**
  *
@@ -1371,6 +1294,10 @@ export const getParentLinkedAthletes = async (
 export const canParentAccessAthlete = async (
   userId: string,
   athleteId: string,
+  /*
+    Vale la stessa regola del cruscotto: il ramo «sono io» va chiesto, e lo
+    chiede solo chi costruisce l'area atleta. Le rotte della famiglia no.
+  */
   opzioni: ParentAccessOptions = {},
 ) => {
   const linkedAthletes = await getParentLinkedAthletes(userId, opzioni);
@@ -1380,6 +1307,11 @@ export const canParentAccessAthlete = async (
 export const getParentDashboardData = async (
   userId: string,
   requestedAthleteOrClubId: string,
+  /*
+    Il ramo «sono io» lo chiede **solo** l'area atleta, che da qui costruisce
+    la propria proiezione ristretta. Le rotte della famiglia non lo passano, e
+    per loro un ragazzo non e tutore di se stesso.
+  */
   opzioni: ParentAccessOptions = {},
 ) => {
   const user = await prisma.user.findUnique({
@@ -1393,10 +1325,33 @@ export const getParentDashboardData = async (
   });
   const linkedAthletes = await getParentLinkedAthletes(userId, opzioni);
   const requestedId = String(requestedAthleteOrClubId || "").trim();
+  /*
+    **PP-02 §A. Un identificativo che non si riconosce e una richiesta
+    sbagliata, non una richiesta a cui rispondere con il primo figlio.**
+
+    Il ramo di ripiego — «se non e uno UUID, prendi `linkedAthletes[0]`» —
+    non usciva dal perimetro della famiglia, e per questo era sopravvissuto a
+    due revisioni. Ma dentro il perimetro faceva la cosa peggiore che questa
+    schermata possa fare: **rispondere del figlio sbagliato senza dirlo**. Un
+    segnalibro storto, un indirizzo troncato da un messaggio, un `[id]` che il
+    router non ha ancora risolto, e una madre di due figli leggeva importi,
+    scadenze e stato del certificato **dell'altro**, con il nome giusto scritto
+    accanto solo perche il guscio lo prende dallo stesso payload.
+
+    Adesso non si indovina: chi chiede un atleta che non e nessuno dei propri
+    riceve `null`, e il guscio lo porta alla schermata di scelta — che e il
+    posto in cui la domanda «di quale figlio parliamo» si fa.
+
+    Resta la forma storica `/parent-view/<idClub>`, che e una risposta a una
+    domanda **posta davvero**: quel club e uno dei suoi, e il figlio che ci
+    frequenta e uno solo o il primo per ordine di elenco.
+  */
   const selectedAthlete =
     linkedAthletes.find((athlete) => sameId(athlete.id, requestedId)) ||
-    linkedAthletes.find((athlete) => sameId(athlete.organization_id, requestedId)) ||
-    (!UUID_PATTERN.test(requestedId) ? linkedAthletes[0] : null);
+    linkedAthletes.find((athlete) =>
+      sameId(athlete.organization_id, requestedId),
+    ) ||
+    null;
 
   if (!selectedAthlete) {
     return null;
@@ -1445,11 +1400,29 @@ export const getParentDashboardData = async (
       la nona notifica di un club spingeva fuori la prima e nessuno se ne
       accorgeva.
     */
+    /*
+      **Una notifica senza destinatario non e «di tutti»: e di nessuno.**
+
+      Il ramo `{ user_id: null }` era scritto pensando agli avvisi del club, e
+      nessuno li scrive cosi: `club-notifications.ts` costruisce una riga
+      **per destinatario**, e le altre due strade scrivono
+      `user_id: recipient.userId`. Una riga con `user_id` nullo nasce quindi
+      da un solo caso — un destinatario **senza account**, raggiungibile per
+      email — e non e un annuncio: e il sollecito di **quella** famiglia.
+
+      Misurato: «Rata scaduta: Luca Bianchi — la famiglia Bianchi (via Roma 3,
+      tel 333…) non ha pagato 130,00 EUR», nella bacheca di ogni genitore del
+      club. E non si poteva nemmeno spegnere, perche segnare letto filtra per
+      `user_id`: la pastiglia restava accesa per sempre su una notizia di
+      un'altra famiglia. Il filtro per figlio non la vedeva, perche guarda
+      `data.athleteId` e il contenuto sta nel titolo.
+
+      Chi non ha un account non ha una bacheca: la sua strada e l'email, e i
+      due produttori adesso non scrivono piu una riga che nessuno puo leggere
+      ne chiudere.
+    */
     prisma.notification.findMany({
-      where: {
-        organization_id: organizationId,
-        OR: [{ user_id: userId }, { user_id: null }],
-      },
+      where: { organization_id: organizationId, user_id: userId },
       orderBy: { created_at: "desc" },
       take: 50,
     }),
@@ -1467,13 +1440,24 @@ export const getParentDashboardData = async (
     dell'altro figlio, parlano del club. Nasconderle scegliendo un figlio
     sarebbe una perdita, non un filtro.
   */
-  const notificheDelFiglio = notifications.filter((notification) => {
-    const citato = asRecord(notification.data).athleteId;
-    if (!citato) return true;
-    return sameId(String(citato), selectedAthlete.id);
-  });
+  const notificheDelFiglio = notifications.filter((notification) =>
+    notificationBelongsToAthlete(notification, selectedAthlete.id),
+  );
 
   const club = selectedAthlete.organization;
+
+  /*
+    **I tutori si leggono dalla tabella, non dal blob** (PP-02 / WP-C).
+
+    E la stessa lettura che decide l'accesso, quindi cio che la famiglia vede
+    elencato e cio che il prodotto considera vero. Prima erano due strade — una
+    proiezione del blob per lo schermo e un predicato sul blob per la porta — e
+    tenerle d'accordo era un lavoro che nessuno faceva.
+  */
+  const tutoriDellaScheda = await readGuardiansForAthlete(
+    prisma,
+    selectedAthlete.id,
+  );
 
   /*
     Gli appuntamenti del figlio selezionato, la disponibilita configurata e cio
@@ -1626,8 +1610,22 @@ export const getParentDashboardData = async (
       allowSelfAthleteLink: opzioni.allowSelfAthleteLink === true,
     },
   );
+  /*
+    **Un elenco chiuso, come le ricevute e gli slot.**
+
+    Era uno spread della riga Prisma, e portava fuori `notes` — la nota che la
+    segreteria scrive per se — piu `data`, che e JSON libero, e `file_url`. Il
+    contenuto clinico ha un proprietario (`src/lib/health/permissions.ts`) e
+    non e questo. Ma il difetto vero non e cosa usciva ieri: e che **un campo
+    nuovo su `medical_certificates` nascerebbe visibile alla famiglia**, e
+    nessuno se ne accorgerebbe. La stessa regola che questo file dichiara
+    trenta righe piu sotto per le ricevute, qui non valeva.
+  */
   const certificates = medicalCertificates.map((certificate) => ({
-    ...certificate,
+    id: certificate.id,
+    athlete_id: certificate.athlete_id,
+    type: certificate.type,
+    status: certificate.status,
     issue_date: toIso(certificate.issue_date),
     expiry_date: toIso(certificate.expiry_date),
     created_at: toIso(certificate.created_at),
@@ -1659,7 +1657,42 @@ export const getParentDashboardData = async (
     scadenzaCertificato,
     new Date(now),
   );
+  /*
+    PP-02 §F. La stessa domanda, con un dato in piu: **quanti certificati ci
+    sono**. Senza, «nessuna data» e «nessun certificato» sono indistinguibili,
+    e la famiglia legge «Certificato mancante» dopo averlo consegnato.
+  */
+  const statoFamigliaCertificato = getMedicalCertificateFamilyState(
+    { count: certificates.length, expiryDate: scadenzaCertificato },
+    new Date(now),
+  );
+  const descrizioneCertificato = describeMedicalCertificateForFamily(
+    statoFamigliaCertificato,
+    scadenzaCertificato,
+  );
   const athleteData = asRecord(selectedAthlete.data);
+  /*
+    **Il periodo della stagione, che e il ripiego del pro-rata.**
+
+    Il dato era gia in questo file — `normalizeActiveClubSeason` legge le
+    stagioni poche righe piu sotto — ma ne uscivano solo id ed etichetta, non
+    le date, e il ponte verso il riepilogo non aveva nemmeno il parametro. Cosi
+    l'area famiglia mostrava il totale **non ripartito** mentre il club vedeva
+    quello ripartito: due numeri per lo stesso atleta, e quello sbagliato era
+    quello che vede chi deve pagare.
+  */
+  const stagioneAttiva = normalizeClubSeasons(
+    typeof club?.settings === "object" && club.settings ? club.settings : {},
+  ).activeSeason;
+
+  const periodoStagione =
+    stagioneAttiva?.startDate && stagioneAttiva?.endDate
+      ? {
+          startDate: stagioneAttiva.startDate,
+          endDate: stagioneAttiva.endDate,
+        }
+      : null;
+
   const enrollmentSummary = getAthleteEnrollmentSummary({
     athlete: selectedAthlete,
     athleteId: selectedAthlete.id,
@@ -1668,6 +1701,7 @@ export const getParentDashboardData = async (
     payments: asArray(athleteData.payments),
     athletePayments: payments,
     expectedIncomeEntries: asArray(club.expected_income),
+    seasonPeriod: periodoStagione,
   });
   const normalizedPayments = enrollmentSummary.payments.map((payment) => ({
     ...payment,
@@ -1682,6 +1716,46 @@ export const getParentDashboardData = async (
   const paidPayments = normalizedPayments.filter(
     (payment) => payment.statusKey === "paid",
   );
+
+  /*
+    **PP-02 §D. Il motivo per cui non si puo pagare, conosciuto prima del
+    clic.**
+
+    Il pulsante «Paga ora» era vero — chiama il checkout, che emette un link e
+    lo apre — ma la ragione per cui a volte non funziona si conosceva **dopo**
+    il gesto: se la societa non ha configurato gli incassi online il pulsante
+    restava acceso e il motivo arrivava come errore rosso; se non c'erano rate
+    aperte si spegneva, con il motivo nascosto in un `title` del browser, che
+    su un telefono non esiste.
+
+    Lo stato del canale lo sa gia il server, e lo sa lo **stesso** dominio che
+    poi rifiuterebbe il checkout: chiederglielo qui non e un secondo sistema di
+    pagamento, e leggere una risposta che c'era e non usciva.
+
+    Un guasto nel leggerlo **non** deve spegnere il pulsante: chi puo pagare
+    continua a poterlo fare, e il caso peggiore torna a essere quello di prima
+    — l'errore dopo il clic — invece di diventare «non si paga piu».
+  */
+  const statoPagamentoOnline = await resolveCheckoutReadiness({
+    organizationId,
+    clubEnabled: normalizePaymentSettings(
+      asRecord(club.settings).paymentSettings,
+    ).enabled,
+  })
+    .then(({ readiness }) => resolveFamilyCheckoutChannel(readiness))
+    .catch((error) => {
+      reportServerError(error, {
+        route: "parent-dashboard/checkout-readiness",
+        organizationId,
+        actorUserId: userId,
+      });
+      return { available: true, blocker: null, message: "" } as const;
+    });
+
+  const configurazioneAppuntamenti = normalizeAppointmentsConfig(
+    asRecord(club.settings).appointments,
+  );
+
   const visibleStructures = getVisibleBookableStructures(asArray(club.structures));
   /*
     W6-13. Le prenotazioni erano «del figlio **oppure** fatte da me», e la
@@ -1754,23 +1828,87 @@ export const getParentDashboardData = async (
       ...serializeAthleteCard(selectedAthlete, categoryOptions),
       user_id: selectedAthlete.user_id,
       /*
-        **`data` usciva grezza, accanto ai tutori gia sanificati.**
+        **Si dichiara cio che esce, non cio che non deve uscire.**
 
-        `getGuardianRows` e una proiezione chiusa e non porta credenziali; una
-        riga sotto, `data` le portava tutte. Misurato: una madre che apriva il
-        cruscotto riceveva nel proprio browser il **codice d'accesso vivo del
-        padre** — e con esso quello di ogni altro tutore: un nonno, un ex
-        coniuge, un assistente sociale.
+        Due stesure. La prima mandava `data` **grezza** accanto ai tutori gia
+        sanificati: una madre riceveva nel proprio browser il codice d'accesso
+        vivo del padre, e quello di ogni altro tutore. La seconda ha tolto le
+        credenziali — sei nomi di campo, cercati ovunque — e ha lasciato tutto
+        il resto.
 
-        Il dato clinico del **proprio** figlio resta: e suo, ed e il motivo
-        per cui questa schermata esiste. Le credenziali no: chi ne ha una la
-        ha gia in mano, e le altre non sono sue.
+        `athletes.data` e pero il blob **libero** che la segreteria riempie, e
+        una revisione ha misurato cosa ci trova dentro chi apre il cruscotto:
+        una nota «famiglia morosa», una «relazione-servizi-sociali», il codice
+        fiscale e il telefono dell'altro tutore, una nota che dice che quel
+        tutore «non puo prendere il bambino il martedi», e — nuovo di questa
+        serie — `revokedGuardianIdentities`, cioe il cruscotto che dichiara
+        alla nuova compagna che il club ha revocato l'ex. Il contesto del
+        cruscotto conserva tutto anche in `sessionStorage`.
+
+        Un elenco di cio che si toglie non regge su un contenitore aperto: ogni
+        campo nuovo nasce **visibile**, e nessuno se ne accorge. Qui esce percio
+        cio che le schermate della famiglia leggono davvero, e nient'altro —
+        l'indirizzo e le visite mediche del **proprio** figlio. Il resto della
+        scheda continua ad arrivare da `serializeAthleteCard`, che e una
+        proiezione dichiarata, e il dato clinico da `data.health`, che ha il
+        suo permesso.
       */
-      data: stripGuardianAccessTokens(selectedAthlete.data),
-      guardians: getGuardianRows(selectedAthlete),
-      linkedAthletes: linkedAthletes.map((athlete) =>
-        serializeAthleteCard(athlete, categoryOptions),
-      ),
+      data: (() => {
+        const grezza = asRecord(stripGuardianAccessTokens(selectedAthlete.data));
+        const visibili: Record<string, unknown> = {};
+
+        for (const chiave of ["address", "medicalVisits"]) {
+          if (chiave in grezza) visibili[chiave] = grezza[chiave];
+        }
+
+        return visibili;
+      })(),
+      /*
+        **Cio che la famiglia vede di un tutore e chi e e dove si trova.**
+
+        `getGuardianRows` e la proiezione che **decide** l'accesso, e porta per
+        questo i campi con cui si decide: le grafie dell'identificativo, il
+        segno di solo-recapito, il marchio della revoca. Nessuna schermata li
+        disegna — la scheda mostra nome, rapporto, email e telefono — e uscivano
+        lo stesso, dicendo a chi legge che il club ha revocato l'altro tutore.
+
+        La proiezione che decide e quella che si pubblica sono due cose diverse,
+        ed e la terza volta che questo file lo impara.
+      */
+      guardians: tutoriDellaScheda.map((guardian) => ({
+        /*
+          L'identificativo della **riga**, non piu quello sintetico costruito
+          sulla posizione. Quello cambiava persona quando si cancellava una
+          riga, ed e il difetto che ha fatto revocare il padre premendo
+          «Scollega account» sulla nonna.
+        */
+        id: guardian.id,
+        name: guardian.first_name,
+        surname: guardian.last_name,
+        relationship: guardian.relationship,
+        email: guardian.email,
+        phone: guardian.phone,
+      })),
+      /*
+        **La quarta proiezione aperta, nello stesso file appena bonificato.**
+
+        `serializeAthleteCard` e nata per l'atleta **selezionato** e porta una
+        ventina di campi: codice fiscale, luogo di nascita, indirizzo, telefono,
+        email, genere, nazionalita. Usarla anche per i fratelli voleva dire
+        spedirli tutti, per ogni figlio, a ogni caricamento di tutte e tredici
+        le pagine — quando cio che serve qui e un elenco per scegliere.
+
+        Non sono dati di un'altra famiglia: sono i figli di chi legge. Ma e la
+        stessa proprieta che questo file difende per nome tre volte poche righe
+        piu su, e valeva anche qui.
+      */
+      linkedAthletes: linkedAthletes.map((figlio: any) => ({
+        id: figlio.id,
+        organization_id: figlio.organization_id,
+        name: getAthleteDisplayName(figlio),
+        birth_date: toIso(figlio.birth_date),
+        category_name: figlio.category_name || null,
+      })),
     },
     health: {
       certificates,
@@ -1779,6 +1917,23 @@ export const getParentDashboardData = async (
       statusLabel: getMedicalCertificateAvailabilityLabel(
         disponibilitaCertificato,
       ),
+      /*
+        **PP-02 §F. Lo stato che la famiglia legge, e la riga che ne esce.**
+
+        `status` resta com'era — lo leggono il tono del riquadro e la CTA — e
+        accanto compare la distinzione che gli manca: un certificato
+        **consegnato senza scadenza** non e un certificato mancante, e finiva
+        su «Certificato mancante» perche la data e l'unica cosa che il vecchio
+        stato guardava.
+
+        La riga (`Valido — Scade il 01/06/2027`) la compone il dominio e non la
+        schermata: era gia stata riscritta tre volte, e la terza non conosceva
+        «in scadenza».
+      */
+      familyState: statoFamigliaCertificato,
+      familyLabel: descrizioneCertificato.label,
+      familyDetail: descrizioneCertificato.detail,
+      familySummary: descrizioneCertificato.summary,
       /*
         La data del certificato che governa, non del primo dell'elenco. E
         `null` quando nessun certificato ne dichiara una: la schermata deve
@@ -1801,18 +1956,34 @@ export const getParentDashboardData = async (
       totalPaid: enrollmentSummary.income.recordedPaid,
       remaining: enrollmentSummary.income.residual,
       summary: enrollmentSummary.income,
-      receipts: receipts.map((receipt) => ({
-        ...receipt,
-        issue_date: toIso(receipt.issue_date),
-        created_at: toIso(receipt.created_at),
-        updated_at: toIso(receipt.updated_at),
-      })),
-      invoices: invoices.map((invoice) => ({
-        ...invoice,
-        issue_date: toIso(invoice.issue_date),
-        created_at: toIso(invoice.created_at),
-        updated_at: toIso(invoice.updated_at),
-      })),
+      /**
+       * PP-02 §D. Il canale di incasso online: se c'e, e se non c'e perche.
+       * Sta accanto alle rate e non dentro ognuna: e una proprieta del club,
+       * e ricalcolarla per riga vorrebbe dire chiederla venti volte.
+       */
+      online: statoPagamentoOnline,
+      /*
+        **PP-02 §E. Una ricevuta e un elenco chiuso di campi, non la riga.**
+
+        `{ ...receipt }` mandava al browser di ogni famiglia l'intera riga del
+        documento: `issued_by` e `cancelled_by` — gli identificativi delle
+        persone di segreteria che lo hanno emesso o annullato —,
+        `operation_type_code` e `snapshot`, cioe la classificazione contabile
+        congelata, `transaction_id` e `invoice_id`, che sono le chiavi con cui
+        il club riconcilia la propria cassa, e `data`, un JSON libero in cui
+        nessuno ha promesso di non scrivere niente.
+
+        Nessuno di quei campi veniva **disegnato**: uscivano nella risposta, che
+        e la stessa cosa. La regola e quella della lane 5I e della schermata di
+        scelta del figlio: si dichiara cio che esce, cosi un campo nuovo sulla
+        riga nasce invisibile alla famiglia.
+      */
+      receipts: receipts.map((receipt) =>
+        serializeFamilyFiscalDocument("receipt", receipt, selectedAthlete),
+      ),
+      invoices: invoices.map((invoice) =>
+        serializeFamilyFiscalDocument("invoice", invoice, selectedAthlete),
+      ),
     },
     enrollment: enrollmentSummary,
     /*
@@ -1843,8 +2014,28 @@ export const getParentDashboardData = async (
       all: matches,
     },
     attendance: {
+      /*
+        **Elenco chiuso**, e cio che ne resta fuori sono i due identificativi:
+        `convocated_by` e `rsvp_by_user_id` sono persone del **club**, e la
+        famiglia deve sapere se il figlio c'era e cosa ha risposto, non chi lo
+        ha scritto a registro.
+
+        `notes` invece **resta**, e non per inerzia: e la nota sull'appello di
+        quel ragazzo, e l'area atleta la dichiara fra i quattro campi che
+        mostra a lui di se stesso (`CAMPI_AREA_ATLETA.presenza`), leggendola
+        proprio da qui. Toglierla avrebbe spento quella schermata di
+        rimbalzo — una decisione di prodotto presa altrove, che non si
+        capovolge in una lane di correzioni.
+      */
       items: attendance.map((item) => ({
-        ...item,
+        id: item.id,
+        event_id: item.event_id,
+        athlete_id: item.athlete_id,
+        status: item.status,
+        notes: item.notes ?? "",
+        rsvp_status: item.rsvp_status ?? null,
+        rsvp_note: item.rsvp_note ?? "",
+        rsvp_at: toIso(item.rsvp_at),
         created_at: toIso(item.created_at),
         updated_at: toIso(item.updated_at),
       })),
@@ -1868,6 +2059,26 @@ export const getParentDashboardData = async (
       della segreteria non sono nascoste dall'interfaccia, non ci sono.
     */
     appointments: {
+      /*
+        PP-02 §K. **Cosa questo club accetta**, e se accetta. La famiglia deve
+        poterlo sapere prima di compilare: un modulo che chiede un motivo
+        libero a un club che ha configurato quattro tipi produce una richiesta
+        che qualcuno dovra tradurre a mano, e un modulo aperto su un club che
+        ha chiuso le prenotazioni produce un rifiuto dopo il gesto.
+      */
+      config: {
+        /*
+          **Non e l'interruttore: e se la richiesta puo davvero partire.**
+          Un club con dei motivi tutti «solo dal desk» tiene l'interruttore
+          acceso e non riceve nulla, e la schermata deve poterlo dire.
+        */
+        familyBookingEnabled: familyCanRequestAppointment(
+          configurazioneAppuntamenti,
+        ),
+        types: bookableAppointmentTypes(configurazioneAppuntamenti).map(
+          (tipo) => ({ id: tipo.id, name: tipo.name }),
+        ),
+      },
       items: appointmentRows.map((row) =>
         toFamilyAppointment(row as any, {
           athleteName: getAthleteDisplayName(selectedAthlete),
@@ -1902,8 +2113,18 @@ export const getParentDashboardData = async (
       items: visibleStructures.map(serializeParentStructure),
       bookings: parentStructureBookings,
     },
+    /*
+      Elenco chiuso. Lo spread faceva uscire `data` per intero, e fra queste
+      righe ci sono anche le notifiche **di club** (`user_id: null`), che il
+      filtro lascia passare quando non nominano un atleta: cio che il club si
+      scrive dentro `data` non e detto sia scritto per una famiglia.
+    */
     notifications: notificheDelFiglio.slice(0, 20).map((notification) => ({
-      ...notification,
+      id: notification.id,
+      title: notification.title,
+      message: notification.message,
+      type: notification.type,
+      read: Boolean(notification.read),
       created_at: toIso(notification.created_at),
       updated_at: toIso(notification.updated_at),
     })),
@@ -1941,6 +2162,22 @@ export const getParentDashboardData = async (
  * campo nuovo sulla riga dell'atleta nasce cosi **invisibile** a questa
  * schermata, che e la regola con cui la lane 5I ha chiuso l'anagrafica dei
  * colleghi.
+ *
+ * ---
+ *
+ * **PP-02 §A e §B.** Due campi in piu, e nessuno dei due e un dato nuovo:
+ *
+ * * `birthYear` — l'anno, non la data. Due fratelli nella stessa categoria si
+ *   distinguono per l'eta, e su una schermata di **scelta** la data intera e
+ *   una precisione che non aiuta a scegliere;
+ * * `categories` — **tutte** le appartenenze con la loro sede, e non la sola
+ *   `category_name` piatta. Un ragazzo in due squadre si riconosceva a meta,
+ *   e su due sedi diverse non si riconosceva affatto.
+ *
+ * `status` esce perche un figlio **non piu attivo** deve poter essere
+ * distinto prima di entrare, non dopo: la sua area si apre lo stesso — la
+ * storia e sua — ma senza dirlo la schermata prometterebbe un'iscrizione
+ * viva.
  */
 export const listParentChildren = async (userId: string) => {
   const athletes = await getParentLinkedAthletes(userId);
@@ -1952,6 +2189,21 @@ export const listParentChildren = async (userId: string) => {
     clubName: (athlete as any).organization?.name || "",
     clubLogoUrl: (athlete as any).organization?.logo_url || null,
     categoryName: athlete.category_name || null,
+    categories: serializeAthleteCategories(athlete),
+    birthYear: athlete.birth_date
+      ? new Date(athlete.birth_date).getUTCFullYear()
+      : null,
+    /*
+      **Canonico, non grezzo.** La colonna contiene davvero altre grafie —
+      `disattivato`, `sospeso`, `on_loan`, `in prestito` — perche la guardia
+      in scrittura canonicalizza da oggi in avanti e non riscrive le righe
+      storiche. Chi legge qui si indicizza un vocabolario chiuso: con una
+      grafia storica il figlio non riceveva **nessuna** pastiglia sul
+      selettore, cioe la schermata tornava a promettere un'iscrizione viva —
+      la cosa che §B ha scritto per impedire. Il lato club normalizza in
+      lettura da sempre; adesso lo fa anche questa strada.
+    */
+    status: normalizeAthleteStatus(athlete.status),
     avatarUrl: athlete.avatar_url || null,
   }));
 };

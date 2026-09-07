@@ -527,6 +527,31 @@ function FormSettingsPanel({
                 </span>
               </span>
             </label>
+
+            {/*
+              PP-02 §J. La deduplicazione a dieci minuti difende dal doppio
+              clic e continua a farlo; questo interruttore difende da una cosa
+              diversa — la stessa iscrizione rimandata a settembre, e poi a
+              ottobre, con una virgola cambiata.
+            */}
+            <label className="flex items-start gap-3 text-sm text-slate-700">
+              <Switch
+                checked={schema.settings.singleSubmission}
+                onCheckedChange={(checked) =>
+                  onChange({ singleSubmission: checked })
+                }
+                aria-label="Si compila una volta sola"
+              />
+              <span>
+                Si compila una volta sola
+                <span className="block text-xs text-slate-500">
+                  Chi lo ha gia inviato dall&apos;area famiglia non puo rimandarlo. Dal
+                  link pubblico il vincolo non si applica: li chi compila non e
+                  ancora in archivio, e non c&apos;e nessuno da riconoscere. Vale per atleta, e
+                  una pratica respinta si puo sempre rifare.
+                </span>
+              </span>
+            </label>
           </div>
         </div>
 

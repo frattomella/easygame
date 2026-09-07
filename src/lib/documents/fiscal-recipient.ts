@@ -27,6 +27,7 @@
  * Modulo **puro**: riceve i record gia caricati.
  */
 
+import { resolveDocumentGuardians } from "@/lib/guardians/documents";
 import type { CounterpartyKind } from "@/lib/accounting/model";
 
 const asText = (value: unknown) => String(value ?? "").trim();
@@ -207,22 +208,55 @@ export const resolveFiscalRecipient = (
   if (!isRecord(athlete)) return EMPTY;
 
   const data = isRecord(athlete.data) ? athlete.data : {};
-  const guardians: Record<string, any>[] = Array.isArray(data.guardians)
-    ? data.guardians.filter(isRecord)
-    : [];
+
+  /*
+    **Un documento nuovo non intesta a chi il club ha escluso, ne a un recapito.**
+
+    La proiezione riproduce **tutte** le righe, comprese quelle revocate e
+    quelle di solo recapito: e voluto, perche li nessuno decide un accesso. Ma
+    qui si decide chi compare come intestatario su una ricevuta — quella che una
+    famiglia porta in detrazione — e due righe non possono comparirci:
+
+    * una riga **revocata** e una persona che il club ha escluso. Continuare a
+      intestarle i documenti nuovi vuol dire che l'esclusione vale per l'accesso
+      e non per il resto, che non e cio che un operatore intende quando revoca;
+    * una riga **di solo recapito** e un indirizzo che qualcuno ha dichiarato
+      dalla porta pubblica. Misurato: un terzo compila un modulo pubblico con il
+      proprio codice fiscale e diventa l'intestatario della ricevuta.
+
+    Le ricevute gia emesse non cambiano: il destinatario si congela sulla riga
+    al momento dell'emissione. Questa scelta riguarda cio che si emette **da
+    adesso**, ed e la prima volta che viene scritta: tre revisioni l'avevano
+    segnalata come «letta, mai decisa».
+
+    La posizione scelta a mano dal club (`billingGuardianIndex`) non fa
+    eccezione: se punta a una riga esclusa, si passa alla successiva utile.
+  */
+  /*
+    **Il predicato non e piu scritto qui** (49 §C, §G).
+
+    `intestabile` era la seconda di cinque stesure della stessa domanda, e
+    l'unica che leggesse `access_revoked_at` con un `firstText`: le altre
+    quattro usavano la truthiness, e nessuna leggeva le grafie della **riga**.
+    Adesso la domanda la fa `resolveDocumentGuardians`, che restituisce le voci
+    **per posizione** con `null` al posto di chi e escluso — cosi la posizione
+    non slitta, che e l'altra meta della regola.
+  */
+  const intestabili = resolveDocumentGuardians(data);
 
   const chosenIndex = Number(data.billingGuardianIndex);
   const chosen =
     Number.isInteger(chosenIndex) &&
     chosenIndex >= 0 &&
-    chosenIndex < guardians.length
-      ? guardians[chosenIndex]
+    chosenIndex < intestabili.length
+      ? intestabili[chosenIndex]
       : null;
 
   if (chosen) return fromGuardian(chosen);
 
-  const withFiscalCode = guardians.find((guardian) =>
-    firstText(guardian.fiscalCode, guardian.fiscal_code),
+  const withFiscalCode = intestabili.find(
+    (guardian) =>
+      Boolean(guardian) && firstText(guardian!.fiscalCode, guardian!.fiscal_code),
   );
   if (withFiscalCode) return fromGuardian(withFiscalCode);
 
@@ -233,8 +267,18 @@ export const resolveFiscalRecipient = (
     documento si emette lo stesso: rifiutarsi vorrebbe dire non documentare un
     incasso che e avvenuto, e la ricevuta senza codice fiscale resta valida.
   */
-  if (!athleteRecipient.name && guardians.length) {
-    return fromGuardian(guardians[0]);
+  /*
+    **Anche l'ultimo ripiego passa da `intestabile`.**
+
+    La regola era stata applicata a due rami su tre, dentro la stessa funzione:
+    questo intestava a `guardians[0]` qualunque cosa fosse, quindi anche a una
+    riga revocata o a un recapito dichiarato dalla porta pubblica. Un ADR che
+    dice «due righe non possono comparirci» e poi lascia un ramo che le fa
+    comparire non dice niente.
+  */
+  const primoIntestabile = intestabili.find(Boolean);
+  if (!athleteRecipient.name && primoIntestabile) {
+    return fromGuardian(primoIntestabile);
   }
 
   return athleteRecipient;

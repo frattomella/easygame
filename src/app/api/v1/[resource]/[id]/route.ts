@@ -12,6 +12,10 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { publicErrorMessage } from "@/lib/server/api-errors";
+import {
+  assertWritableResourcePayload,
+  resolveResourcePayload,
+} from "@/lib/server/resource-request-payload";
 import { assertClubResourceAccess } from "@/lib/access-roles";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import {
@@ -158,8 +162,17 @@ export async function PATCH(request: Request, context: Context) {
     }
 
     const body = await request.json();
-    const payload = body?.data ?? body;
-    const updated = await updateResource(resource, id, payload || {}, scope, {
+    /*
+      **La stessa lettura del `POST` della stessa rotta** (AC-3, KB 44).
+      Qui c'era `body?.data ?? body`, che su `athletes` — una scheda con una
+      colonna chiamata `data` — scambiava il contenuto per l'involucro e
+      usciva 200 senza scrivere quello che il chiamante aveva chiesto.
+    */
+    const payload = assertWritableResourcePayload(
+      resolveResourcePayload(body),
+      resource,
+    );
+    const updated = await updateResource(resource, id, payload, scope, {
       activeSeasonId: request.headers.get("x-active-season-id"),
       /*
         Si ricava dalla sessione, mai dal corpo: e cio che decide se il piano

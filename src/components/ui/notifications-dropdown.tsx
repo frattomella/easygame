@@ -30,12 +30,42 @@ interface NotificationsDropdownProps {
   notificationCount?: number;
   allNotificationsHref?: string;
   buttonClassName?: string;
+  /**
+   * **Le notifiche gia in mano a chi monta il pannello.**
+   *
+   * Senza, questo componente le va a chiedere da se al registro **generico**
+   * del club (`/api/v1/simplified_notifications`), che a un genitore risponde
+   * 403 — e scrive pure una riga `resource.access_denied` in audit a ogni
+   * apertura. Finche il conteggio era sempre zero la pastiglia non compariva e
+   * nessuno apriva il pannello: il difetto viveva dietro un default. Accendere
+   * la pastiglia lo ha reso visibile — «tre avvisi» e poi «Nessuna notifica».
+   *
+   * L'area famiglia le sue notifiche le ha gia nel cruscotto, filtrate per il
+   * figlio scelto. Passarle di qui e anche una richiesta in meno.
+   */
+  items?: Array<{
+    id: string;
+    title?: string | null;
+    message?: string | null;
+    type?: string | null;
+    read?: boolean | null;
+    created_at?: string | null;
+  }> | null;
+  /**
+   * Cosa fare quando si segna letta una riga arrivata da `items`.
+   *
+   * Chi fornisce le notizie sa dove vivono: l'area famiglia ha la propria
+   * rotta, e il registro generico del club a quel ruolo e chiuso.
+   */
+  onMarkRead?: (id: string) => void;
 }
 
 export function NotificationsDropdown({
   notificationCount = 0,
   allNotificationsHref = "/notifications",
   buttonClassName = "relative",
+  items = null,
+  onMarkRead,
 }: NotificationsDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -43,10 +73,33 @@ export function NotificationsDropdown({
   const router = useRouter();
 
   useEffect(() => {
+    /*
+      Chi ce le ha gia non deve andare a chiederle: e il caso dell'area
+      famiglia, dove il registro generico e chiuso per ruolo.
+    */
+    if (items) {
+      setNotifications(
+        items.map((riga) => ({
+          id: riga.id,
+          title: riga.title || "",
+          message: riga.message || "",
+          type: (riga.type || "system") as
+            | "certificate"
+            | "training"
+            | "registration"
+            | "system",
+          date: riga.created_at || new Date().toISOString(),
+          read: Boolean(riga.read),
+          created_at: riga.created_at || undefined,
+        })),
+      );
+      return;
+    }
+
     if (isOpen) {
       loadNotifications();
     }
-  }, [isOpen]);
+  }, [isOpen, items]);
 
   const loadNotifications = async () => {
     try {
@@ -125,6 +178,32 @@ export function NotificationsDropdown({
   };
 
   const markAsRead = async (id: string) => {
+    /*
+      **Chi fornisce le notizie sa dove vivono.**
+
+      `onMarkRead` era **dichiarata** nel tipo, documentata, e propagata da
+      tre gusci fino a qui — e mai invocata: nel file compariva due volte,
+      tutte e due nella firma. Il clic restava sulla scrittura generica qui
+      sotto, che e il registro del club: a un genitore risponde 403 e lascia
+      in audit un `resource.access_denied` a ogni notifica aperta.
+
+      Cosa vedeva chi usa il prodotto: lo sfondo azzurro spariva a schermo,
+      il contatore non calava, e al ricaricamento la notifica tornava da
+      leggere. Vale per il genitore e per il ragazzo con il proprio accesso,
+      cioe per le due bacheche che questa Wave ha acceso.
+    */
+    if (onMarkRead) {
+      onMarkRead(id);
+      setNotifications(
+        notifications.map((notification) =>
+          notification.id === id
+            ? { ...notification, read: true }
+            : notification,
+        ),
+      );
+      return;
+    }
+
     try {
       await supabase
         .from('simplified_notifications')

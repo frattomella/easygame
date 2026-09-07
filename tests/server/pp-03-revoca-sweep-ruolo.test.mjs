@@ -40,6 +40,32 @@ before(async () => {
 });
 
 const seed = () => ({
+  /*
+    **Le tessere vanno dichiarate, o «un ruolo estraneo» e una revoca
+    completa** (integrazione PP-02 x PP-03).
+
+    `unlinkParentGuardians` non guarda piu **solo** il ruolo della tessera
+    revocata: chiude anche quando dopo quella revoca la persona nel club non
+    ha piu **nessuna** tessera (ADR-0110). E la correzione di PP-02 per il
+    tutore collegato che portava una tessera di ruolo diverso: la tessera
+    spariva, l'audit scriveva «revocato», e la riga del tutore restava viva
+    con l'utenza addosso.
+
+    Questo seme non dichiarava nessuna `organizationUser`, quindi ogni
+    revoca vi era per costruzione una revoca **completa** — e la prova del
+    verso opposto misurava una precondizione che non aveva dichiarato.
+    GENITORE porta percio una tessera che sopravvive: e cosi che si chiede
+    «un ruolo estraneo non tocca niente» senza chiedere anche «e nemmeno una
+    revoca completa».
+  */
+  organizationUser: [
+    {
+      id: "77777777-9d00-4000-8000-0000000000e1",
+      organization_id: CLUB,
+      user_id: GENITORE,
+      role: "parent",
+    },
+  ],
   club: [
     {
       id: CLUB,

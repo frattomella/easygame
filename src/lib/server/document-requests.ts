@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { resolveNotificationRecipientUserIds } from "@/lib/guardians/notifications";
 import {
   athleteIdsWithinAccessScope,
   athleteWithinAccessScope,
@@ -547,24 +548,20 @@ const asRecord = (value: unknown): Record<string, any> =>
  * l'area genitore, ed e cosi che la richiesta di un documento — con il nome
  * del minore — finiva nella bacheca di ogni altra famiglia
  * (`club-notifications.ts`).
+ *
+ * ---
+ *
+ * **Era la meta di una coppia di gemelli**, e la meta che restava indietro:
+ * leggeva due grafie dell'utenza dove le altre tre letture ne leggevano
+ * quattro, e confrontava il registro delle revoche solo alla fine. Misurato su
+ * una riga `{ userId, email }` con l'indirizzo nel registro: accesso si,
+ * solleciti si, promemoria si, notifiche documentali **no**.
+ *
+ * La domanda adesso e una e sta in `@/lib/guardians/notifications`. Un gemello
+ * che non c'e non puo restare indietro.
  */
-const resolveFamilyRecipients = (athlete: any): string[] => {
-  const data = asRecord(athlete?.data);
-  const tutori = Array.isArray(data.guardians) ? data.guardians : [];
-  const collegati = tutori
-    .flatMap((guardian: any) => [
-      asRecord(guardian).linkedUserId,
-      asRecord(guardian).linked_user_id,
-      asRecord(guardian).userId,
-      asRecord(guardian).user_id,
-    ])
-    .map((value: unknown) => asText(value))
-    .filter(Boolean);
-
-  return Array.from(
-    new Set([asText(athlete?.user_id), ...collegati].filter(Boolean)),
-  ) as string[];
-};
+const resolveFamilyRecipients = (athlete: any): string[] =>
+  resolveNotificationRecipientUserIds(athlete);
 
 const notifyFamily = async (
   athlete: any,

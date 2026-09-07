@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import { toFamilyFreeSlot } from "@/lib/appointments/projection";
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import {
@@ -56,6 +57,11 @@ const firstText = (...values: unknown[]) => {
   return "";
 };
 
+/*
+  **Qui si legge il messaggio grezzo**, e non quello ripulito: questa funzione
+  non pubblica niente, classifica. `publicErrorMessage` governa cosa **esce**
+  nell'envelope; lo stato si decide su cio che l'errore dice davvero.
+*/
 const errorStatus = (error: any) => {
   const messaggio = String(error?.message || "");
   if (messaggio.includes("Accesso negato")) return 403;
@@ -134,7 +140,7 @@ export async function GET(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore lettura appuntamenti" },
+        error: { message: publicErrorMessage(error, "Errore lettura appuntamenti") },
       },
       { status: errorStatus(error) },
     );
@@ -148,8 +154,17 @@ export async function POST(request: Request, context: Context) {
     if (!ctx) return legameAssente();
 
     const body = await request.json().catch(() => ({}));
+    /*
+      **PP-02 §K. Il motivo puo arrivare come tipo scelto.**
+
+      Quando il club ha configurato i tipi, la famiglia sceglie fra quelli e il
+      motivo lo scrive il dominio dal nome del tipo: la validazione qui non deve
+      pretendere un testo che nessuno digita piu. Quando i tipi non ci sono, il
+      testo resta obbligatorio ed e il dominio a dirlo, con lo stesso messaggio.
+    */
     const reason = firstText(body?.reason, body?.title);
-    if (!reason) {
+    const typeId = firstText(body?.type_id, body?.typeId);
+    if (!reason && !typeId) {
       return NextResponse.json(
         { data: null, error: { message: "Il motivo e obbligatorio" } },
         { status: 400 },
@@ -158,6 +173,7 @@ export async function POST(request: Request, context: Context) {
 
     const appuntamento = await requestFamilyAppointment(ctx, {
       reason,
+      typeId,
       startsAt: body?.starts_at ?? body?.startsAt ?? null,
       date: firstText(body?.date),
       time: firstText(body?.time),
@@ -181,7 +197,7 @@ export async function POST(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore prenotazione appuntamento" },
+        error: { message: publicErrorMessage(error, "Errore prenotazione appuntamento") },
       },
       { status: errorStatus(error) },
     );
@@ -213,6 +229,21 @@ export async function PATCH(request: Request, context: Context) {
 
     const appuntamento = await rescheduleFamilyAppointment(ctx, appointmentId, {
       reason: firstText(body?.reason, body?.title) || null,
+      /*
+        **PP-02 §K. Il tipo scelto arriva anche qui.**
+
+        La `POST` lo leggeva e la `PATCH` no: il client lo mandava, il server lo
+        ignorava, e l'appuntamento riprogrammato conservava il motivo vecchio —
+        senza errore e senza avviso. La schermata, con i tipi configurati, non
+        rende nemmeno il campo del motivo libero, quindi cambiare la tendina
+        non aveva **nessun** effetto.
+
+        Il difetto e sopravvissuto alla prima revisione e alla sua sonda per la
+        stessa ragione: la sonda chiamava il **dominio**, non la rotta. E la
+        lezione di questo repository, di nuovo — cio che era coperto era il
+        vaglio, non la strada che ci arriva.
+      */
+      typeId: firstText(body?.type_id, body?.typeId),
       startsAt: body?.starts_at ?? body?.startsAt ?? null,
       date: firstText(body?.date),
       time: firstText(body?.time),
@@ -228,7 +259,7 @@ export async function PATCH(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore modifica appuntamento" },
+        error: { message: publicErrorMessage(error, "Errore modifica appuntamento") },
       },
       { status: errorStatus(error) },
     );
@@ -259,7 +290,7 @@ export async function DELETE(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore cancellazione appuntamento" },
+        error: { message: publicErrorMessage(error, "Errore cancellazione appuntamento") },
       },
       { status: errorStatus(error) },
     );

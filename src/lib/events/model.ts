@@ -17,6 +17,8 @@
  * c'e una fonte, e una copia che qualcuno mantiene.
  */
 
+import { isWithinFieldAvailability as isWithinStructureFieldAvailability } from "@/lib/structures-utils";
+
 export const EVENT_KINDS = ["training", "match"] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 
@@ -648,41 +650,39 @@ const minutiDi = (orario: string) => {
   return Number(match[1]) * 60 + Number(match[2]);
 };
 
+/**
+ * **La disponibilita di un campo ha un proprietario, e non e questo file.**
+ *
+ * Ne esistevano due implementazioni, sullo stesso dato, con risposte opposte:
+ * questa leggeva l'istante in **UTC** (`toISOString`, `getUTCDay`), quella di
+ * `structures-utils.ts` — che l'area famiglia usa — in `Europe/Rome`. Il
+ * lunedi alle 18:00 di Roma, su un campo aperto `Lun 18:00-20:00`, la famiglia
+ * prenotava e l'allenatore che fissava l'allenamento **sullo stesso campo alla
+ * stessa ora** veniva rifiutato.
+ *
+ * Il fuso giusto e quello locale, perche la fascia la scrive una persona
+ * nell'editor delle strutture e la legge come l'ha scritta. Questa firma resta
+ * per i chiamanti — prende la mappa, non il campo — ma la risposta e una sola.
+ */
 export const isWithinFieldAvailability = (
   availability: unknown,
   startsAt: Date | string,
   endsAt?: Date | string | null,
 ) => {
-  const giorno = weekdayKeyOf(startsAt);
-  if (!giorno) return true;
+  const inizio = startsAt instanceof Date ? startsAt : new Date(startsAt);
+  if (Number.isNaN(inizio.getTime())) return true;
 
-  const mappa = asRecord(availability);
-  const fasce = Array.isArray(mappa[giorno]) ? mappa[giorno] : [];
+  const fine = endsAt
+    ? endsAt instanceof Date
+      ? endsAt
+      : new Date(endsAt)
+    : inizio;
 
-  const dichiarataQualcosa = CHIAVI_GIORNO.some(
-    (chiave) => Array.isArray(mappa[chiave]) && mappa[chiave].length > 0,
+  return isWithinStructureFieldAvailability(
+    { availability } as never,
+    inizio,
+    Number.isNaN(fine.getTime()) ? inizio : fine,
   );
-  if (!dichiarataQualcosa) return true;
-
-  const inizio = minutiDi(toEventTime(startsAt));
-  if (inizio === null) return true;
-  const fine = endsAt ? minutiDi(toEventTime(endsAt)) : null;
-
-  /*
-    Una fascia di un campo non scavalca la mezzanotte: se la fine e **prima**
-    dell'inizio, l'evento la scavalca, e nessuna fascia lo contiene. Senza
-    questa riga un allenamento 23:00-00:30 passava per un campo che chiude alle
-    20:00, perche l'ora di fine tornava a essere un numero piccolo.
-  */
-  if (fine !== null && fine < inizio) return false;
-
-  return fasce.some((fascia: any) => {
-    const apre = minutiDi(fascia?.start);
-    const chiude = minutiDi(fascia?.end);
-    if (apre === null || chiude === null) return false;
-    if (inizio < apre) return false;
-    return (fine ?? inizio) <= chiude;
-  });
 };
 
 export const normalizeConvocationStatus = (

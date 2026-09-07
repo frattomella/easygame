@@ -461,7 +461,7 @@ test("le due porte chiamano la stessa funzione, non due elenchi che divergono", 
  *  5. Chi dichiara il ramo diretto e un elenco corto, e si vede
  * ==================================================================== */
 
-test("solo quattro chiamanti aprono il ramo diretto, e sono quelli dichiarati", async () => {
+test("solo i chiamanti dichiarati aprono il ramo diretto, e sono cinque", async () => {
   /*
     **Il predefinito restrittivo vale quanto e corto l'elenco delle deroghe**
     (ADR-0122).
@@ -479,6 +479,12 @@ test("solo quattro chiamanti aprono il ramo diretto, e sono quelli dichiarati", 
     "src/lib/server/athlete-accounts.ts",
     "src/lib/server/rsvp.ts",
     "src/app/api/parent-dashboard/[athleteId]/board/route.ts",
+    /*
+      PP-02 ha aggiunto la rotta che **segna lette** le notifiche: la campanella
+      del ragazzo si spegne di qui, e senza il ramo diretto non si spegneva mai.
+      L'inventario e chiuso, quindi la rotta nuova va nominata qui.
+    */
+    "src/app/api/parent-dashboard/[athleteId]/notifications/route.ts",
     "src/app/api/v1/auth/memberships/route.ts",
   ];
 
@@ -749,24 +755,52 @@ test("ma la sola casella coincidente non basta: e il Critical di ADR-0122", asyn
   );
 });
 
-test("e la distinzione e scritta come tale: `linkedUserId`, non la casella", async () => {
+test("e la distinzione e scritta come tale: la riga dichiarata, non la casella", async () => {
+  /*
+    **La stessa proprieta, dopo il passaggio all'autorita relazionale.**
+
+    PP-04 aveva scritto la distinzione in un predicato sul blob
+    (`isGuardianLinkedById` contro `isGuardianLinkedToUser`), e questa prova ne
+    verificava il corpo nel sorgente. WP-C ha tolto al blob l'autorita: la
+    domanda «e un tutore **provato**?» si fa ora alle righe che
+    `findGuardianLinks` restituisce, e la distinzione e la colonna `user_id`
+    della riga contro il ripiego sull'indirizzo verificato.
+
+    La prova resta strutturale — le tre qui sopra misurano il comportamento —
+    ma nomina cio che oggi decide, non un simbolo che non esiste piu. Serve a
+    accorgersi del giorno in cui qualcuno riaprisse il Critical allargando
+    l'insieme a chi porta solo il recapito.
+  */
   const { readFileSync } = await import("node:fs");
   const path = await import("node:path");
   const sorgente = readFileSync(
     path.join(process.cwd(), "src", "lib", "server", "parent-dashboard.ts"),
     "utf8",
   );
+
+  const inizio = sorgente.indexOf("const tutoreDichiarato");
   assert.ok(
-    sorgente.includes("isGuardianLinkedById"),
-    "esiste un predicato che guarda solo il legame deciso",
+    inizio > 0,
+    "esiste un insieme che raccoglie solo i tutori legati per utenza",
   );
-  const corpo = sorgente.slice(
-    sorgente.indexOf("const isGuardianLinkedById"),
-    sorgente.indexOf("const isGuardianLinkedToUser"),
+
+  const corpo = sorgente.slice(inizio, sorgente.indexOf(");", inizio));
+  assert.ok(
+    corpo.includes("legame.user_id"),
+    "e lo decide la colonna dell'utenza sulla riga",
   );
   assert.ok(
-    !corpo.includes("guardian.email"),
+    !/email/i.test(corpo),
     "e non ricade sulla casella di contatto: e li che vive il Critical",
+  );
+
+  /*
+    E il ramo esclusivo lo interroga: un insieme costruito e mai letto sarebbe
+    una difesa inerte, cioe indistinguibile da una assente (ADR-0147).
+  */
+  assert.ok(
+    sorgente.includes("!tutoreDichiarato.has(scheda)"),
+    "il ramo diretto esclusivo si apre solo a chi non e un tutore dichiarato",
   );
 });
 

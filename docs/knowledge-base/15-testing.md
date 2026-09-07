@@ -400,3 +400,235 @@ questo commit (CLAUDE.md §3).
 Le due superfici piu care in giri — home famiglia e matrice degli accessi —
 sono anche le due che nessun test poteva sorvegliare: il conteggio delle
 interrogazioni e identico prima e dopo. Solo la latenza iniettata le distingue.
+
+---
+
+## Le sonde di PP-01 e PP-02, contro un database vero (2026-09-04)
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-01-uat.mjs
+
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-uat.mjs
+```
+
+**Perche esistono accanto a quattromilaseicento test.** Perche i difetti da cui
+i due pacchetti sono cominciati erano **tutti invisibili ai quattro gate**:
+suite verde, typecheck e lint puliti, build completa — e un allenamento di tre
+categorie ne mostrava una, un tutore senza tessera non trovava nessun figlio, e
+la prenotazione di un campo rispondeva sempre «Struttura non prenotabile».
+
+La domanda che ogni prova si pone non e «il servizio risponde», ma **«cio che la
+persona vede e cio che c'e in archivio»**.
+
+### Cosa distingue `pp-02-uat.mjs`
+
+Aggiunge una domanda che PP-01 non faceva, ed e quella che l'area famiglia pone
+piu di ogni altra: **cio che vede questa famiglia e solo suo?** Percio semina
+**due famiglie nello stesso club** — due club diversi si separano gia da soli
+per `organization_id` — e per ogni cosa che la prima legge c'e una prova che la
+seconda non la legge. Novantacinque prove, di cui quattordici di audit ostile.
+
+### La regola dei due file
+
+**La sonda misura, non corregge.** Dove trova un difetto lo dichiara `FAIL` con
+il valore osservato accanto, e non tocca una riga del codice di produzione. Il
+club viene cancellato in `finally`, e la semina comincia cancellando i residui
+di un'esecuzione interrotta.
+
+### Non sono un gate, e vanno lette
+
+Girano su un database e non in integrazione continua: quello che di loro deve
+sopravvivere in CI e stato trasformato in test permanenti sotto `tests/`. Cio
+che resta qui e la parte che **richiede un database vero** — le relazioni
+caricate con `include`, le query grezze, il giro completo di un documento fra
+tre schermate.
+
+### I due test di totalita di PP-02 (WP-A, 2026-09-05)
+
+```bash
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-totalita-ruoli.mjs
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-totalita-corpo.mjs
+```
+
+Non sono due sonde in piu. Sono la forma di prova che
+[ADR-0130](18-decision-log.md#adr-0130--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)
+prescrive, e la differenza dalle altre e una sola: **il dominio non e scritto
+nel file**.
+
+| sonda | il dominio, e da dove viene | che cosa chiede |
+|-------|------------------------------|-----------------|
+| `pp-02-totalita-ruoli.mjs` | `ACCESS_ROLE_ALIASES` + `CUSTOM_ROLE_BASE_ROLES`, importati da `src/lib/access-roles.ts` (40 valori) | per **ogni** grafia: `revokeClubAccess` fa cadere il legame della famiglia canonica di quel ruolo (**totalita**) e **non** fa cadere gli altri due (**specificita**). Il legame di famiglia ha due proprieta sue, perche `findGuardianLinks` apre su `{ user_id }` senza chiedere una tessera: **T-13** — tolta l'unica tessera, l'area famiglia si chiude; **T-15** — con due tessere, revocata l'altra, i figli restano. Nessuna delle due, da sola, distingue la correzione dal difetto opposto (ADR-0137) |
+| `pp-02-totalita-corpo.mjs` | le risorse aperte di `RESOURCE_CONFIG`, importate da `src/lib/server/resources.ts` | per **ogni** risorsa raggiungibile: un `PATCH` con il corpo non incartato scrive davvero, e un corpo senza campi e 400 e non 200 |
+
+Chi domani aggiunge un alias di ruolo, o una risorsa, **estende la prova senza
+toccare i due file**. Se la difesa non copre il valore nuovo, la sonda diventa
+rossa da sola. E la proprieta per cui esistono: un elenco scritto nel test
+sarebbe il sesto elenco da tenere d'accordo con gli altri cinque, e
+divergerebbe come gli altri.
+
+### Le due sonde di WP-C, e perche non sono sonde di totalita
+
+```bash
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-proprietario-tutore.mjs
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-travaso-equivalente.mjs
+```
+
+| sonda | che cosa chiede | verifica per mutazione |
+|-------|------------------|------------------------|
+| `pp-02-proprietario-tutore.mjs` | **qualunque** scrittura su `athlete_guardians` che non venga dal modulo proprietario viene rifiutata dall'archivio — con Prisma, con SQL grezzo, in una transazione successiva a una legittima — e la cascata del diritto all'oblio resta possibile | togliendo il vaglio dall'archivio, **4 prove su 6** diventano rosse |
+| `pp-02-travaso-equivalente.mjs` | chi apriva il fascicolo di un minore leggendo il blob lo apre leggendo la tabella, **e chi il blob teneva fuori resta fuori**: ventiquattro grafie storiche, una scheda per grafia | eseguita contro il travaso precedente, **11 righe rosse su 23** (4 identita perse, 4 inventate) |
+
+**Non sono sonde di totalita** e la differenza vale la pena scriverla.
+ADR-0130 chiede che una difesa che dipende da un'**enumerazione** abbia un test
+che enumera il dominio. Qui il dominio non e enumerabile: gli scrittori possibili
+di una tabella sono «tutti i file che esistono e tutti quelli che esisteranno».
+
+La prima sonda risponde spostando l'invariante **fuori dal codice**: non prova
+che un elenco di scrittori sia completo, prova che l'archivio rifiuta chiunque
+non si dichiari (ADR-0136). La seconda misura un'**equivalenza fra due
+predicati** invece di una copertura.
+
+**La terza prova della prima sonda e la piu importante**, e va letta insieme
+alle altre: e la scrittura che il proprietario compie **legittimamente**. Senza
+di lei, le altre quattro passerebbero anche con una tabella in sola lettura —
+cioe una difesa che rifiuta tutto, che non e una difesa ma un guasto.
+
+**Una divergenza dichiarata resta misurata, non esentata.** Dove il passaggio
+alla tabella cambia risposta di proposito, la seconda sonda non chiude un occhio:
+pretende **esattamente** la risposta dichiarata, e se domani cambiasse — in un
+verso o nell'altro — la riga diventa rossa. Sono due, e stanno in ADR-0135.
+
+**Il predicato vecchio vive dentro la sonda.** Fino al cutover chiamava
+`getParentLinkedAthletes`, cioe la porta vera; dopo, quella porta legge la
+tabella e chiamarla confronterebbe la tabella con se stessa. La regola vecchia e
+percio copiata nel file, e che la copia sia fedele non e un'opinione: prima del
+cutover girava contro l'originale e dava lo stesso verdetto su tutti e
+ventiquattro i casi.
+
+### `scripts/helpers/travaso-tutori.mjs`
+
+Una sonda che semina un club scrivendo `athletes.data.guardians[]` — cioe come
+tutte quelle scritte prima di WP-C — semina un club **senza tutori**, perche
+quell'elenco e adesso una proiezione. Direbbe che l'area famiglia non si apre:
+vero, e non il difetto che sta cercando. Il modo peggiore in cui una prova possa
+fallire.
+
+L'aiutante riesegue il travaso della migrazione, ristretto ai club della sonda,
+leggendo l'`INSERT ... SELECT` **dal file della migrazione**: cosi la sonda
+misura lo stato in cui il prodotto si trovera davvero dopo il rilascio, e non
+uno costruito a mano che potrebbe essere piu ordinato del vero.
+
+### Cosa il doppio di Prisma **non** puo dire
+
+`tests/helpers/fake-prisma.mjs` materializza le righe tutore dagli atleti del
+seed — chiamando `guardianIdentityKey`, cioe la stessa funzione del modulo
+proprietario, perche la regola non diverga — e accetta la dichiarazione
+`SET LOCAL "easygame.guardian_writer"` registrandola fra le chiamate.
+
+Cio che **non** puo dire e se quel vaglio esista: un vaglio dell'archivio si
+prova contro l'archivio. E dichiarato dentro il doppio, accanto al metodo, e la
+prova vive in `pp-02-proprietario-tutore.mjs`.
+
+
+**La specificita non e un ornamento.** Un test di totalita da solo e verde
+anche per una «correzione» che scollega tutto: senza la seconda meta, revocare
+la tessera di allenatore a un padre gli toglierebbe l'accesso ai figli e il
+gate non se ne accorgerebbe.
+
+**La copertura si dichiara, anche quando manca.** `pp-02-totalita-corpo.mjs`
+stampa in coda le risorse che **non** ha potuto esercitare e il motivo per cui
+il dominio le rifiuta (27 su 49 alla data: `athletes`, `club_events`,
+`transactions`, `receipts`, ... — ognuna con la sua rotta di dominio). Un buco
+di copertura fa parte del verbale, non del silenzio.
+
+**Sono state verificate per mutazione**, che e la sola ragione per cui si puo
+dire che servono: riportando la difesa allo stato precedente, la prima diventa
+rossa su **23 grafie su 40** e la seconda su **22 risorse su 22**. Una sonda
+mai vista rossa non e una prova.
+
+---
+
+## Le sonde del consolidamento PP-02
+
+Chiudono il ciclo che quindici revisioni non riuscivano a far convergere
+([ADR-0153](18-decision-log.md#adr-0153--le-regole-di-un-dominio-stanno-in-una-primitiva-non-in-ogni-consumatore)),
+e vanno lette insieme: **due misurano il dominio, la terza misura le prime due.**
+
+```bash
+node --experimental-strip-types --import ./tests/helpers/register-hooks.mjs \
+  scripts/pp-02-censimento.mjs
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-consolidamento.mjs
+EASYGAME_DB_ENV=development node --experimental-strip-types \
+  --import ./tests/helpers/register-hooks.mjs scripts/pp-02-mutazioni.mjs
+```
+
+| sonda | che cosa chiede |
+|-------|------------------|
+| `pp-02-censimento.mjs` | **C1** ogni percorso che tocca il dominio e classificato; **C2** la tabella non e invecchiata; **C3** chi e dichiarato canonico **importa** una primitiva che il modulo canonico **esporta davvero**; **C4** nessuno scrive `athlete_guardians` fuori dal proprietario; **C5** nessuno fuori dai moduli canonici ripiega l'OR dell'esclusione |
+| `pp-02-consolidamento.mjs` | la matrice di regressione su PostgreSQL vero: le **diciassette situazioni** in cui il dominio si e rotto almeno una volta, piu **otto giri** di revoca e salvataggio in corsa (deadlock, revoche perse, destinatario fiscale e posizione deterministici) |
+| `pp-02-mutazioni.mjs` | **che le due sonde qui sopra mordano.** Reintroduce undici difetti veri — ognuno la riscrittura di uno gia costato una tornata — e pretende che la sonda corrispondente diventi rossa. Ripristina sempre, e verifica che l'albero sia tornato com'era |
+
+### Perche C3 non guarda piu il testo
+
+La prima stesura di C3 chiedeva `testo.includes("revokeGuardianRow")`. Un
+**commento** che citasse la primitiva bastava percio a dichiarare canonico un
+file che si ricostruiva le regole in casa — che e esattamente cio che C3 esiste
+per impedire.
+
+Oggi C3 risolve gli `import`, li fa puntare a un modulo canonico, e pretende che
+il nome importato sia fra gli **export** di quel modulo — derivati dal suo testo,
+non da un elenco scritto a mano. Una primitiva rinominata domani non lascia
+indietro una lista.
+
+### Perche la totalita si importa invece di riscriverla
+
+`tests/lib/tutori-primitive.test.mjs` importa `censimento()` da
+`scripts/pp-02-censimento.mjs` e ne deriva le proprie asserzioni. Non c'e nessun
+elenco di percorsi scritto nel test: sarebbe il secondo elenco da tenere
+d'accordo con il primo, e divergerebbe — che e il difetto di cui questo intero
+pacchetto e fatto. Un consumatore nuovo fa fallire `npm test` il giorno in cui
+viene scritto, non il giorno in cui un cliente perde una revoca.
+
+Il censimento stampa e chiude con `process.exit` **solo quando e il comando**:
+importato, e una funzione silenziosa.
+
+### La sonda che misura se stessa
+
+`pp-02-mutazioni.mjs` verifica che le sonde siano **verdi prima** di mutare, e
+si rifiuta di partire se non lo sono.
+
+Non e pedanteria: una corsa interrotta a meta lascia una mutazione applicata, e
+la corsa successiva prende quell'albero come riferimento. Da li ogni conto
+torna — la sonda e gia rossa, quindi la mutazione «non la fa diventare rossa» e
+viene segnata come non mordente, e il confronto finale trova l'albero
+«identico a prima» perche era gia sporco quando si e cominciato. E successo, e
+ha prodotto un falso reperto.
+
+E lo stesso principio che quel file esiste per applicare, rivolto contro se
+stesso: **una sonda verde dice due cose che non si distinguono guardandola.**
+Qui la domanda e «verde perche l'invariante vale, o verde perche sto misurando
+un albero che non e quello che credo?».
+
+Se la guardia scatta: `git status src/` dice quale file, `git checkout -- <file>`
+lo rimette a posto.
+
+### La diagnosi del travaso, in sola lettura
+
+`pp-02-diagnosi-travaso.mjs` conta le righe che portano **l'impronta della
+migrazione**: un marchio che convive con un'utenza (`revoked_at` o
+`contact_only` **con** `user_id`). Nessuna porta del prodotto la produce —
+ogni revoca azzera l'utenza, ogni riscatto toglie il solo-recapito — quindi una
+riga cosi viene dalla §3 del travaso.
+
+Non scrive niente e si puo eseguire su qualunque database. Serve a decidere se
+la bonifica di [16 §D-PP02-A](16-technical-debt.md) sia urgente: sul database di
+sviluppo il conto e **zero**.

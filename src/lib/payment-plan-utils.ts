@@ -979,19 +979,151 @@ export const roundInstallmentsToFive = (
     return [total];
   }
 
-  let assigned = 0;
+  /*
+    **Arrotondare a cinque non deve produrre una rata da zero.**
+
+    La stesura precedente troncava ogni rata al multiplo di cinque inferiore e
+    faceva assorbire **tutto il resto all'ultima**. Su importi che non si
+    dividono bene ne uscivano bollettini che nessuno avrebbe scritto a mano —
+    `100` in 12 rate diventava undici da 5 e una da 45 — e, quando la quota
+    naturale stava sotto i cinque euro, rate da **0,00**: `12` in 3 rate
+    diventava `[0, 0, 12]`.
+
+    Una rata da zero non e un'anteprima innocua: viene scritta in archivio, e
+    li non si chiude piu. `resolveLedgerState` chiede `dueCents > 0` per dire
+    «pagata», quindi la riga resta **per sempre** scaduta; il pagamento online
+    risponde «Questa rata e gia saldata» e l'incasso manuale «L'importo supera
+    il residuo della rata (0.00 EUR)». Nessuno dei due canali la puo chiudere,
+    e il conto degli insoluti della famiglia non torna a zero.
+
+    Adesso: si riporta la somma richiesta dentro il totale quando la supera
+    (un piano le cui percentuali sommano piu di cento e configurato male, e non
+    deve produrre una rata **negativa**), si arrotonda a cinque **solo dove
+    resta qualcosa**, e il residuo si distribuisce a passi di cinque su tutte
+    invece di cadere sull'ultima. I centesimi che avanzano restano sull'ultima,
+    che e l'unico posto dove non si vedono.
+  */
+  const PASSO = 5;
   const preserveIndexes = new Set(options.preserveIndexes || []);
-  return amounts.map((amount, index) => {
-    if (index === amounts.length - 1) {
-      return roundCurrency(total - assigned);
+  const naturali = amounts.map((amount) =>
+    Math.max(0, toPaymentPlanAmount(amount)),
+  );
+
+  /*
+    **Una rata a importo fisso non puo prendere piu di quello che resta.**
+
+    La stesura precedente aveva questo vincolo — `Math.min(total - assigned,
+    …)` — e riscrivendo la distribuzione l'ho perso: un importo fisso tornava
+    **intero**, non scalato e non limitato. Misurato: acconto fisso di 200 EUR
+    su un totale ripartito di 150 produceva `[200, 25, 0]`, cioe una somma di
+    225 sotto un «Totale dovuto 180,00 EUR» e una rata da **0,00** — quella che
+    nessun canale puo chiudere, e che questa stessa riscrittura era nata per
+    non produrre piu.
+
+    Gli importi fissi si servono percio per primi, ognuno limitato a cio che
+    resta: e la stessa disciplina del resto della funzione, applicata al ramo
+    che ne era rimasto fuori. Che poi la somma degli importi fissi superi il
+    totale del piano e una configurazione sbagliata, e ha gia il suo avviso;
+    ma un avviso non e un motivo per scrivere in archivio una rata impagabile.
+  */
+  /*
+    **Quando il piano chiede piu del totale, si stringe tutto, non si azzera
+    qualcuno.**
+
+    Due tentativi, e il secondo era mio. La stesura precedente lasciava
+    l'importo **fisso** intero e non limitato: un acconto di 200 EUR su un
+    totale ripartito di 150 produceva `[200, 25, 0]` — somma 225 sotto un
+    «Totale dovuto 180,00 EUR», e una rata da **0,00**, cioe quella che nessun
+    canale puo chiudere. Limitarlo a cio che resta corregge la somma e lascia
+    lo zero: `[150, 0, 0]`.
+
+    Uno zero non e mai una risposta. Se le rate chiedono piu del totale, il
+    piano e configurato male — e ha gia il suo avviso — ma cio che si scrive in
+    archivio deve restare pagabile: si stringono **tutte** in proporzione,
+    importi fissi compresi. Il numero delle rate lo ha scelto il club, e non e
+    questa funzione a doverlo cambiare in silenzio.
+
+    Una rata resta a zero solo se a zero l'ha chiesta chi chiama.
+  */
+  const sommaNaturale = naturali.reduce((somma, valore) => somma + valore, 0);
+  const scala =
+    sommaNaturale > total && sommaNaturale > 0 ? total / sommaNaturale : 1;
+
+  const base = naturali.map((valore, index) => {
+    const richiesto = valore * scala;
+    if (preserveIndexes.has(index)) return roundCurrency(richiesto);
+
+    const arrotondato = Math.floor(richiesto / PASSO) * PASSO;
+    return arrotondato > 0 ? arrotondato : roundCurrency(richiesto);
+  });
+
+  let residuo = roundCurrency(
+    total - base.reduce((somma, valore) => somma + valore, 0),
+  );
+
+  for (let giro = 0; residuo >= PASSO && giro < base.length * 40; giro += 1) {
+    const indice = giro % base.length;
+    if (preserveIndexes.has(indice)) continue;
+    base[indice] = roundCurrency(base[indice] + PASSO);
+    residuo = roundCurrency(residuo - PASSO);
+  }
+
+  /*
+    **Il resto cade su una rata che si puo muovere, e non sparisce.**
+
+    Cadeva sull'**ultima** anche quando l'ultima era fra gli importi **fissi**:
+    `[50, 50, 50]` su 300 con tutte e tre preservate usciva `[50, 50, 200]`,
+    cioe un importo che il club aveva scritto a mano riscritto in silenzio. E un
+    resto **negativo** veniva ingoiato da `Math.max(0, …)`, quindi la somma non
+    tornava piu: misurato 134,51 contro un totale di 134,50.
+
+    Oggi `generateInstallmentPreview` non ci arriva — esclude l'ultimo indice, e
+    le due schermate che la chiamano bloccano il salvataggio quando c'e un
+    avviso — ma la funzione e esportata, e una funzione che restituisce una
+    somma diversa dal totale e una trappola per il prossimo chiamante.
+
+    Si cerca percio una rata **libera**, dall'ultima verso la prima; se non ce
+    n'e nessuna, il resto va comunque distribuito invece di essere perso.
+  */
+  if (residuo !== 0) {
+    let destinazione = -1;
+    for (let index = base.length - 1; index >= 0; index -= 1) {
+      if (!preserveIndexes.has(index) && base[index] + residuo >= 0) {
+        destinazione = index;
+        break;
+      }
     }
 
-    const rounded = preserveIndexes.has(index)
-      ? roundCurrency(Math.min(total - assigned, toPaymentPlanAmount(amount)))
-      : Math.max(0, Math.floor(toPaymentPlanAmount(amount) / 5) * 5);
-    assigned = roundCurrency(assigned + rounded);
-    return rounded;
-  });
+    /*
+      Se **nessuna** rata e libera, il resto non si scarica su una sola: si
+      ripartisce in proporzione. Tre rate fisse da 50 su un piano da 300 sono
+      una configurazione incoerente, e la risposta meno sorprendente e
+      `[100, 100, 100]` — non `[50, 50, 200]`, che riscrive in silenzio un
+      importo che il club aveva scritto a mano.
+    */
+    if (destinazione < 0) {
+      const sommaBase = base.reduce((somma, valore) => somma + valore, 0);
+      if (sommaBase > 0) {
+        let distribuito = 0;
+        for (let index = 0; index < base.length - 1; index += 1) {
+          const quota = roundCurrency((base[index] / sommaBase) * residuo);
+          base[index] = roundCurrency(base[index] + quota);
+          distribuito = roundCurrency(distribuito + quota);
+        }
+        const ultima = base.length - 1;
+        base[ultima] = roundCurrency(
+          Math.max(0, base[ultima] + roundCurrency(residuo - distribuito)),
+        );
+      }
+      destinazione = -1;
+    }
+
+    if (destinazione >= 0) {
+      base[destinazione] = roundCurrency(base[destinazione] + residuo);
+    }
+  }
+
+  return base;
 };
 
 export const generateInstallmentPreview = (
@@ -1060,6 +1192,37 @@ export const generateInstallmentPreview = (
       )
       .filter((index) => index >= 0 && index < schedule.length - 1),
   });
+  /*
+    **L'avviso guarda il risultato, non i pezzi.**
+
+    I due controlli qui sopra guardano le percentuali e gli importi fissi
+    **separatamente**, e mai la loro somma: un piano «acconto fisso 300 +
+    prima rata 60% + saldo + rata finale fissa 150» su 500 EUR non li tocca
+    nessuno dei due, e produce `[200, 200, 0, 100]` con `warnings: []`.
+
+    Una rata da 0,00 in archivio non si chiude piu — `resolveLedgerState`
+    chiede un dovuto maggiore di zero — e le due schermate che chiamano questa
+    funzione bloccano il salvataggio **solo** quando c'e un avviso: senza,
+    salvano. Su 40.000 piani casuali con un solo «saldo» e nessun avviso, 217
+    producevano una rata impagabile.
+
+    La funzione che ripartisce e a prova di fuzz; era il **chiamante** a non
+    avere la stessa disciplina. Si guarda percio cio che esce, che e l'unica
+    cosa che dice la verita su tutte le combinazioni.
+  */
+  if (roundedAmounts.some((importo) => importo <= 0) && total > 0) {
+    warnings.push(
+      "Una rata resterebbe a zero: correggi gli importi, o togli una rata.",
+    );
+  }
+
+  const sommaRate = roundedAmounts.reduce((somma, importo) => somma + importo, 0);
+  if (Math.abs(sommaRate - total) > 0.01) {
+    warnings.push(
+      "La somma delle rate non corrisponde al totale del piano.",
+    );
+  }
+
   const parsedStartDate = parseDate(options.startDate);
 
   return {

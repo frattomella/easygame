@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 
 import { requireAuthenticatedUser } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/prisma";
-import { canParentAccessAthlete } from "@/lib/server/parent-dashboard";
+import {
+  canParentAccessAthlete,
+  notificationBelongsToAthlete,
+} from "@/lib/server/parent-dashboard";
 import { publicErrorMessage } from "@/lib/server/api-errors";
 
 type Context = { params: { athleteId: string } };
@@ -37,7 +40,20 @@ export async function PATCH(request: Request, context: Context) {
     }
 
     const athleteId = String(context.params.athleteId || "").trim();
-    if (!(await canParentAccessAthlete(session.db.user_id, athleteId))) {
+    if (
+      /*
+        **Il ramo diretto, come per la bacheca** (ADR-0122).
+
+        Le notifiche di un atleta le serve questa rotta: il pannello della sua
+        campanella le riceve gia dal cruscotto, ma **segnarle lette** passa di
+        qui. Senza il ramo «sono io» il ragazzo riceveva 403 e la campanella
+        non si spegneva mai — lo stesso difetto che aveva spento la sua
+        bacheca, sul pulsante accanto.
+      */
+      !(await canParentAccessAthlete(session.db.user_id, athleteId, {
+        allowSelfAthleteLink: true,
+      }))
+    ) {
       return NextResponse.json(
         {
           data: null,
@@ -82,15 +98,42 @@ export async function PATCH(request: Request, context: Context) {
       );
     }
 
-    const esito = await prisma.notification.updateMany({
+    /*
+      **Si segna letto cio che la schermata mostrava, non tutto il club.**
+
+      La pastiglia conta le notifiche **del figlio scelto** — quelle che lo
+      nominano, piu quelle che non nominano nessuno — e questa scrittura
+      filtrava soltanto per genitore e club. Un genitore con due figli nella
+      stessa societa apriva la schermata di uno, leggeva «(3)», premeva, e
+      spegneva anche le sei dell'altro: nessuna schermata le avrebbe piu
+      mostrate come nuove.
+
+      Il predicato e lo **stesso** che riempie la bacheca, e sta dove sta
+      quella lettura: due risposte alla stessa domanda sono il difetto che
+      questo pacchetto ha gia pagato piu volte.
+    */
+    const candidate = await prisma.notification.findMany({
       where: {
         organization_id: atleta.organization_id,
         user_id: session.db.user_id,
         read: false,
         ...(id ? { id } : {}),
       },
-      data: { read: true },
+      select: { id: true, data: true },
     });
+
+    const daChiudere = candidate
+      .filter((notification) =>
+        notificationBelongsToAthlete(notification, athleteId),
+      )
+      .map((notification) => notification.id);
+
+    const esito = daChiudere.length
+      ? await prisma.notification.updateMany({
+          where: { id: { in: daChiudere } },
+          data: { read: true },
+        })
+      : { count: 0 };
 
     return NextResponse.json({
       data: { updated: esito.count },

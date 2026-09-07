@@ -3545,6 +3545,222 @@ trovata cinque volte nello stesso file: quando una risorsa si raggiunge sia per
 **elenco** sia per **identificativo**, la guardia va nel punto comune ai verbi,
 non nell'elenco. Un filtro di elenco corretto e una lettura per id senza guardia
 sono la stessa risorsa con due risposte diverse, e chi attacca prova la seconda.
+---
+
+## PP-02 — l'audit ostile del perimetro famiglia (2026-09-04)
+
+> Il verbale sta in [43 — PP-02](43-pp-02-area-famiglia.md), §12.
+
+### Il metodo, e perche cambia il risultato
+
+Ogni prova ha **due meta**: che la propria famiglia arrivi dove deve, e che
+l'altra non ci arrivi. Una prova sola delle due non dice niente — un perimetro
+che nega tutto passa la seconda e rompe il prodotto; uno che concede tutto passa
+la prima.
+
+E gli attori sono **due famiglie nello stesso club**. Due club diversi si
+separano gia da soli per `organization_id`: misurare li vorrebbe dire misurare
+Prisma, non il perimetro.
+
+Le quattordici prove (`M-01`…`M-14` di `scripts/pp-02-uat.mjs`) girano **contro
+la rotta vera o il servizio vero**, su un database vero. Nessuna e statica.
+
+### Esito
+
+**Nessun Critical e nessun High trovato sul perimetro famiglia ↔ figlio ↔
+club.** Le rotte dedicate risolvono il legame a ogni richiesta e non tengono
+nessuna cache nel token; le rotte generiche del club sono chiuse al ruolo
+`parent` prima ancora di arrivare a un controllo di proprieta.
+
+Un Critical **e stato trovato altrove**, e non era un accesso mancante ma un
+accesso concesso per sbaglio: `getParentDashboardData` ricadeva su
+`linkedAthletes[0]` per ogni identificativo non-UUID. La sonda che lo prova e
+`M-04`, e la sua utilita si vede reintroducendo il difetto — vedi qui sotto.
+
+### La verifica al contrario
+
+Il mandato chiede che una prova diventi **rossa** reintroducendo il difetto. Due
+mutazioni, applicate insieme e poi disfatte:
+
+| Difetto reintrodotto | Prove diventate rosse |
+|---|---|
+| il ripiego `linkedAthletes[0]` | P-07, P-08, P-09 e **M-04**: il cruscotto di un figlio di **un'altra famiglia** torna a rispondere `200` |
+| la ricevuta spanata invece della proiezione chiusa | P-51, P-52, P-53, P-54 |
+
+La riga che conta e `M-04`. Il ripiego non usciva dal perimetro della famiglia
+**finche l'identificativo era malformato**; con quello di un atleta reale di
+un'altra famiglia apriva il suo cruscotto — nome, recapiti, stato del certificato
+medico. Era una fuga di dati, non una sciatteria, ed e sopravvissuta a due
+revisioni perche il caso che si guardava era quello innocuo.
+
+### Un difetto di disponibilita, non di riservatezza
+
+`POST /api/parent-dashboard/:id/structures` leggeva le strutture con il dominio
+del **browser** (`getClubStructures` di `simplified-db.ts`), che fa `fetch` su un
+percorso relativo: dentro un route handler quella chiamata fallisce e la funzione
+restituisce l'elenco vuoto, in silenzio. Ogni prenotazione riceveva «Struttura
+non prenotabile».
+
+Non e una fuga — nessun dato usciva — ma appartiene a questa pagina per una
+ragione: **un vaglio che gira su un elenco vuoto passa sempre**, e la stessa
+forma potrebbe un domani far passare un controllo invece di farlo fallire. Il
+presidio e sulla classe e non sul caso: nessun file sotto `src/app/api` o
+`src/lib/server` puo importare il dominio del browser.
+
+
+## La revoca di un tutore (PP-02, round 7-20)
+
+L'accesso di un tutore a un atleta si toglie per **identita**, non per riga, e
+la decisione con le sue ragioni sta in
+[ADR-0129](18-decision-log.md#adr-0129--laccesso-di-un-tutore-si-revoca-per-identita-e-una-difesa-nuova-non-eredita-niente).
+
+Tre difese, tutte dentro `athletes.data`:
+
+| difesa | dove | cosa nega | chi la scrive | chi la toglie |
+|---|---|---|---|---|
+| `revokedGuardianIdentities` | sull'**atleta** | ogni ripiego per quell'identita | `unlinkGuardianAccount`, sweep della revoca tessera | il **riscatto** di un invito |
+| `accessRevokedAt` | sulla **riga** | il ripiego sull'indirizzo di quella riga | come sopra | il riscatto |
+| `contactOnly` | sulla **riga** | il ripiego su una riga nata senza autore dimostrato | l'approvazione di un modulo **non interno** | il riscatto di un invito |
+| `contactOnlyIdentities` | sull'**atleta** | lo stesso, per **identita** e non per riga | come sopra | il riscatto di un invito |
+
+**Cosa deve sapere chi tocca questa zona.**
+
+- Un legame **dichiarato** (`linkedUserId`) vince sul ripiego: e cosi che una
+  persona si ricollega dopo una revoca, e per questo una revoca non e mai
+  definitiva.
+- Le difese si leggono in **quattro** posti — accesso al cruscotto, solleciti e
+  comunicazioni, promemoria del certificato, notifiche documentali — e devono
+  dare tutte la stessa risposta. Per un round non e stato cosi: una riga
+  dichiarata da uno sconosciuto non apriva il cruscotto e intanto riceveva il
+  sollecito con il **collegamento a gettone per pagare**.
+- Dalla rotta generica dell'anagrafica l'elenco e in **sola lettura**. Poterlo
+  scrivere di li vorrebbe dire poter chiudere fuori un tutore legittimo senza
+  audit — e su chi entra per solo indirizzo, senza nemmeno un contrappeso.
+- `parent1`/`parent2` — la coppia storica di un'anagrafica travasata —
+  **concedono** come l'elenco, e vanno trattati insieme a lui: per un round lo
+  sweep spazzava tre chiavi che nessun predicato di accesso legge e lasciava
+  intatta quella che apre la porta.
+- La revoca raggiunge **tutte le righe di quella persona** e **nessun'altra**.
+  Le due meta vanno lette insieme: per raggiungere la prima si e filtrato per
+  indirizzo, e su madre e padre con un unico indirizzo di famiglia — la
+  configurazione ordinaria — revocare l'una chiudeva fuori l'altro, azzerandogli
+  il legame dichiarato. Si riconosce la **persona**, e si cade sull'indirizzo
+  solo dove la riga un identificativo non ce l'ha.
+- «Quali identita dichiara questa riga» ha **una** risposta,
+  `guardianDeclaredIds`, e legge tutte e quattro le grafie
+  (`linkedUserId`, `linked_user_id`, `userId`, `user_id`). Prima la
+  proiezione le **comprimeva** con `firstText`: chi decideva ne vedeva una,
+  chi mandava le notifiche documentali tutte e quattro, e da quella distanza un
+  allenatore si abbonava in silenzio al traffico documentale di un minore
+  scrivendosi `user_id: <se stesso>`.
+- L'insieme che la guardia sorveglia sono **le identita a cui la scheda concede
+  qualcosa**: gli identificativi sempre, l'indirizzo solo se la riga non porta
+  un marchio e non e un'identita revocata. Si calcola allo stesso modo sui due
+  stati, e **dopo** che i riporti hanno rimesso le difese che ogni client lascia
+  cadere. Calcolarlo prima, o con regole diverse sui due lati, non chiude nulla
+  e blocca la scheda: 1.079 combinazioni su 1.536 risultavano una crescita
+  rimandate invariate, e da li in poi nessun ruolo senza `clinical.read`
+  riusciva piu a cambiare una taglia.
+- **Il solo-recapito vive in un registro sull'atleta, non solo sulla riga.** Il
+  marchio di riga e caduto cinque volte in cinque round, sempre con lo stesso
+  esito: chi aveva compilato un modulo pubblico entrava nel fascicolo di un
+  minore. Non era colpa delle cinque stesure — un marchio di riga dentro un blob
+  che il client sostituisce per intero richiede di sapere **quale riga e quale**,
+  e su due tutori allo stesso indirizzo di famiglia quella domanda non ha
+  risposta. Il registro non ha righe da abbinare, ed e la ragione per cui
+  `revokedGuardianIdentities` non e mai caduto.
+- **E adesso la scheda lo mostra.** Il badge di un tutore diceva «Account non
+  collegato» tanto per un recapito quanto per una riga qualunque: la difesa che
+  governa l'accesso al dato sanitario di un minore non compariva in **nessuna**
+  schermata (misurato con un `grep` su `src/components` e `src/app`: zero
+  occorrenze). Un club che non puo vedere una difesa non puo accorgersi che e
+  caduta — ed e per questo che il difetto e sopravvissuto cinque round.
+- Le difese seguono la **persona**, non la riga. Due stesure precedenti
+  abbinavano le righe per `id` e, quando l'id non era univoco, **per
+  posizione** — e la posizione la sceglie chi chiama: riordinare l'elenco,
+  mandare id che in archivio non esistono o duplicarne uno scriveva il marchio
+  di una riga **addosso a un'altra**, con un ruolo a zero chiavi e senza audit.
+  E se il salvataggio cambiava la **lunghezza** dell'elenco il riporto non si
+  applicava affatto, quindi `contactOnly` spariva per sempre — per quel segno
+  non esiste un secondo registro. L'identita e l'identificativo quando il club
+  lo **riconosce gia** (compare su una riga in archivio non marchiata), e
+  l'indirizzo altrimenti: cosi il padre che condivide l'indirizzo di famiglia
+  con la madre revocata resta dentro, e la madre che si ripresenta con il
+  proprio resta fuori.
+- I due marchi sono in **sola lettura** dalla rotta generica nei **due** versi:
+  non si tolgono e non si mettono. Toglierli era gia impedito; metterli no, e
+  un ruolo di club a **zero chiavi** revocava cosi un tutore legittimo — niente
+  cruscotto, niente solleciti, niente promemoria — **senza audit**, perche la
+  guardia sorveglia la crescita e chiudere fuori qualcuno non fa crescere
+  niente. Restano scrivibili solo su una riga che **nasce**, che e come
+  l'approvazione di un modulo marca la propria.
+- Il segno di solo-recapito marca la riga nata da una compilazione di cui il
+  club **non e l'autore**, e la porta non e il criterio: `submitRenewalForm`
+  scrive un autore dimostrato, quindi ogni riga tutore nuova nata da un rinnovo
+  usciva **senza segno**. Un tutore legittimo dichiarava un terzo con un
+  indirizzo qualunque e la segreteria, approvando, gli apriva il fascicolo del
+  minore.
+- Un id di riga tutore puo **collidere**: nasce dal dato piu l'indice ed e
+  **salvato**, quindi cancellare una riga fa scalare le altre. Il pulsante
+  revocava allora la persona sbagliata, con l'audit intestato a lei. Un id
+  ambiguo si **rifiuta**: fra due persone non si tira a indovinare.
+- Cio che esce nel browser della famiglia si **dichiara**, non si sottrae.
+  `athletes.data` e il blob libero che la segreteria riempie: un elenco di
+  campi da togliere lascia visibile ogni campo nuovo, e ci sono finiti note
+  interne, il codice fiscale dell'altro tutore e il registro delle revoche.
+- Il segno `contactOnly` e il marchio `accessRevokedAt` non si tolgono da
+  quella rotta: si **riportano**. E una difesa piu forte del rifiuto — rifiutare
+  avrebbe negato il salvataggio ordinario, perche nessun file client conosce
+  quei campi — e li rende immutabili da li, con una sola strada che li scioglie.
+
+### Come si chiude questa intera classe (WP-C+D, 2026-09-06)
+
+Le undici righe qui sopra sono undici difese, e sono state scritte in
+ventotto round. Hanno una cosa in comune: **difendono tutte lo stesso blob**.
+Ogni volta che una reggeva, la successiva nasceva accanto senza ereditarne le
+protezioni — e ADR-0129 lo aveva gia scritto come regola.
+
+Non erano difese sbagliate. Erano risposte a una domanda che non ha risposta:
+«quale riga in arrivo corrisponde a quale riga in archivio», su un array senza
+chiave che la rotta generica sostituisce per intero.
+
+WP-C+D toglie la domanda. Un tutore e una riga di `athlete_guardians` con una
+chiave unica, e cio che seguiva dal blob smette di essere possibile — non
+smette di essere **permesso**:
+
+| Difesa | Che fine fa |
+|---|---|
+| il **riporto** dei due marchi e dei due registri (cinque stesure) | **cancellato**: la rotta generica non riceve piu quelle chiavi, e cio che non arriva non si puo perdere |
+| i due **registri di scheda** | **cancellati**: erano il surrogato della chiave unica |
+| «una riga sorella con lo stesso indirizzo riapre l'accesso» | impossibile: l'indirizzo **e** l'identita, e l'identita e la chiave. Una riga sorella e la stessa riga |
+| «un id di riga tutore puo collidere» | impossibile: l'identificativo e quello della riga, e non nasce piu dal dato piu l'indice |
+| «un salvataggio ordinario annulla la revoca» | impossibile: la revoca e un fatto sulla riga, e il salvataggio non ha una strada per toccarla. Misurato dalla porta vera, `W-11` |
+| «il registro delle revoche esce nel browser della famiglia» | non esiste piu un registro |
+| il **vaglio della crescita** delle identita | resta, e vive nel modulo proprietario invece che nella rotta: la regola e la stessa — una identita nuova concede solo se **appartiene a qualcuno**, e allora servono `accounts.athlete.manage` e `clinical.read` insieme |
+
+**Cosa resta a difendere, e dove.** Due cose, e non sono nella stessa forma:
+
+1. **la scrittura della tabella** e sorvegliata dall'**archivio**: un vaglio
+   rifiuta ogni `INSERT`/`UPDATE` fuori da una transazione che si sia dichiarata
+   scrittore (ADR-0136). Non e un elenco di file, quindi non invecchia;
+2. **la scrittura della proiezione** dentro `athletes.data` e sorvegliata dal
+   codice: la rotta generica toglie `guardians`, `revokedGuardianIdentities` e
+   `contactOnlyIdentities` dal corpo. E una difesa piu debole della prima, e va
+   detto — ma cio che difende non decide piu nessun accesso.
+
+**La cancellazione dell'interessato adesso cancella anche i tutori.** La scheda
+dell'atleta resta come segnaposto, perche rate e ricevute la nominano: la
+cascata di `ON DELETE CASCADE` non scatta mai, e senza una cancellazione
+esplicita sarebbero rimasti in archivio nome, indirizzo e telefono di sua madre —
+dati di **terzi**, dentro una tabella che nessuna schermata mostra piu.
+
+**Un restringimento voluto**, dichiarato perche non venga scoperto in
+produzione: una revoca registrata sull'identita chiude adesso **tutti e due** i
+percorsi. Prima un legame **dichiarato** sopravvissuto allo sweep continuava ad
+aprire — e sopravviveva proprio quando lo sweep falliva, cioe nel caso che il
+reperto `R-2` misura. Ci si ricollega riscattando un invito, che e l'atto
+tracciato che lo dichiara.
+
 
 ---
 
@@ -3709,3 +3925,28 @@ perimetri per sedici) invece che su casi scelti a mano.
 
 **Verificate per mutazione**: togliendo la propagazione del perimetro dalle due
 strade, **sette** asserzioni diventano rosse su tutti e tre i tipi di gettone.
+
+### Il confine del dominio dei tutori, e le cinque porte che lo attraversano (2026-09-06)
+
+Un secondo vaglio indipendente (ADR-0137) ha trovato cinque difetti **tutti sul
+bordo** del modulo proprietario dei tutori, nessuno dentro di esso. Le regole
+che ne restano, e che valgono per qualunque dominio con un proprietario unico:
+
+* **Una difesa tolta e rimessa va rimessa per intero.** La rotta generica toglie
+  da cio che riceve le chiavi non scrivibili e le riporta indietro dalla
+  proiezione: si riportano **derivandole dalla costante** che le dichiara, mai
+  nominandone una.
+* **L'assenza di una chiave e un silenzio, non una dichiarazione.** Un
+  salvataggio che non nomina i tutori non li tocca; solo `guardians: []` li
+  toglie.
+* **Due porte sulla stessa proprieta sono una funzione sola.** Cosa conti come
+  invito di tutore lo dice `eCaricoDiTutore`, chiamata sia dal riscatto sia
+  dalla revoca: allargare l'una allarga l'altra.
+* **La revoca non esce dal proprio club.** La lettura dei gettoni porta il
+  filtro `organization_id`: `legacy_id` viene dal blob e non e unico fra club.
+* **Uscire dal club chiude l'area famiglia.** `organization_users` e unica per
+  `(organization_id, user_id, role)`: si guarda se **restano** tessere, non solo
+  il ruolo di quella revocata.
+
+Sonda permanente: `scripts/pp-02-secondo-vaglio.mjs` (15 asserzioni, 6
+controlli) piu T-13/T-15 in `scripts/pp-02-totalita-ruoli.mjs`.

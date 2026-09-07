@@ -14,6 +14,168 @@
   sarebbe una terza contabilita, e divergerebbe al primo cambiamento.
 */
 import { buildLedgerView } from "../../src/lib/accounting/ledger-view.ts";
+import { guardianIdentityKey } from "../../src/lib/server/athlete-guardians.ts";
+
+/**
+ * **I tutori di un atleta, materializzati come li ha materializzati il travaso.**
+ *
+ * PP-02 / WP-C. Fino a WP-B un tutore era un elemento di
+ * `athletes.data.guardians[]`, e ogni fixture di questo repository lo scrive
+ * cosi. Adesso l'autorita e la tabella `athlete_guardians`, e un doppio che
+ * non la conoscesse farebbe rispondere «no» a **ogni** vaglio dell'area
+ * famiglia — cioe farebbe passare per rotto cio che e giusto, che e il modo
+ * peggiore in cui un test possa fallire.
+ *
+ * Il doppio fa quindi cio che la migrazione ha fatto una volta sull'archivio:
+ * deriva le righe dagli atleti del seed, quando il seed non le dichiara gia.
+ *
+ * **Le due regole sono chiamate, non ricopiate.** L'identita la calcola
+ * `guardianIdentityKey`, cioe la stessa funzione del modulo proprietario: se
+ * quella cambia, questa la segue. E le collezioni si leggono con la precedenza
+ * del prodotto — `guardians` se non e vuoto, **altrimenti** la coppia storica
+ * `parent1`/`parent2` — perche unirle inventerebbe legami che nessun
+ * predicato riconosceva, ed e esattamente l'errore che il primo travaso aveva
+ * commesso.
+ *
+ * Cio che il doppio **non** puo dire e se il prodotto vero scriva quelle righe:
+ * lo dicono le sonde contro PostgreSQL, ed e li che quella domanda va fatta.
+ */
+const tutoriDalSeed = (atleti = []) => {
+  const righe = [];
+
+  /*
+    **L'identificativo di una riga e uno UUID, anche qui.**
+
+    Il modulo proprietario riconosce una riga in tre modi — per identificativo,
+    per la chiave che aveva nel blob, per identita — e il primo lo tenta solo se
+    cio che gli arriva **ha la forma** di uno UUID, perche altrimenti la colonna
+    lo rifiuterebbe. Un doppio che coniasse identificativi di comodo farebbe
+    quindi cadere il ramo piu preciso dei tre, e i test misurerebbero il ripiego
+    invece della strada vera.
+
+    Deterministico e non casuale: due montaggi dello stesso seed devono produrre
+    le stesse chiavi, altrimenti un test che ne salva una non la ritrova.
+  */
+  let contatore = 0;
+  const identificativo = () => {
+    contatore += 1;
+    const coda = String(contatore).padStart(12, "0");
+    return `a91adaa0-0000-4000-8000-${coda}`;
+  };
+
+  for (const atleta of atleti) {
+    const data =
+      atleta?.data && typeof atleta.data === "object" ? atleta.data : {};
+    const elenco = Array.isArray(data.guardians) ? data.guardians : [];
+    const sorgenti = elenco.length
+      ? elenco
+      : [data.parent1, data.parent2].filter(
+          (valore) => valore && typeof valore === "object",
+        );
+
+    const viste = new Set();
+
+    sorgenti.forEach((guardian, posizione) => {
+      const record = guardian && typeof guardian === "object" ? guardian : {};
+
+      /* Le sei grafie dell'identificativo, elementi di array compresi. */
+      const dichiarati = new Set();
+      for (const valore of [
+        record.linkedUserId,
+        record.linked_user_id,
+        record.userId,
+        record.user_id,
+        record.linkedUserIds,
+        record.linked_user_ids,
+      ]) {
+        for (const voce of Array.isArray(valore) ? valore : [valore]) {
+          const pulito = String(voce ?? "").trim().toLowerCase();
+          if (pulito) dichiarati.add(pulito);
+        }
+      }
+
+      /* L'indirizzo che apre, nell'ordine in cui lo legge chi decide. */
+      const indirizzo =
+        [record.linkedUserEmail, record.linked_user_email, record.email]
+          .map((valore) => String(valore ?? "").trim().toLowerCase())
+          .find(Boolean) || null;
+
+      const identita = dichiarati.size
+        ? [...dichiarati]
+        : [guardianIdentityKey({ email: indirizzo, legacyId: record.id }) ||
+            `riga:pos-${posizione}`];
+
+      for (const chiave of identita) {
+        if (!chiave || viste.has(chiave)) continue;
+        viste.add(chiave);
+
+        righe.push({
+          id: identificativo(),
+          organization_id: atleta.organization_id,
+          athlete_id: atleta.id,
+          identity_key: chiave,
+          /*
+            **Un'identita che non e un indirizzo e un'utenza.**
+
+            Il travaso vero pretende uno UUID valido, perche la chiave esterna
+            rifiuterebbe un'utenza inventata. Qui la chiave esterna non c'e, e
+            le fixture di questo repository usano identificativi che **non**
+            sono UUID validi — `33333333-5g00-…` ne e uno. Pretendere la forma
+            farebbe rispondere «non e tuo figlio» a un test che dice il
+            contrario, cioe misurerebbe la fixture invece del prodotto.
+          */
+          user_id: chiave.includes("@") ? null : chiave,
+          email: indirizzo,
+          first_name: record.name ?? null,
+          last_name: record.surname ?? null,
+          phone: record.phone ?? record.telefono ?? null,
+          relationship: record.relationship ?? null,
+          contact_only: Boolean(record.contactOnly || record.contact_only),
+          linked_at: record.linkedAt ? new Date(record.linkedAt) : null,
+          revoked_at:
+            record.accessRevokedAt || record.access_revoked_at
+              ? new Date(record.accessRevokedAt || record.access_revoked_at)
+              : null,
+          access_token_value: record.parentAccessTokenValue ?? null,
+          access_token_status: record.parentAccessTokenStatus ?? null,
+          access_token_expires_at: record.parentAccessTokenExpiresAt
+            ? new Date(record.parentAccessTokenExpiresAt)
+            : null,
+          access_token_generated_at: record.parentAccessTokenGeneratedAt
+            ? new Date(record.parentAccessTokenGeneratedAt)
+            : null,
+          legacy_id: record.id ?? null,
+          position: posizione,
+          created_at: new Date(0),
+          updated_at: new Date(0),
+        });
+      }
+    });
+
+    /*
+      I due registri di scheda diventano fatti sulla riga, come nel travaso: il
+      registro **vince** sul segno di riga.
+    */
+    const insieme = (chiave) =>
+      new Set(
+        (Array.isArray(data[chiave]) ? data[chiave] : [])
+          .map((valore) => String(valore ?? "").trim().toLowerCase())
+          .filter(Boolean),
+      );
+    const revocate = insieme("revokedGuardianIdentities");
+    const recapiti = insieme("contactOnlyIdentities");
+
+    for (const riga of righe) {
+      if (riga.athlete_id !== atleta.id) continue;
+      if (revocate.has(riga.identity_key)) {
+        riga.revoked_at = riga.revoked_at || new Date(0);
+      }
+      if (recapiti.has(riga.identity_key)) riga.contact_only = true;
+    }
+  }
+
+  return righe;
+};
 
 /** Vero se il valore soddisfa un filtro su campo JSON `{ path, equals }`. */
 const matchesJsonPath = (value, condition) => {
@@ -75,6 +237,10 @@ const PRISMA_FILTER_KEYS = new Set([
   "none",
   "is",
   "isNot",
+  "has",
+  "hasSome",
+  "array_contains",
+  "isEmpty",
 ]);
 
 const matchesWhere = (record, where) => {
@@ -229,6 +395,26 @@ const matchesWhere = (record, where) => {
         doppio che lo ignora fa passare un test sul perimetro **restituendo
         tutte le righe** — che e il contrario di cio che quel test prova.
       */
+      /*
+        `isEmpty`, cioe «questa colonna array e vuota».
+
+        Terzo operatore trovato mancante, e la terza volta con la stessa
+        conseguenza: senza il ramo la condizione cadeva nel ripiego «non
+        supportata, quindi soddisfatta». Qui il costo era preciso — il filtro
+        della bacheca e
+        `OR: [{ athlete_ids: { isEmpty: true } }, { athlete_ids: { has: id } }]`,
+        e con il primo membro sempre vero l'`OR` intero era sempre vero: **la
+        bacheca non filtrava per figlio**. Nel verso opposto, su una fixture
+        senza la colonna, la condizione finiva nel ramo della chiave composta e
+        rispondeva falso, nascondendo una consegna che Postgres avrebbe
+        mostrato. Sbagliava in tutti e due i sensi.
+      */
+      if ("isEmpty" in condition) {
+        const lista = Array.isArray(value) ? value : [];
+        if (Boolean(condition.isEmpty) !== (lista.length === 0)) return false;
+        continue;
+      }
+
       if ("hasSome" in condition) {
         const lista = Array.isArray(value) ? value : [];
         const cercati = Array.isArray(condition.hasSome)
@@ -237,6 +423,61 @@ const matchesWhere = (record, where) => {
         if (!cercati.some((atteso) => lista.includes(atteso))) return false;
         continue;
       }
+      /*
+        `array_contains`, cioe l'operatore `@>` di Postgres su una colonna
+        `jsonb`.
+
+        **E il ramo piu pericoloso che questo doppio abbia avuto**, e non
+        perche sbagliasse: perche non c'era. Una condizione non supportata qui
+        si considera **soddisfatta**, quindi un
+        `where: { subjects: { array_contains: [{ subject: "athlete", recordId }] } }`
+        non filtrava niente e il doppio restituiva **tutte** le righe del
+        club. Due vincoli si appoggiano proprio a quel filtro — «questo modulo
+        si compila una volta sola» e lo stato dei moduli online di un figlio —
+        e un test su di essi poteva essere verde su una semantica che la
+        produzione non ha. Lo ha trovato una revisione dichiarando di non aver
+        letto questo file: e stato il sospetto a portarci, non la lettura.
+
+        La semantica e quella di `@>`, e va detta per intero perche e
+        controintuitiva su due punti:
+
+        1. **contenimento parziale**: `[{recordId: "x"}]` corrisponde a un
+           elemento `{recordId: "x", subject: "athlete", label: "..."}`. Si
+           confrontano le sole chiavi scritte nel filtro;
+        2. **non posizionale**: ogni elemento cercato puo stare in qualunque
+           posizione dell'array della riga.
+      */
+      if ("array_contains" in condition) {
+        const cercati = Array.isArray(condition.array_contains)
+          ? condition.array_contains
+          : [condition.array_contains];
+        const presenti = Array.isArray(value) ? value : [];
+
+        const contenuto = (elemento, atteso) => {
+          if (atteso === null || typeof atteso !== "object") {
+            return elemento === atteso;
+          }
+          if (Array.isArray(atteso)) {
+            return (
+              Array.isArray(elemento) &&
+              atteso.every((voce) =>
+                elemento.some((candidato) => contenuto(candidato, voce)),
+              )
+            );
+          }
+          if (!elemento || typeof elemento !== "object") return false;
+          return Object.entries(atteso).every(([chiave, valore]) =>
+            contenuto(elemento[chiave], valore),
+          );
+        };
+
+        const tutti = cercati.every((atteso) =>
+          presenti.some((elemento) => contenuto(elemento, atteso)),
+        );
+        if (!tutti) return false;
+        continue;
+      }
+
       /*
         La **chiave unica composta**, cioe come Prisma la scrive in un `where`
         unico: `{ organization_id_training_id_athlete_id: { organization_id,
@@ -566,8 +807,13 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     non esiste.
   */
   let generatedIds = 0;
+  const semi = { ...seedByDelegate };
+  if (!semi.athleteGuardian && Array.isArray(semi.athlete)) {
+    semi.athleteGuardian = tutoriDalSeed(semi.athlete);
+  }
+
   const store = new Map(
-    Object.entries(seedByDelegate).map(([name, rows]) => [name, rows.map((r) => ({ ...r }))]),
+    Object.entries(semi).map(([name, rows]) => [name, rows.map((r) => ({ ...r }))]),
   );
 
   const rowsOf = (name) => {
@@ -718,6 +964,137 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     }
   };
 
+  /**
+   * **Le relazioni che `include` sa risolvere, dichiarate una per una.**
+   *
+   * PP-02. `include` veniva **ignorato**: la riga tornava senza le relazioni, e
+   * un servizio che le legge trovava `undefined`. Non era una bugia comoda come
+   * `hasSome` — che rispondeva «si» a una domanda che non sapeva valutare — ma
+   * il danno e simmetrico: `getParentDashboardData` non era collaudabile
+   * affatto, e la sua copertura viveva **solo** nella sonda contro il database
+   * vero, che in integrazione continua non gira.
+   *
+   * E un elenco chiuso e non un motore: una relazione che non e qui continua a
+   * non essere risolta, e si aggiunge quando serve. Un motore generico
+   * dedurrebbe le chiavi dai nomi, e dedurre e il modo in cui un doppio comincia
+   * a rispondere cose che il database non risponderebbe.
+   */
+  const RELAZIONI = {
+    athlete: {
+      organization: { tipo: "uno", delegato: "club", locale: "organization_id" },
+      category_memberships: {
+        tipo: "molti",
+        delegato: "athleteCategoryMembership",
+        remota: "athlete_id",
+      },
+      payments: {
+        tipo: "molti",
+        delegato: "athletePayment",
+        remota: "athlete_id",
+      },
+      medical_certificates: {
+        tipo: "molti",
+        delegato: "medicalCertificate",
+        remota: "athlete_id",
+      },
+    },
+    documentRequest: {
+      submissions: {
+        tipo: "molti",
+        delegato: "documentSubmission",
+        remota: "request_id",
+      },
+    },
+    appointment: {
+      slot: { tipo: "uno", delegato: "appointmentSlot", locale: "slot_id" },
+      athlete: { tipo: "uno", delegato: "athlete", locale: "athlete_id" },
+    },
+  };
+
+  /**
+   * **`select`, cioe la proiezione — quarto operatore trovato mancante.**
+   *
+   * Il doppio restituiva sempre la **riga intera**, e nessun test poteva
+   * accorgersi che una query proietta. Il costo e stato misurato: il vaglio
+   * dell'RSVP e stato spostato dal solo legame al «questo evento riguarda
+   * l'atleta», e la funzione che lo decide legge categoria e appartenenze —
+   * che la `select` di quel percorso **non chiedeva**. In produzione Prisma
+   * proietta davvero, quindi la riga arrivava senza quei campi e la risposta
+   * veniva rifiutata a **chiunque**; nei test arrivava intera e passava.
+   *
+   * E la stessa forma di `array_contains` e di `isEmpty`, con una differenza
+   * che la rende peggiore: quelli facevano tornare **piu** righe del vero,
+   * questo fa tornare **piu campi**, e un campo di troppo non si nota fino al
+   * giorno in cui qualcuno decide qualcosa su di lui.
+   *
+   * Le relazioni chieste in `select` si comportano come in `include`: Prisma
+   * accetta `select: { category_memberships: true }` e le risolve.
+   */
+  const applicaSelect = (name, row, select) => {
+    if (!row || !select || typeof select !== "object") return row;
+
+    const mappa = RELAZIONI[name] || {};
+    const proiettata = {};
+
+    for (const [chiave, chiesto] of Object.entries(select)) {
+      if (!chiesto) continue;
+
+      if (mappa[chiave]) {
+        const risolta = applicaInclude(name, row, { [chiave]: chiesto });
+        proiettata[chiave] = risolta?.[chiave];
+        continue;
+      }
+
+      proiettata[chiave] = row[chiave];
+    }
+
+    return proiettata;
+  };
+
+  const applicaInclude = (name, row, include) => {
+    if (!row || !include || typeof include !== "object") return row;
+
+    const mappa = RELAZIONI[name];
+    if (!mappa) return row;
+
+    const arricchita = { ...row };
+
+    for (const [chiave, richiesta] of Object.entries(include)) {
+      if (!richiesta) continue;
+      const relazione = mappa[chiave];
+      if (!relazione) continue;
+
+      /*
+        **Una relazione seminata a mano vince su quella risolta.**
+
+        Prima che `include` sapesse risolvere, i test scrivevano la relazione
+        **dentro la riga** — `athlete.medical_certificates: [...]` — ed e una
+        dichiarazione, non un residuo: quel test ha deciso cosa deve tornare.
+        Risolverla comunque la sovrascriverebbe con l'elenco del delegato, che
+        quei test non hanno seminato affatto: sette presidi sui promemoria dei
+        certificati sono passati da verdi a rossi cosi, su codice non toccato.
+      */
+      if (Object.prototype.hasOwnProperty.call(row, chiave)) continue;
+
+      if (relazione.tipo === "uno") {
+        const riferimento = row[relazione.locale];
+        arricchita[chiave] =
+          (riferimento &&
+            rowsOf(relazione.delegato).find(
+              (candidata) => String(candidata.id) === String(riferimento),
+            )) ||
+          null;
+        continue;
+      }
+
+      arricchita[chiave] = rowsOf(relazione.delegato).filter(
+        (candidata) => String(candidata[relazione.remota]) === String(row.id),
+      );
+    }
+
+    return arricchita;
+  };
+
   const makeDelegate = (name) => ({
     findMany: async (args = {}) => {
       calls.push({ delegate: name, method: "findMany", args });
@@ -774,15 +1151,27 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       if (Number.isInteger(args.skip)) rows = rows.slice(args.skip);
       if (Number.isInteger(args.take)) rows = rows.slice(0, args.take);
 
+      if (args.include) {
+        return rows.map((row) => applicaInclude(name, row, args.include));
+      }
+      if (args.select) {
+        return rows.map((row) => applicaSelect(name, row, args.select));
+      }
       return rows;
     },
     findFirst: async (args = {}) => {
       calls.push({ delegate: name, method: "findFirst", args });
-      return rowsOf(name).find((r) => matchesWhere(r, args.where)) || null;
+      const row = rowsOf(name).find((r) => matchesWhere(r, args.where)) || null;
+      if (args.include) return applicaInclude(name, row, args.include);
+      if (args.select) return applicaSelect(name, row, args.select);
+      return row;
     },
     findUnique: async (args = {}) => {
       calls.push({ delegate: name, method: "findUnique", args });
-      return rowsOf(name).find((r) => matchesWhere(r, args.where)) || null;
+      const row = rowsOf(name).find((r) => matchesWhere(r, args.where)) || null;
+      if (args.include) return applicaInclude(name, row, args.include);
+      if (args.select) return applicaSelect(name, row, args.select);
+      return row;
     },
     create: async (args = {}) => {
       calls.push({ delegate: name, method: "create", args });
@@ -1051,6 +1440,53 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     const testo = Array.isArray(strings)
       ? strings.join("?")
       : String(strings?.sql ?? strings ?? "");
+
+    /*
+      **PP-02. «In quali club questa persona compare come tutore».**
+
+      Serve implementarla, non ignorarla: la risposta muta di `[]` sarebbe
+      «nessun club», che e la risposta **stretta** — un test sul tutore senza
+      tessera fallirebbe invece di passare per sbaglio, ma fallirebbe su un
+      codice corretto, che e lo stesso disservizio al contrario. E la stessa
+      lezione di `hasSome` in PP-01.
+    */
+    if (/FROM athletes/i.test(testo) && /guardians/i.test(testo)) {
+      const identita = new Set(
+        (Array.isArray(values?.[0]) ? values[0] : [])
+          .map((valore) => String(valore || "").trim().toLowerCase())
+          .filter(Boolean),
+      );
+      /*
+        **Le stesse quattro chiavi della query vera, e non sette.**
+
+        La prima stesura ne confrontava sette — le tre dell'indirizzo comprese —
+        mentre la query di produzione ne guarda quattro, e il commento su
+        `findClubsWhereUserIsGuardian` spiega a lungo perche l'indirizzo **non
+        deve** allargare. Un doppio che contraddice l'invariante che presidia e
+        la stessa lezione di `hasSome`, con il segno invertito: qui non
+        mentirebbe dicendo di si, mentirebbe dicendo che il confine e piu largo
+        di quello che il database applica.
+      */
+      const chiavi = ["linkedUserId", "linked_user_id", "userId", "user_id"];
+      const club = new Set();
+
+      rowsOf("athlete").forEach((riga) => {
+        const tutori = riga?.data?.guardians;
+        if (!Array.isArray(tutori)) return;
+        const combacia = tutori.some(
+          (tutore) =>
+            tutore &&
+            typeof tutore === "object" &&
+            chiavi.some((chiave) =>
+              identita.has(String(tutore[chiave] || "").trim().toLowerCase()),
+            ),
+        );
+        if (combacia && riga.organization_id) club.add(String(riga.organization_id));
+      });
+
+      return Array.from(club).map((organization_id) => ({ organization_id }));
+    }
+
     if (!/INSERT INTO auth_rate_limit_buckets/i.test(testo)) return [];
 
     const [key, scope, nextExpiry, now] = values;
@@ -1086,6 +1522,29 @@ export const createFakePrisma = (seedByDelegate = {}) => {
         typeof input === "function" ? input(client) : Promise.all(input),
       $disconnect: async () => {},
       $queryRaw: async (strings, ...values) => eseguiSqlGrezzo(strings, values),
+      /*
+        **Il permesso di scrivere i tutori, che qui non ha niente da aprire.**
+
+        `withGuardianWriter` dichiara `SET LOCAL "easygame.guardian_writer"`
+        prima di toccare `athlete_guardians`: e la sola forma che l'archivio
+        vero accetta, e senza questo metodo ogni percorso che passa dal modulo
+        proprietario cadrebbe qui dentro con un errore che non parla del
+        difetto che il test cerca.
+
+        **Il doppio non puo misurare quella difesa**, ed e giusto dirlo invece
+        di lasciarlo intuire: un vaglio dell'archivio si prova contro
+        l'archivio. Lo fa `scripts/pp-02-proprietario-tutore.mjs`, che
+        attacca la tabella con Prisma e con SQL grezzo da fuori il modulo e
+        pretende un rifiuto — e che verificato per mutazione, tolto il vaglio,
+        diventa rosso su quattro prove su sei.
+
+        Qui l'istruzione si registra fra le chiamate e non fa altro: un test
+        che volesse controllare **che** sia stata dichiarata puo leggerla.
+      */
+      $executeRawUnsafe: async (sql, ...values) => {
+        calls.push({ delegate: "$executeRawUnsafe", method: "run", args: [sql, values] });
+        return 0;
+      },
     },
     {
       get: (target, property) => {

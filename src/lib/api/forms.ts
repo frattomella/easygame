@@ -300,6 +300,15 @@ export type RenewalDraft = {
   athleteId: string;
   athleteName: string;
   clubName: string;
+  /**
+   * **Se cio che si sta compilando e un'iscrizione.**
+   *
+   * La schermata del rinnovo e una sola, e i moduli online del fascicolo
+   * passano tutti di li: senza questo campo parlerebbe di rinnovo anche su un
+   * questionario di gradimento, e la stagione comparirebbe su una pratica che
+   * nessuna stagione ha.
+   */
+  isEnrollment: boolean;
   form: {
     title: string;
     description: string;

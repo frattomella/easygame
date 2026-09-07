@@ -1,6 +1,6 @@
 "use client";
 
-import React, { memo, useCallback, useState } from "react";
+import React, { memo, useCallback, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Calendar,
@@ -110,14 +110,64 @@ const QUICK_ACTIONS = [
   },
 ] as const;
 
+/**
+ * **L'identita del club dichiarata dal chiamante, invece che dedotta dal
+ * browser** (PP-02 §C).
+ *
+ * Nome e stagione della targhetta arrivavano **solo** da `localStorage`, e
+ * quella e una copia: la scrive chi ha appena letto qualcosa dal server, e chi
+ * non ha ancora letto niente legge cio che c'era prima. Per l'area famiglia il
+ * risultato era «Nessuna stagione attiva» su un club che ne ha una — alla
+ * prima pittura, su ogni pagina che non monta il contesto del genitore, e per
+ * sempre su un tutore senza tessera, che quel `localStorage` non lo ha mai
+ * visto scrivere da nessuno.
+ *
+ * Quando questa prop c'e, e lei l'autorita: il `localStorage` non viene
+ * nemmeno consultato per l'identita. `seasonHref` a `null` toglie il rimando
+ * — la targhetta della stagione porta a `/organization`, che per un genitore e
+ * una porta chiusa.
+ */
+/** Una riga di notifica gia letta da chi monta l'intestazione. */
+export type HeaderNotification = {
+  id: string;
+  title?: string | null;
+  message?: string | null;
+  type?: string | null;
+  read?: boolean | null;
+  created_at?: string | null;
+};
+
+export type HeaderClubIdentity = {
+  name: string;
+  seasonLabel: string | null;
+  logoUrl?: string | null;
+  seasonHref?: string | null;
+};
+
 interface HeaderProps {
   title?: string;
+  /**
+   * Le notifiche gia in mano a chi monta l'intestazione, quando le ha.
+   *
+   * Il pannello altrimenti se le prende dal registro **generico** del club,
+   * che per un genitore e chiuso: la pastiglia diceva «tre» e il pannello
+   * «Nessuna notifica».
+   */
+  notifications?: HeaderNotification[] | null;
+  /**
+   * Dove segnare letta una riga di `notifications`.
+   *
+   * Chi fornisce le notizie sa dove vivono: senza questo, il pannello finiva
+   * sul registro generico del club, che a genitori e atleti e chiuso.
+   */
+  onMarkRead?: (id: string) => void;
   onSearch?: (query: string) => void;
   notificationCount?: number;
   userAvatar?: string;
   searchQuery?: string;
   mobileNavSections?: MobileNavSection[];
   showMobileHubLink?: boolean;
+  clubIdentity?: HeaderClubIdentity | null;
 }
 
 const Header = memo(
@@ -129,6 +179,9 @@ const Header = memo(
     searchQuery = "",
     mobileNavSections,
     showMobileHubLink = true,
+    clubIdentity = null,
+    notifications = null,
+    onMarkRead,
   }: HeaderProps) => {
     const router = useRouter();
     const pathname = usePathname();
@@ -374,19 +427,38 @@ const Header = memo(
       userRole,
     ]);
 
-    const handleNotificationClick = useCallback(() => {
-      const notificationsHref = pathname?.startsWith("/trainer-dashboard")
-        ? "/trainer-dashboard/notifications"
-        : "/notifications";
+    /*
+      **Le notifiche di un genitore non stanno in `/notifications`.**
 
-      // Prevent navigation in storyboard environment
-      if (
-        typeof window !== "undefined" &&
-        !window.location.href.includes("storyboard=true") &&
-        window.location.pathname !== notificationsHref
-      ) {
-        window.location.href = notificationsHref;
+      Quel percorso e fra i prefissi di gestione: la guardia respinge il
+      genitore, e siccome la navigazione e un `window.location.href` — cioe un
+      ricaricamento completo — lo buttava anche **fuori dall'area famiglia**.
+      L'area ha la sua pagina, dentro il contesto del figlio, e il campanello
+      deve portare li.
+    */
+    const notificationsHref = useMemo(() => {
+      if (pathname?.startsWith("/trainer-dashboard")) {
+        return "/trainer-dashboard/notifications";
       }
+
+      if (pathname?.startsWith("/parent-view/")) {
+        const figlio = pathname.split("/").filter(Boolean)[1];
+        return figlio
+          ? `/parent-view/${figlio}/notifications`
+          : "/parent-view";
+      }
+
+      /*
+        **E l'area atleta**, che e la gemella dimenticata del ramo qui sopra.
+        `/notifications` sta fra i percorsi di gestione: la guardia respingeva
+        il ragazzo sulla propria home, senza spiegazione, dopo che aveva
+        premuto «Vedi tutte» su una pastiglia che il suo guscio accende gia.
+      */
+      if (pathname?.startsWith("/athlete-dashboard")) {
+        return "/athlete-dashboard/notifiche";
+      }
+
+      return "/notifications";
     }, [pathname]);
 
     const handleReturnToAccount = () => {
@@ -433,6 +505,12 @@ const Header = memo(
           <MobileTopBar
             showHubLink={showMobileHubLink}
             title={title}
+            /*
+              **La stessa identita che vale sopra i 1024 px.** Senza questa
+              riga la correzione di §C valeva solo su desktop, e il viewport
+              che l'area famiglia usa davvero e l'altro.
+            */
+            clubIdentity={clubIdentity}
             navSectionsOverride={mobileNavSections}
           />
         </div>
@@ -472,11 +550,24 @@ const Header = memo(
             </Tooltip>
           </TooltipProvider>
 
+          {/*
+            PP-02 §C. `clubIdentity` vince sul `localStorage`: quando il
+            chiamante conosce il club dalla risposta del server, la targhetta
+            non deve aspettare che una copia nel browser si aggiorni.
+          */}
           <ClubIdentity
-            clubName={orgName || "EasyGame"}
-            seasonLabel={activeSeasonLabel}
-            logoUrl={clubLogo}
-            onSeasonClick={() => router.push("/organization?tab=stagioni")}
+            clubName={clubIdentity?.name || orgName || "EasyGame"}
+            seasonLabel={
+              clubIdentity ? clubIdentity.seasonLabel : activeSeasonLabel
+            }
+            logoUrl={clubIdentity ? clubIdentity.logoUrl ?? null : clubLogo}
+            onSeasonClick={
+              clubIdentity
+                ? clubIdentity.seasonHref
+                  ? () => router.push(clubIdentity.seasonHref as string)
+                  : undefined
+                : () => router.push("/organization?tab=stagioni")
+            }
             className="min-w-0 flex-1"
           />
 
@@ -563,11 +654,14 @@ const Header = memo(
             <NotificationsDropdown
               buttonClassName={topBarButtonClassName}
               notificationCount={notificationCount}
-              allNotificationsHref={
-                pathname?.startsWith("/trainer-dashboard")
-                  ? "/trainer-dashboard/notifications"
-                  : "/notifications"
-              }
+              allNotificationsHref={notificationsHref}
+              /*
+                Quando chi monta l'intestazione le ha gia — l'area famiglia le
+                riceve nel cruscotto — il pannello non va a chiederle al
+                registro generico del club, che per quel ruolo e chiuso.
+              */
+              items={notifications}
+              onMarkRead={onMarkRead}
             />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
