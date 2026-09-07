@@ -165,6 +165,11 @@ export async function GET(request: Request) {
     );
     const figli: string[] = [];
     const seStesso: string[] = [];
+    /*
+      Dichiarato qui e non dentro il ramo: i nomi servono anche alla riga della
+      tessera, che sta piu in basso (pagina Account).
+    */
+    let linkedAthletes: any[] = [];
     if (accessiFamiglia.length) {
       /*
         **Qui l'atleta e se stesso, e serve che lo sia** (PP-04, ADR-0122).
@@ -188,7 +193,7 @@ export async function GET(request: Request) {
         stessa forma del difetto che il commento qui sopra descrive per il
         genitore, sull'altro ruolo.
       */
-      const linkedAthletes = await getParentLinkedAthletes(
+      linkedAthletes = await getParentLinkedAthletes(
         session.db.user_id,
         {
           /* Il ramo diretto, dichiarato: vedi ADR-0122 qui sopra. */
@@ -228,6 +233,103 @@ export async function GET(request: Request) {
       }
     }
 
+    /**
+     * **I profili collegati, con il loro nome** (P0 «pagina Account»).
+     *
+     * La rotta restituiva `linked_athlete_ids`, cioe degli identificativi:
+     * abbastanza per decidere **dove** il browser puo andare, non per dire a
+     * una persona **chi e** dentro quel club. La pagina Account chiede la
+     * seconda cosa — «di chi sono il tutore?», «quale scheda e la mia?»,
+     * «quale allenatore sono?» — e senza i nomi non poteva rispondere.
+     *
+     * Escono nome e tipo, e niente altro: non e un payload di anagrafica, e
+     * chi legge questa rotta ha gia il legame che glielo permette.
+     */
+    const nomeAtleta = new Map<string, string>(
+      linkedAthletes.map((athlete: any): [string, string] => [
+        String(athlete.id),
+        [athlete.first_name, athlete.last_name]
+          .map((parte: unknown) => String(parte ?? "").trim())
+          .filter(Boolean)
+          .join(" ") || "Scheda atleta",
+      ]),
+    );
+
+    /*
+      **La scheda allenatore, che la rotta non ha mai restituito.**
+
+      Vive in `club_resource_items` di tipo `trainers`, e il legame e
+      `linkedUserId` — lo stesso che il perimetro dell'allenatore usa per
+      riconoscere la propria scheda. Si chiede **una volta** per tutti i club
+      in cui questa persona ha una tessera da allenatore, non una per club.
+    */
+    const clubDaAllenatore = memberships
+      .filter(
+        (membership) => normalizeAccessRole(membership.role) === "trainer",
+      )
+      .map((membership) => String(membership.organization_id));
+
+    const schedeAllenatore = clubDaAllenatore.length
+      ? await prisma.clubResourceItem.findMany({
+          where: {
+            organization_id: { in: clubDaAllenatore },
+            resource_type: "trainers",
+          },
+          select: { organization_id: true, payload: true },
+        })
+      : [];
+
+    const schedaAllenatorePerClub = new Map<string, string>();
+    for (const riga of schedeAllenatore) {
+      const payload = (riga.payload || {}) as Record<string, any>;
+      const collegata = [
+        payload.linkedUserId,
+        payload.linked_user_id,
+        payload.userId,
+        payload.user_id,
+      ].some(
+        (valore) => String(valore ?? "").trim() === session.db.user_id,
+      );
+      if (!collegata) continue;
+
+      const nome =
+        [payload.name, payload.surname]
+          .map((parte: unknown) => String(parte ?? "").trim())
+          .filter(Boolean)
+          .join(" ") ||
+        String(payload.fullName || payload.email || "").trim() ||
+        "Scheda allenatore";
+
+      schedaAllenatorePerClub.set(String(riga.organization_id), nome);
+    }
+
+    const profiliCollegati = (
+      organizationId: string,
+      ruolo: string,
+      athleteIds: string[],
+    ) => {
+      const voci: Array<{ kind: string; id: string; name: string }> = [];
+
+      if (ruolo === "athlete") {
+        for (const id of athleteIds) {
+          voci.push({ kind: "athlete", id, name: nomeAtleta.get(id) || id });
+        }
+      }
+
+      if (ruolo === "parent") {
+        for (const id of athleteIds) {
+          voci.push({ kind: "guardian", id, name: nomeAtleta.get(id) || id });
+        }
+      }
+
+      const allenatore = schedaAllenatorePerClub.get(organizationId);
+      if (ruolo === "trainer" && allenatore) {
+        voci.push({ kind: "trainer", id: organizationId, name: allenatore });
+      }
+
+      return voci;
+    };
+
     const membershipRows = memberships.map((membership) => {
       const ruolo = normalizeAccessRole(membership.role);
       const linkedAthleteIds =
@@ -241,6 +343,11 @@ export async function GET(request: Request) {
         is_ownership_record: false,
         linked_athlete_ids: linkedAthleteIds,
         linked_athlete_id: linkedAthleteIds[0] || null,
+        linked_profiles: profiliCollegati(
+          String(membership.organization_id),
+          ruolo,
+          linkedAthleteIds,
+        ),
         organization: ridotto(membership.organization),
         organizations: ridotto(membership.organization),
       };

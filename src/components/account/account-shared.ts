@@ -74,6 +74,8 @@ export type MembershipRecord = {
   resolved_role?: string | null;
   linked_athlete_id?: string | null;
   linked_athlete_ids?: string[] | null;
+  /** Chi sei dentro quel club: tipo, identificativo e **nome**. */
+  linked_profiles?: LinkedProfile[] | null;
   access_kind?: "ownership" | "membership" | string;
   is_ownership_record?: boolean;
   organization?: MembershipOrganization | null;
@@ -101,7 +103,22 @@ export type AccountClub = {
   linkedAthleteId?: string | null;
   /** I figli collegati, tutti: il singolare era il primo, e bastava (D-3). */
   linkedAthleteIds?: string[] | null;
+  /**
+   * **Chi sei dentro questo club**, con il nome e non con un identificativo.
+   *
+   * La pagina Account rispondeva a «dove posso entrare» e non a «chi sono
+   * li dentro»: un genitore vedeva il ruolo «Genitore» e non i figli, un
+   * atleta non vedeva la propria scheda, un allenatore non vedeva la
+   * propria. Il legame c'era, e nessuna schermata lo diceva.
+   */
+  linkedProfiles?: LinkedProfile[];
   redirectPath?: string | null;
+};
+
+export type LinkedProfile = {
+  kind: "athlete" | "guardian" | "trainer" | string;
+  id: string;
+  name: string;
 };
 
 export type FederationItem = {
@@ -310,6 +327,9 @@ export const mapMembershipToClub = (
       ? membership.linked_athlete_ids
       : [],
     linkedAthleteId: membership.linked_athlete_id || null,
+    linkedProfiles: Array.isArray(membership.linked_profiles)
+      ? membership.linked_profiles
+      : [],
   };
 };
 

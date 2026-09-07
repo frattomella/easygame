@@ -501,6 +501,22 @@ accettata per le sessioni gia aperte.
 
 Copertura: `tests/auth/genitore-piu-figli.test.mjs`.
 
+### I nomi, non i soli identificativi (2026-09-07, P0 «pagina Account»)
+
+`linked_athlete_ids` basta a decidere **dove** il browser puo andare e non a
+dire a una persona **chi e** dentro quel club. La stessa rotta porta percio
+`linked_profiles`: un elenco di `{ kind, id, name }` con `kind` fra
+`athlete` (la propria scheda), `guardian` (i figli) e `trainer` (la propria
+scheda allenatore, risolta da `club_resource_items` per `linkedUserId`).
+
+Non e una divulgazione nuova: chi legge questa rotta ha gia il legame che
+gliene da diritto, ed escono **tre chiavi** e nessun campo di anagrafica. La
+scheda allenatore di un'altra persona nello stesso club non entra.
+
+Lo mostra la card di `/account` (`data-testid="profili-collegati"`).
+
+Copertura: `tests/server/profili-collegati-account.test.mjs`.
+
 ---
 
 ## Il catalogo unico delle chiavi (2026-09-01, Wave 5 — 5B, W5-70)

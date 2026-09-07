@@ -52,6 +52,7 @@ import {
   MembershipRecord,
   ProfileFormState,
   sortClubs,
+  type LinkedProfile,
 } from "./account-shared";
 import { EasyGameWordmark } from "@/components/brand/easygame-logo";
 
@@ -90,6 +91,25 @@ const matchesQuery = (club: AccountClub, query: string) => {
 };
 
 // --- pezzi di interfaccia ----------------------------------------------------
+
+/**
+ * **Come si chiama il legame**, che non e lo stesso per tutti.
+ *
+ * «Tutore di» per i figli, «La tua scheda» per la propria, «Scheda"
+ * allenatore» per quella dell'allenatore. Un'etichetta sola per tre cose
+ * diverse sarebbe stata piu corta e avrebbe detto meno.
+ */
+function etichettaProfili(profili: LinkedProfile[]) {
+  const tipi = new Set(profili.map((profilo) => profilo.kind));
+
+  if (tipi.size === 1 && tipi.has("guardian")) {
+    return profili.length === 1 ? "Tutore di" : "Tutore di";
+  }
+  if (tipi.size === 1 && tipi.has("athlete")) return "La tua scheda";
+  if (tipi.size === 1 && tipi.has("trainer")) return "Scheda allenatore";
+
+  return "Profili collegati";
+}
 
 function ClubAvatar({ club }: { club: AccountClub }) {
   return (
@@ -298,6 +318,38 @@ function ClubRow({
               </span>
             ) : null}
           </span>
+
+          {/*
+            **Chi sei dentro questo club** (P0 «pagina Account»).
+
+            La card diceva dove puoi entrare e con quale ruolo, e non chi
+            sei li dentro: un genitore leggeva «Genitore» e non i nomi dei
+            figli, un atleta non vedeva la propria scheda, un allenatore non
+            vedeva la propria. Il legame c'era da sempre — e cio che decide
+            dove il browser puo andare — e nessuna schermata lo diceva.
+
+            Sta **sotto** il ruolo e non accanto: e la risposta a una
+            seconda domanda, e su 375 px accanto non ci sta.
+          */}
+          {club.linkedProfiles?.length ? (
+            <span
+              className="mt-1 flex w-full min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1 text-xs text-slate-600"
+              data-testid="profili-collegati"
+            >
+              <span className="shrink-0 text-slate-400">
+                {etichettaProfili(club.linkedProfiles)}
+              </span>
+              {/*
+                I nomi **vanno a capo**, non in ellissi: un elenco di figli
+                troncato a 375 px risponde meta domanda, e un nodo che non
+                va a capo alza la larghezza minima di tutta la colonna della
+                griglia — la pagina finiva per scorrere in orizzontale.
+              */}
+              <span className="min-w-0 break-words font-medium text-slate-700">
+                {club.linkedProfiles.map((profilo) => profilo.name).join(", ")}
+              </span>
+            </span>
+          ) : null}
         </span>
 
         <span className="grid h-8 w-8 shrink-0 place-items-center text-slate-400">
