@@ -75,6 +75,7 @@ import {
   Award,
   Shirt,
   Loader2,
+  Pencil,
   RefreshCw,
   Copy,
   KeyRound,
@@ -326,6 +327,7 @@ export default function AthleteProfilePage() {
     useState(false);
   const [showAddMedicalVisitModal, setShowAddMedicalVisitModal] =
     useState(false);
+  const [certificateToEdit, setCertificateToEdit] = useState<any>(null);
   const [showAddMedicalCertificateModal, setShowAddMedicalCertificateModal] =
     useState(false);
   const [certificateToDelete, setCertificateToDelete] = useState<any | null>(
@@ -2473,7 +2475,101 @@ export default function AthleteProfilePage() {
     fallbackExpiry?: string | null,
   ) => getLatestMedicalCertificateExpiry(certificates) || fallbackExpiry || "";
 
+  /**
+   * **Correggere un certificato, senza cancellarlo e rifarlo** (N5).
+   *
+   * Prima esisteva solo la creazione: una scadenza digitata male, o il file
+   * arrivato il giorno dopo, si sistemavano solo eliminando la riga e
+   * ricreandola — cioe perdendo cio che il club aveva protocollato e lasciando
+   * orfano l'allegato di prima.
+   *
+   * `status` **non si scrive**: lo stato di un certificato e la sua data di
+   * scadenza confrontata con oggi, e una colonna che dice «valido» accanto a
+   * una data gia passata e il modo in cui un ragazzo scende in campo senza
+   * copertura. La colonna resta com'e; a dirlo e `getMedicalCertificateStatus`.
+   */
+  const handleUpdateMedicalCertificate = async (certificateData: any) => {
+    try {
+      if (!athleteId || !clubId || !certificateData?.id) {
+        showToast("error", "Dati del certificato mancanti");
+        return false;
+      }
+
+      const { error } = await supabase
+        .from("medical_certificates")
+        .update({
+          type: certificateData.certificateType,
+          issue_date: certificateData.issueDate,
+          expiry_date: certificateData.expiryDate,
+          file_url: certificateData.fileUrl || null,
+          notes: certificateData.certificateType,
+        })
+        .eq("id", certificateData.id);
+
+      if (error) {
+        throw error;
+      }
+
+      const nextCertificates = medicalCertificates
+        .map((certificate: any) =>
+          certificate.id === certificateData.id
+            ? {
+                ...certificate,
+                type: certificateData.certificateType,
+                issueDate: certificateData.issueDate,
+                expiryDate: certificateData.expiryDate,
+                status: getMedicalCertificateStatus(certificateData.expiryDate),
+                fileUrl: certificateData.fileUrl || "",
+              }
+            : certificate,
+        )
+        .sort((left: any, right: any) => {
+          const leftTime = left.expiryDate
+            ? new Date(left.expiryDate).getTime()
+            : 0;
+          const rightTime = right.expiryDate
+            ? new Date(right.expiryDate).getTime()
+            : 0;
+          return rightTime - leftTime;
+        });
+
+      const nextExpiry = resolveLatestExpiry(
+        nextCertificates,
+        athlete?.medicalCertExpiry,
+      );
+
+      setMedicalCertificates(nextCertificates);
+      setAthlete((current: any) =>
+        current ? { ...current, medicalCertExpiry: nextExpiry } : current,
+      );
+
+      try {
+        const { updateAthlete } = await import("@/lib/simplified-db");
+        await updateAthlete(athleteId, {
+          data: { medicalCertExpiry: nextExpiry },
+        });
+      } catch (syncError) {
+        console.warn(
+          "Unable to sync athlete medical certificate summary:",
+          syncError,
+        );
+      }
+
+      setCertificateToEdit(null);
+      showToast("success", "Certificato medico aggiornato");
+      return true;
+    } catch (error) {
+      console.error("Error updating athlete medical certificate:", error);
+      showToast("error", "Impossibile aggiornare il certificato medico");
+      return false;
+    }
+  };
+
   const handleAddMedicalCertificate = async (certificateData: any) => {
+    if (certificateData?.id) {
+      return handleUpdateMedicalCertificate(certificateData);
+    }
+
     try {
       if (!athleteId || !clubId) {
         showToast("error", "Dati atleta o club mancanti");
@@ -4146,6 +4242,27 @@ export default function AthleteProfilePage() {
                                           -
                                         </span>
                                       )}
+                                      {!isVirtualMissing ? (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            setCertificateToEdit({
+                                              id: certificate.id,
+                                              type: certificate.type,
+                                              issueDate: certificate.issueDate,
+                                              expiryDate: certificate.expiryDate,
+                                              fileUrl: certificate.fileUrl,
+                                            });
+                                            setShowAddMedicalCertificateModal(
+                                              true,
+                                            );
+                                          }}
+                                        >
+                                          <Pencil className="h-4 w-4 mr-2" />
+                                          Modifica
+                                        </Button>
+                                      ) : null}
                                       {!isVirtualMissing ? (
                                         <Button
                                           variant="outline"
@@ -6952,7 +7069,11 @@ export default function AthleteProfilePage() {
 
       <AddCertificateForm
         isOpen={showAddMedicalCertificateModal}
-        onClose={() => setShowAddMedicalCertificateModal(false)}
+        certificate={certificateToEdit}
+        onClose={() => {
+          setShowAddMedicalCertificateModal(false);
+          setCertificateToEdit(null);
+        }}
         onSubmit={handleAddMedicalCertificate}
         athletes={[
           {

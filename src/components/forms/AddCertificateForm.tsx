@@ -7,10 +7,25 @@ import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
+import { replaceAttachment, uploadAttachment } from "@/lib/api/attachments";
+import { resolveAttachmentSource } from "@/lib/attachments";
 import {
   compareAthletesByLastName,
   getAthleteDisplayName,
 } from "@/lib/athlete-name-utils";
+
+/**
+ * Il certificato che si sta correggendo, quando la finestra si apre in
+ * modifica. `fileUrl` dice se un file c'e gia: se c'e, caricarne uno nuovo e
+ * una **sostituzione** e non un obbligo.
+ */
+export type EditableCertificate = {
+  id: string;
+  type?: string | null;
+  issueDate?: string | null;
+  expiryDate?: string | null;
+  fileUrl?: string | null;
+};
 
 interface AddCertificateFormProps {
   isOpen: boolean;
@@ -21,9 +36,31 @@ interface AddCertificateFormProps {
   athleteId?: string | null;
   athleteName?: string | null;
   lockAthleteSelection?: boolean;
+  /**
+   * Quando c'e, la finestra corregge invece di creare (N5).
+   *
+   * Prima esisteva **solo** la creazione: correggere una data di scadenza
+   * sbagliata o allegare il file arrivato dopo voleva dire cancellare il
+   * certificato e rifarlo — cioe perdere la riga che il club aveva
+   * protocollato, e lasciare orfano l'allegato di prima.
+   */
+  certificate?: EditableCertificate | null;
 }
 
 const todayDate = () => new Date().toISOString().split("T")[0];
+
+/**
+ * Un `<input type="date">` vuole `YYYY-MM-DD`. Dall'archivio la data puo
+ * arrivare come ISO completa: tagliarla al giorno **senza** passare da
+ * `new Date()` evita che un fuso a ovest di Greenwich la sposti indietro di
+ * uno — che su una scadenza sanitaria e un giorno di copertura in meno.
+ */
+const toDateInputValue = (value: unknown) => {
+  const testo = String(value || "").trim();
+  if (!testo) return "";
+  const match = testo.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
+};
 
 function addOneYear(dateString: string) {
   if (!dateString) return "";
@@ -52,9 +89,13 @@ export function AddCertificateForm({
   athleteId,
   athleteName,
   lockAthleteSelection = false,
+  certificate = null,
 }: AddCertificateFormProps) {
   const { showToast } = useToast();
   const isAthleteLocked = Boolean(lockAthleteSelection && athleteId);
+  const isEditing = Boolean(certificate?.id);
+  /* In modifica il file e obbligatorio solo se non ce n'e gia uno. */
+  const hasExistingFile = Boolean(String(certificate?.fileUrl || "").trim());
   const [formData, setFormData] = useState(initialCertificateForm);
   const [expiryManuallyEdited, setExpiryManuallyEdited] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -154,6 +195,25 @@ export function AddCertificateForm({
   React.useEffect(() => {
     if (!isOpen) return;
 
+    /*
+      In modifica la finestra si apre **sui valori del certificato**, non su
+      quelli di default. Aprirla vuota e chiamarla «modifica» costringerebbe a
+      ridigitare cio che c'e gia, e a ridigitarlo bene: la prima data sbagliata
+      la scriverebbe il form.
+    */
+    if (certificate?.id) {
+      setFormData({
+        athleteId: athleteId || "",
+        certificateType: String(certificate.type || "Agonistico"),
+        issueDate: toDateInputValue(certificate.issueDate),
+        expiryDate: toDateInputValue(certificate.expiryDate),
+      });
+      setExpiryManuallyEdited(true);
+      setSelectedFile(null);
+      if (isAthleteLocked) setSearchQuery(athleteName || "");
+      return;
+    }
+
     setFormData((prev) => {
       const next = isAthleteLocked ? { ...prev, athleteId: athleteId || "" } : prev;
 
@@ -164,7 +224,7 @@ export function AddCertificateForm({
     if (isAthleteLocked) {
       setSearchQuery(athleteName || "");
     }
-  }, [isOpen, athleteId, athleteName, isAthleteLocked]);
+  }, [isOpen, athleteId, athleteName, isAthleteLocked, certificate]);
 
   // Fetch athletes if not provided and clubId is available
   React.useEffect(() => {
@@ -224,7 +284,14 @@ export function AddCertificateForm({
       return;
     }
 
-    if (!selectedFile) {
+    /*
+      Il file resta obbligatorio alla **creazione**: un certificato senza il
+      documento che lo prova e una data che nessuno puo verificare. In
+      correzione no — il file c'e gia, e pretenderlo di nuovo per cambiare una
+      scadenza vorrebbe dire chiedere alla segreteria di ricaricare lo stesso
+      PDF per correggere un refuso.
+    */
+    if (!selectedFile && !hasExistingFile) {
       showToast("error", "Il caricamento del file è obbligatorio");
       return;
     }
@@ -238,44 +305,83 @@ export function AddCertificateForm({
       return;
     }
 
-    const safeFileName = selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-    const storagePath = [
-      "clubs",
-      clubId,
-      "athletes",
-      formData.athleteId,
-      "medical",
-      `${Date.now()}-${safeFileName}`,
-    ].join("/");
-
     setIsSubmitting(true);
 
     try {
-      const uploadResult = await supabase
-        .storage
-        .from("medical-certificates")
-        .upload(storagePath, selectedFile);
+      /*
+        **Il file passa da Attachment Core, non da `supabase.storage`.**
 
-      if (uploadResult.error || !uploadResult.data?.path) {
-        throw uploadResult.error || new Error("Upload non riuscito");
+        Qui c'era `supabase.storage.from("medical-certificates").upload(...)`,
+        che nell'adattatore (`src/lib/supabase.ts`) e una `POST /api/v1/assets`.
+        `assets` pero e una risorsa **chiusa** — la porta si sbarra in
+        `ensureResource`, prima ancora della sessione — perche non porta un
+        `organization_id` e autorizzare un documento sanitario deducendo il club
+        da una convenzione sul nome del file non e un confine.
+
+        Il risultato era che **SALVA non salvava**: il caricamento rispondeva
+        403, l'eccezione veniva raccolta tre righe piu in basso, e `onSubmit`
+        non veniva mai chiamato. Nessuna riga in `medical_certificates`, nessun
+        errore comprensibile, la finestra che resta aperta. Il commento accanto
+        alla chiusura diceva «nessun client chiedeva `/api/v1/assets`»: questo
+        modulo era quel client, e la chiusura e arrivata due giorni prima che
+        questo form venisse toccato l'ultima volta.
+
+        Anche riaprendo quella porta non sarebbe andata bene: `getPublicUrl`
+        restituiva l'intero **data URL** in base64, cioe un PDF intero dentro
+        `medical_certificates.file_url`, e al ricaricamento della pagina il
+        ripiego puntava di nuovo alla stessa rotta chiusa.
+
+        Attachment Core e la strada che il repository ha gia (ADR-0034): i byte
+        stanno in `attachment_blobs`, il record porta un riferimento di poche
+        decine di caratteri, e la lettura passa da
+        `GET /api/v1/attachments/:id`, che sul genere «certificato medico»
+        pretende `clinical.read`. La categoria e percio `medical_certificate` e
+        non una stringa qualunque: e quella che accende la guardia.
+      */
+      let fileUrl = String(certificate?.fileUrl || "");
+
+      if (selectedFile) {
+        /*
+          **Sostituzione allo stesso id quando il file c'e gia.**
+
+          Cosi il riferimento salvato sulla riga non cambia, e non esiste
+          l'istante in cui `medical_certificates.file_url` punta a un allegato
+          che non c'e piu. E la stessa scelta di `CertificateAttachmentField`.
+        */
+        const source = resolveAttachmentSource(fileUrl);
+
+        const uploadResult =
+          source.kind === "reference"
+            ? await replaceAttachment(source.id, selectedFile, selectedFile.name)
+            : await uploadAttachment({
+                file: selectedFile,
+                ownerType: "athlete",
+                ownerId: formData.athleteId,
+                category: "medical_certificate",
+                fileName: selectedFile.name,
+                organizationId: clubId,
+              });
+
+        if (!uploadResult.ok) {
+          showToast("error", uploadResult.message);
+          return;
+        }
+
+        if (source.kind !== "reference") {
+          fileUrl = uploadResult.attachment.reference;
+        }
       }
 
-      const publicUrlResult = supabase
-        .storage
-        .from("medical-certificates")
-        .getPublicUrl(uploadResult.data.path);
-
-      const fileUrl = publicUrlResult.data.publicUrl;
       const selectedAthlete = localAthletes.find(
         (athlete) => athlete.id === formData.athleteId,
       );
 
       const submitResult = await onSubmit({
         ...formData,
+        id: certificate?.id || undefined,
         athleteName: selectedAthlete?.name || "Atleta",
         fileUrl,
-        fileName: selectedFile.name,
-        status: new Date(formData.expiryDate) > new Date() ? "valid" : "expired",
+        fileName: selectedFile?.name || "",
         organizationId: clubId,
       });
 
@@ -299,8 +405,12 @@ export function AddCertificateForm({
 
   return (
     <Modal
-      title="Carica Nuovo Certificato"
-      description="Inserisci i dettagli del certificato medico"
+      title={isEditing ? "Modifica Certificato" : "Carica Nuovo Certificato"}
+      description={
+        isEditing
+          ? "Correggi i dati del certificato, o sostituiscine il file"
+          : "Inserisci i dettagli del certificato medico"
+      }
       isOpen={isOpen}
       onClose={onClose}
       footer={
@@ -313,7 +423,7 @@ export function AddCertificateForm({
             className="bg-blue-600 hover:bg-blue-700"
             disabled={isSubmitting}
           >
-            {isSubmitting ? "Salvataggio..." : "Salva"}
+            {isSubmitting ? "Salvataggio..." : isEditing ? "Salva modifiche" : "Salva"}
           </Button>
         </div>
       }
@@ -440,21 +550,28 @@ export function AddCertificateForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="fileUrl">Carica File *</Label>
+          <Label htmlFor="fileUrl">
+            {hasExistingFile ? "Sostituisci File" : "Carica File *"}
+          </Label>
           <Input
             id="fileUrl"
             name="fileUrl"
             type="file"
-            required
+            required={!hasExistingFile}
             onChange={(e) => {
               setSelectedFile(e.target.files?.[0] || null);
             }}
           />
-          {selectedFile && (
+          {selectedFile ? (
             <p className="text-sm text-muted-foreground">
               File selezionato: {selectedFile.name}
             </p>
-          )}
+          ) : hasExistingFile ? (
+            <p className="text-sm text-muted-foreground">
+              Un file e gia allegato. Sceglierne uno nuovo lo sostituisce;
+              lasciando vuoto resta quello.
+            </p>
+          ) : null}
         </div>
       </form>
     </Modal>
