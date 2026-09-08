@@ -199,6 +199,101 @@ export const collectCategoryTokens = (record: any): Set<string> => {
   return tokens;
 };
 
+/**
+ * **Che categoria nomina questa coppia (identificativo, nome)?**
+ *
+ * `categoryIdentity` risponde alla domanda del **confronto** — quali categorie
+ * nomina un record — e restituisce due insiemi. Questa risponde alla domanda
+ * della **risoluzione**: preso un riferimento, qual e la categoria che nomina e
+ * come si chiama. Sono due domande diverse sullo stesso dominio, e stanno nello
+ * stesso modulo perche obbediscono alla stessa regola: sceglierne una fra due
+ * omonime e la fusione che ADR-0155 vieta, e viverla in due posti e il difetto
+ * che ADR-0153 vieta.
+ *
+ * Le tre regole di ADR-0155, lette dal lato della risoluzione:
+ *
+ * 1. il catalogo riconosce l'identificativo → e quella categoria;
+ * 2. il catalogo riconosce il nome e ne nomina **una sola** → e quella;
+ * 3. il nome ne nomina **due** → non ne nomina nessuna. Non si prende la
+ *    prima: si dichiara `ambiguous` e chi chiama decide. «La prima» e la
+ *    fusione di prima con un passaggio in meno.
+ *
+ * Quando il catalogo non riconosce niente il riferimento **resta com'e**
+ * (`known: false`). Un club che non ha mai aperto la pagina delle categorie non
+ * ha un catalogo e i suoi record portano solo etichette: chiudere li
+ * spegnerebbe il prodotto invece di separare due squadre.
+ */
+export type CategoryReference = {
+  /** L'identificativo quando il catalogo lo riconosce, altrimenti il valore com'e. */
+  readonly id: string;
+  /** L'etichetta con cui si legge. */
+  readonly name: string;
+  /** Vero quando il catalogo lo riconosce: per identificativo, o per nome unico. */
+  readonly known: boolean;
+  /** Vero quando un nome ne nominava due: non identifica nessuna categoria. */
+  readonly ambiguous: boolean;
+};
+
+export const resolveCategoryReference = (
+  rawId: unknown,
+  rawName: unknown,
+  catalog: readonly CategoryCatalogEntry[] = [],
+): CategoryReference | null => {
+  const id = String(rawId ?? "").trim();
+  const name = String(rawName ?? "").trim();
+
+  if (!id && !name) return null;
+
+  const conosciute = (Array.isArray(catalog) ? catalog : []).filter(
+    (voce) => voce?.id,
+  );
+  let ambiguo = false;
+
+  for (const grezzo of [id, name]) {
+    if (!grezzo) continue;
+    const token = normalizeCategoryToken(grezzo);
+
+    const perId = conosciute.find(
+      (voce) => normalizeCategoryToken(voce.id) === token,
+    );
+    if (perId?.id) {
+      return {
+        id: String(perId.id),
+        name: String(perId.name || "").trim() || name || String(perId.id),
+        known: true,
+        ambiguous: false,
+      };
+    }
+
+    const perNome = conosciute.filter(
+      (voce) => normalizeCategoryToken(voce.name) === token,
+    );
+    if (perNome.length === 1 && perNome[0]?.id) {
+      return {
+        id: String(perNome[0].id),
+        name: String(perNome[0].name || "").trim() || grezzo,
+        known: true,
+        ambiguous: false,
+      };
+    }
+
+    /*
+      Ne nomina due: non ne nomina nessuna. Non si esce pero subito — il
+      secondo grezzo puo essere un identificativo che risolve senza ambiguita,
+      ed e il caso ordinario di `{ category_id, category_name }` con il nome in
+      comune fra due sedi.
+    */
+    if (perNome.length > 1) ambiguo = true;
+  }
+
+  return {
+    id: id || name,
+    name: name || id,
+    known: false,
+    ambiguous: ambiguo,
+  };
+};
+
 export type CategoryIdentity = {
   /** Cio che il catalogo riconosce: la vera identita. */
   readonly identificativi: ReadonlySet<string>;

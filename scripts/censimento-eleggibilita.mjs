@@ -85,6 +85,29 @@ const TABELLA = {
     canonico: true,
   },
 
+  /*
+    **Il consumatore che il censimento non vedeva** (N1, Fortitudo Scauri).
+
+    `getAthleteCategoryRelationship` decide se una categoria e la **primaria**
+    di un atleta o una sua secondaria — cioe la pettorina accanto al nome in
+    convocazione e in appello — e lo faceva ripiegando la regola in casa:
+    identificativo ed etichetta nello stesso insieme, poi l'intersezione. E la
+    fusione di P0-4, sopravvissuta in un ottavo posto.
+
+    Non compariva qui perche il file non portava **nessuno** dei marcatori: non
+    nominava ne `sameCategory` ne `athleteMatchesCategory` ne
+    `extractCategoryTokens`, quindi il censimento non lo derivava e la tabella
+    non poteva accorgersene. E la stessa lezione della postilla su
+    `extractCategoryTokens`, letta un giro piu in la: un censimento vede chi usa
+    i nomi che cerca, e chi non ne usa nessuno resta invisibile finche non
+    delega. Adesso delega, e da qui in poi e sorvegliato.
+  */
+  "src/lib/athlete-category-memberships.ts": {
+    decide: "se una categoria e la primaria dell'atleta o una sua secondaria",
+    catalogo: true,
+    canonico: true,
+  },
+
   /* ---------------- chi decide chi entra in un elenco ---------------- */
   "src/lib/server/rsvp.ts": {
     decide: "chi e atteso a un evento, e quindi chi puo rispondere",

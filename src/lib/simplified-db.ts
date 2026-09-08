@@ -665,22 +665,33 @@ const resolveRequestedAthleteMemberships = (
       },
     ]);
 
-    const nextPrimaryKey = String(
-      nextPrimary[0]?.categoryId || nextPrimary[0]?.categoryName || "",
-    ).trim();
-    const secondaryMemberships = currentMemberships
-      .filter(
-        (membership) =>
-          membership.categoryId !== nextPrimaryKey &&
-          membership.categoryName !== nextPrimaryKey,
-      )
-      .map((membership) => ({
-        category_id: membership.categoryId,
-        category_name: membership.categoryName,
-        is_primary: false,
-        // La sede delle secondarie non c'entra con la categoria che cambia.
-        site_id: membership.siteId,
-      }));
+    /*
+      **La primaria non si toglie dalle secondarie a mano: la toglie l'identita.**
+
+      Qui c'era un filtro che confrontava due **stringhe grezze**
+      (`membership.categoryId !== nextPrimaryKey`), e falliva in tutti i modi in
+      cui una stringa non e un'identita: se l'aggiornamento nominava la
+      categoria per **nome** e l'appartenenza la portava per **identificativo**
+      — la forma ordinaria dopo ADR-0038 — la vecchia riga non veniva
+      riconosciuta, restava fra le secondarie, e l'atleta finiva con la stessa
+      categoria **primaria e secondaria insieme**. Era il difetto di Fortitudo
+      visto dal lato che lo **scriveva**: `replaceAthleteMemberships` cancella e
+      reinserisce cio che esce di qui, quindi la riga fantasma diventava
+      permanente al primo salvataggio.
+
+      Adesso si passano tutte le appartenenze correnti come secondarie e si
+      lascia decidere a `normalizeAthleteCategoryMemberships`, che le fonde per
+      **identita canonica** — identificativo, o nome che ne nomina una sola
+      (ADR-0155) — e tiene primaria la prima dell'elenco, che e quella nuova.
+      Un confronto in meno da sbagliare, e la regola in un posto solo.
+    */
+    const secondaryMemberships = currentMemberships.map((membership) => ({
+      category_id: membership.categoryId,
+      category_name: membership.categoryName,
+      is_primary: false,
+      // La sede delle secondarie non c'entra con la categoria che cambia.
+      site_id: membership.siteId,
+    }));
 
     return normalizeAthleteCategoryMemberships([
       ...nextPrimary,
