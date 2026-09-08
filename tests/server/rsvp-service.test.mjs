@@ -758,6 +758,20 @@ test("e il lato che scrive dice la stessa cosa: e questa la proprieta", async ()
       userId: GENITORE,
       trainingId: "gara-under18",
       status: "yes",
+      /*
+        **L'orologio e lo stesso della meta che legge.**
+
+        Questa prova esiste per misurare che le due meta rispondano per la
+        **stessa ragione**, e senza `now` la meta che scrive cadeva sul clock
+        reale: dal 9 settembre 2026 in poi il termine del seme
+        (`rsvp_deadline: 2026-09-08T18:00Z`) risultava scaduto, la risposta
+        veniva rifiutata per **scadenza** invece che per eleggibilita, e la
+        prova diventava rossa senza che niente si fosse rotto.
+
+        Una prova che cambia esito con il calendario non misura il codice:
+        misura il giorno in cui la si esegue.
+      */
+      now: ADESSO,
     })
     .then(() => "accettata")
     .catch((errore) => String(errore?.message || errore));
