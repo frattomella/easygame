@@ -39,6 +39,29 @@ const MODULO_CANONICO = "src/lib/categories/identity.ts";
  * Larghi di proposito: un falso positivo costa una riga di classificazione, un
  * falso negativo costa una squadra che si vede l'organico di un'altra.
  */
+/**
+ * I commenti si tolgono **prima di guardare**, e vale per la scoperta quanto
+ * per il vaglio `E1`.
+ *
+ * E1 lo faceva gia, e la ragione era scritta li: un censimento che diventa
+ * rosso perche qualcuno ha **spiegato** cosa non si fa piu insegna a non
+ * spiegarlo. La scoperta pero leggeva ancora il file intero, quindi bastava
+ * nominare `sameCategory` in un commento — per dire «chi confronta passa di
+ * la» — per essere arruolati fra i percorsi che decidono un'eleggibilita.
+ *
+ * L'ha trovato `src/lib/categories/display.ts`, che di eleggibilita non decide
+ * niente: scrive **etichette**, e il commento serviva proprio a dire che il
+ * confronto non lo fa lui. Classificarlo come decisore avrebbe scritto nella
+ * tabella una cosa falsa per far tornare un conto.
+ *
+ * Nominarla in un commento non e usarla: e la stessa regola che il censimento
+ * dei tutori applica a `C3`, letta dall'altro lato.
+ */
+const senzaCommenti = (testo) =>
+  testo
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/^\s*\/\/.*$/gm, " ");
+
 const MARCATORI = [
   /athleteMatchesCategory|athleteMatchesAnyCategory/,
   /recordMatchesCategory|recordMatchesAnyCategory/,
@@ -54,6 +77,23 @@ const MARCATORI = [
   */
   /extractCategoryTokens/,
   /resolveTargetCategory|athleteBelongsToCategory/,
+  /*
+    **La catena di token del server**, che e la risposta che conta.
+
+    `filterRecordsForTrainer` decide che cosa esce dalla rete, e la sua
+    classificazione lo dice da sempre. Ma il file non nominava **in codice**
+    nessuno dei marcatori: `sameCategory` compariva soltanto in un commento, e
+    per tutto questo tempo il censimento lo trovava **sulla prosa**. Tolti i
+    commenti dalla scoperta — perche un modulo che scrive etichette non deve
+    finire fra i decisori per averne citato uno — quel percorso sarebbe sparito
+    dall'elenco, e sarebbe sparita con lui la sorveglianza sul consumatore piu
+    grosso che ancora non delega.
+
+    E la lezione di `extractCategoryTokens` una seconda volta, e stavolta al
+    contrario: li mancava il nome vecchio, qui manca il nome **proprio** di chi
+    non ha ancora migrato.
+  */
+  /extractRecordCategoryTokens/,
 ];
 
 /**
@@ -263,7 +303,8 @@ for (const percorso of tracciati) {
     if (errore?.code === "ENOENT") continue;
     throw errore;
   }
-  if (MARCATORI.some((regex) => regex.test(testo))) trovati.push(percorso);
+  const codice = senzaCommenti(testo);
+  if (MARCATORI.some((regex) => regex.test(codice))) trovati.push(percorso);
 }
 
 /* ------------------------------------------------------------- le prove */
@@ -354,11 +395,6 @@ const SOSPETTO =
   censimento dei tutori: «nominarla in un commento non e importarla», qui letta
   dall'altro lato.
 */
-const senzaCommenti = (testo) =>
-  testo
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/^\s*\/\/.*$/gm, " ");
-
 const ripieghi = trovati
   .filter((percorso) => percorso !== MODULO_CANONICO)
   .filter((percorso) => SOSPETTO.test(senzaCommenti(readFileSync(percorso, "utf8"))));
