@@ -104,6 +104,7 @@ import {
 import { describeSelection } from "@/lib/list-selection";
 import { printPeoplePdf } from "@/lib/people-pdf-export";
 import { csvFileName, downloadCsv, toCsv } from "@/lib/csv";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import {
   buildCategoryGroups,
   buildCategoryGroupLabel,
@@ -441,6 +442,16 @@ export default function AthletesPage() {
    * e la strada **Sede → Gruppo**. Senza sede si vedono tutte, con la sede
    * scritta nell'etichetta: e la strada **direttamente Gruppo**.
    */
+  /**
+   * Come si scrive una categoria in questa pagina (N3): la sede si accosta
+   * solo dove il nome ne nomina due. Le due sorgenti — catalogo e gruppi — la
+   * pagina ce le ha gia.
+   */
+  const categoryDisplay = useMemo(
+    () => buildCategoryDisplayIndex({ categories, groups: categoryGroups }),
+    [categories, categoryGroups],
+  );
+
   const groupOptions = useMemo(
     () =>
       getActiveCategoryGroups(categoryGroups)
@@ -3089,9 +3100,14 @@ export default function AthletesPage() {
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
                 <option value="">Seleziona una categoria</option>
+                {/*
+                  **L azione piu rischiosa della pagina** (N3): sposta N atleti
+                  in una categoria scelta da una tendina, e su un club con due
+                  «Under 15» le due voci erano identiche.
+                */}
                 {categories.map((category) => (
                   <option key={`bulk-category-${category.id}`} value={category.id}>
-                    {category.name}
+                    {categoryDisplay.label(category.id)}
                   </option>
                 ))}
               </select>

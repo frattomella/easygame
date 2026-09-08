@@ -518,6 +518,28 @@ const TRAINER_READ_RESOURCES = new Set([
   "athlete_category_memberships",
   "athletes",
   "categories",
+  /*
+    **Sedi e gruppi: configurazione, e serve a scrivere il nome di una
+    squadra** (N3).
+
+    L'allenatore leggeva gia `categories`, ma una categoria non porta una sede:
+    la coppia (categoria, sede) e il **gruppo** (ADR-0038). Senza queste due
+    risorse la sua bacheca non ha modo di distinguere due «Under 15» omonime, e
+    la scritta sopra l'appello e sopra la finestra delle convocazioni resta
+    ambigua proprio dove un errore costa di piu.
+
+    Sono `keys: []` nel catalogo — «configurazione sportiva del club» — e non
+    contengono dati di persone: nomi di sedi e coppie categoria/sede. Il
+    perimetro di **chi** l'allenatore vede continua a deciderlo il server sulle
+    appartenenze: queste due letture non allargano nessun insieme di atleti.
+
+    Non aggiungerle sarebbe stato peggio che ometterle: la bacheca le chiede, e
+    una risorsa non dichiarata risponde 403 lasciando una riga di audit
+    «negato» a ogni caricamento — che e il difetto che questa dashboard ha gia
+    avuto sette volte insieme (D-2, D-5).
+  */
+  "category_groups",
+  "club_sites",
   "club_event_participants",
   "club_events",
   "club_resource_items",

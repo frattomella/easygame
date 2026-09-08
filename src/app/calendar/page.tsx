@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import { CalendarDays, Filter, Trophy, Users } from "lucide-react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
@@ -114,6 +115,16 @@ export default function CalendarPage() {
   const [sedi, setSedi] = useState<ClubSite[]>([]);
   const [gruppi, setGruppi] = useState<CategoryGroup[]>([]);
   const [categorie, setCategorie] = useState<any[]>([]);
+
+  /**
+   * Come si scrive una categoria nei filtri del calendario (N3): la sede si
+   * accosta solo dove il nome ne nomina due. Catalogo e gruppi la pagina ce li
+   * ha gia — il filtro «Gruppo» qui accanto vive proprio su quelli.
+   */
+  const categoryDisplay = useMemo(
+    () => buildCategoryDisplayIndex({ categories: categorie, groups: gruppi }),
+    [categorie, gruppi],
+  );
 
   const [tipo, setTipo] = useState<"all" | "training" | "match">("all");
   const [sede, setSede] = useState("");
@@ -299,7 +310,7 @@ export default function CalendarPage() {
                 <option value="">Tutte</option>
                 {categorie.map((voce: any) => (
                   <option key={voce.id} value={voce.id}>
-                    {voce.name || voce.id}
+                    {categoryDisplay.label(voce.id) || voce.id}
                   </option>
                 ))}
               </select>

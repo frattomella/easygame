@@ -6,6 +6,11 @@ import { Label } from "@/components/ui/label";
 import { SiteSelect } from "@/components/sites/site-filter";
 import { isMultiSiteClub, type ClubSite } from "@/lib/club-sites";
 import type { AthleteCategoryMembership } from "@/lib/athlete-category-memberships";
+import {
+  buildCategoryDisplayIndex,
+  type CategoryGroupLike,
+} from "@/lib/categories/display";
+import { CategoryLabel } from "@/components/categories/category-label";
 
 type CategoryOption = { id: string; name: string };
 
@@ -25,6 +30,7 @@ type CategoryOption = { id: string; name: string };
  */
 export function AthleteCategoriesPanel({
   categories,
+  groups = [],
   memberships,
   primaryCategoryId,
   primarySiteId,
@@ -34,6 +40,15 @@ export function AthleteCategoriesPanel({
   onToggleSecondaryCategory,
 }: {
   categories: CategoryOption[];
+  /**
+   * I gruppi operativi del club (N3).
+   *
+   * Servono a scrivere «Under 15 (Formia)» dove il nome da solo ne nomina due:
+   * una categoria non porta una sede, la coppia (categoria, sede) e il gruppo
+   * (ADR-0038). Senza, la tendina della **primaria** offre due voci identiche
+   * proprio dove sceglierne una sbagliata sposta un ragazzo di squadra.
+   */
+  groups?: readonly CategoryGroupLike[];
   memberships: AthleteCategoryMembership[];
   primaryCategoryId: string;
   primarySiteId: string;
@@ -42,6 +57,11 @@ export function AthleteCategoriesPanel({
   onPrimarySiteChange: (siteId: string) => void;
   onToggleSecondaryCategory: (categoryId: string, enabled: boolean) => void;
 }) {
+  const display = React.useMemo(
+    () => buildCategoryDisplayIndex({ categories, groups }),
+    [categories, groups],
+  );
+
   return (
     <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
       <div>
@@ -58,7 +78,7 @@ export function AthleteCategoriesPanel({
               key={`athlete-primary-category-${category.id}`}
               value={category.id}
             >
-              {category.name}
+              {display.label(category.id)}
             </option>
           ))}
         </select>
@@ -108,7 +128,7 @@ export function AthleteCategoriesPanel({
                       onToggleSecondaryCategory(category.id, Boolean(checked))
                     }
                   />
-                  <span>{category.name}</span>
+                  <CategoryLabel category={category.id} index={display} />
                 </label>
               );
             })}

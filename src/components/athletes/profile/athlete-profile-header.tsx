@@ -1,5 +1,11 @@
 "use client";
 
+import React from "react";
+import {
+  buildCategoryDisplayIndex,
+  type CategoryGroupLike,
+} from "@/lib/categories/display";
+import { CategoryLabel } from "@/components/categories/category-label";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AvatarUpload } from "@/components/ui/avatar-upload";
@@ -35,6 +41,13 @@ export type AthleteProfileHeaderCategory = {
 };
 
 export type AthleteProfileHeaderProps = {
+  /**
+   * Il catalogo e i gruppi del club, per scrivere «Under 15 (Formia)» dove il
+   * nome da solo ne nomina due (N3). Facoltativi: senza, le pettorine
+   * mostrano il nome nudo come prima.
+   */
+  categoryCatalog?: readonly { id?: string | null; name?: string | null }[];
+  categoryGroups?: readonly CategoryGroupLike[];
   athlete: {
     name?: string | null;
     surname?: string | null;
@@ -50,10 +63,21 @@ export type AthleteProfileHeaderProps = {
 export function AthleteProfileHeader({
   athlete,
   categories,
+  categoryCatalog = [],
+  categoryGroups = [],
   onAvatarChange,
   onOpenAccount,
   onDelete,
 }: AthleteProfileHeaderProps) {
+  const categoryDisplay = React.useMemo(
+    () =>
+      buildCategoryDisplayIndex({
+        categories: categoryCatalog,
+        groups: categoryGroups,
+      }),
+    [categoryCatalog, categoryGroups],
+  );
+
   return (
     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
       <div className="flex items-center gap-4">
@@ -79,7 +103,11 @@ export function AthleteProfileHeader({
                     : "border border-sky-200 bg-sky-50 text-sky-700"
                 }
               >
-                {membership.categoryName}
+                <CategoryLabel
+                  category={membership.categoryId || membership.categoryName}
+                  index={categoryDisplay}
+                  siteClassName="text-[0.85em] font-normal opacity-80"
+                />
                 {membership.isPrimary ? " • Primaria" : " • Secondaria"}
               </Badge>
             ))}

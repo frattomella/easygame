@@ -144,6 +144,8 @@ import { normalizeClubSites, type ClubSite } from "@/lib/club-sites";
 import { AthleteCategoriesPanel } from "@/components/athletes/profile/athlete-categories-panel";
 import { AthleteRegistrationsPanel } from "@/components/athletes/profile/athlete-registrations-panel";
 import { AthleteRegistrationDialog } from "@/components/athletes/profile/athlete-registration-dialog";
+import { CategoryLabel } from "@/components/categories/category-label";
+import { AthleteCertificatesPanel } from "@/components/athletes/profile/athlete-certificates-panel";
 import {
   buildRegistrationFederationReference,
   listClubFederations,
@@ -281,6 +283,7 @@ export default function AthleteProfilePage() {
   const [athlete, setAthlete] = useState<any>(null);
   const [clubCategoryOptions, setClubCategoryOptions] = useState<any[]>([]);
   const [clubSites, setClubSites] = useState<ClubSite[]>([]);
+  const [clubCategoryGroups, setClubCategoryGroups] = useState<any[]>([]);
   const [athleteCategoryAnalytics, setAthleteCategoryAnalytics] =
     useState<AthleteCategoryAnalyticsResult>(EMPTY_ATHLETE_CATEGORY_ANALYTICS);
   const [editingSection, setEditingSection] = useState<string | null>(null);
@@ -823,6 +826,7 @@ export default function AthleteProfilePage() {
               assignments,
               jersey,
               sites,
+              categoryGroups,
             ] = await Promise.all([
               getClubData(effectiveClubId, "payment_plans"),
               getClubData(effectiveClubId, "discounts"),
@@ -834,6 +838,7 @@ export default function AthleteProfilePage() {
               getClubData(effectiveClubId, "kit_assignments"),
               getClubData(effectiveClubId, "jersey_assignments"),
               getClubData(effectiveClubId, "club_sites"),
+              getClubData(effectiveClubId, "category_groups"),
             ]);
             /*
               Il periodo della stagione attiva serve al pro-rata: e il
@@ -844,6 +849,15 @@ export default function AthleteProfilePage() {
               await loadActiveSeasonPeriod(effectiveClubId),
             );
             setClubSites(normalizeClubSites(sites));
+            /*
+              I gruppi servono soltanto a **scrivere** una categoria (N3): la
+              tendina della primaria offriva due voci identiche su un club con
+              due «Under 15», e sceglierne una sbagliata sposta un ragazzo di
+              squadra senza che nessuno se ne accorga.
+            */
+            setClubCategoryGroups(
+              Array.isArray(categoryGroups) ? categoryGroups : [],
+            );
             setClothingProducts(Array.isArray(products) ? products : []);
             setClothingKits(
               Array.isArray(kits) ? kits.map(normalizeKitRecord) : [],
@@ -3556,6 +3570,8 @@ export default function AthleteProfilePage() {
               cambiata: e cambiato dove si clicca per arrivarci.
             */}
             <AthleteProfileHeader
+              categoryCatalog={clubCategoryOptions}
+              categoryGroups={clubCategoryGroups}
               athlete={athlete}
               categories={athleteCategoryMemberships}
               onAvatarChange={handleAvatarChange}
@@ -3660,7 +3676,14 @@ export default function AthleteProfilePage() {
                                     : "border-sky-200 bg-sky-50 text-sky-700"
                                 }
                               >
-                                {membership.categoryName}
+                                <CategoryLabel
+                                  category={
+                                    membership.categoryId ||
+                                    membership.categoryName
+                                  }
+                                  categories={clubCategoryOptions}
+                                  groups={clubCategoryGroups}
+                                />
                                 {membership.isPrimary ? " • Primaria" : " • Secondaria"}
                               </Badge>
                             ))
@@ -4116,188 +4139,50 @@ export default function AthleteProfilePage() {
                 value="sanitari"
                 className="mt-4 space-y-6"
               >
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Certificati Medici</CardTitle>
-                    <Button
-                      size="sm"
-                      onClick={() => setShowAddMedicalCertificateModal(true)}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Aggiungi certificato medico
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left p-2">Tipologia</th>
-                            <th className="text-left p-2">Emissione</th>
-                            <th className="text-left p-2">Scadenza</th>
-                            <th className="text-left p-2">Stato</th>
-                            <th className="text-left p-2">Documento</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {medicalCertificates.length > 0 ? (
-                            medicalCertificates.map((certificate) => {
-                              const isVirtualMissing =
-                                certificate.status === "missing" ||
-                                String(certificate.id || "").startsWith(
-                                  "missing-",
-                                );
-
-                              return (
-                                <tr key={certificate.id} className="border-b">
-                                  <td className="p-2">{certificate.type}</td>
-                                  <td className="p-2">
-                                    {certificate.issueDate
-                                      ? formatDate(certificate.issueDate)
-                                      : "-"}
-                                  </td>
-                                  <td className="p-2">
-                                    {certificate.expiryDate
-                                      ? formatDate(certificate.expiryDate)
-                                      : "-"}
-                                  </td>
-                                  <td className="p-2">
-                                    <Badge
-                                      className={
-                                        certificate.status === "valid"
-                                          ? "bg-green-500 text-white"
-                                          : certificate.status === "expiring"
-                                            ? "bg-amber-500 text-white"
-                                            : "bg-red-500 text-white"
-                                      }
-                                    >
-                                      {certificate.status === "valid"
-                                        ? "Valido"
-                                        : certificate.status === "expiring"
-                                          ? "In scadenza"
-                                          : "Scaduto"}
-                                    </Badge>
-                                  </td>
-                                  <td className="p-2">
-                                    <div className="flex flex-wrap gap-2">
-                                      {certificate.fileUrl ? (
-                                        <>
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => {
-                                              if (
-                                                !openClientFileUrl(
-                                                  certificate.fileUrl,
-                                                )
-                                              ) {
-                                                showToast(
-                                                  "error",
-                                                  "File del certificato non disponibile",
-                                                );
-                                              }
-                                            }}
-                                          >
-                                            <Eye className="h-4 w-4 mr-2" />
-                                            Visualizza
-                                          </Button>
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => {
-                                              if (
-                                                !downloadAttachment(
-                                                  certificate.fileUrl,
-                                                  {
-                                                    documentType: `Certificato ${certificate.type || "medico"}`,
-                                                    firstName: athlete?.name,
-                                                    lastName: athlete?.surname,
-                                                    fullName: athlete?.fullName,
-                                                    date:
-                                                      certificate.expiryDate ||
-                                                      certificate.issueDate,
-                                                  },
-                                                )
-                                              ) {
-                                                showToast(
-                                                  "error",
-                                                  "File del certificato non disponibile",
-                                                );
-                                              }
-                                            }}
-                                          >
-                                            <Download className="h-4 w-4 mr-2" />
-                                            Scarica
-                                          </Button>
-                                        </>
-                                      ) : (
-                                        <span className="text-muted-foreground">
-                                          -
-                                        </span>
-                                      )}
-                                      {!isVirtualMissing ? (
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() => {
-                                            setCertificateToEdit({
-                                              id: certificate.id,
-                                              type: certificate.type,
-                                              issueDate: certificate.issueDate,
-                                              expiryDate: certificate.expiryDate,
-                                              fileUrl: certificate.fileUrl,
-                                            });
-                                            setShowAddMedicalCertificateModal(
-                                              true,
-                                            );
-                                          }}
-                                        >
-                                          <Pencil className="h-4 w-4 mr-2" />
-                                          Modifica
-                                        </Button>
-                                      ) : null}
-                                      {!isVirtualMissing ? (
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="text-red-600 hover:text-red-700"
-                                          disabled={
-                                            deletingCertificateId ===
-                                            certificate.id
-                                          }
-                                          onClick={() =>
-                                            setCertificateToDelete(certificate)
-                                          }
-                                        >
-                                          {deletingCertificateId ===
-                                          certificate.id ? (
-                                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                          ) : (
-                                            <Trash2 className="h-4 w-4 mr-2" />
-                                          )}
-                                          Elimina
-                                        </Button>
-                                      ) : null}
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })
-                          ) : (
-                            <tr>
-                              <td
-                                colSpan={5}
-                                className="p-4 text-center text-muted-foreground"
-                              >
-                                Nessun certificato medico registrato
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
+                <AthleteCertificatesPanel
+                  certificates={medicalCertificates}
+                  deletingCertificateId={deletingCertificateId}
+                  formatDate={formatDate}
+                  onAdd={() => {
+                    setCertificateToEdit(null);
+                    setShowAddMedicalCertificateModal(true);
+                  }}
+                  onEdit={(certificate) => {
+                    setCertificateToEdit({
+                      id: certificate.id,
+                      type: certificate.type,
+                      issueDate: certificate.issueDate,
+                      expiryDate: certificate.expiryDate,
+                      fileUrl: certificate.fileUrl,
+                    });
+                    setShowAddMedicalCertificateModal(true);
+                  }}
+                  onView={(certificate) => {
+                    if (!openClientFileUrl(certificate.fileUrl)) {
+                      showToast(
+                        "error",
+                        "File del certificato non disponibile",
+                      );
+                    }
+                  }}
+                  onDownload={(certificate) => {
+                    if (
+                      !downloadAttachment(certificate.fileUrl, {
+                        documentType: `Certificato ${certificate.type || "medico"}`,
+                        firstName: athlete?.name,
+                        lastName: athlete?.surname,
+                        fullName: athlete?.fullName,
+                        date: certificate.expiryDate || certificate.issueDate,
+                      })
+                    ) {
+                      showToast(
+                        "error",
+                        "File del certificato non disponibile",
+                      );
+                    }
+                  }}
+                  onDelete={(certificate) => setCertificateToDelete(certificate)}
+                />
 
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between">
@@ -6099,6 +5984,7 @@ export default function AthleteProfilePage() {
                   </div>
                 </div>
                 <AthleteCategoriesPanel
+                  groups={clubCategoryGroups}
                   categories={clubCategoryOptions}
                   memberships={editCategoryMemberships}
                   primaryCategoryId={primaryEditCategoryId}

@@ -77,6 +77,7 @@ import {
 } from "@/lib/simplified-db";
 import { athleteMatchesAnyCategory } from "@/lib/category-utils";
 import {
+  buildCategoryGroups,
   buildSiteIndex,
   getAthleteGroupIds,
   normalizeClubSites,
@@ -98,6 +99,7 @@ import {
 } from "@/lib/match-certificate-warnings";
 import { normalizeMatchConvocationEntries } from "@/lib/athlete-participation-utils";
 import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 
 interface Match {
   id: string;
@@ -275,6 +277,26 @@ export default function MatchesPage() {
     era rimasta indietro.
   */
   const [clubSites, setClubSites] = React.useState<any[]>([]);
+  const [clubCategoryGroups, setClubCategoryGroups] = React.useState<any[]>([]);
+
+  /**
+   * Come si scrive una categoria in questa pagina (N3).
+   *
+   * L'ambiguita e una proprieta dell'insieme, quindi l'indice si costruisce
+   * una volta e non per riga.
+   */
+  const categoryDisplay = React.useMemo(
+    () =>
+      buildCategoryDisplayIndex({
+        categories,
+        groups: buildCategoryGroups({
+          categories,
+          sites: normalizeClubSites(clubSites),
+          groups: clubCategoryGroups,
+        }),
+      }),
+    [categories, clubSites, clubCategoryGroups],
+  );
   const [loading, setLoading] = React.useState(true);
   const [showAddMatchModal, setShowAddMatchModal] = useState(false);
   const [showMultipleAddMatchModal, setShowMultipleAddMatchModal] =
@@ -438,6 +460,14 @@ export default function MatchesPage() {
 
         const sitesData = await getClubData(activeClub.id, "club_sites");
         setClubSites(Array.isArray(sitesData) ? sitesData : []);
+
+        /*
+          I gruppi servono alla **resa** (N3): una categoria non porta una
+          sede, la coppia (categoria, sede) e il gruppo (ADR-0038), e senza di
+          loro due «Under 15» restano due schede con la stessa scritta.
+        */
+        const groupsData = await getClubData(activeClub.id, "category_groups");
+        setClubCategoryGroups(Array.isArray(groupsData) ? groupsData : []);
       } catch (error) {
         console.error("Error loading matches data:", error);
         showToast("error", "Errore nel caricamento dei dati");
@@ -1219,8 +1249,8 @@ export default function MatchesPage() {
                   <SelectItem value="all">Tutte le categorie</SelectItem>
                   {categories.map((category) => (
                     <SelectItem key={category.id} value={category.id}>
-                      {category.name}
-                    </SelectItem>
+                          {categoryDisplay.label(category.id)}
+                        </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1254,8 +1284,8 @@ export default function MatchesPage() {
                   <SelectItem value="all">Tutte le categorie</SelectItem>
                   {categories.map((category) => (
                     <SelectItem key={category.id} value={category.id}>
-                      {category.name}
-                    </SelectItem>
+                          {categoryDisplay.label(category.id)}
+                        </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1807,8 +1837,8 @@ export default function MatchesPage() {
                           <option value="all">Tutte le categorie</option>
                           {categories.map((category) => (
                             <option key={category.id} value={category.id}>
-                              {category.name}
-                            </option>
+                        {categoryDisplay.label(category.id)}
+                      </option>
                           ))}
                         </select>
                       </div>
@@ -2030,7 +2060,7 @@ export default function MatchesPage() {
 
                           return {
                             categoryId: category.id,
-                            categoryName: category.name,
+                            categoryName: categoryDisplay.label(category.id),
                             athletes: categoryAthletes.map((athlete: any) => ({
                               id: athlete.id,
                               name: getAthleteDisplayName(athlete) || "Atleta",

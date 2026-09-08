@@ -13,6 +13,11 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
 import {
+  buildCategoryDisplayIndex,
+  type CategoryDisplayIndex,
+} from "@/lib/categories/display";
+import { buildCategoryGroups, normalizeClubSites } from "@/lib/club-sites";
+import {
   getTrainerCategoryIds,
   getTrainerDisplayName,
   normalizeTrainerCategories,
@@ -326,11 +331,30 @@ const buildAssignedAthletes = (
     })
     .sort(compareAthletesByLastName);
 
+/**
+ * L'etichetta di categoria di un record, con la sede accanto se serve.
+ *
+ * Un record puo nominare piu di una categoria (un allenamento congiunto): si
+ * prende la prima **riconosciuta**, che e cio che `getRecordDisplayCategory`
+ * gia faceva, e la si passa all'indice di resa. Senza identificativi
+ * riconosciuti resta il nome nudo di prima.
+ */
+const etichettaDiCategoria = (
+  record: any,
+  categories: any[],
+  displayIndex: CategoryDisplayIndex,
+) => {
+  const [primo] = findCategoryIdsFromRecord(record, categories);
+  if (primo) return displayIndex.label(primo);
+  return getRecordDisplayCategory(record, categories);
+};
+
 const buildVisibleTrainings = (
   trainings: any[],
   categories: any[],
   categoryIds: Set<string>,
   trainerProfile: any,
+  displayIndex: CategoryDisplayIndex,
 ) =>
   dedupeTrainings(Array.isArray(trainings) ? trainings : [])
     .filter((training: any) => {
@@ -363,7 +387,24 @@ const buildVisibleTrainings = (
         .map((value) => value.trim())
         .filter(Boolean),
       categoryIds: findCategoryIdsFromRecord(training, categories),
-      displayCategory: getRecordDisplayCategory(training, categories),
+      /*
+        **L'etichetta porta la sede quando il nome ne nomina due** (N3).
+
+        `getRecordDisplayCategory` risolve un **nome**, ed e giusto che lo
+        faccia: due omonime danno la stessa scritta perche si chiamano davvero
+        uguale. Su un club multi-sede pero quella scritta e cio che l'allenatore
+        legge sopra l'appello e sopra la finestra delle convocazioni, e li due
+        «Under 15» identici sono un errore operativo che aspetta di succedere.
+
+        L'identita resta l'identificativo: si risolve prima quello, e solo se il
+        catalogo non lo riconosce si ripiega sul nome — che e esattamente il
+        contratto di `describe`.
+      */
+      displayCategory: etichettaDiCategoria(
+        training,
+        categories,
+        displayIndex,
+      ),
     }))
     .sort((left: any, right: any) => {
       const leftTime = left?.startsAt
@@ -380,6 +421,7 @@ const buildVisibleMatches = (
   categories: any[],
   categoryIds: Set<string>,
   trainerProfile: any,
+  displayIndex: CategoryDisplayIndex,
 ) =>
   matches
     .filter((match: any) => {
@@ -400,7 +442,7 @@ const buildVisibleMatches = (
       startsAt: toTrainerDateTime(match?.date, match?.time),
       trainerNames: Array.isArray(match?.trainers) ? match.trainers : [],
       categoryIds: findCategoryIdsFromRecord(match, categories),
-      displayCategory: getRecordDisplayCategory(match, categories),
+      displayCategory: etichettaDiCategoria(match, categories, displayIndex),
     }))
     .sort((left: any, right: any) => {
       const leftTime = left?.startsAt
@@ -542,6 +584,8 @@ export function TrainerDashboardProvider({
         trainerPreferences,
         apiAnnouncements,
         apiOperationalAlerts,
+        apiSites,
+        apiCategoryGroups,
       ] = await Promise.all([
         apiRequest<any[]>("/api/v1/categories", {
           method: "GET",
@@ -619,6 +663,24 @@ export function TrainerDashboardProvider({
           method: "POST",
           headers: activeClubHeaders,
           body: {},
+        }),
+        /*
+          **Sedi e gruppi, per sapere come si scrive una categoria** (N3).
+
+          Servono soltanto alla **resa**: una categoria non porta una sede, la
+          coppia (categoria, sede) e il gruppo operativo (ADR-0038), quindi
+          senza i gruppi non c'e modo di dire quale «Under 15» sia questa. Il
+          perimetro dell'allenatore continua a deciderlo il server; queste due
+          letture non allargano niente, sono le stesse risorse di club che ogni
+          altra schermata gia legge.
+        */
+        apiRequest<any[]>("/api/v1/club_sites", {
+          method: "GET",
+          headers: activeClubHeaders,
+        }),
+        apiRequest<any[]>("/api/v1/category_groups", {
+          method: "GET",
+          headers: activeClubHeaders,
         }),
       ]);
 
@@ -766,17 +828,34 @@ export function TrainerDashboardProvider({
         mergedCategories,
         categoryIdSet,
       );
+      /*
+        L'indice di resa si costruisce **una volta** per caricamento:
+        l'ambiguita e una proprieta dell'insieme, non della singola riga, e
+        ricalcolarla per ogni allenamento costerebbe un giro sul catalogo per
+        riga.
+      */
+      const displayIndex = buildCategoryDisplayIndex({
+        categories: mergedCategories,
+        groups: buildCategoryGroups({
+          categories: mergedCategories,
+          sites: normalizeClubSites(apiSites?.data ?? []),
+          groups: apiCategoryGroups?.data ?? [],
+        }),
+      });
+
       const nextVisibleTrainings = buildVisibleTrainings(
         Array.isArray(rawTrainings) ? rawTrainings : [],
         mergedCategories,
         categoryIdSet,
         nextTrainerProfile,
+        displayIndex,
       );
       const nextVisibleMatches = buildVisibleMatches(
         Array.isArray(rawMatches) ? rawMatches : [],
         mergedCategories,
         categoryIdSet,
         nextTrainerProfile,
+        displayIndex,
       );
       const nextVisibleReminders = buildVisibleReminders(
         Array.isArray(rawSecretariatNotes) ? rawSecretariatNotes : [],

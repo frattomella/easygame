@@ -139,7 +139,13 @@ test("§I · i dati personali stanno dentro la scheda Generale", () => {
     diritti dell'interessato sono l'ultima cosa che si fa, non la prima che si
     legge.
   */
-  const tesseramento = scheda.indexOf("<CardTitle>Tesseramento</CardTitle>");
+  /*
+    L'ancoraggio e il **pannello**, non piu il titolo della card: N4 ha
+    estratto tabella e finestra dei tesseramenti in
+    `athlete-registrations-panel.tsx` per rientrare sotto il tetto di righe
+    della scheda. Cio che questa prova misura — l'**ordine** — non e cambiato.
+  */
+  const tesseramento = scheda.indexOf("<AthleteRegistrationsPanel");
   assert.ok(
     tesseramento > generale && sezione > tesseramento,
     "sta dopo l'anagrafica e il tesseramento, in coda alla scheda",
