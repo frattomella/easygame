@@ -95,6 +95,14 @@ export const AUDIT_ACTIONS = {
   */
   fundingSettlementReversed: "funding.settlement.reversed",
   /*
+    Aprire, chiudere o riaprire un bando (N6). E un atto, non una modifica: da
+    quel momento il programma comincia — o smette — di ammettere beneficiari e
+    di far maturare periodi. Registrarlo come «programma aggiornato» avrebbe
+    nascosto in mezzo alle correzioni di una nota la riga che spiega perche da
+    marzo nessuno ha piu maturato.
+  */
+  fundingProgramTransitioned: "funding.program.transition",
+  /*
     La prima nota. La traccia porta l'id **del movimento**, e non e un
     dettaglio: prima un movimento manuale finiva in `resource.updated` su
     `clubs` con l'id **del club**, e chi leggeva l'audit sapeva che qualcuno

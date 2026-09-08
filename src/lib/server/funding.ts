@@ -18,8 +18,14 @@ import {
   validateFundingProgram,
   validateSettlementAllocation,
   FUNDING_ACCRUAL_ORIGINS,
+  FUNDING_PROGRAM_DESCRIPTIVE_FIELDS,
+  FUNDING_PROGRAM_STATUS_LABELS,
+  canTransitionFundingProgram,
+  fundingProgramAcceptsEnrollments,
+  fundingProgramAccruesNow,
   type FundingAccrualOrigin,
   type FundingPeriod,
+  type FundingProgramStatus,
 } from "@/lib/funding/funding-model";
 import { measureAttendanceByPeriod } from "@/lib/funding/attendance-measure";
 import { toEventLegacyShape } from "@/lib/events/model";
@@ -264,6 +270,45 @@ export const updateFundingProgram = async (
 ) => {
   const existing = await getFundingProgramById(programId, scope);
 
+  /*
+    **Lo stato non si cambia da qui** (N6).
+
+    Un cambio di stato e un atto: apre un bando, o lo chiude. Farlo passare per
+    la modifica generica vorrebbe dire che una schermata che voleva correggere
+    una nota puo chiudere il bando serializzando un campo in piu, e che l'audit
+    registra «programma aggiornato» dove e successo qualcosa d'altro.
+    `transitionFundingProgram` e la porta, e vaglia la transizione.
+  */
+  if (
+    input.status !== undefined &&
+    asText(input.status) !== asText(existing.status)
+  ) {
+    throw new Error(
+      "Lo stato di un programma si cambia dalle sue azioni, non dalla modifica generica",
+    );
+  }
+
+  /*
+    **Le regole si cambiano finche nessuno le sta usando.**
+
+    Da `active` in poi si correggono nome, ente e note — cio che descrive il
+    bando — ma non importi, date e soglie, che sono cio da cui si **ricalcola**
+    il maturato. Una soglia cambiata sotto a un'iscrizione riscrive importi che
+    la segreteria ha gia letto, e forse rendicontato all'ente.
+  */
+  if (existing.status !== "draft") {
+    const descrittivi = new Set<string>(FUNDING_PROGRAM_DESCRIPTIVE_FIELDS);
+    const regoleToccate = Object.keys(input).filter(
+      (chiave) => !descrittivi.has(chiave) && input[chiave] !== undefined,
+    );
+
+    if (regoleToccate.length > 0) {
+      throw new Error(
+        "Le regole di un programma gia avviato non si cambiano: riportalo in bozza non e possibile, apri un programma nuovo",
+      );
+    }
+  }
+
   const merged = { ...existing, ...input };
   const error = validateFundingProgram(merged);
   if (error) throw new Error(error);
@@ -272,6 +317,62 @@ export const updateFundingProgram = async (
     where: { id: existing.id },
     data: buildProgramData(merged),
   });
+};
+
+/**
+ * **Aprire, chiudere, riaprire un programma** (N6).
+ *
+ * L'unica strada che scrive `funding_programs.status`. Quattro transizioni
+ * ammesse (`FUNDING_PROGRAM_TRANSITIONS`), e cio che non e ammesso viene
+ * rifiutato invece di essere scritto in silenzio: una transizione che non
+ * cambia niente lascerebbe in audit una riga che racconta un atto mai
+ * avvenuto.
+ *
+ * **Chiudere non cancella.** Le iscrizioni restano, i maturati restano, le
+ * liquidazioni restano: chiudere dice «non entra piu nessuno e non matura piu
+ * niente», non «non e mai successo». Per questo la chiusura non ha guardie sul
+ * denaro — non ne tocca — e la riapertura e sempre possibile.
+ */
+export const transitionFundingProgram = async (
+  programId: string,
+  input: { status?: unknown; reason?: unknown },
+  scope?: FundingScope,
+) => {
+  const existing = await getFundingProgramById(programId, scope);
+  const da = asText(existing.status) || "draft";
+  const a = asText(input.status);
+
+  if (!a) {
+    throw new Error("Indica lo stato in cui portare il programma");
+  }
+
+  if (!canTransitionFundingProgram(da, a)) {
+    throw new Error(
+      `Un programma «${FUNDING_PROGRAM_STATUS_LABELS[da as FundingProgramStatus] || da}» non puo passare a «${
+        FUNDING_PROGRAM_STATUS_LABELS[a as FundingProgramStatus] || a
+      }»`,
+    );
+  }
+
+  const aggiornato = await programClient().update({
+    where: { id: existing.id },
+    data: { status: a },
+  });
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.fundingProgramTransitioned,
+    resource: "funding_programs",
+    resourceId: existing.id,
+    organizationId: existing.organization_id,
+    actorUserId: scope?.userId || null,
+    metadata: {
+      from: da,
+      to: a,
+      reason: asText(input.reason) || null,
+    },
+  });
+
+  return aggiornato;
 };
 
 /* ------------------------------------------------------------ beneficiari */
@@ -377,8 +478,26 @@ export const createFundingEnrollment = async (
     throw new Error("Atleta non trovato");
   }
 
-  if (program.status === "closed") {
-    throw new Error("Il programma e chiuso: non ammette nuovi beneficiari");
+  /*
+    **Solo un programma attivo ammette beneficiari** (N6).
+
+    Qui il rifiuto era sul solo `closed`, quindi si iscriveva su una **bozza**:
+    e ogni programma nasce bozza e nessuna schermata sapeva cambiarlo, quindi
+    di fatto tutte le iscrizioni del pilota vivono su bandi in bozza. Uno stato
+    che non impedisce niente e un'etichetta, e la scheda scriveva «BOZZA»
+    accanto a un bando che stava gia maturando denaro pubblico.
+
+    Le regole di un bando decidono quanto matura ogni periodo: cambiarle sotto
+    a un'iscrizione gia attiva riscrive in silenzio importi che qualcuno ha gia
+    letto. La bozza serve esattamente a questo, ed e utile solo se chiude la
+    porta.
+  */
+  if (!fundingProgramAcceptsEnrollments(program.status)) {
+    throw new Error(
+      program.status === "closed"
+        ? "Il programma e chiuso: non ammette nuovi beneficiari"
+        : "Il programma e in bozza: attivalo prima di iscrivere atleti",
+    );
   }
 
   const assignedAmount =
@@ -539,6 +658,36 @@ export const recomputeEnrollmentAccruals = async (
 ): Promise<RecomputeResult> => {
   const enrollment = await getFundingEnrollmentById(enrollmentId, scope);
   const program = await getFundingProgramById(enrollment.program_id, scope);
+
+  /*
+    **Matura solo un programma attivo** (N6).
+
+    Su una bozza non c'e niente da maturare — nessuno puo esservi iscritto — e
+    su un bando chiuso maturare vorrebbe dire far crescere un credito verso un
+    ente che ha smesso di riconoscerlo.
+
+    E una guardia sulla **scrittura**, non una cancellazione: cio che era gia
+    maturato resta dov'e, e la scheda continua a mostrarlo. Chiudere un bando
+    non riscrive la storia.
+  */
+  if (!fundingProgramAccruesNow(program.status)) {
+    throw new Error(
+      program.status === "closed"
+        ? "Il programma e chiuso: il maturato non si ricalcola piu"
+        : "Il programma e in bozza: attivalo prima di calcolare il maturato",
+    );
+  }
+
+  /*
+    Un'iscrizione revocata o sospesa non matura. Il commento di
+    `removeFundingEnrollment` lo dichiarava gia — «smette di maturare» — e
+    nessuna riga lo faceva valere: il ricalcolo la trattava come le altre.
+  */
+  if (asText(enrollment.status) !== "active") {
+    throw new Error(
+      "Questa iscrizione non e attiva: il maturato non si ricalcola",
+    );
+  }
 
   const periods: FundingPeriod[] = generateFundingPeriods(program, {
     until: options.until ?? new Date(),

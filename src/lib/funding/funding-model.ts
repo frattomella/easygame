@@ -65,6 +65,131 @@ export const FUNDING_PROGRAM_STATUSES = ["draft", "active", "closed"] as const;
 export type FundingProgramStatus = (typeof FUNDING_PROGRAM_STATUSES)[number];
 
 /**
+ * **Che cosa significa lo stato di un programma** (N6).
+ *
+ * I tre valori esistevano dal Blocco D e non significavano niente: ogni
+ * programma nasceva `draft`, nessuna schermata sapeva cambiarlo, e `draft`
+ * iscriveva e maturava **esattamente** come `active` — l'unico controllo era
+ * su `closed`. `active` era un valore che nessuna riga di `src/` leggeva.
+ *
+ * Uno stato che non cambia niente e peggio di uno stato assente: la scheda
+ * scriveva «BOZZA» accanto a un bando che stava gia maturando denaro pubblico.
+ *
+ * Adesso i tre stati dicono tre cose diverse:
+ *
+ * - **`draft`** — si configura. Le regole del bando si cambiano ancora, e
+ *   **non si iscrive nessuno**: le regole decidono quanto matura ogni periodo,
+ *   e cambiarle sotto a un'iscrizione gia attiva riscriverebbe importi che
+ *   qualcuno ha gia letto;
+ * - **`active`** — si iscrive e si matura. Il bando e in corso;
+ * - **`closed`** — non entra piu nessuno e non matura piu niente. Lo storico
+ *   resta intero: chiudere non cancella, e cio che era maturato resta maturato.
+ */
+export const FUNDING_PROGRAM_STATUS_LABELS: Record<FundingProgramStatus, string> =
+  {
+    draft: "Bozza",
+    active: "Attivo",
+    closed: "Chiuso",
+  };
+
+export const FUNDING_PROGRAM_STATUS_DESCRIPTIONS: Record<
+  FundingProgramStatus,
+  string
+> = {
+  draft:
+    "In configurazione: le regole si possono ancora cambiare, e non si iscrive nessuno.",
+  active: "In corso: si iscrivono atleti e i periodi maturano.",
+  closed:
+    "Chiuso: non entra piu nessuno e non matura piu niente. Lo storico resta.",
+};
+
+/**
+ * **Le transizioni ammesse, e sono quattro.**
+ *
+ * Non e un grafo completo: e l'elenco di cio che una segreteria fa davvero.
+ *
+ * - `draft → active` — si apre il bando;
+ * - `active → closed` — si chiude a fine stagione, o perche l'ente lo ha
+ *   revocato;
+ * - `draft → closed` — un bando configurato e mai partito si archivia senza
+ *   passare per l'apertura;
+ * - `closed → active` — **si riapre**. Chiudere non e un atto distruttivo, e
+ *   un bando riaperto per una proroga dell'ente non deve costringere a
+ *   riconfigurare tutto da capo perdendo lo storico.
+ *
+ * `draft → draft` e simili non sono transizioni: sono nulla, e chi le chiede
+ * riceve un rifiuto invece di una scrittura silenziosa che finisce in audit.
+ */
+export const FUNDING_PROGRAM_TRANSITIONS: Record<
+  FundingProgramStatus,
+  readonly FundingProgramStatus[]
+> = {
+  draft: ["active", "closed"],
+  active: ["closed"],
+  closed: ["active"],
+};
+
+export const canTransitionFundingProgram = (
+  from: unknown,
+  to: unknown,
+): boolean => {
+  const partenza = FUNDING_PROGRAM_STATUSES.includes(from as FundingProgramStatus)
+    ? (from as FundingProgramStatus)
+    : null;
+  const arrivo = FUNDING_PROGRAM_STATUSES.includes(to as FundingProgramStatus)
+    ? (to as FundingProgramStatus)
+    : null;
+
+  if (!partenza || !arrivo) return false;
+
+  return FUNDING_PROGRAM_TRANSITIONS[partenza].includes(arrivo);
+};
+
+/** Gli stati raggiungibili da qui: e cio che la schermata deve offrire. */
+export const listFundingProgramTransitions = (
+  from: unknown,
+): readonly FundingProgramStatus[] =>
+  FUNDING_PROGRAM_STATUSES.includes(from as FundingProgramStatus)
+    ? FUNDING_PROGRAM_TRANSITIONS[from as FundingProgramStatus]
+    : [];
+
+/**
+ * **Un programma accetta iscrizioni solo quando e attivo.**
+ *
+ * Prima l'unico rifiuto era su `closed`, quindi si iscriveva su una bozza. E
+ * la differenza fra «lo stato e un'etichetta» e «lo stato governa».
+ */
+export const fundingProgramAcceptsEnrollments = (status: unknown) =>
+  String(status || "") === "active";
+
+/**
+ * **Un programma matura solo quando e attivo.**
+ *
+ * Su una bozza non c'e niente da maturare — nessuno e iscritto — e su un bando
+ * chiuso maturare vorrebbe dire far crescere un credito verso un ente che ha
+ * gia smesso di riconoscerlo. Cio che era gia maturato **resta**: questa e una
+ * guardia sulla scrittura, non una cancellazione.
+ */
+export const fundingProgramAccruesNow = (status: unknown) =>
+  String(status || "") === "active";
+
+/**
+ * **Le regole del bando si cambiano finche nessuno le sta usando.**
+ *
+ * Su `draft` si cambia tutto. Da `active` in poi si possono correggere il
+ * nome, l'ente e le note — cioe cio che descrive il bando — ma non gli importi,
+ * le date e le soglie, che sono cio da cui **si ricalcola** il maturato: una
+ * soglia cambiata sotto a un'iscrizione riscrive in silenzio importi che la
+ * segreteria ha gia letto, e forse rendicontato.
+ */
+export const FUNDING_PROGRAM_DESCRIPTIVE_FIELDS = [
+  "name",
+  "funder_name",
+  "notes",
+  "status",
+] as const;
+
+/**
  * **Da dove arriva la maturazione** (ADR-0054).
  *
  * Le presenze EasyGame non sono sempre la fonte ufficiale. Su molti bandi la

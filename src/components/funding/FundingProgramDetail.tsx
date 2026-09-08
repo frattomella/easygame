@@ -23,6 +23,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast-notification";
+import {
+  FUNDING_PROGRAM_STATUS_DESCRIPTIONS,
+  listFundingProgramTransitions,
+} from "@/lib/funding/funding-model";
 import { apiRequest } from "@/lib/api/client";
 import {
   fundingAccrualSourceLabel,
@@ -69,6 +73,18 @@ const formatDate = (value?: unknown) => {
     month: "2-digit",
     year: "numeric",
   });
+};
+
+/**
+ * Come si chiama **l'atto**, non lo stato di arrivo.
+ *
+ * «Attivo» e uno stato; «Attiva» e cio che si preme. Sono due parole diverse
+ * di proposito: un pulsante che porta il nome dello stato in cui si e gia fa
+ * dubitare di dove si stia andando.
+ */
+const TRANSITION_LABELS: Record<string, string> = {
+  active: "Attiva",
+  closed: "Chiudi",
 };
 
 const PROGRAM_STATUS: Record<string, { label: string; className: string }> = {
@@ -134,6 +150,40 @@ export function FundingProgramDetail({
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [transitioning, setTransitioning] = React.useState(false);
+
+  /**
+   * Apre, chiude o riapre il programma.
+   *
+   * Chiudere non e distruttivo — iscrizioni, maturati e liquidazioni restano —
+   * quindi non c'e una conferma da chiedere. Riaprire nemmeno. La conferma
+   * serve dove qualcosa si perde, e qui non si perde niente: metterla ovunque
+   * insegna a premere «si» senza leggere.
+   */
+  const transition = React.useCallback(
+    async (status: string) => {
+      setTransitioning(true);
+      const { error } = await apiRequest(
+        `/api/v1/funding/programs/${encodeURIComponent(programId)}/transition`,
+        { method: "POST", body: { status } },
+      );
+      setTransitioning(false);
+
+      if (error) {
+        showToast("error", error.message || "Cambio di stato non riuscito");
+        return;
+      }
+
+      showToast(
+        "success",
+        status === "active"
+          ? "Programma attivo: ora si iscrivono atleti e i periodi maturano"
+          : "Programma chiuso: lo storico resta, non entra piu nessuno",
+      );
+      await load();
+    },
+    [programId, showToast],
+  );
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -234,7 +284,15 @@ export function FundingProgramDetail({
           <h3 className="min-w-0 truncate text-lg font-semibold">
             {program.name}
           </h3>
-          <Badge variant="outline" className={status.className}>
+          <Badge
+            variant="outline"
+            className={status.className}
+            title={
+              FUNDING_PROGRAM_STATUS_DESCRIPTIONS[
+                program.status as keyof typeof FUNDING_PROGRAM_STATUS_DESCRIPTIONS
+              ]
+            }
+          >
             {status.label}
           </Badge>
         </div>
@@ -244,16 +302,47 @@ export function FundingProgramDetail({
             <RefreshCw className="h-4 w-4" />
             Aggiorna
           </Button>
+          {/*
+            **Le azioni di stato, che prima non c'erano** (N6).
+
+            La `PATCH` esisteva e nessun componente la chiamava: ogni programma
+            nasceva in bozza e in bozza restava per sempre, mentre `draft`
+            iscriveva e maturava come un programma attivo. Una foundation
+            scritta, provata e irraggiungibile — la forma di difetto che
+            CLAUDE.md §11.8 nomina.
+
+            Le voci offerte sono **quelle che il dominio ammette**
+            (`listFundingProgramTransitions`), non un elenco scritto qui: se
+            l'interfaccia proponesse una transizione che il servizio rifiuta,
+            l'utente scoprirebbe la regola dall'errore.
+          */}
+          {canManage
+            ? listFundingProgramTransitions(program.status).map((prossimo) => (
+                <Button
+                  key={prossimo}
+                  size="sm"
+                  variant={prossimo === "closed" ? "outline" : "default"}
+                  className="gap-1"
+                  disabled={transitioning}
+                  onClick={() => void transition(prossimo)}
+                >
+                  {TRANSITION_LABELS[prossimo]}
+                </Button>
+              ))
+            : null}
           {canManage ? (
             <Button
               size="sm"
+              variant="outline"
               className="gap-1"
               onClick={() => setDialogOpen(true)}
-              disabled={String(program.status) === "closed"}
+              disabled={String(program.status) !== "active"}
               title={
                 String(program.status) === "closed"
                   ? "Un programma chiuso non ammette nuovi beneficiari"
-                  : undefined
+                  : String(program.status) === "draft"
+                    ? "Un programma in bozza non ammette beneficiari: attivalo prima"
+                    : undefined
               }
             >
               <UserPlus className="h-4 w-4" />
