@@ -142,6 +142,13 @@ import {
 } from "@/lib/clothing-sizes";
 import { normalizeClubSites, type ClubSite } from "@/lib/club-sites";
 import { AthleteCategoriesPanel } from "@/components/athletes/profile/athlete-categories-panel";
+import { AthleteRegistrationsPanel } from "@/components/athletes/profile/athlete-registrations-panel";
+import { AthleteRegistrationDialog } from "@/components/athletes/profile/athlete-registration-dialog";
+import {
+  buildRegistrationFederationReference,
+  listClubFederations,
+  type ClubFederation,
+} from "@/lib/club-federations";
 import {
   downloadAttachment,
   downloadClientFileUrl,
@@ -328,6 +335,7 @@ export default function AthleteProfilePage() {
   const [showAddMedicalVisitModal, setShowAddMedicalVisitModal] =
     useState(false);
   const [certificateToEdit, setCertificateToEdit] = useState<any>(null);
+  const [registrationToEdit, setRegistrationToEdit] = useState<any>(null);
   const [showAddMedicalCertificateModal, setShowAddMedicalCertificateModal] =
     useState(false);
   const [certificateToDelete, setCertificateToDelete] = useState<any | null>(
@@ -346,7 +354,7 @@ export default function AthleteProfilePage() {
     useState(false);
   const [showAddEnrollmentDocumentModal, setShowAddEnrollmentDocumentModal] =
     useState(false);
-  const [clubFederations, setClubFederations] = useState<string[]>([]);
+  const [clubFederations, setClubFederations] = useState<ClubFederation[]>([]);
   // Metodi di incasso configurati dal club: alimentano la selezione in
   // «Modifica pagamento», che prima era un campo di testo libero (WP-33).
   const [clubPaymentMethodChoices, setClubPaymentMethodChoices] = useState<
@@ -791,7 +799,7 @@ export default function AthleteProfilePage() {
         );
         setCertificateFiles(normalizedCollections.certificateFiles);
         setClothingSizes(resolvedClothingSizes);
-        setClubFederations(normalizeClubFederations(clubRecord));
+        setClubFederations(listClubFederations(clubRecord));
         setClubPaymentMethodChoices(
           getClubPaymentMethodChoices(clubRecord?.settings),
         );
@@ -2795,28 +2803,72 @@ export default function AthleteProfilePage() {
       return;
     }
 
-    try {
-      const attachmentUrl = await uploadAttachmentReference(
-        newRegistration.file,
-        {
-          ownerType: "athlete",
-          ownerId: athleteId,
-          organizationId: clubId,
-          category: "tesseramento",
-        },
+    /*
+      **L'ente si scrive per identificativo, e deve essere del club** (N2).
+
+      Prima qui finiva il **nome** scelto nella tendina. Rinominare
+      un'affiliazione in `/organization` orfanava percio ogni tesseramento gia
+      registrato, e niente impediva di scrivere un ente che il club non ha —
+      perche la domanda «e uno dei tuoi?» non veniva posta da nessuna parte.
+
+      Si conservano tutti e due: l'identificativo per il legame, il nome come
+      etichetta **congelata**, perche uno storico deve poter dire cosa fu vero
+      anche dopo che il club ha tolto quell'ente.
+    */
+    const riferimento = buildRegistrationFederationReference(
+      newRegistration.federation,
+      clubFederations,
+    );
+
+    if (!riferimento) {
+      showToast(
+        "error",
+        "Questa federazione non e fra quelle configurate dal club",
       );
+      return;
+    }
+
+    try {
+      const inModifica = registrationToEdit
+        ? registrations.find(
+            (voce: any) => String(voce?.id) === String(registrationToEdit.id),
+          )
+        : null;
+
+      /*
+        Un file nuovo **sostituisce** quello di prima allo stesso id: cosi il
+        riferimento sulla riga non cambia e non esiste l'istante in cui punta a
+        un allegato che non c'e piu. Senza file nuovo resta quello che c'era.
+      */
+      const attachmentUrl = newRegistration.file
+        ? await uploadAttachmentReference(newRegistration.file, {
+            ownerType: "athlete",
+            ownerId: athleteId,
+            organizationId: clubId,
+            category: "tesseramento",
+            replaces: String(inModifica?.fileUrl || "") || undefined,
+          })
+        : String(inModifica?.fileUrl || "");
+
       const registration = {
-        id: Date.now().toString(),
-        federation: newRegistration.federation,
+        id: String(inModifica?.id || Date.now().toString()),
+        federationId: riferimento.federationId,
+        federation: riferimento.federation,
         number: newRegistration.number,
         status: newRegistration.status,
         issueDate: newRegistration.issueDate,
         expiryDate: newRegistration.expiryDate,
         notes: newRegistration.notes,
-        fileName: newRegistration.file?.name || "",
+        fileName:
+          newRegistration.file?.name || String(inModifica?.fileName || ""),
         fileUrl: attachmentUrl,
       };
-      const nextRegistrations = [...registrations, registration];
+
+      const nextRegistrations = inModifica
+        ? registrations.map((voce: any) =>
+            String(voce?.id) === String(inModifica.id) ? registration : voce,
+          )
+        : [...registrations, registration];
 
       await persistAthleteCollections({
         registrationsOverride: nextRegistrations,
@@ -2826,8 +2878,12 @@ export default function AthleteProfilePage() {
       });
       setRegistrations(nextRegistrations);
       setNewRegistration(createEmptyRegistration());
+      setRegistrationToEdit(null);
       setShowAddRegistrationModal(false);
-      showToast("success", "Tesseramento aggiunto");
+      showToast(
+        "success",
+        inModifica ? "Tesseramento aggiornato" : "Tesseramento aggiunto",
+      );
     } catch (error) {
       console.error("Error saving registration:", error);
       showToast("error", "Impossibile salvare il tesseramento");
@@ -3623,122 +3679,59 @@ export default function AthleteProfilePage() {
                   </CardContent>
                 </Card>
 
-                {/* Tesseramento */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Tesseramento</CardTitle>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setNewRegistration(createEmptyRegistration());
-                        setShowAddRegistrationModal(true);
-                      }}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Aggiungi Tesseramento
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left p-2">Federazione/Ente</th>
-                            <th className="text-left p-2">Numero</th>
-                            <th className="text-left p-2">Scadenza</th>
-                            <th className="text-left p-2">Stato</th>
-                            <th className="text-left p-2">Azioni</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {registrations.length > 0 ? (
-                            registrations.map(
-                              (reg: any, idx: number) => (
-                                <tr key={idx} className="border-b">
-                                  <td className="p-2">{reg.federation}</td>
-                                  <td className="p-2">{reg.number}</td>
-                                  <td className="p-2">
-                                    {formatDate(reg.expiryDate) || "-"}
-                                  </td>
-                                  <td className="p-2">
-                                    <Badge
-                                      className={
-                                        reg.status === "In corso"
-                                          ? "bg-green-500"
-                                          : reg.status === "Scaduto"
-                                            ? "bg-red-500"
-                                            : "bg-yellow-500"
-                                      }
-                                    >
-                                      {reg.status}
-                                    </Badge>
-                                  </td>
-                                  <td className="p-2">
-                                    <div className="flex gap-1">
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => {
-                                          if (
-                                            !openClientFileUrl(reg.fileUrl)
-                                          ) {
-                                            showToast(
-                                              "error",
-                                              "Allegato del tesseramento non disponibile",
-                                            );
-                                          }
-                                        }}
-                                      >
-                                        <Eye className="h-4 w-4" />
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => {
-                                          if (
-                                            !downloadClientFileUrl(
-                                              reg.fileUrl,
-                                              `tesseramento-${reg.federation}-${reg.number}`,
-                                            )
-                                          ) {
-                                            showToast(
-                                              "error",
-                                              "Allegato del tesseramento non disponibile",
-                                            );
-                                          }
-                                        }}
-                                      >
-                                        <Download className="h-4 w-4" />
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() =>
-                                          removeRegistration(reg.id)
-                                        }
-                                      >
-                                        <Trash2 className="h-4 w-4 text-red-500" />
-                                      </Button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ),
-                            )
-                          ) : (
-                            <tr>
-                              <td
-                                colSpan={5}
-                                className="p-4 text-center text-muted-foreground"
-                              >
-                                Nessun tesseramento registrato
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
+                <AthleteRegistrationsPanel
+                  registrations={registrations}
+                  federations={clubFederations}
+                  formatDate={formatDate}
+                  onAdd={() => {
+                    setRegistrationToEdit(null);
+                    setNewRegistration(createEmptyRegistration());
+                    setShowAddRegistrationModal(true);
+                  }}
+                  onEdit={(registration) => {
+                    setRegistrationToEdit(registration);
+                    setNewRegistration({
+                      ...createEmptyRegistration(),
+                      federation: String(
+                        registration.federationId || registration.federation || "",
+                      ),
+                      number: String(registration.number || ""),
+                      status: String(registration.status || "In corso"),
+                      issueDate: String(registration.issueDate || ""),
+                      expiryDate: String(registration.expiryDate || ""),
+                      notes: String(registration.notes || ""),
+                      file: null,
+                    });
+                    setShowAddRegistrationModal(true);
+                  }}
+                  onView={(registration) => {
+                    if (!openClientFileUrl(registration.fileUrl)) {
+                      showToast(
+                        "error",
+                        "Allegato del tesseramento non disponibile",
+                      );
+                    }
+                  }}
+                  onDownload={(registration) => {
+                    if (
+                      !downloadAttachment(registration.fileUrl, {
+                        documentType: "Tesseramento",
+                        firstName: athlete?.name,
+                        lastName: athlete?.surname,
+                        fullName: athlete?.fullName,
+                        date: registration.expiryDate || registration.issueDate,
+                      })
+                    ) {
+                      showToast(
+                        "error",
+                        "Allegato del tesseramento non disponibile",
+                      );
+                    }
+                  }}
+                  onDelete={(registration) =>
+                    removeRegistration(String(registration.id || ""))
+                  }
+                />
 
                 {/*
                   **I diritti dell'interessato, in fondo a «Generale»**
@@ -6919,153 +6912,19 @@ export default function AthleteProfilePage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <AthleteRegistrationDialog
         open={showAddRegistrationModal}
-        onOpenChange={setShowAddRegistrationModal}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Nuovo Tesseramento</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label>Federazione/Ente *</Label>
-                <Select
-                  value={newRegistration.federation}
-                  onValueChange={(value) =>
-                    setNewRegistration({
-                      ...newRegistration,
-                      federation: value,
-                    })
-                  }
-                >
-                  <SelectTrigger className="mt-2">
-                    <SelectValue placeholder="Seleziona federazione o ente" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clubFederations.map((federation) => (
-                      <SelectItem key={federation} value={federation}>
-                        {federation}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {clubFederations.length === 0 && (
-                  <p className="mt-2 text-xs text-amber-600">
-                    Nessuna federazione registrata nel club. Aggiungile prima
-                    nella pagina organizzazione.
-                  </p>
-                )}
-              </div>
-              <div>
-                <Label>Numero Tessera</Label>
-                <Input
-                  value={newRegistration.number}
-                  onChange={(e) =>
-                    setNewRegistration({
-                      ...newRegistration,
-                      number: e.target.value,
-                    })
-                  }
-                  className="mt-2"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label>Data Emissione</Label>
-                <Input
-                  type="date"
-                  value={newRegistration.issueDate}
-                  onChange={(e) =>
-                    setNewRegistration({
-                      ...newRegistration,
-                      issueDate: e.target.value,
-                    })
-                  }
-                  className="mt-2"
-                />
-              </div>
-              <div>
-                <Label>Data Scadenza</Label>
-                <Input
-                  type="date"
-                  value={newRegistration.expiryDate}
-                  onChange={(e) =>
-                    setNewRegistration({
-                      ...newRegistration,
-                      expiryDate: e.target.value,
-                    })
-                  }
-                  className="mt-2"
-                />
-              </div>
-            </div>
-            <div>
-              <Label>Stato</Label>
-              <Select
-                value={newRegistration.status}
-                onValueChange={(value) =>
-                  setNewRegistration({
-                    ...newRegistration,
-                    status: value,
-                  })
-                }
-              >
-                <SelectTrigger className="mt-2">
-                  <SelectValue placeholder="Seleziona stato" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="In corso">In corso</SelectItem>
-                  <SelectItem value="In rinnovo">In rinnovo</SelectItem>
-                  <SelectItem value="Scaduto">Scaduto</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Note</Label>
-              <Textarea
-                value={newRegistration.notes}
-                onChange={(e) =>
-                  setNewRegistration({
-                    ...newRegistration,
-                    notes: e.target.value,
-                  })
-                }
-                className="mt-2"
-              />
-            </div>
-            <div>
-              <Label>Allegato</Label>
-              <Input
-                type="file"
-                onChange={(e) =>
-                  setNewRegistration({
-                    ...newRegistration,
-                    file: e.target.files?.[0] || null,
-                  })
-                }
-                className="mt-2"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowAddRegistrationModal(false)}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={handleSaveRegistration}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              Salva Tesseramento
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={(open) => {
+          setShowAddRegistrationModal(open);
+          if (!open) setRegistrationToEdit(null);
+        }}
+        draft={newRegistration}
+        onDraftChange={setNewRegistration}
+        federations={clubFederations}
+        isEditing={Boolean(registrationToEdit)}
+        hasExistingFile={Boolean(registrationToEdit?.fileUrl)}
+        onSave={handleSaveRegistration}
+      />
 
       <AddCertificateForm
         isOpen={showAddMedicalCertificateModal}

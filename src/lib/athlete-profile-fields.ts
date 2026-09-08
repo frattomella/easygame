@@ -1,5 +1,6 @@
 import type { KitComponent } from "@/components/forms/CustomKitComponentsBuilder";
 import { normalizeKitComponents } from "@/lib/clothing-kit-utils";
+import { listClubFederations } from "@/lib/club-federations";
 
 /**
  * Stati iniziali e conversioni dei form della scheda atleta.
@@ -45,30 +46,16 @@ export const createEmptyAttachment = () => ({
 });
 
 /**
- * Le federazioni di un club, in qualunque posto siano state salvate.
+ * I **nomi** delle federazioni di un club.
  *
- * Due percorsi storici — la colonna e le impostazioni — e due forme per voce,
- * stringa o oggetto. Si leggono entrambi e si tolgono i duplicati: una
- * tendina che mostra «FIP» due volte fa dubitare che siano due cose diverse.
+ * Il proprietario del dominio e `@/lib/club-federations`: qui resta solo la
+ * proiezione sui nomi, per i pochi punti che di un ente vogliono la scritta e
+ * nient'altro. Chi deve **scegliere** una federazione usa
+ * `listClubFederations` e ne manda l'identificativo — un nome non e
+ * un'identita, e rinominare un'affiliazione orfanava ogni tesseramento (N2).
  */
-export const normalizeClubFederations = (clubData: any): string[] => {
-  const raw = Array.isArray(clubData?.federations)
-    ? clubData.federations
-    : Array.isArray(clubData?.settings?.federations)
-      ? clubData.settings.federations
-      : [];
-
-  const names: string[] = raw
-    .map((federation: any) =>
-      typeof federation === "string"
-        ? federation
-        : federation?.name || federation?.title || "",
-    )
-    .map((name: string) => String(name || "").trim())
-    .filter(Boolean);
-
-  return Array.from(new Set<string>(names));
-};
+export const normalizeClubFederations = (clubData: any): string[] =>
+  listClubFederations(clubData).map((federation) => federation.name);
 
 /**
  * L'eta compiuta, non la differenza fra gli anni.

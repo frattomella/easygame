@@ -16,7 +16,12 @@ import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { AthleteCreateForm } from "@/components/forms/AthleteCreateForm";
 import { findCategoryForBirthDate } from "@/lib/category-utils";
-import { addClubAthlete, getClubCategories } from "@/lib/simplified-db";
+import {
+  addClubAthlete,
+  getClubCategories,
+  getClubFederationOptions,
+} from "@/lib/simplified-db";
+import { type ClubFederation } from "@/lib/club-federations";
 import { sortByName } from "@/lib/sorting";
 
 /**
@@ -46,6 +51,7 @@ function NewAthletePageContent() {
     clubIdFromUrl || null,
   );
   const [categories, setCategories] = React.useState<any[]>([]);
+  const [federations, setFederations] = React.useState<ClubFederation[]>([]);
 
   React.useEffect(() => {
     if (clubIdFromUrl && clubIdFromUrl !== "null") {
@@ -81,6 +87,16 @@ function NewAthletePageContent() {
       setCategories(
         sortByName(Array.isArray(rows) ? rows : [], (row: any) => row?.name),
       );
+    });
+
+    /*
+      Le federazioni del club servono alla tendina del tesseramento: qui c'era
+      un campo di testo libero, e cio che ne usciva non era necessariamente un
+      ente del club (N2).
+    */
+    void getClubFederationOptions(clubId).then((rows: any) => {
+      if (cancelled) return;
+      setFederations(Array.isArray(rows) ? rows : []);
     });
 
     return () => {
@@ -214,6 +230,7 @@ function NewAthletePageContent() {
                 <AthleteCreateForm
                   formId="athlete-create-form"
                   categories={categories}
+                  federations={federations}
                   onSubmit={handleSubmit}
                   onCancel={() => router.push(backHref)}
                 />

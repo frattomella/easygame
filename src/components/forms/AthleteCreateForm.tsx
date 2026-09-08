@@ -5,6 +5,10 @@ import {
   findCategoryForBirthDate,
   formatCategoryBirthYears,
 } from "@/lib/category-utils";
+import {
+  buildRegistrationFederationReference,
+  type ClubFederation,
+} from "@/lib/club-federations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,6 +75,15 @@ interface AthleteCreateFormProps {
     birthYearFrom?: number;
     birthYearTo?: number;
   }[];
+  /**
+   * Le federazioni configurate dal club (N2).
+   *
+   * Qui viveva un campo di testo libero con `placeholder="Es. FIP"`: «FIP»,
+   * «F.I.P.» e «Fip» erano tre enti diversi per il prodotto, e nessuno dei tre
+   * era necessariamente uno di quelli del club. La creazione e la scheda
+   * scrivono lo stesso dato e devono percio offrire la stessa scelta.
+   */
+  federations?: readonly ClubFederation[];
 }
 
 /**
@@ -196,6 +209,7 @@ export function AthleteCreateForm({
   onCancel,
   showFooterActions = true,
   categories = [],
+  federations = [],
 }: AthleteCreateFormProps) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState<AthleteDraft>(getInitialFormState());
@@ -252,6 +266,17 @@ export function AthleteCreateForm({
       return;
     }
 
+    /*
+      L'ente si risolve **una volta**, sul registro del club, e cio che viaggia
+      e il suo identificativo piu l'etichetta congelata. Un valore che non
+      nomina nessuna federazione del club non produce un tesseramento: la
+      stessa regola che la rotta generica fa valere per tutti (N2).
+    */
+    const federationReference = buildRegistrationFederationReference(
+      formData.registrationFederation.trim(),
+      federations,
+    );
+
     setIsSaving(true);
     try {
       /*
@@ -297,14 +322,14 @@ export function AthleteCreateForm({
             enti nella stessa stagione. Il numero **non** e obbligatorio (la
             federazione lo emette dopo), la federazione si.
           */
-          registrations: formData.registrationFederation.trim()
+          registrations: federationReference
             ? [
                 {
-                  id: `registration-${formData.registrationFederation
-                    .trim()
+                  id: `registration-${federationReference.federationId
                     .toLowerCase()
                     .replace(/[^a-z0-9]+/g, "-")}`,
-                  federation: formData.registrationFederation.trim(),
+                  federationId: federationReference.federationId,
+                  federation: federationReference.federation,
                   number: formData.registrationNumber.trim(),
                   status: formData.registrationStatus,
                   issueDate: formData.registrationIssueDate,
@@ -714,13 +739,26 @@ export function AthleteCreateForm({
                   <Label htmlFor="registrationFederation">
                     Federazione o ente
                   </Label>
-                  <Input
+                  <select
                     id="registrationFederation"
                     name="registrationFederation"
                     value={formData.registrationFederation}
                     onChange={handleChange}
-                    placeholder="Es. FIP"
-                  />
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                  >
+                    <option value="">Nessun tesseramento</option>
+                    {federations.map((federation) => (
+                      <option key={federation.id} value={federation.id}>
+                        {federation.name}
+                      </option>
+                    ))}
+                  </select>
+                  {federations.length === 0 ? (
+                    <p className="text-xs text-amber-600">
+                      Nessuna federazione registrata nel club: aggiungila nella
+                      pagina Club prima di tesserare.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">

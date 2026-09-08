@@ -219,9 +219,20 @@ test("genitori e tesseramento si inseriscono alla creazione", () => {
     /registrationFederation/,
     "la federazione e il campo che rende utile il record",
   );
+  /*
+    La regola e la stessa — senza federazione il tesseramento non si salva — ma
+    ora e piu forte: non basta che il campo sia **compilato**, deve nominare una
+    federazione **del club** (N2). `buildRegistrationFederationReference`
+    restituisce `null` per tutto il resto, e `null` non produce nessuna riga.
+  */
   assert.ok(
-    source.includes("registrations: formData.registrationFederation.trim()"),
-    "senza federazione il tesseramento non si salva",
+    source.includes("registrations: federationReference"),
+    "senza una federazione del club il tesseramento non si salva",
+  );
+  assert.match(
+    source,
+    /const federationReference = buildRegistrationFederationReference\(/,
+    "l'ente si risolve sul registro del club, non si copia dal campo",
   );
 });
 

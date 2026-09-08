@@ -1,6 +1,7 @@
 import { apiRequest } from "./client";
 import {
   ATTACHMENT_ENDPOINT,
+  resolveAttachmentSource,
   validateAttachmentInput,
   type AttachmentMetadata,
   type AttachmentOwnerType,
@@ -163,11 +164,34 @@ export const uploadAttachmentReference = async (
   file: File | Blob | null | undefined,
   owner: Omit<UploadAttachmentInput, "file" | "fileName"> & {
     fileName?: string | null;
+    /**
+     * Il riferimento gia sulla riga, quando si sta **sostituendo** il file.
+     *
+     * Con questo il contenuto viene riscritto **allo stesso id**: il valore
+     * salvato nel record non cambia, e non esiste l'istante in cui la riga
+     * punta a un allegato che non c'e piu. Senza, ogni correzione lascerebbe
+     * dietro di se l'allegato di prima, che nessuno cancella e nessuno legge.
+     *
+     * E la stessa scelta che `CertificateAttachmentField` fa da sempre; qui
+     * arriva perche i tesseramenti hanno smesso di essere append-only (N4).
+     */
+    replaces?: string | null;
   },
 ): Promise<string> => {
   if (!file) return "";
 
-  const result = await uploadAttachment({ ...owner, file });
+  const { replaces, ...uploadOwner } = owner;
+  const precedente = resolveAttachmentSource(String(replaces || ""));
+
+  const result =
+    precedente.kind === "reference"
+      ? await replaceAttachment(
+          precedente.id,
+          file,
+          owner.fileName || (file as File).name,
+        )
+      : await uploadAttachment({ ...uploadOwner, file });
+
   if (!result.ok) {
     throw new Error(result.message);
   }

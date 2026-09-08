@@ -2,6 +2,7 @@ import { supabase } from "./supabase";
 import { apiRequest, readStoredActiveClub } from "./api/client";
 import type { ListPageMeta } from "./api/client";
 import { normalizeTrainerList } from "./trainer-utils";
+import { listClubFederations } from "@/lib/club-federations";
 import {
   getAthleteCategoryLabels,
   getPrimaryAthleteCategoryMembership,
@@ -2697,6 +2698,25 @@ const getClubResourcePayloads = async (clubId: string, resourceType: string) => 
     return [];
   }
 };
+
+/**
+ * Le federazioni e gli enti configurati dal club.
+ *
+ * Sta accanto a `getClubCategories` perche e il gemello: il secondo registro
+ * di configurazione che le schermate devono poter offrire come **scelta**, non
+ * come campo libero (N2). Le affiliazioni vivono in `clubs.settings`, non in
+ * una colonna: `club-profile.ts` lo dice e lo fa valere in scrittura.
+ */
+export async function getClubFederationOptions(clubId: string) {
+  try {
+    const { data, error } = await readClubFields(clubId, ["settings"]);
+    if (error) return [];
+    return listClubFederations({ settings: data?.settings || {} });
+  } catch (error) {
+    console.warn("Error fetching club federations:", error);
+    return [];
+  }
+}
 
 export async function getClubCategories(clubId: string) {
   try {

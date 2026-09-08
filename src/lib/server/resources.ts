@@ -9,6 +9,10 @@ import {
   type GuardianInput,
   eraseGuardianInvitesForAthlete,
 } from "./athlete-guardians";
+import {
+  isFederationOfClub,
+  listClubFederations,
+} from "@/lib/club-federations";
 import { eraseProfileInvites } from "./profile-account-links";
 import {
   customRoleReachesResource,
@@ -690,6 +694,70 @@ const assertClinicalPermission = async (
   });
 
   assertHealthPermission(scope.activeRole, permission);
+};
+
+/**
+ * **Un tesseramento non nomina un ente che il club non ha** (N2).
+ *
+ * Le affiliazioni sono **configurazione del club** (`clubs.settings.federations`)
+ * e hanno un identificativo. Un tesseramento le nominava con una **stringa
+ * libera**: la tendina della scheda offriva i nomi configurati, ma niente
+ * impediva a una richiesta di scriverne un'altra — perche la domanda «e uno dei
+ * tuoi?» non veniva posta da nessuna parte.
+ *
+ * La guardia sta **qui** e non nel componente per la ragione ordinaria: una
+ * difesa che vive solo nel browser e un suggerimento. La rotta generica e
+ * l'unica strada per `athletes.data`, quindi e l'unico posto in cui vale per
+ * tutti i chiamanti — la scheda, la maschera di creazione, l'app, un `curl`.
+ *
+ * Costa una lettura **solo quando il carico dichiara dei tesseramenti**: chi
+ * corregge un cognome non paga niente.
+ *
+ * Un tesseramento **senza** `federationId` passa: e il dato storico, scritto
+ * prima che l'identificativo esistesse, e rifiutarlo vorrebbe dire impedire di
+ * salvare la scheda di ogni atleta gia tesserato finche qualcuno non lo
+ * bonifica a mano.
+ */
+const assertRegistrationFederations = async (
+  resource: string,
+  organizationId: unknown,
+  input: unknown,
+) => {
+  if (resource !== "athletes" && resource !== "simplified_athletes") return;
+
+  const data =
+    input && typeof input === "object"
+      ? ((input as Record<string, any>).data as Record<string, any> | undefined)
+      : undefined;
+
+  const registrations = data?.registrations;
+  if (!Array.isArray(registrations) || registrations.length === 0) return;
+
+  const dichiarati = registrations
+    .map((riga: any) =>
+      String(riga?.federationId ?? riga?.federation_id ?? "").trim(),
+    )
+    .filter(Boolean);
+
+  if (dichiarati.length === 0) return;
+
+  const clubId = String(organizationId || "").trim();
+  if (!clubId) return;
+
+  const club = await prisma.club.findUnique({
+    where: { id: clubId },
+    select: { settings: true },
+  });
+
+  const federations = listClubFederations(club || {});
+
+  for (const riferimento of dichiarati) {
+    if (!isFederationOfClub(riferimento, federations)) {
+      throw new Error(
+        "Accesso negato: questa federazione non e fra quelle configurate dal club",
+      );
+    }
+  }
 };
 
 const assertClinicalWrite = async (
@@ -6418,6 +6486,11 @@ export const createResource = async (
   assertNotDomainOwnedResourceItem(resource, input?.resource_type);
   assertPuoScrivereIlTipoDellaRiga(resource, input?.resource_type, "create", scope);
   await assertClinicalWrite(resource, scope, input);
+  await assertRegistrationFederations(
+    resource,
+    (input as any)?.organization_id ?? (input as any)?.club_id,
+    input,
+  );
 
   if (config.kind === "club_resource") {
     const data = normalizeClubResourceInput(resource, input);
@@ -7576,6 +7649,17 @@ const applicaGuardieDiModifica = async (
 
       Cio che spariva a ogni salvataggio non puo piu sparire: non e piu li.
     */
+    /*
+      L'ente si vaglia sul club **della riga in archivio**, non su quello che
+      il carico dichiara: e lo stesso motivo per cui `ensureOrganizationAccess`
+      non si fida di un `organization_id` che arriva dal client.
+    */
+    await assertRegistrationFederations(
+      resource,
+      (existing as any)?.organization_id,
+      normalized,
+    );
+
     if (
       (resource === "athletes" || resource === "simplified_athletes") &&
       "data" in normalized
