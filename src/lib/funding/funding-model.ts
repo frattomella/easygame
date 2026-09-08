@@ -281,6 +281,109 @@ export const FUNDING_ACCRUAL_STATUSES = [
 ] as const;
 export type FundingAccrualStatus = (typeof FUNDING_ACCRUAL_STATUSES)[number];
 
+/**
+ * **Il periodo che esiste e non ha ancora una riga** (N8).
+ *
+ * Non e un sesto stato in archivio: e cio che si vede di un periodo **prima**
+ * che qualcuno abbia ricalcolato. La schermata mostrava soltanto i periodi con
+ * una riga di maturato, e il ricalcolo si ferma a **oggi**: i mesi futuri del
+ * bando non comparivano affatto, e una segreteria che voleva sapere «quanto
+ * puo ancora arrivare» non aveva dove leggerlo.
+ *
+ * Sta qui e non fra gli stati archiviati di proposito: salvarlo vorrebbe dire
+ * scrivere righe a zero per periodi che non sono ancora cominciati, cioe
+ * inventare un dato per far quadrare una schermata. Il periodo si **deriva**
+ * dalla configurazione (ADR-0037 §4), e questa e la sua faccia mancante.
+ */
+export const FUNDING_PERIOD_PLANNED = "planned" as const;
+
+export type FundingPeriodDisplayStatus =
+  | FundingAccrualStatus
+  | typeof FUNDING_PERIOD_PLANNED;
+
+export const FUNDING_PERIOD_STATUS_LABELS: Record<
+  FundingPeriodDisplayStatus,
+  string
+> = {
+  planned: "Previsto",
+  not_accrued: "Non maturato",
+  pending_confirmation: "Da confermare",
+  accrued: "Maturato",
+  reported: "Rendicontato",
+  settled: "Liquidato",
+};
+
+export type FundingPeriodRow = {
+  readonly periodIndex: number;
+  readonly label: string;
+  readonly start: string;
+  readonly end: string;
+  readonly status: FundingPeriodDisplayStatus;
+  /** La riga di maturato, quando esiste. `null` per un periodo previsto. */
+  readonly accrual: Record<string, any> | null;
+};
+
+/**
+ * **Tutti i periodi del bando, con accanto la riga che li riguarda.**
+ *
+ * I periodi li genera la configurazione; le righe arrivano dall'archivio. Il
+ * merge e per `period_index`, che e la chiave con cui `recomputeEnrollmentAccruals`
+ * gia rende idempotente il ricalcolo.
+ *
+ * Nessuna riga viene inventata: un periodo senza maturato esce con
+ * `accrual: null` e stato `planned`, e chi legge sa che non e stato calcolato,
+ * non che vale zero. Le due cose sono diverse, e confonderle e il modo in cui
+ * si rendiconta all'ente un mese che nessuno ha guardato.
+ */
+export const buildFundingPeriodRows = (
+  program: any,
+  accruals: readonly any[] = [],
+  options: { until?: Date | string | null } = {},
+): FundingPeriodRow[] => {
+  const periods = generateFundingPeriods(program, options);
+
+  const perIndice = new Map<number, any>();
+  for (const riga of Array.isArray(accruals) ? accruals : []) {
+    const indice = Number(riga?.period_index ?? riga?.periodIndex);
+    if (Number.isFinite(indice)) perIndice.set(indice, riga);
+  }
+
+  const righe: FundingPeriodRow[] = periods.map((period) => {
+    const accrual = perIndice.get(period.index) || null;
+    perIndice.delete(period.index);
+
+    return {
+      periodIndex: period.index,
+      label: period.label,
+      start: period.start,
+      end: period.end,
+      status: accrual
+        ? ((String(accrual.status || "not_accrued") as FundingAccrualStatus) ??
+          "not_accrued")
+        : FUNDING_PERIOD_PLANNED,
+      accrual,
+    };
+  });
+
+  /*
+    Una riga il cui periodo la configurazione non genera piu — le date del bando
+    sono state accorciate dopo un ricalcolo — non si butta: porta un importo che
+    forse e stato rendicontato. Esce in coda, con la propria etichetta congelata.
+  */
+  for (const orfana of perIndice.values()) {
+    righe.push({
+      periodIndex: Number(orfana.period_index ?? 0),
+      label: String(orfana.period_label || "Periodo"),
+      start: String(orfana.period_start || ""),
+      end: String(orfana.period_end || ""),
+      status: String(orfana.status || "not_accrued") as FundingAccrualStatus,
+      accrual: orfana,
+    });
+  }
+
+  return righe.sort((a, b) => a.periodIndex - b.periodIndex);
+};
+
 export type NormalizedFundingProgram = {
   id: string | null;
   organizationId: string | null;

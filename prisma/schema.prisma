@@ -285,6 +285,7 @@ model Club {
   membership_events            MembershipEvent[]
   athlete_account_invites      AthleteAccountInvite[]
   custom_roles                 ClubRole[]
+  paymentCoverageAllocations   PaymentCoverageAllocation[]
 
   @@map("clubs")
 }
@@ -408,19 +409,19 @@ model ClubAccessScope {
 }
 
 model Athlete {
-  id                   String                      @id @default(uuid()) @db.Uuid
-  organization_id      String                      @db.Uuid
-  user_id              String?                     @db.Uuid
-  first_name           String
-  last_name            String
-  birth_date           DateTime?
-  status               String                      @default("active")
-  category_id          String?
-  category_name        String?
-  access_code          String?
-  avatar_url           String?
-  jersey_number        String?
-  data                 Json?
+  id                         String                      @id @default(uuid()) @db.Uuid
+  organization_id            String                      @db.Uuid
+  user_id                    String?                     @db.Uuid
+  first_name                 String
+  last_name                  String
+  birth_date                 DateTime?
+  status                     String                      @default("active")
+  category_id                String?
+  category_name              String?
+  access_code                String?
+  avatar_url                 String?
+  jersey_number              String?
+  data                       Json?
   /// **Il marchio della cancellazione dell'interessato, come colonna.**
   ///
   /// Viveva come chiave dentro `data`, cioe dentro un blob che sedici
@@ -428,21 +429,22 @@ model Athlete {
   /// dopo ogni salvataggio, perche un `PATCH` ordinario dalla scheda aperta lo
   /// avrebbe cancellato — cioe **annullato una cancellazione GDPR**. Una
   /// colonna non si perde riscrivendo il blob accanto.
-  anonymized_at        DateTime?
-  created_at           DateTime                    @default(now())
-  updated_at           DateTime                    @updatedAt
-  organization         Club                        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  user                 User?                       @relation(fields: [user_id], references: [id], onDelete: SetNull)
-  payments             AthletePayment[]
-  payment_transactions PaymentTransaction[]
-  funding_enrollments  FundingEnrollment[]
-  invoices             Invoice[]
-  receipts             Receipt[]
-  medical_certificates MedicalCertificate[]
-  category_memberships AthleteCategoryMembership[]
-  appointments         Appointment[]
-  account_invites      AthleteAccountInvite[]
-  guardians            AthleteGuardian[]
+  anonymized_at              DateTime?
+  created_at                 DateTime                    @default(now())
+  updated_at                 DateTime                    @updatedAt
+  organization               Club                        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  user                       User?                       @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  payments                   AthletePayment[]
+  payment_transactions       PaymentTransaction[]
+  funding_enrollments        FundingEnrollment[]
+  invoices                   Invoice[]
+  receipts                   Receipt[]
+  medical_certificates       MedicalCertificate[]
+  category_memberships       AthleteCategoryMembership[]
+  appointments               Appointment[]
+  account_invites            AthleteAccountInvite[]
+  guardians                  AthleteGuardian[]
+  paymentCoverageAllocations PaymentCoverageAllocation[]
 
   @@index([organization_id])
   @@index([user_id])
@@ -553,7 +555,7 @@ model AthleteGuardian {
   /// compilazione gia salvata. Nessuna delle tre puo cambiare persona senza
   /// riscrivere un fatto gia accaduto, quindi la posizione si conserva invece
   /// di ricavarla da `created_at` — che il travaso scrive uguale per tutte.
-  position  Int     @default(0)
+  position Int @default(0)
 
   /// **Cio che la scheda porta su una persona e la tabella non ha una colonna
   /// per tenere**: codice fiscale, indirizzo, data di nascita, e qualunque
@@ -562,7 +564,7 @@ model AthleteGuardian {
   /// difesa se ne accorgesse: il primo salvataggio di una scheda azzerava il
   /// codice fiscale del tutore per tutto il club, e non restava nessuna strada
   /// per riscriverlo.
-  data      Json?
+  data Json?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -651,31 +653,32 @@ model PaymentMethod {
 /// riscrive a ogni incasso registrato o stornato. La fonte di verita e la
 /// somma dei movimenti. Vedi ADR-0036.
 model AthletePayment {
-  id                 String               @id @default(uuid()) @db.Uuid
-  organization_id    String               @db.Uuid
-  athlete_id         String?              @db.Uuid
-  description        String
-  amount             Float
-  due_date           DateTime?
-  paid_at            DateTime?
-  status             String               @default("pending")
-  method             String?
-  reference          String?
-  notes              String?
+  id                   String                      @id @default(uuid()) @db.Uuid
+  organization_id      String                      @db.Uuid
+  athlete_id           String?                     @db.Uuid
+  description          String
+  amount               Float
+  due_date             DateTime?
+  paid_at              DateTime?
+  status               String                      @default("pending")
+  method               String?
+  reference            String?
+  notes                String?
   /// La controparte quando il debitore non e un atleta: un socio per la quota
   /// associativa, uno sponsor per una tranche di contratto. Vedi
   /// `PaymentTransaction.counterparty_kind`.
-  counterparty_kind  String?
-  counterparty_id    String?
-  counterparty_label String?
-  data               Json?
-  created_at         DateTime             @default(now())
-  updated_at         DateTime             @updatedAt
-  organization       Club                 @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  athlete            Athlete?             @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
-  invoices           Invoice[]
-  receipts           Receipt[]
-  transactions       PaymentTransaction[]
+  counterparty_kind    String?
+  counterparty_id      String?
+  counterparty_label   String?
+  data                 Json?
+  created_at           DateTime                    @default(now())
+  updated_at           DateTime                    @updatedAt
+  organization         Club                        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete              Athlete?                    @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  invoices             Invoice[]
+  receipts             Receipt[]
+  transactions         PaymentTransaction[]
+  coverage_allocations PaymentCoverageAllocation[]
 
   @@index([organization_id])
   @@index([athlete_id])
@@ -1049,26 +1052,27 @@ model FundingProgram {
 /// `assigned_amount` e quanto gli e stato *assegnato*, che non e denaro
 /// incassato ne denaro maturato: e il tetto entro cui potra maturare.
 model FundingEnrollment {
-  id              String           @id @default(uuid()) @db.Uuid
-  organization_id String           @db.Uuid
-  program_id      String           @db.Uuid
-  athlete_id      String           @db.Uuid
+  id                   String                      @id @default(uuid()) @db.Uuid
+  organization_id      String                      @db.Uuid
+  program_id           String                      @db.Uuid
+  athlete_id           String                      @db.Uuid
   /// Codice individuale del voucher, quando l'ente ne assegna uno.
-  voucher_code    String?
-  assigned_amount Float
+  voucher_code         String?
+  assigned_amount      Float
   /// active | suspended | closed
-  status          String           @default("active")
-  enrolled_at     DateTime
-  ends_at         DateTime?
-  notes           String?
-  data            Json?
-  created_by      String?          @db.Uuid
-  created_at      DateTime         @default(now())
-  updated_at      DateTime         @updatedAt
-  organization    Club             @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  program         FundingProgram   @relation(fields: [program_id], references: [id], onDelete: Cascade)
-  athlete         Athlete          @relation(fields: [athlete_id], references: [id], onDelete: Cascade)
-  accruals        FundingAccrual[]
+  status               String                      @default("active")
+  enrolled_at          DateTime
+  ends_at              DateTime?
+  notes                String?
+  data                 Json?
+  created_by           String?                     @db.Uuid
+  created_at           DateTime                    @default(now())
+  updated_at           DateTime                    @updatedAt
+  organization         Club                        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  program              FundingProgram              @relation(fields: [program_id], references: [id], onDelete: Cascade)
+  athlete              Athlete                     @relation(fields: [athlete_id], references: [id], onDelete: Cascade)
+  accruals             FundingAccrual[]
+  coverage_allocations PaymentCoverageAllocation[]
 
   @@unique([program_id, athlete_id])
   @@index([organization_id])
@@ -1236,6 +1240,73 @@ model FundingSettlementLine {
   @@index([organization_id])
   @@index([accrual_id])
   @@map("funding_settlement_lines")
+}
+
+/// **L'allocazione di copertura: di questa rata, questa parte la porta un ente.**
+///
+/// E la riga che ADR-0037 aveva lasciato come voce di backlog e che ADR-0158
+/// definisce. Collega una **rata** (`payments`) a un'**adesione a un bando**
+/// (`funding_enrollments`) per un importo.
+///
+/// **Non e un movimento di denaro.** Scriverla non crea nessun
+/// `payment_transaction`, non tocca `payments.status`, non entra in prima nota
+/// e non compare in nessun riquadro di cassa. Dice una cosa sola: «di questa
+/// rata, questa parte il club se l'aspetta da quell'ente». La compensazione
+/// automatica che ADR-0037 vietava trasformava una previsione in un incasso;
+/// qui la previsione resta una previsione e ha un posto in cui stare.
+///
+/// **Non si cancella: si storna.** Una copertura revocata resta, marcata
+/// `reversed_at`, e lo storno e esso stesso una riga di segno opposto
+/// collegata dall'originale con `reverses_allocation_id`. E la forma che il
+/// denaro ha gia in questo repository (ADR-0036, ADR-0071): la storia di cio
+/// che il club ha promesso a una famiglia non si riscrive, perche la famiglia
+/// quella promessa l'ha sentita.
+///
+/// Due tetti vivono in `sport-funding-coverage.ts` e non in una colonna,
+/// perche sono somme: la copertura viva di una rata non supera la rata, e
+/// quella di un'adesione non supera l'importo assegnato all'atleta. Il secondo
+/// e quello che impedisce a un voucher da 500 di coprire 5.000 di rate.
+model PaymentCoverageAllocation {
+  id                     String                      @id @default(uuid()) @db.Uuid
+  organization_id        String                      @db.Uuid
+  /// La rata coperta.
+  payment_id             String                      @db.Uuid
+  /// L'adesione al bando che la copre. Non il programma: l'importo assegnato,
+  /// che e il tetto vero, vive sull'adesione (ADR-0054).
+  enrollment_id          String                      @db.Uuid
+  /// Ridondante rispetto alla rata, e serve: i riepiloghi per atleta non
+  /// devono passare da una join sulle rate per sapere di chi e la copertura.
+  athlete_id             String                      @db.Uuid
+  amount                 Float
+  notes                  String?
+  created_by             String?                     @db.Uuid
+  /**
+   * ---- storno (ADR-0158 §6) ----
+   */
+  reversed_at            DateTime?
+  reversed_by            String?                     @db.Uuid
+  reversal_reason        String?
+  reverses_allocation_id String?                     @db.Uuid
+  data                   Json?
+  created_at             DateTime                    @default(now())
+  updated_at             DateTime                    @updatedAt
+  organization           Club                        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  payment                AthletePayment              @relation(fields: [payment_id], references: [id], onDelete: Cascade)
+  /// **RESTRICT, come le righe di liquidazione.** Cancellare un'adesione che
+  /// ha gia coperto delle rate porterebbe via la spiegazione di perche quelle
+  /// rate chiedevano meno alla famiglia. Il percorso che cancella un'adesione
+  /// e quello «nessuno storico», che per costruzione non ne ha.
+  enrollment             FundingEnrollment           @relation(fields: [enrollment_id], references: [id], onDelete: Restrict)
+  athlete                Athlete                     @relation(fields: [athlete_id], references: [id], onDelete: Cascade)
+  reverses               PaymentCoverageAllocation?  @relation("CoverageAllocationReversal", fields: [reverses_allocation_id], references: [id], onDelete: SetNull)
+  reversals              PaymentCoverageAllocation[] @relation("CoverageAllocationReversal")
+
+  @@index([organization_id])
+  @@index([payment_id])
+  @@index([enrollment_id])
+  @@index([athlete_id])
+  @@index([reverses_allocation_id])
+  @@map("payment_coverage_allocations")
 }
 
 model TrainerPayment {

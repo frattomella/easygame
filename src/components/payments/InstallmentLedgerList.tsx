@@ -6,6 +6,7 @@ import {
   ChevronRight,
   CreditCard,
   FileText,
+  HandCoins,
   Pencil,
   Receipt,
   RotateCcw,
@@ -258,6 +259,16 @@ const TransactionRows = ({
 
 export type InstallmentLedgerListProps = {
   ledgers: InstallmentLedger[];
+  /**
+   * La copertura da voucher, per identificativo di rata (N7 / ADR-0158).
+   *
+   * Facoltativa: una rata assente dalla mappa non e coperta, e la riga si
+   * disegna esattamente come prima. Le schermate che non la passano non
+   * cambiano di una virgola.
+   */
+  coverageByInstallment?: Record<string, any>;
+  /** Apre la gestione della copertura di una rata. */
+  onManageCoverage?: (ledger: InstallmentLedger) => void;
   /** Solo chi gestisce il club puo registrare o stornare un incasso. */
   canManage?: boolean;
   onRegisterPayment?: (ledger: InstallmentLedger) => void;
@@ -319,6 +330,8 @@ export type InstallmentLedgerListProps = {
 
 export function InstallmentLedgerList({
   ledgers,
+  coverageByInstallment = {},
+  onManageCoverage,
   canManage = false,
   onRegisterPayment,
   onReverseTransaction,
@@ -344,6 +357,8 @@ export function InstallmentLedgerList({
       {ledgers.map((ledger) => {
         const key = String(ledger.installmentId || ledger.label);
         const isOpen = Boolean(expanded[key]);
+        const coverage =
+          coverageByInstallment[String(ledger.installmentId || "")] || null;
 
         return (
           <div
@@ -393,6 +408,34 @@ export function InstallmentLedgerList({
                       Residuo {formatCurrency(ledger.residualAmount)}
                     </span>
                   </div>
+
+                  {/*
+                    **La copertura, quando c'e** (N7 / ADR-0158).
+
+                    Le quattro grandezze dell'ente stanno in un riquadro
+                    **separato** da quelle della famiglia, e la riga lo dice a
+                    parole: le due contabilita non si sommano, e affiancarle
+                    senza dirlo sarebbe il modo piu rapido per far leggere alla
+                    segreteria un totale che non esiste.
+                  */}
+                  {coverage ? (
+                    <div className="mt-2 rounded-md border border-sky-200 bg-sky-50/60 p-2 text-xs dark:border-sky-900 dark:bg-sky-950/30">
+                      <p className="font-medium text-sky-900 dark:text-sky-200">
+                        Coperta da voucher per{" "}
+                        {formatCurrency(coverage.plannedCoverage)} · a carico
+                        della famiglia {formatCurrency(coverage.familyDueAmount)}
+                      </p>
+                      <p className="mt-1 text-sky-800/80 dark:text-sky-300/80">
+                        Maturato {formatCurrency(coverage.accruedCoverage)} ·
+                        liquidato dall&apos;ente{" "}
+                        {formatCurrency(coverage.settledCoverage)}
+                      </p>
+                      <p className="mt-1 text-[0.95em] text-slate-500">
+                        La copertura non e un incasso: entra in cassa solo
+                        quando l&apos;ente versa.
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -407,6 +450,17 @@ export function InstallmentLedgerList({
                   finestra** in cui l'importo si sceglie, e prometterne uno
                   prima renderebbe l'acconto una sorpresa invece di un'opzione.
                 */}
+                {onManageCoverage && canManage ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full gap-1 sm:w-auto"
+                    onClick={() => onManageCoverage(ledger)}
+                  >
+                    <HandCoins className="h-3.5 w-3.5" />
+                    {coverage ? "Copertura" : "Copri con un voucher"}
+                  </Button>
+                ) : null}
                 {onPayOnline && ledger.residualAmount > 0 ? (
                   <Button
                     size="sm"

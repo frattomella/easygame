@@ -155,7 +155,15 @@ export const toPaymentAmount = (value: unknown) => {
   return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : 0;
 };
 
-const toCents = (value: unknown) => Math.round(toPaymentAmount(value) * 100);
+/**
+ * Esportata perche la copertura (ADR-0158) confronta gli **stessi** importi.
+ *
+ * Due funzioni «al centesimo» in due moduli divergono al primo arrotondamento,
+ * e la divergenza si vede come una rata che risulta scoperta di un centesimo:
+ * l'aritmetica del denaro sta in un posto solo.
+ */
+export const toCents = (value: unknown) =>
+  Math.round(toPaymentAmount(value) * 100);
 
 const fromCents = (cents: number) => Number((cents / 100).toFixed(2));
 

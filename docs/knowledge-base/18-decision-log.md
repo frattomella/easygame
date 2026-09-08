@@ -9681,3 +9681,173 @@ Sonde e prove: `tests/server/evento-annullato-in-corsa.test.mjs` (12,
 verificato per mutazione), `scripts/audit-finale-scritture-probe.mjs` (11/11),
 `scripts/pp-03-round5-concorrenza-e-grafie-probe.mjs` (8/8),
 `scripts/audit-finale-concorrenza-probe.mjs` (7/7).
+
+---
+
+## ADR-0158 — Un voucher **copre** una rata, non la paga: l'allocazione e una promessa, e la cassa resta cassa
+
+**Data:** 2026-09-09 · **Stato:** accettato · **Lane:** N7–N9, Voucher /
+Iscrizione / Pagamenti V2 · **Pilota:** Fortitudo Scauri
+
+### Il fatto
+
+Una societa iscrive un atleta con una quota di 600 EUR e sa che un voucher
+regionale ne portera 500. La famiglia deve 100.
+
+Fino a oggi EasyGame sapeva rappresentare i due numeri **separatamente** e non
+sapeva metterli in relazione:
+
+* il **piano di pagamento** generava rate per 600, e il registro incassi diceva
+  che la famiglia era indietro di 600;
+* il **bando** sapeva che a quell'atleta erano assegnati 500, quanti ne aveva
+  maturati e quanti l'ente ne aveva liquidati;
+* e non esisteva **nessuna riga** che dicesse «di questa rata da 200, 150 li
+  porta il voucher».
+
+[ADR-0037](#adr-0037--un-contributo-non-e-un-pagamento-due-contabilita-separate-e-le-regole-del-bando-sono-dati)
+aveva visto il problema e aveva scelto di **non** risolverlo, per una ragione
+giusta: compensare in automatico la rata con il maturato «farebbe risultare
+saldate rate che nessuno ha pagato». Quella decisione chiudeva la porta
+sbagliata e lasciava aperta la domanda, registrata come voce di backlog e
+dichiarata `MISSING` in [11 — Capability](11-capabilities.md).
+
+Il costo di non decidere lo pagava la segreteria: il **Riepilogo Incassi**
+mostrava 600 EUR di credito verso una famiglia che ne doveva 100, e la
+differenza si teneva a mente.
+
+### La decisione
+
+**Il piano di pagamento resta la fonte del debito. Il voucher non lo
+sostituisce: lo copre.**
+
+Arriva una riga nuova — l'**allocazione di copertura** — che collega una
+**rata** a un'**adesione a un bando** per un **importo**. E una riga, non un
+campo dentro un JSON, per la stessa ragione per cui un tutore e una riga
+(ADR-0135): ha una vita propria, si storna, e nessun blob puo portarne piu di
+una senza reinventare una chiave.
+
+#### 1. L'allocazione e una **promessa**, non un movimento
+
+Scrivere un'allocazione **non** scrive un `payment_transaction`, non tocca
+`payments.status`, non entra in prima nota e non compare in nessun riquadro di
+cassa. Dice una cosa sola: «di questa rata, questa parte il club se l'aspetta
+da quell'ente».
+
+E la traduzione diretta del divieto di ADR-0037. La compensazione automatica
+era pericolosa perche trasformava una previsione in un incasso; qui la
+previsione resta una previsione, e ha finalmente un posto in cui stare.
+
+#### 2. Sei grandezze, e restano sei
+
+| Grandezza | Che cosa significa | Da dove si ricava |
+|---|---|---|
+| **debito totale** | quanto vale la rata | `payments.amount` |
+| **copertura prevista** | quanto ci si aspetta dall'ente su questa rata | Σ allocazioni vive |
+| **copertura maturata** | quanta di quella copertura l'atleta ha guadagnato frequentando | quota sostenuta da `funding_accruals` in stato `accrued` / `reported` / `settled` |
+| **copertura liquidata** | quanta l'ente ha **versato** | quota sostenuta da `funding_settlement_lines` |
+| **quota famiglia** | quanto resta a carico della famiglia | debito − copertura prevista |
+| **incassi reali** | quanto la famiglia ha versato | Σ `payment_transactions` validi |
+
+Le prime quattro parlano dell'**ente**, le ultime due della **famiglia**. Non
+si sommano mai in un totale unico, ed e la stessa regola di ADR-0037 letta a un
+dettaglio piu fine: prima erano due contabilita separate per atleta, adesso lo
+sono per **rata**.
+
+#### 3. Lo stato della rata continua a rispondere alla domanda della famiglia
+
+`resolveInstallmentLedger` produceva `IN ATTESA / PARZIALMENTE PAGATA / PAGATA`
+confrontando gli incassi con `payments.amount`. Adesso li confronta con la
+**quota famiglia**.
+
+**Su una rata senza copertura le due sono lo stesso numero**, quindi il
+comportamento di ogni rata esistente non cambia di una virgola: la
+compatibilita non e una promessa, e una proprieta della formula.
+
+Su una rata coperta, «PAGATA» significa **la famiglia ha versato quanto le
+toccava** — che e la domanda a cui quella etichetta serve, ed e quella che la
+segreteria pone quando telefona a un genitore. Se l'ente abbia versato o no e
+una domanda diversa, con i suoi numeri, e le due non si travestono l'una
+dall'altra.
+
+**Cio che espressamente non succede**: la copertura non diventa mai
+`paidAmount`. Nessuna riga di cassa nasce da un'allocazione, e il Riepilogo
+Incassi continua a mostrare soltanto il denaro della famiglia.
+
+#### 4. Una rata ha **piu** allocazioni
+
+Una rata da 200 puo portare 150 di voucher A e 50 di voucher B, oppure 150 di
+voucher A e 50 a carico della famiglia. Il modello e uno-a-molti perche il caso
+reale lo e: un atleta puo beneficiare di piu bandi insieme, e ADR-0037 lo
+prevedeva gia dal lato dei riepiloghi.
+
+#### 5. Due tetti, e sono invarianti d'archivio
+
+* **Per rata**: la somma delle coperture vive non supera l'importo della rata.
+  Coprire 250 di una rata da 200 vorrebbe dire promettere alla famiglia un
+  rimborso che nessuno ha deliberato.
+* **Per adesione**: la somma delle coperture vive non supera l'importo
+  assegnato all'atleta su quel bando. Un voucher da 500 non copre 5.000 di
+  rate, e senza questo tetto la quota famiglia si azzererebbe con una promessa
+  che l'ente non ha mai fatto.
+
+Il secondo e il piu importante, ed e quello che una revisione ostile va a
+cercare per primo.
+
+#### 6. Non si cancella: si storna
+
+Un'allocazione revocata **resta**, marcata `reversed_at`, e lo storno e esso
+stesso una riga di segno opposto. E la forma che il denaro ha gia in questo
+repository (ADR-0036 per gli incassi, ADR-0071 per le liquidazioni): la storia
+di cio che il club ha promesso a una famiglia non si riscrive, perche la
+famiglia quella promessa l'ha sentita.
+
+Da qui la risposta ai tre casi di N9:
+
+* **nessun effetto economico** — l'adesione si cancella, e con lei le
+  allocazioni che non hanno mai coperto niente;
+* **copertura prevista ma non maturata** — si stornano le allocazioni non
+  sostenute da un maturato, la quota famiglia **risale**, e lo storico resta;
+* **importi gia maturati o liquidati** — l'adesione si **revoca** e non si
+  cancella, e le allocazioni sostenute da denaro dell'ente restano dove sono.
+
+### Perche non le tre alternative
+
+**Un campo `voucher_amount` sulla rata.** Un solo bando per rata, nessuno
+storno, nessun collegamento all'adesione che lo giustifica: il giorno in cui il
+voucher viene ridotto non c'e modo di sapere quali rate rivedere.
+
+**Ridurre `payments.amount`.** Distrugge il debito: dopo, nessuno sa piu quanto
+costava l'iscrizione, e se il voucher salta la famiglia deve un numero che il
+sistema non ha piu.
+
+**Generare un `payment_transaction` alla maturazione.** E esattamente cio che
+ADR-0037 vieta, ed e la ragione per cui questa lane esiste.
+
+### Conseguenze
+
+* `payments`, `payment_transactions`, la prima nota, gli storni, le ricevute e
+  i report **non cambiano forma**. La copertura e una lettura in piu, non una
+  scrittura diversa.
+* Chi alloca e chi storna deve poter gestire i contributi
+  (`canManageClubConfiguration`), e ogni scrittura finisce in audit.
+* Il dominio dei pagamenti continua a **non importare** quello dei bandi: la
+  composizione avviene in un modulo terzo, che li legge entrambi e che nessuno
+  dei due importa. Il divieto di ADR-0037 §5 resta letterale.
+* La maturazione resta **esplicita** (N8): un'allocazione diventa «maturata»
+  perche una persona autorizzata ha confermato un periodo, mai perche e passato
+  un cron.
+
+### Come si fa valere
+
+`tests/lib/copertura-voucher.test.mjs` e
+`tests/server/copertura-voucher-scritture.test.mjs`, piu i dodici scenari di
+riconciliazione del mandato — 600/500/100, maturazione parziale, liquidazione
+parziale, pagamento della famiglia prima della maturazione, voucher rifiutato,
+rimozione prima e dopo la maturazione, doppio invio, storno, e la quadratura
+del rendiconto.
+
+**Vedi anche.** ADR-0036 (una rata e un debito, un incasso e un movimento),
+ADR-0037 (le due contabilita non si sommano), ADR-0054 (il massimale non e
+l'assegnato), ADR-0068 (le Entrate sono cassa).
+
+---

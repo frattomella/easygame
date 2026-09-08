@@ -238,10 +238,45 @@ test("i contributi restano fuori dai totali della famiglia", () => {
 
   assert.match(source, /<AthleteFundingSummary/);
   assert.match(source, /Non entra nei totali qui sopra/);
-  assert.equal(
-    /accrued|voucher/i.test(read(LEDGER_HOOK)),
-    false,
-    "lo stato dei pagamenti non conosce i contributi",
+
+  /*
+    **La guardia si e spostata dal nome al fatto** (N7 / ADR-0158).
+
+    Qui c'era `/accrued|voucher/i.test(read(LEDGER_HOOK)) === false`: il
+    dominio dei pagamenti non doveva **nominare** i contributi. Era un
+    surrogato — buono finche la composizione non esisteva — e ADR-0158 la
+    introduce: la copertura di una rata si mostra accanto ai suoi incassi,
+    quindi la schermata i due li nomina per forza.
+
+    Cio che non deve succedere e piu preciso, ed e cio che si misura adesso: un
+    importo di contributo **non entra nei totali della famiglia**. I totali si
+    ricavano da `summarizeLedgers(ledgers)`, e `ledgers` si costruisce da rate e
+    **movimenti**, senza coperture: nessun maturato puo raggiungerli.
+
+    E una guardia piu forte del nome, non piu debole: il nome si aggirava
+    chiamando `accrued` in un altro modo.
+  */
+  const hook = read(LEDGER_HOOK);
+
+  assert.match(
+    hook,
+    /buildInstallmentLedgers\(\{\s*charges: Array\.isArray\(charges\) \? charges : \[\],\s*transactions,\s*\}\)/,
+    "le rate si costruiscono da rate e movimenti: nessuna copertura fra gli argomenti",
+  );
+  assert.match(
+    hook,
+    /const totals = React\.useMemo\(\(\) => summarizeLedgers\(ledgers\), \[ledgers\]\);/,
+    "i totali della famiglia vengono dalle rate, non dalla copertura",
+  );
+
+  /* E il dominio, sotto, continua a non sapere cosa sia un contributo. */
+  const senzaCommenti = (testo) =>
+    testo.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+
+  assert.doesNotMatch(
+    senzaCommenti(read("lib/payments/installment-ledger.ts")),
+    /funding/i,
+    "il registro delle rate non importa il dominio dei bandi (ADR-0037 §5)",
   );
 });
 

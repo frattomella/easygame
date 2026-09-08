@@ -824,6 +824,30 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "funding.programs.transition",
+    method: "POST",
+    path: "/api/v1/funding/programs/:id/transition",
+    description:
+      "Apre, chiude o riapre un programma di contributo. Quattro transizioni ammesse; una bozza non iscrive e non matura (N6)",
+    mobile_ready: false,
+  },
+  {
+    name: "payments.coverage.list",
+    method: "GET",
+    path: "/api/v1/payment-coverage",
+    description:
+      "Le coperture da voucher di una rata (`?payment_id=`) o di un atleta (`?athlete_id=`). Una copertura non e un incasso: dice quanto il club si aspetta da un ente (ADR-0158)",
+    mobile_ready: false,
+  },
+  {
+    name: "payments.coverage.write",
+    method: "POST",
+    path: "/api/v1/payment-coverage",
+    description:
+      "Alloca una copertura su una rata, oppure la storna con `action: \"reverse\"`. Non scrive nessun movimento di cassa e non tocca lo stato della rata (ADR-0158)",
+    mobile_ready: false,
+  },
+  {
     name: "funding.programs.detail",
     method: "GET",
     path: "/api/v1/funding/programs/:id?view=detail",

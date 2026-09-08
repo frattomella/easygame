@@ -1421,3 +1421,43 @@ una cancellazione GDPR**. Una colonna non si perde riscrivendo il blob accanto.
 sposta gli scrittori sul modulo proprietario, WP-D svuota il blob. Finche i due
 esistono insieme, il proprietario e uno solo:
 `src/lib/server/athlete-guardians.ts`.
+
+
+## `payment_coverage_allocations` — la copertura di una rata (ADR-0158)
+
+Collega una **rata** (`payments`) a un'**adesione a un bando**
+(`funding_enrollments`) per un importo: «di questa rata, questa parte il club
+se l'aspetta da quell'ente».
+
+**Non e un movimento di denaro.** Scrivere una riga qui non crea nessun
+`payment_transaction`, non tocca `payments.status`, non entra in prima nota e
+non compare in nessun riquadro di cassa. E la traduzione del divieto di
+ADR-0037, che questa lane non allenta: la compensazione automatica era
+pericolosa perche trasformava una previsione in un incasso, e qui la previsione
+resta una previsione.
+
+| Colonna | Significato |
+|---|---|
+| `payment_id` | la rata coperta |
+| `enrollment_id` | l'adesione che la copre. Non il programma: il tetto vero e l'importo **assegnato**, che vive sull'adesione (ADR-0054) |
+| `athlete_id` | ridondante rispetto alla rata, e serve: i riepiloghi per atleta non devono passare da una join |
+| `amount` | positivo su una copertura, **negativo** su uno storno |
+| `reversed_at`, `reverses_allocation_id` | lo storno, nella forma che il denaro ha gia qui (ADR-0036, ADR-0071) |
+
+**Le difese che vivono nell'archivio.** Un `CHECK` sul segno (una copertura
+vale piu di zero, uno storno meno), e un indice unico parziale che ammette **un
+solo storno per originale** — due porterebbero la copertura sotto zero e la
+quota famiglia sopra il debito. La chiave esterna sull'adesione e
+`ON DELETE RESTRICT`: cancellare un'adesione che ha gia coperto delle rate
+porterebbe via la spiegazione di perche quelle rate chiedevano meno.
+
+**I due tetti sono somme**, e vivono nell'applicazione
+(`src/lib/server/payment-coverage.ts`), dentro la transazione che blocca la
+rata: la copertura viva di una rata non supera la rata, quella di un'adesione
+non supera l'assegnato. Postgres non li puo esprimere come vincolo di riga
+senza un trigger che serializzi ogni scrittura.
+
+**Chi lo legge.** `src/lib/payments/coverage-ledger.ts`, che e un modulo
+**terzo**: `funding.ts` non importa `payment_transactions` e
+`installment-ledger.ts` non sa cosa sia un contributo (ADR-0037 §5), quindi la
+composizione dei due non puo vivere in nessuno dei due.

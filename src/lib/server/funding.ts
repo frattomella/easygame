@@ -19,6 +19,7 @@ import {
   validateSettlementAllocation,
   FUNDING_ACCRUAL_ORIGINS,
   FUNDING_PROGRAM_DESCRIPTIVE_FIELDS,
+  buildFundingPeriodRows,
   FUNDING_PROGRAM_STATUS_LABELS,
   canTransitionFundingProgram,
   fundingProgramAcceptsEnrollments,
@@ -28,6 +29,13 @@ import {
   type FundingProgramStatus,
 } from "@/lib/funding/funding-model";
 import { measureAttendanceByPeriod } from "@/lib/funding/attendance-measure";
+/*
+  **Il dominio dei bandi non importa quello dei pagamenti** (ADR-0037 §5), e
+  continua a non farlo: `payment-coverage.ts` scrive le **coperture**, che non
+  sono incassi e non toccano `payment_transactions`. Cio che arriva di qui e
+  la revoca di una promessa, non un movimento di denaro.
+*/
+import { reverseAllCoverageForEnrollment } from "./payment-coverage";
 import { toEventLegacyShape } from "@/lib/events/model";
 import {
   matchConfirmationsToPeriods,
@@ -1706,6 +1714,8 @@ export type AthleteFundingOverview = {
   enrollment: Record<string, any>;
   program: Record<string, any>;
   accruals: Record<string, any>[];
+  /** **Tutti** i periodi del bando, calcolati e non (N8). */
+  periods: ReturnType<typeof buildFundingPeriodRows>;
   summary: ReturnType<typeof summarizeFunding>;
 };
 
@@ -1770,13 +1780,30 @@ export const getAthleteFundingOverview = async (
       );
     }
 
+    const accrualiConLiquidato = (Array.isArray(accruals) ? accruals : []).map(
+      (row: any) => ({
+        ...row,
+        settled_amount: settledByAccrual.get(String(row.id)) || 0,
+      }),
+    );
+
     overviews.push({
       enrollment,
       program,
-      accruals: (Array.isArray(accruals) ? accruals : []).map((row: any) => ({
-        ...row,
-        settled_amount: settledByAccrual.get(String(row.id)) || 0,
-      })),
+      accruals: accrualiConLiquidato,
+      /*
+        **Tutti i periodi del bando, non solo quelli calcolati** (N8).
+
+        La scheda mostrava le sole righe di maturato, e il ricalcolo si ferma a
+        **oggi**: i mesi futuri non comparivano affatto, e una segreteria che
+        voleva sapere quanto puo ancora arrivare non aveva dove leggerlo.
+
+        I periodi si derivano dalla configurazione (ADR-0037 §4) e si fondono
+        con le righe per `period_index`. Nessuna riga viene inventata: un
+        periodo senza maturato esce con `accrual: null` e stato `planned`, e
+        chi legge sa che non e stato **calcolato** — non che valga zero.
+      */
+      periods: buildFundingPeriodRows(program, accrualiConLiquidato),
       summary: summarizeFunding({
         assignedAmount: enrollment.assigned_amount,
         accruals,
@@ -2235,7 +2262,12 @@ export const removeFundingEnrollment = async (
   enrollmentId: string,
   input: { reason?: unknown } = {},
   scope?: FundingScope,
-): Promise<{ outcome: "deleted" | "revoked"; enrollment: Record<string, any> }> => {
+): Promise<{
+  outcome: "deleted" | "revoked";
+  enrollment: Record<string, any>;
+  /** Quante rate tornano a carico della famiglia (N9). */
+  coverageReversed: number;
+}> => {
   const enrollment = await getFundingEnrollmentById(enrollmentId, scope);
 
   const accruals = await accrualClient().findMany({
@@ -2253,6 +2285,31 @@ export const removeFundingEnrollment = async (
     (Array.isArray(lines) ? lines : []).length > 0 ||
     accrualRows.some((row) => ["reported", "settled"].includes(asText(row.status)));
 
+  /*
+    **Le coperture promesse si stornano, sempre** (N9 / ADR-0158).
+
+    E il passo che senza questa lane non esisteva, e la sua assenza sarebbe
+    stata il difetto piu costoso di tutto il blocco: un atleta tolto dal
+    programma lasciava dietro di se le allocazioni di copertura, e quelle
+    continuano a **ridurre la quota a carico della famiglia**. Il club avrebbe
+    smesso di chiedere denaro che nessun ente stava piu portando, e se ne
+    sarebbe accorto a fine stagione dal rendiconto.
+
+    Si storna **prima** di decidere fra cancellazione e revoca, perche vale in
+    tutti e due i casi: cio che cambia fra i due e cosa succede allo **storico**
+    del bando, non cosa succede alla **promessa** fatta alla famiglia. Quella
+    decade comunque, ed e per questo che qui non c'e un ramo.
+
+    Non e distruttivo: le righe restano, marcate, e lo storno e una riga di
+    segno opposto.
+  */
+  const copertureStornate = await reverseAllCoverageForEnrollment(
+    enrollment.id,
+    asText(input.reason) ||
+      "Atleta tolto dal programma: la copertura promessa decade",
+    scope,
+  );
+
   if (hasHistory) {
     const revoked = await enrollmentClient().update({
       where: { id: enrollment.id },
@@ -2263,7 +2320,11 @@ export const removeFundingEnrollment = async (
       },
     });
 
-    return { outcome: "revoked", enrollment: revoked };
+    return {
+      outcome: "revoked",
+      enrollment: revoked,
+      coverageReversed: copertureStornate.reversed,
+    };
   }
 
   /*
@@ -2279,5 +2340,9 @@ export const removeFundingEnrollment = async (
     where: { id: enrollment.id },
   });
 
-  return { outcome: "deleted", enrollment: deleted };
+  return {
+    outcome: "deleted",
+    enrollment: deleted,
+    coverageReversed: copertureStornate.reversed,
+  };
 };

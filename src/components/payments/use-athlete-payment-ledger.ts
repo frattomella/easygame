@@ -6,6 +6,11 @@ import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { useToast } from "@/components/ui/toast-notification";
 import { openExternalUrl } from "@/lib/navigation/external-link";
 import {
+  normalizeCoverageAllocations,
+  resolveInstallmentCoverage,
+  type InstallmentCoverage,
+} from "@/lib/payments/coverage-ledger";
+import {
   buildInstallmentLedgers,
   findNextInstallment,
   resolveEnrollmentPaymentState,
@@ -44,6 +49,21 @@ import type { DocumentDecisionPreview } from "./DocumentDecisionDialog";
 
 export type AthletePaymentLedgerState = {
   ledgers: InstallmentLedger[];
+  /**
+   * La copertura da voucher, per identificativo di rata (N7 / ADR-0158).
+   *
+   * Presente **solo** per le rate che ne hanno una: una rata assente da questa
+   * mappa non e coperta, e il suo residuo e quello di sempre.
+   */
+  coverageByInstallment: Record<string, InstallmentCoverage>;
+  coverageAllocations: any[];
+  fundingOverviews: any[];
+  allocateCoverage: (input: {
+    paymentId: string;
+    enrollmentId: string;
+    amount: number;
+  }) => Promise<boolean>;
+  reverseCoverage: (allocationId: string, reason?: string) => Promise<boolean>;
   totals: LedgerTotals;
   /** La rata su cui si agisce adesso, o `null` se non c'e niente da incassare. */
   nextInstallment: InstallmentLedger | null;
@@ -167,6 +187,10 @@ export function useAthletePaymentLedger({
     chiede una volta sola: un pulsante che si accende e poi spiega di non
     funzionare e peggio di un pulsante che non c'e.
   */
+  const [coverageAllocations, setCoverageAllocations] = React.useState<any[]>(
+    [],
+  );
+  const [fundingOverviews, setFundingOverviews] = React.useState<any[]>([]);
   const [canPayOnline, setCanPayOnline] = React.useState(false);
   const [pendingOnlineInstallmentId, setPendingOnlineInstallmentId] =
     React.useState<string | null>(null);
@@ -193,17 +217,54 @@ export function useAthletePaymentLedger({
     if (!athleteId) return;
 
     setIsLoading(true);
-    const { data, error } = await apiRequest<NormalizedPaymentTransaction[]>(
-      `/api/v1/payment-transactions?athlete_id=${encodeURIComponent(athleteId)}`,
-    );
+    /*
+      **Le coperture si leggono insieme agli incassi** (N7 / ADR-0158), non
+      dopo: la quota a carico della famiglia dipende da tutte e due, e
+      caricarle in due momenti farebbe lampeggiare un residuo sbagliato — il
+      debito intero per la frazione di secondo che separa le due risposte.
+      Su una rata coperta per 500 su 600, quel lampo dice «deve 600».
+    */
+    const [incassi, coperture, contributi] = await Promise.all([
+      apiRequest<NormalizedPaymentTransaction[]>(
+        `/api/v1/payment-transactions?athlete_id=${encodeURIComponent(athleteId)}`,
+      ),
+      apiRequest<any[]>(
+        `/api/v1/payment-coverage?athlete_id=${encodeURIComponent(athleteId)}`,
+      ),
+      apiRequest<any[]>(
+        `/api/v1/funding/enrollments?view=overview&athlete_id=${encodeURIComponent(athleteId)}`,
+      ),
+    ]);
     setIsLoading(false);
 
-    if (error) {
-      showToast("error", error.message || "Errore nella lettura degli incassi");
+    if (incassi.error) {
+      showToast(
+        "error",
+        incassi.error.message || "Errore nella lettura degli incassi",
+      );
       return;
     }
 
-    setTransactions(Array.isArray(data) ? data : []);
+    setTransactions(Array.isArray(incassi.data) ? incassi.data : []);
+    /*
+      Un errore sulle coperture **non** blocca gli incassi: la cassa e la
+      lettura che conta, e una schermata che non si apre perche un contributo
+      non si e caricato e peggio di una che mostra il debito intero. Il caso si
+      distingue da «nessuna copertura» perche l'avviso lo dice.
+    */
+    if (coperture.error) {
+      showToast(
+        "error",
+        "Le coperture da voucher non si sono caricate: il residuo mostrato e quello lordo",
+      );
+      setCoverageAllocations([]);
+    } else {
+      setCoverageAllocations(Array.isArray(coperture.data) ? coperture.data : []);
+    }
+
+    setFundingOverviews(
+      contributi.error || !Array.isArray(contributi.data) ? [] : contributi.data,
+    );
   }, [athleteId, showToast]);
 
   React.useEffect(() => {
@@ -218,6 +279,61 @@ export function useAthletePaymentLedger({
       }),
     [charges, transactions],
   );
+
+  /**
+   * **Il quadro con la copertura, rata per rata** (N7 / ADR-0158).
+   *
+   * Non sostituisce `ledgers`: lo affianca. Su una rata senza copertura i due
+   * dicono la stessa cosa — `familyDueAmount` e `dueAmount` sono lo stesso
+   * numero — quindi le schermate che non la chiedono non cambiano.
+   */
+  const coverageByInstallment = React.useMemo(() => {
+    const perAdesione: Record<string, number> = {};
+    for (const riga of normalizeCoverageAllocations(coverageAllocations)) {
+      if (riga.reversedAt || riga.reversesAllocationId) continue;
+      perAdesione[riga.enrollmentId] =
+        (perAdesione[riga.enrollmentId] || 0) + riga.amount;
+    }
+
+    const statoBandi: Record<
+      string,
+      { accruedAmount: number; settledAmount: number }
+    > = {};
+    for (const overview of fundingOverviews) {
+      const id = String(overview?.enrollment?.id || "");
+      if (!id) continue;
+      statoBandi[id] = {
+        accruedAmount: Number(overview?.summary?.accruedAmount || 0),
+        settledAmount: Number(overview?.summary?.settledAmount || 0),
+      };
+    }
+
+    const perRata: Record<string, ReturnType<typeof resolveInstallmentCoverage>> =
+      {};
+
+    for (const charge of Array.isArray(charges) ? charges : []) {
+      const id = String((charge as any)?.id || "");
+      if (!id) continue;
+
+      const suQuestaRata = coverageAllocations.filter(
+        (riga: any) => String(riga?.payment_id || riga?.paymentId) === id,
+      );
+      if (suQuestaRata.length === 0) continue;
+
+      perRata[id] = resolveInstallmentCoverage({
+        dueAmount: (charge as any)?.amount,
+        transactions: transactions.filter(
+          (movimento: any) =>
+            String(movimento?.paymentId || movimento?.payment_id) === id,
+        ),
+        allocations: suQuestaRata,
+        enrollmentCoverage: perAdesione,
+        enrollmentFunding: statoBandi,
+      });
+    }
+
+    return perRata;
+  }, [charges, transactions, coverageAllocations, fundingOverviews]);
 
   const totals = React.useMemo(() => summarizeLedgers(ledgers), [ledgers]);
   const nextInstallment = React.useMemo(
@@ -749,8 +865,77 @@ export function useAthletePaymentLedger({
     [athleteId, pendingStorageKey, showToast],
   );
 
+  /**
+   * **Alloca una copertura su una rata** (N7).
+   *
+   * La chiave di idempotenza la genera il chiamante e la porta dentro il blocco
+   * della rata: il doppio clic su «Copri con il voucher» non deve promettere
+   * due volte lo stesso denaro. E la stessa difesa degli incassi.
+   */
+  const allocateCoverage = React.useCallback(
+    async (input: {
+      paymentId: string;
+      enrollmentId: string;
+      amount: number;
+    }) => {
+      setIsSaving(true);
+      const { error } = await apiRequest("/api/v1/payment-coverage", {
+        method: "POST",
+        body: {
+          payment_id: input.paymentId,
+          enrollment_id: input.enrollmentId,
+          amount: input.amount,
+          idempotency_key: `coverage:${input.paymentId}:${input.enrollmentId}:${input.amount}`,
+        },
+      });
+      setIsSaving(false);
+
+      if (error) {
+        showToast("error", error.message || "Copertura non registrata");
+        return false;
+      }
+
+      showToast(
+        "success",
+        "Copertura registrata: la quota a carico della famiglia si e ridotta. Non e un incasso.",
+      );
+      await reload();
+      return true;
+    },
+    [reload, showToast],
+  );
+
+  const reverseCoverage = React.useCallback(
+    async (allocationId: string, reason?: string) => {
+      setIsSaving(true);
+      const { error } = await apiRequest("/api/v1/payment-coverage", {
+        method: "POST",
+        body: { action: "reverse", allocation_id: allocationId, reason },
+      });
+      setIsSaving(false);
+
+      if (error) {
+        showToast("error", error.message || "Storno della copertura non riuscito");
+        return false;
+      }
+
+      showToast(
+        "success",
+        "Copertura stornata: la quota torna a carico della famiglia",
+      );
+      await reload();
+      return true;
+    },
+    [reload, showToast],
+  );
+
   return {
     ledgers,
+    coverageByInstallment,
+    coverageAllocations,
+    fundingOverviews,
+    allocateCoverage,
+    reverseCoverage,
     totals,
     nextInstallment,
     paymentState,

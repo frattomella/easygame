@@ -429,13 +429,15 @@ export function AthleteFundingSummary({
               ) : (
                 <ChevronRight className="mr-1 h-4 w-4" />
               )}
-              Dettagli ({overview.accruals.length} periodi)
+              Dettagli ({((overview as any).periods || overview.accruals).length}{" "}
+              periodi)
             </Button>
 
             {isOpen ? (
               <div className="mt-3">
                 <FundingPeriodsTable
                   accruals={overview.accruals}
+                  periods={(overview as any).periods}
                   externalSource={externalSource}
                   canManage={allowManagement}
                   onConfirm={(accrual) =>

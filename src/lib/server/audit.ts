@@ -103,6 +103,15 @@ export const AUDIT_ACTIONS = {
   */
   fundingProgramTransitioned: "funding.program.transition",
   /*
+    La copertura di una rata con un voucher (ADR-0158). **Non e un incasso** —
+    nessuna riga di cassa nasce da li — ma e una promessa economica fatta a una
+    famiglia: dice quanto **meno** le si chiedera. Chi la fa e chi la revoca
+    devono restare scritti, perche a fine stagione la domanda «perche questa
+    rata chiedeva 50 invece di 200?» ha una risposta sola.
+  */
+  coverageAllocated: "payment.coverage.allocated",
+  coverageReversed: "payment.coverage.reversed",
+  /*
     La prima nota. La traccia porta l'id **del movimento**, e non e un
     dettaglio: prima un movimento manuale finiva in `resource.updated` su
     `clubs` con l'id **del club**, e chi leggeva l'audit sapeva che qualcuno

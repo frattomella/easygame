@@ -12,6 +12,7 @@ import { RefundDialog } from "./RefundDialog";
 import { DocumentDecisionDialog } from "./DocumentDecisionDialog";
 import { useAthletePaymentLedger } from "./use-athlete-payment-ledger";
 import type { LedgerTotals } from "@/lib/payments/installment-ledger";
+import { CoverageDialog } from "./CoverageDialog";
 
 /**
  * Rate e incassi di un atleta: **un solo flusso**, montato nell'area Movimenti
@@ -84,6 +85,9 @@ export function AthletePaymentLedger({
   const causali = useCausaliIncasso();
   const conti = useContiIncasso();
 
+  /* La rata di cui si sta gestendo la copertura da voucher (N7). */
+  const [coverageTarget, setCoverageTarget] = React.useState<any>(null);
+
   return (
     <div className="space-y-4">
       {showTotals ? (
@@ -149,6 +153,8 @@ export function AthletePaymentLedger({
       ) : (
         <InstallmentLedgerList
           ledgers={ledger.ledgers}
+          coverageByInstallment={ledger.coverageByInstallment}
+          onManageCoverage={(installment) => setCoverageTarget(installment)}
           canManage={ledger.allowManagement}
           busyTransactionId={ledger.busyTransactionId}
           onRegisterPayment={ledger.selectLedger}
@@ -254,6 +260,19 @@ export function AthletePaymentLedger({
         accountChoices={conti}
         isSaving={ledger.isSaving}
         onSubmit={ledger.registerPayment}
+      />
+
+      <CoverageDialog
+        open={Boolean(coverageTarget)}
+        onOpenChange={(open) => {
+          if (!open) setCoverageTarget(null);
+        }}
+        installment={coverageTarget}
+        allocations={ledger.coverageAllocations}
+        fundingOverviews={ledger.fundingOverviews}
+        isSaving={ledger.isSaving}
+        onAllocate={ledger.allocateCoverage}
+        onReverse={ledger.reverseCoverage}
       />
     </div>
   );

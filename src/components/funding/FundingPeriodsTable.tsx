@@ -49,6 +49,19 @@ export const ACCRUAL_STATUS_BADGE: Record<
   string,
   { label: string; className: string }
 > = {
+  /*
+    **Il periodo che c'e e non e stato calcolato** (N8).
+
+    Non e un sesto stato in archivio: e cio che si vede di un mese del bando
+    prima che qualcuno abbia ricalcolato. Distinguerlo da «non maturato» e la
+    ragione per cui esiste — «non maturato» dice che l'atleta non ha
+    frequentato abbastanza, «previsto» dice che nessuno ha ancora guardato, e
+    confonderli e il modo in cui si rendiconta all'ente un mese mai verificato.
+  */
+  planned: {
+    label: "PREVISTO",
+    className: "border-dashed border-slate-300 bg-white text-slate-500",
+  },
   not_accrued: {
     label: "NON MATURATO",
     className: "border-slate-200 bg-slate-100 text-slate-600",
@@ -99,11 +112,25 @@ export type FundingAccrualRow = Record<string, any>;
 
 export function FundingPeriodsTable({
   accruals,
+  periods,
   externalSource,
   canManage = false,
   onConfirm,
 }: {
   accruals: FundingAccrualRow[];
+  /**
+   * **Tutti** i periodi del bando, calcolati e non (N8). Quando c'e, comanda
+   * lui: la schermata mostrava le sole righe di maturato, e il ricalcolo si
+   * ferma a oggi, quindi i mesi futuri non comparivano affatto.
+   */
+  periods?: {
+    periodIndex: number;
+    label: string;
+    start: string;
+    end: string;
+    status: string;
+    accrual: FundingAccrualRow | null;
+  }[];
   /** Vero quando la fonte ufficiale del programma sta fuori da EasyGame. */
   externalSource: boolean;
   canManage?: boolean;
@@ -111,18 +138,38 @@ export function FundingPeriodsTable({
 }) {
   const [openId, setOpenId] = React.useState<string | null>(null);
 
-  if (!accruals.length) {
+  /*
+    Un periodo previsto non ha una riga: si mostra comunque, con un maturato a
+    zero e lo stato `planned`. Cosi l'elenco dice quanti mesi restano e quanto
+    puo ancora arrivare, che e la domanda per cui una segreteria apre questa
+    tabella.
+  */
+  const righe = (periods && periods.length
+    ? periods.map((period) => ({
+        ...(period.accrual || {}),
+        id: period.accrual?.id || `previsto-${period.periodIndex}`,
+        period_index: period.periodIndex,
+        period_label: period.label,
+        period_start: period.start,
+        period_end: period.end,
+        status: period.status,
+        accrued_amount: period.accrual?.accrued_amount ?? 0,
+        settled_amount: period.accrual?.settled_amount ?? 0,
+        __planned: !period.accrual,
+      }))
+    : accruals) as (FundingAccrualRow & { __planned?: boolean })[];
+
+  if (!righe.length) {
     return (
       <p className="text-sm text-slate-500">
-        Nessun periodo calcolato. Ricalcola dalle presenze per vedere il
-        dettaglio.
+        Il programma non genera nessun periodo: controlla le date di validita.
       </p>
     );
   }
 
   return (
     <ul className="space-y-2">
-      {accruals.map((accrual) => {
+      {righe.map((accrual) => {
         const id = String(accrual.id);
         const isOpen = openId === id;
         const status = String(accrual.status || "not_accrued");

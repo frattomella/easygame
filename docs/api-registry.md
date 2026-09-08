@@ -216,7 +216,25 @@ Fonte ufficiale da mantenere aggiornata:
   programmi a cui un atleta non e ancora iscritto, esclusi quelli chiusi
 - `GET|PATCH|DELETE /api/v1/funding/enrollments/:id` — una singola
   iscrizione. Il `DELETE` **revoca** invece di cancellare quando ci sono gia
-  importi rendicontati o liquidati, e lo dice nella risposta
+  importi rendicontati o liquidati, e lo dice nella risposta. In tutti e due i
+  casi **storna le coperture** promesse sulle rate, e restituisce quante:
+  lasciarle vive terrebbe la quota a carico della famiglia ridotta da un
+  voucher che non porta piu niente (N9, ADR-0158)
+- `POST /api/v1/funding/programs/:id/transition` — apre, chiude o riapre un
+  programma. Quattro transizioni ammesse (`draft→active`, `draft→closed`,
+  `active→closed`, `closed→active`); cio che non e ammesso viene rifiutato
+  invece di essere scritto. Una **bozza** non iscrive e non matura: prima lo
+  stato era un'etichetta che non impediva niente (N6)
+- `GET /api/v1/payment-coverage?payment_id=…|athlete_id=…` — le coperture da
+  voucher di una rata o di un atleta
+- `POST /api/v1/payment-coverage` — alloca una copertura su una rata
+  (`payment_id`, `enrollment_id`, `amount`), oppure la storna con
+  `action: "reverse"`. **Non e una rotta di incasso**: non scrive nessun
+  `payment_transaction`, non tocca `payments.status` e non entra in prima
+  nota. Dice quanto il club si aspetta da un ente su quella rata, e riduce la
+  quota a carico della famiglia. Due tetti: la copertura viva di una rata non
+  supera la rata, quella di un'adesione non supera l'importo assegnato
+  all'atleta (ADR-0158)
 - `GET|POST /api/v1/platform/payments` — centro di controllo commerciale:
   stato Stripe Connect e billing, commissione standard e override per club,
   ultimi eventi. Scritture distinte da `operation`. Solo `platform_admin`;
