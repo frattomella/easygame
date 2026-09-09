@@ -2281,8 +2281,34 @@ export const removeFundingEnrollment = async (
       })
     : [];
 
+  /*
+    **Una copertura promessa e storico** (revisione ostile, C1).
+
+    `hasHistory` guardava soltanto maturati rendicontati e righe di
+    liquidazione, e decideva fra **cancellare** e revocare. Ma la chiave
+    esterna delle coperture sull'adesione e `ON DELETE RESTRICT`, e le righe
+    di storno restano: il ramo «cancella» finiva percio in una violazione di
+    vincolo, con le coperture **gia stornate e committate** e l'adesione
+    ancora viva. Un secondo tentativo non aiutava — di coperture vive non ne
+    trovava piu — e l'iscrizione restava impossibile da togliere, con la
+    famiglia gia tornata a pagare per intero.
+
+    La prova che avrebbe dovuto vederlo passava perche il doppio di Prisma non
+    fa valere le chiavi esterne: e il difetto che un test in memoria non puo
+    trovare, e la ragione per cui la sonda su Postgres vero esiste.
+
+    Il rimedio non e allentare il vincolo: e riconoscere che **aver promesso
+    una copertura a una famiglia e un fatto**, esattamente come aver
+    rendicontato un maturato. Un'adesione che ha coperto delle rate si revoca.
+  */
+  const coperture = await (prisma as any).paymentCoverageAllocation.findMany({
+    where: { enrollment_id: enrollment.id },
+    select: { id: true },
+  });
+
   const hasHistory =
     (Array.isArray(lines) ? lines : []).length > 0 ||
+    (Array.isArray(coperture) ? coperture : []).length > 0 ||
     accrualRows.some((row) => ["reported", "settled"].includes(asText(row.status)));
 
   /*

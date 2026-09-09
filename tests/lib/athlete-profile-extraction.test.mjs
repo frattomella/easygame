@@ -315,7 +315,7 @@ test("la sezione richiesta si accetta solo se esiste", () => {
 // righe. Il limite scende **insieme** alla rimozione, non dopo: lasciarlo
 // dov'era regalerebbe alla prossima aggiunta lo spazio che questa rimozione
 // ha liberato, ed e esattamente il modo in cui una soglia smette di servire.
-const MAX_ATHLETE_PAGE_LINES = 7370;
+const MAX_ATHLETE_PAGE_LINES = 7365;
 
 test("la scheda atleta non torna a crescere", () => {
   const source = readFileSync(

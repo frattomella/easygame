@@ -451,8 +451,32 @@ test("N9 · togliere l'atleta storna le coperture, e la famiglia torna a dovere 
     scope(),
   );
 
-  assert.equal(esito.outcome, "deleted", "nessuno storico: si cancella");
+  /*
+    **Corretta dopo la revisione ostile (C1).**
+
+    Qui si pretendeva `deleted`, e passava solo perche il doppio di Prisma non
+    fa valere le chiavi esterne. Su Postgres vero la cancellazione **viola**
+    `payment_coverage_allocations_enrollment_id_fkey`, che e `RESTRICT`: le
+    righe di storno continuano a nominare l'adesione. Il risultato reale era un
+    500, con le coperture gia stornate e committate e l'iscrizione ancora viva
+    — e irremovibile per sempre, perche al secondo tentativo di coperture vive
+    non ce n'erano piu.
+
+    Aver **promesso** una copertura a una famiglia e storico quanto aver
+    rendicontato un maturato: un'adesione che ha coperto delle rate si revoca.
+  */
+  assert.equal(
+    esito.outcome,
+    "revoked",
+    "una copertura promessa e storico: non si cancella",
+  );
   assert.equal(esito.coverageReversed, 1, "una copertura stornata");
+  assert.equal(
+    fake.rows("fundingEnrollment").length,
+    1,
+    "l'adesione resta, revocata: nessuna violazione di chiave esterna",
+  );
+  assert.equal(fake.rows("fundingEnrollment")[0].status, "closed");
 
   const { sumLiveCoverage, normalizeCoverageAllocations } = await import(
     "../../src/lib/payments/coverage-ledger.ts"

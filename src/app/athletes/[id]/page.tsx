@@ -96,6 +96,7 @@ import { resolveActiveClubId } from "@/lib/active-club";
 import { supabase } from "@/lib/supabase";
 import {
   getLatestMedicalCertificateExpiry,
+  compareCertificatesByExpiryDesc,
   getMedicalCertificateStatus,
 } from "@/lib/medical-certificates";
 import { CertificateAttachmentField } from "@/components/forms/certificate-attachment-field";
@@ -145,6 +146,11 @@ import { AthleteCategoriesPanel } from "@/components/athletes/profile/athlete-ca
 import { AthleteRegistrationsPanel } from "@/components/athletes/profile/athlete-registrations-panel";
 import { AthleteRegistrationDialog } from "@/components/athletes/profile/athlete-registration-dialog";
 import { CategoryLabel } from "@/components/categories/category-label";
+import {
+  applyRegistrationEdit,
+  buildRegistrationId,
+  findRegistrationIndex,
+} from "@/lib/athletes/registration-edits";
 import { AthleteCertificatesPanel } from "@/components/athletes/profile/athlete-certificates-panel";
 import {
   buildRegistrationFederationReference,
@@ -2545,15 +2551,7 @@ export default function AthleteProfilePage() {
               }
             : certificate,
         )
-        .sort((left: any, right: any) => {
-          const leftTime = left.expiryDate
-            ? new Date(left.expiryDate).getTime()
-            : 0;
-          const rightTime = right.expiryDate
-            ? new Date(right.expiryDate).getTime()
-            : 0;
-          return rightTime - leftTime;
-        });
+        .sort(compareCertificatesByExpiryDesc);
 
       const nextExpiry = resolveLatestExpiry(
         nextCertificates,
@@ -2843,11 +2841,12 @@ export default function AthleteProfilePage() {
     }
 
     try {
-      const inModifica = registrationToEdit
-        ? registrations.find(
-            (voce: any) => String(voce?.id) === String(registrationToEdit.id),
-          )
-        : null;
+      const indiceInModifica = findRegistrationIndex(
+        registrations,
+        registrationToEdit,
+      );
+      const inModifica =
+        indiceInModifica >= 0 ? registrations[indiceInModifica] : null;
 
       /*
         Un file nuovo **sostituisce** quello di prima allo stesso id: cosi il
@@ -2865,7 +2864,7 @@ export default function AthleteProfilePage() {
         : String(inModifica?.fileUrl || "");
 
       const registration = {
-        id: String(inModifica?.id || Date.now().toString()),
+        id: String(inModifica?.id || buildRegistrationId()),
         federationId: riferimento.federationId,
         federation: riferimento.federation,
         number: newRegistration.number,
@@ -2878,11 +2877,11 @@ export default function AthleteProfilePage() {
         fileUrl: attachmentUrl,
       };
 
-      const nextRegistrations = inModifica
-        ? registrations.map((voce: any) =>
-            String(voce?.id) === String(inModifica.id) ? registration : voce,
-          )
-        : [...registrations, registration];
+      const nextRegistrations = applyRegistrationEdit(
+        registrations,
+        indiceInModifica,
+        registration,
+      );
 
       await persistAthleteCollections({
         registrationsOverride: nextRegistrations,
@@ -3677,10 +3676,10 @@ export default function AthleteProfilePage() {
                                 }
                               >
                                 <CategoryLabel
-                                  category={
-                                    membership.categoryId ||
-                                    membership.categoryName
-                                  }
+                                  category={{
+                                    categoryId: membership.categoryId,
+                                    categoryName: membership.categoryName,
+                                  }}
                                   categories={clubCategoryOptions}
                                   groups={clubCategoryGroups}
                                 />

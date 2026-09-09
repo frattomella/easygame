@@ -154,11 +154,27 @@ export const resolveClubFederation = (
   return perNome.length === 1 ? perNome[0] : null;
 };
 
-/** Vero quando il riferimento nomina una federazione **di questo club**. */
+/**
+ * **Vero quando questo identificativo e di questo club.**
+ *
+ * Di proposito **non** passa da `resolveClubFederation`, che ripiega sul nome
+ * (revisione ostile, M4): un `federationId` il cui valore coincide con
+ * l'etichetta di un'altra federazione sarebbe stato accettato come se fosse
+ * quella. La tesi del modulo e che l'identita e l'identificativo; la guardia
+ * deve applicarla a se stessa.
+ *
+ * Il ripiego per nome resta dov'e utile — leggere un'etichetta — e non dove
+ * decide un accesso.
+ */
 export const isFederationOfClub = (
   reference: unknown,
   federations: readonly ClubFederation[],
-) => Boolean(resolveClubFederation(reference, federations));
+) => {
+  const riferimento = normalize(reference);
+  if (!riferimento) return false;
+
+  return federations.some((voce) => normalize(voce.id) === riferimento);
+};
 
 /**
  * **L'etichetta con cui si legge la federazione di un tesseramento.**

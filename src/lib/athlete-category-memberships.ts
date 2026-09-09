@@ -312,27 +312,32 @@ const dedupeMemberships = (
     return values;
   }
 
-  let primaryAssigned = false;
+  /*
+    **La primaria si sceglie dopo aver guardato tutte, non camminando.**
+
+    Qui la promozione dell'indice zero avveniva **dentro** lo stesso ciclo che
+    cercava la primaria dichiarata: se la riga con `is_primary` stava in
+    seconda posizione, la prima veniva promossa prima che il ciclo la vedesse,
+    e la vera primaria veniva declassata.
+
+    Non era teorico. `loadClubAthleteMemberships` legge le appartenenze
+    **senza `ORDER BY`**, quindi l'ordine e quello dell'heap di Postgres, che
+    cambia dopo ogni aggiornamento di riga. E il danno si fissava: ogni
+    salvataggio della scheda riscrive `athletes.category_id` dalla primaria
+    normalizzata, quindi bastava cambiare un avatar per spostare in archivio la
+    categoria primaria di un atleta su una sua secondaria.
+
+    Adesso la dichiarata si cerca su **tutte** le righe; l'indice zero si
+    promuove solo se nessuna lo e.
+  */
+  const indiceDichiarata = values.findIndex((membership) => membership.isPrimary);
+  const indicePrimaria = indiceDichiarata >= 0 ? indiceDichiarata : 0;
+
   return values
-    .map((membership, index) => {
-      if (membership.isPrimary && !primaryAssigned) {
-        primaryAssigned = true;
-        return membership;
-      }
-
-      if (!primaryAssigned && index === 0) {
-        primaryAssigned = true;
-        return {
-          ...membership,
-          isPrimary: true,
-        };
-      }
-
-      return {
-        ...membership,
-        isPrimary: false,
-      };
-    })
+    .map((membership, index) => ({
+      ...membership,
+      isPrimary: index === indicePrimaria,
+    }))
     .sort((left, right) => Number(right.isPrimary) - Number(left.isPrimary));
 };
 
@@ -434,6 +439,31 @@ export const normalizeAthleteCategoryMemberships = (
     if (memberships.length === 0) {
       pushMembership(memberships, legacy);
     } else {
+      /*
+        **Se non si riconosce in nessuna riga, entra come secondaria — non
+        sparisce** (revisione ostile, C2).
+
+        La prima stesura la lasciava cadere, e su un club **migrato a meta** —
+        `athletes.category_id` con la primaria vera, righe scritte solo per le
+        secondarie — quella categoria spariva dalla scheda. Peggio: il
+        salvataggio successivo riscrive `athletes.category_id` dalla primaria
+        normalizzata, quindi la perdita diventava permanente anche nella
+        colonna. Un difetto che si aggrava da solo e piu grave di uno che resta
+        fermo.
+
+        Entrare come **secondaria** e la scelta prudente fra le due: se la
+        colonna era davvero la primaria si vede tutto e l'ordine si corregge in
+        un clic; se era rimasta indietro si vede una categoria di troppo, che si
+        toglie. Nessuna delle due cancella un dato.
+
+        Non e il difetto N1 che torna: quello era la **stessa** categoria due
+        volte, e la riconciliazione qui sopra continua a fonderla. Qui si parla
+        di una categoria diversa, che l'atleta ha davvero.
+
+        Resta fuori solo il caso ambiguo — un nome che ne nomina due — perche
+        li la colonna non identifica nessuna categoria (ADR-0155) e inventarne
+        una sarebbe la fusione al contrario.
+      */
       const rientra = riconciliaProiezione(legacy, memberships, categories);
       if (rientra) {
         pushMembership(memberships, rientra);
@@ -479,7 +509,13 @@ const riconciliaProiezione = (
     (membership) => normalizeReference(membership.categoryId) === chiave,
   );
 
-  if (!riga) return null;
+  /*
+    Nessuna riga la riconosce: e una categoria **in piu**, non una da buttare.
+    Entra come secondaria — la primaria la dicono le righe, che sono la fonte.
+  */
+  if (!riga) {
+    return { ...legacy, isPrimary: false };
+  }
 
   /*
     **La bandiera «primaria» resta della riga.**

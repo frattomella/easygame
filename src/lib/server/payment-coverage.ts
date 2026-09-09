@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import { canAccessClubResource } from "@/lib/access-roles";
+import { isPaymentExcludedFromTotals } from "@/lib/payments/payment-status-utils";
 import { lockInstallmentAndTransaction } from "./payment-transactions";
 import {
   normalizeCoverageAllocations,
@@ -70,12 +71,87 @@ const allocationClient = () => (prisma as any).paymentCoverageAllocation;
  * Chi puo promettere una copertura e chi tiene i conti del club: la copertura
  * dice quanto **meno** una famiglia deve, ed e una decisione economica.
  */
+/**
+ * **Le coperture su rate annullate non impegnano piu il voucher** (revisione
+ * ostile, C2).
+ *
+ * `syncAthleteEnrollmentInstallmentPayments` non cancella le rate quando il
+ * piano si rigenera: le marca `cancelled` con `data.excludedFromTotals` e ne
+ * crea di nuove. Le coperture restavano agganciate alle vecchie e continuavano
+ * a consumare il plafond: su un voucher gia impegnato per intero la segreteria
+ * non poteva piu coprire le rate nuove, e l'unica riga da stornare stava su una
+ * rata che nessuna schermata mostra piu.
+ *
+ * Le righe restano dove sono — lo storico non si riscrive — ma non contano nel
+ * tetto: una promessa fatta su una rata che non esiste piu non e una promessa.
+ */
+const togliQuelleSuRateAnnullate = async (
+  client: any,
+  allocazioni: any[],
+) => {
+  const rate = Array.from(
+    new Set(allocazioni.map((riga: any) => asText(riga?.payment_id)).filter(Boolean)),
+  );
+
+  if (rate.length === 0) return allocazioni;
+
+  const righe = await client.athletePayment.findMany({
+    where: { id: { in: rate } },
+  });
+
+  const annullate = new Set(
+    (Array.isArray(righe) ? righe : [])
+      .filter((rata: any) => isPaymentExcludedFromTotals(rata))
+      .map((rata: any) => String(rata.id)),
+  );
+
+  return allocazioni.filter(
+    (riga: any) => !annullate.has(asText(riga?.payment_id)),
+  );
+};
+
 const assertCanManageCoverage = (scope?: CoverageScope) => {
   if (!scope) return;
 
   if (!canAccessClubResource(scope.activeRole, "payments", "update")) {
     throw denied(
       "la copertura di una rata la decide chi tiene i conti del club",
+    );
+  }
+};
+
+/**
+ * **Il club attivo, e fallisce chiuso** (revisione ostile, M6).
+ *
+ * I tre elenchi filtravano per organization_id **solo se** lo scope ne
+ * portava uno. `resolveOrganizationScopeForUser` lo risolve a `null` per un
+ * utente autenticato senza tessere, e per lui il filtro spariva: righe di
+ * tutti i club. Il dominio dei bandi qui accanto fallisce chiuso da sempre
+ * («nessun club attivo selezionato»); questo falliva aperto.
+ */
+const clubAttivo = (scope?: CoverageScope) => {
+  const attivo = asText(scope?.activeOrganizationId);
+  if (!attivo) {
+    throw denied("nessun club attivo selezionato");
+  }
+  return attivo;
+};
+
+/**
+ * Chi puo **leggere** le coperture di una famiglia.
+ *
+ * Sapere quali rate un voucher alleggerisce, e per quanto, e
+ * un'affermazione sulla situazione economica di una famiglia: e la stessa
+ * lettura che `funding.ts` protegge da quando una revisione ha trovato ogni
+ * `GET` sotto `/api/v1/funding` aperta a chiunque appartenesse al club. Qui
+ * la porta era di nuovo assente (revisione ostile, H5).
+ */
+const assertCanReadCoverage = (scope?: CoverageScope) => {
+  if (!scope) return;
+
+  if (!canAccessClubResource(scope.activeRole, "payments", "read")) {
+    throw denied(
+      "le coperture dicono la situazione economica di una famiglia: le vede chi tiene i conti del club",
     );
   }
 };
@@ -157,7 +233,45 @@ export const allocateCoverage = async (
   }
 
   const risultato = await (prisma as any).$transaction(async (client: any) => {
+    /*
+      **Prima l'adesione, poi la rata** (revisione ostile, H3).
+
+      La prima stesura bloccava la sola rata, e il commento affermava che la
+      finestra rimasta fosse «di una riga sola per rata». Era falso: due
+      coperture su **rate diverse** della **stessa** adesione prendono due
+      blocchi disgiunti, leggono entrambe zero impegnato su un voucher da
+      500 e scrivono entrambe. Ottocento allocati su cinquecento, e nessun
+      vincolo d'archivio dietro, perche il tetto e una somma.
+
+      L'ordine e sicuro perche nessun altro percorso prende questi due
+      blocchi nell'ordine opposto: la scrittura di un incasso non tocca le
+      adesioni, e la rimozione di un beneficiario arriva qui passando da
+      questa stessa funzione. Un abbraccio mortale non nasce da un blocco ma
+      da due ordini diversi (ADR-0138), e qui l'ordine e uno solo.
+    */
+    await client.$queryRaw`SELECT id FROM funding_enrollments WHERE id = ${enrollmentId}::uuid FOR UPDATE`;
     await lockInstallmentAndTransaction(client, paymentId);
+
+    /*
+      Rata e adesione si **rileggono** dentro il blocco: quelle lette prima
+      sono vecchie di quanto e durata la validazione, e una riduzione
+      concorrente dell'importo assegnato non sarebbe stata vista affatto.
+    */
+    const chargeFresca = await client.athletePayment.findUnique({
+      where: { id: paymentId },
+    });
+    const enrollmentFresca = await client.fundingEnrollment.findUnique({
+      where: { id: enrollmentId },
+    });
+
+    if (!chargeFresca || !enrollmentFresca) {
+      throw new Error("Rata o adesione non trovata");
+    }
+    if (asText(enrollmentFresca.status) !== "active") {
+      throw new Error(
+        "L'adesione non e attiva: non si promette una copertura su un voucher revocato",
+      );
+    }
 
     const chiave = asText(input.idempotencyKey);
     if (chiave) {
@@ -179,15 +293,37 @@ export const allocateCoverage = async (
     const suQuestaRata = await client.paymentCoverageAllocation.findMany({
       where: { payment_id: paymentId },
     });
-    const suQuestaAdesione = await client.paymentCoverageAllocation.findMany({
-      where: { enrollment_id: enrollmentId },
-    });
+    /*
+      **Una copertura su una rata annullata non impegna piu il voucher**
+      (revisione ostile, C2).
+
+      `syncAthleteEnrollmentInstallmentPayments` non cancella le rate quando il
+      piano si rigenera: le marca `cancelled` con
+      `data.excludedFromTotals` e ne crea di nuove. Le coperture restavano
+      pero agganciate alle vecchie, e continuavano a **consumare il plafond**:
+      su un voucher gia impegnato per intero la segreteria non poteva piu
+      coprire le rate nuove, e l'unica riga da stornare stava su una rata che
+      la scheda non mostra piu.
+
+      Le righe restano dove sono — lo storico non si riscrive — ma non contano
+      piu nel tetto: una promessa fatta su una rata che non esiste piu non e
+      una promessa.
+    */
+    const allocazioniAdesione =
+      await client.paymentCoverageAllocation.findMany({
+        where: { enrollment_id: enrollmentId },
+      });
+
+    const suQuestaAdesione = await togliQuelleSuRateAnnullate(
+      client,
+      Array.isArray(allocazioniAdesione) ? allocazioniAdesione : [],
+    );
 
     const errore = validateCoverageAllocation({
       amount,
-      dueAmount: charge.amount,
+      dueAmount: chargeFresca.amount,
       existingOnInstallment: suQuestaRata,
-      assignedAmount: enrollment.assigned_amount,
+      assignedAmount: enrollmentFresca.assigned_amount,
       existingOnEnrollment: suQuestaAdesione,
       enrollmentId,
     });
@@ -322,12 +458,12 @@ export const listCoverageForPayment = async (
   paymentId: string,
   scope?: CoverageScope,
 ) => {
+  assertCanReadCoverage(scope);
+
   const righe = await allocationClient().findMany({
     where: {
       payment_id: asText(paymentId),
-      ...(scope?.activeOrganizationId
-        ? { organization_id: scope.activeOrganizationId }
-        : {}),
+      ...(scope ? { organization_id: clubAttivo(scope) } : {}),
     },
     orderBy: [{ created_at: "asc" }],
   });
@@ -339,17 +475,39 @@ export const listCoverageForAthlete = async (
   athleteId: string,
   scope?: CoverageScope,
 ) => {
+  assertCanReadCoverage(scope);
+
   const righe = await allocationClient().findMany({
     where: {
       athlete_id: asText(athleteId),
-      ...(scope?.activeOrganizationId
-        ? { organization_id: scope.activeOrganizationId }
-        : {}),
+      ...(scope ? { organization_id: clubAttivo(scope) } : {}),
     },
     orderBy: [{ created_at: "asc" }],
   });
 
   return Array.isArray(righe) ? righe : [];
+};
+
+/**
+ * Le coperture di un'adesione che **impegnano ancora il voucher**: quelle su
+ * rate annullate non contano piu (revisione ostile, C2).
+ */
+export const listLiveCoverageForEnrollment = async (
+  enrollmentId: string,
+  scope?: CoverageScope,
+) => {
+  const righe = await allocationClient().findMany({
+    where: {
+      enrollment_id: asText(enrollmentId),
+      ...(scope ? { organization_id: clubAttivo(scope) } : {}),
+    },
+    orderBy: [{ created_at: "asc" }],
+  });
+
+  return togliQuelleSuRateAnnullate(
+    prisma as any,
+    Array.isArray(righe) ? righe : [],
+  );
 };
 
 export const listCoverageForEnrollment = async (
@@ -359,9 +517,7 @@ export const listCoverageForEnrollment = async (
   const righe = await allocationClient().findMany({
     where: {
       enrollment_id: asText(enrollmentId),
-      ...(scope?.activeOrganizationId
-        ? { organization_id: scope.activeOrganizationId }
-        : {}),
+      ...(scope ? { organization_id: clubAttivo(scope) } : {}),
     },
     orderBy: [{ created_at: "asc" }],
   });
@@ -419,6 +575,15 @@ export const readCoverageCapacity = async (
 
   if (!charge || !enrollment) return { installment: 0, enrollment: 0 };
 
+  /*
+    **Anche una capienza e un'affermazione** (revisione ostile, M5): dice
+    quanto vale una rata e quanto un voucher. Senza questo vaglio, chiamata
+    con gli identificativi di un altro club rispondeva con i suoi importi.
+  */
+  assertCanReadCoverage(scope);
+  assertSameClub(scope, charge.organization_id);
+  assertSameClub(scope, enrollment.organization_id);
+
   return {
     installment: remainingCoverageCapacity(
       charge.amount,
@@ -426,7 +591,7 @@ export const readCoverageCapacity = async (
     ),
     enrollment: remainingEnrollmentCapacity(
       enrollment.assigned_amount,
-      await listCoverageForEnrollment(enrollment.id, scope),
+      await listLiveCoverageForEnrollment(enrollment.id, scope),
       enrollment.id,
     ),
   };

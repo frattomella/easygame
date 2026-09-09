@@ -3,6 +3,7 @@ import { apiRequest, readStoredActiveClub } from "./api/client";
 import type { ListPageMeta } from "./api/client";
 import { normalizeTrainerList } from "./trainer-utils";
 import { listClubFederations } from "@/lib/club-federations";
+import { resolveCategoryReference } from "@/lib/categories/identity";
 import {
   getAthleteCategoryLabels,
   getPrimaryAthleteCategoryMembership,
@@ -619,6 +620,16 @@ const updatesDeclareAthleteMemberships = (updates: any) =>
     updates?.category_name,
   ].some((value) => value !== undefined);
 
+/**
+ * Esportata **solo per le prove**: la revisione ostile ha trovato qui il
+ * difetto C3, e una regola di scrittura senza una prova che la esegua e la
+ * regola che verra riscoperta la terza volta.
+ */
+export const __resolveRequestedAthleteMembershipsForTests = (
+  currentAthlete: any,
+  updates: any,
+) => resolveRequestedAthleteMemberships(currentAthlete, updates);
+
 const resolveRequestedAthleteMemberships = (
   currentAthlete: any,
   updates: any,
@@ -653,17 +664,91 @@ const resolveRequestedAthleteMemberships = (
     const requestedSiteId =
       updates?.siteId ?? updates?.site_id ?? currentPrimary?.siteId ?? "";
 
+    /*
+      **Una richiesta ambigua non crea una categoria: promuove una che c'e gia,
+      oppure non fa niente** (revisione ostile, C3).
+
+      La stesura precedente costruiva la primaria **dal valore ricevuto**, che
+      su un cambio per nome e un'etichetta. Su un club con due «Under 15» —
+      esattamente la popolazione per cui N1 e N3 esistono — quel valore non
+      identifica nessuna categoria, quindi non si fondeva con nessuna
+      appartenenza e usciva come **riga propria, primaria**. E
+      `replaceAthleteMemberships` cancella e reinserisce cio che esce di qui:
+      in archivio finiva una riga vera con `category_id = "Under 15"`, che
+      l'indice unico non intercetta perche e una stringa diversa.
+
+      Cioe: il difetto di Fortitudo, reintrodotto dal lato che lo scrive, dalla
+      correzione che doveva toglierlo. Il filtro grezzo di prima aveva i suoi
+      difetti, ma non **creava** una riga.
+
+      Adesso il riferimento si risolve prima sulle appartenenze correnti — che
+      sono un catalogo implicito, e dicono come si chiamano le categorie che
+      questo atleta ha davvero:
+
+      * risolve a una che c'e gia → si **promuove quella**, con il suo
+        identificativo, il suo nome e la sua sede;
+      * non risolve ed e **inequivocabile** → e una categoria nuova, e si crea;
+      * non risolve ed e **ambigua** → non nomina nessuna categoria (ADR-0155),
+        e non si tocca niente. Meglio un cambio che non avviene di un cambio
+        che inventa una squadra.
+    */
+    const riferimentoRichiesto =
+      updates?.category ?? updates?.category_id ?? "";
+    const nomeRichiesto =
+      updates?.categoryName ??
+      updates?.category_name ??
+      updates?.category ??
+      updates?.category_id;
+
+    const catalogoCorrente = currentMemberships
+      .filter(
+        (membership) =>
+          membership.categoryName &&
+          String(membership.categoryId).trim().toLowerCase() !==
+            String(membership.categoryName).trim().toLowerCase(),
+      )
+      .map((membership) => ({
+        id: membership.categoryId,
+        name: membership.categoryName,
+      }));
+
+    const risolto = resolveCategoryReference(
+      riferimentoRichiesto,
+      nomeRichiesto,
+      catalogoCorrente,
+    );
+
+    if (risolto?.ambiguous) {
+      /* Ne nomina due: non ne nomina nessuna. Le appartenenze restano com'erano. */
+      return currentMemberships;
+    }
+
+    const gia = currentMemberships.find(
+      (membership) =>
+        String(membership.categoryId).trim().toLowerCase() ===
+        String(risolto?.id || "").trim().toLowerCase(),
+    );
+
     const nextPrimary = normalizeAthleteCategoryMemberships([
-      {
-        category_id: updates?.category ?? updates?.category_id,
-        category_name:
-          updates?.categoryName ??
-          updates?.category_name ??
-          updates?.category ??
-          updates?.category_id,
-        is_primary: true,
-        site_id: requestedSiteId,
-      },
+      gia
+        ? {
+            category_id: gia.categoryId,
+            category_name: gia.categoryName,
+            is_primary: true,
+            /*
+              Promuovendo una secondaria la sua sede e **la sua**, non quella
+              della primaria uscente: quella era la sede di un'altra categoria
+              (revisione ostile, M1).
+            */
+            site_id:
+              updates?.siteId ?? updates?.site_id ?? gia.siteId ?? "",
+          }
+        : {
+            category_id: riferimentoRichiesto,
+            category_name: nomeRichiesto,
+            is_primary: true,
+            site_id: requestedSiteId,
+          },
     ]);
 
     /*

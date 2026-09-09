@@ -152,6 +152,23 @@ export function FundingProgramDetail({
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [transitioning, setTransitioning] = React.useState(false);
 
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await apiRequest<ProgramDetail>(
+      `/api/v1/funding/programs/${encodeURIComponent(programId)}?view=detail`,
+    );
+
+    if (error || !data) {
+      showToast("error", error?.message || "Errore nella lettura del programma");
+      setLoading(false);
+      return;
+    }
+
+    setDetail(data);
+    setLoading(false);
+  }, [programId, showToast]);
+
   /**
    * Apre, chiude o riapre il programma.
    *
@@ -182,24 +199,8 @@ export function FundingProgramDetail({
       );
       await load();
     },
-    [programId, showToast],
+    [programId, showToast, load],
   );
-
-  const load = React.useCallback(async () => {
-    setLoading(true);
-    const { data, error } = await apiRequest<ProgramDetail>(
-      `/api/v1/funding/programs/${encodeURIComponent(programId)}?view=detail`,
-    );
-
-    if (error || !data) {
-      showToast("error", error?.message || "Errore nella lettura del programma");
-      setLoading(false);
-      return;
-    }
-
-    setDetail(data);
-    setLoading(false);
-  }, [programId, showToast]);
 
   React.useEffect(() => {
     void load();

@@ -359,6 +359,13 @@ export function InstallmentLedgerList({
         const isOpen = Boolean(expanded[key]);
         const coverage =
           coverageByInstallment[String(ledger.installmentId || "")] || null;
+        /*
+          Il residuo che conta per la famiglia — e per il checkout — e il suo,
+          non quello lordo: la parte coperta la deve l'ente.
+        */
+        const residuoFamiglia = coverage
+          ? coverage.familyResidualAmount
+          : ledger.residualAmount;
 
         return (
           <div
@@ -393,20 +400,37 @@ export function InstallmentLedgerList({
                     value={Math.round(ledger.progress * 100)}
                     className="h-2"
                   />
+                  {/*
+                    **Il residuo mostrato e quello della famiglia** (revisione
+                    ostile, H2).
+
+                    Su una rata da 600 coperta per 500 la riga diceva «Residuo
+                    600,00» e, due righe piu sotto, «a carico della famiglia
+                    100,00»: due numeri contraddittori sulla stessa riga, e il
+                    piu grande era quello su cui si apriva il checkout.
+                  */}
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
                     <span className="font-medium">
                       {formatCurrency(ledger.paidAmount)} /{" "}
-                      {formatCurrency(ledger.dueAmount)} pagati
+                      {formatCurrency(
+                        coverage ? coverage.familyDueAmount : ledger.dueAmount,
+                      )}{" "}
+                      pagati
                     </span>
                     <span
                       className={
-                        ledger.residualAmount > 0
+                        residuoFamiglia > 0
                           ? "text-amber-700 dark:text-amber-300"
                           : "text-emerald-700 dark:text-emerald-300"
                       }
                     >
-                      Residuo {formatCurrency(ledger.residualAmount)}
+                      Residuo {formatCurrency(residuoFamiglia)}
                     </span>
+                    {coverage ? (
+                      <span className="text-xs text-slate-500">
+                        su {formatCurrency(ledger.dueAmount)} di quota
+                      </span>
+                    ) : null}
                   </div>
 
                   {/*
@@ -461,7 +485,7 @@ export function InstallmentLedgerList({
                     {coverage ? "Copertura" : "Copri con un voucher"}
                   </Button>
                 ) : null}
-                {onPayOnline && ledger.residualAmount > 0 ? (
+                {onPayOnline && residuoFamiglia > 0 ? (
                   <Button
                     size="sm"
                     className="w-full gap-1 sm:w-auto"

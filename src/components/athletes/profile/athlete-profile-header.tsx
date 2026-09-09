@@ -104,7 +104,10 @@ export function AthleteProfileHeader({
                 }
               >
                 <CategoryLabel
-                  category={membership.categoryId || membership.categoryName}
+                  category={{
+                    categoryId: membership.categoryId,
+                    categoryName: membership.categoryName,
+                  }}
                   index={categoryDisplay}
                   siteClassName="text-[0.85em] font-normal opacity-80"
                 />

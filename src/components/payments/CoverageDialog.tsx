@@ -70,11 +70,14 @@ export function CoverageDialog({
     paymentId: string;
     enrollmentId: string;
     amount: number;
+    idempotencyKey: string;
   }) => Promise<boolean>;
   onReverse: (allocationId: string, reason?: string) => Promise<boolean>;
 }) {
   const [enrollmentId, setEnrollmentId] = React.useState("");
   const [amount, setAmount] = React.useState("");
+  /** La chiave del tentativo in corso: sopravvive a un errore, non a un successo. */
+  const chiaveTentativo = React.useRef<string | null>(null);
 
   const paymentId = installment?.installmentId || "";
 
@@ -107,6 +110,7 @@ export function CoverageDialog({
     if (!open) return;
     setEnrollmentId(adesioni[0]?.enrollment?.id || "");
     setAmount("");
+    chiaveTentativo.current = null;
   }, [open, adesioni]);
 
   const adesioneScelta = adesioni.find(
@@ -268,12 +272,37 @@ export function CoverageDialog({
           <Button
             disabled={!puoSalvare}
             onClick={async () => {
+              /*
+                **Una chiave per gesto** (revisione ostile, H4).
+
+                La chiave la generava il chiamante da rata, adesione e importo:
+                allocare 50 e poi altri 50 sulla stessa rata dava due volte la
+                stessa chiave, e il secondo invio tornava indietro come
+                duplicato — con l'avviso di successo e la copertura ferma a 50.
+
+                La chiave nasce ora quando si preme, e vive finche quel
+                tentativo non riesce: un rinvio dopo un errore di rete resta
+                idempotente, due gesti distinti restano due promesse. Il doppio
+                clic lo ferma il pulsante disabilitato.
+              */
+              if (!chiaveTentativo.current) {
+                chiaveTentativo.current =
+                  typeof crypto !== "undefined" && crypto.randomUUID
+                    ? crypto.randomUUID()
+                    : `coverage-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+              }
+
               const ok = await onAllocate({
                 paymentId,
                 enrollmentId,
                 amount: Number(amount.replace(",", ".")),
+                idempotencyKey: chiaveTentativo.current,
               });
-              if (ok) setAmount("");
+
+              if (ok) {
+                chiaveTentativo.current = null;
+                setAmount("");
+              }
             }}
           >
             {isSaving ? "Salvataggio..." : "Registra copertura"}

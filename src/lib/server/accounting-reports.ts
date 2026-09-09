@@ -110,8 +110,14 @@ export const readAccrualSummary = async (
   const id = asText(organizationId);
   if (!id) throw new Error("Accesso negato: nessun club indicato");
 
-  const [rate, incassi, maturazioni, righeLiquidate, scadenzeCompensi] =
-    await Promise.all([
+  const [
+    rate,
+    incassi,
+    maturazioni,
+    righeLiquidate,
+    scadenzeCompensi,
+    coperture,
+  ] = await Promise.all([
       (prisma as any).athletePayment.findMany({ where: { organization_id: id } }),
       (prisma as any).paymentTransaction.findMany({
         where: { organization_id: id },
@@ -121,6 +127,14 @@ export const readAccrualSummary = async (
         where: { organization_id: id },
       }),
       (prisma as any).sportWorkInstallment.findMany({
+        where: { organization_id: id },
+      }),
+      /*
+        Le coperture da voucher: servono a non contare due volte lo stesso
+        denaro fra il credito verso le famiglie e quello verso gli enti
+        (ADR-0158).
+      */
+      (prisma as any).paymentCoverageAllocation.findMany({
         where: { organization_id: id },
       }),
     ]);
@@ -204,8 +218,48 @@ export const readAccrualSummary = async (
     0,
   );
 
+  /*
+    **Il credito verso le famiglie non comprende cio che porta un ente**
+    (ADR-0158, revisione ostile H6).
+
+    `rateTotali.residualAmount` e il residuo **lordo**: non sa niente delle
+    coperture. Accanto, `fundingPendingCents` dichiara quanto gli enti
+    devono ancora versare. Su una rata da 600 coperta per 500 il rendiconto
+    diceva percio 600 di credito verso la famiglia **e** 500 in arrivo
+    dagli enti: millecento euro attesi su un debito di seicento, e nessuno
+    dei due numeri sbagliato da solo.
+
+    La copertura viva si toglie dal credito **verso la famiglia**, perche e
+    la parte che la famiglia non deve. Non si somma da nessun'altra parte:
+    dell'ente parla gia `fundingPendingCents`, e le due contabilita restano
+    separate (ADR-0037).
+
+    Si tolgono solo le coperture **vive** e solo fino al residuo di quella
+    rata: una copertura su una rata gia saldata dalla famiglia non genera un
+    credito negativo.
+  */
+  const coperturaSuiCrediti = registri.reduce((somma: number, registro: any) => {
+    const perQuestaRata = (coperture || []).filter(
+      (riga: any) =>
+        String(riga?.payment_id || "") === String(registro.installmentId || "") &&
+        !riga?.reversed_at &&
+        !riga?.reverses_allocation_id,
+    );
+
+    const coperta = perQuestaRata.reduce(
+      (totale: number, riga: any) => totale + (Number(riga?.amount) || 0),
+      0,
+    );
+
+    return somma + Math.min(Math.max(0, coperta), Number(registro.residualAmount) || 0);
+  }, 0);
+
   return {
-    familyReceivablesCents: toCents(rateTotali.residualAmount),
+    familyReceivablesCents: toCents(
+      Math.max(0, Number(rateTotali.residualAmount) - coperturaSuiCrediti),
+    ),
+    /** Quanto di quel credito lo porta un ente, non la famiglia. */
+    coveredReceivablesCents: toCents(coperturaSuiCrediti),
     /** Quanto le famiglie hanno versato **in piu** del dovuto. */
     familyCreditCents: toCents(eccedenzaFamiglie),
     overdueReceivablesCents: toCents(rateTotali.overdueAmount),

@@ -722,6 +722,8 @@ const assertRegistrationFederations = async (
   resource: string,
   organizationId: unknown,
   input: unknown,
+  scope?: ResourceAccessScope,
+  existing?: Record<string, any> | null,
 ) => {
   if (resource !== "athletes" && resource !== "simplified_athletes") return;
 
@@ -733,15 +735,58 @@ const assertRegistrationFederations = async (
   const registrations = data?.registrations;
   if (!Array.isArray(registrations) || registrations.length === 0) return;
 
+  /*
+    **Si vagliano i riferimenti NUOVI, non tutti** (revisione ostile, H2).
+
+    La prima stesura li vagliava tutti, e trasformava un'etichetta orfana in un
+    **blocco totale della scrittura**: se il club rinominava o toglieva una
+    federazione, ogni atleta gia tesserato con quella diventava impossibile da
+    salvare — non si poteva piu correggere un telefono, aggiungere un tutore o
+    caricare un certificato, perche la scheda rimanda sempre l'intero elenco
+    dei tesseramenti. E nessuna schermata offriva un modo di ripararlo, visto
+    che la tendina mostra solo le federazioni configurate **adesso**.
+
+    Il difetto da chiudere era «si scrive un ente che il club non ha», e quello
+    riguarda cio che **arriva ora**. Un riferimento gia in archivio si tollera:
+    e storia, e la storia non si rifiuta.
+  */
+  const gia = new Set<string>(
+    (Array.isArray((existing as any)?.data?.registrations)
+      ? (existing as any).data.registrations
+      : []
+    )
+      .map((riga: any) =>
+        String(riga?.federationId ?? riga?.federation_id ?? "")
+          .trim()
+          .toLowerCase(),
+      )
+      .filter(Boolean),
+  );
+
   const dichiarati = registrations
     .map((riga: any) =>
       String(riga?.federationId ?? riga?.federation_id ?? "").trim(),
     )
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((riferimento: string) => !gia.has(riferimento.toLowerCase()));
 
   if (dichiarati.length === 0) return;
 
-  const clubId = String(organizationId || "").trim();
+  /*
+    **Il club si risolve come lo risolve la scrittura** (revisione ostile, H1).
+
+    Qui arrivava il solo `organization_id` del carico, che **non e
+    obbligatorio**: `resolveScopedOrganizationId` ripiega sul club attivo dello
+    scope. Un `POST /api/v1/athletes` che lo ometteva usciva percio dal vaglio
+    alla prima riga — `if (!clubId) return` — e scriveva l'ente di un altro
+    club dentro `athletes.data`. La guardia valeva solo sulla modifica, e il
+    suo commento prometteva «la scheda, la maschera di creazione, l'app, un
+    curl».
+  */
+  const clubId =
+    String(organizationId || "").trim() ||
+    String(scope?.activeOrganizationId || "").trim();
+
   if (!clubId) return;
 
   const club = await prisma.club.findUnique({
@@ -6490,6 +6535,8 @@ export const createResource = async (
     resource,
     (input as any)?.organization_id ?? (input as any)?.club_id,
     input,
+    scope,
+    null,
   );
 
   if (config.kind === "club_resource") {
@@ -7658,6 +7705,8 @@ const applicaGuardieDiModifica = async (
       resource,
       (existing as any)?.organization_id,
       normalized,
+      scope,
+      existing as any,
     );
 
     if (

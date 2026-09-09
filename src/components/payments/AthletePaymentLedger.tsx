@@ -167,8 +167,22 @@ export function AthletePaymentLedger({
           onGenerateInvoice={(transaction) =>
             void ledger.generateInvoice(transaction)
           }
+          /*
+            **Online si paga la quota della famiglia** (revisione ostile, H2).
+
+            `selectOnlineLedger` riceveva la rata **lorda**, e
+            `validateOnlinePaymentAmount` limita al residuo di quella: su una
+            rata da 600 coperta per 500 il checkout accettava fino a 600, cioe
+            cinquecento euro di troppo — che nessun riquadro avrebbe poi
+            mostrato come credito.
+          */
           onPayOnline={
-            ledger.canPayOnline ? ledger.selectOnlineLedger : undefined
+            ledger.canPayOnline
+              ? (installment: any) =>
+                  ledger.selectOnlineLedger(
+                    ledger.withFamilyShare(installment),
+                  )
+              : undefined
           }
           /*
             Il rimborso segue la stessa condizione del pagamento online: se il

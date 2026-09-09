@@ -188,16 +188,39 @@ export const buildCategoryDisplayIndex = ({
   };
 
   const describe = (reference: unknown): CategoryDisplay => {
-    const grezzo = trim(
+    /*
+      **L'identificativo per cercare, il nome per ripiegare** (revisione
+      ostile, H4).
+
+      La prima stesura leggeva un solo valore e, quando il catalogo non lo
+      riconosceva, lo restituiva **com'e** come nome: a schermo compariva
+      `category-1757…` al posto di «Scoiattoli». Non era un caso limite —
+      succedeva a ogni primo disegno della scheda atleta, perche il catalogo
+      arriva da una lettura asincrona, e restava per sempre su una categoria
+      tolta dal catalogo.
+
+      Peggio, il ramo sugli oggetti leggeva `.id` per primo: su
+      un'appartenenza `.id` e l'identificativo **della riga**, non della
+      categoria, e usciva l'uuid della riga.
+    */
+    const perCercare = trim(
       typeof reference === "object" && reference
-        ? (reference as any).id ??
-            (reference as any).categoryId ??
+        ? (reference as any).categoryId ??
             (reference as any).category_id ??
-            (reference as any).name
+            (reference as any).id
         : reference,
     );
 
-    const voce = perId.get(normalizeCategoryToken(grezzo));
+    const perLeggere = trim(
+      typeof reference === "object" && reference
+        ? (reference as any).categoryName ??
+            (reference as any).category_name ??
+            (reference as any).name
+        : "",
+    );
+
+    const grezzo = perCercare || perLeggere;
+    const voce = perId.get(normalizeCategoryToken(perCercare));
 
     if (!voce) {
       /*
@@ -206,11 +229,18 @@ export const buildCategoryDisplayIndex = ({
         una colonna storica mai bonificata. Nessuna sede da accostare, perche
         non si sa a quale categoria appartenga.
       */
+      /*
+        Il catalogo non lo conosce: si mostra il **nome** se il chiamante ce
+        l'ha, e il valore com'e solo quando non c'e altro. Un identificativo a
+        schermo non e un'etichetta: e un difetto che si legge.
+      */
+      const etichetta = perLeggere || grezzo;
+
       return {
         id: grezzo,
-        name: grezzo,
+        name: etichetta,
         site: "",
-        label: grezzo,
+        label: etichetta,
         ambiguous: false,
       };
     }

@@ -110,14 +110,32 @@ test("la finestra si apre sui valori del tesseramento, non vuota", () => {
 });
 
 test("correggere aggiorna la riga invece di accodarne una seconda", () => {
+  /*
+    **Riscritta dopo la revisione ostile (H3).** La regola non cambia; cambia
+    dove vive. Il confronto era per **identificativo**, e
+    `String(undefined) === "undefined"`: con due tesseramenti storici senza id
+    la correzione li riscriveva tutti e due con lo stesso oggetto, e uno
+    spariva. Adesso e per posizione, in una funzione pura che si puo eseguire.
+  */
   const pagina = senzaCommenti(leggi(PAGINA));
 
-  assert.match(
-    pagina,
-    /const nextRegistrations = inModifica\s*\?\s*registrations\.map\(/,
-    "in correzione si sostituisce; in aggiunta si accoda",
+  assert.match(pagina, /findRegistrationIndex\(\s*registrations,/);
+  assert.match(pagina, /applyRegistrationEdit\(/);
+
+  const regole = senzaCommenti(
+    leggi("src/lib/athletes/registration-edits.ts"),
   );
-  assert.match(pagina, /:\s*\[\.\.\.registrations, registration\]/);
+
+  assert.match(
+    regole,
+    /row\?\.id && target\.id\s*\?\s*String\(row\.id\) === String\(target\.id\)\s*:\s*row === target/,
+    "chi non ha un identificativo si riconosce per identita di riferimento",
+  );
+  assert.match(
+    regole,
+    /index >= 0\s*\?\s*righe\.map\(\(row, posizione\) =>\s*\(posizione === index \? registration : row\)\)\s*:\s*\[\.\.\.righe, registration\]/,
+    "in correzione si sostituisce per posizione; in aggiunta si accoda",
+  );
 });
 
 test("la finestra dichiara che sta correggendo", () => {

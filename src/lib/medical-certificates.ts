@@ -217,3 +217,25 @@ export const describeMedicalCertificateForFamily = (
 
   return { label, detail, summary: `${label} — ${detail}` };
 };
+
+/**
+ * **Il certificato piu recente per primo.**
+ *
+ * Lo stesso confronto viveva **tre volte** nella scheda atleta — al
+ * caricamento, all'aggiunta e alla correzione — e tre copie di un ordinamento
+ * sono tre occasioni di ordinarlo diversamente. Un certificato senza scadenza
+ * va in fondo: non e piu recente di niente, e fingere il contrario lo
+ * metterebbe davanti a quelli veri.
+ */
+export const compareCertificatesByExpiryDesc = (
+  left: { expiryDate?: unknown },
+  right: { expiryDate?: unknown },
+) => {
+  const quando = (value: unknown) => {
+    if (!value) return 0;
+    const data = new Date(String(value));
+    return Number.isNaN(data.getTime()) ? 0 : data.getTime();
+  };
+
+  return quando(right?.expiryDate) - quando(left?.expiryDate);
+};

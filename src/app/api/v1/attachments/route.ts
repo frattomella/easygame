@@ -110,8 +110,29 @@ export async function GET(request: Request) {
       Senza `owner_type` l'elenco attraversa **tutti** i tipi: lo puo chiedere
       solo chi potrebbe chiederli uno per uno.
     */
+    /*
+      **La categoria si vaglia anche in elenco** (revisione ostile, M3).
+
+      La rotta per identificativo passa `metadata.category` e nega
+      correttamente un certificato medico a chi ha solo lo **stato** clinico;
+      questa non la passava affatto. `GET /api/v1/attachments?owner_type=athlete&category=medical_certificate`
+      restituiva percio l'indice — identificativi, nomi dei file, dimensioni,
+      validita — dei certificati di ogni atleta del club a un allenatore.
+
+      Era latente prima; N5 l'ha resa viva, portando i certificati dentro
+      Attachment Core proprio con quella categoria.
+    */
+    const categoriaChiesta = url.searchParams.get("category");
+
     if (ownerType) {
-      if (!canAccessAttachmentOwner(scope.activeRole, ownerType, "read")) {
+      if (
+        !canAccessAttachmentOwner(
+          scope.activeRole,
+          ownerType,
+          "read",
+          categoriaChiesta || undefined,
+        )
+      ) {
         return failure(attachmentDenied(ownerType), "Accesso negato");
       }
     } else if (!canManageClubConfigurationAsActor(scope.activeRole)) {

@@ -56,12 +56,15 @@ export type AthletePaymentLedgerState = {
    * mappa non e coperta, e il suo residuo e quello di sempre.
    */
   coverageByInstallment: Record<string, InstallmentCoverage>;
+  /** Riduce una rata alla quota a carico della famiglia (per il checkout). */
+  withFamilyShare: (installment: any) => any;
   coverageAllocations: any[];
   fundingOverviews: any[];
   allocateCoverage: (input: {
     paymentId: string;
     enrollmentId: string;
     amount: number;
+    idempotencyKey: string;
   }) => Promise<boolean>;
   reverseCoverage: (allocationId: string, reason?: string) => Promise<boolean>;
   totals: LedgerTotals;
@@ -322,9 +325,17 @@ export function useAthletePaymentLedger({
 
       perRata[id] = resolveInstallmentCoverage({
         dueAmount: (charge as any)?.amount,
+        /*
+          **Il movimento porta `installmentId`, non `payment_id`** (revisione
+          ostile, H1). `normalizePaymentTransaction` piega `payment_id` in
+          `installmentId` e non emette nessuna delle due grafie originali: il
+          filtro di prima confrontava `String(undefined)` e restituiva sempre
+          l'elenco vuoto. Effetto: su ogni rata coperta la famiglia risultava
+          non aver versato niente, e la scheda le chiedeva di nuovo la sua
+          quota il giorno dopo averla incassata.
+        */
         transactions: transactions.filter(
-          (movimento: any) =>
-            String(movimento?.paymentId || movimento?.payment_id) === id,
+          (movimento: any) => String(movimento?.installmentId || "") === id,
         ),
         allocations: suQuestaRata,
         enrollmentCoverage: perAdesione,
@@ -877,6 +888,7 @@ export function useAthletePaymentLedger({
       paymentId: string;
       enrollmentId: string;
       amount: number;
+      idempotencyKey: string;
     }) => {
       setIsSaving(true);
       const { error } = await apiRequest("/api/v1/payment-coverage", {
@@ -885,7 +897,20 @@ export function useAthletePaymentLedger({
           payment_id: input.paymentId,
           enrollment_id: input.enrollmentId,
           amount: input.amount,
-          idempotency_key: `coverage:${input.paymentId}:${input.enrollmentId}:${input.amount}`,
+          /*
+            **Una chiave per gesto, non per importo** (revisione ostile, H4).
+
+            La chiave era `rata:adesione:importo`, senza nonce: allocare 50 e
+            poi altri 50 sulla stessa rata dava la stessa chiave, e il secondo
+            invio tornava indietro come duplicato — con l'avviso di successo e
+            la copertura ferma a 50. Chi lo faceva credeva di averne coperti
+            100.
+
+            Adesso la chiave la genera il **gesto**: due invii distinti sono
+            due promesse, e il doppio clic lo ferma il pulsante disabilitato
+            piu la chiave che il tentativo in corso conserva.
+          */
+          idempotency_key: input.idempotencyKey,
         },
       });
       setIsSaving(false);
@@ -929,8 +954,30 @@ export function useAthletePaymentLedger({
     [reload, showToast],
   );
 
+  /**
+   * **La rata ridotta alla quota della famiglia** (revisione ostile, H2).
+   *
+   * Serve al checkout online, che limita l'importo al residuo della rata che
+   * riceve. Senza copertura restituisce la rata com'e.
+   */
+  const withFamilyShare = React.useCallback(
+    (installment: any) => {
+      const coverage =
+        coverageByInstallment[String(installment?.installmentId || "")];
+      if (!coverage) return installment;
+
+      return {
+        ...installment,
+        dueAmount: coverage.familyDueAmount,
+        residualAmount: coverage.familyResidualAmount,
+      };
+    },
+    [coverageByInstallment],
+  );
+
   return {
     ledgers,
+    withFamilyShare,
     coverageByInstallment,
     coverageAllocations,
     fundingOverviews,

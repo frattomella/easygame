@@ -75,7 +75,13 @@ test("la lista non inventa la disponibilita: se non le danno la CTA, non la most
   */
   const list = read(LIST);
 
-  assert.match(list, /\{onPayOnline && ledger\.residualAmount > 0 \?/);
+  /*
+    **Corretta dopo N7 (ADR-0158).** La regola non cambia — la CTA compare solo
+    se chi monta la passa, e solo se resta qualcosa da pagare — ma cio che
+    «resta da pagare» adesso e il residuo **della famiglia**: su una rata da 600
+    coperta per 500 il pulsante ne offriva 600.
+  */
+  assert.match(list, /\{onPayOnline && residuoFamiglia > 0 \?/);
   assert.doesNotMatch(
     list,
     /onPayOnline\s*=\s*\(\s*\)\s*=>/,
@@ -179,7 +185,13 @@ test("su una rata saldata non compare nessuna CTA di pagamento", () => {
   const list = read(LIST);
 
   /* Entrambe le CTA passano dallo stesso guardiano: residuo maggiore di zero. */
-  assert.match(list, /\{onPayOnline && ledger\.residualAmount > 0 \?/);
+  /*
+    **Corretta dopo N7 (ADR-0158).** La regola non cambia — la CTA compare solo
+    se chi monta la passa, e solo se resta qualcosa da pagare — ma cio che
+    «resta da pagare» adesso e il residuo **della famiglia**: su una rata da 600
+    coperta per 500 il pulsante ne offriva 600.
+  */
+  assert.match(list, /\{onPayOnline && residuoFamiglia > 0 \?/);
   assert.match(
     list,
     /\{canManage && ledger\.residualAmount > 0 && onRegisterPayment \?/,

@@ -223,6 +223,15 @@ export type AccrualSummary = {
   /** Residuo delle rate delle famiglie. Proprietario: il ledger delle rate. */
   familyReceivablesCents: number;
   /**
+   * Quanto di quel credito lo porta un **ente**, non la famiglia (ADR-0158).
+   *
+   * Senza questo campo il rendiconto contava lo stesso denaro due volte: il
+   * residuo lordo fra i crediti verso le famiglie, e il maturato non ancora
+   * liquidato fra i contributi attesi. Su una rata da 600 coperta per 500
+   * dichiarava millecento euro attesi su un debito di seicento.
+   */
+  coveredReceivablesCents: number;
+  /**
    * Quanto le famiglie hanno versato **in piu** del dovuto.
    *
    * Il residuo non puo essere negativo — una rata da 300 pagata 500 lascia
@@ -262,6 +271,7 @@ export type AccrualSummary = {
 
 export const ACCRUAL_ZERO: AccrualSummary = {
   familyReceivablesCents: 0,
+  coveredReceivablesCents: 0,
   familyCreditCents: 0,
   overdueReceivablesCents: 0,
   overdueCount: 0,

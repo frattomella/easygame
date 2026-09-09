@@ -387,6 +387,21 @@ test("tolta l'ultima categoria non ne resta nessuna, e non ne compare una dalla 
     "senza righe la colonna resta l'unica fonte: nessuna perdita sul dato mai migrato",
   );
 
+  /*
+    **Corretta dopo la revisione ostile (C2).**
+
+    Qui si pretendeva che la colonna disallineata sparisse — `length === 1`. La
+    revisione ha misurato che quella regola perde un dato vero: su un club
+    **migrato a meta** (`athletes.category_id` con la primaria, righe scritte
+    solo per le secondarie) la primaria spariva dalla scheda, e il salvataggio
+    successivo la cancellava anche dalla colonna, perche la riscrive dalla
+    primaria normalizzata. Un difetto che si aggrava da solo.
+
+    La colonna entra percio come **secondaria**: la primaria la dicono le
+    righe, che sono la fonte, e niente si perde. Cio che questa prova continua
+    a difendere — e che era il difetto N1 — e che la **stessa** categoria non
+    compaia due volte, ed e la prova qui sopra.
+  */
   const conUnaRiga = normalizeAthleteCategoryMemberships(
     {
       id: "atleta-1",
@@ -399,11 +414,16 @@ test("tolta l'ultima categoria non ne resta nessuna, e non ne compare una dalla 
   );
 
   assert.equal(
-    conUnaRiga.length,
-    1,
-    "con le righe la colonna disallineata non resuscita la categoria tolta",
+    conUnaRiga.find((membership) => membership.isPrimary).categoryId,
+    PULCINI,
+    "la primaria resta quella delle righe: la colonna non la scavalca",
   );
-  assert.equal(conUnaRiga[0].categoryId, PULCINI);
+  assert.equal(
+    conUnaRiga.find((membership) => membership.categoryId === SCOIATTOLI)
+      ?.isPrimary,
+    false,
+    "e la colonna, se dice una categoria diversa, entra come secondaria invece di sparire",
+  );
 });
 
 /* ------------------------------------------------------------------ */
