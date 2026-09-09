@@ -157,6 +157,32 @@ const main = async () => {
   await atleta(CARLA, "Carla", "Senzavoucher");
 
   /*
+    **Il conto su cui arrivano i bonifici degli enti** (N15). Senza, la finestra
+    della liquidazione non ha un conto da offrire, e il collaudo misurerebbe
+    quell'assenza invece del flusso.
+  */
+  await prisma.financialAccount.create({
+    data: {
+      organization_id: CLUB,
+      name: "Banca del club",
+      kind: "BANK",
+      opening_balance_cents: 0,
+    },
+  });
+
+  /* E la causale del bonifico, perche il movimento nasca classificato. */
+  await prisma.fiscalOperationType.create({
+    data: {
+      organization_id: CLUB,
+      code: "liquidazione_contributo",
+      label: "Liquidazione di contributo o voucher",
+      activity_scope: "unspecified",
+      direction_hint: "IN",
+      updated_at: new Date(),
+    },
+  });
+
+  /*
     **Il bando senza requisito di frequenza** (caso C di N10/N11): la scheda non
     deve scrivere «Requisito 0 ore» ne «con almeno 0 ore».
   */

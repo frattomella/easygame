@@ -437,6 +437,16 @@ export type PlanCoverageSummary = {
   readonly plannedCoverage: number;
   readonly accruedCoverage: number;
   readonly settledCoverage: number;
+  /**
+   * **Quanto l'ente deve ancora versare** su cio che copre questo piano (N15):
+   * `maturato − liquidato`, mai sotto zero.
+   *
+   * Non e `previsto − liquidato`. La differenza non e formale: cio che non e
+   * ancora maturato **non e un credito** — l'atleta puo smettere di
+   * frequentare, e quel denaro non arrivera mai. Chiamarlo «da ricevere»
+   * metterebbe fra i crediti del club una somma che nessuno gli deve.
+   */
+  readonly pendingCoverage: number;
   readonly familyDueAmount: number;
   readonly familyPaidAmount: number;
   readonly familyResidualAmount: number;
@@ -502,6 +512,7 @@ export const summarizePlanCoverage = ({
     plannedCoverage: plannedCents / 100,
     accruedCoverage: accruedCents / 100,
     settledCoverage: settledCents / 100,
+    pendingCoverage: Math.max(0, accruedCents - settledCents) / 100,
     familyDueAmount: familyDueCents / 100,
     familyPaidAmount: familyPaidCents / 100,
     /*

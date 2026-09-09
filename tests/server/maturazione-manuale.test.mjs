@@ -541,7 +541,7 @@ test("un periodo gia liquidato non si tocca", async () => {
 
   await assert.rejects(
     () => decidi("not_accrued"),
-    /gia liquidato/,
+    /gia liquidat[oa]|gia versato/,
     "l'ente ha versato su quell'importo: si corregge stornando la liquidazione",
   );
 });

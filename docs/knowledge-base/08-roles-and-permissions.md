@@ -1268,3 +1268,44 @@ tre **non** cadano
 ([ADR-0130](18-decision-log.md#adr-0130--una-difesa-che-dipende-da-unenumerazione-ha-un-test-che-enumera-il-dominio)).
 Un alias nuovo in `ROLE_ALIASES` entra nella prova senza che nessuno tocchi la
 prova.
+
+### Il bonifico di un ente: una porta a **due** chiavi (N15)
+
+Registrare la liquidazione di un periodo e **due atti insieme**, e finora ne
+veniva riconosciuto uno solo. E un atto del dominio dei bandi — chiude un
+credito verso un ente, consuma il maturato di un periodo — **e** un atto
+contabile: fa entrare denaro su un conto del club, e quel denaro compare nel
+saldo, nella prima nota e nel rendiconto.
+
+Le due rotte chiedevano `canManageClubConfigurationAsActor`, che di questi due
+fatti non ne nomina nessuno e per di piu rifiuta ogni ruolo personalizzato.
+
+`src/lib/funding/settlement-permissions.ts` e la porta, ed e una **congiunzione**:
+
+| Atto | Chiavi |
+|------|--------|
+| Registrare | `funding.manage` **e** `accounting.manage` |
+| Stornare | `funding.manage` **e** `accounting.reverse` |
+| Scegliere il conto, e vederne gli estremi | `accounting.accounts_read` |
+
+Perche una congiunzione e non una disgiunzione: chi tiene la cassa senza sapere
+nulla di bandi chiuderebbe un credito senza sapere quale, e chi gestisce i bandi
+senza toccare la cassa farebbe entrare denaro su un conto che non ha il diritto
+di vedere.
+
+| Ruolo | Registra | Storna |
+|-------|----------|--------|
+| `owner`, `club_manager` | si — **invariato** | si — **invariato** |
+| `collaborator`, `staff` | no (hanno `accounting.manage`, non `funding.manage`) | no |
+| `trainer`, `parent`, `athlete` | no | no |
+| `custom:club_manager:*` con **entrambe** | **si** | si con `accounting.reverse` |
+| `custom:collaborator:*`, qualunque casella | no (il ruolo **base** non ha `funding.manage`) | no |
+
+> **Gli estremi bancari hanno un perimetro loro, e la proiezione lo rispetta.**
+> `getAthleteFundingOverview` porta la storia degli accrediti di un periodo, e
+> quella storia contiene il riferimento bancario del bonifico e
+> l'identificativo del conto. La segreteria supera il gate dei contributi ma
+> **non** ha `accounting.accounts_read`: quei due campi le arrivano percio a
+> `null`, mentre importo, data e stato restano — servono a capire il periodo, e
+> non sono estremi bancari. Chi aggiunge un campo a quella proiezione deve
+> chiedersi in quale perimetro vive.

@@ -568,6 +568,16 @@ export type FundingSettlementRow = {
   _operationTypeLabel?: string | null;
   /** L ambito corrente della causale, ripiego dello scatto. */
   _activityScope?: string | null;
+  /**
+   * **La descrizione congelata** al momento della scrittura (N15).
+   *
+   * Nomina atleta e periodo quando la liquidazione ne ha uno solo — «Incasso
+   * voucher Sport e Salute — Mario Rossi — ottobre 2026» — e vince sul ripiego
+   * per programma. La compone il dominio dei bandi **una volta**, e qui come
+   * nella vista si legge e basta: una seconda regola di composizione, scritta
+   * due volte in due linguaggi, divergerebbe al primo cognome con l'apostrofo.
+   */
+  description_snapshot?: string | null;
   reversal_of_id?: string | null;
   reversed_at?: Date | string | null;
   created_at?: Date | string | null;
@@ -629,9 +639,16 @@ export const projectFundingSettlements = (
         sourceId: row.id,
         reversedAt: iso(row.reversed_at),
         reversalOfId: testo(row.reversal_of_id),
-        description: storno
-          ? `Storno liquidazione - ${programma}`
-          : `Liquidazione - ${programma}`,
+        /*
+          N15. Lo scatto vince quando c'e: nomina l'atleta e il periodo, che e
+          cio che rende un bonifico riconoscibile in un estratto conto. Il
+          ripiego per programma resta per le righe scritte prima.
+        */
+        description:
+          testo(row.description_snapshot) ??
+          (storno
+            ? `Storno liquidazione - ${programma}`
+            : `Liquidazione - ${programma}`),
         financialAccountId: testo(row.financial_account_id),
         financialAccountName: testo(row._accountName),
         siteId: testo(row._accountSiteId) || null,

@@ -6,9 +6,10 @@ import {
 } from "@/lib/server/auth";
 import {
   createFundingSettlement,
+  settleFundingPeriod,
   listFundingSettlements,
 } from "@/lib/server/funding";
-import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { assertFundingSettlementPermission } from "@/lib/funding/settlement-permissions";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 /**
@@ -47,9 +48,13 @@ const failure = (error: any, fallback: string) => {
     driver — l incidente I-03, che era stato chiuso altrove e non qui.
   */
   const message = publicErrorMessage(error, fallback);
+  /*
+    N15. «non trovata» e femminile, e la condizione guardava il solo maschile:
+    un'adesione mancante usciva con 400 invece di 404. Due generi, una regola.
+  */
   const status = message.includes("Accesso negato")
     ? 403
-    : message.includes("non trovato")
+    : /non trovat[oa]/.test(message)
       ? 404
       : 400;
   return NextResponse.json({ data: null, error: { message } }, { status });
@@ -93,22 +98,51 @@ export async function POST(request: Request) {
       request.headers.get("x-active-access-role"),
     );
 
-    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: {
-            message:
-              "Accesso negato: solo il proprietario o un gestore del club puo registrare una liquidazione",
-          },
-        },
-        { status: 403 },
-      );
-    }
+    /*
+      **La porta ha due chiavi** (N15). Registrare il bonifico di un ente e
+      insieme un atto sui contributi e un movimento di cassa: `funding.manage`
+      e `accounting.manage`. Il perimetro dei ruoli canonici non cambia — la
+      loro intersezione e proprietario e gestore, gli stessi di prima — e un
+      ruolo personalizzato che porti tutte e due adesso passa, dove
+      `canManageClubConfigurationAsActor` lo rifiutava per costruzione.
+    */
+    assertFundingSettlementPermission(scope.activeRole, "record");
 
     const body = await request.json().catch(() => ({}));
 
-    const settlement = await createFundingSettlement(
+    /*
+      **La liquidazione di un singolo periodo** (N15).
+
+      Il corpo con `accrual_id` e la forma che una segreteria produce davvero:
+      «l'ente mi ha accreditato i 100 euro di ottobre di Mario». Quello con
+      `program_id` e `lines` resta, ed e la forma del bonifico che arriva in
+      blocco per venti atleti: sono due modi di dire la stessa cosa, e il
+      secondo non si puo comporre a mano senza conoscere gli identificativi dei
+      periodi — che e la ragione per cui questa rotta non aveva **nessun**
+      chiamante nell'interfaccia.
+
+      Lo scrittore resta uno: `settleFundingPeriod` compone l'ingresso e delega.
+    */
+    const accrualId = body?.accrual_id ?? body?.accrualId;
+
+    const settlement = accrualId
+      ? await settleFundingPeriod(
+          {
+            accrualId,
+            amount: body?.amount,
+            settledAt: body?.settled_at ?? body?.settledAt,
+            financialAccountId:
+              body?.financial_account_id ?? body?.financialAccountId,
+            reference: body?.reference,
+            method: body?.method,
+            notes: body?.notes,
+            operationTypeCode:
+              body?.operation_type_code ?? body?.operationTypeCode,
+            idempotencyKey: body?.idempotency_key ?? body?.idempotencyKey,
+          },
+          scope,
+        )
+      : await createFundingSettlement(
       {
         programId: body?.program_id ?? body?.programId,
         amount: body?.amount,
@@ -130,6 +164,7 @@ export async function POST(request: Request) {
         */
         operationTypeCode:
           body?.operation_type_code ?? body?.operationTypeCode,
+        idempotencyKey: body?.idempotency_key ?? body?.idempotencyKey,
         lines: (Array.isArray(body?.lines) ? body.lines : []).map(
           (line: any) => ({
             accrualId: line?.accrual_id ?? line?.accrualId,
@@ -139,6 +174,22 @@ export async function POST(request: Request) {
       },
       scope,
     );
+
+    /*
+      **Una replica non e un fatto nuovo** (revisione ostile, F10).
+
+      L'audit si scriveva anche quando la transazione aveva restituito una riga
+      che esisteva gia: ripetere l'invio fabbricava eventi «liquidazione
+      registrata» a volonta per un accredito avvenuto una volta sola,
+      degradando proprio il registro che serve a ricostruire chi ha fatto cosa.
+      E la risposta torna `200` invece di `201`: chi chiama deve poter
+      distinguere «scritto» da «era gia scritto».
+    */
+    const replica = Boolean((settlement as any).__replayed);
+
+    if (replica) {
+      return NextResponse.json({ data: settlement, error: null });
+    }
 
     await recordAuditEvent({
       action: AUDIT_ACTIONS.fundingSettled,
@@ -154,6 +205,20 @@ export async function POST(request: Request) {
         amount: settlement.amount,
         reference: settlement.reference,
         lines: settlement.lines?.length ?? 0,
+        /*
+          N15. Le dimensioni che rendono la riga rileggibile senza aprire
+          altre tabelle: chi ne e il beneficiario, su quale conto e entrato il
+          denaro, quali periodi ha chiuso, e con quale chiave e stata scritta —
+          cosi un doppio invio si riconosce nel registro invece di doversi
+          dedurre da due importi uguali a un minuto di distanza.
+        */
+        beneficiaryAthleteId: settlement.beneficiary_athlete_id ?? null,
+        financialAccountId: settlement.financial_account_id ?? null,
+        accrualIds: (settlement.lines || []).map((riga: any) =>
+          String(riga.accrual_id),
+        ),
+        idempotencyKey: settlement.idempotency_key ?? null,
+        description: settlement.description_snapshot ?? null,
       },
     });
 

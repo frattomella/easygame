@@ -3691,3 +3691,83 @@ allineamento silenzioso dentro un commit che parla d'altro.
 
 **Cosa serve.** Portare il vaglio dentro `$transaction`, dopo il blocco
 dell'adesione, e una sonda che misuri due conferme concorrenti.
+
+---
+
+## Quello che la lane N15 ha trovato e non ha risolto
+
+Cinque cose, tutte reali, tutte fuori dal mandato della lane. Stanno qui e non
+in un commit perche `CLAUDE.md` §3 lo dice.
+
+### D-LIQ-1 — Il vincolo di club sui conti vive solo nel SQL, non nello schema
+
+**Dove.** `prisma/migrations/20260831090000_wave4_vincolo_conto_no_action/migration.sql`
+dichiara `funding_settlements_conto_dello_stesso_club FOREIGN KEY
+(organization_id, financial_account_id) REFERENCES financial_accounts(organization_id, id)`,
+appoggiata a un `UNIQUE (organization_id, id)` su `financial_accounts`. Nessuna
+delle due compare in `prisma/schema.prisma`.
+
+**Il fatto.** Una rigenerazione dello schema — `prisma migrate dev`, o un
+`db push` — le toglie **in silenzio**, e l'unica difesa che resta e
+`assertContoDelClub`, che gira in TypeScript e fuori dalla transazione. Vale per
+quattro tabelle, non solo per questa: incassi, prima nota, uscite del lavoro
+sportivo e liquidazioni. La lane N15 non l'ha introdotto, ma ha reso quel
+percorso raggiungibile dall'interfaccia per la prima volta.
+
+**Cosa serve.** Dichiarare `@@unique([organization_id, id])` su
+`FinancialAccount` e le quattro relazioni composite nello schema, o — se Prisma
+non le esprime — una prova che le cerchi in `information_schema` e fallisca se
+mancano. La seconda e piu onesta della prima.
+
+### D-LIQ-2 — `assertContoDelClub` gira fuori dalla transazione
+
+**Dove.** `src/lib/server/funding.ts`, prima di `$transaction`, e con il client
+globale invece di quello transazionale.
+
+**Il fatto.** Fra il vaglio e la scrittura un conto puo essere archiviato: la
+finestra e stretta e l'unico predicato mutabile e `is_archived`, ma esiste. Il
+vincolo composito la copre per il club, non per l'archiviazione.
+
+**Perche non e stato chiuso qui.** Spostarlo dentro significa passargli il
+client transazionale, e la stessa firma la usano altri tre domini: e un cambio
+che va fatto per tutti e quattro insieme, con la sua sonda.
+
+### D-LIQ-3 — Il client e il server leggono un importo in due modi
+
+**Dove.** `SettleAccrualDialog` fa `Number(String(x).replace(",", "."))`;
+`toFundingAmount` fa `parseFloat` dopo aver sostituito **la prima** virgola.
+
+**Il fatto.** `"1.234,56"` — un modo ordinario di scrivere milleduecentotrentaquattro
+euro — per il client e `NaN` e viene rifiutato; per il server e `1.23`. La
+finestra e al sicuro perche rifiuta prima, ma qualunque altro chiamante della
+rotta — uno script, un'integrazione — registrerebbe **un euro e ventitre**.
+
+**Cosa serve.** Un solo lettore di importi, esportato dal dominio e usato dalle
+due parti. E una correzione che tocca ogni finestra di importo del prodotto,
+non solo questa.
+
+### D-LIQ-4 — Lo storno non blocca il periodo che ricalcola
+
+**Dove.** `reverseFundingSettlement` ricalcola lo stato di ogni periodo toccato
+con una lettura semplice, senza `SELECT … FOR UPDATE` — mentre `misuraCapienza`,
+nella funzione gemella, il blocco lo prende.
+
+**Il fatto.** Uno storno intrecciato con un accredito nuovo sullo stesso periodo
+puo scrivere uno stato calcolato prima che l'altro committi. Il **denaro** resta
+giusto — entrambi lo derivano dalle righe — ma lo stato puo restare vecchio, e
+lo stato e cio che governa la riscrittura del maturato (vedi la guardia di
+ADR-0160 §F2).
+
+### D-LIQ-5 — La forma in blocco non pretende un conto
+
+**Dove.** `POST /api/v1/funding/settlements` con `program_id` e `lines`.
+
+**Il fatto.** La forma per periodo pretende il conto — senza, il denaro non
+entrerebbe in nessun saldo — e quella in blocco no, per tolleranza verso le
+righe registrate prima che il conto esistesse. Una liquidazione senza conto
+compare comunque nel registro, ma **non** in nessun saldo di conto: due letture
+della stessa cassa che non tornano.
+
+**Perche non e stato chiuso qui.** Renderlo obbligatorio e un cambio di
+contratto su una rotta che oggi nessuna schermata usa in quella forma, e
+andrebbe accompagnato da cosa fare delle righe gia scritte senza conto.

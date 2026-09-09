@@ -1544,7 +1544,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "GET|POST",
     path: "/api/v1/funding/settlements",
     description:
-      "Liquidazioni dell'ente, riconciliate con i periodi maturati di ciascun atleta",
+      "Liquidazioni dell'ente: quando il finanziatore versa davvero. Il POST accetta `accrual_id` per liquidare **un periodo solo** (N15, ADR-0160) oppure `program_id` + `lines` per il bonifico che arriva in blocco; `idempotency_key` rende il doppio invio un accredito solo. La riga scritta **e** il movimento bancario del club: la vista `accounting_ledger_lines` la proietta con conto, verso e causale, e non si scrive niente in prima nota",
     mobile_ready: false,
   },
   {

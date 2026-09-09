@@ -445,6 +445,8 @@ model Athlete {
   account_invites            AthleteAccountInvite[]
   guardians                  AthleteGuardian[]
   paymentCoverageAllocations PaymentCoverageAllocation[]
+  /// Le liquidazioni di cui questo atleta e l'**unico** beneficiario (N15).
+  funding_settlements        FundingSettlement[]         @relation("FundingSettlementBeneficiary")
 
   @@index([organization_id])
   @@index([user_id])
@@ -1186,21 +1188,57 @@ model FundingSettlement {
   reversed_at                   DateTime?
   reversed_by                   String?                 @db.Uuid
   reversal_reason               String?
+  /**
+   * ------------------------------------------------------------------ N15
+   * **Il doppio invio non produce due bonifici.** L'indice unico parziale su
+   * `(organization_id, idempotency_key)` e la difesa vera: una lettura prima
+   * della scrittura e una lettura vecchia, e due richieste simultanee la
+   * troverebbero tutte e due libera. Nullo sulle righe gia registrate, e due
+   * `NULL` non si somigliano — per questo l'indice e parziale.
+   */
+  idempotency_key               String?
+  /**
+   * **Il beneficiario, quando e uno solo.**
+   * Un ente liquida in blocco: un bonifico per venti atleti e tre mesi, ed e
+   * la ragione per cui `funding_settlement_lines` esiste. La liquidazione di
+   * un **singolo periodo** ne ha pero esattamente uno, e chi legge l'estratto
+   * conto deve poterlo vedere senza percorrere tre join.
+   * Nullo quando i beneficiari sono zero o piu d'uno: un campo che mente e
+   * peggio di un campo che tace. Non si riceve dal chiamante — lo calcola il
+   * dominio dentro la transazione, dalle righe — quindi non puo divergere da
+   * loro. `SET NULL` e non `RESTRICT`: la fonte del legame resta la riga di
+   * ripartizione, e cancellare un atleta non deve bloccare la storia di un
+   * bonifico.
+   */
+  beneficiary_athlete_id        String?                 @db.Uuid
+  /**
+   * **La descrizione congelata**, come l'etichetta della causale e l'ambito.
+   * Serve a scrivere «Incasso voucher Sport e Salute — Mario Rossi — ottobre
+   * 2026» nell'estratto conto, e a scriverlo **una volta sola**: la vista SQL
+   * e il suo gemello TypeScript la leggono e basta, quindi non esiste una
+   * seconda regola di composizione che possa divergere fra i due. Congelarla e
+   * la stessa disciplina delle altre due fotografie: un atleta che cambia
+   * cognome non riscrive un estratto conto gia stampato.
+   */
+  description_snapshot          String?
   created_by                    String?                 @db.Uuid
   created_at                    DateTime                @default(now())
   updated_at                    DateTime                @updatedAt
   organization                  Club                    @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   program                       FundingProgram          @relation(fields: [program_id], references: [id], onDelete: Cascade)
+  beneficiary_athlete           Athlete?                @relation("FundingSettlementBeneficiary", fields: [beneficiary_athlete_id], references: [id], onDelete: SetNull)
   financial_account             FinancialAccount?       @relation(fields: [financial_account_id], references: [id], onDelete: Restrict)
   reverses                      FundingSettlement?      @relation("FundingSettlementReversal", fields: [reversal_of_id], references: [id], onDelete: SetNull)
   reversals                     FundingSettlement[]     @relation("FundingSettlementReversal")
   lines                         FundingSettlementLine[]
 
+  @@unique([organization_id, idempotency_key], map: "funding_settlements_idempotency_key_key")
   @@index([organization_id])
   /// Come per gli incassi: il registro ordina e filtra per data.
   @@index([organization_id, settled_at], map: "funding_settlements_org_settled_at_idx")
   @@index([program_id])
   @@index([financial_account_id])
+  @@index([beneficiary_athlete_id])
   @@index([reversal_of_id])
   @@map("funding_settlements")
 }

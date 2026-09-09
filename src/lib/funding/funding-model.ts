@@ -1291,6 +1291,194 @@ export const calculateManualPeriodDecision = ({
   };
 };
 
+/* ------------------------------------ la liquidazione, vista dall'estratto */
+
+/**
+ * **Come si chiama, nell'estratto conto, il bonifico di un ente** (N15).
+ *
+ * ---
+ *
+ * ## Perche una funzione, e perche congelata sulla riga
+ *
+ * Nella lista dei movimenti del club una liquidazione si chiamava
+ * «Liquidazione - Sport e Salute». Vera, e inservibile: un club con quaranta
+ * atleti su un bando vede quaranta righe identiche, e per sapere a chi si
+ * riferisce quella da 100 euro deve aprire il bando e contare.
+ *
+ * Il nome lo compone **il dominio**, una volta, al momento della scrittura, e
+ * lo congela in `description_snapshot`. Le due letture del registro — la vista
+ * SQL e il suo gemello TypeScript — la leggono e basta. Comporla in tutte e
+ * due vorrebbe dire scrivere la stessa regola in SQL e in TypeScript, e quelle
+ * due divergono al primo cognome con l'apostrofo: e esattamente la ragione per
+ * cui `scripts/wave-4-registro-riconciliazione.mjs` esiste.
+ *
+ * Congelarla e la stessa disciplina dell'etichetta della causale: un atleta che
+ * cambia cognome non riscrive un estratto conto gia stampato.
+ *
+ * ## Cosa dice, e cosa non dice
+ *
+ * Dice **incasso**, e non «liquidazione»: nell'estratto conto del club quel
+ * denaro entra, e chiamarlo con il nome che ha nel dominio dei bandi
+ * costringerebbe chi legge la cassa a conoscere un altro dominio.
+ *
+ * Nomina il periodo quando e uno solo. Con piu periodi dello stesso atleta
+ * dice quanti sono: elencarli farebbe una riga che non sta in nessuna colonna,
+ * e il dettaglio sta comunque nelle righe di ripartizione.
+ */
+export const describeSettlementLine = ({
+  programName,
+  athleteName,
+  periodLabels = [],
+}: {
+  programName?: unknown;
+  athleteName?: unknown;
+  periodLabels?: readonly unknown[];
+}) => {
+  /*
+    **Solo cio che e davvero un testo.**
+
+    `String({})` vale `"[object Object]"`, e questa stringa finisce **congelata**
+    in un estratto conto: non e un valore che si corregge ricaricando la pagina.
+    Il difetto lo ha trovato la prova sugli ingressi malformati qui accanto, non
+    un percorso reale — oggi il nome arriva da due colonne di testo — ma una
+    descrizione congelata e esattamente il posto in cui un ingresso inatteso
+    smette di essere reversibile.
+  */
+  const leggibile = (value: unknown) =>
+    typeof value === "string" || typeof value === "number"
+      ? asText(value)
+      : "";
+
+  const programma = leggibile(programName) || "Contributo";
+  const atleta = leggibile(athleteName);
+
+  const periodi = (Array.isArray(periodLabels) ? periodLabels : [])
+    .map((voce) => leggibile(voce))
+    .filter(Boolean);
+
+  const parti = [`Incasso voucher ${programma}`];
+  if (atleta) parti.push(atleta);
+
+  if (periodi.length === 1) {
+    parti.push(periodi[0]);
+  } else if (periodi.length > 1) {
+    parti.push(`${periodi.length} periodi`);
+  }
+
+  return parti.join(" — ");
+};
+
+/** Lo stesso nome, per la riga che lo annulla. */
+export const describeSettlementReversalLine = (descrizione: unknown) => {
+  const testo = asText(descrizione);
+  return testo ? `Storno ${testo.charAt(0).toLowerCase()}${testo.slice(1)}` : "";
+};
+
+/**
+ * **Quanto resta da ricevere su un periodo maturato** (N15).
+ *
+ * `maturato − liquidato`, mai sotto zero. Non e `previsto − liquidato`: cio che
+ * non e maturato **non e ancora un credito** verso l'ente, e sommarlo qui
+ * direbbe al club di aspettarsi denaro che nessuno gli deve.
+ */
+/**
+ * **Un periodo su cui l'ente ha gia versato non si riscrive** (revisione
+ * ostile, F2).
+ *
+ * ---
+ *
+ * ## Il difetto
+ *
+ * Tre scritture toccano `accrued_amount` — il ricalcolo dalle presenze, la
+ * decisione manuale e la conferma della fonte esterna — e tutte e tre si
+ * fermavano davanti allo stato `settled`. Ma una liquidazione **parziale**
+ * lascia il periodo in `reported`: coperto per 200 su 500, con un bonifico da
+ * 200 gia in banca e in prima nota.
+ *
+ * Un ricalcolo su quel periodo lo riportava a `not_accrued` con `accrued_amount`
+ * a zero, e da quel momento il club risultava aver incassato 200 euro su un
+ * maturato di zero. Nessun errore, da nessuna parte: `pendingSettlementOfAccrual`
+ * si ferma a zero, e il rendiconto netta la differenza contro il maturato di un
+ * altro atleta. Il club dichiara all'ente 200 euro di crediti in meno di quelli
+ * che ha.
+ *
+ * ## La regola
+ *
+ * Lo stato non e la domanda giusta: la domanda e **se dell'ente e gia
+ * arrivato del denaro**. Se ne e arrivato, il periodo si corregge stornando la
+ * liquidazione, non riscrivendolo. Una funzione sola, perche i tre scrittori
+ * devono rispondere allo stesso modo.
+ */
+export const accrualHasSettledMoney = (settledAmount: unknown) =>
+  toCents(settledAmount) > 0;
+
+/**
+ * Il rifiuto, con la frase che dice **dove andare**. Un «non si puo» senza una
+ * strada manda la segreteria a cercare un errore nei dati.
+ */
+export const SETTLED_MONEY_REFUSAL =
+  "l'ente ha gia versato su questo periodo: si corregge stornando la liquidazione, non riscrivendo il maturato";
+
+export const pendingSettlementOfAccrual = (accrual: unknown) => {
+  const record = asRecord(accrual);
+  const maturato = toCents(record.accrued_amount ?? record.accruedAmount);
+  const liquidato = toCents(record.settled_amount ?? record.settledAmount);
+  return fromCents(Math.max(0, maturato - liquidato));
+};
+
+/**
+ * **Se su questo periodo si puo registrare una liquidazione**, e perche no.
+ *
+ * Una funzione sola perche la domanda ha due consumatori che devono dare la
+ * stessa risposta: la schermata, che accende o spegne il pulsante, e il
+ * servizio, che poi rifiuta. Due stesure divergono, e chi le scopre e la
+ * segreteria davanti a un pulsante che promette.
+ */
+export type SettlementEligibility =
+  | { readonly kind: "eligible"; readonly pendingAmount: number }
+  | { readonly kind: "blocked"; readonly reason: string };
+
+export const describeSettlementEligibility = (
+  accrual: unknown,
+): SettlementEligibility => {
+  const record = asRecord(accrual);
+
+  if (!record || Object.keys(record).length === 0) {
+    return {
+      kind: "blocked",
+      reason: "Il periodo non e ancora stato calcolato: non c'e niente da liquidare",
+    };
+  }
+
+  const stato = pickEnum(record.status, FUNDING_ACCRUAL_STATUSES, "not_accrued");
+  const maturato = toFundingAmount(record.accrued_amount ?? record.accruedAmount);
+
+  if (stato === "pending_confirmation") {
+    return {
+      kind: "blocked",
+      reason:
+        "Il periodo aspetta la conferma della fonte ufficiale: si liquida cio che l'ente ha riconosciuto",
+    };
+  }
+
+  if (!(maturato > 0)) {
+    return {
+      kind: "blocked",
+      reason: "Il periodo non e maturato: non c'e nessun credito da incassare",
+    };
+  }
+
+  const residuo = pendingSettlementOfAccrual(record);
+  if (!(residuo > 0)) {
+    return {
+      kind: "blocked",
+      reason: "Il periodo e gia liquidato per intero",
+    };
+  }
+
+  return { kind: "eligible", pendingAmount: residuo };
+};
+
 /* ------------------------------------------ togliere un atleta dal bando */
 
 /**
@@ -1679,6 +1867,23 @@ export const validateSettlementAllocation = ({
 
   if (!(totalCents > 0)) {
     return "L'importo della liquidazione deve essere maggiore di zero";
+  }
+
+  /*
+    **Un importo che il registro non sa rappresentare** (revisione ostile, F5).
+
+    La vista converte in centesimi con `easygame_centesimi`, che oltre
+    2.147.483.647 restituisce `NULL` — e il ramo dei bandi filtra
+    `WHERE easygame_centesimi(fs.amount) <> 0`, dove `NULL <> 0` non e vero.
+    La riga sparirebbe dal registro **in silenzio**: credito chiuso, saldo
+    fermo, e la riconciliazione fuori di tutto l'importo.
+
+    Non e un caso di scuola: basta una virgola mancante nella configurazione
+    di un bando. Meglio un rifiuto che una liquidazione invisibile.
+  */
+  const RAPPRESENTABILE_CENTS = 2_147_483_647;
+  if (totalCents > RAPPRESENTABILE_CENTS) {
+    return "L'importo della liquidazione e troppo grande per il registro: controlla la cifra";
   }
 
   if (lines.length === 0) {

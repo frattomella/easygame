@@ -5,7 +5,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { reverseFundingSettlement } from "@/lib/server/funding";
-import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { assertFundingSettlementPermission } from "@/lib/funding/settlement-permissions";
 
 /**
  * Lo **storno** di una liquidazione dell'ente.
@@ -50,18 +50,9 @@ export async function POST(request: Request, context: Context) {
       request.headers.get("x-active-access-role"),
     );
 
-    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: {
-            message:
-              "Accesso negato: solo il proprietario o un gestore del club puo stornare una liquidazione",
-          },
-        },
-        { status: 403 },
-      );
-    }
+    /* Lo storno di un movimento chiede `accounting.reverse`, che sta nel
+       perimetro amministrativo e non in quello della segreteria (N15). */
+    assertFundingSettlementPermission(scope.activeRole, "reverse");
 
     const body = await request.json().catch(() => ({}));
 
@@ -83,7 +74,8 @@ export async function POST(request: Request, context: Context) {
     );
     const status = message.includes("Accesso negato")
       ? 403
-      : message.includes("non trovata")
+      /* N15. Due generi, una regola: «non trovato» e «non trovata». */
+      : /non trovat[oa]/.test(message)
         ? 404
         : 400;
     return NextResponse.json({ data: null, error: { message } }, { status });

@@ -471,6 +471,18 @@ export function AthleteEnrollmentTab({
                   value={economics.settledCoverage}
                   hint="versato dall'ente"
                 />
+                {/*
+                  **Il credito certo verso l'ente** (N15). Sta fra il liquidato
+                  e la quota della famiglia perche e li che si legge: sopra c'e
+                  cio che e gia arrivato, sotto cio che tocca alla famiglia, e
+                  questo e cio che manca ancora all'appello — ma solo la parte
+                  **maturata**, che e l'unica che qualcuno deve davvero.
+                */}
+                <AmountLine
+                  label="Voucher da ricevere"
+                  value={economics.pendingCoverage}
+                  hint="maturato meno liquidato"
+                />
               </>
             ) : null}
 

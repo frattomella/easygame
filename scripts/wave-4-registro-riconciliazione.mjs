@@ -67,6 +67,8 @@ const COMPENSO = randomUUID();
 const COMPENSO_ZERO = randomUUID();
 const LIQUIDAZIONE = randomUUID();
 const STORNO_LIQUIDAZIONE = randomUUID();
+/* N15: la liquidazione che porta la descrizione congelata. */
+const LIQUIDAZIONE_CON_NOME = randomUUID();
 const MOVIMENTO = randomUUID();
 const GIROCONTO_A = randomUUID();
 const GIROCONTO_B = randomUUID();
@@ -645,6 +647,32 @@ const semina = async () => {
         amount: -800,
         financial_account_id: BANCA,
         reversal_of_id: LIQUIDAZIONE,
+        updated_at: new Date(),
+      },
+      /*
+        **N15. Una liquidazione con la descrizione congelata.**
+
+        Senza questa riga la riconciliazione proverebbe l'accordo fra la vista e
+        il gemello solo sul **ripiego** — «Liquidazione - <bando>» — e il ramo
+        nuovo, quello che legge `description_snapshot`, resterebbe fuori dal
+        confronto in tutte e due le letture: due espressioni scritte in due
+        linguaggi che nessuno ha mai messo una accanto all'altra.
+
+        Il testo contiene un trattino lungo e un accento apposta: e li che due
+        scritture divergono, non sui casi semplici.
+      */
+      {
+        id: LIQUIDAZIONE_CON_NOME,
+        organization_id: CLUB,
+        program_id: PROGRAMMA,
+        settled_at: d("2026-10-02T00:00:00Z"),
+        amount: 250,
+        financial_account_id: BANCA,
+        method: "Bonifico",
+        reference: "TRN-N15-0001",
+        beneficiary_athlete_id: ATLETA,
+        description_snapshot:
+          "Incasso voucher Bando città — Anna Rossi — ottobre 2026",
         updated_at: new Date(),
       },
     ],

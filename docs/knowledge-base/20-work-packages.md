@@ -2270,3 +2270,36 @@ aver deciso un periodo **futuro** — 300 su un voucher da 150.
 copertura), `D-VOU-2` (le affordance dei pagamenti spente per i ruoli
 personalizzati), `D-VOU-3` (la revoca non e atomica sulle coperture), `D-VOU-4`
 (`confirmAccrualPeriods` vaglia il tetto fuori dalla transazione).
+
+---
+
+## N15 — Liquidazione del periodo voucher (chiusa, 2026-09-09)
+
+Il terzo passo del ciclo — `Previsto → Maturato → Liquidato` — non si poteva
+compiere: il dominio delle liquidazioni c'era per intero e le sue due rotte non
+avevano **nessun chiamante**.
+
+| Cosa | Stato |
+|------|-------|
+| «Registra liquidazione» sulla riga del periodo maturato | **Chiusa.** Un termine solo in tutta l'app, CTA fuori dall'accordion, non richiede hover |
+| Accrediti **parziali** | **Chiusa.** 60 su 100 lascia il periodo aperto per 40; «Registra altra liquidazione» |
+| Movimento bancario del club | **Chiusa, senza scrivere niente di nuovo**: la liquidazione **e** il movimento, proiettata dalla vista `accounting_ledger_lines` |
+| Descrizione leggibile nell'estratto | **Chiusa.** «Incasso voucher <bando> — <atleta> — <periodo>», congelata sulla riga |
+| Storno raggiungibile | **Chiusa.** Dal periodo, con il motivo obbligatorio e l'importo **della testata** dichiarato |
+| «Voucher da ricevere» | **Chiusa.** `maturato − liquidato`, per periodo e per adesione |
+| Permessi | **Chiusa.** Porta a due chiavi (`funding.manage` + `accounting.manage`; lo storno `accounting.reverse`), perimetro canonico invariato, ruoli personalizzati supportati |
+| Idempotenza e concorrenza | **Chiusa.** Indice unico parziale, fingerprint della richiesta, `FOR UPDATE` sui periodi |
+
+Decisione: [ADR-0160](18-decision-log.md#adr-0160--il-bonifico-di-un-ente-e-il-movimento-bancario-non-se-ne-scrive-un-secondo-gli-si-da-una-porta).
+Una migrazione: tre colonne su `funding_settlements`, un indice unico parziale,
+una chiave esterna, e la vista ricreata con la descrizione congelata.
+
+**La revisione ostile ha trovato dieci reperti, e quattro erano di questa lane.**
+Il piu grave: lo storno mostrava l'importo della **riga** e stornava la
+**testata** — su un bonifico in blocco da 2.000 euro la conferma diceva 100. Il
+secondo: una liquidazione parziale lascia il periodo in `reported`, e le tre
+guardie che proteggono il maturato si fermavano al solo `settled`, cosi un
+ricalcolo azzerava un maturato gia in parte incassato.
+
+**Cinque voci di debito** restano aperte in [16](16-technical-debt.md):
+`D-LIQ-1` … `D-LIQ-5`.

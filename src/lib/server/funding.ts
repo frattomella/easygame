@@ -8,8 +8,13 @@ import {
   type FundingReconciliation,
 } from "@/lib/funding/reconciliation";
 import {
+  accrualHasSettledMoney,
   accrualIsManuallyDecided,
   calculateManualPeriodDecision,
+  describeSettlementEligibility,
+  describeSettlementLine,
+  describeSettlementReversalLine,
+  pendingSettlementOfAccrual,
   calculatePeriodAccrual,
   describeEnrollmentRemoval,
   generateFundingPeriods,
@@ -27,6 +32,7 @@ import {
   FUNDING_PROGRAM_DESCRIPTIVE_FIELDS,
   buildFundingPeriodRows,
   FUNDING_PROGRAM_STATUS_LABELS,
+  SETTLED_MONEY_REFUSAL,
   canTransitionFundingProgram,
   fundingProgramAcceptsEnrollments,
   fundingProgramAccruesNow,
@@ -40,6 +46,11 @@ import {
   assertFundingPermission,
   hasFundingPermission,
 } from "@/lib/funding/permissions";
+import {
+  assertFundingSettlementPermission,
+  canActOnFundingSettlement,
+  canChooseSettlementAccount,
+} from "@/lib/funding/settlement-permissions";
 import { measureAttendanceByPeriod } from "@/lib/funding/attendance-measure";
 /*
   **Il dominio dei bandi non importa quello dei pagamenti** (ADR-0037 §5), e
@@ -92,6 +103,36 @@ export type FundingScope = {
 };
 
 const denied = (message: string) => new Error(`Accesso negato: ${message}`);
+
+/**
+ * **La chiave di un gesto e una stringa, o non e niente** (revisione ostile, 6a).
+ *
+ * `String({})` vale `"[object Object]"`: un oggetto mandato al posto della
+ * chiave diventava un gettone **stabile e indovinabile**, uguale per chiunque
+ * facesse lo stesso errore. La prima richiesta lo scriveva, e da li in poi ogni
+ * liquidazione di quel club con lo stesso corpo malformato riceveva `201` e la
+ * riga della prima: il bonifico arrivava, il credito restava aperto, e nessuno
+ * vedeva un errore.
+ *
+ * Si accetta percio **solo** una stringa, e con un tetto: la chiave e un
+ * identificativo di gesto, non un campo di testo.
+ */
+const CHIAVE_MASSIMA = 120;
+
+const normalizeIdempotencyKey = (value: unknown) => {
+  if (typeof value !== "string") return "";
+
+  const chiave = value.trim();
+  if (!chiave) return "";
+
+  if (chiave.length > CHIAVE_MASSIMA) {
+    throw new Error(
+      `La chiave dell'operazione supera ${CHIAVE_MASSIMA} caratteri: e un identificativo, non una nota`,
+    );
+  }
+
+  return chiave;
+};
 
 const asText = (value: unknown) => String(value ?? "").trim();
 
@@ -747,6 +788,35 @@ export const recomputeEnrollmentAccruals = async (
     ]),
   );
 
+  /*
+    **Quanto l'ente ha gia versato, periodo per periodo** (revisione ostile, F2).
+
+    Lo stato non basta: una liquidazione **parziale** lascia il periodo in
+    `reported`, e la guardia che si fermava al solo `settled` lo lasciava
+    riscrivere. Riportarlo a zero dopo un bonifico da 200 significa dichiarare
+    incassati 200 euro su un maturato di niente.
+  */
+  const liquidatoPerPeriodo = new Map<string, number>();
+  if (existingRows.length) {
+    const righeLiquidazione = await settlementLineClient().findMany({
+      where: {
+        accrual_id: { in: existingRows.map((row: any) => String(row.id)) },
+      },
+    });
+    for (const riga of Array.isArray(righeLiquidazione) ? righeLiquidazione : []) {
+      const chiave = String((riga as any).accrual_id);
+      liquidatoPerPeriodo.set(
+        chiave,
+        Number(
+          (
+            (liquidatoPerPeriodo.get(chiave) || 0) +
+            toFundingAmount((riga as any).amount)
+          ).toFixed(2),
+        ),
+      );
+    }
+  }
+
   const now = new Date();
   const external = requiresExternalConfirmation(program);
 
@@ -825,7 +895,17 @@ export const recomputeEnrollmentAccruals = async (
       continue;
     }
 
-    if (existing && existing.status === "settled") {
+    /*
+      **Denaro arrivato, non stato dichiarato** (revisione ostile, F2). La
+      condizione era `status === "settled"`, e una liquidazione parziale lascia
+      il periodo in `reported`: passava, e il ricalcolo azzerava un maturato su
+      cui l'ente aveva gia versato.
+    */
+    if (
+      existing &&
+      (existing.status === "settled" ||
+        accrualHasSettledMoney(liquidatoPerPeriodo.get(String(existing.id))))
+    ) {
       /*
         Gia liquidato: non si riscrive, ma consuma l'assegnato. Saltarlo del
         tutto farebbe trovare ai periodi successivi un residuo che non esiste.
@@ -1143,9 +1223,31 @@ export const decideAccrualPeriod = async (
       );
     }
 
-    if (existing && asText(existing.status) === "settled") {
+    /*
+      **Denaro arrivato, non stato dichiarato** (revisione ostile, F2): una
+      liquidazione parziale lascia il periodo in `reported`, e la guardia sul
+      solo `settled` lasciava riscrivere un maturato gia in parte incassato.
+    */
+    const liquidatoQui = esistenti
+      .filter((riga) => Number(riga.period_index) === periodIndex)
+      .length
+      ? (
+          await client.fundingSettlementLine.findMany({
+            where: { accrual_id: existing?.id ?? "" },
+          })
+        ).reduce(
+          (totale: number, riga: any) => totale + toFundingAmount(riga.amount),
+          0,
+        )
+      : 0;
+
+    if (
+      existing &&
+      (asText(existing.status) === "settled" ||
+        accrualHasSettledMoney(liquidatoQui))
+    ) {
       throw new Error(
-        `Il periodo «${existing.period_label}» e gia liquidato: l'ente ha versato su quell'importo, e si corregge stornando la liquidazione`,
+        `Il periodo «${existing.period_label}»: ${SETTLED_MONEY_REFUSAL}`,
       );
     }
 
@@ -1463,6 +1565,31 @@ export const confirmAccrualPeriods = async (
     existingRows.map((row) => [Number(row.period_index), row]),
   );
 
+  /*
+    **Quanto l'ente ha gia versato su ognuno** (revisione ostile, F2). La
+    guardia qui sotto si fermava al solo `settled`, e una liquidazione parziale
+    lascia il periodo in `reported`: una conferma da 100 su un periodo gia
+    incassato per 200 lo avrebbe portato sotto cio che il club ha ricevuto.
+  */
+  const liquidatoPerPeriodo = new Map<string, number>();
+  if (existingRows.length) {
+    const righeLiquidazione = await settlementLineClient().findMany({
+      where: { accrual_id: { in: existingRows.map((row) => String(row.id)) } },
+    });
+    for (const riga of Array.isArray(righeLiquidazione) ? righeLiquidazione : []) {
+      const chiave = String((riga as any).accrual_id);
+      liquidatoPerPeriodo.set(
+        chiave,
+        Number(
+          (
+            (liquidatoPerPeriodo.get(chiave) || 0) +
+            toFundingAmount((riga as any).amount)
+          ).toFixed(2),
+        ),
+      );
+    }
+  }
+
   const targets = confirmations.map((confirmation) => {
     const row = asText(confirmation.accrualId)
       ? byId.get(asText(confirmation.accrualId))
@@ -1476,9 +1603,12 @@ export const confirmAccrualPeriods = async (
 
     ensureOrganizationAccess(scope, row.organization_id);
 
-    if (asText(row.status) === "settled") {
+    if (
+      asText(row.status) === "settled" ||
+      accrualHasSettledMoney(liquidatoPerPeriodo.get(String(row.id)))
+    ) {
       throw new Error(
-        `Il periodo «${row.period_label}» e gia liquidato: non si corregge`,
+        `Il periodo «${row.period_label}»: ${SETTLED_MONEY_REFUSAL}`,
       );
     }
 
@@ -1864,6 +1994,15 @@ export const createFundingSettlement = async (
      * distinte per bando o per ente.
      */
     operationTypeCode?: unknown;
+    /**
+     * **Una chiave per gesto** (N15).
+     *
+     * Il doppio clic su «Registra liquidazione» non deve produrre due bonifici.
+     * La lettura qui dentro la transazione serve a rispondere «fatto» invece
+     * che con un errore; la difesa vera e l'indice unico parziale, perche due
+     * richieste davvero simultanee leggono tutte e due «libera».
+     */
+    idempotencyKey?: unknown;
     lines?: Array<{ accrualId: unknown; amount: unknown }>;
   },
   scope?: FundingScope,
@@ -1896,13 +2035,15 @@ export const createFundingSettlement = async (
   ).filter(Boolean);
 
   const programByEnrollment = new Map<string, string>();
+  const athleteByEnrollment = new Map<string, string>();
   if (enrollmentIds.length) {
     const iscrizioni = await enrollmentClient().findMany({
       where: { id: { in: enrollmentIds } },
-      select: { id: true, program_id: true },
+      select: { id: true, program_id: true, athlete_id: true },
     });
     for (const riga of iscrizioni) {
       programByEnrollment.set(asText(riga.id), asText(riga.program_id));
+      athleteByEnrollment.set(asText(riga.id), asText(riga.athlete_id));
     }
   }
 
@@ -2011,7 +2152,142 @@ export const createFundingSettlement = async (
     input.financialAccountId,
   );
 
+  /*
+    **Il beneficiario e la descrizione si compongono qui, una volta sola**
+    (N15).
+
+    Un ente liquida in blocco — un bonifico per venti atleti — e in quel caso
+    non c'e **un** beneficiario: il campo resta nullo, e un campo che tace e
+    meglio di un campo che sceglie il primo dell'elenco. Quando invece la
+    liquidazione riguarda un periodo solo, l'estratto conto deve poter dire di
+    chi e quel bonifico senza percorrere tre join.
+
+    La descrizione la scrive il dominio e la **congela** sulla riga: la vista
+    SQL e il suo gemello TypeScript la leggono e basta, quindi non esistono due
+    regole di composizione che possano divergere.
+  */
+  const atletiCoinvolti = Array.from(
+    new Set(
+      accrualRows
+        .map((row: any) => athleteByEnrollment.get(asText(row.enrollment_id)))
+        .filter(Boolean) as string[],
+    ),
+  );
+
+  const beneficiario = atletiCoinvolti.length === 1 ? atletiCoinvolti[0] : null;
+
+  const anagraficaBeneficiario = beneficiario
+    ? await (prisma as any).athlete.findUnique({
+        where: { id: beneficiario },
+        select: { first_name: true, last_name: true },
+      })
+    : null;
+
+  const periodiCoinvolti = Array.from(
+    new Set(
+      accrualRows
+        .map((row: any) => asText(row.period_label))
+        .filter(Boolean) as string[],
+    ),
+  );
+
+  const descrizione = beneficiario
+    ? describeSettlementLine({
+        programName: program.name,
+        athleteName: [
+          asText(anagraficaBeneficiario?.first_name),
+          asText(anagraficaBeneficiario?.last_name),
+        ]
+          .filter(Boolean)
+          .join(" "),
+        periodLabels: periodiCoinvolti,
+      })
+    : null;
+
   return (prisma as any).$transaction(async (client: any) => {
+    /*
+      **Lo stesso invio, due volte, lascia una liquidazione sola.**
+
+      Si guarda **dentro** la transazione e si restituisce cio che c'e gia:
+      chi ha premuto due volte deve leggere «fatto», non un errore su
+      un'operazione che e riuscita. Se due richieste passano di qui insieme, la
+      seconda sbatte sull'indice unico e il rifiuto e dell'archivio, che e il
+      solo posto in cui non c'e una finestra.
+    */
+    const chiave = normalizeIdempotencyKey(input.idempotencyKey);
+    if (chiave) {
+      const gia = await client.fundingSettlement.findFirst({
+        where: {
+          organization_id: program.organization_id,
+          idempotency_key: chiave,
+        },
+        include: { lines: true },
+      });
+
+      /*
+        **Una riga gia stornata non e una replica riuscita** (revisione ostile,
+        F3): restituirla direbbe «fatto» su un accredito che nel frattempo e
+        stato annullato, e il denaro nuovo non verrebbe mai scritto.
+      */
+      if (gia?.reversed_at) {
+        throw new Error(
+          "Questa chiave appartiene a una liquidazione gia stornata: se e un accredito nuovo, riprova",
+        );
+      }
+
+      if (gia) {
+        /*
+          **Una chiave che torna deve descrivere lo stesso fatto** (revisione
+          ostile, 6b–6c).
+
+          Restituire la riga trovata e giusto quando la richiesta e davvero la
+          stessa — e il doppio clic. Farlo **sempre** significa che una chiave
+          riusata con un corpo diverso riceve `201` e la riga di qualcun altro:
+          l'accredito vero non viene mai scritto, il credito resta aperto, e la
+          schermata dice «fatto». Nessun errore, da nessuna parte.
+          E, di rimbalzo, una lettura di importi e riferimenti bancari di un
+          periodo che non e quello richiesto.
+
+          Se la chiave e la stessa e il fatto no, si rifiuta: e un conflitto,
+          non un duplicato.
+        */
+        const stessoImporto =
+          toFundingAmount(gia.amount) === toFundingAmount(input.amount);
+
+        /*
+          Le righe si rileggono con una **interrogazione esplicita** e non da
+          `include`: una relazione montata dall'ORM e cio che il doppio di
+          questo archivio nei test non sa fare, e una guardia che dipende da una
+          capacita dell'ORM diventa un rifiuto totale la dove quella capacita
+          manca. E la stessa lezione gia scritta poche righe piu su.
+        */
+        const righeEsistenti = await client.fundingSettlementLine.findMany({
+          where: { settlement_id: gia.id },
+        });
+        const righeGia = (
+          Array.isArray(righeEsistenti) ? righeEsistenti : []
+        )
+          .map((riga: any) => `${asText(riga.accrual_id)}:${toFundingAmount(riga.amount)}`)
+          .sort();
+        const righeOra = lines
+          .map((riga) => `${riga.accrualId}:${riga.amount}`)
+          .sort();
+
+        if (
+          asText(gia.program_id) === asText(program.id) &&
+          stessoImporto &&
+          righeGia.length === righeOra.length &&
+          righeGia.every((voce: string, indice: number) => voce === righeOra[indice])
+        ) {
+          return { ...gia, __replayed: true };
+        }
+
+        throw new Error(
+          "Questa chiave e gia stata usata per una liquidazione diversa: se e un accredito nuovo, riprova",
+        );
+      }
+    }
+
     const accrualsById = await misuraCapienza(client);
 
     /*
@@ -2053,6 +2329,9 @@ export const createFundingSettlement = async (
         method: asText(input.method) || null,
         notes: asText(input.notes) || null,
         financial_account_id: contoVerificato,
+        idempotency_key: normalizeIdempotencyKey(input.idempotencyKey) || null,
+        beneficiary_athlete_id: beneficiario,
+        description_snapshot: descrizione,
         created_by: scope?.userId || null,
       },
     });
@@ -2102,6 +2381,178 @@ export const createFundingSettlement = async (
 };
 
 /**
+ * **Registra la liquidazione di un singolo periodo** (N15).
+ *
+ * ---
+ *
+ * ## Perche esiste, visto che `createFundingSettlement` c'era gia
+ *
+ * Perche `createFundingSettlement` chiede un **programma** e una ripartizione:
+ * e la forma giusta per il bonifico che un ente manda in blocco — venti atleti
+ * e tre mesi in una volta — e non e la forma di cio che una segreteria fa nel
+ * caso normale, che e «l'ente mi ha accreditato i 100 euro di ottobre di
+ * Mario». Comporre quella richiesta a mano richiede di sapere che esiste un
+ * `accrual_id`, e infatti nessuna schermata l'ha mai fatto: le due rotte delle
+ * liquidazioni erano **morte** — scritte, provate e senza un solo chiamante.
+ *
+ * Questa funzione non e un secondo dominio: **compone l'ingresso e delega**.
+ * Lo scrittore resta uno, la transazione resta una, i due tetti restano quelli
+ * di `validateSettlementAllocation`.
+ *
+ * ## Cosa aggiunge
+ *
+ * Risolve il periodo fino al suo bando — un maturato non porta il programma,
+ * lo porta la sua iscrizione — e vaglia **prima** che il periodo sia davvero
+ * liquidabile, con la stessa funzione che la schermata usa per accendere il
+ * pulsante (`describeSettlementEligibility`). Il rifiuto arriva percio con la
+ * frase giusta invece che con «la ripartizione non corrisponde».
+ */
+export const settleFundingPeriod = async (
+  input: {
+    accrualId: unknown;
+    amount?: unknown;
+    settledAt?: unknown;
+    financialAccountId: unknown;
+    reference?: unknown;
+    method?: unknown;
+    notes?: unknown;
+    operationTypeCode?: unknown;
+    idempotencyKey?: unknown;
+  },
+  scope?: FundingScope,
+) => {
+  /*
+    **La porta sta anche qui, non solo sulla rotta.** Una scrittura di dominio
+    raggiungibile da piu di un chiamante si porta dietro la propria guardia: e
+    la lezione di `confirmAccrualPeriods`, e vale a maggior ragione per un atto
+    che fa entrare denaro su un conto del club.
+  */
+  assertFundingSettlementPermission(scope?.activeRole, "record");
+
+  const accrualId = asText(input.accrualId);
+  if (!accrualId) throw new Error("Periodo non indicato");
+
+  const accrual = await accrualClient().findUnique({ where: { id: accrualId } });
+  if (!accrual) throw new Error("Periodo non trovato");
+  ensureOrganizationAccess(scope, accrual.organization_id);
+
+  const enrollment = await enrollmentClient().findUnique({
+    where: { id: accrual.enrollment_id },
+  });
+  if (!enrollment) throw new Error("Adesione al bando non trovata");
+  ensureOrganizationAccess(scope, enrollment.organization_id);
+
+  /*
+    **Il liquidato di un periodo si legge dalle righe, non dallo stato.**
+    Con liquidazioni parziali i due numeri differiscono, e quello autorevole e
+    il primo (ADR-0054).
+  */
+  const righe = await settlementLineClient().findMany({
+    where: { accrual_id: accrualId },
+  });
+  const giaLiquidato = (Array.isArray(righe) ? righe : []).reduce(
+    (totale: number, riga: any) => totale + toFundingAmount(riga.amount),
+    0,
+  );
+
+  /*
+    **L'idempotenza viene prima del vaglio** (revisione ostile, F4).
+
+    Il vaglio girava per primo, e nel caso piu comune — accredito dell'intero
+    residuo, risposta persa per un timeout, secondo clic con la **stessa**
+    chiave — trovava il periodo ormai coperto e rispondeva «e gia liquidato per
+    intero». Un errore per un'operazione **riuscita**, che e esattamente cio che
+    una chiave di idempotenza esiste per non far succedere: chi lo legge crede
+    che il bonifico non sia stato registrato e lo reinserisce dall'altra strada.
+
+    Si guarda percio prima se quel gesto ha gia scritto qualcosa. La verifica
+    che la chiave descriva **lo stesso fatto** resta dentro la transazione, dove
+    e al riparo da una lettura vecchia.
+  */
+  const chiaveGesto = normalizeIdempotencyKey(input.idempotencyKey);
+  if (chiaveGesto) {
+    const gia = await settlementClient().findFirst({
+      where: {
+        organization_id: enrollment.organization_id,
+        idempotency_key: chiaveGesto,
+      },
+    });
+
+    if (gia && !gia.reversed_at) {
+      /* Interrogazione esplicita, non `include`: vedi la nota qui sotto. */
+      const righe = await settlementLineClient().findMany({
+        where: { settlement_id: gia.id },
+      });
+      const elenco = Array.isArray(righe) ? righe : [];
+
+      /*
+        **Replica solo se e davvero lo stesso gesto.** Una chiave riusata con un
+        importo diverso non e un doppio clic: e un accredito nuovo, e va scritto.
+        Quando l'importo non viene indicato — «prendi il residuo», che e il caso
+        del secondo clic dopo un timeout — non c'e niente da confrontare, e la
+        replica e proprio cio che serve.
+      */
+      const importoChiesto =
+        input.amount === undefined ||
+        input.amount === null ||
+        asText(input.amount) === ""
+          ? null
+          : toFundingAmount(input.amount);
+
+      if (
+        elenco.length === 1 &&
+        asText(elenco[0].accrual_id) === accrualId &&
+        (importoChiesto === null ||
+          importoChiesto === toFundingAmount(gia.amount))
+      ) {
+        return { ...gia, lines: elenco, __replayed: true };
+      }
+    }
+  }
+
+  const vaglio = describeSettlementEligibility({
+    ...accrual,
+    settled_amount: giaLiquidato,
+  });
+  if (vaglio.kind === "blocked") {
+    throw new Error(vaglio.reason);
+  }
+
+  /*
+    **Senza conto il denaro non entra da nessuna parte.** Lo schema lo tollera
+    per le righe registrate prima che il conto esistesse; questo percorso no,
+    perche il movimento bancario e cio per cui esiste. Una liquidazione senza
+    conto chiuderebbe il credito e lascerebbe il saldo dov'era.
+  */
+  if (!asText(input.financialAccountId)) {
+    throw new Error(
+      "Indica su quale conto e arrivato il bonifico: senza, la liquidazione chiude il credito e il denaro non compare in nessun saldo",
+    );
+  }
+
+  const importo =
+    input.amount === undefined || input.amount === null || asText(input.amount) === ""
+      ? vaglio.pendingAmount
+      : toFundingAmount(input.amount);
+
+  return createFundingSettlement(
+    {
+      programId: enrollment.program_id,
+      amount: importo,
+      settledAt: input.settledAt,
+      reference: input.reference,
+      method: input.method,
+      notes: input.notes,
+      financialAccountId: input.financialAccountId,
+      operationTypeCode: input.operationTypeCode,
+      idempotencyKey: input.idempotencyKey,
+      lines: [{ accrualId, amount: importo }],
+    },
+    scope,
+  );
+};
+
+/**
  * **Storna una liquidazione registrata per errore.**
  *
  * **Il difetto che chiude.** Il dominio dei bandi non aveva alcun rimedio: non
@@ -2136,6 +2587,16 @@ export const reverseFundingSettlement = async (
     throw new Error("Liquidazione non trovata");
   }
   ensureOrganizationAccess(scope, original.organization_id);
+
+  /*
+    **La porta sta anche qui** (N15). Stava solo sulla rotta, e la sua gemella
+    `settleFundingPeriod` se la porta dietro: una scrittura di dominio
+    raggiungibile da piu di un chiamante non puo dipendere da chi la chiama per
+    essere autorizzata. Stornare il bonifico di un ente e stornare un movimento,
+    e chiede `accounting.reverse` — che sta nel perimetro amministrativo e non
+    in quello della segreteria.
+  */
+  assertFundingSettlementPermission(scope?.activeRole, "reverse");
 
   if (original.reversal_of_id) {
     throw new Error("Uno storno non si storna");
@@ -2195,6 +2656,16 @@ export const reverseFundingSettlement = async (
         activity_scope_snapshot: original.activity_scope_snapshot,
         /* Il denaro torna indietro dal conto su cui era entrato. */
         financial_account_id: original.financial_account_id || null,
+        /*
+          N15. Lo storno porta lo **stesso** beneficiario e lo stesso nome
+          dell'originale, con il prefisso che dice cosa e: due righe che nel
+          registro si elidono devono essere riconoscibili come una coppia, e
+          una che tace il beneficiario mentre l'altra lo nomina costringe chi
+          riconcilia a cercarne il gemello per data e importo.
+        */
+        beneficiary_athlete_id: original.beneficiary_athlete_id || null,
+        description_snapshot:
+          describeSettlementReversalLine(original.description_snapshot) || null,
         reversal_of_id: original.id,
         created_by: scope?.userId || null,
       },
@@ -2296,6 +2767,29 @@ export type AthleteFundingOverview = {
    */
   canManage: boolean;
   /**
+   * **Se chi sta guardando puo registrare il bonifico di un ente** (N15).
+   *
+   * Distinto da `canManage` perche la porta e un'altra: registrare una
+   * liquidazione e insieme un atto sui contributi e un movimento di cassa, e
+   * chiede tutte e due le chiavi. Lo dice il server per la stessa ragione di
+   * `canManage`: il gettone conservato nel browser porta lo slug del ruolo e
+   * non le sue chiavi, quindi un predicato valutato a schermo risponde `false`
+   * a ogni ruolo personalizzato.
+   */
+  canSettle: boolean;
+  /** Se puo **stornare** un bonifico gia registrato: chiede `accounting.reverse`. */
+  canReverseSettlement: boolean;
+  /**
+   * **Se puo scegliere il conto** su cui il bonifico e arrivato, e leggerne gli
+   * estremi (`accounting.accounts_read`).
+   *
+   * E un perimetro suo: la segreteria registra movimenti e **non** vede i conti.
+   * Senza questa risposta la finestra offrirebbe un elenco di conti a chi non ha
+   * il diritto di sapere che esistono, e il permesso dichiarato dal dominio non
+   * governerebbe niente.
+   */
+  canChooseAccount: boolean;
+  /**
    * **Quanto di questo voucher e impegnato su delle rate vive** (revisione
    * ostile, F5).
    *
@@ -2327,6 +2821,12 @@ export const getAthleteFundingOverview = async (
     },
     orderBy: [{ enrolled_at: "asc" }],
   });
+
+  /*
+    Chi vede gli **estremi bancari** di un accredito: e un perimetro suo, e non
+    coincide con quello che apre la scheda dei contributi (revisione ostile, 7).
+  */
+  const vedeGliEstremi = canChooseSettlementAccount(scope?.activeRole);
 
   const overviews: AthleteFundingOverview[] = [];
 
@@ -2383,11 +2883,148 @@ export const getAthleteFundingOverview = async (
       );
     }
 
+    /*
+      **Le liquidazioni che toccano questo periodo, con la loro testata** (N15).
+
+      Servono a due cose che la riga di ripartizione da sola non permette:
+      mostrare la storia degli accrediti — data, importo, conto, riferimento
+      bancario — e offrire lo **storno**, che agisce sulla testata e non sulla
+      riga. Senza, un periodo liquidato per errore restava un vicolo cieco:
+      nessun pulsante lo poteva correggere, e la scheda mandava la segreteria a
+      cercare un controllo che non esisteva da nessuna parte.
+    */
+    const settlementIds = Array.from(
+      new Set(
+        (Array.isArray(lines) ? lines : []).map((riga: any) =>
+          String(riga.settlement_id),
+        ),
+      ),
+    ).filter(Boolean);
+
+    const teste = settlementIds.length
+      ? await settlementClient().findMany({
+          where: { id: { in: settlementIds } },
+          select: {
+            id: true,
+            settled_at: true,
+            reference: true,
+            method: true,
+            financial_account_id: true,
+            reversed_at: true,
+            reversal_of_id: true,
+            description_snapshot: true,
+            /*
+              **L'importo della testata, non della riga** (revisione ostile,
+              F1). Lo storno agisce sulla **liquidazione intera**: un ente che
+              versa in blocco manda un bonifico solo per venti atleti, e
+              stornarlo li riguarda tutti. La schermata mostrava l'importo
+              della riga di **questo** periodo e chiedeva conferma per quello,
+              poi ne stornava venti volte tanto.
+            */
+            amount: true,
+          },
+        })
+      : [];
+
+    /*
+      **Su quanti periodi e ripartito ogni accredito.** Non si conta dalle righe
+      gia lette: quelle riguardano i periodi di **questo** atleta, e un bonifico
+      in blocco ne tocca anche di altri — contarle qui darebbe «1 periodo» su un
+      accredito che ne copre venti, che e esattamente il numero da cui F1
+      dipende. Interrogazione esplicita, e non `_count`, per la stessa ragione
+      per cui le righe si rileggono invece di arrivare da `include`.
+    */
+    const righeDiOgniAccredito = settlementIds.length
+      ? await settlementLineClient().findMany({
+          where: { settlement_id: { in: settlementIds } },
+          select: { settlement_id: true },
+        })
+      : [];
+
+    const periodiPerAccredito = new Map<string, number>();
+    for (const riga of Array.isArray(righeDiOgniAccredito)
+      ? righeDiOgniAccredito
+      : []) {
+      const chiave = String((riga as any).settlement_id);
+      periodiPerAccredito.set(chiave, (periodiPerAccredito.get(chiave) || 0) + 1);
+    }
+
+    const testaPerId = new Map(
+      (Array.isArray(teste) ? teste : []).map((riga: any) => [
+        String(riga.id),
+        riga,
+      ]),
+    );
+
+    const liquidazioniPerPeriodo = new Map<string, any[]>();
+    for (const riga of Array.isArray(lines) ? lines : []) {
+      const periodo = String((riga as any).accrual_id);
+      const testa = testaPerId.get(String((riga as any).settlement_id));
+      if (!testa) continue;
+
+      const elenco = liquidazioniPerPeriodo.get(periodo) || [];
+      elenco.push({
+        settlementId: testa.id,
+        /** Quanto di **questo** accredito riguarda **questo** periodo. */
+        amount: toFundingAmount((riga as any).amount),
+        /**
+         * **Quanto vale l'accredito intero, e quanti periodi tocca** (F1).
+         *
+         * Lo storno agisce sulla testata: chi lo preme deve leggere questi due
+         * numeri, non quello della riga. Su un bonifico in blocco sono ordini
+         * di grandezza diversi.
+         */
+        settlementAmount: toFundingAmount(testa.amount),
+        lineCount: periodiPerAccredito.get(String(testa.id)) || 1,
+        settledAt: testa.settled_at,
+        /*
+          **Il riferimento bancario e il conto li vede chi ha il permesso sui
+          conti** (revisione ostile, 7).
+
+          `accounting.accounts_read` e il perimetro degli estremi bancari, e la
+          segreteria non ce l'ha di proposito — lo dice per esteso
+          `src/lib/accounting/permissions.ts`. Questa proiezione passa dal gate
+          dei **contributi**, che la segreteria supera: senza questa maschera
+          avrebbe portato il TRN di un bonifico e l'identificativo del conto
+          intorno a un perimetro che il prodotto ha deciso di tenere chiuso.
+
+          L'importo, la data e lo stato restano: servono a capire il periodo, e
+          non sono estremi bancari.
+        */
+        reference: vedeGliEstremi ? testa.reference : null,
+        method: testa.method,
+        financialAccountId: vedeGliEstremi ? testa.financial_account_id : null,
+        description: testa.description_snapshot,
+        /* Una riga gia stornata, e una riga che e essa stessa uno storno. */
+        reversedAt: testa.reversed_at,
+        isReversal: Boolean(testa.reversal_of_id),
+      });
+      liquidazioniPerPeriodo.set(periodo, elenco);
+    }
+
     const accrualiConLiquidato = (Array.isArray(accruals) ? accruals : []).map(
-      (row: any) => ({
-        ...row,
-        settled_amount: settledByAccrual.get(String(row.id)) || 0,
-      }),
+      (row: any) => {
+        const conLiquidato = {
+          ...row,
+          settled_amount: settledByAccrual.get(String(row.id)) || 0,
+        };
+
+        return {
+          ...conLiquidato,
+          /*
+            **Quanto resta da ricevere su questo periodo** (N15): maturato meno
+            liquidato, mai sotto zero. Non e «previsto meno liquidato»: cio che
+            non e maturato non e ancora un credito verso l'ente.
+          */
+          pending_settlement_amount: pendingSettlementOfAccrual(conLiquidato),
+          settlements: (liquidazioniPerPeriodo.get(String(row.id)) || []).sort(
+            (sinistra: any, destra: any) =>
+              String(sinistra.settledAt || "").localeCompare(
+                String(destra.settledAt || ""),
+              ),
+          ),
+        };
+      },
     );
 
     overviews.push({
@@ -2418,6 +3055,12 @@ export const getAthleteFundingOverview = async (
         coverageAllocations: Array.isArray(coperture) ? coperture : [],
       }),
       canManage: hasFundingPermission(scope?.activeRole, "funding.manage"),
+      canSettle: canActOnFundingSettlement(scope?.activeRole, "record"),
+      canReverseSettlement: canActOnFundingSettlement(
+        scope?.activeRole,
+        "reverse",
+      ),
+      canChooseAccount: vedeGliEstremi,
       /*
         **Quanto del voucher e davvero impegnato** (revisione ostile, F5).
 

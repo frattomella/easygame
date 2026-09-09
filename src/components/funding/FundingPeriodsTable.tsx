@@ -2,12 +2,14 @@
 
 import React from "react";
 import {
+  Banknote,
   ChevronDown,
   ChevronRight,
   CheckCircle2,
   RotateCcw,
   ThumbsDown,
   ThumbsUp,
+  Undo2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +17,9 @@ import {
   describeFundingPeriodMeasure,
   describeFundingPeriodProgress,
   describeFundingPeriodRequirement,
+  describeSettlementEligibility,
   fundingAccrualOriginLabel,
+  pendingSettlementOfAccrual,
   resolveFundingPeriodMeasure,
   resolveFundingPeriodRequirement,
   type FundingAccrualOrigin,
@@ -194,9 +198,13 @@ export function FundingPeriodsTable({
   program,
   externalSource,
   canManage = false,
+  canSettle = false,
+  canReverseSettlement = false,
   busyPeriodIndex = null,
   onConfirm,
   onDecide,
+  onSettle,
+  onReverseSettlement,
 }: {
   accruals: FundingAccrualRow[];
   /**
@@ -210,11 +218,32 @@ export function FundingPeriodsTable({
   /** Vero quando la fonte ufficiale del programma sta fuori da EasyGame. */
   externalSource: boolean;
   canManage?: boolean;
+  /**
+   * Se il ruolo attivo puo **registrare** il bonifico di un ente (N15). Non
+   * coincide con `canManage`: la porta chiede anche la chiave contabile, e la
+   * risposta la porta il server.
+   */
+  canSettle?: boolean;
+  /** Se puo **stornare** un accredito gia registrato: chiede `accounting.reverse`. */
+  canReverseSettlement?: boolean;
   /** Il periodo su cui una decisione e in volo: il suo indice, o `null`. */
   busyPeriodIndex?: number | null;
   onConfirm?: (accrual: FundingAccrualRow) => void;
   /** La decisione manuale su un periodo (N12). */
   onDecide?: (riga: FundingPeriodRow, decision: FundingPeriodDecision) => void;
+  /** Registra l'accredito dell'ente su questo periodo (N15). */
+  onSettle?: (accrual: FundingAccrualRow) => void;
+  /** Storna un accredito gia registrato. */
+  onReverseSettlement?: (settlement: {
+    settlementId: string;
+    /** Quanto di questo accredito riguarda **questo** periodo. */
+    amount: number;
+    /** Quanto vale l'accredito **intero**: e cio che lo storno rimette indietro. */
+    settlementAmount: number;
+    /** Su quanti periodi e ripartito. Piu di uno = piu beneficiari. */
+    lineCount: number;
+    description?: string | null;
+  }) => void;
 }) {
   const [openId, setOpenId] = React.useState<string | null>(null);
 
@@ -247,6 +276,27 @@ export function FundingPeriodsTable({
           : 0;
         const settledAmount = Number(accrual?.settled_amount || 0);
         const busy = busyPeriodIndex === riga.periodIndex;
+
+        /*
+          **Quanto resta da ricevere su questo periodo** (N15): maturato meno
+          liquidato. Non «previsto meno liquidato»: cio che non e maturato non e
+          ancora un credito verso l'ente, e sommarlo qui direbbe al club di
+          aspettarsi denaro che nessuno gli deve.
+        */
+        const daRicevere = accrual ? pendingSettlementOfAccrual(accrual) : 0;
+
+        /*
+          Se su questo periodo si possa registrare un accredito lo decide la
+          **stessa** funzione che il servizio applica: un pulsante acceso su un
+          periodo che il server rifiuta e una promessa.
+        */
+        const liquidabile =
+          accrual && describeSettlementEligibility(accrual).kind === "eligible";
+
+        /* Gli accrediti gia registrati su questo periodo, storni compresi. */
+        const accrediti: any[] = Array.isArray(accrual?.settlements)
+          ? accrual.settlements
+          : [];
 
         /*
           L'importo in evidenza risponde alla domanda del momento: su un periodo
@@ -304,6 +354,17 @@ export function FundingPeriodsTable({
                 {!accrual ? (
                   <span className="text-xs text-slate-500">previsto</span>
                 ) : null}
+                {/*
+                  **Quanto resta da ricevere, sulla riga chiusa** (N15). E la
+                  cifra per cui una segreteria apre questo elenco: senza, per
+                  sapere se c'e un accredito da aspettare bisognava aprire ogni
+                  periodo uno per uno.
+                */}
+                {daRicevere > 0 ? (
+                  <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                    da ricevere {formatCurrency(daRicevere)}
+                  </span>
+                ) : null}
                 {riga.manualDecision ? (
                   <Badge
                     variant="outline"
@@ -326,10 +387,11 @@ export function FundingPeriodsTable({
               nasce quando qualcuno preme, che e la differenza fra «gestire i
               periodi» e «gestire i periodi che il ricalcolo ha gia toccato».
 
-              Su un periodo liquidato non c'e nessun pulsante: l'ente ha versato
-              su quell'importo, e la correzione passa dallo storno della
-              liquidazione. Un pulsante che si accende per poi rifiutarsi e
-              peggio di un pulsante che non c'e.
+              Su un periodo liquidato non c'e nessun pulsante di decisione:
+              l'ente ha versato su quell'importo, e la correzione passa dallo
+              storno dell'accredito — che da N15 **esiste**, ed e qui sotto.
+              Un pulsante che si accende per poi rifiutarsi e peggio di un
+              pulsante che non c'e.
             */}
             {canManage && onDecide && !settled ? (
               /*
@@ -378,6 +440,35 @@ export function FundingPeriodsTable({
                     Torna al calcolo automatico
                   </Button>
                 ) : null}
+              </div>
+            ) : null}
+
+            {/*
+              **«Registra liquidazione», sulla riga** (N15).
+
+              E l'atto che chiude il ciclo — Previsto → Maturato → Liquidato —
+              e fino a oggi non aveva **nessuna** porta: le due rotte delle
+              liquidazioni erano scritte, provate e senza un solo chiamante.
+
+              L'etichetta cambia quando un accredito c'e gia, perche «Registra
+              liquidazione» su un periodo liquidato per meta lascerebbe credere
+              di doverla rifare da capo. Su un periodo liquidato per intero non
+              compare affatto: cio che resta e lo storno.
+            */}
+            {canSettle && onSettle && liquidabile ? (
+              <div className="flex flex-col gap-2 border-t border-dashed border-slate-100 px-3 py-2 sm:flex-row sm:flex-wrap dark:border-slate-800">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => onSettle(accrual!)}
+                  className="flex-1 sm:flex-none"
+                >
+                  <Banknote className="mr-2 h-4 w-4" />
+                  {settledAmount > 0
+                    ? "Registra altra liquidazione"
+                    : "Registra liquidazione"}
+                </Button>
               </div>
             ) : null}
 
@@ -453,6 +544,19 @@ export function FundingPeriodsTable({
                   label="Liquidato"
                   value={formatCurrency(settledAmount)}
                 />
+                {/*
+                  N15. `maturato − liquidato`, e non `previsto − liquidato`: cio
+                  che non e maturato non e ancora un credito verso l'ente.
+                */}
+                <DetailRow
+                  label="Da ricevere"
+                  value={formatCurrency(daRicevere)}
+                  hint={
+                    daRicevere > 0 && settledAmount > 0
+                      ? "accredito parziale"
+                      : undefined
+                  }
+                />
 
                 {accrual?.confirmed_at ? (
                   <DetailRow
@@ -514,6 +618,91 @@ export function FundingPeriodsTable({
                           </li>
                         ),
                       )}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {/*
+                  **Gli accrediti dell'ente su questo periodo** (N15).
+
+                  Sono la storia che rende lo stato «liquidato» verificabile:
+                  quando, quanto, con quale riferimento bancario. E il posto in
+                  cui vive lo **storno**, perche lo storno agisce sulla testata
+                  della liquidazione e non sulla riga di ripartizione — e senza
+                  questo elenco un periodo liquidato per errore restava un
+                  vicolo cieco, con la scheda che mandava la segreteria a
+                  cercare un controllo che non esisteva.
+                */}
+                {accrediti.length > 0 ? (
+                  <div className="mt-2 rounded-md bg-emerald-50/60 p-2 dark:bg-emerald-950/20">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                      Accrediti dell&apos;ente
+                    </p>
+                    <ul className="mt-1 space-y-1">
+                      {accrediti.map((accredito: any) => (
+                        <li
+                          key={`${accredito.settlementId}-${accredito.amount}`}
+                          className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300"
+                        >
+                          <span className="min-w-0">
+                            {formatCurrency(accredito.amount)} ·{" "}
+                            {formatDate(accredito.settledAt)}
+                            {accredito.reference
+                              ? ` · ${accredito.reference}`
+                              : ""}
+                            {accredito.reversedAt
+                              ? " · stornato"
+                              : accredito.isReversal
+                                ? " · storno"
+                                : ""}
+                            {/*
+                              **Un bonifico in blocco lo dice** (F1). Se la
+                              testata tocca piu periodi, l'importo qui accanto e
+                              solo la quota di questo: chi preme «Storna» ne
+                              rimette indietro un altro, e deve saperlo prima.
+                            */}
+                            {Number(accredito.lineCount || 1) > 1 ? (
+                              <span className="block text-[0.95em] text-amber-700 dark:text-amber-300">
+                                quota di un accredito da{" "}
+                                {formatCurrency(accredito.settlementAmount)} su{" "}
+                                {accredito.lineCount} periodi
+                              </span>
+                            ) : null}
+                          </span>
+                          {/*
+                            Si storna la testata originale, una volta sola: uno
+                            storno non si storna, e su una riga gia stornata il
+                            pulsante non compare invece di rifiutarsi.
+                          */}
+                          {canReverseSettlement &&
+                          onReverseSettlement &&
+                          !accredito.reversedAt &&
+                          !accredito.isReversal ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() =>
+                                onReverseSettlement({
+                                  settlementId: String(accredito.settlementId),
+                                  amount: Number(accredito.amount || 0),
+                                  settlementAmount: Number(
+                                    accredito.settlementAmount ??
+                                      accredito.amount ??
+                                      0,
+                                  ),
+                                  lineCount: Number(accredito.lineCount || 1),
+                                  description: accredito.description,
+                                })
+                              }
+                            >
+                              <Undo2 className="mr-2 h-3.5 w-3.5" />
+                              Storna
+                            </Button>
+                          ) : null}
+                        </li>
+                      ))}
                     </ul>
                   </div>
                 ) : null}

@@ -4479,11 +4479,11 @@ export default function AthleteProfilePage() {
                 */}
                 <AthleteEnrollmentTab
                   athleteId={athleteId}
-                  athleteName={
-                    athlete?.fullName ||
-                    `${athlete?.firstName || ""} ${athlete?.lastName || ""}`.trim() ||
-                    null
-                  }
+                  /* Leggeva `fullName`/`firstName`/`lastName`, che su questo
+                     oggetto non esistono (`setAthlete` porta `name` e
+                     `surname`): valeva `null` sempre, e ogni finestra della
+                     scheda restava senza nome. Composizione unica, gia qui. */
+                  athleteName={getAthleteFullName()}
                   enrollmentStatus={Boolean(athlete.enrollmentStatus)}
                   enrollmentDate={athlete.enrollmentDate || ""}
                   enrollmentNotes={athlete.enrollmentNotes || ""}

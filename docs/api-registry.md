@@ -451,7 +451,19 @@ Fonte ufficiale da mantenere aggiornata:
   sopravvive al ricalcolo, ed e idempotente. `expected_status` respinge chi
   guardava uno stato ormai vecchio. Non produce mai cassa
 - `GET|POST /api/v1/funding/settlements` — liquidazioni dell'ente, con la
-  ripartizione obbligatoria sui periodi maturati
+  ripartizione obbligatoria sui periodi maturati. Il `POST` accetta due forme
+  (N15, ADR-0160): `{"accrual_id":…,"amount":…,"financial_account_id":…}` per
+  **un periodo solo** — la forma che una segreteria produce davvero, e che
+  richiede il conto — oppure `{"program_id":…,"lines":[…]}` per il bonifico che
+  un ente manda in blocco. `idempotency_key` (stringa, max 120) rende il doppio
+  invio **un** accredito: se la chiave torna con un fatto diverso e un
+  conflitto, non un duplicato, e una replica risponde `200` invece di `201`.
+  **La riga scritta e il movimento bancario del club**: la vista
+  `accounting_ledger_lines` la proietta con conto, verso, causale e sede — non
+  si scrive niente in `accounting_entries`
+- `POST /api/v1/funding/settlements/:id/reverse` — storna un accredito.
+  Chiede `accounting.reverse`, pretende un motivo, e agisce sulla **testata**:
+  su un bonifico in blocco riguarda tutti i periodi che copre
 - `GET|POST /api/v1/forms` — moduli del club: elenco e creazione
 - `GET|PATCH|DELETE /api/v1/forms/:id` — un modulo. `PATCH` porta una
   `action`: `save_draft`, `publish`, `unpublish`, `archive`, `restore`,

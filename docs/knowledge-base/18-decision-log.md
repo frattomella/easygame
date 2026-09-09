@@ -9995,3 +9995,134 @@ ADR-0153 (le regole di un dominio stanno in una primitiva), ADR-0158 (un
 voucher copre una rata, non la paga).
 
 ---
+
+## ADR-0160 — Il bonifico di un ente **e** il movimento bancario: non se ne scrive un secondo, gli si da una porta
+
+**Data:** 2026-09-09 · **Stato:** accettato · **Lane:** N15, Liquidazione del
+periodo voucher · **Pilota:** Fortitudo Scauri
+
+### Il fatto
+
+Il ciclo di un periodo e `Previsto → Maturato → Liquidato`, e il terzo passo non
+si poteva compiere. Il dominio c'era per intero — testata, ripartizione per
+periodo, due tetti, storno, conto, causale congelata, e le sue prove — e le due
+rotte che ci arrivavano non avevano **nessun chiamante**: nessuna finestra,
+nessun pulsante, nessun hook. La terza volta di fila che questo repository
+trovava la stessa forma ([`CLAUDE.md` §11.8](../../CLAUDE.md)), e la piu
+costosa, perche riguardava l'unico momento in cui un contributo diventa denaro.
+
+Peggio: la scheda scritta da [ADR-0159](#adr-0159--la-frequenza-registrata-sostiene-la-decisione-non-la-prende-un-periodo-lo-matura-una-persona-e-un-voucher-assegnato-si-puo-ritirare) mandava la segreteria a
+«stornare la liquidazione dalla scheda del programma», dove un controllo del
+genere non e mai esistito. Un periodo liquidato era un vicolo cieco — non si
+poteva creare dall'interfaccia, non si poteva correggere, e bloccava le
+decisioni sul maturato.
+
+### La decisione che non e stata presa
+
+**Non si scrive un movimento bancario.** Il mandato chiedeva che la
+registrazione producesse «il relativo movimento bancario del club», e la
+tentazione era una tabella nuova, o una riga in `accounting_entries`.
+
+Sarebbe stata una seconda contabilita. `accounting_ledger_lines` **e una vista**
+con sei rami, e uno di quei rami proietta gia `funding_settlements` con il
+conto, il verso, l'importo, la causale congelata e la sede. `OWNERSHIP.md` lo
+vieta per nome — «`accounting_entries` non contiene incassi, compensi,
+contributi o pagamenti sponsor» — e `WRITABLE_SOURCE_DOMAINS` non ammette
+`FUNDING_SETTLEMENT`.
+
+Ne segue la proprieta che il mandato chiedeva come P0, e **gratis**: la
+liquidazione e il movimento sono **la stessa riga**. Non esiste la finestra in
+cui una c'e e l'altra no, non c'e niente da tenere in una transazione insieme,
+e nessun `ledger scritto due volte` e possibile. L'atomicita non e stata
+ottenuta: era gia li, e andava riconosciuta invece di duplicata.
+
+### Cosa e stato aggiunto, e non una riga di piu
+
+**1. Una porta per periodo.** `settleFundingPeriod` compone l'ingresso — un
+periodo, un importo — e **delega** a `createFundingSettlement`. Lo scrittore
+resta uno, la transazione resta una, i due tetti restano i suoi. La forma con
+`program_id` e `lines` resta ed e quella giusta per il bonifico che un ente
+manda in blocco per venti atleti; quella con `accrual_id` e la forma che una
+segreteria produce davvero, e che nessuno poteva comporre a mano.
+
+**2. Tre colonne, e nessuna tabella.**
+
+| Colonna | Perche |
+|---|---|
+| `idempotency_key` | il doppio clic non deve produrre due bonifici. L'indice unico **parziale** e la difesa vera: una lettura prima della scrittura e una lettura vecchia |
+| `beneficiary_athlete_id` | **quando il beneficiario e uno solo.** Nullo quando sono zero o piu d'uno: un campo che mente e peggio di un campo che tace. Lo calcola il dominio dalle righe, dentro la transazione |
+| `description_snapshot` | «Incasso voucher Sport e Salute — Mario Rossi — ottobre 2026», **congelata**, come l'etichetta della causale. La vista e il suo gemello TypeScript la leggono e basta: comporla in tutti e due sarebbe la stessa regola scritta in SQL e in TypeScript, e quelle divergono al primo cognome con l'apostrofo |
+
+**3. Una porta a due chiavi.** Registrare il bonifico di un ente e **due atti
+insieme**: chiude un credito verso un ente **e** fa entrare denaro su un conto
+del club. `funding.manage` **e** `accounting.manage`; lo storno chiede
+`accounting.reverse`, che sta nel perimetro amministrativo. Il perimetro dei
+ruoli canonici non cambia di una riga — l'intersezione e proprietario e gestore,
+gli stessi di prima — e cio che si aggiunge e un ruolo personalizzato costruito
+su quei due che porti **tutte e due** le chiavi.
+
+**4. «Da ricevere» e `maturato − liquidato`.** Mai `previsto − liquidato`: cio
+che non e maturato **non e un credito**, e chiamarlo «da ricevere» metterebbe
+fra i crediti del club denaro che nessuno gli deve.
+
+### Cio che questa decisione **non** cambia
+
+* **Un contributo non e un pagamento della famiglia.** La transazione tocca tre
+  modelli — `funding_settlements`, `funding_settlement_lines`,
+  `funding_accruals` — e nessun altro. `familyDueAmount` dipende dalla copertura
+  **promessa**, non da quanto l'ente ha versato: un accredito da 100 non muove
+  di un centesimo cio che la famiglia deve. Le due righe restano distinguibili
+  nel registro (`FUNDING_SETTLEMENT` contro `ATHLETE_PAYMENT`).
+* **Nessun cron liquida niente.**
+* **Il denaro non si cancella: si storna.** Il ramo dello storno esisteva e
+  resta; cio che mancava era la porta.
+
+### I quattro reperti che la revisione ostile ha trovato, e che erano miei
+
+1. **Lo storno diceva un importo e ne stornava un altro.** Il pulsante mostrava
+   l'importo della **riga** di quel periodo e chiamava lo storno della
+   **testata**: su un bonifico in blocco da 2.000 euro per venti atleti, la
+   conferma diceva 100 e l'operazione ne rimetteva indietro duemila,
+   riportando diciannove periodi di altri atleti da «liquidato» a
+   «rendicontato». Adesso la domanda nomina l'importo intero e quanti periodi
+   tocca, e la riga lo dichiara prima che qualcuno prema.
+2. **Una liquidazione parziale lascia il periodo in `reported`**, e le tre
+   guardie che proteggono `accrued_amount` si fermavano al solo `settled`. Un
+   ricalcolo azzerava un maturato su cui l'ente aveva gia versato: il club
+   risultava aver incassato 60 euro su un maturato di niente, e dichiarava
+   all'ente 60 euro di crediti in meno. La domanda giusta non e lo stato: e **se
+   dell'ente e gia arrivato del denaro**.
+3. **La chiave di idempotenza valeva per qualunque richiesta.** Una chiave
+   riusata con un corpo diverso riceveva `201` e la riga di qualcun altro:
+   l'accredito vero non veniva mai scritto, e la schermata diceva «fatto». E
+   `String({})` vale `"[object Object]"`: un oggetto al posto della chiave
+   diventava un gettone **stabile e indovinabile**.
+4. **Il vaglio girava prima dell'idempotenza**, quindi il caso per cui la chiave
+   esiste — accredito dell'intero residuo, risposta persa, secondo clic —
+   rispondeva «e gia liquidato per intero». Un errore per un'operazione
+   riuscita, che manda l'operatore a reinserire il bonifico dall'altra strada.
+
+### Come si fa valere
+
+`tests/lib/liquidazione-periodo-voucher.test.mjs` (le tre regole pure, piu la
+proprieta che nessuna descrizione contenga `undefined` per nessun ingresso),
+`tests/server/liquidazione-periodo-servizio.test.mjs` (gli scenari A–J del
+mandato e i quattro reperti),
+`tests/ui/liquidazione-voucher-superficie.test.mjs` (che il percorso esista
+davvero).
+
+E cio che vive nell'archivio si misura sull'archivio:
+`scripts/n15-liquidazione-postgres-probe.mjs` — la liquidazione che **e** il
+movimento, l'atomicita su un errore a meta, l'indice unico dell'idempotenza, il
+blocco che fa aspettare la seconda transazione, e l'invariante
+`Σ liquidazioni nette = Σ movimenti netti originati dai bandi`.
+`scripts/wave-4-registro-riconciliazione.mjs` continua a provare che la vista
+SQL e il suo gemello TypeScript coincidono riga per riga, e la sua semina porta
+adesso anche una descrizione congelata con un trattino lungo e un accento — e
+li che due scritture divergono, non sui casi semplici.
+
+**Vedi anche.** ADR-0036, ADR-0037 (le due contabilita non si sommano),
+ADR-0054, ADR-0158 (un voucher copre una rata, non la paga), ADR-0159 (la
+frequenza sostiene la decisione, non la prende).
+
+---

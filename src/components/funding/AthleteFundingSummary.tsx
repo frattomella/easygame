@@ -32,6 +32,10 @@ import {
   type AccrualConfirmationSubmission,
 } from "./ConfirmAccrualDialog";
 import {
+  SettleAccrualDialog,
+  type SettlementSubmission,
+} from "./SettleAccrualDialog";
+import {
   fundingAccrualSourceLabel,
   mergeFundingSummaries,
   requirementUnitLabel,
@@ -314,6 +318,12 @@ export function AthleteFundingSummary({
   const [removalTarget, setRemovalTarget] = React.useState<FundingOverview | null>(
     null,
   );
+  /* Il periodo su cui e aperta la finestra dell'accredito (N15). */
+  const [settleTarget, setSettleTarget] = React.useState<{
+    overview: FundingOverview;
+    accrual: Record<string, any>;
+  } | null>(null);
+  const [isSettling, setIsSettling] = React.useState(false);
 
   const hostControlled = Array.isArray(overviewsFromHost);
   const overviews = hostControlled ? overviewsFromHost! : ownOverviews;
@@ -548,6 +558,118 @@ export function AthleteFundingSummary({
           ? `. ${stornate} ${stornate === 1 ? "rata torna" : "rate tornano"} a carico della famiglia`
           : ""
       }`,
+    );
+  };
+
+  /**
+   * **Registra l'accredito dell'ente su un periodo** (N15).
+   *
+   * Chiude il ciclo: la stessa transazione scrive la liquidazione, aggiorna lo
+   * stato del periodo e — perche il movimento bancario **e** la liquidazione,
+   * proiettata nel registro — fa comparire il denaro sul conto del club. Non
+   * c'e una seconda registrazione da chiedere all'operatore, e non c'e una
+   * finestra in cui una delle due cose esista senza l'altra.
+   */
+  const handleSettle = async (submission: SettlementSubmission) => {
+    if (!settleTarget) return;
+
+    setIsSettling(true);
+    const { data, error } = await apiRequest<any>(
+      "/api/v1/funding/settlements",
+      {
+        method: "POST",
+        body: {
+          accrual_id: settleTarget.accrual.id,
+          amount: submission.amount,
+          settled_at: submission.settledAt,
+          financial_account_id: submission.financialAccountId,
+          reference: submission.reference || undefined,
+          notes: submission.notes || undefined,
+          method: "Bonifico",
+          idempotency_key: submission.idempotencyKey,
+        },
+      },
+    );
+    setIsSettling(false);
+
+    if (error) {
+      showToast("error", error.message || "Liquidazione non registrata");
+      return;
+    }
+
+    setSettleTarget(null);
+    await refresh();
+
+    showToast(
+      "success",
+      `Liquidazione registrata: ${new Intl.NumberFormat("it-IT", {
+        style: "currency",
+        currency: "EUR",
+      }).format(
+        Number(data?.amount || submission.amount),
+      )} sul conto del club. Non e un pagamento della famiglia.`,
+    );
+  };
+
+  const handleReverseSettlement = async (settlement: {
+    settlementId: string;
+    amount: number;
+    settlementAmount: number;
+    lineCount: number;
+    description?: string | null;
+  }) => {
+    const euro = (valore: number) =>
+      new Intl.NumberFormat("it-IT", {
+        style: "currency",
+        currency: "EUR",
+      }).format(valore);
+
+    /*
+      **Lo storno dice cosa storna davvero** (revisione ostile, F1).
+
+      Chiedeva conferma per l'importo della **riga** — la quota di questo
+      periodo — e stornava la **testata**. Su un bonifico che un ente manda in
+      blocco per venti atleti, il messaggio diceva 100 euro e l'operazione ne
+      rimetteva indietro duemila, riportando diciannove periodi di altri atleti
+      da «liquidato» a «rendicontato». Nessuno poteva accorgersene prima di
+      premere.
+
+      Lo storno resta un atto sulla testata — e cosi che funziona un bonifico —
+      e quindi cio che deve cambiare e la **domanda**: si nomina l'importo
+      intero e quanti periodi tocca.
+    */
+    const inBlocco = Number(settlement.lineCount || 1) > 1;
+
+    const domanda = inBlocco
+      ? `Questo accredito vale ${euro(settlement.settlementAmount)} ed e ripartito su ${settlement.lineCount} periodi: stornarlo li riguarda tutti, non solo ${euro(settlement.amount)} di questo. Perche?`
+      : `Storna l'accredito di ${euro(settlement.settlementAmount)}. Perche?`;
+
+    /*
+      Uno storno deve dire **perche**: senza motivo la riga non spiega niente,
+      ed e il dominio a pretenderlo. Si chiede qui invece di lasciare che il
+      server rifiuti dopo il clic.
+    */
+    const motivo =
+      typeof window === "undefined" ? "" : window.prompt(domanda, "");
+
+    if (!motivo || !motivo.trim()) return;
+
+    setIsSettling(true);
+    const { error } = await apiRequest(
+      `/api/v1/funding/settlements/${encodeURIComponent(settlement.settlementId)}/reverse`,
+      { method: "POST", body: { reason: motivo.trim() } },
+    );
+    setIsSettling(false);
+
+    if (error) {
+      showToast("error", error.message || "Storno non riuscito");
+      return;
+    }
+
+    await refresh();
+    showToast(
+      "success",
+      "Accredito stornato: il movimento inverso e nel registro, e il periodo torna fra i crediti verso l'ente",
     );
   };
 
@@ -810,6 +932,17 @@ export function AthleteFundingSummary({
                 value={summary.settledAmount}
                 hint="versato dall'ente"
               />
+              {/*
+                **Il credito certo verso l'ente** (N15): maturato meno
+                liquidato. Non «assegnato meno liquidato»: cio che non e
+                maturato non e ancora dovuto da nessuno, e chiamarlo «da
+                ricevere» farebbe aspettare al club denaro che non arrivera.
+              */}
+              <AmountLine
+                label="Voucher da ricevere"
+                value={summary.pendingSettlementAmount}
+                hint="maturato meno liquidato"
+              />
               <AmountLine label="Residuo" value={summary.residualAmount} />
             </div>
 
@@ -889,6 +1022,24 @@ export function AthleteFundingSummary({
                   onDecide={(riga, decision) =>
                     void handleDecide(enrollmentId, riga, decision)
                   }
+                  /*
+                    **La porta della liquidazione la dichiara il server** (N15,
+                    e la lezione F4 di N14): il gettone conservato nel browser
+                    porta lo slug del ruolo e non le sue chiavi, quindi un
+                    predicato valutato qui risponderebbe `false` a ogni ruolo
+                    personalizzato — cioe proprio a quelli che la lane ha reso
+                    capaci di registrare un accredito.
+                  */
+                  canSettle={Boolean((overview as any).canSettle)}
+                  canReverseSettlement={Boolean(
+                    (overview as any).canReverseSettlement,
+                  )}
+                  onSettle={(accrual) =>
+                    setSettleTarget({ overview, accrual })
+                  }
+                  onReverseSettlement={(settlement) =>
+                    void handleReverseSettlement(settlement)
+                  }
                 />
               </div>
             ) : null}
@@ -904,6 +1055,29 @@ export function AthleteFundingSummary({
           if (!open) setConfirmTarget(null);
         }}
         onSubmit={handleConfirm}
+      />
+
+      <SettleAccrualDialog
+        open={Boolean(settleTarget)}
+        onOpenChange={(open) => {
+          if (!open) setSettleTarget(null);
+        }}
+        accrual={settleTarget?.accrual ?? null}
+        athleteName={athleteName}
+        programName={settleTarget?.overview?.program?.name}
+        funderName={settleTarget?.overview?.program?.funder_name}
+        /*
+          **Il permesso sui conti lo dichiara il server** (revisione ostile,
+          10a). La finestra aveva la porta e nessuno gliela passava: il valore
+          restava al suo `true` di ripiego, e il ramo che spiega «i conti li
+          vede chi ne ha il permesso» era codice morto. Un permesso dichiarato e
+          non cablato e una casella che non fa niente.
+        */
+        canChooseAccount={Boolean(
+          (settleTarget?.overview as any)?.canChooseAccount ?? true,
+        )}
+        isSaving={isSettling}
+        onSubmit={handleSettle}
       />
 
       <RemovalDialog
