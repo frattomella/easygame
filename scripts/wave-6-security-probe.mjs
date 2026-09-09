@@ -5651,6 +5651,12 @@ const u67 = async () => {
 
   const scopeFondi = { ...scopeRuolo("owner"), actorEmail: utenti.owner.email };
 
+  /*
+    **Il bando nasce attivo** (N6). Un programma in bozza non ammette
+    beneficiari: prima lo stato non impediva niente, e questa sonda si
+    appoggiava a quel comportamento. Attivarlo qui e cio che farebbe una
+    segreteria, e lascia intatto cio che la sonda misura — i confini fra club.
+  */
   const bando = async (nome) =>
     contributi.createFundingProgram(
       {
@@ -5665,6 +5671,7 @@ const u67 = async () => {
         periodFrequency: "monthly",
         unmetBehavior: "full",
         accrualSource: "easygame_attendance",
+        status: "active",
       },
       scopeFondi,
     );
