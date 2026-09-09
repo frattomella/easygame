@@ -9851,3 +9851,147 @@ ADR-0037 (le due contabilita non si sommano), ADR-0054 (il massimale non e
 l'assegnato), ADR-0068 (le Entrate sono cassa).
 
 ---
+
+## ADR-0159 — La frequenza registrata **sostiene** la decisione, non la prende: un periodo lo matura una persona, e un voucher assegnato si puo ritirare
+
+**Data:** 2026-09-09 · **Stato:** accettato · **Lane:** N10–N14, Iscrizione /
+Piano di pagamento / Voucher · **Pilota:** Fortitudo Scauri
+
+### Il fatto
+
+Il collaudo sullo staging ha aperto la scheda «Iscrizione» di un atleta con un
+voucher assegnato e ha trovato quattro cose, tutte vere insieme:
+
+1. il dettaglio di un periodo diceva **«Frequenza EasyGame undefined ore»** e
+   **«Requisito undefined ore non raggiunto»**;
+2. non esisteva **nessun modo** di dichiarare maturato un periodo: su un bando
+   la cui fonte e l'appello di EasyGame l'unica autorita era la frequenza
+   registrata, e `confirmAccrualPeriods` rifiuta quei programmi per costruzione;
+3. non esisteva **nessun modo** di annullare l'assegnazione di un voucher —
+   zero periodi maturati, zero liquidazioni, e nessun pulsante;
+4. la scheda mostrava tre numeri lordi, e la copertura da voucher — che esiste
+   da [ADR-0158](#adr-0158--un-voucher-copre-una-rata-non-la-paga-lallocazione-e-una-promessa-e-la-cassa-resta-cassa)
+   — non compariva affatto: era raggiungibile solo dall'area Movimenti.
+
+I punti 2, 3 e 4 hanno la **stessa forma**, ed e quella che `CLAUDE.md` §11.8
+chiama per nome: codice completo e irraggiungibile. `removeFundingEnrollment`
+esisteva dal primo giorno, e la sola porta che ci arrivava stava nella scheda
+del **programma**; `coverageByInstallment` e `CoverageDialog` esistevano dalla
+lane N7, e li passava soltanto l'area Movimenti. Il punto 1 e diverso: e un
+valore che non esisteva e che nessuno aveva nominato.
+
+### Le decisioni
+
+**1. I casi in cui un numero non c'e hanno un nome.** «Non ancora misurato» e
+«il bando non chiede niente» sono due cose diverse, e nessuna delle due e zero.
+`FundingPeriodMeasure` e `FundingPeriodRequirement` sono tipi somma: chi legge
+**deve** scegliere il caso, e la frase la scrive una funzione sola
+(`describeFundingPeriodMeasure`, `describeFundingPeriodRequirement`,
+`describeFundingPeriodProgress`). Un requisito a zero e una configurazione
+legittima e si dice «Nessun requisito di frequenza», non «0 ore». Un verdetto
+raggiunto/non raggiunto si emette **solo** se esistono tutti e due i termini.
+
+**2. La frequenza non e l'autorita.** `decideAccrualPeriod` e la decisione di
+una persona su un singolo periodo, e vale su **tutte** le fonti. Materializza un
+periodo che non ha ancora una riga — si decide anche di un mese che deve
+cominciare — dichiarando che quella riga **non porta una misura**. E
+idempotente, verifica lo stato atteso dentro il blocco dell'adesione, rispetta
+il tetto dell'importo assegnato, rifiuta un periodo liquidato, e **non produce
+cassa**: nessun `payment_transaction`, nessuna copertura, nessuna liquidazione.
+Un ricalcolo non la riscrive, e lo dichiara (`skippedManualPeriods`);
+`decision: "auto"` la ritira, perche una decisione che non si puo ritirare e una
+trappola.
+
+**3. Il piano di rimozione lo calcola il dominio, e lo dice prima.**
+`describeEnrollmentRemoval` risponde `delete`, `revoke` o `settled`, e la stessa
+funzione la usano il servizio — che decide — e la scheda — che lo scrive nel
+pulsante. La distinzione che conta: **`settled` guarda l'importo, `revoke`
+guarda l'esistenza**. Una liquidazione interamente stornata somma zero ma lascia
+le sue righe, e la chiave esterna verso il maturato e `RESTRICT`: decidere
+sull'importo faceva prendere il ramo che cancella, e la cancellazione falliva
+**dopo** che le coperture erano state stornate e committate.
+
+**4. Con del denaro gia versato non si annulla per sbaglio.** Stornare le
+coperture mentre il club tiene il denaro dell'ente rimette a carico della
+famiglia una quota **gia incassata**: lo stesso importo, chiesto due volte. La
+strada e lo storno della liquidazione; chi vuole comunque chiudere lo dichiara
+con un gesto suo — una casella, non il pulsante — e resta a registro.
+
+**5. La scheda mostra sette numeri, e quadrano.** Quota totale, copertura
+prevista, maturato, liquidato, a carico della famiglia, pagato, residuo. Un
+invariante solo, fatto valere dal dominio (`summarizePlanCoverage`):
+
+```
+quota totale      = copertura prevista + a carico della famiglia
+a carico famiglia = pagato dalla famiglia + residuo
+```
+
+Si somma la copertura che **agisce** sul debito, non la promessa: le due
+divergono quando una rata viene ridotta dopo che la copertura era stata scritta,
+e sommare la promessa romperebbe l'invariante.
+
+**6. Una rata si guarda con gli occhi della famiglia, in tutti i suoi campi.**
+`withFamilyShare` non sostituisce due importi: ricalcola **tutto** cio che ne
+dipende — stato, etichette, ritardo, barra — con le funzioni che gia lo
+calcolano. Sostituirne due lasciava in pagina «Residuo 0,00» accanto a
+«PARZIALMENTE PAGATA · SCADUTA», e in cima «1 rata scaduta per 0,00 EUR». Il
+versato lo porta il **registro** e non la copertura, perche esistono rate
+saldate prima del registro degli incassi che non hanno nessun movimento.
+
+**7. La scrittura sui contributi ha una chiave, e i ruoli personalizzati la
+possono avere.** Le rotte chiedevano `canManageClubConfigurationAsActor`, che
+rifiuta **ogni** ruolo personalizzato per costruzione, e non c'era casella da
+spuntare perche la chiave non esisteva: due assenze che si tenevano in piedi a
+vicenda, la stessa forma gia trovata sulle stagioni (ADR-0153). Nasce
+`funding.manage`, con il perimetro canonico **invariato** — proprietario e
+gestore — e la possibilita per un ruolo personalizzato costruito su quei due di
+riceverla. La **lettura** resta dov'e (`payments` → `accounting.read`) perche
+una chiave nuova nasce spenta, e nascere spenta su una lettura significa
+togliere accesso a chi oggi ce l'ha.
+
+**8. Il permesso lo dichiara il server.** Il gettone conservato nel browser
+porta lo **slug** del ruolo e non le sue chiavi (`AuthProvider`), quindi ogni
+predicato di permesso valutato a schermo risponde `false` a ogni ruolo
+personalizzato — cioe proprio a quelli che il punto 7 ha reso capaci di
+decidere. La proiezione porta percio `canManage` con se, e l'elenco dei bandi
+assegnabili e **vuoto** per chi non puo assegnare: due affermazioni del server,
+che e l'unico che sa.
+
+### Cio che questa decisione **non** cambia
+
+* **Un maturato non e cassa.** Nessuna delle scritture nuove tocca
+  `payment_transactions`, `payments.status`, la prima nota o le liquidazioni.
+  ADR-0037 §5 resta letterale: il dominio dei bandi non importa quello dei
+  pagamenti, e la composizione vive nel modulo terzo di ADR-0158.
+* **Nessun cron matura niente.** La maturazione resta un atto di una persona, o
+  del ricalcolo che una persona lancia.
+* **Il perimetro dei ruoli canonici.** Chi scriveva ieri scrive oggi; chi non
+  scriveva non scrive.
+* **Lo schema.** Nessuna migrazione: la decisione manuale e il marcatore della
+  misura vivono in `funding_accruals.data`, che e il posto giusto per due
+  qualificatori di una riga che gia esiste.
+
+### Come si fa valere
+
+`tests/lib/voucher-frequenza-e-requisito.test.mjs` — i tre casi di N10/N11, piu
+la proprieta che nessuna descrizione contenga mai `undefined`, `null` o `NaN`
+per **nessun** ingresso, nemmeno malformato.
+`tests/lib/riepilogo-economico-iscrizione.test.mjs` — gli scenari 1, 6 e 7 del
+mandato, e l'invariante verificato su ogni combinazione provata.
+`tests/server/maturazione-manuale.test.mjs`,
+`tests/server/annullamento-voucher.test.mjs`,
+`tests/ui/iscrizione-voucher-superficie.test.mjs` — le quattro aree, e che le
+azioni si raggiungano davvero.
+
+E cio che vive nell'archivio si misura sull'archivio:
+`scripts/n12-n13-maturazione-postgres-probe.mjs` — l'unico
+`(enrollment_id, period_index)`, il blocco che fa aspettare la seconda
+transazione, il tetto sotto concorrenza vera, la chiave esterna `RESTRICT` dopo
+uno storno di liquidazione, e che in tutta la sonda non nasca **nessun** incasso.
+
+**Vedi anche.** ADR-0036 (lo stato di una rata si deriva), ADR-0037 (le due
+contabilita non si sommano), ADR-0054 (il massimale non e l'assegnato),
+ADR-0153 (le regole di un dominio stanno in una primitiva), ADR-0158 (un
+voucher copre una rata, non la paga).
+
+---

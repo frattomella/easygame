@@ -2,18 +2,29 @@
 
 import React from "react";
 import {
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   HandCoins,
   RefreshCw,
+  Trash2,
   UserPlus,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
-import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { useToast } from "@/components/ui/toast-notification";
+import { canManageFundingAsActor } from "@/lib/funding/permissions";
+import { normalizeCoverageAllocations, sumLiveCoverageForEnrollment } from "@/lib/payments/coverage-ledger";
 import { EnrollAthletesDialog } from "./EnrollAthletesDialog";
 import { FundingPeriodsTable } from "./FundingPeriodsTable";
 import {
@@ -24,29 +35,50 @@ import {
   fundingAccrualSourceLabel,
   mergeFundingSummaries,
   requirementUnitLabel,
+  type EnrollmentRemovalPlan,
   type FundingAccrualSource,
+  type FundingPeriodDecision,
+  type FundingPeriodRow,
   type FundingSummary,
 } from "@/lib/funding/funding-model";
 
 /**
- * I contributi di un atleta nella sua parte economica (ADR-0037, ADR-0054).
+ * Il **voucher assegnato** a un atleta, e i suoi periodi (aree C e D di N14).
  *
- * **Sei numeri, non uno.** Un voucher assegnato non e denaro incassato, e il
- * massimale del bando non e cio che l'atleta usa qui: fra «il bando riconosce
- * fino a 500» e «l'ente ci ha versato 60» ci sono quattro passaggi che possono
- * fallire separatamente. Mostrarne un totale solo — che e cio che una
- * segreteria si aspetterebbe di vedere — porterebbe a contare come cassa dei
- * soldi che nessuno ha versato.
+ * ---
  *
- * **Massimale del programma e assegnato al club sono due righe diverse.**
+ * ## Sei numeri, non uno
+ *
+ * Un voucher assegnato non e denaro incassato, e il massimale del bando non e
+ * cio che l'atleta usa qui: fra «il bando riconosce fino a 500» e «l'ente ci ha
+ * versato 60» ci sono quattro passaggi che possono fallire separatamente.
+ * Mostrarne un totale solo — che e cio che una segreteria si aspetterebbe di
+ * vedere — porterebbe a contare come cassa dei soldi che nessuno ha versato.
+ *
+ * ## Massimale del programma e assegnato al club sono due righe diverse
+ *
  * Mario ha diritto a 500 EUR complessivi e decide di usarne 300 qui: gli altri
  * 200 non sono disponibili a questa societa, e EasyGame non deve mai
  * comportarsi come se lo fossero. Il limite di questa iscrizione e 300.
  *
- * Il pannello e **separato** dal Riepilogo Incassi di proposito: quello e
- * denaro della famiglia, questo e un credito verso un ente. Sono due
- * contabilita, e il momento in cui si sommano e il momento in cui smettono di
- * essere leggibili.
+ * ## Cosa questo pannello ha imparato a fare
+ *
+ * **Annullare un'assegnazione** (N13). Il servizio sapeva togliere un atleta da
+ * un programma da sempre, e la sola porta che ci arrivava stava nella scheda
+ * del **programma**: chi apriva la scheda dell'**atleta** — cioe chiunque, in
+ * un collaudo reale — vedeva un voucher assegnato e nessun modo di ritirarlo.
+ * La forma e quella che CLAUDE.md §11.8 chiama per nome: codice completo e
+ * irraggiungibile.
+ *
+ * Il pulsante non indovina cosa succedera: lo dice il dominio
+ * (`overview.removal`), con la **stessa** funzione che poi decide davvero.
+ *
+ * ## Perche i numeri possono arrivare da fuori
+ *
+ * Quando la scheda «Iscrizione» li ha gia letti — e li ha, perche il riepilogo
+ * economico in cima ne dipende — questo pannello li **riceve** invece di
+ * rileggerli. Due letture della stessa proiezione a mezzo secondo di distanza
+ * sono due verita, e la seconda arriva dopo che la prima e stata disegnata.
  */
 
 const formatCurrency = (value: unknown) =>
@@ -56,11 +88,13 @@ const formatCurrency = (value: unknown) =>
     minimumFractionDigits: 2,
   }).format(Number(value || 0));
 
-type FundingOverview = {
+export type FundingOverview = {
   enrollment: Record<string, any>;
   program: Record<string, any>;
   accruals: Record<string, any>[];
+  periods?: FundingPeriodRow[];
   summary: FundingSummary;
+  removal?: EnrollmentRemovalPlan;
 };
 
 /**
@@ -84,9 +118,7 @@ const AmountLine = ({
   <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-dashed border-slate-100 py-1.5 last:border-0 dark:border-slate-800">
     <span className="text-sm text-muted-foreground">
       {label}
-      {hint ? (
-        <span className="ml-2 text-xs opacity-80">{hint}</span>
-      ) : null}
+      {hint ? <span className="ml-2 text-xs opacity-80">{hint}</span> : null}
     </span>
     <span
       className={`text-sm tabular-nums ${emphasis ? "font-bold text-slate-900 dark:text-slate-100" : "font-medium"}`}
@@ -96,23 +128,181 @@ const AmountLine = ({
   </div>
 );
 
+/**
+ * **La finestra che dice cosa sta per succedere** (N13).
+ *
+ * Tre testi per tre esiti, e non e una gentilezza: «annullo e non resta niente»,
+ * «annullo e lo storico resta» e «non posso annullare, l'ente ha gia versato»
+ * sono tre fatti diversi, e una finestra sola con «Confermi?» li nasconderebbe
+ * tutti e tre.
+ */
+const RemovalDialog = ({
+  open,
+  onOpenChange,
+  programName,
+  plan,
+  isBusy,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  programName: string;
+  plan: EnrollmentRemovalPlan | null;
+  isBusy: boolean;
+  onConfirm: (acknowledgeSettled: boolean) => void;
+}) => {
+  const esito = plan?.outcome ?? "delete";
+
+  /*
+    **Il consenso e un gesto, non l'assenza di un gesto** (revisione ostile, F2).
+
+    La prima stesura passava `esito === "settled"` direttamente al pulsante: il
+    server chiedeva un consenso esplicito e la schermata glielo dava sempre, da
+    sola. Una guardia che il solo cliente reale soddisfa in automatico e una
+    guardia decorativa — chiudere un'adesione su cui l'ente ha gia versato
+    tornava a costare **un clic**, che e esattamente cio che il vaglio doveva
+    impedire.
+  */
+  const [consenso, setConsenso] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open) setConsenso(false);
+  }, [open]);
+
+  const titolo =
+    esito === "settled"
+      ? "Questo voucher e gia stato liquidato"
+      : esito === "revoke"
+        ? "Revoca l'assegnazione del voucher"
+        : "Annulla l'assegnazione del voucher";
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{titolo}</DialogTitle>
+          <DialogDescription>{programName}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 py-2 text-sm">
+          {esito === "settled" ? (
+            <>
+              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800">
+                L&apos;ente ha gia versato{" "}
+                <strong>{formatCurrency(plan?.settledAmount)}</strong> su questa
+                assegnazione. Annullarla rimetterebbe a carico della famiglia una
+                quota che il club ha <strong>gia incassato dall&apos;ente</strong>:
+                lo stesso importo, chiesto due volte.
+              </p>
+              <p className="text-muted-foreground">
+                La strada corretta e stornare la liquidazione dalla scheda del
+                programma, in «Contributi», e solo dopo chiudere
+                l&apos;assegnazione. Se vuoi comunque chiuderla adesso — perche
+                l&apos;atleta ha lasciato la societa e la liquidazione resta
+                dov&apos;e — dichiaralo qui sotto: resta a registro.
+              </p>
+              <label className="flex min-h-[44px] items-start gap-3 rounded-md border border-slate-200 p-3 dark:border-slate-800">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 shrink-0"
+                  checked={consenso}
+                  onChange={(event) => setConsenso(event.target.checked)}
+                />
+                <span className="text-sm">
+                  So che l&apos;ente ha gia versato{" "}
+                  {formatCurrency(plan?.settledAmount)} e chiudo comunque
+                  l&apos;assegnazione. La liquidazione resta dov&apos;e.
+                </span>
+              </label>
+            </>
+          ) : esito === "revoke" ? (
+            <>
+              <p>
+                L&apos;assegnazione <strong>non verra cancellata</strong>: passa a
+                «chiusa», smette di maturare e resta leggibile. Lo storico non si
+                riscrive.
+              </p>
+              <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+                {(plan?.reasons ?? []).map((motivo) => (
+                  <li key={motivo}>{motivo}</li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p>
+              Non e ancora successo niente su questa assegnazione: verra
+              rimossa, e i periodi calcolati con lei.
+            </p>
+          )}
+
+          {plan && plan.liveCoverageCount > 0 ? (
+            <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sky-900">
+              {plan.liveCoverageCount === 1
+                ? "1 rata torna a carico della famiglia"
+                : `${plan.liveCoverageCount} rate tornano a carico della famiglia`}
+              : le coperture promesse vengono stornate, e il residuo risale.
+            </p>
+          ) : null}
+
+          <p className="text-xs text-muted-foreground">
+            Nessun incasso viene creato o cancellato: cio che la famiglia ha gia
+            versato resta dov&apos;e.
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Annulla
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={isBusy || (esito === "settled" && !consenso)}
+            onClick={() => onConfirm(esito === "settled" && consenso)}
+          >
+            {isBusy
+              ? "Operazione in corso..."
+              : esito === "settled"
+                ? "Chiudi comunque l'assegnazione"
+                : esito === "revoke"
+                  ? "Revoca l'assegnazione"
+                  : "Annulla l'assegnazione"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 export function AthleteFundingSummary({
   athleteId,
   athleteName,
   canManage,
+  overviews: overviewsFromHost,
+  coverageAllocations = [],
+  onChanged,
 }: {
   athleteId: string;
   /** Solo per il testo della finestra di iscrizione. */
   athleteName?: string | null;
   /** Se omesso si ricava dal ruolo attivo. L'autorizzazione vera la fa il server. */
   canManage?: boolean;
+  /**
+   * I contributi gia letti da chi ospita. Quando ci sono, questo pannello **non**
+   * li rilegge: due letture della stessa proiezione sono due verita.
+   */
+  overviews?: FundingOverview[];
+  /** Le coperture dell'atleta: dicono quanto del voucher e impegnato su rate. */
+  coverageAllocations?: any[];
+  /** Chiamato dopo ogni scrittura, perche l'ospite rilegga tutto insieme. */
+  onChanged?: () => void | Promise<void>;
 }) {
   const { showToast } = useToast();
-  const [overviews, setOverviews] = React.useState<FundingOverview[]>([]);
+  const [ownOverviews, setOwnOverviews] = React.useState<FundingOverview[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [busyEnrollmentId, setBusyEnrollmentId] = React.useState<string | null>(
     null,
   );
+  const [busyPeriod, setBusyPeriod] = React.useState<string | null>(null);
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [derivedCanManage, setDerivedCanManage] = React.useState(false);
   const [confirmTarget, setConfirmTarget] = React.useState<{
@@ -121,6 +311,12 @@ export function AthleteFundingSummary({
     residualAmount: number;
   } | null>(null);
   const [isConfirming, setIsConfirming] = React.useState(false);
+  const [removalTarget, setRemovalTarget] = React.useState<FundingOverview | null>(
+    null,
+  );
+
+  const hostControlled = Array.isArray(overviewsFromHost);
+  const overviews = hostControlled ? overviewsFromHost! : ownOverviews;
 
   /*
     I programmi a cui questo atleta **non** e ancora iscritto. L'elenco lo
@@ -133,12 +329,41 @@ export function AthleteFundingSummary({
 
   React.useEffect(() => {
     if (canManage !== undefined) return;
+    /*
+      **La porta e quella del dominio** (N12/N13): `funding.manage`, e non
+      «sei proprietario?». Resta pero un ripiego, e sotto si vede perche.
+    */
     setDerivedCanManage(
-      canManageClubConfigurationAsActor(readStoredActiveClub()?.role),
+      canManageFundingAsActor(readStoredActiveClub()?.role),
     );
   }, [canManage]);
 
-  const allowManagement = canManage ?? derivedCanManage;
+  /*
+    **Il permesso lo dichiara il server** (revisione ostile, F4).
+
+    Il gettone conservato nel browser porta lo **slug** del ruolo e non le sue
+    chiavi: `AuthProvider` lo dice per esteso, ed e una scelta — le chiavi le
+    rilegge il server a ogni richiesta. Ne segue che qualunque predicato di
+    permesso valutato qui risponde `false` a **ogni** ruolo personalizzato,
+    cioe proprio a quelli che questa lane ha reso capaci di decidere: la casella
+    «Contributi e voucher» avrebbe governato il server e non lo schermo, e la
+    «Segreteria contributi» avrebbe ricevuto il diritto senza vedere un
+    pulsante.
+
+    La proiezione porta percio la risposta con se (`overview.canManage`), e
+    l'elenco dei programmi a cui iscrivere e vuoto per chi non puo iscrivere:
+    due affermazioni del server, che e l'unico che sa. Il predicato locale resta
+    come ripiego per il caso in cui non ci sia ancora niente da leggere.
+  */
+  const serverCanManage = React.useMemo(() => {
+    if (overviews.length > 0) {
+      return overviews.every((voce) => (voce as any).canManage === true);
+    }
+    /* Nessuna adesione: l'unico segnale e l'elenco dei bandi assegnabili. */
+    return enrollablePrograms.length > 0 ? true : null;
+  }, [overviews, enrollablePrograms]);
+
+  const allowManagement = canManage ?? serverCanManage ?? derivedCanManage;
 
   const load = React.useCallback(async () => {
     if (!athleteId) return;
@@ -149,11 +374,15 @@ export function AthleteFundingSummary({
       Due letture in parallelo e non in fila: la seconda serve solo al
       pulsante «Iscrivi a un programma», e metterla dopo aggiungerebbe un
       giro di rete all'apertura della scheda economica.
+
+      Quando i contributi arrivano da chi ospita si chiede la sola seconda.
     */
     const [overviewResponse, enrollableResponse] = await Promise.all([
-      apiRequest<FundingOverview[]>(
-        `/api/v1/funding/enrollments?view=overview&athlete_id=${encodeURIComponent(athleteId)}`,
-      ),
+      hostControlled
+        ? Promise.resolve({ data: null, error: null } as any)
+        : apiRequest<FundingOverview[]>(
+            `/api/v1/funding/enrollments?view=overview&athlete_id=${encodeURIComponent(athleteId)}`,
+          ),
       apiRequest<any[]>(
         `/api/v1/funding/enrollments?view=enrollable&athlete_id=${encodeURIComponent(athleteId)}`,
       ),
@@ -161,34 +390,49 @@ export function AthleteFundingSummary({
 
     setIsLoading(false);
 
-    if (overviewResponse.error) {
-      showToast(
-        "error",
-        overviewResponse.error.message || "Errore nella lettura dei contributi",
+    if (!hostControlled) {
+      if (overviewResponse.error) {
+        showToast(
+          "error",
+          overviewResponse.error.message ||
+            "Errore nella lettura dei contributi",
+        );
+        return;
+      }
+
+      setOwnOverviews(
+        Array.isArray(overviewResponse.data) ? overviewResponse.data : [],
       );
-      return;
     }
 
-    setOverviews(
-      Array.isArray(overviewResponse.data) ? overviewResponse.data : [],
-    );
     setEnrollablePrograms(
       Array.isArray(enrollableResponse.data) ? enrollableResponse.data : [],
     );
-  }, [athleteId, showToast]);
+  }, [athleteId, hostControlled, showToast]);
 
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  /** Rilegge cio che questo pannello possiede, e avvisa chi lo ospita. */
+  const refresh = React.useCallback(async () => {
+    await load();
+    await onChanged?.();
+  }, [load, onChanged]);
 
   const total = React.useMemo(
     () => mergeFundingSummaries(overviews.map((item) => item.summary)),
     [overviews],
   );
 
+  const coperture = React.useMemo(
+    () => normalizeCoverageAllocations(coverageAllocations),
+    [coverageAllocations],
+  );
+
   const handleRecompute = async (enrollmentId: string) => {
     setBusyEnrollmentId(enrollmentId);
-    const { error } = await apiRequest("/api/v1/funding/accruals", {
+    const { data, error } = await apiRequest<any>("/api/v1/funding/accruals", {
       method: "POST",
       body: { action: "recompute", enrollment_id: enrollmentId },
     });
@@ -199,8 +443,112 @@ export function AthleteFundingSummary({
       return;
     }
 
-    await load();
-    showToast("success", "Calcolo aggiornato dalle presenze registrate");
+    await refresh();
+
+    /*
+      **Cio che il ricalcolo non ha toccato va detto** (N12). Un ricalcolo che
+      tace sui periodi decisi a mano e un ricalcolo di cui la segreteria si
+      fida a torto: crederebbe che l'elenco intero venga dalle presenze.
+    */
+    const manuali = Number(data?.skippedManualPeriods || 0);
+    showToast(
+      "success",
+      manuali > 0
+        ? `Calcolo aggiornato dalle presenze. ${manuali} ${manuali === 1 ? "periodo deciso" : "periodi decisi"} dalla societa ${manuali === 1 ? "non e stato ricalcolato" : "non sono stati ricalcolati"}.`
+        : "Calcolo aggiornato dalle presenze registrate",
+    );
+  };
+
+  /**
+   * **La decisione manuale su un periodo** (N12).
+   *
+   * `expected_status` porta al server lo stato che si stava guardando: se nel
+   * frattempo qualcun altro l'ha cambiato la scrittura fallisce e lo dice,
+   * invece di sovrascrivere in silenzio la decisione di un collega.
+   */
+  const handleDecide = async (
+    enrollmentId: string,
+    riga: FundingPeriodRow,
+    decision: FundingPeriodDecision,
+  ) => {
+    const chiave = `${enrollmentId}:${riga.periodIndex}`;
+    if (busyPeriod) return;
+
+    setBusyPeriod(chiave);
+    const { data, error } = await apiRequest<any>("/api/v1/funding/accruals", {
+      method: "POST",
+      body: {
+        action: "decide",
+        enrollment_id: enrollmentId,
+        period_index: riga.periodIndex,
+        decision,
+        expected_status: riga.status,
+      },
+    });
+    setBusyPeriod(null);
+
+    if (error) {
+      showToast("error", error.message || "Decisione non registrata");
+      return;
+    }
+
+    await refresh();
+
+    if (data?.unchanged) {
+      showToast("info", "Il periodo era gia in questo stato");
+      return;
+    }
+
+    showToast(
+      "success",
+      decision === "accrued"
+        ? "Periodo segnato come maturato. E un credito verso l'ente, non un incasso."
+        : decision === "not_accrued"
+          ? "Periodo segnato come non maturato"
+          : "Periodo restituito al calcolo dalle presenze: ricalcola per aggiornarlo",
+    );
+  };
+
+  const handleRemove = async (
+    overview: FundingOverview,
+    acknowledgeSettled: boolean,
+  ) => {
+    const enrollmentId = String(overview.enrollment?.id || "");
+    setBusyEnrollmentId(enrollmentId);
+
+    const query = new URLSearchParams({
+      reason: "Assegnazione annullata dalla segreteria",
+    });
+    if (acknowledgeSettled) query.set("acknowledge_settled", "1");
+
+    const { data, error } = await apiRequest<any>(
+      `/api/v1/funding/enrollments/${encodeURIComponent(enrollmentId)}?${query.toString()}`,
+      { method: "DELETE" },
+    );
+    setBusyEnrollmentId(null);
+
+    if (error) {
+      showToast("error", error.message || "Annullamento non riuscito");
+      return;
+    }
+
+    setRemovalTarget(null);
+    await refresh();
+
+    /*
+      «Tolto dal programma» e «tolto dal programma, e tre rate tornano a carico
+      della famiglia» sono due frasi diverse, e la seconda e quella che una
+      segreteria deve leggere prima di richiamare la famiglia.
+    */
+    const stornate = Number(data?.coverageReversed || 0);
+    showToast(
+      "success",
+      `${data?.outcome === "revoked" ? "Assegnazione revocata: lo storico resta" : "Assegnazione annullata"}${
+        stornate > 0
+          ? `. ${stornate} ${stornate === 1 ? "rata torna" : "rate tornano"} a carico della famiglia`
+          : ""
+      }`,
+    );
   };
 
   const handleConfirm = async (submission: AccrualConfirmationSubmission) => {
@@ -231,7 +579,7 @@ export function AthleteFundingSummary({
     }
 
     setConfirmTarget(null);
-    await load();
+    await refresh();
     showToast("success", "Maturazione confermata");
   };
 
@@ -244,7 +592,7 @@ export function AthleteFundingSummary({
         onClick={() => setEnrollOpen(true)}
       >
         <UserPlus className="h-4 w-4" />
-        Iscrivi a un programma
+        Assegna un voucher
       </Button>
     ) : null;
 
@@ -252,7 +600,7 @@ export function AthleteFundingSummary({
     <EnrollAthletesDialog
       open={enrollOpen}
       onOpenChange={setEnrollOpen}
-      onEnrolled={() => void load()}
+      onEnrolled={() => void refresh()}
       mode="athlete"
       athleteId={athleteId}
       athleteName={athleteName || "questo atleta"}
@@ -264,7 +612,8 @@ export function AthleteFundingSummary({
     return (
       <div className="space-y-3">
         <p className="text-sm text-slate-500">
-          Nessun programma assegnato a questo atleta.
+          Nessun voucher assegnato a questo atleta: la quota resta interamente a
+          carico della famiglia.
           {allowManagement && enrollablePrograms.length === 0
             ? " Non ci sono programmi attivi a cui iscriverlo."
             : ""}
@@ -300,13 +649,32 @@ export function AthleteFundingSummary({
         const enrollmentId = String(overview.enrollment?.id || "");
         const isOpen = Boolean(expanded[enrollmentId]);
         const summary = overview.summary;
-        const unit = String(
-          overview.program?.requirement_unit || "hours",
-        ) as any;
+        const unit = String(overview.program?.requirement_unit || "hours") as any;
         const source = String(
           overview.program?.accrual_source || "easygame_attendance",
         ) as FundingAccrualSource;
         const externalSource = source !== "easygame_attendance";
+        const stato = String(overview.enrollment?.status || "active");
+        const periods = (overview.periods || []) as FundingPeriodRow[];
+        /*
+          **L'impegnato lo dice il server** (revisione ostile, F5).
+
+          Qui si sommavano tutte le coperture dell'atleta, e quella somma
+          comprende le righe appese a rate **annullate**: quando un piano si
+          rigenera le vecchie rate restano marcate e le loro coperture con esse.
+          Il server le esclude dal tetto da C2 — e cio che permette di coprire
+          le rate nuove — quindi subito dopo una rigenerazione la schermata
+          mostrava il doppio e accusava l'operatore di uno sforamento
+          inesistente.
+
+          Il ripiego sulla somma locale resta per le risposte scritte prima che
+          il campo esistesse.
+        */
+        const impegnato =
+          typeof (overview as any).committedAmount === "number"
+            ? (overview as any).committedAmount
+            : sumLiveCoverageForEnrollment(coperture, enrollmentId);
+        const requisito = Number(overview.program?.requirement_min || 0);
 
         return (
           <div
@@ -325,12 +693,30 @@ export function AthleteFundingSummary({
                       Voucher {overview.enrollment.voucher_code}
                     </Badge>
                   ) : null}
+                  {/*
+                    Lo stato dell'adesione non e decorativo: su una revocata i
+                    pulsanti spariscono, e senza etichetta la loro assenza
+                    sembrerebbe un guasto.
+                  */}
+                  {stato !== "active" ? (
+                    <Badge
+                      variant="outline"
+                      className="border-slate-300 bg-slate-100 text-slate-600"
+                    >
+                      {stato === "closed" ? "REVOCATO" : "SOSPESO"}
+                    </Badge>
+                  ) : null}
                 </div>
                 <p className="mt-1 text-xs text-slate-500">
                   {overview.program?.funder_name} ·{" "}
-                  {formatCurrency(overview.program?.period_amount)} per periodo,
-                  con almeno {overview.program?.requirement_min}{" "}
-                  {requirementUnitLabel(unit)}
+                  {formatCurrency(overview.program?.period_amount)} per periodo
+                  {/*
+                    N11 fino in fondo: un bando senza soglia non dice «con almeno
+                    0 ore», che e un requisito inventato.
+                  */}
+                  {requisito > 0
+                    ? `, con almeno ${requisito} ${requirementUnitLabel(unit)}`
+                    : ", senza requisito di frequenza"}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
                   Fonte della maturazione: {fundingAccrualSourceLabel(source)}
@@ -338,20 +724,45 @@ export function AthleteFundingSummary({
               </div>
 
               {allowManagement ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full sm:w-auto"
-                  disabled={busyEnrollmentId === enrollmentId}
-                  onClick={() => void handleRecompute(enrollmentId)}
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  {busyEnrollmentId === enrollmentId
-                    ? "Ricalcolo..."
-                    : externalSource
-                      ? "Aggiorna previsione"
-                      : "Ricalcola dalle presenze"}
-                </Button>
+                <div className="flex flex-col gap-2 sm:items-end">
+                  {stato === "active" ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full sm:w-auto"
+                      disabled={busyEnrollmentId === enrollmentId}
+                      onClick={() => void handleRecompute(enrollmentId)}
+                    >
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      {busyEnrollmentId === enrollmentId
+                        ? "Ricalcolo..."
+                        : externalSource
+                          ? "Aggiorna previsione"
+                          : "Ricalcola dalle presenze"}
+                    </Button>
+                  ) : null}
+                  {/*
+                    **N13.** Il testo del pulsante lo sceglie il dominio, non la
+                    schermata: `removal.outcome` e la stessa risposta che
+                    `removeFundingEnrollment` applichera.
+                  */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full text-red-600 hover:text-red-700 sm:w-auto"
+                    disabled={busyEnrollmentId === enrollmentId}
+                    onClick={() => setRemovalTarget(overview)}
+                  >
+                    {overview.removal?.outcome === "settled" ? (
+                      <AlertTriangle className="mr-2 h-4 w-4" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    {overview.removal?.outcome === "delete"
+                      ? "Annulla assegnazione"
+                      : "Revoca assegnazione"}
+                  </Button>
+                </div>
               ) : null}
             </div>
 
@@ -372,6 +783,18 @@ export function AthleteFundingSummary({
                 value={summary.assignedAmount}
                 hint="limite di questa iscrizione"
                 emphasis
+              />
+              {/*
+                **Quanto del voucher e davvero appoggiato a delle rate** (N14).
+                E il numero che collega questo riquadro al piano di pagamento
+                qui sopra: un voucher assegnato per 500 e impegnato per 0 non
+                sta riducendo la quota di nessuno, e prima non c'era modo di
+                accorgersene da questa scheda.
+              */}
+              <AmountLine
+                label="Impegnato sulle rate"
+                value={impegnato}
+                hint="copertura promessa alla famiglia"
               />
               {externalSource ? (
                 <AmountLine
@@ -400,8 +823,12 @@ export function AthleteFundingSummary({
                   className="h-2"
                 />
                 <p className="text-xs text-slate-500">
-                  {summary.accruedPeriodCount} periodi maturati su{" "}
-                  {summary.periodCount}
+                  {/* «1 periodi maturati» lo scrive una macchina, non una persona. */}
+                  {summary.accruedPeriodCount}{" "}
+                  {summary.accruedPeriodCount === 1
+                    ? "periodo maturato"
+                    : "periodi maturati"}{" "}
+                  su {periods.length || summary.periodCount}
                   {summary.pendingConfirmationPeriodCount > 0
                     ? ` · ${summary.pendingConfirmationPeriodCount} da confermare`
                     : ""}
@@ -410,6 +837,13 @@ export function AthleteFundingSummary({
                     : ""}
                 </p>
               </div>
+            ) : null}
+
+            {impegnato > summary.assignedAmount ? (
+              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                La copertura promessa supera l&apos;importo assegnato: controlla
+                le coperture sulle rate.
+              </p>
             ) : null}
 
             <Button
@@ -429,23 +863,31 @@ export function AthleteFundingSummary({
               ) : (
                 <ChevronRight className="mr-1 h-4 w-4" />
               )}
-              Dettagli ({((overview as any).periods || overview.accruals).length}{" "}
-              periodi)
+              Periodi del voucher ({periods.length || overview.accruals.length})
             </Button>
 
             {isOpen ? (
               <div className="mt-3">
                 <FundingPeriodsTable
                   accruals={overview.accruals}
-                  periods={(overview as any).periods}
+                  periods={periods}
+                  program={overview.program}
                   externalSource={externalSource}
-                  canManage={allowManagement}
+                  canManage={allowManagement && stato === "active"}
+                  busyPeriodIndex={
+                    busyPeriod && busyPeriod.startsWith(`${enrollmentId}:`)
+                      ? Number(busyPeriod.split(":")[1])
+                      : null
+                  }
                   onConfirm={(accrual) =>
                     setConfirmTarget({
                       enrollmentId,
                       accrual,
                       residualAmount: summary.residualAmount,
                     })
+                  }
+                  onDecide={(riga, decision) =>
+                    void handleDecide(enrollmentId, riga, decision)
                   }
                 />
               </div>
@@ -462,6 +904,21 @@ export function AthleteFundingSummary({
           if (!open) setConfirmTarget(null);
         }}
         onSubmit={handleConfirm}
+      />
+
+      <RemovalDialog
+        open={Boolean(removalTarget)}
+        onOpenChange={(open) => {
+          if (!open) setRemovalTarget(null);
+        }}
+        programName={removalTarget?.program?.name || "Programma"}
+        plan={removalTarget?.removal ?? null}
+        isBusy={busyEnrollmentId === String(removalTarget?.enrollment?.id || "")}
+        onConfirm={(acknowledgeSettled) =>
+          removalTarget
+            ? void handleRemove(removalTarget, acknowledgeSettled)
+            : undefined
+        }
       />
 
       {enrollDialog}

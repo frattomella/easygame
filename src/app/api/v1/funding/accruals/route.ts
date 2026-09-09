@@ -6,12 +6,13 @@ import {
 } from "@/lib/server/auth";
 import {
   confirmAccrualPeriods,
+  decideAccrualPeriod,
   importAccrualConfirmations,
   listFundingAccruals,
   markAccrualsReported,
   recomputeEnrollmentAccruals,
 } from "@/lib/server/funding";
-import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { canManageFundingAsActor } from "@/lib/funding/permissions";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 /**
@@ -22,6 +23,12 @@ import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
  *   POST /api/v1/funding/accruals  {"action":"confirm","enrollment_id":…,"confirmations":[…]}
  *   POST /api/v1/funding/accruals  {"action":"import","enrollment_id":…,"text":…}
  *   POST /api/v1/funding/accruals  {"action":"report","accrual_ids":[…]}
+ *   POST /api/v1/funding/accruals  {"action":"decide","enrollment_id":…,"period_index":…,"decision":"accrued"|"not_accrued"|"auto"}
+ *
+ * `decide` e la **decisione di una persona** su un singolo periodo (N12): vale
+ * su tutti i programmi, fonte EasyGame compresa, e sopravvive al ricalcolo.
+ * Esiste perche la frequenza registrata qui non e l'autorita su cio che un ente
+ * riconosce — e lo era diventata, perche non c'era nessun'altra riga da premere.
  *
  * `confirm` e `import` esistono per i programmi la cui fonte ufficiale sta
  * fuori da EasyGame: li il ricalcolo produce una **previsione**, e il credito
@@ -104,13 +111,21 @@ export async function POST(request: Request) {
       request.headers.get("x-active-access-role"),
     );
 
-    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
+    /*
+      **La porta e `funding.manage`, non «sei proprietario?»** (N12).
+
+      `canManageClubConfigurationAsActor` rifiuta ogni ruolo personalizzato per
+      costruzione, e non c'era casella da spuntare per rimediare: una
+      «Segreteria contributi» costruita su gestore non poteva ricalcolare
+      niente. Il perimetro dei ruoli canonici non cambia.
+    */
+    if (!canManageFundingAsActor(scope.activeRole)) {
       return NextResponse.json(
         {
           data: null,
           error: {
             message:
-              "Accesso negato: solo il proprietario o un gestore del club puo ricalcolare o rendicontare un contributo",
+              "Accesso negato: il ruolo attivo non puo decidere, ricalcolare o rendicontare un contributo",
           },
         },
         { status: 403 },
@@ -142,6 +157,35 @@ export async function POST(request: Request) {
         },
       });
 
+      return NextResponse.json({ data: result, error: null });
+    }
+
+    if (action === "decide") {
+      const result = await decideAccrualPeriod(
+        {
+          enrollmentId: body?.enrollment_id ?? body?.enrollmentId,
+          periodIndex: body?.period_index ?? body?.periodIndex,
+          decision: body?.decision,
+          amount: body?.amount,
+          notes: body?.notes,
+          expectedStatus: body?.expected_status ?? body?.expectedStatus,
+          /*
+            Indirizzo, dispositivo e posta di chi decide. La riga la scrive il
+            dominio — solo lui sa se qualcosa e cambiato — e questi sono i dati
+            che ha soltanto la rotta (revisione ostile, F3).
+          */
+          request,
+          actorEmail: session.db.user.email,
+        },
+        scope,
+      );
+
+      /*
+        **Una decisione che non ha cambiato niente non e un evento** (N12).
+        Il doppio clic e un gesto solo, e registrarlo due volte renderebbe
+        l'audit una cronaca dei clic invece che delle decisioni. La riga di
+        audit la scrive il dominio, che sa se ha scritto.
+      */
       return NextResponse.json({ data: result, error: null });
     }
 
@@ -240,7 +284,7 @@ export async function POST(request: Request) {
         data: null,
         error: {
           message:
-            "Azione non supportata: il maturato si ricalcola, si conferma, si importa o si rendiconta, non si scrive a mano",
+            "Azione non supportata: il maturato si ricalcola, si decide, si conferma, si importa o si rendiconta",
         },
       },
       { status: 400 },

@@ -203,9 +203,20 @@ test("la tabella dei periodi riceve i periodi, non le sole righe di maturato", (
     "src/components/funding/AthleteFundingSummary.tsx",
     "utf8",
   );
+  /*
+    **La proiezione ha un tipo, e il cast e sparito** (N10/N14): `periods` non e
+    piu una proprieta clandestina letta con `as any`, e `FundingPeriodRow` porta
+    anche misura e requisito gia risolti. Cio che questo test difende resta cio
+    che difendeva: il chiamante glieli passa davvero.
+  */
   assert.match(
     scheda,
-    /periods=\{\(overview as any\)\.periods\}/,
+    /const periods = \(overview\.periods \|\| \[\]\)/,
+    "i periodi arrivano dalla proiezione del server",
+  );
+  assert.match(
+    scheda,
+    /periods=\{periods\}/,
     "un componente che sa mostrarli e un chiamante che non glieli passa e codice irraggiungibile",
   );
 });

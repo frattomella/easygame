@@ -286,11 +286,14 @@ funzionava e non si vedeva.
 | **Aprire un programma e vederne la scheda** | **Funziona.** Era il buco: `funding_enrollments` esisteva nel modello e nessuna schermata lo sapeva scrivere |
 | Iscrivere uno o piu atleti | **Funziona.** Selezione multipla, plafond e codice voucher individuali, doppie iscrizioni impedite |
 | Iscrivere dalla scheda atleta | **Funziona.** Stesso servizio e stesso componente del flusso opposto |
-| Togliere o revocare un'iscrizione | **Funziona.** Con storico rendicontato o liquidato si revoca invece di cancellare |
+| Togliere o revocare un'iscrizione | **Funziona, e adesso anche dalla scheda dell'atleta** (N13, ADR-0159). Con dello storico si revoca invece di cancellare, e il piano — `delete`, `revoke`, `settled` — lo calcola il dominio e lo mostra **prima** che qualcuno prema. Con del denaro gia liquidato l'operazione fallisce e instrada sullo storno della liquidazione: si passa solo con un consenso esplicito, che resta a registro |
 | Vedere i cinque importi per iscritto | **Funziona.** Assegnato, maturato, rendicontato, liquidato, residuo |
-| Calcolo del maturato dalle presenze | **Funziona.** E non si puo scavalcare: nessuna superficie accetta un importo maturato scritto a mano |
+| Calcolo del maturato dalle presenze | **Funziona**, e non e piu l'unica autorita (N12, ADR-0159): la frequenza **sostiene** la decisione, non la prende |
+| **Decidere a mano lo stato di un periodo** | **Funziona.** «Segna come maturato» e «Segna come non maturato» valgono su tutte le fonti, materializzano un periodo che non ha ancora una riga, sopravvivono al ricalcolo — che dichiara quanti ne ha saltati — e si ritirano con «Torna al calcolo automatico». Auditate con chi, quando e da quale stato; idempotenti; e lo stato atteso respinge chi guardava una fotografia vecchia. **Non producono cassa** |
+| Vedere frequenza e requisito di un periodo | **Funziona** (N10, N11, ADR-0159). «Non ancora misurato» e «il bando non chiede niente» hanno un nome nel dominio e una frase sola che li scrive: non esiste piu nessun percorso che porti `undefined` a schermo |
 | Trasmissione telematica all'ente | **NON IMPLEMENTATA.** Il canale cambia da bando a bando e non si scrive a memoria |
-| Compensazione automatica sulla rata | **NON IMPLEMENTATA**, per scelta: farebbe risultare saldate rate che nessuno ha pagato |
+| Compensazione automatica sulla rata | **NON IMPLEMENTATA**, per scelta: farebbe risultare saldate rate che nessuno ha pagato. Cio che esiste e la **copertura esplicita** (ADR-0158), e dal redisegno della scheda «Iscrizione» si raggiunge anche da li (N14, ADR-0159) |
+| **Vedere il quadro economico dell'iscrizione** | **Funziona** (N14, ADR-0159). Sette numeri che quadrano — quota totale, copertura prevista, maturato, liquidato, a carico della famiglia, pagato, residuo — con le grandezze dell'ente e quelle della famiglia etichettate per proprietario e mai sommate. La rata si legge con la quota della famiglia in **tutti** i suoi campi: stato, etichette e ritardo compresi |
 
 ## Lavoro sportivo e compensi (WP Sport Work V1, 2026-08-28)
 

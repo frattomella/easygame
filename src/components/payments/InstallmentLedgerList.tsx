@@ -25,6 +25,7 @@ import {
   isRefundTransaction,
   type RefundAvailability,
 } from "@/lib/payments/refunds";
+import { withFamilyShare } from "@/lib/payments/coverage-ledger";
 
 /**
  * Le rate di un atleta, con quanto ne resta scoperto.
@@ -354,18 +355,28 @@ export function InstallmentLedgerList({
 
   return (
     <div className="space-y-3">
-      {ledgers.map((ledger) => {
-        const key = String(ledger.installmentId || ledger.label);
+      {ledgers.map((lordo) => {
+        const key = String(lordo.installmentId || lordo.label);
         const isOpen = Boolean(expanded[key]);
         const coverage =
-          coverageByInstallment[String(ledger.installmentId || "")] || null;
+          coverageByInstallment[String(lordo.installmentId || "")] || null;
+
         /*
-          Il residuo che conta per la famiglia — e per il checkout — e il suo,
-          non quello lordo: la parte coperta la deve l'ente.
+          **La riga si disegna con gli occhi della famiglia** (N14).
+
+          Prima si sostituivano i soli importi, e stato, etichette e barra
+          restavano quelli lordi: una rata da 200 coperta per 150 e saldata per
+          i suoi 50 diceva «Residuo 0,00» accanto a «PARZIALMENTE PAGATA ·
+          SCADUTA». Due affermazioni contraddittorie sulla stessa riga, e la
+          seconda faceva partire la telefonata.
+
+          `withFamilyShare` e la stessa funzione che alimenta «prossima rata» e
+          la finestra di incasso, e su una rata senza copertura restituisce
+          l'oggetto identico: le schermate che non passano la mappa non
+          cambiano di una virgola.
         */
-        const residuoFamiglia = coverage
-          ? coverage.familyResidualAmount
-          : ledger.residualAmount;
+        const ledger = withFamilyShare(lordo, coverage);
+        const residuoFamiglia = ledger.residualAmount;
 
         return (
           <div
@@ -412,10 +423,7 @@ export function InstallmentLedgerList({
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
                     <span className="font-medium">
                       {formatCurrency(ledger.paidAmount)} /{" "}
-                      {formatCurrency(
-                        coverage ? coverage.familyDueAmount : ledger.dueAmount,
-                      )}{" "}
-                      pagati
+                      {formatCurrency(ledger.dueAmount)} pagati
                     </span>
                     <span
                       className={
@@ -428,7 +436,7 @@ export function InstallmentLedgerList({
                     </span>
                     {coverage ? (
                       <span className="text-xs text-slate-500">
-                        su {formatCurrency(ledger.dueAmount)} di quota
+                        su {formatCurrency(lordo.dueAmount)} di quota
                       </span>
                     ) : null}
                   </div>

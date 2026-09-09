@@ -3590,3 +3590,104 @@ leggere **perche** il prodotto aveva cambiato idea.
 Il rischio di sbagliare quella diagnosi ha un verso solo, e non e simmetrico:
 chi crede che una prova rossa sia sempre colpa della semina la aggiusta finche
 passa, e la prima volta che il rosso era un difetto vero lo aggiusta lo stesso.
+
+---
+
+## Quello che la lane N10–N14 ha trovato e non ha risolto
+
+Tre cose, tutte fuori dal mandato della lane e tutte reali. Stanno qui e non in
+un commit perche `CLAUDE.md` §3 lo dice: un problema fuori scope si annota, non
+si risolve mentre si sta facendo altro.
+
+### D-VOU-1 — Il portale della famiglia non conosce la copertura da voucher
+
+**Dove.** `src/lib/server/parent-dashboard.ts` compone `payments.items` da
+`getAthleteEnrollmentSummary`, e ne restituisce `totalDue`, `totalPaid` e
+`remaining` **lordi**. `src/components/parent-dashboard/parent-dashboard-pages.tsx`
+li disegna e apre il checkout sulla prima rata non saldata.
+
+**Il fatto.** Da ADR-0158 una rata puo essere coperta da un voucher, e da
+ADR-0159 la scheda del club mostra alla segreteria la quota **della famiglia**.
+Il portale della famiglia continua a mostrare il lordo: su una rata da 200
+coperta per 150 dice «200 da pagare», e «Paga ora» apre il checkout su quella
+cifra. La famiglia versa centocinquanta euro che l'ente sta gia portando.
+
+**Perche non e stato chiuso qui.** Il mandato N10–N14 riguarda la scheda del
+**club**, e il portale della famiglia e un'altra superficie con un'altra
+proiezione e un altro checkout. Chiuderlo di straforo avrebbe portato il diff
+oltre il doppio e toccato il flusso di incasso online.
+
+**Cosa serve.** `parent-dashboard.ts` deve leggere `payment_coverage_allocations`
+e comporre con `resolveInstallmentCoverage`, esattamente come fa
+`useAthletePaymentLedger`; il checkout deve ricevere la rata ridotta
+(`withFamilyShare`), che e la correzione H2 gia applicata alle due superfici del
+club. Il dominio c'e gia: manca il consumatore.
+
+**Gravita.** Alta finche un club in produzione usa i voucher **e** il portale
+della famiglia insieme. Sul pilota oggi il portale non e in uso.
+
+### D-VOU-2 — Le affordance dei pagamenti sono spente per i ruoli personalizzati
+
+**Dove.** `useAthletePaymentLedger` ricava `allowManagement` da
+`canManageClubConfigurationAsActor(readStoredActiveClub()?.role)`.
+
+**Il fatto.** Quel predicato rifiuta ogni ruolo personalizzato per costruzione,
+mentre il **server** accetta chiunque passi `canAccessClubResource(role,
+"payments", "update")` — che un `custom:club_manager:*` con `accounting.read`
+passa. Un collaboratore o un ruolo personalizzato di segreteria puo registrare
+un incasso secondo il server e non vede il pulsante.
+
+**Perche non e stato chiuso qui.** Cambiarlo accende pulsanti su **tutta** la
+superficie dei pagamenti — incassi, storni, ricevute, rimborsi — anche per
+`collaborator` e `staff`, e non e una conseguenza di N10–N14: e una decisione di
+prodotto sul perimetro degli incassi. ADR-0159 ha chiuso lo stesso difetto per i
+soli contributi, dove la chiave e nata con la lane.
+
+**Cosa serve.** Decidere se il perimetro visibile degli incassi debba
+coincidere con quello che il server gia applica, e in caso affermativo far
+dichiarare al server `canManage` accanto ai dati, come fa
+`getAthleteFundingOverview`.
+
+### D-VOU-3 — La revoca di un'adesione non e atomica sulle coperture
+
+**Dove.** `reverseAllCoverageForEnrollment` in
+`src/lib/server/payment-coverage.ts`: un ciclo che chiama `reverseCoverage` una
+riga per volta, e ognuna apre la **propria** transazione.
+
+**Il fatto.** Se la seconda di tre fallisce — uno storno concorrente, un timeout
+sul blocco della rata — la prima resta stornata e l'adesione resta `active`. La
+rotta risponde «Annullamento non riuscito», e chi ha premuto crede
+ragionevolmente che non sia successo niente, mentre una rata e gia tornata a
+carico della famiglia.
+
+**Perche non e stato chiuso qui.** Metterle in una transazione sola significa
+prendere N blocchi di rata in un ordine, e l'ordine dei blocchi fra rate,
+adesioni e incassi e governato da ADR-0138: e una modifica al protocollo di
+`lockInstallmentAndTransaction`, non un `$transaction` in piu. Il ramo che
+**cancella** e stato reso atomico dalla lane (ADR-0159), perche li bastava.
+
+**Cosa serve.** Un ordine dichiarato per le rate coinvolte — crescente per
+identificativo, in un lotto solo, come impone
+`src/lib/server/athlete-lock-order.ts` — e una transazione che le comprenda
+tutte. Oppure, se il costo del blocco lungo non e accettabile, una ripresa
+idempotente: la revoca e gia ripetibile, e basterebbe che la rotta lo dicesse a
+chi ha premuto invece di lasciare intendere che non sia successo niente.
+
+### D-VOU-4 — `confirmAccrualPeriods` verifica il tetto fuori dalla transazione
+
+**Dove.** `src/lib/server/funding.ts`, `confirmAccrualPeriods`.
+
+**Il fatto.** La somma dei confermati si vaglia contro l'importo assegnato
+**prima** di aprire qualunque scrittura, e senza `SELECT … FOR UPDATE`
+sull'adesione. Due conferme simultanee su periodi diversi leggono la stessa
+capienza e passano entrambe. `decideAccrualPeriod` non ha il difetto — blocca
+l'adesione e rilegge dentro — e la differenza fra le due funzioni e proprio la
+misura di cosa manca.
+
+**Perche non e stato chiuso qui.** Vale per i soli programmi a fonte esterna, e
+la correzione e la stessa forma gia applicata due volte (ADR-0158 §H3,
+ADR-0159): merita una lane sua con la propria sonda su Postgres, non un
+allineamento silenzioso dentro un commit che parla d'altro.
+
+**Cosa serve.** Portare il vaglio dentro `$transaction`, dopo il blocco
+dell'adesione, e una sonda che misuri due conferme concorrenti.

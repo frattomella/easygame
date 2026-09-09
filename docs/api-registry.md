@@ -215,11 +215,15 @@ Fonte ufficiale da mantenere aggiornata:
 - `GET /api/v1/funding/enrollments?view=enrollable&athlete_id=…` — i
   programmi a cui un atleta non e ancora iscritto, esclusi quelli chiusi
 - `GET|PATCH|DELETE /api/v1/funding/enrollments/:id` — una singola
-  iscrizione. Il `DELETE` **revoca** invece di cancellare quando ci sono gia
-  importi rendicontati o liquidati, e lo dice nella risposta. In tutti e due i
-  casi **storna le coperture** promesse sulle rate, e restituisce quante:
-  lasciarle vive terrebbe la quota a carico della famiglia ridotta da un
-  voucher che non porta piu niente (N9, ADR-0158)
+  iscrizione. Il `DELETE` **revoca** invece di cancellare quando qualcosa e gia
+  successo — un maturato dichiarato all'ente, una riga di liquidazione anche se
+  stornata, una copertura promessa — e lo dice nella risposta con il piano che
+  la scheda aveva gia mostrato. In tutti e due i casi **storna le coperture**
+  promesse sulle rate, e restituisce quante: lasciarle vive terrebbe la quota a
+  carico della famiglia ridotta da un voucher che non porta piu niente (N9,
+  ADR-0158). Se l'ente ha **gia versato**, l'operazione fallisce e instrada
+  sullo storno della liquidazione: si passa solo con `?acknowledge_settled=1`,
+  che resta a registro (N13, ADR-0159)
 - `POST /api/v1/funding/programs/:id/transition` — apre, chiude o riapre un
   programma. Quattro transizioni ammesse (`draft→active`, `draft→closed`,
   `active→closed`, `closed→active`); cio che non e ammesso viene rifiutato
@@ -440,7 +444,12 @@ Fonte ufficiale da mantenere aggiornata:
 - `GET|POST /api/v1/funding/accruals` — `{"action":"confirm"}` e
   `{"action":"import"}` registrano cio che una fonte esterna ha riconosciuto
   (ADR-0054). `{"action":"recompute"}` ricalcola il
-  maturato dalle presenze, `{"action":"report"}` lo rendiconta all'ente
+  maturato dalle presenze, `{"action":"report"}` lo rendiconta all'ente.
+  `{"action":"decide","period_index":N,"decision":"accrued|not_accrued|auto"}`
+  e la **decisione di una persona** su un singolo periodo (N12, ADR-0159): vale
+  su tutte le fonti, materializza un periodo che non ha ancora una riga,
+  sopravvive al ricalcolo, ed e idempotente. `expected_status` respinge chi
+  guardava uno stato ormai vecchio. Non produce mai cassa
 - `GET|POST /api/v1/funding/settlements` — liquidazioni dell'ente, con la
   ripartizione obbligatoria sui periodi maturati
 - `GET|POST /api/v1/forms` — moduli del club: elenco e creazione

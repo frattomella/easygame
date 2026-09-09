@@ -90,6 +90,7 @@ const ETICHETTE_DOMINIO: Record<PermissionDomain, string> = {
   documents: "Documenti e modelli",
   events: "Allenamenti e gare",
   forms: "Moduli online",
+  funding: "Contributi e voucher",
   health: "Dato sanitario",
   members: "Libro soci",
   seasons: "Stagioni sportive",

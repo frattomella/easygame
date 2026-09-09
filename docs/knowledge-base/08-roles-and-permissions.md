@@ -855,6 +855,55 @@ la contabilita intera: sarebbe una regressione muta.
 > che quella funzione venga adeguata. (Il commento di `narrowDomainPermission`
 > nomina quattro domini: i chiamanti sono tre.)
 
+> **`seasons.change` e poi entrato in catalogo, e `src/lib/seasons/permissions.ts`
+> e stato adeguato** (ADR-0153): il quarto chiamante di `narrowDomainPermission`
+> esiste. Il quinto e `src/lib/funding/permissions.ts` (ADR-0159).
+
+### `funding.manage`: la scrittura sui contributi, e i ruoli personalizzati
+
+Le rotte dei bandi chiedevano `canManageClubConfigurationAsActor`, che e
+
+```ts
+!isCustomRoleValue(role) && canManageClubConfiguration(role)
+```
+
+La prima meta rifiuta **ogni** ruolo personalizzato, qualunque casella l'editor
+gli abbia dato — e non c'era casella da dare, perche la chiave non esisteva in
+catalogo. Un club che aveva costruito «Segreteria contributi» a partire dal
+gestore non poteva iscrivere un atleta a un bando, ricalcolare un maturato o
+revocare un voucher. Due assenze che si tenevano in piedi a vicenda, la stessa
+forma che ADR-0153 aveva gia trovato sulle stagioni.
+
+`funding.manage` (dominio `funding`, matrice `DIREZIONE`) e la chiave, e
+`src/lib/funding/permissions.ts` la fa valere con la forma collaudata: prima
+`narrowDomainPermission`, che risponde `null` su un ruolo canonico, poi la
+delega a `canManageClubConfiguration`.
+
+| Ruolo | Prima | Adesso |
+|-------|-------|--------|
+| `owner`, `club_manager` | scrive | scrive — **invariato** |
+| `collaborator`, `staff`, `trainer`, `parent`, `athlete` | non scrive | non scrive — **invariato** |
+| `custom:club_manager:*` **con** `funding.manage` | non scriveva | **scrive** |
+| `custom:club_manager:*` **senza** la chiave | non scriveva | non scrive |
+| `custom:collaborator:*` e simili, con o senza la chiave | non scriveva | non scrive (il ruolo **base** non ha la chiave) |
+
+La **lettura** non si e mossa: i bandi si leggono da sempre con
+`canAccessClubResource(role, "payments", "read")`, cioe con `accounting.read`, e
+i ruoli personalizzati di segreteria quella chiave ce l'hanno gia. Inventare un
+`funding.read` sarebbe stata una migrazione silenziosa dei permessi di ogni
+club, perche **una chiave nuova nasce spenta**: spenta su una scrittura che
+nessuno aveva significa concedere, spenta su una lettura che tutti avevano
+significa togliere.
+
+> **Il gettone del browser porta lo slug, non le chiavi**, ed e una scelta
+> (`AuthProvider`). Ne segue che un predicato di permesso valutato **a schermo**
+> risponde `false` a ogni ruolo personalizzato: la casella governerebbe il
+> server e non la pagina. Le superfici dei contributi ricevono percio la
+> risposta dal server — `overview.canManage`, e l'elenco dei bandi assegnabili
+> vuoto per chi non puo assegnare. Chi aggiunge una superficie nuova a un
+> dominio con una chiave propria deve fare la stessa cosa, o accendere un
+> pulsante che nessun ruolo personalizzato vedra.
+
 ### Cosa un ruolo non puo contenere
 
 **Le tre chiavi di legame**, elencate a mano e non dedotte:

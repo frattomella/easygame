@@ -341,9 +341,21 @@ test("H2 · il residuo mostrato e quello della famiglia, e il checkout lo segue"
     "utf8",
   );
 
+  /*
+    **La riduzione alla quota della famiglia si e spostata nel dominio** (N14).
+
+    Qui la lista sostituiva a mano il solo residuo, e stato, etichette e barra
+    restavano quelli lordi: una rata coperta e saldata per la sua parte diceva
+    «Residuo 0,00» accanto a «PARZIALMENTE PAGATA · SCADUTA». Adesso la riga la
+    riduce `withFamilyShare`, che ricalcola **tutto** cio che dipende dai due
+    importi con le funzioni che gia lo calcolano.
+
+    Cio che questo test difende non cambia: il residuo mostrato, e quello su cui
+    si apre il checkout, sono quelli della famiglia.
+  */
   assert.match(
     lista,
-    /const residuoFamiglia = coverage\s*\?\s*coverage\.familyResidualAmount/,
+    /const ledger = withFamilyShare\(lordo, coverage\);\s*\n\s*const residuoFamiglia = ledger\.residualAmount;/,
   );
   assert.match(
     lista,

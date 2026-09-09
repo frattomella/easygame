@@ -345,13 +345,35 @@ test("con importi gia liquidati l'iscrizione si revoca", async () => {
     amount: 50,
   });
 
+  /*
+    **N13, caso C: con del denaro gia versato dall'ente non si annulla per
+    sbaglio.**
+
+    Stornare le coperture rimetterebbe a carico della famiglia una quota che il
+    club ha **gia incassato dall'ente**: lo stesso importo, chiesto due volte.
+    La strada contabile e lo storno della liquidazione; questa guardia serve a
+    mandarci chi ci deve andare.
+  */
+  await assert.rejects(
+    () => funding.removeFundingEnrollment(esito.created[0].id, {}, scope()),
+    /gia liquidato/,
+    "senza un consenso esplicito l'operazione fallisce, e spiega dove andare",
+  );
+
+  assert.equal(
+    fake.rows("fundingEnrollment")[0].status,
+    "active",
+    "e non lascia l'adesione a meta strada",
+  );
+
   const risultato = await funding.removeFundingEnrollment(
     esito.created[0].id,
-    {},
+    { acknowledgeSettled: true },
     scope(),
   );
 
   assert.equal(risultato.outcome, "revoked");
+  assert.equal(risultato.plan.outcome, "settled");
   assert.equal(
     fake.rows("fundingSettlementLine").length,
     1,

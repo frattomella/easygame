@@ -61,6 +61,7 @@ export type PermissionDomain =
   | "documents"
   | "events"
   | "forms"
+  | "funding"
   | "health"
   | "members"
   | "seasons"
@@ -450,6 +451,35 @@ const ENTRIES: readonly PermissionEntry[] = [
     key: "accounting.causes_manage",
     domain: "accounting",
     label: "Configurare le causali contabili del club",
+    roles: DIREZIONE,
+  },
+
+  /* ------------------------------------ contributi pubblici e voucher --- */
+  /*
+    **Perche una chiave per i contributi, e perche solo di scrittura.**
+
+    La lettura dei bandi passa gia da `payments` — cioe da `accounting.read` —
+    e cambiarla toglierebbe accesso ai ruoli personalizzati che oggi ce l'hanno:
+    una chiave nuova nasce spenta, e nascere spenta su una lettura significa
+    togliere. Resta dov'e.
+
+    La **scrittura** era invece irraggiungibile per costruzione: le rotte
+    chiedevano `canManageClubConfigurationAsActor`, che rifiuta ogni ruolo
+    personalizzato qualunque casella porti (`access-roles.ts`). Un club che
+    aveva creato «Segreteria contributi» a partire da gestore non poteva
+    iscrivere un atleta a un bando, e nessuna casella dell'editor poteva
+    rimediare, perche la chiave non esisteva.
+
+    Sta con `DIREZIONE` perche il perimetro **non cambia**: chi poteva scrivere
+    ieri — proprietario e gestore — puo scrivere anche adesso. Cio che cambia e
+    che un ruolo personalizzato costruito su quei due puo finalmente ricevere
+    la stessa autorita, ed e esattamente la promessa dell'editor.
+  */
+  {
+    key: "funding.manage",
+    domain: "funding",
+    label:
+      "Iscrivere a un contributo, decidere la maturazione di un periodo e revocare un voucher",
     roles: DIREZIONE,
   },
 

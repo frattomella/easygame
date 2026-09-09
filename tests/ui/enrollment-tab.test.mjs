@@ -42,7 +42,7 @@ test("le sei sezioni compaiono nell'ordine stabilito", () => {
   const ordine = [
     "Nessun piano assegnato",
     "Prossima rata",
-    'title="Rate"',
+    'title="Piano di pagamento"',
     'title="Composizione della quota"',
     "Voucher e contributi",
     'title="Documenti e ricevute"',
@@ -64,9 +64,19 @@ test("le sei sezioni compaiono nell'ordine stabilito", () => {
 test("i totali dell'iscrizione compaiono una volta sola", () => {
   const source = stripComments(read(TAB));
 
+  /*
+    **I nomi sono cambiati con N14, la regola no.** Il riepilogo economico
+    distingue adesso il residuo dell'iscrizione — che e quello della **famiglia**
+    — da quello della prossima rata, e i due non si chiamano piu allo stesso
+    modo. Cio che questo test difende resta: nessun totale compare due volte.
+  */
   for (const [etichetta, attese] of [
     ["Quota totale", 1],
-    ["Residuo", 2], // riepilogo dell'iscrizione, piu quello della prossima rata
+    ["Residuo famiglia", 1], // il riepilogo dell'iscrizione
+    ["Residuo", 1], // e quello della prossima rata, che e un'altra cosa
+    ["A carico della famiglia", 1],
+    ["Pagato dalla famiglia", 1],
+    ["Copertura voucher prevista", 1],
   ]) {
     const occorrenze =
       source.match(new RegExp(`label="${etichetta}"`, "g")) || [];
@@ -119,9 +129,19 @@ test("riepilogo, prossima rata e rate leggono lo stesso stato", () => {
   const usi = source.match(/useAthletePaymentLedger\(/g) || [];
   assert.equal(usi.length, 1, "un solo aggancio: non tre letture indipendenti");
 
-  assert.match(source, /ledger\.totals\.dueAmount/);
-  assert.match(source, /ledger\.totals\.paidAmount/);
-  assert.match(source, /ledger\.totals\.residualAmount/);
+  /*
+    **I sette numeri li calcola il dominio** (N14). Prima erano tre e venivano
+    da `ledger.totals`; adesso sono sette e vengono da `ledger.planCoverage`,
+    che e `summarizePlanCoverage` — la stessa funzione che il resto del prodotto
+    usa per comporre debito e copertura. La regola non cambia: la scheda **non**
+    calcola, riceve.
+  */
+  assert.match(source, /ledger\.planCoverage/);
+  assert.match(source, /economics\.dueAmount/);
+  assert.match(source, /economics\.familyDueAmount/);
+  assert.match(source, /economics\.familyPaidAmount/);
+  assert.match(source, /economics\.familyResidualAmount/);
+  assert.match(source, /ledger\.familyTotals/);
 });
 
 test("la scheda non ricalcola i totali per conto suo", () => {
@@ -182,10 +202,15 @@ test("le sezioni di dettaglio si aprono, e dichiarano il proprio stato", () => {
   const source = read(TAB);
 
   assert.match(source, /aria-expanded=\{open\}/);
+  /*
+    **L'anomalia e quella della famiglia** (N14): una rata scaduta che un
+    voucher copre per intero non e un'anomalia per chi paga, e aprire la sezione
+    per quella significherebbe allarmare per un debito che non esiste.
+  */
   assert.match(
     source,
-    /defaultOpen=\{shouldExpandInstallments\(ledger\.totals\)\}/,
-    "le rate si aprono da sole quando c'e un'anomalia",
+    /defaultOpen=\{shouldExpandInstallments\(ledger\.familyTotals\)\}/,
+    "le rate si aprono da sole quando c'e un'anomalia della famiglia",
   );
 });
 
@@ -237,7 +262,38 @@ test("i contributi restano fuori dai totali della famiglia", () => {
   const source = read(TAB);
 
   assert.match(source, /<AthleteFundingSummary/);
-  assert.match(source, /Non entra nei totali qui sopra/);
+
+  /*
+    **La frase e cambiata perche era diventata falsa** (N14).
+
+    Diceva «Non entra nei totali qui sopra», ed era vero finche i totali in cima
+    erano tre e parlavano solo della famiglia. Il riepilogo economico ne mostra
+    adesso sette, e tre di quelli parlano dell'ente: la copertura **entra** nel
+    riquadro, come voce propria. Lasciare la vecchia frase avrebbe difeso una
+    promessa che la scheda non fa piu.
+
+    Cio che deve restare scritto e la distinzione che conta, e vale in tutte e
+    due le direzioni: una copertura non e un incasso, e un maturato non e una
+    liquidazione.
+  */
+  assert.match(
+    source,
+    /non e un incasso/i,
+    "la scheda dice che una copertura non e denaro entrato, invece di lasciarlo dedurre",
+  );
+  assert.match(
+    source,
+    /credito verso l&apos;ente, non\s*\n?\s*una liquidazione|non\s+una liquidazione/,
+    "e che un maturato non e ancora denaro versato dall'ente",
+  );
+
+  /*
+    E le due grandezze restano **etichettate per proprietario**: «Pagato dalla
+    famiglia» accanto a «Voucher liquidato» e cio che impedisce di leggerle come
+    due meta della stessa cassa.
+  */
+  assert.match(source, /label="Pagato dalla famiglia"/);
+  assert.match(source, /label="Voucher liquidato"/);
 
   /*
     **La guardia si e spostata dal nome al fatto** (N7 / ADR-0158).

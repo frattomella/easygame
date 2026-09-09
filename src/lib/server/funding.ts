@@ -8,7 +8,10 @@ import {
   type FundingReconciliation,
 } from "@/lib/funding/reconciliation";
 import {
+  accrualIsManuallyDecided,
+  calculateManualPeriodDecision,
   calculatePeriodAccrual,
+  describeEnrollmentRemoval,
   generateFundingPeriods,
   normalizeFundingProgram,
   requiresExternalConfirmation,
@@ -17,17 +20,26 @@ import {
   validateAssignedAmount,
   validateFundingProgram,
   validateSettlementAllocation,
+  FUNDING_ACCRUAL_MANUAL_FLAG,
+  FUNDING_ACCRUAL_MEASURED_FLAG,
   FUNDING_ACCRUAL_ORIGINS,
+  FUNDING_PERIOD_DECISIONS,
   FUNDING_PROGRAM_DESCRIPTIVE_FIELDS,
   buildFundingPeriodRows,
   FUNDING_PROGRAM_STATUS_LABELS,
   canTransitionFundingProgram,
   fundingProgramAcceptsEnrollments,
   fundingProgramAccruesNow,
+  type EnrollmentRemovalPlan,
   type FundingAccrualOrigin,
   type FundingPeriod,
+  type FundingPeriodDecision,
   type FundingProgramStatus,
 } from "@/lib/funding/funding-model";
+import {
+  assertFundingPermission,
+  hasFundingPermission,
+} from "@/lib/funding/permissions";
 import { measureAttendanceByPeriod } from "@/lib/funding/attendance-measure";
 /*
   **Il dominio dei bandi non importa quello dei pagamenti** (ADR-0037 §5), e
@@ -35,7 +47,10 @@ import { measureAttendanceByPeriod } from "@/lib/funding/attendance-measure";
   sono incassi e non toccano `payment_transactions`. Cio che arriva di qui e
   la revoca di una promessa, non un movimento di denaro.
 */
-import { reverseAllCoverageForEnrollment } from "./payment-coverage";
+import {
+  readCommittedCoverageForEnrollment,
+  reverseAllCoverageForEnrollment,
+} from "./payment-coverage";
 import { toEventLegacyShape } from "@/lib/events/model";
 import {
   matchConfirmationsToPeriods,
@@ -640,6 +655,14 @@ export type RecomputeResult = {
   enrollment: Record<string, any>;
   accruals: Record<string, any>[];
   skippedSettledPeriods: number;
+  /**
+   * Quanti periodi il ricalcolo ha lasciato dov'erano perche una persona ne
+   * aveva deciso lo stato (N12).
+   *
+   * Esce nella risposta perche **va detto**: un ricalcolo che tace su cio che
+   * non ha toccato e un ricalcolo di cui la segreteria si fida a torto.
+   */
+  skippedManualPeriods: number;
 };
 
 /**
@@ -726,12 +749,81 @@ export const recomputeEnrollmentAccruals = async (
 
   const now = new Date();
   const external = requiresExternalConfirmation(program);
-  let remainingPlafond = toFundingAmount(enrollment.assigned_amount);
+
+  /*
+    **Il maturato dei periodi che questa passata non tocca consuma comunque
+    l'assegnato** (revisione ostile, F1).
+
+    `generateFundingPeriods` qui si ferma a **oggi**: i mesi futuri non entrano
+    nell'elenco. La decisione manuale, invece, li genera **tutti** — e il suo
+    scopo: si decide anche di un mese che deve ancora cominciare (N12). Una riga
+    su un periodo futuro sedeva percio in archivio senza essere mai visitata da
+    questo ciclo, e il residuo ripartiva dall'importo pieno.
+    Tre mensilita decise in avanti su un voucher da 300, poi un ricalcolo, e il
+    maturato arrivava a 400: un credito verso un ente che ne ha assegnati 300,
+    e il riepilogo gestionale lo leggeva come tale.
+
+    Si toglie percio, **prima** del ciclo, tutto cio che e maturato fuori dalla
+    finestra. Vale anche per un periodo gia liquidato che cadesse oltre oggi:
+    la stessa falla, per una strada che nessuno percorreva.
+  */
+  const indiciNellaFinestra = new Set(periods.map((period) => period.index));
+  const maturatoFuoriFinestra = (
+    Array.isArray(existingRows) ? existingRows : []
+  ).reduce(
+    (totale: number, row: any) =>
+      indiciNellaFinestra.has(Number(row.period_index))
+        ? totale
+        : totale + toFundingAmount(row.accrued_amount),
+    0,
+  );
+
+  let remainingPlafond = Math.max(
+    0,
+    Number(
+      (
+        toFundingAmount(enrollment.assigned_amount) - maturatoFuoriFinestra
+      ).toFixed(2),
+    ),
+  );
   let skippedSettledPeriods = 0;
+  let skippedManualPeriods = 0;
   const written: Record<string, any>[] = [];
 
   for (const period of periods) {
     const existing = existingByIndex.get(period.index);
+
+    /*
+      **Una decisione presa da una persona non si riscrive da sola** (N12).
+
+      E la proprieta che rende la maturazione manuale qualcosa di piu di un
+      pulsante: senza, «Segna come maturato» durerebbe fino al ricalcolo
+      successivo, che nel flusso reale arriva un minuto dopo — e la segreteria
+      vedrebbe la propria decisione sparire senza che nessuno le abbia detto
+      perche.
+
+      Vale in **tutte e due** le direzioni: un periodo dichiarato non maturato
+      resta non maturato anche se le presenze dicono il contrario. Chi vuole
+      restituirlo al calcolo ha un gesto suo, `decision: "auto"`, ed e un atto
+      esplicito e tracciato come gli altri due.
+
+      Il maturato deciso a mano **consuma comunque l'assegnato**: saltarlo
+      lascerebbe ai periodi successivi un residuo che non esiste, che e lo
+      stesso motivo per cui si tratta cosi un periodo gia liquidato.
+    */
+    if (existing && accrualIsManuallyDecided(existing)) {
+      remainingPlafond = Math.max(
+        0,
+        Number(
+          (remainingPlafond - toFundingAmount(existing.accrued_amount)).toFixed(
+            2,
+          ),
+        ),
+      );
+      skippedManualPeriods += 1;
+      written.push(existing);
+      continue;
+    }
 
     if (existing && existing.status === "settled") {
       /*
@@ -827,6 +919,36 @@ export const recomputeEnrollmentAccruals = async (
         sessions: measure?.sessions ?? 0,
         hours: measure?.hours ?? 0,
         sessionsWithoutDuration: measure?.sessionsWithoutDuration ?? 0,
+        /*
+          **La riga dichiara di portare una misura vera** (N10).
+
+          `measured_value` in archivio e un `Float` con default zero, e non c'e
+          modo di scriverci «non lo so». Il ricalcolo e l'unico che misura
+          davvero, quindi e lui a dirlo; una riga nata da una decisione manuale
+          su un periodo mai calcolato dira il contrario, e la schermata potra
+          finalmente distinguere «zero ore» da «nessuno ha ancora guardato».
+        */
+        [FUNDING_ACCRUAL_MEASURED_FLAG]: true,
+        /*
+          Un ricalcolo che tocca la riga la restituisce al calcolo automatico:
+          la decisione manuale, se c'era, e stata ritirata da `decision: "auto"`
+          — l'unico percorso che porta qui una riga marcata.
+        */
+        [FUNDING_ACCRUAL_MANUAL_FLAG]: false,
+        /*
+          **Ma la traccia di chi aveva deciso resta** (revisione ostile, F9).
+
+          Il ricalcolo ricostruisce `data` da zero, e con essa se ne andava
+          l'elenco delle decisioni: il primo ricalcolo dopo un «torna al
+          calcolo» cancellava la spiegazione di come quel periodo era arrivato
+          dov'era. La riga di `audit_events` sopravvive, ma chi guarda un
+          periodo non apre il registro delle operazioni — e il commento della
+          tabella dice proprio che la traccia va letta dove sta il fatto.
+        */
+        ...(Array.isArray(asRecord(existing?.data).manualDecisions) &&
+        asRecord(existing?.data).manualDecisions.length > 0
+          ? { manualDecisions: asRecord(existing?.data).manualDecisions }
+          : {}),
       },
     };
 
@@ -837,7 +959,427 @@ export const recomputeEnrollmentAccruals = async (
     written.push(row);
   }
 
-  return { enrollment, accruals: written, skippedSettledPeriods };
+  return {
+    enrollment,
+    accruals: written,
+    skippedSettledPeriods,
+    skippedManualPeriods,
+  };
+};
+
+/* ------------------------------------------ maturato: la decisione manuale */
+
+export type PeriodDecisionInput = {
+  enrollmentId: unknown;
+  periodIndex: unknown;
+  decision: unknown;
+  /** Solo per `accrued`: quanto far maturare. Omesso vale l'intero periodo. */
+  amount?: unknown;
+  notes?: unknown;
+  /**
+   * Lo stato che chi preme **credeva** di vedere.
+   *
+   * Quando c'e, la scrittura fallisce se nel frattempo qualcun altro l'ha
+   * cambiato. Non e un dettaglio di implementazione: e cio che impedisce a due
+   * segretarie sulla stessa scheda di sovrascriversi in silenzio, e la sola
+   * risposta onesta e dire alla seconda che il periodo e cambiato sotto le
+   * mani.
+   */
+  expectedStatus?: unknown;
+  /**
+   * **Chi e da dove** (revisione ostile, F3).
+   *
+   * L'audit lo scrive questa funzione e non la rotta, perche solo qui si sa se
+   * qualcosa e davvero cambiato — un doppio clic non e due decisioni. Ma senza
+   * la richiesta la riga esce con indirizzo, dispositivo e posta a `null`: la
+   * sola azione che permette a una persona di riscrivere per decreto un numero
+   * diretto a un ente sarebbe anche l'unica non riconducibile a un dispositivo.
+   * Sono percio dati che la rotta passa in giu, come fa `accounting-export.ts`.
+   */
+  request?: Request | null;
+  actorEmail?: string | null;
+};
+
+export type PeriodDecisionResult = {
+  enrollment: Record<string, any>;
+  program: Record<string, any>;
+  accrual: Record<string, any>;
+  decision: FundingPeriodDecision;
+  /** Vero quando il periodo era gia cosi: nessuna riga di storia in piu. */
+  unchanged: boolean;
+};
+
+/**
+ * **Lo stato di un periodo, deciso da una persona** (N12).
+ *
+ * ---
+ *
+ * ## Perche esiste
+ *
+ * Perche la frequenza registrata in EasyGame **non e l'autorita** su cio che un
+ * ente riconosce, e lo era diventata di fatto. Su un bando a fonte
+ * `easygame_attendance` l'unico modo di far maturare un mese era registrare
+ * abbastanza presenze; su un bando a fonte esterna esisteva `confirmAccrualPeriods`,
+ * che pero **rifiuta** i programmi EasyGame per costruzione. Un club che sapeva
+ * — da una comunicazione dell'ente, da una deroga, da un errore d'appello ormai
+ * chiuso — che un mese valeva, non aveva nessuna riga da premere.
+ *
+ * Questa funzione e quella riga. La frequenza resta il dato che **sostiene** la
+ * decisione, e continua a comparire accanto: non e piu la decisione.
+ *
+ * ## Le sei proprieta
+ *
+ * 1. **Non nasce cassa.** Nessun `payment_transaction`, nessuna riga di prima
+ *    nota, nessuna copertura, nessun tocco a `payments.status`. Un maturato e
+ *    un credito verso un ente, e lo diventa qui esattamente come lo diventava
+ *    dal ricalcolo (ADR-0037, ADR-0158).
+ * 2. **Non liquida.** `settled_amount` nasce dalle righe di liquidazione, e
+ *    quelle le scrive `createFundingSettlement`. Da qui non si arriva.
+ * 3. **Materializza il periodo previsto.** Un periodo che non ha ancora una
+ *    riga si puo decidere lo stesso: la riga nasce ora, dichiarando di non
+ *    portare una misura (N10), invece di costringere a un ricalcolo che sui
+ *    mesi futuri non produrrebbe niente.
+ * 4. **E idempotente.** Ripetere la stessa decisione sullo stesso periodo non
+ *    scrive una seconda volta e non allunga lo storico: il doppio clic e un
+ *    gesto solo.
+ * 5. **Il concorrente perde, e lo sa.** `expectedStatus` e verificato **dentro**
+ *    la transazione, dopo il blocco della riga: due operatori sullo stesso
+ *    periodo non si sovrascrivono in silenzio.
+ * 6. **Un periodo liquidato non si tocca.** L'ente ha versato su quel numero.
+ *
+ * ## Il tetto
+ *
+ * Il maturato complessivo dell'adesione non supera **l'importo assegnato al
+ * club**, che e lo stesso limite che `confirmAccrualPeriods` fa valere e per la
+ * stessa ragione: il massimale del bando e un'altra cosa, e piu alto.
+ */
+export const decideAccrualPeriod = async (
+  input: PeriodDecisionInput,
+  scope?: FundingScope,
+): Promise<PeriodDecisionResult> => {
+  const enrollment = await getFundingEnrollmentById(
+    asText(input.enrollmentId),
+    scope,
+  );
+  const program = await getFundingProgramById(enrollment.program_id, scope);
+
+  /*
+    **La porta e la stessa delle altre scritture del dominio**, e sta qui e non
+    solo sulla rotta: `confirmAccrualPeriods` insegna che una scrittura di
+    dominio raggiungibile da piu di una rotta deve portarsi dietro la propria
+    guardia. Un ruolo personalizzato costruito su gestore la passa se ha
+    `funding.manage`, che e cio che N12 chiedeva.
+  */
+  assertFundingPermission(scope?.activeRole, "funding.manage");
+
+  const decision = asText(input.decision).toLowerCase() as FundingPeriodDecision;
+  if (!(FUNDING_PERIOD_DECISIONS as readonly string[]).includes(decision)) {
+    throw new Error(
+      "Decisione non riconosciuta: un periodo si segna maturato, non maturato, oppure si restituisce al calcolo",
+    );
+  }
+
+  if (asText(enrollment.status) !== "active") {
+    throw new Error(
+      "Questa iscrizione non e attiva: lo stato dei suoi periodi non si cambia",
+    );
+  }
+
+  /*
+    **Su un bando chiuso o in bozza non si decide niente** (N6). E la stessa
+    guardia del ricalcolo, e vale per la stessa ragione: far maturare un periodo
+    su un bando che ha smesso di riconoscerlo e un credito che nessuno paghera.
+  */
+  if (!fundingProgramAccruesNow(program.status)) {
+    throw new Error(
+      program.status === "closed"
+        ? "Il programma e chiuso: lo stato dei suoi periodi non si cambia piu"
+        : "Il programma e in bozza: attivalo prima di decidere un periodo",
+    );
+  }
+
+  const periodIndex = Number(input.periodIndex);
+  if (!Number.isInteger(periodIndex) || periodIndex < 0) {
+    throw new Error("Periodo non indicato");
+  }
+
+  /*
+    Il periodo si **deriva** dalla configurazione (ADR-0037 §4), e si deriva
+    senza `until`: si decide anche di un mese che non e ancora cominciato, che
+    e il caso per cui N12 esiste.
+  */
+  const period = generateFundingPeriods(program).find(
+    (voce) => voce.index === periodIndex,
+  );
+
+  const normalized = normalizeFundingProgram(program);
+  const now = new Date();
+  const notes = asText(input.notes) || null;
+
+  const risultato = await (prisma as any).$transaction(async (client: any) => {
+    /*
+      **Il blocco prima della lettura.** Il tetto sull'assegnato e una **somma**
+      su tutte le righe dell'adesione, e una somma letta fuori dalla
+      transazione e una somma vecchia: due decisioni simultanee su due periodi
+      diversi la troverebbero tutte e due capiente. Si blocca l'adesione — la
+      riga che porta il tetto — come fa `allocateCoverage`, e nello stesso
+      ordine, perche due ordini diversi sugli stessi blocchi sono un abbraccio
+      mortale (ADR-0138).
+    */
+    await client.$queryRaw`SELECT id FROM funding_enrollments WHERE id = ${enrollment.id}::uuid FOR UPDATE`;
+
+    const righe = await client.fundingAccrual.findMany({
+      where: { enrollment_id: enrollment.id },
+      orderBy: [{ period_index: "asc" }],
+    });
+    const esistenti: any[] = Array.isArray(righe) ? righe : [];
+    const existing =
+      esistenti.find((riga) => Number(riga.period_index) === periodIndex) ||
+      null;
+
+    if (!existing && !period) {
+      throw new Error(
+        "Il periodo non appartiene a questo programma: controlla le date di validita",
+      );
+    }
+
+    if (existing && asText(existing.status) === "settled") {
+      throw new Error(
+        `Il periodo «${existing.period_label}» e gia liquidato: l'ente ha versato su quell'importo, e si corregge stornando la liquidazione`,
+      );
+    }
+
+    /*
+      **Lo stato atteso, verificato dentro il blocco** (scenario 12). Fuori di
+      qui sarebbe una lettura vecchia, cioe esattamente il difetto che vuole
+      impedire.
+    */
+    const atteso = asText(input.expectedStatus);
+    if (atteso) {
+      const attuale = existing
+        ? asText(existing.status) || "not_accrued"
+        : "planned";
+      if (atteso !== attuale) {
+        throw new Error(
+          `Il periodo e cambiato mentre lo stavi guardando: adesso e «${attuale}», non «${atteso}». Ricarica e decidi di nuovo`,
+        );
+      }
+    }
+
+    if (decision === "auto") {
+      if (!existing || !accrualIsManuallyDecided(existing)) {
+        /*
+          Restituire al calcolo un periodo che il calcolo gia governa non e un
+          errore: e un gesto che non aveva niente da fare.
+        */
+        return { row: existing, unchanged: true };
+      }
+
+      const aggiornata = await client.fundingAccrual.update({
+        where: { id: existing.id },
+        data: {
+          data: {
+            ...asRecord(existing.data),
+            [FUNDING_ACCRUAL_MANUAL_FLAG]: false,
+            reason:
+              "Restituito al calcolo dalle presenze: ricalcola per aggiornarlo",
+            manualDecisions: [
+              ...(Array.isArray(asRecord(existing.data).manualDecisions)
+                ? asRecord(existing.data).manualDecisions
+                : []),
+              {
+                decision: "auto",
+                fromStatus: asText(existing.status) || "not_accrued",
+                fromAmount: toFundingAmount(existing.accrued_amount),
+                decidedAt: now.toISOString(),
+                decidedBy: scope?.userId || null,
+                notes,
+              },
+            ],
+          },
+        },
+      });
+
+      return { row: aggiornata, unchanged: false };
+    }
+
+    /*
+      Il residuo dell'assegnato **esclude questo periodo**: si sta per
+      riscriverlo, e contare il suo vecchio importo lo farebbe competere con se
+      stesso.
+    */
+    const altrove = esistenti
+      .filter((riga) => Number(riga.period_index) !== periodIndex)
+      .reduce(
+        (totale, riga) => totale + toFundingAmount(riga.accrued_amount),
+        0,
+      );
+
+    const remainingPlafond = Number(
+      Math.max(
+        0,
+        toFundingAmount(enrollment.assigned_amount) - altrove,
+      ).toFixed(2),
+    );
+
+    /*
+      **Zero e un valore, non un'assenza** (revisione ostile, F10). `||`
+      trattava un `eligible_amount` a zero come «manca» e ricadeva sulla
+      mensilita intera: un periodo che vale niente avrebbe fatto maturare un
+      mese pieno. Il ripiego vale solo quando il campo non c'e davvero.
+    */
+    const eligibleCongelato = Number(existing?.eligible_amount);
+    const eligibleAmount = Number.isFinite(eligibleCongelato)
+      ? toFundingAmount(eligibleCongelato)
+      : normalized.periodAmount;
+
+    const esito = calculateManualPeriodDecision({
+      decision,
+      eligibleAmount,
+      remainingPlafond,
+      requestedAmount:
+        input.amount === undefined || input.amount === null
+          ? null
+          : toFundingAmount(input.amount),
+    });
+
+    if (decision === "accrued" && !(esito.accruedAmount > 0)) {
+      throw new Error(
+        remainingPlafond > 0
+          ? "Un periodo maturato vale piu di zero: per dichiararlo a zero segnalo come non maturato"
+          : `L'importo assegnato a questo atleta (${toFundingAmount(enrollment.assigned_amount).toFixed(2)} EUR) e gia tutto maturato: non resta niente da far maturare`,
+      );
+    }
+
+    /*
+      **Idempotenza** (scenario 11). Il doppio clic e un gesto solo: se il
+      periodo e gia in quello stato, con quell'importo e per decisione di una
+      persona, non si scrive e non si allunga lo storico.
+    */
+    if (
+      existing &&
+      accrualIsManuallyDecided(existing) &&
+      asText(existing.status) === esito.status &&
+      toFundingAmount(existing.accrued_amount) === esito.accruedAmount
+    ) {
+      return { row: existing, unchanged: true };
+    }
+
+    const storia = [
+      ...(Array.isArray(asRecord(existing?.data).manualDecisions)
+        ? asRecord(existing?.data).manualDecisions
+        : []),
+      {
+        decision,
+        fromStatus: existing ? asText(existing.status) || "not_accrued" : "planned",
+        fromAmount: existing ? toFundingAmount(existing.accrued_amount) : 0,
+        toStatus: esito.status,
+        toAmount: esito.accruedAmount,
+        decidedAt: now.toISOString(),
+        decidedBy: scope?.userId || null,
+        notes,
+      },
+    ];
+
+    const comune = {
+      accrued_amount: esito.accruedAmount,
+      unaccrued_amount: esito.unaccruedAmount,
+      status: esito.status,
+      accrual_origin: esito.origin,
+      confirmed_at: now,
+      confirmed_by: scope?.userId || null,
+      confirmation_notes: notes,
+      /*
+        Una decisione smentisce cio che era stato dichiarato all'ente: il
+        periodo va rendicontato di nuovo. E la stessa regola di
+        `confirmAccrualPeriods`, e non ce ne sono due.
+      */
+      reported_at: null,
+      reported_by: null,
+      computed_at: now,
+    };
+
+    if (existing) {
+      const aggiornata = await client.fundingAccrual.update({
+        where: { id: existing.id },
+        data: {
+          ...comune,
+          data: {
+            ...asRecord(existing.data),
+            reason: esito.reason,
+            [FUNDING_ACCRUAL_MANUAL_FLAG]: true,
+            manualDecisions: storia,
+          },
+        },
+      });
+
+      return { row: aggiornata, unchanged: false };
+    }
+
+    const creata = await client.fundingAccrual.create({
+      data: {
+        organization_id: enrollment.organization_id,
+        enrollment_id: enrollment.id,
+        period_index: period!.index,
+        period_start: new Date(period!.start),
+        period_end: new Date(period!.end),
+        period_label: period!.label,
+        requirement_min: normalized.requirementMin,
+        requirement_unit: normalized.requirementUnit,
+        measured_value: 0,
+        requirement_met: false,
+        eligible_amount: eligibleAmount,
+        estimated_amount: 0,
+        ...comune,
+        data: {
+          reason: esito.reason,
+          [FUNDING_ACCRUAL_MANUAL_FLAG]: true,
+          /*
+            **La riga nasce senza misura, e lo dichiara** (N10). Nessuno ha
+            contato le ore di questo periodo: `measured_value` resta lo zero
+            del tipo, e questo marcatore impedisce alla schermata di leggerlo
+            come «zero ore fatte».
+          */
+          [FUNDING_ACCRUAL_MEASURED_FLAG]: false,
+          manualDecisions: storia,
+        },
+      },
+    });
+
+    return { row: creata, unchanged: false };
+  });
+
+  if (!risultato.unchanged) {
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.resourceUpdated,
+      actorUserId: scope?.userId || null,
+      actorEmail: input.actorEmail || null,
+      actorRole: scope?.activeRole || null,
+      organizationId: enrollment.organization_id,
+      resource: "funding_accruals",
+      resourceId: risultato.row?.id || null,
+      request: input.request ?? null,
+      metadata: {
+        decision,
+        periodIndex,
+        enrollmentId: asText(enrollment.id),
+        athleteId: asText(enrollment.athlete_id),
+        fromStatus:
+          risultato.row?.data?.manualDecisions?.slice(-1)?.[0]?.fromStatus ??
+          null,
+        toStatus: asText(risultato.row?.status) || null,
+        accruedAmount: toFundingAmount(risultato.row?.accrued_amount),
+      },
+    });
+  }
+
+  return {
+    enrollment,
+    program,
+    accrual: risultato.row,
+    decision,
+    unchanged: Boolean(risultato.unchanged),
+  };
 };
 
 /* -------------------------------------------- maturato: conferma esterna */
@@ -1026,6 +1568,18 @@ export const confirmAccrualPeriods = async (
               ? "Confermato dalla fonte ufficiale"
               : "La fonte ufficiale non ha riconosciuto niente per questo periodo",
           previousConfirmations: history,
+          /*
+            **La parola dell'ente supera quella della societa** (revisione
+            ostile, F8).
+
+            Il marcatore della decisione manuale sopravviveva alla conferma: il
+            periodo continuava a portare l'etichetta «deciso dalla societa» e a
+            essere saltato da ogni ricalcolo, per sempre, su un importo che
+            l'ente aveva nel frattempo dichiarato lui. La provenienza mostrata
+            all'operatore era falsa, e il congelamento non lo aveva deciso
+            nessuno.
+          */
+          [FUNDING_ACCRUAL_MANUAL_FLAG]: false,
         },
       },
     });
@@ -1717,6 +2271,40 @@ export type AthleteFundingOverview = {
   /** **Tutti** i periodi del bando, calcolati e non (N8). */
   periods: ReturnType<typeof buildFundingPeriodRows>;
   summary: ReturnType<typeof summarizeFunding>;
+  /**
+   * **Cosa succede se si toglie questo atleta dal programma** (N13).
+   *
+   * Sta nella proiezione e non nella schermata perche la schermata deve poterlo
+   * **dire prima**, e perche la regola e la stessa che poi applica
+   * `removeFundingEnrollment`: due stesure divergerebbero, e chi le scopre e la
+   * segreteria davanti a un pulsante che promette una cosa e ne fa un'altra.
+   */
+  removal: EnrollmentRemovalPlan;
+  /**
+   * **Se chi sta guardando puo decidere** (revisione ostile, F4).
+   *
+   * Lo dice il server perche il browser non puo saperlo: il gettone conservato
+   * in `localStorage` porta lo **slug** del ruolo e non le sue chiavi — le
+   * chiavi le rilegge il server a ogni richiesta (`AuthProvider`). Un predicato
+   * lato schermo su quel gettone risponde percio `false` a **ogni** ruolo
+   * personalizzato, cioe proprio a quelli che questa lane ha reso capaci di
+   * decidere: la casella dell'editor avrebbe governato il server e non lo
+   * schermo.
+   *
+   * Resta un'affordance: l'autorizzazione vera la fa il server, che rifiuta
+   * comunque chi non ha la chiave.
+   */
+  canManage: boolean;
+  /**
+   * **Quanto di questo voucher e impegnato su delle rate vive** (revisione
+   * ostile, F5).
+   *
+   * Non e il maturato e non e l'assegnato: e quanto della promessa sta
+   * davvero riducendo la quota di una famiglia. Lo calcola il dominio della
+   * copertura con la **stessa** regola che i due tetti applicano in scrittura,
+   * comprese le rate annullate che non contano piu.
+   */
+  committedAmount: number;
 };
 
 /**
@@ -1743,11 +2331,26 @@ export const getAthleteFundingOverview = async (
   const overviews: AthleteFundingOverview[] = [];
 
   for (const enrollment of Array.isArray(enrollments) ? enrollments : []) {
-    const [program, accruals] = await Promise.all([
+    const [program, accruals, coperture] = await Promise.all([
       programClient().findUnique({ where: { id: enrollment.program_id } }),
       accrualClient().findMany({
         where: { enrollment_id: enrollment.id },
         orderBy: [{ period_index: "asc" }],
+      }),
+      /*
+        Le coperture servono al **piano di rimozione** (N13): una promessa fatta
+        a una famiglia e storico, e la chiave esterna che la lega all'adesione e
+        `RESTRICT`. Si leggono i soli campi che decidono, non le righe intere:
+        chi le vuole per intero le chiede a `/api/v1/payment-coverage`, che e la
+        porta del loro dominio.
+      */
+      (prisma as any).paymentCoverageAllocation.findMany({
+        where: { enrollment_id: enrollment.id },
+        select: {
+          id: true,
+          reversed_at: true,
+          reverses_allocation_id: true,
+        },
       }),
     ]);
 
@@ -1809,6 +2412,30 @@ export const getAthleteFundingOverview = async (
         accruals,
         settlementLines: lines,
       }),
+      removal: describeEnrollmentRemoval({
+        accruals: Array.isArray(accruals) ? accruals : [],
+        settlementLines: Array.isArray(lines) ? lines : [],
+        coverageAllocations: Array.isArray(coperture) ? coperture : [],
+      }),
+      canManage: hasFundingPermission(scope?.activeRole, "funding.manage"),
+      /*
+        **Quanto del voucher e davvero impegnato** (revisione ostile, F5).
+
+        Lo calcolava la schermata sommando tutte le coperture dell'atleta, e
+        quella somma comprende le righe appese a rate **annullate**: quando un
+        piano si rigenera le vecchie rate restano marcate, e le loro coperture
+        con esse. Il server le esclude dal tetto da C2 — e cio che permette di
+        coprire le rate nuove — quindi le due cifre divergevano subito dopo una
+        rigenerazione, e la schermata accusava l'operatore di aver sforato un
+        limite che il server considerava rispettato.
+
+        La regola e una: `listLiveCoverageForEnrollment`, che e quella che il
+        vaglio applica in scrittura.
+      */
+      committedAmount: await readCommittedCoverageForEnrollment(
+        enrollment.id,
+        scope as any,
+      ),
     });
   }
 
@@ -2042,6 +2669,26 @@ export const listEnrollableProgramsForAthlete = async (
   const resolvedOrganizationId = resolveOrganizationId(scope, organizationId);
   const id = asText(athleteId);
 
+  /*
+    **Chi non puo iscrivere non ha programmi a cui iscrivere** (revisione
+    ostile, F4).
+
+    Questa proiezione risponde alla domanda «a quali bandi posso ancora
+    ammettere questo atleta»: senza il diritto di ammetterlo la risposta non e
+    un elenco piu corto, e l'elenco vuoto. Restituirlo pieno a chi ricevera 403
+    al primo clic e la definizione di un pulsante che promette.
+
+    Serve anche a un secondo scopo, ed e il motivo per cui sta qui e non nella
+    rotta: la schermata non sa se il ruolo attivo ha `funding.manage`, perche il
+    gettone conservato nel browser porta lo **slug** e non le chiavi (le chiavi
+    le rilegge il server, `AuthProvider`). Un elenco non vuoto e percio
+    l'affermazione del server che quell'azione e permessa, ed e cosi che un
+    ruolo personalizzato con la casella spuntata vede finalmente il pulsante.
+  */
+  if (!hasFundingPermission(scope?.activeRole, "funding.manage")) {
+    return [];
+  }
+
   const [programs, enrollments] = await Promise.all([
     programClient().findMany({
       where: { organization_id: resolvedOrganizationId },
@@ -2260,15 +2907,40 @@ export const updateFundingEnrollment = async (
  */
 export const removeFundingEnrollment = async (
   enrollmentId: string,
-  input: { reason?: unknown } = {},
+  input: {
+    reason?: unknown;
+    /**
+     * **Il consenso esplicito a chiudere un'adesione gia liquidata** (N13, caso C).
+     *
+     * Senza, l'operazione fallisce. Non e una formalita: quando l'ente ha gia
+     * versato, stornare le coperture rimette a carico della famiglia una quota
+     * che il club **ha gia incassato dall'ente**, e il risultato e lo stesso
+     * importo chiesto due volte. La strada giusta e stornare la liquidazione,
+     * che ha il suo percorso contabile; questo interruttore esiste per il caso
+     * in cui chiudere l'adesione sia comunque cio che si vuole, e per lasciarne
+     * traccia.
+     */
+    acknowledgeSettled?: unknown;
+  } = {},
   scope?: FundingScope,
 ): Promise<{
   outcome: "deleted" | "revoked";
   enrollment: Record<string, any>;
   /** Quante rate tornano a carico della famiglia (N9). */
   coverageReversed: number;
+  /** Cosa il dominio aveva previsto, e che la schermata aveva gia mostrato (N13). */
+  plan: EnrollmentRemovalPlan;
 }> => {
   const enrollment = await getFundingEnrollmentById(enrollmentId, scope);
+
+  /*
+    **La stessa porta delle altre scritture del dominio** (N13).
+
+    Stava solo sulla rotta, e la rotta chiedeva `canManageClubConfigurationAsActor`:
+    nessun ruolo personalizzato poteva revocare un voucher. Adesso la guardia e
+    qui, dove sta la decisione, e passa da `funding.manage`.
+  */
+  assertFundingPermission(scope?.activeRole, "funding.manage");
 
   const accruals = await accrualClient().findMany({
     where: { enrollment_id: enrollment.id },
@@ -2303,13 +2975,49 @@ export const removeFundingEnrollment = async (
   */
   const coperture = await (prisma as any).paymentCoverageAllocation.findMany({
     where: { enrollment_id: enrollment.id },
-    select: { id: true },
+    select: {
+      id: true,
+      reversed_at: true,
+      reverses_allocation_id: true,
+    },
   });
 
-  const hasHistory =
-    (Array.isArray(lines) ? lines : []).length > 0 ||
-    (Array.isArray(coperture) ? coperture : []).length > 0 ||
-    accrualRows.some((row) => ["reported", "settled"].includes(asText(row.status)));
+  /*
+    **La regola sta in una funzione sola** (N13).
+
+    `hasHistory` era un'espressione booleana scritta qui, e la schermata non
+    aveva modo di leggerla: non c'era nessun pulsante, e quando c'e stato
+    avrebbe dovuto ricostruire lo stesso `oppure` a tre termini per decidere
+    quale etichetta scrivere. Due stesure della stessa regola divergono al primo
+    caso limite, ed e il difetto che ADR-0153 ha gia pagato una volta.
+
+    Adesso il piano lo calcola `describeEnrollmentRemoval`, che e la stessa
+    funzione con cui `getAthleteFundingOverview` accende il pulsante e ne
+    sceglie il testo.
+  */
+  const plan = describeEnrollmentRemoval({
+    accruals: accrualRows,
+    settlementLines: Array.isArray(lines) ? lines : [],
+    coverageAllocations: Array.isArray(coperture) ? coperture : [],
+  });
+
+  /*
+    **Un'adesione gia liquidata non si annulla per sbaglio** (N13, caso C).
+
+    L'ente ha versato del denaro su questa adesione. Stornarne le coperture
+    rimette a carico della famiglia una quota che il club ha gia incassato
+    dall'ente: lo stesso importo, chiesto due volte. Il rimedio contabile
+    esiste ed e lo storno della liquidazione (`reverseFundingSettlement`);
+    questa guardia serve a mandarci chi ci deve andare, e a lasciare traccia di
+    chi ha scelto lo stesso di procedere.
+  */
+  if (plan.outcome === "settled" && !input.acknowledgeSettled) {
+    throw new Error(
+      `L'ente ha gia liquidato ${plan.settledAmount.toFixed(2)} EUR su questa adesione: non si annulla l'assegnazione, si storna prima la liquidazione. Se vuoi comunque chiudere l'adesione, confermalo esplicitamente`,
+    );
+  }
+
+  const hasHistory = plan.outcome !== "delete";
 
   /*
     **Le coperture promesse si stornano, sempre** (N9 / ADR-0158).
@@ -2350,6 +3058,7 @@ export const removeFundingEnrollment = async (
       outcome: "revoked",
       enrollment: revoked,
       coverageReversed: copertureStornate.reversed,
+      plan,
     };
   }
 
@@ -2357,18 +3066,33 @@ export const removeFundingEnrollment = async (
     Nessuno storico: si cancellano anche i maturati calcolati, che sono un
     risultato derivato dalle presenze e si ricalcolano da soli. Lasciarli
     orfani riempirebbe la riconciliazione di righe senza beneficiario.
-  */
-  if (accrualRows.length) {
-    await accrualClient().deleteMany({ where: { enrollment_id: enrollment.id } });
-  }
 
-  const deleted = await enrollmentClient().delete({
-    where: { id: enrollment.id },
+    **Le due cancellazioni stanno in una transazione sola** (revisione ostile,
+    F7). Il piano si legge fuori dal blocco, e fra la lettura e la
+    cancellazione c'e una finestra: una copertura allocata li dentro —
+    l'adesione e ancora `active`, quindi e permesso — fa fallire la seconda
+    riga sulla chiave esterna `RESTRICT`. Senza transazione la prima era gia
+    passata, e i maturati di un'adesione **ancora viva** se n'erano andati per
+    sempre, con la rotta che rispondeva «non riuscito».
+
+    La transazione non chiude la finestra: la rende **innocua**. Il tentativo
+    fallisce per intero e si puo ripetere, che e cio che una segreteria si
+    aspetta da un errore.
+  */
+  const deleted = await (prisma as any).$transaction(async (client: any) => {
+    if (accrualRows.length) {
+      await client.fundingAccrual.deleteMany({
+        where: { enrollment_id: enrollment.id },
+      });
+    }
+
+    return client.fundingEnrollment.delete({ where: { id: enrollment.id } });
   });
 
   return {
     outcome: "deleted",
     enrollment: deleted,
     coverageReversed: copertureStornate.reversed,
+    plan,
   };
 };

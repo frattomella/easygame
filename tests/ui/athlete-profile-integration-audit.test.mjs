@@ -172,8 +172,16 @@ test("i contributi non stanno nello stesso riquadro degli incassi", () => {
   );
 
   /*
-    E i totali dei contributi non entrano in quelli della famiglia: la scheda
-    lo dice a chiare lettere invece di lasciarlo dedurre.
+    E i totali dei contributi non si confondono con quelli della famiglia: la
+    scheda lo dice a chiare lettere invece di lasciarlo dedurre.
+
+    **N14 ha cambiato la frase, non la regola.** «Non entra nei totali qui
+    sopra» era vero finche i totali erano tre; il riepilogo economico ne mostra
+    adesso sette, tre dei quali parlano dell'ente. Cio che si misura e quindi la
+    distinzione — una copertura non e un incasso — e il fatto che ogni importo
+    porti scritto **di chi e**.
   */
-  assert.match(tabCode, /Non entra nei totali qui sopra/);
+  assert.match(tabCode, /non e un incasso/i);
+  assert.match(tabCode, /label="Pagato dalla famiglia"/);
+  assert.match(tabCode, /label="Voucher liquidato"/);
 });

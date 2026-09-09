@@ -510,6 +510,30 @@ export const listLiveCoverageForEnrollment = async (
   );
 };
 
+/**
+ * **Quanto del voucher e impegnato adesso**, in una cifra sola.
+ *
+ * E la stessa somma che i due tetti fanno valere in scrittura, e per la stessa
+ * regola: le coperture appese a rate annullate non contano (C2). Esiste come
+ * funzione perche la schermata la calcolava per conto suo sommando **tutte** le
+ * coperture dell'atleta, e quella somma comprende le rate che una rigenerazione
+ * del piano ha messo da parte: il voucher risultava impegnato per il doppio, e
+ * un avviso accusava l'operatore di uno sforamento che il server considerava
+ * legittimo (revisione ostile, F5).
+ *
+ * Sta qui e non nel dominio dei bandi perche il dominio dei bandi non conosce
+ * le coperture: le chiede (ADR-0037 §5).
+ */
+export const readCommittedCoverageForEnrollment = async (
+  enrollmentId: string,
+  scope?: CoverageScope,
+) =>
+  sumLiveCoverage(
+    normalizeCoverageAllocations(
+      await listLiveCoverageForEnrollment(enrollmentId, scope),
+    ),
+  );
+
 export const listCoverageForEnrollment = async (
   enrollmentId: string,
   scope?: CoverageScope,

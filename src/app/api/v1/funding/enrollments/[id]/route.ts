@@ -9,7 +9,7 @@ import {
   removeFundingEnrollment,
   updateFundingEnrollment,
 } from "@/lib/server/funding";
-import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { canManageFundingAsActor } from "@/lib/funding/permissions";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 /**
@@ -93,7 +93,7 @@ export async function PATCH(request: Request, context: Context) {
     if (!session) return unauthorized();
 
     const scope = await resolveScope(request, session.db.user_id);
-    if (!canManageClubConfigurationAsActor(scope.activeRole)) return forbidden();
+    if (!canManageFundingAsActor(scope.activeRole)) return forbidden();
 
     const body = (await request.json().catch(() => ({}))) as Record<string, any>;
 
@@ -137,13 +137,29 @@ export async function DELETE(request: Request, context: Context) {
     if (!session) return unauthorized();
 
     const scope = await resolveScope(request, session.db.user_id);
-    if (!canManageClubConfigurationAsActor(scope.activeRole)) return forbidden();
+    if (!canManageFundingAsActor(scope.activeRole)) return forbidden();
 
     const url = new URL(request.url);
 
+    const acknowledgeSettled = ["1", "true", "yes"].includes(
+      String(url.searchParams.get("acknowledge_settled") || "")
+        .trim()
+        .toLowerCase(),
+    );
+
     const result = await removeFundingEnrollment(
       context.params.id,
-      { reason: url.searchParams.get("reason") },
+      {
+        reason: url.searchParams.get("reason"),
+        /*
+          **Il consenso a chiudere un'adesione gia liquidata** (N13, caso C).
+          Senza, il dominio rifiuta e spiega che si storna prima la
+          liquidazione. Arriva come parametro esplicito perche una `DELETE` non
+          porta corpo, e perche il consenso deve essere un gesto e non un
+          default.
+        */
+        acknowledgeSettled,
+      },
       scope,
     );
 
@@ -168,11 +184,37 @@ export async function DELETE(request: Request, context: Context) {
         outcome: result.outcome,
         programId: result.enrollment.program_id,
         athleteId: result.enrollment.athlete_id,
+        /*
+          Quante rate tornano a carico della famiglia: e la conseguenza
+          economica dell'atto, e un audit che non la registra costringe a
+          ricostruirla dalle righe di storno (N9, N13).
+        */
+        coverageReversed: result.coverageReversed,
+        settledAmount: result.plan.settledAmount,
+        /*
+          **Chi ha scavalcato il vaglio va scritto** (revisione ostile, F2).
+          «Un'adesione con del liquidato e stata chiusa» e «qualcuno ha
+          dichiarato di saperlo e l'ha chiusa lo stesso» sono due fatti diversi,
+          e il secondo non si deduce dal primo.
+        */
+        acknowledgedSettled: acknowledgeSettled,
       },
     });
 
     return NextResponse.json({
-      data: { outcome: result.outcome, enrollment: result.enrollment },
+      data: {
+        outcome: result.outcome,
+        enrollment: result.enrollment,
+        /*
+          **Quante rate tornano a carico della famiglia** (N9). Il dominio lo
+          contava gia e la rotta lo buttava via, quindi la schermata poteva solo
+          dire «fatto»: «tolto dal programma» e «tolto dal programma, e tre rate
+          tornano a carico della famiglia» sono due frasi diverse, e la seconda
+          e quella che una segreteria deve leggere.
+        */
+        coverageReversed: result.coverageReversed,
+        plan: result.plan,
+      },
       error: null,
     });
   } catch (error) {

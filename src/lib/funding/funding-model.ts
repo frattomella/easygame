@@ -313,6 +313,56 @@ export const FUNDING_PERIOD_STATUS_LABELS: Record<
   settled: "Liquidato",
 };
 
+/**
+ * **Quante ore ha fatto l'atleta in questo periodo, oppure il fatto che
+ * nessuno l'ha ancora misurato** (N10).
+ *
+ * Sono due cose diverse e l'interfaccia le confondeva: un periodo previsto non
+ * ha una riga di maturato, quindi `measured_value` non esisteva, e il testo
+ * usciva come «Frequenza EasyGame undefined ore». Sostituire quel valore con
+ * uno zero sarebbe stato peggio del difetto: direbbe che l'atleta non si e
+ * presentato, quando la verita e che il ricalcolo non e ancora passato di li.
+ *
+ * Il tipo obbliga chi legge a scegliere fra i due casi. Non c'e un numero da
+ * leggere quando il numero non c'e.
+ */
+export type FundingPeriodMeasure =
+  | {
+      readonly kind: "measured";
+      readonly value: number;
+      readonly unit: FundingRequirementUnit;
+    }
+  | { readonly kind: "unknown"; readonly unit: FundingRequirementUnit };
+
+/**
+ * **Quanto serviva per maturare, oppure il fatto che il programma non chieda
+ * niente** (N11).
+ *
+ * `requirementMin` a zero e una **configurazione legittima**: un bando puo
+ * riconoscere il periodo a chiunque risulti iscritto, e `calculatePeriodAccrual`
+ * lo tratta gia cosi (`requirement <= 0` matura con una presenza qualsiasi).
+ * Disegnarlo come «Requisito 0 ore» e un numero falso, e disegnarlo come
+ * «Requisito undefined ore non raggiunto» — che e cio che succedeva — e un
+ * numero falso **e** un verdetto falso.
+ *
+ * `met` e un terzo valore e non un booleano: il confronto fra misura e soglia
+ * si puo fare **solo** se esistono tutti e due. Su un periodo mai calcolato non
+ * si dice ne «raggiunto» ne «non raggiunto»: non lo si dice.
+ */
+export type FundingPeriodRequirement =
+  | {
+      readonly kind: "none";
+    }
+  | {
+      readonly kind: "required";
+      readonly min: number;
+      readonly unit: FundingRequirementUnit;
+      /** `null` quando la frequenza non e ancora nota: non si giudica al buio. */
+      readonly met: boolean | null;
+      /** La misura, quando c'e: serve a scrivere «8 / 10 ore». */
+      readonly measured: number | null;
+    };
+
 export type FundingPeriodRow = {
   readonly periodIndex: number;
   readonly label: string;
@@ -321,6 +371,167 @@ export type FundingPeriodRow = {
   readonly status: FundingPeriodDisplayStatus;
   /** La riga di maturato, quando esiste. `null` per un periodo previsto. */
   readonly accrual: Record<string, any> | null;
+  /**
+   * **La frequenza registrata da EasyGame** (N10).
+   *
+   * Su un periodo previsto e `unknown`: la configurazione sa quando il periodo
+   * comincia e finisce, non quante ore ci saranno dentro.
+   */
+  readonly measure: FundingPeriodMeasure;
+  /**
+   * **Il requisito del programma** (N11).
+   *
+   * Si conosce anche su un periodo previsto — sta nella configurazione del
+   * bando, non nella riga di maturato — ed e la ragione per cui un periodo
+   * futuro puo dire «Requisito: 10 ore» pur non sapendo ancora quante ne sono
+   * state fatte.
+   */
+  readonly requirement: FundingPeriodRequirement;
+  /**
+   * **Quanto vale il periodo se matura per intero.** Sulla riga esistente e
+   * l'importo congelato al calcolo; su un periodo previsto e la mensilita del
+   * bando. Serve alla colonna «importo previsto» dell'elenco (N12).
+   */
+  readonly plannedAmount: number;
+  /**
+   * Vero quando lo stato di questo periodo e stato **deciso da una persona** e
+   * non derivato dalle presenze (N12). Un ricalcolo non lo riscrive.
+   */
+  readonly manualDecision: boolean;
+};
+
+/**
+ * **La chiave con cui una riga dichiara di non portare una misura** (N10).
+ *
+ * `measured_value` in archivio e un `Float` con default zero: non c'e modo di
+ * scriverci «non lo so». Il marcatore vive percio in `data`, e vale la regola
+ * conservativa — una riga senza marcatore e stata scritta dal ricalcolo, che e
+ * l'unico creatore esistito fino a N12, quindi la sua misura e vera.
+ */
+export const FUNDING_ACCRUAL_MEASURED_FLAG = "attendanceMeasured" as const;
+
+/** La chiave con cui una riga dichiara di essere stata decisa a mano (N12). */
+export const FUNDING_ACCRUAL_MANUAL_FLAG = "manualDecision" as const;
+
+/**
+ * Vero quando la riga porta una misura della frequenza di cui ci si puo fidare.
+ *
+ * Una funzione sola, perche la domanda e una sola: chi la ricostruisce in casa
+ * ricomincia a leggere lo zero di default come «zero ore fatte».
+ */
+export const accrualHasMeasuredAttendance = (accrual: unknown) => {
+  const record = asRecord(accrual);
+  if (!record || Object.keys(record).length === 0) return false;
+
+  const flag = asRecord(record.data)[FUNDING_ACCRUAL_MEASURED_FLAG];
+  return flag === undefined || flag === null ? true : Boolean(flag);
+};
+
+/** Vero quando lo stato della riga e stato deciso da una persona (N12). */
+export const accrualIsManuallyDecided = (accrual: unknown) =>
+  Boolean(asRecord(asRecord(accrual).data)[FUNDING_ACCRUAL_MANUAL_FLAG]);
+
+/**
+ * La frequenza di un periodo: il numero, o il fatto che non ci sia (N10).
+ *
+ * `accrual` puo essere `null` — il periodo previsto — e allora l'unita la
+ * porta la configurazione del bando, che e cio che permette di scrivere
+ * «Frequenza non ancora disponibile» invece di tacere.
+ */
+export const resolveFundingPeriodMeasure = (
+  accrual: Record<string, any> | null | undefined,
+  program?: unknown,
+): FundingPeriodMeasure => {
+  const unit = accrual?.requirement_unit
+    ? pickEnum(accrual.requirement_unit, FUNDING_REQUIREMENT_UNITS, "hours")
+    : normalizeFundingProgram(program).requirementUnit;
+
+  if (!accrual || !accrualHasMeasuredAttendance(accrual)) {
+    return { kind: "unknown", unit };
+  }
+
+  return {
+    kind: "measured",
+    value: toFundingMeasure(accrual.measured_value ?? accrual.measuredValue),
+    unit,
+  };
+};
+
+/**
+ * Il requisito di un periodo: la soglia, o il fatto che non ce ne sia (N11).
+ *
+ * La soglia si legge dalla riga quando c'e — li e **congelata** al momento del
+ * calcolo, ed e giusto: spiega un importo gia maturato — e dalla configurazione
+ * quando la riga non c'e ancora.
+ */
+export const resolveFundingPeriodRequirement = (
+  accrual: Record<string, any> | null | undefined,
+  program: unknown,
+  measure: FundingPeriodMeasure,
+): FundingPeriodRequirement => {
+  const normalized = normalizeFundingProgram(program);
+
+  const min = accrual
+    ? toFundingMeasure(accrual.requirement_min ?? accrual.requirementMin)
+    : normalized.requirementMin;
+
+  if (!(min > 0)) return { kind: "none" };
+
+  const unit = measure.unit;
+
+  if (measure.kind !== "measured") {
+    return { kind: "required", min, unit, met: null, measured: null };
+  }
+
+  /*
+    Il verdetto lo porta la riga quando esiste: `requirement_met` e cio che il
+    dominio ha deciso al momento del calcolo, e ricalcolarlo qui dal confronto
+    fra due numeri sarebbe una seconda regola — quella che diverge il giorno in
+    cui la soglia diventa «almeno», «piu di» o «arrotondata all'ora».
+  */
+  const met = accrual
+    ? Boolean(accrual.requirement_met ?? accrual.requirementMet)
+    : measure.value >= min;
+
+  return { kind: "required", min, unit, met, measured: measure.value };
+};
+
+/**
+ * «8 ore», oppure «Frequenza non ancora disponibile» (N10).
+ *
+ * Il testo sta qui e non nella schermata perche e la stessa frase in tre punti
+ * — la riga chiusa, il dettaglio, l'esportazione — e tre stesure della stessa
+ * frase sono tre occasioni di far ricomparire `undefined`.
+ */
+export const describeFundingPeriodMeasure = (measure: FundingPeriodMeasure) =>
+  measure.kind === "measured"
+    ? `${measure.value} ${requirementUnitLabel(measure.unit)}`
+    : "Frequenza non ancora disponibile";
+
+/** «Requisito: 10 ore», oppure «Nessun requisito di frequenza» (N11). */
+export const describeFundingPeriodRequirement = (
+  requirement: FundingPeriodRequirement,
+) =>
+  requirement.kind === "none"
+    ? "Nessun requisito di frequenza"
+    : `Requisito: ${requirement.min} ${requirementUnitLabel(requirement.unit)}`;
+
+/**
+ * «8 / 10 ore — Non raggiunto», oppure `null` quando non c'e niente da
+ * confrontare (N11).
+ *
+ * `null` e un valore di ritorno legittimo e non un caso limite: su un periodo
+ * previsto, o su un bando senza soglia, il confronto **non si fa**.
+ */
+export const describeFundingPeriodProgress = (
+  requirement: FundingPeriodRequirement,
+) => {
+  if (requirement.kind === "none") return null;
+  if (requirement.met === null || requirement.measured === null) return null;
+
+  return `${requirement.measured} / ${requirement.min} ${requirementUnitLabel(
+    requirement.unit,
+  )} — ${requirement.met ? "Raggiunto" : "Non raggiunto"}`;
 };
 
 /**
@@ -348,6 +559,34 @@ export const buildFundingPeriodRows = (
     if (Number.isFinite(indice)) perIndice.set(indice, riga);
   }
 
+  /*
+    **La misura e il requisito si risolvono qui, una volta** (N10, N11).
+
+    Prima li leggeva la schermata direttamente dalla riga, e su un periodo
+    previsto la riga non c'e: `accrual.measured_value` era `undefined`, e il
+    testo usciva «Frequenza EasyGame undefined ore». Il difetto non stava nel
+    disegno ma nel fatto che nessuno avesse dato un nome ai due casi in cui il
+    numero non esiste — «non ancora misurato» e «il bando non chiede niente».
+    Adesso ce l'hanno, e la schermata non ha piu un numero da inventare.
+  */
+  const descrivi = (
+    accrual: Record<string, any> | null,
+  ): Pick<
+    FundingPeriodRow,
+    "measure" | "requirement" | "plannedAmount" | "manualDecision"
+  > => {
+    const measure = resolveFundingPeriodMeasure(accrual, program);
+
+    return {
+      measure,
+      requirement: resolveFundingPeriodRequirement(accrual, program, measure),
+      plannedAmount: accrual
+        ? toFundingAmount(accrual.eligible_amount ?? accrual.eligibleAmount)
+        : normalizeFundingProgram(program).periodAmount,
+      manualDecision: accrualIsManuallyDecided(accrual),
+    };
+  };
+
   const righe: FundingPeriodRow[] = periods.map((period) => {
     const accrual = perIndice.get(period.index) || null;
     perIndice.delete(period.index);
@@ -362,6 +601,7 @@ export const buildFundingPeriodRows = (
           "not_accrued")
         : FUNDING_PERIOD_PLANNED,
       accrual,
+      ...descrivi(accrual),
     };
   });
 
@@ -378,6 +618,7 @@ export const buildFundingPeriodRows = (
       end: String(orfana.period_end || ""),
       status: String(orfana.status || "not_accrued") as FundingAccrualStatus,
       accrual: orfana,
+      ...descrivi(orfana),
     });
   }
 
@@ -933,6 +1174,273 @@ export const calculatePeriodAccrual = ({
 
 export const requirementUnitLabel = (unit: FundingRequirementUnit) =>
   unit === "sessions" ? "presenze" : "ore";
+
+/* --------------------------------------------- la decisione di una persona */
+
+/**
+ * **Cosa una persona puo decidere di un periodo** (N12).
+ *
+ * Non sono stati nuovi: sono i **gesti** che portano un periodo negli stati che
+ * gia esistono. `accrued` e `not_accrued` sono i due stati canonici del
+ * dominio, e `auto` non e uno stato affatto — e la rinuncia alla decisione, che
+ * restituisce il periodo al ricalcolo.
+ *
+ * ## Perche la decisione manuale esiste
+ *
+ * Perche la frequenza registrata in EasyGame **non e l'autorita** su cio che un
+ * ente riconosce. Lo era di fatto: su un bando a fonte `easygame_attendance` il
+ * solo modo di far maturare un mese era registrare abbastanza presenze, e un
+ * club che sapeva — dall'ente, da una comunicazione, da una deroga — che quel
+ * mese valeva, non aveva nessuna riga da premere. La frequenza resta il dato
+ * che **sostiene** la decisione; non e piu la decisione.
+ *
+ * ## Perche `auto` c'e
+ *
+ * Perche una decisione che non si puo ritirare e una trappola. Segnato a mano
+ * un mese per sbaglio, senza `auto` quel mese resterebbe fuori dal ricalcolo
+ * per sempre, e l'unico rimedio sarebbe una riga scritta in archivio a mano.
+ */
+export const FUNDING_PERIOD_DECISIONS = [
+  "accrued",
+  "not_accrued",
+  "auto",
+] as const;
+export type FundingPeriodDecision = (typeof FUNDING_PERIOD_DECISIONS)[number];
+
+export const FUNDING_PERIOD_DECISION_LABELS: Record<
+  FundingPeriodDecision,
+  string
+> = {
+  accrued: "Segna come maturato",
+  not_accrued: "Segna come non maturato",
+  auto: "Torna al calcolo automatico",
+};
+
+export type ManualPeriodDecisionResult = {
+  readonly accruedAmount: number;
+  readonly unaccruedAmount: number;
+  readonly status: Extract<FundingAccrualStatus, "accrued" | "not_accrued">;
+  readonly origin: FundingAccrualOrigin | null;
+  readonly reason: string;
+  /** Vero quando il residuo assegnato ha ridotto l'importo chiesto. */
+  readonly truncated: boolean;
+};
+
+/**
+ * **Quanto vale un periodo che una persona dichiara maturato** (N12).
+ *
+ * Due limiti, e sono gli stessi che valgono per la conferma esterna: non si
+ * matura piu di quanto il periodo valga (`eligibleAmount`), e non si matura
+ * oltre il residuo dell'importo assegnato al club. Il secondo e quello che
+ * conta: senza, una segreteria potrebbe portare un voucher da 300 a 720
+ * premendo dodici volte lo stesso pulsante.
+ *
+ * Non produce **niente** che assomigli a un incasso: restituisce un maturato,
+ * che e un credito verso un ente e resta tale finche l'ente non liquida.
+ */
+export const calculateManualPeriodDecision = ({
+  decision,
+  eligibleAmount,
+  remainingPlafond,
+  requestedAmount = null,
+}: {
+  decision: Exclude<FundingPeriodDecision, "auto">;
+  eligibleAmount: unknown;
+  remainingPlafond: unknown;
+  requestedAmount?: unknown;
+}): ManualPeriodDecisionResult => {
+  const eligibleCents = Math.max(0, toCents(eligibleAmount));
+  const remainingCents = Math.max(0, toCents(remainingPlafond));
+
+  if (decision === "not_accrued") {
+    return {
+      accruedAmount: 0,
+      unaccruedAmount: fromCents(eligibleCents),
+      status: "not_accrued",
+      origin: null,
+      reason: "Periodo dichiarato non maturato dalla societa",
+      truncated: false,
+    };
+  }
+
+  const chiestoCents =
+    requestedAmount === null || requestedAmount === undefined
+      ? eligibleCents
+      : Math.max(0, toCents(requestedAmount));
+
+  const volutoCents = Math.min(chiestoCents, eligibleCents);
+  const concessoCents = Math.min(volutoCents, remainingCents);
+
+  return {
+    accruedAmount: fromCents(concessoCents),
+    unaccruedAmount: fromCents(Math.max(0, eligibleCents - concessoCents)),
+    /*
+      Zero maturato **non** e «maturato per zero»: un periodo che vale zero e
+      un periodo non maturato, e chiamarlo altrimenti farebbe comparire nel
+      rendiconto all'ente una riga da zero euro.
+    */
+    status: concessoCents > 0 ? "accrued" : "not_accrued",
+    origin: concessoCents > 0 ? "manual_confirmation" : null,
+    reason:
+      concessoCents < volutoCents
+        ? concessoCents > 0
+          ? "Dichiarato maturato dalla societa, ridotto al residuo dell'importo assegnato"
+          : "Importo assegnato esaurito: non resta niente da far maturare"
+        : "Periodo dichiarato maturato dalla societa",
+    truncated: concessoCents < volutoCents,
+  };
+};
+
+/* ------------------------------------------ togliere un atleta dal bando */
+
+/**
+ * **Cosa succede se si toglie questo atleta dal programma** (N13).
+ *
+ * Una funzione sola perche la domanda ha **due** consumatori che devono dare
+ * la stessa risposta: il servizio, che sceglie fra cancellare e revocare, e la
+ * schermata, che deve dirlo **prima** che qualcuno prema. Prima la schermata
+ * non lo diceva affatto — non c'era nessun pulsante — e il servizio decideva
+ * da solo dentro una `DELETE`.
+ *
+ * ## I tre casi, e perche sono tre
+ *
+ * * **`delete`** — non e mai successo niente: nessun maturato dichiarato
+ *   all'ente, nessuna liquidazione, nessuna copertura promessa a una famiglia.
+ *   La riga si porta via, e non lascia buchi.
+ * * **`revoke`** — qualcosa e successo, ma nessun denaro dell'ente e arrivato.
+ *   L'adesione passa a `closed` e resta leggibile; le coperture promesse si
+ *   stornano, e la quota a carico della famiglia **risale**.
+ * * **`settled`** — l'ente ha gia versato. Qui l'annullamento semplice non
+ *   esiste: cancellare le coperture mentre il club tiene il denaro dell'ente
+ *   farebbe pagare due volte lo stesso importo — una alla famiglia e una
+ *   all'ente. Si passa dallo storno della liquidazione, che e un atto
+ *   contabile con un suo percorso.
+ *
+ * **Una copertura, anche gia stornata, e storico.** La chiave esterna
+ * dell'adesione sulle coperture e `ON DELETE RESTRICT`: cancellarla con delle
+ * righe agganciate fallirebbe in archivio, ed e il difetto C1 della revisione
+ * ostile. La regola sta qui una volta sola perche il servizio e la schermata
+ * non possano leggerla in due modi.
+ */
+export type EnrollmentRemovalOutcome = "delete" | "revoke" | "settled";
+
+export type EnrollmentRemovalPlan = {
+  readonly outcome: EnrollmentRemovalOutcome;
+  /** Le ragioni, in italiano, da mostrare a chi sta per premere. */
+  readonly reasons: readonly string[];
+  readonly settledAmount: number;
+  /**
+   * Quante righe di liquidazione sono agganciate ai periodi, **storni
+   * compresi**. Zero euro non vuol dire zero righe, e la chiave esterna guarda
+   * le righe.
+   */
+  readonly settlementLineCount: number;
+  readonly reportedPeriodCount: number;
+  readonly coverageRowCount: number;
+  /** Quante coperture vive tornerebbero a carico della famiglia. */
+  readonly liveCoverageCount: number;
+};
+
+export const describeEnrollmentRemoval = ({
+  accruals = [],
+  settlementLines = [],
+  coverageAllocations = [],
+}: {
+  accruals?: readonly unknown[];
+  settlementLines?: readonly unknown[];
+  /** Le righe di copertura dell'adesione, storni compresi. */
+  coverageAllocations?: readonly unknown[];
+}): EnrollmentRemovalPlan => {
+  const righeMaturato = Array.isArray(accruals) ? accruals : [];
+  const righeLiquidazione = Array.isArray(settlementLines)
+    ? settlementLines
+    : [];
+  const righeCopertura = Array.isArray(coverageAllocations)
+    ? coverageAllocations
+    : [];
+
+  const settledCents = righeLiquidazione.reduce(
+    (totale, riga) => totale + toCents(asRecord(riga).amount),
+    0,
+  );
+
+  const reportedPeriodCount = righeMaturato.filter((riga) =>
+    ["reported", "settled"].includes(asText(asRecord(riga).status)),
+  ).length;
+
+  const liveCoverageCount = righeCopertura.filter((riga) => {
+    const record = asRecord(riga);
+    return (
+      !record.reversed_at &&
+      !record.reversedAt &&
+      !record.reverses_allocation_id &&
+      !record.reversesAllocationId
+    );
+  }).length;
+
+  const reasons: string[] = [];
+  if (settledCents > 0) {
+    reasons.push(
+      `L'ente ha gia liquidato ${fromCents(settledCents).toFixed(2)} EUR su questa adesione`,
+    );
+  } else if (righeLiquidazione.length > 0) {
+    /*
+      **Una liquidazione stornata e comunque storia** (revisione ostile, F1).
+
+      Lo storno di una liquidazione scrive una riga di segno opposto: la somma
+      torna a zero, ma le righe restano — e la chiave esterna che le lega al
+      maturato e `ON DELETE RESTRICT` (`funding_settlement_lines_accrual_id_fkey`).
+
+      La prima stesura di questa funzione decideva sull'**importo** invece che
+      sull'**esistenza**, quindi dopo uno storno rispondeva «cancella»: il
+      servizio provava a cancellare i maturati, l'archivio rifiutava, e a quel
+      punto le coperture erano gia state stornate e committate. Adesione viva,
+      famiglia tornata a pagare tutto, e nessun modo di ritentare.
+
+      E la forma esatta del difetto C1, un vincolo piu in la — e la prova che
+      lo copriva non poteva vederlo, perche il doppio di Prisma non fa valere
+      le chiavi esterne. La decisione torna a essere di **esistenza**.
+    */
+    reasons.push(
+      `Una liquidazione e stata registrata e poi stornata: le sue righe restano agganciate ai periodi`,
+    );
+  }
+  if (reportedPeriodCount > 0) {
+    reasons.push(
+      `${reportedPeriodCount} ${reportedPeriodCount === 1 ? "periodo e stato dichiarato" : "periodi sono stati dichiarati"} all'ente`,
+    );
+  }
+  if (righeCopertura.length > 0) {
+    reasons.push(
+      `${righeCopertura.length} ${righeCopertura.length === 1 ? "copertura e stata promessa" : "coperture sono state promesse"} su delle rate`,
+    );
+  }
+
+  /*
+    **`settled` guarda l'importo, `revoke` guarda l'esistenza.**
+
+    Sono due domande diverse e vanno tenute distinte: «l'ente tiene ancora del
+    nostro denaro?» decide se serve un consenso esplicito, «esiste una riga
+    agganciata?» decide se si puo cancellare. Una liquidazione interamente
+    stornata risponde **no** alla prima e **si** alla seconda.
+  */
+  const outcome: EnrollmentRemovalOutcome =
+    settledCents > 0
+      ? "settled"
+      : reasons.length > 0
+        ? "revoke"
+        : "delete";
+
+  return {
+    outcome,
+    reasons,
+    settledAmount: fromCents(settledCents),
+    settlementLineCount: righeLiquidazione.length,
+    reportedPeriodCount,
+    coverageRowCount: righeCopertura.length,
+    liveCoverageCount,
+  };
+};
 
 /**
  * Il maturato di **tutti** i periodi di un beneficiario, in ordine.

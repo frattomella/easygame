@@ -37,10 +37,12 @@
  */
 
 import {
+  buildStatusLabels,
   isSettledTransaction,
   normalizePaymentTransactions,
   resolveLedgerState,
   toCents,
+  type InstallmentLedger,
   type InstallmentLedgerState,
   type NormalizedPaymentTransaction,
 } from "@/lib/payments/installment-ledger";
@@ -154,6 +156,22 @@ export type InstallmentCoverage = {
   /** Il debito: non cambia mai, ed e la ragione per cui il piano resta la fonte. */
   readonly dueAmount: number;
   readonly plannedCoverage: number;
+  /**
+   * **La copertura che il debito sostiene davvero**: `plannedCoverage` limitata
+   * al dovuto.
+   *
+   * Sono due numeri e non uno perche rispondono a due domande. La promessa dice
+   * quanto l'ente si e impegnato a portare; questa dice quanto di quella
+   * promessa **agisce** su questa rata. Divergono quando l'importo di una rata
+   * viene corretto **verso il basso** dopo che la copertura era stata scritta:
+   * una rata da 100 coperta per 100 e poi ridotta a 60 porta una promessa da
+   * 100 e una copertura efficace da 60.
+   *
+   * Somma questa e non la promessa chi deve far quadrare
+   * `dovuto = copertura + quota famiglia` (revisione ostile, F4): sommare la
+   * promessa rompeva l'invariante che il riepilogo dichiara.
+   */
+  readonly appliedCoverage: number;
   readonly accruedCoverage: number;
   readonly settledCoverage: number;
   /** Debito meno copertura prevista: quanto la famiglia deve davvero. */
@@ -261,6 +279,7 @@ export const resolveInstallmentCoverage = ({
   */
   const copertaCents = Math.min(toCents(plannedCoverage), toCents(dovuto));
   const familyDueAmount = Math.max(0, toCents(dovuto) - copertaCents) / 100;
+  const appliedCoverage = copertaCents / 100;
 
   const movimenti = normalizePaymentTransactions(transactions as any[]);
   const familyPaidAmount =
@@ -272,6 +291,7 @@ export const resolveInstallmentCoverage = ({
   return {
     dueAmount: dovuto,
     plannedCoverage,
+    appliedCoverage,
     accruedCoverage: accruedCents / 100,
     settledCoverage: settledCents / 100,
     familyDueAmount,
@@ -283,6 +303,215 @@ export const resolveInstallmentCoverage = ({
       paidAmount: familyPaidAmount,
     }),
     allocations: righe,
+  };
+};
+
+/**
+ * **La rata vista con gli occhi della famiglia** (N14).
+ *
+ * ---
+ *
+ * ## Perche non basta sostituire due importi
+ *
+ * La prima stesura riscriveva `dueAmount` e `residualAmount` e lasciava stare
+ * il resto. Ma **stato, scadenza ed etichette di una rata non sono dati: sono
+ * derivati** da quei due importi (ADR-0036), e lasciarli indietro produce una
+ * riga che si contraddice da sola. Il collaudo a schermo l'ha letta cosi:
+ *
+ * ```
+ * Rata 1 — 50,00 € / 50,00 € pagati · Residuo 0,00 €
+ * [PARZIALMENTE PAGATA] [SCADUTA]
+ * ```
+ *
+ * e in cima alla scheda «1 rata scaduta per 0,00 €». La famiglia aveva versato
+ * tutta la sua quota: lo stato veniva ancora dai 200 lordi, di cui 150 li porta
+ * l'ente.
+ *
+ * ## Cosa fa questa funzione
+ *
+ * Riduce la rata alla quota della famiglia e **ricalcola tutto cio che ne
+ * dipende** con le funzioni che gia lo calcolano: `resolveLedgerState` per lo
+ * stato, `buildStatusLabels` per le etichette. Non ne scrive di nuove.
+ *
+ * `overdue` e l'unica che si compone qui, ed e una congiunzione onesta: una
+ * rata e in ritardo **per la famiglia** se lo era e se le resta ancora
+ * qualcosa da versare. Una rata scaduta il cui residuo familiare e zero non e
+ * un ritardo di nessuno.
+ *
+ * Su una rata senza copertura restituisce l'oggetto **identico**: e la
+ * proprieta che rende questa funzione sicura da applicare a tutte le rate.
+ */
+export const withFamilyShare = (
+  ledger: InstallmentLedger,
+  coverage?: InstallmentCoverage | null,
+): InstallmentLedger => {
+  if (!coverage) return ledger;
+
+  const familyDue = coverage.familyDueAmount;
+
+  /*
+    **Il versato lo porta il registro, non la copertura** (revisione ostile, F2).
+
+    `coverage.familyPaidAmount` somma i **movimenti**, e c'e una classe di rate
+    che non ne ha: quelle saldate prima del registro degli incassi, che lo
+    dichiarano con `status = "paid"` e nessun movimento
+    (`installment-ledger.ts`, «compatibilita con i dati esistenti»). Su una di
+    quelle, coperta da un voucher, la copertura avrebbe detto «versato zero» —
+    e la scheda avrebbe chiesto di nuovo alla famiglia una rata che risultava
+    saldata due righe piu sotto.
+
+    `ledger.paidAmount` conosce tutte e due le forme e non contiene **mai** un
+    centesimo dell'ente: su una rata normale i due numeri coincidono, su una
+    riga vecchia il registro ha ragione. Vince il registro.
+  */
+  const familyPaid = ledger.paidAmount;
+
+  /*
+    **Una quota di zero e una quota assolta.**
+
+    `resolveLedgerState` chiama «in attesa» un dovuto di zero, ed e giusto per
+    una rata lorda: un debito che non esiste non e un debito saldato, e nel
+    registro degli incassi la distinzione conta. Qui la domanda e un'altra —
+    «la famiglia ha versato quanto le toccava?» — e su una rata interamente
+    coperta la risposta e si, banalmente. Lasciare «IN ATTESA» accanto a
+    «Residuo 0,00» rimetterebbe in pagina la contraddizione che questa funzione
+    esiste per togliere.
+  */
+  const state: InstallmentLedgerState =
+    toCents(familyDue) <= 0
+      ? "paid"
+      : resolveLedgerState({ dueAmount: familyDue, paidAmount: familyPaid });
+  const residuo =
+    Math.max(0, toCents(familyDue) - toCents(familyPaid)) / 100;
+  const overdue = ledger.overdue && residuo > 0;
+
+  return {
+    ...ledger,
+    dueAmount: familyDue,
+    paidAmount: familyPaid,
+    residualAmount: residuo,
+    state,
+    overdue,
+    statusLabels: buildStatusLabels(state, overdue),
+    progress:
+      toCents(familyDue) > 0
+        ? Math.min(1, toCents(familyPaid) / toCents(familyDue))
+        : 1,
+  };
+};
+
+/**
+ * **I sette numeri della scheda «Iscrizione»** (N14).
+ *
+ * ---
+ *
+ * ## Perche una funzione e non sette somme nella schermata
+ *
+ * Perche i sette numeri devono **quadrare fra loro**, e sette somme scritte
+ * dentro un componente sono sette occasioni di sbagliarne una senza che nessun
+ * test se ne accorga. L'invariante che li tiene insieme e uno solo:
+ *
+ * ```
+ * quota totale = copertura prevista + a carico della famiglia
+ * a carico della famiglia = pagato dalla famiglia + residuo
+ * ```
+ *
+ * ## Le due contabilita restano due
+ *
+ * `plannedCoverage`, `accruedCoverage` e `settledCoverage` parlano dell'**ente**
+ * e non entrano mai in `familyPaidAmount`. Un voucher maturato per 100 non
+ * sposta di un centesimo cio che la famiglia ha versato, ed e la ragione per
+ * cui questa funzione non restituisce un «totale incassato»: quel numero, qui,
+ * non esiste.
+ *
+ * ## Le rate senza copertura contano lo stesso
+ *
+ * `coverageByInstallment` porta **solo** le rate coperte — e la forma che
+ * `useAthletePaymentLedger` gia produce — quindi una rata assente non e una
+ * rata da zero: e una rata interamente a carico della famiglia. Trattarla come
+ * assente e cio che farebbe sparire dal riepilogo le rate non coperte.
+ */
+export type PlanCoverageSummary = {
+  /** Il debito complessivo del piano: la quota totale. Non cambia mai. */
+  readonly dueAmount: number;
+  readonly plannedCoverage: number;
+  readonly accruedCoverage: number;
+  readonly settledCoverage: number;
+  readonly familyDueAmount: number;
+  readonly familyPaidAmount: number;
+  readonly familyResidualAmount: number;
+  /** Quante rate hanno almeno una copertura viva. */
+  readonly coveredInstallmentCount: number;
+};
+
+export const summarizePlanCoverage = ({
+  installments = [],
+  coverageByInstallment = {},
+}: {
+  installments?: readonly {
+    installmentId?: string | null;
+    dueAmount?: unknown;
+    paidAmount?: unknown;
+  }[];
+  coverageByInstallment?: Record<string, InstallmentCoverage>;
+}): PlanCoverageSummary => {
+  let dueCents = 0;
+  let plannedCents = 0;
+  let accruedCents = 0;
+  let settledCents = 0;
+  let familyDueCents = 0;
+  let familyPaidCents = 0;
+  let coveredInstallmentCount = 0;
+
+  for (const rata of Array.isArray(installments) ? installments : []) {
+    const copertura = coverageByInstallment[asText(rata?.installmentId)];
+
+    /*
+      **«Pagato» ha una definizione sola, e la porta la rata** (revisione
+      ostile, F2). Prima le rate coperte usavano `copertura.familyPaidAmount` —
+      che conta i soli movimenti — e quelle scoperte `rata.paidAmount`, che
+      conosce anche le rate saldate prima del registro. Due definizioni sommate
+      nella stessa colonna: la piu piccola vinceva sulle rate coperte, e la
+      famiglia si vedeva chiedere di nuovo cio che aveva gia versato.
+    */
+    familyPaidCents += toCents(toAmount(rata?.paidAmount));
+
+    if (!copertura) {
+      const dovuto = toCents(toAmount(rata?.dueAmount));
+      dueCents += dovuto;
+      familyDueCents += dovuto;
+      continue;
+    }
+
+    dueCents += toCents(copertura.dueAmount);
+    /*
+      **Si somma la copertura che agisce, non la promessa** (revisione ostile,
+      F4): sommare `plannedCoverage` rompeva l'invariante che questo riepilogo
+      dichiara — su una rata ridotta a 60 dopo una copertura da 100 usciva
+      «quota 60, copertura 100, famiglia 0».
+    */
+    plannedCents += toCents(copertura.appliedCoverage);
+    accruedCents += toCents(copertura.accruedCoverage);
+    settledCents += toCents(copertura.settledCoverage);
+    familyDueCents += toCents(copertura.familyDueAmount);
+    if (copertura.appliedCoverage > 0) coveredInstallmentCount += 1;
+  }
+
+  return {
+    dueAmount: dueCents / 100,
+    plannedCoverage: plannedCents / 100,
+    accruedCoverage: accruedCents / 100,
+    settledCoverage: settledCents / 100,
+    familyDueAmount: familyDueCents / 100,
+    familyPaidAmount: familyPaidCents / 100,
+    /*
+      Il residuo non scende sotto zero: una famiglia che ha versato piu del
+      dovuto ha un credito, e un credito e un fatto che si legge sulla rata —
+      non un residuo negativo da sottrarre alle altre.
+    */
+    familyResidualAmount:
+      Math.max(0, familyDueCents - familyPaidCents) / 100,
+    coveredInstallmentCount,
   };
 };
 

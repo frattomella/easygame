@@ -256,10 +256,21 @@ test("i contributi stanno in un riquadro separato dagli incassi", () => {
     "un riquadro proprio, non una riga dentro il riepilogo dell'iscrizione",
   );
   assert.match(source, /Un voucher assegnato non e denaro incassato/);
+  /*
+    **N14.** La frase «Non entra nei totali qui sopra» e stata tolta perche era
+    diventata falsa: il riepilogo economico mostra adesso la copertura come voce
+    propria, accanto — e non dentro — a cio che la famiglia ha versato. Cio che
+    deve restare scritto e la distinzione, non la separazione fisica.
+  */
   assert.match(
     source,
-    /Non entra nei totali qui sopra/,
-    "e lo dice, invece di lasciarlo dedurre",
+    /come\s*\{" "\}\s*<strong>copertura<\/strong>|come <strong>copertura<\/strong>/,
+    "il riquadro dice che il voucher compare come copertura",
+  );
+  assert.match(
+    source,
+    /mai\s*\n?\s*come incasso/,
+    "e che non compare mai come incasso",
   );
 });
 

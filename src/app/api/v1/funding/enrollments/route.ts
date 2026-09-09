@@ -10,7 +10,7 @@ import {
   listEnrollableProgramsForAthlete,
   listFundingEnrollments,
 } from "@/lib/server/funding";
-import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { canManageFundingAsActor } from "@/lib/funding/permissions";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
 /**
@@ -141,7 +141,7 @@ export async function POST(request: Request) {
       request.headers.get("x-active-access-role"),
     );
 
-    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
+    if (!canManageFundingAsActor(scope.activeRole)) {
       return NextResponse.json(
         {
           data: null,

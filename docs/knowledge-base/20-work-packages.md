@@ -2232,3 +2232,41 @@ riaprirebbe un difetto molto peggiore).
 Vedi [16 — Debito tecnico](16-technical-debt.md) per la forma per esteso, e
 [46](46-pp-05-onboarding-comunicazioni.md) per il perche ognuna non si chiude
 qui.
+
+---
+
+## N10–N14 — Iscrizione, piano di pagamento e voucher (chiusa, 2026-09-09)
+
+La lane nata dal collaudo reale sullo staging, dopo N1–N9. Cinque voci, e
+quattro di loro erano la stessa forma: una funzione completa e nessuna porta che
+ci arrivasse.
+
+| Voce | Cos'era | Stato |
+|------|---------|-------|
+| **N10** | «Frequenza EasyGame **undefined** ore» nel dettaglio di un periodo | **Chiusa.** «Non ancora misurato» e un caso con un nome, e la frase la scrive una funzione sola |
+| **N11** | «Requisito **undefined** ore non raggiunto», e un requisito a zero disegnato come una soglia | **Chiusa.** «Nessun requisito di frequenza», e nessun verdetto senza tutti e due i termini |
+| **N12** | Nessun modo di dichiarare maturato un periodo su un bando a fonte EasyGame | **Chiusa.** `decideAccrualPeriod`: due gesti piu il ritiro, auditati, idempotenti, senza cassa, e il ricalcolo non li riscrive |
+| **N13** | Voucher assegnato, zero maturato, zero liquidato, e nessun modo di annullarlo | **Chiusa.** Il piano lo calcola il dominio e la scheda lo dice prima; con del liquidato si passa dallo storno |
+| **N14** | Tre numeri lordi, e la copertura raggiungibile solo dall'area Movimenti | **Chiusa.** Quattro aree, sette numeri che quadrano, e la copertura si gestisce da dove si guarda la rata |
+
+Decisione: [ADR-0159](18-decision-log.md#adr-0159--la-frequenza-registrata-sostiene-la-decisione-non-la-prende-un-periodo-lo-matura-una-persona-e-un-voucher-assegnato-si-puo-ritirare).
+Nessuna migrazione.
+
+**La revisione ostile ha trovato dieci reperti, e quattro erano miei.** Il piu
+grave — un'adesione con una liquidazione **stornata** finiva nel ramo che
+cancella, e la cancellazione violava una chiave esterna dopo che le coperture
+erano gia state stornate — era la forma esatta del difetto C1 di N9, un vincolo
+piu in la, e nessuna prova in memoria poteva vederlo. Lo vede
+`scripts/n12-n13-maturazione-postgres-probe.mjs`, e la mutazione che rimette il
+difetto lo fa fallire con la violazione vera.
+
+Gli altri tre: la quota della famiglia calcolata solo su due campi (lasciava
+«Residuo 0,00» accanto a «SCADUTA»), l'invariante del riepilogo rotto da una
+rata ridotta dopo la copertura, e un tetto che si riapriva ricalcolando dopo
+aver deciso un periodo **futuro** — 300 su un voucher da 150.
+
+**Quattro voci di debito** restano aperte e sono scritte in
+[16](16-technical-debt.md): `D-VOU-1` (il portale della famiglia non conosce la
+copertura), `D-VOU-2` (le affordance dei pagamenti spente per i ruoli
+personalizzati), `D-VOU-3` (la revoca non e atomica sulle coperture), `D-VOU-4`
+(`confirmAccrualPeriods` vaglia il tetto fuori dalla transazione).

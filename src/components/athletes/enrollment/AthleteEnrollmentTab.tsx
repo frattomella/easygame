@@ -29,6 +29,7 @@ import { DocumentDecisionDialog } from "@/components/payments/DocumentDecisionDi
 import { useAthletePaymentLedger } from "@/components/payments/use-athlete-payment-ledger";
 import { useContiIncasso } from "@/components/payments/use-conti-incasso";
 import { useCausaliIncasso } from "@/components/payments/use-causali-incasso";
+import { CoverageDialog } from "@/components/payments/CoverageDialog";
 import { AthleteFundingSummary } from "@/components/funding/AthleteFundingSummary";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
 import { apiRequest } from "@/lib/api/client";
@@ -54,22 +55,41 @@ import {
  *
  * ## L'ordine, e perche e quello
  *
- * 1. **riepilogo** — piano, quota, pagato, residuo, stato;
+ * 1. **riepilogo economico** — i sette numeri, in sequenza (area A di N14);
  * 2. **prossima rata** — la cosa da fare adesso;
- * 3. **rate** — chiuse, salvo anomalie;
+ * 3. **piano di pagamento** — le rate, con la copertura accanto (area B);
  * 4. **composizione della quota** — chiusa: spiega da dove viene il totale;
- * 5. **voucher e contributi** — separati dai pagamenti della famiglia;
+ * 5. **voucher assegnato e periodi** — separati dai pagamenti (aree C e D);
  * 6. **documenti** — chiusi.
  *
- * Le prime due rispondono alle cinque domande di chi apre la scheda; tutto il
- * resto e dettaglio, e sta dietro una riga da aprire.
+ * Le prime due rispondono alle domande di chi apre la scheda; tutto il resto e
+ * dettaglio, e sta dietro una riga da aprire.
+ *
+ * ## Le cinque distinzioni che la scheda deve rendere ovvie (N14)
+ *
+ * Il collaudo reale ha trovato una scheda che le teneva tutte e cinque
+ * implicite, e la segreteria le ricostruiva a mente:
+ *
+ * | Il piano | genera il **debito** |
+ * | Il voucher | e una **copertura**, cioe una promessa |
+ * | La copertura prevista | **non** e un incasso |
+ * | La maturazione | **non** e una liquidazione |
+ * | Il pagamento della famiglia | e un movimento reale, e sta per conto suo |
+ *
+ * Da qui la forma: le grandezze dell'**ente** e quelle della **famiglia** non
+ * si sommano mai in un totale unico, e dove si affiancano il testo dice perche.
  *
  * ## Una fonte sola per i numeri
  *
- * Riepilogo, prossima rata e rate leggono **lo stesso** stato
- * (`useAthletePaymentLedger`). Non ci sono due modi di calcolare «pagato»:
- * c'e Payments V2, e basta. Lo stato di una rata resta derivato dagli incassi
- * e non si imposta a mano (ADR-0036).
+ * Riepilogo, prossima rata, rate **e il riquadro dei voucher** leggono lo
+ * stesso stato (`useAthletePaymentLedger`). Non ci sono due modi di calcolare
+ * «pagato», e da N14 non ce ne sono due nemmeno di «quanto porta l'ente»: il
+ * pannello dei contributi riceve la proiezione invece di rileggerla, perche due
+ * letture della stessa cosa a mezzo secondo di distanza sono due verita e la
+ * seconda arriva dopo che la prima e stata disegnata.
+ *
+ * Lo stato di una rata resta derivato dagli incassi e non si imposta a mano
+ * (ADR-0036).
  */
 
 const formatCurrency = (value: unknown) =>
@@ -159,14 +179,29 @@ const Section = ({
 const AmountLine = ({
   label,
   value,
+  hint,
   emphasis = false,
 }: {
   label: string;
   value: unknown;
+  /**
+   * Cosa significa quel numero, in tre parole.
+   *
+   * **Non e decorazione**: e cio che impedisce di leggere «Voucher maturato
+   * 100» come cento euro entrati in cassa. Il colore da solo non lo direbbe —
+   * e a chi non distingue i colori non direbbe niente affatto — quindi la
+   * distinzione e scritta.
+   */
+  hint?: string;
   emphasis?: boolean;
 }) => (
-  <div className="flex items-baseline justify-between gap-3 border-b border-dashed border-slate-100 py-1.5 last:border-0 dark:border-slate-800">
-    <span className="text-sm text-muted-foreground">{label}</span>
+  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-b border-dashed border-slate-100 py-1.5 last:border-0 dark:border-slate-800">
+    <span className="text-sm text-muted-foreground">
+      {label}
+      {hint ? (
+        <span className="ml-2 text-xs opacity-80">{hint}</span>
+      ) : null}
+    </span>
     <span
       className={`tabular-nums ${emphasis ? "text-lg font-bold text-slate-900 dark:text-slate-100" : "text-sm font-medium"}`}
     >
@@ -344,6 +379,23 @@ export function AthleteEnrollmentTab({
   const state = ledger.paymentState;
   const hasPlan = ledger.ledgers.length > 0;
 
+  /* La rata di cui si sta gestendo la copertura da voucher (N7, area B di N14). */
+  const [coverageTarget, setCoverageTarget] = React.useState<any>(null);
+
+  const economics = ledger.planCoverage;
+
+  /*
+    **Quando il blocco «ente» ha qualcosa da dire.**
+
+    Se l'atleta non ha nessun voucher, tre righe a zero non aggiungono niente e
+    rubano lo spazio ai quattro numeri che contano. Se ne ha uno — anche non
+    ancora appoggiato a nessuna rata — le righe compaiono, perche «assegnato ma
+    impegnato per zero» e proprio la situazione che una segreteria deve
+    riconoscere: e cio che il collaudo reale non riusciva a vedere.
+  */
+  const hasVoucher =
+    ledger.fundingOverviews.length > 0 || economics.plannedCoverage > 0;
+
   const registerOn = (target: InstallmentLedger | null) => {
     if (!target) return;
     ledger.selectLedger(target);
@@ -381,24 +433,86 @@ export function AthleteEnrollmentTab({
         </CardHeader>
         <CardContent className="space-y-4">
           {/*
+            **I sette numeri, in sequenza** (area A di N14).
+
             I totali stanno **qui e solo qui**. Ripeterli sotto le rate o in
             fondo alla pagina e cio che rendeva la scheda illeggibile.
+
+            L'ordine racconta la catena: il piano genera il debito, il voucher
+            ne copre una parte — prevista, poi maturata, poi liquidata — e cio
+            che resta e della famiglia. Le due contabilita non si sommano in un
+            totale unico, e ogni riga porta scritto cosa significa: il colore
+            non e mai l'unica informazione.
+
+            L'invariante e uno solo, e lo fa valere il dominio:
+            `quota totale = copertura prevista + a carico della famiglia`.
           */}
           <div>
-            <AmountLine label="Quota totale" value={ledger.totals.dueAmount} />
-            <AmountLine label="Pagato" value={ledger.totals.paidAmount} />
             <AmountLine
-              label="Residuo"
-              value={ledger.totals.residualAmount}
+              label="Quota totale"
+              value={economics.dueAmount}
+              hint="il debito del piano"
+            />
+
+            {hasVoucher ? (
+              <>
+                <AmountLine
+                  label="Copertura voucher prevista"
+                  value={economics.plannedCoverage}
+                  hint="promessa, non incassata"
+                />
+                <AmountLine
+                  label="Voucher maturato"
+                  value={economics.accruedCoverage}
+                  hint="credito verso l'ente"
+                />
+                <AmountLine
+                  label="Voucher liquidato"
+                  value={economics.settledCoverage}
+                  hint="versato dall'ente"
+                />
+              </>
+            ) : null}
+
+            <AmountLine
+              label="A carico della famiglia"
+              value={economics.familyDueAmount}
+              hint={hasVoucher ? "quota totale meno copertura" : undefined}
+            />
+            <AmountLine
+              label="Pagato dalla famiglia"
+              value={economics.familyPaidAmount}
+            />
+            <AmountLine
+              label="Residuo famiglia"
+              value={economics.familyResidualAmount}
               emphasis
             />
           </div>
 
-          {ledger.totals.overdueCount > 0 ? (
+          {hasVoucher ? (
+            <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900/40">
+              La copertura di un voucher <strong>non e un incasso</strong>:
+              riduce quanto la famiglia deve, e in cassa entra solo quando
+              l&apos;ente versa. Il maturato e un credito verso l&apos;ente, non
+              una liquidazione.
+            </p>
+          ) : null}
+
+          {/*
+            **Lo scaduto e quello della famiglia** (N14). Su rate coperte da un
+            voucher il conteggio lordo annunciava «due rate scadute per 400 EUR»
+            per un debito che la famiglia non ha, e la telefonata partiva lo
+            stesso.
+          */}
+          {ledger.familyTotals.overdueCount > 0 ? (
             <p className="text-sm font-medium text-red-600">
-              {ledger.totals.overdueCount}{" "}
-              {ledger.totals.overdueCount === 1 ? "rata scaduta" : "rate scadute"}{" "}
-              per {formatCurrency(ledger.totals.overdueAmount)}
+              {ledger.familyTotals.overdueCount}{" "}
+              {ledger.familyTotals.overdueCount === 1
+                ? "rata scaduta"
+                : "rate scadute"}{" "}
+              per {formatCurrency(ledger.familyTotals.overdueAmount)} a carico
+              della famiglia
             </p>
           ) : null}
 
@@ -498,6 +612,12 @@ export function AthleteEnrollmentTab({
                 </p>
               </div>
 
+              {/*
+                Gli importi di «prossima rata» sono gia quelli della famiglia:
+                `nextInstallment` sceglie fra le rate ridotte alla loro quota
+                (N14). Su una rata da 200 coperta per 150 il titolo dice 50, che
+                e la cifra da chiedere allo sportello.
+              */}
               <div>
                 <AmountLine label="Pagato" value={next.paidAmount} />
                 <AmountLine label="Residuo" value={next.residualAmount} />
@@ -526,11 +646,17 @@ export function AthleteEnrollmentTab({
         </CardContent>
       </Card>
 
-      {/* --------------------------------------------------------- 3. rate */}
+      {/* ------------------------------------------ 3. piano di pagamento */}
       <Section
-        title="Rate"
+        title="Piano di pagamento"
         count={ledger.ledgers.length}
-        defaultOpen={shouldExpandInstallments(ledger.totals)}
+        /*
+          Si apre da sola quando **la famiglia** ha qualcosa di anomalo: una
+          rata scaduta che un voucher copre per intero non e un'anomalia della
+          famiglia, e aprire la sezione per quella significherebbe allarmare
+          per un debito che non esiste.
+        */
+        defaultOpen={shouldExpandInstallments(ledger.familyTotals)}
         action={
           ledger.allowManagement && onAddInstallment ? (
             <Button
@@ -551,10 +677,24 @@ export function AthleteEnrollmentTab({
           <>
             <p className="mb-3 text-xs text-muted-foreground">
               Lo stato di una rata si ricava dagli incassi registrati: non si
-              imposta a mano.
+              imposta a mano. La parte coperta da un voucher{" "}
+              <strong>non conta come pagata</strong>: riduce quanto la famiglia
+              deve, e resta un credito verso l&apos;ente.
             </p>
             <InstallmentLedgerList
               ledgers={ledger.ledgers}
+              /*
+                **La copertura si vede e si gestisce da qui** (area B di N14).
+
+                Le due proprieta esistevano dalla lane N7 e le passava soltanto
+                l'area Movimenti: la scheda «Iscrizione» — quella che una
+                segreteria apre per capire quanto deve una famiglia — mostrava
+                le rate lorde e non aveva nessun pulsante per coprirle. La
+                funzione era completa e irraggiungibile dalla schermata in cui
+                serviva (CLAUDE.md §11.8).
+              */
+              coverageByInstallment={ledger.coverageByInstallment}
+              onManageCoverage={(installment) => setCoverageTarget(installment)}
               canManage={ledger.allowManagement}
               busyTransactionId={ledger.busyTransactionId}
               onRegisterPayment={ledger.selectLedger}
@@ -567,8 +707,22 @@ export function AthleteEnrollmentTab({
               onGenerateInvoice={(transaction) =>
                 void ledger.generateInvoice(transaction)
               }
+              /*
+                **Online si paga la quota della famiglia** (revisione ostile,
+                H2). La correzione esisteva sull'area Movimenti e non qui:
+                `validateOnlinePaymentAmount` limita al residuo della rata che
+                riceve, e su una rata da 200 coperta per 150 il checkout
+                accettava fino a 200 — centocinquanta euro che l'ente sta gia
+                portando, e che nessun riquadro avrebbe poi mostrato come
+                credito della famiglia.
+              */
               onPayOnline={
-                ledger.canPayOnline ? ledger.selectOnlineLedger : undefined
+                ledger.canPayOnline
+                  ? (installment: any) =>
+                      ledger.selectOnlineLedger(
+                        ledger.withFamilyShare(installment),
+                      )
+                  : undefined
               }
               /*
                 Il rimborso segue la stessa condizione del pagamento online: un
@@ -644,20 +798,38 @@ export function AthleteEnrollmentTab({
         </div>
       </Section>
 
-      {/* ------------------------------------------ 5. voucher e contributi */}
+      {/* ------------------------- 5. voucher assegnato e periodi (aree C e D) */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Voucher e contributi</CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            Un voucher assegnato non e denaro incassato: matura con la
-            frequenza, si rendiconta, e solo alla fine l&apos;ente lo liquida.
-            Non entra nei totali qui sopra.
+            Un voucher assegnato non e denaro incassato: matura periodo per
+            periodo, si rendiconta all&apos;ente, e solo alla fine l&apos;ente lo
+            liquida. Nel riepilogo qui sopra compare come{" "}
+            <strong>copertura</strong>, che riduce la quota della famiglia, mai
+            come incasso.
           </p>
         </CardHeader>
         <CardContent>
+          {/*
+            **Gli stessi dati del riepilogo, non una seconda lettura** (N14).
+
+            Il pannello leggeva `view=overview` per conto suo, mentre l'hook
+            qui sopra leggeva la **stessa** proiezione per calcolare la
+            copertura: due richieste, due risposte, e i sette numeri in cima
+            potevano raccontare una storia diversa dal riquadro in fondo alla
+            stessa pagina.
+
+            `onChanged` chiude il cerchio: una decisione presa sul voucher
+            ridisegna anche il riepilogo e le rate, perche annullare
+            un'assegnazione cambia quanto la famiglia deve.
+          */}
           <AthleteFundingSummary
             athleteId={athleteId}
             athleteName={athleteName}
+            overviews={ledger.fundingOverviews}
+            coverageAllocations={ledger.coverageAllocations}
+            onChanged={() => ledger.reloadFunding()}
           />
         </CardContent>
       </Card>
@@ -779,6 +951,25 @@ export function AthleteEnrollmentTab({
           </div>
         </div>
       </Section>
+
+      {/*
+        **Coprire una rata con un voucher, dalla scheda in cui si guarda la
+        rata** (area B di N14). La finestra e la stessa dell'area Movimenti: un
+        secondo modo di promettere la stessa copertura sarebbe il duplicato che
+        CLAUDE.md §11.1 elenca fra gli errori tipici di questo repository.
+      */}
+      <CoverageDialog
+        open={Boolean(coverageTarget)}
+        onOpenChange={(open) => {
+          if (!open) setCoverageTarget(null);
+        }}
+        installment={coverageTarget}
+        allocations={ledger.coverageAllocations}
+        fundingOverviews={ledger.fundingOverviews}
+        isSaving={ledger.isSaving}
+        onAllocate={ledger.allocateCoverage}
+        onReverse={ledger.reverseCoverage}
+      />
 
       <PayOnlineDialog
         open={Boolean(ledger.onlineLedger)}

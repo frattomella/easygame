@@ -1,30 +1,62 @@
 "use client";
 
 import React from "react";
-import { ChevronDown, ChevronRight, CheckCircle2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  CheckCircle2,
+  RotateCcw,
+  ThumbsDown,
+  ThumbsUp,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  describeFundingPeriodMeasure,
+  describeFundingPeriodProgress,
+  describeFundingPeriodRequirement,
   fundingAccrualOriginLabel,
-  requirementUnitLabel,
+  resolveFundingPeriodMeasure,
+  resolveFundingPeriodRequirement,
   type FundingAccrualOrigin,
-  type FundingRequirementUnit,
+  type FundingPeriodDecision,
+  type FundingPeriodRow,
 } from "@/lib/funding/funding-model";
 
 /**
- * Il ciclo di vita di un contributo, periodo per periodo (ADR-0054).
+ * Il ciclo di vita di un contributo, periodo per periodo (ADR-0054, N12).
  *
- * **Perche righe e non una data-grid.** Le colonne che servono davvero sono
- * otto — periodo, frequenza, requisito, previsione, stato ufficiale, maturato,
- * rendicontato, liquidato — e otto colonne a 375 px sono una tabella che
- * scorre di lato e non si legge. Qui la riga chiusa dice le tre cose che
- * decidono (quale periodo, quanto vale, a che punto e), e il resto si apre.
+ * ## Perche righe e non una data-grid
  *
- * **Perche previsione e maturato sono due voci separate.** Su un programma la
- * cui fonte ufficiale sta fuori da EasyGame, cio che le presenze del club
- * dicono non e un credito: e un'indicazione. Metterle nella stessa colonna
- * significherebbe far leggere come maturato un numero che l'ente non ha
- * riconosciuto.
+ * Le colonne che servono davvero sono otto — periodo, frequenza, requisito,
+ * previsione, stato ufficiale, maturato, rendicontato, liquidato — e otto
+ * colonne a 375 px sono una tabella che scorre di lato e non si legge. Qui la
+ * riga chiusa dice le tre cose che decidono (quale periodo, quanto vale, a che
+ * punto e), e il resto si apre.
+ *
+ * ## Perche previsione e maturato sono due voci separate
+ *
+ * Su un programma la cui fonte ufficiale sta fuori da EasyGame, cio che le
+ * presenze del club dicono non e un credito: e un'indicazione. Metterle nella
+ * stessa colonna significherebbe far leggere come maturato un numero che l'ente
+ * non ha riconosciuto.
+ *
+ * ## Perche le azioni stanno sulla riga chiusa
+ *
+ * Perche sono il motivo per cui questo elenco esiste (N12). Una decisione che
+ * si raggiunge solo dopo aver aperto un accordion e una decisione che la
+ * segreteria non prende: il pannello aperto spiega **perche** un periodo e
+ * dov'e, ma «maturato / non maturato» si decide guardando l'elenco.
+ *
+ * ## Cosa questo file non calcola piu
+ *
+ * Frequenza e requisito. Li interpolava direttamente dalla riga di maturato, e
+ * su un periodo previsto quella riga non c'e: usciva «Frequenza EasyGame
+ * undefined ore» e «Requisito undefined ore non raggiunto» (N10, N11). Adesso i
+ * due casi in cui il numero non esiste hanno un nome nel dominio —
+ * `measure.kind === "unknown"` e `requirement.kind === "none"` — e la frase la
+ * scrive una funzione sola, che e la sola difesa contro il ritorno di
+ * `undefined` per la terza volta.
  */
 
 const formatCurrency = (value: unknown) =>
@@ -110,12 +142,61 @@ const DetailRow = ({
 
 export type FundingAccrualRow = Record<string, any>;
 
+/** La riga che questo componente disegna: quella del dominio, piu niente. */
+type Riga = FundingPeriodRow & { readonly id: string };
+
+/**
+ * Le righe da disegnare.
+ *
+ * `periods` comanda quando c'e: porta **tutti** i periodi del bando, calcolati
+ * e non (N8), gia corredati di misura e requisito risolti dal dominio. Il
+ * ripiego su `accruals` serve alle sole schermate che non hanno ancora la
+ * proiezione nuova, e passa dalle **stesse** funzioni: un secondo modo di
+ * ricavare la frequenza sarebbe il secondo posto da cui `undefined` puo
+ * ritornare.
+ */
+const costruisciRighe = (
+  periods: readonly FundingPeriodRow[] | undefined,
+  accruals: readonly FundingAccrualRow[],
+  program: unknown,
+): Riga[] => {
+  if (periods && periods.length) {
+    return periods.map((period) => ({
+      ...period,
+      id: period.accrual?.id
+        ? String(period.accrual.id)
+        : `previsto-${period.periodIndex}`,
+    }));
+  }
+
+  return (Array.isArray(accruals) ? accruals : []).map((accrual) => {
+    const measure = resolveFundingPeriodMeasure(accrual, program);
+
+    return {
+      id: String(accrual.id || `periodo-${accrual.period_index}`),
+      periodIndex: Number(accrual.period_index ?? 0),
+      label: String(accrual.period_label || "Periodo"),
+      start: String(accrual.period_start || ""),
+      end: String(accrual.period_end || ""),
+      status: String(accrual.status || "not_accrued") as Riga["status"],
+      accrual,
+      measure,
+      requirement: resolveFundingPeriodRequirement(accrual, program, measure),
+      plannedAmount: Number(accrual.eligible_amount || 0),
+      manualDecision: Boolean(accrual?.data?.manualDecision),
+    };
+  });
+};
+
 export function FundingPeriodsTable({
   accruals,
   periods,
+  program,
   externalSource,
   canManage = false,
+  busyPeriodIndex = null,
   onConfirm,
+  onDecide,
 }: {
   accruals: FundingAccrualRow[];
   /**
@@ -123,41 +204,24 @@ export function FundingPeriodsTable({
    * lui: la schermata mostrava le sole righe di maturato, e il ricalcolo si
    * ferma a oggi, quindi i mesi futuri non comparivano affatto.
    */
-  periods?: {
-    periodIndex: number;
-    label: string;
-    start: string;
-    end: string;
-    status: string;
-    accrual: FundingAccrualRow | null;
-  }[];
+  periods?: FundingPeriodRow[];
+  /** La configurazione del bando: porta requisito e unita dei periodi previsti. */
+  program?: unknown;
   /** Vero quando la fonte ufficiale del programma sta fuori da EasyGame. */
   externalSource: boolean;
   canManage?: boolean;
+  /** Il periodo su cui una decisione e in volo: il suo indice, o `null`. */
+  busyPeriodIndex?: number | null;
   onConfirm?: (accrual: FundingAccrualRow) => void;
+  /** La decisione manuale su un periodo (N12). */
+  onDecide?: (riga: FundingPeriodRow, decision: FundingPeriodDecision) => void;
 }) {
   const [openId, setOpenId] = React.useState<string | null>(null);
 
-  /*
-    Un periodo previsto non ha una riga: si mostra comunque, con un maturato a
-    zero e lo stato `planned`. Cosi l'elenco dice quanti mesi restano e quanto
-    puo ancora arrivare, che e la domanda per cui una segreteria apre questa
-    tabella.
-  */
-  const righe = (periods && periods.length
-    ? periods.map((period) => ({
-        ...(period.accrual || {}),
-        id: period.accrual?.id || `previsto-${period.periodIndex}`,
-        period_index: period.periodIndex,
-        period_label: period.label,
-        period_start: period.start,
-        period_end: period.end,
-        status: period.status,
-        accrued_amount: period.accrual?.accrued_amount ?? 0,
-        settled_amount: period.accrual?.settled_amount ?? 0,
-        __planned: !period.accrual,
-      }))
-    : accruals) as (FundingAccrualRow & { __planned?: boolean })[];
+  const righe = React.useMemo(
+    () => costruisciRighe(periods, accruals, program),
+    [periods, accruals, program],
+  );
 
   if (!righe.length) {
     return (
@@ -169,20 +233,34 @@ export function FundingPeriodsTable({
 
   return (
     <ul className="space-y-2">
-      {righe.map((accrual) => {
-        const id = String(accrual.id);
+      {righe.map((riga) => {
+        const id = riga.id;
         const isOpen = openId === id;
-        const status = String(accrual.status || "not_accrued");
+        const accrual = riga.accrual;
+        const status = String(riga.status || "not_accrued");
         const badge =
           ACCRUAL_STATUS_BADGE[status] || ACCRUAL_STATUS_BADGE.not_accrued;
-        const unit = String(
-          accrual.requirement_unit || "hours",
-        ) as FundingRequirementUnit;
         const pending = status === "pending_confirmation";
+        const settled = status === "settled";
         const reportedAmount = ["reported", "settled"].includes(status)
-          ? Number(accrual.accrued_amount || 0)
+          ? Number(accrual?.accrued_amount || 0)
           : 0;
-        const settledAmount = Number(accrual.settled_amount || 0);
+        const settledAmount = Number(accrual?.settled_amount || 0);
+        const busy = busyPeriodIndex === riga.periodIndex;
+
+        /*
+          L'importo in evidenza risponde alla domanda del momento: su un periodo
+          da confermare e la previsione, su uno gia calcolato e il maturato, su
+          uno mai toccato e quanto il periodo **varrebbe**. Mostrare zero su un
+          mese futuro direbbe che non arrivera niente.
+        */
+        const importoInEvidenza = accrual
+          ? pending
+            ? Number(accrual.estimated_amount || 0)
+            : Number(accrual.accrued_amount || 0)
+          : riga.plannedAmount;
+
+        const progresso = describeFundingPeriodProgress(riga.requirement);
 
         return (
           <li
@@ -203,23 +281,36 @@ export function FundingPeriodsTable({
                 )}
                 <span className="min-w-0">
                   <span className="block truncate font-medium capitalize text-slate-900 dark:text-slate-100">
-                    {accrual.period_label}
+                    {riga.label}
                   </span>
+                  {/*
+                    **Qui usciva «undefined ore su undefined richieste»** (N10,
+                    N11). Adesso la frase la sceglie il dominio, e quando non
+                    c'e niente da confrontare non si scrive un confronto.
+                  */}
                   <span className="block text-xs text-slate-500">
-                    {accrual.measured_value} {requirementUnitLabel(unit)} su{" "}
-                    {accrual.requirement_min} richieste
+                    {progresso ?? describeFundingPeriodMeasure(riga.measure)}
                   </span>
                 </span>
               </span>
 
               <span className="flex flex-wrap items-center gap-2 sm:justify-end">
                 <span className="text-sm font-semibold">
-                  {pending
-                    ? formatCurrency(accrual.estimated_amount)
-                    : formatCurrency(accrual.accrued_amount)}
+                  {formatCurrency(importoInEvidenza)}
                 </span>
                 {pending ? (
                   <span className="text-xs text-violet-700">previsione</span>
+                ) : null}
+                {!accrual ? (
+                  <span className="text-xs text-slate-500">previsto</span>
+                ) : null}
+                {riga.manualDecision ? (
+                  <Badge
+                    variant="outline"
+                    className="border-indigo-200 bg-indigo-50 text-indigo-700"
+                  >
+                    DECISO DALLA SOCIETA
+                  </Badge>
                 ) : null}
                 <Badge variant="outline" className={badge.className}>
                   {badge.label}
@@ -227,30 +318,109 @@ export function FundingPeriodsTable({
               </span>
             </button>
 
+            {/*
+              **Le azioni stanno qui, non dentro il pannello** (N12).
+
+              Sono il motivo per cui questo elenco esiste. Un periodo previsto
+              non ha ancora una riga in archivio e si decide lo stesso: la riga
+              nasce quando qualcuno preme, che e la differenza fra «gestire i
+              periodi» e «gestire i periodi che il ricalcolo ha gia toccato».
+
+              Su un periodo liquidato non c'e nessun pulsante: l'ente ha versato
+              su quell'importo, e la correzione passa dallo storno della
+              liquidazione. Un pulsante che si accende per poi rifiutarsi e
+              peggio di un pulsante che non c'e.
+            */}
+            {canManage && onDecide && !settled ? (
+              /*
+                A 375 px due pulsanti affiancati spezzano «Segna come maturato»
+                su tre righe: a quella larghezza si impilano, e ognuno prende la
+                riga intera. Da `sm` in su tornano accanto, dove lo spazio c'e.
+              */
+              <div className="flex flex-col gap-2 border-t border-dashed border-slate-100 px-3 py-2 sm:flex-row sm:flex-wrap dark:border-slate-800">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy || status === "accrued"}
+                  onClick={() => onDecide(riga, "accrued")}
+                  className="flex-1 sm:flex-none"
+                >
+                  <ThumbsUp className="mr-2 h-4 w-4" />
+                  Segna come maturato
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={busy || status === "not_accrued"}
+                  onClick={() => onDecide(riga, "not_accrued")}
+                  className="flex-1 sm:flex-none"
+                >
+                  <ThumbsDown className="mr-2 h-4 w-4" />
+                  Segna come non maturato
+                </Button>
+                {/*
+                  Ritirare la decisione compare **solo** se una decisione c'e:
+                  altrimenti sarebbe un pulsante che non fa niente, e chi lo
+                  preme non capisce se ha funzionato.
+                */}
+                {riga.manualDecision ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => onDecide(riga, "auto")}
+                    className="flex-1 sm:flex-none"
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Torna al calcolo automatico
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+
             {isOpen ? (
               <div className="border-t border-slate-100 px-3 pb-3 pt-2 dark:border-slate-800">
                 <DetailRow
                   label="Periodo"
-                  value={`${formatDate(accrual.period_start)} — ${formatDate(accrual.period_end)}`}
+                  value={`${formatDate(riga.start)} — ${formatDate(riga.end)}`}
                 />
+                {/*
+                  N10. I tre casi hanno tre frasi, e nessuna delle tre e un
+                  numero inventato: la misura vera, «non ancora disponibile»
+                  quando nessuno ha misurato.
+                */}
                 <DetailRow
                   label="Frequenza EasyGame"
-                  value={`${accrual.measured_value} ${requirementUnitLabel(unit)}`}
+                  value={describeFundingPeriodMeasure(riga.measure)}
                   hint={
-                    accrual.data?.sessionsWithoutDuration
+                    accrual?.data?.sessionsWithoutDuration
                       ? `${accrual.data.sessionsWithoutDuration} allenamenti senza orario`
                       : undefined
                   }
                 />
+                {/*
+                  N11. «Nessun requisito di frequenza» e una configurazione
+                  legittima e non un dato mancante: un requisito a zero
+                  disegnato come «0 ore» sarebbe un numero falso.
+                */}
                 <DetailRow
                   label="Requisito"
-                  value={`${accrual.requirement_min} ${requirementUnitLabel(unit)}`}
-                  hint={accrual.requirement_met ? "raggiunto" : "non raggiunto"}
+                  value={describeFundingPeriodRequirement(riga.requirement)}
+                  hint={progresso ?? undefined}
                 />
                 <DetailRow
-                  label="Previsione EasyGame"
-                  value={formatCurrency(accrual.estimated_amount)}
+                  label="Importo previsto"
+                  value={formatCurrency(riga.plannedAmount)}
                 />
+                {accrual ? (
+                  <DetailRow
+                    label="Previsione EasyGame"
+                    value={formatCurrency(accrual.estimated_amount)}
+                  />
+                ) : null}
                 <DetailRow
                   label="Stato ufficiale"
                   value={
@@ -261,9 +431,9 @@ export function FundingPeriodsTable({
                 />
                 <DetailRow
                   label="Maturato"
-                  value={formatCurrency(accrual.accrued_amount)}
+                  value={formatCurrency(accrual?.accrued_amount)}
                   hint={
-                    accrual.accrual_origin
+                    accrual?.accrual_origin
                       ? fundingAccrualOriginLabel(
                           accrual.accrual_origin as FundingAccrualOrigin,
                         )
@@ -274,7 +444,7 @@ export function FundingPeriodsTable({
                   label="Rendicontato"
                   value={formatCurrency(reportedAmount)}
                   hint={
-                    accrual.reported_at
+                    accrual?.reported_at
                       ? `il ${formatDate(accrual.reported_at)}`
                       : undefined
                   }
@@ -284,7 +454,7 @@ export function FundingPeriodsTable({
                   value={formatCurrency(settledAmount)}
                 />
 
-                {accrual.confirmed_at ? (
+                {accrual?.confirmed_at ? (
                   <DetailRow
                     label="Conferma"
                     value={formatDate(accrual.confirmed_at)}
@@ -296,7 +466,37 @@ export function FundingPeriodsTable({
                   />
                 ) : null}
 
-                {Array.isArray(accrual.data?.previousConfirmations) &&
+                {/*
+                  **Chi ha deciso, quando, e da quale stato** (N12). L'audit
+                  vive anche in `audit_events`, ma una segreteria che guarda un
+                  periodo non apre il registro delle operazioni: la traccia va
+                  letta dove sta il fatto.
+                */}
+                {Array.isArray(accrual?.data?.manualDecisions) &&
+                accrual.data.manualDecisions.length > 0 ? (
+                  <div className="mt-2 rounded-md bg-indigo-50/60 p-2 dark:bg-indigo-950/20">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
+                      Decisioni della societa
+                    </p>
+                    <ul className="mt-1 space-y-1">
+                      {accrual.data.manualDecisions.map(
+                        (voce: any, index: number) => (
+                          <li key={index} className="text-xs text-slate-600">
+                            {voce.decision === "auto"
+                              ? "Restituito al calcolo"
+                              : voce.decision === "accrued"
+                                ? `Maturato ${formatCurrency(voce.toAmount)}`
+                                : "Non maturato"}{" "}
+                            · da «{voce.fromStatus}» · {formatDate(voce.decidedAt)}
+                            {voce.notes ? ` · ${voce.notes}` : ""}
+                          </li>
+                        ),
+                      )}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {Array.isArray(accrual?.data?.previousConfirmations) &&
                 accrual.data.previousConfirmations.length > 0 ? (
                   <div className="mt-2 rounded-md bg-slate-50 p-2 dark:bg-slate-900/40">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -318,13 +518,13 @@ export function FundingPeriodsTable({
                   </div>
                 ) : null}
 
-                {accrual.data?.reason ? (
+                {accrual?.data?.reason ? (
                   <p className="mt-2 text-xs text-slate-500">
                     {accrual.data.reason}
                   </p>
                 ) : null}
 
-                {externalSource && canManage && status !== "settled" ? (
+                {externalSource && canManage && accrual && !settled ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -334,8 +534,8 @@ export function FundingPeriodsTable({
                   >
                     <CheckCircle2 className="mr-2 h-4 w-4" />
                     {accrual.confirmed_at
-                      ? "Correggi la maturazione"
-                      : "Conferma maturazione"}
+                      ? "Correggi l'importo confermato"
+                      : "Registra la conferma dell'ente"}
                   </Button>
                 ) : null}
               </div>

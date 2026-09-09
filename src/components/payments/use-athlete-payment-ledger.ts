@@ -8,7 +8,10 @@ import { openExternalUrl } from "@/lib/navigation/external-link";
 import {
   normalizeCoverageAllocations,
   resolveInstallmentCoverage,
+  summarizePlanCoverage,
+  withFamilyShare as withFamilyShareOf,
   type InstallmentCoverage,
+  type PlanCoverageSummary,
 } from "@/lib/payments/coverage-ledger";
 import {
   buildInstallmentLedgers,
@@ -56,6 +59,17 @@ export type AthletePaymentLedgerState = {
    * mappa non e coperta, e il suo residuo e quello di sempre.
    */
   coverageByInstallment: Record<string, InstallmentCoverage>;
+  /**
+   * **I sette numeri del riepilogo economico** (N14).
+   *
+   * Quota totale, copertura prevista, maturato, liquidato, a carico della
+   * famiglia, pagato, residuo. Li calcola il dominio (`summarizePlanCoverage`)
+   * e non la schermata: sette somme scritte in un componente sono sette
+   * occasioni di sbagliarne una in silenzio.
+   */
+  planCoverage: PlanCoverageSummary;
+  /** Rilegge contributi e coperture insieme agli incassi. */
+  reloadFunding: () => Promise<void>;
   /** Riduce una rata alla quota a carico della famiglia (per il checkout). */
   withFamilyShare: (installment: any) => any;
   coverageAllocations: any[];
@@ -68,6 +82,14 @@ export type AthletePaymentLedgerState = {
   }) => Promise<boolean>;
   reverseCoverage: (allocationId: string, reason?: string) => Promise<boolean>;
   totals: LedgerTotals;
+  /**
+   * **I totali della sola quota a carico della famiglia** (N14).
+   *
+   * `totals` resta il piano lordo — il debito — perche e cio che chi ospita la
+   * scheda si aspetta da `onLedgerChanged`. Questi sono gli stessi totali sulle
+   * rate ridotte alla quota della famiglia: scaduto compreso.
+   */
+  familyTotals: LedgerTotals;
   /** La rata su cui si agisce adesso, o `null` se non c'e niente da incassare. */
   nextInstallment: InstallmentLedger | null;
   /** Lo stato economico dell'iscrizione, ricavato dalle rate. */
@@ -291,9 +313,29 @@ export function useAthletePaymentLedger({
    * numero — quindi le schermate che non la chiedono non cambiano.
    */
   const coverageByInstallment = React.useMemo(() => {
+    /*
+      **Il denominatore conta solo le rate vive** (revisione ostile, F6).
+
+      Il maturato di un'adesione si ripartisce **in proporzione** alla copertura
+      promessa, e il denominatore era la somma su **tutte** le rate dell'atleta,
+      annullate comprese. Dopo una rigenerazione del piano le vecchie rate
+      restano marcate con le loro coperture: un voucher da 300 impegnato su una
+      rata vecchia e su una nuova dava un denominatore di 600, e il maturato per
+      intero usciva dimezzato — «Voucher maturato 150» su un voucher maturato
+      tutto.
+
+      Le rate vive sono quelle che `buildInstallmentLedgers` ha tenuto: il
+      filtro sulle rate annullate e gia scritto li, e non se ne scrive un
+      secondo.
+    */
+    const rateVive = new Set(
+      ledgers.map((riga) => String(riga.installmentId || "")),
+    );
+
     const perAdesione: Record<string, number> = {};
     for (const riga of normalizeCoverageAllocations(coverageAllocations)) {
       if (riga.reversedAt || riga.reversesAllocationId) continue;
+      if (!rateVive.has(riga.paymentId)) continue;
       perAdesione[riga.enrollmentId] =
         (perAdesione[riga.enrollmentId] || 0) + riga.amount;
     }
@@ -344,16 +386,89 @@ export function useAthletePaymentLedger({
     }
 
     return perRata;
-  }, [charges, transactions, coverageAllocations, fundingOverviews]);
+  }, [charges, ledgers, transactions, coverageAllocations, fundingOverviews]);
+
+  /*
+    **Il riepilogo economico della scheda** (N14). Sta accanto a `totals` e non
+    al suo posto: `totals` e il piano **lordo** — il debito, che non cambia mai
+    — e resta la fonte per «quota totale» e per lo stato delle rate. Qui si
+    aggiunge cio che il debito non dice: quanto ne porta un ente e quanto ne
+    resta davvero alla famiglia.
+  */
+  const planCoverage = React.useMemo(
+    () =>
+      summarizePlanCoverage({
+        installments: ledgers,
+        coverageByInstallment,
+      }),
+    [ledgers, coverageByInstallment],
+  );
 
   const totals = React.useMemo(() => summarizeLedgers(ledgers), [ledgers]);
-  const nextInstallment = React.useMemo(
-    () => findNextInstallment(ledgers),
-    [ledgers],
+
+  /**
+   * **La rata ridotta alla quota della famiglia** (revisione ostile, H2).
+   *
+   * Sta qui e non piu in fondo perche adesso la usano anche «prossima rata» e
+   * la finestra di registrazione: c'era un solo consumatore, il checkout, e la
+   * regola era finita accanto a lui.
+   */
+  const conQuotaFamiglia = React.useCallback(
+    (installment: any) =>
+      withFamilyShareOf(
+        installment,
+        coverageByInstallment[String(installment?.installmentId || "")],
+      ),
+    [coverageByInstallment],
   );
+
+  /*
+    **«Prossima rata» e la prossima rata della famiglia** (N14).
+
+    `findNextInstallment` sceglie la prima con un residuo aperto, e il residuo
+    lordo di una rata interamente coperta da un voucher e ancora tutto: la
+    scheda annunciava «Prossima rata 200,00 EUR» sopra un elenco in cui la
+    stessa rata diceva «Residuo 0,00». Due numeri contraddittori a otto righe di
+    distanza, e quello grande apriva la finestra di incasso.
+
+    La regola non si riscrive: si passa a quella che c'e gia l'elenco **con la
+    quota della famiglia**, e il resto — scadute prima, poi per scadenza —
+    rimane dov'era.
+  */
+  const rateDellaFamiglia = React.useMemo(
+    () => ledgers.map(conQuotaFamiglia),
+    [ledgers, conQuotaFamiglia],
+  );
+
+  const nextInstallment = React.useMemo(
+    () => findNextInstallment(rateDellaFamiglia),
+    [rateDellaFamiglia],
+  );
+
+  /**
+   * **I totali di cio che la famiglia deve davvero** (N14).
+   *
+   * `totals` resta il piano **lordo** — e il debito, ed e cio che
+   * `onLedgerChanged` promette a chi ospita la scheda. Questi sono gli stessi
+   * totali calcolati sulle rate ridotte alla quota della famiglia: «due rate
+   * scadute per 400 EUR» su rate interamente coperte da un voucher e un allarme
+   * per un debito che la famiglia non ha.
+   *
+   * Stessa funzione, altro ingresso: non c'e una seconda idea di «scaduto».
+   */
+  const familyTotals = React.useMemo(
+    () => summarizeLedgers(rateDellaFamiglia),
+    [rateDellaFamiglia],
+  );
+  /*
+    **Lo stato risponde alla domanda della famiglia** (N14): ha versato quanto
+    le toccava? E la stessa scelta che `resolveInstallmentCoverage` fa per la
+    singola rata, portata all'iscrizione intera. Su un atleta senza voucher i
+    due ingressi coincidono, quindi non cambia niente per nessun altro.
+  */
   const paymentState = React.useMemo(
-    () => resolveEnrollmentPaymentState(ledgers, totals),
-    [ledgers, totals],
+    () => resolveEnrollmentPaymentState(rateDellaFamiglia, familyTotals),
+    [rateDellaFamiglia, familyTotals],
   );
 
   /*
@@ -960,30 +1075,39 @@ export function useAthletePaymentLedger({
    * Serve al checkout online, che limita l'importo al residuo della rata che
    * riceve. Senza copertura restituisce la rata com'e.
    */
-  const withFamilyShare = React.useCallback(
-    (installment: any) => {
-      const coverage =
-        coverageByInstallment[String(installment?.installmentId || "")];
-      if (!coverage) return installment;
+  const withFamilyShare = conQuotaFamiglia;
 
-      return {
-        ...installment,
-        dueAmount: coverage.familyDueAmount,
-        residualAmount: coverage.familyResidualAmount,
-      };
+  /**
+   * **La finestra di incasso si apre sulla quota della famiglia** (N14).
+   *
+   * `selectLedger` riceveva la rata **lorda** da ogni riga dell'elenco, e la
+   * finestra precompila l'importo con il residuo che le arriva: su una rata da
+   * 600 coperta per 500 proponeva 600, cioe cinquecento euro che la famiglia
+   * non deve e che l'ente sta gia portando. E lo stesso difetto che la
+   * revisione ostile aveva trovato sul canale online (H2), sull'altro canale.
+   *
+   * Non e un divieto: chi vuole incassare un acconto piu grande scrive
+   * l'importo. Cambia cio che il prodotto **propone**.
+   */
+  const selectLedger = React.useCallback(
+    (ledger: InstallmentLedger | null) => {
+      setSelectedLedger(ledger ? conQuotaFamiglia(ledger) : null);
     },
-    [coverageByInstallment],
+    [conQuotaFamiglia],
   );
 
   return {
     ledgers,
     withFamilyShare,
     coverageByInstallment,
+    planCoverage,
+    reloadFunding: reload,
     coverageAllocations,
     fundingOverviews,
     allocateCoverage,
     reverseCoverage,
     totals,
+    familyTotals,
     nextInstallment,
     paymentState,
     transactions,
@@ -994,7 +1118,7 @@ export function useAthletePaymentLedger({
     canPayOnline,
     pendingOnlineInstallmentId,
     selectedLedger,
-    selectLedger: setSelectedLedger,
+    selectLedger,
     onlineLedger,
     selectOnlineLedger: setOnlineLedger,
     isOpeningCheckout,
