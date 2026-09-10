@@ -18,7 +18,9 @@ export type AuthRateLimitPolicy = {
     | "enrollment_status"
     | "access_token_redeem"
     /** Cambio di un fattore su un account gia autenticato (PP-05). */
-    | "credential_change";
+    | "credential_change"
+    /** Registrazione del token push del dispositivo mobile (WP11). */
+    | "device_token";
   limit: number;
   windowMs: number;
 };
@@ -194,6 +196,18 @@ export const AUTH_RATE_LIMITS = {
     scope: "enrollment_status",
     limit: 120,
     windowMs: 15 * 60_000,
+  },
+  /*
+    Il token push (WP11). L'endpoint e autenticato — non serve difendersi da
+    chi non ha un account — ma un client compromesso o con un bug potrebbe
+    martellare la registrazione a ogni apertura dell'app. Trenta all'ora per
+    account coprono un riavvio ogni due minuti, molto piu di quanto l'uso
+    reale richieda, e restano un tetto per chi ne fa cento al minuto.
+  */
+  deviceTokenAccount: {
+    scope: "device_token",
+    limit: 30,
+    windowMs: 60 * 60_000,
   },
 } as const satisfies Record<string, AuthRateLimitPolicy>;
 

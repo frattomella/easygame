@@ -508,6 +508,15 @@ Fonte ufficiale da mantenere aggiornata:
 - `GET /api/v1/auth/oauth/:provider/callback`
 - `POST /api/v1/auth/password/forgot`
 - `POST /api/v1/auth/password/reset`
+- `POST /api/v1/auth/device-tokens` — registra/rinnova il token push (Expo)
+  del dispositivo mobile per l'account autenticato; upsert sul token, mai una
+  seconda riga per lo stesso dispositivo
+- `DELETE /api/v1/auth/device-tokens` — revoca esplicita, senza logout. Il
+  logout revoca gia da solo i token della propria sessione
+
+  Solo anagrafica dei destinatari (WP11, ADR-0166): nessuna di queste due
+  rotte invia una notifica push. Vedi
+  [05](knowledge-base/05-mobile-architecture.md).
 
 ## Endpoint amministrazione piattaforma
 

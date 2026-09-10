@@ -50,6 +50,23 @@ export const resetPasswordInputSchema = z.object({
   password: fields.password(),
 });
 
+/**
+ * Registrazione di un token push (WP11). `token` e cio che
+ * `expo-notifications` emette (`ExponentPushToken[...]` o, su un device
+ * fisico registrato per FCM/APNs nativo, il token nativo) — una stringa
+ * opaca, non un segreto da validare per forma oltre alla lunghezza.
+ */
+export const deviceTokenInputSchema = z.object({
+  token: fields.text("Token dispositivo", 512),
+  platform: z.enum(["ios", "android"], {
+    errorMap: () => ({ message: "Piattaforma non valida" }),
+  }),
+});
+
+export const deviceTokenRevokeInputSchema = z.object({
+  token: fields.text("Token dispositivo", 512),
+});
+
 /* ---------------------------------------------------------- denaro */
 
 /**

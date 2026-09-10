@@ -41,6 +41,7 @@ model User {
   external_accounts           ExternalAccount[]
   verification_challenges     AuthVerificationChallenge[]
   athlete_account_invites     AthleteAccountInvite[]
+  device_push_tokens          DevicePushToken[]
 
   @@map("users")
 }
@@ -143,16 +144,58 @@ model ImapProviderConfig {
 }
 
 model Session {
-  id         String   @id @default(uuid()) @db.Uuid
-  token      String   @unique
-  user_id    String   @db.Uuid
-  expires_at DateTime
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id                String            @id @default(uuid()) @db.Uuid
+  token             String            @unique
+  user_id           String            @db.Uuid
+  expires_at        DateTime
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+  user              User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  device_push_tokens DevicePushToken[]
 
   @@index([user_id])
   @@map("sessions")
+}
+
+/// Un token push (Expo) registrato da un dispositivo mobile per un account.
+/// Nasce con WP11 (ADR-0166). **Solo anagrafica dei destinatari**: nessun
+/// invio di notifiche push e implementato da questa tabella in poi, ne da
+/// questo WP — quello resta un lavoro a se (vedi
+/// `docs/knowledge-base/05-mobile-architecture.md`).
+///
+/// Il token e **unico** nel senso letterale: lo stesso telefono che cambia
+/// account (logout e login con un utente diverso) riscrive la riga sul nuovo
+/// `user_id` invece di lasciarne una seconda che punterebbe ancora al
+/// vecchio proprietario — un token duplicato varrebbe una notifica recapitata
+/// alla persona sbagliata.
+model DevicePushToken {
+  id      String @id @default(uuid()) @db.Uuid
+  user_id String @db.Uuid
+
+  /// La sessione mobile che ha registrato o rinnovato il token. La revoca al
+  /// logout (`revokeDevicePushTokensForSession`) legge questa colonna
+  /// **prima** che la sessione sia cancellata; l'`onDelete: SetNull` e solo
+  /// una rete di sicurezza per una sessione cancellata da un'altra strada
+  /// (scadenza, pulizia), non il meccanismo di revoca.
+  session_id String? @db.Uuid
+
+  /// `ios` o `android` — cio che `expo-device`/`Platform.OS` riporta.
+  platform String
+
+  token String @unique
+
+  last_seen_at DateTime  @default(now())
+  revoked_at   DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  user    User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  session Session? @relation(fields: [session_id], references: [id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([session_id])
+  @@map("device_push_tokens")
 }
 
 model Club {

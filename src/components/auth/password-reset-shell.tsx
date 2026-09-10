@@ -200,11 +200,33 @@ export function ResetPasswordScreen() {
     );
   }
 
+  /*
+    Passaggio di consegna verso l'app mobile (WP11 mobile,
+    `easygamemobile/client/screens/ResetPasswordScreen.tsx`). Non e un
+    Universal Link: senza un dominio associato reale (serve il Team ID
+    Apple, non ancora disponibile — vedi WP12) l'unico modo onesto di
+    aprire l'app da questa pagina e un link con lo schema personalizzato,
+    che l'utente tocca lui stesso — mai un redirect automatico, che
+    fallirebbe silenziosamente per chi l'app non ce l'ha. Il dominio
+    identita (token, endpoint, regola della password) resta lo stesso:
+    questo e solo un secondo modo di raggiungere la stessa pagina.
+  */
+  const mobileAppUrl = `easygame://reset-password?uid=${encodeURIComponent(userId)}&token=${encodeURIComponent(token)}`;
+
   return (
     <Shell
       title="Scegli una nuova password"
       description={`Almeno ${PASSWORD_POLICY.minLength} caratteri. Il link è valido una sola volta.`}
     >
+      {status !== "done" ? (
+        <p className="mb-4 text-sm text-slate-500">
+          Hai l&apos;app EasyGame?{" "}
+          <a href={mobileAppUrl} className="font-medium text-[var(--eg-blue)] hover:underline">
+            Aprila qui
+          </a>{" "}
+          per completare piu comodamente.
+        </p>
+      ) : null}
       {status === "done" ? (
         <Feedback tone="ok">{message}</Feedback>
       ) : (

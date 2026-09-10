@@ -1694,6 +1694,22 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "auth.device_tokens.register",
+    method: "POST",
+    path: "/api/v1/auth/device-tokens",
+    description:
+      "Registra o rinnova il token push (Expo) del dispositivo mobile per l'account autenticato. Solo anagrafica: nessun invio di notifiche parte da qui (WP11, ADR-0166)",
+    mobile_ready: true,
+  },
+  {
+    name: "auth.device_tokens.revoke",
+    method: "DELETE",
+    path: "/api/v1/auth/device-tokens",
+    description:
+      "Revoca esplicitamente il token push del dispositivo (l'account resta collegato). Il logout revoca gia i token della propria sessione per conto proprio",
+    mobile_ready: true,
+  },
+  {
     name: "auth.oauth.start",
     method: "GET",
     path: "/api/v1/auth/oauth/:provider/start",

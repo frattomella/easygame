@@ -30,6 +30,8 @@ export const AUDIT_ACTIONS = {
   authPasswordResetRequested: "auth.password_reset.requested",
   authPasswordResetCompleted: "auth.password_reset.completed",
   authPasswordResetFailed: "auth.password_reset.failed",
+  authDeviceTokenRegistered: "auth.device_token.registered",
+  authDeviceTokenRevoked: "auth.device_token.revoked",
   membershipActivated: "membership.activated",
   membershipDeleted: "membership.deleted",
   accessTokenRedeemed: "membership.access_token.redeemed",

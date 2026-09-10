@@ -180,6 +180,10 @@ const NON_CLUB_SCOPED = new Map([
   ["v1/auth/memberships/activate", "membership dell'utente in sessione"],
   ["v1/auth/memberships/delete", "membership dell'utente in sessione"],
   ["v1/auth/access/redeem", "collega l'utente tramite token condiviso"],
+  [
+    "v1/auth/device-tokens",
+    "token push del dispositivo dell'utente in sessione (WP11), nessun club coinvolto",
+  ],
   ["v1/auth/athlete-profile/[athleteId]", "verifica il legame utente-atleta"],
   ["parent-dashboard/[athleteId]", "verifica il legame genitore-atleta"],
   ["parent-dashboard/[athleteId]/appointments", "legame genitore-atleta"],

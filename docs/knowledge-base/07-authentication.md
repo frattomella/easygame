@@ -52,6 +52,7 @@ dell'account tramite timing. Il messaggio d'errore e sempre
 | POST | `/api/v1/auth/verify/phone/send` · `/confirm` | OTP telefono |
 | POST | `/api/v1/auth/password/forgot` | Richiesta reset password |
 | POST | `/api/v1/auth/password/reset` | Imposta la nuova password |
+| POST/DELETE | `/api/v1/auth/device-tokens` | Registra/rinnova o revoca il token push del dispositivo mobile (WP11) |
 | GET | `/api/v1/auth/oauth/[provider]/start` · `/callback` | OAuth |
 
 ## Flusso di login (stato reale, da PP-05)
@@ -298,6 +299,19 @@ UI: `/auth/forgot-password` e `/auth/reset-password`, piu il link «Password
 dimenticata?» nella schermata di login. Entrambe le pagine restano pubbliche
 (il middleware non protegge `/auth`).
 
+**Completamento nativo da mobile (WP11).** `ResetPasswordScreen`
+(`easygamemobile/client/screens/ResetPasswordScreen.tsx`) chiama lo stesso
+`POST /api/v1/auth/password/reset` — nessun endpoint, token o regola nuova,
+solo un secondo client per lo stesso completamento. Il link resta lo stesso
+URL Web (`{AUTH_BASE_URL}/auth/reset-password?uid=...&token=...`): senza un
+dominio associato reale (serve il Team ID Apple, WP12) l'app non puo
+intercettarlo come Universal Link, quindi `/auth/reset-password` offre ora un
+link di passaggio con lo schema personalizzato dell'app
+(`easygame://reset-password?uid=...&token=...`) che l'utente tocca lui
+stesso — mai un redirect automatico. Il mobile riconosce **lo stesso** token
+di invalido/scaduto/gia-usato come un unico stato (§"Nessuna enumerazione"
+sopra vale anche qui): non tenta di distinguerli.
+
 ### Verificato end-to-end il 2026-08-22
 
 Ciclo completo eseguito contro un **database reale** (ambiente di sviluppo),
@@ -313,6 +327,44 @@ verifica email.
 prodotto un evento di audit `auth.password_reset.requested` con
 `{"delivered": true}`, che il codice imposta solo quando il provider SMTP
 conferma l'invio. Il token generato dal test e stato invalidato subito dopo.
+
+## Token push del dispositivo (WP11, ADR-0166)
+
+`device_push_tokens` (`src/lib/server/device-push-tokens.ts`, unico
+scrittore): **solo anagrafica dei destinatari**, nessun invio di notifiche
+push e implementato da nessuna parte del repository dopo questo WP.
+
+```
+POST /api/v1/auth/device-tokens { token, platform: "ios" | "android" }
+  1. richiede una sessione (Bearer o cookie) — nessun club coinvolto
+  2. rate limit 30/ora per account (scope "device_token")
+  3. upsert sul solo `token`: se la riga esiste gia (stesso dispositivo,
+     stesso account o un account diverso che aveva effettuato l'accesso
+     prima) viene riscritta per intero sul chiamante corrente
+  4. `session_id` = la sessione che ha fatto la chiamata
+
+DELETE /api/v1/auth/device-tokens { token }
+  revoca esplicita (`revoked_at`), solo se il token appartiene al chiamante
+```
+
+**La revoca al logout e automatica.** `POST /api/v1/auth/logout` chiama
+`revokeDevicePushTokensForSession(session.id)` **prima** di cancellare la
+sessione: solo i token di quella sessione — cioe di quel dispositivo —
+vengono revocati, gli altri dispositivi dello stesso account restano
+collegati. Nessuna chiamata separata e richiesta dal client mobile per
+questo.
+
+Un token e unico nel senso letterale: lo stesso telefono che cambia account
+(logout e login con un utente diverso) riscrive la riga sul nuovo `user_id`
+invece di lasciarne una seconda che punterebbe ancora al vecchio proprietario
+— un token duplicato varrebbe una notifica recapitata alla persona sbagliata.
+
+**Cosa manca, dichiarato.** Nessuna pipeline di invio esiste: creare un
+`AuthVerificationChallenge`, un appuntamento o un avviso di bacheca non
+genera oggi nessuna notifica push verso i token registrati. Collegare ogni
+dominio che gia scrive su `notifications` a un invio push reale e un lavoro a
+se, fuori da questo WP (vedi
+[05](05-mobile-architecture.md#wp11--push-deep-linking-e-recupero-password-nativo-adr-0166)).
 
 ## Rate limiting
 
