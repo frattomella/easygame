@@ -243,8 +243,8 @@ funzionava e non si vedeva.
 | Recupero password | PARTIAL | Avvio reale (`POST /api/v1/auth/password/forgot`); il completamento apre il browser sulla pagina Web esistente — nessun deep link per completarlo in-app |
 | Gate ruoli non supportati (V1: solo Trainer/Parent) | COMPLETE | `resolveMobileRoleGate` in `RootStackNavigator`, schermata unica "EasyGame Mobile è in aggiornamento" |
 | Selezione club/contesto | COMPLETE | `AccountHubScreen`, attivazione con ruolo/tessera precisi (ADR-0102) |
-| Home trainer | PARTIAL | `TrainerHomeDashboardScreen`, linguaggio visivo non ancora aggiornato al design system nuovo |
-| Allenamenti / partite / atleti trainer | PARTIAL | Schermate v2 collegate, funzionalita ridotte rispetto al Web, linguaggio visivo non ancora aggiornato |
+| Home trainer | COMPLETE | `TrainerHomeDashboardScreen`, reskin sul design system CURRENT in WP10 (ADR-0165) |
+| Allenamenti / partite / atleti trainer | PARTIAL | Reskin sul design system CURRENT completato in WP10 (ADR-0165); resta funzionalita ridotta rispetto al Web (nessun editing di allenamenti/gare da mobile) |
 | Bacheca trainer | COMPLETE | `TrainerBoardScreen` (WP3) → `GET /api/v1/announcements?mine=1`, sola lettura come sul Web |
 | Documenti propri trainer | PARTIAL | `TrainerDocumentsScreen` (WP3): metadati e stato di scadenza; apertura/download del file non implementato (serve un client autenticato per il binario) |
 | Appuntamenti trainer | COMPLETE | `TrainerAppointmentsScreen` (WP3): conferma/rifiuta (con motivo)/riprogramma secondo le transizioni del dominio |

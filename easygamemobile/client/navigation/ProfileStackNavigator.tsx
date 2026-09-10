@@ -8,8 +8,6 @@ import TrainerDocumentsScreen from "@/screens/TrainerDocumentsScreen";
 import TrainerAppointmentsScreen from "@/screens/TrainerAppointmentsScreen";
 import TrainerCompensationScreen from "@/screens/TrainerCompensationScreen";
 import TrainerCategoriesScreen from "@/screens/TrainerCategoriesScreen";
-import { HeaderTitle } from "@/components/HeaderTitle";
-import { HeaderNotificationButton } from "@/components/HeaderNotificationButton";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type ProfileStackParamList = {
@@ -26,10 +24,10 @@ export type ProfileStackParamList = {
 const Stack = createNativeStackNavigator<ProfileStackParamList>();
 
 /**
- * Le cinque sezioni nuove di WP3 (More, Board, Documents, Appointments,
- * Compensation, Categories) disegnano il proprio guscio con
- * `SecondaryScreenLayout` (Floodlight + AppBar del design system nuovo):
- * `headerShown: false` qui evita un secondo header sopra il loro.
+ * Ogni schermata di questo stack disegna il proprio guscio con
+ * `SecondaryScreenLayout` (Floodlight + AppBar del design system, esteso a
+ * `Profile`/`Notifications` in WP10): `headerShown: false` qui evita un
+ * secondo header sopra il loro.
  */
 export default function ProfileStackNavigator() {
   const screenOptions = useScreenOptions({ transparent: false });
@@ -39,21 +37,12 @@ export default function ProfileStackNavigator() {
       <Stack.Screen
         name="Profile"
         component={TrainerProfileDashboardScreen}
-        options={({ navigation }) => ({
-          headerTitle: () => <HeaderTitle title="Profilo" />,
-          headerRight: () => (
-            <HeaderNotificationButton
-              onPress={() => navigation.navigate("Notifications")}
-            />
-          ),
-        })}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="Notifications"
         component={NotificationsScreen}
-        options={{
-          headerTitle: () => <HeaderTitle title="Notifiche" />,
-        }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="More"

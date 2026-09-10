@@ -1,24 +1,32 @@
 import React, { useCallback, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { Ionicons } from "@expo/vector-icons";
 
-import { Card } from "@/components/Card";
-import { ThemedText } from "@/components/ThemedText";
-import { useTheme } from "@/hooks/useTheme";
+import {
+  GlassCard,
+  IconChip,
+  SecondaryScreenLayout,
+  SignatureText,
+  StateMessage,
+} from "@/components/signature";
 import { formatItalianDate } from "@/lib/mobile-ui";
 import { Task } from "@/services/api";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { BorderRadius, Colors, Spacing } from "@/constants/theme";
+import { Spacing } from "@/constants/theme";
 
+/**
+ * Stessa fonte dati di prima (`mobileBackendStorage.getTasks()`), veste
+ * allineata alle altre schermate secondarie del Trainer (WP10) —
+ * `SecondaryScreenLayout` + `GlassCard`, come `TrainerBoardScreen`.
+ */
 export default function NotificationsScreen() {
-  const { theme } = useTheme();
   const [notifications, setNotifications] = useState<Task[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
     const nextNotifications = await mobileBackendStorage.getTasks();
     setNotifications(nextNotifications);
+    setLoaded(true);
   }, []);
 
   useFocusEffect(
@@ -27,117 +35,48 @@ export default function NotificationsScreen() {
     }, [loadData]),
   );
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
-  };
-
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      <View style={styles.hero}>
-        <ThemedText type="h4">Notifiche importanti</ThemedText>
-        <ThemedText
-          type="small"
-          style={{ color: theme.textSecondary, marginTop: Spacing.xs }}
-        >
-          Promemoria e avvisi collegati al club attivo e al tuo ruolo.
-        </ThemedText>
-      </View>
+    <SecondaryScreenLayout title="Notifiche" eyebrow="Club">
+      <SignatureText variant="small" tone="muted" style={{ marginBottom: 4 }}>
+        Promemoria e avvisi collegati al club attivo e al tuo ruolo.
+      </SignatureText>
 
-      {notifications.length > 0 ? (
+      {!loaded ? (
+        <StateMessage kind="loading" />
+      ) : notifications.length > 0 ? (
         notifications.map((notification) => (
-          <Card key={notification.id} style={styles.card}>
-            <View style={styles.cardHeader}>
-              <View
-                style={[
-                  styles.iconWrap,
-                  { backgroundColor: "rgba(37,99,235,0.12)" },
-                ]}
-              >
-                <Ionicons
-                  name="notifications-outline"
-                  size={18}
-                  color={Colors.light.primary}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <ThemedText type="body" style={styles.cardTitle}>
+          <GlassCard key={notification.id} style={{ gap: Spacing.xs }}>
+            <View style={{ flexDirection: "row", gap: Spacing.md }}>
+              <IconChip name="notifications-outline" size={40} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <SignatureText
+                  variant="body"
+                  tone="ink"
+                  style={{ fontWeight: "700" }}
+                >
                   {notification.title}
-                </ThemedText>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>
+                </SignatureText>
+                <SignatureText variant="small" tone="muted">
                   {notification.dueDate
                     ? formatItalianDate(notification.dueDate, "d MMM yyyy")
                     : "Senza scadenza"}
-                </ThemedText>
+                </SignatureText>
               </View>
             </View>
             {notification.description ? (
-              <ThemedText
-                type="small"
-                style={{ color: theme.textSecondary, marginTop: Spacing.sm }}
-              >
+              <SignatureText variant="small" tone="muted">
                 {notification.description}
-              </ThemedText>
+              </SignatureText>
             ) : null}
-          </Card>
+          </GlassCard>
         ))
       ) : (
-        <Card style={styles.emptyCard}>
-          <Ionicons
-            name="notifications-off-outline"
-            size={24}
-            color={theme.textSecondary}
-          />
-          <ThemedText type="body" style={styles.cardTitle}>
-            Nessuna notifica
-          </ThemedText>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Quando arrivano nuovi avvisi del club li vedi qui.
-          </ThemedText>
-        </Card>
+        <StateMessage
+          kind="empty"
+          title="Nessuna notifica"
+          message="Quando arrivano nuovi avvisi del club li vedi qui."
+        />
       )}
-    </ScrollView>
+    </SecondaryScreenLayout>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: {
-    padding: Spacing.lg,
-    paddingBottom: Spacing["4xl"],
-    gap: Spacing.md,
-  },
-  hero: {
-    marginBottom: Spacing.sm,
-  },
-  card: {
-    marginBottom: Spacing.md,
-  },
-  cardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-  },
-  iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.md,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cardTitle: {
-    fontWeight: "700",
-  },
-  emptyCard: {
-    alignItems: "center",
-    gap: Spacing.sm,
-    paddingVertical: Spacing["3xl"],
-  },
-});

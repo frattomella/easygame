@@ -10359,3 +10359,68 @@ push/deep-link. La priorita assoluta resta EasyGame Web V1.
 [11](11-capabilities.md).
 
 ---
+
+## ADR-0165 — Il reskin delle quattro tab Trainer primarie (WP10)
+
+**Data:** 2026-09-10
+
+**Contesto.** ADR-0161 aveva riaperto lo sviluppo mobile per Identity &
+Access, ADR-0162 per la parita funzionale Trainer, ADR-0163/ADR-0164 per
+l'intera area Parent. In tutti e tre i casi la Home, gli Allenamenti, le
+Gare e gli Atleti del Trainer erano rimasti sul linguaggio visivo
+precedente (sfondo piatto, `Card`/`Button`/`Badge` esistenti) mentre il
+Dock — chrome condivisa, non contenuto — era gia quello nuovo, e le cinque
+sezioni secondarie di WP3 lo usavano gia per intero: una cucitura visibile
+fra Trainer e Parent, dichiarata come rollout incrementale in attesa di un
+WP dedicato ([05](05-mobile-architecture.md), "Perche solo il Dock e stato
+applicato"). Una decisione esplicita successiva ha chiesto di chiudere
+quella cucitura, sulla versione CURRENT del design system nel frattempo
+salita a **EGDS v2.3.0 "Real data", sync 2026-09-10**: normativa in
+`guidelines/trainer-migration.md` per la prima volta, oltre a formalizzare
+`AppBar`/`Dock`/`StatusPill`/`GlassCard`/`ActionButton` come componenti
+verificate (§B7–B11) e riscrivere `EnrollmentStatusCard` sul contratto dati
+reale (Parte C, non toccata da questo WP).
+
+**Decisione.** Si estende l'eccezione al reskin visivo delle sei schermate
+Trainer raggiungibili dal Dock — le cinque tab primarie piu il dettaglio
+atleta e le notifiche — **senza toccare dati, endpoint, permessi o
+comportamento**:
+
+1. **Stessa logica, veste nuova.** Ogni schermata continua a leggere
+   `mobileBackendStorage.*` e a rispettare le stesse chiavi
+   `trainerPermissions.navigation|widgets|actions.*` di prima; l'ordine di
+   raggruppamento (oggi → settimana → dopo → storico) e il perimetro dei
+   dati visibili per ruolo non cambiano. Il Dock, gia migrato, non e stato
+   toccato.
+2. **`SelectableAthleteRow` nasce qui.** Lo spec la normava (§B3) ma non
+   era mai stata portata — nessun file, nessun uso in nessun WP precedente.
+   Costruita come estensione minima e coerente dello spec gia scritto, non
+   come nuova direzione: i quattro segnali di selezione ridondanti che lo
+   spec rende obbligatori (tinta della `NumberTile`, anello, bordo, parola)
+   sono tutti presenti; la sola omissione dichiarata e la superficie
+   "glass strong" alla selezione, che non e fra i quattro obbligatori.
+3. **`SecondaryScreenLayout` si estende, non si duplica.** Le quattro tab
+   primarie hanno bisogno di un cielo piu alto (`SectionHero`), di un
+   campanello al posto della freccia indietro e di pull-to-refresh — nessuno
+   dei tre esisteva sul componente. Estesi con tre prop opzionali
+   (`skyHeight`, `onNotifications`/`notificationCount`, `refreshControl`):
+   i sei chiamanti precedenti (le cinque sezioni di WP3 piu se stesso)
+   restano identici.
+4. **Un bug reale corretto durante la migrazione, non introdotto.** La
+   `Modal` nativa delle presenze/convocazioni segnalava un certificato
+   medico scaduto con la sola icona di avviso, lasciando comunque segnare
+   la presenza; `SelectableAthleteRow` la **blocca**, mostrando il motivo —
+   esattamente il comportamento che lo spec B3 rende obbligatorio per una
+   riga disabilitata ("dice sempre perche"), non una funzionalita nuova.
+
+**Cio che questa decisione non cambia.** Nessuna nuova area funzionale.
+Nessuna modifica alla dashboard Web. Nessuna pipeline di build. Push, deep
+linking e recupero password nativo restano fuori — non dipendono da questo
+reskin e sono un lavoro a se. Le cinque sezioni secondarie di WP3 non sono
+state toccate: erano gia nel linguaggio nuovo.
+
+**Vedi anche.** ADR-0161, ADR-0162, ADR-0163, ADR-0164,
+[05](05-mobile-architecture.md), `guidelines/trainer-migration.md`,
+[16](16-technical-debt.md).
+
+---

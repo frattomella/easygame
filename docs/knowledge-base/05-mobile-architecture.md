@@ -4,14 +4,19 @@
 > [ADR-0025](18-decision-log.md#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive);
 > eccezioni in
 > [ADR-0161](18-decision-log.md#adr-0161--la-decisione-esplicita-di-adr-0025-riguarda-identity--access-mobile-non-tutto-il-mobile-si-riprende-ma-solo-per-trainer-e-parent) (Identity & Access),
-> [ADR-0162](18-decision-log.md#adr-0162--leccezione-di-adr-0161-si-allarga-parita-funzionale-trainer-non-solo-identity--access) (parita Trainer) e
-> [ADR-0163](18-decision-log.md#adr-0163--leccezione-si-allarga-ancora-larea-parent-reale-sugli-stessi-contratti-del-web) (area Parent, WP4-WP6),
-> tutte 2026-09-10). La priorita assoluta resta completare EasyGame Web V1 e
-> renderla responsive. **Nessuna nuova area funzionale Mobile** oltre a
-> quanto queste tre eccezioni coprono, fino a una decisione esplicita — in
-> particolare pagamenti, documenti, consensi, iscrizione e l'area Athlete
-> restano fuori. Vedi la sezione "Autenticazione mobile" qui sotto, che
-> descrive lo stato **attuale**, non congelato.
+> [ADR-0162](18-decision-log.md#adr-0162--leccezione-di-adr-0161-si-allarga-parita-funzionale-trainer-non-solo-identity--access) (parita Trainer),
+> [ADR-0163](18-decision-log.md#adr-0163--leccezione-si-allarga-ancora-larea-parent-reale-sugli-stessi-contratti-del-web) /
+> [ADR-0164](18-decision-log.md#adr-0164--il-batch-parent-si-chiude-pagamenti-documenti-consensi-segreteria-strutture-iscrizione-contatti)
+> (area Parent, WP4-WP9) e
+> [ADR-0165](18-decision-log.md#adr-0165--il-reskin-delle-quattro-tab-trainer-primarie-wp10) (reskin
+> visivo delle quattro tab Trainer primarie, WP10), tutte 2026-09-10). La
+> priorita assoluta resta completare EasyGame Web V1 e renderla responsive.
+> **Nessuna nuova area funzionale Mobile** oltre a quanto queste eccezioni
+> coprono, fino a una decisione esplicita — WP10 e **visivo**, non aggiunge
+> funzionalita. Push, deep linking, recupero password nativo e la
+> preparazione release iOS restano fuori da questo giro. Vedi la sezione
+> "Autenticazione mobile" qui sotto, che descrive lo stato **attuale**, non
+> congelato.
 
 Cartella: `easygamemobile/`. **Progetto npm indipendente**: proprio
 `package.json`, `package-lock.json`, `tsconfig.json`, `eslint.config.js`,
@@ -26,9 +31,11 @@ TanStack Query 5 · expo-secure-store**. TypeScript `~5.9`.
 ## Design system mobile
 
 **Source design version**: Claude Design, namespace
-`EasyGameDesignSystem_845326`, attualmente **EGDS v2.2.0 "Sheet & shell",
+`EasyGameDesignSystem_845326`, attualmente **EGDS v2.3.0 "Real data",
 sync 2026-09-10** (`design-source/CHANGELOG.md`, `design-source/github.md`)
-— CURRENT. Versioni precedenti nello stesso changelog: v2.1.0 "Parent-ready"
+— CURRENT. Versioni precedenti nello stesso changelog: v2.2.0 "Sheet & shell"
+(2026-09-10, formalizza `BottomSheet`/`ParentPrimaryScreenLayout` da
+implementazione e affina i componenti Parte C), v2.1.0 "Parent-ready"
 (2026-09-10, formalizza `StateMessage`/`SecondaryScreenLayout`/
 `SignatureInput` e specifica per intero le componenti Parte B/C), v2.0.0
 "Floodlit" (2026-09-09, la firma visiva: cielo notturno navy a due
@@ -37,10 +44,12 @@ per "agisci qui", eyebrow su display compatto) e v1.0.0 (2026-09-09,
 estrazione iniziale). Verificato prima di scrivere UI nuova in ciascun WP,
 come richiesto — mai usata una versione precedente a quella disponibile al
 momento: i WP4-6 sono stati costruiti quando v2.1.0 era CURRENT (dichiarato
-li sotto cosi), i WP7-9 con v2.2.0. Riguarda **solo** la mobile app:
-"nothing here was derived from [the web dashboard], and no web UI is
-defined" (readme.md) — la dashboard Web non e stata ne consultata ne
-modificata per nessuno di questi WP.
+li sotto cosi), i WP7-9 con v2.2.0, **WP10 con v2.3.0** (component-coverage
+matrix di Parte B2 e Parte E/F/G del changelog — quest'ultime due non
+riguardano WP10, vedi sotto). Riguarda **solo** la mobile app: "nothing here
+was derived from [the web dashboard], and no web UI is defined" (readme.md)
+— la dashboard Web non e stata ne consultata ne modificata per nessuno di
+questi WP.
 
 **Implementation version**: 2026-09-10, parziale — vedi sotto cosa e stato
 portato e cosa no. Il codice sorgente del design system (CSS, JSX, HTML di
@@ -75,7 +84,7 @@ restano quelli che le schermate esistenti gia usano.
 | `AppBar` | `signature/AppBar.tsx` | `components/brand/AppBar.jsx` |
 | `Dock` | `signature/Dock.tsx` | `components/brand/TabBar.jsx` — **applicato**: e la chrome reale di `MainTabNavigator` **e** `ParentTabNavigator` |
 | `StateMessage` | `signature/StateMessage.tsx` | **estensione**, non nel design system: vedi sotto |
-| `SecondaryScreenLayout` | `signature/SecondaryScreenLayout.tsx` | formalizzato in EGDS v2.1.0 Parte A (nato come estensione WP3) |
+| `SecondaryScreenLayout` | `signature/SecondaryScreenLayout.tsx` | formalizzato in EGDS v2.1.0 Parte A (nato come estensione WP3) — esteso in WP10 con `skyHeight` (le tab primarie aprono un `SectionHero`, 330–360px contro il default 300), `onNotifications`/`notificationCount` (il campanello che l'header nativo dava) e `refreshControl` (pull-to-refresh, passato al proprio `ScrollView`); tutti opzionali, i sei chiamanti precedenti non cambiano |
 | `SignatureInput` | `signature/SignatureInput.tsx` | `components/core/Input.jsx`, formalizzato in EGDS v2.1.0 Parte A |
 | `NumberTile` | `signature/NumberTile.tsx` | `components/core/NumberTile.jsx` (spec Parte B, §B1) — portato in WP4, prima del resto di Parte B, perche `ChildSwitcher` lo richiede subito |
 | `ChildSwitcher` | `signature/ChildSwitcher.tsx` | spec Parte C, §C1 — usa un avatar/iniziali con anello di accento, non `NumberTile`, perche un figlio collegato non porta un numero di maglia in questo payload |
@@ -93,7 +102,8 @@ restano quelli che le schermate esistenti gia usano.
 | `ConsentRow` | `signature/ConsentRow.tsx` | spec Parte C, §C5, raffinato in v2.2 — la riga naviga, non concede mai |
 | `AppointmentCard` | `signature/AppointmentCard.tsx` | spec Parte C, §C7, raffinato in v2.2 — adattato al contratto reale della faccia famiglia (`can_reschedule`/`can_cancel`, non un elenco di transizioni) |
 | `BookingCard` | `signature/BookingCard.tsx` | spec Parte C, §C8, raffinato in v2.2 — sola lettura, nessun annullamento lato Parent |
-| `EnrollmentStatusCard` | `signature/EnrollmentStatusCard.tsx` | spec Parte C, §C9, raffinato in v2.2 — **semplificato**: il rail a passi non e stato portato, `data.enrollment` non porta uno stato per fase |
+| `EnrollmentStatusCard` | `signature/EnrollmentStatusCard.tsx` | spec Parte C, §C9, raffinato in v2.2, riscritto in v2.3 sul contratto dati reale |
+| `SelectableAthleteRow` | `signature/SelectableAthleteRow.tsx` | spec Parte B, §B3 — portato in WP10, assente da ogni versione precedente dell'export (nessun file, nessun uso). La superficie resta glass regolare anche selezionata (non "glass strong"): quella distinzione non e fra i quattro segnali di selezione obbligatori dello spec, e `GlassSurface` non ha un aggancio per l'alpha per istanza — semplificazione dichiarata, non un gap dimenticato |
 
 Traduzione CSS → React Native (dove non e 1:1) documentata nel commento di
 testa di `theme.ts`: `border-radius` a quattro valori diventa quattro
@@ -143,12 +153,6 @@ visiva.
   richiederebbero un pattern SVG piastrellato per un dettaglio a peso visivo
   minimo su schermo telefono. `Floodlight` riproduce il gradiente navy e i
   due riflettori, non le righe.
-- **`SelectableAthleteRow`** (Parte B) non ancora portato: serve solo al
-  reskin di Allenamenti/Gare **Trainer** (riga atleta selezionabile), che
-  restano invariate in questo giro (vedi sotto). `NumberTile`, `EventCard`,
-  `SectionHero`, `StatCard`, `HighlightCard` sono stati portati in WP4/WP5
-  per l'area Parent (vedi la tabella sopra) — il loro uso Trainer (roster,
-  Home) resta un lavoro a se.
 - **Componenti Parte C**: tutti e dieci portati (`ChildSwitcher`,
   `RSVPControl`, `PaymentCard`, `DocumentRow`/`DocumentCard`, `ConsentRow`,
   `NotificationRow`, `AccountAccessCard`, `AppointmentCard`, `BookingCard`,
@@ -157,29 +161,62 @@ visiva.
 - **Dark mode**: i token esistono (`.eg-dark` lato CSS) ma senza schede di
   esempio nel design system stesso; non modellato lato RN.
 
-### Perche solo il Dock e stato applicato, non le altre quattro tab
+### Dal Dock al reskin completo (WP2 → WP10)
 
-Le schermate Trainer esistenti (Home, Allenamenti, Gare, Atleti) restano sul
-linguaggio visivo attuale — sfondo piatto, `Card`/`Button`/`Badge` esistenti
-— **non ridisegnate in questo giro**: la richiesta di WP2 e la foundation
-"per le schermate nuove", e ridisegnare quattro schermate gia funzionanti e
-un lavoro a se, con un suo rischio di regressione. Il Dock (guscio delle tab,
-non le schermate che contiene) e stata l'unica eccezione: e chrome
-condiviso, non contenuto di schermata, appare su **ogni** schermata Trainer
-per definizione, ed e uno dei sei elementi che il design system dichiara
-riconoscibili "su ogni schermata" — il beneficio di applicarlo era immediato
-e il rischio contenuto (la logica di visibilita per permesso e la mappa
-`tabBarIcon` non sono state toccate, solo la chrome attorno).
+Dal WP2 al WP9, le schermate Trainer primarie (Home, Allenamenti, Gare,
+Atleti) sono rimaste sul linguaggio visivo precedente — sfondo piatto,
+`Card`/`Button`/`Badge` esistenti — mentre il Dock (guscio delle tab, non le
+schermate che contiene) era gia quello nuovo: chrome condiviso, appariva su
+**ogni** schermata Trainer per definizione, beneficio immediato e rischio
+contenuto. Le **cinque sezioni nuove** di WP3 (Bacheca, Documenti,
+Appuntamenti, Compensi, Squadre) usavano gia il linguaggio nuovo per intero,
+raggiunte da un hub in Profilo — da cui una cucitura visibile fra le quattro
+tab primarie e tutto il resto, dichiarata come rollout incrementale in
+attesa del WP dedicato.
 
-Conseguenza intenzionale: le **cinque sezioni nuove** di WP3 (Bacheca,
-Documenti, Appuntamenti, Compensi, Squadre) usano il linguaggio nuovo per
-intero (`Floodlight` + `AppBar` + `GlassCard`), raggiunte da un hub in
-Profilo — sono internamente coerenti fra loro, le quattro tab primarie sono
-internamente coerenti fra loro, e la sola transizione visibile e nel passare
-dalle une alle altre. E un rollout incrementale dichiarato, non
-un'incoerenza sfuggita: la stessa `docs/knowledge-base/10-ui-ux-conventions.md`
-andra aggiornata quando il reskin delle quattro tab primarie verra
-programmato.
+### WP10 — Reskin visivo delle quattro tab Trainer primarie (ADR-0165)
+
+**Implementation version**: 2026-09-10. La cucitura sopra e chiusa:
+`guidelines/trainer-migration.md` (normativo da EGDS v2.3.0) e stato seguito
+schermata per schermata, nell'ordine che il documento prescrive (guscio →
+Allenamenti → Gare → Atleti → Home), su tutte e sei le schermate Trainer
+raggiungibili dal Dock — le cinque tab primarie
+(`TrainerHomeDashboardScreen`, `TrainerTrainingsDashboardScreen`,
+`TrainerMatchesDashboardScreen`, `TrainerAthletesScreen`,
+`TrainerProfileDashboardScreen`) piu `TrainerAthleteProfileScreen`
+(dettaglio) e `NotificationsScreen` (raggiunta dal campanello su ognuna di
+esse). Nessun dato, endpoint, permesso o comportamento e cambiato: stessi
+`mobileBackendStorage.*`, stesse chiavi `trainerPermissions.*`, stesso
+ordine di raggruppamento (oggi → settimana → dopo → storico). Le cinque
+sezioni secondarie di WP3 non sono state toccate — erano gia nel linguaggio
+nuovo.
+
+**Cambi funzionali minimi, dentro il perimetro "bug visivi trovati durante
+la migrazione" che lo stesso WP10 autorizza**:
+- La `Modal` nativa delle presenze/convocazioni e diventata `BottomSheet` +
+  `SelectableAthleteRow`: un atleta col certificato medico scaduto ora
+  **blocca** la presenza invece di lasciarla segnare con solo un'icona di
+  avviso (§B3: "un atleta disabilitato dice sempre perche").
+- La Home mostra ora un saluto reale (`Buongiorno, {nome}`), come richiesto
+  dallo spec — prima il titolo era il solo "Dashboard".
+- Il pull-to-refresh nativo (`RefreshControl`) e stato **preservato**
+  passandolo a `SecondaryScreenLayout` (nuovo prop, vedi tabella sopra) —
+  non era scontato: `ParentPrimaryScreenLayout` non lo espone, e le cinque
+  sezioni secondarie di WP3 se ne affidano solo al refetch al focus.
+
+**Semplificazioni dichiarate**: i "pillola filtro categoria" di Atleti
+(§trainer-migration.md step 4) non esistevano come filtro interattivo prima
+di WP10 — solo un elenco informativo delle categorie assegnate — e non lo
+sono diventati ora (avrebbe aggiunto un comportamento nuovo, fuori dal
+perimetro "solo visivo" del WP): restano una riga di sottotitolo nell'hero.
+Il rientro di ~40px del primo pannello sotto l'hero ("straddle the horizon",
+checklist §10.5) e un `marginTop` negativo fisso per schermata, non un
+calcolo geometrico — stesso livello di approssimazione di
+`ParentHomeScreen`, che non lo implementa affatto.
+
+**Vedi anche.** ADR-0161–ADR-0164, `guidelines/trainer-migration.md`,
+[16 — Debito tecnico](16-technical-debt.md) per le cinque schermate Trainer
+orfane scoperte durante l'audit.
 
 ### WP3 — Parita funzionale Trainer (ADR-0162)
 
@@ -945,14 +982,32 @@ check:types` e `npm run lint` puliti (0 errori, stessi 20 warning
 preesistenti) — nessuna regressione Identity & Access, Trainer o Parent
 WP4-8.
 
+### Verifica di avvio reale — 2026-09-10 (WP10 reskin visivo Trainer)
+
+Dopo il reskin delle sei schermate Trainer (`TrainerHomeDashboardScreen`,
+`TrainerTrainingsDashboardScreen`, `TrainerMatchesDashboardScreen`,
+`TrainerAthletesScreen`, `TrainerAthleteProfileScreen`,
+`TrainerProfileDashboardScreen`, piu `NotificationsScreen`) e
+`SelectableAthleteRow`: `npx expo export --platform ios` completato senza
+errori di risoluzione, 2496 moduli. `npm run test` 122/122 verdi (118
+preesistenti + 4 nuovi su `getAthletePositionCaption`), `npm run check:types`
+e `npm run lint` puliti (0 errori, stessi 20 warning preesistenti) —
+nessuna regressione Identity & Access, Trainer WP3 o Parent WP4-9. Nessun
+test di rendering per i componenti visivi: il progetto non ha una libreria
+di component testing per React Native (solo `node --test` su moduli di
+dominio puro), quindi la copertura nuova e sulla sola logica pura aggiunta
+(la sigla di ruolo); permessi e navigazione restano verificati dalla suite
+preesistente, che non e stata toccata.
+
 ## Cosa manca per completare il mobile
 
 Identity & Access, le fondamenta di ruolo, la parita funzionale Trainer
-(WP3) e l'intero batch Parent WP4-9 (multi-figlio, Home, Profilo atleta,
+(WP3), l'intero batch Parent WP4-9 (multi-figlio, Home, Profilo atleta,
 Calendario/RSVP, Bacheca/Notifiche, esperienza Account,
 Pagamenti/Documenti/Consensi, Segreteria/Appuntamenti/Strutture/
-Iscrizione/Contatti) sono a posto — la parity matrix del WP9 non ha trovato
-nessuna riga MISSING. Restano aperti, in ordine indicativo:
+Iscrizione/Contatti) e il reskin visivo delle quattro tab Trainer primarie
+(WP10) sono a posto — la parity matrix del WP9 non ha trovato nessuna riga
+MISSING. Restano aperti, in ordine indicativo:
 
 - **Rinnovo iscrizione come modulo dinamico**: `RenewalDraft.form.fields`
   e un motore di campi (`checkbox`/`file_upload`/`signature`/testo libero,
@@ -977,12 +1032,6 @@ nessuna riga MISSING. Restano aperti, in ordine indicativo:
   porta comunque al dettaglio, dove l'errore e visibile.
 - **RSVP da link senza account**: fuori perimetro anche lato Web (`11 —
   Capability`), non nel mobile per lo stesso motivo.
-- **Reskin delle quattro tab Trainer primarie** (Home, Allenamenti, Gare,
-  Atleti) sul linguaggio visivo nuovo — restano sul linguaggio attuale,
-  vedi "Perche solo il Dock e stato applicato" sopra. Servirebbe anche
-  `SelectableAthleteRow` (`NumberTile`/`EventCard`/`SectionHero`/`StatCard`/
-  `HighlightCard` sono gia stati portati per l'area Parent, il loro uso
-  Trainer resta un lavoro a se).
 - **Download dei documenti Trainer**: mostrati i metadati, non il file. Le
   dipendenze non mancano piu (`expo-file-system`/`expo-sharing` sono state
   aggiunte nel WP7 per i documenti Parent) — resta solo da collegare

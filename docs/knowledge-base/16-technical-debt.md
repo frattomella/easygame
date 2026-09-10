@@ -3771,3 +3771,56 @@ della stessa cassa che non tornano.
 **Perche non e stato chiuso qui.** Renderlo obbligatorio e un cambio di
 contratto su una rotta che oggi nessuna schermata usa in quella forma, e
 andrebbe accompagnato da cosa fare delle righe gia scritte senza conto.
+
+## Debito trovato durante il reskin visivo Trainer, non toccato perche fuori scope (WP10, 2026-09-10)
+
+### D-MOB-1 — Cinque schermate Trainer orfane in `easygamemobile/client/screens/`
+
+**Dove.** `TrainerHomeScreen.tsx`, `TrainingsScreen.tsx`, `MatchesScreen.tsx`,
+`AthletesScreen.tsx`, `ProfileScreen.tsx` — a fianco delle omonime
+`TrainerXDashboardScreen.tsx`/`TrainerXScreen.tsx` che i navigator (`HomeStackNavigator`
+e affini) importano davvero.
+
+**Il fatto.** Nessun file del repository le importa (verificato con una
+ricerca testuale su tutto `easygamemobile/`): sono una seconda
+implementazione mai raggiunta da nessuna rotta, lo stesso pattern che
+`CLAUDE.md` §11 elenca fra gli errori tipici gia successi su questo
+repository ("dashboard trainer", punto 1). Spiegano anche i warning di lint
+preesistenti su quei file (`loading` non usato, import morti) che il
+baseline di 20 warning porta avanti da prima di WP10.
+
+**Perche non e stato chiuso qui.** WP10 e migrazione visiva delle schermate
+**raggiungibili**; cancellare cinque file non importati da nessuno e un
+cambiamento indipendente, sicuro ma estraneo al diff di questo WP
+(CLAUDE.md §3: "vietato il refactoring opportunistico"). La cancellazione
+stessa e a rischio zero — bastera confermare ancora, al momento di farla,
+che nessun test o script li referenzi per nome file.
+
+### D-MOB-2 — Il contenuto padding di `SecondaryScreenLayout`/`ParentPrimaryScreenLayout` raddoppia sotto un `SectionHero`
+
+**Dove.** Entrambi i gusci applicano `paddingHorizontal: Spacing.lg` (16px)
+al proprio `ScrollView`; `SectionHero` applica **il proprio**
+`paddingHorizontal: Spacing.xl` (20px), e ogni blocco di contenuto che i
+consumatori aggiungono sotto l'hero ripete di norma lo stesso
+`Spacing.lg`. Il risultato e un margine effettivo di 32–36px per lato
+invece di 16–20px — gia cosi in `ParentHomeScreen` (WP5, non toccato da
+WP10) prima che WP10 replicasse lo stesso schema sulle quattro tab Trainer
+per coerenza con quanto gia spedito lato Parent.
+
+**Perche non e stato chiuso qui.** E un comportamento gia in produzione dal
+WP5, non introdotto da WP10; correggerlo tocca due componenti condivisi e
+ogni schermata che li usa (Trainer e Parent insieme), un cambio visivo a se
+che merita una verifica dedicata a 375px, non un effetto collaterale di
+questo reskin.
+
+### D-MOB-3 — `canSeeEnrollment` in `TrainerAthleteProfileScreen` e sempre `false`
+
+**Dove.** `const canSeeEnrollment = false;`, con circa 90 righe di JSX
+(tesseramenti, pagamenti, documenti identita) dietro quella guardia —
+preesistente a WP10, portato sul nuovo linguaggio visivo senza toccarne la
+condizione.
+
+**Perche non e stato chiuso qui.** Rimuovere il ramo morto o accenderlo
+davvero e una decisione di prodotto (quella sezione va mostrata al Trainer
+o no?), non una scelta visiva: fuori perimetro per un WP dichiarato
+"solo reskin".

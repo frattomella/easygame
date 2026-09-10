@@ -1,23 +1,17 @@
 import React, { useCallback, useMemo, useState } from "react";
-import {
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { Ionicons } from "@expo/vector-icons";
+import { RefreshControl, StyleSheet, View } from "react-native";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { format } from "date-fns";
+import { it } from "date-fns/locale";
 
-import { Badge } from "@/components/Badge";
-import { Button } from "@/components/Button";
-import { Card } from "@/components/Card";
-import { ThemedText } from "@/components/ThemedText";
+import {
+  HighlightCard,
+  SecondaryScreenLayout,
+  SectionHero,
+  StatCard,
+} from "@/components/signature";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { useTheme } from "@/hooks/useTheme";
 import {
   formatItalianDate,
   formatTimeRange,
@@ -25,14 +19,23 @@ import {
 } from "@/lib/mobile-ui";
 import { Athlete, Match, Task, Training } from "@/services/api";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { BorderRadius, Spacing } from "@/constants/theme";
+import { Spacing } from "@/constants/theme";
+import type { HomeStackParamList } from "@/navigation/HomeStackNavigator";
 
+type Navigation = NativeStackNavigationProp<HomeStackParamList, "Home">;
+
+/**
+ * design-source `guidelines/trainer-migration.md` step 5 (WP10) — l'ultima
+ * schermata migrata, perche dipende dai colori/forme di modulo fissati
+ * dalle tre precedenti. Stessi dati (`mobileBackendStorage`), stesse
+ * chiavi di permesso (`trainerPermissions.widgets.*`): i tre blocchi
+ * violetto/arancio/smeraldo diventano `HighlightCard`, i contatori
+ * diventano `StatCard`. Nessuna metrica finta.
+ */
 export default function TrainerHomeDashboardScreen() {
-  const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
-  const navigation = useNavigation();
-  const { theme } = useTheme();
-  const { currentClub, currentRole, trainerPermissions } = useAuthContext();
+  const navigation = useNavigation<Navigation>();
+  const { currentClub, currentRole, trainerPermissions, user } =
+    useAuthContext();
 
   const [trainings, setTrainings] = useState<Training[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
@@ -60,6 +63,12 @@ export default function TrainerHomeDashboardScreen() {
     }, [loadData]),
   );
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  };
+
   const today = format(new Date(), "yyyy-MM-dd");
   const todayTrainings = useMemo(
     () => trainings.filter((training) => training.date === today),
@@ -70,282 +79,161 @@ export default function TrainerHomeDashboardScreen() {
     [matches, today],
   );
 
-  const summaryCards = [
-    {
-      label: "Atleti Seguiti",
-      value: athletes.length,
-      color: "#2563EB",
-      icon: "people-outline" as const,
-    },
-    {
-      label: "Allenamenti",
-      value: trainings.length,
-      color: "#10B981",
-      icon: "barbell-outline" as const,
-    },
-  ];
-
   const openTab = (tabName: string) => {
-    const parent = navigation.getParent() as any;
-    if (parent) {
-      parent.navigate(tabName);
-    }
+    const parent = navigation.getParent() as
+      | { navigate: (...args: unknown[]) => void }
+      | undefined;
+    parent?.navigate(tabName);
   };
 
   const openTraining = (trainingId: string) => {
-    const parent = navigation.getParent() as any;
-    if (parent) {
-      parent.navigate("TrainingsTab", {
-        screen: "Trainings",
-        params: { focusTrainingId: trainingId },
-      });
-    }
+    const parent = navigation.getParent() as
+      | { navigate: (...args: unknown[]) => void }
+      | undefined;
+    parent?.navigate("TrainingsTab", {
+      screen: "Trainings",
+      params: { focusTrainingId: trainingId },
+    });
   };
 
   const openMatch = (matchId: string) => {
-    const parent = navigation.getParent() as any;
-    if (parent) {
-      parent.navigate("MatchesTab", {
-        screen: "Matches",
-        params: { focusMatchId: matchId },
-      });
-    }
+    const parent = navigation.getParent() as
+      | { navigate: (...args: unknown[]) => void }
+      | undefined;
+    parent?.navigate("MatchesTab", {
+      screen: "Matches",
+      params: { focusMatchId: matchId },
+    });
   };
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
-  };
+  const todayLabel = format(new Date(), "EEEE d MMMM", { locale: it });
+  const firstName =
+    String(user?.name || "")
+      .trim()
+      .split(/\s+/)[0] || "";
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-      contentContainerStyle={{
-        paddingTop: Spacing.lg,
-        paddingBottom: tabBarHeight + insets.bottom + Spacing["4xl"],
-        paddingHorizontal: Spacing.lg,
-      }}
+    <SecondaryScreenLayout
+      title="Dashboard"
+      onBack={false}
+      skyHeight={330}
+      onNotifications={() => navigation.navigate("Notifications")}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
-      <View style={styles.headerRow}>
-        <View style={{ flex: 1 }}>
-          <ThemedText type="h3">Dashboard</ThemedText>
-          <ThemedText
-            type="small"
-            style={{ color: theme.textSecondary, marginTop: 4 }}
-          >
-            {currentClub?.name || "Club attivo"} · {getRoleLabel(currentRole)}
-          </ThemedText>
-        </View>
-      </View>
+      <SectionHero
+        icon="calendar"
+        eyebrow={todayLabel.charAt(0).toUpperCase() + todayLabel.slice(1)}
+        title={firstName ? `Buongiorno, ${firstName}` : "Buongiorno"}
+        subtitle={`${currentClub?.name || "Club attivo"} · ${getRoleLabel(currentRole)}`}
+        chips={[
+          { label: "allenamenti", value: String(todayTrainings.length) },
+          { label: "gara", value: String(todayMatches.length) },
+          { label: "promemoria", value: String(tasks.length) },
+        ]}
+      />
 
-      <View style={styles.highlightStack}>
+      <View style={[styles.stack, styles.stackFirst]}>
         {trainerPermissions?.widgets.todayTrainings !== false ? (
-          <View style={[styles.highlightCard, { backgroundColor: "#7C3AED" }]}>
-            <View style={styles.highlightHeader}>
-              <ThemedText type="body" style={styles.highlightTitle}>
-                Allenamenti di Oggi
-              </ThemedText>
-              <Badge
-                label={`${todayTrainings.length}`}
-                variant="default"
-                small
-              />
-            </View>
-            {todayTrainings.length > 0 ? (
-              todayTrainings.slice(0, 2).map((training) => (
-                <Pressable
-                  key={training.id}
-                  style={styles.highlightItem}
-                  onPress={() => openTraining(training.id)}
-                >
-                  <ThemedText type="body" style={styles.highlightItemTitle}>
-                    {training.title}
-                  </ThemedText>
-                  <ThemedText type="small" style={styles.highlightMeta}>
-                    {formatTimeRange(training.time, training.endTime)} ·{" "}
-                    {training.location}
-                  </ThemedText>
-                </Pressable>
-              ))
-            ) : (
-              <ThemedText type="small" style={styles.highlightMeta}>
-                Nessun allenamento programmato per oggi.
-              </ThemedText>
-            )}
-            <Button
-              variant="primary"
-              size="sm"
-              style={styles.lightButton}
-              onPress={() => openTab("TrainingsTab")}
-            >
-              Vai agli Allenamenti
-            </Button>
-          </View>
+          <HighlightCard
+            icon="fitness-outline"
+            moduleColor="#2563EB"
+            stripe="action"
+            eyebrow="Oggi"
+            title="Allenamenti"
+            count={todayTrainings.length}
+            emptyLabel="Nessun allenamento programmato per oggi."
+            previewRows={todayTrainings.map((training) => ({
+              id: training.id,
+              time: training.time,
+              title: training.title,
+              meta: `${formatTimeRange(training.time, training.endTime)} · ${training.location}`,
+            }))}
+            actionLabel="Vai agli allenamenti"
+            onAction={() => openTab("TrainingsTab")}
+            onPressRow={openTraining}
+          />
         ) : null}
 
         {trainerPermissions?.widgets.todayMatches !== false ? (
-          <View style={[styles.highlightCard, { backgroundColor: "#F97316" }]}>
-            <View style={styles.highlightHeader}>
-              <ThemedText type="body" style={styles.highlightTitle}>
-                Gare di Oggi
-              </ThemedText>
-              <Badge label={`${todayMatches.length}`} variant="default" small />
-            </View>
-            {todayMatches.length > 0 ? (
-              todayMatches.slice(0, 2).map((match) => (
-                <Pressable
-                  key={match.id}
-                  style={styles.highlightItem}
-                  onPress={() => openMatch(match.id)}
-                >
-                  <ThemedText type="body" style={styles.highlightItemTitle}>
-                    vs{" "}
-                    {match.opponent ||
-                      (match.isHome ? match.awayTeam : match.homeTeam)}
-                  </ThemedText>
-                  <ThemedText type="small" style={styles.highlightMeta}>
-                    {match.time} · {match.location}
-                  </ThemedText>
-                </Pressable>
-              ))
-            ) : (
-              <ThemedText type="small" style={styles.highlightMeta}>
-                Nessuna gara oggi.
-              </ThemedText>
-            )}
-            <Button
-              variant="primary"
-              size="sm"
-              style={styles.lightButton}
-              onPress={() => openTab("MatchesTab")}
-            >
-              Vai alle Gare
-            </Button>
-          </View>
+          <HighlightCard
+            icon="football-outline"
+            moduleColor="#F97316"
+            stripe="match"
+            eyebrow="Oggi"
+            title="Gare"
+            count={todayMatches.length}
+            emptyLabel="Nessuna gara oggi."
+            previewRows={todayMatches.map((match) => ({
+              id: match.id,
+              time: match.time,
+              title: `vs ${match.opponent || (match.isHome ? match.awayTeam : match.homeTeam)}`,
+              meta: match.location,
+            }))}
+            actionLabel="Vai alle gare"
+            onAction={() => openTab("MatchesTab")}
+            onPressRow={openMatch}
+          />
         ) : null}
 
-        <View style={[styles.highlightCard, { backgroundColor: "#10B981" }]}>
-          <View style={styles.highlightHeader}>
-            <ThemedText type="body" style={styles.highlightTitle}>
-              Promemoria Attivi
-            </ThemedText>
-            <Badge label={`${tasks.length}`} variant="default" small />
-          </View>
-          {tasks.length > 0 ? (
-            tasks.slice(0, 2).map((task) => (
-              <View key={task.id} style={styles.highlightItem}>
-                <ThemedText type="body" style={styles.highlightItemTitle}>
-                  {task.title}
-                </ThemedText>
-                <ThemedText type="small" style={styles.highlightMeta}>
-                  {task.dueDate
-                    ? `Scade ${formatItalianDate(task.dueDate)}`
-                    : "Senza scadenza"}
-                </ThemedText>
-              </View>
-            ))
-          ) : (
-            <ThemedText type="small" style={styles.highlightMeta}>
-              Nessun promemoria in sospeso.
-            </ThemedText>
-          )}
-          <Button
-            variant="primary"
-            size="sm"
-            style={styles.lightButton}
-            onPress={() => openTab("ProfileTab")}
-          >
-            Apri Profilo
-          </Button>
-        </View>
+        <HighlightCard
+          icon="notifications-outline"
+          moduleColor="#10B981"
+          stripe="success"
+          eyebrow="Attivi"
+          title="Promemoria"
+          count={tasks.length}
+          emptyLabel="Nessun promemoria in sospeso."
+          previewRows={tasks.map((task) => ({
+            id: task.id,
+            time: task.dueDate ? formatItalianDate(task.dueDate, "d MMM") : "-",
+            title: task.title,
+            meta: task.dueDate
+              ? `Scade ${formatItalianDate(task.dueDate)}`
+              : "Senza scadenza",
+          }))}
+          actionLabel="Apri profilo"
+          onAction={() => openTab("ProfileTab")}
+        />
       </View>
 
       {trainerPermissions?.widgets.summary !== false ? (
-        <View style={styles.summaryGrid}>
-          {summaryCards.map((card) => (
-            <Card key={card.label} noPadding style={styles.summaryCard}>
-              <View
-                style={[styles.summaryTopBar, { backgroundColor: card.color }]}
-              />
-              <View style={styles.summaryCardContent}>
-                <View
-                  style={[
-                    styles.summaryIconWrap,
-                    { backgroundColor: `${card.color}14` },
-                  ]}
-                >
-                  <Ionicons name={card.icon} size={18} color={card.color} />
-                </View>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  {card.label}
-                </ThemedText>
-                <ThemedText type="h3" style={styles.summaryValue}>
-                  {card.value}
-                </ThemedText>
-              </View>
-            </Card>
-          ))}
+        <View style={styles.summarySection}>
+          <View style={styles.summaryHeader}>
+            <StatCard
+              icon="people-outline"
+              iconColor="#2563EB"
+              value={String(athletes.length)}
+              label="Atleti seguiti"
+            />
+            <StatCard
+              icon="barbell-outline"
+              iconColor="#10B981"
+              value={String(trainings.length)}
+              label="Allenamenti"
+            />
+          </View>
         </View>
       ) : null}
-    </ScrollView>
+    </SecondaryScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: Spacing.sm,
-  },
-  highlightStack: { gap: Spacing.md },
-  highlightCard: {
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-  },
-  highlightHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: Spacing.md,
-  },
-  highlightTitle: { color: "#FFFFFF", fontWeight: "700" },
-  highlightItem: {
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    marginBottom: Spacing.sm,
-  },
-  highlightItemTitle: { color: "#FFFFFF", fontWeight: "700" },
-  highlightMeta: { color: "rgba(255,255,255,0.82)" },
-  lightButton: {
-    backgroundColor: "rgba(255,255,255,0.18)",
-    marginTop: Spacing.sm,
-  },
-  summaryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  stack: {
+    paddingHorizontal: Spacing.lg,
     gap: Spacing.md,
-    marginTop: Spacing["2xl"],
   },
-  summaryCard: {
-    width: "47.5%",
-    overflow: "hidden",
+  stackFirst: {
+    marginTop: -32,
   },
-  summaryTopBar: { height: 4 },
-  summaryCardContent: { padding: Spacing.lg, gap: Spacing.xs },
-  summaryIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: Spacing.sm,
+  summarySection: {
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.lg,
   },
-  summaryValue: { fontWeight: "800", marginTop: 2 },
+  summaryHeader: {
+    flexDirection: "row",
+    gap: Spacing.md,
+  },
 });

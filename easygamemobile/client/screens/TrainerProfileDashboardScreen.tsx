@@ -1,29 +1,31 @@
 import React, { useEffect, useState } from "react";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { Alert, StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 
-import { Avatar } from "@/components/Avatar";
-import { Badge } from "@/components/Badge";
-import { Button } from "@/components/Button";
-import { Card } from "@/components/Card";
-import { Input } from "@/components/Input";
-import { ThemedText } from "@/components/ThemedText";
+import {
+  ActionButton,
+  GlassCard,
+  SecondaryScreenLayout,
+  SignatureInput,
+  SignatureText,
+  StatusPill,
+} from "@/components/signature";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { useTheme } from "@/hooks/useTheme";
-import { BorderRadius, Colors, Spacing } from "@/constants/theme";
+import { EGInk, Spacing } from "@/constants/theme";
 import type { ProfileStackParamList } from "@/navigation/ProfileStackNavigator";
 
 type Navigation = NativeStackNavigationProp<ProfileStackParamList, "Profile">;
 
+/**
+ * design-source `guidelines/trainer-migration.md` §Profilo (WP10) —
+ * allineato allo stesso linguaggio di `ParentProfileScreen`: `GlassCard` +
+ * `ActionButton` al posto di `Card`/`Button` piatti. Stessi campi, stesso
+ * `updateUserProfile`, stesse chiavi di permesso di prima.
+ */
 export default function TrainerProfileDashboardScreen() {
-  const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
   const navigation = useNavigation<Navigation>();
-  const { theme } = useTheme();
   const {
     user,
     assignedCategories,
@@ -91,154 +93,139 @@ export default function TrainerProfileDashboardScreen() {
   };
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-      contentContainerStyle={{
-        paddingTop: Spacing.lg,
-        paddingHorizontal: Spacing.lg,
-        paddingBottom: tabBarHeight + insets.bottom + Spacing["4xl"],
-      }}
+    <SecondaryScreenLayout
+      title="Profilo"
+      eyebrow="Il tuo account"
+      onBack={false}
+      onNotifications={() => navigation.navigate("Notifications")}
     >
-      <View style={styles.content}>
-        <Card
-          style={[styles.heroCard, { backgroundColor: Colors.light.primary }]}
+      <GlassCard eyebrow="Account" title={user?.name || "Allenatore"}>
+        <SignatureText variant="small" tone="muted">
+          {user?.email}
+        </SignatureText>
+      </GlassCard>
+
+      <GlassCard eyebrow="Dati personali" style={styles.formCard}>
+        <SignatureInput
+          label="Nome e cognome"
+          value={fullName}
+          onChangeText={setFullName}
+        />
+        <SignatureInput
+          label="Email"
+          value={email}
+          onChangeText={setEmail}
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
+        <SignatureInput
+          label="Telefono"
+          value={phone}
+          onChangeText={setPhone}
+          keyboardType="phone-pad"
+        />
+        <SignatureInput label="Citta" value={city} onChangeText={setCity} />
+        <ActionButton
+          fullWidth
+          onPress={() => void handleSaveProfile()}
+          loading={saving}
         >
-          <Avatar name={user?.name || "Coach"} size={74} />
-          <View style={{ flex: 1 }}>
-            <ThemedText type="h4" style={styles.heroName}>
-              {user?.name || "Allenatore"}
-            </ThemedText>
-            <ThemedText type="small" style={styles.heroSubtitle}>
-              Profilo account EasyGame
-            </ThemedText>
-          </View>
-        </Card>
+          Salva modifiche
+        </ActionButton>
+      </GlassCard>
 
-        <Card style={styles.sectionCard}>
-          <Input
-            label="Nome e cognome"
-            value={fullName}
-            onChangeText={setFullName}
-          />
-          <Input
-            label="Email"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          <Input
-            label="Telefono"
-            value={phone}
-            onChangeText={setPhone}
-            keyboardType="phone-pad"
-          />
-          <Input label="Citta" value={city} onChangeText={setCity} />
-          <Button
-            fullWidth
-            onPress={() => void handleSaveProfile()}
-            loading={saving}
-          >
-            Salva modifiche
-          </Button>
-        </Card>
+      <GlassCard eyebrow="Categorie assegnate">
+        <View style={styles.badgeWrap}>
+          {assignedCategories.length > 0 ? (
+            assignedCategories.map((category) => (
+              <StatusPill
+                key={category.id}
+                label={category.name}
+                variant="primary"
+                small
+              />
+            ))
+          ) : (
+            <StatusPill label="Nessuna categoria" variant="warning" small />
+          )}
+        </View>
+      </GlassCard>
 
-        <Card style={styles.sectionCard}>
-          <ThemedText type="body" style={styles.sectionLabel}>
-            Categorie assegnate
-          </ThemedText>
-          <View style={styles.badgeWrap}>
-            {assignedCategories.length > 0 ? (
-              assignedCategories.map((category) => (
-                <Badge key={category.id} label={category.name} small />
-              ))
-            ) : (
-              <Badge label="Nessuna categoria" variant="warning" small />
-            )}
-          </View>
-        </Card>
-
-        <Card style={styles.sectionCard}>
-          <ThemedText type="body" style={styles.sectionLabel}>
-            Permessi attivi
-          </ThemedText>
+      <GlassCard eyebrow="Permessi attivi">
+        <View style={styles.permissionList}>
           {permissionItems.map((item) => (
             <View key={item.label} style={styles.permissionRow}>
               <View style={styles.permissionInfo}>
                 <Ionicons
                   name={item.enabled ? "checkmark-circle" : "close-circle"}
                   size={18}
-                  color={
-                    item.enabled
-                      ? Colors.light.success
-                      : Colors.light.destructive
-                  }
+                  color={item.enabled ? "#22C55E" : "#EF4444"}
                 />
-                <ThemedText type="small">{item.label}</ThemedText>
+                <SignatureText variant="small" tone="ink">
+                  {item.label}
+                </SignatureText>
               </View>
-              <Badge
+              <StatusPill
                 label={item.enabled ? "Visibile" : "Nascosto"}
                 variant={item.enabled ? "success" : "destructive"}
                 small
               />
             </View>
           ))}
-        </Card>
-
-        <Card style={styles.sectionCard}>
-          <ThemedText type="body" style={styles.sectionLabel}>
-            Altre sezioni
-          </ThemedText>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Bacheca, documenti, appuntamenti, compensi e squadre.
-          </ThemedText>
-          <Button
-            variant="outline"
-            fullWidth
-            onPress={() => navigation.navigate("More")}
-          >
-            Apri altre sezioni
-          </Button>
-        </Card>
-
-        <Card style={styles.sectionCard}>
-          <ThemedText type="body" style={styles.sectionLabel}>
-            Supporto e assistenza
-          </ThemedText>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Per supporto operativo puoi contattare il team EasyGame indicando
-            club, ruolo e schermata coinvolta.
-          </ThemedText>
-          <Badge label="support@easygame.it" small />
-        </Card>
-
-        <View style={styles.actionStack}>
-          <Button variant="outline" fullWidth onPress={clearContext}>
-            Torna allo Spazio Account
-          </Button>
-          <Button variant="destructive" fullWidth onPress={logout}>
-            Esci
-          </Button>
         </View>
+      </GlassCard>
+
+      <GlassCard
+        eyebrow="Altro"
+        title="Altre sezioni"
+        description="Bacheca, documenti, appuntamenti, compensi e squadre."
+      >
+        <ActionButton
+          variant="secondary"
+          size="sm"
+          onPress={() => navigation.navigate("More")}
+        >
+          Apri altre sezioni
+        </ActionButton>
+      </GlassCard>
+
+      <GlassCard
+        eyebrow="Supporto"
+        title="Supporto e assistenza"
+        description="Per supporto operativo puoi contattare il team EasyGame indicando club, ruolo e schermata coinvolta."
+      >
+        <SignatureText
+          variant="small"
+          style={{ color: EGInk.onLightFaint, fontWeight: "600" }}
+        >
+          support@easygame.it
+        </SignatureText>
+      </GlassCard>
+
+      <View style={styles.actionStack}>
+        <ActionButton
+          variant="secondary"
+          fullWidth
+          onPress={() => void clearContext()}
+        >
+          Torna allo Spazio Account
+        </ActionButton>
+        <ActionButton
+          variant="destructive"
+          fullWidth
+          onPress={() => void logout()}
+        >
+          Esci
+        </ActionButton>
       </View>
-    </ScrollView>
+    </SecondaryScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { gap: Spacing.md },
-  heroCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.lg,
-    borderRadius: BorderRadius["2xl"],
-  },
-  heroName: { color: "#FFFFFF", marginBottom: 4 },
-  heroSubtitle: { color: "rgba(255,255,255,0.84)" },
-  sectionCard: { gap: Spacing.sm },
-  sectionLabel: { fontWeight: "700" },
+  formCard: { gap: Spacing.sm },
   badgeWrap: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.sm },
+  permissionList: { gap: Spacing.sm },
   permissionRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -250,5 +237,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: Spacing.sm,
   },
-  actionStack: { gap: Spacing.sm, marginTop: Spacing.md },
+  actionStack: {
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+  },
 });
