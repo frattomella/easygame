@@ -5,6 +5,8 @@ import {
   AuthOutcome,
   interpretAckResponse,
   interpretAuthResponse,
+  interpretPasswordResetResponse,
+  PasswordResetOutcome,
   ResendOutcome,
 } from "@/lib/auth-flow";
 
@@ -1428,6 +1430,73 @@ class EasyGameApiService {
       error: payload?.error ?? null,
       retryAfterHeader: retryAfter,
     });
+  }
+
+  /**
+   * Completa il reset con lo stesso endpoint della Web App
+   * (`POST /api/v1/auth/password/reset`) — stesso `userId`/`token` che il
+   * link porta, stessa regola sulla password, stessa revoca di tutte le
+   * sessioni al successo. Nessuna logica di dominio duplicata qui: il
+   * server decide, questo metodo si limita a classificare la risposta
+   * (`interpretPasswordResetResponse`).
+   */
+  async resetPassword(
+    userId: string,
+    token: string,
+    password: string,
+  ): Promise<PasswordResetOutcome> {
+    const { status, payload, retryAfter } = await this.fetchAuthPayload(
+      `${API_PREFIX}/auth/password/reset`,
+      { userId, token, password },
+    );
+    return interpretPasswordResetResponse({
+      status,
+      data: payload?.data as {
+        reset?: boolean;
+        message?: string | null;
+      } | null,
+      error: payload?.error ?? null,
+      retryAfterHeader: retryAfter,
+    });
+  }
+
+  /**
+   * Registra o rinnova il token push del dispositivo
+   * (`POST /api/v1/auth/device-tokens`, WP11). Al meglio: un fallimento di
+   * rete non deve mai bloccare l'uso dell'app, solo lasciare il dispositivo
+   * senza notifiche fino al prossimo tentativo (a ogni avvio, o quando
+   * `expo-notifications` riporta un token diverso).
+   */
+  async registerDeviceToken(
+    token: string,
+    platform: "ios" | "android",
+  ): Promise<boolean> {
+    try {
+      await this.request(`${API_PREFIX}/auth/device-tokens`, {
+        method: "POST",
+        body: { token, platform },
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Revoca esplicita, senza fare logout (l'utente disattiva le notifiche
+   * dall'app). Il logout revoca gia da solo i token della propria sessione
+   * lato server — vedi `/api/v1/auth/logout`.
+   */
+  async revokeDeviceToken(token: string): Promise<boolean> {
+    try {
+      await this.request(`${API_PREFIX}/auth/device-tokens`, {
+        method: "DELETE",
+        body: { token },
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**

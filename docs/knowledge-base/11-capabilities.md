@@ -240,7 +240,7 @@ funzionava e non si vedeva.
 | Login mobile | COMPLETE | Stessa API del Web, token in SecureStore, logout con revoca server-side |
 | Registrazione mobile | COMPLETE | `RegisterScreen` → `POST /api/v1/auth/register`, funziona in produzione (prima falliva sempre: cercava lo status 201, la rotta risponde 202) |
 | Verifica OTP (email/telefono) | COMPLETE | `VerifyOtpScreen`, nessun codice di anteprima nel percorso di produzione |
-| Recupero password | PARTIAL | Avvio reale (`POST /api/v1/auth/password/forgot`); il completamento apre il browser sulla pagina Web esistente — nessun deep link per completarlo in-app |
+| Recupero password | COMPLETE | Avvio (`POST /api/v1/auth/password/forgot`) e completamento nativo (`ResetPasswordScreen` → `POST /api/v1/auth/password/reset`) in-app dal WP11 (ADR-0166); il link resta un URL Web con un passaggio verso l'app tramite schema personalizzato (non un Universal Link, serve un Team ID Apple — vedi [16](16-technical-debt.md) D-MOB-5) |
 | Gate ruoli non supportati (V1: solo Trainer/Parent) | COMPLETE | `resolveMobileRoleGate` in `RootStackNavigator`, schermata unica "EasyGame Mobile è in aggiornamento" |
 | Selezione club/contesto | COMPLETE | `AccountHubScreen`, attivazione con ruolo/tessera precisi (ADR-0102) |
 | Home trainer | COMPLETE | `TrainerHomeDashboardScreen`, reskin sul design system CURRENT in WP10 (ADR-0165) |
@@ -250,7 +250,8 @@ funzionava e non si vedeva.
 | Appuntamenti trainer | COMPLETE | `TrainerAppointmentsScreen` (WP3): conferma/rifiuta (con motivo)/riprogramma secondo le transizioni del dominio |
 | Compensi trainer | COMPLETE | `TrainerCompensationScreen` (WP3) → `GET /api/v1/sport-work/me`, elenco chiuso identico al Web |
 | Squadre/categorie trainer | COMPLETE | `TrainerCategoriesScreen` (WP3): nomi leggibili e conteggi, raggiunta da un hub secondario (`TrainerMoreScreen`) |
-| Notifiche mobile | PARTIAL | Lettura, nessuna push |
+| Notifiche mobile | PARTIAL | Lettura completa (Trainer e Parent); anagrafica push e permesso reali dal WP11 (`POST /api/v1/auth/device-tokens`, `NotificationPermissionCard`) ma **nessun invio push esiste** — vedi [16](16-technical-debt.md) D-MOB-4 |
+| Deep linking mobile | PARTIAL | `easygame://` con instradamento per allenamenti/gare/notifiche/pagamenti/documenti/appuntamenti (WP11, ADR-0166), sempre validato dalla schermata di destinazione; nessun Universal Link (D-MOB-5), nessun cambio di contesto automatico cross-club/cross-figlio (D-MOB-6) |
 | Area management mobile | MISSING | Nessuna schermata |
 | Area genitore mobile | PARTIAL | `ParentTabNavigator`, batch completo WP4-9: multi-figlio, Home, Profilo atleta, Calendario/RSVP, Bacheca/Notifiche, Account, Pagamenti/Documenti/Consensi, Segreteria/Appuntamenti/Strutture/Iscrizione/Contatti — parity matrix WP9 senza righe MISSING. Resta PARTIAL: ricevute/fatture non apribili (l'endpoint risponde HTML, non un file), testo legale consensi (nessuna API lo espone, nemmeno il Web), annullamento prenotazione struttura (il dominio non lo offre), rinnovo iscrizione (modulo dinamico) — vedi [05](05-mobile-architecture.md) |
 | Area atleta mobile | MISSING | Ruolo non supportato in V1, intercettato dal gate |

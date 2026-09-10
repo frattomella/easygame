@@ -43,6 +43,13 @@
           "photosPermission": "Consente di scegliere una foto da caricare come documento richiesto dal club.",
           "cameraPermission": "Consente di scattare una foto di un documento richiesto dal club."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#2563EB"
+        }
       ]
     ],
     "experiments": {

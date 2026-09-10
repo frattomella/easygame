@@ -171,6 +171,78 @@ export const interpretAckResponse = (params: {
 };
 
 /**
+ * Il messaggio unico che `confirmPasswordReset` (server) restituisce per
+ * **ogni** token invalido, scaduto, gia usato o mai esistito — di proposito,
+ * per non dare a chi prova un link a caso un modo di distinguere questi casi
+ * (vedi `src/lib/server/auth-workflows.ts`, lato Web). Il client non deve
+ * inventare una distinzione che il server rifiuta di fare: un client che
+ * mostrasse "scaduto" contro "gia usato" ricostruirebbe l'oracolo che il
+ * messaggio unico esiste per chiudere.
+ */
+const PASSWORD_RESET_TOKEN_MESSAGE = "Link di reset non valido o scaduto";
+
+export interface PasswordResetSuccessOutcome {
+  kind: "success";
+  message: string;
+}
+export interface PasswordResetTokenInvalidOutcome {
+  kind: "token_invalid";
+  message: string;
+}
+export interface PasswordResetPolicyOutcome {
+  kind: "policy_error";
+  message: string;
+}
+export type PasswordResetOutcome =
+  | PasswordResetSuccessOutcome
+  | PasswordResetTokenInvalidOutcome
+  | PasswordResetPolicyOutcome
+  | RateLimitedOutcome
+  | AuthErrorOutcome;
+
+/**
+ * Classifica `POST /api/v1/auth/password/reset`. Tre e non quattro stati di
+ * errore: il token comprende invalido, scaduto e gia usato (vedi sopra),
+ * `policy_error` e ogni altro messaggio di dominio (oggi solo la regola sulla
+ * password) e `error` resta per un imprevisto senza `error.message` — che in
+ * pratica non succede mai, la rotta lo scrive sempre.
+ */
+export const interpretPasswordResetResponse = (params: {
+  status: number;
+  data: { reset?: boolean; message?: string | null } | null | undefined;
+  error: AuthEnvelopeError | null | undefined;
+  retryAfterHeader?: string | null;
+}): PasswordResetOutcome => {
+  const { status, data, error, retryAfterHeader } = params;
+  const code = error?.code || undefined;
+
+  if (status === 429 || (code && RATE_LIMIT_CODES.has(code))) {
+    const retryAfterSeconds =
+      parseRetryAfterSeconds(retryAfterHeader) ??
+      extractRetryAfterFromMessage(error?.message);
+    return {
+      kind: "rate_limited",
+      message: error?.message || "Troppe richieste. Riprova più tardi.",
+      retryAfterSeconds,
+    };
+  }
+
+  if (status >= 200 && status < 300 && data?.reset) {
+    return { kind: "success", message: data.message || "Password aggiornata." };
+  }
+
+  if (!error?.message) {
+    return { kind: "error", message: "Reset password non riuscito.", code };
+  }
+
+  if (error.message === PASSWORD_RESET_TOKEN_MESSAGE) {
+    return { kind: "token_invalid", message: error.message };
+  }
+
+  return { kind: "policy_error", message: error.message };
+};
+
+/**
  * Classifica una risposta di `/api/v1/auth/**` in uno dei quattro esiti che
  * la UI sa disegnare. E l'unico punto che lo fa: le schermate leggono
  * `outcome.kind` e basta, non ricostruiscono la logica dallo status HTTP.

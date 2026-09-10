@@ -104,6 +104,7 @@ restano quelli che le schermate esistenti gia usano.
 | `BookingCard` | `signature/BookingCard.tsx` | spec Parte C, §C8, raffinato in v2.2 — sola lettura, nessun annullamento lato Parent |
 | `EnrollmentStatusCard` | `signature/EnrollmentStatusCard.tsx` | spec Parte C, §C9, raffinato in v2.2, riscritto in v2.3 sul contratto dati reale |
 | `SelectableAthleteRow` | `signature/SelectableAthleteRow.tsx` | spec Parte B, §B3 — portato in WP10, assente da ogni versione precedente dell'export (nessun file, nessun uso). La superficie resta glass regolare anche selezionata (non "glass strong"): quella distinzione non e fra i quattro segnali di selezione obbligatori dello spec, e `GlassSurface` non ha un aggancio per l'alpha per istanza — semplificazione dichiarata, non un gap dimenticato |
+| `NotificationPermissionCard` | `signature/NotificationPermissionCard.tsx` | spec Parte G, §G1 (EGDS v2.3.0) — portato in WP11. **Semplificato**: lo stato "Allowed" elenca le categorie con Icon Chip nello spec; questa app non ha preferenze di notifica per categoria (un solo token per dispositivo), quindi e una riga descrittiva sola |
 
 Traduzione CSS → React Native (dove non e 1:1) documentata nel commento di
 testa di `theme.ts`: `border-radius` a quattro valori diventa quattro
@@ -217,6 +218,80 @@ calcolo geometrico — stesso livello di approssimazione di
 **Vedi anche.** ADR-0161–ADR-0164, `guidelines/trainer-migration.md`,
 [16 — Debito tecnico](16-technical-debt.md) per le cinque schermate Trainer
 orfane scoperte durante l'audit.
+
+### WP11 — Push, deep linking e recupero password nativo (ADR-0166)
+
+**Implementation version**: 2026-09-10. Tre capacita, tutte **anagrafica e
+instradamento** — vedi ADR-0166 per il vincolo che le governa tutte e tre:
+nessuna diventa una seconda autorita.
+
+**Push.** `expo-notifications` + `expo-device` (nuove dipendenze). Il
+dialogo di sistema non parte mai da solo (`configurePushNotificationHandler`
+non lo chiede, solo configura come una notifica si mostra in primo piano);
+lo chiede solo un tocco su "Attiva" nella card di permesso
+(`NotificationPermissionCard`, §G1), in `Profilo → Notifiche` per Trainer
+(`NotificationsScreen`) e Parent (`ParentBoardScreen`, sezione Notifiche).
+Il token si registra su `POST /api/v1/auth/device-tokens` — vedi
+[07](07-authentication.md#token-push-del-dispositivo-wp11-adr-0166) per il
+contratto server — al login se il permesso e gia concesso, a ogni rinnovo
+del token (`Notifications.addPushTokenListener`), e non richiede nessuna
+azione di revoca separata al logout (il server la fa da solo). Il tocco su
+una notifica instrada tramite `data.url`, con la **stessa** risoluzione dei
+deep link (`navigateToParsedDeepLink`) — una notifica e, per questa app, un
+deep link consegnato da APNs/FCM. **Nessuna pipeline di invio esiste**:
+nessun dominio che scrive su `notifications` genera oggi una push reale.
+
+**Deep linking.** Scheme `easygame://` (gia dichiarato in `app.json` prima
+di questo WP). `client/lib/deep-linking.ts` e puro e testato (34 casi fra
+questo modulo e `interpretPasswordResetResponse`): interpreta un URL in
+`{tab, screen, params}` usando solo parametri che le schermate accettavano
+gia. Il risolutore (`useDeepLinkRouter`, montato in `RootStackNavigator`)
+rispetta la sequenza dichiarata: bootstrap → sessione → contesto → ruolo →
+navigazione, con un link ricevuto prima che tutto sia pronto tenuto in
+sospeso e ripreso da solo. Rotte supportate:
+
+| Ruolo | Percorso | Destinazione |
+|---|---|---|
+| Trainer | `training/:id`, `match/:id` | `Trainings`/`Matches` con `focusTrainingId`/`focusMatchId`, gia esistenti |
+| Trainer | `notification`, `appointment` | Lista (nessun dettaglio per id) |
+| Parent | `training/:id`, `match/:id`, `rsvp/:id`, `event/:kind/:id` | `ParentEventDetail` con `eventId`/`kind`, gia esistenti |
+| Parent | `payment`, `document`, `appointment` | Lista (nessun dettaglio per id) |
+| Parent | `notification` | `ParentBoard` con `initialSection: "notifications"`, stesso instradamento gia usato dalla Home |
+| Nessuno (pre-sessione) | `reset-password?uid=...&token=...` | `ResetPasswordScreen`, sempre raggiungibile |
+
+**Recupero password nativo.** `ResetPasswordScreen` chiama lo stesso
+`POST /api/v1/auth/password/reset` di sempre — vedi
+[07](07-authentication.md#reset-password) per il contratto invariato. Il
+link emesso dal server resta un URL Web (nessuna modifica al dominio
+identita); `/auth/reset-password` offre in piu un link di passaggio con lo
+schema dell'app, toccato dall'utente, mai un redirect automatico.
+
+**Gap dichiarati, non dimenticanze:**
+
+- **Nessun invio push reale.** L'anagrafica esiste, l'invio no. Collegare
+  ogni dominio (appuntamenti, bacheca, scadenze) a un dispatch reale e un
+  lavoro a se.
+- **Nessun Universal Link.** Il link emesso via email resta un URL Web
+  aperto dal browser del telefono se l'utente non tocca il link di
+  passaggio — serve un dominio associato reale (Team ID Apple, WP12) per
+  intercettarlo direttamente.
+- **Nessun cambio di contesto automatico su un link cross-club/cross-figlio**
+  (design-source §G2, "Wrong context"). Un link verso una risorsa fuori dal
+  contesto attivo mostra oggi lo stato "non disponibile" della schermata di
+  destinazione — corretto e mai fuorviante, ma non lo switch automatico con
+  banner che lo spec descrive.
+- **Nessun banner una-tantum in Home.** Solo la card permanente in
+  Profilo/Notifiche (§G1) e implementata.
+- **La navigazione verso una tab Parent e "best effort".** `ParentTabNavigator`
+  monta le sue tab solo dopo che il contesto figlio ha caricato
+  (`ParentGate`); il risolutore riprova per una finestra limitata
+  (`navigateWhenReady`, 10 tentativi ogni 300ms) e poi abbandona in
+  silenzio — l'utente resta sulla Home del proprio ruolo, non su una
+  schermata rotta, ma non necessariamente sulla destinazione esatta se il
+  caricamento del figlio e insolitamente lento.
+
+**Vedi anche.** ADR-0166, [07](07-authentication.md),
+[16](16-technical-debt.md).
 
 ### WP3 — Parita funzionale Trainer (ADR-0162)
 
@@ -999,14 +1074,43 @@ dominio puro), quindi la copertura nuova e sulla sola logica pura aggiunta
 (la sigla di ruolo); permessi e navigazione restano verificati dalla suite
 preesistente, che non e stata toccata.
 
+### Verifica di avvio reale — 2026-09-10 (WP11 push, deep linking, recupero password nativo)
+
+Dopo `device-push-tokens.ts` (server), `client/lib/deep-linking.ts` +
+`deep-link-navigator.ts` + `push-notifications.ts` (mobile),
+`ResetPasswordScreen` e `NotificationPermissionCard`:
+
+- **Backend/Web**: `npm test` 5590/5590 verdi (5 nuovi su
+  `device-push-tokens.test.mjs`, piu l'aggiunta della nuova rotta alla suite
+  di conformita `tests/auth/api-authorization.test.mjs`), `npm run typecheck`
+  e `npm run lint` puliti (0 errori, stesso baseline di warning
+  preesistenti), `npm run build` completato. Migrazione
+  `20260910120000_wp11_device_push_tokens` **scritta, non applicata**
+  (richiede autorizzazione esplicita — CLAUDE.md §8).
+- **Mobile**: `npm run test` 144/144 verdi (122 preesistenti + 22 nuovi: 5 su
+  `interpretPasswordResetResponse`, 17 su `parseDeepLink`/
+  `resolveRoleGatedDeepLinkTarget`/`resolvePasswordResetTarget`), `npm run
+  check:types` e `npm run lint` puliti (0 errori, stessi 20 warning
+  preesistenti), `npx expo export --platform ios` completato senza errori
+  di risoluzione, 2647 moduli (2496 prima di questo WP — coerente con le due
+  dipendenze native nuove, `expo-notifications` ed `expo-device`). Nessuna
+  regressione Identity & Access, Trainer o Parent.
+- Nessun test automatico per i listener runtime di `expo-notifications`
+  (permesso concesso/negato dall'OS, tocco su una notifica reale, invio
+  effettivo): la logica pura che li governa (parsing dell'URL, risoluzione
+  del ruolo, classificazione della risposta di reset) e coperta; il
+  cablaggio nativo resta da verificare manualmente su un dispositivo fisico
+  con un build di sviluppo (i simulatori non supportano le push).
+
 ## Cosa manca per completare il mobile
 
 Identity & Access, le fondamenta di ruolo, la parita funzionale Trainer
 (WP3), l'intero batch Parent WP4-9 (multi-figlio, Home, Profilo atleta,
 Calendario/RSVP, Bacheca/Notifiche, esperienza Account,
 Pagamenti/Documenti/Consensi, Segreteria/Appuntamenti/Strutture/
-Iscrizione/Contatti) e il reskin visivo delle quattro tab Trainer primarie
-(WP10) sono a posto — la parity matrix del WP9 non ha trovato nessuna riga
+Iscrizione/Contatti), il reskin visivo delle quattro tab Trainer primarie
+(WP10) e l'anagrafica push/deep linking/recupero password nativo (WP11)
+sono a posto — la parity matrix del WP9 non ha trovato nessuna riga
 MISSING. Restano aperti, in ordine indicativo:
 
 - **Rinnovo iscrizione come modulo dinamico**: `RenewalDraft.form.fields`
@@ -1039,8 +1143,12 @@ MISSING. Restano aperti, in ordine indicativo:
   incluso in questo batch.
 - **Selettore data/ora nativo** per la riprogrammazione di un appuntamento:
   oggi testo libero `AAAA-MM-GG`/`HH:MM` (Trainer e, dal WP8, Parent).
-- **Notifiche push e deep linking**: nessuno dei due e configurato;
-  il completamento nativo del recupero password ne dipende.
+- **Notifiche push e deep linking**: configurati e funzionanti dal WP11
+  (ADR-0166) — anagrafica del token, permesso, instradamento del tocco e
+  dei link, completamento nativo del recupero password. Restano aperti,
+  dichiarati nella sezione WP11 sopra: nessuna pipeline di invio push
+  reale, nessun Universal Link (serve un Team ID Apple, WP12), nessun
+  cambio di contesto automatico su un link cross-club/cross-figlio.
 - **Link esterni centralizzati**: nessun meccanismo esiste ne lato Web ne
   lato mobile oggi (il link di supporto CediSoft e una stringa duplicata in
   piu punti del Web). Il WP8 non l'ha creato lato mobile perche nessuna

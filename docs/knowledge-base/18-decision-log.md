@@ -10424,3 +10424,62 @@ state toccate: erano gia nel linguaggio nuovo.
 [16](16-technical-debt.md).
 
 ---
+
+## ADR-0166 — Push, deep linking e recupero password nativo restano un'anagrafica, non una pipeline di invio (WP11)
+
+**Data:** 2026-09-10
+
+**Contesto.** ADR-0165 aveva chiuso il reskin visivo Trainer, lasciando
+esplicitamente fuori "push, deep linking, recupero password nativo" come
+lavoro a se. Una decisione esplicita successiva ha chiesto di costruirli,
+con un vincolo dichiarato in testa: l'app deve restare API-only (nessun
+Prisma, nessuna logica di dominio duplicata lato client), il backend deve
+restare autorevole, e la superficie nuova va minimizzata.
+
+**Decisione.** Si estende l'eccezione a tre capacita, tutte **anagrafica e
+instradamento**, mai una seconda autorita:
+
+1. **Un'unica tabella nuova, un solo scrittore.** `device_push_tokens`
+   (`src/lib/server/device-push-tokens.ts`) registra quale token Expo
+   appartiene a quale account e a quale sessione mobile — niente altro.
+   Nessuna pipeline di invio esiste: creare un appuntamento, un avviso di
+   bacheca o una scadenza non genera oggi nessuna notifica push. Collegare
+   ogni dominio che gia scrive su `notifications` a un invio reale resta un
+   lavoro a se, dichiarato qui perche non venga scambiato per gia fatto.
+2. **La revoca al logout non e una scelta del client.** `POST
+   /api/v1/auth/logout` revoca i token della propria sessione da solo,
+   prima di cancellare la sessione — un client mobile che dimenticasse di
+   chiamare una rotta di revoca non lascerebbe comunque un token vivo dopo
+   l'uscita.
+3. **Il deep linking risolve la destinazione, mai l'autorizzazione.**
+   `client/lib/deep-linking.ts` (mobile) traduce un URL in "quale schermata,
+   con quali parametri" usando solo parametri che le schermate di
+   destinazione gia accettavano (`focusTrainingId`, `focusMatchId`,
+   `eventId`/`kind`, `initialSection`) — nessuno nuovo. La convalida vera
+   (l'allenamento esiste? appartiene al club attivo?) resta dov'era: la
+   schermata di destinazione la chiede al server e mostra il proprio
+   `StateMessage` se la risposta e vuota o negata. Un link non salta mai
+   quel controllo.
+4. **Il completamento del reset password non duplica l'identita.** Il
+   mobile chiama lo stesso `POST /api/v1/auth/password/reset` della Web App,
+   con lo stesso `uid`/`token`, e riconosce **lo stesso** stato per token
+   invalido, scaduto o gia usato — il server li confonde di proposito per
+   non dare un oracolo a chi prova un link a caso, e il client non
+   ricostruisce quella distinzione. L'unico cambio lato Web e additivo e
+   visivo: `/auth/reset-password` offre ora un link di passaggio con lo
+   schema personalizzato dell'app (`easygame://reset-password?...`), che
+   l'utente tocca lui stesso — mai un redirect automatico. Non e un
+   Universal Link: senza un dominio associato reale (serve il Team ID
+   Apple) l'app non puo intercettare l'URL Web originale, e quella
+   configurazione resta un lavoro del WP12.
+
+**Cio che questa decisione non cambia.** Nessuna nuova area funzionale oltre
+alle tre capacita sopra. Nessuna logica di dominio duplicata lato mobile:
+`resolveMobileRoleGate`, i permessi e la policy password restano dove
+erano. Nessuna modifica al modello di sessione o al contratto
+`/api/v1/auth/password/**` oltre l'aggiunta additiva del link di passaggio.
+
+**Vedi anche.** ADR-0165, [05](05-mobile-architecture.md),
+[07](07-authentication.md), [16](16-technical-debt.md).
+
+---

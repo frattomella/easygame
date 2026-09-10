@@ -3824,3 +3824,88 @@ condizione.
 davvero e una decisione di prodotto (quella sezione va mostrata al Trainer
 o no?), non una scelta visiva: fuori perimetro per un WP dichiarato
 "solo reskin".
+
+## Debito aperto da push, deep linking e recupero password nativo (WP11, ADR-0166, 2026-09-10)
+
+### D-MOB-4 — Nessuna pipeline di invio push
+
+**Dove.** `src/lib/server/device-push-tokens.ts` registra e revoca token;
+nessun dominio (`appointments.ts`, `club-notifications.ts`,
+`medical-certificate-reminders.ts`, ecc.) invia una notifica push quando
+scrive una riga in `notifications`.
+
+**Perche non e stato chiuso qui.** Collegare ogni dominio che gia scrive
+notifiche a un invio push reale (chiamata all'API push di Expo, gestione
+degli errori di consegna, token scaduti/disinstallati da marcare revocati)
+e un lavoro trasversale a se — tocca una decina di file di dominio, non
+l'anagrafica dei destinatari che questo WP costruisce.
+
+### D-MOB-5 — Il link di reset password non e un Universal Link
+
+**Dove.** `src/app/auth/reset-password/page.tsx`; l'app mobile dichiara solo
+lo schema personalizzato `easygame://` in `app.json`.
+
+**Il fatto.** Il link che l'email porta resta un URL Web
+(`{AUTH_BASE_URL}/auth/reset-password?...`): senza un dominio associato
+reale (file `apple-app-site-association`, capacita "Associated Domains"
+lato iOS, entrambi legati al Team ID Apple del progetto) il sistema
+operativo non puo instradarlo all'app da solo. Il passaggio oggi e
+manuale: la pagina Web offre un link con lo schema dell'app che l'utente
+tocca lui stesso.
+
+**Perche non e stato chiuso qui.** Il Team ID Apple non e ancora
+disponibile in questo repository (WP12 tratta bundle identifier e
+configurazione EAS); pubblicare un `apple-app-site-association` con un
+identificativo segnaposto sarebbe peggio di non pubblicarlo — un file
+pubblico che dichiara un legame falso.
+
+### D-MOB-6 — Nessuno switch di contesto automatico su un deep link cross-club/cross-figlio
+
+**Dove.** `client/lib/deep-linking.ts`, `client/lib/deep-link-navigator.ts`.
+
+**Il fatto.** design-source `guidelines/component-specs.md` §G2 ("Wrong
+context") descrive un link verso una risorsa di un altro club o di un
+altro figlio come uno switch di contesto automatico con un banner che lo
+dichiara. L'implementazione attuale naviga sempre nel contesto attivo: se
+la risorsa non vi appartiene, la schermata di destinazione mostra il
+proprio stato "non disponibile" (mai un errore grezzo, mai una lista
+vuota indistinguibile) ma non cambia contesto da sola.
+
+**Perche non e stato chiuso qui.** Lo switch automatico richiederebbe
+sapere a quale club/figlio appartiene una risorsa **prima** di navigare —
+una chiamata di risoluzione che oggi non esiste per nessuna delle
+destinazioni del deep link — ed e un comportamento di navigazione nuovo,
+non solo un instradamento.
+
+### D-MOB-7 — Il banner una-tantum di richiesta permesso in Home non e implementato
+
+**Dove.** `client/components/signature/NotificationPermissionCard.tsx`.
+
+**Il fatto.** §G1 descrive due collocazioni per lo stato "Not requested":
+una card permanente in Profilo → Notifiche (implementata) e, **al piu una
+volta**, un banner discreto in fondo alla Home dopo la prima azione
+significativa. Solo la prima e stata costruita.
+
+**Perche non e stato chiuso qui.** Il banner una-tantum richiede uno stato
+persistito ("l'ho gia mostrato") e una definizione di "azione
+significativa" per ciascun ruolo — una decisione di prodotto, non
+un'estensione meccanica della card gia scritta.
+
+### D-MOB-8 — La navigazione verso una tab Parent via deep link e "best effort"
+
+**Dove.** `client/hooks/useDeepLinkRouter.ts`,
+`client/lib/deep-link-navigator.ts` (`navigateWhenReady`).
+
+**Il fatto.** `ParentTabNavigator` monta le sue cinque tab solo dopo che
+`ParentContext` ha caricato i figli collegati (`ParentGate`). Un deep link
+verso una destinazione Parent ricevuto durante quel caricamento riprova la
+navigazione per un numero limitato di tentativi (10, ogni 300ms) e poi
+abbandona in silenzio: l'utente resta sulla Home del proprio ruolo, mai su
+una schermata rotta, ma non necessariamente sulla destinazione esatta se il
+caricamento e insolitamente lento.
+
+**Perche non e stato chiuso qui.** Un'attesa garantita richiederebbe che
+`ParentContext` esponesse una promessa "pronto" che il risolutore di deep
+link potesse aspettare invece di ripetere un tentativo alla cieca — un
+cambio all'interfaccia di un contesto condiviso con ogni schermata Parent,
+non isolato a questo WP.

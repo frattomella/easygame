@@ -55,3 +55,5 @@ export { ConsentRow } from "@/components/signature/ConsentRow";
 export { AppointmentCard } from "@/components/signature/AppointmentCard";
 export { BookingCard } from "@/components/signature/BookingCard";
 export { EnrollmentStatusCard } from "@/components/signature/EnrollmentStatusCard";
+export { NotificationPermissionCard } from "@/components/signature/NotificationPermissionCard";
+export type { NotificationPermissionStatus } from "@/components/signature/NotificationPermissionCard";

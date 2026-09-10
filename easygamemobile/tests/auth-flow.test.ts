@@ -5,6 +5,7 @@ import {
   extractRetryAfterFromMessage,
   interpretAckResponse,
   interpretAuthResponse,
+  interpretPasswordResetResponse,
   parseRetryAfterSeconds,
   pickVerificationChannel,
 } from "../client/lib/auth-flow";
@@ -272,4 +273,71 @@ test("pickVerificationChannel preferisce phone solo se email non è più richies
   );
   assert.equal(pickVerificationChannel({ userId: "x" }), "email");
   assert.equal(pickVerificationChannel(null), "email");
+});
+
+// --- completamento reset password (WP11) --------------------------------
+
+test("reset password: 200 con reset:true → success", () => {
+  const outcome = interpretPasswordResetResponse({
+    status: 200,
+    data: { reset: true, message: "Password aggiornata." },
+    error: null,
+  });
+  assert.deepEqual(outcome, {
+    kind: "success",
+    message: "Password aggiornata.",
+  });
+});
+
+test("reset password: token invalido, scaduto e già usato condividono lo stesso stato — il server non li distingue di proposito", () => {
+  const messaggioUnico = "Link di reset non valido o scaduto";
+  for (const status of [400]) {
+    const outcome = interpretPasswordResetResponse({
+      status,
+      data: null,
+      error: { message: messaggioUnico, code: "PASSWORD_RESET_FAILED" },
+    });
+    assert.equal(outcome.kind, "token_invalid");
+    assert.equal(outcome.message, messaggioUnico);
+  }
+});
+
+test("reset password: un'altra frase di errore è la regola sulla password, non il token", () => {
+  const outcome = interpretPasswordResetResponse({
+    status: 400,
+    data: null,
+    error: {
+      message: "La password deve contenere almeno 12 caratteri",
+      code: "PASSWORD_RESET_FAILED",
+    },
+  });
+  assert.deepEqual(outcome, {
+    kind: "policy_error",
+    message: "La password deve contenere almeno 12 caratteri",
+  });
+});
+
+test("reset password: 429 → rate_limited con i secondi di attesa", () => {
+  const outcome = interpretPasswordResetResponse({
+    status: 429,
+    data: null,
+    error: {
+      message: "Troppi tentativi. Riprova più tardi.",
+      code: "RATE_LIMITED",
+    },
+    retryAfterHeader: "30",
+  });
+  assert.equal(outcome.kind, "rate_limited");
+  if (outcome.kind === "rate_limited") {
+    assert.equal(outcome.retryAfterSeconds, 30);
+  }
+});
+
+test("reset password: nessun messaggio d'errore e nessun successo → error generico, mai un crash", () => {
+  const outcome = interpretPasswordResetResponse({
+    status: 500,
+    data: null,
+    error: null,
+  });
+  assert.equal(outcome.kind, "error");
 });

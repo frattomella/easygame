@@ -8,6 +8,7 @@ import LoginScreen from "@/screens/LoginScreen";
 import RegisterScreen from "@/screens/RegisterScreen";
 import VerifyOtpScreen from "@/screens/VerifyOtpScreen";
 import ForgotPasswordScreen from "@/screens/ForgotPasswordScreen";
+import ResetPasswordScreen from "@/screens/ResetPasswordScreen";
 import AccountHubScreen from "@/screens/AccountHubScreen";
 import UnsupportedRoleScreen from "@/screens/UnsupportedRoleScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
@@ -15,6 +16,8 @@ import { useAuthContext } from "@/contexts/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
 import { resolveMobileRoleGate } from "@/lib/mobile-role-gate";
 import { VerificationChannel, VerificationInfo } from "@/lib/auth-flow";
+import { useDeepLinkRouter } from "@/hooks/useDeepLinkRouter";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -26,6 +29,8 @@ export type RootStackParamList = {
     verification: VerificationInfo;
   };
   ForgotPassword: undefined;
+  /** Raggiunta da un deep link (WP11) — vedi `client/lib/deep-linking.ts`. Non richiede sessione: il reset stesso ne serve a chi non ce l'ha. */
+  ResetPassword: { userId: string; token: string };
   ContextSelection: undefined;
   Main: undefined;
   ParentMain: undefined;
@@ -50,6 +55,30 @@ export default function RootStackNavigator() {
   const { isLoading, isLoggedIn, hasContext, currentRole } = useAuthContext();
   const { theme } = useTheme();
 
+  const roleGate = hasContext ? resolveMobileRoleGate(currentRole) : null;
+  const deepLinkRoleGate =
+    roleGate === "trainer" || roleGate === "parent" ? roleGate : null;
+  const isReadyToNavigate = !isLoading && isLoggedIn && hasContext;
+
+  /*
+    Il risolutore di deep link e il ciclo di vita del token push (WP11)
+    vanno chiamati a ogni render, prima di qualunque `return` anticipato:
+    sono hook, e le regole di React non permettono di saltarli mentre il
+    bootstrap e ancora in corso. Durante il caricamento `isReadyToNavigate` e
+    `false` e un eventuale link resta in sospeso — lo riprende da solo non
+    appena bootstrap, sessione e contesto sono risolti (stessa sequenza che
+    decide cosa mostrare qui sotto).
+  */
+  useDeepLinkRouter({
+    isReadyToNavigate,
+    roleGate: deepLinkRoleGate,
+  });
+  usePushNotifications({
+    isLoggedIn,
+    isReadyToNavigate,
+    roleGate: deepLinkRoleGate,
+  });
+
   if (isLoading) {
     return (
       <View style={[styles.loading, { backgroundColor: theme.backgroundRoot }]}>
@@ -57,8 +86,6 @@ export default function RootStackNavigator() {
       </View>
     );
   }
-
-  const roleGate = hasContext ? resolveMobileRoleGate(currentRole) : null;
 
   return (
     <Stack.Navigator screenOptions={{ ...screenOptions, headerShown: false }}>
@@ -81,6 +108,13 @@ export default function RootStackNavigator() {
       ) : (
         <Stack.Screen name="Unsupported" component={UnsupportedRoleScreen} />
       )}
+      {/*
+        Sempre presente, a prescindere dallo stato sopra: il reset password
+        (WP11) non ha bisogno di sessione ne di contesto, ed e l'unica
+        schermata che un deep link deve poter raggiungere anche prima che
+        tutto il resto sia risolto.
+      */}
+      <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
     </Stack.Navigator>
   );
 }

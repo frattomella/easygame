@@ -5,11 +5,13 @@ import { useRoute, RouteProp } from "@react-navigation/native";
 
 import {
   GlassCard,
+  NotificationPermissionCard,
   NotificationRow,
   ParentPrimaryScreenLayout,
   SignatureText,
   StateMessage,
 } from "@/components/signature";
+import { useNotificationPermissionCard } from "@/hooks/useNotificationPermissionCard";
 import { useParentContext } from "@/contexts/ParentContext";
 import { useParentSectionStatus } from "@/hooks/useParentSectionStatus";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
@@ -40,6 +42,7 @@ export default function ParentBoardScreen() {
   const [section, setSection] = useState<Section>(
     route.params?.initialSection || "board",
   );
+  const permission = useNotificationPermissionCard();
   const queryClient = useQueryClient();
 
   const boardQuery = useQuery({
@@ -180,42 +183,56 @@ export default function ParentBoardScreen() {
                 </Pressable>
               ))
             )
-          ) : notificationGroups.length === 0 ? (
-            <StateMessage
-              kind="empty"
-              title="Nessuna notifica"
-              message="Non ci sono notifiche per questo figlio."
-            />
           ) : (
             <>
-              {hasUnread ? (
-                <Pressable
-                  onPress={markAllNotificationsRead}
-                  style={styles.markAll}
-                >
-                  <SignatureText variant="small" style={styles.markAllLabel}>
-                    Segna tutte come lette
-                  </SignatureText>
-                </Pressable>
-              ) : null}
-              {notificationGroups.map((group) => (
-                <View key={group.label} style={{ gap: Spacing.xs }}>
-                  <SignatureText variant="eyebrow" tone="faint">
-                    {group.label.toUpperCase()}
-                  </SignatureText>
-                  {group.items.map((item) => (
-                    <NotificationRow
-                      key={item.id}
-                      title={item.title}
-                      body={item.message}
-                      read={item.read}
-                      category={resolveNotificationCategory(item.type)}
-                      timestampLabel={formatRelativeOrAbsolute(item.created_at)}
-                      onPress={() => markNotificationRead(item.id)}
-                    />
+              <NotificationPermissionCard
+                status={permission.status}
+                onEnable={() => void permission.enable()}
+                onOpenSettings={permission.openSettings}
+              />
+              {notificationGroups.length === 0 ? (
+                <StateMessage
+                  kind="empty"
+                  title="Nessuna notifica"
+                  message="Non ci sono notifiche per questo figlio."
+                />
+              ) : (
+                <>
+                  {hasUnread ? (
+                    <Pressable
+                      onPress={markAllNotificationsRead}
+                      style={styles.markAll}
+                    >
+                      <SignatureText
+                        variant="small"
+                        style={styles.markAllLabel}
+                      >
+                        Segna tutte come lette
+                      </SignatureText>
+                    </Pressable>
+                  ) : null}
+                  {notificationGroups.map((group) => (
+                    <View key={group.label} style={{ gap: Spacing.xs }}>
+                      <SignatureText variant="eyebrow" tone="faint">
+                        {group.label.toUpperCase()}
+                      </SignatureText>
+                      {group.items.map((item) => (
+                        <NotificationRow
+                          key={item.id}
+                          title={item.title}
+                          body={item.message}
+                          read={item.read}
+                          category={resolveNotificationCategory(item.type)}
+                          timestampLabel={formatRelativeOrAbsolute(
+                            item.created_at,
+                          )}
+                          onPress={() => markNotificationRead(item.id)}
+                        />
+                      ))}
+                    </View>
                   ))}
-                </View>
-              ))}
+                </>
+              )}
             </>
           )}
         </>

@@ -12,6 +12,7 @@ import { queryClient } from "@/lib/query-client";
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { navigationRef } from "@/lib/navigation-ref";
 
 export default function App() {
   return (
@@ -21,7 +22,7 @@ export default function App() {
           <SafeAreaProvider>
             <GestureHandlerRootView style={styles.root}>
               <KeyboardProvider>
-                <NavigationContainer>
+                <NavigationContainer ref={navigationRef}>
                   <RootStackNavigator />
                 </NavigationContainer>
                 <StatusBar style="auto" />

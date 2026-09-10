@@ -23,7 +23,11 @@ import {
   TrainingAttendanceEntry,
   User,
 } from "@/services/api";
-import { AuthOutcome, ResendOutcome } from "@/lib/auth-flow";
+import {
+  AuthOutcome,
+  PasswordResetOutcome,
+  ResendOutcome,
+} from "@/lib/auth-flow";
 import { buildActivationRequest } from "@/lib/activation-request";
 import {
   DEFAULT_TRAINER_DASHBOARD_PERMISSIONS,
@@ -807,6 +811,25 @@ class MobileBackendStorageService {
 
   async forgotPassword(email: string): Promise<ResendOutcome> {
     return api.forgotPassword(email);
+  }
+
+  async resetPassword(
+    userId: string,
+    token: string,
+    password: string,
+  ): Promise<PasswordResetOutcome> {
+    return api.resetPassword(userId, token, password);
+  }
+
+  async registerDeviceToken(
+    token: string,
+    platform: "ios" | "android",
+  ): Promise<boolean> {
+    return api.registerDeviceToken(token, platform);
+  }
+
+  async revokeDeviceToken(token: string): Promise<boolean> {
+    return api.revokeDeviceToken(token);
   }
 
   async logout() {
