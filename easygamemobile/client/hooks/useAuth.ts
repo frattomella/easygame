@@ -132,6 +132,20 @@ export function useAuth() {
     checkAuth();
   }, [checkAuth]);
 
+  /*
+    Sessione revocata mentre l'app e aperta (WP12 — session hardening): la
+    prossima chiamata autenticata che riceve un 401 pulisce token, utente e
+    contesto da sola (`api.ts`/`mobile-backend-storage.ts`); qui si riporta
+    lo stato React a "sloggato" nello stesso istante, senza aspettare un
+    riavvio a freddo e senza un ciclo di redirect — `SIGNED_OUT_STATE` e lo
+    stesso stato finale di un logout volontario.
+  */
+  useEffect(
+    () =>
+      mobileBackendStorage.onSessionExpired(() => setState(SIGNED_OUT_STATE)),
+    [],
+  );
+
   const login = async (
     email: string,
     password: string,

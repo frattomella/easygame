@@ -22,6 +22,36 @@ export function findInvitationForEvent(
   );
 }
 
+/**
+ * Il badge "Da confermare" del Calendario (WP12 — gap noto chiuso).
+ *
+ * **Il difetto reale.** `ParentCalendarScreen` derivava `pending` da
+ * `invitations.find(...)`: se la fetch degli inviti falliva, l'elenco
+ * arrivava vuoto e ogni evento appariva silenziosamente "gia confermato" —
+ * un errore di rete travestito da una lista pulita, esattamente il difetto
+ * che `StateMessage` esiste per non ripetere altrove.
+ *
+ * La firma **costringe** chi chiama a dichiarare se la fetch e riuscita:
+ * non esiste modo di ottenere "none" da una lettura fallita, perche
+ * `invitationsLoadFailed` non e un default con cui si possa dimenticare di
+ * passare qualcosa — va deciso a ogni chiamata.
+ */
+export type CalendarRsvpBadge = "pending" | "unknown" | "none";
+
+export function resolveCalendarRsvpBadge(params: {
+  rsvpRequired: boolean | undefined;
+  invitation: RsvpInvitation | null;
+  invitationsLoadFailed: boolean;
+}): CalendarRsvpBadge {
+  if (!params.rsvpRequired) {
+    return "none";
+  }
+  if (params.invitationsLoadFailed) {
+    return "unknown";
+  }
+  return params.invitation?.state === "no_response" ? "pending" : "none";
+}
+
 const shortDeadline = (deadline: string | null): string | null => {
   if (!deadline) return null;
   const parsed = new Date(deadline);

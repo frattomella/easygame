@@ -10,7 +10,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.easygame.mobile"
+      "bundleIdentifier": "com.easygame.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.easygame.mobile",
@@ -36,12 +39,18 @@
         }
       ],
       "expo-web-browser",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "Protegge in modo sicuro le credenziali di accesso EasyGame salvate su questo dispositivo."
+        }
+      ],
       [
         "expo-image-picker",
         {
           "photosPermission": "Consente di scegliere una foto da caricare come documento richiesto dal club.",
-          "cameraPermission": "Consente di scattare una foto di un documento richiesto dal club."
+          "cameraPermission": "Consente di scattare una foto di un documento richiesto dal club.",
+          "microphonePermission": false
         }
       ],
       [
@@ -50,7 +59,8 @@
           "icon": "./assets/images/icon.png",
           "color": "#2563EB"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "reactCompiler": true

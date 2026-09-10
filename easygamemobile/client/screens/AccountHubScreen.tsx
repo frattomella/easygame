@@ -26,6 +26,7 @@ import { normalizeMobileAccessRole } from "@/lib/mobile-role-gate";
 import { Club, Access } from "@/services/api";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import { BorderRadius, Colors, Spacing } from "@/constants/theme";
+import { SUPPORT_MAILTO_URL } from "@/constants/external-links";
 
 export default function AccountHubScreen() {
   const insets = useSafeAreaInsets();
@@ -99,9 +100,8 @@ export default function AccountHubScreen() {
   };
 
   const handleOpenSupport = async () => {
-    const url = "mailto:support@easygame.it";
-    if (await Linking.canOpenURL(url)) {
-      await Linking.openURL(url);
+    if (await Linking.canOpenURL(SUPPORT_MAILTO_URL)) {
+      await Linking.openURL(SUPPORT_MAILTO_URL);
     }
   };
 

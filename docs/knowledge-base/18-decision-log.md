@@ -10345,11 +10345,14 @@ dati di `PaymentCard`, `DocumentRow`/`DocumentCard`, `ConsentRow`,
    campi) — costruirne un renderer generico e fuori perimetro di questo
    batch: la schermata Iscrizione mostra stato, pratiche e documenti in
    sospeso (tutto reale), non un modulo che non sa ancora compilare.
-5. **Un solo punto per i link esterni mobile.** Non esisteva ne lato Web ne
-   lato mobile: creato in `easygamemobile/client/constants/external-links.ts`
-   solo se e dove serve davvero un link business-critical — i Contatti Parent
-   restano dati del club presi dal payload, non stringhe hardcoded, quindi
-   non lo richiedono di per se.
+5. **Un solo punto per i link esterni mobile, se e quando servisse davvero.**
+   Non esisteva ne lato Web ne lato mobile. Questo batch **non lo crea**: i
+   Contatti Parent restano dati del club presi dal payload, non stringhe
+   hardcoded, quindi non lo richiedono di per se — un file senza un
+   consumatore reale sarebbe stato prematuro. *(Corretto nel WP12: qui era
+   scritto "creato", ma nessun file del genere esisteva ancora nel
+   repository — vince il codice, CLAUDE.md §1. Il file e nato davvero in
+   WP12, ADR-0167, quando un secondo punto duplicato lo ha reso necessario.)*
 
 **Cio che questa decisione non cambia.** Nessuna area management. Nessuna
 pipeline di build. Nessuna modifica alla dashboard Web. Nessuna funzionalita
@@ -10481,5 +10484,60 @@ erano. Nessuna modifica al modello di sessione o al contratto
 
 **Vedi anche.** ADR-0165, [05](05-mobile-architecture.md),
 [07](07-authentication.md), [16](16-technical-debt.md).
+
+---
+
+## ADR-0167 — Candidato al rilascio iOS: hardening, non nuove funzioni (WP12)
+
+**Data:** 2026-09-10
+
+**Contesto.** ADR-0166 aveva chiuso push, deep linking e recupero password
+nativo. Una decisione esplicita successiva ha chiesto di preparare un
+candidato al rilascio iOS — configurazione EAS, permessi, sessione,
+isolamento dati, flussi nativi — **senza** sottoporlo a TestFlight o App
+Store, e senza toccare produzione.
+
+**Decisione.** Nessuna nuova area funzionale. Sei interventi, tutti di
+irrobustimento su cio che gia esisteva:
+
+1. **`eas.json` nasce ora**, tre profili (development/preview/production),
+   tutti puntati sull'unico backend reale disponibile (staging) — non
+   esiste, nello scope Vercel corrente, un progetto di produzione
+   (CLAUDE.md §9). Nessun segreto nel file.
+2. **Permessi iOS ridotti a cio che l'app usa davvero.**
+   `NSMicrophoneUsageDescription` (e il permesso Android `RECORD_AUDIO`)
+   spariscono: `expo-image-picker` li aggiungeva per un caso — registrare
+   audio/video — che il codice non esercita mai (solo foto,
+   `mediaTypes: ["images"]`). `NSFaceIDUsageDescription` resta (il modulo
+   nativo di `expo-secure-store` la richiede a prescindere dall'uso reale
+   della biometria) ma con un testo onesto sull'uso vero: proteggere le
+   credenziali salvate, non "accedere ai dati biometrici".
+3. **Una sessione revocata si nota subito, non al prossimo riavvio.** Prima
+   di questo WP, un token invalidato mentre l'app era aperta produceva solo
+   errori sparsi schermata per schermata; ora la prima chiamata autenticata
+   che riceve un 401 riporta l'intera app al login, ripulendo token,
+   utente e contesto locale insieme — mai un ciclo di redirect.
+4. **Il difetto noto del Calendario Parent e chiuso**, non aggirato:
+   `resolveCalendarRsvpBadge` rende impossibile, per costruzione della
+   firma, produrre un "nessuna conferma in sospeso" silenzioso da una fetch
+   fallita.
+5. **Un solo punto per i link esterni business-critical**, dove prima
+   `support@easygame.it` viveva duplicato in due schermate — la prima
+   istanza reale di questo meccanismo, che ADR-0164 aveva descritto come
+   gia esistente per errore (corretto qui, CLAUDE.md §1).
+6. **Isolamento cache/dati e flussi nativi (checkout, documenti, foto)
+   verificati, non modificati** — erano gia corretti dai WP7 e WP9: ogni
+   `queryKey` Parent porta l'identita del figlio, ogni fetch Trainer
+   rilegge il club attivo da zero, il checkout non assume mai il successo
+   dal solo ritorno dal browser.
+
+**Cio che questa decisione non cambia.** Nessuna pipeline di invio push
+(D-MOB-4). Nessun Universal Link (D-MOB-5). Nessuno stato persistente di
+offline/manutenzione/versione minima (D-MOB-9, nuovo — richiederebbe una
+dipendenza nuova e un contratto server che non esiste nemmeno lato Web).
+Nessun deploy, nessun invio a TestFlight o App Store.
+
+**Vedi anche.** ADR-0166, [05](05-mobile-architecture.md),
+[14](14-security.md), [16](16-technical-debt.md).
 
 ---

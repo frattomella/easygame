@@ -837,6 +837,19 @@ class MobileBackendStorageService {
     await AsyncStorage.removeItem(KEYS.currentContext);
   }
 
+  /**
+   * Sessione revocata mentre l'app e aperta (WP12). `api.onSessionExpired`
+   * ripulisce gia token e utente; qui si toglie anche il contesto locale
+   * (club/ruolo attivo) prima di avvisare chi si e iscritto — altrimenti un
+   * login successivo rileggerebbe un club o un ruolo che non e piu quello
+   * giusto per il nuovo account.
+   */
+  onSessionExpired(listener: () => void): () => void {
+    return api.onSessionExpired(() => {
+      void AsyncStorage.removeItem(KEYS.currentContext).finally(listener);
+    });
+  }
+
   async isLoggedIn(): Promise<boolean> {
     return api.isLoggedIn();
   }

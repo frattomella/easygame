@@ -14,6 +14,7 @@ import {
 } from "@/components/signature";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { EGInk, Spacing } from "@/constants/theme";
+import { SUPPORT_EMAIL } from "@/constants/external-links";
 import type { ProfileStackParamList } from "@/navigation/ProfileStackNavigator";
 
 type Navigation = NativeStackNavigationProp<ProfileStackParamList, "Profile">;
@@ -198,7 +199,7 @@ export default function TrainerProfileDashboardScreen() {
           variant="small"
           style={{ color: EGInk.onLightFaint, fontWeight: "600" }}
         >
-          support@easygame.it
+          {SUPPORT_EMAIL}
         </SignatureText>
       </GlassCard>
 

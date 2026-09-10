@@ -7,11 +7,13 @@ import type { ParentProfileStackParamList } from "@/navigation/ParentProfileStac
 type Route = RouteProp<ParentProfileStackParamList, "ParentComingSoon">;
 
 /**
- * Una sezione dell'hub non ancora implementata (Pagamenti, Documenti,
- * Consensi, Iscrizione, Appuntamenti, Prenotazioni strutture, Contatti
- * club, Impostazioni — fuori perimetro di WP4-6, ADR-0163). Onesta invece
- * di finta: nessun bottone morto, nessun elenco vuoto travestito da lista
- * reale — lo dice esplicitamente.
+ * Una sezione dell'hub non ancora implementata. Il batch Parent WP4-9
+ * (ADR-0163/ADR-0164) ha reso reali Pagamenti, Documenti, Consensi,
+ * Iscrizione, Appuntamenti, Prenotazioni strutture e Contatti club: oggi
+ * questa schermata resta raggiunta solo da "Impostazioni"
+ * (`ParentMoreScreen`), che non ha ancora una sezione propria. Onesta
+ * invece di finta: nessun bottone morto, nessun elenco vuoto travestito da
+ * lista reale — lo dice esplicitamente.
  */
 export default function ParentComingSoonScreen() {
   const route = useRoute<Route>();

@@ -1,5 +1,10 @@
 # 13 — Ambienti: Vercel, Neon, variabili
 
+> Questo documento copre **solo** l'ambiente Web (Vercel/Neon). La build e il
+> rilascio mobile (EAS, `eas.json`, profili build, variabili
+> `EXPO_PUBLIC_*`) sono in
+> [05 — Architettura Mobile](05-mobile-architecture.md#wp12--ios-hardening-e-release-readiness-adr-0167).
+
 ## Quadro degli ambienti (verificato 2026-08-22)
 
 | Ambiente | Vercel | Database | Note |

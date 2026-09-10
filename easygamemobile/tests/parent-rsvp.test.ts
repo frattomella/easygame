@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   findInvitationForEvent,
+  resolveCalendarRsvpBadge,
   resolveRsvpControlView,
 } from "../client/lib/parent-rsvp";
 import type { RsvpInvitation } from "../client/services/api";
@@ -80,4 +81,50 @@ test("risposta non disponibile ma una risposta precedente resta visibile", () =>
     reason: "Risposte chiuse dal club",
     lastState: "yes",
   });
+});
+
+// --- badge "Da confermare" del Calendario (WP12: il difetto noto) --------
+
+test("un evento senza RSVP richiesto non mostra mai il badge, indipendentemente dagli inviti", () => {
+  assert.equal(
+    resolveCalendarRsvpBadge({
+      rsvpRequired: false,
+      invitation: invitation({ state: "no_response" }),
+      invitationsLoadFailed: false,
+    }),
+    "none",
+  );
+});
+
+test("la fetch degli inviti fallita produce 'unknown', mai un 'none' silenzioso", () => {
+  assert.equal(
+    resolveCalendarRsvpBadge({
+      rsvpRequired: true,
+      invitation: null,
+      invitationsLoadFailed: true,
+    }),
+    "unknown",
+  );
+});
+
+test("un invito senza risposta, con la fetch riuscita, e 'pending'", () => {
+  assert.equal(
+    resolveCalendarRsvpBadge({
+      rsvpRequired: true,
+      invitation: invitation({ state: "no_response" }),
+      invitationsLoadFailed: false,
+    }),
+    "pending",
+  );
+});
+
+test("un invito gia risposto (si/no), con la fetch riuscita, e 'none'", () => {
+  assert.equal(
+    resolveCalendarRsvpBadge({
+      rsvpRequired: true,
+      invitation: invitation({ state: "yes" }),
+      invitationsLoadFailed: false,
+    }),
+    "none",
+  );
 });

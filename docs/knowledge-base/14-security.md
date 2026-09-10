@@ -29,6 +29,8 @@ lo e**, e i rischi operativi da conoscere prima di toccare il codice.
 | Mapping dei moduli | Un campo porta una **chiave** di un catalogo chiuso server-side, mai un percorso. Una chiave inventata viene scartata in normalizzazione; i dati della societa sono di sola lettura. Un modulo pubblico non riceve mai una precompilazione |
 | Scritture da una compilazione | Nessuna, finche non c'e un'approvazione autenticata; l'approvazione passa da `resources.ts` e finisce nell'audit log (`form.submission.approved` / `.rejected`) |
 | TypeScript | `strict: true`, e `ignoreBuildErrors` **non** e attivo in `next.config.js` |
+| Token push del dispositivo mobile (WP11) | Unico su `token`: un dispositivo che cambia account riscrive la riga sul nuovo `user_id`, mai una seconda a nome del vecchio. Revocato automaticamente dal logout (per sessione, non per l'intero account — gli altri dispositivi restano collegati). Nessun invio push implementato: solo anagrafica |
+| Sessione mobile revocata a caldo (WP12) | Una chiamata autenticata che riceve 401 pulisce token/utente/contesto sul dispositivo e riporta l'app al login nello stesso istante — non solo al prossimo riavvio a freddo (`api.ts` → `onSessionExpired`, `useAuth.ts`) |
 
 ## Incidenti risolti
 

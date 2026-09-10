@@ -5,7 +5,10 @@ import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import {
+  ActionButton,
   EventCard,
+  GlassCard,
+  IconChip,
   ParentPrimaryScreenLayout,
   SignatureText,
   StateMessage,
@@ -20,7 +23,10 @@ import {
   ParentCalendarFilter,
   ParentCalendarItem,
 } from "@/lib/parent-calendar";
-import { findInvitationForEvent } from "@/lib/parent-rsvp";
+import {
+  findInvitationForEvent,
+  resolveCalendarRsvpBadge,
+} from "@/lib/parent-rsvp";
 import { Spacing } from "@/constants/theme";
 import type { ParentCalendarStackParamList } from "@/navigation/ParentCalendarStackNavigator";
 
@@ -74,6 +80,7 @@ export default function ParentCalendarScreen() {
   }, [dashboardQuery.data]);
   const filteredItems = filterParentCalendarItems(items, filter);
   const invitations = rsvpQuery.data || [];
+  const invitationsLoadFailed = rsvpQuery.isError;
 
   const openEvent = (item: ParentCalendarItem) =>
     navigation.navigate("ParentEventDetail", {
@@ -141,6 +148,36 @@ export default function ParentCalendarScreen() {
               })}
             </View>
 
+            {invitationsLoadFailed ? (
+              <GlassCard style={styles.rsvpErrorCard}>
+                <IconChip
+                  name="alert-circle-outline"
+                  color="#F59E0B"
+                  size={36}
+                />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <SignatureText
+                    variant="small"
+                    tone="ink"
+                    style={{ fontWeight: "700" }}
+                  >
+                    Conferme non aggiornate
+                  </SignatureText>
+                  <SignatureText variant="small" tone="muted">
+                    Non riesco a verificare quali eventi aspettano ancora una
+                    conferma.
+                  </SignatureText>
+                </View>
+                <ActionButton
+                  size="sm"
+                  variant="secondary"
+                  onPress={() => void rsvpQuery.refetch()}
+                >
+                  Riprova
+                </ActionButton>
+              </GlassCard>
+            ) : null}
+
             {filteredItems.length === 0 ? (
               <StateMessage
                 kind="empty"
@@ -151,8 +188,11 @@ export default function ParentCalendarScreen() {
               filteredItems.map((item) => {
                 const rail = formatEventDateRail(item.date);
                 const invitation = findInvitationForEvent(invitations, item.id);
-                const pending =
-                  item.rsvpRequired && invitation?.state === "no_response";
+                const badge = resolveCalendarRsvpBadge({
+                  rsvpRequired: item.rsvpRequired,
+                  invitation,
+                  invitationsLoadFailed,
+                });
                 return (
                   <EventCard
                     key={item.id}
@@ -177,9 +217,11 @@ export default function ParentCalendarScreen() {
                         : []
                     }
                     pill={
-                      pending
+                      badge === "pending"
                         ? { label: "Da confermare", variant: "warning" }
-                        : undefined
+                        : badge === "unknown"
+                          ? { label: "Da verificare", variant: "default" }
+                          : undefined
                     }
                     onPress={() => openEvent(item)}
                   />
@@ -194,6 +236,12 @@ export default function ParentCalendarScreen() {
 }
 
 const styles = StyleSheet.create({
+  rsvpErrorCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
   filterRow: {
     flexDirection: "row",
     gap: Spacing.sm,

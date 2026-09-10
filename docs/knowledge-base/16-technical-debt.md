@@ -3909,3 +3909,40 @@ caricamento e insolitamente lento.
 link potesse aspettare invece di ripetere un tentativo alla cieca — un
 cambio all'interfaccia di un contesto condiviso con ogni schermata Parent,
 non isolato a questo WP.
+
+## Debito aperto da iOS hardening e release readiness (WP12, ADR-0167, 2026-09-10)
+
+### D-MOB-9 — Nessuno stato persistente di offline/manutenzione/aggiornamento obbligatorio
+
+**Dove.** L'app intera; design-source Parte F ("system, release and
+connectivity states") lo prevede come stato distinto — un bollettino non
+bloccante per l'offline, un blocco per la manutenzione, un blocco per una
+versione troppo vecchia.
+
+**Il fatto.** Ogni chiamata gestisce gia il proprio fallimento di rete
+(`classifyFetchError` + `StateMessage kind="error"` con `Riprova`) — reale
+e funzionante, non simulato. Cio che manca e un **rilevamento di
+connettivita persistente** (un bollettino che compare quando il
+dispositivo perde la rete, a prescindere da quale schermata sia aperta) e
+un **blocco di manutenzione/versione minima**.
+
+**Perche non e stato chiuso qui.** Il primo richiede una dipendenza nuova
+(`@react-native-community/netinfo`, non presente); il secondo richiede un
+meccanismo lato server (uno stato di manutenzione, una versione minima
+dichiarata) che oggi non esiste nemmeno lato Web — costruirlo solo lato
+mobile inventerebbe un contratto che il server non conosce.
+
+### D-MOB-10 — La revoca di sessione a caldo non ha un test automatico
+
+**Dove.** `client/services/api.ts` (`handleSessionExpired`,
+`onSessionExpired`), `client/hooks/useAuth.ts`.
+
+**Il fatto.** La logica e semplice (un contatore di iscritti, una guardia
+su un token gia nullo) ma vive dentro una classe che parla con `fetch` e
+`expo-secure-store` — nessuno dei due e mai stato mockato in questo
+progetto (`tests/` copre solo moduli puri con `node --test`).
+
+**Perche non e stato chiuso qui.** Costruire un'infrastruttura di mock per
+`fetch`/`SecureStore` per un solo caso avrebbe superato il perimetro
+dell'hardening. Se in futuro servisse testare altro nella stessa classe,
+vale la pena costruirla una volta sola, non per questa singola guardia.

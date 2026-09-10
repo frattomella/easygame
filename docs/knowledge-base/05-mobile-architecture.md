@@ -293,6 +293,135 @@ schema dell'app, toccato dall'utente, mai un redirect automatico.
 **Vedi anche.** ADR-0166, [07](07-authentication.md),
 [16](16-technical-debt.md).
 
+### WP12 — iOS hardening e release readiness (ADR-0167)
+
+**Implementation version**: 2026-09-10. Nessuna nuova area funzionale:
+preparazione di un candidato al rilascio iOS, senza sottoporlo a TestFlight
+o App Store.
+
+**Dipendenze allineate.** `npx expo-doctor` segnalava 13 pacchetti fuori
+dalla versione attesa dall'SDK 54 (patch/minor, accumulati nel tempo).
+Allineati con `npx expo install --fix`: 18/18 controlli passano ora. Lo
+stesso comando ha scoperto e corretto una lacuna reale — `babel-preset-expo`
+era referenziato da `babel.config.js` ma **non dichiarato** in
+`package.json` (probabilmente una dipendenza transitiva di una versione
+precedente di `expo`, sparita quando la risoluzione e cambiata): senza,
+`expo export`/le build fallivano con "Cannot find module
+'babel-preset-expo'". Aggiunto come devDependency esplicita.
+
+**`eas.json` (nuovo).** Tre profili — `development` (`developmentClient`,
+distribuzione interna), `preview` (distribuzione interna), `production`
+(`autoIncrement`, sorgente versione `remote` — EAS gestisce build
+number/versionCode, non un contatore a mano nel repository). **Tutti e tre
+puntano oggi allo stesso backend di staging**
+(`EXPO_PUBLIC_EASYGAME_API_URL`): non esiste, nello scope Vercel corrente,
+un progetto di produzione (CLAUDE.md §9) — quando ne esistera uno, il
+profilo `production` va aggiornato, non prima. Nessun segreto nel file:
+solo URL pubblici: le credenziali Apple/Google restano gestite da `eas
+credentials`, mai committate.
+
+**`app.json` — permessi rivisti:**
+- `expo-image-picker`: `microphonePermission: false`. L'app usa
+  `ImagePicker` solo per `mediaTypes: ["images"]` (foto di un documento,
+  `ParentDocumentsScreen`) — mai video o audio — ma il plugin, senza questo
+  flag, aggiunge comunque `NSMicrophoneUsageDescription` e il permesso
+  Android `RECORD_AUDIO` per un uso che non esiste nel codice. Rimosso.
+- `expo-secure-store`: testo di `NSFaceIDUsageDescription` reso onesto
+  (protegge le credenziali salvate, non "accede ai tuoi dati biometrici Face
+  ID" del default) — la chiave stessa non si puo togliere: il modulo nativo
+  la richiede a prescindere da come viene usato il Keychain, non e dietro un
+  flag come il microfono di `expo-image-picker`.
+- `ios.infoPlist.ITSAppUsesNonExemptEncryption: false` — evita la domanda di
+  conformita sulla crittografia in App Store Connect: l'app non usa
+  crittografia propria oltre TLS standard.
+- Le due descrizioni di `expo-image-picker` (foto/fotocamera) erano gia
+  specifiche e vere, non il testo generico del plugin — nessuna modifica.
+
+**Sessione (hardening).** Fin qui una sessione revocata si notava solo al
+prossimo avvio a freddo (`checkAuth` in `useAuth.ts`, che gia gestiva
+correttamente token mancante/utente non trovato). Aggiunto: una sessione
+revocata **mentre l'app e aperta** (reset password su un altro dispositivo,
+revoca lato club, scadenza) si nota alla **prossima chiamata autenticata**
+— `EasyGameApiService.handleSessionExpired` (in `client/services/api.ts`)
+pulisce token/utente/contesto e avvisa gli iscritti
+(`mobileBackendStorage.onSessionExpired`, consumato da `useAuth.ts`), che
+riportano l'app al login nello stesso istante. Nessun ciclo di redirect: il
+guardiano si disinnesca da solo quando non c'e piu un token da pulire (un
+401 sulla login stessa, credenziali sbagliate, non tocca niente). **Non
+testato automaticamente**: il progetto non ha un'infrastruttura per
+mockare `fetch`/`expo-secure-store` nei test (`node --test` copre solo
+moduli puri), e costruirne una per questo solo caso avrebbe superato il
+perimetro dell'hardening.
+
+**Isolamento cache/dati — verificato, non modificato.** Ogni `queryKey`
+Parent (28 in tutto lo screen tree) include `selectedChildId`: un cambio
+figlio, anche fra club diversi, legge una chiave di cache diversa — mai un
+dato di un figlio mostrato per un altro. Lato Trainer non esiste cache
+persistente: ogni schermata rilegge `snapshot.context.clubId` da zero a
+ogni chiamata (`getActiveSnapshot` in `mobile-backend-storage.ts`) e lo
+manda come header `x-active-club-id`, validato server-side contro
+`allowedOrganizationIds` — un cambio di club/categoria si riflette alla
+prossima fetch, senza bisogno di invalidare nulla perche non c'e nulla da
+invalidare.
+
+**Checkout — verificato, non modificato.** `ParentPaymentsScreen` apre
+`/pay/<token>` con `expo-web-browser` (`openBrowserAsync`, non una WebView
+costruita a mano) e, al ritorno — checkout riuscito, fallito, o browser
+chiuso a mano, i tre casi indistinguibili dal solo evento di ritorno —
+invalida sempre la query del cruscotto invece di assumere il successo: lo
+stato del pagamento resta quello che il server deriva, mai un
+aggiornamento ottimistico.
+
+**Flussi documento/foto — verificato, non modificato.**
+`ParentDocumentsScreen`: annullamento del picker gestito (nessun caricamento
+finto), permesso fotocamera negato mostra il motivo, download autenticato
+con l'header Bearer (necessario: un link nudo non lo porterebbe), apertura
+tramite `expo-sharing` se disponibile. Gli errori del server (MIME non
+ammesso, file troppo grande) arrivano all'utente per intero
+(`fetchErrorMessage` legge `error.message`), mai mascherati da un messaggio
+generico.
+
+**Il difetto noto del Calendario — chiuso.** "Da confermare" leggeva
+`invitations.find(...)`: se la fetch degli inviti falliva, l'elenco vuoto
+faceva apparire **ogni** evento come gia confermato — un errore di rete
+travestito da lista pulita. `resolveCalendarRsvpBadge`
+(`client/lib/parent-rsvp.ts`, 4 test nuovi) rende **impossibile** ottenere
+quel risultato: la firma pretende `invitationsLoadFailed` a ogni chiamata,
+niente default con cui dimenticarselo. Un fallimento della fetch produce
+ora "Da verificare" sui singoli eventi piu un riquadro con `Riprova`
+sopra la lista — recuperabile, mai silenzioso.
+
+**Link esterni centralizzati.** `support@easygame.it` viveva duplicato in
+`AccountHubScreen` (come `mailto:`) e `TrainerProfileDashboardScreen` (come
+testo) — due stringhe che una modifica futura avrebbe potuto far divergere.
+Ora in `client/constants/external-links.ts`, l'unica fonte. *(ADR-0164
+diceva questo file gia creato in WP8: non lo era — vince il codice,
+CLAUDE.md §1, corretto nello stesso commit di questa voce.)*
+
+**Placeholder/UI morta — verificato, non introdotto nulla di nuovo.**
+`ParentComingSoonScreen` (commento corretto: elencava sezioni che il batch
+WP4-9 ha gia reso reali) resta raggiunta solo da "Impostazioni" — nessuna
+sezione propria esiste, e lo dichiara esplicitamente (`StateMessage
+kind="empty"`, mai un bottone morto). `UnsupportedRoleScreen` conferma le
+due uscite richieste dallo spec (§Parte F). Le cinque schermate Trainer
+orfane restano quelle di [16](16-technical-debt.md) D-MOB-1, non toccate.
+
+**Gap dichiarati, non costruiti in questo WP:**
+
+- **Nessun Universal Link** (D-MOB-5, invariato): serve un Team ID Apple
+  reale, non disponibile in questo scope.
+- **Nessuno stato offline/manutenzione/aggiornamento obbligatorio
+  persistente** (design-source Parte F). L'app gestisce gli errori di rete
+  **per chiamata** (`classifyFetchError`/`StateMessage kind="error"`, con
+  `Riprova`) — reale e funzionante — ma non un rilevamento di connettivita
+  persistente ne un bollettino di manutenzione: richiederebbe una nuova
+  dipendenza (`@react-native-community/netinfo`, non presente) e un
+  meccanismo lato server (versione minima richiesta, stato di
+  manutenzione) che oggi non esiste nemmeno lato Web.
+- **Nessuna pipeline di invio push** (D-MOB-4, invariato).
+
+**Vedi anche.** ADR-0167, [14](14-security.md), [16](16-technical-debt.md).
+
 ### WP3 — Parita funzionale Trainer (ADR-0162)
 
 **Implementation version**: 2026-09-10. Le cinque sezioni che il Web ha e il
@@ -1102,6 +1231,32 @@ Dopo `device-push-tokens.ts` (server), `client/lib/deep-linking.ts` +
   cablaggio nativo resta da verificare manualmente su un dispositivo fisico
   con un build di sviluppo (i simulatori non supportano le push).
 
+### Verifica di avvio reale — 2026-09-10 (WP12 iOS hardening e release readiness)
+
+Migrazione `20260910120000_wp11_device_push_tokens` **applicata** al
+database di sviluppo locale (`easygame_dev`, autorizzazione esplicita
+ricevuta per il solo ambiente locale — CLAUDE.md §8): `npx prisma migrate
+status` conferma "Database schema is up to date", lo schema reale della
+tabella verificato colonna per colonna via `information_schema.columns`
+contro `prisma/schema.prisma`.
+
+- **Backend**: 12/12 verdi sui test mirati
+  (`device-push-tokens.test.mjs` + `api-authorization.test.mjs`, questi
+  ultimi non toccati da WP12 ma rieseguiti come richiesto), `npm run
+  typecheck` pulito. Nessun file `src/**` toccato da WP12: la suite
+  completa (5590/5590) resta quella verificata a chiusura WP11.
+- **Mobile**: `npm run test` 148/148 verdi (144 preesistenti + 4 nuovi su
+  `resolveCalendarRsvpBadge`), `npm run check:types` e `npm run lint`
+  puliti (0 errori, stessi 20 warning preesistenti), `npx expo-doctor`
+  18/18, `npx expo export --platform ios` completato senza errori di
+  risoluzione (2649 moduli).
+- `npx eas-cli config` (validazione EAS con le credenziali) non e stato
+  eseguibile: richiede un account Expo autenticato, che questa sessione non
+  ha e non deve crearne uno. `npx expo-doctor` e la validazione locale
+  (`eas.json`/`app.json` JSON valido, dipendenze allineate, plugin
+  risolvibili) sono state eseguite al suo posto, come da istruzione
+  esplicita ("se possibile senza credenziali").
+
 ## Cosa manca per completare il mobile
 
 Identity & Access, le fondamenta di ruolo, la parita funzionale Trainer
@@ -1109,9 +1264,10 @@ Identity & Access, le fondamenta di ruolo, la parita funzionale Trainer
 Calendario/RSVP, Bacheca/Notifiche, esperienza Account,
 Pagamenti/Documenti/Consensi, Segreteria/Appuntamenti/Strutture/
 Iscrizione/Contatti), il reskin visivo delle quattro tab Trainer primarie
-(WP10) e l'anagrafica push/deep linking/recupero password nativo (WP11)
-sono a posto — la parity matrix del WP9 non ha trovato nessuna riga
-MISSING. Restano aperti, in ordine indicativo:
+(WP10), l'anagrafica push/deep linking/recupero password nativo (WP11) e la
+preparazione del candidato al rilascio iOS (WP12) sono a posto — la parity
+matrix del WP9 non ha trovato nessuna riga MISSING. Restano aperti, in
+ordine indicativo:
 
 - **Rinnovo iscrizione come modulo dinamico**: `RenewalDraft.form.fields`
   e un motore di campi (`checkbox`/`file_upload`/`signature`/testo libero,

@@ -930,6 +930,36 @@ class EasyGameApiService {
   private authToken: string | null = null;
   private userCache: User | null = null;
   private initialized = false;
+  private sessionExpiredListeners = new Set<() => void>();
+
+  /**
+   * Sessione revocata mentre l'app e aperta (WP12 — session hardening):
+   * un'altra strada (reset password, revoca lato club, scadenza) invalida il
+   * token, e la **prossima** chiamata autenticata riceve un 401 — non al
+   * prossimo riavvio, ma subito, mentre l'utente sta ancora guardando una
+   * schermata che quel token non apre piu. `useAuth` si iscrive per riportare
+   * l'app al login senza aspettare un riavvio a freddo, e senza cicli: una
+   * volta ripulito il token, `handleSessionExpired` non ha piu niente da
+   * ripulire finche non arriva un nuovo login.
+   */
+  onSessionExpired(listener: () => void): () => void {
+    this.sessionExpiredListeners.add(listener);
+    return () => {
+      this.sessionExpiredListeners.delete(listener);
+    };
+  }
+
+  private async handleSessionExpired() {
+    if (!this.authToken) {
+      // Gia sloggato (o mai loggato): un 401 qui e la login stessa che
+      // rifiuta credenziali sbagliate, non una sessione che muore.
+      return;
+    }
+
+    await this.setAuthToken(null);
+    await this.setStoredUser(null);
+    this.sessionExpiredListeners.forEach((listener) => listener());
+  }
 
   private getConfiguredBaseUrl() {
     return getConfiguredDefaultBaseUrl();
@@ -1177,6 +1207,10 @@ class EasyGameApiService {
 
         lastFailure = result;
         if (!RETRYABLE_STATUSES.has(result.status)) {
+          if (result.status === 401) {
+            void this.handleSessionExpired();
+          }
+
           const message =
             envelope?.error?.message ||
             (typeof result.payload?.message === "string"
