@@ -1,16 +1,18 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { RefreshControl, StyleSheet, View } from "react-native";
 import { RouteProp, useFocusEffect, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { Avatar } from "@/components/Avatar";
-import { Badge } from "@/components/Badge";
-import { Card } from "@/components/Card";
-import { ThemedText } from "@/components/ThemedText";
+import {
+  GlassCard,
+  MetaRow,
+  NumberTile,
+  SecondaryScreenLayout,
+  SignatureText,
+  StateMessage,
+  StatusPill,
+} from "@/components/signature";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { useTheme } from "@/hooks/useTheme";
 import {
   getMobileMedicalCertificateAvailability,
   getMobileMedicalCertificateAvailabilityLabel,
@@ -22,28 +24,34 @@ import {
 } from "@/lib/mobile-ui";
 import { Athlete, Match, Training } from "@/services/api";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { BorderRadius, Colors, Spacing } from "@/constants/theme";
+import { EGInk, Spacing } from "@/constants/theme";
 import { AthletesStackParamList } from "@/navigation/AthletesStackNavigator";
 
 const renderValue = (value?: string | null, fallback = "Non disponibile") =>
   String(value || "").trim() || fallback;
-
-const renderDocumentLine = (label: string, value?: string | null) => (
-  <ThemedText type="small" style={styles.sectionText}>
-    {label}: {renderValue(value)}
-  </ThemedText>
-);
 
 const normalizeText = (value: unknown) =>
   String(value || "")
     .trim()
     .toLowerCase();
 
+const MEDICAL_TONE: Record<string, "success" | "warning" | "destructive"> = {
+  valid: "success",
+  expiring: "warning",
+  expired: "destructive",
+  missing: "destructive",
+};
+
+/**
+ * design-source `guidelines/trainer-migration.md` — schermata di dettaglio
+ * collegata alla migrazione di Atleti (WP10). Stessi dati, stesse porte di
+ * permesso (`viewAthleteTechnicalSheet`, `viewAthleteContacts`,
+ * `viewMedicalStatus`) di prima; `canSeeEnrollment` resta `false` come nel
+ * codice preesistente — quel ramo non e mai stato raggiungibile e non e
+ * stato toccato in questa migrazione visiva (vedi debito tecnico).
+ */
 export default function TrainerAthleteProfileScreen() {
-  const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
   const route = useRoute<RouteProp<AthletesStackParamList, "AthleteProfile">>();
-  const { theme } = useTheme();
   const { trainerPermissions } = useAuthContext();
   const [athlete, setAthlete] = useState<Athlete | null>(null);
   const [trainings, setTrainings] = useState<Training[]>([]);
@@ -141,129 +149,117 @@ export default function TrainerAthleteProfileScreen() {
   }, [athlete, matches]);
 
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-      contentContainerStyle={{
-        paddingTop: Spacing.lg,
-        paddingHorizontal: Spacing.lg,
-        paddingBottom: tabBarHeight + insets.bottom + Spacing["4xl"],
-      }}
+    <SecondaryScreenLayout
+      title="Atleta"
+      eyebrow="Scheda"
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
       {athlete ? (
         <View style={styles.content}>
-          <Card
-            style={[styles.heroCard, { backgroundColor: Colors.light.primary }]}
-          >
-            <Avatar
-              name={athlete.name}
-              size={76}
-              showNumber
-              number={athlete.number}
-            />
-            <View style={{ flex: 1 }}>
-              <ThemedText type="h4" style={styles.heroTitle}>
-                {athlete.name}
-              </ThemedText>
-              <ThemedText type="small" style={styles.heroSubtitle}>
-                {athlete.category} · {athlete.position}
-              </ThemedText>
-              <View style={styles.heroBadges}>
-                <Badge
-                  label={getAthleteStatusLabel(athlete.status)}
-                  variant={getAthleteStatusVariant(athlete.status)}
-                  small
-                />
-                {canSeeMedical ? (
-                  <Badge
-                    label={getMobileMedicalCertificateAvailabilityLabel(
-                      medicalAvailability,
-                    )}
-                    variant={
-                      medicalAvailability === "valid"
-                        ? "success"
-                        : medicalAvailability === "expiring"
-                          ? "warning"
-                          : "destructive"
-                    }
+          <GlassCard stripe="action">
+            <View style={styles.heroRow}>
+              <NumberTile number={athlete.number} size={56} />
+              <View style={{ flex: 1, gap: 4 }}>
+                <SignatureText variant="h3" tone="ink">
+                  {athlete.name}
+                </SignatureText>
+                <SignatureText variant="small" tone="muted">
+                  {athlete.category} · {athlete.position || "Ruolo da definire"}
+                </SignatureText>
+                <View style={styles.badgeWrap}>
+                  <StatusPill
+                    label={getAthleteStatusLabel(athlete.status)}
+                    variant={getAthleteStatusVariant(athlete.status)}
                     small
                   />
-                ) : null}
+                  {canSeeMedical ? (
+                    <StatusPill
+                      label={getMobileMedicalCertificateAvailabilityLabel(
+                        medicalAvailability,
+                      )}
+                      variant={MEDICAL_TONE[medicalAvailability]}
+                      small
+                    />
+                  ) : null}
+                </View>
               </View>
             </View>
-          </Card>
+          </GlassCard>
 
-          <Card style={styles.sectionCard}>
-            <ThemedText type="body" style={styles.sectionTitle}>
-              Anagrafica
-            </ThemedText>
-            {renderDocumentLine("Nome", athlete.firstName || athlete.name)}
-            {renderDocumentLine("Cognome", athlete.lastName)}
-            {renderDocumentLine(
-              "Data di nascita",
-              formatItalianDate(athlete.birthDate),
-            )}
-            {renderDocumentLine("Categoria", athlete.category)}
-            {renderDocumentLine(
-              "Numero maglia",
-              athlete.number ? String(athlete.number) : "",
-            )}
-            {renderDocumentLine("Citta", athlete.city)}
-          </Card>
+          <GlassCard eyebrow="Anagrafica" title={undefined}>
+            <MetaRow icon="person-outline">
+              Nome: {renderValue(athlete.firstName || athlete.name)}
+            </MetaRow>
+            <MetaRow icon="person-outline">
+              Cognome: {renderValue(athlete.lastName)}
+            </MetaRow>
+            <MetaRow icon="calendar-outline">
+              Data di nascita: {formatItalianDate(athlete.birthDate)}
+            </MetaRow>
+            <MetaRow icon="ribbon-outline">
+              Categoria: {renderValue(athlete.category)}
+            </MetaRow>
+            <MetaRow icon="shirt-outline">
+              Numero maglia:{" "}
+              {athlete.number ? String(athlete.number) : "Non disponibile"}
+            </MetaRow>
+            <MetaRow icon="location-outline">
+              Citta: {renderValue(athlete.city)}
+            </MetaRow>
+          </GlassCard>
 
           {canSeeTechnicalSheet ? (
-            <Card style={styles.sectionCard}>
-              <ThemedText type="body" style={styles.sectionTitle}>
-                Scheda tecnica
-              </ThemedText>
-              {renderDocumentLine("Ruolo", athlete.position)}
-              {renderDocumentLine("Note tecniche", athlete.technicalNotes)}
-            </Card>
+            <GlassCard eyebrow="Scheda tecnica">
+              <MetaRow icon="football-outline">
+                Ruolo: {renderValue(athlete.position)}
+              </MetaRow>
+              <MetaRow icon="document-text-outline">
+                Note tecniche: {renderValue(athlete.technicalNotes)}
+              </MetaRow>
+            </GlassCard>
           ) : null}
 
           {canSeeContacts ? (
-            <Card style={styles.sectionCard}>
-              <ThemedText type="body" style={styles.sectionTitle}>
-                Contatti e tutori
-              </ThemedText>
-              {renderDocumentLine("Telefono", athlete.phone)}
-              {renderDocumentLine("Email", athlete.email)}
+            <GlassCard eyebrow="Contatti e tutori">
+              <MetaRow icon="call-outline">
+                Telefono: {renderValue(athlete.phone)}
+              </MetaRow>
+              <MetaRow icon="mail-outline">
+                Email: {renderValue(athlete.email)}
+              </MetaRow>
               {athlete.guardians?.length ? (
                 athlete.guardians.map((guardian) => (
                   <View key={guardian.id} style={styles.listItem}>
                     <Ionicons
                       name="people-outline"
                       size={16}
-                      color={theme.textSecondary}
+                      color={EGInk.onLightFaint}
                     />
                     <View style={{ flex: 1 }}>
-                      <ThemedText type="small" style={styles.sectionText}>
+                      <SignatureText variant="small" tone="muted">
                         {guardian.relationship || "Tutore"} · {guardian.name}
                         {guardian.surname ? ` ${guardian.surname}` : ""}
-                      </ThemedText>
-                      <ThemedText type="small" style={styles.mutedText}>
+                      </SignatureText>
+                      <SignatureText variant="small" tone="faint">
                         {[guardian.phone, guardian.email]
                           .filter(Boolean)
                           .join(" · ") || "Contatti non disponibili"}
-                      </ThemedText>
+                      </SignatureText>
                     </View>
                   </View>
                 ))
               ) : (
-                <ThemedText type="small" style={styles.mutedText}>
+                <SignatureText variant="small" tone="faint">
                   Nessun tutore registrato.
-                </ThemedText>
+                </SignatureText>
               )}
-            </Card>
+            </GlassCard>
           ) : null}
 
           {canSeeMedical ? (
-            <Card style={styles.sectionCard}>
-              <ThemedText type="body" style={styles.sectionTitle}>
-                Area medica
-              </ThemedText>
+            <GlassCard eyebrow="Area medica">
               <View style={styles.listItem}>
                 <Ionicons
                   name={
@@ -273,73 +269,68 @@ export default function TrainerAthleteProfileScreen() {
                   }
                   size={18}
                   color={
-                    medicalAvailability === "valid"
-                      ? Colors.light.success
-                      : Colors.light.warning
+                    medicalAvailability === "valid" ? "#22C55E" : "#F59E0B"
                   }
                 />
                 <View style={{ flex: 1 }}>
-                  <ThemedText type="small" style={styles.sectionText}>
+                  <SignatureText variant="small" tone="muted">
                     {getMobileMedicalCertificateAvailabilityLabel(
                       medicalAvailability,
                     )}
-                  </ThemedText>
-                  <ThemedText type="small" style={styles.mutedText}>
+                  </SignatureText>
+                  <SignatureText variant="small" tone="faint">
                     Scadenza: {formatItalianDate(athlete.medicalCertExpiry)}
-                  </ThemedText>
+                  </SignatureText>
                 </View>
               </View>
               {athlete.documents?.length
                 ? athlete.documents.map((document) => (
-                    <ThemedText
+                    <SignatureText
                       key={document.id}
-                      type="small"
-                      style={styles.sectionText}
+                      variant="small"
+                      tone="muted"
                     >
                       {document.name} ·{" "}
                       {renderValue(document.type, "Documento")}
-                    </ThemedText>
+                    </SignatureText>
                   ))
                 : null}
-            </Card>
+            </GlassCard>
           ) : null}
 
-          <Card style={styles.sectionCard}>
-            <ThemedText type="body" style={styles.sectionTitle}>
-              Analitiche
-            </ThemedText>
+          <GlassCard eyebrow="Analitiche">
             <View style={styles.analyticsGrid}>
               <View style={styles.analyticsItem}>
-                <ThemedText type="h4" style={styles.analyticsValue}>
+                <SignatureText variant="h4" tone="ink">
                   {presentCount}
-                </ThemedText>
-                <ThemedText type="small" style={styles.mutedText}>
+                </SignatureText>
+                <SignatureText variant="small" tone="faint">
                   Presenze
-                </ThemedText>
+                </SignatureText>
               </View>
               <View style={styles.analyticsItem}>
-                <ThemedText type="h4" style={styles.analyticsValue}>
+                <SignatureText variant="h4" tone="ink">
                   {absenceCount}
-                </ThemedText>
-                <ThemedText type="small" style={styles.mutedText}>
+                </SignatureText>
+                <SignatureText variant="small" tone="faint">
                   Assenze
-                </ThemedText>
+                </SignatureText>
               </View>
               <View style={styles.analyticsItem}>
-                <ThemedText type="h4" style={styles.analyticsValue}>
+                <SignatureText variant="h4" tone="ink">
                   {attendanceEntries.length ? `${attendanceRate}%` : "-"}
-                </ThemedText>
-                <ThemedText type="small" style={styles.mutedText}>
+                </SignatureText>
+                <SignatureText variant="small" tone="faint">
                   Frequenza
-                </ThemedText>
+                </SignatureText>
               </View>
               <View style={styles.analyticsItem}>
-                <ThemedText type="h4" style={styles.analyticsValue}>
+                <SignatureText variant="h4" tone="ink">
                   {athleteMatches.length}
-                </ThemedText>
-                <ThemedText type="small" style={styles.mutedText}>
+                </SignatureText>
+                <SignatureText variant="small" tone="faint">
                   Gare
-                </ThemedText>
+                </SignatureText>
               </View>
             </View>
             {attendanceEntries.length > 0 ? (
@@ -355,196 +346,170 @@ export default function TrainerAthleteProfileScreen() {
                         : "close-circle-outline"
                     }
                     size={16}
-                    color={
-                      entry.present
-                        ? Colors.light.success
-                        : Colors.light.warning
-                    }
+                    color={entry.present ? "#22C55E" : "#F59E0B"}
                   />
                   <View style={{ flex: 1 }}>
-                    <ThemedText type="small" style={styles.sectionText}>
+                    <SignatureText variant="small" tone="muted">
                       {entry.training.title}
-                    </ThemedText>
-                    <ThemedText type="small" style={styles.mutedText}>
+                    </SignatureText>
+                    <SignatureText variant="small" tone="faint">
                       {formatItalianDate(entry.training.date)} -{" "}
                       {entry.present ? "Presente" : "Assente"}
-                    </ThemedText>
+                    </SignatureText>
                   </View>
                 </View>
               ))
             ) : (
-              <ThemedText type="small" style={styles.mutedText}>
+              <SignatureText variant="small" tone="faint">
                 Nessuna presenza registrata.
-              </ThemedText>
+              </SignatureText>
             )}
-          </Card>
+          </GlassCard>
 
           {canSeeEnrollment ? (
             <>
-              <Card style={styles.sectionCard}>
-                <ThemedText type="body" style={styles.sectionTitle}>
-                  Tesseramenti e iscrizione
-                </ThemedText>
+              <GlassCard eyebrow="Tesseramenti e iscrizione">
                 {athlete.registrations?.length ? (
                   athlete.registrations.map((registration) => (
                     <View key={registration.id} style={styles.listItem}>
                       <Ionicons
                         name="ribbon-outline"
                         size={16}
-                        color={theme.textSecondary}
+                        color={EGInk.onLightFaint}
                       />
                       <View style={{ flex: 1 }}>
-                        <ThemedText type="small" style={styles.sectionText}>
+                        <SignatureText variant="small" tone="muted">
                           {registration.federation} · {registration.number}
-                        </ThemedText>
-                        <ThemedText type="small" style={styles.mutedText}>
+                        </SignatureText>
+                        <SignatureText variant="small" tone="faint">
                           {[
                             registration.status,
                             formatItalianDate(registration.expiryDate),
                           ]
                             .filter(Boolean)
                             .join(" · ")}
-                        </ThemedText>
+                        </SignatureText>
                       </View>
                     </View>
                   ))
                 ) : (
-                  <ThemedText type="small" style={styles.mutedText}>
+                  <SignatureText variant="small" tone="faint">
                     Nessun tesseramento disponibile.
-                  </ThemedText>
+                  </SignatureText>
                 )}
 
                 {athlete.enrollmentDocuments?.length ? (
                   <View style={styles.groupBlock}>
-                    <ThemedText type="small" style={styles.groupTitle}>
+                    <SignatureText variant="small" tone="ink">
                       Documenti iscrizione
-                    </ThemedText>
+                    </SignatureText>
                     {athlete.enrollmentDocuments.map((document) => (
-                      <ThemedText
+                      <SignatureText
                         key={document.id}
-                        type="small"
-                        style={styles.sectionText}
+                        variant="small"
+                        tone="muted"
                       >
                         {document.name}
-                      </ThemedText>
+                      </SignatureText>
                     ))}
                   </View>
                 ) : null}
-              </Card>
+              </GlassCard>
 
-              <Card style={styles.sectionCard}>
-                <ThemedText type="body" style={styles.sectionTitle}>
-                  Pagamenti e documenti
-                </ThemedText>
+              <GlassCard eyebrow="Pagamenti e documenti">
                 {athlete.payments?.length ? (
                   athlete.payments.map((payment) => (
                     <View key={payment.id} style={styles.listItem}>
                       <Ionicons
                         name="card-outline"
                         size={16}
-                        color={theme.textSecondary}
+                        color={EGInk.onLightFaint}
                       />
                       <View style={{ flex: 1 }}>
-                        <ThemedText type="small" style={styles.sectionText}>
+                        <SignatureText variant="small" tone="muted">
                           {payment.description} · {payment.amount}
-                        </ThemedText>
-                        <ThemedText type="small" style={styles.mutedText}>
+                        </SignatureText>
+                        <SignatureText variant="small" tone="faint">
                           {[payment.status, formatItalianDate(payment.date)]
                             .filter(Boolean)
                             .join(" · ")}
-                        </ThemedText>
+                        </SignatureText>
                       </View>
                     </View>
                   ))
                 ) : (
-                  <ThemedText type="small" style={styles.mutedText}>
+                  <SignatureText variant="small" tone="faint">
                     Nessun pagamento registrato.
-                  </ThemedText>
+                  </SignatureText>
                 )}
 
                 {athlete.identityDocuments?.length ? (
                   <View style={styles.groupBlock}>
-                    <ThemedText type="small" style={styles.groupTitle}>
+                    <SignatureText variant="small" tone="ink">
                       Documenti identita
-                    </ThemedText>
+                    </SignatureText>
                     {athlete.identityDocuments.map((document) => (
-                      <ThemedText
+                      <SignatureText
                         key={document.id}
-                        type="small"
-                        style={styles.sectionText}
+                        variant="small"
+                        tone="muted"
                       >
                         {document.name}
-                      </ThemedText>
+                      </SignatureText>
                     ))}
                   </View>
                 ) : null}
-              </Card>
+              </GlassCard>
             </>
           ) : null}
         </View>
       ) : (
-        <Card style={styles.sectionCard}>
-          <ThemedText type="body" style={styles.sectionTitle}>
-            Atleta non disponibile
-          </ThemedText>
-          <ThemedText type="small" style={styles.mutedText}>
-            Non ho trovato la scheda atleta richiesta nel club attivo.
-          </ThemedText>
-        </Card>
+        <StateMessage
+          kind="empty"
+          tone="dark"
+          title="Atleta non disponibile"
+          message="Non ho trovato la scheda atleta richiesta nel club attivo."
+        />
       )}
-    </ScrollView>
+    </SecondaryScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
   content: { gap: Spacing.md },
-  heroCard: {
+  heroRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.lg,
-    borderRadius: BorderRadius["2xl"],
   },
-  heroTitle: { color: "#FFFFFF", marginBottom: 4 },
-  heroSubtitle: { color: "rgba(255,255,255,0.84)" },
-  heroBadges: {
+  badgeWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: Spacing.sm,
-    marginTop: Spacing.md,
+    marginTop: Spacing.xs,
   },
-  sectionCard: { gap: Spacing.sm },
-  sectionTitle: { fontWeight: "700" },
-  sectionText: { color: Colors.light.textSecondary },
-  mutedText: { color: Colors.light.textSecondary },
   listItem: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: Spacing.sm,
+    marginTop: Spacing.sm,
   },
   groupBlock: {
     marginTop: Spacing.sm,
     gap: Spacing.xs,
   },
-  groupTitle: {
-    fontWeight: "700",
-    color: Colors.light.text,
-  },
   analyticsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: Spacing.sm,
+    marginBottom: Spacing.sm,
   },
   analyticsItem: {
     flexBasis: "47%",
     flexGrow: 1,
     borderWidth: 1,
-    borderColor: Colors.light.border,
-    borderRadius: BorderRadius.lg,
+    borderColor: "rgba(11,26,58,0.1)",
+    borderRadius: 14,
     padding: Spacing.md,
-  },
-  analyticsValue: {
-    color: Colors.light.text,
-    marginBottom: 2,
   },
 });

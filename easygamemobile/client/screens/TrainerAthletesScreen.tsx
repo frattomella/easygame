@@ -1,30 +1,49 @@
 import React, { useCallback, useDeferredValue, useMemo, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { useFocusEffect, useNavigation } from "@react-navigation/native";
-
-import { Avatar } from "@/components/Avatar";
-import { Badge } from "@/components/Badge";
-import { Card } from "@/components/Card";
-import { Input } from "@/components/Input";
-import { ThemedText } from "@/components/ThemedText";
-import { useAuthContext } from "@/contexts/AuthContext";
-import { useTheme } from "@/hooks/useTheme";
 import {
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Ionicons } from "@expo/vector-icons";
+
+import {
+  GlassSurface,
+  NumberTile,
+  SecondaryScreenLayout,
+  SectionHero,
+  SignatureText,
+  StateMessage,
+  StatusPill,
+} from "@/components/signature";
+import { useAuthContext } from "@/contexts/AuthContext";
+import {
+  getAthletePositionCaption,
   getAthleteStatusLabel,
   getAthleteStatusVariant,
 } from "@/lib/mobile-ui";
 import { Athlete } from "@/services/api";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { Spacing } from "@/constants/theme";
+import { EGInk, Spacing } from "@/constants/theme";
 import { AthletesStackParamList } from "@/navigation/AthletesStackNavigator";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
+const STATUS_TILE_TONE: Record<string, "navy" | "success" | "match" | "muted"> =
+  {
+    attivo: "navy",
+    infortunato: "muted",
+    squalificato: "muted",
+  };
+
+/**
+ * design-source `guidelines/trainer-migration.md` step 4 (WP10). Stessa
+ * ricerca e stessi dati di prima; la riga usa la `NumberTile` 48px al posto
+ * dell'`Avatar` a iniziali e la sigla di ruolo (`getAthletePositionCaption`)
+ * invece del testo "Apri scheda atleta", che la freccia ora dice da sola.
+ */
 export default function TrainerAthletesScreen() {
-  const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
-  const { theme } = useTheme();
   const navigation =
     useNavigation<NativeStackNavigationProp<AthletesStackParamList>>();
   const { assignedCategories } = useAuthContext();
@@ -65,106 +84,180 @@ export default function TrainerAthletesScreen() {
     );
   }, [athletes, deferredQuery]);
 
+  const availableCount = useMemo(
+    () => athletes.filter((athlete) => athlete.status === "attivo").length,
+    [athletes],
+  );
+
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-      contentContainerStyle={{
-        paddingTop: Spacing.lg,
-        paddingBottom: tabBarHeight + insets.bottom + Spacing["4xl"],
-        paddingHorizontal: Spacing.lg,
-      }}
+    <SecondaryScreenLayout
+      title="Atleti"
+      onBack={false}
+      skyHeight={360}
+      onNotifications={() => navigation.navigate("Notifications")}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
-      <Card style={styles.searchCard}>
-        <ThemedText type="h4" style={{ marginBottom: Spacing.sm }}>
-          I tuoi atleti
-        </ThemedText>
-        <Input
-          placeholder="Cerca atleta, categoria o numero..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          leftIcon="search-outline"
-          rightIcon={searchQuery ? "close-circle" : undefined}
-          onRightIconPress={() => setSearchQuery("")}
-          style={{ marginBottom: 0 }}
-        />
-        <View style={styles.badgeWrap}>
-          {assignedCategories.length > 0 ? (
-            assignedCategories.map((category) => (
-              <Badge key={category.id} label={category.name} small />
-            ))
-          ) : (
-            <Badge
-              label="Nessuna categoria assegnata"
-              variant="warning"
-              small
-            />
-          )}
-        </View>
-      </Card>
+      <SectionHero
+        icon="people"
+        eyebrow="ROSA SQUADRA"
+        title="I tuoi atleti"
+        subtitle={
+          assignedCategories.length > 0
+            ? assignedCategories.map((category) => category.name).join(" · ")
+            : "Nessuna categoria assegnata"
+        }
+        chips={[
+          { label: "in rosa", value: String(athletes.length) },
+          { label: "disponibili", value: String(availableCount) },
+        ]}
+      />
 
-      {filteredAthletes.length > 0 ? (
-        filteredAthletes.map((athlete) => (
-          <Card
-            key={athlete.id}
-            style={styles.athleteCard}
-            onPress={() =>
-              navigation.navigate("AthleteProfile", { athleteId: athlete.id })
-            }
-          >
-            <View style={styles.athleteRow}>
-              <Avatar
-                name={athlete.name}
-                size={48}
-                showNumber
-                number={athlete.number}
-              />
-              <View style={styles.athleteInfo}>
-                <ThemedText type="body" style={styles.athleteName}>
-                  {athlete.name}
-                </ThemedText>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  {athlete.category} · {athlete.position || "Ruolo da definire"}
-                </ThemedText>
-                <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                  Apri scheda atleta
-                </ThemedText>
-              </View>
-              <Badge
-                label={getAthleteStatusLabel(athlete.status)}
-                variant={getAthleteStatusVariant(athlete.status)}
-                small
-              />
-            </View>
-          </Card>
-        ))
-      ) : (
-        <Card>
-          <ThemedText type="body" style={{ marginBottom: Spacing.xs }}>
-            Nessun atleta trovato
-          </ThemedText>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            Prova a cambiare ricerca.
-          </ThemedText>
-        </Card>
-      )}
-    </ScrollView>
+      <View style={[styles.searchWrap, styles.sectionFirst]}>
+        <GlassSurface tone="light" corner="control" style={styles.searchField}>
+          <View style={styles.searchRow}>
+            <Ionicons
+              name="search-outline"
+              size={18}
+              color={EGInk.onLightFaint}
+            />
+            <TextInput
+              placeholder="Cerca atleta, categoria o numero..."
+              placeholderTextColor={EGInk.onLightFaint}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              style={styles.searchInput}
+            />
+            {searchQuery ? (
+              <Pressable
+                onPress={() => setSearchQuery("")}
+                accessibilityRole="button"
+                accessibilityLabel="Cancella ricerca"
+              >
+                <Ionicons
+                  name="close-circle"
+                  size={18}
+                  color={EGInk.onLightFaint}
+                />
+              </Pressable>
+            ) : null}
+          </View>
+        </GlassSurface>
+      </View>
+
+      <View style={styles.list}>
+        {filteredAthletes.length > 0 ? (
+          filteredAthletes.map((athlete) => (
+            <Pressable
+              key={athlete.id}
+              onPress={() =>
+                navigation.navigate("AthleteProfile", {
+                  athleteId: athlete.id,
+                })
+              }
+            >
+              <GlassSurface
+                tone="light"
+                corner="control"
+                style={styles.athleteSurface}
+              >
+                <View style={styles.athleteRow}>
+                  <NumberTile
+                    number={athlete.number}
+                    size={48}
+                    caption={getAthletePositionCaption(athlete.position)}
+                    tone={
+                      athlete.status === "attivo"
+                        ? STATUS_TILE_TONE.attivo
+                        : "muted"
+                    }
+                  />
+                  <View style={styles.athleteInfo}>
+                    <SignatureText
+                      variant="body"
+                      tone="ink"
+                      style={styles.athleteName}
+                      numberOfLines={1}
+                    >
+                      {athlete.name}
+                    </SignatureText>
+                    <SignatureText
+                      variant="small"
+                      tone="muted"
+                      numberOfLines={1}
+                    >
+                      {athlete.category} ·{" "}
+                      {athlete.position || "Ruolo da definire"}
+                    </SignatureText>
+                  </View>
+                  <StatusPill
+                    label={getAthleteStatusLabel(athlete.status)}
+                    variant={getAthleteStatusVariant(athlete.status)}
+                    small
+                  />
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={EGInk.onLightFaint}
+                  />
+                </View>
+              </GlassSurface>
+            </Pressable>
+          ))
+        ) : (
+          <StateMessage
+            kind="empty"
+            title="Nessun atleta trovato"
+            message="Prova a cambiare ricerca."
+          />
+        )}
+      </View>
+    </SecondaryScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  searchCard: { marginBottom: Spacing.lg },
-  badgeWrap: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
+  sectionFirst: {
+    marginTop: -32,
   },
-  athleteCard: { marginBottom: Spacing.md },
-  athleteRow: { flexDirection: "row", alignItems: "center" },
-  athleteInfo: { flex: 1, marginLeft: Spacing.md, gap: 2 },
-  athleteName: { fontWeight: "700", marginBottom: 2 },
+  searchWrap: {
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  searchField: {
+    minHeight: 52,
+  },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    height: 52,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: EGInk.onLight,
+  },
+  list: {
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  athleteSurface: {
+    minHeight: 64,
+  },
+  athleteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    padding: Spacing.md,
+  },
+  athleteInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  athleteName: {
+    fontWeight: "700",
+  },
 });
