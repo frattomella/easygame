@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import { Access, Club, ClubCategorySummary, User } from "@/services/api";
 import { TrainerDashboardPermissions } from "@/lib/trainer-permissions";
+import { AuthOutcome } from "@/lib/auth-flow";
 
 interface AuthState {
   isLoading: boolean;
@@ -137,13 +138,15 @@ export function useAuth() {
     checkAuth();
   }, [checkAuth]);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    const user = await mobileBackendStorage.login(email, password);
-    if (user) {
+  const login = async (
+    email: string,
+    password: string,
+  ): Promise<AuthOutcome> => {
+    const outcome = await mobileBackendStorage.login(email, password);
+    if (outcome.kind === "authenticated") {
       await checkAuth();
-      return true;
     }
-    return false;
+    return outcome;
   };
 
   const logout = async () => {

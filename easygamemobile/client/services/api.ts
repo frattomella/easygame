@@ -1,6 +1,13 @@
 import Constants from "expo-constants";
 import * as SecureStore from "expo-secure-store";
 
+import {
+  AuthOutcome,
+  interpretAckResponse,
+  interpretAuthResponse,
+  ResendOutcome,
+} from "@/lib/auth-flow";
+
 const KEYS = {
   BASE_URL: "easygame_base_url",
   AUTH_TOKEN: "easygame_auth_token",
@@ -519,6 +526,7 @@ class EasyGameApiService {
         status: response.status,
         payload,
         rawText,
+        retryAfter: response.headers.get("Retry-After"),
       };
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
@@ -526,6 +534,7 @@ class EasyGameApiService {
           status: 504,
           payload: null,
           rawText: "Timeout backend EasyGame",
+          retryAfter: null,
         };
       }
 
@@ -536,6 +545,7 @@ class EasyGameApiService {
           error instanceof Error
             ? `Errore di connessione: ${error.message}`
             : "Errore di connessione al backend EasyGame.",
+        retryAfter: null,
       };
     }
   }
@@ -605,6 +615,7 @@ class EasyGameApiService {
   ): Promise<{
     status: number;
     payload: ApiEnvelope<AuthResponseData> | null;
+    retryAfter: string | null;
   }> {
     await this.ensureInit();
 
@@ -615,9 +626,11 @@ class EasyGameApiService {
     let lastResult: {
       status: number;
       payload: ApiEnvelope<AuthResponseData> | null;
+      retryAfter: string | null;
     } = {
       status: 503,
       payload: null,
+      retryAfter: null,
     };
 
     for (const baseUrl of this.getCandidateBaseUrls()) {
@@ -631,14 +644,22 @@ class EasyGameApiService {
         lastResult = {
           status: result.status,
           payload,
+          retryAfter: result.retryAfter ?? null,
         };
 
-        if (result.status === 200 || result.status === 403) {
+        /*
+          **Un payload analizzabile e una risposta vera, qualunque sia lo
+          status.** Le rotte di autenticazione rispondono sempre con un corpo
+          — successo (200/202), credenziali sbagliate (401), verifica
+          richiesta (403), codice non valido (400) o limite di frequenza
+          (429) — e ritentare una di queste non la trasforma in un'altra:
+          consuma solo altro budget del limitatore, o ritarda il countdown
+          che l'utente deve vedere. Si ritenta **solo** quando il backend non
+          ha risposto affatto (timeout, connessione rifiutata): li il corpo
+          e sempre `null`.
+        */
+        if (payload !== null || !RETRYABLE_STATUSES.has(result.status)) {
           await this.persistWinningBaseUrl(baseUrl);
-          return lastResult;
-        }
-
-        if (!RETRYABLE_STATUSES.has(result.status)) {
           return lastResult;
         }
       }
@@ -659,64 +680,56 @@ class EasyGameApiService {
     return {
       user: mappedUser,
       session: data.session,
-      verification: data.verification || null,
     };
   }
 
-  private async confirmEmailVerification(userId: string, code: string) {
-    return this.request<AuthResponseData>(
-      `${API_PREFIX}/auth/verify/email/confirm`,
-      {
-        method: "POST",
-        body: { userId, code },
-      },
-    );
-  }
+  /**
+   * Da una risposta di `/api/v1/auth/**` a un esito che la UI sa disegnare.
+   *
+   * **Nessun codice di anteprima entra in questo percorso.** `emailPreviewCode`
+   * e `phonePreviewCode` esistono nella risposta **solo** fuori produzione
+   * (`AUTH_ALLOW_TEST_CODES=true`, mai in produzione — vedi
+   * `shouldExposeVerificationPreviewCode` lato server): confermarli qui al
+   * posto dell'utente renderebbe la registrazione funzionante **solo** contro
+   * un backend di test, e in produzione la schermata di verifica resterebbe
+   * irraggiungibile — cio che questo metodo sostituisce. L'unico uso lecito
+   * di un codice di anteprima e come comodita per chi sviluppa: precompilare
+   * il campo OTP nella schermata, mai spedirlo al posto della persona.
+   */
+  private async resolveAuthOutcome(
+    status: number,
+    payload: ApiEnvelope<AuthResponseData> | null,
+    retryAfter: string | null,
+  ): Promise<AuthOutcome> {
+    const outcome = interpretAuthResponse({
+      status,
+      data: payload?.data ?? null,
+      error: payload?.error ?? null,
+      retryAfterHeader: retryAfter,
+    });
 
-  private async confirmPhoneVerification(userId: string, code: string) {
-    return this.request<AuthResponseData>(
-      `${API_PREFIX}/auth/verify/phone/confirm`,
-      {
-        method: "POST",
-        body: { userId, code },
-      },
-    );
-  }
-
-  private async finalizeVerification(data: AuthResponseData) {
-    let current = data;
-
-    if (
-      current.verification?.emailRequired &&
-      current.verification?.emailPreviewCode
-    ) {
-      current =
-        (await this.confirmEmailVerification(
-          current.verification.userId,
-          current.verification.emailPreviewCode,
-        )) || current;
+    if (outcome.kind !== "authenticated") {
+      return outcome;
     }
 
-    if (current.session?.access_token) {
-      return this.hydrateSession(current);
+    const hydrated = await this.hydrateSession(payload?.data ?? null);
+    if (!hydrated) {
+      return {
+        kind: "error",
+        message: "Sessione non valida restituita dal backend.",
+      };
     }
 
-    if (
-      current.verification?.phoneRequired &&
-      current.verification?.phonePreviewCode
-    ) {
-      current =
-        (await this.confirmPhoneVerification(
-          current.verification.userId,
-          current.verification.phonePreviewCode,
-        )) || current;
-    }
-
-    return this.hydrateSession(current);
+    return {
+      kind: "authenticated",
+      user: hydrated.user,
+      session: hydrated.session,
+    };
   }
 
-  async login(email: string, password: string) {
-    const { status, payload } = await this.fetchAuthPayload(
+  /** Stesso backend, stessa identita, stessa sessione della Web App. */
+  async login(email: string, password: string): Promise<AuthOutcome> {
+    const { status, payload, retryAfter } = await this.fetchAuthPayload(
       `${API_PREFIX}/auth/login`,
       {
         email: email.trim().toLowerCase(),
@@ -724,41 +737,26 @@ class EasyGameApiService {
       },
     );
 
-    if (status === 200 && payload?.data) {
-      const hydrated = await this.hydrateSession(payload.data);
-      if (hydrated) {
-        return hydrated;
-      }
-    }
-
-    if (status === 403 && payload?.data?.verification) {
-      const finalized = await this.finalizeVerification(payload.data);
-      if (finalized) {
-        return finalized;
-      }
-
-      throw new Error(
-        payload?.error?.message ||
-          "Completa la verifica del tuo account per accedere.",
-      );
-    }
-
-    throw new Error(
-      payload?.error?.message ||
-        (status
-          ? `Risposta backend non valida durante il login (HTTP ${status}).`
-          : "Sessione non valida restituita dal backend."),
-    );
+    return this.resolveAuthOutcome(status, payload, retryAfter);
   }
 
-  async registerAccount(input: {
+  /**
+   * Crea l'account con lo stesso endpoint della Web App
+   * (`POST /api/v1/auth/register`). La rotta risponde sempre `202` con
+   * `session: null`: non nasce mai una sessione qui, solo un riferimento di
+   * verifica e l'invio del codice via email (e via SMS se l'installazione lo
+   * richiede). Il codice risultante e quindi sempre `verification_required`
+   * a meno di un errore — non un `201` come si controllava prima, che
+   * classificava come fallita **ogni** registrazione riuscita.
+   */
+  async register(input: {
     email: string;
     password: string;
     firstName?: string;
     lastName?: string;
     phone?: string;
-  }) {
-    const { status, payload } = await this.fetchAuthPayload(
+  }): Promise<AuthOutcome> {
+    const { status, payload, retryAfter } = await this.fetchAuthPayload(
       `${API_PREFIX}/auth/register`,
       {
         email: input.email.trim().toLowerCase(),
@@ -771,22 +769,76 @@ class EasyGameApiService {
       },
     );
 
-    if (status !== 201 || !payload?.data) {
-      throw new Error(
-        payload?.error?.message || "Errore durante la registrazione",
-      );
-    }
+    return this.resolveAuthOutcome(status, payload, retryAfter);
+  }
 
-    const finalized = await this.finalizeVerification(payload.data);
-    if (finalized) {
-      return finalized;
-    }
+  async sendEmailVerification(userId: string): Promise<ResendOutcome> {
+    const { status, payload, retryAfter } = await this.fetchAuthPayload(
+      `${API_PREFIX}/auth/verify/email/send`,
+      { userId },
+    );
+    return interpretAckResponse({
+      status,
+      data: payload?.data as { sent?: boolean; message?: string } | null,
+      error: payload?.error ?? null,
+      retryAfterHeader: retryAfter,
+    });
+  }
 
-    return {
-      user: payload.data.user ? mapAuthUser(payload.data.user) : null,
-      session: payload.data.session,
-      verification: payload.data.verification || null,
-    };
+  async confirmEmailVerification(
+    userId: string,
+    code: string,
+  ): Promise<AuthOutcome> {
+    const { status, payload, retryAfter } = await this.fetchAuthPayload(
+      `${API_PREFIX}/auth/verify/email/confirm`,
+      { userId, code },
+    );
+    return this.resolveAuthOutcome(status, payload, retryAfter);
+  }
+
+  async sendPhoneVerification(userId: string): Promise<ResendOutcome> {
+    const { status, payload, retryAfter } = await this.fetchAuthPayload(
+      `${API_PREFIX}/auth/verify/phone/send`,
+      { userId },
+    );
+    return interpretAckResponse({
+      status,
+      data: payload?.data as { sent?: boolean; message?: string } | null,
+      error: payload?.error ?? null,
+      retryAfterHeader: retryAfter,
+    });
+  }
+
+  async confirmPhoneVerification(
+    userId: string,
+    code: string,
+  ): Promise<AuthOutcome> {
+    const { status, payload, retryAfter } = await this.fetchAuthPayload(
+      `${API_PREFIX}/auth/verify/phone/confirm`,
+      { userId, code },
+    );
+    return this.resolveAuthOutcome(status, payload, retryAfter);
+  }
+
+  /**
+   * Avvia il reset password con lo stesso endpoint della Web App
+   * (`POST /api/v1/auth/password/forgot`). Risponde sempre allo stesso modo,
+   * esista o no l'account: non c'e niente da distinguere qui. Il
+   * completamento (`/api/v1/auth/password/reset`) richiede l'identificativo
+   * e il token che solo il link ricevuto via email porta — vedi il gap
+   * documentato nel report di questo WP.
+   */
+  async forgotPassword(email: string): Promise<ResendOutcome> {
+    const { status, payload, retryAfter } = await this.fetchAuthPayload(
+      `${API_PREFIX}/auth/password/forgot`,
+      { email: email.trim().toLowerCase() },
+    );
+    return interpretAckResponse({
+      status,
+      data: payload?.data as { sent?: boolean; message?: string } | null,
+      error: payload?.error ?? null,
+      retryAfterHeader: retryAfter,
+    });
   }
 
   /**
@@ -841,13 +893,23 @@ class EasyGameApiService {
     return this.request<MembershipRecord[]>(`${API_PREFIX}/auth/memberships`);
   }
 
-  async activateMembership(organizationId: string) {
+  async activateMembership(
+    organizationId: string,
+    options: {
+      role?: string;
+      membershipId?: string;
+      accessKind?: "membership" | "ownership";
+    } = {},
+  ) {
     return this.request<MembershipRecord>(
       `${API_PREFIX}/auth/memberships/activate`,
       {
         method: "POST",
         body: {
           organization_id: organizationId,
+          role: options.role,
+          membership_id: options.membershipId,
+          access_kind: options.accessKind,
         },
       },
     );

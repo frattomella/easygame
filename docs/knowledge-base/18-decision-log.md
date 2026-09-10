@@ -10126,3 +10126,70 @@ ADR-0054, ADR-0158 (un voucher copre una rata, non la paga), ADR-0159 (la
 frequenza sostiene la decisione, non la prende).
 
 ---
+
+## ADR-0161 — La decisione esplicita di ADR-0025 riguarda Identity & Access mobile, non tutto il mobile: si riprende, ma solo per Trainer e Parent
+
+**Data:** 2026-09-10
+
+**Contesto.** [ADR-0025](#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive)
+ferma ogni nuova funzionalita Mobile "fino a una decisione esplicita che superi
+questo ADR". Un audit completo di Trainer Web, Parent Web, account/multi-club
+e dello stato reale del mobile ([05](05-mobile-architecture.md),
+[11](11-capabilities.md)) ha trovato che l'autenticazione mobile non era
+production-ready: la registrazione confermava l'OTP con
+`emailPreviewCode`/`phonePreviewCode`, valori che il backend restituisce **solo**
+fuori produzione (`AUTH_ALLOW_TEST_CODES=true` — vedi `shouldExposeVerificationPreviewCode`
+in `src/lib/auth/otp-policy.ts`); il controllo di stato sulla risposta di
+`POST /api/v1/auth/register` cercava `201`, mentre la rotta risponde sempre
+`202`; nessun ruolo diverso da Trainer aveva un gate — un Owner o un Athlete
+che avessero fatto login vedevano l'interfaccia da allenatore, vuota. Nessuna di
+queste tre cose e una "nuova funzionalita": sono la condizione perche l'app
+esistente funzioni con un account reale.
+
+**Decisione.** Si riprende lo sviluppo mobile, **limitato alle fondamenta di
+Identity & Access e ai soli ruoli Trainer e Parent**. Non e una revoca di
+ADR-0025: resta vietato costruire nuove aree funzionali (Parent completo,
+nuove schermate Trainer) finche la Web V1 non e chiusa. Cio che si sblocca e
+solo cio senza cui l'app non e un prodotto utilizzabile da un account vero:
+
+1. **Stesso backend, stessa identita.** Registrazione, verifica OTP, login,
+   logout e recupero password mobile usano gli stessi endpoint
+   `/api/v1/auth/**` della Web App, senza alcuna logica di dominio
+   duplicata (password/telefono restano validati **solo** dal server). Un
+   account creato dal mobile fa login anche sul Web, e viceversa.
+2. **Un gate di ruolo, centrale e uno solo.** `resolveMobileRoleGate`
+   (`client/lib/mobile-role-gate.ts`) rispecchia — non riscrive —
+   `normalizeAccessRole` di `src/lib/access-roles.ts` (stessi alias, stessa
+   lettura di `custom:<base>:<nome>`) e decide, in un solo punto di
+   `RootStackNavigator`, se il contesto attivo apre l'area Trainer, l'area
+   Parent, o la schermata "EasyGame Mobile è in aggiornamento". Nessuna
+   tab si costruisce e poi si nasconde: chi non e Trainer/Parent non arriva
+   mai a `MainTabNavigator`.
+3. **L'area Parent nasce come struttura minima**, non come funzionalita:
+   una sola schermata segnaposto (`ParentHomeScreen`), niente figli, niente
+   allenamenti, niente pagamenti. Quello resta un WP successivo, e resta
+   fuori da questo ADR.
+4. **Il recupero password non duplica il sistema Web.** Il completamento
+   (`/api/v1/auth/password/reset`) pretende un identificativo e un token che
+   solo il link nell'email porta; senza deep linking configurato in
+   `easygamemobile/` (nessuna prop `linking` su `NavigationContainer`), quel
+   link si apre nel browser del telefono sulla pagina Web esistente
+   (`/auth/reset-password`). E lo stesso sistema con l'ultimo passo fuori
+   dall'app, non un secondo sistema — restare così finche non si decide se
+   vale la pena configurare i deep link e' una scelta esplicita, non un
+   dimenticato.
+
+**Cio che questa decisione non cambia.** Le schermate Trainer esistenti
+(`TrainerHomeDashboardScreen` e le altre otto collegate) non sono state
+riscritte. Nessuna pagina web e stata toccata: il perimetro resta
+`easygamemobile/`, confermato da `npm run check:types`, `npm run lint` e da un
+`expo export --platform ios` completato senza errori di risoluzione (2410
+moduli). Owner, Club Manager, Collaborator, Staff non-Trainer, Athlete e i
+ruoli di club personalizzati non basati su Trainer restano fuori da questa V1:
+li intercetta lo stesso gate, non una schermata per ciascuno.
+
+**Vedi anche.** ADR-0025 (di cui questa e l'eccezione dichiarata),
+[08](08-roles-and-permissions.md) (`normalizeAccessRole`, di cui
+`resolveMobileRoleGate` e lo specchio mobile), [11](11-capabilities.md).
+
+---

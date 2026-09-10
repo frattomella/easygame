@@ -2,6 +2,7 @@ import React, { createContext, useContext, ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Access, Club, ClubCategorySummary, User } from "@/services/api";
 import { TrainerDashboardPermissions } from "@/lib/trainer-permissions";
+import { AuthOutcome } from "@/lib/auth-flow";
 
 interface AuthContextType {
   isLoading: boolean;
@@ -13,7 +14,7 @@ interface AuthContextType {
   currentRole: string | null;
   trainerPermissions: TrainerDashboardPermissions | null;
   assignedCategories: ClubCategorySummary[];
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<AuthOutcome>;
   logout: () => Promise<void>;
   setContext: (
     clubId: string,

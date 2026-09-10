@@ -12,6 +12,8 @@ export const getRoleLabel = (role?: string | null) => {
       return "Allenatore";
     case "assistant":
       return "Assistente";
+    case "parent":
+      return "Genitore";
     default:
       return "Accesso";
   }

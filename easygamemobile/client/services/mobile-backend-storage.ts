@@ -13,6 +13,8 @@ import {
   TrainingAttendanceEntry,
   User,
 } from "@/services/api";
+import { AuthOutcome, ResendOutcome } from "@/lib/auth-flow";
+import { buildActivationRequest } from "@/lib/activation-request";
 import {
   DEFAULT_TRAINER_DASHBOARD_PERMISSIONS,
   resolveTrainerDashboardPermissions,
@@ -738,20 +740,45 @@ class MobileBackendStorageService {
     };
   }
 
-  async login(email: string, password: string): Promise<User | null> {
-    const session = await api.login(email, password);
-    return session.user || null;
+  /** Stesso account, stessa sessione della Web App: nessun sistema a parte. */
+  async login(email: string, password: string): Promise<AuthOutcome> {
+    return api.login(email, password);
   }
 
-  async registerAccount(input: {
+  async register(input: {
     email: string;
     password: string;
     firstName?: string;
     lastName?: string;
     phone?: string;
-  }) {
-    const session = await api.registerAccount(input);
-    return session.user || null;
+  }): Promise<AuthOutcome> {
+    return api.register(input);
+  }
+
+  async resendEmailVerification(userId: string): Promise<ResendOutcome> {
+    return api.sendEmailVerification(userId);
+  }
+
+  async confirmEmailVerification(
+    userId: string,
+    code: string,
+  ): Promise<AuthOutcome> {
+    return api.confirmEmailVerification(userId, code);
+  }
+
+  async resendPhoneVerification(userId: string): Promise<ResendOutcome> {
+    return api.sendPhoneVerification(userId);
+  }
+
+  async confirmPhoneVerification(
+    userId: string,
+    code: string,
+  ): Promise<AuthOutcome> {
+    return api.confirmPhoneVerification(userId, code);
+  }
+
+  async forgotPassword(email: string): Promise<ResendOutcome> {
+    return api.forgotPassword(email);
   }
 
   async logout() {
@@ -805,7 +832,12 @@ class MobileBackendStorageService {
     accessId?: string | null,
     source?: "owned" | "assigned" | null,
   ) {
-    await api.activateMembership(clubId).catch(() => null);
+    await api
+      .activateMembership(
+        clubId,
+        buildActivationRequest(role, accessId, source),
+      )
+      .catch(() => null);
     await AsyncStorage.setItem(
       KEYS.currentContext,
       JSON.stringify({

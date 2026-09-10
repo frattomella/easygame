@@ -1,12 +1,17 @@
 # 05 — Architettura Mobile App
 
-> **SVILUPPO DIFFERITO** (2026-08-22,
-> [ADR-0025](18-decision-log.md#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive)).
-> La priorita assoluta e completare EasyGame Web V1 e renderla responsive.
-> **Nessuna nuova funzionalita Mobile** fino a una decisione esplicita.
-> Restano ammessi solo le correzioni di sicurezza e gli adeguamenti resi
-> necessari da un cambio di contratto API deciso lato Web.
-> Questo documento descrive lo stato **congelato** dell'app.
+> **SVILUPPO DIFFERITO, salvo Identity & Access** (2026-08-22,
+> [ADR-0025](18-decision-log.md#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive);
+> eccezione dichiarata in
+> [ADR-0161](18-decision-log.md#adr-0161--la-decisione-esplicita-di-adr-0025-riguarda-identity--access-mobile-non-tutto-il-mobile-si-riprende-ma-solo-per-trainer-e-parent),
+> 2026-09-10). La priorita assoluta resta completare EasyGame Web V1 e
+> renderla responsive. **Nessuna nuova area funzionale Mobile** (Parent
+> completo, nuove schermate Trainer) fino a una decisione esplicita. Sono
+> state completate le **fondamenta di Identity & Access** (registrazione,
+> verifica OTP, login, logout, recupero password, gate di ruolo) perche senza
+> queste l'app non funzionava con un account reale — vedi la sezione
+> "Autenticazione mobile" qui sotto, che descrive lo stato **attuale**, non
+> congelato.
 
 Cartella: `easygamemobile/`. **Progetto npm indipendente**: proprio
 `package.json`, `package-lock.json`, `tsconfig.json`, `eslint.config.js`,
@@ -18,17 +23,31 @@ TanStack Query 5 · expo-secure-store**. TypeScript `~5.9`.
 > Il mobile e **escluso** dal `tsconfig.json` e dal `.vercelignore` della Web
 > App. Non viene mai compilato ne deployato insieme al Web.
 
-## Stato attuale: app **solo per allenatori**, incompleta
+## Stato attuale: Trainer completo, Parent segnaposto, gate su tutto il resto
 
-Il navigator root (`client/navigation/RootStackNavigator.tsx`) ha tre stati:
+Il navigator root (`client/navigation/RootStackNavigator.tsx`) e il **solo**
+punto che decide quale guscio mostrare — nessuna schermata a valle rifa questo
+controllo:
 
 ```
-non autenticato        → LoginScreen
-autenticato, no club   → AccountHubScreen  (registrato come "ContextSelection")
-autenticato, con club  → MainTabNavigator
+non autenticato                  → Login | Register | VerifyOtp | ForgotPassword
+autenticato, nessun contesto     → AccountHubScreen  (registrato come "ContextSelection")
+contesto attivo, ruolo Trainer   → MainTabNavigator
+contesto attivo, ruolo Parent    → ParentStackNavigator (ParentHomeScreen, segnaposto)
+contesto attivo, altro ruolo     → UnsupportedRoleScreen ("EasyGame Mobile è in aggiornamento")
 ```
 
-`MainTabNavigator` espone 5 tab, tutte trainer:
+Il ruolo che decide l'ultimo passo lo calcola `resolveMobileRoleGate`
+(`client/lib/mobile-role-gate.ts`): specchio minimo di `normalizeAccessRole`
+lato Web (stessi alias, stessa lettura di un gettone `custom:<base>:<nome>`),
+non una seconda fonte di permessi — il server resta autorevole su ogni
+chiamata API. Owner, Club Manager, Collaborator, Staff non-Trainer, Athlete e
+i ruoli di club personalizzati non basati su Trainer finiscono tutti su
+`UnsupportedRoleScreen`, con l'uscita per tornare alla selezione o fare
+logout.
+
+`MainTabNavigator` espone 5 tab, tutte trainer (**non riscritte in questo
+giro**):
 
 | Tab | Stack | Schermata |
 |-----|-------|-----------|
@@ -40,12 +59,19 @@ autenticato, con club  → MainTabNavigator
 
 Ogni stack include anche `NotificationsScreen`.
 
-### Schermate collegate (9)
+### Schermate collegate (15)
 
-`LoginScreen`, `AccountHubScreen`, `NotificationsScreen`,
-`TrainerHomeDashboardScreen`, `TrainerTrainingsDashboardScreen`,
-`TrainerMatchesDashboardScreen`, `TrainerAthletesScreen`,
-`TrainerAthleteProfileScreen`, `TrainerProfileDashboardScreen`.
+Identity & Access: `LoginScreen`, `RegisterScreen`, `VerifyOtpScreen`,
+`ForgotPasswordScreen`, `AccountHubScreen`, `UnsupportedRoleScreen`.
+
+Trainer (invariate): `NotificationsScreen`, `TrainerHomeDashboardScreen`,
+`TrainerTrainingsDashboardScreen`, `TrainerMatchesDashboardScreen`,
+`TrainerAthletesScreen`, `TrainerAthleteProfileScreen`,
+`TrainerProfileDashboardScreen`.
+
+Parent (segnaposto, `ParentStackNavigator`): `ParentHomeScreen` — mostra
+contesto attivo, cambio club/accesso e logout; nessuna funzionalita di
+dominio (figli, allenamenti, pagamenti, documenti — WP successivi).
 
 ### Schermate NON collegate (10) — generazione precedente
 
@@ -60,8 +86,8 @@ sulla v2 collegata.
 
 | File | Righe | Cosa fa | Stato |
 |------|-------|---------|-------|
-| `client/services/api.ts` | 912 | Client HTTP verso `/api/v1` della Web App. Base URL da `EXPO_PUBLIC_EASYGAME_API_URL` (o override salvato in SecureStore). Timeout 6 s, retry su 408/429/502/503/504. Stesso envelope `{data, error}`. | **In uso, fonte dati reale** |
-| `client/services/mobile-backend-storage.ts` | 1.260 | Cache AsyncStorage + normalizzazione sopra `api.ts`. Chiavi `@easygame/mobile/*`. | **In uso** |
+| `client/services/api.ts` | 995 | Client HTTP verso `/api/v1` della Web App, auth inclusa (register/login/verify/forgot-password). Base URL da `EXPO_PUBLIC_EASYGAME_API_URL` (o override salvato in SecureStore). Timeout 6 s, retry solo su risposte senza corpo (408/429/502/503/504 senza payload — una risposta analizzata, anche un 429, non si ripete). Stesso envelope `{data, error}`. | **In uso, fonte dati reale** |
+| `client/services/mobile-backend-storage.ts` | 1.292 | Cache AsyncStorage + normalizzazione sopra `api.ts`. Chiavi `@easygame/mobile/*`. | **In uso** |
 | `client/services/storage.ts` | 387 | **Dati mock hard-coded** (`MOCK_USER`, `MOCK_CLUBS`). Chiavi `@easygame/*`. | Usato solo dalle schermate non collegate (R8) |
 | ~~`client/services/mobile-storage-service.ts`~~ | 1.240 | Terzo layer di storage, duplicato di `mobile-backend-storage` | **Rimosso** il 2026-08-22: zero import, riclassificato SAFE |
 
@@ -69,11 +95,56 @@ Regola pratica: **codice nuovo → `api.ts` + `mobile-backend-storage.ts`**.
 
 ## Autenticazione mobile
 
-- Login via `POST /api/v1/auth/login` sulla stessa API del Web.
+Stesso backend, stessa identita, stesse credenziali e stesse membership della
+Web App: nessun sistema auth parallelo. Tutta l'interpretazione delle risposte
+vive in un modulo puro, `client/lib/auth-flow.ts` (`interpretAuthResponse`,
+`interpretAckResponse`), senza dipendenze da React Native — provato in
+`easygamemobile/tests/auth-flow.test.ts` senza rete ne SecureStore.
+
+- **Registrazione**: `POST /api/v1/auth/register` (stesso endpoint del Web).
+  Risponde **sempre 202**, mai 201 — un vecchio controllo lato client
+  cercava 201 e classificava come fallita ogni registrazione riuscita, cioe
+  la registrazione mobile non funzionava mai contro un backend reale. Il
+  telefono e raccolto sempre (`isPhoneNumberRequiredAtSignup`, ADR-0132): il
+  formato lo valida solo il server.
+- **Verifica OTP**: `VerifyOtpScreen` gestisce email e telefono con lo stesso
+  componente, parametrizzato dal canale. Nessun `emailPreviewCode` /
+  `phonePreviewCode` entra piu nel percorso di produzione — quei valori
+  esistono nella risposta **solo** fuori produzione
+  (`shouldExposeVerificationPreviewCode`, `AUTH_ALLOW_TEST_CODES=true`) e
+  prima venivano confermati automaticamente al posto della persona, rendendo
+  la registrazione utilizzabile solo in ambiente di test. L'unico uso che ne
+  resta e precompilare il campo per chi sviluppa (gated da `__DEV__`), mai
+  inviarli al posto dell'utente. Reinvio con countdown **derivato
+  dall'intestazione `Retry-After`** che il server restituisce sui 429 (mai un
+  timer client-side indovinato). Il codice sbagliato e quello scaduto
+  condividono lo stesso messaggio — il backend non li distingue di proposito
+  (anti-enumerazione) — quindi non li distingue nemmeno la UI.
+- **Login**: `POST /api/v1/auth/login`, invariato nel contratto. Se il
+  telefono blocca la sessione (`isPhoneVerificationBlocking`, rilevante solo
+  se `SMS_PROVIDER` e configurato — oggi non lo e, `.env.example`), il login
+  incatena alla stessa `VerifyOtpScreen` sul canale telefono.
+- **Logout**: `api.logout()` chiama `POST /api/v1/auth/logout` (revoca
+  server-side reale) prima di cancellare il token locale — gia cosi prima di
+  questo giro, verificato e non modificato.
+- **Recupero password**: `ForgotPasswordScreen` chiama
+  `POST /api/v1/auth/password/forgot`, stesso endpoint del Web, risposta
+  generica identica esista o no l'account. Il completamento
+  (`/api/v1/auth/password/reset`) pretende un identificativo e un token che
+  **solo** il link nell'email porta; senza deep linking configurato (nessuna
+  prop `linking` su `NavigationContainer`), quel link si apre nel browser del
+  telefono sulla pagina Web `/auth/reset-password` — stesso sistema, ultimo
+  passo fuori dall'app. **Gap aperto**: un completamento nativo in-app
+  richiede di configurare i deep link, non fatto in questo giro.
 - Token salvato in **`expo-secure-store`** (`easygame_auth_token`), inviato come
   `Authorization: Bearer <token>`. Il server accetta sia il cookie sia il Bearer
-  (`readAuthToken` in `src/lib/server/auth.ts`).
-- Il club/contesto attivo viaggia con `x-active-club-id`, come nel Web.
+  (`readAuthToken` in `src/lib/server/auth.ts`). Nessuna credenziale in
+  AsyncStorage (che tiene solo il contesto club/ruolo non sensibile).
+- Il club/contesto attivo viaggia con `x-active-club-id`/`x-active-access-role`,
+  come nel Web; l'attivazione (`POST /api/v1/auth/memberships/activate`) porta
+  anche `role` e `membership_id` quando noti
+  (`client/lib/activation-request.ts`), per scegliere la tessera giusta se la
+  stessa persona ha piu ruoli sullo stesso club (ADR-0102).
 
 ## Nessun accesso diretto al database — ADR-0018
 
@@ -104,8 +175,20 @@ cd easygamemobile
 npm install
 npm run check:types     # tsc --noEmit
 npm run lint            # expo lint
+npm run test            # node --test sui moduli puri in client/lib/**
 npm run expo:local      # avvio Expo in LAN
 ```
+
+### Test — `easygamemobile/tests/`
+
+Nessun framework di test RN (jest-expo, Testing Library) e installato: i test
+coprono i moduli **puri** che decidono il flusso Identity & Access
+(`auth-flow.ts`, `mobile-role-gate.ts`, `activation-request.ts`), eseguiti con
+il test runner nativo di Node (`node --import tsx --test`) senza rete,
+SecureStore o rendering — `api.ts` e `mobile-backend-storage.ts` importano
+moduli nativi Expo e non sono testabili sotto Node senza mock pesanti; non lo
+sono in questo giro. Discovery su `tests/**/*.test.ts`, nessuna voce da
+aggiungere altrove per un file nuovo.
 
 ### Verifica di avvio reale — 2026-08-22
 
@@ -131,8 +214,32 @@ Nota: l'entry point e `client/index.bundle`, non `index.bundle`, perche
 Configurazione: copiare `.env.example` e valorizzare
 `EXPO_PUBLIC_EASYGAME_API_URL` con l'URL del backend (staging o locale).
 
+### Verifica di avvio reale — 2026-09-10 (Identity & Access)
+
+Dopo le schermate nuove (`RegisterScreen`, `VerifyOtpScreen`,
+`ForgotPasswordScreen`, `UnsupportedRoleScreen`, `ParentHomeScreen`) e il gate
+di ruolo: `npx expo export --platform ios` completato senza errori di
+risoluzione, 2410 moduli, bundle iOS 5,97 MB. Non e un avvio su dispositivo —
+resta vero il limite dichiarato sopra — ma prova che il grafo di import di
+Metro risolve tutte le schermate nuove insieme a quelle esistenti.
+
 ## Cosa manca per completare il mobile
 
-Vedi [11 — Capability](11-capabilities.md) e [WP-21..WP-25](20-work-packages.md):
-aree parent/atleta assenti, nessun test, nessuna pipeline di build (EAS),
-mock ancora presenti nelle schermate v1.
+Identity & Access e le fondamenta di ruolo sono a posto (vedi sopra). Restano
+aperti, in ordine indicativo:
+
+- **Area Parent reale**: figli/multi-figlio, allenamenti/gare con RSVP,
+  pagamenti, documenti, bacheca, notifiche — oggi solo `ParentHomeScreen`
+  segnaposto.
+- **Sezioni Trainer mancanti rispetto al Web**: bacheca, documenti propri,
+  appuntamenti, compensi (vedi il report di audit Trainer/Parent per i due
+  difetti server-side da correggere prima: allow-list documenti trainer e
+  campo `note` obbligatorio sul rifiuto appuntamento).
+- **Notifiche push e deep linking**: nessuno dei due e configurato;
+  il completamento nativo del recupero password ne dipende.
+- **Link esterni centralizzati**: oggi hardcoded sia lato Web sia lato
+  mobile, nessuna ownership CediSoft dichiarata.
+- Nessuna pipeline di build (EAS), mock ancora presenti nelle schermate v1
+  non collegate.
+
+Vedi [11 — Capability](11-capabilities.md) e [WP-21..WP-25](20-work-packages.md).

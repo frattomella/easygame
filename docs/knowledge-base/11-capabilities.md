@@ -237,14 +237,19 @@ funzionava e non si vedeva.
 
 | Capability | Stato | Note |
 |-----------|-------|------|
-| Login mobile | COMPLETE | Stessa API del Web, token in SecureStore |
-| Selezione club/contesto | COMPLETE | `AccountHubScreen` |
+| Login mobile | COMPLETE | Stessa API del Web, token in SecureStore, logout con revoca server-side |
+| Registrazione mobile | COMPLETE | `RegisterScreen` → `POST /api/v1/auth/register`, funziona in produzione (prima falliva sempre: cercava lo status 201, la rotta risponde 202) |
+| Verifica OTP (email/telefono) | COMPLETE | `VerifyOtpScreen`, nessun codice di anteprima nel percorso di produzione |
+| Recupero password | PARTIAL | Avvio reale (`POST /api/v1/auth/password/forgot`); il completamento apre il browser sulla pagina Web esistente — nessun deep link per completarlo in-app |
+| Gate ruoli non supportati (V1: solo Trainer/Parent) | COMPLETE | `resolveMobileRoleGate` in `RootStackNavigator`, schermata unica "EasyGame Mobile è in aggiornamento" |
+| Selezione club/contesto | COMPLETE | `AccountHubScreen`, attivazione con ruolo/tessera precisi (ADR-0102) |
 | Home trainer | PARTIAL | `TrainerHomeDashboardScreen` |
 | Allenamenti / partite / atleti trainer | PARTIAL | Schermate v2 collegate, funzionalita ridotte rispetto al Web |
 | Notifiche mobile | PARTIAL | Lettura, nessuna push |
 | Area management mobile | MISSING | Nessuna schermata |
-| Area genitore / atleta mobile | MISSING | Nessuna schermata |
-| Test mobile | MISSING | Nessun test |
+| Area genitore mobile | PARTIAL | Ruolo riconosciuto e instradato (`ParentStackNavigator`); solo un segnaposto, nessuna funzionalita di dominio |
+| Area atleta mobile | MISSING | Ruolo non supportato in V1, intercettato dal gate |
+| Test mobile | PARTIAL | `easygamemobile/tests/`, solo sui moduli puri di Identity & Access (`node --test`); nessun test sulle schermate o sul layer dati/rete |
 | Build distribuibile (EAS) | MISSING | Nessuna configurazione EAS |
 | Layer dati mobile | LEGACY/REVIEW | Tre servizi storage: uno mock, uno orfano, uno reale |
 

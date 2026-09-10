@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { View, StyleSheet, Image, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Animated, {
@@ -19,25 +21,29 @@ import { useAuthContext } from "@/contexts/AuthContext";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import { EASYGAME_APP_NAME, EASYGAME_LOGO } from "@/constants/branding";
 import { Spacing, BorderRadius, Colors } from "@/constants/theme";
+import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
+type Navigation = NativeStackNavigationProp<RootStackParamList, "Login">;
+
+/**
+ * Solo login: stesso backend, stesso account, stessa sessione della Web App
+ * (`POST /api/v1/auth/login`). Registrazione, verifica OTP e recupero
+ * password vivono in schermate dedicate — vedi `RegisterScreen`,
+ * `VerifyOtpScreen`, `ForgotPasswordScreen`.
+ */
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { login, refresh } = useAuthContext();
+  const navigation = useNavigation<Navigation>();
+  const { login } = useAuthContext();
 
-  const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [phone, setPhone] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showDeveloperConfig, setShowDeveloperConfig] = useState(false);
   const [serverUrl, setServerUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
 
   const configHeight = useSharedValue(0);
 
@@ -70,51 +76,38 @@ export default function LoginScreen() {
       return;
     }
 
-    if (mode === "register" && password !== confirmPassword) {
-      setError("Le password non coincidono");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      return;
-    }
-
-    if (mode === "register" && !firstName.trim() && !lastName.trim()) {
-      setError("Inserisci almeno nome o cognome");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      return;
-    }
-
     setError("");
-    setSuccessMessage("");
     setLoading(true);
 
     try {
       if (serverUrl.trim()) {
         await mobileBackendStorage.setServerUrl(serverUrl.trim());
       }
-      if (mode === "login") {
-        const success = await login(email, password);
-        if (!success) {
-          setError("Credenziali non valide");
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        } else {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        }
-      } else {
-        await mobileBackendStorage.registerAccount({
-          email,
-          password,
-          firstName,
-          lastName,
-          phone,
-        });
-        await refresh();
-        setSuccessMessage(
-          "Account creato correttamente. Se necessario, la verifica è stata completata in automatico per il test.",
-        );
+
+      const outcome = await login(email, password);
+
+      if (outcome.kind === "authenticated") {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        return;
       }
-    } catch (error) {
+
+      if (outcome.kind === "verification_required") {
+        navigation.navigate("VerifyOtp", {
+          reference: outcome.verification.userId,
+          channel: outcome.channel,
+          purpose: "login",
+          verification: outcome.verification,
+        });
+        return;
+      }
+
+      setError(outcome.message);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } catch (submitError) {
       setError(
-        error instanceof Error ? error.message : "Errore di connessione",
+        submitError instanceof Error
+          ? submitError.message
+          : "Errore di connessione",
       );
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
@@ -171,73 +164,6 @@ export default function LoginScreen() {
         entering={FadeInDown.delay(300).duration(600)}
         style={styles.formContainer}
       >
-        <View
-          style={[
-            styles.modeSwitcher,
-            { backgroundColor: theme.backgroundSecondary },
-          ]}
-        >
-          <Pressable
-            onPress={() => setMode("login")}
-            style={[
-              styles.modeButton,
-              mode === "login"
-                ? { backgroundColor: Colors.light.primary }
-                : undefined,
-            ]}
-          >
-            <ThemedText
-              type="small"
-              style={mode === "login" ? styles.modeActiveText : undefined}
-            >
-              Accedi
-            </ThemedText>
-          </Pressable>
-          <Pressable
-            onPress={() => setMode("register")}
-            style={[
-              styles.modeButton,
-              mode === "register"
-                ? { backgroundColor: Colors.light.primary }
-                : undefined,
-            ]}
-          >
-            <ThemedText
-              type="small"
-              style={mode === "register" ? styles.modeActiveText : undefined}
-            >
-              Registrati
-            </ThemedText>
-          </Pressable>
-        </View>
-
-        {mode === "register" ? (
-          <>
-            <Input
-              label="Nome"
-              placeholder="Marco"
-              value={firstName}
-              onChangeText={setFirstName}
-              leftIcon="person-outline"
-            />
-            <Input
-              label="Cognome"
-              placeholder="Rossi"
-              value={lastName}
-              onChangeText={setLastName}
-              leftIcon="person-outline"
-            />
-            <Input
-              label="Telefono"
-              placeholder="+39 333 0000000"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-              leftIcon="call-outline"
-            />
-          </>
-        ) : null}
-
         <Input
           label="Email"
           placeholder="coach@example.com"
@@ -259,16 +185,13 @@ export default function LoginScreen() {
           onRightIconPress={() => setShowPassword(!showPassword)}
         />
 
-        {mode === "register" ? (
-          <Input
-            label="Conferma password"
-            placeholder="Ripeti la password"
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry={!showPassword}
-            leftIcon="shield-checkmark-outline"
-          />
-        ) : null}
+        <ThemedText
+          type="link"
+          onPress={() => navigation.navigate("ForgotPassword")}
+          style={styles.forgotLink}
+        >
+          Password dimenticata?
+        </ThemedText>
 
         {error ? (
           <View style={styles.errorContainer}>
@@ -286,30 +209,27 @@ export default function LoginScreen() {
           </View>
         ) : null}
 
-        {successMessage ? (
-          <View style={styles.successContainer}>
-            <Ionicons
-              name="checkmark-circle"
-              size={16}
-              color={Colors.light.success}
-            />
-            <ThemedText
-              type="small"
-              style={[styles.errorText, { color: Colors.light.success }]}
-            >
-              {successMessage}
-            </ThemedText>
-          </View>
-        ) : null}
-
         <Button
           onPress={handleSubmit}
           loading={loading}
           fullWidth
           style={styles.loginButton}
         >
-          {mode === "login" ? "Accedi" : "Crea account"}
+          Accedi
         </Button>
+
+        <View style={styles.footer}>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            Non hai un account?
+          </ThemedText>
+          <ThemedText
+            type="link"
+            onPress={() => navigation.navigate("Register")}
+            style={styles.footerLink}
+          >
+            Crea account
+          </ThemedText>
+        </View>
 
         <Animated.View style={animatedConfigStyle}>
           <ThemedText
@@ -369,38 +289,30 @@ const styles = StyleSheet.create({
   formContainer: {
     flex: 1,
   },
-  modeSwitcher: {
-    flexDirection: "row",
-    padding: 4,
-    borderRadius: BorderRadius.xl,
-    marginBottom: Spacing.xl,
-  },
-  modeButton: {
-    flex: 1,
-    height: 42,
-    borderRadius: BorderRadius.lg,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modeActiveText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
+  forgotLink: {
+    textAlign: "right",
+    marginBottom: Spacing.lg,
   },
   loginButton: {
-    marginTop: Spacing.lg,
+    marginTop: Spacing.sm,
   },
   errorContainer: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.xs,
+    marginBottom: Spacing.lg,
   },
   errorText: {
     flex: 1,
   },
-  successContainer: {
+  footer: {
     flexDirection: "row",
-    alignItems: "center",
+    justifyContent: "center",
     gap: Spacing.xs,
+    marginTop: Spacing.xl,
+  },
+  footerLink: {
+    fontWeight: "700",
   },
   devLabel: {
     textAlign: "center",

@@ -12,7 +12,8 @@
     "lint:fix": "npx expo lint --fix",
     "check:types": "tsc --noEmit",
     "check:format": "prettier --check \"**/*.{js,ts,tsx,css,json}\"",
-    "format": "prettier --write \"**/*.{js,ts,tsx,css,json}\""
+    "format": "prettier --write \"**/*.{js,ts,tsx,css,json}\"",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "@expo-google-fonts/nunito": "^0.4.2",
@@ -64,6 +65,7 @@
     "eslint-plugin-prettier": "^5.5.4",
     "localtunnel": "^2.0.2",
     "prettier": "3.6.2",
+    "tsx": "^4.21.0",
     "typescript": "~5.9.2"
   },
   "private": true
