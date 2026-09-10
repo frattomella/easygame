@@ -170,7 +170,7 @@ export const Fonts = Platform.select({
  * ═══════════════════════════════════════════════════════════════════════
  * EG — EasyGame signature tokens (design system source: Claude Design,
  * namespace `EasyGameDesignSystem_845326`. Tokens below are current through
- * **EGDS v2.1.0 "Parent-ready", 2026-09-10** — see `design-source/` at the
+ * **EGDS v2.2.0 "Sheet & shell", 2026-09-10** — see `design-source/` at the
  * repo root, `design-source/CHANGELOG.md`, and
  * `docs/knowledge-base/05-mobile-architecture.md`).
  * ═══════════════════════════════════════════════════════════════════════

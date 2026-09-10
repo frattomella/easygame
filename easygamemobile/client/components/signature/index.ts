@@ -46,3 +46,7 @@ export type { HighlightCardPreviewRow } from "@/components/signature/HighlightCa
 export { RSVPControl } from "@/components/signature/RSVPControl";
 export { AccountAccessCard } from "@/components/signature/AccountAccessCard";
 export { NotificationRow } from "@/components/signature/NotificationRow";
+export { PaymentCard } from "@/components/signature/PaymentCard";
+export { DocumentRow } from "@/components/signature/DocumentRow";
+export { DocumentCard } from "@/components/signature/DocumentCard";
+export { ConsentRow } from "@/components/signature/ConsentRow";

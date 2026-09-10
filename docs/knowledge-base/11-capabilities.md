@@ -252,9 +252,9 @@ funzionava e non si vedeva.
 | Squadre/categorie trainer | COMPLETE | `TrainerCategoriesScreen` (WP3): nomi leggibili e conteggi, raggiunta da un hub secondario (`TrainerMoreScreen`) |
 | Notifiche mobile | PARTIAL | Lettura, nessuna push |
 | Area management mobile | MISSING | Nessuna schermata |
-| Area genitore mobile | PARTIAL | `ParentTabNavigator`: multi-figlio reale (WP4, `GET /api/v1/family/children`); Home e Calendario unificato con RSVP (WP5, `GET /api/parent-dashboard/[athleteId]`, `GET/POST /api/v1/rsvp`); Bacheca + Notifiche (WP6, `GET/POST .../board`, `PATCH .../notifications`), hub secondario e reskin `AccountAccessCard` dell'AccountHub. Segreteria (pagamenti/documenti/consensi/iscrizione) e le 8 voci restanti dell'hub sono segnaposto onesti, fuori perimetro di questo batch (ADR-0163) |
+| Area genitore mobile | PARTIAL | `ParentTabNavigator`: multi-figlio reale (WP4, `GET /api/v1/family/children`); Home e Calendario unificato con RSVP (WP5); Bacheca + Notifiche (WP6), reskin `AccountAccessCard` dell'AccountHub; Pagamenti/Documenti/Consensi (WP7, checkout via browser di sistema, upload/download reali). Segreteria/Appuntamenti, Strutture, Iscrizione, Contatti sono segnaposto onesti, in arrivo nel WP8 (ADR-0164) |
 | Area atleta mobile | MISSING | Ruolo non supportato in V1, intercettato dal gate |
-| Test mobile | PARTIAL | `easygamemobile/tests/`, 76 test (`node --test`) sui moduli puri di Identity & Access, sui permessi/documenti/categorie Trainer di WP3, sul multi-figlio Parent di WP4, su calendario/RSVP/riepilogo Home di WP5 e sulle notifiche di WP6; nessun test sulle schermate (nessun renderer RN installato) o sul layer dati/rete |
+| Test mobile | PARTIAL | `easygamemobile/tests/`, 100 test (`node --test`) sui moduli puri di Identity & Access, sui permessi/documenti/categorie Trainer di WP3, sul multi-figlio Parent di WP4, su calendario/RSVP/riepilogo Home di WP5, sulle notifiche di WP6 e su pagamenti/consensi/documenti di WP7; nessun test sulle schermate (nessun renderer RN installato) o sul layer dati/rete |
 | Build distribuibile (EAS) | MISSING | Nessuna configurazione EAS |
 | Layer dati mobile | LEGACY/REVIEW | Tre servizi storage: uno mock, uno orfano, uno reale |
 

@@ -1,6 +1,6 @@
 # Trainer screens — migration to the current design language
 
-**Revision:** EGDS v2.1.0 · 2026-09-10
+**Revision:** EGDS v2.2.0 · 2026-09-10 · CURRENT
 
 Home, Allenamenti, Gare and Atleti still use the pre-signature style (flat background, opaque `Card`/`Button`/`Badge`). The Dock around them is already current, which is why the seam is visible. This document says exactly how to migrate them **without changing any functionality** — no new data, no new endpoints, no changed permissions, no changed copy except where a state was previously unlabelled.
 
@@ -41,7 +41,7 @@ Also, on every screen: section headings become tracked uppercase eyebrows with a
 | `Presenze` / `Annulla` buttons | `actions`, primary + secondary |
 
 - **Stripe:** action gradient. **Group order unchanged:** today → this week → later, same empty sentences.
-- **Attendance modal → sheet:** the existing modal becomes a bottom sheet (`28 28 0 0`, grabber, eyebrow = session + time, title `Presenze`). Rows become `SelectableAthleteRow` with the green accent. The confirm button carries the live count (`Salva 14/18`) and a trailing arrow chip; `Annulla` is a secondary button beside it. Athletes who are injured or suspended render `disabled` with the reason as their state word — this is the one place the migration *adds* information, and it is worth it.
+- **Attendance modal → sheet:** the existing modal becomes a `BottomSheet` (§A4 — grabber, eyebrow = session + time, title `Presenze`). Rows become `SelectableAthleteRow` with the green accent. The confirm button carries the live count (`Salva 14/18`) and a trailing arrow chip; `Annulla` is a secondary button beside it. Athletes who are injured or suspended render `disabled` with the reason as their state word — this is the one place the migration *adds* information, and it is worth it.
 - **Empty groups:** keep the one-line glass panel. A wholly empty screen uses `StateMessage kind="empty"`, tone dark.
 
 ## Step 3 — Gare

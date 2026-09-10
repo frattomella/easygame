@@ -36,7 +36,14 @@
         }
       ],
       "expo-web-browser",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Consente di scegliere una foto da caricare come documento richiesto dal club.",
+          "cameraPermission": "Consente di scattare una foto di un documento richiesto dal club."
+        }
+      ]
     ],
     "experiments": {
       "reactCompiler": true

@@ -8,6 +8,9 @@ import {
   Club,
   ClubAppointment,
   ClubCategorySummary,
+  ConsentRecordSummary,
+  ConsentSubjectState,
+  FamilyDocumentItem,
   Match,
   MembershipRecord,
   OwnCompensationStatement,
@@ -1390,6 +1393,45 @@ class MobileBackendStorageService {
     input: { id?: string; all?: boolean },
   ) {
     return api.markParentNotificationsRead(athleteId, input);
+  }
+
+  /** Avvia il pagamento di una rata — vedi `api.checkoutParentPayment` per il contratto reale dell'url. */
+  async checkoutParentPayment(athleteId: string, paymentId: string) {
+    return api.checkoutParentPayment(athleteId, paymentId);
+  }
+
+  /** URL + header per un download autenticato (documento o ricevuta) — pensato per `expo-file-system`, non per `fetch` JSON. */
+  async resolveAuthorizedFileTarget(
+    path: string,
+    query?: Record<string, string | number | boolean | null | undefined>,
+  ) {
+    return api.resolveAuthorizedFileTarget(path, query);
+  }
+
+  /** Carica un documento nel fascicolo del figlio — multipart, mai base64 per file grandi. */
+  async uploadParentDocument(
+    athleteId: string,
+    file: { uri: string; name: string; mimeType: string },
+    options: { requestId?: string; documentKind?: string } = {},
+  ): Promise<FamilyDocumentItem> {
+    return api.uploadParentDocument(athleteId, file, options);
+  }
+
+  /** Gli stati di consenso del figlio selezionato — una riga per definizione attiva del club. */
+  async getParentConsents(athleteId: string): Promise<ConsentSubjectState[]> {
+    return api.getParentConsents(athleteId);
+  }
+
+  /** Accetta o revoca un consenso — il server resta l'unico a validare la transizione. */
+  async answerParentConsent(
+    athleteId: string,
+    input: {
+      definitionId: string;
+      status: "accepted" | "rejected" | "revoked";
+      note?: string;
+    },
+  ): Promise<{ record: ConsentRecordSummary; state: ConsentSubjectState }> {
+    return api.answerParentConsent(athleteId, input);
   }
 
   async setServerUrl(url: string) {

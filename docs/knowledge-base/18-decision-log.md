@@ -10297,3 +10297,65 @@ resta EasyGame Web V1.
 [11](11-capabilities.md).
 
 ---
+
+## ADR-0164 — Il batch Parent si chiude: pagamenti, documenti, consensi, segreteria, strutture, iscrizione, contatti
+
+**Data:** 2026-09-10
+
+**Contesto.** ADR-0163 aveva lasciato esplicitamente fuori Pagamenti,
+Documenti, Consensi, Segreteria/Appuntamenti, Strutture, Iscrizione,
+Contatti. Una decisione esplicita successiva ha chiesto di completare
+questo perimetro (WP7-WP9), sugli stessi contratti gia in uso dal Web
+(`/api/parent-dashboard/[athleteId]/{payments→checkout,documents,consents,
+appointments,structures}`, `/api/v1/family/enrollment-requests`), usando la
+versione CURRENT del design system — nel frattempo salita a **EGDS v2.2.0
+"Sheet & shell", sync 2026-09-10**: formalizza `BottomSheet` e
+`ParentPrimaryScreenLayout` (le due estensioni dichiarate in ADR-0163,
+promosse a componenti ufficiali dello spec, §A4/§A5) e raffina i contratti
+dati di `PaymentCard`, `DocumentRow`/`DocumentCard`, `ConsentRow`,
+`AppointmentCard`, `BookingCard`, `EnrollmentStatusCard` (Parte C).
+
+**Decisione.** Si estende l'eccezione a tre Work Package (WP7-WP9):
+
+1. **Checkout senza logica di pagamento nel mobile.** `POST
+   .../checkout` risponde l'URL di una pagina EasyGame pubblica
+   (`/pay/<token>`), non gia una sessione Stripe hosted — il mobile la apre
+   con `expo-web-browser` (gia dipendenza), mai una WebView costruita a
+   mano, mai un deep link inventato: dopo il pagamento quella pagina
+   reindirizza su se stessa, il mobile si limita a invalidare la query al
+   ritorno.
+2. **Upload/download reali, con le dipendenze che il contratto richiede
+   davvero.** Il limite di 10 MB e l'allowlist MIME sono quelli del server
+   (`src/lib/attachments.ts`) — il mobile non li inventa, li rispetta.
+   Aggiunte `expo-document-picker`, `expo-image-picker`, `expo-file-system`,
+   `expo-sharing`: upload multipart (mai base64 per file grandi), download
+   autenticato via header Bearer (mai un URL "nudo" condivisibile).
+3. **Nessun testo legale di consenso — dichiarato, non aggirato.** Nessuna
+   API espone al genitore il testo integrale di un consenso (nemmeno il Web
+   lo mostra oggi). Il foglio di dettaglio lo dichiara onestamente; le
+   transizioni ammesse (`missing→accepted|rejected`,
+   `accepted→accepted|revoked`, `revoked→accepted`) sono uno specchio puro
+   della matrice del dominio (`src/lib/consents/model.ts`), mai un
+   workaround che finga un permesso il server non darebbe.
+4. **Nessuna funzione inventata dove il Web non ne ha una.** Le prenotazioni
+   struttura non si possono annullare da Parent (ne il Web lo permette): il
+   mobile non aggiunge un'azione che il dominio non supporta. Il rinnovo
+   iscrizione e un motore di form dinamici (`FormField` con
+   `checkbox`/`file_upload`/`signature`/testo libero, consensi legati ai
+   campi) — costruirne un renderer generico e fuori perimetro di questo
+   batch: la schermata Iscrizione mostra stato, pratiche e documenti in
+   sospeso (tutto reale), non un modulo che non sa ancora compilare.
+5. **Un solo punto per i link esterni mobile.** Non esisteva ne lato Web ne
+   lato mobile: creato in `easygamemobile/client/constants/external-links.ts`
+   solo se e dove serve davvero un link business-critical — i Contatti Parent
+   restano dati del club presi dal payload, non stringhe hardcoded, quindi
+   non lo richiedono di per se.
+
+**Cio che questa decisione non cambia.** Nessuna area management. Nessuna
+pipeline di build. Nessuna modifica alla dashboard Web. Nessuna funzionalita
+push/deep-link. La priorita assoluta resta EasyGame Web V1.
+
+**Vedi anche.** ADR-0163, [05](05-mobile-architecture.md),
+[11](11-capabilities.md).
+
+---

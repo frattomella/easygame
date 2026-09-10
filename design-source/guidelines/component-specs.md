@@ -1,6 +1,6 @@
 # EasyGame Mobile — component specifications
 
-**Revision:** EGDS v2.1.0 · 2026-09-10
+**Revision:** EGDS v2.2.0 · 2026-09-10 · **CURRENT**
 **Scope:** mobile only (Trainer + Parent). No web UI is defined or implied by this document.
 
 This file is the normative visual specification for every component the design system defines. It is written to be implemented against, not admired: each entry states structure, surface, border, shadow, typography, icon treatment, spacing and every state. Where a value is given, it is the value — do not round it to a 4/8px grid.
@@ -34,7 +34,7 @@ Two absolute rules, valid for every component below:
 
 # Part A — Components formalised from the implementation pass
 
-These three were built during implementation as same-language extensions. They are now official.
+Built during implementation as same-language extensions, now official. A1–A3 were formalised in v2.1; A4–A5 in v2.2.
 
 ## A1 · StateMessage
 
@@ -87,6 +87,52 @@ The glass field. This is the only text-entry surface in the app.
 - **States:** rest · focus · filled (identical to rest; value weight 500 is the tell) · error · disabled (`rgba(11,26,58,0.06)` fill, hairline border, ink 42% value, no ring) · read-only (glass at 0.5, no border colour change on tap).
 - **Rules:** labels are tracked uppercase Italian nouns (`EMAIL`, `NOME E COGNOME`, `MOTIVO DEL RIFIUTO`). Placeholders describe the action. Errors are short and blame nothing (`Credenziali non valide`, `Le password non coincidono`).
 - **Deprecation:** the legacy `Input` from the pre-signature system is superseded. New screens use `SignatureInput` only.
+- **Accessibility:** the eyebrow label must be programmatically associated with the field (`accessibilityLabel` carrying the label text, not just visual proximity) — a tracked 11px caps label is small, so it can never be the only way to know what a field is. Error text is announced when it appears (`accessibilityLiveRegion="polite"`) and referenced by the field. The leading glyph is decorative (`accessibilityElementsHidden`); the trailing control is a real button with its own label (`Mostra password`, `Cancella ricerca`) and a 44px minimum target. Focus draws `--eg-focus-ring`. Never signal an error with the border colour alone — the red line is mandatory.
+
+## A4 · BottomSheet
+
+Level 4 of the navigation language, formalised. Every modal question in the app uses this shell — attendance, call-ups, child switching, reschedule, upload choice, consent text, payment confirmation. No screen writes its own modal.
+
+- **Structure, top to bottom:** scrim → sheet surface pinned to the bottom edge → 36×4 grabber, centred → content region → the caller's action row as the last child.
+- **Content pattern inside the sheet** (the caller supplies it, but the order is fixed): eyebrow (context — what this sheet is about) → h3 title (the question) → body/list → action row: a secondary `Annulla` beside a full-width primary Action Surface whose label states the outcome and, where a count exists, carries it (`Salva 14/18`, `Convoca 11`).
+- **Surface:** glass strong (`rgba(255,255,255,0.88)`) with the standard 18px blur. Never opaque, never dark — the sheet is the one place the ground below stays faintly visible through the content, which is what stops it reading as a generic modal card.
+- **Scrim:** `--eg-scrim-sheet` (`rgba(7,18,43,0.55)`) plus a 6px blur. It fades with the sheet, not before it.
+- **Border:** `1px` glass border on the top and side edges only — no bottom border, the sheet meets the device edge.
+- **Shadow:** raised panel shadow (`0 22px 48px -14px rgba(11,26,58,0.38), 0 4px 10px rgba(11,26,58,0.08)`) cast upward, plus the standard inner top highlight.
+- **Radius:** `--eg-corner-sheet` = `28px 28px 0 0`. This is the one component that does **not** use the signature cut corner: it has no bottom corners to cut, and the wider 28px top radius is what distinguishes "this arrived over the screen" from "this is part of the screen".
+- **Geometry:** full width. Height is content-driven up to `75%` of the viewport, then the content region scrolls while the grabber and the action row stay fixed. Bottom padding = safe-area inset. Horizontal padding 16px; 8px above the grabber, 4px below it; 16px content bottom padding.
+- **Typography:** eyebrow ink 42% · title h3 24/32 · 600 −0.02em · body as the content requires. The title is a question or a noun phrase, never a sentence with a full stop.
+- **Icon treatment:** no icon in the sheet header — the eyebrow carries the context. Icons appear only inside the content (rows, chips) and as the primary action's trailing arrow chip.
+- **Motion:** in 220ms, out 180ms, translate-Y plus scrim opacity, `--eg-ease-spring`. No bounce, no blur animation.
+- **Interaction states:** hidden · entering · at rest · scrolled (content region only; the header and action row do not move) · dismissing.
+- **Dismissal:** scrim tap, the platform back gesture/button, or `Annulla`. The grabber is a **visual affordance only** until a gesture library is adopted — documented gap, not a missing spec.
+- **Usage rules:**
+  1. One sheet at a time. A sheet never opens another sheet; it replaces its own content or closes first.
+  2. A sheet that mutates data commits only on its primary button. Dismissing is always a cancel, never a save.
+  3. Never optimistic: the sheet stays open and inert while a write is in flight, and closes on the server's confirmation. On failure it stays open and renders `StateMessage kind="error"` above the action row.
+  4. No nested scroll areas beyond the single content region.
+  5. If the answer needs a whole screen — more than one question, or content the parent must read at length — use a secondary screen instead.
+- **Accessibility:** the sheet is a modal (`accessibilityViewIsModal`), so everything behind it is removed from the accessibility tree; focus moves to the title on open and returns to the invoking control on close. It has an `accessibilityLabel` equal to its title. The scrim is a labelled dismiss control (`Chiudi`) — never an unlabelled tappable region. The grabber is hidden from assistive tech (it does nothing). Because the platform back action must always dismiss, `onRequestClose` is mandatory. Content is capped at 75% height so the scrim stays visible and the sheet never reads as a full screen with no way out. Respect reduce-motion by skipping the translate and fading only.
+
+## A5 · ParentPrimaryScreenLayout
+
+The shell for the five Parent primary screens. It exists so the child-switcher placement rule lives in exactly one place instead of being repeated per tab.
+
+- **Structure:** `Floodlight` (sky 300px, or 330–360px where the screen opens with a `SectionHero`) → safe-area top inset + 8px → `AppBar` (eyebrow + display title, notification bell as a dark Icon Chip) → `ChildSwitcher` → content region.
+- **Surface:** the Floodlight ground. The layout adds no surface; the switcher's dark-glass pill is the only chrome it introduces.
+- **Border / shadow:** none of its own.
+- **Spacing:** content 16px horizontal, 12px top, 12px gap between panels, **bottom padding = safe-area inset + 124px** (the dock's clearance). The switcher sits 12px below the AppBar and 8px above the content region.
+- **Typography:** owned by AppBar and ChildSwitcher; content sets its own.
+- **Icon treatment:** bell in a 40px dark chip; the switcher's chevron in a 32px dark chip. Nothing else.
+- **Interaction states:** scrollable (default) · fixed (`scrollable={false}` centres a single `StateMessage` in the viewport rather than parking it at the top) · switching (the switcher shows its pending state while the content region shows its own `StateMessage kind="loading"` — the layout does not blank the whole screen) · single child (the switcher renders as a static header, no chevron, no sheet).
+- **Usage rules:**
+  1. Use it for **all five** Parent primary screens and nothing else. A screen without a dock uses `SecondaryScreenLayout`.
+  2. Never show the dock and a back arrow together, and never put a back arrow here — a primary screen is a destination.
+  3. Exactly one AppBar eyebrow + display pair per screen. Content must not repeat the title.
+  4. The first glass panel should straddle the horizon (~40px overlap into the sky). If the screen opens with a `SectionHero`, raise the sky to 330–360px so the overlap still happens.
+  5. Anything rendered in the sky zone uses the on-dark text tone.
+  6. The switcher is never conditionally hidden on a primary screen — with one child it becomes static, it does not disappear, so the scope of the data on screen is always stated.
+- **Accessibility:** the AppBar title is the screen's heading (`accessibilityRole="header"`), announced on arrival. The child switcher must precede the content in reading order — the scope has to be known before the data. When the selected child changes, the content region announces the new scope politely (`Dati di Marco`), because for a screen-reader user the pill's visual change is otherwise silent. The 124px bottom clearance guarantees the last row is reachable above the dock. Contrast in the sky zone is checked at 4.5:1 against the darkest point of the floodlight pools, not against the average.
 
 ---
 
@@ -242,6 +288,15 @@ An instalment or fee. Money is the most sensitive surface in the Parent area: th
 - **Error:** a failed payment start shows an inline red line and keeps the card in `due`; it never silently becomes `processing`.
 - **Rules:** never show a bare number without its currency and its state word. Never use a progress bar in any state but partially paid. Never put two primary actions on one PaymentCard.
 
+**Refined for implementation (v2.2)**
+
+- **Currency format is fixed:** `it-IT`, decimal comma, thousands dot, symbol trailing after a non-breaking space — `300,00 €`, `1.250,00 €`. Always two decimals, never abbreviated (`1,2k €` is forbidden), always tabular so a list of instalments aligns on the comma.
+- **Data contract:** the card renders the state and label the server gives it. It must not derive "overdue" from a client clock — a family reading `Scaduto` the day they paid was a real defect in the web dashboard. If the server sends both a machine state and an Italian label, the label wins for display and the state drives only styling.
+- **Progress rail geometry:** 4px tall, full radius, 8px below the amount block, track `rgba(11,26,58,0.08)`, fill success gradient, minimum visible fill 4px so a 1% payment is still visible.
+- **Amount block hierarchy:** the amount is the largest text on the card in every state, including `Saldato`. The paid state changes its colour, never its size — shrinking a settled amount makes a scanned list jump.
+- **Days-overdue line:** `Scaduto da 12 giorni` on its own meta row, 13px/600 `--eg-money-due`, only in the overdue state.
+- **Accessibility:** the card is one accessibility element in read-only states, with a composed label in the order a person would ask — amount, purpose, state, due date (`300,00 euro, quota di iscrizione, scaduto il 3 gennaio 2026`). The progress rail is not an image: expose `accessibilityValue` (`{min:0,max:300,now:120}`) **and** keep the visible `già versato 120,00 € di 300,00 €` text — the rail alone must never be the only carrier. The overdue coloured border is decorative; the red date text and the pill word are what convey it. `Paga ora` is a separate focusable button with a label that names the amount (`Paga ora 300,00 €`), never a bare "Paga ora" out of context. While processing, the card is `accessibilityState={{disabled:true}}` and the state change is announced politely.
+
 ## C4 · DocumentRow / DocumentCard
 
 Two densities of the same thing. **DocumentRow** for a list (medical certificates, ID, forms). **DocumentCard** when a document needs its own block with a preview line and two actions.
@@ -266,6 +321,15 @@ Two densities of the same thing. **DocumentRow** for a list (medical certificate
 - **Upload feedback:** progress is shown in the trailing chip (spinner), never as a full-width bar. Success replaces the state in place — pill flips to `In verifica`, meta gains the upload date. Failure shows an inline red line with `Riprova`; the file is not silently dropped.
 - **Rule:** never render a download action for a file the app cannot actually open. Where authenticated download is not yet implemented, the row shows metadata and state with no action — an action that reliably fails is worse than none.
 
+**Refined for implementation (v2.2)**
+
+- **Row vs card, decided:** use **DocumentRow** whenever the document is one item in a list. Use **DocumentCard** only when the document carries a requirement note the family must read, or two actions. A list must not mix the two densities.
+- **Expiry thresholds:** `In scadenza` covers the 30 days before the due date; before that the state is `Valido` with the date in the meta line. Both thresholds and labels come from the server when it supplies them; the client never recomputes an expiry it was given.
+- **Undated documents:** a document that exists but declares no expiry renders `Valido` with `Data di scadenza non disponibile` in the meta line — never a blank line, and never `Scaduto` inferred from a missing date.
+- **Upload constraints stated up front:** accepted formats and the size cap appear in the requirement note *before* the picker opens, not as an error afterwards.
+- **One action per row:** upload and download never appear together on a row. If both are legitimate (replace an expiring file, keep the old one), that is a DocumentCard with two buttons.
+- **Accessibility:** each row is one element labelled type, title, state, date (`Certificato medico, valido, scade il 1 giugno 2027`); the trailing chip is a separate button (`Scarica certificato medico`, `Carica certificato medico`). The state chip tint is decorative — the pill word carries the state, since six of the eight states differ only by hue. Upload progress is announced at start and end only, not continuously. A file input must be reachable by keyboard/switch control, and the 40px chip is padded to a 44px hit target.
+
 ## C5 · ConsentRow
 
 A privacy or club consent the family grants or revokes. Legally meaningful, so it is the plainest component in the system.
@@ -281,6 +345,14 @@ A privacy or club consent the family grants or revokes. Legally meaningful, so i
   - **superseded** — a new version exists: pill `warning` · `Nuova versione da accettare`, and the previously accepted version stays visible in the meta line. Never overwrite the old record in the UI.
   - **disabled** — the club manages it offline: pill `default`, caption states where.
 - **Rule:** no switches. A toggle implies a reversible preference; a consent is a dated legal act, so it uses labelled buttons and keeps its history in the meta line.
+
+**Refined for implementation (v2.2)**
+
+- **The row never grants consent.** Accepting always happens on a detail screen (`SecondaryScreenLayout`) or in a `BottomSheet` that shows the full text, with the primary action below it. The row's tap navigates; it never mutates. This is the one place in the system where a one-tap action is deliberately refused.
+- **Version is part of the identity:** the meta line always carries the version and the dated act (`Accettato il 4 set 2026 · v2`). When a new version supersedes an accepted one, both facts stay visible: pill `Nuova versione da accettare`, meta `Accettato il 4 set 2026 · v1`.
+- **Revoke is not destructive styling.** `Revoca` is a secondary button. The destructive gradient is reserved for deletion and logout; revoking a consent is a legitimate right, and colouring it as danger discourages a lawful choice.
+- **Blocking consequences are stated, not implied:** a required consent that gates a feature says so on the row (`Necessario per le convocazioni`).
+- **Accessibility:** the row is one element labelled title, state, date and version; because the whole row is a navigation target its role is `link`, not `checkbox` — an assistive-tech user must never be told this is a toggle. The consent's full text on the detail screen is selectable and scalable to 200% without truncation, and the accept button remains visible above the fold at that size or the screen scrolls to it. State changes are announced assertively (a legal act deserves interruption, unlike a notification).
 
 ## C6 · NotificationRow
 
@@ -315,6 +387,15 @@ A secretariat appointment. The state machine lives on the server; the card rende
 - **Mandatory reason:** any negative transition (reject, cancel, decline) opens a sheet with a required `SignatureInput` for the reason. The reason is then shown in the card's meta line. A cancellation without a visible reason is a defect.
 - **Rule:** never render three fixed buttons. The action row is exactly the transitions the server allows, in order: primary = the affirmative one, secondary = the rest.
 
+**Refined for implementation (v2.2)**
+
+- **Transitions are data.** The card receives the allowed transitions and renders them in order: at most one primary (the affirmative), the rest secondary, ghost for a tertiary. Zero transitions is a valid, common case — a completed or cancelled appointment has no action row at all, and the row must collapse rather than leave empty space.
+- **Reason capture:** every negative transition opens a `BottomSheet` with a **required** multiline `SignatureInput` (90px minimum) and a primary button that stays disabled until the field has content. The saved reason is then shown in the card's meta line with its author (`Annullato dal club · "Palestra non disponibile"`). A cancellation with no visible reason is a defect.
+- **Reschedule rail:** when a new time is proposed, the rail shows the proposed date at full weight and the original struck through beneath it at 12px/600 ink 42%. Two dates, one rail — never two cards for one appointment.
+- **Cancelled-by whom is always explicit:** `Annullato dal club` vs `Annullato dalla famiglia`. Never a bare `Annullato`.
+- **Free-text date entry is a declared gap.** Until a native date/time picker is a dependency, reschedule fields accept `AAAA-MM-GG` / `HH:MM` with the format shown as the placeholder *and* as a persistent hint under the field — never only in an error message.
+- **Accessibility:** the date rail is composed into one spoken date (`mercoledì 18 marzo`), not read as three fragments; the proposed/original pair is spoken as `nuovo orario 15:30, precedente 10:00`. Each transition is a distinct button whose label includes the subject (`Disdici appuntamento del 18 marzo`). The struck-through original relies on `text-decoration`, which assistive tech ignores, so the word `precedente` is mandatory in the label. Status changes are announced politely.
+
 ## C8 · BookingCard
 
 A structure/facility booking (a hall, a pitch, a slot).
@@ -324,6 +405,14 @@ A structure/facility booking (a hall, a pitch, a slot).
 - **Icon treatment:** `business-outline` in a 36px chip beside the title when the structure has no other identifier.
 - **States:** available (a bookable slot — `Prenota` primary + arrow chip) · requested (`Richiesta inviata`, warning) · confirmed (`Confermata`, action stripe, `Disdici` secondary) · cancelled (dashed, struck, `Annullata`) · completed (`Conclusa`, success) · full (`Nessun posto disponibile`, ink 42%, no action, and it stays visible rather than disappearing) · updating (inert 0.7) · disabled (club has bookings off: card hidden, not greyed).
 - **Rule:** a slot the family cannot book still shows its state and its reason. Silently hiding unavailable slots makes the calendar look empty.
+
+**Refined for implementation (v2.2)**
+
+- **Same grammar as AppointmentCard, on purpose.** A booking and an appointment are the same shape with a different noun; a family should not have to learn two card types. The only differences: a 36px `business-outline` chip beside the title when the structure has no avatar, and the slot window as a mandatory `time-outline` meta row (`18:00 – 19:30`, en dash, tabular).
+- **Fee inline, never a PaymentCard:** where the slot costs money, the amount sits on a meta row at 15px/800 tabular in the same `it-IT` format. A booking that generates an actual instalment links to it (`Vedi in Pagamenti`) instead of duplicating the payment surface.
+- **Capacity:** where the structure exposes it, show `3 posti su 12` as a meta row; the `full` state reads `Nessun posto disponibile` and keeps the card visible with no action.
+- **Conflict state added:** a slot that clashes with the child's own training or match renders `In conflitto con un allenamento` as a warning pill with the clashing event named in the meta line, and the `Prenota` action remains available — the family decides, the app informs.
+- **Accessibility:** the card is one element (date, structure, slot window, state), with each transition as its own labelled button naming the structure and time. The `full` and `disabled` states carry `accessibilityState={{disabled:true}}` plus the spoken reason, so an unreachable slot is never silently unfocusable. Availability is never conveyed by colour alone — every state has its word.
 
 ## C9 · EnrollmentStatusCard
 
@@ -335,6 +424,15 @@ Enrollment or season renewal — usually one per child, at the top of the Parent
 - **Icon treatment:** no icons in the rail — dots only. A single 40px dark Icon Chip may sit beside the title for the module (`clipboard-outline`).
 - **States:** not started (`Iscrizione da avviare`, action `Avvia iscrizione`) · in progress (current step highlighted, action names the next concrete task — `Carica il certificato medico`, never a vague `Continua`) · awaiting club (`In verifica dal club`, no action, supporting line gives the expected timing if the club provides it) · complete (`Iscrizione attiva`, all dots filled, success pill, no action) · expiring (`Rinnovo entro il 31 luglio`, warning pill, action `Rinnova`) · rejected/blocked (`Iscrizione sospesa`, destructive pill, reason mandatory, action = whatever unblocks it) · updating (rail at 0.5, inert).
 - **Rule:** the action always names the next real task. One action per card.
+
+**Refined for implementation (v2.2)**
+
+- **Step rail geometry:** 8px dots, 2px connector at white 18%, dots evenly distributed across the full card width with the labels centred beneath. Three or four steps only — a five-step rail does not fit a phone at 200% text size, so a longer process is summarised as `Passo 2 di 6` in the eyebrow with no rail.
+- **Current step is unambiguous:** completed dots filled white, the current dot filled with the action gradient plus a 4px white-26% halo, pending dots white 50% hollow. The current step's label is the only one at full white weight.
+- **The action is the step:** `Carica il certificato medico`, `Paga la prima rata`, `Firma il consenso` — never `Continua`, never `Vedi dettagli`. If the next task belongs to another section, the button navigates there and says so.
+- **Awaiting-club state has no action** and must not offer a fake one. If the club supplies an expected timing, it goes in the supporting line; if not, the line says `Il club ti avviserà` rather than inventing a duration.
+- **One card per child.** With multiple children the card is scoped by the selected child like everything else, and carries the child accent as a 3px stripe.
+- **Accessibility:** the rail is a progress indicator with a text equivalent that is always rendered, not only exposed — `Passo 2 di 4 · Documenti` sits in the eyebrow, so the dots are decorative and hidden from assistive tech. The card is one element spoken as season, status, current step, next task. Because it is dark glass in the sky, white text is checked at 4.5:1 against the brightest floodlight point, not the average. Blocked and suspended states announce assertively; progress advances announce politely.
 
 ## C10 · AccountAccessCard
 

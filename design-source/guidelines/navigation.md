@@ -1,6 +1,6 @@
 # EasyGame Mobile — navigation language
 
-**Revision:** EGDS v2.1.0 · 2026-09-10 · mobile only.
+**Revision:** EGDS v2.2.0 · 2026-09-10 · **CURRENT** · mobile only.
 
 One navigation model serves both areas. What changes between Trainer and Parent is the *content* of the five slots, never the mechanics.
 
@@ -11,7 +11,7 @@ One navigation model serves both areas. What changes between Trainer and Parent 
 | **1 · Primary** | Floating Dock (max 5 slots) | Only what a user opens most days. A slot must earn its place by frequency, not by importance. |
 | **2 · Hub** | A glass list of sections inside the last dock tab | Everything else the role can reach. One tap from the dock. |
 | **3 · Secondary screen** | `SecondaryScreenLayout` (no dock, back arrow in the AppBar's trailing slot) | Reached from a hub, a card, or a list row. |
-| **4 · Sheet** | Bottom sheet, `28 28 0 0`, glass strong, grabber | Anything that answers a single question and returns: attendance, call-ups, RSVP reasons, child switching, reschedule, upload picker. |
+| **4 · Sheet** | `BottomSheet` — see `component-specs.md` §A4 | Anything that answers a single question and returns: attendance, call-ups, RSVP reasons, child switching, reschedule, upload picker. No screen writes its own modal. |
 
 **Hard limit: five dock slots.** A sixth feature does not get a tab; it gets a hub row. The dock is chrome, not a sitemap.
 
@@ -52,7 +52,7 @@ Hub (inside Profilo): Appuntamenti · Prenotazioni strutture · Contatti club ·
 
 ## Child switcher placement
 
-- **In the navy sky, directly under the AppBar, on all five Parent primary screens.** It is the scope indicator for everything below it, so it must be visible wherever scoped data is shown.
+- **In the navy sky, directly under the AppBar, on all five Parent primary screens** — enforced by `ParentPrimaryScreenLayout` (`component-specs.md` §A5), which is the only correct shell for those screens. It is the scope indicator for everything below it, so it must be visible wherever scoped data is shown.
 - **Never in the dock.** The dock is for destinations; the switcher is a filter.
 - **Never only in the profile.** A parent must be able to switch without leaving the screen they are reading.
 - **One child → static header, no control.** No one-item pickers.
@@ -72,7 +72,7 @@ Hub (inside Profilo): Appuntamenti · Prenotazioni strutture · Contatti club ·
 
 - Dock tab change: no screen transition, the active puck slides between slots.
 - Push to a secondary screen: standard platform push. Back is the AppBar chip or the platform gesture — both, always.
-- Sheets: slide up from the bottom with the scrim fading in; dismiss by scrim tap, grabber drag, or `Annulla`. A sheet that mutates data must confirm with its primary button, never on dismiss.
+- Sheets: `BottomSheet` — 220ms in, 180ms out, scrim fades with it; dismiss by scrim tap, platform back, or `Annulla`. A sheet that mutates data confirms only with its primary button, never on dismiss. Drag-to-dismiss is a declared gap (no gesture library adopted); the grabber is a visual affordance.
 - Never animate blur.
 
 ## Rules that keep the two areas coherent

@@ -26,16 +26,19 @@ TanStack Query 5 · expo-secure-store**. TypeScript `~5.9`.
 ## Design system mobile
 
 **Source design version**: Claude Design, namespace
-`EasyGameDesignSystem_845326`, **EGDS v2.1.0 "Parent-ready", sync
-2026-09-10** (`design-source/CHANGELOG.md`, `design-source/github.md`) —
-CURRENT al momento di ogni WP elencato in questa pagina. Versioni precedenti
-nello stesso changelog: v2.0.0 "Floodlit" (2026-09-09, la firma visiva:
-cielo notturno navy a due riflettori, superfici in vetro smerigliato,
-angolo firmato, gradiente unico per "agisci qui", eyebrow su display
-compatto) e v1.0.0 (2026-09-09, estrazione iniziale). Verificato prima di
-scrivere UI nuova in ciascun WP, come richiesto — mai usata una versione
-precedente a quella disponibile al momento. Riguarda **solo** la mobile
-app: "nothing here was derived from [the web dashboard], and no web UI is
+`EasyGameDesignSystem_845326`, attualmente **EGDS v2.2.0 "Sheet & shell",
+sync 2026-09-10** (`design-source/CHANGELOG.md`, `design-source/github.md`)
+— CURRENT. Versioni precedenti nello stesso changelog: v2.1.0 "Parent-ready"
+(2026-09-10, formalizza `StateMessage`/`SecondaryScreenLayout`/
+`SignatureInput` e specifica per intero le componenti Parte B/C), v2.0.0
+"Floodlit" (2026-09-09, la firma visiva: cielo notturno navy a due
+riflettori, superfici in vetro smerigliato, angolo firmato, gradiente unico
+per "agisci qui", eyebrow su display compatto) e v1.0.0 (2026-09-09,
+estrazione iniziale). Verificato prima di scrivere UI nuova in ciascun WP,
+come richiesto — mai usata una versione precedente a quella disponibile al
+momento: i WP4-6 sono stati costruiti quando v2.1.0 era CURRENT (dichiarato
+li sotto cosi), i WP7-9 con v2.2.0. Riguarda **solo** la mobile app:
+"nothing here was derived from [the web dashboard], and no web UI is
 defined" (readme.md) — la dashboard Web non e stata ne consultata ne
 modificata per nessuno di questi WP.
 
@@ -85,6 +88,9 @@ restano quelli che le schermate esistenti gia usano.
 | `RSVPControl` | `signature/RSVPControl.tsx` | spec Parte C, §C2 — disegna solo le transizioni che il server ha gia deciso, mai un terzo stato inventato |
 | `NotificationRow` | `signature/NotificationRow.tsx` | spec Parte C, §C6 |
 | `AccountAccessCard` | `signature/AccountAccessCard.tsx` | spec Parte C, §C10 — applicato in `AccountHubScreen` |
+| `PaymentCard` | `signature/PaymentCard.tsx` | spec Parte C, §C3, raffinato in v2.2 — formato valuta `it-IT`, stato mai ricalcolato da un orologio locale |
+| `DocumentRow` / `DocumentCard` | `signature/DocumentRow.tsx`, `DocumentCard.tsx` | spec Parte C, §C4, raffinato in v2.2 |
+| `ConsentRow` | `signature/ConsentRow.tsx` | spec Parte C, §C5, raffinato in v2.2 — la riga naviga, non concede mai |
 
 Traduzione CSS → React Native (dove non e 1:1) documentata nel commento di
 testa di `theme.ts`: `border-radius` a quattro valori diventa quattro
@@ -140,14 +146,12 @@ visiva.
   `SectionHero`, `StatCard`, `HighlightCard` sono stati portati in WP4/WP5
   per l'area Parent (vedi la tabella sopra) — il loro uso Trainer (roster,
   Home) resta un lavoro a se.
-- **Componenti Parte C non ancora portati**: `PaymentCard`,
-  `DocumentRow`/`DocumentCard`, `ConsentRow`, `AppointmentCard`,
+- **Componenti Parte C non ancora portati**: `AppointmentCard`,
   `BookingCard`, `EnrollmentStatusCard` — specificati in
-  `guidelines/component-specs.md` Parte C ma non implementati: le sezioni
-  che li userebbero (Pagamenti, Documenti, Consensi, Iscrizione,
-  Appuntamenti, Strutture) sono esplicitamente fuori perimetro del batch
-  WP4-6 (ADR-0163). `ChildSwitcher`, `RSVPControl`, `NotificationRow` e
-  `AccountAccessCard` sono stati portati.
+  `guidelines/component-specs.md` Parte C ma non ancora implementati: le
+  sezioni che li userebbero (Segreteria/Appuntamenti, Strutture, Iscrizione)
+  arrivano nel WP8. `PaymentCard`, `DocumentRow`/`DocumentCard`,
+  `ConsentRow` sono stati portati nel WP7.
 - **Dark mode**: i token esistono (`.eg-dark` lato CSS) ma senza schede di
   esempio nel design system stesso; non modellato lato RN.
 
@@ -404,6 +408,67 @@ questo WP: la logica che decide (`resolveMobileRoleGate`,
 `mobile-role-gate.test.ts` (Identity & Access) — `AccountAccessCard` la
 richiama, non la ripete.
 
+### WP7 — Parent Pagamenti, Documenti, Consensi (ADR-0164)
+
+**Implementation version**: 2026-09-10, EGDS v2.2.0. La tab Segreteria
+smette di essere un segnaposto: `ParentSegreteriaScreen` diventa un hub con
+quattro righe (`guidelines/navigation.md`: "one tab, four sections") — tre
+reali, Iscrizione ancora "in arrivo" fino al WP8.
+
+**Pagamenti** (`ParentPaymentsScreen`): `data.payments.items` dal
+cruscotto aggregato (stessa query key di Home/Calendario, nessuna fetch in
+piu). Lo stato lo scrive il server (`statusKey`: solo `paid`/`pending`/
+`cancelled`; le sfumature — scaduto, parziale — vivono nell'etichetta
+italiana `status`, mai ricalcolate da un orologio locale:
+`resolvePaymentCardState` in `client/lib/parent-payments.ts`, puro, 11
+test). Il checkout (`POST .../checkout`) risponde l'URL di `/pay/<token>`,
+una pagina EasyGame pubblica — **non** gia una sessione Stripe hosted: il
+mobile la apre con `WebBrowser.openBrowserAsync` (`expo-web-browser`, gia
+dipendenza) e invalida la query al ritorno, senza sapere se il pagamento e
+riuscito finche il server non lo dice. Ricevute e fatture (`.../payments`
+→ `receipts`/`invoices`) sono mostrate come metadati soltanto: il loro
+`downloadPath` risponde HTML stampabile con auth Bearer, non un file — un
+link che il browser di sistema non potrebbe autenticare fallirebbe sempre,
+quindi non c'e un pulsante che lo aprirebbe (stessa regola gia applicata ai
+documenti Trainer in WP3).
+
+**Documenti** (`ParentDocumentsScreen`): **non** la `GET .../documents`
+dedicata (legacy, la Web app non la usa) ma `data.documents.required`/
+`.uploaded` del cruscotto aggregato — stessa fonte della Web app. Stato
+interamente derivato server-side (`deriveFamilyDocumentState`): il mobile
+legge `state`/`stateLabel`/`daysLeft`/`action`, non ricalcola nulla.
+`DocumentCard` per i richiesti (portano una nota di requisito), `DocumentRow`
+per l'archivio. Upload multipart (mai base64: il limite reale e 10 MB) con
+scelta file/fotocamera in un `BottomSheet`; download via richiesta
+autenticata (header Bearer) e apertura col foglio di condivisione nativo.
+
+**Consensi** (`ParentConsentsScreen`): `GET/POST .../consents`. **Nessuna
+API espone al genitore il testo legale integrale** di un consenso — nemmeno
+la Web app lo mostra oggi (il componente Parent la cerca su un campo che
+non esiste nella risposta, `title`/`description` invece di
+`definitionTitle`; qui usato il campo giusto, un piccolo miglioramento
+onesto, non un contratto inventato). Il foglio di dettaglio lo dichiara
+esplicitamente invece di fingere una lettura che non c'e. Le transizioni
+ammesse (`canApplyConsentDecision`, `client/lib/parent-consents.ts`, puro, 5
+test) sono uno specchio della matrice del dominio
+(`src/lib/consents/model.ts`) — abilitano/disabilitano i pulsanti, ma il
+server resta l'unico a farle valere (400 su una non ammessa).
+
+**Dipendenze native aggiunte**: `expo-document-picker`, `expo-image-picker`
+(con `NSCameraUsageDescription`/`photosPermission` in `app.json`),
+`expo-file-system` (API nuova di SDK 54, `File.downloadFileAsync` con
+header — non la `legacy`), `expo-sharing`. `expo-web-browser` era gia
+dipendenza (WP1), riusata cosi com'e per il checkout.
+
+**Componenti nuovi** (Parte C, raffinati in v2.2): `PaymentCard` (§C3),
+`DocumentRow`/`DocumentCard` (§C4), `ConsentRow` (§C5).
+
+**Test**: `parent-payments.test.ts` (11: stati paid/due/overdue/parziale/
+annullato, prima rata pagabile, disponibilita checkout, formato valuta
+it-IT), `parent-consents.test.ts` (5: la matrice di transizione per ogni
+stato), `parent-documents.test.ts` (8: tint/varianti per stato, icona per
+tipo, densita riga/scheda).
+
 ## Stato attuale: Trainer completo, Parent perimetro WP4-6 completo, gate su tutto il resto
 
 Il navigator root (`client/navigation/RootStackNavigator.tsx`) e il **solo**
@@ -450,7 +515,7 @@ funzionale Trainer" sopra.
 |-----|-------|-----------|-------|
 | Home | `ParentHomeStackNavigator` | `ParentHomeScreen` | Reale (WP5): SectionHero + StatCard + HighlightCard |
 | Calendario | `ParentCalendarStackNavigator` | `ParentCalendarScreen` → `ParentEventDetailScreen` | Reale (WP5): allenamenti+gare unificati, RSVP nel dettaglio |
-| Segreteria | `ParentSegreteriaStackNavigator` | `ParentSegreteriaScreen` | Segnaposto permanente per questo batch (pagamenti/documenti/consensi/iscrizione fuori perimetro, ADR-0163) |
+| Segreteria | `ParentSegreteriaStackNavigator` | `ParentSegreteriaScreen` (hub) → `ParentPaymentsScreen` / `ParentDocumentsScreen` / `ParentConsentsScreen` | Reale dal WP7 (Pagamenti/Documenti/Consensi); Iscrizione ancora segnaposto, arriva nel WP8 |
 | Bacheca | `ParentBoardStackNavigator` | `ParentBoardScreen` | Reale (WP6): bacheca + notifiche, due sezioni |
 | Profilo | `ParentProfileStackNavigator` | `ParentProfileScreen` → `ParentChildrenScreen` / `ParentMoreScreen` / `ParentComingSoonScreen` | Account, multi-figlio, cambio contesto, logout, hub (WP6) |
 
@@ -471,9 +536,12 @@ Trainer (invariate): `NotificationsScreen`, `TrainerHomeDashboardScreen`,
 Parent (`ParentTabNavigator`): `ParentHomeScreen`, `ParentChildrenScreen`,
 `ParentProfileScreen` (WP4); `ParentCalendarScreen`,
 `ParentEventDetailScreen` (WP5); `ParentBoardScreen`, `ParentMoreScreen`,
-`ParentComingSoonScreen` (WP6). Segnaposto onesto, non funzionalita finta:
-`ParentSegreteriaScreen` (permanente per questo batch, ADR-0163) e le otto
-voci non implementate dell'hub, che aprono `ParentComingSoonScreen`.
+`ParentComingSoonScreen` (WP6); `ParentSegreteriaScreen`,
+`ParentPaymentsScreen`, `ParentDocumentsScreen`, `ParentConsentsScreen`
+(WP7). Segnaposto onesto, non funzionalita finta: la voce Iscrizione
+nell'hub Segreteria e le tre voci non ancora implementate dell'hub Profilo
+(Appuntamenti, Prenotazioni strutture, Contatti club — arrivano nel WP8),
+tutte su `ParentComingSoonScreen`.
 
 ### Schermate NON collegate (10) — generazione precedente
 
@@ -662,19 +730,38 @@ raggruppamento/categoria notifiche), `npm run check:types` e `npm run lint`
 puliti (0 errori, stessi 20 warning preesistenti) — nessuna regressione
 Identity & Access ne Trainer.
 
+### Verifica di avvio reale — 2026-09-10 (WP7 Pagamenti/Documenti/Consensi)
+
+Dopo `PaymentCard`/`DocumentRow`/`DocumentCard`/`ConsentRow`, le quattro
+nuove dipendenze native (`expo-document-picker`, `expo-image-picker`,
+`expo-file-system`, `expo-sharing`) e il nuovo `app.json` (permessi
+fotocamera/libreria foto): `npx expo export --platform ios` completato
+senza errori di risoluzione, 2498 moduli. `npm run test` 100/100 verdi (76
+preesistenti + 24 nuovi su stati pagamento/matrice consensi/presentazione
+documenti), `npm run check:types` e `npm run lint` puliti (0 errori, stessi
+20 warning preesistenti) — nessuna regressione Identity & Access, Trainer o
+Parent WP4-6.
+
 ## Cosa manca per completare il mobile
 
 Identity & Access, le fondamenta di ruolo, la parita funzionale Trainer
-(WP3) e il batch Parent WP4-6 (multi-figlio, Home, Calendario/RSVP,
-Bacheca/Notifiche, esperienza Account) sono a posto. Restano aperti, in
-ordine indicativo:
+(WP3), il batch Parent WP4-6 (multi-figlio, Home, Calendario/RSVP,
+Bacheca/Notifiche, esperienza Account) e Pagamenti/Documenti/Consensi
+(WP7) sono a posto. Restano aperti, in ordine indicativo:
 
-- **Area Parent — Pagamenti, Documenti, Consensi, Iscrizione, Segreteria/
-  Appuntamenti, Strutture, Contatti**: esplicitamente fuori perimetro di
-  WP4-6 (ADR-0163), predisposti come slot onesti in `ParentMoreScreen`. I
-  contratti `/api/parent-dashboard/[athleteId]/appointments`, `/documents`,
-  `/consents`, `/structures`, `/checkout` sono gia mappati (vedi il report
-  di ricognizione del batch Parent) e pronti per un batch successivo.
+- **Area Parent — Segreteria/Appuntamenti, Strutture, Iscrizione,
+  Contatti**: esplicitamente fuori perimetro di WP7 (ADR-0164), in arrivo
+  nel WP8. I contratti sono gia mappati (vedi il report di ricognizione del
+  batch): `/api/parent-dashboard/[athleteId]/appointments` (GET/POST/PATCH/
+  DELETE), `/structures` (solo POST — **nessun annullamento lato Parent, ne
+  il Web lo permette**), `data.enrollment` + `/api/v1/family/
+  enrollment-requests[/renewal]` per Iscrizione, `data.club.*` per Contatti.
+- **Rinnovo iscrizione come modulo dinamico**: `RenewalDraft.form.fields`
+  e un motore di campi (`checkbox`/`file_upload`/`signature`/testo libero,
+  alcuni legati a un consenso) — costruire un renderer generico e un lavoro
+  a se, dichiarato fuori perimetro anche nel WP8 (ADR-0164): quella
+  schermata mostra stato/pratiche/documenti in sospeso, non un modulo che
+  non sa ancora compilare.
 - **RSVP da link senza account**: fuori perimetro anche lato Web (`11 —
   Capability`), non nel mobile per lo stesso motivo.
 - **Reskin delle quattro tab Trainer primarie** (Home, Allenamenti, Gare,
@@ -683,15 +770,21 @@ ordine indicativo:
   `SelectableAthleteRow` (`NumberTile`/`EventCard`/`SectionHero`/`StatCard`/
   `HighlightCard` sono gia stati portati per l'area Parent, il loro uso
   Trainer resta un lavoro a se).
-- **Download dei documenti Trainer**: mostrati i metadati, non il file —
-  richiede una richiesta autenticata col Bearer token e
-  `expo-file-system`/`expo-sharing` (non dipendenze del progetto oggi).
+- **Download dei documenti Trainer**: mostrati i metadati, non il file. Le
+  dipendenze non mancano piu (`expo-file-system`/`expo-sharing` sono state
+  aggiunte nel WP7 per i documenti Parent) — resta solo da collegare
+  `TrainerDocumentsScreen` allo stesso meccanismo, un lavoro a se non
+  incluso in questo batch.
 - **Selettore data/ora nativo** per la riprogrammazione di un appuntamento:
-  oggi testo libero `AAAA-MM-GG`/`HH:MM`.
+  oggi testo libero `AAAA-MM-GG`/`HH:MM` (Trainer e, dal WP8, Parent).
 - **Notifiche push e deep linking**: nessuno dei due e configurato;
   il completamento nativo del recupero password ne dipende.
-- **Link esterni centralizzati**: oggi hardcoded sia lato Web sia lato
-  mobile, nessuna ownership CediSoft dichiarata.
+- **Link esterni centralizzati**: nessun meccanismo esiste ne lato Web ne
+  lato mobile oggi (il link di supporto CediSoft e una stringa duplicata in
+  piu punti del Web). Un punto centralizzato mobile
+  (`client/constants/external-links.ts`) nasce nel WP8 solo dove un link
+  business-critical serve davvero — i Contatti Parent restano dati del
+  club dal payload, non stringhe hardcoded.
 - Nessuna pipeline di build (EAS), mock ancora presenti nelle schermate v1
   non collegate.
 

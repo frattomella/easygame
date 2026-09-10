@@ -366,6 +366,129 @@ export interface ParentNotification {
   updated_at: string;
 }
 
+/**
+ * Una rata/quota — specchio di `NormalizedPaymentRecord`
+ * (`src/lib/athlete-payment-utils.ts`, `normalizeStoredPayment`/
+ * `mergeAthletePayments`). `statusKey` ha **solo** tre valori: le sfumature
+ * ("Scaduto", "Parzialmente pagato"…) vivono solo nell'etichetta italiana
+ * `status` — non esiste un quarto valore macchina da inventare. Lo stato si
+ * legge cosi com'e, non si ricalcola da un orologio locale (regola v2.2 di
+ * `PaymentCard`, §C3).
+ */
+export interface ParentPayment {
+  id: string;
+  date: string;
+  dueDate: string | null;
+  paidAt: string | null;
+  description: string;
+  type: string;
+  amount: number;
+  status: string;
+  statusKey: "paid" | "pending" | "cancelled";
+  paidAmount: number;
+  method?: string | null;
+  notes?: string | null;
+  reference?: string | null;
+  source: "athlete_json" | "athlete_payment";
+  [key: string]: unknown;
+}
+
+/** `payments.online` — il canale di incasso del club, non lo stato di una singola rata (`resolveFamilyCheckoutChannel`, `src/lib/payments/family-checkout.ts`). */
+export interface FamilyCheckoutState {
+  available: boolean;
+  blocker: "not_configured" | "temporarily_unavailable" | "nothing_due" | null;
+  message: string;
+}
+
+/** Specchio di `serializeFamilyFiscalDocument` (`src/lib/server/parent-dashboard.ts`). `downloadPath` risponde HTML stampabile, non un PDF — vedi `getReceiptDownloadUrl`. */
+export interface FamilyFiscalDocument {
+  id: string;
+  kind: "receipt" | "invoice";
+  number: string;
+  issueDate: string | null;
+  amount: number;
+  description: string;
+  status: "issued" | "cancelled";
+  statusLabel: string;
+  athleteId: string | null;
+  athleteName: string | null;
+  downloadPath: string;
+}
+
+/**
+ * Una voce del fascicolo documentale — specchio di `FamilyDocumentItem`
+ * (`src/lib/documents/family-dossier.ts`). Stato **interamente derivato
+ * server-side** (`deriveFamilyDocumentState`): il mobile legge `state`/
+ * `stateLabel`/`daysLeft`/`action`, non li ricalcola mai.
+ */
+export interface FamilyDocumentItem {
+  id: string;
+  requestId: string | null;
+  submissionId: string | null;
+  documentKind: string;
+  documentKindLabel: string;
+  title: string;
+  description: string;
+  state:
+    | "missing"
+    | "overdue"
+    | "under_review"
+    | "approved"
+    | "expired"
+    | "rejected";
+  stateLabel: string;
+  required: boolean;
+  dueDate: string | null;
+  daysLeft: number | null;
+  validUntil: string | null;
+  submittedAt: string | null;
+  decidedAt: string | null;
+  rejectionReason: string | null;
+  fileName: string;
+  /** Vuoto se non c'e file; altrimenti `/api/parent-dashboard/<athleteId>/documents/<assetId>` — richiede Bearer, mai un link pubblico. */
+  fileUrl: string;
+  mimeType: string;
+  action: "upload" | "replace" | "none";
+  actionLabel: string;
+  historyCount: number;
+}
+
+/** Specchio di `ConsentSubjectState` (`src/lib/consents/model.ts`, `deriveConsentState`). Nessun `title`/`bodyText`: il testo legale integrale non e esposto al genitore da nessuna API (vedi KB). */
+export interface ConsentSubjectState {
+  status: "accepted" | "rejected" | "revoked" | "missing";
+  recordId: string | null;
+  versionId: string | null;
+  version: number | null;
+  decidedAt: string | null;
+  onOutdatedVersion: boolean;
+  historyCount: number;
+  definitionId: string;
+  definitionKey: string;
+  definitionTitle: string;
+  required: boolean;
+  subjectKind: string;
+  subjectId: string;
+  subjectLabel: string;
+}
+
+/** Specchio di `ConsentRecordSummary` (`src/lib/server/consents.ts`), la risposta di `POST .../consents`. */
+export interface ConsentRecordSummary {
+  id: string;
+  definitionId: string;
+  versionId: string;
+  version: number | null;
+  subjectKind: string;
+  subjectId: string;
+  subjectLabel: string;
+  status: "accepted" | "rejected" | "revoked";
+  decidedAt: string | null;
+  decidedBy: string | null;
+  source: string;
+  evidenceKind: string | null;
+  evidenceId: string | null;
+  note: string;
+}
+
 export interface ParentDashboardData {
   user: { id: string; email: string; name: string };
   club: {
@@ -410,9 +533,23 @@ export interface ParentDashboardData {
     notes: string | null;
     [key: string]: unknown;
   };
-  payments: Record<string, unknown>;
+  payments: {
+    items: ParentPayment[];
+    pending: number;
+    paid: number;
+    totalDue: number;
+    totalPaid: number;
+    remaining: number;
+    summary: Record<string, unknown>;
+    online: FamilyCheckoutState;
+    receipts: FamilyFiscalDocument[];
+    invoices: FamilyFiscalDocument[];
+  };
   enrollment: Record<string, unknown>;
-  documents: Record<string, unknown>;
+  documents: {
+    required: FamilyDocumentItem[];
+    uploaded: FamilyDocumentItem[];
+  };
   trainings: {
     upcoming: ParentDashboardEvent[];
     history: ParentDashboardEvent[];
@@ -724,13 +861,15 @@ class EasyGameApiService {
     options: {
       method: "GET" | "POST" | "PATCH" | "DELETE";
       body?: Record<string, any> | null;
+      /** Un upload multipart — mai insieme a `body`. Niente `Content-Type` esplicito: `fetch` genera il boundary da solo, impostarlo a mano lo romperebbe. */
+      formData?: FormData;
       clubId?: string | null;
       query?: Record<string, string | number | boolean | null | undefined>;
       headers?: HeadersInit;
     },
   ) {
     const url = new URL(path, baseUrl);
-    const { method, body, clubId, query, headers } = options;
+    const { method, body, formData, clubId, query, headers } = options;
 
     if (query) {
       Object.entries(query).forEach(([key, value]) => {
@@ -754,7 +893,7 @@ class EasyGameApiService {
       requestHeaders["x-active-club-id"] = clubId;
     }
 
-    if (body !== undefined && body !== null) {
+    if (!formData && body !== undefined && body !== null) {
       requestHeaders["Content-Type"] = "application/json";
     }
 
@@ -762,8 +901,9 @@ class EasyGameApiService {
       const response = await this.fetchWithTimeout(url.toString(), {
         method,
         headers: requestHeaders,
-        body:
-          body !== undefined && body !== null
+        body: formData
+          ? formData
+          : body !== undefined && body !== null
             ? JSON.stringify(body)
             : undefined,
       });
@@ -809,6 +949,7 @@ class EasyGameApiService {
     options: {
       method?: "GET" | "POST" | "PATCH" | "DELETE";
       body?: Record<string, any> | null;
+      formData?: FormData;
       clubId?: string | null;
       query?: Record<string, string | number | boolean | null | undefined>;
       headers?: HeadersInit;
@@ -827,6 +968,7 @@ class EasyGameApiService {
         const result = await this.performJsonRequest(baseUrl, path, {
           method: options.method || "GET",
           body: options.body,
+          formData: options.formData,
           clubId: options.clubId,
           query: options.query,
           headers: options.headers,
@@ -1410,6 +1552,115 @@ class EasyGameApiService {
       `/api/parent-dashboard/${encodeURIComponent(athleteId)}/notifications`,
       { method: "PATCH", body: input },
     );
+  }
+
+  /**
+   * Avvia il pagamento di una rata — `POST /api/parent-dashboard/
+   * [athleteId]/checkout` (`issuePaymentLink`). L'`url` risposto e una
+   * pagina EasyGame pubblica (`/pay/<token>`), non gia una sessione Stripe
+   * hosted: quella pagina fa una seconda chiamata lato client per aprirla.
+   * Il mobile la apre nel browser di sistema (`WebBrowser.openBrowserAsync`,
+   * gia dipendenza del progetto) — nessuna WebView, nessun deep link: dopo
+   * il pagamento la pagina reindirizza su se stessa, non verso l'app.
+   */
+  async checkoutParentPayment(
+    athleteId: string,
+    paymentId: string,
+  ): Promise<{ url: string; expiresAt: string }> {
+    return this.request<{ url: string; expiresAt: string }>(
+      `/api/parent-dashboard/${encodeURIComponent(athleteId)}/checkout`,
+      { method: "POST", body: { payment_id: paymentId } },
+    );
+  }
+
+  /**
+   * Risolve URL assoluto e header di autorizzazione per un download
+   * autenticato (documenti, ricevute) — usato da `expo-file-system`, che ha
+   * bisogno dell'URL e degli header separatamente, non di questo client
+   * JSON. Non e un URL condivisibile: senza l'header Bearer il server
+   * risponde 401.
+   */
+  async resolveAuthorizedFileTarget(
+    path: string,
+    query?: Record<string, string | number | boolean | null | undefined>,
+  ): Promise<{ url: string; headers: Record<string, string> }> {
+    await this.ensureInit();
+    if (!this.baseUrl) {
+      throw new Error("Configura prima l'URL del backend EasyGame.");
+    }
+
+    const url = new URL(path, this.baseUrl);
+    if (query) {
+      Object.entries(query).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === "") return;
+        url.searchParams.set(key, String(value));
+      });
+    }
+
+    const headers: Record<string, string> = {};
+    if (this.authToken) {
+      headers.Authorization = `Bearer ${this.authToken}`;
+    }
+
+    return { url: url.toString(), headers };
+  }
+
+  /**
+   * Il fascicolo documentale di un figlio — `data.documents.required`/
+   * `.uploaded` del cruscotto aggregato sono la fonte reale (la Web app usa
+   * quella, non `GET .../documents`, che e legacy/inutilizzata — vedi KB).
+   * Qui restano solo upload e download, che non sono nel payload aggregato.
+   */
+  async uploadParentDocument(
+    athleteId: string,
+    file: { uri: string; name: string; mimeType: string },
+    options: { requestId?: string; documentKind?: string } = {},
+  ): Promise<FamilyDocumentItem> {
+    const formData = new FormData();
+    formData.append("file", {
+      uri: file.uri,
+      name: file.name,
+      type: file.mimeType,
+    } as unknown as Blob);
+    if (options.requestId) formData.append("templateId", options.requestId);
+    if (options.documentKind)
+      formData.append("documentType", options.documentKind);
+
+    return this.request<FamilyDocumentItem>(
+      `/api/parent-dashboard/${encodeURIComponent(athleteId)}/documents`,
+      { method: "POST", formData },
+    );
+  }
+
+  /** Gli inviti/stati di consenso di un figlio — `GET .../consents` (`listConsentStates`). Una riga per ogni definizione attiva del club, anche mai decisa (`status: "missing"`). */
+  async getParentConsents(athleteId: string): Promise<ConsentSubjectState[]> {
+    return this.request<ConsentSubjectState[]>(
+      `/api/parent-dashboard/${encodeURIComponent(athleteId)}/consents`,
+      { method: "GET" },
+    );
+  }
+
+  /**
+   * Una decisione di consenso — `POST .../consents`. Il server resta
+   * l'unico a decidere se la transizione e ammessa (matrice in
+   * `src/lib/consents/model.ts`): una transizione non ammessa risponde 400,
+   * mai silenziosamente accettata.
+   */
+  async answerParentConsent(
+    athleteId: string,
+    input: {
+      definitionId: string;
+      status: "accepted" | "rejected" | "revoked";
+      note?: string;
+    },
+  ): Promise<{ record: ConsentRecordSummary; state: ConsentSubjectState }> {
+    return this.request<{
+      record: ConsentRecordSummary;
+      state: ConsentSubjectState;
+    }>(`/api/parent-dashboard/${encodeURIComponent(athleteId)}/consents`, {
+      method: "POST",
+      body: input,
+    });
   }
 }
 

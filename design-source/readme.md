@@ -1,6 +1,6 @@
 # EasyGame Design System
 
-**Revision: EGDS v2.1.0 · 2026-09-10 · "Parent-ready"** — see `CHANGELOG.md`. Normative component specs live in `guidelines/component-specs.md`; navigation rules in `guidelines/navigation.md`; the Trainer reskin plan in `guidelines/trainer-migration.md`.
+**Revision: EGDS v2.2.0 · 2026-09-10 · "Sheet & shell" — CURRENT** — see `CHANGELOG.md`. Normative component specs live in `guidelines/component-specs.md`; navigation rules in `guidelines/navigation.md`; the Trainer reskin plan in `guidelines/trainer-migration.md`.
 
 Design system for the **EasyGame mobile app** — the coach-facing app of EasyGame, a sports club management platform for clubs, coaches, staff, athletes and families.
 

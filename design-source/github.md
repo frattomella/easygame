@@ -4,13 +4,14 @@ path: easygamemobile
 
 ## Last sync
 
-design-system-revision: EGDS v2.1.0
+design-system-revision: EGDS v2.2.0 (current)
 
 date: 2026-09-10
 
 ### Updated in this project
 
-- v2.1.0: formalised the three components the implementation pass created (`StateMessage`, `SecondaryScreenLayout`, `SignatureInput`) from `easygamemobile/client/components/signature/**`.
+- v2.2.0: formalised `BottomSheet` and `ParentPrimaryScreenLayout` from the second implementation pass, and refined the six Parent components due for implementation next.
+- v2.1.0: formalised the three components the first implementation pass created (`StateMessage`, `SecondaryScreenLayout`, `SignatureInput`).
 - Wrote normative specs for the six unported Trainer components and ten new Parent-area components.
 - Defined the mobile navigation language for both Trainer and Parent, plus child-switcher placement.
 - Added the Trainer reskin plan for Home / Allenamenti / Gare / Atleti.
@@ -30,7 +31,7 @@ Note: read via the attached local codebase mount (`easygame/`), not via the GitH
 | `ui_kits/mobile_app/Shell.jsx` | `easygamemobile/client/navigation/MainTabNavigator.tsx`, `client/hooks/useScreenOptions.ts` |
 | `components/core/*`, `components/feedback/*`, `components/brand/BrandGradient.jsx` | `easygamemobile/client/components/*.tsx` |
 | `tokens/*.css` | `easygamemobile/client/constants/theme.ts`, `design_guidelines.md` |
-| `guidelines/component-specs.md` (Part A) | `easygamemobile/client/components/signature/{StateMessage,SecondaryScreenLayout,SignatureInput}.tsx` |
+| `guidelines/component-specs.md` (Part A) | `easygamemobile/client/components/signature/{StateMessage,SecondaryScreenLayout,SignatureInput,BottomSheet,ParentPrimaryScreenLayout}.tsx` |
 | `guidelines/component-specs.md` (Part C) | `src/components/parent-dashboard/parent-dashboard-{pages,types}.tsx` — status vocabulary only |
 | `guidelines/navigation.md` | `easygamemobile/client/navigation/**`, `src/components/parent-dashboard/ParentSidebar.tsx` |
 | `guidelines/trainer-migration.md` | `easygamemobile/client/screens/Trainer{Home,Trainings,Matches,Athletes}*.tsx` |

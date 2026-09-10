@@ -8,6 +8,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BlurView } from "expo-blur";
 
 import { EGGlass, EGShadow, Spacing } from "@/constants/theme";
 import { GlassSurface } from "@/components/signature/GlassSurface";
@@ -16,24 +17,28 @@ interface BottomSheetProps {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  /** Formalised in EGDS v2.2 §A4: "an `accessibilityLabel` equal to its title." The caller's own eyebrow+title stay visual; this is the spoken equivalent. */
+  accessibilityLabel?: string;
 }
 
 /**
- * Level 4 of the navigation language (`design-source/guidelines/navigation.md`):
- * "Bottom sheet, `28 28 0 0`, glass strong, grabber. Anything that answers a
- * single question and returns." Not itself in `component-specs.md` — the
- * spec assumes the sheet shell exists and describes what goes inside it
- * (`ChildSwitcher`'s expanded state, reschedule forms, …). This is that
- * shell, documented here as the implementation of the navigation doc's
- * Level 4 rather than a duplicate ad-hoc modal per screen.
+ * design-source `guidelines/component-specs.md` §A4 — formalised in EGDS
+ * v2.2.0 "Sheet & shell" from this same component, built as an extension in
+ * WP4 (`docs/knowledge-base/05-mobile-architecture.md`). Level 4 of the
+ * navigation language: "Anything that answers a single question and
+ * returns." No screen writes its own modal.
  *
- * Dismissal: scrim tap or an explicit control inside `children` (the sheet
- * never auto-dismisses on an outcome). Drag-to-dismiss on the grabber is not
- * implemented — no gesture-handler-driven sheet library is a project
- * dependency, and adding one is a bigger decision than one component;
- * documented gap, the grabber is a visual affordance only.
+ * Dismissal: scrim tap, the platform back gesture (`onRequestClose`), or an
+ * explicit control inside `children` — never on an outcome. Drag-to-dismiss
+ * on the grabber is not implemented (declared gap, §A4: "no gesture library
+ * adopted"); the grabber is a visual affordance only.
  */
-export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
+export function BottomSheet({
+  visible,
+  onClose,
+  children,
+  accessibilityLabel,
+}: BottomSheetProps) {
   const insets = useSafeAreaInsets();
   const translateY = useRef(
     new Animated.Value(Dimensions.get("window").height),
@@ -79,12 +84,19 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
       animationType="none"
       statusBarTranslucent
       onRequestClose={handleClose}
+      accessibilityViewIsModal
     >
       <Animated.View
         style={[styles.scrim, { opacity: scrimOpacity }]}
         pointerEvents={visible ? "auto" : "none"}
       >
-        <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
+        <BlurView intensity={30} style={StyleSheet.absoluteFill} />
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={handleClose}
+          accessibilityRole="button"
+          accessibilityLabel="Chiudi"
+        />
       </Animated.View>
       <Animated.View
         style={[
@@ -92,9 +104,10 @@ export function BottomSheet({ visible, onClose, children }: BottomSheetProps) {
           { transform: [{ translateY }], paddingBottom: insets.bottom },
         ]}
         pointerEvents={visible ? "auto" : "none"}
+        accessibilityLabel={accessibilityLabel}
       >
         <GlassSurface tone="light" corner="sheet" elevated style={styles.sheet}>
-          <View style={styles.grabber} />
+          <View style={styles.grabber} accessibilityElementsHidden />
           <View style={styles.content}>{children}</View>
         </GlassSurface>
       </Animated.View>

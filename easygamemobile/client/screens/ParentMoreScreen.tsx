@@ -44,10 +44,11 @@ type Item =
 
 /**
  * L'hub Parent (`guidelines/navigation.md`, Livello 2): le sezioni meno
- * frequenti, una tocco dal Profilo — "I miei figli" e "Accessi e club" sono
- * reali, le altre predispongono lo slot senza fingere di funzionare
- * (WP6, ADR-0163: pagamenti/documenti/consensi/iscrizione/appuntamenti/
- * strutture/contatti sono fuori perimetro di questo batch).
+ * frequenti, un tocco dal Profilo — "I miei figli" e "Accessi e club" sono
+ * reali. Pagamenti/Documenti/Consensi/Iscrizione **non** sono qui: quella
+ * quaterna vive nella tab Segreteria (`guidelines/navigation.md`: "one tab,
+ * four sections") — Pagamenti/Documenti/Consensi reali dal WP7,
+ * Appuntamenti/Strutture/Contatti restano segnaposto onesti fino al WP8.
  */
 const ITEMS: Item[] = [
   {
@@ -63,34 +64,6 @@ const ITEMS: Item[] = [
     title: "Accessi e club",
     subtitle: "Cambia club o ruolo",
     kind: "access",
-  },
-  {
-    key: "payments",
-    icon: "card-outline",
-    title: "Pagamenti",
-    subtitle: "Rate, ricevute, «Paga ora»",
-    kind: "soon",
-  },
-  {
-    key: "documents",
-    icon: "document-text-outline",
-    title: "Documenti",
-    subtitle: "Certificati e moduli richiesti",
-    kind: "soon",
-  },
-  {
-    key: "consents",
-    icon: "shield-checkmark-outline",
-    title: "Consensi",
-    subtitle: "Autorizzazioni e privacy",
-    kind: "soon",
-  },
-  {
-    key: "enrollment",
-    icon: "clipboard-outline",
-    title: "Iscrizione",
-    subtitle: "Stato di iscrizione e rinnovo",
-    kind: "soon",
   },
   {
     key: "appointments",

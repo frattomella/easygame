@@ -86,4 +86,18 @@
   --eg-child-2: #7c3aed;
   --eg-child-3: #0d9488;
   --eg-child-4: #db2777;
+
+  /* ── v2.2 additions ─────────────────────────────────────────────── */
+
+  /* Sheet chrome — was hardcoded per screen before BottomSheet was formalised */
+  --eg-scrim-sheet: rgba(7, 18, 43, 0.55);
+  --eg-scrim-blur: blur(6px); /* @kind other */
+  --eg-grabber: rgba(11, 26, 58, 0.18);
+  --eg-duration-sheet-in: 220ms; /* @kind other */
+  --eg-duration-sheet-out: 180ms; /* @kind other */
+  --eg-sheet-max-height: 75%; /* @kind other */
+
+  /* Accessibility: the visible focus ring for keyboard / switch-control users */
+  --eg-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.5);
+  --eg-focus-ring-on-dark: 0 0 0 3px rgba(255, 255, 255, 0.7);
 }
