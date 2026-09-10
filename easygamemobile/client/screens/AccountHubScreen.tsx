@@ -12,17 +12,17 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
-import { Avatar } from "@/components/Avatar";
-import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Input } from "@/components/Input";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { AccountAccessCard } from "@/components/signature";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
-import { getClubInitials, getRoleLabel } from "@/lib/mobile-ui";
+import { getRoleLabel } from "@/lib/mobile-ui";
+import { normalizeMobileAccessRole } from "@/lib/mobile-role-gate";
 import { Club, Access } from "@/services/api";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import { BorderRadius, Colors, Spacing } from "@/constants/theme";
@@ -208,85 +208,44 @@ export default function AccountHubScreen() {
     }
   };
 
+  /**
+   * `AccountAccessCard` (design system CURRENT, spec C10) sostituisce le
+   * righe `Card` generiche qui e sotto — solo il rendering: la logica di
+   * selezione (`handleSelectOwnedClub`/`handleSelectAccess`) e i dati
+   * restano quelli di sempre. Un club posseduto e sempre "owner", e
+   * `resolveMobileRoleGate` non apre nessuna area per owner/admin in questa
+   * V1 (Area management mobile: MISSING) — mostrarlo come "non ancora
+   * disponibile" invece di lasciarlo aprire uno schermo di atterraggio e
+   * la stessa informazione, resa prima del tocco anziche dopo (il gate di
+   * ruolo resta invariato: e solo la card a non navigare piu verso di
+   * esso).
+   */
   const renderClubCard = (club: Club) => (
-    <Card
+    <AccountAccessCard
       key={club.id}
-      style={styles.accountCard}
+      clubName={club.name}
+      clubAvatarUrl={club.avatar}
+      roleLabel="Proprietario"
+      detailLine={
+        club.categoryItems?.length
+          ? `${club.categoryItems.length} categorie · ${slotLabel}`
+          : `Nuovo club · ${slotLabel}`
+      }
+      supported={false}
       onPress={() => handleSelectOwnedClub(club)}
-    >
-      <View style={styles.accountCardHeader}>
-        <Avatar name={club.name} size={52} />
-        <View style={styles.accountCardInfo}>
-          <ThemedText type="body" style={styles.accountCardTitle}>
-            {club.name}
-          </ThemedText>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {club.city || "Citta"} {club.province ? `· ${club.province}` : ""}
-          </ThemedText>
-        </View>
-        <Badge label="Proprietario" variant="primary" small />
-      </View>
-      <View style={styles.metaRow}>
-        <Badge
-          label={
-            club.categoryItems?.length
-              ? `${club.categoryItems.length} categorie`
-              : "Nuovo club"
-          }
-          small
-        />
-        <Badge label={slotLabel} variant="default" small />
-      </View>
-    </Card>
+    />
   );
 
   const renderAccessCard = (access: Access) => (
-    <Card
+    <AccountAccessCard
       key={access.id}
-      style={styles.accountCard}
+      clubName={access.clubName}
+      clubAvatarUrl={access.clubAvatar}
+      roleLabel={getRoleLabel(access.role)}
+      detailLine={access.summary || "Accesso collegato al tuo account"}
+      supported={Boolean(normalizeMobileAccessRole(access.role))}
       onPress={() => handleSelectAccess(access)}
-    >
-      <View style={styles.accountCardHeader}>
-        <View
-          style={[
-            styles.logoBadge,
-            {
-              backgroundColor:
-                access.role === "trainer" ? "#EEF2FF" : "#ECFDF5",
-            },
-          ]}
-        >
-          <ThemedText
-            style={{
-              color: access.role === "trainer" ? "#4338CA" : "#047857",
-              fontWeight: "800",
-            }}
-          >
-            {getClubInitials(access.clubName)}
-          </ThemedText>
-        </View>
-        <View style={styles.accountCardInfo}>
-          <ThemedText type="body" style={styles.accountCardTitle}>
-            {access.clubName}
-          </ThemedText>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {access.summary || "Accesso collegato al tuo account"}
-          </ThemedText>
-        </View>
-        <Badge
-          label={getRoleLabel(access.role)}
-          variant={access.status === "active" ? "success" : "warning"}
-          small
-        />
-      </View>
-      {access.assignedCategories?.length ? (
-        <View style={styles.metaRow}>
-          {access.assignedCategories.slice(0, 3).map((category) => (
-            <Badge key={category} label={category} small />
-          ))}
-        </View>
-      ) : null}
-    </Card>
+    />
   );
 
   return (

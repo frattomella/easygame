@@ -1,5 +1,10 @@
 import { Athlete } from "@/services/api";
-import { format, parseISO } from "date-fns";
+import {
+  differenceInHours,
+  format,
+  formatDistanceToNowStrict,
+  parseISO,
+} from "date-fns";
 import { it } from "date-fns/locale";
 
 export const getRoleLabel = (role?: string | null) => {
@@ -55,6 +60,29 @@ export const formatItalianDate = (
 
   try {
     return format(parseISO(value), pattern, { locale: it });
+  } catch {
+    return value;
+  }
+};
+
+/**
+ * `NotificationRow` (spec C6): "relative under 24h (`2 ore fa`), then
+ * absolute (`12 set · 18:40`)". `date-fns` italian phrasing differs
+ * slightly from the spec's exact wording ("circa 2 ore fa") — reused
+ * rather than hand-rolled to avoid a second, drifting relative-time
+ * implementation in the app.
+ */
+export const formatRelativeOrAbsolute = (value?: string | null) => {
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const date = parseISO(value);
+    if (differenceInHours(new Date(), date) < 24) {
+      return formatDistanceToNowStrict(date, { locale: it, addSuffix: true });
+    }
+    return format(date, "d MMM · HH:mm", { locale: it });
   } catch {
     return value;
   }

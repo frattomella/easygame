@@ -80,12 +80,23 @@ export default function ParentCalendarScreen() {
       eventId: item.id,
       kind: item.kind,
     });
+  const openNotifications = () =>
+    (
+      navigation.getParent() as
+        | { navigate: (...args: unknown[]) => void }
+        | undefined
+    )?.navigate("ParentBoardTab", {
+      screen: "ParentBoard",
+      params: { initialSection: "notifications" },
+    });
 
   return (
     <ParentPrimaryScreenLayout
       title="Calendario"
       linkedChildren={children}
       selectedChildId={selectedChildId}
+      onNotifications={openNotifications}
+      notificationCount={dashboardQuery.data?.notificationsUnread || 0}
       childrenSwitching={switching}
       onSelectChild={selectChild}
       scrollable={status === "ready"}

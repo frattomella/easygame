@@ -83,6 +83,8 @@ restano quelli che le schermate esistenti gia usano.
 | `StatCard` | `signature/StatCard.tsx` | `components/patterns/StatCard.jsx` (spec Parte B, §B5) |
 | `HighlightCard` | `signature/HighlightCard.tsx` | spec Parte B, §B6 |
 | `RSVPControl` | `signature/RSVPControl.tsx` | spec Parte C, §C2 — disegna solo le transizioni che il server ha gia deciso, mai un terzo stato inventato |
+| `NotificationRow` | `signature/NotificationRow.tsx` | spec Parte C, §C6 |
+| `AccountAccessCard` | `signature/AccountAccessCard.tsx` | spec Parte C, §C10 — applicato in `AccountHubScreen` |
 
 Traduzione CSS → React Native (dove non e 1:1) documentata nel commento di
 testa di `theme.ts`: `border-radius` a quattro valori diventa quattro
@@ -139,12 +141,13 @@ visiva.
   per l'area Parent (vedi la tabella sopra) — il loro uso Trainer (roster,
   Home) resta un lavoro a se.
 - **Componenti Parte C non ancora portati**: `PaymentCard`,
-  `DocumentRow`/`DocumentCard`, `ConsentRow`, `NotificationRow`,
-  `AppointmentCard`, `BookingCard`, `EnrollmentStatusCard`,
-  `AccountAccessCard` — specificati in `guidelines/component-specs.md` Parte
-  C ma non ancora implementati: nessuna schermata di questo batch (WP4-WP6)
-  ne ha ancora bisogno, salvo `ChildSwitcher` e `RSVPControl` (portati) e
-  quanto arrivera nel WP6 (`NotificationRow`, `AccountAccessCard`).
+  `DocumentRow`/`DocumentCard`, `ConsentRow`, `AppointmentCard`,
+  `BookingCard`, `EnrollmentStatusCard` — specificati in
+  `guidelines/component-specs.md` Parte C ma non implementati: le sezioni
+  che li userebbero (Pagamenti, Documenti, Consensi, Iscrizione,
+  Appuntamenti, Strutture) sono esplicitamente fuori perimetro del batch
+  WP4-6 (ADR-0163). `ChildSwitcher`, `RSVPControl`, `NotificationRow` e
+  `AccountAccessCard` sono stati portati.
 - **Dark mode**: i token esistono (`.eg-dark` lato CSS) ma senza schede di
   esempio nel design system stesso; non modellato lato RN.
 
@@ -338,7 +341,70 @@ Parte C: `RSVPControl` (§C2).
 `parent-home-summary.test.ts` (3) — training/match/combinazione, i cinque
 stati di `RSVPControl`, dati caricati/empty/anteprime limitate a due.
 
-## Stato attuale: Trainer completo, Parent in costruzione (WP4-6), gate su tutto il resto
+### WP6 — Parent Bacheca, Notifiche, esperienza Account (ADR-0163)
+
+**Implementation version**: 2026-09-10, EGDS v2.1.0. Ultimo WP del batch
+Parent: sostituisce il segnaposto Bacheca di WP4/5 con contenuto reale,
+aggiunge l'hub Parent e reskina la lista accessi di `AccountHubScreen`.
+
+**Bacheca + Notifiche** (`ParentBoardScreen`): due sezioni della stessa tab
+(`guidelines/navigation.md`: "Notifications... shares Bacheca"), selezionate
+con un interruttore locale.
+- Bacheca: `GET /api/parent-dashboard/[athleteId]/board` (stessa forma di
+  `Announcement`, gia usata dalla bacheca Trainer — stesso dominio annunci).
+  Segnare letto invia `POST .../board` con `{deliveryId}` (la singola
+  consegna, non l'annuncio — un fratello nello stesso club ha una propria
+  consegna).
+- Notifiche: **nessun GET dedicato** — arrivano dentro
+  `GET /api/parent-dashboard/[athleteId]` (`notifications`,
+  `notificationsUnread`), stessa query key di Home/Calendario: aprire la
+  sezione Notifiche non aggiunge una fetch se il figlio e gia stato
+  visitato in Home. Segnare letta una o tutte: `PATCH .../notifications`
+  (`{id}` o `{all:true}`).
+- Il campanello dell'AppBar (Home e Calendario, dove il conteggio e gia
+  disponibile dalla stessa query) apre direttamente la sezione Notifiche
+  (`navigation.getParent().navigate("ParentBoardTab", { screen:
+  "ParentBoard", params: { initialSection: "notifications" } })`).
+  Segreteria e Profilo non lo mostrano: non hanno gia la query del
+  cruscotto in cache, e aggiungerla solo per un badge sarebbe la fetch
+  duplicata che il WP vieta — gap dichiarato, non dimenticanza.
+
+**Hub Parent** (`ParentMoreScreen`, da "Altre sezioni" nel Profilo): "I
+miei figli" (reale, → `ParentChildrenScreen`) e "Accessi e club" (reale,
+richiama `clearContext()` — lo stesso meccanismo del pulsante "Cambia club
+o accesso" gia in Profilo, verso l'`AccountHubScreen` reskinato sotto).
+Le altre otto voci (Pagamenti, Documenti, Consensi, Iscrizione,
+Appuntamenti, Prenotazioni strutture, Contatti club, Impostazioni) aprono
+`ParentComingSoonScreen`, un segnaposto condiviso onesto — mai un bottone
+morto, mai un elenco finto.
+
+**Esperienza Account** (`AccountHubScreen`): le righe `Card` generiche per
+i club posseduti e gli accessi assegnati usano ora `AccountAccessCard`
+(spec C10). Solo il rendering e cambiato — `handleSelectOwnedClub`/
+`handleSelectAccess`, il caricamento, i modali (profilo, nuovo club, token)
+restano quelli di sempre. **Comportamento nuovo, non solo estetico**: un
+club posseduto e sempre ruolo `"owner"`, e `resolveMobileRoleGate` non apre
+nessuna area per owner/admin in questa V1 (Area management mobile:
+MISSING) — prima il tocco portava comunque a `UnsupportedRoleScreen`, ora
+la card lo dice **prima** del tocco (`supported={false}`, spec C10: "shown,
+not hidden"), riusando `normalizeMobileAccessRole` (stessa funzione pura di
+`mobile-role-gate.ts`, non una seconda verifica). Il gate di ruolo stesso
+resta invariato — solo la card smette di navigare verso l'esito che il
+gate avrebbe comunque dato.
+
+**Componenti nuovi**: `NotificationRow` (spec C6), `AccountAccessCard`
+(spec C10). `ParentComingSoonScreen` — non un componente del design
+system, il segnaposto condiviso per le sezioni fuori perimetro.
+
+**Test**: `parent-notifications.test.ts` (4: unread/read, ordinamento,
+raggruppamento per giorno, categoria per parola chiave). Routing
+Account/Trainer/Parent/ruolo-non-supportato non ha una suite propria in
+questo WP: la logica che decide (`resolveMobileRoleGate`,
+`normalizeMobileAccessRole`) non e stata toccata ed e gia coperta da
+`mobile-role-gate.test.ts` (Identity & Access) — `AccountAccessCard` la
+richiama, non la ripete.
+
+## Stato attuale: Trainer completo, Parent perimetro WP4-6 completo, gate su tutto il resto
 
 Il navigator root (`client/navigation/RootStackNavigator.tsx`) e il **solo**
 punto che decide quale guscio mostrare — nessuna schermata a valle rifa questo
@@ -385,8 +451,8 @@ funzionale Trainer" sopra.
 | Home | `ParentHomeStackNavigator` | `ParentHomeScreen` | Reale (WP5): SectionHero + StatCard + HighlightCard |
 | Calendario | `ParentCalendarStackNavigator` | `ParentCalendarScreen` → `ParentEventDetailScreen` | Reale (WP5): allenamenti+gare unificati, RSVP nel dettaglio |
 | Segreteria | `ParentSegreteriaStackNavigator` | `ParentSegreteriaScreen` | Segnaposto permanente per questo batch (pagamenti/documenti/consensi/iscrizione fuori perimetro, ADR-0163) |
-| Bacheca | `ParentBoardStackNavigator` | segnaposto | "In arrivo" → reale nel WP6 |
-| Profilo | `ParentProfileStackNavigator` | `ParentProfileScreen` → `ParentChildrenScreen` | Account, multi-figlio, cambio contesto, logout |
+| Bacheca | `ParentBoardStackNavigator` | `ParentBoardScreen` | Reale (WP6): bacheca + notifiche, due sezioni |
+| Profilo | `ParentProfileStackNavigator` | `ParentProfileScreen` → `ParentChildrenScreen` / `ParentMoreScreen` / `ParentComingSoonScreen` | Account, multi-figlio, cambio contesto, logout, hub (WP6) |
 
 ### Schermate collegate (21)
 
@@ -404,9 +470,10 @@ Trainer (invariate): `NotificationsScreen`, `TrainerHomeDashboardScreen`,
 
 Parent (`ParentTabNavigator`): `ParentHomeScreen`, `ParentChildrenScreen`,
 `ParentProfileScreen` (WP4); `ParentCalendarScreen`,
-`ParentEventDetailScreen` (WP5). Segnaposto onesti, non funzionalita finta:
-`ParentSegreteriaScreen` (permanente per questo batch) e il segnaposto
-inline in `ParentBoardStackNavigator` (sostituito nel WP6).
+`ParentEventDetailScreen` (WP5); `ParentBoardScreen`, `ParentMoreScreen`,
+`ParentComingSoonScreen` (WP6). Segnaposto onesto, non funzionalita finta:
+`ParentSegreteriaScreen` (permanente per questo batch, ADR-0163) e le otto
+voci non implementate dell'hub, che aprono `ParentComingSoonScreen`.
 
 ### Schermate NON collegate (10) — generazione precedente
 
@@ -585,26 +652,37 @@ cruscotto Home reale e il Calendario unificato con dettaglio RSVP:
 + 17 nuovi su calendario/RSVP/riepilogo Home), `npm run check:types` e
 `npm run lint` puliti (0 errori, stessi 20 warning preesistenti).
 
+### Verifica di avvio reale — 2026-09-10 (WP6 Bacheca/Notifiche/Account)
+
+Dopo `ParentBoardScreen`, `ParentMoreScreen`, `ParentComingSoonScreen`, il
+reskin di `AccountHubScreen` con `AccountAccessCard`, `NotificationRow`:
+`npx expo export --platform ios` completato senza errori di risoluzione,
+2468 moduli. `npm run test` 76/76 verdi (72 preesistenti + 4 nuovi su
+raggruppamento/categoria notifiche), `npm run check:types` e `npm run lint`
+puliti (0 errori, stessi 20 warning preesistenti) — nessuna regressione
+Identity & Access ne Trainer.
+
 ## Cosa manca per completare il mobile
 
 Identity & Access, le fondamenta di ruolo, la parita funzionale Trainer
-(WP3), la fondazione Parent con multi-figlio (WP4) e Home/Calendario/RSVP
-Parent (WP5) sono a posto. Restano aperti, in ordine indicativo:
+(WP3) e il batch Parent WP4-6 (multi-figlio, Home, Calendario/RSVP,
+Bacheca/Notifiche, esperienza Account) sono a posto. Restano aperti, in
+ordine indicativo:
 
-- **Area Parent — Bacheca/Notifiche, esperienza Account**: WP6, non ancora
-  eseguito al momento di questa nota.
-- **RSVP da link senza account**: fuori perimetro anche lato Web (`11 —
-  Capability`), non nel mobile per lo stesso motivo.
 - **Area Parent — Pagamenti, Documenti, Consensi, Iscrizione, Segreteria/
   Appuntamenti, Strutture, Contatti**: esplicitamente fuori perimetro di
-  WP4-6 (ADR-0163). I contratti `/api/parent-dashboard/[athleteId]/**` per
-  appuntamenti, documenti e consensi sono gia mappati (vedi il report di
-  ricognizione del batch Parent) e pronti per un batch successivo.
+  WP4-6 (ADR-0163), predisposti come slot onesti in `ParentMoreScreen`. I
+  contratti `/api/parent-dashboard/[athleteId]/appointments`, `/documents`,
+  `/consents`, `/structures`, `/checkout` sono gia mappati (vedi il report
+  di ricognizione del batch Parent) e pronti per un batch successivo.
+- **RSVP da link senza account**: fuori perimetro anche lato Web (`11 —
+  Capability`), non nel mobile per lo stesso motivo.
 - **Reskin delle quattro tab Trainer primarie** (Home, Allenamenti, Gare,
   Atleti) sul linguaggio visivo nuovo — restano sul linguaggio attuale,
   vedi "Perche solo il Dock e stato applicato" sopra. Servirebbe anche
-  `NumberTile`/`SelectableAthleteRow`/`EventCard`/`SectionHero`/`StatCard`/
-  `HighlightCard`, non ancora portati.
+  `SelectableAthleteRow` (`NumberTile`/`EventCard`/`SectionHero`/`StatCard`/
+  `HighlightCard` sono gia stati portati per l'area Parent, il loro uso
+  Trainer resta un lavoro a se).
 - **Download dei documenti Trainer**: mostrati i metadati, non il file —
   richiede una richiesta autenticata col Bearer token e
   `expo-file-system`/`expo-sharing` (non dipendenze del progetto oggi).

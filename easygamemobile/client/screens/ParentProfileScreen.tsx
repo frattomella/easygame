@@ -20,10 +20,8 @@ type Navigation = NativeStackNavigationProp<
 >;
 
 /**
- * WP4: identita account, gestione multi-figlio, cambio contesto, logout —
- * l'essenziale che ogni area deve avere fin da subito (istruzione "ACCOUNT /
- * SWITCH CONTEXT"). L'hub delle sezioni secondarie (`ParentMoreScreen`) e
- * l'accesso reskin (`AccountAccessCard`) arrivano nel WP6.
+ * Identita account, gestione multi-figlio, cambio contesto, logout (WP4) —
+ * piu l'accesso all'hub delle sezioni secondarie, `ParentMoreScreen` (WP6).
  */
 export default function ParentProfileScreen() {
   const navigation = useNavigation<Navigation>();
@@ -67,6 +65,22 @@ export default function ParentProfileScreen() {
                 onPress={() => navigation.navigate("ParentChildren")}
               >
                 I miei figli
+              </ActionButton>
+            </View>
+          </GlassCard>
+
+          <GlassCard
+            eyebrow="Altro"
+            title="Altre sezioni"
+            description="Pagamenti, documenti, consensi, appuntamenti e contatti del club."
+          >
+            <View style={{ marginTop: Spacing.sm }}>
+              <ActionButton
+                variant="secondary"
+                size="sm"
+                onPress={() => navigation.navigate("ParentMore")}
+              >
+                Apri altre sezioni
               </ActionButton>
             </View>
           </GlassCard>

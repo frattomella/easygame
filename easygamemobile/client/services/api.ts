@@ -355,6 +355,17 @@ export interface ParentDashboardEvent {
   [key: string]: unknown;
 }
 
+/** Una voce di `data.notifications` (payload aggregato) — scoped sull'atleta del path, mai su tutte le notifiche dell'utente. */
+export interface ParentNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  read: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ParentDashboardData {
   user: { id: string; email: string; name: string };
   club: {
@@ -421,15 +432,7 @@ export interface ParentDashboardData {
   };
   appointments: Record<string, unknown>;
   structures: Record<string, unknown>;
-  notifications: {
-    id: string;
-    title: string;
-    message: string;
-    type: string;
-    read: boolean;
-    created_at: string;
-    updated_at: string;
-  }[];
+  notifications: ParentNotification[];
   notificationsUnread: number;
   analytics: {
     attendanceRate: number;
@@ -1367,6 +1370,46 @@ class EasyGameApiService {
         note: input.note,
       },
     });
+  }
+
+  /**
+   * La bacheca di un figlio, sola lettura — `GET /api/parent-dashboard/
+   * [athleteId]/board` (`readAnnouncementsForUser`). Stessa forma di
+   * `Announcement` gia usata dalla bacheca Trainer: e lo stesso dominio
+   * annunci, letto da un punto di vista diverso.
+   */
+  async getParentBoard(athleteId: string): Promise<Announcement[]> {
+    return this.request<Announcement[]>(
+      `/api/parent-dashboard/${encodeURIComponent(athleteId)}/board`,
+      { method: "GET" },
+    );
+  }
+
+  /** Segna letta una singola consegna (`deliveryId`), non l'annuncio — un fratello nello stesso club ha una propria consegna. */
+  async markParentBoardRead(
+    athleteId: string,
+    deliveryId: string,
+  ): Promise<unknown> {
+    return this.request(
+      `/api/parent-dashboard/${encodeURIComponent(athleteId)}/board`,
+      { method: "POST", body: { deliveryId } },
+    );
+  }
+
+  /**
+   * Segna lette una o tutte le notifiche di un figlio — `PATCH
+   * /api/parent-dashboard/[athleteId]/notifications`. Le notifiche stesse
+   * non hanno un GET dedicato: arrivano dentro il payload aggregato
+   * (`getParentDashboard().notifications`).
+   */
+  async markParentNotificationsRead(
+    athleteId: string,
+    input: { id?: string; all?: boolean },
+  ): Promise<{ updated: number }> {
+    return this.request<{ updated: number }>(
+      `/api/parent-dashboard/${encodeURIComponent(athleteId)}/notifications`,
+      { method: "PATCH", body: input },
+    );
   }
 }
 

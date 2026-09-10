@@ -44,3 +44,5 @@ export { StatCard } from "@/components/signature/StatCard";
 export { HighlightCard } from "@/components/signature/HighlightCard";
 export type { HighlightCardPreviewRow } from "@/components/signature/HighlightCard";
 export { RSVPControl } from "@/components/signature/RSVPControl";
+export { AccountAccessCard } from "@/components/signature/AccountAccessCard";
+export { NotificationRow } from "@/components/signature/NotificationRow";

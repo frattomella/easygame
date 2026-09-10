@@ -63,6 +63,15 @@ export default function ParentHomeScreen() {
 
   const openCalendar = () =>
     navigation.getParent()?.navigate("ParentCalendarTab" as never);
+  const openNotifications = () =>
+    (
+      navigation.getParent() as
+        | { navigate: (...args: unknown[]) => void }
+        | undefined
+    )?.navigate("ParentBoardTab", {
+      screen: "ParentBoard",
+      params: { initialSection: "notifications" },
+    });
 
   return (
     <ParentPrimaryScreenLayout
@@ -72,6 +81,8 @@ export default function ParentHomeScreen() {
       selectedChildId={selectedChildId}
       childrenSwitching={switching}
       onSelectChild={selectChild}
+      onNotifications={openNotifications}
+      notificationCount={dashboardQuery.data?.notificationsUnread || 0}
       scrollable={!fixedLayout}
       content={
         status === "loading" ? (

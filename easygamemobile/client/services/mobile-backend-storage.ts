@@ -1374,6 +1374,24 @@ class MobileBackendStorageService {
     return api.answerRsvp(input);
   }
 
+  /** La bacheca del figlio selezionato — sola lettura, come sul Web. */
+  async getParentBoard(athleteId: string): Promise<Announcement[]> {
+    return api.getParentBoard(athleteId);
+  }
+
+  /** Segna letta una consegna della bacheca. */
+  async markParentBoardRead(athleteId: string, deliveryId: string) {
+    return api.markParentBoardRead(athleteId, deliveryId);
+  }
+
+  /** Segna lette una o tutte le notifiche del figlio selezionato. */
+  async markParentNotificationsRead(
+    athleteId: string,
+    input: { id?: string; all?: boolean },
+  ) {
+    return api.markParentNotificationsRead(athleteId, input);
+  }
+
   async setServerUrl(url: string) {
     await api.setBaseUrl(url);
   }
