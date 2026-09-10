@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 
 import { secureStorage } from "@/lib/secure-storage";
 
@@ -866,6 +867,29 @@ const getConfiguredDefaultBaseUrl = () => {
   const publicEnvUrl = normalizeBaseUrl(
     process.env.EXPO_PUBLIC_EASYGAME_API_URL || "",
   );
+
+  /*
+   * Solo Expo Web in sviluppo. Il backend e pensato per essere chiamato
+   * same-origin dalla Web App o da app native (mai soggette a CORS): senza
+   * questo, ogni richiesta da `localhost` verso il backend configurato
+   * (altra origine) fallisce il preflight CORS prima ancora di partire —
+   * non e un URL configurato male ne una credenziale rifiutata, il corpo
+   * della richiesta non arriva mai al server. Qui si preferisce l'origine
+   * dello stesso dev server Metro (same-origin, nessun CORS), che fa da
+   * proxy verso `publicEnvUrl` per `/api/v1/*` — vedi `metro.config.js`.
+   * Mai su iOS/Android, mai fuori da `__DEV__`: non tocca il comportamento
+   * nativo ne un'eventuale build Web di produzione.
+   */
+  if (
+    __DEV__ &&
+    Platform.OS === "web" &&
+    publicEnvUrl &&
+    typeof window !== "undefined" &&
+    window.location?.origin
+  ) {
+    return normalizeBaseUrl(window.location.origin);
+  }
+
   if (publicEnvUrl) {
     return publicEnvUrl;
   }
