@@ -1,0 +1,43 @@
+/* Base palette — values lifted verbatim from easygamemobile/client/constants/theme.ts
+   and the brand palette sheet (uploads/palette-font.png). */
+:root {
+  /* Brand blue */
+  --eg-blue-500: #3b82f6; /* dark-theme primary */
+  --eg-blue-600: #2563eb; /* PRIMARY — royal blue */
+  --eg-blue-700: #1d4ed8; /* gradient mid */
+  --eg-blue-900: #1e3a8a; /* gradient end */
+  --eg-indigo-600: #3533cd; /* brand secondary (palette sheet) */
+
+  /* Neutrals (slate) */
+  --eg-white: #ffffff;
+  --eg-slate-50: #f8fafc;
+  --eg-slate-100: #f1f5f9;
+  --eg-slate-200: #e2e8f0;
+  --eg-slate-400: #94a3b8;
+  --eg-slate-500: #64748b;
+  --eg-slate-700: #334155;
+  --eg-slate-800: #1e293b;
+  --eg-slate-900: #0f172a;
+  --eg-slate-950: #020617;
+
+  /* Semantic hues */
+  --eg-green-500: #22c55e;
+  --eg-amber-500: #f59e0b;
+  --eg-red-500: #ef4444;
+
+  /* Data / module accents (used on dashboard highlight cards) */
+  --eg-violet-600: #7c3aed; /* trainings */
+  --eg-orange-500: #f97316; /* matches */
+  --eg-emerald-500: #10b981; /* reminders & counters */
+
+  /* Alpha utilities */
+  --eg-tint-primary: rgba(37, 99, 235, 0.1);
+  --eg-tint-success: rgba(34, 197, 94, 0.1);
+  --eg-tint-warning: rgba(245, 158, 11, 0.1);
+  --eg-tint-destructive: rgba(239, 68, 68, 0.1);
+  --eg-on-brand-strong: rgba(255, 255, 255, 0.82);
+  --eg-on-brand-soft: rgba(255, 255, 255, 0.64);
+  --eg-on-brand-fill: rgba(255, 255, 255, 0.14);
+  --eg-on-brand-fill-strong: rgba(255, 255, 255, 0.18);
+  --eg-scrim: rgba(15, 23, 42, 0.45);
+}

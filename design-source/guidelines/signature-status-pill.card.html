@@ -1,0 +1,28 @@
+<!-- @dsCard group="Signature" viewport="700x220" name="3 · Status Pill" subtitle="Ring-dot + tracked caps label on a tinted hairline pill" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+body{margin:0;padding:18px;font-family:var(--eg-font-brand);color:var(--eg-ink);background:var(--eg-floodlight-a),var(--eg-floodlight-b),linear-gradient(135deg,#0b1a3a 0%,#12265a 36%,#e9eefa 60%,#f3f5fc 100%);min-height:100vh;box-sizing:border-box}
+.wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;align-items:start}
+.spec{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font:500 11px/16px var(--eg-font-brand);color:var(--eg-ink-muted);background:rgba(255,255,255,.55);border:1px solid var(--eg-glass-border);border-radius:var(--eg-corner-sm);padding:12px 14px;box-shadow:var(--eg-highlight-top)}
+.spec b{font-weight:700;color:var(--eg-ink);text-transform:uppercase;letter-spacing:.08em;font-size:10px}
+.lbl{font:var(--eg-text-eyebrow);letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.72);margin:0 0 8px}
+.i{display:inline-block;background:currentColor;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain;flex:0 0 auto}
+.glass{background:var(--eg-glass-bg);backdrop-filter:var(--eg-glass-blur);border:1px solid var(--eg-glass-border);border-radius:var(--eg-corner);box-shadow:var(--eg-highlight-top),var(--eg-shadow-glass);position:relative;overflow:hidden}
+.stripe{position:absolute;top:0;left:22px;right:22px;height:3px;border-radius:0 0 3px 3px}
+.pill{display:inline-flex;align-items:center;gap:5px;font:700 10px/1 var(--eg-font-brand);letter-spacing:.08em;text-transform:uppercase;padding:4px 8px 4px 7px;border-radius:999px;box-shadow:var(--eg-highlight-top);border:1px solid}
+.pill i{width:7px;height:7px;border-radius:50%;border:2px solid;box-sizing:border-box}
+.tile{width:44px;height:44px;border-radius:var(--eg-corner-sm);display:flex;align-items:center;justify-content:center;font:800 18px/1 var(--eg-font-brand);letter-spacing:-.03em;color:#fff;border:1px solid rgba(255,255,255,.28);box-shadow:var(--eg-highlight-top-dark);flex:0 0 auto}
+.ring{width:28px;height:28px;border-radius:50%;border:2px solid rgba(11,26,58,.22);background:rgba(255,255,255,.6);box-shadow:var(--eg-highlight-top);flex:0 0 auto;display:flex;align-items:center;justify-content:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;height:52px;padding:0 20px;border-radius:var(--eg-corner-sm);font:700 15px/1 var(--eg-font-brand);color:#fff;background:var(--eg-grad-action);border:1px solid rgba(255,255,255,.28);box-shadow:var(--eg-highlight-top-dark),var(--eg-glow-primary)}
+.btn .chip{width:30px;height:30px;border-radius:var(--eg-corner-xs);background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;box-shadow:var(--eg-highlight-top-dark)}
+</style></head><body><div class="wrap"><div><div class="lbl">Hollow ring = taxonomy · filled ring = live status</div><div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+<span class="pill" style="color:var(--eg-ink-muted);background:rgba(11,26,58,.06);border-color:rgba(11,26,58,.1)"><i style="border-color:rgba(11,26,58,.35)"></i>Under 15</span>
+<span class="pill" style="color:#1d4ed8;background:rgba(37,99,235,.1);border-color:rgba(37,99,235,.28)"><i style="border-color:#2563eb;background:#2563eb"></i>Allenatore</span>
+<span class="pill" style="color:#15803d;background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.3)"><i style="border-color:#22c55e;background:#22c55e"></i>Attivo</span>
+<span class="pill" style="color:#b45309;background:rgba(245,158,11,.13);border-color:rgba(245,158,11,.32)"><i style="border-color:#f59e0b;background:#f59e0b"></i>Infortunato</span>
+<span class="pill" style="color:#b91c1c;background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.3)"><i style="border-color:#ef4444;background:#ef4444"></i>Squalificato</span>
+<span class="pill" style="color:#c2410c;background:rgba(249,115,22,.12);border-color:rgba(249,115,22,.3)"><i style="border-color:#f97316;background:#f97316"></i>Gara</span>
+<span style="display:inline-flex;background:var(--eg-grad-navy);border-radius:var(--eg-corner-xs);padding:8px"><span class="pill" style="color:#fff;background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.22)"><i style="border-color:rgba(255,255,255,.9);background:rgba(255,255,255,.9)"></i>3 oggi</span></span>
+<span class="pill" style="color:var(--eg-ink-faint);background:rgba(11,26,58,.03);border-color:rgba(11,26,58,.06);opacity:.6"><i style="border-color:rgba(11,26,58,.2)"></i>Disabilitato</span>
+</div></div>
+<div class="spec"><b>structure</b><span>7–8px ring-dot · 10–11px label</span><b>surface</b><span>status colour at 10–13%</span><b>border</b><span>1px status colour at 28–32%</span><b>radius</b><span>full pill</span><b>shadow</b><span>inset 0 1px white 85% only</span><b>icons</b><span>none — the ring IS the icon (the e-mark ring)</span><b>type</b><span>10/700 uppercase, tracking .08em, Italian words</span><b>active</b><span>ring filled; hollow ring = neutral taxonomy</span><b>pressed</b><span>not pressable</span><b>disabled</b><span>60% opacity, ring 20% ink</span></div></div><script>document.querySelectorAll('.i[data-n]').forEach(function(e){var u='url(../assets/icons/'+e.getAttribute('data-n')+'.svg)';e.style.maskImage=u;e.style.webkitMaskImage=u;});</script></body></html>

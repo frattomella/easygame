@@ -1,0 +1,32 @@
+/* Type scale — exact values from theme.ts `Typography`. */
+:root {
+  --eg-text-h1: 700 32px/40px var(--eg-font-brand);
+  --eg-text-h2: 700 28px/36px var(--eg-font-brand);
+  --eg-text-h3: 600 24px/32px var(--eg-font-brand);
+  --eg-text-h4: 600 20px/28px var(--eg-font-brand);
+  --eg-text-body: 400 16px/24px var(--eg-font-brand);
+  --eg-text-small: 400 14px/20px var(--eg-font-brand);
+  --eg-text-caption: 400 12px/16px var(--eg-font-brand);
+
+  --eg-size-h1: 32px;
+  --eg-size-h2: 28px;
+  --eg-size-h3: 24px;
+  --eg-size-h4: 20px;
+  --eg-size-body: 16px;
+  --eg-size-small: 14px;
+  --eg-size-caption: 12px;
+
+  --eg-lh-h1: 40px;
+  --eg-lh-h2: 36px;
+  --eg-lh-h3: 32px;
+  --eg-lh-h4: 28px;
+  --eg-lh-body: 24px;
+  --eg-lh-small: 20px;
+  --eg-lh-caption: 16px;
+
+  --eg-weight-regular: 400;
+  --eg-weight-medium: 500; /* badge labels, input labels */
+  --eg-weight-semibold: 600; /* headings h3/h4, button labels */
+  --eg-weight-bold: 700; /* h1/h2, card titles, tab labels */
+  --eg-weight-black: 800; /* app-bar wordmark, big counters */
+}

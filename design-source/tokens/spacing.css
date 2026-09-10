@@ -1,0 +1,21 @@
+/* 4px-based scale from theme.ts `Spacing`. 16 (lg) is the screen gutter. */
+:root {
+  --eg-space-xs: 4px;
+  --eg-space-sm: 8px;
+  --eg-space-md: 12px;
+  --eg-space-lg: 16px;
+  --eg-space-xl: 20px;
+  --eg-space-2xl: 24px;
+  --eg-space-3xl: 32px;
+  --eg-space-4xl: 40px;
+  --eg-space-5xl: 48px;
+
+  --eg-gutter: 16px;
+  --eg-input-height: 48px;
+  --eg-button-height: 52px;
+  --eg-button-height-sm: 36px;
+  --eg-button-height-md: 48px;
+  --eg-button-height-lg: 56px;
+  --eg-tabbar-height: 76px;
+  --eg-touch-min: 44px;
+}

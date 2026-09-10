@@ -1,0 +1,43 @@
+/* Semantic aliases — always prefer these in product code.
+   Light theme is the default; `.eg-dark` mirrors theme.ts `Colors.dark`. */
+:root {
+  --eg-primary: var(--eg-blue-600);
+  --eg-primary-strong: var(--eg-blue-700);
+  --eg-on-primary: var(--eg-white);
+
+  --eg-text-primary: var(--eg-slate-900);
+  --eg-text-secondary: var(--eg-slate-500);
+  --eg-text-link: var(--eg-blue-600);
+  --eg-text-on-brand: var(--eg-white);
+  --eg-text-on-brand-muted: var(--eg-on-brand-strong);
+
+  --eg-surface-root: var(--eg-slate-50);
+  --eg-surface-card: var(--eg-white);
+  --eg-surface-secondary: var(--eg-slate-100);
+  --eg-surface-tertiary: var(--eg-slate-200);
+  --eg-border: var(--eg-slate-200);
+
+  --eg-success: var(--eg-green-500);
+  --eg-warning: var(--eg-amber-500);
+  --eg-destructive: var(--eg-red-500);
+
+  --eg-brand-gradient: linear-gradient(135deg, var(--eg-blue-600) 0%, var(--eg-blue-700) 55%, var(--eg-blue-900) 100%);
+  --eg-icon-default: var(--eg-slate-500);
+  --eg-icon-active: var(--eg-blue-600);
+}
+
+.eg-dark {
+  --eg-primary: var(--eg-blue-500);
+  --eg-text-primary: var(--eg-slate-50);
+  --eg-text-secondary: var(--eg-slate-400);
+  --eg-text-link: var(--eg-blue-500);
+  --eg-surface-root: var(--eg-slate-900);
+  --eg-surface-card: var(--eg-slate-800);
+  --eg-surface-secondary: var(--eg-slate-700);
+  --eg-surface-tertiary: #475569;
+  --eg-border: var(--eg-slate-700);
+  --eg-icon-active: var(--eg-blue-500);
+}
+
+a { color: var(--eg-text-link); text-decoration: none; }
+a:hover { color: var(--eg-blue-700); text-decoration: underline; }

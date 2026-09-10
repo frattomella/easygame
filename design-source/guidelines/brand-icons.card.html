@@ -1,0 +1,17 @@
+<!-- @dsCard group="Brand" viewport="700x190" name="Iconography" subtitle="Ionicons — outline for metadata, filled for navigation and state" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css"><style>body{margin:0;padding:20px;background:var(--eg-surface-card);font-family:var(--eg-font-brand);color:var(--eg-text-primary)}.g{display:flex;gap:18px;flex-wrap:wrap}.lbl{font:var(--eg-text-caption);color:var(--eg-text-secondary);text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px}.i{display:inline-block;width:24px;height:24px;background:currentColor;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain}</style></head>
+<body>
+<div class="lbl">Outline · 16–20px · secondary grey</div>
+<div class="g" style="margin-bottom:16px;color:var(--eg-text-secondary)" id="outline"></div>
+<div class="lbl">Filled · 24px · navigation and state</div>
+<div class="g" id="filled"></div>
+<script>
+const BASE="../assets/icons/";
+const add=(host,name,color)=>{const s=document.createElement("span");s.className="i";s.style.maskImage=s.style.webkitMaskImage="url("+BASE+name+".svg)";if(color)s.style.color=color;host.appendChild(s)};
+["location-outline","people-outline","time-outline","calendar-outline","barbell-outline","search-outline","notifications-outline","chevron-forward-outline"].forEach(n=>add(document.getElementById("outline"),n));
+["home","fitness","football","people","person"].forEach(n=>add(document.getElementById("filled"),n,"var(--eg-primary)"));
+add(document.getElementById("filled"),"checkmark-circle","var(--eg-success)");
+add(document.getElementById("filled"),"close-circle","var(--eg-destructive)");
+add(document.getElementById("filled"),"ellipse-outline","var(--eg-text-secondary)");
+</script>
+</body></html>

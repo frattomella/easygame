@@ -1,0 +1,37 @@
+<!-- @dsCard group="Signature" viewport="700x270" name="2 · Athlete Row" subtitle="Number tile · name · role · state · ring toggle" -->
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+body{margin:0;padding:18px;font-family:var(--eg-font-brand);color:var(--eg-ink);background:var(--eg-floodlight-a),var(--eg-floodlight-b),linear-gradient(135deg,#0b1a3a 0%,#12265a 36%,#e9eefa 60%,#f3f5fc 100%);min-height:100vh;box-sizing:border-box}
+.wrap{display:grid;grid-template-columns:1.1fr .9fr;gap:18px;align-items:start}
+.spec{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font:500 11px/16px var(--eg-font-brand);color:var(--eg-ink-muted);background:rgba(255,255,255,.55);border:1px solid var(--eg-glass-border);border-radius:var(--eg-corner-sm);padding:12px 14px;box-shadow:var(--eg-highlight-top)}
+.spec b{font-weight:700;color:var(--eg-ink);text-transform:uppercase;letter-spacing:.08em;font-size:10px}
+.lbl{font:var(--eg-text-eyebrow);letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.72);margin:0 0 8px}
+.i{display:inline-block;background:currentColor;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:center;mask-position:center;-webkit-mask-size:contain;mask-size:contain;flex:0 0 auto}
+.glass{background:var(--eg-glass-bg);backdrop-filter:var(--eg-glass-blur);border:1px solid var(--eg-glass-border);border-radius:var(--eg-corner);box-shadow:var(--eg-highlight-top),var(--eg-shadow-glass);position:relative;overflow:hidden}
+.stripe{position:absolute;top:0;left:22px;right:22px;height:3px;border-radius:0 0 3px 3px}
+.pill{display:inline-flex;align-items:center;gap:5px;font:700 10px/1 var(--eg-font-brand);letter-spacing:.08em;text-transform:uppercase;padding:4px 8px 4px 7px;border-radius:999px;box-shadow:var(--eg-highlight-top);border:1px solid}
+.pill i{width:7px;height:7px;border-radius:50%;border:2px solid;box-sizing:border-box}
+.tile{width:44px;height:44px;border-radius:var(--eg-corner-sm);display:flex;align-items:center;justify-content:center;font:800 18px/1 var(--eg-font-brand);letter-spacing:-.03em;color:#fff;border:1px solid rgba(255,255,255,.28);box-shadow:var(--eg-highlight-top-dark);flex:0 0 auto}
+.ring{width:28px;height:28px;border-radius:50%;border:2px solid rgba(11,26,58,.22);background:rgba(255,255,255,.6);box-shadow:var(--eg-highlight-top);flex:0 0 auto;display:flex;align-items:center;justify-content:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;height:52px;padding:0 20px;border-radius:var(--eg-corner-sm);font:700 15px/1 var(--eg-font-brand);color:#fff;background:var(--eg-grad-action);border:1px solid rgba(255,255,255,.28);box-shadow:var(--eg-highlight-top-dark),var(--eg-glow-primary)}
+.btn .chip{width:30px;height:30px;border-radius:var(--eg-corner-xs);background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;box-shadow:var(--eg-highlight-top-dark)}
+</style></head><body><div class="wrap"><div><div class="lbl">Unselected · present · called-up · disabled</div><div style="display:flex;flex-direction:column;gap:8px">
+
+<div style="display:flex;align-items:center;gap:12px;padding:10px 12px 10px 10px;min-height:64px;background:var(--eg-glass-bg);backdrop-filter:var(--eg-glass-blur);border:1px solid var(--eg-glass-border);border-radius:var(--eg-corner-sm);box-shadow:var(--eg-highlight-top),0 2px 8px rgba(11,26,58,.06);">
+ <div class="tile" style="background:var(--eg-grad-navy);">9</div>
+ <div style="flex:1"><div style="font:700 15px/20px var(--eg-font-brand);letter-spacing:-.01em">Marco Rossi</div><div style="font:500 12px/16px var(--eg-font-brand);color:var(--eg-ink-faint)">Attaccante <span style="color:var(--eg-ink-muted);font-weight:600;margin-left:6px">Assente</span></div></div>
+ <div class="ring" style=""></div></div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 12px 10px 10px;min-height:64px;background:var(--eg-glass-bg-strong);backdrop-filter:var(--eg-glass-blur);border:1px solid rgba(34,197,94,.4);border-radius:var(--eg-corner-sm);box-shadow:var(--eg-highlight-top),0 2px 8px rgba(11,26,58,.06);">
+ <div class="tile" style="background:var(--eg-grad-success);;box-shadow:var(--eg-highlight-top-dark),var(--eg-glow-success)">4</div>
+ <div style="flex:1"><div style="font:700 15px/20px var(--eg-font-brand);letter-spacing:-.01em">Luca Bianchi</div><div style="font:500 12px/16px var(--eg-font-brand);color:var(--eg-ink-faint)">Difensore <span style="color:#15803d;font-weight:600;margin-left:6px">Presente</span></div></div>
+ <div class="ring" style="border-color:#22c55e;background:#22c55e;box-shadow:0 0 0 4px #22c55e26"><span class="i" data-n="checkmark" style="width:16px;height:16px;color:#fff"></span></div></div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 12px 10px 10px;min-height:64px;background:var(--eg-glass-bg-strong);backdrop-filter:var(--eg-glass-blur);border:1px solid rgba(37,99,235,.4);border-radius:var(--eg-corner-sm);box-shadow:var(--eg-highlight-top),0 2px 8px rgba(11,26,58,.06);">
+ <div class="tile" style="background:var(--eg-grad-action);;box-shadow:var(--eg-highlight-top-dark),var(--eg-glow-primary)">7</div>
+ <div style="flex:1"><div style="font:700 15px/20px var(--eg-font-brand);letter-spacing:-.01em">Simone Greco</div><div style="font:500 12px/16px var(--eg-font-brand);color:var(--eg-ink-faint)">Centrocampista <span style="color:#1d4ed8;font-weight:600;margin-left:6px">Convocato</span></div></div>
+ <div class="ring" style="border-color:#2563eb;background:#2563eb;box-shadow:0 0 0 4px #2563eb26"><span class="i" data-n="checkmark" style="width:16px;height:16px;color:#fff"></span></div></div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 12px 10px 10px;min-height:64px;background:var(--eg-glass-bg);backdrop-filter:var(--eg-glass-blur);border:1px solid var(--eg-glass-border);border-radius:var(--eg-corner-sm);box-shadow:var(--eg-highlight-top),0 2px 8px rgba(11,26,58,.06);opacity:.55">
+ <div class="tile" style="background:rgba(11,26,58,.08);color:var(--eg-ink-faint);border-color:var(--eg-hairline);box-shadow:var(--eg-highlight-top)">1</div>
+ <div style="flex:1"><div style="font:700 15px/20px var(--eg-font-brand);letter-spacing:-.01em">Davide Conti</div><div style="font:500 12px/16px var(--eg-font-brand);color:var(--eg-ink-faint)">Portiere <span style="color:var(--eg-ink-muted);font-weight:600;margin-left:6px">Infortunato</span></div></div>
+ <div class="ring" style=""></div></div>
+</div></div>
+<div class="spec"><b>structure</b><span>44px number tile · name / role · state word · 28px ring</span><b>surface</b><span>glass 74% → 88% when selected</span><b>border</b><span>1px white 70% → 1px accent 40% when selected</span><b>radius</b><span>14 / 14 / 5 / 14</span><b>shadow</b><span>inset highlight · selected: 0 8px 22px −10px accent 50%</span><b>icons</b><span>tile = jersey number 18/800; ring check 16px white</span><b>type</b><span>name 15/700 · role 12/500 ink 42% · state 12/600</span><b>active</b><span>tile → green (present) or action gradient (called-up); ring fills + 4px halo</span><b>pressed</b><span>whole row scale 0.985</span><b>disabled</b><span>tile muted 8% ink · row 55% · no tap</span></div></div><script>document.querySelectorAll('.i[data-n]').forEach(function(e){var u='url(../assets/icons/'+e.getAttribute('data-n')+'.svg)';e.style.maskImage=u;e.style.webkitMaskImage=u;});</script></body></html>

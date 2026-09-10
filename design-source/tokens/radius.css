@@ -1,0 +1,11 @@
+/* theme.ts `BorderRadius`. Cards are md (12px); heroes and sheets 2xl (24px). */
+:root {
+  --eg-radius-xs: 6px;
+  --eg-radius-sm: 8px;
+  --eg-radius-md: 12px;
+  --eg-radius-lg: 16px;
+  --eg-radius-xl: 20px;
+  --eg-radius-2xl: 24px;
+  --eg-radius-3xl: 32px;
+  --eg-radius-full: 9999px;
+}

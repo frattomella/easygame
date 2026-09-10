@@ -1,0 +1,11 @@
+/* Brand webfont. No binaries were supplied with the brand kit — Poppins is loaded
+   from Google Fonts (the kit's palette-font sheet names Poppins explicitly).
+   The shipped React Native app renders with platform system fonts; Poppins is the
+   brand/marketing + design-system face. */
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
+
+:root {
+  --eg-font-brand: "Poppins", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --eg-font-system: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --eg-font-mono: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}

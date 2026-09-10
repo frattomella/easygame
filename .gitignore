@@ -81,3 +81,16 @@ node_modules
 
 # Build di verifica su una copia di lavoro condivisa (NEXT_DIST_DIR).
 .next-*
+
+# Export del design system (Claude Design) per la mobile app: si tengono in
+# repo solo le parti testuali (tokens, componenti, guidelines, ui_kits,
+# readme/manifest) — vedi docs/knowledge-base/05-mobile-architecture.md.
+# Il resto e materiale binario di anteprima, rigenerabile dallo strumento e
+# non necessario allo sviluppo (niente illustrazioni in questa app, icone
+# gia vendorizzate via @expo/vector-icons).
+design-source/assets/
+design-source/uploads/
+design-source/*.html
+design-source/_ds_bundle.js
+design-source/.thumbnail
+design-source/_adherence.oxlintrc.json

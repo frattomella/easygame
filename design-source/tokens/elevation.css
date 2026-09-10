@@ -1,0 +1,9 @@
+/* theme.ts `Shadows` (web branch) + the floating tab bar shadow from MainTabNavigator. */
+:root {
+  --eg-shadow-card: 0px 2px 8px rgba(0, 0, 0, 0.08);
+  --eg-shadow-card-large: 0px 4px 12px rgba(0, 0, 0, 0.12);
+  --eg-shadow-tabbar: 0px 14px 20px rgba(2, 6, 23, 0.24);
+  --eg-border-width: 1px;
+  --eg-border-width-input: 1.5px;
+  --eg-border-width-accent: 4px; /* Card leftBorderColor */
+}

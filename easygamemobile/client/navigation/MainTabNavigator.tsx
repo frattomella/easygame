@@ -7,9 +7,8 @@ import TrainingsStackNavigator from "@/navigation/TrainingsStackNavigator";
 import MatchesStackNavigator from "@/navigation/MatchesStackNavigator";
 import AthletesStackNavigator from "@/navigation/AthletesStackNavigator";
 import ProfileStackNavigator from "@/navigation/ProfileStackNavigator";
-import { EasyGameGradientBackground } from "@/components/EasyGameGradientBackground";
+import { Dock } from "@/components/signature/Dock";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { BorderRadius, Spacing } from "@/constants/theme";
 
 export type MainTabParamList = {
   HomeTab: undefined;
@@ -52,37 +51,17 @@ export default function MainTabNavigator() {
   return (
     <Tab.Navigator
       initialRouteName={initialRouteName}
+      /*
+        **La chrome e la sola cosa che cambia qui.** `Dock` (design system,
+        pattern «Floating Dock») sostituisce `tabBarStyle`/`tabBarBackground`
+        con il guscio dark-glass e il puck a gradiente: nessuna delle
+        `Tab.Screen` qui sotto, ne la logica di visibilita per permesso, e
+        stata toccata. `Dock` legge il nome dell'icona dallo stesso
+        `tabBarIcon` che ogni schermata gia dichiara — non esiste una
+        seconda tabella di icone da tenere allineata a questa.
+      */
+      tabBar={(props) => <Dock {...props} />}
       screenOptions={{
-        tabBarActiveTintColor: "#FFFFFF",
-        tabBarInactiveTintColor: "rgba(255,255,255,0.64)",
-        tabBarStyle: {
-          position: "absolute",
-          backgroundColor: "transparent",
-          borderTopWidth: 0,
-          elevation: 0,
-          height: 76,
-          left: Spacing.xl + Spacing.xs,
-          right: Spacing.xl + Spacing.xs,
-          bottom: Spacing.lg + 2,
-          borderRadius: BorderRadius.full,
-          paddingTop: Spacing.xs,
-          paddingBottom: Spacing.xs,
-          shadowColor: "#020617",
-          shadowOffset: { width: 0, height: 14 },
-          shadowOpacity: 0.24,
-          shadowRadius: 20,
-          overflow: "hidden",
-        },
-        tabBarBackground: () => (
-          <EasyGameGradientBackground
-            radius={BorderRadius.full}
-            overlayOpacity={0.08}
-          />
-        ),
-        tabBarLabelStyle: {
-          fontSize: 10,
-          fontWeight: "700",
-        },
         headerShown: false,
       }}
     >

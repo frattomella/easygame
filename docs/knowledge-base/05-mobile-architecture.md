@@ -23,6 +23,119 @@ TanStack Query 5 · expo-secure-store**. TypeScript `~5.9`.
 > Il mobile e **escluso** dal `tsconfig.json` e dal `.vercelignore` della Web
 > App. Non viene mai compilato ne deployato insieme al Web.
 
+## Design system mobile
+
+**Source design version**: Claude Design, namespace
+`EasyGameDesignSystem_845326`, ultimo sync dichiarato **2026-09-09**
+(`design-source/github.md`). E l'unico export di design presente nel
+repository — nessuna versione precedente con cui confrontarlo — verificato
+prima di scrivere UI nuova, come richiesto: `design-source/readme.md`
+descrive per intero il linguaggio visivo ("floodlit pitch": cielo notturno
+navy a due riflettori, superfici in vetro smerigliato, angolo firmato a tre
+raggi e un taglio, gradiente unico per "agisci qui", eyebrow tracciato su
+display compatto). Riguarda **solo** la mobile app: "nothing here was
+derived from [the web dashboard], and no web UI is defined" (readme.md) — la
+dashboard Web non e stata ne consultata ne modificata per questo lavoro.
+
+**Implementation version**: 2026-09-10, parziale — vedi sotto cosa e stato
+portato e cosa no. Il codice sorgente del design system (CSS, JSX, HTML di
+anteprima) vive in `design-source/` alla radice del repository, escluse le
+parti binarie non necessarie (illustrazioni — l'app non ne usa — icone gia
+vendorizzate via `@expo/vector-icons`, l'HTML di anteprima offline, il
+bundle compilato dello strumento): sono elencate in `.gitignore` con la
+motivazione.
+
+### Come si usa
+
+I token vivono in `client/constants/theme.ts`, sotto il namespace `EG*`
+(`EGColors`, `EGInk`, `EGGlass`, `EGCorner`, `EGGradients`, `EGShadow`,
+`EGTypography`) — **additivo**: `Colors`/`Spacing`/`BorderRadius`/
+`Typography` esistenti non cambiano, e ogni schermata che li usa gia
+continua a funzionare senza modifiche. I componenti vivono in
+`client/components/signature/` (barrel: `index.ts`), **fratelli** dei
+componenti in `client/components/*`, non sostituti: `Button`/`Card`/`Badge`
+restano quelli che le schermate esistenti gia usano.
+
+| Componente firma | File | Da (design-source) |
+|---|---|---|
+| `GlassSurface` / `GlassCard` | `signature/GlassSurface.tsx`, `GlassCard.tsx` | `components/core/Card.jsx` |
+| `GradientFill` | `signature/GradientFill.tsx` | pattern gia in `EasyGameGradientBackground.tsx`, generalizzato ai 6 gradienti di `EGGradients` |
+| `SignatureText` | `signature/SignatureText.tsx` | `components/core/Text.jsx` |
+| `IconChip` | `signature/IconChip.tsx` | `components/core/IconChip.jsx` |
+| `StatusPill` | `signature/StatusPill.tsx` | `components/core/Badge.jsx` |
+| `ActionButton` | `signature/ActionButton.tsx` | `components/core/Button.jsx` |
+| `MetaRow` | `signature/MetaRow.tsx` | `components/patterns/MetaRow.jsx` |
+| `Floodlight` | `signature/Floodlight.tsx` | `components/brand/Floodlight.jsx` |
+| `AppBar` | `signature/AppBar.tsx` | `components/brand/AppBar.jsx` |
+| `Dock` | `signature/Dock.tsx` | `components/brand/TabBar.jsx` — **applicato**: e la chrome reale di `MainTabNavigator`, non solo disponibile |
+| `StateMessage` | `signature/StateMessage.tsx` | **estensione**, non nel design system: vedi sotto |
+
+Traduzione CSS → React Native (dove non e 1:1) documentata nel commento di
+testa di `theme.ts`: `border-radius` a quattro valori diventa quattro
+proprieta separate (`EGCorner`), `backdrop-filter: blur()` diventa
+`expo-blur`'s `BlurView` dietro un overlay tinteggiato (gia dipendenza del
+progetto), i gradienti passano da CSS a `react-native-svg`
+`LinearGradient`/`RadialGradient` (gia dipendenza, stesso pattern che
+`EasyGameGradientBackground.tsx` usava solo per il gradiente di marca).
+
+### Estensione dichiarata: `StateMessage`
+
+Il design system non definisce una superficie per loading/vuoto-reale/
+accesso-negato/errore-di-rete — solo un `EmptyState` con uno slot per
+illustrazione (inutilizzato qui: "no illustrations" e un requisito
+dell'app). `StateMessage` e un'estensione nello stesso linguaggio (icon
+chip, eyebrow, testo muto, un'azione opzionale) pensata per non ripetere il
+difetto della dashboard Web dove un 403/500 diventa una lista vuota
+indistinguibile (vedi il report di audit Identity & Access). Non e nel
+namespace del design system originale — dichiarato qui, non presentato come
+se lo fosse.
+
+### Cosa non e stato portato (gap dichiarati, non dimenticanze)
+
+- **Poppins**: nessun binario di font fornito col design system e nessuno
+  gia caricato nell'app (`@expo-google-fonts/nunito` e una dipendenza
+  presente ma **mai usata** — debito preesistente, non toccato). `theme.ts`
+  usa lo stack di sistema esistente con i soli pesi/spaziature del design
+  system. Caricare un Google Font e una decisione a se (nuova dipendenza +
+  passo di caricamento in `App.tsx`), non un effetto collaterale di questo
+  WP.
+- **Linee del campo** (`repeating-linear-gradient` sullo sfondo cielo):
+  richiederebbero un pattern SVG piastrellato per un dettaglio a peso visivo
+  minimo su schermo telefono. `Floodlight` riproduce il gradiente navy e i
+  due riflettori, non le righe.
+- **Componenti non ancora portati**: `NumberTile`, `SelectableAthleteRow`,
+  `EventCard`, `SectionHero`, `StatCard`, `HighlightCard` — servono a
+  ridisegnare Allenamenti/Gare/Home (numero di maglia, riga atleta
+  selezionabile, la card evento con la rotaia oraria), che restano
+  **invariate** in questo giro (vedi sotto). Arriveranno quando quelle
+  schermate verranno riprese.
+- **Dark mode**: i token esistono (`.eg-dark` lato CSS) ma senza schede di
+  esempio nel design system stesso; non modellato lato RN.
+
+### Perche solo il Dock e stato applicato, non le altre quattro tab
+
+Le schermate Trainer esistenti (Home, Allenamenti, Gare, Atleti) restano sul
+linguaggio visivo attuale — sfondo piatto, `Card`/`Button`/`Badge` esistenti
+— **non ridisegnate in questo giro**: la richiesta di WP2 e la foundation
+"per le schermate nuove", e ridisegnare quattro schermate gia funzionanti e
+un lavoro a se, con un suo rischio di regressione. Il Dock (guscio delle tab,
+non le schermate che contiene) e stata l'unica eccezione: e chrome
+condiviso, non contenuto di schermata, appare su **ogni** schermata Trainer
+per definizione, ed e uno dei sei elementi che il design system dichiara
+riconoscibili "su ogni schermata" — il beneficio di applicarlo era immediato
+e il rischio contenuto (la logica di visibilita per permesso e la mappa
+`tabBarIcon` non sono state toccate, solo la chrome attorno).
+
+Conseguenza intenzionale: le **cinque sezioni nuove** di WP3 (Bacheca,
+Documenti, Appuntamenti, Compensi, Squadre) usano il linguaggio nuovo per
+intero (`Floodlight` + `AppBar` + `GlassCard`), raggiunte da un hub in
+Profilo — sono internamente coerenti fra loro, le quattro tab primarie sono
+internamente coerenti fra loro, e la sola transizione visibile e nel passare
+dalle une alle altre. E un rollout incrementale dichiarato, non
+un'incoerenza sfuggita: la stessa `docs/knowledge-base/10-ui-ux-conventions.md`
+andra aggiornata quando il reskin delle quattro tab primarie verra
+programmato.
+
 ## Stato attuale: Trainer completo, Parent segnaposto, gate su tutto il resto
 
 Il navigator root (`client/navigation/RootStackNavigator.tsx`) e il **solo**

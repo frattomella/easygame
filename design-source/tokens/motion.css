@@ -1,0 +1,11 @@
+/* The app animates with react-native-reanimated springs (damping 15, mass 0.3,
+   stiffness 150, overshootClamping) — on the web the closest usable equivalent is a
+   short, non-bouncy ease-out. Press feedback is a scale, never a colour change. */
+:root {
+  --eg-duration-press: 120ms; /* @kind other */
+  --eg-duration-fast: 180ms; /* @kind other */
+  --eg-duration-enter: 600ms; /* @kind other */ /* FadeInDown entrances on Login */
+  --eg-ease-spring: cubic-bezier(0.2, 0.9, 0.25, 1); /* @kind other */
+  --eg-press-scale-button: 0.97; /* @kind other */
+  --eg-press-scale-card: 0.98; /* @kind other */
+}

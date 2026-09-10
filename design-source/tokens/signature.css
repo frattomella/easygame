@@ -1,0 +1,66 @@
+/* EasyGame signature layer — the proprietary visual language.
+   Everything recognisable about an EasyGame screen is declared here:
+   the night-sky/pitch layered background, frosted glass surfaces, the cut
+   "signature corner", inner highlights, action gradient and the dock. */
+:root {
+  /* Navy depth ramp (the "night sky" behind every screen) */
+  --eg-navy-950: #07122b;
+  --eg-navy-900: #0b1a3a;
+  --eg-navy-800: #12265a;
+  --eg-navy-700: #1b3576;
+  --eg-mist-50: #f3f5fc;  /* the "pitch" — light ground below the horizon */
+  --eg-mist-100: #e9eefa;
+
+  /* Signature corner: three soft corners, one cut (bottom-right) — echoes the bar of the "e" mark */
+  --eg-corner: 22px 22px 8px 22px;       /* @kind radius */
+  --eg-corner-sm: 14px 14px 5px 14px;    /* @kind radius */
+  --eg-corner-xs: 10px 10px 4px 10px;    /* @kind radius */
+  --eg-corner-pill: 999px;               /* @kind radius */
+
+  /* Glass surfaces */
+  --eg-glass-bg: rgba(255, 255, 255, 0.74);
+  --eg-glass-bg-strong: rgba(255, 255, 255, 0.88);
+  --eg-glass-border: rgba(255, 255, 255, 0.7);
+  --eg-glass-dark-bg: rgba(11, 26, 58, 0.72);
+  --eg-glass-dark-border: rgba(255, 255, 255, 0.14);
+  --eg-glass-blur: blur(18px) saturate(1.4); /* @kind other */
+  --eg-hairline: rgba(11, 26, 58, 0.08);
+  --eg-hairline-strong: rgba(11, 26, 58, 0.14);
+
+  /* Inner highlights + premium shadows */
+  --eg-highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.85); /* @kind shadow */
+  --eg-highlight-top-dark: inset 0 1px 0 rgba(255, 255, 255, 0.18); /* @kind shadow */
+  --eg-shadow-glass: 0 12px 32px -10px rgba(11, 26, 58, 0.28), 0 2px 6px rgba(11, 26, 58, 0.06);
+  --eg-shadow-glass-raised: 0 22px 48px -14px rgba(11, 26, 58, 0.38), 0 4px 10px rgba(11, 26, 58, 0.08);
+  --eg-shadow-dock: 0 20px 44px -12px rgba(7, 18, 43, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  --eg-glow-primary: 0 10px 26px -8px rgba(37, 99, 235, 0.65);
+  --eg-glow-success: 0 10px 26px -8px rgba(34, 197, 94, 0.55);
+  --eg-glow-destructive: 0 10px 26px -8px rgba(239, 68, 68, 0.55);
+
+  /* Controlled gradients */
+  --eg-grad-action: linear-gradient(135deg, #3b82f6 0%, #2563eb 48%, #3533cd 100%); /* @kind color */
+  --eg-grad-success: linear-gradient(135deg, #34d399 0%, #22c55e 50%, #15803d 100%); /* @kind color */
+  --eg-grad-destructive: linear-gradient(135deg, #f87171 0%, #ef4444 55%, #b91c1c 100%); /* @kind color */
+  --eg-grad-navy: linear-gradient(160deg, #1b3576 0%, #0b1a3a 100%); /* @kind color */
+  --eg-grad-match: linear-gradient(135deg, #fb923c 0%, #f97316 55%, #c2410c 100%); /* @kind color */
+  --eg-grad-sky: linear-gradient(180deg, #07122b 0%, #0b1a3a 55%, #12265a 100%); /* @kind color */
+  --eg-floodlight-a: radial-gradient(70% 55% at 12% -10%, rgba(59, 130, 246, 0.65), transparent 70%); /* @kind color */
+  --eg-floodlight-b: radial-gradient(55% 45% at 95% 10%, rgba(53, 51, 205, 0.6), transparent 70%); /* @kind color */
+  --eg-pitch-lines: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 28px); /* @kind color */
+
+  /* Eyebrow / tech label */
+  --eg-text-eyebrow: 700 11px/16px var(--eg-font-brand);
+  --eg-tracking-eyebrow: 0.12em; /* @kind other */
+  --eg-tracking-display: -0.02em; /* @kind other */
+  --eg-text-display: 800 26px/30px var(--eg-font-brand);
+
+  /* Ink on the two grounds */
+  --eg-ink: var(--eg-navy-900);
+  --eg-ink-muted: rgba(11, 26, 58, 0.62);
+  --eg-ink-faint: rgba(11, 26, 58, 0.42);
+  --eg-ink-on-dark: #ffffff;
+  --eg-ink-on-dark-muted: rgba(255, 255, 255, 0.72);
+  --eg-ink-on-dark-faint: rgba(255, 255, 255, 0.5);
+
+  --eg-sky-height: 300px;
+}
