@@ -33,6 +33,8 @@ export { SecondaryScreenLayout } from "@/components/signature/SecondaryScreenLay
 export { SignatureInput } from "@/components/signature/SignatureInput";
 export { NumberTile } from "@/components/signature/NumberTile";
 export type { NumberTileTone } from "@/components/signature/NumberTile";
+export { SelectableAthleteRow } from "@/components/signature/SelectableAthleteRow";
+export type { SelectableAthleteRowAccent } from "@/components/signature/SelectableAthleteRow";
 export { BottomSheet } from "@/components/signature/BottomSheet";
 export { ChildSwitcher } from "@/components/signature/ChildSwitcher";
 export { ParentPrimaryScreenLayout } from "@/components/signature/ParentPrimaryScreenLayout";

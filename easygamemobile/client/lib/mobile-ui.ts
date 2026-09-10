@@ -100,6 +100,38 @@ export const formatTimeRange = (start?: string | null, end?: string | null) => {
   return start || end || "Orario da definire";
 };
 
+/**
+ * `SelectableAthleteRow`/`NumberTile` caption (design-source
+ * `guidelines/trainer-migration.md` step 4: "3-letter role caption").
+ * `athlete.position` is free text set by the club, not a fixed enum — this
+ * is a display abbreviation only, never a source of truth for role logic.
+ * Unrecognised or empty values fall back to the first three letters rather
+ * than hiding the caption.
+ */
+export const getAthletePositionCaption = (position?: string | null) => {
+  const normalized = String(position || "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.startsWith("por")) {
+    return "POR";
+  }
+  if (normalized.startsWith("dif")) {
+    return "DIF";
+  }
+  if (normalized.startsWith("cen") || normalized.startsWith("mediano")) {
+    return "CEN";
+  }
+  if (normalized.startsWith("att")) {
+    return "ATT";
+  }
+
+  return normalized.slice(0, 3).toUpperCase();
+};
+
 export const getClubInitials = (value?: string | null) => {
   const parts = String(value || "EasyGame")
     .trim()

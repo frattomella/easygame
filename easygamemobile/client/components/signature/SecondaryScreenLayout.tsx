@@ -1,5 +1,11 @@
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+  RefreshControlProps,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 
@@ -15,14 +21,30 @@ interface SecondaryScreenLayoutProps {
   /** Default: `navigation.goBack()`. Passa `false` per non mostrare il pulsante indietro. */
   onBack?: (() => void) | false;
   scrollable?: boolean;
+  /**
+   * Altezza del cielo del `Floodlight`. Default 300 (schermate senza hero).
+   * Le quattro tab Trainer primarie (WP10) aprono un `SectionHero` sotto
+   * l'AppBar e chiedono 330–360px — vedi
+   * `design-source/guidelines/trainer-migration.md`.
+   */
+  skyHeight?: number;
+  /**
+   * Notification bell in the AppBar's right slot, alongside — not instead
+   * of — the back arrow (`AppBar` renders both). WP10: the four Trainer
+   * primary tabs have no back arrow but keep the bell the old native
+   * header gave them.
+   */
+  onNotifications?: () => void;
+  notificationCount?: number;
+  /** Passed straight through to the scrollable content's `refreshControl` — ignored when `scrollable` is `false`. */
+  refreshControl?: React.ReactElement<RefreshControlProps>;
 }
 
 /**
  * Il guscio comune delle cinque sezioni nuove (Bacheca, Documenti,
- * Appuntamenti, Compensi, Squadre): `Floodlight` + `AppBar` con freccia
- * indietro, contenuto scorrevole sotto. Non e usato dalle quattro tab
- * primarie — vedi la nota in `docs/knowledge-base/05-mobile-architecture.md`
- * sul perche il reskin si e fermato qui in questo giro.
+ * Appuntamenti, Compensi, Squadre) e, da WP10, delle quattro tab Trainer
+ * primarie: `Floodlight` + `AppBar` (con freccia indietro solo dove serve),
+ * contenuto scorrevole sotto.
  */
 export function SecondaryScreenLayout({
   title,
@@ -30,6 +52,10 @@ export function SecondaryScreenLayout({
   children,
   onBack,
   scrollable = true,
+  skyHeight = 300,
+  onNotifications,
+  notificationCount = 0,
+  refreshControl,
 }: SecondaryScreenLayoutProps) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
@@ -40,11 +66,13 @@ export function SecondaryScreenLayout({
   const Content = scrollable ? ScrollView : View;
 
   return (
-    <Floodlight>
+    <Floodlight skyHeight={skyHeight}>
       <View style={{ paddingTop: insets.top + Spacing.sm }}>
         <AppBar
           title={title}
           eyebrow={eyebrow}
+          onNotifications={onNotifications}
+          notificationCount={notificationCount}
           right={
             handleBack ? (
               <Pressable onPress={handleBack}>
@@ -64,6 +92,7 @@ export function SecondaryScreenLayout({
               ]
             : undefined
         }
+        refreshControl={scrollable ? refreshControl : undefined}
       >
         {children}
       </Content>
