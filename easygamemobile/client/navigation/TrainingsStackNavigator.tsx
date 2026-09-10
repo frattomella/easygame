@@ -2,8 +2,6 @@ import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import TrainerTrainingsDashboardScreen from "@/screens/TrainerTrainingsDashboardScreen";
 import NotificationsScreen from "@/screens/NotificationsScreen";
-import { HeaderTitle } from "@/components/HeaderTitle";
-import { HeaderNotificationButton } from "@/components/HeaderNotificationButton";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type TrainingsStackParamList = {
@@ -13,6 +11,11 @@ export type TrainingsStackParamList = {
 
 const Stack = createNativeStackNavigator<TrainingsStackParamList>();
 
+/**
+ * `Trainings` e `Notifications` disegnano il proprio guscio con
+ * `SecondaryScreenLayout` (Floodlight + AppBar del design system, WP10):
+ * `headerShown: false` qui evita un secondo header sopra il loro.
+ */
 export default function TrainingsStackNavigator() {
   const screenOptions = useScreenOptions();
 
@@ -21,21 +24,12 @@ export default function TrainingsStackNavigator() {
       <Stack.Screen
         name="Trainings"
         component={TrainerTrainingsDashboardScreen}
-        options={({ navigation }) => ({
-          headerTitle: () => <HeaderTitle title="Allenamenti" />,
-          headerRight: () => (
-            <HeaderNotificationButton
-              onPress={() => navigation.navigate("Notifications")}
-            />
-          ),
-        })}
+        options={{ headerShown: false }}
       />
       <Stack.Screen
         name="Notifications"
         component={NotificationsScreen}
-        options={{
-          headerTitle: () => <HeaderTitle title="Notifiche" />,
-        }}
+        options={{ headerShown: false }}
       />
     </Stack.Navigator>
   );

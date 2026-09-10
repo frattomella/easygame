@@ -1,27 +1,33 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
-  Modal,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
+  TextInput,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { Ionicons } from "@expo/vector-icons";
-import { RouteProp, useFocusEffect, useRoute } from "@react-navigation/native";
+import {
+  RouteProp,
+  useFocusEffect,
+  useNavigation,
+  useRoute,
+} from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { addDays, format } from "date-fns";
 
-import { Avatar } from "@/components/Avatar";
-import { Badge } from "@/components/Badge";
-import { Button } from "@/components/Button";
-import { Card } from "@/components/Card";
-import { Input } from "@/components/Input";
-import { ThemedText } from "@/components/ThemedText";
+import {
+  ActionButton,
+  BottomSheet,
+  EventCard,
+  GlassCard,
+  SecondaryScreenLayout,
+  SectionHero,
+  SelectableAthleteRow,
+  SignatureText,
+  StateMessage,
+} from "@/components/signature";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { useTheme } from "@/hooks/useTheme";
 import {
   getMobileMedicalCertificateAvailability,
   getMobileMedicalCertificateAvailabilityLabel,
@@ -30,8 +36,10 @@ import { formatItalianDate } from "@/lib/mobile-ui";
 import { formatMobileMatchLocationLabel } from "@/lib/trainer-dashboard-utils";
 import { Athlete, Match } from "@/services/api";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { BorderRadius, Spacing } from "@/constants/theme";
+import { EGInk, Spacing } from "@/constants/theme";
 import { MatchesStackParamList } from "@/navigation/MatchesStackNavigator";
+
+type Navigation = NativeStackNavigationProp<MatchesStackParamList, "Matches">;
 
 type ConvocationDraftEntry = {
   athleteId: string;
@@ -49,11 +57,15 @@ const normalizeText = (value: unknown) =>
 const getTodayKey = () => format(new Date(), "yyyy-MM-dd");
 const getWeekEndKey = () => format(addDays(new Date(), 6), "yyyy-MM-dd");
 
+/**
+ * design-source `guidelines/trainer-migration.md` step 3 (WP10) — identica
+ * struttura ad Allenamenti, tre differenze: gradiente/icona gara, pillola
+ * categoria variante `match`, foglio convocazioni in blu senza orario di
+ * fine (le gare non ne hanno uno).
+ */
 export default function TrainerMatchesDashboardScreen() {
-  const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
   const route = useRoute<RouteProp<MatchesStackParamList, "Matches">>();
-  const { theme } = useTheme();
+  const navigation = useNavigation<Navigation>();
   const { trainerPermissions } = useAuthContext();
   const [matches, setMatches] = useState<Match[]>([]);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
@@ -225,338 +237,262 @@ export default function TrainerMatchesDashboardScreen() {
 
   const getMatchTitle = (match: Match) =>
     match.opponent || (match.isHome ? match.awayTeam : match.homeTeam);
+  const convocatedCount = convocationDraft.filter(
+    (entry) => entry.selected,
+  ).length;
 
-  const renderMatchCard = (match: Match) => (
-    <Card
-      key={match.id}
-      style={[
-        styles.matchCard,
-        focusedMatchId === match.id ? styles.focusedCard : null,
-      ]}
-    >
-      <View style={styles.topRow}>
-        <View style={{ flex: 1 }}>
-          <ThemedText type="body" style={styles.cardTitle}>
-            vs {getMatchTitle(match)}
-          </ThemedText>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {formatItalianDate(match.date)} · {match.time}
-          </ThemedText>
-        </View>
-        <Badge label={match.category || "Categoria"} small />
-      </View>
+  const renderMatchCard = (match: Match) => {
+    const focused = match.id === focusedMatchId;
+    const card = (
+      <EventCard
+        kind="match"
+        title={`vs ${getMatchTitle(match)}`}
+        time={match.time}
+        dateLabel={
+          match.date === today ? undefined : formatItalianDate(match.date)
+        }
+        pill={{ label: match.category || "Categoria", variant: "match" }}
+        meta={[
+          {
+            icon: "location-outline",
+            label: formatMobileMatchLocationLabel(match),
+          },
+          {
+            icon: "people-outline",
+            label: `${match.convokedCount ?? 0} convocati`,
+          },
+        ]}
+        footer={
+          canManageConvocations ? (
+            <ActionButton
+              size="sm"
+              onPress={() => openConvocationsSheet(match)}
+            >
+              Convocazioni
+            </ActionButton>
+          ) : undefined
+        }
+      />
+    );
 
-      <View style={styles.metaRow}>
-        <Ionicons
-          name="location-outline"
-          size={16}
-          color={theme.textSecondary}
-        />
-        <ThemedText type="small" style={{ color: theme.textSecondary }}>
-          {formatMobileMatchLocationLabel(match)}
-        </ThemedText>
+    return focused ? (
+      <View key={match.id} style={styles.focusedWrap}>
+        {card}
       </View>
-      <View style={styles.metaRow}>
-        <Ionicons name="people-outline" size={16} color={theme.textSecondary} />
-        <ThemedText type="small" style={{ color: theme.textSecondary }}>
-          {match.convokedCount ?? 0} convocati
-        </ThemedText>
-      </View>
+    ) : (
+      <View key={match.id}>{card}</View>
+    );
+  };
 
-      {canManageConvocations ? (
-        <Button
-          size="sm"
-          style={styles.actionButton}
-          onPress={() => openConvocationsSheet(match)}
-        >
-          Convocazioni
-        </Button>
-      ) : null}
-    </Card>
+  const renderGroup = (label: string, items: Match[], emptyLabel: string) => (
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <SignatureText variant="eyebrow" tone="faint">
+          {label}
+        </SignatureText>
+        <SignatureText variant="eyebrow" tone="faint">
+          {items.length}
+        </SignatureText>
+      </View>
+      {items.length > 0 ? (
+        <View style={styles.cardStack}>{items.map(renderMatchCard)}</View>
+      ) : (
+        <GlassCard>
+          <SignatureText variant="small" tone="muted">
+            {emptyLabel}
+          </SignatureText>
+        </GlassCard>
+      )}
+    </View>
   );
 
   return (
-    <>
-      <ScrollView
-        style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-        contentContainerStyle={{
-          paddingTop: Spacing.lg,
-          paddingBottom: tabBarHeight + insets.bottom + Spacing["4xl"],
-          paddingHorizontal: Spacing.lg,
-        }}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+    <SecondaryScreenLayout
+      title="Gare"
+      onBack={false}
+      skyHeight={340}
+      onNotifications={() => navigation.navigate("Notifications")}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      <SectionHero
+        icon="football"
+        eyebrow="PROGRAMMA GARE"
+        title={
+          todayMatches.length > 0
+            ? `${todayMatches.length} gar${todayMatches.length === 1 ? "a" : "e"} oggi`
+            : "Nessuna gara oggi"
         }
-      >
-        <View style={styles.sectionFirst}>
-          <Input
-            placeholder="Cerca gara, categoria, data o luogo..."
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            leftIcon="search-outline"
-            rightIcon={searchQuery ? "close-circle" : undefined}
-            onRightIconPress={() => setSearchQuery("")}
+        subtitle="Convocazioni, esito e calendario delle tue gare."
+        chips={[
+          { label: "oggi", value: String(todayMatches.length) },
+          {
+            label: "settimana",
+            value: String(todayMatches.length + weekMatches.length),
+          },
+        ]}
+      />
+
+      <View style={[styles.section, styles.sectionFirst]}>
+        <TextInput
+          placeholder="Cerca gara, categoria, data o luogo..."
+          placeholderTextColor={EGInk.onLightFaint}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          style={styles.searchInput}
+        />
+      </View>
+
+      {matches.length === 0 ? (
+        <View style={styles.section}>
+          <StateMessage
+            kind="empty"
+            tone="dark"
+            title="Nessuna gara"
+            message="Non hai ancora gare in calendario."
           />
         </View>
-
-        <View style={styles.sectionCompact}>
-          <ThemedText type="h4" style={styles.sectionTitle}>
-            Gare di oggi
-          </ThemedText>
-          {todayMatches.length > 0 ? (
-            todayMatches.map(renderMatchCard)
-          ) : (
-            <Card>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Nessuna gara registrata per oggi.
-              </ThemedText>
-            </Card>
+      ) : (
+        <>
+          {renderGroup(
+            "GARE DI OGGI",
+            todayMatches,
+            "Nessuna gara registrata per oggi.",
           )}
-        </View>
-
-        <View style={styles.section}>
-          <ThemedText type="h4" style={styles.sectionTitle}>
-            Gare della settimana
-          </ThemedText>
-          {weekMatches.length > 0 ? (
-            weekMatches.map(renderMatchCard)
-          ) : (
-            <Card>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Nessuna gara ulteriore in settimana.
-              </ThemedText>
-            </Card>
+          {renderGroup(
+            "GARE DELLA SETTIMANA",
+            weekMatches,
+            "Nessuna gara ulteriore in settimana.",
           )}
-        </View>
-
-        <View style={styles.section}>
-          <ThemedText type="h4" style={styles.sectionTitle}>
-            Gare programmate
-          </ThemedText>
-          {futureMatches.length > 0 ? (
-            futureMatches.map(renderMatchCard)
-          ) : (
-            <Card>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Nessuna gara nelle settimane successive.
-              </ThemedText>
-            </Card>
+          {renderGroup(
+            "GARE PROGRAMMATE",
+            futureMatches,
+            "Nessuna gara nelle settimane successive.",
           )}
-        </View>
-
-        <View style={styles.section}>
-          <ThemedText type="h4" style={styles.sectionTitle}>
-            Storico gare
-          </ThemedText>
-          {historyMatches.length > 0 ? (
-            historyMatches.map(renderMatchCard)
-          ) : (
-            <Card>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Nessuna gara in archivio.
-              </ThemedText>
-            </Card>
+          {renderGroup(
+            "STORICO GARE",
+            historyMatches,
+            "Nessuna gara in archivio.",
           )}
-        </View>
-      </ScrollView>
+        </>
+      )}
 
-      <Modal
+      <BottomSheet
         visible={Boolean(selectedMatch)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSelectedMatch(null)}
+        onClose={() => setSelectedMatch(null)}
+        accessibilityLabel="Convocazioni"
       >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setSelectedMatch(null)}
-        >
-          <Pressable
-            style={[
-              styles.modalCard,
-              { backgroundColor: theme.backgroundDefault },
-            ]}
-            onPress={(event) => event.stopPropagation()}
+        <SignatureText variant="eyebrow" tone="faint">
+          {selectedMatch ? `vs ${getMatchTitle(selectedMatch)}` : ""}
+        </SignatureText>
+        <SignatureText variant="h3" tone="ink" style={styles.sheetTitle}>
+          Convocazioni
+        </SignatureText>
+
+        {convocationDraft.length > 0 ? (
+          <ScrollView
+            style={styles.sheetList}
+            contentContainerStyle={styles.sheetListContent}
+            showsVerticalScrollIndicator
           >
-            <ThemedText type="h4" style={styles.modalTitle}>
-              Convocazioni gara
-            </ThemedText>
-            <ThemedText
-              type="small"
-              style={{ color: theme.textSecondary, marginBottom: Spacing.md }}
-            >
-              {selectedMatch ? `vs ${getMatchTitle(selectedMatch)}` : ""}
-            </ThemedText>
+            {convocationDraft.map((entry) => {
+              const availability = getMobileMedicalCertificateAvailability(
+                entry.medicalCertExpiry,
+              );
+              return (
+                <SelectableAthleteRow
+                  key={entry.athleteId}
+                  number={entry.number}
+                  name={entry.name}
+                  role={
+                    availability !== "valid"
+                      ? getMobileMedicalCertificateAvailabilityLabel(
+                          availability,
+                        )
+                      : undefined
+                  }
+                  accent="primary"
+                  selected={entry.selected}
+                  selectedLabel="Convocato"
+                  unselectedLabel="Non convocato"
+                  onPress={() => toggleConvocation(entry.athleteId)}
+                />
+              );
+            })}
+          </ScrollView>
+        ) : (
+          <StateMessage
+            kind="empty"
+            title="Nessun atleta"
+            message="Nessun atleta collegato a questa categoria."
+          />
+        )}
 
-            <ScrollView
-              style={styles.modalList}
-              contentContainerStyle={styles.convocationList}
-              showsVerticalScrollIndicator
-            >
-              {convocationDraft.length > 0 ? (
-                convocationDraft.map((entry) => (
-                  <Pressable
-                    key={entry.athleteId}
-                    style={[
-                      styles.convocationRow,
-                      {
-                        borderColor: entry.selected
-                          ? theme.primary
-                          : theme.border,
-                      },
-                    ]}
-                    onPress={() => toggleConvocation(entry.athleteId)}
-                  >
-                    <View style={styles.convocationInfo}>
-                      <Avatar
-                        name={entry.name}
-                        size={42}
-                        showNumber
-                        number={entry.number}
-                      />
-                      <View style={{ marginLeft: Spacing.md, flex: 1 }}>
-                        <View style={styles.nameWithWarning}>
-                          <ThemedText type="body" style={styles.cardTitle}>
-                            {entry.name}
-                          </ThemedText>
-                          {getMobileMedicalCertificateAvailability(
-                            entry.medicalCertExpiry,
-                          ) !== "valid" ? (
-                            <Ionicons
-                              name="warning-outline"
-                              size={18}
-                              color="#F59E0B"
-                            />
-                          ) : null}
-                        </View>
-                        <ThemedText
-                          type="small"
-                          style={{ color: theme.textSecondary }}
-                        >
-                          {entry.selected ? "Convocato" : "Non convocato"}
-                        </ThemedText>
-                        {getMobileMedicalCertificateAvailability(
-                          entry.medicalCertExpiry,
-                        ) !== "valid" ? (
-                          <ThemedText type="small" style={styles.medicalHint}>
-                            {getMobileMedicalCertificateAvailabilityLabel(
-                              getMobileMedicalCertificateAvailability(
-                                entry.medicalCertExpiry,
-                              ),
-                            )}
-                          </ThemedText>
-                        ) : null}
-                      </View>
-                    </View>
-                    <Ionicons
-                      name={
-                        entry.selected ? "checkmark-circle" : "ellipse-outline"
-                      }
-                      size={24}
-                      color={
-                        entry.selected ? theme.primary : theme.textSecondary
-                      }
-                    />
-                  </Pressable>
-                ))
-              ) : (
-                <Card>
-                  <ThemedText
-                    type="small"
-                    style={{ color: theme.textSecondary }}
-                  >
-                    Nessun atleta collegato a questa categoria.
-                  </ThemedText>
-                </Card>
-              )}
-            </ScrollView>
-
-            <View style={styles.modalButtons}>
-              <Button variant="ghost" onPress={() => setSelectedMatch(null)}>
-                Annulla
-              </Button>
-              <Button
-                onPress={() => void handleSaveConvocations()}
-                loading={convocationSaving}
-                disabled={convocationDraft.length === 0}
-              >
-                Salva convocazioni
-              </Button>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </>
+        <View style={styles.sheetActions}>
+          <ActionButton
+            variant="secondary"
+            onPress={() => setSelectedMatch(null)}
+          >
+            Annulla
+          </ActionButton>
+          <ActionButton
+            onPress={() => void handleSaveConvocations()}
+            loading={convocationSaving}
+            disabled={convocationDraft.length === 0}
+            trailingIcon="arrow-forward"
+          >
+            {`Convoca ${convocatedCount}`}
+          </ActionButton>
+        </View>
+      </BottomSheet>
+    </SecondaryScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  sectionFirst: { marginTop: Spacing.md },
-  sectionCompact: { marginTop: Spacing.lg },
-  section: { marginTop: Spacing["2xl"] },
-  sectionTitle: { marginBottom: Spacing.md },
-  matchCard: { marginBottom: Spacing.md },
-  focusedCard: {
+  section: {
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+  },
+  sectionFirst: {
+    marginTop: -32,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.sm,
+  },
+  cardStack: { gap: Spacing.md },
+  focusedWrap: {
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    borderBottomRightRadius: 8,
+    borderBottomLeftRadius: 22,
     borderWidth: 1.5,
-    borderColor: "#2563EB",
+    borderColor: "#F97316",
   },
-  topRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: Spacing.md,
-  },
-  cardTitle: { fontWeight: "700", marginBottom: 2 },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    marginTop: Spacing.sm,
-  },
-  actionButton: {
-    marginTop: Spacing.lg,
-    alignSelf: "flex-start",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(15,23,42,0.45)",
-    justifyContent: "center",
-    padding: Spacing.lg,
-  },
-  modalCard: {
-    borderRadius: BorderRadius["2xl"],
-    padding: Spacing["2xl"],
-    maxHeight: "84%",
-  },
-  modalTitle: { marginBottom: Spacing.xs },
-  modalList: { maxHeight: 360 },
-  convocationList: { gap: Spacing.sm, marginTop: Spacing.sm },
-  convocationRow: {
+  searchInput: {
+    minHeight: 48,
     borderWidth: 1,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    borderColor: "rgba(11,26,58,0.14)",
+    backgroundColor: "rgba(255,255,255,0.88)",
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 5,
+    borderBottomLeftRadius: 14,
+    paddingHorizontal: Spacing.md,
+    fontSize: 15,
+    color: EGInk.onLight,
   },
-  convocationInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  nameWithWarning: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-  },
-  medicalHint: {
-    color: "#D97706",
-    marginTop: 2,
-  },
-  modalButtons: {
+  sheetTitle: { marginBottom: Spacing.sm },
+  sheetList: { maxHeight: 360 },
+  sheetListContent: { gap: Spacing.sm, paddingBottom: Spacing.sm },
+  sheetActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: Spacing.sm,
-    marginTop: Spacing.lg,
+    marginTop: Spacing.md,
   },
 });

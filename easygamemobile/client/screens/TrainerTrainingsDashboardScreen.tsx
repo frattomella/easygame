@@ -1,28 +1,33 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
-  Modal,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   TextInput,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { Ionicons } from "@expo/vector-icons";
-import { RouteProp, useFocusEffect, useRoute } from "@react-navigation/native";
+import {
+  RouteProp,
+  useFocusEffect,
+  useNavigation,
+  useRoute,
+} from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { addDays, format } from "date-fns";
 
-import { Avatar } from "@/components/Avatar";
-import { Badge } from "@/components/Badge";
-import { Button } from "@/components/Button";
-import { Card } from "@/components/Card";
-import { Input } from "@/components/Input";
-import { ThemedText } from "@/components/ThemedText";
+import {
+  ActionButton,
+  BottomSheet,
+  EventCard,
+  GlassCard,
+  SecondaryScreenLayout,
+  SectionHero,
+  SelectableAthleteRow,
+  SignatureText,
+  StateMessage,
+} from "@/components/signature";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { useTheme } from "@/hooks/useTheme";
 import {
   getMobileMedicalCertificateAvailability,
   getMobileMedicalCertificateAvailabilityLabel,
@@ -31,8 +36,13 @@ import { formatItalianDate, formatTimeRange } from "@/lib/mobile-ui";
 import { canManageMobileTrainingAttendance } from "@/lib/trainer-dashboard-utils";
 import { Athlete, Training } from "@/services/api";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { BorderRadius, Colors, Spacing } from "@/constants/theme";
+import { EGInk, Spacing } from "@/constants/theme";
 import { TrainingsStackParamList } from "@/navigation/TrainingsStackNavigator";
+
+type Navigation = NativeStackNavigationProp<
+  TrainingsStackParamList,
+  "Trainings"
+>;
 
 type AttendanceDraftEntry = {
   athleteId: string;
@@ -55,11 +65,16 @@ const isCancelledTraining = (training: Training) =>
     String(training.status || "").toLowerCase(),
   );
 
+/**
+ * design-source `guidelines/trainer-migration.md` step 2 (WP10). Stessi
+ * dati, stessa logica di `mobileBackendStorage` e `trainerPermissions` di
+ * prima — solo la veste cambia: `EventCard` al posto della `Card` piatta,
+ * `BottomSheet` + `SelectableAthleteRow` al posto della `Modal` nativa per
+ * le presenze.
+ */
 export default function TrainerTrainingsDashboardScreen() {
-  const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
   const route = useRoute<RouteProp<TrainingsStackParamList, "Trainings">>();
-  const { theme } = useTheme();
+  const navigation = useNavigation<Navigation>();
   const { trainerPermissions } = useAuthContext();
   const [trainings, setTrainings] = useState<Training[]>([]);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
@@ -259,432 +274,357 @@ export default function TrainerTrainingsDashboardScreen() {
     );
   };
 
+  const presentCount = attendanceDraft.filter((entry) => entry.present).length;
+
   const renderTrainingCard = (training: Training) => {
-    const isFocused = focusedTrainingId === training.id;
+    const cancelled = isCancelledTraining(training);
     const canTakeAttendance =
       canManageAttendance &&
       canManageMobileTrainingAttendance(training) &&
-      !isCancelledTraining(training);
+      !cancelled;
+    const focused = training.id === focusedTrainingId;
 
-    return (
-      <Card
-        key={training.id}
-        style={[styles.trainingCard, isFocused ? styles.focusedCard : null]}
-      >
-        <View style={styles.trainingTopRow}>
-          <View style={{ flex: 1 }}>
-            <ThemedText type="body" style={styles.trainingTitle}>
-              {training.title}
-            </ThemedText>
-            <ThemedText type="small" style={{ color: theme.textSecondary }}>
-              {formatItalianDate(training.date)} ·{" "}
-              {formatTimeRange(training.time, training.endTime)}
-            </ThemedText>
+    const card = (
+      <EventCard
+        kind="training"
+        title={training.title}
+        time={training.time}
+        endTime={training.endTime}
+        dateLabel={
+          training.date === today ? undefined : formatItalianDate(training.date)
+        }
+        pill={{ label: training.category, variant: "default" }}
+        meta={[
+          { icon: "location-outline", label: training.location },
+          {
+            icon: "people-outline",
+            label: `${training.presentCount ?? 0}/${training.totalCount ?? 0} presenti`,
+          },
+        ]}
+        statusLabel={
+          cancelled
+            ? "Allenamento annullato"
+            : training.date === today
+              ? "Allenamento del giorno"
+              : "Allenamento programmato"
+        }
+        statusColor={cancelled ? "#EF4444" : "#22C55E"}
+        cancelled={cancelled}
+        footer={
+          <View style={styles.cardFooter}>
+            {!canTakeAttendance && canManageAttendance && !cancelled ? (
+              <SignatureText
+                variant="small"
+                style={{ color: "#B45309", fontWeight: "600" }}
+              >
+                Le presenze sono disponibili solo per allenamenti di oggi o
+                passati.
+              </SignatureText>
+            ) : null}
+            <View style={styles.actionRow}>
+              {canTakeAttendance ? (
+                <ActionButton
+                  size="sm"
+                  onPress={() => openAttendanceSheet(training)}
+                >
+                  Presenze
+                </ActionButton>
+              ) : null}
+              {canManageStatus ? (
+                <ActionButton
+                  size="sm"
+                  variant="outline"
+                  onPress={() => handleToggleStatus(training)}
+                  loading={statusSavingId === training.id}
+                >
+                  {cancelled ? "Ripristina" : "Annulla"}
+                </ActionButton>
+              ) : null}
+            </View>
           </View>
-          <Badge label={training.category} small />
-        </View>
+        }
+      />
+    );
 
-        <View style={styles.metaRow}>
-          <Ionicons
-            name="location-outline"
-            size={16}
-            color={theme.textSecondary}
-          />
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {training.location}
-          </ThemedText>
-        </View>
-        <View style={styles.metaRow}>
-          <Ionicons
-            name="people-outline"
-            size={16}
-            color={theme.textSecondary}
-          />
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {training.presentCount ?? 0}/{training.totalCount ?? 0} presenti
-          </ThemedText>
-        </View>
-        <View style={styles.metaRow}>
-          <Ionicons
-            name={
-              isCancelledTraining(training)
-                ? "close-circle-outline"
-                : "play-circle-outline"
-            }
-            size={16}
-            color={
-              isCancelledTraining(training)
-                ? Colors.light.destructive
-                : Colors.light.success
-            }
-          />
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
-            {isCancelledTraining(training)
-              ? "Allenamento annullato"
-              : training.date === today
-                ? "Allenamento del giorno"
-                : "Allenamento programmato"}
-          </ThemedText>
-        </View>
-
-        {!canTakeAttendance && canManageAttendance ? (
-          <ThemedText type="small" style={styles.infoHint}>
-            Le presenze sono disponibili solo per allenamenti di oggi o passati.
-          </ThemedText>
-        ) : null}
-
-        <View style={styles.actionRow}>
-          {canTakeAttendance ? (
-            <Button size="sm" onPress={() => openAttendanceSheet(training)}>
-              Presenze
-            </Button>
-          ) : null}
-          {canManageStatus ? (
-            <Button
-              size="sm"
-              variant="outline"
-              onPress={() => handleToggleStatus(training)}
-              loading={statusSavingId === training.id}
-            >
-              {isCancelledTraining(training) ? "Ripristina" : "Annulla"}
-            </Button>
-          ) : null}
-        </View>
-      </Card>
+    return focused ? (
+      <View key={training.id} style={styles.focusedWrap}>
+        {card}
+      </View>
+    ) : (
+      <View key={training.id}>{card}</View>
     );
   };
 
+  const renderGroup = (
+    label: string,
+    items: Training[],
+    emptyLabel: string,
+  ) => (
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <SignatureText variant="eyebrow" tone="faint">
+          {label}
+        </SignatureText>
+        <SignatureText variant="eyebrow" tone="faint">
+          {items.length}
+        </SignatureText>
+      </View>
+      {items.length > 0 ? (
+        <View style={styles.cardStack}>{items.map(renderTrainingCard)}</View>
+      ) : (
+        <GlassCard>
+          <SignatureText variant="small" tone="muted">
+            {emptyLabel}
+          </SignatureText>
+        </GlassCard>
+      )}
+    </View>
+  );
+
   return (
-    <>
-      <ScrollView
-        style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-        contentContainerStyle={{
-          paddingTop: Spacing.lg,
-          paddingBottom: tabBarHeight + insets.bottom + Spacing["4xl"],
-          paddingHorizontal: Spacing.lg,
-        }}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+    <SecondaryScreenLayout
+      title="Allenamenti"
+      onBack={false}
+      skyHeight={340}
+      onNotifications={() => navigation.navigate("Notifications")}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      <SectionHero
+        icon="fitness"
+        eyebrow="PROGRAMMA DI OGGI"
+        title={
+          todayTrainings.length > 0
+            ? `${todayTrainings.length} allenament${todayTrainings.length === 1 ? "o" : "i"}`
+            : "Nessun allenamento"
         }
-      >
-        <View style={styles.sectionFirst}>
-          <ThemedText type="h4" style={styles.sectionTitle}>
-            Allenamenti di oggi
-          </ThemedText>
-          {todayTrainings.length > 0 ? (
-            todayTrainings.map(renderTrainingCard)
-          ) : (
-            <Card>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Nessun allenamento nella giornata corrente.
-              </ThemedText>
-            </Card>
-          )}
-        </View>
+        subtitle="Presenze, stato e calendario dei tuoi allenamenti."
+        chips={[
+          { label: "oggi", value: String(todayTrainings.length) },
+          {
+            label: "settimana",
+            value: String(todayTrainings.length + weekTrainings.length),
+          },
+        ]}
+      />
 
+      {trainings.length === 0 ? (
         <View style={styles.section}>
-          <ThemedText type="h4" style={styles.sectionTitle}>
-            Questa settimana
-          </ThemedText>
-          {weekTrainings.length > 0 ? (
-            weekTrainings.map(renderTrainingCard)
-          ) : (
-            <Card>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Nessun altro allenamento entro fine settimana.
-              </ThemedText>
-            </Card>
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <ThemedText type="h4" style={styles.sectionTitle}>
-            Calendario successivo
-          </ThemedText>
-          {futureTrainings.length > 0 ? (
-            futureTrainings.map(renderTrainingCard)
-          ) : (
-            <Card>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Nessun allenamento nelle settimane successive.
-              </ThemedText>
-            </Card>
-          )}
-        </View>
-
-        <View style={styles.section}>
-          <ThemedText type="h4" style={styles.sectionTitle}>
-            Storico allenamenti
-          </ThemedText>
-          <Input
-            placeholder="Cerca per data, categoria, titolo o stato..."
-            value={historySearch}
-            onChangeText={setHistorySearch}
-            leftIcon="search-outline"
-            rightIcon={historySearch ? "close-circle" : undefined}
-            onRightIconPress={() => setHistorySearch("")}
+          <StateMessage
+            kind="empty"
+            tone="dark"
+            title="Nessun allenamento"
+            message="Non hai ancora allenamenti in calendario."
           />
-          {filteredHistoryTrainings.length > 0 ? (
-            filteredHistoryTrainings.map(renderTrainingCard)
-          ) : (
-            <Card>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Nessun allenamento in archivio.
-              </ThemedText>
-            </Card>
-          )}
         </View>
-      </ScrollView>
+      ) : (
+        <>
+          <View style={[styles.section, styles.sectionFirst]}>
+            {todayTrainings.length > 0 ? (
+              <View style={styles.cardStack}>
+                {todayTrainings.map(renderTrainingCard)}
+              </View>
+            ) : (
+              <GlassCard>
+                <SignatureText variant="small" tone="muted">
+                  Nessun allenamento nella giornata corrente.
+                </SignatureText>
+              </GlassCard>
+            )}
+          </View>
 
-      <Modal
-        visible={Boolean(selectedTraining)}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSelectedTraining(null)}
-      >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setSelectedTraining(null)}
-        >
-          <Pressable
-            style={[
-              styles.modalCard,
-              { backgroundColor: theme.backgroundDefault },
-            ]}
-            onPress={(event) => event.stopPropagation()}
-          >
-            <ThemedText type="h4" style={styles.modalTitle}>
-              Presenze allenamento
-            </ThemedText>
-            <ThemedText
-              type="small"
-              style={{ color: theme.textSecondary, marginBottom: Spacing.md }}
-            >
-              {selectedTraining?.title} ·{" "}
-              {selectedTraining
-                ? formatTimeRange(
-                    selectedTraining.time,
-                    selectedTraining.endTime,
-                  )
-                : ""}
-            </ThemedText>
+          {renderGroup(
+            "QUESTA SETTIMANA",
+            weekTrainings,
+            "Nessun altro allenamento entro fine settimana.",
+          )}
+          {renderGroup(
+            "CALENDARIO SUCCESSIVO",
+            futureTrainings,
+            "Nessun allenamento nelle settimane successive.",
+          )}
 
-            <ScrollView
-              style={styles.modalList}
-              contentContainerStyle={styles.attendanceList}
-              showsVerticalScrollIndicator
-            >
-              {attendanceDraft.length > 0 ? (
-                attendanceDraft.map((entry) => (
-                  <Pressable
-                    key={entry.athleteId}
-                    style={[
-                      styles.attendanceRow,
-                      {
-                        borderColor: entry.present
-                          ? Colors.light.success
-                          : theme.border,
-                      },
-                    ]}
-                    onPress={() => toggleAttendance(entry.athleteId)}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <View style={styles.attendanceRowTop}>
-                        <View style={styles.attendanceInfo}>
-                          <Avatar
-                            name={entry.name}
-                            size={42}
-                            showNumber
-                            number={entry.number}
-                          />
-                          <View style={{ marginLeft: Spacing.md, flex: 1 }}>
-                            <View style={styles.nameWithWarning}>
-                              <ThemedText
-                                type="body"
-                                style={styles.attendanceName}
-                              >
-                                {entry.name}
-                              </ThemedText>
-                              {getMobileMedicalCertificateAvailability(
-                                entry.medicalCertExpiry,
-                              ) !== "valid" ? (
-                                <Ionicons
-                                  name="warning-outline"
-                                  size={18}
-                                  color={Colors.light.warning}
-                                />
-                              ) : null}
-                            </View>
-                            <ThemedText
-                              type="small"
-                              style={{ color: theme.textSecondary }}
-                            >
-                              {entry.present ? "Presente" : "Assente"}
-                            </ThemedText>
-                            {getMobileMedicalCertificateAvailability(
-                              entry.medicalCertExpiry,
-                            ) !== "valid" ? (
-                              <ThemedText
-                                type="small"
-                                style={styles.medicalHint}
-                              >
-                                {getMobileMedicalCertificateAvailabilityLabel(
-                                  getMobileMedicalCertificateAvailability(
-                                    entry.medicalCertExpiry,
-                                  ),
-                                )}
-                              </ThemedText>
-                            ) : null}
-                          </View>
-                        </View>
-                        <Ionicons
-                          name={
-                            entry.present
-                              ? "checkmark-circle"
-                              : "ellipse-outline"
-                          }
-                          size={24}
-                          color={
-                            entry.present
-                              ? Colors.light.success
-                              : theme.textSecondary
-                          }
-                        />
-                      </View>
-                      <TextInput
-                        value={entry.notes}
-                        onChangeText={(value) =>
-                          updateAttendanceNotes(entry.athleteId, value)
-                        }
-                        placeholder="Nota presenza (opzionale)"
-                        placeholderTextColor={theme.textSecondary}
-                        style={[
-                          styles.notesInput,
-                          {
-                            borderColor: theme.border,
-                            color: theme.text,
-                            backgroundColor: theme.backgroundDefault,
-                          },
-                        ]}
-                      />
-                    </View>
-                  </Pressable>
-                ))
-              ) : (
-                <Card>
-                  <ThemedText
-                    type="small"
-                    style={{ color: theme.textSecondary }}
-                  >
-                    Nessun atleta collegato a questa categoria.
-                  </ThemedText>
-                </Card>
-              )}
-            </ScrollView>
-
-            <View style={styles.modalButtons}>
-              <Button variant="ghost" onPress={() => setSelectedTraining(null)}>
-                Annulla
-              </Button>
-              <Button
-                onPress={() => void handleSaveAttendance()}
-                loading={attendanceSaving}
-                disabled={attendanceDraft.length === 0}
-              >
-                Salva presenze
-              </Button>
+          <View style={styles.section}>
+            <SignatureText variant="eyebrow" tone="faint">
+              STORICO ALLENAMENTI
+            </SignatureText>
+            <View style={{ marginTop: Spacing.sm, marginBottom: Spacing.sm }}>
+              <TextInput
+                placeholder="Cerca per data, categoria, titolo o stato..."
+                placeholderTextColor={EGInk.onLightFaint}
+                value={historySearch}
+                onChangeText={setHistorySearch}
+                style={styles.searchInput}
+              />
             </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </>
+            {filteredHistoryTrainings.length > 0 ? (
+              <View style={styles.cardStack}>
+                {filteredHistoryTrainings.map(renderTrainingCard)}
+              </View>
+            ) : (
+              <GlassCard>
+                <SignatureText variant="small" tone="muted">
+                  Nessun allenamento in archivio.
+                </SignatureText>
+              </GlassCard>
+            )}
+          </View>
+        </>
+      )}
+
+      <BottomSheet
+        visible={Boolean(selectedTraining)}
+        onClose={() => setSelectedTraining(null)}
+        accessibilityLabel="Presenze"
+      >
+        <SignatureText variant="eyebrow" tone="faint">
+          {selectedTraining
+            ? formatTimeRange(selectedTraining.time, selectedTraining.endTime)
+            : ""}
+        </SignatureText>
+        <SignatureText variant="h3" tone="ink" style={styles.sheetTitle}>
+          Presenze
+        </SignatureText>
+
+        {attendanceDraft.length > 0 ? (
+          <ScrollView
+            style={styles.sheetList}
+            contentContainerStyle={styles.sheetListContent}
+            showsVerticalScrollIndicator
+          >
+            {attendanceDraft.map((entry) => {
+              const availability = getMobileMedicalCertificateAvailability(
+                entry.medicalCertExpiry,
+              );
+              const disabled = availability === "expired";
+              return (
+                <View key={entry.athleteId} style={styles.rowStack}>
+                  <SelectableAthleteRow
+                    number={entry.number}
+                    name={entry.name}
+                    role={
+                      availability !== "valid"
+                        ? getMobileMedicalCertificateAvailabilityLabel(
+                            availability,
+                          )
+                        : undefined
+                    }
+                    accent="success"
+                    selected={entry.present}
+                    selectedLabel="Presente"
+                    unselectedLabel="Assente"
+                    disabled={disabled}
+                    disabledReason={
+                      disabled
+                        ? getMobileMedicalCertificateAvailabilityLabel(
+                            availability,
+                          )
+                        : undefined
+                    }
+                    onPress={() => toggleAttendance(entry.athleteId)}
+                  />
+                  <TextInput
+                    value={entry.notes}
+                    onChangeText={(value) =>
+                      updateAttendanceNotes(entry.athleteId, value)
+                    }
+                    placeholder="Nota presenza (opzionale)"
+                    placeholderTextColor={EGInk.onLightFaint}
+                    style={styles.notesInput}
+                  />
+                </View>
+              );
+            })}
+          </ScrollView>
+        ) : (
+          <StateMessage
+            kind="empty"
+            title="Nessun atleta"
+            message="Nessun atleta collegato a questa categoria."
+          />
+        )}
+
+        <View style={styles.sheetActions}>
+          <ActionButton
+            variant="secondary"
+            onPress={() => setSelectedTraining(null)}
+          >
+            Annulla
+          </ActionButton>
+          <ActionButton
+            onPress={() => void handleSaveAttendance()}
+            loading={attendanceSaving}
+            disabled={attendanceDraft.length === 0}
+            trailingIcon="arrow-forward"
+          >
+            {`Salva ${presentCount}/${attendanceDraft.length}`}
+          </ActionButton>
+        </View>
+      </BottomSheet>
+    </SecondaryScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  sectionFirst: { marginTop: Spacing.md },
-  section: { marginTop: Spacing["2xl"] },
-  sectionTitle: { marginBottom: Spacing.md },
-  trainingCard: { marginBottom: Spacing.md },
-  focusedCard: {
+  section: {
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+  },
+  /** The first panel below `SectionHero` straddles the sky/mist horizon (acceptance check #5). */
+  sectionFirst: {
+    marginTop: -32,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.sm,
+  },
+  cardStack: { gap: Spacing.md },
+  /** Ring around the training opened from a notification deep link — same cue the old flat `Card` border gave. */
+  focusedWrap: {
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    borderBottomRightRadius: 8,
+    borderBottomLeftRadius: 22,
     borderWidth: 1.5,
     borderColor: "#2563EB",
   },
-  trainingTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: Spacing.md,
-  },
-  trainingTitle: { fontWeight: "700", marginBottom: 2 },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    marginTop: Spacing.sm,
-  },
-  infoHint: {
-    color: Colors.light.warning,
-    marginTop: Spacing.md,
-  },
-  actionRow: {
-    flexDirection: "row",
-    gap: Spacing.sm,
-    marginTop: Spacing.lg,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(15,23,42,0.45)",
-    justifyContent: "center",
-    padding: Spacing.lg,
-  },
-  modalCard: {
-    borderRadius: BorderRadius["2xl"],
-    padding: Spacing["2xl"],
-    maxHeight: "84%",
-  },
-  modalTitle: { marginBottom: Spacing.xs },
-  modalList: { maxHeight: 360 },
-  attendanceList: { gap: Spacing.sm, marginTop: Spacing.sm },
-  attendanceRow: {
+  cardFooter: { gap: Spacing.sm },
+  actionRow: { flexDirection: "row", gap: Spacing.sm },
+  searchInput: {
+    minHeight: 48,
     borderWidth: 1,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
+    borderColor: "rgba(11,26,58,0.14)",
+    backgroundColor: "rgba(255,255,255,0.88)",
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 5,
+    borderBottomLeftRadius: 14,
+    paddingHorizontal: Spacing.md,
+    fontSize: 15,
+    color: EGInk.onLight,
   },
-  attendanceRowTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  attendanceInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  nameWithWarning: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-  },
-  attendanceName: { fontWeight: "700" },
-  medicalHint: {
-    color: Colors.light.warning,
-    marginTop: 2,
-  },
+  sheetTitle: { marginBottom: Spacing.sm },
+  sheetList: { maxHeight: 360 },
+  sheetListContent: { gap: Spacing.sm, paddingBottom: Spacing.sm },
+  rowStack: { gap: 6 },
   notesInput: {
     minHeight: 42,
     borderWidth: 1,
-    borderRadius: BorderRadius.md,
-    marginTop: Spacing.sm,
+    borderColor: "rgba(11,26,58,0.14)",
+    backgroundColor: "rgba(255,255,255,0.7)",
+    borderRadius: 12,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    fontSize: 14,
+    fontSize: 13,
+    color: EGInk.onLight,
   },
-  modalButtons: {
+  sheetActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: Spacing.sm,
-    marginTop: Spacing.lg,
+    marginTop: Spacing.md,
   },
 });
