@@ -6,6 +6,7 @@ import { PageHeading } from "@/components/dashboard/page-heading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast-notification";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
@@ -71,6 +72,18 @@ export default function ClubAppointmentsDashboardPage() {
   const [reschedulingId, setReschedulingId] = useState<string | null>(null);
   const [nuovaData, setNuovaData] = useState("");
   const [nuovaOra, setNuovaOra] = useState("");
+  /*
+    **Il motivo del rifiuto e obbligatorio a livello di dominio**
+    (`rejectAppointment`, `src/lib/server/appointments.ts`): la famiglia lo
+    riceve nel messaggio che chiude la richiesta, ed e cosi da quando questo
+    dominio esiste (lane 5E). Questa pagina lo chiamava senza raccoglierlo, e
+    ogni «Rifiuta» falliva con 400 «Il motivo del rifiuto e obbligatorio» —
+    un'azione offerta dal permesso e mai eseguibile. Il contratto non cambia:
+    cambia solo il fatto che qualcuno lo compili prima di inviarlo, come gia
+    avviene per la riprogrammazione qui sopra.
+  */
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [motivoRifiuto, setMotivoRifiuto] = useState("");
 
   const headers = useMemo<Record<string, string>>(
     () => {
@@ -141,6 +154,8 @@ export default function ClubAppointmentsDashboardPage() {
       setReschedulingId(null);
       setNuovaData("");
       setNuovaOra("");
+      setRejectingId(null);
+      setMotivoRifiuto("");
       await carica();
     } catch (error) {
       console.error("Errore aggiornamento appuntamento:", error);
@@ -229,6 +244,55 @@ export default function ClubAppointmentsDashboardPage() {
           <p className="mt-2 text-sm text-slate-500">
             Motivo: {appointment.decision_note}
           </p>
+        ) : null}
+
+        {rejectingId === appointment.id ? (
+          <div className="mt-4 space-y-3 rounded-2xl border border-rose-200 bg-rose-50/70 p-3">
+            <label className="block text-xs font-medium text-slate-700">
+              Motivo del rifiuto (obbligatorio, la famiglia lo legge)
+              <Textarea
+                value={motivoRifiuto}
+                onChange={(event) => setMotivoRifiuto(event.target.value)}
+                className="mt-1 w-full rounded-xl bg-white"
+                rows={2}
+                placeholder="Es. Orario non disponibile, contatterò la famiglia per una nuova data"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl text-rose-700"
+                disabled={inCorso || !motivoRifiuto.trim()}
+                onClick={() =>
+                  esegui(
+                    appointment.id,
+                    () =>
+                      rejectClubAppointment(
+                        appointment.id,
+                        { note: motivoRifiuto.trim(), version: appointment.version },
+                        headers,
+                      ),
+                    "Appuntamento rifiutato",
+                  )
+                }
+              >
+                <XCircle className="mr-2 h-4 w-4" />
+                Conferma rifiuto
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => {
+                  setRejectingId(null);
+                  setMotivoRifiuto("");
+                }}
+              >
+                Annulla
+              </Button>
+            </div>
+          </div>
         ) : null}
 
         {reschedulingId === appointment.id ? (
@@ -329,24 +393,16 @@ export default function ClubAppointmentsDashboardPage() {
                 Riprogramma
               </Button>
             ) : null}
-            {puoRifiutare ? (
+            {puoRifiutare && rejectingId !== appointment.id ? (
               <Button
                 size="sm"
                 variant="outline"
                 className="rounded-xl text-rose-700"
                 disabled={inCorso}
-                onClick={() =>
-                  esegui(
-                    appointment.id,
-                    () =>
-                      rejectClubAppointment(
-                        appointment.id,
-                        { version: appointment.version },
-                        headers,
-                      ),
-                    "Appuntamento rifiutato",
-                  )
-                }
+                onClick={() => {
+                  setRejectingId(appointment.id);
+                  setMotivoRifiuto("");
+                }}
               >
                 <XCircle className="mr-2 h-4 w-4" />
                 Rifiuta

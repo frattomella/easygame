@@ -1626,7 +1626,7 @@ const serializeRecord = (
       normalizeAccessRole(scope.activeRole) === "trainer" &&
       RISORSE_CON_ANAGRAFICA_PERSONALE.has(resource)
     ) {
-      return proiettaPersonaPerAllenatore(serializzato);
+      return proiettaPersonaPerAllenatore(serializzato, scope.userId);
     }
 
     /*
@@ -1746,16 +1746,56 @@ const CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE = new Set([
   "updated_at",
 ]);
 
+/**
+ * **La propria scheda non e la scheda di un collega.**
+ *
+ * L'elenco sopra e il soffitto per chi guarda l'anagrafica di *un altro*:
+ * niente `documents`/`contracts`, perche un allenatore non deve leggere il
+ * contratto di un collega. Applicato pero **senza eccezioni** anche alla
+ * propria riga — l'unico riscontro possibile e `linkedUserId === scope.userId`
+ * — il divieto pensato per i colleghi cadeva su se stessi: "I miei documenti"
+ * risultava sempre vuoto anche quando la segreteria aveva davvero caricato
+ * contratto o assicurazione, perche il server non li spediva mai. Due elenchi,
+ * non un `if` sparso: chi legge la funzione vede il soffitto di ciascun caso
+ * senza dover seguire una diramazione.
+ */
+const CAMPI_PERSONA_VISIBILI_SU_SE_STESSI = new Set([
+  ...CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE,
+  "documents",
+  "contracts",
+]);
+
 const RISORSE_CON_ANAGRAFICA_PERSONALE = new Set([
   "trainers",
   "staff_members",
 ]);
 
-const proiettaPersonaPerAllenatore = (record: Record<string, any>) => {
+/** Il legame gia usato per "chi allena cosa": stesso confronto, stessa forma. */
+const isPersonaCollegataAllUtente = (
+  record: Record<string, any>,
+  viewerUserId: string | null | undefined,
+) => {
+  if (!viewerUserId) return false;
+  return [
+    record.linkedUserId,
+    record.linked_user_id,
+    record.userId,
+    record.user_id,
+  ].some((valore) => String(valore ?? "").trim() === viewerUserId);
+};
+
+const proiettaPersonaPerAllenatore = (
+  record: Record<string, any>,
+  viewerUserId?: string | null,
+) => {
+  const consentiti = isPersonaCollegataAllUtente(record, viewerUserId)
+    ? CAMPI_PERSONA_VISIBILI_SU_SE_STESSI
+    : CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE;
+
   const ridotto: Record<string, any> = {};
 
   for (const [chiave, valore] of Object.entries(record)) {
-    if (CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE.has(chiave)) {
+    if (consentiti.has(chiave)) {
       ridotto[chiave] = valore;
     }
   }
@@ -1769,7 +1809,7 @@ const proiettaPersonaPerAllenatore = (record: Record<string, any>) => {
   if (record.data && typeof record.data === "object") {
     const dati: Record<string, any> = {};
     for (const [chiave, valore] of Object.entries(record.data)) {
-      if (CAMPI_PERSONA_VISIBILI_ALL_ALLENATORE.has(chiave)) {
+      if (consentiti.has(chiave)) {
         dati[chiave] = valore;
       }
     }
@@ -1815,7 +1855,7 @@ const proiettaSenzaDatoClinico = (
     normalizeAccessRole(scope.activeRole) === "trainer" &&
     RISORSE_CON_ANAGRAFICA_PERSONALE.has(resource)
   ) {
-    return proiettaPersonaPerAllenatore(record);
+    return proiettaPersonaPerAllenatore(record, scope.userId);
   }
 
   /*

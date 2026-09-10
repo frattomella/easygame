@@ -75,6 +75,9 @@ const collega = (id, nome) => ({
     iban: "IT60X0542811101000000123456",
     documentNumber: "CA12345AA",
     notes: "Contratto in scadenza a giugno",
+    /* Cio che deve uscire solo sulla propria riga (vedi il blocco piu sotto). */
+    documents: [{ id: "doc-1", name: "Contratto.pdf" }],
+    contracts: [{ id: "ctr-1", name: "Assicurazione.pdf" }],
   },
 });
 
@@ -174,6 +177,41 @@ test("alla direzione l'anagrafica esce intera", async () => {
   assert.equal(collegaIntero.fiscalCode, "CLMVNI80A01H501X");
   assert.equal(collegaIntero.phone, "+39 333 1234567");
   assert.equal(collegaIntero.iban, "IT60X0542811101000000123456");
+});
+
+test("i propri documenti restano visibili: la riduzione pensata per i colleghi non deve colpire se stessi", async () => {
+  /*
+    Il difetto reale: `documents`/`contracts` mancavano dall'elenco per
+    **chiunque**, quindi anche sulla propria scheda — "I miei documenti"
+    risultava sempre vuoto anche quando la segreteria li aveva caricati
+    davvero. Il riscontro e lo stesso gia usato per "chi allena cosa":
+    `linkedUserId === scope.userId`.
+  */
+  const { records } = await risorse.listResourcePage(
+    "trainers",
+    new URLSearchParams({ organization_id: CLUB }),
+    scope("trainer", ALLENATORE),
+  );
+
+  const io = records.find((riga) => riga.id === "trainer-io");
+  assert.deepEqual(io.documents, [{ id: "doc-1", name: "Contratto.pdf" }]);
+  assert.deepEqual(io.contracts, [{ id: "ctr-1", name: "Assicurazione.pdf" }]);
+});
+
+test("i documenti di un collega restano fuori dalla proiezione", async () => {
+  const { records } = await risorse.listResourcePage(
+    "trainers",
+    new URLSearchParams({ organization_id: CLUB }),
+    scope("trainer", ALLENATORE),
+  );
+
+  const collegaIo = records.find((riga) => riga.id === "trainer-collega");
+  assert.equal(
+    "documents" in collegaIo,
+    false,
+    "il contratto di un collega non e un dato dell'allenatore",
+  );
+  assert.equal("contracts" in collegaIo, false);
 });
 
 test("un campo nuovo sulla scheda nasce invisibile all'allenatore", async () => {
