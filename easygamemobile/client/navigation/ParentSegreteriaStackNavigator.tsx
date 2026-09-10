@@ -5,6 +5,7 @@ import ParentSegreteriaScreen from "@/screens/ParentSegreteriaScreen";
 import ParentPaymentsScreen from "@/screens/ParentPaymentsScreen";
 import ParentDocumentsScreen from "@/screens/ParentDocumentsScreen";
 import ParentConsentsScreen from "@/screens/ParentConsentsScreen";
+import ParentEnrollmentScreen from "@/screens/ParentEnrollmentScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type ParentSegreteriaStackParamList = {
@@ -12,15 +13,16 @@ export type ParentSegreteriaStackParamList = {
   ParentPayments: undefined;
   ParentDocuments: undefined;
   ParentConsents: undefined;
+  ParentEnrollment: undefined;
 };
 
 const Stack = createNativeStackNavigator<ParentSegreteriaStackParamList>();
 
 /**
- * WP7: la tab Segreteria smette di essere un segnaposto — quattro sezioni
- * come da `guidelines/navigation.md` ("Payments, documents, consents and
- * enrollment... one tab, four sections"), tre reali qui (Iscrizione arriva
- * nel WP8).
+ * Le quattro sezioni della tab Segreteria (`guidelines/navigation.md`:
+ * "Payments, documents, consents and enrollment... one tab, four
+ * sections") sono ora tutte reali — Pagamenti/Documenti/Consensi dal WP7,
+ * Iscrizione dal WP8.
  */
 export default function ParentSegreteriaStackNavigator() {
   const screenOptions = useScreenOptions({ transparent: false });
@@ -34,6 +36,10 @@ export default function ParentSegreteriaStackNavigator() {
       <Stack.Screen name="ParentPayments" component={ParentPaymentsScreen} />
       <Stack.Screen name="ParentDocuments" component={ParentDocumentsScreen} />
       <Stack.Screen name="ParentConsents" component={ParentConsentsScreen} />
+      <Stack.Screen
+        name="ParentEnrollment"
+        component={ParentEnrollmentScreen}
+      />
     </Stack.Navigator>
   );
 }

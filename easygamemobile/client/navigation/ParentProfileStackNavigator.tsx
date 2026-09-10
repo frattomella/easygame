@@ -5,6 +5,9 @@ import ParentProfileScreen from "@/screens/ParentProfileScreen";
 import ParentChildrenScreen from "@/screens/ParentChildrenScreen";
 import ParentMoreScreen from "@/screens/ParentMoreScreen";
 import ParentComingSoonScreen from "@/screens/ParentComingSoonScreen";
+import ParentAppointmentsScreen from "@/screens/ParentAppointmentsScreen";
+import ParentStructuresScreen from "@/screens/ParentStructuresScreen";
+import ParentContactsScreen from "@/screens/ParentContactsScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type ParentProfileStackParamList = {
@@ -12,15 +15,17 @@ export type ParentProfileStackParamList = {
   ParentChildren: undefined;
   ParentMore: undefined;
   ParentComingSoon: { title: string; message?: string };
+  ParentAppointments: undefined;
+  ParentStructures: undefined;
+  ParentContacts: undefined;
 };
 
 const Stack = createNativeStackNavigator<ParentProfileStackParamList>();
 
 /**
- * WP6 aggiunge l'hub (`ParentMore`, "Altre sezioni") e il segnaposto
- * condiviso `ParentComingSoon` per le sezioni fuori perimetro di questo
- * batch (ADR-0163) — `ParentProfile` e `ParentChildren` restano quelli del
- * WP4.
+ * L'hub Profilo (`ParentMore`, "Altre sezioni") e il segnaposto condiviso
+ * `ParentComingSoon` (WP6) per le sezioni ancora fuori perimetro.
+ * Appuntamenti/Prenotazioni strutture/Contatti club sono reali dal WP8.
  */
 export default function ParentProfileStackNavigator() {
   const screenOptions = useScreenOptions({ transparent: false });
@@ -34,6 +39,15 @@ export default function ParentProfileStackNavigator() {
         name="ParentComingSoon"
         component={ParentComingSoonScreen}
       />
+      <Stack.Screen
+        name="ParentAppointments"
+        component={ParentAppointmentsScreen}
+      />
+      <Stack.Screen
+        name="ParentStructures"
+        component={ParentStructuresScreen}
+      />
+      <Stack.Screen name="ParentContacts" component={ParentContactsScreen} />
     </Stack.Navigator>
   );
 }

@@ -489,6 +489,114 @@ export interface ConsentRecordSummary {
   note: string;
 }
 
+/** Specchio di `toFamilyAppointment` (`src/lib/appointments/projection.ts`). Niente `internal_notes`: la faccia famiglia non la porta, non e nascosta lato client. */
+export interface ParentAppointment {
+  id: string;
+  title: string;
+  reason: string;
+  starts_at: string | null;
+  ends_at: string | null;
+  timezone: string;
+  date: string;
+  time: string;
+  status:
+    | "requested"
+    | "confirmed"
+    | "rejected"
+    | "rescheduled"
+    | "cancelled_by_family"
+    | "cancelled_by_club"
+    | "completed"
+    | "no_show";
+  status_label: string;
+  notes: string;
+  decision_note: string;
+  person: string;
+  athlete_id: string | null;
+  athlete_name: string;
+  slot_id: string | null;
+  site_id: string | null;
+  version: number;
+  /** Non un elenco di transizioni come lato club — solo le due mosse che la famiglia puo fare. */
+  can_reschedule: boolean;
+  can_cancel: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** Specchio di `toFamilyFreeSlot`. `startsAt` e il solo campo che il server confronta per prenotare — non va mai ricostruito lato client. */
+export interface ParentAppointmentFreeSlot {
+  slotId: string | null;
+  source: "slot" | "opening_hours";
+  siteId: string | null;
+  startsAt: string;
+  endsAt: string;
+  day: string;
+  time: string;
+  durationMinutes: number;
+}
+
+export interface ParentAppointmentsConfig {
+  familyBookingEnabled: boolean;
+  types: { id: string; name: string }[];
+}
+
+/** Specchio di `serializeParentStructure` (`src/lib/server/parent-dashboard.ts`) — whitelist chiusa, niente prezzi di noleggio o contatti interni. */
+export interface ParentStructure {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  type: string;
+  isPublic: boolean;
+  isVisibleToMembers: boolean;
+  fields: {
+    id: string;
+    name: string;
+    ownership: "Pubblica" | "Privata";
+    isBookable: boolean;
+    isVisible: boolean;
+    availability: Record<string, { start: string; end: string }[]>;
+    pricing: { id: string; durationMinutes: number; price: number }[];
+  }[];
+}
+
+/** Specchio di `StructureBooking` (`src/lib/structures-utils.ts`). Nessun annullamento lato Parent: ne il Web lo permette. */
+export interface ParentStructureBooking {
+  id: string;
+  structureId: string;
+  structureName: string;
+  fieldId: string;
+  fieldName: string;
+  title: string;
+  start: string;
+  end: string;
+  status: "pending" | "confirmed" | "cancelled";
+  notes: string;
+  amount?: number;
+  paymentStatus?: "unpaid" | "paid" | "partial";
+}
+
+/** Specchio di `FamilyEnrollmentRequest` (`GET /api/v1/family/enrollment-requests`). Ogni pratica ha il proprio stato — a differenza di `data.enrollment` (una sola iscrizione), qui vive lo storico delle richieste. */
+export interface FamilyEnrollmentRequest {
+  id: string;
+  kind: "enrollment" | "renewal" | "submission";
+  kindLabel: string;
+  state: "sent" | "in_review" | "approved" | "rejected";
+  stateLabel: string;
+  templateTitle: string;
+  seasonLabel: string;
+  athleteName: string;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+  reviewNote: string;
+  pendingDocuments: {
+    title: string;
+    dueDate: string | null;
+    required: boolean;
+  }[];
+}
+
 export interface ParentDashboardData {
   user: { id: string; email: string; name: string };
   club: {
@@ -545,7 +653,23 @@ export interface ParentDashboardData {
     receipts: FamilyFiscalDocument[];
     invoices: FamilyFiscalDocument[];
   };
-  enrollment: Record<string, unknown>;
+  enrollment: {
+    status: "enrolled" | "not_enrolled";
+    notes: string;
+    enrollmentDate: string | null;
+    subscriptionStartDate: string | null;
+    selectedPlan: string | null;
+    discount: string | null;
+    income: {
+      expectedTotal: number;
+      recordedPaid: number;
+      recordedPending: number;
+      residual: number;
+      planName: string | null;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
   documents: {
     required: FamilyDocumentItem[];
     uploaded: FamilyDocumentItem[];
@@ -567,8 +691,16 @@ export interface ParentDashboardData {
     rate: number;
     [key: string]: unknown;
   };
-  appointments: Record<string, unknown>;
-  structures: Record<string, unknown>;
+  appointments: {
+    config: ParentAppointmentsConfig;
+    items: ParentAppointment[];
+    availableSlots: ParentAppointmentFreeSlot[];
+    openingHours: unknown;
+  };
+  structures: {
+    items: ParentStructure[];
+    bookings: ParentStructureBooking[];
+  };
   notifications: ParentNotification[];
   notificationsUnread: number;
   analytics: {
@@ -1661,6 +1793,131 @@ class EasyGameApiService {
       method: "POST",
       body: input,
     });
+  }
+
+  /**
+   * Richiede un nuovo appuntamento — `POST .../appointments`. `reason` o
+   * `typeId` (uno dei due, mai entrambi obbligatori: se il club ha
+   * configurato dei tipi il motivo lo scrive il dominio dal nome del
+   * tipo). Lo slot si passa per id (`slotId`) quando la famiglia ne
+   * sceglie uno dall'elenco, altrimenti data/ora libere.
+   */
+  async requestParentAppointment(
+    athleteId: string,
+    input: {
+      reason?: string;
+      typeId?: string;
+      startsAt?: string;
+      date?: string;
+      time?: string;
+      siteId?: string;
+      slotId?: string;
+      notes?: string;
+    },
+  ): Promise<ParentAppointment> {
+    return this.request<ParentAppointment>(
+      `/api/parent-dashboard/${encodeURIComponent(athleteId)}/appointments`,
+      {
+        method: "POST",
+        body: {
+          reason: input.reason,
+          type_id: input.typeId,
+          starts_at: input.startsAt,
+          date: input.date,
+          time: input.time,
+          site_id: input.siteId,
+          slot_id: input.slotId,
+          notes: input.notes,
+        },
+      },
+    );
+  }
+
+  /**
+   * Propone una riprogrammazione — `PATCH .../appointments`. Ammessa solo
+   * finche l'appuntamento e ancora "in richiesta" (`can_reschedule`): il
+   * dominio nega il resto, questo client non lo ricontrolla due volte.
+   */
+  async rescheduleParentAppointment(
+    athleteId: string,
+    appointmentId: string,
+    input: {
+      date?: string;
+      time?: string;
+      siteId?: string;
+      slotId?: string;
+      notes?: string;
+      version?: number;
+    },
+  ): Promise<ParentAppointment> {
+    return this.request<ParentAppointment>(
+      `/api/parent-dashboard/${encodeURIComponent(athleteId)}/appointments`,
+      {
+        method: "PATCH",
+        body: {
+          id: appointmentId,
+          date: input.date,
+          time: input.time,
+          site_id: input.siteId,
+          slot_id: input.slotId,
+          notes: input.notes,
+          version: input.version,
+        },
+      },
+    );
+  }
+
+  /** Disdice una propria richiesta/appuntamento — `DELETE .../appointments`. Nessun motivo richiesto dal contratto reale quando e la famiglia a disdire. */
+  async cancelParentAppointment(
+    athleteId: string,
+    appointmentId: string,
+    version?: number,
+  ): Promise<ParentAppointment> {
+    return this.request<ParentAppointment>(
+      `/api/parent-dashboard/${encodeURIComponent(athleteId)}/appointments`,
+      { method: "DELETE", body: { id: appointmentId, version } },
+    );
+  }
+
+  /**
+   * Prenota una struttura — `POST .../structures`. Nessun annullamento
+   * lato Parent: ne il dominio lo offre (solo `POST` esiste sotto questo
+   * percorso), ne il Web lo permette — il mobile non inventa un'azione che
+   * il server rifiuterebbe.
+   */
+  async bookParentStructure(
+    athleteId: string,
+    input: {
+      structureId: string;
+      fieldId: string;
+      start: string;
+      end: string;
+      notes?: string;
+    },
+  ): Promise<ParentStructureBooking> {
+    return this.request<ParentStructureBooking>(
+      `/api/parent-dashboard/${encodeURIComponent(athleteId)}/structures`,
+      { method: "POST", body: input },
+    );
+  }
+
+  /**
+   * Le pratiche di iscrizione/rinnovo del figlio — `GET /api/v1/family/
+   * enrollment-requests?athlete_id=...` (`listFamilyEnrollmentRequests`).
+   * Ognuna porta il proprio stato (`sent`/`in_review`/`approved`/
+   * `rejected`), a differenza di `data.enrollment` che descrive
+   * l'iscrizione nel suo complesso. Il rinnovo vero e proprio e un motore
+   * di form dinamici (`FormField`) fuori perimetro di questo batch — qui
+   * solo l'elenco in sola lettura, coerente con quanto la sezione mostra
+   * gia sul Web senza un modulo.
+   */
+  async getParentEnrollmentRequests(
+    athleteId: string,
+  ): Promise<FamilyEnrollmentRequest[]> {
+    return this.request<FamilyEnrollmentRequest[]>(
+      `${API_PREFIX}/family/enrollment-requests`,
+      { method: "GET", query: { athlete_id: athleteId } },
+    );
   }
 }
 

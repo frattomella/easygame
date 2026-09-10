@@ -91,6 +91,9 @@ restano quelli che le schermate esistenti gia usano.
 | `PaymentCard` | `signature/PaymentCard.tsx` | spec Parte C, §C3, raffinato in v2.2 — formato valuta `it-IT`, stato mai ricalcolato da un orologio locale |
 | `DocumentRow` / `DocumentCard` | `signature/DocumentRow.tsx`, `DocumentCard.tsx` | spec Parte C, §C4, raffinato in v2.2 |
 | `ConsentRow` | `signature/ConsentRow.tsx` | spec Parte C, §C5, raffinato in v2.2 — la riga naviga, non concede mai |
+| `AppointmentCard` | `signature/AppointmentCard.tsx` | spec Parte C, §C7, raffinato in v2.2 — adattato al contratto reale della faccia famiglia (`can_reschedule`/`can_cancel`, non un elenco di transizioni) |
+| `BookingCard` | `signature/BookingCard.tsx` | spec Parte C, §C8, raffinato in v2.2 — sola lettura, nessun annullamento lato Parent |
+| `EnrollmentStatusCard` | `signature/EnrollmentStatusCard.tsx` | spec Parte C, §C9, raffinato in v2.2 — **semplificato**: il rail a passi non e stato portato, `data.enrollment` non porta uno stato per fase |
 
 Traduzione CSS → React Native (dove non e 1:1) documentata nel commento di
 testa di `theme.ts`: `border-radius` a quattro valori diventa quattro
@@ -146,12 +149,11 @@ visiva.
   `SectionHero`, `StatCard`, `HighlightCard` sono stati portati in WP4/WP5
   per l'area Parent (vedi la tabella sopra) — il loro uso Trainer (roster,
   Home) resta un lavoro a se.
-- **Componenti Parte C non ancora portati**: `AppointmentCard`,
-  `BookingCard`, `EnrollmentStatusCard` — specificati in
-  `guidelines/component-specs.md` Parte C ma non ancora implementati: le
-  sezioni che li userebbero (Segreteria/Appuntamenti, Strutture, Iscrizione)
-  arrivano nel WP8. `PaymentCard`, `DocumentRow`/`DocumentCard`,
-  `ConsentRow` sono stati portati nel WP7.
+- **Componenti Parte C**: tutti e dieci portati (`ChildSwitcher`,
+  `RSVPControl`, `PaymentCard`, `DocumentRow`/`DocumentCard`, `ConsentRow`,
+  `NotificationRow`, `AccountAccessCard`, `AppointmentCard`, `BookingCard`,
+  `EnrollmentStatusCard` — WP4-WP8, vedi la tabella sopra per lo spec
+  esatto e le eventuali semplificazioni dichiarate).
 - **Dark mode**: i token esistono (`.eg-dark` lato CSS) ma senza schede di
   esempio nel design system stesso; non modellato lato RN.
 
@@ -469,6 +471,80 @@ it-IT), `parent-consents.test.ts` (5: la matrice di transizione per ogni
 stato), `parent-documents.test.ts` (8: tint/varianti per stato, icona per
 tipo, densita riga/scheda).
 
+### WP8 — Parent Segreteria/Appuntamenti, Strutture, Iscrizione, Contatti (ADR-0164)
+
+**Implementation version**: 2026-09-10, EGDS v2.2.0. Chiude il perimetro
+Parent: la tab Segreteria arriva alle sue quattro sezioni reali, e i tre
+segnaposto restanti dell'hub Profilo (Appuntamenti, Prenotazioni strutture,
+Contatti club — `guidelines/navigation.md`) diventano schermate vere.
+
+**Appuntamenti** (`ParentAppointmentsScreen`, hub Profilo): `data.appointments`
+del cruscotto aggregato (`config`, `items`, `availableSlots` — stessa query
+key, nessuna fetch in piu). La faccia famiglia di un appuntamento
+(`toFamilyAppointment`) **non** porta un elenco di transizioni come quella
+del club: solo due booleani, `can_reschedule`/`can_cancel`
+(`client/lib/parent-appointments.ts`, puro, 4 test) — `AppointmentCard`
+disegna esattamente quei due, mai una terza azione inventata. Riprogrammare
+crea una richiesta nuova e chiude la vecchia (`PATCH`, ammesso solo finche
+"in richiesta"); disdire (`DELETE`) non richiede un motivo dal contratto
+reale quando e la famiglia a farlo — a differenza del rifiuto lato club,
+qui non c'e un `BottomSheet` di motivo obbligatorio, sarebbe un campo che
+il server non legge. Una nuova richiesta sceglie fra gli `availableSlots`
+del club o, se non configurati, data/ora libere (stesso gap dichiarato del
+testo libero per la riprogrammazione Trainer).
+
+**Strutture** (`ParentStructuresScreen`, hub Profilo): `data.structures`
+(`items`, `bookings`). **Nessun annullamento lato Parent**: il dominio
+espone solo `POST` sotto `.../structures`, e nemmeno il Web lo permette —
+`BookingCard` e quindi sola lettura per le prenotazioni esistenti. La
+richiesta di una nuova prenotazione sceglie un campo prenotabile
+(`bookableFields`, `client/lib/parent-structures.ts`, puro, 4 test) e una
+durata/tariffa, poi calcola l'orario di fine
+(`computeBookingEnd`) — il server resta l'unico a validare conflitti e
+fasce orarie dichiarate.
+
+**Iscrizione** (`ParentEnrollmentScreen`, tab Segreteria): `data.enrollment`
+per lo stato d'insieme (`enrolled`/`not_enrolled`, piano, saldo) piu
+`GET /api/v1/family/enrollment-requests` per le pratiche (ognuna col
+proprio stato `sent`/`in_review`/`approved`/`rejected`). **Il rail a passi
+dello spec `EnrollmentStatusCard` (§C9) e stato semplificato**: presuppone
+un flusso granulare che `data.enrollment` non porta — qui `EnrollmentStatusCard`
+mostra stato/piano/pill, e le pratiche (che hanno davvero un progresso per
+fase) sono righe separate. Il rinnovo vero e proprio e un motore di form
+dinamici (`FormField`: `checkbox`/`file_upload`/`signature`/testo libero,
+alcuni legati a un consenso) — costruire un renderer generico e
+esplicitamente fuori perimetro (ADR-0164): la schermata mostra stato,
+pratiche e documenti in sospeso (con collegamento diretto a Documenti/
+Pagamenti, entrambi reali), non un modulo che non sa ancora compilare.
+
+**Contatti** (`ParentContactsScreen`, hub Profilo): solo `data.club.*` —
+nessun endpoint dedicato, nessun link hardcoded (telefono/email/sito sono
+dati del club, dinamici per club). Gli orari di apertura sono JSON libero
+non normalizzato server-side: portata fedele di
+`src/lib/opening-hours-utils.ts` in `client/lib/opening-hours.ts` (puro, 5
+test) — stessa logica di alias/forme che il Web usa lato client, non
+un'assunzione di forma fissa.
+
+**Hub aggiornato**: `ParentMoreScreen` collega le tre voci reali;
+"Impostazioni" resta l'unico segnaposto, senza un contenuto previsto in
+nessun WP di questo batch.
+
+**Componenti nuovi** (Parte C, raffinati in v2.2): `AppointmentCard` (§C7,
+adattato al contratto reale — due booleani, non un elenco di transizioni),
+`BookingCard` (§C8), `EnrollmentStatusCard` (§C9, semplificato: nessun rail
+a passi senza i dati per sostenerlo).
+
+**Link esterni centralizzati**: nessuna schermata di questo WP introduce un
+link business-critical hardcoded (Contatti legge tutto da `data.club`), 
+quindi non e nato un `client/constants/external-links.ts` — sarebbe stato
+un file senza un solo consumatore reale. La regola resta valida per il
+prossimo link hardcoded che comparira.
+
+**Test**: `parent-appointments.test.ts` (4: stati aperti/storico, abilitazione
+invio), `parent-structures.test.ts` (4: campi prenotabili, tariffa minima,
+calcolo orario fine), `opening-hours.test.ts` (5: stringa libera, alias
+italiani, sotto-fasce, assenza dati, spacchettamento array).
+
 ## Stato attuale: Trainer completo, Parent perimetro WP4-6 completo, gate su tutto il resto
 
 Il navigator root (`client/navigation/RootStackNavigator.tsx`) e il **solo**
@@ -515,9 +591,9 @@ funzionale Trainer" sopra.
 |-----|-------|-----------|-------|
 | Home | `ParentHomeStackNavigator` | `ParentHomeScreen` | Reale (WP5): SectionHero + StatCard + HighlightCard |
 | Calendario | `ParentCalendarStackNavigator` | `ParentCalendarScreen` → `ParentEventDetailScreen` | Reale (WP5): allenamenti+gare unificati, RSVP nel dettaglio |
-| Segreteria | `ParentSegreteriaStackNavigator` | `ParentSegreteriaScreen` (hub) → `ParentPaymentsScreen` / `ParentDocumentsScreen` / `ParentConsentsScreen` | Reale dal WP7 (Pagamenti/Documenti/Consensi); Iscrizione ancora segnaposto, arriva nel WP8 |
+| Segreteria | `ParentSegreteriaStackNavigator` | `ParentSegreteriaScreen` (hub) → `ParentPaymentsScreen` / `ParentDocumentsScreen` / `ParentConsentsScreen` / `ParentEnrollmentScreen` | Tutte e quattro le sezioni reali dal WP8 |
 | Bacheca | `ParentBoardStackNavigator` | `ParentBoardScreen` | Reale (WP6): bacheca + notifiche, due sezioni |
-| Profilo | `ParentProfileStackNavigator` | `ParentProfileScreen` → `ParentChildrenScreen` / `ParentMoreScreen` / `ParentComingSoonScreen` | Account, multi-figlio, cambio contesto, logout, hub (WP6) |
+| Profilo | `ParentProfileStackNavigator` | `ParentProfileScreen` → `ParentChildrenScreen` / `ParentMoreScreen` / `ParentComingSoonScreen` / `ParentAppointmentsScreen` / `ParentStructuresScreen` / `ParentContactsScreen` | Account, multi-figlio, cambio contesto, logout, hub (WP6); Appuntamenti/Strutture/Contatti reali dal WP8 — solo "Impostazioni" resta segnaposto |
 
 ### Schermate collegate (21)
 
@@ -538,10 +614,11 @@ Parent (`ParentTabNavigator`): `ParentHomeScreen`, `ParentChildrenScreen`,
 `ParentEventDetailScreen` (WP5); `ParentBoardScreen`, `ParentMoreScreen`,
 `ParentComingSoonScreen` (WP6); `ParentSegreteriaScreen`,
 `ParentPaymentsScreen`, `ParentDocumentsScreen`, `ParentConsentsScreen`
-(WP7). Segnaposto onesto, non funzionalita finta: la voce Iscrizione
-nell'hub Segreteria e le tre voci non ancora implementate dell'hub Profilo
-(Appuntamenti, Prenotazioni strutture, Contatti club — arrivano nel WP8),
-tutte su `ParentComingSoonScreen`.
+(WP7); `ParentEnrollmentScreen`, `ParentAppointmentsScreen`,
+`ParentStructuresScreen`, `ParentContactsScreen` (WP8). Il batch Parent e
+completo: l'unico segnaposto rimasto e "Impostazioni" nell'hub Profilo, su
+`ParentComingSoonScreen` — nessun contenuto previsto per questo per nessun
+WP.
 
 ### Schermate NON collegate (10) — generazione precedente
 
@@ -742,26 +819,33 @@ documenti), `npm run check:types` e `npm run lint` puliti (0 errori, stessi
 20 warning preesistenti) — nessuna regressione Identity & Access, Trainer o
 Parent WP4-6.
 
+### Verifica di avvio reale — 2026-09-10 (WP8 Appuntamenti/Strutture/Iscrizione/Contatti)
+
+Dopo `AppointmentCard`/`BookingCard`/`EnrollmentStatusCard`, le quattro
+schermate nuove e il porto di `opening-hours-utils.ts`: `npx expo export
+--platform ios` completato senza errori di risoluzione, 2508 moduli. `npm
+run test` 113/113 verdi (100 preesistenti + 13 nuovi su appuntamenti/
+strutture/orari di apertura), `npm run check:types` e `npm run lint`
+puliti (0 errori, stessi 20 warning preesistenti) — nessuna regressione
+Identity & Access, Trainer o Parent WP4-7.
+
 ## Cosa manca per completare il mobile
 
 Identity & Access, le fondamenta di ruolo, la parita funzionale Trainer
-(WP3), il batch Parent WP4-6 (multi-figlio, Home, Calendario/RSVP,
-Bacheca/Notifiche, esperienza Account) e Pagamenti/Documenti/Consensi
-(WP7) sono a posto. Restano aperti, in ordine indicativo:
+(WP3) e l'intero batch Parent WP4-8 (multi-figlio, Home, Calendario/RSVP,
+Bacheca/Notifiche, esperienza Account, Pagamenti/Documenti/Consensi,
+Segreteria/Appuntamenti/Strutture/Iscrizione/Contatti) sono a posto.
+Restano aperti, in ordine indicativo:
 
-- **Area Parent — Segreteria/Appuntamenti, Strutture, Iscrizione,
-  Contatti**: esplicitamente fuori perimetro di WP7 (ADR-0164), in arrivo
-  nel WP8. I contratti sono gia mappati (vedi il report di ricognizione del
-  batch): `/api/parent-dashboard/[athleteId]/appointments` (GET/POST/PATCH/
-  DELETE), `/structures` (solo POST — **nessun annullamento lato Parent, ne
-  il Web lo permette**), `data.enrollment` + `/api/v1/family/
-  enrollment-requests[/renewal]` per Iscrizione, `data.club.*` per Contatti.
 - **Rinnovo iscrizione come modulo dinamico**: `RenewalDraft.form.fields`
   e un motore di campi (`checkbox`/`file_upload`/`signature`/testo libero,
   alcuni legati a un consenso) — costruire un renderer generico e un lavoro
-  a se, dichiarato fuori perimetro anche nel WP8 (ADR-0164): quella
-  schermata mostra stato/pratiche/documenti in sospeso, non un modulo che
-  non sa ancora compilare.
+  a se, dichiarato fuori perimetro (ADR-0164): `ParentEnrollmentScreen`
+  mostra stato/pratiche/documenti in sospeso, non un modulo che non sa
+  ancora compilare.
+- **Rail a passi di `EnrollmentStatusCard`**: lo spec (§C9) lo prevede,
+  `data.enrollment` non porta uno stato granulare per sostenerlo — vedi la
+  sezione WP8 sopra.
 - **RSVP da link senza account**: fuori perimetro anche lato Web (`11 —
   Capability`), non nel mobile per lo stesso motivo.
 - **Reskin delle quattro tab Trainer primarie** (Home, Allenamenti, Gare,
@@ -781,10 +865,12 @@ Bacheca/Notifiche, esperienza Account) e Pagamenti/Documenti/Consensi
   il completamento nativo del recupero password ne dipende.
 - **Link esterni centralizzati**: nessun meccanismo esiste ne lato Web ne
   lato mobile oggi (il link di supporto CediSoft e una stringa duplicata in
-  piu punti del Web). Un punto centralizzato mobile
-  (`client/constants/external-links.ts`) nasce nel WP8 solo dove un link
-  business-critical serve davvero — i Contatti Parent restano dati del
-  club dal payload, non stringhe hardcoded.
+  piu punti del Web). Il WP8 non l'ha creato lato mobile perche nessuna
+  schermata nuova ne aveva davvero bisogno (i Contatti Parent leggono
+  telefono/email/sito da `data.club`, dati dinamici per club, non stringhe
+  hardcoded) — un file senza un consumatore reale sarebbe stato prematuro.
+  La regola resta valida per il prossimo link business-critical che un WP
+  futuro dovesse hardcodare.
 - Nessuna pipeline di build (EAS), mock ancora presenti nelle schermate v1
   non collegate.
 

@@ -25,11 +25,10 @@ type Navigation = NativeStackNavigationProp<
 >;
 
 /**
- * Segreteria (WP7): non piu un segnaposto — la tab con le quattro sezioni
- * "carta e soldi" del club (`guidelines/navigation.md`: "Payments,
- * documents, consents and enrollment... one tab, four sections"). Tre
- * reali (Pagamenti, Documenti, Consensi); Iscrizione arriva nel WP8 e resta
- * un segnaposto onesto fino ad allora.
+ * Segreteria: la tab con le quattro sezioni "carta e soldi" del club
+ * (`guidelines/navigation.md`: "Payments, documents, consents and
+ * enrollment... one tab, four sections") — tutte e quattro reali dal WP8
+ * (Pagamenti/Documenti/Consensi dal WP7, Iscrizione qui).
  */
 export default function ParentSegreteriaScreen() {
   const navigation = useNavigation<Navigation>();
@@ -97,8 +96,8 @@ export default function ParentSegreteriaScreen() {
             <SegreteriaRow
               icon="clipboard-outline"
               title="Iscrizione"
-              subtitle="In arrivo in un prossimo aggiornamento"
-              disabled
+              subtitle="Stato, pratiche e rinnovo"
+              onPress={() => navigation.navigate("ParentEnrollment")}
             />
           </View>
         )

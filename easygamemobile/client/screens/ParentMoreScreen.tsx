@@ -39,16 +39,24 @@ type Item =
       icon: keyof typeof Ionicons.glyphMap;
       title: string;
       subtitle: string;
+      kind: "screen";
+      screen: "ParentAppointments" | "ParentStructures" | "ParentContacts";
+    }
+  | {
+      key: string;
+      icon: keyof typeof Ionicons.glyphMap;
+      title: string;
+      subtitle: string;
       kind: "soon";
     };
 
 /**
  * L'hub Parent (`guidelines/navigation.md`, Livello 2): le sezioni meno
  * frequenti, un tocco dal Profilo — "I miei figli" e "Accessi e club" sono
- * reali. Pagamenti/Documenti/Consensi/Iscrizione **non** sono qui: quella
- * quaterna vive nella tab Segreteria (`guidelines/navigation.md`: "one tab,
- * four sections") — Pagamenti/Documenti/Consensi reali dal WP7,
- * Appuntamenti/Strutture/Contatti restano segnaposto onesti fino al WP8.
+ * reali dal WP4/WP6; Appuntamenti/Prenotazioni strutture/Contatti club sono
+ * reali dal WP8. Pagamenti/Documenti/Consensi/Iscrizione **non** sono qui:
+ * quella quaterna vive nella tab Segreteria (`guidelines/navigation.md`:
+ * "one tab, four sections").
  */
 const ITEMS: Item[] = [
   {
@@ -70,21 +78,24 @@ const ITEMS: Item[] = [
     icon: "calendar-outline",
     title: "Appuntamenti",
     subtitle: "Colloqui con la segreteria",
-    kind: "soon",
+    kind: "screen",
+    screen: "ParentAppointments",
   },
   {
     key: "structures",
     icon: "business-outline",
     title: "Prenotazioni strutture",
     subtitle: "Campi e sale del club",
-    kind: "soon",
+    kind: "screen",
+    screen: "ParentStructures",
   },
   {
     key: "contacts",
     icon: "call-outline",
     title: "Contatti club",
     subtitle: "Segreteria e recapiti",
-    kind: "soon",
+    kind: "screen",
+    screen: "ParentContacts",
   },
   {
     key: "settings",
@@ -106,6 +117,10 @@ export default function ParentMoreScreen() {
     }
     if (item.kind === "access") {
       void clearContext();
+      return;
+    }
+    if (item.kind === "screen") {
+      navigation.navigate(item.screen);
       return;
     }
     navigation.navigate("ParentComingSoon", { title: item.title });

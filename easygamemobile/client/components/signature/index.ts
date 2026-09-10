@@ -50,3 +50,6 @@ export { PaymentCard } from "@/components/signature/PaymentCard";
 export { DocumentRow } from "@/components/signature/DocumentRow";
 export { DocumentCard } from "@/components/signature/DocumentCard";
 export { ConsentRow } from "@/components/signature/ConsentRow";
+export { AppointmentCard } from "@/components/signature/AppointmentCard";
+export { BookingCard } from "@/components/signature/BookingCard";
+export { EnrollmentStatusCard } from "@/components/signature/EnrollmentStatusCard";

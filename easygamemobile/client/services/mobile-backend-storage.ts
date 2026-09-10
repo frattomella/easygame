@@ -1434,6 +1434,67 @@ class MobileBackendStorageService {
     return api.answerParentConsent(athleteId, input);
   }
 
+  /** Richiede un nuovo appuntamento di segreteria per il figlio selezionato. */
+  async requestParentAppointment(
+    athleteId: string,
+    input: {
+      reason?: string;
+      typeId?: string;
+      startsAt?: string;
+      date?: string;
+      time?: string;
+      siteId?: string;
+      slotId?: string;
+      notes?: string;
+    },
+  ) {
+    return api.requestParentAppointment(athleteId, input);
+  }
+
+  /** Propone una riprogrammazione — ammessa solo finche l'appuntamento e ancora "in richiesta". */
+  async rescheduleParentAppointment(
+    athleteId: string,
+    appointmentId: string,
+    input: {
+      date?: string;
+      time?: string;
+      siteId?: string;
+      slotId?: string;
+      notes?: string;
+      version?: number;
+    },
+  ) {
+    return api.rescheduleParentAppointment(athleteId, appointmentId, input);
+  }
+
+  /** Disdice una propria richiesta/appuntamento. */
+  async cancelParentAppointment(
+    athleteId: string,
+    appointmentId: string,
+    version?: number,
+  ) {
+    return api.cancelParentAppointment(athleteId, appointmentId, version);
+  }
+
+  /** Prenota una struttura del club — nessun annullamento lato Parent, il dominio non lo offre. */
+  async bookParentStructure(
+    athleteId: string,
+    input: {
+      structureId: string;
+      fieldId: string;
+      start: string;
+      end: string;
+      notes?: string;
+    },
+  ) {
+    return api.bookParentStructure(athleteId, input);
+  }
+
+  /** Le pratiche di iscrizione/rinnovo del figlio selezionato. */
+  async getParentEnrollmentRequests(athleteId: string) {
+    return api.getParentEnrollmentRequests(athleteId);
+  }
+
   async setServerUrl(url: string) {
     await api.setBaseUrl(url);
   }
