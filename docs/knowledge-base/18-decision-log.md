@@ -10245,3 +10245,55 @@ pipeline di build. La priorita assoluta resta EasyGame Web V1.
 [11](11-capabilities.md).
 
 ---
+
+## ADR-0163 — L'eccezione si allarga ancora: l'area Parent reale, sugli stessi contratti del Web
+
+**Data:** 2026-09-10
+
+**Contesto.** [ADR-0161](#adr-0161--la-decisione-esplicita-di-adr-0025-riguarda-identity--access-mobile-non-tutto-il-mobile-si-riprende-ma-solo-per-trainer-e-parent)
+e [ADR-0162](#adr-0162--leccezione-di-adr-0161-si-allarga-parita-funzionale-trainer-non-solo-identity--access)
+hanno riaperto lo sviluppo mobile per Identity & Access e per la parita
+funzionale Trainer. Una decisione esplicita successiva ha chiesto la prima
+area Parent reale — multi-figlio, Home, Allenamenti/Gare con RSVP,
+Calendario, Bacheca, Notifiche, esperienza Account — sugli stessi contratti
+gia in uso dal Web (`/api/parent-dashboard/[athleteId]/**`, `/api/v1/rsvp`,
+`/api/v1/family/children`), usando la versione CURRENT del design system
+(Claude Design, namespace `EasyGameDesignSystem_845326`, **EGDS v2.1.0
+"Parent-ready", sync 2026-09-10** — la versione precedente, v2.0.0
+"Floodlit", non definiva i componenti Parte C necessari a quest'area e non
+poteva essere usata).
+
+**Decisione.** Si estende l'eccezione a tre Work Package (WP4-WP6),
+ciascuno con almeno un commit dedicato:
+
+1. **Il contesto figlio non deriva mai dal club attivo Trainer/AccountHub.**
+   Esattamente come il Web deriva sempre l'organization dall'`athleteId` nel
+   path (`getParentDashboardData`), `ParentContext` mobile e uno stato
+   indipendente da `AuthContext.currentClub`; ogni chiamata Parent passa
+   `athleteId`, e il server resta l'unico a decidere se quel legame e vero
+   (`canParentAccessAthlete`) — il mobile non lo verifica una seconda volta,
+   non lo ricalcola, non lo ottimizza.
+2. **Nessun contratto nuovo dove quello reale basta.** I payload
+   (`ParentDashboardData`, `RsvpInvitation`, gli annunci di bacheca) sono
+   tipizzati esattamente come il server li restituisce, mai reinventati.
+3. **Il design system CURRENT (v2.1.0) e la sola fonte visiva.** Dove
+   definisce un componente Parte C non ancora implementato (`ChildSwitcher`,
+   `RSVPControl`), si implementa fedelmente; dove serve una composizione non
+   normativa (`ParentPrimaryScreenLayout`, il guscio Level-4 `BottomSheet`),
+   si dichiara come estensione locale, mai come se fosse nello spec.
+4. **Perimetro esplicitamente fuori da questo batch**: Pagamenti, Documenti,
+   Consensi, Iscrizione, Segreteria/Appuntamenti (lato Parent — il contratto
+   `/api/parent-dashboard/[athleteId]/appointments` esiste gia ed e stato
+   mappato, ma costruire la schermata resta per il prossimo batch),
+   Strutture, Contatti club. L'hub Parent predispone gli slot, onestamente
+   marcati "in arrivo" — mai una schermata che sembra funzionare e non lo
+   fa.
+
+**Cio che questa decisione non cambia.** Nessuna area management. Nessuna
+pipeline di build. Nessuna modifica alla dashboard Web. La priorita assoluta
+resta EasyGame Web V1.
+
+**Vedi anche.** ADR-0161, ADR-0162, [05](05-mobile-architecture.md),
+[11](11-capabilities.md).
+
+---

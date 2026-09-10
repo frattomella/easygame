@@ -1,5 +1,7 @@
 # EasyGame Design System
 
+**Revision: EGDS v2.1.0 · 2026-09-10 · "Parent-ready"** — see `CHANGELOG.md`. Normative component specs live in `guidelines/component-specs.md`; navigation rules in `guidelines/navigation.md`; the Trainer reskin plan in `guidelines/trainer-migration.md`.
+
 Design system for the **EasyGame mobile app** — the coach-facing app of EasyGame, a sports club management platform for clubs, coaches, staff, athletes and families.
 
 The MVP in scope is for **trainers/coaches**, in Italian, and does two jobs well:
@@ -90,6 +92,9 @@ Foundations and tokens
 
 - `styles.css` — the one file consumers link; `@import`s everything below.
 - `tokens/signature.css` — the visual-signature layer (navy ramp, glass, cut corner, highlights, gradients, floodlight, eyebrow type). Plus `colors.css`, `semantic.css`, `typography.css`, `spacing.css`, `radius.css`, `elevation.css`, `motion.css`, `fonts.css`.
+- `guidelines/component-specs.md` — **normative** spec for every component (structure, surface, border, shadow, type, icons, spacing, all states). Read this before building UI.
+- `guidelines/navigation.md` — the mobile navigation language: Trainer + Parent docks, hubs, secondary screens, sheets, child-switcher placement.
+- `guidelines/trainer-migration.md` — how to move Home / Allenamenti / Gare / Atleti onto the current language without changing functionality.
 - `guidelines/signature-*.card.html` — the six Signature cards (five patterns + layered ground / corner). `guidelines/*.card.html` — 21 foundation specimen cards (Colors, Type, Spacing, Brand).
 - `assets/` — logos, marks, app icons, default avatars, empty-state illustrations.
 
@@ -106,8 +111,13 @@ UI kit
 
 - `ui_kits/mobile_app/` — click-through recreation of the coach app: Login → Dashboard → Allenamenti (attendance sheet) → Gare (call-up sheet) → Atleti → Profilo. See its `README.md`.
 
+Parent area (specified, not yet built as components)
+
+- `ChildSwitcher`, `RSVPControl`, `PaymentCard`, `DocumentRow`/`DocumentCard`, `ConsentRow`, `NotificationRow`, `AppointmentCard`, `BookingCard`, `EnrollmentStatusCard`, `AccountAccessCard` — full visual specifications in `guidelines/component-specs.md`, Part C.
+
 Other
 
+- `CHANGELOG.md` — revision history and the current version identifier.
 - `SKILL.md` — Agent Skills entry point.
 - `github.md` — source-repo association for upstream sync.
 
@@ -124,6 +134,6 @@ The component inventory is the app's own (`client/components/`), plus:
 ### Known gaps and substitutions
 
 - **No font binaries were supplied.** Poppins is loaded from Google Fonts. If EasyGame licenses a specific cut, drop the files in and replace `tokens/fonts.css`.
-- **The four illustrations have English text baked into the images** ("NO TRAININGS SCHEDULED"), while the product is Italian. They are included as-is; they need re-rendering in Italian (or without text) before shipping.
+- **Illustrations are deprecated as of v2.1.** The app is icon-only; the four empty-state images (which also carry English text) are retained as brand archive and must not appear in product UI. `StateMessage` replaces them.
 - The app's `HeaderNotificationButton`, `ErrorBoundary`/`ErrorFallback` and `KeyboardAwareScrollViewCompat` are platform plumbing with no visual design of their own; the bell is folded into `AppBar`, the rest are not modelled.
 - No dark-theme specimen cards yet — the tokens exist (`.eg-dark`), the screens are not drawn in dark.

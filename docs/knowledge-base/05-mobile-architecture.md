@@ -1,17 +1,17 @@
 # 05 — Architettura Mobile App
 
-> **SVILUPPO DIFFERITO, salvo Identity & Access** (2026-08-22,
+> **SVILUPPO DIFFERITO, salvo le eccezioni dichiarate** (2026-08-22,
 > [ADR-0025](18-decision-log.md#adr-0025--mobile-app-differita-la-priorita-e-easygame-web-v1-responsive);
-> eccezione dichiarata in
-> [ADR-0161](18-decision-log.md#adr-0161--la-decisione-esplicita-di-adr-0025-riguarda-identity--access-mobile-non-tutto-il-mobile-si-riprende-ma-solo-per-trainer-e-parent),
-> 2026-09-10). La priorita assoluta resta completare EasyGame Web V1 e
-> renderla responsive. **Nessuna nuova area funzionale Mobile** (Parent
-> completo, nuove schermate Trainer) fino a una decisione esplicita. Sono
-> state completate le **fondamenta di Identity & Access** (registrazione,
-> verifica OTP, login, logout, recupero password, gate di ruolo) perche senza
-> queste l'app non funzionava con un account reale — vedi la sezione
-> "Autenticazione mobile" qui sotto, che descrive lo stato **attuale**, non
-> congelato.
+> eccezioni in
+> [ADR-0161](18-decision-log.md#adr-0161--la-decisione-esplicita-di-adr-0025-riguarda-identity--access-mobile-non-tutto-il-mobile-si-riprende-ma-solo-per-trainer-e-parent) (Identity & Access),
+> [ADR-0162](18-decision-log.md#adr-0162--leccezione-di-adr-0161-si-allarga-parita-funzionale-trainer-non-solo-identity--access) (parita Trainer) e
+> [ADR-0163](18-decision-log.md#adr-0163--leccezione-si-allarga-ancora-larea-parent-reale-sugli-stessi-contratti-del-web) (area Parent, WP4-WP6),
+> tutte 2026-09-10). La priorita assoluta resta completare EasyGame Web V1 e
+> renderla responsive. **Nessuna nuova area funzionale Mobile** oltre a
+> quanto queste tre eccezioni coprono, fino a una decisione esplicita — in
+> particolare pagamenti, documenti, consensi, iscrizione e l'area Athlete
+> restano fuori. Vedi la sezione "Autenticazione mobile" qui sotto, che
+> descrive lo stato **attuale**, non congelato.
 
 Cartella: `easygamemobile/`. **Progetto npm indipendente**: proprio
 `package.json`, `package-lock.json`, `tsconfig.json`, `eslint.config.js`,
@@ -26,24 +26,27 @@ TanStack Query 5 · expo-secure-store**. TypeScript `~5.9`.
 ## Design system mobile
 
 **Source design version**: Claude Design, namespace
-`EasyGameDesignSystem_845326`, ultimo sync dichiarato **2026-09-09**
-(`design-source/github.md`). E l'unico export di design presente nel
-repository — nessuna versione precedente con cui confrontarlo — verificato
-prima di scrivere UI nuova, come richiesto: `design-source/readme.md`
-descrive per intero il linguaggio visivo ("floodlit pitch": cielo notturno
-navy a due riflettori, superfici in vetro smerigliato, angolo firmato a tre
-raggi e un taglio, gradiente unico per "agisci qui", eyebrow tracciato su
-display compatto). Riguarda **solo** la mobile app: "nothing here was
-derived from [the web dashboard], and no web UI is defined" (readme.md) — la
-dashboard Web non e stata ne consultata ne modificata per questo lavoro.
+`EasyGameDesignSystem_845326`, **EGDS v2.1.0 "Parent-ready", sync
+2026-09-10** (`design-source/CHANGELOG.md`, `design-source/github.md`) —
+CURRENT al momento di ogni WP elencato in questa pagina. Versioni precedenti
+nello stesso changelog: v2.0.0 "Floodlit" (2026-09-09, la firma visiva:
+cielo notturno navy a due riflettori, superfici in vetro smerigliato,
+angolo firmato, gradiente unico per "agisci qui", eyebrow su display
+compatto) e v1.0.0 (2026-09-09, estrazione iniziale). Verificato prima di
+scrivere UI nuova in ciascun WP, come richiesto — mai usata una versione
+precedente a quella disponibile al momento. Riguarda **solo** la mobile
+app: "nothing here was derived from [the web dashboard], and no web UI is
+defined" (readme.md) — la dashboard Web non e stata ne consultata ne
+modificata per nessuno di questi WP.
 
 **Implementation version**: 2026-09-10, parziale — vedi sotto cosa e stato
 portato e cosa no. Il codice sorgente del design system (CSS, JSX, HTML di
-anteprima) vive in `design-source/` alla radice del repository, escluse le
-parti binarie non necessarie (illustrazioni — l'app non ne usa — icone gia
-vendorizzate via `@expo/vector-icons`, l'HTML di anteprima offline, il
-bundle compilato dello strumento): sono elencate in `.gitignore` con la
-motivazione.
+anteprima, le tre guide normative `guidelines/component-specs.md`,
+`guidelines/navigation.md`, `guidelines/trainer-migration.md`) vive in
+`design-source/` alla radice del repository, escluse le parti binarie non
+necessarie (illustrazioni — l'app non ne usa — icone gia vendorizzate via
+`@expo/vector-icons`, l'HTML di anteprima offline, il bundle compilato dello
+strumento): sono elencate in `.gitignore` con la motivazione.
 
 ### Come si usa
 
@@ -67,8 +70,14 @@ restano quelli che le schermate esistenti gia usano.
 | `MetaRow` | `signature/MetaRow.tsx` | `components/patterns/MetaRow.jsx` |
 | `Floodlight` | `signature/Floodlight.tsx` | `components/brand/Floodlight.jsx` |
 | `AppBar` | `signature/AppBar.tsx` | `components/brand/AppBar.jsx` |
-| `Dock` | `signature/Dock.tsx` | `components/brand/TabBar.jsx` — **applicato**: e la chrome reale di `MainTabNavigator`, non solo disponibile |
+| `Dock` | `signature/Dock.tsx` | `components/brand/TabBar.jsx` — **applicato**: e la chrome reale di `MainTabNavigator` **e** `ParentTabNavigator` |
 | `StateMessage` | `signature/StateMessage.tsx` | **estensione**, non nel design system: vedi sotto |
+| `SecondaryScreenLayout` | `signature/SecondaryScreenLayout.tsx` | formalizzato in EGDS v2.1.0 Parte A (nato come estensione WP3) |
+| `SignatureInput` | `signature/SignatureInput.tsx` | `components/core/Input.jsx`, formalizzato in EGDS v2.1.0 Parte A |
+| `NumberTile` | `signature/NumberTile.tsx` | `components/core/NumberTile.jsx` (spec Parte B, §B1) — portato in WP4, prima del resto di Parte B, perche `ChildSwitcher` lo richiede subito |
+| `ChildSwitcher` | `signature/ChildSwitcher.tsx` | spec Parte C, §C1 — usa un avatar/iniziali con anello di accento, non `NumberTile`, perche un figlio collegato non porta un numero di maglia in questo payload |
+| `BottomSheet` | `signature/BottomSheet.tsx` | **estensione**: implementa il "Livello 4" di `guidelines/navigation.md` (foglio), non normato come componente a se nello spec — vedi sotto |
+| `ParentPrimaryScreenLayout` | `signature/ParentPrimaryScreenLayout.tsx` | **composizione locale**, non un componente dello spec: `Floodlight` + `AppBar` + `ChildSwitcher`, centralizza la regola "lo switcher sta sotto l'AppBar su ogni schermata primaria Parent" (`guidelines/navigation.md`) |
 
 Traduzione CSS → React Native (dove non e 1:1) documentata nel commento di
 testa di `theme.ts`: `border-radius` a quattro valori diventa quattro
@@ -90,6 +99,21 @@ indistinguibile (vedi il report di audit Identity & Access). Non e nel
 namespace del design system originale — dichiarato qui, non presentato come
 se lo fosse.
 
+### Estensione dichiarata: `BottomSheet` (WP4)
+
+`guidelines/navigation.md` definisce quattro livelli di navigazione, il
+quarto essendo "Bottom sheet, `28 28 0 0`, glass strong, grabber" per
+"qualunque cosa risponda a una domanda sola e ritorni" — ma non specifica il
+componente-guscio stesso, solo cosa ci va dentro (`ChildSwitcher` espanso,
+form di riprogrammazione, motivo di rifiuto). `BottomSheet` e
+quell'implementazione: `Modal` + scrim + pannello che scorre dal basso,
+dismissione al tocco dello scrim o a un controllo esplicito dentro il
+contenuto. **Gap dichiarato**: il trascinamento del grabber per chiudere non
+e implementato — nessuna libreria di sheet basata su gesture-handler e
+dipendenza del progetto, e aggiungerne una e una decisione a se, non un
+effetto collaterale di questo componente. Il grabber resta un'indicazione
+visiva.
+
 ### Cosa non e stato portato (gap dichiarati, non dimenticanze)
 
 - **Poppins**: nessun binario di font fornito col design system e nessuno
@@ -103,12 +127,20 @@ se lo fosse.
   richiederebbero un pattern SVG piastrellato per un dettaglio a peso visivo
   minimo su schermo telefono. `Floodlight` riproduce il gradiente navy e i
   due riflettori, non le righe.
-- **Componenti non ancora portati**: `NumberTile`, `SelectableAthleteRow`,
+- **Componenti Parte B non ancora portati**: `SelectableAthleteRow`,
   `EventCard`, `SectionHero`, `StatCard`, `HighlightCard` — servono a
-  ridisegnare Allenamenti/Gare/Home (numero di maglia, riga atleta
-  selezionabile, la card evento con la rotaia oraria), che restano
-  **invariate** in questo giro (vedi sotto). Arriveranno quando quelle
-  schermate verranno riprese.
+  ridisegnare Allenamenti/Gare/Home **Trainer** (riga atleta selezionabile,
+  la card evento con la rotaia oraria), che restano **invariate** in questo
+  giro (vedi sotto). `NumberTile` e stato portato in WP4 per `ChildSwitcher`
+  (vedi la tabella sopra); gli altri arriveranno quando quelle schermate
+  Trainer verranno riprese.
+- **Componenti Parte C non ancora portati**: `RSVPControl`, `PaymentCard`,
+  `DocumentRow`/`DocumentCard`, `ConsentRow`, `NotificationRow`,
+  `AppointmentCard`, `BookingCard`, `EnrollmentStatusCard`,
+  `AccountAccessCard` — specificati in `guidelines/component-specs.md` Parte
+  C ma non ancora implementati: nessuna schermata di questo batch (WP4-WP6)
+  ne ha ancora bisogno, salvo `ChildSwitcher` (portato) e quanto arrivera nei
+  WP5/WP6.
 - **Dark mode**: i token esistono (`.eg-dark` lato CSS) ma senza schede di
   esempio nel design system stesso; non modellato lato RN.
 
@@ -200,7 +232,60 @@ dichiarate, non nel namespace originale):
   delle cinque sezioni nuove ne aveva bisogno, servono al reskin di
   Allenamenti/Gare/Home.
 
-## Stato attuale: Trainer completo, Parent segnaposto, gate su tutto il resto
+### WP4 — Parent foundation e multi-figlio (ADR-0163)
+
+**Implementation version**: 2026-09-10, EGDS v2.1.0. Sostituisce
+`ParentStackNavigator` (segnaposto a schermata unica) con
+`ParentTabNavigator`: cinque tab primarie (Home, Calendario, Segreteria,
+Bacheca, Profilo — `guidelines/navigation.md`), guscio `Dock` condiviso con
+`MainTabNavigator`.
+
+**Contesto figlio (`ParentContext`, `client/contexts/ParentContext.tsx`)**:
+carica `GET /api/v1/family/children` (`listParentChildren` lato server),
+risolve il figlio selezionato con `client/lib/parent-children.ts` (puro,
+8 test) — nessun figlio → `null`; un figlio → selezione automatica, mai uno
+switcher a una voce; piu figli → una scelta salvata valida vince, altrimenti
+il primo in ordine stabile (mai "nessuno" quando esiste almeno un figlio).
+La scelta persiste in `AsyncStorage`
+(`@easygame/mobile/parent/selected-child`). **Deliberatamente separato da
+`AuthContext.currentClub`**: il Web deriva sempre l'organization
+dall'`athleteId` nel path (`getParentDashboardData`), mai da un club attivo
+lato client — replicarlo con `currentClub` avrebbe significato scegliere
+l'organization sbagliata per un genitore con figli su club diversi.
+
+`ParentTabNavigator` monta le cinque tab solo quando `ParentContext` e
+`"ready"`; altrimenti mostra un guscio unico (`ParentGateShell`) per
+`loading`/`empty`/`forbidden`/`network`/`error` — mai le tab su un elenco
+vuoto. Lo stato `"empty"` invita a contattare la segreteria, senza dati
+finti.
+
+**Schermate nuove**: `ParentHomeScreen` (minima in questo WP: identita del
+figlio selezionato — il cruscotto reale e nel WP5), `ParentChildrenScreen`
+("I miei figli", elenco raggruppato per club con selezione), 
+`ParentProfileScreen` (account, figli, cambio club/accesso, logout).
+`ParentCalendarStackNavigator` e `ParentBoardStackNavigator` montano per ora
+un segnaposto onesto (`StateMessage kind="empty"`, "in arrivo") — sostituito
+per intero, non esteso, dai WP5 e WP6.
+`ParentSegreteriaScreen` resta un segnaposto **per l'intero batch**:
+pagamenti, documenti, consensi e iscrizione sono fuori perimetro di WP4-6
+(vedi ADR-0163).
+
+**Componenti nuovi** — vedi la tabella sopra: `NumberTile`, `ChildSwitcher`,
+`BottomSheet`, `ParentPrimaryScreenLayout`. Nuovi token in `theme.ts`:
+`EGMoney` (`due`/`paid`), `EGChildAccents` (4 accenti stabili),
+`EGCorner.sheet`, `EGGradients.warning`/`.neutral`, `EGShadow.glowWarning`/
+`.row` — tutti presenti in EGDS v2.1.0 (`tokens/signature.css`).
+
+**API nuove** (`client/services/api.ts` + `mobile-backend-storage.ts`):
+`getFamilyChildren()` → `GET /api/v1/family/children`. Le altre chiamate
+Parent (`getParentDashboard`, RSVP, bacheca) arrivano nei WP5/WP6, quando le
+schermate che le consumano esistono.
+
+**Test**: `easygamemobile/tests/parent-children.test.ts` (8 casi: 0/1/N
+figli, figli su club diversi, scelta salvata non piu valida, raggruppamento,
+cambio cross-club, accento stabile e ciclico).
+
+## Stato attuale: Trainer completo, Parent in costruzione (WP4-6), gate su tutto il resto
 
 Il navigator root (`client/navigation/RootStackNavigator.tsx`) e il **solo**
 punto che decide quale guscio mostrare — nessuna schermata a valle rifa questo
@@ -210,7 +295,7 @@ controllo:
 non autenticato                  → Login | Register | VerifyOtp | ForgotPassword
 autenticato, nessun contesto     → AccountHubScreen  (registrato come "ContextSelection")
 contesto attivo, ruolo Trainer   → MainTabNavigator
-contesto attivo, ruolo Parent    → ParentStackNavigator (ParentHomeScreen, segnaposto)
+contesto attivo, ruolo Parent    → ParentTabNavigator (5 tab, vedi WP4 sopra)
 contesto attivo, altro ruolo     → UnsupportedRoleScreen ("EasyGame Mobile è in aggiornamento")
 ```
 
@@ -240,6 +325,16 @@ Ogni stack include anche `NotificationsScreen`. Da `TrainerMoreScreen`
 `TrainerCompensationScreen`, `TrainerCategoriesScreen` — vedi "WP3 — Parita
 funzionale Trainer" sopra.
 
+`ParentTabNavigator` espone 5 tab (`guidelines/navigation.md`):
+
+| Tab | Stack | Schermata | Stato |
+|-----|-------|-----------|-------|
+| Home | `ParentHomeStackNavigator` | `ParentHomeScreen` | Minima (WP4) → cruscotto reale nel WP5 |
+| Calendario | `ParentCalendarStackNavigator` | segnaposto | "In arrivo" → reale nel WP5 |
+| Segreteria | `ParentSegreteriaStackNavigator` | `ParentSegreteriaScreen` | Segnaposto permanente per questo batch (pagamenti/documenti/consensi/iscrizione fuori perimetro, ADR-0163) |
+| Bacheca | `ParentBoardStackNavigator` | segnaposto | "In arrivo" → reale nel WP6 |
+| Profilo | `ParentProfileStackNavigator` | `ParentProfileScreen` → `ParentChildrenScreen` | Account, multi-figlio, cambio contesto, logout |
+
 ### Schermate collegate (21)
 
 Identity & Access: `LoginScreen`, `RegisterScreen`, `VerifyOtpScreen`,
@@ -254,9 +349,11 @@ Trainer (invariate): `NotificationsScreen`, `TrainerHomeDashboardScreen`,
 `TrainerAthletesScreen`, `TrainerAthleteProfileScreen`,
 `TrainerProfileDashboardScreen`.
 
-Parent (segnaposto, `ParentStackNavigator`): `ParentHomeScreen` — mostra
-contesto attivo, cambio club/accesso e logout; nessuna funzionalita di
-dominio (figli, allenamenti, pagamenti, documenti — WP successivi).
+Parent (WP4, `ParentTabNavigator`): `ParentHomeScreen`, `ParentChildrenScreen`,
+`ParentProfileScreen`. Segnaposto onesti, non funzionalita finta:
+`ParentSegreteriaScreen` (permanente per questo batch) e i due segnaposto
+inline in `ParentCalendarStackNavigator`/`ParentBoardStackNavigator`
+(sostituiti nei WP5/WP6).
 
 ### Schermate NON collegate (10) — generazione precedente
 
@@ -416,15 +513,29 @@ risoluzione, 2437 moduli, bundle iOS 6,06 MB. `npm run test` 47/47 verdi
 (Identity & Access incluso, non regredito), `npm run check:types` e
 `npm run lint` puliti (0 errori, stessi 20 warning preesistenti).
 
+### Verifica di avvio reale — 2026-09-10 (WP4 Parent foundation)
+
+Dopo `ParentTabNavigator`, `ParentContext`, `ChildSwitcher`/`NumberTile`/
+`BottomSheet`/`ParentPrimaryScreenLayout` e le tre schermate Parent nuove:
+`npx expo export --platform ios` completato senza errori di risoluzione,
+2451 moduli, bundle iOS 6,11 MB. `npm run test` 55/55 verdi (47 preesistenti
++ 8 nuovi su `parent-children.ts`, nessuna regressione Identity & Access ne
+Trainer), `npm run check:types` e `npm run lint` puliti (0 errori, stessi 20
+warning preesistenti).
+
 ## Cosa manca per completare il mobile
 
-Identity & Access, le fondamenta di ruolo e la parita funzionale Trainer
-(bacheca, documenti, appuntamenti, compensi, squadre — WP3) sono a posto.
-Restano aperti, in ordine indicativo:
+Identity & Access, le fondamenta di ruolo, la parita funzionale Trainer
+(WP3) e la fondazione Parent con multi-figlio (WP4) sono a posto. Restano
+aperti, in ordine indicativo:
 
-- **Area Parent reale**: figli/multi-figlio, allenamenti/gare con RSVP,
-  pagamenti, documenti, bacheca, notifiche — oggi solo `ParentHomeScreen`
-  segnaposto.
+- **Area Parent — Home reale, Calendario/RSVP, Bacheca/Notifiche**: WP5 e
+  WP6, non ancora eseguiti al momento di questa nota.
+- **Area Parent — Pagamenti, Documenti, Consensi, Iscrizione, Segreteria/
+  Appuntamenti, Strutture, Contatti**: esplicitamente fuori perimetro di
+  WP4-6 (ADR-0163). I contratti `/api/parent-dashboard/[athleteId]/**` per
+  appuntamenti, documenti e consensi sono gia mappati (vedi il report di
+  ricognizione del batch Parent) e pronti per un batch successivo.
 - **Reskin delle quattro tab Trainer primarie** (Home, Allenamenti, Gare,
   Atleti) sul linguaggio visivo nuovo — restano sul linguaggio attuale,
   vedi "Perche solo il Dock e stato applicato" sopra. Servirebbe anche

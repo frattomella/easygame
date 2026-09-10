@@ -331,6 +331,20 @@ export interface OwnCompensationStatement {
   } | null;
 }
 
+/** Specchio di `listParentChildren` (`src/lib/server/parent-dashboard.ts`). */
+export interface ParentChild {
+  id: string;
+  name: string;
+  clubId: string;
+  clubName: string;
+  clubLogoUrl: string | null;
+  categoryName: string | null;
+  categories: string[];
+  birthYear: number | null;
+  status: "suspended" | "loan" | "inactive" | null;
+  avatarUrl: string | null;
+}
+
 export type StoredContext = {
   clubId: string;
   role: string;
@@ -1148,6 +1162,17 @@ class EasyGameApiService {
         query: options.year ? { year: options.year } : undefined,
       },
     );
+  }
+
+  /**
+   * I figli collegati alla propria identita — `GET /api/v1/family/children`
+   * (`listParentChildren`). Nessun `clubId`: e la stessa identita in tutti i
+   * club, non uno scope di club da passare.
+   */
+  async getFamilyChildren(): Promise<ParentChild[]> {
+    return this.request<ParentChild[]>(`${API_PREFIX}/family/children`, {
+      method: "GET",
+    });
   }
 }
 

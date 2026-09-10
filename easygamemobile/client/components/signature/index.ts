@@ -31,3 +31,8 @@ export { StateMessage } from "@/components/signature/StateMessage";
 export type { StateMessageKind } from "@/components/signature/StateMessage";
 export { SecondaryScreenLayout } from "@/components/signature/SecondaryScreenLayout";
 export { SignatureInput } from "@/components/signature/SignatureInput";
+export { NumberTile } from "@/components/signature/NumberTile";
+export type { NumberTileTone } from "@/components/signature/NumberTile";
+export { BottomSheet } from "@/components/signature/BottomSheet";
+export { ChildSwitcher } from "@/components/signature/ChildSwitcher";
+export { ParentPrimaryScreenLayout } from "@/components/signature/ParentPrimaryScreenLayout";

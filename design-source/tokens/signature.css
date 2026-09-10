@@ -63,4 +63,27 @@
   --eg-ink-on-dark-faint: rgba(255, 255, 255, 0.5);
 
   --eg-sky-height: 300px;
+
+  /* ── v2.1 additions ─────────────────────────────────────────────── */
+
+  /* Sheet / secondary-screen geometry */
+  --eg-corner-sheet: 28px 28px 0 0; /* @kind radius */
+  --eg-shadow-row: 0 2px 8px rgba(11, 26, 58, 0.06);
+
+  /* Warning + neutral gradients — needed by payments, documents, consents,
+     appointments (states the trainer MVP never had). */
+  --eg-grad-warning: linear-gradient(135deg, #fbbf24 0%, #f59e0b 55%, #b45309 100%); /* @kind color */
+  --eg-grad-neutral: linear-gradient(135deg, rgba(11, 26, 58, 0.14) 0%, rgba(11, 26, 58, 0.08) 100%); /* @kind color */
+  --eg-glow-warning: 0 10px 26px -8px rgba(245, 158, 11, 0.55);
+
+  /* Money: overdue amounts read on a deeper red than the destructive action */
+  --eg-money-due: #b91c1c;
+  --eg-money-paid: #15803d;
+
+  /* Child identity accents — a parent's children are told apart by a stable
+     accent (ring on the switcher, hairline on their cards), never by colour alone. */
+  --eg-child-1: #2563eb;
+  --eg-child-2: #7c3aed;
+  --eg-child-3: #0d9488;
+  --eg-child-4: #db2777;
 }

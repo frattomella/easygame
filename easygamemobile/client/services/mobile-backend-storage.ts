@@ -11,6 +11,7 @@ import {
   Match,
   MembershipRecord,
   OwnCompensationStatement,
+  ParentChild,
   Task,
   Training,
   TrainingAttendanceEntry,
@@ -1337,6 +1338,17 @@ class MobileBackendStorageService {
           roles: [snapshot.context.role],
         } satisfies Task;
       });
+  }
+
+  /**
+   * I figli collegati alla propria identita — `GET /api/v1/family/children`.
+   * Nessun filtro per club qui: un genitore vede tutti i figli, anche su
+   * club diversi (`getParentLinkedAthletes` lato server non e scope-ata sul
+   * club attivo, ed e esattamente il motivo per cui l'area Parent non usa
+   * `currentClub` come sorgente del contesto figlio — vedi `ParentContext`).
+   */
+  async getLinkedChildren(): Promise<ParentChild[]> {
+    return api.getFamilyChildren();
   }
 
   async setServerUrl(url: string) {

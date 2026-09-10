@@ -3,7 +3,7 @@ import { ActivityIndicator, View, StyleSheet } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import MainTabNavigator from "@/navigation/MainTabNavigator";
-import ParentStackNavigator from "@/navigation/ParentStackNavigator";
+import ParentTabNavigator from "@/navigation/ParentTabNavigator";
 import LoginScreen from "@/screens/LoginScreen";
 import RegisterScreen from "@/screens/RegisterScreen";
 import VerifyOtpScreen from "@/screens/VerifyOtpScreen";
@@ -77,7 +77,7 @@ export default function RootStackNavigator() {
       ) : roleGate === "trainer" ? (
         <Stack.Screen name="Main" component={MainTabNavigator} />
       ) : roleGate === "parent" ? (
-        <Stack.Screen name="ParentMain" component={ParentStackNavigator} />
+        <Stack.Screen name="ParentMain" component={ParentTabNavigator} />
       ) : (
         <Stack.Screen name="Unsupported" component={UnsupportedRoleScreen} />
       )}

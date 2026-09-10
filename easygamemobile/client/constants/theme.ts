@@ -169,8 +169,9 @@ export const Fonts = Platform.select({
 /**
  * ═══════════════════════════════════════════════════════════════════════
  * EG — EasyGame signature tokens (design system source: Claude Design,
- * namespace `EasyGameDesignSystem_845326`, last sync 2026-09-09 — see
- * `design-source/` at the repo root and
+ * namespace `EasyGameDesignSystem_845326`. Tokens below are current through
+ * **EGDS v2.1.0 "Parent-ready", 2026-09-10** — see `design-source/` at the
+ * repo root, `design-source/CHANGELOG.md`, and
  * `docs/knowledge-base/05-mobile-architecture.md`).
  * ═══════════════════════════════════════════════════════════════════════
  *
@@ -217,6 +218,24 @@ export const EGColors = {
   red500: "#EF4444",
   orange500: "#F97316",
 };
+
+/**
+ * v2.1.0 ("Parent-ready", 2026-09-10) additions — money and per-child
+ * identity colours the Trainer MVP never needed. `moneyDue` reads deeper
+ * than the destructive action red on purpose (`tokens/signature.css`
+ * `--eg-money-due`/`--eg-money-paid`).
+ */
+export const EGMoney = {
+  due: "#B91C1C",
+  paid: "#15803D",
+};
+
+/**
+ * Stable per-child accents (`--eg-child-1…4`), assigned in link order by
+ * `ChildSwitcher`. An aid, never the only identifier — the child's name is
+ * always shown alongside it.
+ */
+export const EGChildAccents = ["#2563EB", "#7C3AED", "#0D9488", "#DB2777"];
 
 /** Ink on the two grounds: never pure black, never mid-grey. */
 export const EGInk = {
@@ -268,6 +287,13 @@ export const EGCorner = {
     borderBottomLeftRadius: 10,
   },
   pill: { borderRadius: 999 },
+  /** Level-4 nav surface (`BottomSheet`): flat top, the same cut only at rest on the bottom. */
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderBottomRightRadius: 0,
+    borderBottomLeftRadius: 0,
+  },
 } as const;
 
 /**
@@ -278,7 +304,14 @@ export const EGCorner = {
  * other gradients exist outside this list.
  */
 export const EGGradients: Record<
-  "action" | "success" | "destructive" | "navy" | "match" | "sky",
+  | "action"
+  | "success"
+  | "destructive"
+  | "navy"
+  | "match"
+  | "warning"
+  | "neutral"
+  | "sky",
   { offset: string; color: string }[]
 > = {
   action: [
@@ -304,6 +337,15 @@ export const EGGradients: Record<
     { offset: "0%", color: "#FB923C" },
     { offset: "55%", color: "#F97316" },
     { offset: "100%", color: "#C2410C" },
+  ],
+  warning: [
+    { offset: "0%", color: "#FBBF24" },
+    { offset: "55%", color: "#F59E0B" },
+    { offset: "100%", color: "#B45309" },
+  ],
+  neutral: [
+    { offset: "0%", color: "rgba(11,26,58,0.14)" },
+    { offset: "100%", color: "rgba(11,26,58,0.08)" },
   ],
   sky: [
     { offset: "0%", color: "#07122B" },
@@ -351,6 +393,19 @@ export const EGShadow = Platform.select({
       shadowOpacity: 0.4,
       shadowRadius: 16,
     },
+    glowWarning: {
+      shadowColor: "#F59E0B",
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.55,
+      shadowRadius: 18,
+    },
+    /** Row shadow (`--eg-shadow-row`) — lighter than `glass`, for list rows (DocumentRow, NotificationRow, …). */
+    row: {
+      shadowColor: "#0B1A3A",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+    },
   },
   default: {
     glass: { elevation: 6 },
@@ -359,6 +414,8 @@ export const EGShadow = Platform.select({
     glowPrimary: { elevation: 6 },
     glowSuccess: { elevation: 6 },
     glowDestructive: { elevation: 6 },
+    glowWarning: { elevation: 6 },
+    row: { elevation: 2 },
   },
 })!;
 
