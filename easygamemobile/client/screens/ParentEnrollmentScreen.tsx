@@ -140,7 +140,15 @@ export default function ParentEnrollmentScreen() {
             </Pressable>
           ) : null}
 
-          {requests.length > 0 ? (
+          {requestsQuery.isError ? (
+            <StateMessage
+              kind="error"
+              message="Le pratiche non si sono caricate."
+              actionLabel="Riprova"
+              onAction={() => void requestsQuery.refetch()}
+              style={{ marginBottom: Spacing.md }}
+            />
+          ) : requests.length > 0 ? (
             <View style={{ gap: Spacing.sm }}>
               <SignatureText variant="eyebrow" tone="faint">
                 Le tue pratiche

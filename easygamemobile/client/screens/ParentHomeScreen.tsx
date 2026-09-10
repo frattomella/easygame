@@ -1,5 +1,5 @@
 import React from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -99,20 +99,26 @@ export default function ParentHomeScreen() {
           />
         ) : summary && selectedChild ? (
           <>
-            <SectionHero
-              icon="home-outline"
-              eyebrow={selectedChild.clubName}
-              title={selectedChild.name}
-              subtitle={selectedChild.categoryName || undefined}
-              chips={[
-                {
-                  label: "Prossimo allenamento",
-                  value: summary.nextTrainingLabel,
-                },
-                { label: "Prossima gara", value: summary.nextMatchLabel },
-                { label: "Presenze", value: summary.attendanceRateLabel },
-              ]}
-            />
+            <Pressable
+              onPress={() => navigation.navigate("ParentAthleteProfile")}
+              accessibilityRole="button"
+              accessibilityLabel={`Apri la scheda di ${selectedChild.name}`}
+            >
+              <SectionHero
+                icon="home-outline"
+                eyebrow={selectedChild.clubName}
+                title={selectedChild.name}
+                subtitle={selectedChild.categoryName || undefined}
+                chips={[
+                  {
+                    label: "Prossimo allenamento",
+                    value: summary.nextTrainingLabel,
+                  },
+                  { label: "Prossima gara", value: summary.nextMatchLabel },
+                  { label: "Presenze", value: summary.attendanceRateLabel },
+                ]}
+              />
+            </Pressable>
 
             <View style={{ paddingHorizontal: Spacing.lg, gap: Spacing.md }}>
               <View style={{ flexDirection: "row", gap: Spacing.md }}>

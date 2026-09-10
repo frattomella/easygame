@@ -612,10 +612,53 @@ export interface ParentDashboardData {
     opening_hours: unknown;
     [key: string]: unknown;
   };
+  /**
+   * Specchio di `serializeAthleteCard` (`src/lib/server/parent-dashboard.ts`)
+   * piu le due estensioni "safe" aggiunte nel payload principale — whitelist
+   * dichiarata, non "tutto meno quello escluso": `data` porta **solo**
+   * `address`/`medicalVisits` dal blob `athletes.data`, mai le note interne
+   * o i codici che quel blob porta per altri usi. I guardian non portano
+   * mai un token di accesso (`stripGuardianAccessTokens` lato server).
+   */
   athlete: {
     id: string;
+    organization_id?: string;
     name: string;
+    first_name?: string;
+    last_name?: string;
+    birth_date?: string | null;
+    category_id?: string | null;
     category_name?: string | null;
+    categories?: {
+      id: string;
+      name: string;
+      siteId?: string | null;
+      siteName?: string | null;
+      isPrimary?: boolean;
+    }[];
+    status?: string;
+    avatar_url?: string | null;
+    jersey_number?: number | null;
+    email?: string | null;
+    phone?: string | null;
+    address?: string | null;
+    city?: string | null;
+    province?: string | null;
+    postal_code?: string | null;
+    fiscal_code?: string | null;
+    birth_place?: string | null;
+    nationality?: string | null;
+    gender?: string | null;
+    user_id: string | null;
+    data?: {
+      address?: string | null;
+      medicalVisits?: {
+        type?: string;
+        title?: string;
+        date?: string;
+        visitDate?: string;
+      }[];
+    };
     guardians: {
       id: string;
       name: string;
@@ -631,15 +674,33 @@ export interface ParentDashboardData {
       birth_date: string | null;
       category_name: string | null;
     }[];
-    [key: string]: unknown;
   };
   health: {
+    certificates: {
+      id: string;
+      athlete_id: string;
+      type: string;
+      status: string;
+      issue_date: string | null;
+      expiry_date: string | null;
+      created_at: string | null;
+      updated_at: string | null;
+    }[];
     status: "valid" | "expiring" | "expired" | "missing" | string;
     statusLabel: string;
+    familyState:
+      | "valid"
+      | "expiring"
+      | "expired"
+      | "missing"
+      | "undated"
+      | string;
+    familyLabel: string;
+    familyDetail: string;
+    familySummary: string;
     expiryDate: string | null;
     allergies: string[];
     notes: string | null;
-    [key: string]: unknown;
   };
   payments: {
     items: ParentPayment[];

@@ -545,7 +545,112 @@ invio), `parent-structures.test.ts` (4: campi prenotabili, tariffa minima,
 calcolo orario fine), `opening-hours.test.ts` (5: stringa libera, alias
 italiani, sotto-fasce, assenza dati, spacchettamento array).
 
-## Stato attuale: Trainer completo, Parent perimetro WP4-6 completo, gate su tutto il resto
+### WP9 — Parent, chiusura della parita funzionale e hardening (ADR-0164)
+
+**Implementation version**: 2026-09-10, EGDS v2.2.0. Non un WP di nuove
+sezioni: confronto sistematico con la dashboard Web, l'unico gap reale
+chiuso (Profilo atleta), e un audit su error handling/cache/sicurezza che
+ha trovato e corretto due difetti reali.
+
+**Profilo atleta** (`ParentAthleteProfileScreen`, raggiunta toccando
+l'intestazione della Home): l'unica sezione della dashboard Web senza
+equivalente mobile fino a questo WP. Verificato sul codice reale
+(`ParentAthletePage`) che legge esclusivamente `data.athlete`/`data.health`/
+`data.attendance` — gia nel cruscotto aggregato, **nessun endpoint
+aggiuntivo**. I tipi `athlete`/`health` in `services/api.ts` sono stati
+allargati alla whitelist completa che il server dichiara
+(`serializeAthleteCard`): anagrafica, tutori (mai un token di accesso),
+certificati, allergie, visite mediche libere (`athlete.data.medicalVisits`,
+l'unica chiave del blob `data` che sopravvive oltre `address`). L'unico
+valore derivato lato client e l'eta da una data di nascita
+(`client/lib/parent-athlete-profile.ts`, puro, 5 test) — non una decisione
+di dominio.
+
+**Due difetti trovati dall'audit e corretti, perche sicuri e circoscritti**
+(stessa regola gia applicata ai difetti di permesso Trainer in WP3):
+
+1. `ParentEventDetailScreen` controllava solo `dashboardQuery.isPending`:
+   un 403/500 cadeva nel ramo "Evento non trovato" — lo stesso difetto Web
+   che questo intero batch ha evitato ovunque, sfuggito qui. Corretto con
+   `useParentSectionStatus` completo.
+2. `ParentSegreteriaScreen` (l'hub) aveva lo stesso problema, piu sottile:
+   un errore sul cruscotto aggregato faceva comunque renderizzare le righe
+   con contatori a zero — **un badge "0 in sospeso" che in realta significa
+   "non lo so"** e piu ingannevole di un elenco vuoto. Corretto: l'intero
+   hub ora passa da `useParentSectionStatus`; il conteggio Consensi (da una
+   query secondaria) si nasconde invece di mostrare zero quando quella
+   query fallisce.
+3. **Un terzo, minore**: `RSVPControl` in `ParentEventDetailScreen` non
+   renderizzava nulla se `rsvpQuery` falliva — "nessun controllo" si legge
+   come "nessuna risposta richiesta", falso quando e solo la fetch ad
+   essere fallita. Ora mostra un errore recuperabile al posto del
+   controllo. **Gap residuo minore, non corretto**: lo stesso silenzio
+   esiste ancora sul badge "Da confermare" della lista Calendario (un
+   errore RSVP li si traduce in "nessun badge", non in un errore) — piu
+   tollerabile perche il tocco sull'evento porta comunque al dettaglio,
+   dove l'errore e visibile.
+
+**Audit cache/query** (nessun difetto trovato): ogni `queryKey` Parent di
+questo intero batch e scoped su `selectedChildId` — verificato a tampone su
+tutte le schermate. Nessun `placeholderData`/`keepPreviousData` in uso da
+nessuna parte: cambiare figlio e sempre una `queryKey` diversa, mai un
+aggiornamento in-place, quindi mai un istante con i dati del figlio
+precedente mostrati come correnti (comportamento di default di TanStack
+Query, non serviva altro codice). Nessuna mutazione Parent usa
+`setQueryData`: ogni scrittura aspetta la conferma del server e poi
+invalida, mai un aggiornamento ottimistico.
+
+**Audit permessi/sicurezza** (nessun difetto trovato): ogni chiamata
+Parent passa `selectedChildId` da `ParentContext`, mai un valore digitabile
+o un parametro di rotta; nessuna chiamata invia un `organization_id` che il
+server userebbe per filtrare (dove il contratto lo accetta — es. `POST
+/api/v1/rsvp` — e solo verificato contro quello reale dell'atleta). Il
+gate Parent (`canParentAccessAthlete`) resta l'unica autorita, richiamato
+dal server su **ogni** endpoint di questo batch (checkout, documenti,
+consensi, appuntamenti, strutture) — il mobile non lo ricalcola mai.
+
+**Navigazione**: le cinque tab restano quelle di `guidelines/navigation.md`
+— nessuna aggiunta. Il child switcher, l'hub secondario e il cambio
+club/accesso restano dove il WP4 li aveva messi.
+
+#### Parity matrix — Web Parent ↔ Mobile
+
+| Area | Mobile | Note |
+|---|---|---|
+| Account | COMPLETE | `AccountHubScreen` con `AccountAccessCard` (WP6) |
+| Multi-club | COMPLETE | Un `AccountAccessCard` per club, nessuna selezione automatica |
+| Multi-ruolo | COMPLETE | Gate su Trainer/Parent, resto → `UnsupportedRoleScreen` (invariato da Identity & Access) |
+| Multi-figlio | COMPLETE | `ChildSwitcher` + `ParentContext` (WP4) |
+| Home | COMPLETE | `SectionHero`/`StatCard`/`HighlightCard` (WP5) |
+| Profilo atleta | COMPLETE | `ParentAthleteProfileScreen` (WP9) |
+| Allenamenti | COMPLETE | Uniti in Calendario, non una tab a se (scelta dichiarata di `guidelines/navigation.md`) |
+| Gare | COMPLETE | Idem |
+| RSVP | COMPLETE | `RSVPControl`, stesso contratto `/api/v1/rsvp` (WP5) |
+| Calendario | COMPLETE | Nessun RSVP inline, stesso principio del Web (WP5) |
+| Pagamenti | PARTIAL | Lista + checkout reali (WP7); ricevute/fatture solo metadati (l'endpoint risponde HTML stampabile con auth Bearer, non un file) |
+| Documenti | COMPLETE | Upload/download reali (WP7) |
+| Consensi | PARTIAL | Accetta/revoca reali (WP7); nessun testo legale integrale — nessuna API lo espone al genitore, nemmeno sul Web |
+| Bacheca | COMPLETE | (WP6) |
+| Notifiche | COMPLETE | (WP6) |
+| Segreteria/Appuntamenti | COMPLETE | Richiesta/riprogrammazione/disdetta reali (WP8) |
+| Strutture | PARTIAL | Prenotazione reale; nessun annullamento — il dominio non lo offre nemmeno sul Web (WP8) |
+| Iscrizione | PARTIAL | Stato/pratiche/documenti in sospeso reali; il rinnovo (modulo dinamico) resta fuori perimetro (WP8, ADR-0164) |
+| Contatti | COMPLETE | (WP8) |
+
+**Nessuna riga MISSING.** Le sole righe PARTIAL sono gap gia dichiarati
+prima di questo WP (ricevute/fatture, testo consensi, annullamento
+strutture, rinnovo iscrizione) — nessuno di questi e "codice
+irraggiungibile": ogni schermata che li tocca lo dice esplicitamente
+all'utente, mai un bottone che sembra funzionare e non lo fa.
+
+**Test**: `parent-athlete-profile.test.ts` (5: eta da data di nascita,
+assenza dati, visite mediche). Nessun nuovo test sui tre difetti corretti
+dall'audit — sono difetti di *rendering condizionale* (quale ramo JSX si
+sceglie in base allo stato della query), non di logica pura: la copertura
+reale e la lettura del codice stesso, coerente con l'assenza di un
+renderer RN nella suite (vedi "Test — `easygamemobile/tests/`" sopra).
+
+## Stato attuale: Trainer completo, Parent WP4-9 completo, gate su tutto il resto
 
 Il navigator root (`client/navigation/RootStackNavigator.tsx`) e il **solo**
 punto che decide quale guscio mostrare — nessuna schermata a valle rifa questo
@@ -589,7 +694,7 @@ funzionale Trainer" sopra.
 
 | Tab | Stack | Schermata | Stato |
 |-----|-------|-----------|-------|
-| Home | `ParentHomeStackNavigator` | `ParentHomeScreen` | Reale (WP5): SectionHero + StatCard + HighlightCard |
+| Home | `ParentHomeStackNavigator` | `ParentHomeScreen` → `ParentAthleteProfileScreen` | Reale (WP5): SectionHero + StatCard + HighlightCard; scheda atleta reale dal WP9 |
 | Calendario | `ParentCalendarStackNavigator` | `ParentCalendarScreen` → `ParentEventDetailScreen` | Reale (WP5): allenamenti+gare unificati, RSVP nel dettaglio |
 | Segreteria | `ParentSegreteriaStackNavigator` | `ParentSegreteriaScreen` (hub) → `ParentPaymentsScreen` / `ParentDocumentsScreen` / `ParentConsentsScreen` / `ParentEnrollmentScreen` | Tutte e quattro le sezioni reali dal WP8 |
 | Bacheca | `ParentBoardStackNavigator` | `ParentBoardScreen` | Reale (WP6): bacheca + notifiche, due sezioni |
@@ -615,8 +720,9 @@ Parent (`ParentTabNavigator`): `ParentHomeScreen`, `ParentChildrenScreen`,
 `ParentComingSoonScreen` (WP6); `ParentSegreteriaScreen`,
 `ParentPaymentsScreen`, `ParentDocumentsScreen`, `ParentConsentsScreen`
 (WP7); `ParentEnrollmentScreen`, `ParentAppointmentsScreen`,
-`ParentStructuresScreen`, `ParentContactsScreen` (WP8). Il batch Parent e
-completo: l'unico segnaposto rimasto e "Impostazioni" nell'hub Profilo, su
+`ParentStructuresScreen`, `ParentContactsScreen` (WP8);
+`ParentAthleteProfileScreen` (WP9). Il batch Parent e completo: l'unico
+segnaposto rimasto e "Impostazioni" nell'hub Profilo, su
 `ParentComingSoonScreen` — nessun contenuto previsto per questo per nessun
 WP.
 
@@ -829,13 +935,24 @@ strutture/orari di apertura), `npm run check:types` e `npm run lint`
 puliti (0 errori, stessi 20 warning preesistenti) — nessuna regressione
 Identity & Access, Trainer o Parent WP4-7.
 
+### Verifica di avvio reale — 2026-09-10 (WP9 chiusura parita Parent)
+
+Dopo `ParentAthleteProfileScreen`, l'allargamento dei tipi `athlete`/
+`health` e le tre correzioni di error handling: `npx expo export --platform
+ios` completato senza errori di risoluzione, 2510 moduli. `npm run test`
+118/118 verdi (113 preesistenti + 5 nuovi su eta/visite mediche), `npm run
+check:types` e `npm run lint` puliti (0 errori, stessi 20 warning
+preesistenti) — nessuna regressione Identity & Access, Trainer o Parent
+WP4-8.
+
 ## Cosa manca per completare il mobile
 
 Identity & Access, le fondamenta di ruolo, la parita funzionale Trainer
-(WP3) e l'intero batch Parent WP4-8 (multi-figlio, Home, Calendario/RSVP,
-Bacheca/Notifiche, esperienza Account, Pagamenti/Documenti/Consensi,
-Segreteria/Appuntamenti/Strutture/Iscrizione/Contatti) sono a posto.
-Restano aperti, in ordine indicativo:
+(WP3) e l'intero batch Parent WP4-9 (multi-figlio, Home, Profilo atleta,
+Calendario/RSVP, Bacheca/Notifiche, esperienza Account,
+Pagamenti/Documenti/Consensi, Segreteria/Appuntamenti/Strutture/
+Iscrizione/Contatti) sono a posto — la parity matrix del WP9 non ha trovato
+nessuna riga MISSING. Restano aperti, in ordine indicativo:
 
 - **Rinnovo iscrizione come modulo dinamico**: `RenewalDraft.form.fields`
   e un motore di campi (`checkbox`/`file_upload`/`signature`/testo libero,
@@ -846,6 +963,18 @@ Restano aperti, in ordine indicativo:
 - **Rail a passi di `EnrollmentStatusCard`**: lo spec (§C9) lo prevede,
   `data.enrollment` non porta uno stato granulare per sostenerlo — vedi la
   sezione WP8 sopra.
+- **Ricevute e fatture non apribili da mobile**: `downloadPath` risponde
+  HTML stampabile con auth Bearer, non un file — un browser esterno non
+  potrebbe autenticarlo. Servirebbe un endpoint che generi un PDF vero, non
+  un lavoro mobile.
+- **Testo legale integrale dei consensi**: nessuna API lo espone al
+  genitore, nemmeno sul Web — non "replicabile" perche il Web stesso non
+  lo fa.
+- **Annullamento di una prenotazione struttura**: il dominio non lo offre
+  (solo `POST` sotto `.../structures`), nemmeno sul Web.
+- **Badge "Da confermare" nel Calendario silenzioso su un errore RSVP**:
+  gap minore trovato dall'audit WP9, non corretto — il tocco sull'evento
+  porta comunque al dettaglio, dove l'errore e visibile.
 - **RSVP da link senza account**: fuori perimetro anche lato Web (`11 —
   Capability`), non nel mobile per lo stesso motivo.
 - **Reskin delle quattro tab Trainer primarie** (Home, Allenamenti, Gare,

@@ -11,6 +11,7 @@ import {
 } from "@/components/signature";
 import type { EventCardMeta } from "@/components/signature";
 import { useParentContext } from "@/contexts/ParentContext";
+import { useParentSectionStatus } from "@/hooks/useParentSectionStatus";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import {
   buildParentCalendarItems,
@@ -56,6 +57,8 @@ export default function ParentEventDetailScreen() {
       mobileBackendStorage.getParentRsvpInvitations(selectedChildId as string),
     enabled: Boolean(selectedChildId),
   });
+
+  const { status, errorMessage } = useParentSectionStatus(dashboardQuery);
 
   const [updating, setUpdating] = useState(false);
   const [rsvpError, setRsvpError] = useState("");
@@ -107,8 +110,18 @@ export default function ParentEventDetailScreen() {
       eyebrow="Dettaglio"
       onBack={() => navigation.goBack()}
     >
-      {dashboardQuery.isPending ? (
+      {status === "loading" ? (
         <StateMessage kind="loading" tone="dark" />
+      ) : status === "forbidden" ? (
+        <StateMessage kind="forbidden" tone="dark" message={errorMessage} />
+      ) : status === "network" || status === "error" ? (
+        <StateMessage
+          kind="error"
+          tone="dark"
+          message={errorMessage}
+          actionLabel="Riprova"
+          onAction={() => void dashboardQuery.refetch()}
+        />
       ) : !item ? (
         <StateMessage
           kind="empty"
@@ -135,13 +148,26 @@ export default function ParentEventDetailScreen() {
           endTime={item.endTime}
           meta={buildEventMeta(item)}
           footer={
-            <RSVPControl
-              view={rsvpView}
-              updating={updating}
-              errorMessage={rsvpError || undefined}
-              onAnswer={handleAnswer}
-              onRetry={() => setRsvpError("")}
-            />
+            rsvpQuery.isError ? (
+              // Non renderizzare RSVPControl in silenzio qui: senza
+              // l'invito non si sa se l'evento richiede una risposta, e
+              // "nessun controllo" si leggerebbe come "nessuna risposta
+              // richiesta" — falso quando e solo la fetch ad essere fallita.
+              <StateMessage
+                kind="error"
+                message="Impossibile verificare la conferma di partecipazione."
+                actionLabel="Riprova"
+                onAction={() => void rsvpQuery.refetch()}
+              />
+            ) : (
+              <RSVPControl
+                view={rsvpView}
+                updating={updating}
+                errorMessage={rsvpError || undefined}
+                onAnswer={handleAnswer}
+                onRetry={() => setRsvpError("")}
+              />
+            )
           }
         />
       )}

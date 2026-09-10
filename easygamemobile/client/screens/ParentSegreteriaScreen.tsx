@@ -14,6 +14,7 @@ import {
   StatusPill,
 } from "@/components/signature";
 import { useParentContext } from "@/contexts/ParentContext";
+import { useParentSectionStatus } from "@/hooks/useParentSectionStatus";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import { isPayableParentPayment } from "@/lib/parent-payments";
 import { Spacing } from "@/constants/theme";
@@ -48,14 +49,24 @@ export default function ParentSegreteriaScreen() {
     enabled: Boolean(selectedChildId),
   });
 
+  const { status, errorMessage } = useParentSectionStatus(dashboardQuery);
+
   const payments = dashboardQuery.data?.payments;
   const pendingPayments = payments
     ? payments.items.filter(isPayableParentPayment).length
     : 0;
   const requiredDocuments = dashboardQuery.data?.documents.required.length || 0;
-  const pendingConsents = (consentsQuery.data || []).filter(
-    (consent) => consent.status === "missing" || consent.onOutdatedVersion,
-  ).length;
+  /*
+    Il badge Consensi e solo un'anteprima: se la query fallisce si nasconde
+    (nessun conteggio) invece di mostrare "0" come se non ci fosse nulla in
+    sospeso — la sezione Consensi rifa comunque la sua fetch con lo stato
+    completo quando viene aperta.
+  */
+  const pendingConsents = consentsQuery.isSuccess
+    ? consentsQuery.data.filter(
+        (consent) => consent.status === "missing" || consent.onOutdatedVersion,
+      ).length
+    : undefined;
 
   return (
     <ParentPrimaryScreenLayout
@@ -65,8 +76,18 @@ export default function ParentSegreteriaScreen() {
       childrenSwitching={switching}
       onSelectChild={selectChild}
       content={
-        dashboardQuery.isPending ? (
+        status === "loading" ? (
           <StateMessage kind="loading" tone="dark" />
+        ) : status === "forbidden" ? (
+          <StateMessage kind="forbidden" tone="dark" message={errorMessage} />
+        ) : status === "network" || status === "error" ? (
+          <StateMessage
+            kind="error"
+            tone="dark"
+            message={errorMessage}
+            actionLabel="Riprova"
+            onAction={() => void dashboardQuery.refetch()}
+          />
         ) : (
           <View style={{ gap: Spacing.sm }}>
             <SegreteriaRow
