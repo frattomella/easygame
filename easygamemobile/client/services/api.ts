@@ -1,5 +1,6 @@
 import Constants from "expo-constants";
-import * as SecureStore from "expo-secure-store";
+
+import { secureStorage } from "@/lib/secure-storage";
 
 import {
   AuthOutcome,
@@ -982,7 +983,7 @@ class EasyGameApiService {
     }
 
     this.baseUrl = normalized;
-    await SecureStore.setItemAsync(KEYS.BASE_URL, normalized);
+    await secureStorage.setItem(KEYS.BASE_URL, normalized);
   }
 
   private async ensureInit() {
@@ -991,7 +992,7 @@ class EasyGameApiService {
     }
 
     const storedBaseUrl = normalizeBaseUrl(
-      (await SecureStore.getItemAsync(KEYS.BASE_URL)) || "",
+      (await secureStorage.getItem(KEYS.BASE_URL)) || "",
     );
     const configuredBaseUrl = this.getConfiguredBaseUrl();
 
@@ -1003,11 +1004,11 @@ class EasyGameApiService {
       null;
 
     if (shouldPreferConfigured && configuredBaseUrl) {
-      await SecureStore.setItemAsync(KEYS.BASE_URL, configuredBaseUrl);
+      await secureStorage.setItem(KEYS.BASE_URL, configuredBaseUrl);
     }
 
-    this.authToken = await SecureStore.getItemAsync(KEYS.AUTH_TOKEN);
-    const storedUser = await SecureStore.getItemAsync(KEYS.USER);
+    this.authToken = await secureStorage.getItem(KEYS.AUTH_TOKEN);
+    const storedUser = await secureStorage.getItem(KEYS.USER);
     this.userCache = storedUser ? (JSON.parse(storedUser) as User) : null;
     this.initialized = true;
   }
@@ -1018,11 +1019,11 @@ class EasyGameApiService {
     this.baseUrl = normalized || null;
 
     if (normalized) {
-      await SecureStore.setItemAsync(KEYS.BASE_URL, normalized);
+      await secureStorage.setItem(KEYS.BASE_URL, normalized);
       return;
     }
 
-    await SecureStore.deleteItemAsync(KEYS.BASE_URL);
+    await secureStorage.deleteItem(KEYS.BASE_URL);
   }
 
   async getBaseUrl(): Promise<string | null> {
@@ -1034,22 +1035,22 @@ class EasyGameApiService {
     this.authToken = token;
 
     if (token) {
-      await SecureStore.setItemAsync(KEYS.AUTH_TOKEN, token);
+      await secureStorage.setItem(KEYS.AUTH_TOKEN, token);
       return;
     }
 
-    await SecureStore.deleteItemAsync(KEYS.AUTH_TOKEN);
+    await secureStorage.deleteItem(KEYS.AUTH_TOKEN);
   }
 
   private async setStoredUser(user: User | null) {
     this.userCache = user;
 
     if (user) {
-      await SecureStore.setItemAsync(KEYS.USER, JSON.stringify(user));
+      await secureStorage.setItem(KEYS.USER, JSON.stringify(user));
       return;
     }
 
-    await SecureStore.deleteItemAsync(KEYS.USER);
+    await secureStorage.deleteItem(KEYS.USER);
   }
 
   async getStoredUser(): Promise<User | null> {
