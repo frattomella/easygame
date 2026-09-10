@@ -10193,3 +10193,55 @@ li intercetta lo stesso gate, non una schermata per ciascuno.
 `resolveMobileRoleGate` e lo specchio mobile), [11](11-capabilities.md).
 
 ---
+
+## ADR-0162 — L'eccezione di ADR-0161 si allarga: parita funzionale Trainer, non solo Identity & Access
+
+**Data:** 2026-09-10
+
+**Contesto.** [ADR-0161](#adr-0161--la-decisione-esplicita-di-adr-0025-riguarda-identity--access-mobile-non-tutto-il-mobile-si-riprende-ma-solo-per-trainer-e-parent)
+ha riaperto lo sviluppo mobile per le sole fondamenta di Identity & Access,
+lasciando esplicitamente fuori "nuove aree funzionali". Una decisione
+esplicita successiva ha chiesto la parita funzionale reale del ruolo Trainer
+fra Web e mobile: le stesse cinque sezioni gia complete lato Web
+(`08-roles-and-permissions.md`, `11-capabilities.md`) e assenti sul mobile —
+bacheca, documenti propri, appuntamenti, compensi, squadre/categorie con
+nomi leggibili — piu il fondamento visivo del design system (ADR implicito
+nella stessa richiesta: usare la versione CURRENT dell'export Claude
+Design, non la UI Web).
+
+**Decisione.** Si estende l'eccezione di ADR-0161 alla parita funzionale
+Trainer:
+
+1. **Le cinque sezioni mancanti nascono sul mobile**, sugli stessi endpoint
+   del Web (`GET /api/v1/announcements?mine=1`, `GET /api/v1/trainers` per i
+   propri documenti, `/api/v1/appointments` con le transizioni della
+   macchina a stati, `GET /api/v1/sport-work/me`, gli elenchi gia disponibili
+   per le categorie). Nessun endpoint nuovo, nessuna business logic
+   duplicata lato mobile che il server non abbia gia decisa.
+2. **Il design system CURRENT** (Claude Design, namespace
+   `EasyGameDesignSystem_845326`, sync 2026-09-09 — vedi
+   [05](05-mobile-architecture.md#design-system-mobile)) e la sola fonte
+   visiva per le schermate nuove. La dashboard Web non e stata consultata ne
+   modificata.
+3. **Le quattro tab Trainer primarie restano invariate** in questo giro
+   (stesso linguaggio visivo di prima): il reskin completo e un lavoro a se,
+   fuori da questo WP.
+4. **Due difetti di dominio scoperti durante l'audit sono stati corretti**,
+   perche sicuri e circoscritti (nessuna logica di permesso indebolita, solo
+   corretta): l'allow-list dei documenti dell'allenatore che escludeva anche
+   la propria scheda ([resources.ts](../../src/lib/server/resources.ts)),
+   e il contratto di rifiuto di un appuntamento senza motivo raccolto lato
+   Web. Un terzo difetto, mobile-solo, e stato corretto insieme al primo:
+   `resolveTrainerDashboardPermissions` leggeva `clubs.settings` come se
+   fosse gia l'oggetto permessi, quindi ogni scelta di un club su
+   `/permissions` (home, allenamenti, gare, atleti) non aveva **mai** effetto
+   sul mobile — sempre e solo i valori di default.
+
+**Cio che questa decisione non cambia.** Nessuna nuova funzionalita Parent
+(resta ADR-0161: solo la struttura minima). Nessuna area management. Nessuna
+pipeline di build. La priorita assoluta resta EasyGame Web V1.
+
+**Vedi anche.** ADR-0161, [05](05-mobile-architecture.md),
+[11](11-capabilities.md).
+
+---

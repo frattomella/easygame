@@ -3,6 +3,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Access, Club, ClubCategorySummary, User } from "@/services/api";
 import { TrainerDashboardPermissions } from "@/lib/trainer-permissions";
 import { AuthOutcome } from "@/lib/auth-flow";
+import { TrainerProfile } from "@/services/mobile-backend-storage";
 
 interface AuthContextType {
   isLoading: boolean;
@@ -14,6 +15,7 @@ interface AuthContextType {
   currentRole: string | null;
   trainerPermissions: TrainerDashboardPermissions | null;
   assignedCategories: ClubCategorySummary[];
+  trainerProfile: TrainerProfile | null;
   login: (email: string, password: string) => Promise<AuthOutcome>;
   logout: () => Promise<void>;
   setContext: (

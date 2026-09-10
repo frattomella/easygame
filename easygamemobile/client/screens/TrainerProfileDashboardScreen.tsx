@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { Alert, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Avatar } from "@/components/Avatar";
@@ -13,10 +15,14 @@ import { ThemedText } from "@/components/ThemedText";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
 import { BorderRadius, Colors, Spacing } from "@/constants/theme";
+import type { ProfileStackParamList } from "@/navigation/ProfileStackNavigator";
+
+type Navigation = NativeStackNavigationProp<ProfileStackParamList, "Profile">;
 
 export default function TrainerProfileDashboardScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
+  const navigation = useNavigation<Navigation>();
   const { theme } = useTheme();
   const {
     user,
@@ -177,6 +183,22 @@ export default function TrainerProfileDashboardScreen() {
               />
             </View>
           ))}
+        </Card>
+
+        <Card style={styles.sectionCard}>
+          <ThemedText type="body" style={styles.sectionLabel}>
+            Altre sezioni
+          </ThemedText>
+          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+            Bacheca, documenti, appuntamenti, compensi e squadre.
+          </ThemedText>
+          <Button
+            variant="outline"
+            fullWidth
+            onPress={() => navigation.navigate("More")}
+          >
+            Apri altre sezioni
+          </Button>
         </Card>
 
         <Card style={styles.sectionCard}>

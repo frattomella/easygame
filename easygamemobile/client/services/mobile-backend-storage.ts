@@ -3,11 +3,14 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   Access,
   api,
+  Announcement,
   Athlete,
   Club,
+  ClubAppointment,
   ClubCategorySummary,
   Match,
   MembershipRecord,
+  OwnCompensationStatement,
   Task,
   Training,
   TrainingAttendanceEntry,
@@ -53,7 +56,7 @@ type CreateClubInput = {
   logoUrl?: string;
 };
 
-type TrainerProfile = {
+export type TrainerProfile = {
   id: string;
   name: string;
   email?: string;
@@ -61,6 +64,15 @@ type TrainerProfile = {
   linkedUserEmail?: string | null;
   linkedAt?: string | null;
   categories: { id: string; name: string }[];
+  /**
+   * Grezzi, non normalizzati: la normalizzazione (tipo, stato di scadenza)
+   * vive in `client/lib/trainer-documents.ts`, che li legge cosi come sono
+   * qui — stessa separazione del Web fra `trainer-documents.ts` (puro) e chi
+   * lo consuma. Presenti solo sulla propria scheda: `GET /api/v1/trainers`
+   * non li restituisce per un collega (src/lib/server/resources.ts,
+   * `proiettaPersonaPerAllenatore`).
+   */
+  documents?: unknown[];
 };
 
 const normalizeText = (value: unknown) =>
@@ -620,6 +632,15 @@ class MobileBackendStorageService {
           data.category_name,
         categories,
       ),
+      documents: Array.isArray(trainer.documents)
+        ? trainer.documents
+        : Array.isArray(data.documents)
+          ? data.documents
+          : Array.isArray(trainer.contracts)
+            ? trainer.contracts
+            : Array.isArray(data.contracts)
+              ? data.contracts
+              : undefined,
     };
   }
 
@@ -991,6 +1012,12 @@ class MobileBackendStorageService {
     return snapshot?.currentClub || null;
   }
 
+  /** La propria scheda allenatore (id, categorie, documenti) — `null` per chi ha accesso pieno al club (owner/admin). */
+  async getTrainerProfile(): Promise<TrainerProfile | null> {
+    const snapshot = await this.getActiveSnapshot();
+    return snapshot?.trainerProfile || null;
+  }
+
   async getTrainerPermissions() {
     const snapshot = await this.getActiveSnapshot();
     if (!snapshot) {
@@ -1002,6 +1029,38 @@ class MobileBackendStorageService {
   async getAssignedCategories() {
     const snapshot = await this.getActiveSnapshot();
     return snapshot?.assignedCategories || [];
+  }
+
+  /** La bacheca del club — sola lettura, come sul Web. */
+  async getBoardAnnouncements(): Promise<Announcement[]> {
+    const context = await this.getContext();
+    if (!context?.clubId) return [];
+    return api.getMyAnnouncements(context.clubId);
+  }
+
+  /** I propri appuntamenti — il perimetro lo applica il server, non un filtro qui. */
+  async getMyAppointments(): Promise<ClubAppointment[]> {
+    const context = await this.getContext();
+    if (!context?.clubId) return [];
+    return api.getMyAppointments(context.clubId);
+  }
+
+  async updateAppointment(
+    id: string,
+    action: "confirm" | "reject" | "reschedule" | "cancel",
+    payload: Record<string, any> = {},
+  ): Promise<ClubAppointment> {
+    const context = await this.getContext();
+    return api.updateAppointment(id, action, payload, context?.clubId);
+  }
+
+  /** `null` e l'esito ordinario per un allenatore non ancora inserito nel registro del lavoro sportivo. */
+  async getMyCompensation(
+    year?: number,
+  ): Promise<OwnCompensationStatement | null> {
+    const context = await this.getContext();
+    if (!context?.clubId) return null;
+    return api.getMyCompensation({ year, clubId: context.clubId });
   }
 
   async addAccess(token: string) {

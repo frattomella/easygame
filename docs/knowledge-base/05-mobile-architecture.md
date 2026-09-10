@@ -136,6 +136,70 @@ un'incoerenza sfuggita: la stessa `docs/knowledge-base/10-ui-ux-conventions.md`
 andra aggiornata quando il reskin delle quattro tab primarie verra
 programmato.
 
+### WP3 — Parita funzionale Trainer (ADR-0162)
+
+**Implementation version**: 2026-09-10. Le cinque sezioni che il Web ha e il
+mobile non aveva sono complete, sola lettura salvo Appuntamenti:
+
+| Sezione | Schermata | Endpoint | Note |
+|---|---|---|---|
+| Bacheca | `TrainerBoardScreen` | `GET /api/v1/announcements?mine=1` | Sola lettura, nessun RSVP — stessa scelta di prodotto del Web |
+| Documenti | `TrainerDocumentsScreen` | `GET /api/v1/trainers` (propria scheda) | Richiede la correzione WP1 dell'allow-list; **apertura/download del file non implementato** — vedi gap sotto |
+| Appuntamenti | `TrainerAppointmentsScreen` | `GET/POST /api/v1/appointments[/​:id]` | Conferma/rifiuta/riprogramma secondo `transitions` (la macchina a stati del dominio, mai tre bottoni fissi); il rifiuto raccoglie sempre il motivo, stesso contratto corretto in WP1 |
+| Compensi | `TrainerCompensationScreen` | `GET /api/v1/sport-work/me` | Elenco chiuso, niente IBAN — identico al Web |
+| Squadre | `TrainerCategoriesScreen` | elenchi gia disponibili (categorie, atleti, allenamenti, gare) | Nomi leggibili, mai identificativi grezzi (`summarizeTrainerCategories`) |
+
+Raggiungibili da un hub (`TrainerMoreScreen`, "Altre sezioni" nel Profilo),
+non da nuove tab permanenti — navigazione secondaria per sezioni meno
+frequenti, come da richiesta. Ogni voce dell'hub e gated dal permesso reale
+del club (`trainerPermissions.navigation.*`).
+
+**Due difetti di permesso mobile-solo trovati e corretti**
+(`client/lib/trainer-permissions.ts`):
+
+1. Le dieci chiavi di navigazione erano cinque: `board`/`documents`/
+   `appointments`/`notifications`/`compensation` non esistevano, quindi la
+   scelta di un club su quelle non aveva alcun effetto (ora l'hub le
+   rispetta).
+2. **Il piu serio**: `resolveTrainerDashboardPermissions` leggeva
+   `navigation`/`widgets`/`actions` direttamente sull'ingresso, ma il
+   chiamante reale (`resolveMobilePermissions`) passa `clubs.settings` —
+   dove quelle chiavi vivono un livello sotto, in
+   `settings.trainerDashboardPermissions`. La fusione ricadeva quindi
+   **sempre** sui valori di default: qualunque scelta di un club su
+   `/permissions` per home/allenamenti/gare/atleti non aveva mai avuto
+   effetto sul mobile. Corretto spacchettando l'ingresso come fa il Web.
+
+**Componenti nuovi rispetto all'export Claude Design** (estensioni
+dichiarate, non nel namespace originale):
+
+- `SecondaryScreenLayout` — il guscio comune (`Floodlight` + `AppBar` con
+  freccia indietro) delle cinque sezioni: non e un componente del design
+  system, e la composizione dei suoi pezzi per uno schermo "di dettaglio"
+  che il design system non modella esplicitamente.
+- `SignatureInput` — porta effettiva di `components/core/Input.jsx`
+  (mancava dal primo giro di WP2): campo vetro con angolo tagliato, usato
+  per il motivo del rifiuto e la riprogrammazione di un appuntamento.
+
+**Gap dichiarati:**
+
+- **Download dei documenti**: non implementato. Aprire `attachment:<id>`
+  richiederebbe una richiesta autenticata col Bearer token e
+  `expo-file-system`/`expo-sharing` (non dipendenze del progetto) per
+  salvare/aprire il file sul dispositivo — un link semplice non
+  funzionerebbe: il browser del telefono non porta il Bearer token del
+  mobile. La schermata mostra i metadati e lo stato di scadenza, non un
+  pulsante che aprirebbe un link destinato a fallire.
+- **Riprogrammazione senza selettore nativo**: data e ora si scrivono come
+  testo libero (`AAAA-MM-GG`, `HH:MM`), non con un date/time picker nativo
+  (`@react-native-community/datetimepicker` non e una dipendenza). Stesso
+  formato che il server gia accetta, funzionale ma meno comodo di un
+  selettore.
+- **`NumberTile`/`SelectableAthleteRow`/`EventCard`/`SectionHero`/
+  `StatCard`/`HighlightCard`** restano non portati (vedi sopra): nessuna
+  delle cinque sezioni nuove ne aveva bisogno, servono al reskin di
+  Allenamenti/Gare/Home.
+
 ## Stato attuale: Trainer completo, Parent segnaposto, gate su tutto il resto
 
 Il navigator root (`client/navigation/RootStackNavigator.tsx`) e il **solo**
@@ -168,14 +232,22 @@ giro**):
 | Allenamenti | `TrainingsStackNavigator` | `TrainerTrainingsDashboardScreen` |
 | Partite | `MatchesStackNavigator` | `TrainerMatchesDashboardScreen` |
 | Atleti | `AthletesStackNavigator` | `TrainerAthletesScreen` → `TrainerAthleteProfileScreen` |
-| Profilo | `ProfileStackNavigator` | `TrainerProfileDashboardScreen` |
+| Profilo | `ProfileStackNavigator` | `TrainerProfileDashboardScreen` → "Altre sezioni" → `TrainerMoreScreen` |
 
-Ogni stack include anche `NotificationsScreen`.
+Ogni stack include anche `NotificationsScreen`. Da `TrainerMoreScreen`
+(navigazione secondaria, non una tab): `TrainerBoardScreen`,
+`TrainerDocumentsScreen`, `TrainerAppointmentsScreen`,
+`TrainerCompensationScreen`, `TrainerCategoriesScreen` — vedi "WP3 — Parita
+funzionale Trainer" sopra.
 
-### Schermate collegate (15)
+### Schermate collegate (21)
 
 Identity & Access: `LoginScreen`, `RegisterScreen`, `VerifyOtpScreen`,
 `ForgotPasswordScreen`, `AccountHubScreen`, `UnsupportedRoleScreen`.
+
+Trainer, navigazione secondaria (WP3): `TrainerMoreScreen`,
+`TrainerBoardScreen`, `TrainerDocumentsScreen`, `TrainerAppointmentsScreen`,
+`TrainerCompensationScreen`, `TrainerCategoriesScreen`.
 
 Trainer (invariate): `NotificationsScreen`, `TrainerHomeDashboardScreen`,
 `TrainerTrainingsDashboardScreen`, `TrainerMatchesDashboardScreen`,
@@ -199,8 +271,8 @@ sulla v2 collegata.
 
 | File | Righe | Cosa fa | Stato |
 |------|-------|---------|-------|
-| `client/services/api.ts` | 995 | Client HTTP verso `/api/v1` della Web App, auth inclusa (register/login/verify/forgot-password). Base URL da `EXPO_PUBLIC_EASYGAME_API_URL` (o override salvato in SecureStore). Timeout 6 s, retry solo su risposte senza corpo (408/429/502/503/504 senza payload — una risposta analizzata, anche un 429, non si ripete). Stesso envelope `{data, error}`. | **In uso, fonte dati reale** |
-| `client/services/mobile-backend-storage.ts` | 1.292 | Cache AsyncStorage + normalizzazione sopra `api.ts`. Chiavi `@easygame/mobile/*`. | **In uso** |
+| `client/services/api.ts` | 1.154 | Client HTTP verso `/api/v1` della Web App, auth inclusa (register/login/verify/forgot-password) e le sezioni Trainer di WP3 (announcements/appointments/sport-work). Base URL da `EXPO_PUBLIC_EASYGAME_API_URL` (o override salvato in SecureStore). Timeout 6 s, retry solo su risposte senza corpo (408/429/502/503/504 senza payload — una risposta analizzata, anche un 429, non si ripete). Stesso envelope `{data, error}`. | **In uso, fonte dati reale** |
+| `client/services/mobile-backend-storage.ts` | 1.351 | Cache AsyncStorage + normalizzazione sopra `api.ts`. Chiavi `@easygame/mobile/*`. | **In uso** |
 | `client/services/storage.ts` | 387 | **Dati mock hard-coded** (`MOCK_USER`, `MOCK_CLUBS`). Chiavi `@easygame/*`. | Usato solo dalle schermate non collegate (R8) |
 | ~~`client/services/mobile-storage-service.ts`~~ | 1.240 | Terzo layer di storage, duplicato di `mobile-backend-storage` | **Rimosso** il 2026-08-22: zero import, riclassificato SAFE |
 
@@ -336,18 +408,33 @@ risoluzione, 2410 moduli, bundle iOS 5,97 MB. Non e un avvio su dispositivo —
 resta vero il limite dichiarato sopra — ma prova che il grafo di import di
 Metro risolve tutte le schermate nuove insieme a quelle esistenti.
 
+### Verifica di avvio reale — 2026-09-10 (design foundation + WP3 Trainer)
+
+Dopo `client/components/signature/**` (WP2) e le cinque sezioni Trainer piu
+il Dock (WP3): `npx expo export --platform ios` completato senza errori di
+risoluzione, 2437 moduli, bundle iOS 6,06 MB. `npm run test` 47/47 verdi
+(Identity & Access incluso, non regredito), `npm run check:types` e
+`npm run lint` puliti (0 errori, stessi 20 warning preesistenti).
+
 ## Cosa manca per completare il mobile
 
-Identity & Access e le fondamenta di ruolo sono a posto (vedi sopra). Restano
-aperti, in ordine indicativo:
+Identity & Access, le fondamenta di ruolo e la parita funzionale Trainer
+(bacheca, documenti, appuntamenti, compensi, squadre — WP3) sono a posto.
+Restano aperti, in ordine indicativo:
 
 - **Area Parent reale**: figli/multi-figlio, allenamenti/gare con RSVP,
   pagamenti, documenti, bacheca, notifiche — oggi solo `ParentHomeScreen`
   segnaposto.
-- **Sezioni Trainer mancanti rispetto al Web**: bacheca, documenti propri,
-  appuntamenti, compensi (vedi il report di audit Trainer/Parent per i due
-  difetti server-side da correggere prima: allow-list documenti trainer e
-  campo `note` obbligatorio sul rifiuto appuntamento).
+- **Reskin delle quattro tab Trainer primarie** (Home, Allenamenti, Gare,
+  Atleti) sul linguaggio visivo nuovo — restano sul linguaggio attuale,
+  vedi "Perche solo il Dock e stato applicato" sopra. Servirebbe anche
+  `NumberTile`/`SelectableAthleteRow`/`EventCard`/`SectionHero`/`StatCard`/
+  `HighlightCard`, non ancora portati.
+- **Download dei documenti Trainer**: mostrati i metadati, non il file —
+  richiede una richiesta autenticata col Bearer token e
+  `expo-file-system`/`expo-sharing` (non dipendenze del progetto oggi).
+- **Selettore data/ora nativo** per la riprogrammazione di un appuntamento:
+  oggi testo libero `AAAA-MM-GG`/`HH:MM`.
 - **Notifiche push e deep linking**: nessuno dei due e configurato;
   il completamento nativo del recupero password ne dipende.
 - **Link esterni centralizzati**: oggi hardcoded sia lato Web sia lato

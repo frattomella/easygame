@@ -234,6 +234,103 @@ export interface Task {
   roles?: string[];
 }
 
+/** Specchio di `src/lib/announcements/model.ts` (`Announcement`), forma "leggibile" restituita da `?mine=1`. */
+export interface Announcement {
+  id: string;
+  title: string;
+  body: string;
+  status: string;
+  publishAt: string | null;
+  expiresAt: string | null;
+  publishedAt: string | null;
+  attachmentIds: string[];
+  createdAt: string | null;
+  updatedAt: string | null;
+  deliveryId: string;
+  readAt: string | null;
+}
+
+/** Specchio di `toClubAppointment` (`src/lib/appointments/projection.ts`). */
+export interface ClubAppointment {
+  id: string;
+  organization_id: string;
+  site_id: string | null;
+  season_id: string | null;
+  slot_id: string | null;
+  starts_at: string;
+  ends_at: string;
+  timezone?: string;
+  status: string;
+  status_label: string;
+  date: string;
+  time: string;
+  athlete_id: string | null;
+  requested_by_user_id: string | null;
+  assigned_to_user_id: string | null;
+  reason: string;
+  title: string;
+  notes: string;
+  internal_notes: string;
+  decision_note: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  parent_appointment_id: string | null;
+  version: number;
+  created_at: string | null;
+  updated_at: string | null;
+  /** Le sole transizioni che il dominio ammette da questo stato, per questo lato — non tre bottoni fissi. */
+  transitions: string[];
+  actions: string[];
+}
+
+/** Specchio di `OwnCompensationStatement` (`src/lib/server/trainer-area.ts`). Elenco chiuso: niente IBAN, niente dati contributivi. */
+export interface OwnCompensationStatement {
+  organizationId: string;
+  personId: string;
+  displayName: string;
+  relationships: {
+    id: string;
+    role: string;
+    relationshipType: string;
+    status: string;
+    startDate: string;
+    endDate: string | null;
+    contractAmount: number | null;
+    currency: string;
+    compensationFrequency: string;
+    plan: { kind: string; totalAmount: number; currency: string } | null;
+  }[];
+  installments: {
+    id: string;
+    relationshipId: string;
+    sequence: number;
+    label: string;
+    dueDate: string;
+    grossAmount: number;
+    accruedAmount: number;
+    paidAmount: number;
+    remainingAmount: number;
+    status: string;
+  }[];
+  declarations: {
+    id: string;
+    fiscalYear: number;
+    externalAmount: number;
+    declarationDate: string;
+    status: string;
+    hasOtherCoverage: boolean;
+  }[];
+  position: {
+    year: number;
+    clubGross: number;
+    externalDeclared: number;
+    progressive: number;
+    paymentCount: number;
+    lastPaymentAt: string | null;
+    hasCurrentDeclaration: boolean;
+  } | null;
+}
+
 export type StoredContext = {
   clubId: string;
   role: string;
@@ -987,6 +1084,68 @@ class EasyGameApiService {
         body: {
           data,
         },
+      },
+    );
+  }
+
+  /** La bacheca di chi guarda — `GET /api/v1/announcements?mine=1`, sola lettura. */
+  async getMyAnnouncements(clubId?: string | null): Promise<Announcement[]> {
+    return this.request<Announcement[]>(`${API_PREFIX}/announcements`, {
+      method: "GET",
+      clubId,
+      query: { mine: 1 },
+    });
+  }
+
+  /**
+   * I propri appuntamenti — `GET /api/v1/appointments`, mai un filtro `?assigned_to=`:
+   * per chi ha solo `appointments.read_own` il server impone
+   * `assigned_to_user_id = <chi chiede>` prima di qualunque parametro
+   * (`src/lib/server/appointments.ts`). Passarne uno qui non allargherebbe
+   * niente, e scriverlo suggerirebbe il contrario.
+   */
+  async getMyAppointments(clubId?: string | null): Promise<ClubAppointment[]> {
+    return this.request<ClubAppointment[]>(`${API_PREFIX}/appointments`, {
+      method: "GET",
+      clubId,
+    });
+  }
+
+  /**
+   * Una transizione della macchina a stati degli appuntamenti — stesso
+   * contratto del Web (`src/app/api/v1/appointments/[id]/route.ts`): l'azione
+   * sta nel corpo, non nell'URL, e il dominio traduce lo stato di arrivo.
+   */
+  async updateAppointment(
+    id: string,
+    action: "confirm" | "reject" | "reschedule" | "cancel",
+    payload: Record<string, any> = {},
+    clubId?: string | null,
+  ): Promise<ClubAppointment> {
+    return this.request<ClubAppointment>(
+      `${API_PREFIX}/appointments/${encodeURIComponent(id)}`,
+      {
+        method: "POST",
+        clubId,
+        body: { data: { action, ...payload } },
+      },
+    );
+  }
+
+  /**
+   * I propri compensi — `GET /api/v1/sport-work/me`. `null` e l'esito
+   * ordinario di un allenatore che il club non ha ancora inserito nel
+   * registro del lavoro sportivo, non un errore.
+   */
+  async getMyCompensation(
+    options: { year?: number; clubId?: string | null } = {},
+  ): Promise<OwnCompensationStatement | null> {
+    return this.request<OwnCompensationStatement | null>(
+      `${API_PREFIX}/sport-work/me`,
+      {
+        method: "GET",
+        clubId: options.clubId,
+        query: options.year ? { year: options.year } : undefined,
       },
     );
   }

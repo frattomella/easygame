@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { mobileBackendStorage } from "@/services/mobile-backend-storage";
+import {
+  mobileBackendStorage,
+  TrainerProfile,
+} from "@/services/mobile-backend-storage";
 import { Access, Club, ClubCategorySummary, User } from "@/services/api";
 import { TrainerDashboardPermissions } from "@/lib/trainer-permissions";
 import { AuthOutcome } from "@/lib/auth-flow";
@@ -14,19 +17,27 @@ interface AuthState {
   currentRole: string | null;
   trainerPermissions: TrainerDashboardPermissions | null;
   assignedCategories: ClubCategorySummary[];
+  /** `null` per chi ha accesso pieno al club (owner/admin), non solo per errore. */
+  trainerProfile: TrainerProfile | null;
 }
+
+const SIGNED_OUT_STATE: AuthState = {
+  isLoading: false,
+  isLoggedIn: false,
+  hasContext: false,
+  user: null,
+  currentClub: null,
+  currentAccess: null,
+  currentRole: null,
+  trainerPermissions: null,
+  assignedCategories: [],
+  trainerProfile: null,
+};
 
 export function useAuth() {
   const [state, setState] = useState<AuthState>({
+    ...SIGNED_OUT_STATE,
     isLoading: true,
-    isLoggedIn: false,
-    hasContext: false,
-    user: null,
-    currentClub: null,
-    currentAccess: null,
-    currentRole: null,
-    trainerPermissions: null,
-    assignedCategories: [],
   });
 
   const checkAuth = useCallback(async () => {
@@ -59,17 +70,7 @@ export function useAuth() {
     );
 
     if (!isLoggedIn) {
-      setState({
-        isLoading: false,
-        isLoggedIn: false,
-        hasContext: false,
-        user: null,
-        currentClub: null,
-        currentAccess: null,
-        currentRole: null,
-        trainerPermissions: null,
-        assignedCategories: [],
-      });
+      setState(SIGNED_OUT_STATE);
       return;
     }
 
@@ -77,17 +78,7 @@ export function useAuth() {
 
     if (!user) {
       await mobileBackendStorage.logout().catch(() => undefined);
-      setState({
-        isLoading: false,
-        isLoggedIn: false,
-        hasContext: false,
-        user: null,
-        currentClub: null,
-        currentAccess: null,
-        currentRole: null,
-        trainerPermissions: null,
-        assignedCategories: [],
-      });
+      setState(SIGNED_OUT_STATE);
       return;
     }
 
@@ -100,26 +91,28 @@ export function useAuth() {
 
     if (!hasContext) {
       setState({
+        ...SIGNED_OUT_STATE,
         isLoading: false,
         isLoggedIn: true,
         hasContext: false,
         user,
-        currentClub: null,
-        currentAccess: null,
-        currentRole: null,
-        trainerPermissions: null,
-        assignedCategories: [],
       });
       return;
     }
 
-    const [currentClub, currentAccess, trainerPermissions, assignedCategories] =
-      await Promise.all([
-        withTimeout(mobileBackendStorage.getCurrentClub(), null, 3000),
-        withTimeout(mobileBackendStorage.getCurrentAccess(), null, 3000),
-        withTimeout(mobileBackendStorage.getTrainerPermissions(), null, 3000),
-        withTimeout(mobileBackendStorage.getAssignedCategories(), [], 3000),
-      ]);
+    const [
+      currentClub,
+      currentAccess,
+      trainerPermissions,
+      assignedCategories,
+      trainerProfile,
+    ] = await Promise.all([
+      withTimeout(mobileBackendStorage.getCurrentClub(), null, 3000),
+      withTimeout(mobileBackendStorage.getCurrentAccess(), null, 3000),
+      withTimeout(mobileBackendStorage.getTrainerPermissions(), null, 3000),
+      withTimeout(mobileBackendStorage.getAssignedCategories(), [], 3000),
+      withTimeout(mobileBackendStorage.getTrainerProfile(), null, 3000),
+    ]);
 
     setState({
       isLoading: false,
@@ -131,6 +124,7 @@ export function useAuth() {
       currentRole: context?.role || null,
       trainerPermissions,
       assignedCategories,
+      trainerProfile,
     });
   }, []);
 
@@ -151,17 +145,7 @@ export function useAuth() {
 
   const logout = async () => {
     await mobileBackendStorage.logout();
-    setState({
-      isLoading: false,
-      isLoggedIn: false,
-      hasContext: false,
-      user: null,
-      currentClub: null,
-      currentAccess: null,
-      currentRole: null,
-      trainerPermissions: null,
-      assignedCategories: [],
-    });
+    setState(SIGNED_OUT_STATE);
   };
 
   const setContext = async (

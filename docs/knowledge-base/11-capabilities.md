@@ -243,13 +243,18 @@ funzionava e non si vedeva.
 | Recupero password | PARTIAL | Avvio reale (`POST /api/v1/auth/password/forgot`); il completamento apre il browser sulla pagina Web esistente — nessun deep link per completarlo in-app |
 | Gate ruoli non supportati (V1: solo Trainer/Parent) | COMPLETE | `resolveMobileRoleGate` in `RootStackNavigator`, schermata unica "EasyGame Mobile è in aggiornamento" |
 | Selezione club/contesto | COMPLETE | `AccountHubScreen`, attivazione con ruolo/tessera precisi (ADR-0102) |
-| Home trainer | PARTIAL | `TrainerHomeDashboardScreen` |
-| Allenamenti / partite / atleti trainer | PARTIAL | Schermate v2 collegate, funzionalita ridotte rispetto al Web |
+| Home trainer | PARTIAL | `TrainerHomeDashboardScreen`, linguaggio visivo non ancora aggiornato al design system nuovo |
+| Allenamenti / partite / atleti trainer | PARTIAL | Schermate v2 collegate, funzionalita ridotte rispetto al Web, linguaggio visivo non ancora aggiornato |
+| Bacheca trainer | COMPLETE | `TrainerBoardScreen` (WP3) → `GET /api/v1/announcements?mine=1`, sola lettura come sul Web |
+| Documenti propri trainer | PARTIAL | `TrainerDocumentsScreen` (WP3): metadati e stato di scadenza; apertura/download del file non implementato (serve un client autenticato per il binario) |
+| Appuntamenti trainer | COMPLETE | `TrainerAppointmentsScreen` (WP3): conferma/rifiuta (con motivo)/riprogramma secondo le transizioni del dominio |
+| Compensi trainer | COMPLETE | `TrainerCompensationScreen` (WP3) → `GET /api/v1/sport-work/me`, elenco chiuso identico al Web |
+| Squadre/categorie trainer | COMPLETE | `TrainerCategoriesScreen` (WP3): nomi leggibili e conteggi, raggiunta da un hub secondario (`TrainerMoreScreen`) |
 | Notifiche mobile | PARTIAL | Lettura, nessuna push |
 | Area management mobile | MISSING | Nessuna schermata |
 | Area genitore mobile | PARTIAL | Ruolo riconosciuto e instradato (`ParentStackNavigator`); solo un segnaposto, nessuna funzionalita di dominio |
 | Area atleta mobile | MISSING | Ruolo non supportato in V1, intercettato dal gate |
-| Test mobile | PARTIAL | `easygamemobile/tests/`, solo sui moduli puri di Identity & Access (`node --test`); nessun test sulle schermate o sul layer dati/rete |
+| Test mobile | PARTIAL | `easygamemobile/tests/`, 47 test (`node --test`) sui moduli puri di Identity & Access e sui permessi/documenti/categorie Trainer di WP3; nessun test sulle schermate (nessun renderer RN installato) o sul layer dati/rete |
 | Build distribuibile (EAS) | MISSING | Nessuna configurazione EAS |
 | Layer dati mobile | LEGACY/REVIEW | Tre servizi storage: uno mock, uno orfano, uno reale |
 

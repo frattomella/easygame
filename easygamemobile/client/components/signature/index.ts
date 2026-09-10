@@ -29,3 +29,5 @@ export { AppBar } from "@/components/signature/AppBar";
 export { Dock } from "@/components/signature/Dock";
 export { StateMessage } from "@/components/signature/StateMessage";
 export type { StateMessageKind } from "@/components/signature/StateMessage";
+export { SecondaryScreenLayout } from "@/components/signature/SecondaryScreenLayout";
+export { SignatureInput } from "@/components/signature/SignatureInput";
