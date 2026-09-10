@@ -2,7 +2,32 @@
 
 Mobile only. No web UI is defined in any revision.
 
-## v2.2.0 — 2026-09-10 · "Sheet & shell" · **CURRENT**
+## v2.3.0 — 2026-09-10 · "Real data" · **CURRENT**
+
+A refinement of v2.2, not a new direction. Same floodlit ground, glass surfaces, signature corner, single action gradient, icon-only.
+
+**Changed — EnrollmentStatusCard rewritten to the real data contract**
+- The multi-step progress rail (`Domanda / Documenti / Pagamento / Attiva`) specified in v2.1–v2.2 is **removed**. The backend exposes an enrollment *status*, a plan and a balance — not a state per phase — so the rail was a drawn assumption. Per-phase progress exists only at application level and belongs on a detail screen as rows.
+- The card is now: dark glass in the sky · one `clipboard-outline` chip · season eyebrow · status as an h3 Italian phrase · Status Pill · one supporting fact from the API · at most one CTA naming the real task. Eight supported states, each derivable from a returned field. Loading keeps the shell with placeholder bars; a missing enrollment object renders **nothing** rather than a placeholder card; a fetch failure is a `StateMessage`, never a domain state.
+- Deprecation entry added so the rail is not reintroduced.
+
+**Verified / specified — Trainer final reskin set**
+- Newly normative: `AppBar`, `Dock`, `StatusPill`, `GlassCard`, `ActionButton` (§B7–B11) — previously spec cards only.
+- Re-verified: `SelectableAthleteRow`, `EventCard`, `StatCard`, `HighlightCard`, `SectionHero`. No functional meaning changed.
+- Added a screen-coverage matrix for Home / Allenamenti / Gare / Atleti / Profilo: every surface maps to an existing component; the reskin needs no new ones.
+
+**Added — Part E · authentication and password reset**
+Seven steps (request, sent/resend countdown, code validation, new password, success, invalid/expired, plus loading and error), all in the existing language: raised sky, h1 statement, one elevated glass card, one primary CTA. Code entry is six glass cells but **one** logical field.
+
+**Added — Part F · system, release and connectivity states**
+`offline` (non-blocking banner over cached data with its timestamp), `connection lost`, `retry`, `maintenance`, `session expired` (a sheet, not a screen — context is preserved), `update required`, `unsupported role` (two exits, never one). Blocking vs non-blocking placement is now a rule.
+
+**Added — Part G · push permission and deep-link states**
+Permission not-requested / allowed / denied, with no launch-time prompt and no re-nagging after denial. Deep-link feedback: the destination's shell always renders before its data, and `loading` / `unavailable` / `access no longer available` / `wrong context` are four visually distinct outcomes.
+
+**Tokens** — none added, changed or removed.
+
+## v2.2.0 — 2026-09-10 · "Sheet & shell"
 
 Driven by the second implementation pass (`easygamemobile/client/components/signature/**`), which built the Parent chrome and needed two shells the system had assumed but never specified.
 

@@ -1,6 +1,6 @@
 # EasyGame Design System
 
-**Revision: EGDS v2.2.0 · 2026-09-10 · "Sheet & shell" — CURRENT** — see `CHANGELOG.md`. Normative component specs live in `guidelines/component-specs.md`; navigation rules in `guidelines/navigation.md`; the Trainer reskin plan in `guidelines/trainer-migration.md`.
+**Revision: EGDS v2.3.0 · 2026-09-10 · "Real data" — CURRENT** — see `CHANGELOG.md`. Normative component specs live in `guidelines/component-specs.md`; navigation rules in `guidelines/navigation.md`; the Trainer reskin plan in `guidelines/trainer-migration.md`.
 
 Design system for the **EasyGame mobile app** — the coach-facing app of EasyGame, a sports club management platform for clubs, coaches, staff, athletes and families.
 
@@ -92,7 +92,7 @@ Foundations and tokens
 
 - `styles.css` — the one file consumers link; `@import`s everything below.
 - `tokens/signature.css` — the visual-signature layer (navy ramp, glass, cut corner, highlights, gradients, floodlight, eyebrow type). Plus `colors.css`, `semantic.css`, `typography.css`, `spacing.css`, `radius.css`, `elevation.css`, `motion.css`, `fonts.css`.
-- `guidelines/component-specs.md` — **normative** spec for every component (structure, surface, border, shadow, type, icons, spacing, all states). Read this before building UI.
+- `guidelines/component-specs.md` — **normative** spec for every component (structure, surface, border, shadow, type, icons, spacing, all states) plus authentication/reset screens (Part E), system and release states (Part F) and push/deep-link states (Part G). Read this before building UI.
 - `guidelines/navigation.md` — the mobile navigation language: Trainer + Parent docks, hubs, secondary screens, sheets, child-switcher placement.
 - `guidelines/trainer-migration.md` — how to move Home / Allenamenti / Gare / Atleti onto the current language without changing functionality.
 - `guidelines/signature-*.card.html` — the six Signature cards (five patterns + layered ground / corner). `guidelines/*.card.html` — 21 foundation specimen cards (Colors, Type, Spacing, Brand).

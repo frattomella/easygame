@@ -1,6 +1,8 @@
 # Trainer screens — migration to the current design language
 
-**Revision:** EGDS v2.2.0 · 2026-09-10 · CURRENT
+**Revision:** EGDS v2.3.0 · 2026-09-10 · CURRENT
+
+Every component this migration needs is normative in `component-specs.md`: content patterns in Part B (§B1–B6), chrome and primitives in Part B2 (§B7–B11), plus the screen-coverage matrix at the end of Part B2. The reskin introduces no new components.
 
 Home, Allenamenti, Gare and Atleti still use the pre-signature style (flat background, opaque `Card`/`Button`/`Badge`). The Dock around them is already current, which is why the seam is visible. This document says exactly how to migrate them **without changing any functionality** — no new data, no new endpoints, no changed permissions, no changed copy except where a state was previously unlabelled.
 

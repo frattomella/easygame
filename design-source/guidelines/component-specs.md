@@ -1,6 +1,6 @@
 # EasyGame Mobile — component specifications
 
-**Revision:** EGDS v2.2.0 · 2026-09-10 · **CURRENT**
+**Revision:** EGDS v2.3.0 · 2026-09-10 · **CURRENT**
 **Scope:** mobile only (Trainer + Parent). No web UI is defined or implied by this document.
 
 This file is the normative visual specification for every component the design system defines. It is written to be implemented against, not admired: each entry states structure, surface, border, shadow, typography, icon treatment, spacing and every state. Where a value is given, it is the value — do not round it to a 4/8px grid.
@@ -416,23 +416,42 @@ A structure/facility booking (a hall, a pitch, a slot).
 
 ## C9 · EnrollmentStatusCard
 
-Enrollment or season renewal — usually one per child, at the top of the Parent home.
+**Rewritten in v2.3 to match the real data contract.** The multi-step progress rail specified in v2.1–v2.2 is **removed**: the backend exposes an enrollment *status* (plus a plan and a balance), not a state per phase. Per-phase progress exists only at application level (`sent` / `in_review` / `approved` / `rejected`) and is shown as separate rows elsewhere. A rail built from data that does not exist would have been a drawn assumption, so it is gone. **Do not reintroduce progress steps, phase dots, percentages or "step 2 of 4" language in this card.**
 
-- **Structure:** a **dark-glass** panel (it belongs in the sky, above the mist content): eyebrow (`STAGIONE 2026/27`) → status title 20px/28 700 white → a compact **step rail**: three or four labelled steps (`Domanda`, `Documenti`, `Pagamento`, `Attiva`) as 8px dots joined by a 2px hairline in white 18%, completed dots filled white, current dot filled with the action gradient and given a 4px white-26% halo → supporting line white 72% → one primary action.
-- **Surface:** dark glass. **Border:** `1px rgba(255,255,255,0.14)`. **Shadow:** dark inner highlight + panel shadow. **Radius:** `22 22 8 22`. **Padding:** 20px.
-- **Typography:** eyebrow white 72%; title 20px/28 700 white; step labels 10px/14 700 uppercase +0.08em, white for done/current and white 50% for pending; supporting line 14px/20 white 72%.
-- **Icon treatment:** no icons in the rail — dots only. A single 40px dark Icon Chip may sit beside the title for the module (`clipboard-outline`).
-- **States:** not started (`Iscrizione da avviare`, action `Avvia iscrizione`) · in progress (current step highlighted, action names the next concrete task — `Carica il certificato medico`, never a vague `Continua`) · awaiting club (`In verifica dal club`, no action, supporting line gives the expected timing if the club provides it) · complete (`Iscrizione attiva`, all dots filled, success pill, no action) · expiring (`Rinnovo entro il 31 luglio`, warning pill, action `Rinnova`) · rejected/blocked (`Iscrizione sospesa`, destructive pill, reason mandatory, action = whatever unblocks it) · updating (rail at 0.5, inert).
-- **Rule:** the action always names the next real task. One action per card.
+The card answers one question — *where does my child's enrollment stand, and is there anything for me to do?* — using only fields the API actually returns.
 
-**Refined for implementation (v2.2)**
+- **Structure** (single column, top to bottom): header row (40px dark Icon Chip `clipboard-outline` → eyebrow = season → h3 title = the status in plain Italian) → Status Pill → supporting line → at most one CTA.
+- **Surface:** **dark glass** (`rgba(11,26,58,0.72)` + 18px blur). This card belongs in the navy sky at the top of the Parent home, above the mist content — that placement is what gives it primacy without needing a rail or a coloured slab.
+- **Border:** `1px rgba(255,255,255,0.14)`.
+- **Shadow:** dark inner top highlight + raised panel shadow.
+- **Radius:** `22 22 8 22`. **Padding:** 20px. **Internal gaps:** 12px chip→text, 8px header→pill, 8px pill→supporting line, 4px above the CTA. Card sits 12px above the content below it.
+- **Status emphasis** — the hierarchy is title, then pill, in that order:
+  - The **title** states the status as a short Italian phrase at h3 20–24px/700 white. It is the primary carrier: `Iscrizione attiva`, `Iscrizione da avviare`, `In verifica dal club`, `Rinnovo disponibile`, `Iscrizione sospesa`.
+  - The **Status Pill** repeats the machine state as a tracked caps word with its ring-dot, giving the colour signal: `success` active/approved · `primary` submitted/in review · `warning` action needed / renewal available / documents outstanding · `destructive` blocked/rejected · `default` not enrolled or unknown.
+  - The **supporting line** (small 14/20, white 72%) carries the one concrete fact the API provides — an outstanding balance, a count of missing documents, a renewal window, a rejection reason. Where the API returns nothing, the line is omitted; it is never padded with invented text.
+- **Icon treatment:** exactly one 40px dark Icon Chip in the header. No dots, no rail, no per-state icon swap — the glyph is always `clipboard-outline` so the card is recognisable at a glance regardless of state. The CTA carries a trailing arrow chip.
+- **Typography:** eyebrow 11/700 caps +0.12em white 72% · title h3 −0.02em white · pill 10/700 caps · supporting 14/20 500 white 72% · CTA 13/700.
+- **CTA placement:** one action, last element, left-aligned, `onDark` variant (translucent white on the dark glass — a filled gradient button on dark glass over the sky is too much light in one place). It **names the real next task the API supports** — `Completa l'iscrizione`, `Carica i documenti richiesti`, `Vai ai pagamenti`, `Rinnova per la stagione 2027/28`. Never `Continua`, never `Vedi dettagli`. Where the next task lives in another section, the CTA navigates there. **Zero CTAs is a normal, common case** — active and in-review states have no action, and the card must close cleanly after the supporting line with no empty space reserved.
+- **Supported states** (only these; each must be derivable from a returned field):
 
-- **Step rail geometry:** 8px dots, 2px connector at white 18%, dots evenly distributed across the full card width with the labels centred beneath. Three or four steps only — a five-step rail does not fit a phone at 200% text size, so a longer process is summarised as `Passo 2 di 6` in the eyebrow with no rail.
-- **Current step is unambiguous:** completed dots filled white, the current dot filled with the action gradient plus a 4px white-26% halo, pending dots white 50% hollow. The current step's label is the only one at full white weight.
-- **The action is the step:** `Carica il certificato medico`, `Paga la prima rata`, `Firma il consenso` — never `Continua`, never `Vedi dettagli`. If the next task belongs to another section, the button navigates there and says so.
-- **Awaiting-club state has no action** and must not offer a fake one. If the club supplies an expected timing, it goes in the supporting line; if not, the line says `Il club ti avviserà` rather than inventing a duration.
-- **One card per child.** With multiple children the card is scoped by the selected child like everything else, and carries the child accent as a 3px stripe.
-- **Accessibility:** the rail is a progress indicator with a text equivalent that is always rendered, not only exposed — `Passo 2 di 4 · Documenti` sits in the eyebrow, so the dots are decorative and hidden from assistive tech. The card is one element spoken as season, status, current step, next task. Because it is dark glass in the sky, white text is checked at 4.5:1 against the brightest floodlight point, not the average. Blocked and suspended states announce assertively; progress advances announce politely.
+| State | Title | Pill | Supporting line | CTA |
+| --- | --- | --- | --- | --- |
+| **enrolled / active** | `Iscrizione attiva` | `success` · `Attiva` | plan name or balance if returned | none |
+| **not enrolled** | `Iscrizione da avviare` | `default` · `Non iscritto` | what the club requires, if stated | `Avvia iscrizione` |
+| **application sent** | `Domanda inviata` | `primary` · `Inviata` | send date if returned | none |
+| **application in review** | `In verifica dal club` | `primary` · `In verifica` | `Il club ti avviserà` (or the club's stated timing) | none |
+| **pending actions** | `Iscrizione da completare` | `warning` · `Azione richiesta` | what is outstanding, as returned | names the task |
+| **pending documents** | `Documenti da caricare` | `warning` · `2 documenti richiesti` | the document names if returned | `Carica i documenti` |
+| **renewal available** | `Rinnovo disponibile` | `warning` · `Rinnovo` | the window, only if the API returns it | `Rinnova` |
+| **blocked / rejected** | `Iscrizione sospesa` / `Domanda rifiutata` | `destructive` · returned label | the reason, **mandatory** when returned | whatever unblocks it, if any |
+
+- **Loading state:** the shell renders in place — dark glass, border, shadow, chip and eyebrow all present — with the title replaced by a 180×24 placeholder bar at white 14% (full radius) and the pill by a 90×22 placeholder pill. No spinner inside the card, no layout shift when the data lands. If the whole Parent home is loading, the screen's own `StateMessage kind="loading"` covers it and this card is not rendered at all.
+- **Empty state:** if the API returns no enrollment object for the selected child, the card is **not rendered**. There is no "no enrollment" placeholder card — an absent enrollment is absence, not a state. (`not enrolled` is a returned status and is a real state; a missing object is not.)
+- **Disabled state:** where the club manages enrollment offline, the card renders normally with the pill `default`, the supporting line stating where (`Gestita in segreteria`), and **no CTA**. It is never greyed out — a dimmed card in the sky reads as broken. A card the club has switched off entirely is absent, per the system-wide permission rule.
+- **Warning state:** pill `warning`, and the supporting line carries the specific fact (`2 documenti richiesti`, `Rinnovo entro il 31 luglio`). No coloured border, no fill change — the pill and the title carry it.
+- **Error state:** pill `destructive`, title states the outcome, supporting line carries the returned reason. This is the only state permitted a coloured border — `1px rgba(239,68,68,0.35)` — because a suspended enrollment must be findable while scrolling. If the *fetch* failed (as opposed to the enrollment being blocked), the card is not rendered and the screen shows `StateMessage kind="error"`; a data-fetch failure must never be dressed as a domain state.
+- **Usage rules:** one card per child, scoped by the selected child, carrying that child's accent as a 3px stripe when the parent has more than one. It sits above all mist content on the Parent home. It appears nowhere else — a detail screen shows the enrollment's full application rows instead.
+- **Accessibility:** the card is one accessibility element, spoken in the order a person would ask: season, status title, pill word, supporting fact (`Stagione 2026/27, documenti da caricare, azione richiesta, 2 documenti richiesti`). The CTA is a separate focusable button whose label names the task and the child (`Carica i documenti di Marco`). Placeholder bars in the loading state are hidden from assistive tech and the card announces `Caricamento stato iscrizione`. White text on dark glass over the sky is verified at 4.5:1 against the **brightest** floodlight point, not the average. State changes announce politely, except blocked/rejected which announce assertively.
 
 ## C10 · AccountAccessCard
 
@@ -447,6 +466,167 @@ Club + role selection in the account hub — the screen a person lands on when t
 
 ---
 
+# Part B2 — Chrome and primitives (Trainer reskin set)
+
+Verified for the final Trainer reskin. **No functional meaning changes.** These five were specified only as spec cards until now; they are normative here.
+
+## B7 · AppBar
+
+- **Structure:** eyebrow (club · date, or section context) → 26px/800 display title, both left-aligned in the navy sky; trailing slot holds up to two 40px dark Icon Chips (notification bell, and on secondary screens the back arrow).
+- **Surface:** none — transparent over the Floodlight sky. It is not a bar; it is type set in the sky. **Never** give it a fill, a bottom border or a shadow.
+- **Border / shadow:** none. The bell's chip carries its own dark inner highlight.
+- **Typography:** eyebrow 11/700 caps +0.12em white 72%; title 26px/30 800 −0.02em white, single line, ellipsised.
+- **Icon treatment:** chips only, never bare glyphs. The bell's unread count is a 18px pill with the match gradient and a `1.5px rgba(255,255,255,0.7)` ring, top-right, offset −4/−4.
+- **Spacing:** padding `10 20 0`, min height 64px, 4px eyebrow→title, 8px between trailing chips.
+- **States:** default · with count · pressed (chip `scale(0.97)`) · long title (ellipsis, never wrap, never shrink the type).
+- **Per Trainer screen:** Home eyebrow `EASYGAME` title `Dashboard` · Trainings/Matches/Athletes eyebrow = club name, titles `Allenamenti` / `Gare` / `Atleti` · Profile eyebrow `ACCOUNT EASYGAME` title `Profilo`.
+- **Rule:** exactly one AppBar eyebrow + title pair per screen; the body never repeats the title.
+- **Accessibility:** the title is the screen heading, announced on arrival. The bell is a labelled button including the count (`Notifiche, 3 non lette`). The count pill is not the only signal — the label carries it.
+
+## B8 · Dock
+
+- **Structure:** 68px dark-glass pill, 5 slots, 8px inner padding, 4px between slots. The active slot expands into a gradient puck showing icon **and** label; inactive slots are outline glyphs only.
+- **Surface:** dark glass. **Border:** `1px rgba(255,255,255,0.14)`; puck `1px rgba(255,255,255,0.3)`.
+- **Shadow:** `0 20px 44px -12px rgba(7,18,43,0.65)` + dark inner highlight; the puck adds the blue glow.
+- **Radius:** full pill throughout. **Position:** fixed, 20px from each side, 18px above the safe-area bottom.
+- **Typography:** label 12/700 +0.02em, on the active puck only.
+- **Icon treatment:** 22px — filled when active (white), outline when not (white 55–60%).
+- **States:** active (puck + label + glow) · inactive · pressed (puck `brightness(1.08)`) · badged (a slot may carry a 16px count pill, top-right of its glyph) · permission-hidden (the slot is **absent** and the remaining slots redistribute — never a greyed tab).
+- **Motion:** the puck slides between slots; no screen transition on tab change.
+- **Rule:** five slots maximum, `Profilo` always last. Screens reserve 124px bottom clearance.
+- **Accessibility:** `tablist`/`tab` semantics with the selected state exposed; every slot keeps its label as `accessibilityLabel` even when visually hidden, so an inactive tab is never an unlabelled glyph. Each slot is ≥44px wide.
+
+## B9 · StatusPill
+
+- **Structure:** ring-dot (7–8px, 2px ring) + tracked caps label. Hollow ring = neutral taxonomy (category, role); filled ring = a live status.
+- **Surface:** status colour at 10–13%. **Border:** `1px` same colour at 28–32%. **Shadow:** inner top highlight only. **Radius:** full pill.
+- **Typography:** 10–11px/1 700 uppercase +0.08em, in the status colour at full opacity (never alpha-muted).
+- **Padding:** `4px 8px 4px 7px` small, `6px 10px 6px 8px` regular; 5–6px dot→label.
+- **Variants:** `default` · `primary` · `success` · `warning` · `destructive` · `match` · `onDark` (white 12% fill, white 22% border — for use in the sky).
+- **States:** the variants are the states. Not pressable, no disabled — a pill the user can act on is a Button.
+- **Rule:** maximum two pills per row. Never use a pill as a control.
+- **Accessibility:** the pill is not a separate element in a row — it is composed into the row's spoken label. The ring is decorative; the word carries the meaning.
+
+## B10 · GlassCard
+
+The generic content panel — `Card` in this system's component set.
+
+- **Structure:** optional eyebrow → optional title → optional description → children; optional 3px module stripe inset 22px along the top edge.
+- **Surface:** glass (`0.74`) default · glass strong (`0.88`) when selected or when it is an input surface · dark glass (`0.72`) in the sky. `solid` is deprecated for content lists.
+- **Border:** `1px rgba(255,255,255,0.7)` (dark: `rgba(255,255,255,0.14)`).
+- **Shadow:** inner top highlight + panel shadow; `elevated` swaps in the raised shadow for sheets and floating panels.
+- **Radius:** `22 22 8 22`, content clipped. **Padding:** 16px (20px for a hero-weight dark card).
+- **Typography:** eyebrow 11/700 caps ink 42% · title h4 20/28 −0.01em · description 14/20 ink 62%.
+- **States:** default · pressable (`scale(0.985)` + `brightness(1.03)`) · loading (placeholder bars at ink 8%, shell intact, no spinner, no layout shift) · disabled (not a card state — a disabled card is either absent by permission or its actions are disabled).
+- **Rule:** stack 12px apart on the Floodlight ground; the first card on a screen straddles the horizon. Never an opaque white panel.
+- **Accessibility:** a pressable card is one focusable element with a composed label, and its inner text is not separately focusable. A card that is purely a container gets no role.
+
+## B11 · ActionButton
+
+The Action Surface — `Button` in this system's component set.
+
+- **Structure:** optional 18px leading icon → label → optional trailing arrow chip (30px, white 18% fill with its own inner highlight) on the primary CTA of a screen or sheet.
+- **Surface:** `primary` action gradient · `success` / `destructive` their gradients · `secondary` glass strong · `outline` white 35% with a blue 45% hairline · `ghost` transparent · `onDark` white 12% (for dark glass and the sky).
+- **Border:** `1px rgba(255,255,255,0.28)` rim on gradients (this rim light is what stops a gradient button reading as a flat blue rectangle); glass border on `secondary`; `1.5px` blue on `outline`.
+- **Shadow:** dark inner highlight + the matching glow on gradients; inner highlight + panel shadow on `secondary`; none on `ghost`.
+- **Radius:** `14 14 5 14`; `10 10 4 10` at `sm`. **Heights:** 40 / 52 / 60.
+- **Typography:** 15/700 +0.01em (13/700 at `sm`).
+- **States:** default · pressed (`scale(0.97) translateY(1px)` + `brightness(1.08)`, glow off) · loading (spinner replaces the label, button inert, width unchanged) · disabled (`rgba(11,26,58,0.06)` flat fill, ink 42% label, no gradient, no glow, no rim) · focus (`--eg-focus-ring`, or `--eg-focus-ring-on-dark` on dark surfaces).
+- **Rule:** one `primary` per card, screen region or sheet. Only the primary CTA gets the trailing arrow chip.
+- **Accessibility:** 44px minimum target at every size (`sm` is padded, not shrunk). Labels are verbs or verb phrases naming the object (`Salva 14/18 presenze`). Disabled and loading expose their state; loading also announces (`Salvataggio in corso`). Never colour-only disabled — the flat fill and the absent glow are structural.
+
+## Trainer screen coverage
+
+Every surface in the five Trainer screens maps to a specified component. Nothing in the reskin needs a new component.
+
+| Screen | Chrome | Content |
+| --- | --- | --- |
+| **Home** | Floodlight · AppBar · Dock | SectionHero (sky) · HighlightCard ×3 · StatCard ×2 · StatusPill |
+| **Allenamenti** | Floodlight · AppBar · Dock | SectionHero · EventCard (action stripe) · GlassCard (empty group line) · BottomSheet + SelectableAthleteRow (green) · ActionButton · StateMessage |
+| **Gare** | Floodlight · AppBar · Dock | SectionHero · EventCard (match stripe) · BottomSheet + SelectableAthleteRow (blue) · ActionButton · StateMessage |
+| **Atleti** | Floodlight · AppBar · Dock | SectionHero + SignatureInput (search) · GlassCard row + NumberTile · StatusPill · StateMessage |
+| **Profilo** | Floodlight · AppBar · Dock | GlassCard ×5 · SignatureInput · Avatar · IconChip rows · StatusPill · ActionButton (destructive logout) · AccountAccessCard (accesses) |
+
+---
+
+# Part E — Authentication and password reset
+
+Icon-only, same language. These screens have no dock and no child switcher; they use `SecondaryScreenLayout` semantics with `onBack={false}` where there is nowhere to go back to, and a raised sky (400–420px) because they carry no content list.
+
+**Shared shape for every step:** eyebrow (where you are in the flow) → h1 32–36px/800 white statement in the sky → one supporting sentence at white 72% → a single `elevated` glass card holding the fields and the one primary CTA → a ghost secondary link beneath → version caption pinned at the bottom.
+
+| Step | Eyebrow / title | Card contents | Primary CTA | Notes |
+| --- | --- | --- | --- | --- |
+| **Request reset** | `RECUPERO ACCESSO` / `Reimposta la password` | one `SignatureInput` (email, `mail-outline`) | `Invia richiesta` + arrow chip | Supporting line states the generic outcome up front, because the response is identical whether or not the account exists |
+| **Sent / check inbox** | `RECUPERO ACCESSO` / `Controlla la posta` | no fields; a 40px `mail-open-outline` Icon Chip, the address echoed at 15/700, and the resend countdown | `Invia di nuovo` (disabled until the countdown ends) | Countdown is driven by the server's `Retry-After`, shown as `Riprova tra 0:42` in tabular figures — never a guessed client timer |
+| **Code / token validation** | `VERIFICA` / `Inserisci il codice` | 6 single-character glass cells, `14 14 5 14`, 48×56, 8px apart, tabular 22/800 centred; the focused cell takes the blue ring | `Verifica` | Cells are one logical field, not six inputs (see accessibility). Wrong and expired share one message by design — the backend does not distinguish them, so neither does the UI |
+| **New password** | `NUOVA PASSWORD` / `Scegli una nuova password` | two `SignatureInput` (password + confirm, `lock-closed-outline`, reveal chip) and a requirements list: one line per rule, each with a 14px `ellipse-outline` → `checkmark-circle` in success green as it is met | `Salva password` | Requirements are stated before typing, never revealed only as errors |
+| **Success** | `ACCESSO RIPRISTINATO` / `Password aggiornata` | 52px `checkmark-circle` Icon Chip in success green, one line of confirmation | `Vai al login` | No auto-redirect: the person confirms. No confetti, no illustration |
+| **Invalid / expired link** | `LINK NON VALIDO` / `Questo link è scaduto` | `StateMessage kind="error"` inside the card, with the reason in plain Italian | `Richiedi un nuovo link` | Never a dead end — always the way to restart |
+| **Loading** | current step's title retained | fields replaced by placeholder bars at ink 8%; the CTA shows its spinner and the card is inert at 0.7 | — | The card never collapses or changes height between states |
+| **Error** | current step's title retained | inline 13/600 `#B91C1C` line under the offending field; a transport failure instead renders `StateMessage kind="error"` above the CTA with `Riprova` | — | Field errors and connection errors are visually distinct |
+
+**Rules:** one primary action per step; the flow is linear and every step states which step it is; nothing auto-advances except after a server-confirmed code entry; no illustration, no mascot, no celebratory animation. Password reveal is a labelled chip, never an unlabelled eye.
+
+**Accessibility:** the code entry is exposed as a **single** field labelled `Codice di verifica a 6 cifre` with the cells hidden from assistive tech — six separately focusable cells make the field unusable with a screen reader. Autofill/one-time-code hints are expected. Requirement lines announce as they are met (politely). Error text is a live region tied to its field. The countdown is announced only at start and end, never per second. Every step's h1 is the screen heading.
+
+---
+
+# Part F — System, release and connectivity states
+
+All seven use `StateMessage`'s grammar — 52px Icon Chip, h4 title, muted body, at most one action — with **no illustrations**. What varies is the icon, the status colour, where it appears, and whether it blocks.
+
+| State | Icon | Colour | Surface / placement | Italian copy | Action | Blocking |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Offline** | `cloud-offline-outline` | `#F59E0B` | A 32px-tall glass strong **banner** pinned under the AppBar, full width minus gutters, `10 10 4 10`, amber ring-dot + 12/700 label. Cached content stays visible beneath it | `Sei offline · dati aggiornati alle 18:04` | none (auto-clears) | No |
+| **Connection lost** (a request failed) | `cloud-offline-outline` | `#EF4444` | `StateMessage kind="error"` in the content region, or inline in a card that failed to refresh | `Errore di connessione` / `Controlla la rete e riprova.` | `Riprova` primary | Region only |
+| **Retry** | `refresh-outline` | `#2563EB` | The action inside the two states above; while retrying, the button shows its spinner and the message stays | `Riprova` → `Nuovo tentativo…` | — | No |
+| **Maintenance** | `construct-outline` | `#F59E0B` | Full-screen over the Floodlight, sky raised to 420px, no dock, warning pill `MANUTENZIONE` | `EasyGame è in manutenzione` / the server's message, or `Torniamo online a breve.` | `Riprova` secondary | Yes |
+| **Session expired** | `log-out-outline` | `#F59E0B` | `BottomSheet`, not a full screen — the person has context to preserve and should land back where they were after signing in | `Sessione scaduta` / `Per sicurezza ti chiediamo di accedere di nuovo.` | `Accedi di nuovo` primary | Yes (modal) |
+| **Update required** | `arrow-up-circle-outline` | `#2563EB` | Full-screen, dark glass card in the sky, primary pill `AGGIORNAMENTO`; the current and required versions in the supporting line, tabular | `Aggiorna EasyGame` / `Questa versione non è più supportata.` | `Aggiorna` primary + arrow chip | Yes |
+| **Unsupported role** | `shield-outline` | ink 42% | Full-screen, no dock. Two ghost exits, never one | `EasyGame Mobile è in aggiornamento` / the role is named, and what it can use today | `Cambia accesso` secondary + `Esci` ghost | Yes |
+
+**Rules:**
+1. **Blocking states are full-screen or a modal sheet; non-blocking states are a banner or a region message.** Never block the app for something that only affects one region.
+2. **Never fold a system state into an empty list.** Offline, forbidden, error and empty are four different pictures — this is the defect `StateMessage` exists to prevent.
+3. A blocking state always offers at least one way out; `Esci` is always available on a state the person cannot resolve.
+4. Cached data stays on screen behind an offline banner, with its timestamp. Never blank a screen the person could still read.
+5. Status colour is never the only signal: every state has its icon, its word and its title.
+6. No illustration, no full-bleed art, no animation beyond the retry spinner.
+
+**Accessibility:** blocking states move focus to their title and announce assertively. The offline banner announces once on appearance and once on recovery — never repeatedly. The retry button exposes its busy state. Version numbers are spoken as digits, not dates. Every state's title is the region or screen heading.
+
+---
+
+# Part G — Push permission and deep-link states
+
+Visual guidance only; no technical implementation.
+
+## G1 · Notification permission
+
+| State | Where | Treatment |
+| --- | --- | --- |
+| **Not requested** | A glass card in `Profilo → Notifiche`, and — at most once — as a dismissible glass card at the bottom of the Parent/Trainer home after the first meaningful action | 36px `notifications-outline` Icon Chip in blue tint, title `Attiva le notifiche`, one line naming the concrete benefit (`Ricevi le convocazioni e gli avvisi del club`), `Attiva` primary + `Non ora` ghost. **The system dialog is never triggered on launch** — it follows this card, so a denial is an informed one |
+| **Allowed** | `Profilo → Notifiche` | Success ring-dot pill `ATTIVE`, the categories listed as rows with their Icon Chips. No celebratory treatment |
+| **Denied** | `Profilo → Notifiche`, and as a persistent (non-dismissible) glass row where a feature depends on it | Warning pill `DISATTIVATE`, title `Notifiche disattivate`, supporting line stating what is missed, `Apri le impostazioni` secondary. Never re-prompt in-app, never nag, never a red alarm — a denial is a legitimate choice |
+
+## G2 · Deep-link destination feedback
+
+A deep link lands on the **destination screen's own shell** — the correct AppBar title and eyebrow render immediately, so the person always knows where they arrived even before the data does. Never a neutral splash, never a blank screen.
+
+| State | Treatment |
+| --- | --- |
+| **Content loading** | The destination's Floodlight + AppBar render at once; the content region shows `StateMessage kind="loading"` (tone dark) with the specific noun — `Apro l'allenamento…`, `Apro il pagamento…`. Card shells with placeholder bars are preferred over a bare spinner where the shape is known |
+| **Content unavailable** | `StateMessage kind="empty"` — `file-tray-outline`, title `Contenuto non disponibile`, line stating the likely cause (deleted, or the season changed), action `Vai alla home` secondary. Never a raw error, never an empty list |
+| **Access no longer available** | `StateMessage kind="forbidden"` — `lock-closed-outline` in red tint, title `Accesso non più disponibile`, line naming the reason (the club revoked access, the child is no longer linked, the role changed). Actions: `Cambia accesso` secondary, and `Vai alla home` ghost. This must never look like "empty" — it is the single most important distinction in this part |
+| **Wrong context** | Where the link belongs to another club or child the account still has, do **not** fail: switch context, land on the destination, and state the switch as an AppBar eyebrow plus a one-time glass banner (`Passato a Marco · Virtus Nord`). A silent context switch is a defect |
+
+**Rules:** the shell always precedes the data; the four outcomes above are visually distinct; a deep link never dead-ends without an action; a link that requires sign-in routes through login and returns to the destination afterwards, with the destination named on the login screen's eyebrow.
+
+**Accessibility:** on arrival the destination's title is announced, then the state message when it resolves. A context switch triggered by a link announces assertively — it changes the meaning of everything on screen.
+
+---
+
 # Part D — Deprecations
 
 | Deprecated | Replaced by | Note |
@@ -458,3 +638,4 @@ Club + role selection in the account hub — the screen a person lands on when t
 | `Input` (pre-signature) | `SignatureInput` | |
 | `Avatar` for athletes | `NumberTile` | `Avatar` stays correct for clubs, coaches and parents. |
 | Flat module colour slabs (v1 `HighlightCard`, v1 `SectionHero`) | glass + module stripe / sky hero | |
+| `EnrollmentStatusCard` step/progress rail (v2.1–v2.2) | status title + Status Pill + supporting line | **Removed in v2.3.** The backend exposes an enrollment status, not per-phase progress. Do not reintroduce dots, steps, percentages or "step N of M" in this card. |

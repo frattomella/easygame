@@ -1,6 +1,6 @@
 # EasyGame Mobile — navigation language
 
-**Revision:** EGDS v2.2.0 · 2026-09-10 · **CURRENT** · mobile only.
+**Revision:** EGDS v2.3.0 · 2026-09-10 · **CURRENT** · mobile only.
 
 One navigation model serves both areas. What changes between Trainer and Parent is the *content* of the five slots, never the mechanics.
 
@@ -74,6 +74,14 @@ Hub (inside Profilo): Appuntamenti · Prenotazioni strutture · Contatti club ·
 - Push to a secondary screen: standard platform push. Back is the AppBar chip or the platform gesture — both, always.
 - Sheets: `BottomSheet` — 220ms in, 180ms out, scrim fades with it; dismiss by scrim tap, platform back, or `Annulla`. A sheet that mutates data confirms only with its primary button, never on dismiss. Drag-to-dismiss is a declared gap (no gesture library adopted); the grabber is a visual affordance.
 - Never animate blur.
+
+## Entry points outside the four levels
+
+Three things arrive from outside the navigation tree and must not be modelled as levels:
+
+- **Authentication and password reset** (Part E) — a linear flow with no dock and no back arrow where there is nowhere to return to. It owns the whole screen.
+- **Blocking system states** (Part F) — maintenance, update required and unsupported role replace the shell entirely; session expired is a sheet so the screen underneath is preserved and restored after sign-in. Non-blocking states (offline) are a banner under the AppBar and leave navigation intact.
+- **Deep links** (Part G) — land on the destination's own shell with its AppBar already correct, then resolve the content. A link needing sign-in routes through login and returns to the destination. A link belonging to another club or child the account holds switches context and states the switch; it never fails silently and never dead-ends.
 
 ## Rules that keep the two areas coherent
 

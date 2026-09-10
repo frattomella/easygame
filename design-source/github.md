@@ -4,12 +4,13 @@ path: easygamemobile
 
 ## Last sync
 
-design-system-revision: EGDS v2.2.0 (current)
+design-system-revision: EGDS v2.3.0 (current)
 
 date: 2026-09-10
 
 ### Updated in this project
 
+- v2.3.0: rewrote `EnrollmentStatusCard` to the real data contract (progress rail removed — the API has no per-phase state), made the Trainer chrome primitives normative, and added specs for auth/reset, system/release and push/deep-link states.
 - v2.2.0: formalised `BottomSheet` and `ParentPrimaryScreenLayout` from the second implementation pass, and refined the six Parent components due for implementation next.
 - v2.1.0: formalised the three components the first implementation pass created (`StateMessage`, `SecondaryScreenLayout`, `SignatureInput`).
 - Wrote normative specs for the six unported Trainer components and ten new Parent-area components.
@@ -33,5 +34,6 @@ Note: read via the attached local codebase mount (`easygame/`), not via the GitH
 | `tokens/*.css` | `easygamemobile/client/constants/theme.ts`, `design_guidelines.md` |
 | `guidelines/component-specs.md` (Part A) | `easygamemobile/client/components/signature/{StateMessage,SecondaryScreenLayout,SignatureInput,BottomSheet,ParentPrimaryScreenLayout}.tsx` |
 | `guidelines/component-specs.md` (Part C) | `src/components/parent-dashboard/parent-dashboard-{pages,types}.tsx` — status vocabulary only |
+| `guidelines/component-specs.md` (§C9, rewritten) | `easygamemobile/client/components/signature/EnrollmentStatusCard.tsx` — the implementation's simplified contract is now the spec |
 | `guidelines/navigation.md` | `easygamemobile/client/navigation/**`, `src/components/parent-dashboard/ParentSidebar.tsx` |
 | `guidelines/trainer-migration.md` | `easygamemobile/client/screens/Trainer{Home,Trainings,Matches,Athletes}*.tsx` |
