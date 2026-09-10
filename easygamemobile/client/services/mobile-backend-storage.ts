@@ -12,6 +12,9 @@ import {
   MembershipRecord,
   OwnCompensationStatement,
   ParentChild,
+  ParentDashboardData,
+  RsvpAnswerResult,
+  RsvpInvitation,
   Task,
   Training,
   TrainingAttendanceEntry,
@@ -1349,6 +1352,26 @@ class MobileBackendStorageService {
    */
   async getLinkedChildren(): Promise<ParentChild[]> {
     return api.getFamilyChildren();
+  }
+
+  /** Il cruscotto del figlio selezionato — sempre scoped su `athleteId`, mai sul club attivo. */
+  async getParentDashboard(athleteId: string): Promise<ParentDashboardData> {
+    return api.getParentDashboard(athleteId);
+  }
+
+  /** Gli inviti RSVP (allenamenti + gare) del figlio selezionato. */
+  async getParentRsvpInvitations(athleteId: string): Promise<RsvpInvitation[]> {
+    return api.getAthleteRsvpInvitations(athleteId);
+  }
+
+  /** La risposta della famiglia a un invito — idempotente, l'ultima vince. */
+  async answerParentRsvp(input: {
+    athleteId: string;
+    trainingId: string;
+    status: "yes" | "no";
+    note?: string;
+  }): Promise<RsvpAnswerResult> {
+    return api.answerRsvp(input);
   }
 
   async setServerUrl(url: string) {

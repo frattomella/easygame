@@ -331,6 +331,146 @@ export interface OwnCompensationStatement {
   } | null;
 }
 
+/**
+ * Specchio parziale di `getParentDashboardData`
+ * (`src/lib/server/parent-dashboard.ts`). Tipizzato per intero solo cio che
+ * questo WP consuma (Home, Calendario, RSVP); le sezioni non ancora
+ * costruite lato mobile (pagamenti, documenti, iscrizione, strutture,
+ * consensi, appuntamenti) restano `Record<string, unknown>` — stesso
+ * payload del Web, letto cosi com'e, senza inventare una forma.
+ */
+export interface ParentDashboardEvent {
+  id: string;
+  date: string;
+  time: string;
+  endTime?: string;
+  title?: string;
+  category?: string;
+  categoryName?: string;
+  location?: string;
+  opponent?: string;
+  isHome?: boolean;
+  status?: string;
+  rsvpRequired?: boolean;
+  [key: string]: unknown;
+}
+
+export interface ParentDashboardData {
+  user: { id: string; email: string; name: string };
+  club: {
+    id: string;
+    name: string;
+    logo_url: string | null;
+    contact_email: string | null;
+    contact_phone: string | null;
+    address: string | null;
+    city: string | null;
+    province: string | null;
+    website: string | null;
+    opening_hours: unknown;
+    [key: string]: unknown;
+  };
+  athlete: {
+    id: string;
+    name: string;
+    category_name?: string | null;
+    guardians: {
+      id: string;
+      name: string;
+      surname: string;
+      relationship: string | null;
+      email: string | null;
+      phone: string | null;
+    }[];
+    linkedAthletes: {
+      id: string;
+      organization_id: string;
+      name: string;
+      birth_date: string | null;
+      category_name: string | null;
+    }[];
+    [key: string]: unknown;
+  };
+  health: {
+    status: "valid" | "expiring" | "expired" | "missing" | string;
+    statusLabel: string;
+    expiryDate: string | null;
+    allergies: string[];
+    notes: string | null;
+    [key: string]: unknown;
+  };
+  payments: Record<string, unknown>;
+  enrollment: Record<string, unknown>;
+  documents: Record<string, unknown>;
+  trainings: {
+    upcoming: ParentDashboardEvent[];
+    history: ParentDashboardEvent[];
+    all: ParentDashboardEvent[];
+  };
+  matches: {
+    upcoming: ParentDashboardEvent[];
+    history: ParentDashboardEvent[];
+    all: ParentDashboardEvent[];
+  };
+  attendance: {
+    present: number;
+    absent: number;
+    total: number;
+    rate: number;
+    [key: string]: unknown;
+  };
+  appointments: Record<string, unknown>;
+  structures: Record<string, unknown>;
+  notifications: {
+    id: string;
+    title: string;
+    message: string;
+    type: string;
+    read: boolean;
+    created_at: string;
+    updated_at: string;
+  }[];
+  notificationsUnread: number;
+  analytics: {
+    attendanceRate: number;
+    lastAttendance: unknown[];
+    nextTraining: ParentDashboardEvent | null;
+    nextMatch: ParentDashboardEvent | null;
+    [key: string]: unknown;
+  };
+}
+
+/** Specchio di `readAthleteRsvpInvitations` (`src/lib/server/rsvp.ts`). `trainingId` e il generico id evento, anche per una gara. */
+export interface RsvpInvitation {
+  organizationId: string;
+  trainingId: string;
+  athleteId: string;
+  kind: "training" | "match";
+  opponent?: string;
+  title?: string;
+  categoryLabel?: string;
+  location?: string;
+  startsAt: string | null;
+  time?: string;
+  deadline: string | null;
+  state: "yes" | "no" | "no_response";
+  note?: string | null;
+  answeredAt: string | null;
+  canAnswer: boolean;
+  blockedMessage?: string;
+}
+
+/** Specchio di `answerRsvp` (`src/lib/server/rsvp.ts`). */
+export interface RsvpAnswerResult {
+  organizationId: string;
+  trainingId: string;
+  athleteId: string;
+  status: "yes" | "no";
+  note: string | null;
+  answeredAt: string;
+  deadline: string | null;
+}
+
 /** Specchio di `listParentChildren` (`src/lib/server/parent-dashboard.ts`). */
 export interface ParentChild {
   id: string;
@@ -1172,6 +1312,60 @@ class EasyGameApiService {
   async getFamilyChildren(): Promise<ParentChild[]> {
     return this.request<ParentChild[]>(`${API_PREFIX}/family/children`, {
       method: "GET",
+    });
+  }
+
+  /**
+   * Il cruscotto aggregato di un figlio — `GET /api/parent-dashboard/[athleteId]`
+   * (`getParentDashboardData`). Fuori da `API_PREFIX` di proposito: non e
+   * sotto `/api/v1`, e lo stesso path che il Web usa da `/parent-view/[id]`.
+   * Nessun `clubId`/header di club attivo: il server deriva l'organization
+   * dall'atleta nel path, non da un contesto club lato client (vedi
+   * `ParentContext`).
+   */
+  async getParentDashboard(athleteId: string): Promise<ParentDashboardData> {
+    return this.request<ParentDashboardData>(
+      `/api/parent-dashboard/${encodeURIComponent(athleteId)}`,
+      { method: "GET" },
+    );
+  }
+
+  /**
+   * Gli inviti RSVP di un figlio (allenamenti e gare insieme) —
+   * `GET /api/v1/rsvp?athlete_id=...` (`readAthleteRsvpInvitations`).
+   */
+  async getAthleteRsvpInvitations(
+    athleteId: string,
+  ): Promise<RsvpInvitation[]> {
+    const result = await this.request<{ invitations: RsvpInvitation[] }>(
+      `${API_PREFIX}/rsvp`,
+      { method: "GET", query: { athlete_id: athleteId } },
+    );
+    return result.invitations;
+  }
+
+  /**
+   * La risposta della famiglia a un invito — `POST /api/v1/rsvp`
+   * (`answerRsvp`). Idempotente: rispondere di nuovo e la stessa
+   * operazione di rispondere la prima volta, mai un endpoint separato per
+   * "cambiare risposta". Nessun `organization_id`: il server lo verifica
+   * sempre contro quello reale dell'atleta, non lo usa mai per filtrare —
+   * passarlo dal client non allargherebbe niente.
+   */
+  async answerRsvp(input: {
+    athleteId: string;
+    trainingId: string;
+    status: "yes" | "no";
+    note?: string;
+  }): Promise<RsvpAnswerResult> {
+    return this.request<RsvpAnswerResult>(`${API_PREFIX}/rsvp`, {
+      method: "POST",
+      body: {
+        athlete_id: input.athleteId,
+        training_id: input.trainingId,
+        status: input.status,
+        note: input.note,
+      },
     });
   }
 }

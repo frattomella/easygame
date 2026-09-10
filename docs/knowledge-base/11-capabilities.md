@@ -252,9 +252,9 @@ funzionava e non si vedeva.
 | Squadre/categorie trainer | COMPLETE | `TrainerCategoriesScreen` (WP3): nomi leggibili e conteggi, raggiunta da un hub secondario (`TrainerMoreScreen`) |
 | Notifiche mobile | PARTIAL | Lettura, nessuna push |
 | Area management mobile | MISSING | Nessuna schermata |
-| Area genitore mobile | PARTIAL | `ParentTabNavigator` (WP4): multi-figlio reale (`GET /api/v1/family/children`, selezione persistita, gestione 0/1/N figli e figli su club diversi), navigazione a 5 tab. Home ancora minima (cruscotto reale nel WP5); Calendario e Bacheca segnaposto onesti (WP5/WP6); Segreteria (pagamenti/documenti/consensi/iscrizione) segnaposto permanente per questo batch, fuori perimetro (ADR-0163) |
+| Area genitore mobile | PARTIAL | `ParentTabNavigator`: multi-figlio reale (WP4, `GET /api/v1/family/children`, selezione persistita, gestione 0/1/N figli e figli su club diversi); Home reale e Calendario unificato con RSVP (WP5, `GET /api/parent-dashboard/[athleteId]`, `GET/POST /api/v1/rsvp`). Bacheca segnaposto onesto (reale nel WP6); Segreteria (pagamenti/documenti/consensi/iscrizione) segnaposto permanente per questo batch, fuori perimetro (ADR-0163) |
 | Area atleta mobile | MISSING | Ruolo non supportato in V1, intercettato dal gate |
-| Test mobile | PARTIAL | `easygamemobile/tests/`, 55 test (`node --test`) sui moduli puri di Identity & Access, sui permessi/documenti/categorie Trainer di WP3 e sul multi-figlio Parent di WP4; nessun test sulle schermate (nessun renderer RN installato) o sul layer dati/rete |
+| Test mobile | PARTIAL | `easygamemobile/tests/`, 72 test (`node --test`) sui moduli puri di Identity & Access, sui permessi/documenti/categorie Trainer di WP3, sul multi-figlio Parent di WP4 e su calendario/RSVP/riepilogo Home di WP5; nessun test sulle schermate (nessun renderer RN installato) o sul layer dati/rete |
 | Build distribuibile (EAS) | MISSING | Nessuna configurazione EAS |
 | Layer dati mobile | LEGACY/REVIEW | Tre servizi storage: uno mock, uno orfano, uno reale |
 

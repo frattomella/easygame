@@ -78,6 +78,11 @@ restano quelli che le schermate esistenti gia usano.
 | `ChildSwitcher` | `signature/ChildSwitcher.tsx` | spec Parte C, §C1 — usa un avatar/iniziali con anello di accento, non `NumberTile`, perche un figlio collegato non porta un numero di maglia in questo payload |
 | `BottomSheet` | `signature/BottomSheet.tsx` | **estensione**: implementa il "Livello 4" di `guidelines/navigation.md` (foglio), non normato come componente a se nello spec — vedi sotto |
 | `ParentPrimaryScreenLayout` | `signature/ParentPrimaryScreenLayout.tsx` | **composizione locale**, non un componente dello spec: `Floodlight` + `AppBar` + `ChildSwitcher`, centralizza la regola "lo switcher sta sotto l'AppBar su ogni schermata primaria Parent" (`guidelines/navigation.md`) |
+| `EventCard` | `signature/EventCard.tsx` | `components/patterns/EventCard.jsx` (spec Parte B, §B2) — portato in WP5 per Calendario/Home Parent |
+| `SectionHero` | `signature/SectionHero.tsx` | `components/patterns/SectionHero.jsx` (spec Parte B, §B4) |
+| `StatCard` | `signature/StatCard.tsx` | `components/patterns/StatCard.jsx` (spec Parte B, §B5) |
+| `HighlightCard` | `signature/HighlightCard.tsx` | spec Parte B, §B6 |
+| `RSVPControl` | `signature/RSVPControl.tsx` | spec Parte C, §C2 — disegna solo le transizioni che il server ha gia deciso, mai un terzo stato inventato |
 
 Traduzione CSS → React Native (dove non e 1:1) documentata nel commento di
 testa di `theme.ts`: `border-radius` a quattro valori diventa quattro
@@ -127,20 +132,19 @@ visiva.
   richiederebbero un pattern SVG piastrellato per un dettaglio a peso visivo
   minimo su schermo telefono. `Floodlight` riproduce il gradiente navy e i
   due riflettori, non le righe.
-- **Componenti Parte B non ancora portati**: `SelectableAthleteRow`,
-  `EventCard`, `SectionHero`, `StatCard`, `HighlightCard` — servono a
-  ridisegnare Allenamenti/Gare/Home **Trainer** (riga atleta selezionabile,
-  la card evento con la rotaia oraria), che restano **invariate** in questo
-  giro (vedi sotto). `NumberTile` e stato portato in WP4 per `ChildSwitcher`
-  (vedi la tabella sopra); gli altri arriveranno quando quelle schermate
-  Trainer verranno riprese.
-- **Componenti Parte C non ancora portati**: `RSVPControl`, `PaymentCard`,
+- **`SelectableAthleteRow`** (Parte B) non ancora portato: serve solo al
+  reskin di Allenamenti/Gare **Trainer** (riga atleta selezionabile), che
+  restano invariate in questo giro (vedi sotto). `NumberTile`, `EventCard`,
+  `SectionHero`, `StatCard`, `HighlightCard` sono stati portati in WP4/WP5
+  per l'area Parent (vedi la tabella sopra) — il loro uso Trainer (roster,
+  Home) resta un lavoro a se.
+- **Componenti Parte C non ancora portati**: `PaymentCard`,
   `DocumentRow`/`DocumentCard`, `ConsentRow`, `NotificationRow`,
   `AppointmentCard`, `BookingCard`, `EnrollmentStatusCard`,
   `AccountAccessCard` — specificati in `guidelines/component-specs.md` Parte
   C ma non ancora implementati: nessuna schermata di questo batch (WP4-WP6)
-  ne ha ancora bisogno, salvo `ChildSwitcher` (portato) e quanto arrivera nei
-  WP5/WP6.
+  ne ha ancora bisogno, salvo `ChildSwitcher` e `RSVPControl` (portati) e
+  quanto arrivera nel WP6 (`NotificationRow`, `AccountAccessCard`).
 - **Dark mode**: i token esistono (`.eg-dark` lato CSS) ma senza schede di
   esempio nel design system stesso; non modellato lato RN.
 
@@ -285,6 +289,55 @@ schermate che le consumano esistono.
 figli, figli su club diversi, scelta salvata non piu valida, raggruppamento,
 cambio cross-club, accento stabile e ciclico).
 
+### WP5 — Parent Home, Calendario, RSVP (ADR-0163)
+
+**Implementation version**: 2026-09-10, EGDS v2.1.0. Sostituisce la Home
+minima e i due segnaposto di WP4 con contenuto reale.
+
+**Home** (`ParentHomeScreen`): `SectionHero` (nome figlio, club, tre stat
+chip: prossimo allenamento, prossima gara, presenze) + due `StatCard`
+(certificato medico, notifiche non lette) + due `HighlightCard`
+(Allenamenti/Gare, al massimo due anteprime ciascuna, azione verso il
+Calendario). Ogni numero viene da `GET /api/parent-dashboard/[athleteId]`
+(`analytics`, `attendance`, `health`, `notificationsUnread`,
+`trainings.upcoming`, `matches.upcoming`) — nessuna card inventata.
+Derivazione pura e testata in `client/lib/parent-home-summary.ts`.
+
+**Calendario** (`ParentCalendarScreen` + `ParentEventDetailScreen`):
+allenamenti e gare unificati (`client/lib/parent-calendar.ts`, dominio
+puro), filtro Tutto/Allenamenti/Gare, ordinati per data/ora. Nessuna azione
+RSVP dalla lista — stesso principio del Web (`ParentCalendarPage` non la
+offre): tocco su un evento apre il dettaglio, dove vive `RSVPControl`.
+
+**RSVP**: `GET /api/v1/rsvp?athlete_id=...` (inviti allenamenti **e** gare
+insieme, `kind` distingue) e `POST /api/v1/rsvp` (`athlete_id`,
+`training_id`, `status`, `note?` — idempotente, l'ultima risposta vince,
+nessun endpoint separato per "cambiare risposta"). `RSVPControl` disegna
+esattamente le transizioni che l'invito porta (`canAnswer`,
+`blockedMessage`) — non decide da solo se si puo rispondere. Nessun
+ottimismo: lo stato cambia solo alla conferma del server
+(`client/lib/parent-rsvp.ts`, dominio puro, 7 test).
+
+**Perche TanStack Query qui e non `useAsyncSection`**: Home e Calendario
+leggono **lo stesso** `GET /api/parent-dashboard/[athleteId]` — con
+`useAsyncSection` ciascuna schermata rifarebbe la propria fetch ad ogni
+mount, anche per lo stesso figlio gia caricato, cioe esattamente il fetch
+duplicato che l'istruzione del WP vieta. `useQuery` con `queryKey:
+["parent-dashboard", athleteId]` condivide la cache fra le due tab; cambiare
+figlio e una `queryKey` diversa, mai un aggiornamento in-place che
+lascerebbe per un istante i dati del figlio precedente
+(`client/hooks/useParentSectionStatus.ts` riporta lo stesso vocabolario a
+sei stati sopra `useQuery`). Il dominio Trainer non condivide risorse fra
+schermate e resta su `useAsyncSection` — non e stato migrato senza motivo.
+
+**Componenti nuovi** (Parte B, formalizzati in EGDS v2.1.0): `EventCard`
+(§B2), `SectionHero` (§B4), `StatCard` (§B5), `HighlightCard` (§B6).
+Parte C: `RSVPControl` (§C2).
+
+**Test**: `parent-calendar.test.ts` (7), `parent-rsvp.test.ts` (7),
+`parent-home-summary.test.ts` (3) — training/match/combinazione, i cinque
+stati di `RSVPControl`, dati caricati/empty/anteprime limitate a due.
+
 ## Stato attuale: Trainer completo, Parent in costruzione (WP4-6), gate su tutto il resto
 
 Il navigator root (`client/navigation/RootStackNavigator.tsx`) e il **solo**
@@ -329,8 +382,8 @@ funzionale Trainer" sopra.
 
 | Tab | Stack | Schermata | Stato |
 |-----|-------|-----------|-------|
-| Home | `ParentHomeStackNavigator` | `ParentHomeScreen` | Minima (WP4) → cruscotto reale nel WP5 |
-| Calendario | `ParentCalendarStackNavigator` | segnaposto | "In arrivo" → reale nel WP5 |
+| Home | `ParentHomeStackNavigator` | `ParentHomeScreen` | Reale (WP5): SectionHero + StatCard + HighlightCard |
+| Calendario | `ParentCalendarStackNavigator` | `ParentCalendarScreen` → `ParentEventDetailScreen` | Reale (WP5): allenamenti+gare unificati, RSVP nel dettaglio |
 | Segreteria | `ParentSegreteriaStackNavigator` | `ParentSegreteriaScreen` | Segnaposto permanente per questo batch (pagamenti/documenti/consensi/iscrizione fuori perimetro, ADR-0163) |
 | Bacheca | `ParentBoardStackNavigator` | segnaposto | "In arrivo" → reale nel WP6 |
 | Profilo | `ParentProfileStackNavigator` | `ParentProfileScreen` → `ParentChildrenScreen` | Account, multi-figlio, cambio contesto, logout |
@@ -349,11 +402,11 @@ Trainer (invariate): `NotificationsScreen`, `TrainerHomeDashboardScreen`,
 `TrainerAthletesScreen`, `TrainerAthleteProfileScreen`,
 `TrainerProfileDashboardScreen`.
 
-Parent (WP4, `ParentTabNavigator`): `ParentHomeScreen`, `ParentChildrenScreen`,
-`ParentProfileScreen`. Segnaposto onesti, non funzionalita finta:
-`ParentSegreteriaScreen` (permanente per questo batch) e i due segnaposto
-inline in `ParentCalendarStackNavigator`/`ParentBoardStackNavigator`
-(sostituiti nei WP5/WP6).
+Parent (`ParentTabNavigator`): `ParentHomeScreen`, `ParentChildrenScreen`,
+`ParentProfileScreen` (WP4); `ParentCalendarScreen`,
+`ParentEventDetailScreen` (WP5). Segnaposto onesti, non funzionalita finta:
+`ParentSegreteriaScreen` (permanente per questo batch) e il segnaposto
+inline in `ParentBoardStackNavigator` (sostituito nel WP6).
 
 ### Schermate NON collegate (10) — generazione precedente
 
@@ -523,14 +576,25 @@ Dopo `ParentTabNavigator`, `ParentContext`, `ChildSwitcher`/`NumberTile`/
 Trainer), `npm run check:types` e `npm run lint` puliti (0 errori, stessi 20
 warning preesistenti).
 
+### Verifica di avvio reale — 2026-09-10 (WP5 Parent Home/Calendario/RSVP)
+
+Dopo `EventCard`/`SectionHero`/`StatCard`/`HighlightCard`/`RSVPControl`, il
+cruscotto Home reale e il Calendario unificato con dettaglio RSVP:
+`npx expo export --platform ios` completato senza errori di risoluzione,
+2462 moduli, bundle iOS 6,15 MB. `npm run test` 72/72 verdi (55 preesistenti
++ 17 nuovi su calendario/RSVP/riepilogo Home), `npm run check:types` e
+`npm run lint` puliti (0 errori, stessi 20 warning preesistenti).
+
 ## Cosa manca per completare il mobile
 
 Identity & Access, le fondamenta di ruolo, la parita funzionale Trainer
-(WP3) e la fondazione Parent con multi-figlio (WP4) sono a posto. Restano
-aperti, in ordine indicativo:
+(WP3), la fondazione Parent con multi-figlio (WP4) e Home/Calendario/RSVP
+Parent (WP5) sono a posto. Restano aperti, in ordine indicativo:
 
-- **Area Parent — Home reale, Calendario/RSVP, Bacheca/Notifiche**: WP5 e
-  WP6, non ancora eseguiti al momento di questa nota.
+- **Area Parent — Bacheca/Notifiche, esperienza Account**: WP6, non ancora
+  eseguito al momento di questa nota.
+- **RSVP da link senza account**: fuori perimetro anche lato Web (`11 —
+  Capability`), non nel mobile per lo stesso motivo.
 - **Area Parent — Pagamenti, Documenti, Consensi, Iscrizione, Segreteria/
   Appuntamenti, Strutture, Contatti**: esplicitamente fuori perimetro di
   WP4-6 (ADR-0163). I contratti `/api/parent-dashboard/[athleteId]/**` per

@@ -1,57 +1,31 @@
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-import {
-  ParentPrimaryScreenLayout,
-  StateMessage,
-} from "@/components/signature";
-import { useParentContext } from "@/contexts/ParentContext";
+import ParentCalendarScreen from "@/screens/ParentCalendarScreen";
+import ParentEventDetailScreen from "@/screens/ParentEventDetailScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
+import type { ParentCalendarKind } from "@/lib/parent-calendar";
 
 export type ParentCalendarStackParamList = {
   ParentCalendar: undefined;
+  ParentEventDetail: { eventId: string; kind: ParentCalendarKind };
 };
 
 const Stack = createNativeStackNavigator<ParentCalendarStackParamList>();
 
 /**
- * WP4: segnaposto onesto. Il calendario unificato (allenamenti + gare +
- * RSVP) arriva nel WP5 — questo file viene sostituito, non esteso, quando
- * quel WP porta `ParentCalendarScreen` reale.
+ * WP5: calendario unificato (allenamenti + gare) piu il dettaglio con RSVP
+ * — sostituisce per intero il segnaposto di WP4.
  */
-function ParentCalendarPlaceholder() {
-  const { children, selectedChildId, switching, selectChild } =
-    useParentContext();
-
-  return (
-    <ParentPrimaryScreenLayout
-      title="Calendario"
-      eyebrow="In arrivo"
-      linkedChildren={children}
-      selectedChildId={selectedChildId}
-      childrenSwitching={switching}
-      onSelectChild={selectChild}
-      scrollable={false}
-      content={
-        <StateMessage
-          kind="empty"
-          tone="dark"
-          title="Calendario in arrivo"
-          message="Allenamenti, gare e conferme di partecipazione arriveranno in un prossimo aggiornamento."
-        />
-      }
-    />
-  );
-}
-
 export default function ParentCalendarStackNavigator() {
   const screenOptions = useScreenOptions({ transparent: false });
 
   return (
     <Stack.Navigator screenOptions={{ ...screenOptions, headerShown: false }}>
+      <Stack.Screen name="ParentCalendar" component={ParentCalendarScreen} />
       <Stack.Screen
-        name="ParentCalendar"
-        component={ParentCalendarPlaceholder}
+        name="ParentEventDetail"
+        component={ParentEventDetailScreen}
       />
     </Stack.Navigator>
   );
