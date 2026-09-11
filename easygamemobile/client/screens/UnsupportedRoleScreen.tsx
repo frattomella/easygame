@@ -1,14 +1,14 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
-import { ThemedText } from "@/components/ThemedText";
-import { ThemedView } from "@/components/ThemedView";
-import { Button } from "@/components/Button";
-import { useTheme } from "@/hooks/useTheme";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { Spacing } from "@/constants/theme";
+import {
+  ActionButton,
+  BrandStateLayout,
+  SignatureText,
+} from "@/components/signature";
 
 /**
  * Il gate per i ruoli non ancora supportati dalla V1 mobile (solo Trainer e
@@ -16,68 +16,63 @@ import { Spacing } from "@/constants/theme";
  * ruoli di club personalizzati diversi da Trainer arrivano tutti qui,
  * intercettati centralmente da `RootStackNavigator` — non da questa
  * schermata, che si limita a mostrare l'avviso e le due uscite possibili.
+ *
+ * v3.0 (`migration-v3.md` passo 7): su `BrandStateLayout` — cielo pieno,
+ * nessun orizzonte — con le due uscite sempre visibili, mai una sola. Il
+ * titolo non dice piu "EasyGame Mobile" (stringa vietata da CLAUDE.md
+ * §brand — "EasyGame Mobile" e ritirata come linea di prodotto).
  */
 export default function UnsupportedRoleScreen() {
-  const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
   const { clearContext, logout } = useAuthContext();
 
   return (
-    <ThemedView style={styles.container}>
-      <View
-        style={[
-          styles.content,
-          {
-            paddingTop: insets.top + Spacing["4xl"],
-            paddingBottom: insets.bottom + Spacing["2xl"],
-          },
-        ]}
-      >
-        <View
-          style={[
-            styles.iconWrap,
-            { backgroundColor: theme.backgroundSecondary },
-          ]}
-        >
-          <Ionicons name="construct-outline" size={40} color={theme.primary} />
+    <BrandStateLayout scrollable={false}>
+      <View style={styles.content}>
+        <View style={styles.iconWrap}>
+          <Ionicons name="construct-outline" size={40} color="#FFFFFF" />
         </View>
 
-        <ThemedText type="h2" style={styles.centeredText}>
-          EasyGame Mobile è in aggiornamento
-        </ThemedText>
-        <ThemedText
-          type="body"
-          style={[
-            styles.centeredText,
-            styles.message,
-            { color: theme.textSecondary },
-          ]}
+        <SignatureText variant="h2" tone="onDark" style={styles.centeredText}>
+          EasyGame è in aggiornamento
+        </SignatureText>
+        <SignatureText
+          variant="body"
+          tone="onDarkMuted"
+          style={[styles.centeredText, styles.message]}
         >
-          {
-            "Questa area non è ancora disponibile nell'app mobile. Stiamo lavorando per renderla disponibile presto."
-          }
-        </ThemedText>
+          Questa area non è ancora disponibile nell&apos;app mobile. Stiamo
+          lavorando per renderla disponibile presto.
+        </SignatureText>
 
         <View style={styles.actions}>
-          <Button onPress={() => void clearContext()} fullWidth>
+          <ActionButton
+            variant="primary"
+            onSky
+            fullWidth
+            onPress={() => void clearContext()}
+          >
             Torna alla selezione
-          </Button>
-          <Button variant="ghost" onPress={() => void logout()} fullWidth>
+          </ActionButton>
+          <ActionButton
+            variant="secondary"
+            onSky
+            fullWidth
+            onPress={() => void logout()}
+          >
             Esci
-          </Button>
+          </ActionButton>
         </View>
       </View>
-    </ThemedView>
+    </BrandStateLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
   content: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: Spacing["3xl"],
+    paddingHorizontal: Spacing.lg,
     gap: Spacing.md,
   },
   iconWrap: {
@@ -87,6 +82,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: Spacing.lg,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
   },
   centeredText: { textAlign: "center" },
   message: { marginBottom: Spacing["2xl"] },
