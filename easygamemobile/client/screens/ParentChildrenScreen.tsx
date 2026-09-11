@@ -33,7 +33,7 @@ export default function ParentChildrenScreen() {
     <SecondaryScreenLayout title="I miei figli" eyebrow="Famiglia">
       {groups.map((group) => (
         <View key={group.clubId} style={{ gap: Spacing.sm }}>
-          <SignatureText variant="eyebrow" tone="faint">
+          <SignatureText variant="eyebrow" tone="onDarkFaint">
             {group.clubName}
           </SignatureText>
           {group.children.map((child) => {

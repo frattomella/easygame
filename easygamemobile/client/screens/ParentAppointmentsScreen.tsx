@@ -164,7 +164,11 @@ export default function ParentAppointmentsScreen() {
   });
 
   return (
-    <SecondaryScreenLayout title="Appuntamenti" eyebrow="Segreteria">
+    <SecondaryScreenLayout
+      title="Appuntamenti"
+      eyebrow="Segreteria"
+      skyHeight={400}
+    >
       {status === "loading" ? (
         <StateMessage
           kind="loading"

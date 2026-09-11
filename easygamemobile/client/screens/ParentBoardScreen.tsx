@@ -121,7 +121,11 @@ export default function ParentBoardScreen() {
   const hasUnread = (dashboardQuery.data?.notificationsUnread || 0) > 0;
 
   return (
-    <SecondaryScreenLayout title="Bacheca" scrollable={status === "ready"}>
+    <SecondaryScreenLayout
+      title="Bacheca"
+      scrollable={status === "ready"}
+      skyHeight={360}
+    >
       <>
         <View style={styles.tabs}>
           <SectionTab
