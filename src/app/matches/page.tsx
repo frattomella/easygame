@@ -280,6 +280,28 @@ export default function MatchesPage() {
   const [clubCategoryGroups, setClubCategoryGroups] = React.useState<any[]>([]);
 
   /**
+   * I gruppi operativi del club (ADR-0055) — stessa fonte per l'etichetta
+   * categoria+sede qui sotto e per la selezione nel form di creazione: una
+   * gara si assegna a **questi**, non solo alla categoria, altrimenti il
+   * perimetro dell'allenatore (`eventWithinTrainerPerimeter`, in lettura
+   * decide sul gruppo quando l'evento ne dichiara uno) non ha modo di
+   * riconoscere una gara che un allenamento della stessa categoria/sede
+   * gia riconosce — trovato durante il batch di completamento funzionale
+   * (acceptance pass autenticata WP13): una gara creata con la stessa
+   * categoria/allenatore di un allenamento visibile spariva dal calendario
+   * dell'allenatore assegnato per gruppo.
+   */
+  const matchGroupOptions = React.useMemo(
+    () =>
+      buildCategoryGroups({
+        categories,
+        sites: normalizeClubSites(clubSites),
+        groups: clubCategoryGroups,
+      }),
+    [categories, clubSites, clubCategoryGroups],
+  );
+
+  /**
    * Come si scrive una categoria in questa pagina (N3).
    *
    * L'ambiguita e una proprieta dell'insieme, quindi l'indice si costruisce
@@ -289,13 +311,9 @@ export default function MatchesPage() {
     () =>
       buildCategoryDisplayIndex({
         categories,
-        groups: buildCategoryGroups({
-          categories,
-          sites: normalizeClubSites(clubSites),
-          groups: clubCategoryGroups,
-        }),
+        groups: matchGroupOptions,
       }),
-    [categories, clubSites, clubCategoryGroups],
+    [categories, matchGroupOptions],
   );
   const [loading, setLoading] = React.useState(true);
   const [showAddMatchModal, setShowAddMatchModal] = useState(false);
@@ -640,6 +658,24 @@ export default function MatchesPage() {
         async (categoryId: string) => {
           const categoryObj = categories.find((c) => c.id === categoryId);
           const matchDateIso = matchData.date.toISOString();
+          /*
+            Solo i gruppi di **questa** categoria: una gara nasce una riga
+            per categoria selezionata, e ogni riga porta i gruppi che le
+            appartengono, non l'unione di tutti quelli scelti nel form
+            (una gara "Pulcini + Esordienti" non deve dire che i Pulcini
+            giocano anche nel gruppo degli Esordienti).
+          */
+          const groupIdsForThisCategory: string[] = Array.isArray(
+            matchData.groupIds,
+          )
+            ? matchGroupOptions
+                .filter(
+                  (group) =>
+                    group.categoryId === categoryId &&
+                    matchData.groupIds.includes(group.id),
+                )
+                .map((group) => group.id)
+            : [];
           const effectiveStatus = getEffectiveMatchStatus({
             date: matchDateIso,
             time: matchData.time,
@@ -654,6 +690,7 @@ export default function MatchesPage() {
             time: matchData.time,
             category: categoryObj?.name || "Categoria",
             categoryId: categoryId,
+            groupIds: groupIdsForThisCategory,
             opponent: matchData.opponent,
             location: matchData.location,
             isHome: matchData.isHome !== false,
@@ -2258,6 +2295,7 @@ export default function MatchesPage() {
         onClose={() => setShowAddMatchModal(false)}
         onSubmit={handleAddMatch}
         categories={categories}
+        groups={matchGroupOptions}
         trainers={trainers}
         selectedDate={date}
         homeFields={homeLocations}
@@ -2383,6 +2421,7 @@ export default function MatchesPage() {
           }}
           onSubmit={handleEditMatch}
           categories={categories}
+          groups={matchGroupOptions}
           trainers={trainers}
           selectedDate={selectedMatch.date}
           editMode={true}

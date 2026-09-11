@@ -30,6 +30,12 @@ import { it } from "date-fns/locale";
 import { CalendarIcon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getAssociatedTrainerIds } from "@/lib/trainer-utils";
+import {
+  categoryIdsFromGroups,
+  groupIdsForCategories,
+  TrainingGroupSelector,
+  type TrainingGroupOption,
+} from "@/components/training/TrainingGroupSelector";
 
 type MatchLocationOption = {
   id: string;
@@ -57,6 +63,12 @@ interface AddMatchFormProps {
   onClose: () => void;
   onSubmit: (data: any) => void;
   categories: MatchCategoryOption[];
+  /**
+   * I gruppi operativi del club (ADR-0055), stessa fonte del form
+   * allenamento. Senza `groups` si ricade su un gruppo per categoria — vedi
+   * `groupOptions` — il comportamento di un club mono-sede.
+   */
+  groups?: TrainingGroupOption[];
   trainers: MatchTrainerOption[];
   selectedDate?: Date;
   editMode?: boolean;
@@ -83,6 +95,7 @@ export function AddMatchForm({
   onClose,
   onSubmit,
   categories,
+  groups = [],
   trainers,
   selectedDate,
   editMode = false,
@@ -95,6 +108,7 @@ export function AddMatchForm({
     date: initialData?.date || selectedDate || new Date(),
     time: initialData?.time || "",
     categoryIds: initialData?.categoryIds || ([] as string[]),
+    groupIds: [] as string[],
     opponent: initialData?.opponent || "",
     location: initialData?.location || "",
     venueMode: initialData?.venueMode || ("home" as "home" | "away"),
@@ -125,6 +139,24 @@ export function AddMatchForm({
         .filter((category) => category.id && category.name),
     [categories],
   );
+
+  /**
+   * I gruppi selezionabili (ADR-0055) — stessa logica di `AddTrainingForm`.
+   * Senza gruppi configurati si ricade sulle categorie, una per una: e il
+   * comportamento di un club mono-sede.
+   */
+  const groupOptions: TrainingGroupOption[] = React.useMemo(() => {
+    if (groups.length) return groups;
+
+    return categoryOptions.map((category) => ({
+      id: `group:${category.id}`,
+      name: category.name,
+      categoryId: category.id,
+      categoryName: category.name,
+      siteId: "",
+      siteName: "",
+    }));
+  }, [groups, categoryOptions]);
 
   const structureOptions = React.useMemo(() => {
     const structureMap = new Map<string, { id: string; name: string }>();
@@ -164,6 +196,11 @@ export function AddMatchForm({
         date: initialData.date,
         time: initialData.time,
         categoryIds: initialData.categoryIds,
+        // Una gara creata prima dei gruppi non ne dichiara nessuno: le
+        // spunte partono da tutte le squadre delle sue categorie, e chi
+        // modifica puo restringerle (stesso comportamento di
+        // AddTrainingForm per un allenamento pre-esistente).
+        groupIds: groupIdsForCategories(groupOptions, initialData.categoryIds),
         opponent: initialData.opponent,
         location: initialData.location,
         venueMode: initialData.venueMode || "home",
@@ -175,7 +212,7 @@ export function AddMatchForm({
         matchNumber: initialData.matchNumber,
       });
     }
-  }, [initialData]);
+  }, [initialData, groupOptions]);
 
   React.useEffect(() => {
     setFormData((prev) => {
@@ -312,16 +349,23 @@ export function AddMatchForm({
     });
   };
 
-  const handleCategoryChange = (categoryId: string, checked: boolean) => {
+  /*
+    Le categorie restano nel dato — titoli, compatibilita e la creazione di
+    una gara per categoria in `proceedWithMatchCreation` ci ragionano ancora
+    — ma si derivano dai gruppi invece di essere una seconda selezione da
+    tenere allineata a mano (stessa logica di AddTrainingForm).
+  */
+  const handleGroupToggle = (group: TrainingGroupOption, checked: boolean) => {
     setFormData((prev) => {
-      const categoryIds = [...prev.categoryIds];
-      if (checked && !categoryIds.includes(categoryId)) {
-        categoryIds.push(categoryId);
-      } else if (!checked && categoryIds.includes(categoryId)) {
-        const index = categoryIds.indexOf(categoryId);
-        categoryIds.splice(index, 1);
-      }
-      return { ...prev, categoryIds };
+      const groupIds = checked
+        ? Array.from(new Set([...prev.groupIds, group.id]))
+        : prev.groupIds.filter((id) => id !== group.id);
+
+      return {
+        ...prev,
+        groupIds,
+        categoryIds: categoryIdsFromGroups(groupOptions, groupIds),
+      };
     });
   };
 
@@ -370,6 +414,7 @@ export function AddMatchForm({
       date: new Date(),
       time: "",
       categoryIds: [],
+      groupIds: [],
       opponent: "",
       location: "",
       venueMode: "home" as const,
@@ -452,34 +497,21 @@ export function AddMatchForm({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Categorie</Label>
-            <div className="border rounded-md p-3 space-y-2 max-h-40 overflow-y-auto">
-              {categoryOptions.length > 0 ? (
-                categoryOptions.map((category) => (
-                  <div key={category.id} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`category-${category.id}`}
-                      checked={formData.categoryIds.includes(category.id)}
-                      onCheckedChange={(checked) =>
-                        handleCategoryChange(category.id, checked as boolean)
-                      }
-                    />
-                    <Label
-                      htmlFor={`category-${category.id}`}
-                      className="text-sm font-normal"
-                    >
-                      {category.name}
-                    </Label>
-                  </div>
-                ))
-              ) : (
-                <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                  Nessuna categoria registrata. Crea prima una categoria.
-                </p>
-              )}
+          {categoryOptions.length > 0 ? (
+            <TrainingGroupSelector
+              groups={groupOptions}
+              selectedGroupIds={formData.groupIds}
+              onToggle={handleGroupToggle}
+              idPrefix="add-match-group"
+            />
+          ) : (
+            <div className="space-y-2">
+              <Label>Categorie</Label>
+              <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                Nessuna categoria registrata. Crea prima una categoria.
+              </p>
             </div>
-          </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="opponent">Avversario</Label>
