@@ -2,7 +2,7 @@ import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { EGGlass, Spacing } from "@/constants/theme";
+import { EGGlass, EGInk, Spacing } from "@/constants/theme";
 import { GlassSurface } from "@/components/signature/GlassSurface";
 import { IconChip } from "@/components/signature/IconChip";
 import { SignatureText } from "@/components/signature/SignatureText";
@@ -81,7 +81,11 @@ export function ConsentRow({
             ) : null}
           </View>
           <StatusPill label={pill.label} variant={pill.variant} small />
-          <Ionicons name="chevron-forward-outline" size={18} color="#94A3B8" />
+          <Ionicons
+            name="chevron-forward-outline"
+            size={18}
+            color={EGInk.onLightFaint}
+          />
         </View>
       </GlassSurface>
     </Pressable>

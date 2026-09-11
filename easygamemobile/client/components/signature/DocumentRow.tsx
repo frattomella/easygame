@@ -2,7 +2,7 @@ import React from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { EGGlass, Spacing } from "@/constants/theme";
+import { EGCorner, EGGlass, Spacing } from "@/constants/theme";
 import { GlassSurface } from "@/components/signature/GlassSurface";
 import { IconChip } from "@/components/signature/IconChip";
 import { SignatureText } from "@/components/signature/SignatureText";
@@ -25,6 +25,11 @@ interface DocumentRowProps {
  * design-source `guidelines/component-specs.md` §C4 — la densita "riga".
  * Un'azione per riga (upload XOR download), mai entrambe: se serve
  * sostituire un file mantenendo il vecchio, quella e `DocumentCard`.
+ *
+ * v3.0 (`migration-v3.md` passo 4): l'azione non e piu un'icona sola dentro
+ * la riga (il "box-inside-a-row" bandito) ma una barra etichettata sotto,
+ * icona + parola — vale la regola "nessuna azione solo icona su documenti e
+ * pagamenti" di CLAUDE.md §brand.
  */
 export function DocumentRow({
   item,
@@ -35,6 +40,15 @@ export function DocumentRow({
   const tint = DOCUMENT_STATE_TINT[item.state];
   const canUpload = item.action === "upload" || item.action === "replace";
   const canDownload = !canUpload && Boolean(item.fileUrl);
+  const actionLabel = canUpload
+    ? item.action === "replace"
+      ? "Sostituisci"
+      : "Carica documento"
+    : "Scarica";
+  const actionIcon: keyof typeof Ionicons.glyphMap = canUpload
+    ? "cloud-upload-outline"
+    : "download-outline";
+  const onAction = canUpload ? onUpload : canDownload ? onDownload : undefined;
 
   return (
     <GlassSurface tone="light" corner="control" style={styles.surface}>
@@ -66,30 +80,29 @@ export function DocumentRow({
           variant={DOCUMENT_STATE_VARIANT[item.state]}
           small
         />
-        {busy ? (
-          <View style={styles.actionChip}>
-            <ActivityIndicator size="small" color={tint} />
-          </View>
-        ) : canUpload && onUpload ? (
-          <Pressable
-            onPress={onUpload}
-            style={styles.actionChip}
-            accessibilityRole="button"
-            accessibilityLabel={`Carica ${item.title}`}
-          >
-            <Ionicons name="cloud-upload-outline" size={18} color="#2563EB" />
-          </Pressable>
-        ) : canDownload && onDownload ? (
-          <Pressable
-            onPress={onDownload}
-            style={styles.actionChip}
-            accessibilityRole="button"
-            accessibilityLabel={`Scarica ${item.title}`}
-          >
-            <Ionicons name="download-outline" size={18} color="#2563EB" />
-          </Pressable>
-        ) : null}
       </View>
+      {onAction ? (
+        <View style={styles.actionBar}>
+          <Pressable
+            onPress={busy ? undefined : onAction}
+            disabled={busy}
+            style={[styles.actionButton, busy && styles.actionButtonBusy]}
+            accessibilityRole="button"
+            accessibilityLabel={`${actionLabel} — ${item.title}`}
+          >
+            {busy ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name={actionIcon} size={16} color="#FFFFFF" />
+                <SignatureText style={styles.actionLabel}>
+                  {actionLabel}
+                </SignatureText>
+              </>
+            )}
+          </Pressable>
+        </View>
+      ) : null}
     </GlassSurface>
   );
 }
@@ -119,12 +132,25 @@ const styles = StyleSheet.create({
   title: {
     fontWeight: "700",
   },
-  actionChip: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+  actionBar: {
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.md,
+  },
+  actionButton: {
+    height: 36,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(37,99,235,0.1)",
+    gap: 8,
+    backgroundColor: "#1D4ED8",
+    ...EGCorner.chip,
+  },
+  actionButtonBusy: {
+    opacity: 0.7,
+  },
+  actionLabel: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
   },
 });
