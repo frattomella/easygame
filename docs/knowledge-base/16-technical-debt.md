@@ -3990,3 +3990,37 @@ un WP dichiarato "solo reskin" (CLAUDE.md: adeguamenti al mobile ammessi
 solo per sicurezza o per un cambio di contratto **deciso lato Web**).
 Serve una decisione esplicita propria, con lo stesso proprietario
 (`src/lib/server/events.ts`) che gia norma le scritture di presenza.
+
+### D-MOB-12 — "Offline" e "Manutenzione" di `migration-v3.md` passo 7 restano sulla veste attuale, non sul bollettino/blocco previsti dal design
+
+**Dove.** `easygamemobile/client/navigation/RootStackNavigator.tsx`,
+`client/screens/LoginScreen.tsx` — non un file nuovo, e lo stesso gap gia
+descritto da **D-MOB-9**, letto ora dal lato del reskin.
+
+**Il fatto.** `migration-v3.md` passo 7 disegna "Offline" come bollettino
+non bloccante e "Manutenzione" come schermata piena con due uscite. Nessuno
+dei due stati esiste in questo codebase: D-MOB-9 spiega perche (nessun
+`netinfo`, nessun contratto di manutenzione lato server). WP13 non ha
+costruito ne l'uno ne l'altro — farlo sarebbe stata una **nuova area
+funzionale**, esplicitamente fuori dal perimetro di ADR-0168 ("nessuna
+nuova area funzionale" — reskin, non nuove capacita). Restano quindi sulla
+veste precedente (l'errore inline per-schermata gia in campo), non su
+`BrandStateLayout`.
+
+**Divergenza dichiarata, non silenziosa (ADR-0168 punto 4).** "Sessione
+scaduta" invece **e** stato affrontato: `LoginScreen` mostra ora un avviso
+quando `signOutReason === "expired"` (passo 7d) — ma senza cambiare
+*quando* la sessione si chiude, che resta il taglio immediato di WP12
+(session hardening). La spec chiede un foglio che tiene montata la
+schermata sotto; qui si e scelto di non farlo perche cambiare quel timing
+e logica di sicurezza, non veste — fuori dal perimetro "same logic, new
+dress" di questo WP. `withSignOutReason` (`client/lib/auth-flow.ts`) ha
+anche aggiunto tre test (`tests/auth-flow.test.ts`) alla forma dello stato
+di sign-out — una fetta di **D-MOB-10**, non la sua chiusura: la classe
+`handleSessionExpired`/`onSessionExpired` in `api.ts` resta senza mock di
+`fetch`/`SecureStore`.
+
+**Perche non e stato chiuso qui.** Offline/Manutenzione richiedono
+infrastruttura nuova (D-MOB-9, invariato). Il foglio di sessione scaduta
+richiederebbe di ritardare un taglio di sicurezza deliberato — decisione
+propria, non un effetto collaterale di un reskin.

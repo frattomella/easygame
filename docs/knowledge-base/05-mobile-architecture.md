@@ -636,8 +636,12 @@ morto, mai un elenco finto.
 **Esperienza Account** (`AccountHubScreen`): le righe `Card` generiche per
 i club posseduti e gli accessi assegnati usano ora `AccountAccessCard`
 (spec C10). Solo il rendering e cambiato — `handleSelectOwnedClub`/
-`handleSelectAccess`, il caricamento, i modali (profilo, nuovo club, token)
-restano quelli di sempre. **Comportamento nuovo, non solo estetico**: un
+`handleSelectAccess`, il caricamento restano quelli di sempre. I tre
+moduli (profilo, nuovo club, token) sono passati da un `Modal` scritto a
+mano a `BottomSheet` nel reskin EGDS v3.0.0 (WP13, ADR-0168, passo 7d) —
+stesso componente delle altre schermate con moduli, stessi campi e stessa
+logica di invio, solo il contenitore e cambiato. **Comportamento nuovo,
+non solo estetico**: un
 club posseduto e sempre ruolo `"owner"`, e `resolveMobileRoleGate` non apre
 nessuna area per owner/admin in questa V1 (Area management mobile:
 MISSING) — prima il tocco portava comunque a `UnsupportedRoleScreen`, ora
