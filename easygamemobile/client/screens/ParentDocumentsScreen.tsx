@@ -270,13 +270,6 @@ export default function ParentDocumentsScreen() {
           >
             Scatta una foto
           </ActionButton>
-          <ActionButton
-            variant="ghost"
-            fullWidth
-            onPress={() => setPickerFor(null)}
-          >
-            Annulla
-          </ActionButton>
         </View>
       </BottomSheet>
 

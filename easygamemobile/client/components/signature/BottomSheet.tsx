@@ -1,8 +1,9 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import {
   Animated,
   Dimensions,
   Modal,
+  PanResponder,
   Pressable,
   StyleSheet,
   View,
@@ -29,9 +30,12 @@ interface BottomSheetProps {
  * returns." No screen writes its own modal.
  *
  * Dismissal: scrim tap, the platform back gesture (`onRequestClose`), or an
- * explicit control inside `children` — never on an outcome. Drag-to-dismiss
- * on the grabber is not implemented (declared gap, §A4: "no gesture library
- * adopted"); the grabber is a visual affordance only.
+ * explicit control inside `children` — never on an outcome. v3.0
+ * (`migration-v3.md` passo 6) adds the third: drag-to-dismiss on the
+ * grabber/header strip, built on React Native's own `PanResponder` (no new
+ * gesture-library dependency, unlike the WP4 declared gap this replaces) —
+ * a downward drag past 120px or a fast downward flick closes the sheet,
+ * anything less snaps back to open.
  */
 export function BottomSheet({
   visible,
@@ -77,6 +81,45 @@ export function BottomSheet({
     ]).start(() => onClose());
   };
 
+  const dragResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, gesture) =>
+          Math.abs(gesture.dy) > Math.abs(gesture.dx) && gesture.dy > 4,
+        onPanResponderGrant: () => {
+          translateY.stopAnimation();
+          translateY.extractOffset();
+        },
+        onPanResponderMove: Animated.event([null, { dy: translateY }], {
+          useNativeDriver: true,
+        }),
+        onPanResponderRelease: (_, gesture) => {
+          translateY.flattenOffset();
+          const shouldDismiss = gesture.dy > 120 || gesture.vy > 1.2;
+          if (shouldDismiss) {
+            handleClose();
+          } else {
+            Animated.timing(translateY, {
+              toValue: 0,
+              duration: 180,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+        onPanResponderTerminate: () => {
+          translateY.flattenOffset();
+          Animated.timing(translateY, {
+            toValue: 0,
+            duration: 180,
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   return (
     <Modal
       visible={visible}
@@ -107,7 +150,9 @@ export function BottomSheet({
         accessibilityLabel={accessibilityLabel}
       >
         <GlassSurface tone="light" corner="sheet" elevated style={styles.sheet}>
-          <View style={styles.grabber} accessibilityElementsHidden />
+          <View style={styles.dragHandle} {...dragResponder.panHandlers}>
+            <View style={styles.grabber} accessibilityElementsHidden />
+          </View>
           <View style={styles.content}>{children}</View>
         </GlassSurface>
       </Animated.View>
@@ -131,14 +176,19 @@ const styles = StyleSheet.create({
     borderColor: EGGlass.border,
     backgroundColor: EGGlass.bgStrong,
   },
+  dragHandle: {
+    alignItems: "center",
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.xs,
+    /** Generous hit area for the drag gesture — the visible grabber stays thin. */
+    minHeight: 28,
+    justifyContent: "center",
+  },
   grabber: {
-    alignSelf: "center",
     width: 36,
     height: 4,
     borderRadius: 999,
     backgroundColor: "rgba(11,26,58,0.18)",
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.xs,
   },
   content: {
     paddingHorizontal: Spacing.lg,
