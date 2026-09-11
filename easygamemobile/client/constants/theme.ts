@@ -170,8 +170,9 @@ export const Fonts = Platform.select({
  * ═══════════════════════════════════════════════════════════════════════
  * EG — EasyGame signature tokens (design system source: Claude Design,
  * namespace `EasyGameDesignSystem_845326`. Tokens below are current through
- * **EGDS v2.2.0 "Sheet & shell", 2026-09-10** — see `design-source/` at the
- * repo root, `design-source/CHANGELOG.md`, and
+ * **EGDS v3.0.0 "EasyGame blue", 2026-09-11** — see `design-source/` at the
+ * repo root, `design-source/CHANGELOG.md`,
+ * `design-source/guidelines/migration-v3.md`, and
  * `docs/knowledge-base/05-mobile-architecture.md`).
  * ═══════════════════════════════════════════════════════════════════════
  *
@@ -200,14 +201,25 @@ export const Fonts = Platform.select({
  *   font size (RN `letterSpacing` is always absolute).
  */
 
-/** Navy depth ramp + mist ground — the "floodlit pitch" backdrop. */
+/**
+ * Navy depth ramp + mist ground — the "floodlit pitch" backdrop.
+ *
+ * `skyRampBlue700`/`skyRampBlue600` are v3.0's two new sky-ramp stops
+ * (`--eg-blue-700`/`--eg-blue-600` in `tokens/signature.css`) — **not** the
+ * same colours as `blue600`/`blue700` below, which are the unrelated
+ * action/pill blues (`#2563EB`/`#1D4ED8`) already in use across buttons and
+ * pills. Two different CSS namespaces collide on the number only; kept
+ * distinct here so existing call sites of `blue600`/`blue700` don't shift.
+ */
 export const EGColors = {
   navy950: "#07122B",
   navy900: "#0B1A3A",
   navy800: "#12265A",
   navy700: "#1B3576",
-  mist50: "#F3F5FC",
-  mist100: "#E9EEFA",
+  skyRampBlue700: "#2549A8",
+  skyRampBlue600: "#2B57C9",
+  mist50: "#EEF3FE",
+  mist100: "#E4ECFB",
   blue500: "#3B82F6",
   blue600: "#2563EB",
   blue700: "#1D4ED8",
@@ -251,9 +263,9 @@ export const EGInk = {
 export const EGGlass = {
   bg: "rgba(255,255,255,0.74)",
   bgStrong: "rgba(255,255,255,0.88)",
-  border: "rgba(255,255,255,0.7)",
-  darkBg: "rgba(11,26,58,0.72)",
-  darkBorder: "rgba(255,255,255,0.14)",
+  border: "rgba(255,255,255,0.78)",
+  darkBg: "rgba(18,38,90,0.66)",
+  darkBorder: "rgba(255,255,255,0.2)",
   /** `expo-blur` `intensity` (0–100) approximating the source's 18px blur. */
   blurIntensity: 55,
   hairline: "rgba(11,26,58,0.08)",
@@ -311,7 +323,8 @@ export const EGGradients: Record<
   | "match"
   | "warning"
   | "neutral"
-  | "sky",
+  | "sky"
+  | "page",
   { offset: string; color: string }[]
 > = {
   action: [
@@ -347,10 +360,30 @@ export const EGGradients: Record<
     { offset: "0%", color: "rgba(11,26,58,0.14)" },
     { offset: "100%", color: "rgba(11,26,58,0.08)" },
   ],
+  /**
+   * v3.0: the sky ramp lifts off near-black onto the brand blue ramp — navy
+   * is depth, not identity. Four stops, `EGColors.navy800` through
+   * `skyRampBlue600` (`tokens/signature.css` `--eg-grad-sky`).
+   */
   sky: [
-    { offset: "0%", color: "#07122B" },
-    { offset: "55%", color: "#0B1A3A" },
-    { offset: "100%", color: "#12265A" },
+    { offset: "0%", color: "#12265A" },
+    { offset: "38%", color: "#1B3576" },
+    { offset: "76%", color: "#2549A8" },
+    { offset: "100%", color: "#2B57C9" },
+  ],
+  /**
+   * v3.0 addition: the full-page ground for auth/account/blocking system
+   * screens (`BrandStateLayout`) — no horizon, no mist, the ramp runs edge
+   * to edge (`--eg-grad-page`). Nearly identical to `sky`; stop 3 sits 2
+   * points later (`--eg-grad-sky` reaches its horizon blue at 76%, `--eg-
+   * grad-page` at 74%) because a full-height ramp needs slightly more room
+   * for the last stop before the bottom edge.
+   */
+  page: [
+    { offset: "0%", color: "#12265A" },
+    { offset: "38%", color: "#1B3576" },
+    { offset: "74%", color: "#2549A8" },
+    { offset: "100%", color: "#2B57C9" },
   ],
 };
 
@@ -438,4 +471,78 @@ export const EGTypography = {
     fontWeight: "800" as const,
     letterSpacing: -0.52, // -0.02em @ 26px
   },
+};
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────
+ * v3.0 "EasyGame blue" additions (`design-source/guidelines/migration-v3.md`)
+ * ─────────────────────────────────────────────────────────────────────────
+ */
+
+/**
+ * Full-page ground decoration for `BrandStateLayout` (auth, account and
+ * blocking system screens) — no horizon, no mist band.
+ */
+export const EGPage = {
+  watermarkOpacity: 0.05,
+  courtArc: "rgba(255,255,255,0.1)",
+  baselineRule: "rgba(255,255,255,0.12)",
+  baselineTick: "rgba(255,255,255,0.18)",
+};
+
+/**
+ * Buttons on a blue ground (`ActionButton`'s `onSky` prop). The action
+ * gradient is **banned** on the sky: primary inverts to white fill / navy
+ * ink, secondary becomes a white-outlined ghost.
+ */
+export const EGActionOnSky = {
+  bg: "#FFFFFF",
+  ink: EGColors.navy800,
+  ghostBg: "rgba(255,255,255,0.08)",
+  ghostBorder: "rgba(255,255,255,0.45)",
+};
+
+/** Compact dock geometry (`--eg-dock-*`; v3: 68px → 56px). */
+export const EGDock = {
+  height: 56,
+  puck: 46,
+  glyph: 20,
+  inactive: "rgba(255,255,255,0.62)",
+};
+
+/**
+ * Status pill ramp — four visual tiers (quiet · outline · solid · urgent)
+ * over six semantic tones, solid fills with white labels replacing the v2
+ * tint-on-glass pills. `≥4.5:1` on any ground. See `StatusPill`.
+ */
+export const EGPill = {
+  inkOnFill: "#FFFFFF",
+  successBg: "#15803D",
+  infoBg: "#1D4ED8",
+  warningBg: "#B45309",
+  dangerBg: "#B91C1C",
+  matchBg: "#9A3412",
+  neutralBg: "rgba(11,26,58,0.09)",
+  neutralBorder: "rgba(11,26,58,0.18)",
+  neutralInk: "#0B1A3A",
+  outlineBg: "#FFFFFF",
+  outlineBorderWidth: 1.5,
+  outlineInkWarning: "#8A4708",
+  outlineInkInfo: "#1E40AF",
+};
+
+/** Attendance/call-up mark — a ring, never a filled row. */
+export const EGMark = {
+  size: 30,
+  border: 1.5,
+  tintAlpha: 0.12,
+};
+
+/** Motion: subtle, premium, controlled, fast. Never animate the blur. */
+export const EGMotion = {
+  easeSheet: [0.2, 0.9, 0.25, 1] as const,
+  durationSheetIn: 220,
+  durationSheetOut: 180,
+  pressScaleControl: 0.97,
+  pressScaleSurface: 0.985,
 };

@@ -65,7 +65,7 @@ export function ParentPrimaryScreenLayout({
         style={scrollable ? styles.content : [styles.content, styles.fixed]}
         contentContainerStyle={
           scrollable
-            ? [styles.contentContainer, { paddingBottom: insets.bottom + 124 }]
+            ? [styles.contentContainer, { paddingBottom: insets.bottom + 112 }]
             : undefined
         }
       >

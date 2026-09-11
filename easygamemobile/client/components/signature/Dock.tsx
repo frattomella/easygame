@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 
-import { EGShadow, Spacing } from "@/constants/theme";
+import { EGDock, EGShadow, Spacing } from "@/constants/theme";
 import { GradientFill } from "@/components/signature/GradientFill";
 import { GlassSurface } from "@/components/signature/GlassSurface";
 import { SignatureText } from "@/components/signature/SignatureText";
@@ -82,8 +82,8 @@ export function Dock({ state, descriptors, navigation }: BottomTabBarProps) {
                       ? iconName
                       : `${iconName}-outline`) as keyof typeof Ionicons.glyphMap
                   }
-                  size={22}
-                  color={focused ? "#FFFFFF" : "rgba(255,255,255,0.6)"}
+                  size={EGDock.glyph}
+                  color={focused ? "#FFFFFF" : EGDock.inactive}
                 />
                 {focused ? (
                   <SignatureText style={styles.label}>{label}</SignatureText>
@@ -129,17 +129,17 @@ const styles = StyleSheet.create({
     position: "absolute",
   },
   dock: {
-    height: 68,
+    height: EGDock.height,
     padding: 8,
   },
   row: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: 2,
   },
   tab: {
-    height: 52,
+    height: EGDock.puck,
     borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",

@@ -1,6 +1,5 @@
 import React from "react";
 import {
-  Pressable,
   ScrollView,
   StyleSheet,
   View,
@@ -11,7 +10,6 @@ import { useNavigation } from "@react-navigation/native";
 
 import { Floodlight } from "@/components/signature/Floodlight";
 import { AppBar } from "@/components/signature/AppBar";
-import { IconChip } from "@/components/signature/IconChip";
 import { Spacing } from "@/constants/theme";
 
 interface SecondaryScreenLayoutProps {
@@ -29,10 +27,11 @@ interface SecondaryScreenLayoutProps {
    */
   skyHeight?: number;
   /**
-   * Notification bell in the AppBar's right slot, alongside — not instead
-   * of — the back arrow (`AppBar` renders both). WP10: the four Trainer
-   * primary tabs have no back arrow but keep the bell the old native
-   * header gave them.
+   * Notification bell in the AppBar's trailing slot. v3.0: back moved to a
+   * left-hand labelled pill (`AppBar`'s `onBack`), so the trailing slot now
+   * holds only the bell — never both together. The four Trainer primary
+   * tabs (WP10) have no back arrow but keep the bell the old native header
+   * gave them.
    */
   onNotifications?: () => void;
   notificationCount?: number;
@@ -73,13 +72,7 @@ export function SecondaryScreenLayout({
           eyebrow={eyebrow}
           onNotifications={onNotifications}
           notificationCount={notificationCount}
-          right={
-            handleBack ? (
-              <Pressable onPress={handleBack}>
-                <IconChip name="arrow-back-outline" tone="dark" size={40} />
-              </Pressable>
-            ) : undefined
-          }
+          onBack={handleBack}
         />
       </View>
       <Content

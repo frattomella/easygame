@@ -48,13 +48,15 @@ export function Floodlight({
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
         >
           <Defs>
+            {/* v3.0: blue-400 55% (was blue-500 65%) — a lighter, cooler glow. */}
             <RadialGradient id="eg-floodlight-a" cx="12%" cy="-10%" r="75%">
-              <Stop offset="0%" stopColor="#3B82F6" stopOpacity={0.65} />
-              <Stop offset="70%" stopColor="#3B82F6" stopOpacity={0} />
+              <Stop offset="0%" stopColor="#60A5FA" stopOpacity={0.55} />
+              <Stop offset="70%" stopColor="#60A5FA" stopOpacity={0} />
             </RadialGradient>
+            {/* v3.0: indigo-500 50% (was indigo-600 60%). */}
             <RadialGradient id="eg-floodlight-b" cx="95%" cy="10%" r="60%">
-              <Stop offset="0%" stopColor="#3533CD" stopOpacity={0.6} />
-              <Stop offset="70%" stopColor="#3533CD" stopOpacity={0} />
+              <Stop offset="0%" stopColor="#5350E5" stopOpacity={0.5} />
+              <Stop offset="70%" stopColor="#5350E5" stopOpacity={0} />
             </RadialGradient>
           </Defs>
           <Rect
