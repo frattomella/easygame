@@ -148,6 +148,23 @@ test("le due forme dei nomi arrivano alla stessa forma sola", () => {
   assert.deepEqual(snake, camel);
 });
 
+test("«Senza conto» manda financial_account_id: null, e lo schema non lo rifiuta piu", () => {
+  // RegisterPaymentDialog manda sempre `financial_account_id: null` quando
+  // nessun conto e selezionato (mai la chiave omessa): stesso guasto gia
+  // corretto per operation_type_code in d20e276 ("financial_account_id:
+  // Expected string, received null"), qui mai chiuso da un test che passi
+  // dal confine di validazione invece che dal solo dominio. Il transform
+  // riduce null a undefined via `??` (stessa sorte di operationTypeCode):
+  // e il dominio, non questo schema, che lo riscrive a null sulla riga.
+  const input = validation.parseInput(schemas.paymentTransactionInputSchema, {
+    payment_id: "rata-1",
+    amount: 30,
+    financial_account_id: null,
+  });
+
+  assert.equal(input.financialAccountId, undefined);
+});
+
 test("una data non leggibile viene rifiutata prima di arrivare al registro", () => {
   assert.throws(
     () =>

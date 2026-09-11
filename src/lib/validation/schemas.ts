@@ -124,8 +124,8 @@ export const paymentTransactionInputSchema = z
     operation_type_code: z.string().trim().max(60).nullish(),
     operationTypeCode: z.string().trim().max(60).nullish(),
     /** Su quale conto e entrato il denaro. */
-    financial_account_id: z.string().trim().max(64).optional(),
-    financialAccountId: z.string().trim().max(64).optional(),
+    financial_account_id: z.string().trim().max(64).nullish(),
+    financialAccountId: z.string().trim().max(64).nullish(),
     /** La controparte, quando non e l'atleta: un socio, uno sponsor. */
     counterparty_kind: z.string().trim().max(40).optional(),
     counterpartyKind: z.string().trim().max(40).optional(),
