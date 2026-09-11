@@ -16,15 +16,15 @@ import { ParentProvider, useParentContext } from "@/contexts/ParentContext";
 import { useAuthContext } from "@/contexts/AuthContext";
 import ParentHomeStackNavigator from "@/navigation/ParentHomeStackNavigator";
 import ParentCalendarStackNavigator from "@/navigation/ParentCalendarStackNavigator";
-import ParentSegreteriaStackNavigator from "@/navigation/ParentSegreteriaStackNavigator";
-import ParentBoardStackNavigator from "@/navigation/ParentBoardStackNavigator";
+import ParentPaymentsStackNavigator from "@/navigation/ParentPaymentsStackNavigator";
+import ParentServicesStackNavigator from "@/navigation/ParentServicesStackNavigator";
 import ParentProfileStackNavigator from "@/navigation/ParentProfileStackNavigator";
 
 export type ParentTabParamList = {
   ParentHomeTab: undefined;
   ParentCalendarTab: undefined;
-  ParentSegreteriaTab: undefined;
-  ParentBoardTab: undefined;
+  ParentPaymentsTab: undefined;
+  ParentServicesTab: undefined;
   ParentProfileTab: undefined;
 };
 
@@ -159,22 +159,22 @@ function ParentTabs() {
         }}
       />
       <Tab.Screen
-        name="ParentSegreteriaTab"
-        component={ParentSegreteriaStackNavigator}
+        name="ParentPaymentsTab"
+        component={ParentPaymentsStackNavigator}
         options={{
-          title: "Segreteria",
+          title: "Pagamenti",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="wallet" size={size} color={color} />
           ),
         }}
       />
       <Tab.Screen
-        name="ParentBoardTab"
-        component={ParentBoardStackNavigator}
+        name="ParentServicesTab"
+        component={ParentServicesStackNavigator}
         options={{
-          title: "Bacheca",
+          title: "Servizi",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="megaphone" size={size} color={color} />
+            <Ionicons name="grid" size={size} color={color} />
           ),
         }}
       />

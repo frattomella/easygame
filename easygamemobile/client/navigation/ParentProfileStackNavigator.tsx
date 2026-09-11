@@ -3,29 +3,25 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import ParentProfileScreen from "@/screens/ParentProfileScreen";
 import ParentChildrenScreen from "@/screens/ParentChildrenScreen";
-import ParentMoreScreen from "@/screens/ParentMoreScreen";
 import ParentComingSoonScreen from "@/screens/ParentComingSoonScreen";
-import ParentAppointmentsScreen from "@/screens/ParentAppointmentsScreen";
-import ParentStructuresScreen from "@/screens/ParentStructuresScreen";
-import ParentContactsScreen from "@/screens/ParentContactsScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type ParentProfileStackParamList = {
   ParentProfile: undefined;
   ParentChildren: undefined;
-  ParentMore: undefined;
   ParentComingSoon: { title: string; message?: string };
-  ParentAppointments: undefined;
-  ParentStructures: undefined;
-  ParentContacts: undefined;
 };
 
 const Stack = createNativeStackNavigator<ParentProfileStackParamList>();
 
 /**
- * L'hub Profilo (`ParentMore`, "Altre sezioni") e il segnaposto condiviso
- * `ParentComingSoon` (WP6) per le sezioni ancora fuori perimetro.
- * Appuntamenti/Prenotazioni strutture/Contatti club sono reali dal WP8.
+ * v3.0 (`migration-v3.md` passo 8): `ParentMoreScreen` ("Altre sezioni") e
+ * rimosso — Appuntamenti/Prenotazioni strutture/Contatti club, che ospitava,
+ * sono confluiti nel tab Servizi (`ParentServicesStackNavigator`) insieme a
+ * Documenti/Consensi/Iscrizione/Bacheca. Qui resta solo cio che riguarda
+ * l'account: identita, multi-figlio, e il segnaposto condiviso
+ * `ParentComingSoon` (WP6) per "Impostazioni", l'unica voce del vecchio hub
+ * senza una sezione reale dietro.
  */
 export default function ParentProfileStackNavigator() {
   const screenOptions = useScreenOptions({ transparent: false });
@@ -34,20 +30,10 @@ export default function ParentProfileStackNavigator() {
     <Stack.Navigator screenOptions={{ ...screenOptions, headerShown: false }}>
       <Stack.Screen name="ParentProfile" component={ParentProfileScreen} />
       <Stack.Screen name="ParentChildren" component={ParentChildrenScreen} />
-      <Stack.Screen name="ParentMore" component={ParentMoreScreen} />
       <Stack.Screen
         name="ParentComingSoon"
         component={ParentComingSoonScreen}
       />
-      <Stack.Screen
-        name="ParentAppointments"
-        component={ParentAppointmentsScreen}
-      />
-      <Stack.Screen
-        name="ParentStructures"
-        component={ParentStructuresScreen}
-      />
-      <Stack.Screen name="ParentContacts" component={ParentContactsScreen} />
     </Stack.Navigator>
   );
 }

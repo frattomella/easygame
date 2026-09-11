@@ -92,7 +92,7 @@ export default function ParentCalendarScreen() {
       navigation.getParent() as
         | { navigate: (...args: unknown[]) => void }
         | undefined
-    )?.navigate("ParentBoardTab", {
+    )?.navigate("ParentServicesTab", {
       screen: "ParentBoard",
       params: { initialSection: "notifications" },
     });

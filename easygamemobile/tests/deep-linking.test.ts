@@ -183,14 +183,14 @@ test("Parent: pagamenti e documenti aprono la lista (nessun dettaglio per id ogg
       parseDeepLink("easygame://payment/x"),
       "parent",
     ),
-    { tab: "ParentSegreteriaTab", screen: "ParentPayments" },
+    { tab: "ParentPaymentsTab", screen: "ParentPayments" },
   );
   assert.deepEqual(
     resolveRoleGatedDeepLinkTarget(
       parseDeepLink("easygame://document"),
       "parent",
     ),
-    { tab: "ParentSegreteriaTab", screen: "ParentDocuments" },
+    { tab: "ParentServicesTab", screen: "ParentDocuments" },
   );
 });
 
@@ -201,7 +201,7 @@ test("Parent: notifiche aprono la bacheca sulla sezione notifiche, come già fa 
       "parent",
     ),
     {
-      tab: "ParentBoardTab",
+      tab: "ParentServicesTab",
       screen: "ParentBoard",
       params: { initialSection: "notifications" },
     },

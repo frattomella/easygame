@@ -16,22 +16,24 @@ import {
 import { useParentContext } from "@/contexts/ParentContext";
 import { useParentSectionStatus } from "@/hooks/useParentSectionStatus";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { isPayableParentPayment } from "@/lib/parent-payments";
 import { Spacing } from "@/constants/theme";
-import type { ParentSegreteriaStackParamList } from "@/navigation/ParentSegreteriaStackNavigator";
+import type { ParentServicesStackParamList } from "@/navigation/ParentServicesStackNavigator";
 
 type Navigation = NativeStackNavigationProp<
-  ParentSegreteriaStackParamList,
-  "ParentSegreteria"
+  ParentServicesStackParamList,
+  "ParentServices"
 >;
 
 /**
- * Segreteria: la tab con le quattro sezioni "carta e soldi" del club
- * (`guidelines/navigation.md`: "Payments, documents, consents and
- * enrollment... one tab, four sections") — tutte e quattro reali dal WP8
- * (Pagamenti/Documenti/Consensi dal WP7, Iscrizione qui).
+ * Servizi — v3.0 (`migration-v3.md` passo 8): il quarto tab del Dock
+ * sostituisce Segreteria e Bacheca. "Dove il design v3 introduce un
+ * raggruppamento nuovo... e un **contenitore di navigazione** per
+ * schermate gia esistenti" (ADR-0168 §4c2): nessuna di queste sette
+ * sezioni perde la propria schermata, cambia solo come vi si arriva.
+ * Pagamenti **non** e qui — e stato promosso a tab proprio (passo 8: "Home
+ * · Calendario · Pagamenti · Servizi · Profilo").
  */
-export default function ParentSegreteriaScreen() {
+export default function ParentServicesScreen() {
   const navigation = useNavigation<Navigation>();
   const { children, selectedChildId, switching, selectChild } =
     useParentContext();
@@ -51,30 +53,30 @@ export default function ParentSegreteriaScreen() {
 
   const { status, errorMessage } = useParentSectionStatus(dashboardQuery);
 
-  const payments = dashboardQuery.data?.payments;
-  const pendingPayments = payments
-    ? payments.items.filter(isPayableParentPayment).length
-    : 0;
   const requiredDocuments = dashboardQuery.data?.documents.required.length || 0;
-  /*
-    Il badge Consensi e solo un'anteprima: se la query fallisce si nasconde
-    (nessun conteggio) invece di mostrare "0" come se non ci fosse nulla in
-    sospeso — la sezione Consensi rifa comunque la sua fetch con lo stato
-    completo quando viene aperta.
-  */
+  // Il badge Consensi e solo un'anteprima (stesso principio della vecchia
+  // ParentSegreteriaScreen): se la query fallisce si nasconde invece di
+  // mostrare "0" come se non ci fosse nulla in sospeso.
   const pendingConsents = consentsQuery.isSuccess
     ? consentsQuery.data.filter(
         (consent) => consent.status === "missing" || consent.onOutdatedVersion,
       ).length
     : undefined;
+  const notificationsUnread = dashboardQuery.data?.notificationsUnread || 0;
+
+  const openNotifications = () =>
+    navigation.navigate("ParentBoard", { initialSection: "notifications" });
 
   return (
     <ParentPrimaryScreenLayout
-      title="Segreteria"
+      title="Servizi"
+      eyebrow="Famiglia"
       linkedChildren={children}
       selectedChildId={selectedChildId}
       childrenSwitching={switching}
       onSelectChild={selectChild}
+      onNotifications={openNotifications}
+      notificationCount={notificationsUnread}
       content={
         status === "loading" ? (
           <StateMessage kind="loading" tone="dark" />
@@ -90,35 +92,49 @@ export default function ParentSegreteriaScreen() {
           />
         ) : (
           <View style={{ gap: Spacing.sm }}>
-            <SegreteriaRow
-              icon="card-outline"
-              title="Pagamenti"
-              subtitle="Quote, scadenze e ricevute"
-              count={pendingPayments}
-              countTone="warning"
-              onPress={() => navigation.navigate("ParentPayments")}
-            />
-            <SegreteriaRow
+            <ServiceRow
               icon="document-text-outline"
               title="Documenti"
               subtitle="Certificati e moduli richiesti"
               count={requiredDocuments}
-              countTone="warning"
               onPress={() => navigation.navigate("ParentDocuments")}
             />
-            <SegreteriaRow
+            <ServiceRow
               icon="shield-checkmark-outline"
               title="Consensi"
               subtitle="Autorizzazioni e privacy"
               count={pendingConsents}
-              countTone="warning"
               onPress={() => navigation.navigate("ParentConsents")}
             />
-            <SegreteriaRow
+            <ServiceRow
               icon="clipboard-outline"
               title="Iscrizione"
               subtitle="Stato, pratiche e rinnovo"
               onPress={() => navigation.navigate("ParentEnrollment")}
+            />
+            <ServiceRow
+              icon="calendar-outline"
+              title="Appuntamenti"
+              subtitle="Colloqui con la segreteria"
+              onPress={() => navigation.navigate("ParentAppointments")}
+            />
+            <ServiceRow
+              icon="business-outline"
+              title="Prenotazioni strutture"
+              subtitle="Campi e sale del club"
+              onPress={() => navigation.navigate("ParentStructures")}
+            />
+            <ServiceRow
+              icon="call-outline"
+              title="Contatti club"
+              subtitle="Segreteria e recapiti"
+              onPress={() => navigation.navigate("ParentContacts")}
+            />
+            <ServiceRow
+              icon="megaphone-outline"
+              title="Bacheca"
+              subtitle="Comunicazioni del club"
+              onPress={() => navigation.navigate("ParentBoard")}
             />
           </View>
         )
@@ -127,54 +143,44 @@ export default function ParentSegreteriaScreen() {
   );
 }
 
-function SegreteriaRow({
+function ServiceRow({
   icon,
   title,
   subtitle,
   count,
-  countTone,
-  disabled = false,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   subtitle: string;
   count?: number;
-  countTone?: "warning";
-  disabled?: boolean;
-  onPress?: () => void;
+  onPress: () => void;
 }) {
-  const row = (
-    <GlassCard style={disabled ? { opacity: 0.6 } : undefined}>
-      <View
-        style={{ flexDirection: "row", alignItems: "center", gap: Spacing.md }}
-      >
-        <IconChip name={icon} size={40} />
-        <View style={{ flex: 1 }}>
-          <SignatureText variant="h4" tone="ink">
-            {title}
-          </SignatureText>
-          <SignatureText variant="small" tone="muted">
-            {subtitle}
-          </SignatureText>
-        </View>
-        {typeof count === "number" && count > 0 ? (
-          <StatusPill
-            label={String(count)}
-            variant={countTone === "warning" ? "warning" : "default"}
-            small
-          />
-        ) : null}
-        {!disabled ? (
+  return (
+    <Pressable onPress={onPress}>
+      <GlassCard>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: Spacing.md,
+          }}
+        >
+          <IconChip name={icon} size={40} />
+          <View style={{ flex: 1 }}>
+            <SignatureText variant="h4" tone="ink">
+              {title}
+            </SignatureText>
+            <SignatureText variant="small" tone="muted">
+              {subtitle}
+            </SignatureText>
+          </View>
+          {typeof count === "number" && count > 0 ? (
+            <StatusPill label={String(count)} variant="warning" small />
+          ) : null}
           <Ionicons name="chevron-forward-outline" size={20} color="#94A3B8" />
-        ) : null}
-      </View>
-    </GlassCard>
+        </View>
+      </GlassCard>
+    </Pressable>
   );
-
-  if (disabled || !onPress) {
-    return row;
-  }
-
-  return <Pressable onPress={onPress}>{row}</Pressable>;
 }

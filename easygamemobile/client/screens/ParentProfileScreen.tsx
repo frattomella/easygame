@@ -20,8 +20,14 @@ type Navigation = NativeStackNavigationProp<
 >;
 
 /**
- * Identita account, gestione multi-figlio, cambio contesto, logout (WP4) —
- * piu l'accesso all'hub delle sezioni secondarie, `ParentMoreScreen` (WP6).
+ * Identita account, gestione multi-figlio, cambio contesto, logout (WP4).
+ *
+ * v3.0 (`migration-v3.md` passo 8): l'hub `ParentMoreScreen` ("Altre
+ * sezioni") e rimosso — le sue sezioni reali (Appuntamenti, Prenotazioni
+ * strutture, Contatti) sono confluite nel tab Servizi insieme a
+ * Documenti/Consensi/Iscrizione/Bacheca (ADR-0168 §4c2, nessuna di quelle
+ * perde la propria schermata). L'unica voce senza una sezione reale dietro,
+ * "Impostazioni", resta raggiungibile direttamente da qui.
  */
 export default function ParentProfileScreen() {
   const navigation = useNavigation<Navigation>();
@@ -71,16 +77,20 @@ export default function ParentProfileScreen() {
 
           <GlassCard
             eyebrow="Altro"
-            title="Altre sezioni"
-            description="Pagamenti, documenti, consensi, appuntamenti e contatti del club."
+            title="Impostazioni"
+            description="Preferenze dell'app."
           >
             <View style={{ marginTop: Spacing.sm }}>
               <ActionButton
                 variant="secondary"
                 size="sm"
-                onPress={() => navigation.navigate("ParentMore")}
+                onPress={() =>
+                  navigation.navigate("ParentComingSoon", {
+                    title: "Impostazioni",
+                  })
+                }
               >
-                Apri altre sezioni
+                Apri impostazioni
               </ActionButton>
             </View>
           </GlassCard>

@@ -943,15 +943,17 @@ Ogni stack include anche `NotificationsScreen`. Da `TrainerMoreScreen`
 `TrainerCompensationScreen`, `TrainerCategoriesScreen` — vedi "WP3 — Parita
 funzionale Trainer" sopra.
 
-`ParentTabNavigator` espone 5 tab (`guidelines/navigation.md`):
+`ParentTabNavigator` espone 5 tab (v3.0, `migration-v3.md` passo 8 —
+ADR-0168; sostituisce l'elenco di `guidelines/navigation.md`, che restava
+su Segreteria/Bacheca):
 
 | Tab | Stack | Schermata | Stato |
 |-----|-------|-----------|-------|
 | Home | `ParentHomeStackNavigator` | `ParentHomeScreen` → `ParentAthleteProfileScreen` | Reale (WP5): SectionHero + StatCard + HighlightCard; scheda atleta reale dal WP9 |
 | Calendario | `ParentCalendarStackNavigator` | `ParentCalendarScreen` → `ParentEventDetailScreen` | Reale (WP5): allenamenti+gare unificati, RSVP nel dettaglio |
-| Segreteria | `ParentSegreteriaStackNavigator` | `ParentSegreteriaScreen` (hub) → `ParentPaymentsScreen` / `ParentDocumentsScreen` / `ParentConsentsScreen` / `ParentEnrollmentScreen` | Tutte e quattro le sezioni reali dal WP8 |
-| Bacheca | `ParentBoardStackNavigator` | `ParentBoardScreen` | Reale (WP6): bacheca + notifiche, due sezioni |
-| Profilo | `ParentProfileStackNavigator` | `ParentProfileScreen` → `ParentChildrenScreen` / `ParentMoreScreen` / `ParentComingSoonScreen` / `ParentAppointmentsScreen` / `ParentStructuresScreen` / `ParentContactsScreen` | Account, multi-figlio, cambio contesto, logout, hub (WP6); Appuntamenti/Strutture/Contatti reali dal WP8 — solo "Impostazioni" resta segnaposto |
+| Pagamenti | `ParentPaymentsStackNavigator` | `ParentPaymentsScreen` | Reale (WP7); promosso da sezione dentro "Segreteria" a tab proprio (WP13, passo 8) |
+| Servizi | `ParentServicesStackNavigator` | `ParentServicesScreen` (hub) → `ParentDocumentsScreen` / `ParentConsentsScreen` / `ParentEnrollmentScreen` / `ParentAppointmentsScreen` / `ParentStructuresScreen` / `ParentContactsScreen` / `ParentBoardScreen` | Sostituisce Segreteria (`ParentSegreteriaStackNavigator`, rimosso) e Bacheca (`ParentBoardStackNavigator`, rimosso) — un contenitore di navigazione, nessuna sezione persa (WP13, passo 8) |
+| Profilo | `ParentProfileStackNavigator` | `ParentProfileScreen` → `ParentChildrenScreen` / `ParentComingSoonScreen` | Account, multi-figlio, cambio contesto, logout; `ParentMoreScreen` rimosso — le sue tre voci reali (Appuntamenti/Strutture/Contatti) sono nel tab Servizi, "Impostazioni" resta diretto da qui (WP13, passo 8) |
 
 ### Schermate collegate (21)
 
@@ -969,15 +971,16 @@ Trainer (invariate): `NotificationsScreen`, `TrainerHomeDashboardScreen`,
 
 Parent (`ParentTabNavigator`): `ParentHomeScreen`, `ParentChildrenScreen`,
 `ParentProfileScreen` (WP4); `ParentCalendarScreen`,
-`ParentEventDetailScreen` (WP5); `ParentBoardScreen`, `ParentMoreScreen`,
-`ParentComingSoonScreen` (WP6); `ParentSegreteriaScreen`,
-`ParentPaymentsScreen`, `ParentDocumentsScreen`, `ParentConsentsScreen`
-(WP7); `ParentEnrollmentScreen`, `ParentAppointmentsScreen`,
+`ParentEventDetailScreen` (WP5); `ParentBoardScreen`,
+`ParentComingSoonScreen` (WP6); `ParentPaymentsScreen`,
+`ParentDocumentsScreen`, `ParentConsentsScreen` (WP7);
+`ParentEnrollmentScreen`, `ParentAppointmentsScreen`,
 `ParentStructuresScreen`, `ParentContactsScreen` (WP8);
-`ParentAthleteProfileScreen` (WP9). Il batch Parent e completo: l'unico
-segnaposto rimasto e "Impostazioni" nell'hub Profilo, su
-`ParentComingSoonScreen` — nessun contenuto previsto per questo per nessun
-WP.
+`ParentAthleteProfileScreen` (WP9); `ParentServicesScreen` (WP13, passo 8
+— hub che sostituisce `ParentSegreteriaScreen` e `ParentMoreScreen`,
+entrambi rimossi). Il batch Parent e completo: l'unico segnaposto rimasto
+e "Impostazioni" nel tab Profilo, su `ParentComingSoonScreen` — nessun
+contenuto previsto per questo per nessun WP.
 
 ### Schermate NON collegate (10) — generazione precedente
 

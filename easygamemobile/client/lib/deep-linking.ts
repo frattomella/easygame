@@ -180,20 +180,20 @@ export const resolveRoleGatedDeepLinkTarget = (
       }
       case "payment":
       case "payments":
-        return { tab: "ParentSegreteriaTab", screen: "ParentPayments" };
+        return { tab: "ParentPaymentsTab", screen: "ParentPayments" };
       case "document":
       case "documents":
-        return { tab: "ParentSegreteriaTab", screen: "ParentDocuments" };
+        return { tab: "ParentServicesTab", screen: "ParentDocuments" };
       case "notification":
       case "notifications":
         return {
-          tab: "ParentBoardTab",
+          tab: "ParentServicesTab",
           screen: "ParentBoard",
           params: { initialSection: "notifications" },
         };
       case "appointment":
       case "appointments":
-        return { tab: "ParentProfileTab", screen: "ParentAppointments" };
+        return { tab: "ParentServicesTab", screen: "ParentAppointments" };
       default:
         return null;
     }

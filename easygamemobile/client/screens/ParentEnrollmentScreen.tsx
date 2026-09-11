@@ -20,10 +20,10 @@ import { formatParentCurrency } from "@/lib/parent-payments";
 import { formatItalianDate } from "@/lib/mobile-ui";
 import { Spacing } from "@/constants/theme";
 import type { StatusPillVariant } from "@/components/signature/StatusPill";
-import type { ParentSegreteriaStackParamList } from "@/navigation/ParentSegreteriaStackNavigator";
+import type { ParentServicesStackParamList } from "@/navigation/ParentServicesStackNavigator";
 
 type Navigation = NativeStackNavigationProp<
-  ParentSegreteriaStackParamList,
+  ParentServicesStackParamList,
   "ParentEnrollment"
 >;
 
@@ -109,7 +109,11 @@ export default function ParentEnrollmentScreen() {
           />
 
           {enrollment.income.residual > 0 ? (
-            <Pressable onPress={() => navigation.navigate("ParentPayments")}>
+            <Pressable
+              onPress={() =>
+                navigation.getParent()?.navigate("ParentPaymentsTab" as never)
+              }
+            >
               <GlassCard
                 eyebrow="Saldo"
                 title={`Restano da versare ${formatParentCurrency(enrollment.income.residual)}`}
