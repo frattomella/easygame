@@ -1,18 +1,18 @@
 import React, { useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
-import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { ThemedText } from "@/components/ThemedText";
-import { Input } from "@/components/Input";
-import { Button } from "@/components/Button";
-import { useTheme } from "@/hooks/useTheme";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { Colors, Spacing } from "@/constants/theme";
+import { Spacing } from "@/constants/theme";
+import {
+  ActionButton,
+  BrandStateLayout,
+  SignatureInput,
+  SignatureText,
+} from "@/components/signature";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<
@@ -46,10 +46,11 @@ type ScreenState =
  * risponde con la stessa frase per tutti e tre di proposito (vedi
  * `interpretPasswordResetResponse`): mostrarli distinti qui ricostruirebbe
  * lato client l'oracolo che quella scelta serve a chiudere.
+ *
+ * v3.0 (`migration-v3.md` passo 7): tutti e quattro gli stati su
+ * `BrandStateLayout`, stesso registro delle altre schermate auth.
  */
 export default function ResetPasswordScreen() {
-  const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<Route>();
 
@@ -115,198 +116,272 @@ export default function ResetPasswordScreen() {
 
   if (!linkIsPresent) {
     return (
-      <KeyboardAwareScrollViewCompat
-        style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: insets.top + Spacing["3xl"] },
-        ]}
-      >
-        <View style={styles.icon}>
-          <Ionicons
-            name="alert-circle-outline"
-            size={40}
-            color={Colors.light.destructive}
-          />
+      <BrandStateLayout scrollable={false}>
+        <View style={styles.centeredContent}>
+          <View style={styles.iconWrap}>
+            <Ionicons name="alert-circle-outline" size={36} color="#FCA5A5" />
+          </View>
+          <SignatureText
+            variant="display"
+            tone="onDark"
+            style={styles.centeredText}
+          >
+            Link non valido
+          </SignatureText>
+          <SignatureText
+            variant="body"
+            tone="onDarkMuted"
+            style={[styles.centeredText, styles.subtitle]}
+          >
+            Il link di reset è incompleto o è stato modificato.
+          </SignatureText>
+          <ActionButton
+            variant="primary"
+            onSky
+            fullWidth
+            style={styles.actionSpacing}
+            onPress={() =>
+              navigation.reset({ index: 0, routes: [{ name: "Login" }] })
+            }
+          >
+            Torna al login
+          </ActionButton>
         </View>
-        <ThemedText type="h3" style={styles.centeredText}>
-          Link non valido
-        </ThemedText>
-        <ThemedText
-          type="body"
-          style={[styles.centeredText, { color: theme.textSecondary }]}
-        >
-          Il link di reset è incompleto o è stato modificato.
-        </ThemedText>
-        <Button
-          onPress={() =>
-            navigation.reset({ index: 0, routes: [{ name: "Login" }] })
-          }
-          fullWidth
-        >
-          Torna al login
-        </Button>
-      </KeyboardAwareScrollViewCompat>
+      </BrandStateLayout>
     );
   }
 
   if (state === "success") {
     return (
-      <KeyboardAwareScrollViewCompat
-        style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: insets.top + Spacing["3xl"] },
-        ]}
-      >
-        <Animated.View entering={FadeInDown.duration(300)} style={styles.icon}>
-          <Ionicons
-            name="checkmark-circle"
-            size={40}
-            color={Colors.light.success}
-          />
-        </Animated.View>
-        <ThemedText type="h3" style={styles.centeredText}>
-          Password aggiornata
-        </ThemedText>
-        <ThemedText
-          type="body"
-          style={[styles.centeredText, { color: theme.textSecondary }]}
-        >
-          {message} Accedi con la nuova password.
-        </ThemedText>
-        <Button
-          onPress={() =>
-            navigation.reset({ index: 0, routes: [{ name: "Login" }] })
-          }
-          fullWidth
-        >
-          Vai al login
-        </Button>
-      </KeyboardAwareScrollViewCompat>
+      <BrandStateLayout scrollable={false}>
+        <View style={styles.centeredContent}>
+          <Animated.View
+            entering={FadeInDown.duration(300)}
+            style={styles.iconWrap}
+          >
+            <Ionicons name="checkmark-circle" size={36} color="#86EFAC" />
+          </Animated.View>
+          <SignatureText
+            variant="display"
+            tone="onDark"
+            style={styles.centeredText}
+          >
+            Password aggiornata
+          </SignatureText>
+          <SignatureText
+            variant="body"
+            tone="onDarkMuted"
+            style={[styles.centeredText, styles.subtitle]}
+          >
+            {message} Accedi con la nuova password.
+          </SignatureText>
+          <ActionButton
+            variant="primary"
+            onSky
+            fullWidth
+            style={styles.actionSpacing}
+            onPress={() =>
+              navigation.reset({ index: 0, routes: [{ name: "Login" }] })
+            }
+          >
+            Vai al login
+          </ActionButton>
+        </View>
+      </BrandStateLayout>
     );
   }
 
   if (state === "token_invalid") {
     return (
-      <KeyboardAwareScrollViewCompat
-        style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: insets.top + Spacing["3xl"] },
-        ]}
-      >
-        <View style={styles.icon}>
-          <Ionicons
-            name="time-outline"
-            size={40}
-            color={Colors.light.warning}
-          />
+      <BrandStateLayout scrollable={false}>
+        <View style={styles.centeredContent}>
+          <View style={styles.iconWrap}>
+            <Ionicons name="time-outline" size={36} color="#FCD34D" />
+          </View>
+          <SignatureText
+            variant="display"
+            tone="onDark"
+            style={styles.centeredText}
+          >
+            Link non più valido
+          </SignatureText>
+          <SignatureText
+            variant="body"
+            tone="onDarkMuted"
+            style={[styles.centeredText, styles.subtitle]}
+          >
+            {message} Puoi richiederne uno nuovo.
+          </SignatureText>
+          <View style={styles.actionSpacing}>
+            <ActionButton
+              variant="primary"
+              onSky
+              fullWidth
+              onPress={() =>
+                navigation.reset({
+                  index: 0,
+                  routes: [{ name: "ForgotPassword" }],
+                })
+              }
+            >
+              Richiedi un nuovo link
+            </ActionButton>
+            <ActionButton
+              variant="secondary"
+              onSky
+              fullWidth
+              style={styles.secondActionSpacing}
+              onPress={() =>
+                navigation.reset({ index: 0, routes: [{ name: "Login" }] })
+              }
+            >
+              Torna al login
+            </ActionButton>
+          </View>
         </View>
-        <ThemedText type="h3" style={styles.centeredText}>
-          Link non più valido
-        </ThemedText>
-        <ThemedText
-          type="body"
-          style={[styles.centeredText, { color: theme.textSecondary }]}
-        >
-          {message} Puoi richiederne uno nuovo.
-        </ThemedText>
-        <Button
-          onPress={() =>
-            navigation.reset({ index: 0, routes: [{ name: "ForgotPassword" }] })
-          }
-          fullWidth
-        >
-          Richiedi un nuovo link
-        </Button>
-        <Button
-          variant="ghost"
-          onPress={() =>
-            navigation.reset({ index: 0, routes: [{ name: "Login" }] })
-          }
-          fullWidth
-        >
-          Torna al login
-        </Button>
-      </KeyboardAwareScrollViewCompat>
+      </BrandStateLayout>
     );
   }
 
   return (
-    <KeyboardAwareScrollViewCompat
-      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-      contentContainerStyle={[
-        styles.content,
-        {
-          paddingTop: insets.top + Spacing["3xl"],
-          paddingBottom: insets.bottom + Spacing["2xl"],
-        },
-      ]}
-    >
-      <View style={styles.icon}>
-        <Ionicons name="key-outline" size={40} color={theme.primary} />
-      </View>
-      <ThemedText type="h3" style={styles.centeredText}>
-        Scegli una nuova password
-      </ThemedText>
-      <ThemedText
-        type="body"
-        style={[
-          styles.centeredText,
-          styles.subtitle,
-          { color: theme.textSecondary },
-        ]}
+    <BrandStateLayout>
+      <Animated.View
+        entering={FadeInDown.delay(100).duration(600)}
+        style={styles.iconWrap}
       >
-        Il link è valido una sola volta.
-      </ThemedText>
+        <Ionicons name="key-outline" size={36} color="#FFFFFF" />
+      </Animated.View>
 
-      {state === "rate_limited" ? (
-        <ThemedText
-          type="small"
-          style={[styles.centeredText, { color: Colors.light.destructive }]}
+      <Animated.View entering={FadeInDown.delay(160).duration(600)}>
+        <SignatureText
+          variant="display"
+          tone="onDark"
+          style={styles.centeredText}
         >
-          {message}
-        </ThemedText>
-      ) : null}
+          Scegli una nuova password
+        </SignatureText>
+        <SignatureText
+          variant="body"
+          tone="onDarkMuted"
+          style={[styles.centeredText, styles.subtitle]}
+        >
+          Il link è valido una sola volta.
+        </SignatureText>
+      </Animated.View>
 
-      <Input
-        label="Nuova password"
-        placeholder="Almeno 12 caratteri"
-        value={password}
-        onChangeText={(value) => {
-          setPassword(value);
-          setFieldError("");
-        }}
-        secureTextEntry={!showPassword}
-        leftIcon="lock-closed-outline"
-        rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
-        onRightIconPress={() => setShowPassword(!showPassword)}
-      />
-      <Input
-        label="Conferma password"
-        placeholder="Ripeti la password"
-        value={confirmPassword}
-        onChangeText={(value) => {
-          setConfirmPassword(value);
-          setFieldError("");
-        }}
-        secureTextEntry={!showPassword}
-        leftIcon="shield-checkmark-outline"
-        error={fieldError || undefined}
-      />
+      <Animated.View
+        entering={FadeInDown.delay(220).duration(600)}
+        style={styles.formContainer}
+      >
+        {state === "rate_limited" ? (
+          <View style={styles.errorContainer}>
+            <Ionicons name="alert-circle" size={16} color="#FCA5A5" />
+            <SignatureText
+              variant="small"
+              style={[styles.errorText, { flex: 1 }]}
+            >
+              {message}
+            </SignatureText>
+          </View>
+        ) : null}
 
-      <Button onPress={handleSubmit} loading={state === "loading"} fullWidth>
-        Imposta la nuova password
-      </Button>
-    </KeyboardAwareScrollViewCompat>
+        <SignatureInput
+          label="Nuova password"
+          placeholder="Almeno 12 caratteri"
+          value={password}
+          onChangeText={(value) => {
+            setPassword(value);
+            setFieldError("");
+          }}
+          secureTextEntry={!showPassword}
+          leftIcon="lock-closed-outline"
+          rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
+          rightIconLabel={
+            showPassword ? "Nascondi password" : "Mostra password"
+          }
+          onRightIconPress={() => setShowPassword(!showPassword)}
+          style={styles.field}
+        />
+        <SignatureInput
+          label="Conferma password"
+          placeholder="Ripeti la password"
+          value={confirmPassword}
+          onChangeText={(value) => {
+            setConfirmPassword(value);
+            setFieldError("");
+          }}
+          secureTextEntry={!showPassword}
+          leftIcon="shield-checkmark-outline"
+          style={styles.field}
+        />
+
+        {fieldError ? (
+          <View style={styles.errorContainer}>
+            <Ionicons name="alert-circle" size={16} color="#FCA5A5" />
+            <SignatureText
+              variant="small"
+              style={[styles.errorText, { flex: 1 }]}
+            >
+              {fieldError}
+            </SignatureText>
+          </View>
+        ) : null}
+
+        <ActionButton
+          variant="primary"
+          onSky
+          onPress={() => void handleSubmit()}
+          loading={state === "loading"}
+          fullWidth
+          style={styles.submitButton}
+        >
+          Imposta la nuova password
+        </ActionButton>
+      </Animated.View>
+    </BrandStateLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { paddingHorizontal: Spacing["2xl"], gap: Spacing.md },
-  icon: { alignItems: "center", marginBottom: Spacing.sm },
-  centeredText: { textAlign: "center" },
-  subtitle: { marginTop: Spacing.xs, marginBottom: Spacing.lg },
+  centeredContent: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: Spacing.md,
+  },
+  iconWrap: {
+    alignItems: "center",
+    marginBottom: Spacing.md,
+  },
+  centeredText: {
+    textAlign: "center",
+  },
+  subtitle: {
+    marginTop: Spacing.xs,
+  },
+  actionSpacing: {
+    marginTop: Spacing["2xl"],
+    width: "100%",
+  },
+  secondActionSpacing: {
+    marginTop: Spacing.sm,
+  },
+  formContainer: {
+    gap: Spacing.md,
+    marginTop: Spacing["2xl"],
+  },
+  field: {
+    marginBottom: 0,
+  },
+  errorContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  errorText: {
+    color: "#FCA5A5",
+  },
+  submitButton: {
+    marginTop: Spacing.sm,
+  },
 });

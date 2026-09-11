@@ -1,21 +1,21 @@
 import React, { useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
-import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { ThemedText } from "@/components/ThemedText";
-import { Input } from "@/components/Input";
-import { Button } from "@/components/Button";
-import { useTheme } from "@/hooks/useTheme";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import { VerificationChannel, VerificationInfo } from "@/lib/auth-flow";
-import { Colors, Spacing } from "@/constants/theme";
+import { Spacing } from "@/constants/theme";
+import {
+  ActionButton,
+  BrandStateLayout,
+  SignatureInput,
+  SignatureText,
+} from "@/components/signature";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList, "VerifyOtp">;
@@ -44,9 +44,12 @@ const readDevPreviewCode = (
 const channelLabel = (channel: VerificationChannel) =>
   channel === "email" ? "email" : "cellulare";
 
+/**
+ * v3.0 (`migration-v3.md` passo 7): su `BrandStateLayout`, stesso registro di
+ * `LoginScreen`/`RegisterScreen` — stesso backend, stesso flusso (nessuna
+ * riga di logica cambiata rispetto alla veste precedente).
+ */
 export default function VerifyOtpScreen() {
-  const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const route = useRoute<Route>();
   const { refresh } = useAuthContext();
@@ -204,110 +207,157 @@ export default function VerifyOtpScreen() {
   };
 
   return (
-    <KeyboardAwareScrollViewCompat
-      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-      contentContainerStyle={[
-        styles.content,
-        {
-          paddingTop: insets.top + Spacing["3xl"],
-          paddingBottom: insets.bottom + Spacing["2xl"],
-        },
-      ]}
-    >
-      <Animated.View entering={FadeInDown.duration(400)} style={styles.icon}>
+    <BrandStateLayout>
+      <Animated.View
+        entering={FadeInDown.delay(100).duration(600)}
+        style={styles.iconWrap}
+      >
         <Ionicons
           name={channel === "email" ? "mail-outline" : "chatbubble-outline"}
-          size={40}
-          color={theme.primary}
+          size={36}
+          color="#FFFFFF"
         />
       </Animated.View>
 
-      <Animated.View entering={FadeInDown.delay(80).duration(400)}>
-        <ThemedText type="h3" style={styles.centeredText}>
+      <Animated.View entering={FadeInDown.delay(160).duration(600)}>
+        <SignatureText
+          variant="display"
+          tone="onDark"
+          style={styles.centeredText}
+        >
           Verifica il tuo {channelLabel(channel)}
-        </ThemedText>
-        <ThemedText
-          type="body"
-          style={[
-            styles.centeredText,
-            styles.subtitle,
-            { color: theme.textSecondary },
-          ]}
+        </SignatureText>
+        <SignatureText
+          variant="body"
+          tone="onDarkMuted"
+          style={[styles.centeredText, styles.subtitle]}
         >
           {maskedTarget
             ? `Abbiamo inviato un codice a ${maskedTarget}.`
             : "Abbiamo inviato un codice di verifica."}
-        </ThemedText>
+        </SignatureText>
       </Animated.View>
 
-      <Input
-        label="Codice di verifica"
-        placeholder="123456"
-        value={code}
-        onChangeText={(value) => {
-          setCode(value.replace(/[^0-9]/g, "").slice(0, 6));
-          setError("");
-        }}
-        keyboardType="number-pad"
-        maxLength={6}
-        leftIcon="keypad-outline"
-        error={error || undefined}
-      />
-
-      {info ? (
-        <View style={styles.infoRow}>
-          <Ionicons
-            name="checkmark-circle"
-            size={16}
-            color={Colors.light.success}
-          />
-          <ThemedText type="small" style={{ color: Colors.light.success }}>
-            {info}
-          </ThemedText>
-        </View>
-      ) : null}
-
-      {failedAttempts >= 3 ? (
-        <ThemedText
-          type="small"
-          style={[styles.retryHint, { color: theme.textSecondary }]}
-        >
-          Se il problema persiste, richiedi un nuovo codice.
-        </ThemedText>
-      ) : null}
-
-      <Button onPress={handleVerify} loading={loading} fullWidth>
-        Verifica
-      </Button>
-
-      <Button
-        variant="ghost"
-        onPress={() => handleResend()}
-        loading={resending}
-        disabled={countdown > 0}
-        fullWidth
+      <Animated.View
+        entering={FadeInDown.delay(220).duration(600)}
+        style={styles.formContainer}
       >
-        {countdown > 0 ? `Rinvia codice (${countdown}s)` : "Rinvia codice"}
-      </Button>
+        <SignatureInput
+          label="Codice di verifica"
+          placeholder="123456"
+          value={code}
+          onChangeText={(value) => {
+            setCode(value.replace(/[^0-9]/g, "").slice(0, 6));
+            setError("");
+          }}
+          keyboardType="number-pad"
+          maxLength={6}
+          leftIcon="keypad-outline"
+          style={styles.field}
+        />
 
-      <Button variant="ghost" onPress={() => navigation.goBack()} fullWidth>
-        Torna indietro
-      </Button>
-    </KeyboardAwareScrollViewCompat>
+        {info ? (
+          <View style={styles.infoRow}>
+            <Ionicons name="checkmark-circle" size={16} color="#86EFAC" />
+            <SignatureText variant="small" style={styles.infoText}>
+              {info}
+            </SignatureText>
+          </View>
+        ) : null}
+
+        {error ? (
+          <View style={styles.errorContainer}>
+            <Ionicons name="alert-circle" size={16} color="#FCA5A5" />
+            <SignatureText
+              variant="small"
+              style={[styles.errorText, { flex: 1 }]}
+            >
+              {error}
+            </SignatureText>
+          </View>
+        ) : null}
+
+        {failedAttempts >= 3 ? (
+          <SignatureText
+            variant="small"
+            tone="onDarkMuted"
+            style={styles.centeredText}
+          >
+            Se il problema persiste, richiedi un nuovo codice.
+          </SignatureText>
+        ) : null}
+
+        <ActionButton
+          variant="primary"
+          onSky
+          onPress={() => void handleVerify()}
+          loading={loading}
+          fullWidth
+          style={styles.submitButton}
+        >
+          Verifica
+        </ActionButton>
+
+        <ActionButton
+          variant="secondary"
+          onSky
+          onPress={() => void handleResend()}
+          loading={resending}
+          disabled={countdown > 0}
+          fullWidth
+        >
+          {countdown > 0 ? `Rinvia codice (${countdown}s)` : "Rinvia codice"}
+        </ActionButton>
+
+        <ActionButton
+          variant="secondary"
+          onSky
+          onPress={() => navigation.goBack()}
+          fullWidth
+        >
+          Torna indietro
+        </ActionButton>
+      </Animated.View>
+    </BrandStateLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { paddingHorizontal: Spacing["2xl"], gap: Spacing.md },
-  icon: { alignItems: "center", marginBottom: Spacing.sm },
-  centeredText: { textAlign: "center" },
-  subtitle: { marginTop: Spacing.xs, marginBottom: Spacing.lg },
+  iconWrap: {
+    alignItems: "center",
+    marginBottom: Spacing.md,
+  },
+  centeredText: {
+    textAlign: "center",
+  },
+  subtitle: {
+    marginTop: Spacing.xs,
+  },
+  formContainer: {
+    gap: Spacing.md,
+    marginTop: Spacing["2xl"],
+  },
+  field: {
+    marginBottom: 0,
+  },
   infoRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.xs,
     justifyContent: "center",
   },
-  retryHint: { textAlign: "center" },
+  infoText: {
+    color: "#86EFAC",
+  },
+  errorContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  errorText: {
+    color: "#FCA5A5",
+  },
+  submitButton: {
+    marginTop: Spacing.sm,
+  },
 });

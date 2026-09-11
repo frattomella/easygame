@@ -1,18 +1,19 @@
 import React, { useState } from "react";
-import { StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
-import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { ThemedText } from "@/components/ThemedText";
-import { Input } from "@/components/Input";
-import { Button } from "@/components/Button";
-import { useTheme } from "@/hooks/useTheme";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import { Spacing } from "@/constants/theme";
+import {
+  ActionButton,
+  BrandStateLayout,
+  SignatureInput,
+  SignatureText,
+} from "@/components/signature";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList, "Register">;
@@ -23,10 +24,12 @@ type Navigation = NativeStackNavigationProp<RootStackParamList, "Register">;
  * membership. Il telefono e obbligatorio perche lo e per ogni account nuovo
  * (`isPhoneNumberRequiredAtSignup`, ADR-0132) — il formato lo valida il
  * server, qui si raccoglie e basta.
+ *
+ * v3.0 (`migration-v3.md` passo 7): su `BrandStateLayout`, stesso registro di
+ * `LoginScreen` — cielo pieno, `SignatureInput`/`ActionButton`, mai il
+ * quadrato con gradiente attorno al marchio.
  */
 export default function RegisterScreen() {
-  const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
 
   const [firstName, setFirstName] = useState("");
@@ -87,11 +90,7 @@ export default function RegisterScreen() {
         return;
       }
 
-      if (outcome.kind === "rate_limited") {
-        setError(outcome.message);
-      } else {
-        setError(outcome.message);
-      }
+      setError(outcome.message);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } catch (submitError) {
       setError(
@@ -106,50 +105,61 @@ export default function RegisterScreen() {
   };
 
   return (
-    <KeyboardAwareScrollViewCompat
-      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-      contentContainerStyle={[
-        styles.content,
-        {
-          paddingTop: insets.top + Spacing["2xl"],
-          paddingBottom: insets.bottom + Spacing["2xl"],
-        },
-      ]}
-    >
-      <Animated.View entering={FadeInDown.duration(400)}>
-        <ThemedText type="h2">Crea account</ThemedText>
-        <ThemedText
-          type="body"
-          style={[styles.subtitle, { color: theme.textSecondary }]}
+    <BrandStateLayout>
+      <Animated.View entering={FadeInDown.delay(100).duration(600)}>
+        <SignatureText
+          variant="eyebrow"
+          tone="onDarkMuted"
+          style={styles.centeredText}
+        >
+          Nuovo account
+        </SignatureText>
+        <SignatureText
+          variant="display"
+          tone="onDark"
+          style={[styles.title, styles.centeredText]}
+        >
+          Crea il tuo profilo
+        </SignatureText>
+        <SignatureText
+          variant="body"
+          tone="onDarkMuted"
+          style={styles.centeredText}
         >
           Lo stesso account funziona anche sulla Web App EasyGame.
-        </ThemedText>
+        </SignatureText>
       </Animated.View>
 
-      <Animated.View entering={FadeInDown.delay(80).duration(400)}>
-        <Input
+      <Animated.View
+        entering={FadeInDown.delay(200).duration(600)}
+        style={styles.formContainer}
+      >
+        <SignatureInput
           label="Nome"
           placeholder="Marco"
           value={firstName}
           onChangeText={setFirstName}
           leftIcon="person-outline"
+          style={styles.field}
         />
-        <Input
+        <SignatureInput
           label="Cognome"
           placeholder="Rossi"
           value={lastName}
           onChangeText={setLastName}
           leftIcon="person-outline"
+          style={styles.field}
         />
-        <Input
+        <SignatureInput
           label="Cellulare"
           placeholder="+39 333 0000000"
           value={phone}
           onChangeText={setPhone}
           keyboardType="phone-pad"
           leftIcon="call-outline"
+          style={styles.field}
         />
-        <Input
+        <SignatureInput
           label="Email"
           placeholder="nome@esempio.it"
           value={email}
@@ -157,8 +167,9 @@ export default function RegisterScreen() {
           keyboardType="email-address"
           autoCapitalize="none"
           leftIcon="mail-outline"
+          style={styles.field}
         />
-        <Input
+        <SignatureInput
           label="Password"
           placeholder="Almeno 12 caratteri"
           value={password}
@@ -166,55 +177,100 @@ export default function RegisterScreen() {
           secureTextEntry={!showPassword}
           leftIcon="lock-closed-outline"
           rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
+          rightIconLabel={
+            showPassword ? "Nascondi password" : "Mostra password"
+          }
           onRightIconPress={() => setShowPassword(!showPassword)}
+          style={styles.field}
         />
-        <ThemedText
-          type="caption"
-          style={[styles.hint, { color: theme.textSecondary }]}
-        >
+        <SignatureText variant="small" tone="onDarkMuted" style={styles.hint}>
           Maiuscola, minuscola, numero e carattere speciale.
-        </ThemedText>
-        <Input
+        </SignatureText>
+        <SignatureInput
           label="Conferma password"
           placeholder="Ripeti la password"
           value={confirmPassword}
           onChangeText={setConfirmPassword}
           secureTextEntry={!showPassword}
           leftIcon="shield-checkmark-outline"
-          error={error || undefined}
+          style={styles.field}
         />
-      </Animated.View>
 
-      <Button onPress={handleSubmit} loading={loading} fullWidth>
-        Crea account
-      </Button>
+        {error ? (
+          <View style={styles.errorContainer}>
+            <Ionicons name="alert-circle" size={16} color="#FCA5A5" />
+            <SignatureText
+              variant="small"
+              style={[styles.errorText, { flex: 1 }]}
+            >
+              {error}
+            </SignatureText>
+          </View>
+        ) : null}
 
-      <View style={styles.footer}>
-        <ThemedText type="small" style={{ color: theme.textSecondary }}>
-          Hai già un account?
-        </ThemedText>
-        <ThemedText
-          type="link"
-          onPress={() => navigation.navigate("Login")}
-          style={styles.footerLink}
+        <ActionButton
+          variant="primary"
+          onSky
+          onPress={() => void handleSubmit()}
+          loading={loading}
+          fullWidth
+          style={styles.submitButton}
         >
-          Accedi
-        </ThemedText>
-      </View>
-    </KeyboardAwareScrollViewCompat>
+          Crea account
+        </ActionButton>
+
+        <View style={styles.footer}>
+          <SignatureText variant="small" tone="onDarkMuted">
+            Hai già un account?
+          </SignatureText>
+          <Pressable onPress={() => navigation.navigate("Login")}>
+            <SignatureText variant="small" style={styles.footerLink}>
+              Accedi
+            </SignatureText>
+          </Pressable>
+        </View>
+      </Animated.View>
+    </BrandStateLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { paddingHorizontal: Spacing["2xl"], gap: Spacing.lg },
-  subtitle: { marginTop: Spacing.xs, marginBottom: Spacing.lg },
-  hint: { marginTop: -Spacing.sm, marginBottom: Spacing.lg },
+  title: {
+    marginVertical: 2,
+  },
+  centeredText: {
+    textAlign: "center",
+  },
+  formContainer: {
+    gap: Spacing.md,
+    marginTop: Spacing["2xl"],
+  },
+  field: {
+    marginBottom: 0,
+  },
+  hint: {
+    marginTop: -Spacing.xs,
+  },
+  submitButton: {
+    marginTop: Spacing.sm,
+  },
+  errorContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  errorText: {
+    color: "#FCA5A5",
+  },
   footer: {
     flexDirection: "row",
     justifyContent: "center",
+    alignItems: "center",
     gap: Spacing.xs,
-    marginTop: Spacing.sm,
+    marginTop: Spacing.md,
   },
-  footerLink: { fontWeight: "700" },
+  footerLink: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
 });
