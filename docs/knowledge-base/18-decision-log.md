@@ -10629,4 +10629,48 @@ account Apple Developer configurato, non da questo WP.
 **Vedi anche.** ADR-0165, ADR-0166, ADR-0167, [05](05-mobile-architecture.md),
 `design-source/guidelines/migration-v3.md`, [16](16-technical-debt.md).
 
+**Avanzamento — 2026-09-11, continuazione stessa giornata.** Passi 7
+(auth/account/sistema) e 8 (navigazione Parent) completati e verificati
+(`check:types`, lint, `test` 151/151, `expo-doctor` 18/18, bundle Expo Web
+e iOS entrambi puliti). Due scostamenti dichiarati nello stesso registro
+del punto 3/4 sopra, non silenziosi:
+
+- **Sessione scaduta**: la spec chiede un foglio che tiene montata la
+  schermata sotto. Il taglio immediato a sloggato su un 401 resta quello
+  di WP12 (session hardening, deliberato: "nello stesso istante, senza
+  attese, senza cicli") — cambiarne il *momento* sarebbe logica di
+  sicurezza, non veste. Si porta invece un motivo
+  (`signOutReason: "expired"`) fino a `LoginScreen`, che mostra un avviso
+  al mount. Vedi D-MOB-12.
+- **Offline/Manutenzione**: nessun segnale esiste in questo codebase
+  (niente `netinfo`, nessun contratto di manutenzione lato server, ne sul
+  Web) — costruirlo sarebbe una nuova area funzionale, fuori dal punto
+  "nessuna nuova area funzionale" di questo stesso ADR. Restano sulla
+  gestione errore inline per-schermata gia in campo (D-MOB-9, invariato,
+  letto ora anche da D-MOB-12).
+
+Trovata e corretta una terza istanza di "EasyGame Mobile" non coperta dal
+passo 7a: `app.json`'s `expo.name` — pilota il nome sotto l'icona su
+iOS/Android e il titolo della scheda su Expo Web, la superficie piu
+visibile di tutte, fuori da `client/` e percio non intercettata dal primo
+giro. `bundleIdentifier`/`package`/`slug` restano invariati (identificativi
+interni, non stringhe visibili).
+
+L'audit strutturale del passo 9 (repo-wide) su ogni file in
+`client/screens/*.tsx` non ha trovato **nessun** import residuo di
+`ThemedText`/`Input`/`Button`/`Card`/`ThemedView`/`useTheme` — i passi 0-6
+erano gia sweep completi su Trainer e Parent, non solo sulle sei schermate
+originali di WP10: il passo 9 non ha quindi prodotto nuovi commit di
+reskin per-schermata, solo la correzione di `app.json`. **Non verificato**
+in questo giro: un passaggio interattivo reale (dispositivo/emulatore, o
+Expo Web con credenziali seed) su ognuna delle ~30 schermate Trainer/Parent
+in ogni stato (vuoto/caricamento/errore) — l'audit qui e strutturale
+(grep + typecheck + spot-check visivo delle schermate auth su Expo Web),
+non un click-through esaustivo con un account reale.
+
+**Export iOS firmato**: confermato ancora bloccato dall'assenza di un
+account Apple Developer — non da questo WP. Verificato invece che il
+bundle iOS **non firmato** risolve senza errori (`expo export --platform
+ios`, 2647 moduli).
+
 ---
