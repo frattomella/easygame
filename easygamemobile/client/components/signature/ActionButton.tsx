@@ -9,7 +9,12 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 
-import { EGCorner, EGGlass, EGGradients } from "@/constants/theme";
+import {
+  EGActionOnSky,
+  EGCorner,
+  EGGlass,
+  EGGradients,
+} from "@/constants/theme";
 import { GradientFill } from "@/components/signature/GradientFill";
 import { SignatureText } from "@/components/signature/SignatureText";
 
@@ -33,6 +38,14 @@ interface ActionButtonProps {
   fullWidth?: boolean;
   icon?: keyof typeof Ionicons.glyphMap;
   trailingIcon?: keyof typeof Ionicons.glyphMap;
+  /**
+   * v3.0: the action gradient is **banned** on a blue ground. On any sky
+   * (auth/account/blocking screens, or a `primary`/`secondary` button
+   * placed directly on `Floodlight`'s sky zone — never on glass or mist),
+   * `primary` renders white fill / navy ink and `secondary` renders a
+   * white-outlined ghost instead of their usual treatment.
+   */
+  onSky?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -62,13 +75,15 @@ export function ActionButton({
   fullWidth = false,
   icon,
   trailingIcon,
+  onSky = false,
   style,
 }: ActionButtonProps) {
   const [pressed, setPressed] = useState(false);
   const inert = disabled || loading;
   const height = HEIGHTS[size];
   const small = size === "sm";
-  const gradient = !disabled ? GRADIENT_VARIANTS[variant] : undefined;
+  // The action gradient never appears on the sky — see `onSky` above.
+  const gradient = !disabled && !onSky ? GRADIENT_VARIANTS[variant] : undefined;
 
   const look = (() => {
     if (disabled) {
@@ -77,6 +92,25 @@ export function ActionButton({
         fg: "rgba(11,26,58,0.42)",
         border: EGGlass.hairline,
       };
+    }
+    if (onSky) {
+      if (variant === "primary") {
+        return {
+          bg: EGActionOnSky.bg,
+          fg: EGActionOnSky.ink,
+          border: "transparent",
+        };
+      }
+      if (variant === "secondary" || variant === "outline") {
+        return {
+          bg: EGActionOnSky.ghostBg,
+          fg: "#FFFFFF",
+          border: EGActionOnSky.ghostBorder,
+        };
+      }
+      // destructive/success/ghost/onDark keep their usual on-sky-safe look
+      // (already white-on-transparent or white-on-tint); only the two
+      // gradient-bearing action variants needed a surface-aware swap.
     }
     switch (variant) {
       case "secondary":

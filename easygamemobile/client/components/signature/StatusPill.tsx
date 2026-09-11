@@ -2,7 +2,29 @@ import React from "react";
 import { StyleProp, View, ViewStyle } from "react-native";
 
 import { SignatureText } from "@/components/signature/SignatureText";
+import { EGInk, EGPill } from "@/constants/theme";
 
+/** The four visual weights — "who is waiting for whom". */
+export type StatusPillTier = "quiet" | "outline" | "solid" | "urgent";
+
+/** The six semantic tones a tier can carry. */
+export type StatusPillTone =
+  | "success"
+  | "info"
+  | "warning"
+  | "danger"
+  | "match"
+  | "neutral";
+
+/**
+ * @deprecated Kept for backward compatibility — every call site written
+ * before v3.0 passes `variant`. New call sites should prefer `tier` + `tone`
+ * directly (`02-foundations.md` §2.5). See `VARIANT_TO_TIER_TONE` below for
+ * the exact mapping and its rationale; it is a considered default per
+ * variant name, **not** a per-call-site audit against the label-text table
+ * in `migration-v3.md` step 2 — a screen whose label reads as a different
+ * bucket than its variant name suggests should pass `tier`/`tone` directly.
+ */
 export type StatusPillVariant =
   | "default"
   | "primary"
@@ -12,84 +34,135 @@ export type StatusPillVariant =
   | "match"
   | "onDark";
 
-interface Tone {
-  fg: string;
-  ring: string;
-  bg: string;
-  border: string;
-}
+const VARIANT_TO_TIER_TONE: Record<
+  StatusPillVariant,
+  { tier: StatusPillTier; tone: StatusPillTone; onSky?: boolean }
+> = {
+  // Settled/read-only facts (spec: "Valido", "Pagato", "Attivo") — hollow ring, ink label.
+  default: { tier: "quiet", tone: "neutral" },
+  // Previously a light blue tint; "primary" implies drawing the eye, so it
+  // becomes the attention tier rather than staying decorative.
+  primary: { tier: "solid", tone: "info" },
+  // The two existing call sites ("ATTIVE", "Visibile") both read as settled
+  // facts, matching the spec's quiet-tier examples almost exactly.
+  success: { tier: "quiet", tone: "success" },
+  // Existing call sites ("DISATTIVATE", "Nessuna categoria", a pending
+  // child-account state) read as "needs attention, not yet urgent" — the
+  // spec's outline-tier bucket ("In attesa", "In verifica").
+  warning: { tier: "outline", tone: "warning" },
+  // The strongest existing category maps to the strongest tier.
+  destructive: { tier: "urgent", tone: "danger" },
+  match: { tier: "solid", tone: "match" },
+  // v3.0 fixes a flagged accessibility conflict here: the old `onDark` was a
+  // translucent white-12% pill on the sky, which fails 4.5:1 on the lighter
+  // v3 ramp. `onSky` now forces a true white-fill inversion instead.
+  onDark: { tier: "quiet", tone: "neutral", onSky: true },
+};
 
-const TONES: Record<StatusPillVariant, Tone> = {
-  default: {
-    fg: "rgba(11,26,58,0.62)",
-    ring: "rgba(11,26,58,0.35)",
-    bg: "rgba(11,26,58,0.06)",
-    border: "rgba(11,26,58,0.1)",
-  },
-  primary: {
-    fg: "#1D4ED8",
-    ring: "#2563EB",
-    bg: "rgba(37,99,235,0.1)",
-    border: "rgba(37,99,235,0.28)",
-  },
-  success: {
-    fg: "#15803D",
-    ring: "#22C55E",
-    bg: "rgba(34,197,94,0.12)",
-    border: "rgba(34,197,94,0.3)",
-  },
-  warning: {
-    fg: "#B45309",
-    ring: "#F59E0B",
-    bg: "rgba(245,158,11,0.13)",
-    border: "rgba(245,158,11,0.32)",
-  },
-  destructive: {
-    fg: "#B91C1C",
-    ring: "#EF4444",
-    bg: "rgba(239,68,68,0.12)",
-    border: "rgba(239,68,68,0.3)",
-  },
-  match: {
-    fg: "#C2410C",
-    ring: "#F97316",
-    bg: "rgba(249,115,22,0.12)",
-    border: "rgba(249,115,22,0.3)",
-  },
-  onDark: {
-    fg: "#FFFFFF",
-    ring: "rgba(255,255,255,0.9)",
-    bg: "rgba(255,255,255,0.12)",
-    border: "rgba(255,255,255,0.22)",
-  },
+const SOLID_BG: Record<StatusPillTone, string> = {
+  success: EGPill.successBg,
+  info: EGPill.infoBg,
+  warning: EGPill.warningBg,
+  danger: EGPill.dangerBg,
+  match: EGPill.matchBg,
+  neutral: EGPill.neutralInk,
+};
+
+/** Only warning/info have a distinct outline-tier ink in the source tokens; the rest fall back to their own solid colour, already dark enough for 4.5:1 on white. */
+const OUTLINE_INK: Partial<Record<StatusPillTone, string>> = {
+  warning: EGPill.outlineInkWarning,
+  info: EGPill.outlineInkInfo,
 };
 
 interface StatusPillProps {
   label: string;
+  /** @deprecated use `tier` + `tone`. */
   variant?: StatusPillVariant;
+  tier?: StatusPillTier;
+  tone?: StatusPillTone;
+  /** On a blue ground, invert to a true white fill (never the banned translucent pill). */
+  onSky?: boolean;
   small?: boolean;
   /** Hollow ring = taxonomy (category, role); filled ring = a live status. */
   dot?: boolean;
-  filled?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
 /**
  * The EasyGame Status Pill (design-source `components/core/Badge.jsx`):
- * a ring-dot plus a tracked uppercase label on a tinted hairline pill.
- * Sibling to `client/components/Badge.tsx` — existing screens keep using
- * `Badge`; this is for the new visual identity.
+ * four visual tiers — quiet (hollow ring, ink label, no fill), outline
+ * (white fill, coloured border+label), solid (filled, white label), urgent
+ * (solid danger + heavier weight) — over six semantic tones. Solid fills
+ * replace the v2 tint-on-glass pills; every variant stays ≥4.5:1 on glass,
+ * mist and sky. Sibling to `client/components/Badge.tsx` — existing screens
+ * keep using `Badge`; this is for the new visual identity.
  */
 export function StatusPill({
   label,
-  variant = "default",
+  variant,
+  tier,
+  tone,
+  onSky = false,
   small = false,
   dot = true,
-  filled,
   style,
 }: StatusPillProps) {
-  const tone = TONES[variant];
-  const isFilled = filled !== undefined ? filled : variant !== "default";
+  const fromVariant = variant ? VARIANT_TO_TIER_TONE[variant] : undefined;
+  const resolvedTier: StatusPillTier = tier ?? fromVariant?.tier ?? "quiet";
+  const resolvedTone: StatusPillTone = tone ?? fromVariant?.tone ?? "neutral";
+  const sky = onSky || fromVariant?.onSky || false;
+  const isUrgent = resolvedTier === "urgent";
+  const effectiveTone: StatusPillTone = isUrgent ? "danger" : resolvedTone;
+  const solidColor = SOLID_BG[effectiveTone];
+
+  const look = (() => {
+    if (sky) {
+      // On-sky inversion: white fill, coloured ring-dot, dark coloured label.
+      return {
+        bg: "#FFFFFF",
+        border: "rgba(255,255,255,0.9)",
+        ring: solidColor,
+        fg: effectiveTone === "neutral" ? EGInk.onLight : solidColor,
+        filledDot: true,
+      };
+    }
+    if (resolvedTier === "solid" || isUrgent) {
+      return {
+        bg: solidColor,
+        border: "transparent",
+        ring: EGPill.inkOnFill,
+        fg: EGPill.inkOnFill,
+        filledDot: true,
+      };
+    }
+    if (resolvedTier === "outline") {
+      const ink = OUTLINE_INK[effectiveTone] ?? solidColor;
+      return {
+        bg: EGPill.outlineBg,
+        border: solidColor,
+        ring: solidColor,
+        fg: ink,
+        filledDot: true,
+      };
+    }
+    // quiet
+    if (effectiveTone === "neutral") {
+      return {
+        bg: EGPill.neutralBg,
+        border: EGPill.neutralBorder,
+        ring: EGPill.neutralInk,
+        fg: EGPill.neutralInk,
+        filledDot: false,
+      };
+    }
+    return {
+      bg: "transparent",
+      border: solidColor,
+      ring: solidColor,
+      fg: EGInk.onLight,
+      filledDot: false,
+    };
+  })();
 
   return (
     <View
@@ -99,9 +172,9 @@ export function StatusPill({
           alignItems: "center",
           alignSelf: "flex-start",
           gap: small ? 5 : 6,
-          backgroundColor: tone.bg,
-          borderWidth: 1,
-          borderColor: tone.border,
+          backgroundColor: look.bg,
+          borderWidth: resolvedTier === "outline" ? 1.5 : 1,
+          borderColor: look.border,
           borderRadius: 999,
           paddingVertical: small ? 4 : 6,
           paddingLeft: small ? 7 : 8,
@@ -117,15 +190,15 @@ export function StatusPill({
             height: small ? 7 : 8,
             borderRadius: 999,
             borderWidth: 2,
-            borderColor: tone.ring,
-            backgroundColor: isFilled ? tone.ring : "transparent",
+            borderColor: look.ring,
+            backgroundColor: look.filledDot ? look.ring : "transparent",
           }}
         />
       ) : null}
       <SignatureText
         variant="caption"
         style={{
-          color: tone.fg,
+          color: look.fg,
           fontSize: small ? 10 : 11,
           lineHeight: small ? 12 : 13,
           fontWeight: "700",
