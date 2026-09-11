@@ -125,6 +125,44 @@ export const getTrainerCategoryIds = (
     (category) => category.id,
   );
 
+const GROUP_ID_PREFIX = "group:";
+
+/**
+ * L'ID di categoria dentro un `groupId` — `"group:<categoryId>"` o
+ * `"group:<categoryId>:<siteId>"`, stesso formato di `buildCategoryGroupId`
+ * sul Web (`src/lib/club-sites.ts`). Un `siteId` puo contenere `:` quanto
+ * basta a rompere uno split ingenuo, ma la categoria e sempre il primo
+ * segmento dopo il prefisso: basta il primo `:` per separarla.
+ */
+const parseCategoryIdFromGroupId = (rawGroupId: unknown): string => {
+  const raw = String(rawGroupId || "").trim();
+  if (!raw.startsWith(GROUP_ID_PREFIX)) {
+    return "";
+  }
+
+  const rest = raw.slice(GROUP_ID_PREFIX.length);
+  const separatorIndex = rest.indexOf(":");
+  return (separatorIndex === -1 ? rest : rest.slice(0, separatorIndex)).trim();
+};
+
+/**
+ * L'assegnazione trainer -> categoria ora vive (anche) in `groupIds`, non
+ * piu solo in `categories`: un trainer assegnato a "Pulcini - Roma" porta
+ * `groupIds: ["group:cat-pulcini:site-roma"]` e `categories: []`, perche
+ * l'identita e categoria+sede (ADR-0155), non la sola categoria. Un
+ * `categories` vuoto qui non significa "nessuna categoria assegnata": va
+ * incrociato con `groupIds`, altrimenti il trainer sparisce dal proprio
+ * roster (Squadre, Presenze, Convocazioni) pur restando assegnato sul Web.
+ */
+export const getCategoryIdsFromGroupIds = (rawGroupIds: unknown): string[] => {
+  const list = Array.isArray(rawGroupIds) ? rawGroupIds : [];
+  const ids = list
+    .map((entry) => parseCategoryIdFromGroupId(entry))
+    .filter((id): id is string => Boolean(id));
+
+  return Array.from(new Set(ids));
+};
+
 export const getTrainerDisplayName = (trainer: any) => {
   const directName = String(trainer?.name || trainer?.fullName || "").trim();
 

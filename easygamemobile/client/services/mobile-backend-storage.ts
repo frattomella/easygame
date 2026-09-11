@@ -34,6 +34,7 @@ import {
   TrainerDashboardPermissions,
 } from "@/lib/trainer-permissions";
 import {
+  getCategoryIdsFromGroupIds,
   getTrainerCategoryIds,
   getTrainerDisplayName,
   normalizeTrainerCategories,
@@ -479,19 +480,31 @@ class MobileBackendStorageService {
         String(
           trainer.linkedAt || trainer.linked_at || data.linkedAt || "",
         ).trim() || null,
+      // Un `categories` vuoto ([]) e comunque truthy in JS: senza il
+      // secondo argomento qui, un trainer assegnato solo via `groupIds`
+      // (assegnazione per sede, ADR-0155) sparirebbe dal proprio roster —
+      // vedi `getCategoryIdsFromGroupIds` in trainer-data.ts.
       categories: normalizeTrainerCategories(
-        trainer.categories ||
-          data.categories ||
-          trainer.category ||
-          data.category ||
-          trainer.categoryId ||
-          data.categoryId ||
-          trainer.category_id ||
-          data.category_id ||
-          trainer.categoryName ||
-          data.categoryName ||
-          trainer.category_name ||
-          data.category_name,
+        [
+          trainer.categories ||
+            data.categories ||
+            trainer.category ||
+            data.category ||
+            trainer.categoryId ||
+            data.categoryId ||
+            trainer.category_id ||
+            data.category_id ||
+            trainer.categoryName ||
+            data.categoryName ||
+            trainer.category_name ||
+            data.category_name,
+          ...getCategoryIdsFromGroupIds(
+            trainer.groupIds ||
+              trainer.group_ids ||
+              data.groupIds ||
+              data.group_ids,
+          ),
+        ],
         categories,
       ),
       documents: Array.isArray(trainer.documents)
