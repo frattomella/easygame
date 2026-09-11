@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "EasyGame Mobile",
+    "name": "EasyGame",
     "slug": "easygame-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -64,6 +64,12 @@
     ],
     "experiments": {
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "f3bbb76b-929e-4c2f-b92e-060c063caea9"
+      }
+    },
+    "owner": "frattomes-organization"
   }
 }
