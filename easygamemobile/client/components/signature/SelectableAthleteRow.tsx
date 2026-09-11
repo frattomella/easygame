@@ -8,7 +8,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { EGGlass, EGInk, EGShadow, Spacing } from "@/constants/theme";
+import { EGGlass, EGInk, EGMark, EGShadow, Spacing } from "@/constants/theme";
 import { GlassSurface } from "@/components/signature/GlassSurface";
 import { NumberTile } from "@/components/signature/NumberTile";
 import { SignatureText } from "@/components/signature/SignatureText";
@@ -37,33 +37,26 @@ const ACCENT_HEX: Record<SelectableAthleteRowAccent, string> = {
   success: "#22C55E",
   primary: "#2563EB",
 };
-const ACCENT_TILE_TONE: Record<
-  SelectableAthleteRowAccent,
-  "success" | "action"
-> = {
-  success: "success",
-  primary: "action",
-};
-const ACCENT_GLOW: Record<SelectableAthleteRowAccent, keyof typeof EGShadow> = {
-  success: "glowSuccess",
-  primary: "glowPrimary",
-};
 
 /**
- * design-source `guidelines/component-specs.md` §B3. Not yet ported into
- * `client/components/signature/` ahead of this migration (no file, no
- * usage anywhere in the app) — built here as the minimum coherent
- * extension the spec already describes in full, not a new direction. The
- * core interaction of the Trainer MVP: attendance and call-ups, one tap per
- * athlete, the whole row as the target (no nested control).
- *
+ * design-source `guidelines/component-specs.md` §B3, ported in WP10.
  * Selection is shown redundantly on the four axes the spec makes
- * mandatory — tile tone, ring fill + halo, border tint, and the Italian
- * state word — so a colour-blind or greyscale reading of the row still
- * carries the information. One documented simplification: the surface
- * itself stays regular glass rather than "glass strong" on selection (that
- * distinction is not part of the mandatory four, and `GlassSurface` has no
- * per-instance alpha hook today) — see the WP10 design-sync report.
+ * mandatory — ring fill + halo, border tint, and the Italian state word,
+ * plus (v2) the tile tone — so a colour-blind or greyscale reading of the
+ * row still carries the information. One documented simplification: the
+ * surface itself stays regular glass rather than "glass strong" on
+ * selection (that distinction is not part of the mandatory four, and
+ * `GlassSurface` has no per-instance alpha hook today) — see the WP10
+ * design-sync report.
+ *
+ * v3.0 (`migration-v3.md` passo 5, WP13/ADR-0168): the tile stays **navy in
+ * every state** — the WP10 tint-on-select tile tone and the marked-row
+ * success glow are both removed (row keeps glass with only a hairline
+ * border shift on selection); the mark shrinks to `EGMark`'s 30px ring at
+ * 12% tint. This is the visual half of the spec's tri-state attendance
+ * change — the boolean `selected` model itself is unchanged (ADR-0168
+ * point 3: the third "not marked" state would need the mobile app to call
+ * a different attendance endpoint, a domain change out of scope here).
  */
 export function SelectableAthleteRow({
   number,
@@ -95,7 +88,7 @@ export function SelectableAthleteRow({
       style={[
         styles.surface,
         { borderColor: active ? `${accentHex}66` : EGGlass.border },
-        active ? EGShadow[ACCENT_GLOW[accent]] : EGShadow.row,
+        EGShadow.row,
         disabled ? styles.disabled : null,
         pressed ? styles.pressed : null,
         style,
@@ -105,7 +98,7 @@ export function SelectableAthleteRow({
         <NumberTile
           number={number}
           size={44}
-          tone={disabled ? "muted" : active ? ACCENT_TILE_TONE[accent] : "navy"}
+          tone={disabled ? "muted" : "navy"}
         />
         <View style={styles.info}>
           <SignatureText
@@ -132,22 +125,18 @@ export function SelectableAthleteRow({
         </View>
         <View
           style={[
-            styles.ringHalo,
-            active ? { backgroundColor: `${accentHex}42` } : null,
+            styles.ring,
+            active
+              ? {
+                  backgroundColor: `${accentHex}1F` /* ~12% tint, EGMark.tintAlpha */,
+                  borderColor: accentHex,
+                }
+              : styles.ringRest,
           ]}
         >
-          <View
-            style={[
-              styles.ring,
-              active
-                ? { backgroundColor: accentHex, borderColor: accentHex }
-                : styles.ringRest,
-            ]}
-          >
-            {active ? (
-              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-            ) : null}
-          </View>
+          {active ? (
+            <Ionicons name="checkmark" size={15} color={accentHex} />
+          ) : null}
         </View>
       </View>
     </GlassSurface>
@@ -200,18 +189,11 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "600",
   },
-  ringHalo: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   ring: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 2,
+    width: EGMark.size,
+    height: EGMark.size,
+    borderRadius: EGMark.size / 2,
+    borderWidth: EGMark.border,
     alignItems: "center",
     justifyContent: "center",
   },

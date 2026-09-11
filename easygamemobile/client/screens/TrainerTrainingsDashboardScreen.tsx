@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -214,6 +215,22 @@ export default function TrainerTrainingsDashboardScreen() {
         entry.athleteId === athleteId
           ? { ...entry, present: !entry.present }
           : entry,
+      ),
+    );
+  };
+
+  /**
+   * v3.0 (`migration-v3.md` passo 5): la scorciatoia "Segna tutti
+   * presenti" — salta le righe bloccate da un certificato medico scaduto,
+   * che `SelectableAthleteRow` rifiuta comunque di marcare.
+   */
+  const markAllPresent = () => {
+    setAttendanceDraft((current) =>
+      current.map((entry) =>
+        getMobileMedicalCertificateAvailability(entry.medicalCertExpiry) ===
+        "expired"
+          ? entry
+          : { ...entry, present: true },
       ),
     );
   };
@@ -488,55 +505,67 @@ export default function TrainerTrainingsDashboardScreen() {
         </SignatureText>
 
         {attendanceDraft.length > 0 ? (
-          <ScrollView
-            style={styles.sheetList}
-            contentContainerStyle={styles.sheetListContent}
-            showsVerticalScrollIndicator
-          >
-            {attendanceDraft.map((entry) => {
-              const availability = getMobileMedicalCertificateAvailability(
-                entry.medicalCertExpiry,
-              );
-              const disabled = availability === "expired";
-              return (
-                <View key={entry.athleteId} style={styles.rowStack}>
-                  <SelectableAthleteRow
-                    number={entry.number}
-                    name={entry.name}
-                    role={
-                      availability !== "valid"
-                        ? getMobileMedicalCertificateAvailabilityLabel(
-                            availability,
-                          )
-                        : undefined
-                    }
-                    accent="success"
-                    selected={entry.present}
-                    selectedLabel="Presente"
-                    unselectedLabel="Assente"
-                    disabled={disabled}
-                    disabledReason={
-                      disabled
-                        ? getMobileMedicalCertificateAvailabilityLabel(
-                            availability,
-                          )
-                        : undefined
-                    }
-                    onPress={() => toggleAttendance(entry.athleteId)}
-                  />
-                  <TextInput
-                    value={entry.notes}
-                    onChangeText={(value) =>
-                      updateAttendanceNotes(entry.athleteId, value)
-                    }
-                    placeholder="Nota presenza (opzionale)"
-                    placeholderTextColor={EGInk.onLightFaint}
-                    style={styles.notesInput}
-                  />
-                </View>
-              );
-            })}
-          </ScrollView>
+          <>
+            <View style={styles.progressRow}>
+              <SignatureText variant="small" tone="muted">
+                {`${presentCount} presenti · ${attendanceDraft.length - presentCount} da segnare`}
+              </SignatureText>
+              <Pressable onPress={markAllPresent} hitSlop={8}>
+                <SignatureText variant="small" style={styles.markAllLabel}>
+                  Segna tutti presenti
+                </SignatureText>
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.sheetList}
+              contentContainerStyle={styles.sheetListContent}
+              showsVerticalScrollIndicator
+            >
+              {attendanceDraft.map((entry) => {
+                const availability = getMobileMedicalCertificateAvailability(
+                  entry.medicalCertExpiry,
+                );
+                const disabled = availability === "expired";
+                return (
+                  <View key={entry.athleteId} style={styles.rowStack}>
+                    <SelectableAthleteRow
+                      number={entry.number}
+                      name={entry.name}
+                      role={
+                        availability !== "valid"
+                          ? getMobileMedicalCertificateAvailabilityLabel(
+                              availability,
+                            )
+                          : undefined
+                      }
+                      accent="success"
+                      selected={entry.present}
+                      selectedLabel="Presente"
+                      unselectedLabel="Assente"
+                      disabled={disabled}
+                      disabledReason={
+                        disabled
+                          ? getMobileMedicalCertificateAvailabilityLabel(
+                              availability,
+                            )
+                          : undefined
+                      }
+                      onPress={() => toggleAttendance(entry.athleteId)}
+                    />
+                    <TextInput
+                      value={entry.notes}
+                      onChangeText={(value) =>
+                        updateAttendanceNotes(entry.athleteId, value)
+                      }
+                      placeholder="Nota presenza (opzionale)"
+                      placeholderTextColor={EGInk.onLightFaint}
+                      style={styles.notesInput}
+                    />
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </>
         ) : (
           <StateMessage
             kind="empty"
@@ -607,6 +636,17 @@ const styles = StyleSheet.create({
     color: EGInk.onLight,
   },
   sheetTitle: { marginBottom: Spacing.sm },
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
+  },
+  markAllLabel: {
+    color: "#1D4ED8",
+    fontWeight: "700",
+  },
   sheetList: { maxHeight: 360 },
   sheetListContent: { gap: Spacing.sm, paddingBottom: Spacing.sm },
   rowStack: { gap: 6 },
