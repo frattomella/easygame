@@ -1,14 +1,18 @@
 import React from "react";
-import { View } from "react-native";
 
 import {
-  GlassCard,
-  MetaRow,
+  GlassRow,
+  InfoNote,
   SecondaryScreenLayout,
-  SignatureText,
+  SectionLabel,
   StateMessage,
   StatusPill,
+  SummaryCard,
 } from "@/components/signature";
+import type {
+  StatusPillTier,
+  StatusPillTone,
+} from "@/components/signature/StatusPill";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import { useAsyncSection } from "@/hooks/useAsyncSection";
 import {
@@ -16,28 +20,31 @@ import {
   resolveTrainerDocumentStatus,
   TRAINER_DOCUMENT_STATUS_LABELS,
   type TrainerDocument,
+  type TrainerDocumentStatus,
 } from "@/lib/trainer-documents";
 import { formatItalianDate } from "@/lib/mobile-ui";
-import { Spacing } from "@/constants/theme";
-import type { StatusPillVariant } from "@/components/signature/StatusPill";
 
-const STATUS_VARIANT: Record<string, StatusPillVariant> = {
-  valid: "success",
-  expiring: "warning",
-  expired: "destructive",
-  "no-expiry": "default",
-  "missing-file": "default",
+/** Quattro livelli del design (quiet · outline · solid · urgent) per i cinque stati del documento. */
+const STATUS_LOOK: Record<
+  TrainerDocumentStatus,
+  { tier: StatusPillTier; tone: StatusPillTone; color: string }
+> = {
+  valid: { tier: "quiet", tone: "success", color: "#10B981" },
+  expiring: { tier: "solid", tone: "warning", color: "#F59E0B" },
+  expired: { tier: "urgent", tone: "danger", color: "#EF4444" },
+  "no-expiry": { tier: "quiet", tone: "neutral", color: "#64748B" },
+  "missing-file": { tier: "outline", tone: "warning", color: "#F59E0B" },
 };
 
 /**
- * I propri documenti — stesso record letto sul Web
- * (`GET /api/v1/trainers`, dopo la correzione dell'allow-list in WP1: prima
- * questa sezione sarebbe stata sempre vuota, anche con documenti caricati
- * dalla segreteria). Sola lettura: "per caricare o sostituire rivolgiti alla
- * segreteria", come sul Web.
+ * I propri documenti — stesso record letto sul Web (`GET /api/v1/trainers`).
+ * Sola lettura: "per caricare o sostituire rivolgiti alla segreteria", come
+ * sul Web. L'apertura/il download del file non e implementato in questo
+ * giro — vedi la nota di testa in `client/lib/trainer-documents.ts`.
  *
- * L'apertura/il download del file non e implementato in questo giro — vedi
- * la nota di testa in `client/lib/trainer-documents.ts`.
+ * Composizione: design `IA e Home` §3c ("Documenti") — scheda scura "Da
+ * rinnovare · N" nel cielo, poi una riga per documento con icona tinta
+ * dallo stato, titolo, scadenza e pill a quattro livelli.
  */
 export default function TrainerDocumentsScreen() {
   const { status, data, errorMessage, reload } = useAsyncSection<
@@ -50,11 +57,18 @@ export default function TrainerDocumentsScreen() {
     (list) => list.length === 0,
   );
 
+  const documents = data || [];
+  const toRenew = documents.filter((document) => {
+    const documentStatus = resolveTrainerDocumentStatus(document);
+    return documentStatus === "expiring" || documentStatus === "expired";
+  }).length;
+
   return (
     <SecondaryScreenLayout
       title="Documenti"
-      eyebrow="Personale"
-      skyHeight={360}
+      eyebrow="Allenatore · I tuoi documenti"
+      skyHeight={300}
+      contentGap={10}
     >
       {status === "loading" ? (
         <StateMessage kind="loading" tone="dark" title="Carico i documenti…" />
@@ -80,38 +94,63 @@ export default function TrainerDocumentsScreen() {
           message="Il club non ha ancora registrato documenti per te. Per caricarne uno rivolgiti alla segreteria."
         />
       ) : (
-        (data || []).map((document) => {
-          const documentStatus = resolveTrainerDocumentStatus(document);
-          return (
-            <GlassCard key={document.id} style={{ gap: Spacing.xs }}>
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
-                  gap: Spacing.sm,
-                }}
-              >
-                <SignatureText variant="h4" tone="ink" style={{ flex: 1 }}>
-                  {document.title}
-                </SignatureText>
-                <StatusPill
-                  label={TRAINER_DOCUMENT_STATUS_LABELS[documentStatus]}
-                  variant={STATUS_VARIANT[documentStatus]}
-                  small
-                />
-              </View>
-              <MetaRow icon="pricetag-outline">{document.typeLabel}</MetaRow>
-              {document.expiryDate ? (
-                <MetaRow icon="calendar-outline">
-                  Scade il {formatItalianDate(document.expiryDate)}
-                </MetaRow>
-              ) : null}
-            </GlassCard>
-          );
-        })
+        <>
+          <SummaryCard
+            icon="document-text-outline"
+            eyebrow={toRenew > 0 ? "In scadenza" : "Tutto in regola"}
+            title={toRenew > 0 ? "Da rinnovare" : "Nessuna scadenza vicina"}
+            value={String(toRenew)}
+            valueMuted={toRenew === 0}
+          />
+          <SectionLabel
+            label="I tuoi documenti"
+            trailing={String(documents.length)}
+            style={{ paddingTop: 4 }}
+          />
+          {documents.map((document) => {
+            const documentStatus = resolveTrainerDocumentStatus(document);
+            const look = STATUS_LOOK[documentStatus];
+            return (
+              <GlassRow
+                key={document.id}
+                icon={
+                  documentStatus === "missing-file"
+                    ? "alert-circle-outline"
+                    : /medic|sanit/i.test(document.typeLabel)
+                      ? "medkit-outline"
+                      : /tesser|card|iscri/i.test(document.typeLabel)
+                        ? "card-outline"
+                        : "document-text-outline"
+                }
+                iconColor={look.color}
+                title={document.title}
+                meta={
+                  document.expiryDate
+                    ? `${document.typeLabel} · Scade il ${formatItalianDate(document.expiryDate)}`
+                    : document.typeLabel
+                }
+                borderColor={
+                  documentStatus === "expired"
+                    ? "rgba(239,68,68,0.35)"
+                    : undefined
+                }
+                trailing={
+                  <StatusPill
+                    label={TRAINER_DOCUMENT_STATUS_LABELS[documentStatus]}
+                    tier={look.tier}
+                    tone={look.tone}
+                    small
+                  />
+                }
+              />
+            );
+          })}
+          <InfoNote style={{ marginTop: 4 }}>
+            Per caricare o sostituire un documento rivolgiti alla segreteria del
+            club.
+          </InfoNote>
+        </>
       )}
-      <View style={{ height: Spacing.lg }} />
     </SecondaryScreenLayout>
   );
 }

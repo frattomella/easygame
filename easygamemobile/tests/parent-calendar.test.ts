@@ -5,6 +5,7 @@ import {
   buildParentCalendarItems,
   filterParentCalendarItems,
   findParentCalendarItem,
+  eventDayKey,
   formatEventDateRail,
   formatEventDateShort,
 } from "../client/lib/parent-calendar";
@@ -78,4 +79,19 @@ test("la rotaia data e null per una data mancante o non valida", () => {
 test("l'etichetta breve ricade su 'Da definire' senza una data", () => {
   assert.equal(formatEventDateShort(undefined), "Da definire");
   assert.notEqual(formatEventDateShort("2026-09-12"), "Da definire");
+});
+
+test("una data con l'orario (com'e nel payload reale) si legge come il solo giorno: stessa rotaia, stessa chiave di raggruppamento", () => {
+  const rail = formatEventDateRail("2026-09-11T16:00:00.000Z");
+  assert.ok(rail);
+  assert.equal(rail?.dayNumber, "11");
+  assert.equal(rail?.monthLabel, "set");
+  // 16:00Z e 17:00Z dello stesso giorno stanno nello stesso gruppo del calendario.
+  assert.equal(
+    eventDayKey("2026-09-11T16:00:00.000Z"),
+    eventDayKey("2026-09-11T17:00:00.000Z"),
+  );
+  assert.equal(eventDayKey("2026-09-11"), "2026-09-11");
+  assert.equal(eventDayKey(undefined), "");
+  assert.equal(eventDayKey("data-non-valida"), "");
 });

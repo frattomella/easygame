@@ -1,10 +1,20 @@
 import React from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import {
+  RefreshControlProps,
+  ScrollView,
+  StyleProp,
+  StyleSheet,
+  View,
+  ViewStyle,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Floodlight } from "@/components/signature/Floodlight";
 import { AppBar } from "@/components/signature/AppBar";
+import { PROTOTYPE_STATUS_BAR } from "@/components/signature/SecondaryScreenLayout";
+import { BrandLine } from "@/components/signature/BrandLine";
 import { ChildSwitcher } from "@/components/signature/ChildSwitcher";
+import { useAuthContext } from "@/contexts/AuthContext";
 import { Spacing } from "@/constants/theme";
 import type { ParentChild } from "@/services/api";
 
@@ -19,16 +29,22 @@ interface ParentPrimaryScreenLayoutProps {
   notificationCount?: number;
   content: React.ReactNode;
   scrollable?: boolean;
+  /** Prototipo v3: Home 430, Calendario/Pagamenti 250, Profilo 300, Servizi 160 (misure con la barra di stato del prototipo: l'inset reale si somma). */
+  skyHeight?: number;
+  /** 12 per le schede (Home, Calendario, Pagamenti), 8 per le liste a righe (Servizi). */
+  contentGap?: number;
+  contentStyle?: StyleProp<ViewStyle>;
+  refreshControl?: React.ReactElement<RefreshControlProps>;
 }
 
 /**
- * Local composition, not a new design-system component: `Floodlight` +
- * `AppBar` + `ChildSwitcher`, wired to the rule in
- * `design-source/guidelines/navigation.md` ("Child switcher placement" —
- * navy sky, directly under the AppBar, on all five Parent primary screens).
- * Centralising it here means that rule lives in one place instead of being
- * repeated in five tab screens. Sibling to `SecondaryScreenLayout` (which
- * has no switcher — secondary screens inherit the child, per the same doc).
+ * Il guscio delle cinque tab Parent (design `IA e Home` §2b, prototipo v3):
+ * "Parent screens stack three scopes without repeating a word: product
+ * (wordmark), club (chip — derived from the selected child), child
+ * (switcher pill)". `Floodlight` + `BrandLine` + `AppBar` + `ChildSwitcher`
+ * nel cielo, sotto l'AppBar, su ogni schermata primaria — la regola vive
+ * qui una volta sola. Le schermate secondarie (`SecondaryScreenLayout`)
+ * ereditano il figlio e non hanno lo switcher.
  */
 export function ParentPrimaryScreenLayout({
   title,
@@ -41,36 +57,60 @@ export function ParentPrimaryScreenLayout({
   notificationCount = 0,
   content,
   scrollable = true,
+  skyHeight = 250,
+  contentGap = Spacing.md,
+  contentStyle,
+  refreshControl,
 }: ParentPrimaryScreenLayoutProps) {
   const insets = useSafeAreaInsets();
-  const Content = scrollable ? ScrollView : View;
+  const { currentClub, clearContext } = useAuthContext();
+  const selected =
+    linkedChildren.find((child) => child.id === selectedChildId) || null;
+  const club = selected
+    ? { name: selected.clubName, avatarUrl: selected.clubLogoUrl }
+    : currentClub
+      ? { name: currentClub.name, avatarUrl: currentClub.avatar }
+      : null;
+
+  const header = (
+    <View style={{ paddingTop: insets.top + Spacing.sm }}>
+      <BrandLine club={club} onPressClub={() => void clearContext()} />
+      <AppBar
+        title={title}
+        eyebrow={eyebrow}
+        notificationCount={notificationCount}
+        onNotifications={onNotifications}
+      />
+      <ChildSwitcher
+        linkedChildren={linkedChildren}
+        selectedChildId={selectedChildId}
+        switching={childrenSwitching}
+        onSelect={onSelectChild}
+      />
+    </View>
+  );
 
   return (
-    <Floodlight>
-      <View style={{ paddingTop: insets.top + Spacing.sm }}>
-        <AppBar
-          title={title}
-          eyebrow={eyebrow}
-          notificationCount={notificationCount}
-          onNotifications={onNotifications}
-        />
-        <ChildSwitcher
-          linkedChildren={linkedChildren}
-          selectedChildId={selectedChildId}
-          switching={childrenSwitching}
-          onSelect={onSelectChild}
-        />
-      </View>
-      <Content
-        style={scrollable ? styles.content : [styles.content, styles.fixed]}
-        contentContainerStyle={
-          scrollable
-            ? [styles.contentContainer, { paddingBottom: insets.bottom + 112 }]
-            : undefined
-        }
-      >
-        {content}
-      </Content>
+    <Floodlight skyHeight={skyHeight - PROTOTYPE_STATUS_BAR + insets.top}>
+      {header}
+      {scrollable ? (
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={[
+            styles.contentContainer,
+            { gap: contentGap, paddingBottom: insets.bottom + 118 },
+            contentStyle,
+          ]}
+          refreshControl={refreshControl}
+          showsVerticalScrollIndicator={false}
+        >
+          {content}
+        </ScrollView>
+      ) : (
+        <View style={[styles.content, styles.fixed, contentStyle]}>
+          {content}
+        </View>
+      )}
     </Floodlight>
   );
 }
@@ -86,7 +126,6 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
-    gap: Spacing.md,
+    paddingTop: 12,
   },
 });

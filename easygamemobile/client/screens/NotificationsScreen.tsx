@@ -1,27 +1,27 @@
 import React, { useCallback, useState } from "react";
-import { View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 
 import {
-  GlassCard,
-  IconChip,
   NotificationPermissionCard,
+  NotificationRow,
   SecondaryScreenLayout,
-  SignatureText,
+  SectionLabel,
   StateMessage,
 } from "@/components/signature";
 import { useNotificationPermissionCard } from "@/hooks/useNotificationPermissionCard";
 import { formatItalianDate } from "@/lib/mobile-ui";
 import { Task } from "@/services/api";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { Spacing } from "@/constants/theme";
 
 /**
- * Stessa fonte dati di prima (`mobileBackendStorage.getTasks()`), veste
- * allineata alle altre schermate secondarie del Trainer (WP10) —
- * `SecondaryScreenLayout` + `GlassCard`, come `TrainerBoardScreen`. La card
+ * Stessa fonte dati di prima (`mobileBackendStorage.getTasks()`): i
+ * promemoria del club per il proprio ruolo. Composizione: prototipo
+ * `isNotifications` — intestazione "Oggi" e righe di vetro
+ * (`NotificationRow`: pallino, chip, titolo, testo, quando). I promemoria
+ * non hanno uno stato "letto" lato server: la riga e sempre in evidenza e
+ * non c'e "Segna tutte come lette", che qui non scriverebbe nulla. La card
  * di permesso notifiche (WP11, §G1) apre la sezione: mai un dialogo di
- * sistema al solo aprire questa schermata, solo la card che lo precede.
+ * sistema al solo aprire questa schermata.
  */
 export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<Task[]>([]);
@@ -40,53 +40,71 @@ export default function NotificationsScreen() {
     }, [loadData]),
   );
 
+  const pending = notifications.filter((item) => !item.completed);
+  const done = notifications.filter((item) => item.completed);
+
   return (
-    <SecondaryScreenLayout title="Notifiche" eyebrow="Club">
+    <SecondaryScreenLayout
+      title="Notifiche"
+      eyebrow={`Allenatore · ${pending.length === 1 ? "1 promemoria" : `${pending.length} promemoria`}`}
+      contentGap={8}
+    >
       <NotificationPermissionCard
         status={permission.status}
         onEnable={() => void permission.enable()}
         onOpenSettings={permission.openSettings}
       />
 
-      <SignatureText variant="small" tone="muted" style={{ marginBottom: 4 }}>
-        Promemoria e avvisi collegati al club attivo e al tuo ruolo.
-      </SignatureText>
-
       {!loaded ? (
         <StateMessage kind="loading" />
-      ) : notifications.length > 0 ? (
-        notifications.map((notification) => (
-          <GlassCard key={notification.id} style={{ gap: Spacing.xs }}>
-            <View style={{ flexDirection: "row", gap: Spacing.md }}>
-              <IconChip name="notifications-outline" size={40} />
-              <View style={{ flex: 1, gap: 2 }}>
-                <SignatureText
-                  variant="body"
-                  tone="ink"
-                  style={{ fontWeight: "700" }}
-                >
-                  {notification.title}
-                </SignatureText>
-                <SignatureText variant="small" tone="muted">
-                  {notification.dueDate
-                    ? formatItalianDate(notification.dueDate, "d MMM yyyy")
-                    : "Senza scadenza"}
-                </SignatureText>
-              </View>
-            </View>
-            {notification.description ? (
-              <SignatureText variant="small" tone="muted">
-                {notification.description}
-              </SignatureText>
-            ) : null}
-          </GlassCard>
-        ))
-      ) : (
+      ) : notifications.length === 0 ? (
         <StateMessage
           kind="empty"
           title="Nessuna notifica"
           message="Quando arrivano nuovi avvisi del club li vedi qui."
         />
+      ) : (
+        <>
+          {pending.length > 0 ? (
+            <SectionLabel label="Da fare" trailing={String(pending.length)} />
+          ) : null}
+          {pending.map((notification) => (
+            <NotificationRow
+              key={notification.id}
+              title={notification.title}
+              body={notification.description || "Promemoria del club"}
+              timestampLabel={
+                notification.dueDate
+                  ? formatItalianDate(notification.dueDate, "d MMM")
+                  : ""
+              }
+              read={false}
+              category={
+                notification.type === "task" ? "operational" : "priority"
+              }
+            />
+          ))}
+          {done.length > 0 ? (
+            <SectionLabel
+              label="Completati"
+              trailing={String(done.length)}
+              style={{ paddingTop: 6 }}
+            />
+          ) : null}
+          {done.map((notification) => (
+            <NotificationRow
+              key={notification.id}
+              title={notification.title}
+              body={notification.description || "Promemoria del club"}
+              timestampLabel={
+                notification.dueDate
+                  ? formatItalianDate(notification.dueDate, "d MMM")
+                  : ""
+              }
+              read
+            />
+          ))}
+        </>
       )}
     </SecondaryScreenLayout>
   );

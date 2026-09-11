@@ -19,10 +19,12 @@
 > 2026-09-11). La priorita assoluta resta completare EasyGame Web V1 e
 > renderla responsive. **Nessuna nuova area funzionale Mobile** oltre a
 > quanto queste eccezioni coprono, fino a una decisione esplicita — WP10 e
-> WP13 sono **visivi**, non aggiungono funzionalita (WP13 lascia
-> esplicitamente fuori il vero attendance a tre stati: vedi ADR-0168 punto
-> 3). Vedi la sezione "Autenticazione mobile" qui sotto, che descrive lo
-> stato **attuale**, non congelato.
+> WP13 sono **visivi**, non aggiungono funzionalita (il tri-state delle
+> presenze, rinviato da ADR-0168 punto 3, e stato poi portato nel passaggio
+> di parita visiva **senza** cambiare endpoint: vedi l'addendum "parita
+> visiva" di ADR-0168 e la sezione "WP13 — parita visiva" qui sotto). Vedi
+> la sezione "Autenticazione mobile" qui sotto, che descrive lo stato
+> **attuale**, non congelato.
 
 Cartella: `easygamemobile/`. **Progetto npm indipendente**: proprio
 `package.json`, `package-lock.json`, `tsconfig.json`, `eslint.config.js`,
@@ -95,22 +97,25 @@ restano quelli che le schermate esistenti gia usano.
 | `SecondaryScreenLayout` | `signature/SecondaryScreenLayout.tsx` | formalizzato in EGDS v2.1.0 Parte A (nato come estensione WP3) — esteso in WP10 con `skyHeight` (le tab primarie aprono un `SectionHero`, 330–360px contro il default 300), `onNotifications`/`notificationCount` (il campanello che l'header nativo dava) e `refreshControl` (pull-to-refresh, passato al proprio `ScrollView`); tutti opzionali, i sei chiamanti precedenti non cambiano |
 | `SignatureInput` | `signature/SignatureInput.tsx` | `components/core/Input.jsx`, formalizzato in EGDS v2.1.0 Parte A |
 | `NumberTile` | `signature/NumberTile.tsx` | `components/core/NumberTile.jsx` (spec Parte B, §B1) — portato in WP4, prima del resto di Parte B, perche `ChildSwitcher` lo richiede subito |
-| `ChildSwitcher` | `signature/ChildSwitcher.tsx` | spec Parte C, §C1 — usa un avatar/iniziali con anello di accento, non `NumberTile`, perche un figlio collegato non porta un numero di maglia in questo payload |
+| `ChildSwitcher` | `signature/ChildSwitcher.tsx` | spec Parte C, §C1 + prototipo v3 `showChildBar` — pillola dark-glass 56px con glifo ad anello-accento (iniziali/foto: un figlio collegato non porta un numero di maglia), nome e squadra in eyebrow, chevron; il foglio "Cambia atleta" ha righe di scelta con anello e Annulla + Conferma |
 | `BottomSheet` | `signature/BottomSheet.tsx` | **estensione**: implementa il "Livello 4" di `guidelines/navigation.md` (foglio), non normato come componente a se nello spec — vedi sotto |
 | `ParentPrimaryScreenLayout` | `signature/ParentPrimaryScreenLayout.tsx` | **composizione locale**, non un componente dello spec: `Floodlight` + `AppBar` + `ChildSwitcher`, centralizza la regola "lo switcher sta sotto l'AppBar su ogni schermata primaria Parent" (`guidelines/navigation.md`) |
 | `EventCard` | `signature/EventCard.tsx` | `components/patterns/EventCard.jsx` (spec Parte B, §B2) — portato in WP5 per Calendario/Home Parent |
 | `SectionHero` | `signature/SectionHero.tsx` | `components/patterns/SectionHero.jsx` (spec Parte B, §B4) |
 | `StatCard` | `signature/StatCard.tsx` | `components/patterns/StatCard.jsx` (spec Parte B, §B5) |
-| `HighlightCard` | `signature/HighlightCard.tsx` | spec Parte B, §B6 |
-| `RSVPControl` | `signature/RSVPControl.tsx` | spec Parte C, §C2 — disegna solo le transizioni che il server ha gia deciso, mai un terzo stato inventato |
+| `RSVPControl` | `signature/RSVPControl.tsx` | spec Parte C, §C2 + prototipo v3 `actionsRsvp` — due bottoni sulla scheda ("Ci sarà" successo / "Non ci sarà" secondario); disegna solo le transizioni che il server ha gia deciso, mai un terzo stato inventato. Montato da `components/parent/ParentEventCard.tsx` (Home, Calendario, dettaglio: una composizione sola) |
 | `NotificationRow` | `signature/NotificationRow.tsx` | spec Parte C, §C6 |
 | `AccountAccessCard` | `signature/AccountAccessCard.tsx` | spec Parte C, §C10 — applicato in `AccountHubScreen` |
-| `PaymentCard` | `signature/PaymentCard.tsx` | spec Parte C, §C3, raffinato in v2.2 — formato valuta `it-IT`, stato mai ricalcolato da un orologio locale |
-| `DocumentRow` / `DocumentCard` | `signature/DocumentRow.tsx`, `DocumentCard.tsx` | spec Parte C, §C4, raffinato in v2.2 |
-| `ConsentRow` | `signature/ConsentRow.tsx` | spec Parte C, §C5, raffinato in v2.2 — la riga naviga, non concede mai |
-| `AppointmentCard` | `signature/AppointmentCard.tsx` | spec Parte C, §C7, raffinato in v2.2 — adattato al contratto reale della faccia famiglia (`can_reschedule`/`can_cancel`, non un elenco di transizioni) |
-| `BookingCard` | `signature/BookingCard.tsx` | spec Parte C, §C8, raffinato in v2.2 — sola lettura, nessun annullamento lato Parent |
-| `EnrollmentStatusCard` | `signature/EnrollmentStatusCard.tsx` | spec Parte C, §C9, raffinato in v2.2, riscritto in v2.3 sul contratto dati reale |
+| `PaymentCard` | `signature/PaymentCard.tsx` | spec Parte C, §C3 + prototipo v3 `payments` — striscia, piano, titolo, importo a destra, pill + scadenza, barra azioni (Paga ora · Ricevuta · Fattura · Dettaglio); formato valuta `it-IT`, stato mai ricalcolato da un orologio locale |
+| `GlassRow` | `signature/GlassRow.tsx` | prototipo v3 `GLASS_ROW` — **sostituisce** `DocumentRow`/`DocumentCard`/`ConsentRow`/`AppointmentCard`/`BookingCard`/`EnrollmentStatusCard`/`HighlightCard` (rimossi nel passaggio di parita visiva): una riga di vetro sola — icona, titolo, meta, coda (pill/contatore), **o** chevron **o** barra azioni etichettata (regola `migration-v3.md` passo 4) |
+| `ActionBarButton` | `signature/ActionBarButton.tsx` | prototipo v3 `act(...)` — il bottone 36px "icona + parola" della barra azioni (Carica documento, Visualizza, Scarica, Paga ora, Ricevuta, Fattura, Dettaglio, Conferma, Riprogramma…) |
+| `NavTile` / `NavTileGrid` | `signature/NavTile.tsx` | design `IA e Home` §1a — la tile di scorciatoia della Home (griglia 4×2 con badge numerati) |
+| `SectionLabel` | `signature/SectionLabel.tsx` | prototipo v3 — eyebrow di sezione con contatore o azione a destra ("Le tue sezioni · 8", "Oggi · Segna tutte come lette") |
+| `SummaryCard` | `signature/SummaryCard.tsx` | design §3c/3d e §2b — la scheda di vetro scuro in testa alle schermate secondarie e alla Home Parent, che parte dentro il cielo e copre l'orizzonte |
+| `InfoNote` | `signature/InfoNote.tsx` | prototipo v3 — la nota tinta blu ("Formati accettati: PDF, JPG, PNG…"); varianti `warning`/`danger` per gli errori inline |
+| `SelectionRing` | `signature/SelectionRing.tsx` | prototipo v3 `ring(on)` — l'anello di scelta (figlio, metodo di pagamento, scheda di accesso) |
+| `BrandLine` / `BrandMark` / `Wordmark` | `signature/BrandLine.tsx`, `BrandMark.tsx` | design §2 correzione 1-2 — la riga di marchio (scritta EasyGame a sinistra, chip del club a destra, filo) su ogni schermata operativa; i file `logo-white.png`/`icon-white.png` copiati da `design-source/assets/` in `assets/images/brand/` (i due alberi npm non si importano) |
+| `AuthFrame` / `GhostButton` | `signature/AuthFrame.tsx` | design §5a — la composizione comune di Login/Registrazione/Recupero/Reset/OTP: passo, eyebrow/titolo/corpo, scheda di vetro con campi e CTA a gradiente, secondario bianco in contorno |
 | `SelectableAthleteRow` | `signature/SelectableAthleteRow.tsx` | spec Parte B, §B3 — portato in WP10, assente da ogni versione precedente dell'export (nessun file, nessun uso). La superficie resta glass regolare anche selezionata (non "glass strong"): quella distinzione non e fra i quattro segnali di selezione obbligatori dello spec, e `GlassSurface` non ha un aggancio per l'alpha per istanza — semplificazione dichiarata, non un gap dimenticato |
 | `NotificationPermissionCard` | `signature/NotificationPermissionCard.tsx` | spec Parte G, §G1 (EGDS v2.3.0) — portato in WP11. **Semplificato**: lo stato "Allowed" elenca le categorie con Icon Chip nello spec; questa app non ha preferenze di notifica per categoria (un solo token per dispositivo), quindi e una riga descrittiva sola |
 
@@ -903,6 +908,210 @@ sceglie in base allo stato della query), non di logica pura: la copertura
 reale e la lettura del codice stesso, coerente con l'assenza di un
 renderer RN nella suite (vedi "Test — `easygamemobile/tests/`" sopra).
 
+### WP13 — Parita visiva schermata per schermata (ADR-0168, addendum 2026-09-11)
+
+Il primo giro di WP13 aveva portato token, componenti e regole di v3 ma
+**non la composizione** delle schermate dell'artefatto approvato (due
+export Claude Design, `EasyGame Mobile - IA e Home` e `EasyGame Mobile -
+Prototipo`): il feedback di accettazione lo ha detto esplicitamente — "usa
+EGDS v3.0.0" non basta. Questo passaggio ricostruisce ogni schermata sulla
+composizione del prototipo, con i dati/permessi/endpoint di prima. Ordine
+delle fonti: (1) prototipo per layout e composizione, (2) EGDS v3.0.0 per
+token e regole, (3) codice esistente per dati, API, permessi, logica.
+
+Cosa cambia di guscio, per tutte le schermate:
+
+- **Riga di marchio** (`BrandLine`): scritta EasyGame a sinistra, chip del
+  club a destra (crest + nome + chevron → Account Hub), filo bianco 12%.
+  Sulle schermate Parent il club e quello del figlio selezionato.
+- **AppBar**: "‹ Indietro" e una pillola sulla propria riga (36px, bianco
+  12%, bordo 28%), il campanello resta solo a destra, 20px fra titolo e
+  azioni. Le schermate secondarie non mostrano il Dock.
+- **Floodlight** ha ora anche le righe di campo (`Pattern` SVG mascherato):
+  i tre strati del sorgente. `BrandStateLayout` porta l'arco di campo, la
+  linea di fondo con il tick, il watermark "e" **con il file reale**
+  (`icon-white.png`), la riga marchio+passo.
+- **Dock**: 56px, padding 5, puck 46 (13/15 laterali, gap 7, etichetta
+  11.5); pallino 8px con bordo navy (`tabBarBadge`) — sul tab Pagamenti
+  quando c'e una rata da saldare.
+- **BottomSheet**: eyebrow + titolo 22/600 nel foglio, corpo scorrevole,
+  barra azioni **solo** dove serve una conferma (Annulla 100px + primario a
+  tutta larghezza), riga di suggerimento per i fogli di sola scelta;
+  curva `cubic-bezier(.2,.9,.25,1)`, 220/180ms.
+- **Margini**: contenuto 14px sopra, 16px ai lati, 118px sotto con il Dock;
+  gap 12 per le schede, 8 per le liste a righe; `SectionHero` a tutta
+  larghezza (slot `hero`), contenuto sotto a 6px.
+
+Composizioni ricostruite (design → schermata):
+
+| Prototipo / artboard | Schermata | Composizione |
+|---|---|---|
+| `isLogin` / §5a | `LoginScreen` | `AuthFrame`: "1 di 3", Accedi · Bentornato, scheda con Email/Password/CTA, ghost "Password dimenticata?", rimando registrazione |
+| §5a "Nuovo account" | `RegisterScreen` | `AuthFrame`: nome+cognome affiancati, cellulare, email, password, conferma (errore inline), nota requisiti, ghost "Hai già un account? Accedi" |
+| §5a "Recupero" / §3a "Controlla la posta" | `ForgotPasswordScreen` | `AuthFrame` prima/dopo l'invio |
+| §3a "Nuova password" | `ResetPasswordScreen` | `AuthFrame` per modulo e tre esiti |
+| `isOtp` / §3a "codice non valido" | `VerifyOtpScreen` | sei celle 56px (cella attiva blu, tutte rosse su errore), input reale nascosto (`oneTimeCode`), "Riprova tra 0:42" / "Richiedi un nuovo codice" |
+| `isAccounts` / §5b | `AccountHubScreen` | nome in eyebrow, "Scegli come entrare", `AccountAccessCard` (crest, club, riga, pill ruolo, anello; ruolo non supportato al 60%), rimandi testuali (Profilo · Nuovo club · Collega un token · Assistenza), "Esci" ghost in fondo |
+| §5b "Ruolo non supportato" | `UnsupportedRoleScreen` | pill bianca, titolo 30/36, riquadro "Da qui puoi già" con gli accessi reali, "Cambia accesso" bianco + "Esci" ghost |
+| `isTHome` / §2a | `TrainerHomeDashboardScreen` | `SectionHero` (Oggi · Buongiorno · 3 contatori) → `EventCard` del prossimo allenamento con "Registra presenze" (apre il foglio in Allenamenti) → riga compatta della prossima gara con pill "Convocazioni" → "Le tue sezioni" `NavTileGrid` 4×2 gated dai permessi |
+| `isTTrainings` | `TrainerTrainingsDashboardScreen` | hero "{data} · Allenamenti di oggi", `EventCard` con "Registra presenze" a tutta larghezza (primaria la prima), nota "Nessun altro allenamento…", settimana / calendario / storico con ricerca |
+| `isTMatches` | `TrainerMatchesDashboardScreen` | hero "Settimana N · Gare della settimana", `EventCard` con giorno nella rotaia e "Gestisci convocazioni", programmate / storico |
+| `isTAthletes` | `TrainerAthletesScreen` | ricerca nel cielo, rosa raggruppata per categoria ("U13 · 12 atleti"), `GlassRow` con `NumberTile` navy e pill di stato |
+| `isTAthlete` / turno 6 §11 | `TrainerAthleteProfileScreen`, `ParentAthleteProfileScreen` | testata di vetro scuro che attraversa l'orizzonte, due `StatCard`, "Scheda" con `MetaRow`, "Ultime presenze" a righe, poi le sezioni con le porte di permesso di prima |
+| `isProfile` | `TrainerProfileDashboardScreen`, `ParentProfileScreen` | avatar + nome + "ruolo · club" nel cielo, riga evidenziata "Accessi e club", righe di navigazione, "Esci" distruttivo; il modulo dati va in `TrainerPersonalDataScreen` |
+| `isTServices` | `TrainerMoreScreen` ("Servizi") | "Tutte le sezioni", `GlassRow` con chevron |
+| §3c Bacheca / Documenti / Appuntamenti / Compensi | `TrainerBoardScreen`, `TrainerDocumentsScreen`, `TrainerAppointmentsScreen`, `TrainerCompensationScreen`, `TrainerCategoriesScreen` | `SummaryCard` scura nel cielo + `GlassRow` con pill a quattro livelli; le azioni degli appuntamenti in barra etichettata, motivo/nuovo orario in un foglio |
+| `isNotifications` | `NotificationsScreen`, sezione Notifiche di `ParentBoardScreen` | `SectionLabel` "Oggi · Segna tutte come lette", `NotificationRow` (pallino dentro la riga, vetro forte da non letta) |
+| `isPHome` / §2b / §5c | `ParentHomeScreen` | barra figlio, `SummaryCard` "Documenti da caricare" (o rata da saldare, o tutto in regola), "Scorciatoie" 4×2 con badge (pagamenti, documenti, consensi, bacheca), "Prossimi impegni" con RSVP sulla scheda |
+| `isPCalendar` | `ParentCalendarScreen` | filtri a pillola, eventi raggruppati per giorno, RSVP sulla scheda |
+| `isPPayments` | `ParentPaymentsScreen` | `SummaryCard` "Saldo stagione" con anello di avanzamento, `PaymentCard` con barra azioni |
+| `isPPayDetail` + `sheetIsPay` | `ParentPaymentDetailScreen` (nuova) + `components/parent/PaymentSheet.tsx` | scheda importo nel cielo, "Piano rate", "Paga ora" → foglio "Come vuoi pagare?" (l'unico canale reale e il checkout online; "In segreteria" e informativo) |
+| `isPDocuments` + `sheetIsUpload` / `uploaded` | `ParentDocumentsScreen` | "Documenti di {nome}", schede con barra azioni (Carica documento · Visualizza · Scarica · Sostituisci · Carica nuova), nota formati; foglio di scelta (fotocamera · galleria · file) senza barra; foglio "Documento inviato" |
+| `isPConsents` | `ParentConsentsScreen` | `GlassRow` + pill a quattro livelli; la decisione in un foglio con Annulla + Accetto/Revoca |
+| `isPServices` | `ParentServicesScreen` | "Servizi del club", sette `GlassRow` con riga di contesto dal payload e chevron |
+| §3d Appuntamenti / Iscrizione / Strutture / Contatti | `ParentAppointmentsScreen`, `ParentEnrollmentScreen`, `ParentStructuresScreen`, `ParentContactsScreen` | `SummaryCard` + `GlassRow`; richiesta/prenotazione in un foglio con pillole di scelta |
+| `sheetRoster` (attendance / callup) / turno 6 §5-6 | fogli presenze e convocazioni | "Registra le presenze" / "Scegli i convocati", riga di avanzamento con scorciatoia, `SelectableAthleteRow` (tile navy sempre, parola di stato a destra, anello 30px), Annulla + "Salva N/M" (successo) / "Convoca N" |
+
+**Presenze a tre stati — chiuso.** ADR-0168 punto 3 lo aveva rinviato
+perche il mobile scriveva sulla proiezione legacy; da D-MOB-12 scrive su
+`POST /api/v1/events/:id/participants`, che fa un **upsert per riga** e
+accetta i tre stati del vocabolario server (`ATTENDANCE_STATUSES`:
+`present`, `absent`, `pending`). La riga cicla `da segnare → presente →
+assente → da segnare` per ogni atleta; al salvataggio le righe segnate
+vanno come present/absent, una riga che il server aveva ed e tornata "da
+segnare" si riscrive come `pending`, e chi non ha mai avuto una riga ed e
+ancora "da segnare" non si manda (e gia quello stato). Alla rilettura
+(`GET /api/v1/events/:id`, `mapParticipantsToAttendance`) una riga
+`pending` — o senza stato — torna "da segnare" (`present: null`): nessuno
+stato solo del client, verificato a runtime su Expo Web con andata e
+ritorno dal server (presente → assente → da segnare → salva → ricarica →
+"da segnare" → presente → salva). Nessun cambio di endpoint, nessuno stato
+inventato. Le convocazioni restano a due stati (convocato / da segnare):
+il server sostituisce l'intero elenco, "non convocato" non e uno stato
+distinto.
+
+**Verifica a runtime (Expo Web, account Trainer di staging, 2026-09-11).**
+Ogni schermata Trainer raggiungibile e stata aperta con dati reali e
+confrontata con il prototipo reso nel browser (servito in locale dalla
+cartella dell'export). Scostamenti trovati e corretti in quel giro:
+
+- `Dock`: il puck attivo aveva `flex: 0` — su web e `0 1 0%` e, con
+  `overflow: hidden`, tagliava l'etichetta ("Hom"); ora `flexGrow 0 /
+  flexShrink 0 / flexBasis auto`.
+- `BottomSheet`: `Dimensions.get("window")` letto a caricamento del modulo
+  valeva 0 su web → `maxHeight: 0`, scrim visibile e pannello invisibile;
+  ora `useWindowDimensions()` nel componente.
+- `SecondaryScreenLayout` / `ParentPrimaryScreenLayout`: le altezze del
+  cielo del prototipo (160/250/300/360/430) includono i suoi 32px di barra
+  di stato; si somma l'inset reale e il cielo non scende mai sotto il
+  chrome (riga di marchio + AppBar), cosi il titolo bianco non cavalca mai
+  l'orizzonte (con 160 e "‹ Indietro" lo faceva di 3px su web, di 50px su
+  iPhone).
+- Il campanello e su **ogni** schermata come nel prototipo (anche con
+  "‹ Indietro"): `SecondaryScreenLayout` lo risolve da solo (Trainer →
+  `Notifications` dello stack corrente; Parent → `ParentServicesTab` /
+  `ParentBoard` sezione notifiche) e lo toglie sulla schermata Notifiche.
+- `Floodlight`: l'orizzonte e il blu inferiore del cielo (`--eg-blue-600`)
+  che sfuma su 120px (EGDS v3 `signature-foundations`), non piu il velo
+  navy al 35% della v2 che lasciava un taglio visibile.
+- `StateMessage` con `tone="dark"` (vuoto/errore/vietato/caricamento nel
+  cielo) e una scheda di vetro scuro: un messaggio piu alto del cielo aveva
+  la seconda riga bianca sulla foschia.
+- `SectionHero`: titolo 24/28 come nel DS (era il display 26/30 dell'AppBar).
+- Home Trainer: tolta la riga "Stagione" (il prototipo chiude con le tile;
+  il permesso `widgets.summary` ora governa i chip dell'hero).
+- `NumberTile`: numero di maglia 0/mancante → "–", non un falso "0".
+- Scheda gara: "EasyGame FC vs Avversario" nell'ordine casa/trasferta col
+  nome del club di contesto (`homeTeam`/`awayTeam` del payload sono
+  segnaposto "Casa"/"Ospiti").
+- Scheda atleta: "Presenze %" e "Ultime presenze" leggono l'appello vero
+  (`GET /api/v1/events/:id` per gli ultimi 12 allenamenti registrati della
+  categoria) — con la sola lista (conteggi) erano sempre "–".
+- `NotificationPermissionCard` riscritta nella grammatica di riga del
+  prototipo (titolo su una riga + pillola, corpo, barra azioni da 36px).
+
+Schermate Trainer senza dati sull'account di staging (Bacheca, Documenti,
+Appuntamenti, Compensi): verificato lo stato vuoto; la composizione con
+dati resta verificata solo staticamente.
+
+**Verifica a runtime Parent (stesso giorno, account Parent di staging, due
+figli).** Ogni schermata Parent raggiungibile aperta con dati reali, cambio
+figlio incluso; scostamenti trovati e corretti:
+
+- Le altezze del cielo del prototipo si leggono **meno i suoi 32px di barra
+  di stato** (`PROTOTYPE_STATUS_BAR`) piu l'inset reale: con la sola somma
+  dell'inset, su web l'etichetta del primo gruppo cadeva sul blu pieno.
+- `Floodlight` / `BrandStateLayout`: id SVG **unici per istanza** — su web
+  gli id sono globali al documento e lo stack tiene montate le schermate
+  sotto, cosi `url(#eg-floodlight-fade)` risolveva sul Floodlight nascosto
+  e l'orizzonte della schermata in cima tornava un taglio netto.
+- `StateMessage` e sempre un pannello di vetro (chiaro, o scuro con
+  `tone="dark"`): uno stato vuoto chiaro a cavallo dell'orizzonte aveva
+  l'icona sul blu e il testo sulla foschia.
+- Le sezioni secondarie Parent sono registrate **anche** nello stack Home
+  (`ParentHomeStackNavigator`), come per il Trainer: dalle scorciatoie e dal
+  campanello "‹ Indietro" torna alla Home (`nav.back → pHome`) e il Dock
+  sparisce; dalle altre tab si passa alla tab Servizi con `initial: false`
+  (radice sotto, Dock nascosto).
+- Home: l'occhiello della scheda era `enrollment.selectedPlan` — un
+  identificativo ("PLAN_1787857047458"), non un nome — ora "Stagione
+  2026/27" (`describeSportSeason`, da luglio anno/anno+1) come nel
+  prototipo; tolto il link "Scheda di …" sull'orizzonte (non nel
+  prototipo; la scheda resta da Profilo → I miei figli); con certificato
+  mancante/scaduto/in scadenza e nessuna richiesta aperta la scheda non
+  dice piu "Tutto in regola" ma "Certificato da consegnare / in scadenza"
+  (legge `health.familyState`, che distingue il consegnato senza data).
+- Calendario: le date del payload sono istanti ISO
+  (`2026-09-11T16:00:00.000Z`), non giorni — `parseEventDate`/`eventDayKey`
+  in `lib/parent-calendar.ts` raggruppano per giorno locale (prima ogni
+  evento faceva gruppo a se sotto "Data da definire" e la rotaia data era
+  vuota anche in Home).
+- Dettaglio evento: lo stato e in italiano ("Svolto", "In programma"), non
+  la chiave del server.
+- Pagamenti: `type` nel payload reale e il **metodo** ("Bonifico"); il piano
+  vive in `data.planName`/`planId`, la rata in `data.installmentLabel` —
+  `resolvePaymentPlanIdentity` (`lib/parent-payment-plan.ts`) da occhiello,
+  titolo e chiave del piano rate; la ricevuta "Ricevuta <descrizione>" si
+  abbina per inclusione (prima nessuna ricevuta compariva sulla scheda);
+  il dettaglio nasconde la chiave di generazione ("enrollment_plan:…")
+  mostrata come "Rif."; occhiello "Genitore · Stagione 2026/27".
+- Appuntamenti: pillola con una parola ("In attesa"), non l'etichetta
+  lunga del server; gli slot del foglio sono "lun 14 set · 09:30", non
+  "2026-09-14 09:30".
+- Strutture: titolo di riga = campo, struttura nella riga di contesto.
+- Iscrizione: occhiello "Segreteria · <figlio>", nome del piano da
+  `income.planName`, mai `selectedPlan`.
+- Contatti: `normalizeOpeningHours` tiene solo i giorni veri, in ordine di
+  settimana — le chiavi `id`/`date`/`name` dell'oggetto orari uscivano
+  come giorni "Chiuso" (lo stesso porto sul Web ha il difetto: vedi 16).
+- I miei figli: chip del club sulla riga di marchio; stato "Attivo"
+  quieto/verde invece di "ACTIVE" outline/warning.
+- Scheda atleta: "Certificato medico: mancante" invece del solo "Mancante".
+
+Non verificabili con i dati di staging: RSVP sulla scheda (nessun invito
+aperto), pagamento online (canale non attivo per il club: verificato il
+foglio con "Carta" disabilitata e "In segreteria"), Bacheca con avvisi.
+Ambiguita: nel prototipo `pServices` e marcata secondaria (Indietro,
+niente Dock) pur essendo una voce del Dock — qui resta una tab primaria.
+
+**Componenti rimossi** perche non piu raggiungibili da nessuna schermata:
+`HighlightCard`, `DocumentRow`, `DocumentCard`, `ConsentRow`,
+`AppointmentCard`, `BookingCard`, `EnrollmentStatusCard`,
+`ParentComingSoonScreen`. I costanti di libreria che quei componenti
+usavano (`DOCUMENT_STATE_VARIANT`, `APPOINTMENT_STATUS_*`) restano perche
+coperti da test; i nuovi risolutori dei quattro livelli sono
+`resolveDocumentStatusTier` (`lib/parent-documents.ts`) e
+`lib/parent-payment-plan.ts`.
+
+**Ambiguita dell'artefatto, risolte cosi:** il foglio "Cambia atleta" ha
+sia la chiusura al tocco sia Annulla/Conferma nel prototipo — qui il tocco
+sceglie (anello), Conferma applica; le tre opzioni di pagamento del
+prototipo (carta · bonifico · segreteria) diventano l'unico canale reale
+(checkout online) piu una riga informativa; "Segna tutte come lette" sui
+promemoria Trainer non esiste perche i promemoria non hanno uno stato
+"letto" lato server; la scheda di accesso "attiva" dell'Account Hub e quella
+che si sta aprendo (nessun accesso e attivo prima della scelta).
+
 ## Stato attuale: Trainer completo, Parent WP4-9 completo, gate su tutto il resto
 
 Il navigator root (`client/navigation/RootStackNavigator.tsx`) e il **solo**
@@ -935,13 +1144,17 @@ giro**):
 | Allenamenti | `TrainingsStackNavigator` | `TrainerTrainingsDashboardScreen` |
 | Partite | `MatchesStackNavigator` | `TrainerMatchesDashboardScreen` |
 | Atleti | `AthletesStackNavigator` | `TrainerAthletesScreen` → `TrainerAthleteProfileScreen` |
-| Profilo | `ProfileStackNavigator` | `TrainerProfileDashboardScreen` → "Altre sezioni" → `TrainerMoreScreen` |
+| Profilo | `ProfileStackNavigator` | `TrainerProfileDashboardScreen` → `TrainerPersonalDataScreen` / "Tutte le sezioni" → `TrainerMoreScreen` (hub "Servizi") |
 
-Ogni stack include anche `NotificationsScreen`. Da `TrainerMoreScreen`
-(navigazione secondaria, non una tab): `TrainerBoardScreen`,
-`TrainerDocumentsScreen`, `TrainerAppointmentsScreen`,
-`TrainerCompensationScreen`, `TrainerCategoriesScreen` — vedi "WP3 — Parita
-funzionale Trainer" sopra.
+Ogni stack include anche `NotificationsScreen`. Le sezioni secondarie
+(`TrainerBoardScreen`, `TrainerDocumentsScreen`,
+`TrainerAppointmentsScreen`, `TrainerCompensationScreen`,
+`TrainerCategoriesScreen`, `TrainerMoreScreen`) sono registrate **sia**
+nello stack Profilo **sia** nello stack Home (parita visiva v3, "Home as
+hub": le tile della Home le aprono con "‹ Indietro" che torna alla Home) —
+stessi componenti, nessuna copia. `Dock` non si disegna su una schermata
+secondaria (stack annidato oltre la radice): "Secondary screens ... never
+the dock".
 
 `ParentTabNavigator` espone 5 tab (v3.0, `migration-v3.md` passo 8 —
 ADR-0168; sostituisce l'elenco di `guidelines/navigation.md`, che restava
@@ -949,25 +1162,27 @@ su Segreteria/Bacheca):
 
 | Tab | Stack | Schermata | Stato |
 |-----|-------|-----------|-------|
-| Home | `ParentHomeStackNavigator` | `ParentHomeScreen` → `ParentAthleteProfileScreen` | Reale (WP5): SectionHero + StatCard + HighlightCard; scheda atleta reale dal WP9 |
-| Calendario | `ParentCalendarStackNavigator` | `ParentCalendarScreen` → `ParentEventDetailScreen` | Reale (WP5): allenamenti+gare unificati, RSVP nel dettaglio |
-| Pagamenti | `ParentPaymentsStackNavigator` | `ParentPaymentsScreen` | Reale (WP7); promosso da sezione dentro "Segreteria" a tab proprio (WP13, passo 8) |
+| Home | `ParentHomeStackNavigator` | `ParentHomeScreen` → `ParentAthleteProfileScreen` | Reale (WP5), ricomposta nel passaggio di parita visiva: scheda scura "la cosa da fare" + griglia 4×2 di scorciatoie + "Prossimi impegni" con RSVP sulla scheda; scheda atleta reale dal WP9 |
+| Calendario | `ParentCalendarStackNavigator` | `ParentCalendarScreen` → `ParentEventDetailScreen` | Reale (WP5): allenamenti+gare unificati per giorno, RSVP sulla scheda (e nel dettaglio) |
+| Pagamenti | `ParentPaymentsStackNavigator` | `ParentPaymentsScreen` → `ParentPaymentDetailScreen` | Reale (WP7); tab proprio (WP13, passo 8); il dettaglio rata (prototipo `pPayDetail`) e il foglio "Come vuoi pagare?" aggiunti nel passaggio di parita visiva — stessa `checkoutParentPayment`, ricevute/fatture aperte con lo stesso meccanismo dei documenti |
 | Servizi | `ParentServicesStackNavigator` | `ParentServicesScreen` (hub) → `ParentDocumentsScreen` / `ParentConsentsScreen` / `ParentEnrollmentScreen` / `ParentAppointmentsScreen` / `ParentStructuresScreen` / `ParentContactsScreen` / `ParentBoardScreen` | Sostituisce Segreteria (`ParentSegreteriaStackNavigator`, rimosso) e Bacheca (`ParentBoardStackNavigator`, rimosso) — un contenitore di navigazione, nessuna sezione persa (WP13, passo 8) |
-| Profilo | `ParentProfileStackNavigator` | `ParentProfileScreen` → `ParentChildrenScreen` / `ParentComingSoonScreen` | Account, multi-figlio, cambio contesto, logout; `ParentMoreScreen` rimosso — le sue tre voci reali (Appuntamenti/Strutture/Contatti) sono nel tab Servizi, "Impostazioni" resta diretto da qui (WP13, passo 8) |
+| Profilo | `ParentProfileStackNavigator` | `ParentProfileScreen` → `ParentChildrenScreen` → `ParentAthleteProfileScreen` | Account, multi-figlio, cambio contesto, logout; `ParentMoreScreen` rimosso (WP13, passo 8); `ParentComingSoonScreen` ("Impostazioni", un segnaposto senza sezione dietro) rimosso nel passaggio di parita visiva |
 
 ### Schermate collegate (21)
 
 Identity & Access: `LoginScreen`, `RegisterScreen`, `VerifyOtpScreen`,
-`ForgotPasswordScreen`, `AccountHubScreen`, `UnsupportedRoleScreen`.
+`ForgotPasswordScreen`, `ResetPasswordScreen`, `AccountHubScreen`,
+`UnsupportedRoleScreen`.
 
 Trainer, navigazione secondaria (WP3): `TrainerMoreScreen`,
 `TrainerBoardScreen`, `TrainerDocumentsScreen`, `TrainerAppointmentsScreen`,
 `TrainerCompensationScreen`, `TrainerCategoriesScreen`.
 
-Trainer (invariate): `NotificationsScreen`, `TrainerHomeDashboardScreen`,
+Trainer: `NotificationsScreen`, `TrainerHomeDashboardScreen`,
 `TrainerTrainingsDashboardScreen`, `TrainerMatchesDashboardScreen`,
 `TrainerAthletesScreen`, `TrainerAthleteProfileScreen`,
-`TrainerProfileDashboardScreen`.
+`TrainerProfileDashboardScreen`, `TrainerPersonalDataScreen` (parita
+visiva: il modulo dei dati personali, prima dentro il Profilo).
 
 Parent (`ParentTabNavigator`): `ParentHomeScreen`, `ParentChildrenScreen`,
 `ParentProfileScreen` (WP4); `ParentCalendarScreen`,
@@ -978,9 +1193,9 @@ Parent (`ParentTabNavigator`): `ParentHomeScreen`, `ParentChildrenScreen`,
 `ParentStructuresScreen`, `ParentContactsScreen` (WP8);
 `ParentAthleteProfileScreen` (WP9); `ParentServicesScreen` (WP13, passo 8
 — hub che sostituisce `ParentSegreteriaScreen` e `ParentMoreScreen`,
-entrambi rimossi). Il batch Parent e completo: l'unico segnaposto rimasto
-e "Impostazioni" nel tab Profilo, su `ParentComingSoonScreen` — nessun
-contenuto previsto per questo per nessun WP.
+entrambi rimossi); `ParentPaymentDetailScreen` (parita visiva). Il batch
+Parent e completo e senza segnaposto: `ParentComingSoonScreen` e stato
+rimosso.
 
 ### Schermate NON collegate (10) — generazione precedente
 

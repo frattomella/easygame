@@ -1,246 +1,166 @@
-import React, { useEffect, useState } from "react";
-import { Alert, StyleSheet, View } from "react-native";
+import React from "react";
+import { Linking, StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Ionicons } from "@expo/vector-icons";
 
 import {
   ActionButton,
-  GlassCard,
+  GlassRow,
   SecondaryScreenLayout,
-  SignatureInput,
   SignatureText,
-  StatusPill,
 } from "@/components/signature";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { EGInk, Spacing } from "@/constants/theme";
-import { SUPPORT_EMAIL } from "@/constants/external-links";
+import { getRoleLabel } from "@/lib/mobile-ui";
+import { SUPPORT_MAILTO_URL } from "@/constants/external-links";
 import type { ProfileStackParamList } from "@/navigation/ProfileStackNavigator";
 
 type Navigation = NativeStackNavigationProp<ProfileStackParamList, "Profile">;
 
+const initialsOf = (name: string) =>
+  name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("") || "?";
+
 /**
- * design-source `guidelines/trainer-migration.md` §Profilo (WP10) —
- * allineato allo stesso linguaggio di `ParentProfileScreen`: `GlassCard` +
- * `ActionButton` al posto di `Card`/`Button` piatti. Stessi campi, stesso
- * `updateUserProfile`, stesse chiavi di permesso di prima.
+ * Il Profilo del prototipo v3 (`isProfile`): nel cielo l'avatar tondo con
+ * le iniziali, nome 22/800 e "Ruolo · Club"; poi la riga evidenziata
+ * "Accessi e club" (torna all'Account Hub — il cambio club/ruolo vive li),
+ * le righe di navigazione (Dati personali, Notifiche, Altre sezioni,
+ * Assistenza) e "Esci" distruttivo a tutta larghezza. Il modulo dei dati
+ * personali si e spostato in `TrainerPersonalDataScreen`: stessi campi,
+ * stessa funzione.
  */
 export default function TrainerProfileDashboardScreen() {
   const navigation = useNavigation<Navigation>();
   const {
     user,
-    assignedCategories,
+    currentClub,
+    currentRole,
     trainerPermissions,
     clearContext,
     logout,
-    updateUserProfile,
   } = useAuthContext();
 
-  const [fullName, setFullName] = useState(user?.name || "");
-  const [email, setEmail] = useState(user?.email || "");
-  const [phone, setPhone] = useState(user?.phone || "");
-  const [city, setCity] = useState(user?.city || "");
-  const [saving, setSaving] = useState(false);
-
-  const permissionItems = [
-    {
-      label: "Presenze",
-      enabled: trainerPermissions?.actions.manageAttendance !== false,
-    },
-    {
-      label: "Convocazioni",
-      enabled: trainerPermissions?.actions.manageConvocations !== false,
-    },
-    {
-      label: "Scheda tecnica",
-      enabled: trainerPermissions?.actions.viewAthleteTechnicalSheet !== false,
-    },
-    {
-      label: "Pagamenti/Iscrizione",
-      enabled: trainerPermissions?.actions.viewEnrollmentAndPayments !== false,
-    },
-  ];
-
-  useEffect(() => {
-    setFullName(user?.name || "");
-    setEmail(user?.email || "");
-    setPhone(user?.phone || "");
-    setCity(user?.city || "");
-  }, [user?.city, user?.email, user?.name, user?.phone]);
-
-  const handleSaveProfile = async () => {
-    setSaving(true);
-    try {
-      await updateUserProfile({
-        name: fullName.trim(),
-        email: email.trim(),
-        phone: phone.trim(),
-        city: city.trim(),
-      });
-      Alert.alert(
-        "Profilo aggiornato",
-        "Le tue informazioni sono state salvate.",
-      );
-    } catch (error) {
-      Alert.alert(
-        "Errore",
-        error instanceof Error
-          ? error.message
-          : "Impossibile salvare il profilo.",
-      );
-    } finally {
-      setSaving(false);
+  const name = user?.name || "Allenatore";
+  const openSupport = async () => {
+    if (await Linking.canOpenURL(SUPPORT_MAILTO_URL)) {
+      await Linking.openURL(SUPPORT_MAILTO_URL);
     }
   };
 
   return (
     <SecondaryScreenLayout
       title="Profilo"
-      eyebrow="Il tuo account"
+      eyebrow={`Account EasyGame · ${getRoleLabel(currentRole)}`}
       onBack={false}
+      skyHeight={300}
       onNotifications={() => navigation.navigate("Notifications")}
     >
-      <GlassCard eyebrow="Account" title={user?.name || "Allenatore"}>
-        <SignatureText variant="small" tone="muted">
-          {user?.email}
-        </SignatureText>
-      </GlassCard>
-
-      <GlassCard eyebrow="Dati personali" style={styles.formCard}>
-        <SignatureInput
-          label="Nome e cognome"
-          value={fullName}
-          onChangeText={setFullName}
-        />
-        <SignatureInput
-          label="Email"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-        />
-        <SignatureInput
-          label="Telefono"
-          value={phone}
-          onChangeText={setPhone}
-          keyboardType="phone-pad"
-        />
-        <SignatureInput label="Citta" value={city} onChangeText={setCity} />
-        <ActionButton
-          fullWidth
-          onPress={() => void handleSaveProfile()}
-          loading={saving}
-        >
-          Salva modifiche
-        </ActionButton>
-      </GlassCard>
-
-      <GlassCard eyebrow="Categorie assegnate">
-        <View style={styles.badgeWrap}>
-          {assignedCategories.length > 0 ? (
-            assignedCategories.map((category) => (
-              <StatusPill
-                key={category.id}
-                label={category.name}
-                variant="primary"
-                small
-              />
-            ))
-          ) : (
-            <StatusPill label="Nessuna categoria" variant="warning" small />
-          )}
+      <View style={styles.identity}>
+        <View style={styles.avatar}>
+          <SignatureText style={styles.avatarLabel}>
+            {initialsOf(name)}
+          </SignatureText>
         </View>
-      </GlassCard>
-
-      <GlassCard eyebrow="Permessi attivi">
-        <View style={styles.permissionList}>
-          {permissionItems.map((item) => (
-            <View key={item.label} style={styles.permissionRow}>
-              <View style={styles.permissionInfo}>
-                <Ionicons
-                  name={item.enabled ? "checkmark-circle" : "close-circle"}
-                  size={18}
-                  color={item.enabled ? "#22C55E" : "#EF4444"}
-                />
-                <SignatureText variant="small" tone="ink">
-                  {item.label}
-                </SignatureText>
-              </View>
-              <StatusPill
-                label={item.enabled ? "Visibile" : "Nascosto"}
-                variant={item.enabled ? "success" : "destructive"}
-                small
-              />
-            </View>
-          ))}
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <SignatureText style={styles.name} numberOfLines={1}>
+            {name}
+          </SignatureText>
+          <SignatureText style={styles.role} numberOfLines={1}>
+            {`${getRoleLabel(currentRole)} · ${currentClub?.name || "Club"}`}
+          </SignatureText>
         </View>
-      </GlassCard>
-
-      <GlassCard
-        eyebrow="Altro"
-        title="Altre sezioni"
-        description="Bacheca, documenti, appuntamenti, compensi e squadre."
-      >
-        <ActionButton
-          variant="secondary"
-          size="sm"
-          onPress={() => navigation.navigate("More")}
-        >
-          Apri altre sezioni
-        </ActionButton>
-      </GlassCard>
-
-      <GlassCard
-        eyebrow="Supporto"
-        title="Supporto e assistenza"
-        description="Per supporto operativo puoi contattare il team EasyGame indicando club, ruolo e schermata coinvolta."
-      >
-        <SignatureText
-          variant="small"
-          style={{ color: EGInk.onLightFaint, fontWeight: "600" }}
-        >
-          {SUPPORT_EMAIL}
-        </SignatureText>
-      </GlassCard>
-
-      <View style={styles.actionStack}>
-        <ActionButton
-          variant="secondary"
-          fullWidth
-          onPress={() => void clearContext()}
-        >
-          Torna allo Spazio Account
-        </ActionButton>
-        <ActionButton
-          variant="destructive"
-          fullWidth
-          onPress={() => void logout()}
-        >
-          Esci
-        </ActionButton>
       </View>
+
+      <GlassRow
+        icon="swap-horizontal-outline"
+        iconColor="#2563EB"
+        title="Accessi e club"
+        meta="Cambia club o ruolo"
+        emphasis="strong"
+        borderColor="rgba(37,99,235,0.4)"
+        corner="card"
+        onPress={() => void clearContext()}
+      />
+      <GlassRow
+        icon="person-outline"
+        iconColor="#2563EB"
+        title="Dati personali"
+        onPress={() => navigation.navigate("PersonalData")}
+      />
+      {trainerPermissions?.navigation.notifications !== false ? (
+        <GlassRow
+          icon="notifications-outline"
+          iconColor="#3533CD"
+          title="Notifiche"
+          onPress={() => navigation.navigate("Notifications")}
+        />
+      ) : null}
+      <GlassRow
+        icon="grid-outline"
+        iconColor="#3533CD"
+        title="Tutte le sezioni"
+        onPress={() => navigation.navigate("More")}
+      />
+      <GlassRow
+        icon="help-circle-outline"
+        iconColor="#F59E0B"
+        title="Assistenza"
+        onPress={() => void openSupport()}
+      />
+
+      <ActionButton
+        variant="destructive"
+        fullWidth
+        icon="log-out-outline"
+        onPress={() => void logout()}
+        style={{ marginTop: 4 }}
+      >
+        Esci
+      </ActionButton>
     </SecondaryScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  formCard: { gap: Spacing.sm },
-  badgeWrap: { flexDirection: "row", flexWrap: "wrap", gap: Spacing.sm },
-  permissionList: { gap: Spacing.sm },
-  permissionRow: {
+  identity: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: Spacing.md,
+    gap: 14,
+    paddingHorizontal: 4,
+    paddingBottom: 6,
   },
-  permissionInfo: {
-    flexDirection: "row",
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
     alignItems: "center",
-    gap: Spacing.sm,
+    justifyContent: "center",
   },
-  actionStack: {
-    gap: Spacing.sm,
-    marginTop: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
+  avatarLabel: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  name: {
+    color: "#FFFFFF",
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "800",
+    letterSpacing: -0.44,
+  },
+  role: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
   },
 });

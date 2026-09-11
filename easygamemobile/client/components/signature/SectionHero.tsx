@@ -21,7 +21,9 @@ interface SectionHeroProps {
 }
 
 /**
- * design-source `guidelines/component-specs.md` §B4. Lives in the navy sky,
+ * design-source `components/patterns/SectionHero.jsx` (stat chips inline:
+ * 18/800 value beside an 11/600 uppercase label, 8×12 padding, 10/4 corner)
+ * + `guidelines/component-specs.md` §B4. Lives in the navy sky,
  * never gets a fill of its own — "that was the old flat-blue-rectangle
  * pattern and is banned". The screen below it should visually straddle the
  * horizon (~40px overlap); the layout that hosts this (`ParentPrimaryScreenLayout`)
@@ -47,7 +49,7 @@ export function SectionHero({
       >
         {eyebrow}
       </SignatureText>
-      <SignatureText variant="display" tone="onDark">
+      <SignatureText variant="display" tone="onDark" style={styles.title}>
         {title}
       </SignatureText>
       {subtitle ? (
@@ -80,7 +82,7 @@ export function SectionHero({
 const styles = StyleSheet.create({
   wrap: {
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.md,
+    paddingTop: 18,
     paddingBottom: 8,
   },
   icon: {
@@ -89,16 +91,25 @@ const styles = StyleSheet.create({
   eyebrow: {
     marginBottom: 4,
   },
+  // DS SectionHero: 800 24/28 (un gradino sotto il display 26/30 dell'AppBar).
+  title: {
+    fontSize: 24,
+    lineHeight: 28,
+  },
   subtitle: {
     marginTop: 6,
     maxWidth: 300,
   },
   chipRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: Spacing.sm,
     marginTop: 14,
   },
   chip: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
     backgroundColor: "rgba(255,255,255,0.1)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.18)",
@@ -123,6 +134,5 @@ const styles = StyleSheet.create({
     letterSpacing: 0.66,
     textTransform: "uppercase",
     color: "rgba(255,255,255,0.72)",
-    marginTop: 2,
   },
 });

@@ -10735,4 +10735,55 @@ di presenze/convocazioni ora parlano con `GET/PATCH /api/v1/events` e
 `POST /api/v1/events/:id/participants` invece del registro generico
 rimosso. Dettagli in [16](16-technical-debt.md#wave-5--5c-la-proiezione-delle-due-colonne-json).
 
+**Addendum — 2026-09-11, parita visiva schermata per schermata (WP13 non
+accettato al primo giro).** L'accettazione ha respinto il primo giro:
+"usare EGDS v3.0.0, avere i test verdi e zero import legacy **non basta**"
+— la composizione delle schermate non era quella dell'artefatto approvato
+(i due export Claude Design, `EasyGame Mobile - IA e Home` e `EasyGame
+Mobile - Prototipo`), ma la vecchia dashboard rivestita. Si e quindi
+fatto un passaggio di parita **visiva** con questo ordine di fonti di
+verita: (1) il prototipo per layout, composizione, gerarchia, spaziature,
+navigazione, chrome, fogli; (2) EGDS v3.0.0 per token, colori, tipografia,
+icone, stati, movimento; (3) il codice esistente **solo** per dati, API,
+permessi, contratti di navigazione e comportamento funzionale. Nessuna
+schermata e stata conservata per il solo fatto che usava gia componenti
+EGDS. L'elenco schermata per schermata, i nuovi componenti (`BrandLine`,
+`GlassRow`, `ActionBarButton`, `NavTile`, `SectionLabel`, `SummaryCard`,
+`InfoNote`, `SelectionRing`, `AuthFrame`) e quelli rimossi vivono in
+[05](05-mobile-architecture.md#wp13--parita-visiva-schermata-per-schermata-adr-0168-addendum-2026-09-11).
+
+Tre scostamenti dichiarati nel primo giro sono **chiusi** o **precisati**:
+
+1. **Punto 3, presenze a tre stati — chiuso senza cambiare contratto.** Il
+   vincolo era l'endpoint; dal batch di completamento funzionale il mobile
+   scrive su `POST /api/v1/events/:id/participants`, che fa un upsert per
+   riga e accetta `pending` (`ATTENDANCE_STATUSES`). La riga cicla
+   `da segnare → presente → assente → da segnare` per ogni atleta: le righe
+   segnate vanno come present/absent, una riga gia sul server tornata "da
+   segnare" si riscrive `pending`, chi non ha mai avuto una riga non si
+   manda. Alla rilettura `pending` = "da segnare". Verificato a runtime con
+   andata e ritorno dal server. D-MOB-11 chiuso.
+   Le convocazioni restano a due stati (il server sostituisce l'elenco:
+   "non convocato" non e uno stato distinto).
+2. **Sessione scaduta / Offline / Manutenzione** restano come nel primo
+   giro (avviso sul login; nessun segnale di rete o manutenzione in questo
+   codebase — D-MOB-12): sono le uniche schermate del design senza una
+   funzione reale dietro, e non si costruisce un'area funzionale per una
+   parita visiva.
+3. **Navigazione.** Le sezioni secondarie Trainer sono raggiungibili dalla
+   Home (tile) con "Indietro" che torna alla Home, come nel prototipo, e
+   restano nello stack Profilo; il Dock sparisce sulle schermate
+   secondarie; il modulo dati personali del Trainer si sposta in una
+   schermata propria ("Dati personali"); il dettaglio rata Parent e una
+   schermata nuova sullo stesso payload; `ParentComingSoonScreen`
+   ("Impostazioni", segnaposto vuoto) e rimosso. Contenitori di
+   navigazione per funzioni esistenti, nessuna area funzionale nuova.
+
+Due funzioni che il prototipo mostra e che il codice **gia sapeva fare** ma
+nessuna schermata offriva (CLAUDE.md §11.8, "codice irraggiungibile") sono
+ora cablate con lo stesso meccanismo gia in campo per i documenti:
+l'apertura di **ricevute e fatture** (`downloadPath` + Bearer, condivisione
+di sistema; sul web si apre in una scheda) e la scelta **dalla galleria**
+nel caricamento documenti (`expo-image-picker`, gia dipendenza).
+
 ---

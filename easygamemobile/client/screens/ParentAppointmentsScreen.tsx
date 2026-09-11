@@ -1,16 +1,22 @@
 import React, { useState } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  ActionBarButton,
   ActionButton,
-  AppointmentCard,
   BottomSheet,
+  GlassRow,
+  InfoNote,
   SecondaryScreenLayout,
+  SectionLabel,
   SignatureInput,
   SignatureText,
   StateMessage,
+  StatusPill,
+  SummaryCard,
 } from "@/components/signature";
+import type { StatusPillTier, StatusPillTone } from "@/components/signature";
 import { useParentContext } from "@/contexts/ParentContext";
 import { useParentSectionStatus } from "@/hooks/useParentSectionStatus";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
@@ -19,6 +25,7 @@ import {
   splitParentAppointments,
 } from "@/lib/parent-appointments";
 import { classifyFetchError, fetchErrorMessage } from "@/lib/fetch-error";
+import { formatItalianDate } from "@/lib/mobile-ui";
 import { Spacing } from "@/constants/theme";
 import type { ParentAppointment } from "@/services/api";
 
@@ -37,7 +44,7 @@ type SheetMode =
  * luogo.
  */
 export default function ParentAppointmentsScreen() {
-  const { selectedChildId } = useParentContext();
+  const { selectedChildId, selectedChild } = useParentContext();
   const queryClient = useQueryClient();
   const [sheet, setSheet] = useState<SheetMode>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -163,11 +170,81 @@ export default function ParentAppointmentsScreen() {
     time,
   });
 
+  const nextOpen =
+    [...open]
+      .filter((item) => item.date)
+      .sort((a, b) =>
+        `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`),
+      )[0] || null;
+  const waiting = open.filter((item) => item.status === "requested").length;
+
+  const renderRow = (appointment: ParentAppointment, canAct: boolean) => {
+    const look = STATUS_LOOK[appointment.status] || STATUS_LOOK.rescheduled;
+    const showReschedule = canAct && appointment.can_reschedule;
+    const showCancel = canAct && appointment.can_cancel;
+    return (
+      <GlassRow
+        key={appointment.id}
+        icon={look.icon}
+        iconColor={look.color}
+        title={appointment.title || appointment.reason || "Appuntamento"}
+        meta={[
+          `${formatItalianDate(appointment.date, "EEE d MMM")} · ${appointment.time || "orario da definire"}`,
+          appointment.person,
+          appointment.decision_note
+            ? `Motivo: ${appointment.decision_note}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+        trailing={
+          <StatusPill
+            label={SHORT_STATUS[appointment.status] || appointment.status_label}
+            tier={look.tier}
+            tone={look.tone}
+            small
+          />
+        }
+        actions={
+          showReschedule || showCancel ? (
+            <>
+              {showReschedule ? (
+                <ActionBarButton
+                  label="Riprogramma"
+                  icon="time-outline"
+                  disabled={busyId === appointment.id}
+                  onPress={() => openRescheduleSheet(appointment)}
+                />
+              ) : null}
+              {showCancel ? (
+                <ActionBarButton
+                  label="Disdici"
+                  icon="close-circle-outline"
+                  loading={busyId === appointment.id}
+                  onPress={() => void handleCancel(appointment)}
+                />
+              ) : null}
+            </>
+          ) : undefined
+        }
+      />
+    );
+  };
+
   return (
     <SecondaryScreenLayout
       title="Appuntamenti"
-      eyebrow="Segreteria"
-      skyHeight={400}
+      eyebrow={`Segreteria · ${selectedChild?.name || "Atleta"}`}
+      skyHeight={300}
+      contentGap={10}
+      club={
+        selectedChild
+          ? {
+              name: selectedChild.clubName,
+              avatarUrl: selectedChild.clubLogoUrl,
+            }
+          : undefined
+      }
     >
       {status === "loading" ? (
         <StateMessage
@@ -191,63 +268,62 @@ export default function ParentAppointmentsScreen() {
         />
       ) : (
         <>
-          {appointments?.config.familyBookingEnabled ? (
-            <ActionButton
-              fullWidth
-              icon="add-circle-outline"
-              onPress={openCreateSheet}
-              style={{ marginBottom: Spacing.md }}
-            >
-              Richiedi un appuntamento
-            </ActionButton>
+          <SummaryCard
+            icon="calendar-outline"
+            eyebrow={
+              waiting > 0 ? "In attesa" : nextOpen ? "Prossimo" : "Segreteria"
+            }
+            title={
+              waiting > 0
+                ? `${waiting} ${waiting === 1 ? "richiesta" : "richieste"}`
+                : nextOpen
+                  ? `${capitalize(formatItalianDate(nextOpen.date, "EEE d"))} · ${nextOpen.time || "orario da definire"}`
+                  : "Nessun appuntamento aperto"
+            }
+            value={String(open.length)}
+          >
+            {appointments?.config.familyBookingEnabled ? (
+              <View style={{ alignSelf: "flex-start", marginTop: 2 }}>
+                <ActionButton
+                  variant="onDark"
+                  size="sm"
+                  trailingIcon="arrow-forward"
+                  onPress={openCreateSheet}
+                >
+                  Richiedi un appuntamento
+                </ActionButton>
+              </View>
+            ) : null}
+          </SummaryCard>
+
+          {formError && !sheet ? (
+            <InfoNote tone="danger">{formError}</InfoNote>
           ) : null}
 
           {status === "empty" ? (
             <StateMessage
               kind="empty"
-              tone="dark"
               title="Nessun appuntamento"
               message="Non ci sono appuntamenti per questo figlio al momento."
             />
           ) : (
             <>
               {open.length > 0 ? (
-                <View style={{ gap: Spacing.sm, marginBottom: Spacing.lg }}>
-                  <SignatureText variant="eyebrow" tone="faint">
-                    Da gestire
-                  </SignatureText>
-                  {open.map((appointment) => (
-                    <AppointmentCard
-                      key={appointment.id}
-                      appointment={appointment}
-                      busy={busyId === appointment.id}
-                      onReschedule={
-                        appointment.can_reschedule
-                          ? () => openRescheduleSheet(appointment)
-                          : undefined
-                      }
-                      onCancel={
-                        appointment.can_cancel
-                          ? () => void handleCancel(appointment)
-                          : undefined
-                      }
-                    />
-                  ))}
-                </View>
+                <SectionLabel
+                  label="Da gestire"
+                  trailing={String(open.length)}
+                  style={{ paddingTop: 4 }}
+                />
               ) : null}
+              {open.map((appointment) => renderRow(appointment, true))}
               {history.length > 0 ? (
-                <View style={{ gap: Spacing.sm }}>
-                  <SignatureText variant="eyebrow" tone="faint">
-                    Storico
-                  </SignatureText>
-                  {history.map((appointment) => (
-                    <AppointmentCard
-                      key={appointment.id}
-                      appointment={appointment}
-                    />
-                  ))}
-                </View>
+                <SectionLabel
+                  label="Storico"
+                  trailing={String(history.length)}
+                  style={{ paddingTop: 6 }}
+                />
               ) : null}
+              {history.map((appointment) => renderRow(appointment, false))}
             </>
           )}
         </>
@@ -256,29 +332,33 @@ export default function ParentAppointmentsScreen() {
       <BottomSheet
         visible={Boolean(sheet)}
         onClose={() => setSheet(null)}
-        accessibilityLabel={
+        eyebrow="Segreteria"
+        title={
           sheet?.kind === "reschedule"
-            ? "Riprogramma appuntamento"
-            : "Richiedi appuntamento"
+            ? "Proponi un nuovo orario"
+            : "Richiedi un appuntamento"
+        }
+        actions={
+          <>
+            <ActionButton
+              variant="secondary"
+              onPress={() => setSheet(null)}
+              style={{ width: 100 }}
+            >
+              Annulla
+            </ActionButton>
+            <ActionButton
+              disabled={!canSubmit}
+              loading={submitting}
+              trailingIcon="arrow-forward"
+              onPress={() => void handleSubmit()}
+              style={{ flex: 1 }}
+            >
+              {sheet?.kind === "reschedule" ? "Riprogramma" : "Invia richiesta"}
+            </ActionButton>
+          </>
         }
       >
-        <SignatureText
-          variant="eyebrow"
-          tone="faint"
-          style={{ marginBottom: 4 }}
-        >
-          Segreteria
-        </SignatureText>
-        <SignatureText
-          variant="h3"
-          tone="ink"
-          style={{ marginBottom: Spacing.md }}
-        >
-          {sheet?.kind === "reschedule"
-            ? "Riprogramma"
-            : "Richiedi un appuntamento"}
-        </SignatureText>
-
         <View style={{ gap: Spacing.md }}>
           {sheet?.kind === "create" ? (
             appointments && appointments.config.types.length > 0 ? (
@@ -290,45 +370,14 @@ export default function ParentAppointmentsScreen() {
                 >
                   Motivo
                 </SignatureText>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    flexWrap: "wrap",
-                    gap: Spacing.sm,
-                  }}
-                >
+                <View style={styles.chipRow}>
                   {appointments.config.types.map((type) => (
-                    <Pressable
+                    <Chip
                       key={type.id}
+                      label={type.name}
+                      selected={typeId === type.id}
                       onPress={() => setTypeId(type.id)}
-                      style={{
-                        paddingVertical: 8,
-                        paddingHorizontal: 14,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor:
-                          typeId === type.id
-                            ? "#2563EB"
-                            : "rgba(11,26,58,0.14)",
-                        backgroundColor:
-                          typeId === type.id
-                            ? "#2563EB"
-                            : "rgba(255,255,255,0.6)",
-                      }}
-                    >
-                      <SignatureText
-                        variant="small"
-                        style={{
-                          fontWeight: "700",
-                          color:
-                            typeId === type.id
-                              ? "#FFFFFF"
-                              : "rgba(11,26,58,0.62)",
-                        }}
-                      >
-                        {type.name}
-                      </SignatureText>
-                    </Pressable>
+                    />
                   ))}
                 </View>
               </View>
@@ -351,43 +400,16 @@ export default function ParentAppointmentsScreen() {
               >
                 Scegli un orario
               </SignatureText>
-              <View
-                style={{
-                  flexDirection: "row",
-                  flexWrap: "wrap",
-                  gap: Spacing.sm,
-                }}
-              >
+              <View style={styles.chipRow}>
                 {appointments.availableSlots.slice(0, 12).map((slot) => {
                   const key = slot.slotId || slot.startsAt;
-                  const selected = slotId === key;
                   return (
-                    <Pressable
+                    <Chip
                       key={key}
+                      label={`${formatItalianDate(slot.day, "EEE d MMM")} · ${slot.time}`}
+                      selected={slotId === key}
                       onPress={() => setSlotId(key)}
-                      style={{
-                        paddingVertical: 8,
-                        paddingHorizontal: 14,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: selected
-                          ? "#2563EB"
-                          : "rgba(11,26,58,0.14)",
-                        backgroundColor: selected
-                          ? "#2563EB"
-                          : "rgba(255,255,255,0.6)",
-                      }}
-                    >
-                      <SignatureText
-                        variant="small"
-                        style={{
-                          fontWeight: "700",
-                          color: selected ? "#FFFFFF" : "rgba(11,26,58,0.62)",
-                        }}
-                      >
-                        {slot.day} {slot.time}
-                      </SignatureText>
-                    </Pressable>
+                    />
                   );
                 })}
               </View>
@@ -399,12 +421,14 @@ export default function ParentAppointmentsScreen() {
                 value={date}
                 onChangeText={setDate}
                 placeholder="2026-10-01"
+                leftIcon="calendar-outline"
               />
               <SignatureInput
                 label="Ora (HH:MM)"
                 value={time}
                 onChangeText={setTime}
                 placeholder="18:00"
+                leftIcon="time-outline"
               />
             </>
           )}
@@ -417,26 +441,144 @@ export default function ParentAppointmentsScreen() {
             placeholder="Eventuali dettagli utili alla segreteria"
             error={formError || undefined}
           />
-
-          <View style={{ flexDirection: "row", gap: Spacing.sm }}>
-            <ActionButton
-              disabled={!canSubmit}
-              loading={submitting}
-              trailingIcon="arrow-forward"
-              onPress={() => void handleSubmit()}
-            >
-              {sheet?.kind === "reschedule"
-                ? "Conferma nuovo orario"
-                : "Invia richiesta"}
-            </ActionButton>
-            <ActionButton variant="ghost" onPress={() => setSheet(null)}>
-              Annulla
-            </ActionButton>
-          </View>
         </View>
       </BottomSheet>
-
-      <View style={{ height: Spacing.lg }} />
     </SecondaryScreenLayout>
   );
 }
+
+/** Pillola di scelta (motivo, orario): #1D4ED8 con etichetta bianca da scelta, bianco 70% con inchiostro a riposo. */
+function Chip({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      style={[styles.chip, selected ? styles.chipOn : null]}
+    >
+      <SignatureText
+        style={[styles.chipLabel, selected ? styles.chipLabelOn : null]}
+      >
+        {label}
+      </SignatureText>
+    </Pressable>
+  );
+}
+
+const capitalize = (value: string) =>
+  value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+
+/** Quattro livelli del design (§5c) per gli stati del dominio appuntamenti, lato famiglia. */
+/** La pillola del prototipo e una parola ("In attesa", "Confermato"): l'etichetta lunga del server resta nel dettaglio. */
+const SHORT_STATUS: Record<string, string> = {
+  requested: "In attesa",
+  confirmed: "Confermato",
+  rescheduled: "Riprogrammato",
+  completed: "Svolto",
+  rejected: "Rifiutato",
+  cancelled_by_family: "Annullato",
+  cancelled_by_club: "Annullato",
+};
+
+const STATUS_LOOK: Record<
+  string,
+  {
+    tier: StatusPillTier;
+    tone: StatusPillTone;
+    color: string;
+    icon:
+      | "people-outline"
+      | "time-outline"
+      | "close-circle-outline"
+      | "checkmark-circle"
+      | "document-text-outline";
+  }
+> = {
+  confirmed: {
+    tier: "solid",
+    tone: "info",
+    color: "#2563EB",
+    icon: "people-outline",
+  },
+  requested: {
+    tier: "outline",
+    tone: "warning",
+    color: "#F59E0B",
+    icon: "document-text-outline",
+  },
+  rescheduled: {
+    tier: "quiet",
+    tone: "neutral",
+    color: "#3533CD",
+    icon: "time-outline",
+  },
+  completed: {
+    tier: "quiet",
+    tone: "success",
+    color: "#10B981",
+    icon: "checkmark-circle",
+  },
+  rejected: {
+    tier: "solid",
+    tone: "danger",
+    color: "#EF4444",
+    icon: "close-circle-outline",
+  },
+  cancelled_by_family: {
+    tier: "quiet",
+    tone: "neutral",
+    color: "#64748B",
+    icon: "close-circle-outline",
+  },
+  cancelled_by_club: {
+    tier: "solid",
+    tone: "danger",
+    color: "#EF4444",
+    icon: "close-circle-outline",
+  },
+  no_show: {
+    tier: "quiet",
+    tone: "neutral",
+    color: "#64748B",
+    icon: "close-circle-outline",
+  },
+};
+
+const styles = StyleSheet.create({
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  chip: {
+    height: 30,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(11,26,58,0.14)",
+    backgroundColor: "rgba(255,255,255,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chipOn: {
+    backgroundColor: "#1D4ED8",
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+  chipLabel: {
+    color: "#0B1A3A",
+    fontSize: 11.5,
+    lineHeight: 14,
+    fontWeight: "700",
+  },
+  chipLabelOn: {
+    color: "#FFFFFF",
+  },
+});

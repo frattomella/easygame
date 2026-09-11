@@ -1,16 +1,14 @@
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { Pressable, StyleSheet, View } from "react-native";
 
-import { Spacing } from "@/constants/theme";
-import { GradientFill } from "@/components/signature/GradientFill";
+import { ActionButton } from "@/components/signature/ActionButton";
 import { SignatureText } from "@/components/signature/SignatureText";
 import { StatusPill } from "@/components/signature/StatusPill";
 import type { RsvpControlView } from "@/lib/parent-rsvp";
 
 interface RSVPControlProps {
   view: RsvpControlView;
-  /** `true` while the answer is in flight — never optimistic, the segment only changes when the server confirms. */
+  /** `true` while the answer is in flight — never optimistic, the buttons only change when the server confirms. */
   updating?: boolean;
   errorMessage?: string;
   onAnswer: (status: "yes" | "no") => void;
@@ -18,10 +16,12 @@ interface RSVPControlProps {
 }
 
 /**
- * design-source `guidelines/component-specs.md` §C2. Renders the
- * transitions the server has already decided (`view`) — never invents a
- * third state. `view.kind === "none"` means the event carries no RSVP
- * invitation at all (no answer to render), so the control draws nothing.
+ * La risposta della famiglia sulla scheda evento (prototipo `actionsRsvp`):
+ * due bottoni affiancati, "Ci sarà" (successo) e "Non ci sarà"
+ * (secondario), 40px, a meta larghezza ciascuno. Lo stato lo decide il
+ * server (`view`, spec C2): la risposta data resta piena, l'altra torna
+ * secondaria; un invito chiuso mostra la pill dell'esito e il motivo, mai un
+ * terzo stato inventato. `view.kind === "none"` = nessun invito: niente.
  */
 export function RSVPControl({
   view,
@@ -37,23 +37,16 @@ export function RSVPControl({
   if (view.kind === "disabled") {
     return (
       <View style={styles.wrap}>
-        {view.lastState ? (
-          <StatusPill
-            label={
-              view.lastState === "yes"
-                ? "Presente confermato"
-                : "Assenza comunicata"
-            }
-            variant={view.lastState === "yes" ? "success" : "destructive"}
-            style={styles.lastStatePill}
-          />
-        ) : null}
-        <View style={[styles.track, styles.trackDisabled]}>
-          <SignatureText
-            variant="small"
-            tone="faint"
-            style={styles.disabledLabel}
-          >
+        <View style={styles.closedRow}>
+          {view.lastState ? (
+            <StatusPill
+              label={view.lastState === "yes" ? "Ci sarà" : "Non ci sarà"}
+              tier={view.lastState === "yes" ? "solid" : "quiet"}
+              tone={view.lastState === "yes" ? "success" : "neutral"}
+              small
+            />
+          ) : null}
+          <SignatureText style={styles.reason} numberOfLines={2}>
             {view.reason}
           </SignatureText>
         </View>
@@ -66,50 +59,43 @@ export function RSVPControl({
 
   return (
     <View style={styles.wrap}>
-      {view.kind === "pending" ? (
-        <View style={styles.pendingHeader}>
-          <SignatureText variant="eyebrow" style={styles.pendingEyebrow}>
-            RISPOSTA RICHIESTA
-          </SignatureText>
-          {view.deadlineLabel ? (
-            <SignatureText variant="small" tone="muted">
-              Entro {view.deadlineLabel}
-            </SignatureText>
-          ) : null}
-        </View>
+      {view.kind === "pending" && view.deadlineLabel ? (
+        <SignatureText style={styles.deadline}>
+          {`Rispondi entro ${view.deadlineLabel}`}
+        </SignatureText>
       ) : null}
-
-      <View style={[styles.track, updating ? styles.trackUpdating : null]}>
-        <Segment
-          label="Ci sarà"
-          icon="checkmark-circle"
-          selected={attending}
-          gradient="action"
-          updating={updating}
+      <View style={styles.row}>
+        <ActionButton
+          size="sm"
+          variant={
+            attending || view.kind === "pending" ? "success" : "secondary"
+          }
+          icon={attending ? "checkmark-circle" : undefined}
+          loading={updating && !notAttending}
           disabled={updating}
           onPress={() => onAnswer("yes")}
-        />
-        <Segment
-          label="Non ci sarà"
-          icon="close-circle"
-          selected={notAttending}
-          gradient="destructive"
-          updating={updating}
+          style={styles.button}
+        >
+          Ci sarà
+        </ActionButton>
+        <ActionButton
+          size="sm"
+          variant={notAttending ? "destructive" : "secondary"}
+          icon={notAttending ? "close-circle" : undefined}
+          loading={updating && notAttending}
           disabled={updating}
           onPress={() => onAnswer("no")}
-        />
+          style={styles.button}
+        >
+          Non ci sarà
+        </ActionButton>
       </View>
-
       {errorMessage ? (
         <View style={styles.errorRow}>
-          <SignatureText variant="small" style={styles.errorText}>
-            {errorMessage}
-          </SignatureText>
+          <SignatureText style={styles.errorText}>{errorMessage}</SignatureText>
           {onRetry ? (
-            <Pressable onPress={onRetry}>
-              <SignatureText variant="small" style={styles.retry}>
-                Riprova
-              </SignatureText>
+            <Pressable onPress={onRetry} hitSlop={6}>
+              <SignatureText style={styles.retry}>Riprova</SignatureText>
             </Pressable>
           ) : null}
         </View>
@@ -118,111 +104,51 @@ export function RSVPControl({
   );
 }
 
-function Segment({
-  label,
-  icon,
-  selected,
-  gradient,
-  updating,
-  disabled,
-  onPress,
-}: {
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  selected: boolean;
-  gradient: "action" | "destructive";
-  updating: boolean;
-  disabled: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable disabled={disabled} onPress={onPress} style={styles.segment}>
-      {selected ? (
-        <GradientFill
-          gradient={gradient}
-          style={StyleSheet.absoluteFillObject}
-        />
-      ) : null}
-      {selected && updating ? (
-        <ActivityIndicator color="#FFFFFF" size="small" />
-      ) : (
-        <>
-          {selected ? <Ionicons name={icon} size={18} color="#FFFFFF" /> : null}
-          <SignatureText
-            style={{
-              fontSize: 14,
-              lineHeight: 20,
-              fontWeight: "700",
-              color: selected ? "#FFFFFF" : "rgba(11,26,58,0.62)",
-            }}
-          >
-            {label}
-          </SignatureText>
-        </>
-      )}
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   wrap: {
-    gap: Spacing.xs,
-  },
-  pendingHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 4,
-  },
-  pendingEyebrow: {
-    color: "#B45309",
-  },
-  lastStatePill: {
-    marginBottom: 4,
-  },
-  track: {
-    flexDirection: "row",
-    height: 52,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    borderBottomRightRadius: 5,
-    borderBottomLeftRadius: 14,
-    borderWidth: 1,
-    borderColor: "rgba(11,26,58,0.14)",
-    backgroundColor: "rgba(255,255,255,0.88)",
-    overflow: "hidden",
-  },
-  trackUpdating: {
-    opacity: 0.7,
-  },
-  trackDisabled: {
-    backgroundColor: "rgba(11,26,58,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: Spacing.md,
-  },
-  disabledLabel: {
-    textAlign: "center",
-  },
-  segment: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
     gap: 8,
+  },
+  deadline: {
+    color: "rgba(11,26,58,0.62)",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  row: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  button: {
+    flex: 1,
+  },
+  closedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  reason: {
+    flex: 1,
+    color: "rgba(11,26,58,0.42)",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
   },
   errorRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 4,
+    gap: 8,
   },
   errorText: {
+    flex: 1,
     color: "#B91C1C",
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: "600",
   },
   retry: {
-    color: "#2563EB",
+    color: "#1D4ED8",
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: "700",
   },
 });

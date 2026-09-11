@@ -34,9 +34,9 @@ export function StatCard({
     <GlassCard noPadding style={[styles.card, style]}>
       <View style={styles.topRow}>
         <IconChip name={icon} color={iconColor} size={34} />
-        {statusColor ? (
-          <View style={[styles.dot, { backgroundColor: statusColor }]} />
-        ) : null}
+        <View
+          style={[styles.dot, { backgroundColor: statusColor || iconColor }]}
+        />
       </View>
       {loading ? (
         <View style={styles.placeholder} />

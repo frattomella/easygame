@@ -1,23 +1,15 @@
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet, Pressable } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  FadeInDown,
-} from "react-native-reanimated";
 
 import { useAuthContext } from "@/contexts/AuthContext";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { EASYGAME_APP_NAME } from "@/constants/branding";
 import { Spacing } from "@/constants/theme";
 import {
   ActionButton,
-  BrandStateLayout,
+  AuthFrame,
   SignatureInput,
   SignatureText,
 } from "@/components/signature";
@@ -31,10 +23,11 @@ type Navigation = NativeStackNavigationProp<RootStackParamList, "Login">;
  * password vivono in schermate dedicate — vedi `RegisterScreen`,
  * `VerifyOtpScreen`, `ForgotPasswordScreen`.
  *
- * v3.0 (`migration-v3.md` passo 7): su `BrandStateLayout` — cielo pieno,
- * mai il quadrato con gradiente attorno al marchio (regola di brand
- * CLAUDE.md, "no unnecessary gradient tile around the icon"): il marchio
- * vive solo nel watermark del fondo, il titolo resta testo puro.
+ * Composizione: design `IA e Home` §5a / prototipo `isLogin` — riga
+ * marchio con passo "1 di 3", eyebrow "Accedi", titolo "Bentornato",
+ * scheda di vetro con Email + Password + CTA a gradiente, secondario
+ * "Password dimenticata?" in contorno bianco, poi il rimando alla
+ * registrazione.
  */
 export default function LoginScreen() {
   const navigation = useNavigation<Navigation>();
@@ -60,13 +53,6 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const configHeight = useSharedValue(0);
-
-  const animatedConfigStyle = useAnimatedStyle(() => ({
-    height: configHeight.value,
-    overflow: "hidden",
-  }));
-
   useEffect(() => {
     void mobileBackendStorage.getServerUrl().then((value) => {
       if (value) {
@@ -77,11 +63,7 @@ export default function LoginScreen() {
 
   const toggleServerConfig = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setShowDeveloperConfig(!showDeveloperConfig);
-    configHeight.value = withSpring(showDeveloperConfig ? 0 : 100, {
-      damping: 15,
-      stiffness: 100,
-    });
+    setShowDeveloperConfig((current) => !current);
   };
 
   const handleSubmit = async () => {
@@ -131,203 +113,109 @@ export default function LoginScreen() {
   };
 
   return (
-    <BrandStateLayout>
-      <Animated.View
-        entering={FadeInDown.delay(100).duration(600)}
-        style={styles.titleContainer}
-      >
-        <Pressable onLongPress={toggleServerConfig}>
-          <SignatureText
-            variant="eyebrow"
-            tone="onDarkMuted"
-            style={styles.centeredText}
+    <AuthFrame
+      step="1 di 3"
+      eyebrow="Accedi"
+      title="Bentornato"
+      body="Entra con le credenziali del tuo club."
+      notice={
+        sessionExpiredNotice
+          ? "Sessione scaduta. Accedi di nuovo per continuare."
+          : undefined
+      }
+      error={error || undefined}
+      card={
+        <>
+          <SignatureInput
+            label="Email"
+            placeholder="nome@club.it"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            leftIcon="mail-outline"
+          />
+          <SignatureInput
+            label="Password"
+            placeholder="La tua password"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            autoComplete="password"
+            leftIcon="lock-closed-outline"
+            rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
+            rightIconLabel={
+              showPassword ? "Nascondi password" : "Mostra password"
+            }
+            onRightIconPress={() => setShowPassword(!showPassword)}
+            onSubmitEditing={() => void handleSubmit()}
+          />
+          {showDeveloperConfig ? (
+            <SignatureInput
+              label="Backend"
+              placeholder="https://api.example.com"
+              value={serverUrl}
+              onChangeText={setServerUrl}
+              keyboardType="url"
+              autoCapitalize="none"
+              leftIcon="globe-outline"
+            />
+          ) : null}
+          <ActionButton
+            variant="primary"
+            fullWidth
+            trailingIcon="arrow-forward"
+            onPress={() => void handleSubmit()}
+            loading={loading}
           >
-            Benvenuto su
-          </SignatureText>
-        </Pressable>
-        <SignatureText
-          variant="display"
-          tone="onDark"
-          style={[styles.title, styles.centeredText]}
-        >
-          {EASYGAME_APP_NAME}
-        </SignatureText>
-        <SignatureText
-          variant="body"
-          tone="onDarkMuted"
-          style={styles.centeredText}
-        >
-          Accesso account e dashboard EasyGame
-        </SignatureText>
-      </Animated.View>
-
-      <Animated.View
-        entering={FadeInDown.delay(200).duration(600)}
-        style={styles.formContainer}
-      >
-        {sessionExpiredNotice ? (
-          <View style={styles.sessionExpiredNotice}>
-            <Ionicons name="time-outline" size={16} color="#FCD34D" />
-            <SignatureText
-              variant="small"
-              style={[styles.sessionExpiredText, { flex: 1 }]}
-            >
-              Sessione scaduta. Accedi di nuovo per continuare.
-            </SignatureText>
-          </View>
-        ) : null}
-
-        <SignatureInput
-          label="Email"
-          placeholder="coach@example.com"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          leftIcon="mail-outline"
-          style={styles.field}
-        />
-
-        <SignatureInput
-          label="Password"
-          placeholder="La tua password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={!showPassword}
-          leftIcon="lock-closed-outline"
-          rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
-          rightIconLabel={
-            showPassword ? "Nascondi password" : "Mostra password"
-          }
-          onRightIconPress={() => setShowPassword(!showPassword)}
-          style={styles.field}
-        />
-
-        <Pressable
-          onPress={() => navigation.navigate("ForgotPassword")}
-          style={styles.forgotLink}
-        >
-          <SignatureText variant="small" style={styles.forgotLinkText}>
-            Password dimenticata?
-          </SignatureText>
-        </Pressable>
-
-        {error ? (
-          <View style={styles.errorContainer}>
-            <Ionicons name="alert-circle" size={16} color="#FCA5A5" />
-            <SignatureText
-              variant="small"
-              style={[styles.errorText, { flex: 1 }]}
-            >
-              {error}
-            </SignatureText>
-          </View>
-        ) : null}
-
-        <ActionButton
-          variant="primary"
-          onSky
-          onPress={() => void handleSubmit()}
-          loading={loading}
-          fullWidth
-          style={styles.loginButton}
-        >
-          Accedi
-        </ActionButton>
-
-        <View style={styles.footer}>
-          <SignatureText variant="small" tone="onDarkMuted">
+            Accedi
+          </ActionButton>
+        </>
+      }
+      secondary={{
+        label: "Password dimenticata?",
+        onPress: () => navigation.navigate("ForgotPassword"),
+      }}
+    >
+      <View style={styles.registerRow}>
+        <Pressable onLongPress={toggleServerConfig} delayLongPress={1200}>
+          <SignatureText style={styles.registerText}>
             Non hai un account?
           </SignatureText>
-          <Pressable onPress={() => navigation.navigate("Register")}>
-            <SignatureText variant="small" style={styles.footerLink}>
-              Crea account
-            </SignatureText>
-          </Pressable>
-        </View>
-
-        <Animated.View style={animatedConfigStyle}>
-          <SignatureText variant="small" style={styles.devLabel}>
-            Configurazione tecnica backend
+        </Pressable>
+        <Pressable
+          onPress={() => navigation.navigate("Register")}
+          hitSlop={8}
+          accessibilityRole="button"
+        >
+          <SignatureText style={styles.registerLink}>
+            Crea account
           </SignatureText>
-          <SignatureInput
-            placeholder="https://api.example.com"
-            value={serverUrl}
-            onChangeText={setServerUrl}
-            keyboardType="url"
-            autoCapitalize="none"
-            leftIcon="globe-outline"
-          />
-        </Animated.View>
-      </Animated.View>
-    </BrandStateLayout>
+        </Pressable>
+      </View>
+    </AuthFrame>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    alignItems: "center",
-    marginTop: Spacing["2xl"],
-    marginBottom: Spacing["4xl"],
-    gap: 4,
-  },
-  title: {
-    marginVertical: 2,
-  },
-  centeredText: {
-    textAlign: "center",
-  },
-  formContainer: {
-    gap: Spacing.md,
-  },
-  field: {
-    marginBottom: 0,
-  },
-  forgotLink: {
-    alignSelf: "flex-end",
-  },
-  forgotLinkText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-  },
-  loginButton: {
-    marginTop: Spacing.sm,
-  },
-  errorContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-  },
-  errorText: {
-    color: "#FCA5A5",
-  },
-  sessionExpiredNotice: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-    backgroundColor: "rgba(252,211,77,0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(252,211,77,0.35)",
-    borderRadius: 12,
-    padding: Spacing.sm,
-  },
-  sessionExpiredText: {
-    color: "#FCD34D",
-  },
-  footer: {
+  registerRow: {
     flexDirection: "row",
     justifyContent: "center",
+    alignItems: "center",
     gap: Spacing.xs,
     marginTop: Spacing.md,
   },
-  footerLink: {
-    color: "#FFFFFF",
-    fontWeight: "700",
+  registerText: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
   },
-  devLabel: {
-    textAlign: "center",
-    marginTop: Spacing["3xl"],
-    marginBottom: Spacing.sm,
-    color: "rgba(255,255,255,0.72)",
+  registerLink: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
   },
 });

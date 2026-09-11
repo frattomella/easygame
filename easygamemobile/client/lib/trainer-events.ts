@@ -341,22 +341,25 @@ export const sortEventsByDateTime = <T extends { date: string; time: string }>(
 
 /**
  * L'appello di un allenamento dai partecipanti del dettaglio
- * (`GET /api/v1/events/:id`) alla forma binaria che la schermata Presenze
- * gia usa (`TrainingAttendanceEntry`, `present: boolean`). "Pending" (mai
- * segnato) non genera una riga — stesso significato di sempre: un atleta
- * assente dall'elenco e "non ancora segnato", esattamente come quando
- * l'appello viveva nella proiezione JSON legacy. Nessun tri-state nuovo
- * viene mostrato: e la scelta dichiarata di ADR-0168 punto 3, non
- * un'omissione.
+ * (`GET /api/v1/events/:id`) ai tre stati del vocabolario server
+ * (`ATTENDANCE_STATUSES`: present, absent, pending): una riga `pending` —
+ * o senza stato, che il server normalizza a pending — e "da segnare"
+ * (`present: null`), e resta una riga: al salvataggio torna al server come
+ * `pending`, non sparisce. Un atleta senza riga e ugualmente "da segnare",
+ * ma non ha nulla da riscrivere (WP13, parita visiva: D-MOB-11 chiuso).
  */
 export const mapParticipantsToAttendance = (
   participants: EventParticipantRow[] | undefined,
 ): TrainingAttendanceEntry[] =>
   toArray(participants)
-    .filter((entry) => entry.status === "present" || entry.status === "absent")
     .map((entry) => ({
       athleteId: String(entry.athlete_id || entry.athleteId || "").trim(),
-      present: entry.status === "present",
+      present:
+        entry.status === "present"
+          ? true
+          : entry.status === "absent"
+            ? false
+            : null,
       notes: String(entry.notes || "").trim(),
     }))
     .filter((entry) => Boolean(entry.athleteId));

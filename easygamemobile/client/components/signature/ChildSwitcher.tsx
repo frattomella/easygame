@@ -1,12 +1,14 @@
 import React, { useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 
-import { EGChildAccents, Spacing } from "@/constants/theme";
+import { EGChildAccents, EGGlass, EGShadow, Spacing } from "@/constants/theme";
 import { GlassSurface } from "@/components/signature/GlassSurface";
+import { GradientFill } from "@/components/signature/GradientFill";
 import { SignatureText } from "@/components/signature/SignatureText";
 import { BottomSheet } from "@/components/signature/BottomSheet";
 import { IconChip } from "@/components/signature/IconChip";
+import { ActionButton } from "@/components/signature/ActionButton";
+import { SelectionRing } from "@/components/signature/SelectionRing";
 import {
   groupChildrenByClub,
   resolveChildAccentIndex,
@@ -22,12 +24,12 @@ const initialsOf = (name: string) =>
     .join("") || "?";
 
 /**
- * spec C1's "child NumberTile or 36px avatar with a `2px` child-accent
- * ring": a `NumberTile` needs a jersey number, which a linked child does not
- * carry in this payload (`ParentChild` has no `number`), so the switcher
- * always takes the avatar branch — photo when the club has one, initials on
- * the child's accent otherwise. Ring, never fill, is the accent: the name is
- * always the real identifier alongside it.
+ * Il glifo del figlio (prototipo `showChildBar`): un anello di 2px nel
+ * colore-accento del figlio attorno a un tondo navy (il `NumberTile`
+ * del prototipo, ritagliato a cerchio). `ParentChild` non porta il numero
+ * di maglia, quindi il tondo mostra la foto del club quando c'e, altrimenti
+ * le iniziali — l'anello, mai il riempimento, e l'accento; il nome resta
+ * sempre accanto.
  */
 function ChildGlyph({
   child,
@@ -38,36 +40,47 @@ function ChildGlyph({
   accent: string;
   size: number;
 }) {
+  const inner = size - 4;
   return (
     <View
       style={{
         width: size,
         height: size,
-        borderRadius: size / 2,
-        borderWidth: 2,
-        borderColor: accent,
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden",
-        backgroundColor: "rgba(11,26,58,0.75)",
+        borderRadius: 999,
+        padding: 2,
+        backgroundColor: accent,
       }}
     >
-      {child.avatarUrl ? (
-        <Image
-          source={{ uri: child.avatarUrl }}
-          style={{ width: "100%", height: "100%" }}
-        />
-      ) : (
-        <SignatureText
-          style={{
-            color: "#FFFFFF",
-            fontSize: Math.round(size * 0.38),
-            fontWeight: "800",
-          }}
-        >
-          {initialsOf(child.name)}
-        </SignatureText>
-      )}
+      <View
+        style={{
+          width: inner,
+          height: inner,
+          borderRadius: 999,
+          overflow: "hidden",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <GradientFill gradient="navy" style={StyleSheet.absoluteFillObject} />
+        {child.avatarUrl ? (
+          <Image
+            source={{ uri: child.avatarUrl }}
+            style={{ width: "100%", height: "100%" }}
+          />
+        ) : (
+          <SignatureText
+            style={{
+              color: "#FFFFFF",
+              fontSize: Math.round(inner * 0.36),
+              lineHeight: Math.round(inner * 0.44),
+              fontWeight: "800",
+              letterSpacing: -0.3,
+            }}
+          >
+            {initialsOf(child.name)}
+          </SignatureText>
+        )}
+      </View>
     </View>
   );
 }
@@ -81,10 +94,12 @@ interface ChildSwitcherProps {
 }
 
 /**
- * design-source `guidelines/component-specs.md` §C1. Placement is fixed by
- * `guidelines/navigation.md`: in the navy sky, directly under the AppBar, on
- * every primary Parent screen — see `ParentPrimaryScreenLayout`, which is
- * the only place this component is mounted.
+ * design `IA e Home` §2b + prototipo v3: la barra del figlio, "in the sky
+ * under the AppBar on every Parent primary screen" — pillola dark-glass di
+ * 56px (margine 10/20), glifo con anello-accento, nome 15/700 e squadra in
+ * eyebrow, chip chevron a destra. Il tocco apre il foglio "Cambia atleta":
+ * righe di scelta con anello, poi Annulla + Conferma (prototipo `child`).
+ * Montata solo da `ParentPrimaryScreenLayout`.
  */
 export function ChildSwitcher({
   linkedChildren: allChildren,
@@ -93,6 +108,7 @@ export function ChildSwitcher({
   onSelect,
 }: ChildSwitcherProps) {
   const [expanded, setExpanded] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
   const selected =
     allChildren.find((child) => child.id === selectedChildId) || null;
 
@@ -104,11 +120,16 @@ export function ChildSwitcher({
   const accent = EGChildAccents[accentIndex];
   const singleChild = allChildren.length === 1;
   const groups = groupChildrenByClub(allChildren);
+  const teamLabel = selected.categoryName || selected.clubName;
 
-  const handleSelect = (childId: string) => {
+  const open = () => {
+    setPendingId(selected.id);
+    setExpanded(true);
+  };
+  const confirm = () => {
     setExpanded(false);
-    if (childId !== selectedChildId) {
-      onSelect(childId);
+    if (pendingId && pendingId !== selectedChildId) {
+      onSelect(pendingId);
     }
   };
 
@@ -116,105 +137,101 @@ export function ChildSwitcher({
     <>
       <Pressable
         disabled={singleChild}
-        onPress={() => setExpanded(true)}
+        onPress={open}
         style={styles.wrap}
+        accessibilityRole="button"
+        accessibilityLabel={
+          singleChild
+            ? `Atleta: ${selected.name}, ${teamLabel}`
+            : `Atleta: ${selected.name}, ${teamLabel}. Cambia atleta`
+        }
       >
-        <GlassSurface tone="dark" corner="pill" style={styles.pill}>
+        <GlassSurface
+          tone="dark"
+          corner="pill"
+          style={[styles.pill, EGShadow.dock]}
+        >
           <View style={[styles.row, switching ? styles.rowSwitching : null]}>
-            <ChildGlyph child={selected} accent={accent} size={36} />
+            <ChildGlyph child={selected} accent={accent} size={40} />
             <View style={{ flex: 1, minWidth: 0 }}>
-              <SignatureText
-                variant="body"
-                tone="onDark"
-                numberOfLines={1}
-                style={styles.name}
-              >
+              <SignatureText numberOfLines={1} style={styles.name}>
                 {selected.name}
               </SignatureText>
-              <SignatureText
-                variant="eyebrow"
-                tone="onDarkMuted"
-                numberOfLines={1}
-              >
-                {selected.clubName}
+              <SignatureText numberOfLines={1} style={styles.team}>
+                {teamLabel}
               </SignatureText>
             </View>
             {!singleChild ? (
-              <View style={styles.chevronChip}>
-                <Ionicons
-                  name="chevron-down-outline"
-                  size={18}
-                  color="rgba(255,255,255,0.72)"
-                />
-              </View>
+              <IconChip name="chevron-down-outline" tone="dark" size={32} />
             ) : null}
           </View>
         </GlassSurface>
       </Pressable>
 
-      <BottomSheet visible={expanded} onClose={() => setExpanded(false)}>
-        <SignatureText
-          variant="eyebrow"
-          tone="faint"
-          style={styles.sheetEyebrow}
-        >
-          I TUOI FIGLI
-        </SignatureText>
-        {groups.map((group) => (
-          <View key={group.clubId} style={styles.group}>
-            <SignatureText
-              variant="small"
-              tone="muted"
-              style={styles.groupLabel}
+      <BottomSheet
+        visible={expanded}
+        onClose={() => setExpanded(false)}
+        eyebrow="I tuoi figli"
+        title="Cambia atleta"
+        actions={
+          <>
+            <ActionButton
+              variant="secondary"
+              onPress={() => setExpanded(false)}
+              style={{ width: 100 }}
             >
-              {group.clubName}
-            </SignatureText>
-            {group.children.map((child) => {
-              const isSelected = child.id === selectedChildId;
-              const childAccent =
-                EGChildAccents[resolveChildAccentIndex(allChildren, child.id)];
-              return (
-                <Pressable
-                  key={child.id}
-                  onPress={() => handleSelect(child.id)}
-                  style={styles.childRow}
+              Annulla
+            </ActionButton>
+            <ActionButton
+              trailingIcon="arrow-forward"
+              onPress={confirm}
+              style={{ flex: 1 }}
+            >
+              Conferma
+            </ActionButton>
+          </>
+        }
+      >
+        {groups.map((group) =>
+          group.children.map((child) => {
+            const isPending = child.id === pendingId;
+            const childAccent =
+              EGChildAccents[resolveChildAccentIndex(allChildren, child.id)];
+            return (
+              <Pressable
+                key={child.id}
+                onPress={() => setPendingId(child.id)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isPending }}
+              >
+                <GlassSurface
+                  tone="light"
+                  corner="control"
+                  style={[
+                    styles.pickRow,
+                    EGShadow.row,
+                    isPending ? styles.pickRowOn : null,
+                  ]}
                 >
-                  <ChildGlyph child={child} accent={childAccent} size={40} />
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <SignatureText variant="body" tone="ink" numberOfLines={1}>
-                      {child.name}
-                    </SignatureText>
-                    <SignatureText
-                      variant="small"
-                      tone="muted"
-                      numberOfLines={1}
-                    >
-                      {[child.clubName, child.categoryName]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </SignatureText>
+                  <View style={styles.pickInner}>
+                    <ChildGlyph child={child} accent={childAccent} size={44} />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <SignatureText numberOfLines={1} style={styles.pickName}>
+                        {child.name}
+                      </SignatureText>
+                      <SignatureText numberOfLines={1} style={styles.pickMeta}>
+                        {[group.clubName, child.categoryName]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </SignatureText>
+                    </View>
+                    <SelectionRing on={isPending} />
                   </View>
-                  <View
-                    style={[
-                      styles.ringToggle,
-                      isSelected ? styles.ringToggleFilled : null,
-                    ]}
-                  >
-                    {isSelected ? (
-                      <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                    ) : null}
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
-        ))}
-        <Pressable onPress={() => setExpanded(false)} style={styles.cancelRow}>
-          <IconChip name="close-outline" tone="glass" size={36} />
-          <SignatureText variant="body" tone="muted">
-            Annulla
-          </SignatureText>
-        </Pressable>
+                </GlassSurface>
+              </Pressable>
+            );
+          }),
+        )}
       </BottomSheet>
     </>
   );
@@ -222,16 +239,16 @@ export function ChildSwitcher({
 
 const styles = StyleSheet.create({
   wrap: {
-    marginHorizontal: Spacing.xl,
-    marginTop: Spacing.sm,
+    marginHorizontal: 20,
+    marginTop: 10,
   },
   pill: {
-    borderColor: "rgba(255,255,255,0.22)",
+    borderColor: "rgba(255,255,255,0.24)",
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.sm,
+    gap: 10,
     height: 56,
     paddingHorizontal: Spacing.sm,
   },
@@ -239,50 +256,43 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   name: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: "700",
   },
-  chevronChip: {
-    width: 32,
-    height: 32,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sheetEyebrow: {
-    marginBottom: Spacing.sm,
-  },
-  group: {
-    marginBottom: Spacing.md,
-  },
-  groupLabel: {
-    marginBottom: Spacing.xs,
+  team: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    letterSpacing: 1.1,
     textTransform: "uppercase",
   },
-  childRow: {
+  pickRow: {
+    minHeight: 64,
+    borderColor: EGGlass.border,
+  },
+  pickRowOn: {
+    backgroundColor: EGGlass.bgStrong,
+    borderColor: "rgba(37,99,235,0.4)",
+  },
+  pickInner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.md,
-    paddingVertical: Spacing.sm,
+    gap: 12,
+    padding: 12,
   },
-  ringToggle: {
-    width: 28,
-    height: 28,
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: "rgba(11,26,58,0.22)",
-    backgroundColor: "rgba(255,255,255,0.6)",
-    alignItems: "center",
-    justifyContent: "center",
+  pickName: {
+    color: "#0B1A3A",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "700",
   },
-  ringToggleFilled: {
-    backgroundColor: "#2563EB",
-    borderColor: "#2563EB",
-  },
-  cancelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    paddingVertical: Spacing.md,
+  pickMeta: {
+    color: "rgba(11,26,58,0.42)",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
   },
 });

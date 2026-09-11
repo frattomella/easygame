@@ -1,16 +1,20 @@
 import React, { useState } from "react";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 import {
+  ActionBarButton,
   ActionButton,
-  GlassCard,
-  MetaRow,
+  BottomSheet,
+  GlassRow,
   SecondaryScreenLayout,
+  SectionLabel,
   SignatureInput,
   SignatureText,
   StateMessage,
   StatusPill,
+  SummaryCard,
 } from "@/components/signature";
+import type { StatusPillTier, StatusPillTone } from "@/components/signature";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import { useAsyncSection } from "@/hooks/useAsyncSection";
 import { fetchErrorMessage } from "@/lib/fetch-error";
@@ -20,20 +24,43 @@ import type { Athlete, ClubAppointment } from "@/services/api";
 
 const OPEN_STATUSES = new Set(["requested", "confirmed", "rescheduled"]);
 
+/** Quattro livelli del design (§5c) per gli stati del dominio appuntamenti. */
+const STATUS_LOOK: Record<
+  string,
+  { tier: StatusPillTier; tone: StatusPillTone; color: string }
+> = {
+  confirmed: { tier: "solid", tone: "info", color: "#2563EB" },
+  requested: { tier: "outline", tone: "warning", color: "#F59E0B" },
+  rescheduled: { tier: "quiet", tone: "neutral", color: "#3533CD" },
+  completed: { tier: "quiet", tone: "success", color: "#10B981" },
+  rejected: { tier: "solid", tone: "danger", color: "#EF4444" },
+  cancelled: { tier: "solid", tone: "danger", color: "#EF4444" },
+};
+
 type AppointmentsData = {
   appointments: ClubAppointment[];
   athletes: Athlete[];
 };
 
+type SheetMode =
+  | { kind: "reject"; appointment: ClubAppointment }
+  | { kind: "reschedule"; appointment: ClubAppointment }
+  | null;
+
 /**
  * I propri appuntamenti — stesso dominio del Web
  * (`trainer-appointments-dashboard-page.tsx`, `src/lib/server/appointments.ts`).
  * I pulsanti li detta `transitions`, la macchina a stati del dominio: mai tre
- * azioni fisse che il server potrebbe rifiutare.
+ * azioni fisse che il server potrebbe rifiutare. Il rifiuto raccoglie
+ * sempre un motivo prima di inviarlo (la famiglia lo legge nel messaggio
+ * che chiude la richiesta).
  *
- * Il rifiuto raccoglie sempre un motivo prima di inviarlo — stesso contratto
- * corretto in WP1 lato Web (`rejectAppointment` lo pretende: la famiglia lo
- * legge nel messaggio che chiude la richiesta).
+ * Composizione: design `IA e Home` §3c ("Appuntamenti") — scheda scura
+ * "Prossimo · Gio 19 · 17:00 · N" nel cielo, righe di vetro (icona,
+ * motivo, "data · ora · atleta", pill a quattro livelli) con la barra
+ * azioni etichettata sotto (Conferma / Riprogramma / Rifiuta); motivo del
+ * rifiuto e nuova data si raccolgono in un foglio, non in un modulo in
+ * linea.
  */
 export default function TrainerAppointmentsScreen() {
   const { status, data, errorMessage, reload } =
@@ -48,8 +75,15 @@ export default function TrainerAppointmentsScreen() {
       (result) => result.appointments.length === 0,
     );
 
+  const [sheet, setSheet] = useState<SheetMode>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [reason, setReason] = useState("");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+
   const athleteName = (athleteId: string | null) => {
-    if (!athleteId) return "Appuntamento di segreteria";
+    if (!athleteId) return "Segreteria";
     const athlete = data?.athletes.find((entry) => entry.id === athleteId);
     return athlete?.name || "Atleta";
   };
@@ -60,9 +94,124 @@ export default function TrainerAppointmentsScreen() {
   const closed = (data?.appointments || []).filter(
     (entry) => !OPEN_STATUSES.has(entry.status),
   );
+  const next =
+    [...open]
+      .filter((entry) => entry.date)
+      .sort((a, b) =>
+        `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`),
+      )[0] || null;
+
+  const run = async (id: string, action: () => Promise<unknown>) => {
+    setBusyId(id);
+    setError("");
+    try {
+      await action();
+      setSheet(null);
+      setReason("");
+      reload();
+    } catch (actionError) {
+      setError(fetchErrorMessage(actionError, "Operazione non riuscita."));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const openSheet = (mode: SheetMode) => {
+    setError("");
+    if (mode?.kind === "reschedule") {
+      setDate(mode.appointment.date || "");
+      setTime(mode.appointment.time || "");
+    }
+    setSheet(mode);
+  };
+
+  const renderRow = (appointment: ClubAppointment) => {
+    const look = STATUS_LOOK[appointment.status] || STATUS_LOOK.rescheduled;
+    const canConfirm = appointment.transitions.includes("confirmed");
+    const canReject = appointment.transitions.includes("rejected");
+    const canReschedule = appointment.transitions.includes("rescheduled");
+    const hasActions = canConfirm || canReject || canReschedule;
+    const busy = busyId === appointment.id;
+    return (
+      <GlassRow
+        key={appointment.id}
+        icon={
+          appointment.status === "rejected" ||
+          appointment.status === "cancelled"
+            ? "close-circle-outline"
+            : appointment.status === "completed"
+              ? "checkmark-circle"
+              : "people-outline"
+        }
+        iconColor={look.color}
+        title={appointment.reason || "Colloquio"}
+        meta={[
+          `${formatItalianDate(appointment.date, "EEE d MMM")} · ${appointment.time || "orario da definire"}`,
+          athleteName(appointment.athlete_id),
+          appointment.decision_note
+            ? `Motivo: ${appointment.decision_note}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+        trailing={
+          <StatusPill
+            label={appointment.status_label}
+            tier={look.tier}
+            tone={look.tone}
+            small
+          />
+        }
+        actions={
+          hasActions ? (
+            <>
+              {canConfirm ? (
+                <ActionBarButton
+                  label="Conferma"
+                  icon="checkmark"
+                  variant="primary"
+                  loading={busy}
+                  onPress={() =>
+                    void run(appointment.id, () =>
+                      mobileBackendStorage.updateAppointment(
+                        appointment.id,
+                        "confirm",
+                        { version: appointment.version },
+                      ),
+                    )
+                  }
+                />
+              ) : null}
+              {canReschedule ? (
+                <ActionBarButton
+                  label="Riprogramma"
+                  icon="time-outline"
+                  disabled={busy}
+                  onPress={() => openSheet({ kind: "reschedule", appointment })}
+                />
+              ) : null}
+              {canReject ? (
+                <ActionBarButton
+                  label="Rifiuta"
+                  icon="close-circle-outline"
+                  disabled={busy}
+                  onPress={() => openSheet({ kind: "reject", appointment })}
+                />
+              ) : null}
+            </>
+          ) : undefined
+        }
+      />
+    );
+  };
 
   return (
-    <SecondaryScreenLayout title="Appuntamenti" eyebrow="Personale">
+    <SecondaryScreenLayout
+      title="Appuntamenti"
+      eyebrow="Allenatore · Segreteria"
+      skyHeight={300}
+      contentGap={10}
+    >
       {status === "loading" ? (
         <StateMessage
           kind="loading"
@@ -92,255 +241,161 @@ export default function TrainerAppointmentsScreen() {
         />
       ) : (
         <>
-          <SignatureText variant="eyebrow" tone="onDarkMuted">
-            Da gestire
-          </SignatureText>
-          {open.length === 0 ? (
-            <StateMessage
-              kind="empty"
-              tone="dark"
-              title="Nessun appuntamento aperto"
-            />
-          ) : (
-            open.map((appointment) => (
-              <AppointmentCard
-                key={appointment.id}
-                appointment={appointment}
-                athleteLabel={athleteName(appointment.athlete_id)}
-                onChanged={reload}
-              />
-            ))
-          )}
-
-          {closed.length > 0 ? (
-            <>
-              <SignatureText
-                variant="eyebrow"
-                tone="onDarkMuted"
-                style={{ marginTop: Spacing.md }}
-              >
-                Storico
-              </SignatureText>
-              {closed.map((appointment) => (
-                <AppointmentCard
-                  key={appointment.id}
-                  appointment={appointment}
-                  athleteLabel={athleteName(appointment.athlete_id)}
-                  onChanged={reload}
-                />
-              ))}
-            </>
+          <SummaryCard
+            icon="calendar-outline"
+            eyebrow={next ? "Prossimo" : "Da gestire"}
+            title={
+              next
+                ? `${capitalize(formatItalianDate(next.date, "EEE d"))} · ${next.time || "orario da definire"}`
+                : "Nessun appuntamento aperto"
+            }
+            value={String(open.length)}
+          />
+          {error && !sheet ? (
+            <SignatureText style={styles.error}>{error}</SignatureText>
           ) : null}
+          {open.length > 0 ? (
+            <SectionLabel
+              label="Da gestire"
+              trailing={String(open.length)}
+              style={{ paddingTop: 4 }}
+            />
+          ) : null}
+          {open.map(renderRow)}
+          {closed.length > 0 ? (
+            <SectionLabel
+              label="Conclusi"
+              trailing={String(closed.length)}
+              style={{ paddingTop: 6 }}
+            />
+          ) : null}
+          {closed.map(renderRow)}
         </>
       )}
-      <View style={{ height: Spacing.lg }} />
-    </SecondaryScreenLayout>
-  );
-}
 
-function AppointmentCard({
-  appointment,
-  athleteLabel,
-  onChanged,
-}: {
-  appointment: ClubAppointment;
-  athleteLabel: string;
-  onChanged: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [mode, setMode] = useState<"idle" | "reject" | "reschedule">("idle");
-  const [reason, setReason] = useState("");
-  const [date, setDate] = useState(appointment.date || "");
-  const [time, setTime] = useState(appointment.time || "");
-
-  const canConfirm = appointment.transitions.includes("confirmed");
-  const canReject = appointment.transitions.includes("rejected");
-  const canReschedule = appointment.transitions.includes("rescheduled");
-
-  const run = async (action: () => Promise<unknown>) => {
-    setBusy(true);
-    setError("");
-    try {
-      await action();
-      setMode("idle");
-      onChanged();
-    } catch (actionError) {
-      setError(fetchErrorMessage(actionError, "Operazione non riuscita."));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <GlassCard style={{ gap: Spacing.xs }}>
-      <View
-        style={{
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: Spacing.sm,
-        }}
+      <BottomSheet
+        visible={sheet?.kind === "reject"}
+        onClose={() => setSheet(null)}
+        eyebrow={sheet ? sheet.appointment.reason || "Colloquio" : ""}
+        title="Rifiuta la richiesta"
+        actions={
+          sheet?.kind === "reject" ? (
+            <>
+              <ActionButton
+                variant="secondary"
+                onPress={() => setSheet(null)}
+                style={styles.cancel}
+              >
+                Annulla
+              </ActionButton>
+              <ActionButton
+                variant="destructive"
+                disabled={!reason.trim()}
+                loading={busyId === sheet.appointment.id}
+                trailingIcon="arrow-forward"
+                style={styles.confirm}
+                onPress={() =>
+                  void run(sheet.appointment.id, () =>
+                    mobileBackendStorage.updateAppointment(
+                      sheet.appointment.id,
+                      "reject",
+                      {
+                        note: reason.trim(),
+                        version: sheet.appointment.version,
+                      },
+                    ),
+                  )
+                }
+              >
+                Conferma rifiuto
+              </ActionButton>
+            </>
+          ) : undefined
+        }
       >
-        <SignatureText variant="h4" tone="ink" style={{ flex: 1 }}>
-          {appointment.reason || "Colloquio"}
-        </SignatureText>
-        <StatusPill label={appointment.status_label} variant="primary" small />
-      </View>
-      <MetaRow icon="person-outline">{athleteLabel}</MetaRow>
-      <MetaRow icon="calendar-outline">
-        {formatItalianDate(appointment.date)} · {appointment.time}
-      </MetaRow>
-      {appointment.notes ? (
-        <SignatureText variant="small" tone="muted">
-          {appointment.notes}
-        </SignatureText>
-      ) : null}
-      {appointment.decision_note ? (
-        <SignatureText variant="small" tone="muted">
-          Motivo: {appointment.decision_note}
-        </SignatureText>
-      ) : null}
+        <SignatureInput
+          label="Motivo (la famiglia lo legge)"
+          value={reason}
+          onChangeText={setReason}
+          multiline
+          placeholder="Es. orario non disponibile"
+          error={error || undefined}
+        />
+      </BottomSheet>
 
-      {mode === "reject" ? (
-        <View style={{ gap: Spacing.sm, marginTop: Spacing.sm }}>
-          <SignatureInput
-            label="Motivo del rifiuto (obbligatorio, la famiglia lo legge)"
-            value={reason}
-            onChangeText={setReason}
-            multiline
-            placeholder="Es. orario non disponibile"
-            error={error || undefined}
-          />
-          <View style={{ flexDirection: "row", gap: Spacing.sm }}>
-            <ActionButton
-              variant="destructive"
-              size="sm"
-              disabled={!reason.trim()}
-              loading={busy}
-              onPress={() =>
-                run(() =>
-                  mobileBackendStorage.updateAppointment(
-                    appointment.id,
-                    "reject",
-                    {
-                      note: reason.trim(),
-                      version: appointment.version,
-                    },
-                  ),
-                )
-              }
-            >
-              Conferma rifiuto
-            </ActionButton>
-            <ActionButton
-              variant="ghost"
-              size="sm"
-              onPress={() => setMode("idle")}
-            >
-              Annulla
-            </ActionButton>
-          </View>
-        </View>
-      ) : mode === "reschedule" ? (
-        <View style={{ gap: Spacing.sm, marginTop: Spacing.sm }}>
+      <BottomSheet
+        visible={sheet?.kind === "reschedule"}
+        onClose={() => setSheet(null)}
+        eyebrow={sheet ? sheet.appointment.reason || "Colloquio" : ""}
+        title="Proponi un nuovo orario"
+        actions={
+          sheet?.kind === "reschedule" ? (
+            <>
+              <ActionButton
+                variant="secondary"
+                onPress={() => setSheet(null)}
+                style={styles.cancel}
+              >
+                Annulla
+              </ActionButton>
+              <ActionButton
+                disabled={!date.trim() || !time.trim()}
+                loading={busyId === sheet.appointment.id}
+                trailingIcon="arrow-forward"
+                style={styles.confirm}
+                onPress={() =>
+                  void run(sheet.appointment.id, () =>
+                    mobileBackendStorage.updateAppointment(
+                      sheet.appointment.id,
+                      "reschedule",
+                      {
+                        date: date.trim(),
+                        time: time.trim(),
+                        version: sheet.appointment.version,
+                      },
+                    ),
+                  )
+                }
+              >
+                Riprogramma
+              </ActionButton>
+            </>
+          ) : undefined
+        }
+      >
+        <View style={{ gap: Spacing.md }}>
           <SignatureInput
             label="Nuova data (AAAA-MM-GG)"
             value={date}
             onChangeText={setDate}
             placeholder="2026-10-01"
+            leftIcon="calendar-outline"
           />
           <SignatureInput
             label="Nuovo orario (HH:MM)"
             value={time}
             onChangeText={setTime}
             placeholder="18:00"
+            leftIcon="time-outline"
             error={error || undefined}
           />
-          <View style={{ flexDirection: "row", gap: Spacing.sm }}>
-            <ActionButton
-              size="sm"
-              disabled={!date.trim() || !time.trim()}
-              loading={busy}
-              onPress={() =>
-                run(() =>
-                  mobileBackendStorage.updateAppointment(
-                    appointment.id,
-                    "reschedule",
-                    {
-                      date: date.trim(),
-                      time: time.trim(),
-                      version: appointment.version,
-                    },
-                  ),
-                )
-              }
-            >
-              Conferma spostamento
-            </ActionButton>
-            <ActionButton
-              variant="ghost"
-              size="sm"
-              onPress={() => setMode("idle")}
-            >
-              Annulla
-            </ActionButton>
-          </View>
         </View>
-      ) : canConfirm || canReject || canReschedule ? (
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            gap: Spacing.sm,
-            marginTop: Spacing.sm,
-          }}
-        >
-          {canConfirm ? (
-            <ActionButton
-              variant="success"
-              size="sm"
-              loading={busy}
-              onPress={() =>
-                run(() =>
-                  mobileBackendStorage.updateAppointment(
-                    appointment.id,
-                    "confirm",
-                    {
-                      version: appointment.version,
-                    },
-                  ),
-                )
-              }
-            >
-              Conferma
-            </ActionButton>
-          ) : null}
-          {canReschedule ? (
-            <ActionButton
-              variant="secondary"
-              size="sm"
-              onPress={() => setMode("reschedule")}
-            >
-              Riprogramma
-            </ActionButton>
-          ) : null}
-          {canReject ? (
-            <ActionButton
-              variant="destructive"
-              size="sm"
-              onPress={() => setMode("reject")}
-            >
-              Rifiuta
-            </ActionButton>
-          ) : null}
-        </View>
-      ) : null}
-      {error && mode === "idle" ? (
-        <SignatureText variant="small" style={{ color: "#B91C1C" }}>
-          {error}
-        </SignatureText>
-      ) : null}
-    </GlassCard>
+      </BottomSheet>
+    </SecondaryScreenLayout>
   );
 }
+
+const capitalize = (value: string) =>
+  value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+
+const styles = StyleSheet.create({
+  error: {
+    color: "#B91C1C",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    paddingHorizontal: 4,
+  },
+  cancel: { width: 100 },
+  confirm: { flex: 1 },
+});

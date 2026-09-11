@@ -8,8 +8,12 @@ import { SignatureText } from "@/components/signature/SignatureText";
 export type NumberTileTone = "navy" | "action" | "success" | "match" | "muted";
 
 interface NumberTileProps {
-  /** The athlete's jersey number — the identity glyph, never a face or initials (spec B1). */
-  number: number;
+  /**
+   * The athlete's jersey number — the identity glyph, never a face or
+   * initials (spec B1). `0`/missing means "not assigned yet" in this data
+   * model and renders as an en dash, not as a fake "0".
+   */
+  number: number | null | undefined;
   tone?: NumberTileTone;
   size?: number;
   /** 3-letter role caption under the numeral, e.g. "POR". */
@@ -83,7 +87,7 @@ export function NumberTile({
           fontVariant: ["tabular-nums"],
         }}
       >
-        {number}
+        {number ? number : "–"}
       </SignatureText>
       {caption ? (
         <SignatureText

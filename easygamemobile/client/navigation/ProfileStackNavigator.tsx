@@ -8,6 +8,7 @@ import TrainerDocumentsScreen from "@/screens/TrainerDocumentsScreen";
 import TrainerAppointmentsScreen from "@/screens/TrainerAppointmentsScreen";
 import TrainerCompensationScreen from "@/screens/TrainerCompensationScreen";
 import TrainerCategoriesScreen from "@/screens/TrainerCategoriesScreen";
+import TrainerPersonalDataScreen from "@/screens/TrainerPersonalDataScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type ProfileStackParamList = {
@@ -19,6 +20,7 @@ export type ProfileStackParamList = {
   Appointments: undefined;
   Compensation: undefined;
   Categories: undefined;
+  PersonalData: undefined;
 };
 
 const Stack = createNativeStackNavigator<ProfileStackParamList>();
@@ -72,6 +74,11 @@ export default function ProfileStackNavigator() {
       <Stack.Screen
         name="Categories"
         component={TrainerCategoriesScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="PersonalData"
+        component={TrainerPersonalDataScreen}
         options={{ headerShown: false }}
       />
     </Stack.Navigator>

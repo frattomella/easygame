@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   DOCUMENT_STATE_TINT,
   DOCUMENT_STATE_VARIANT,
+  resolveDocumentStatusTier,
   resolveDocumentDensity,
   resolveDocumentIcon,
 } from "../client/lib/parent-documents";
@@ -68,4 +69,16 @@ test("densita: un documento non richiesto resta sempre una riga", () => {
     resolveDocumentDensity({ required: false, description: "Nota" }),
     "row",
   );
+});
+
+test("i quattro livelli del design: in regola quiet, in verifica outline, richiesto solid, scaduto urgent", () => {
+  const tier = (state: FamilyDocumentItem["state"], required = true) =>
+    resolveDocumentStatusTier({ state, required });
+  assert.deepEqual(tier("approved"), { tier: "quiet", tone: "success" });
+  assert.deepEqual(tier("under_review"), { tier: "outline", tone: "info" });
+  assert.deepEqual(tier("missing"), { tier: "solid", tone: "warning" });
+  assert.deepEqual(tier("missing", false), { tier: "quiet", tone: "neutral" });
+  assert.deepEqual(tier("rejected"), { tier: "solid", tone: "danger" });
+  assert.deepEqual(tier("expired"), { tier: "urgent", tone: "danger" });
+  assert.deepEqual(tier("overdue"), { tier: "urgent", tone: "danger" });
 });

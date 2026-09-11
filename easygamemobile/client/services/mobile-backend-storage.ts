@@ -1112,17 +1112,22 @@ class MobileBackendStorageService {
       );
     }
 
-    // Binario per scelta dichiarata (ADR-0168 punto 3, D-MOB-11): si manda
-    // solo present/absent, mai "pending" — un atleta omesso dall'elenco
-    // resta "non ancora segnato" perche la scrittura e un upsert per riga,
-    // non una sostituzione dell'intero elenco (src/lib/server/events.ts,
-    // `saveEventAttendance`).
+    // Tre stati, tutti del server (`ATTENDANCE_STATUSES`): present, absent e
+    // pending ("da segnare"). La scrittura e un upsert per riga, non una
+    // sostituzione dell'elenco (src/lib/server/events.ts,
+    // `saveEventAttendance`): chi chiama manda le righe da scrivere, e
+    // un atleta senza riga resta "da segnare" senza bisogno di scriverlo.
     return api.saveEventParticipants(
       trainingId,
       "attendance",
       attendance.map((entry) => ({
         athleteId: entry.athleteId,
-        status: entry.present ? "present" : "absent",
+        status:
+          entry.present === null
+            ? "pending"
+            : entry.present
+              ? "present"
+              : "absent",
         notes: entry.notes || undefined,
       })),
       { clubId: snapshot.context.clubId, role: snapshot.context.role },

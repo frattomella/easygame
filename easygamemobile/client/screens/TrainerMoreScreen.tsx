@@ -1,17 +1,14 @@
 import React from "react";
-import { Pressable, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 
 import {
-  GlassCard,
-  IconChip,
+  GlassRow,
   SecondaryScreenLayout,
-  SignatureText,
+  SectionLabel,
 } from "@/components/signature";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { Spacing } from "@/constants/theme";
 import type { ProfileStackParamList } from "@/navigation/ProfileStackNavigator";
 import type { TrainerNavigationPermissionKey } from "@/lib/trainer-permissions";
 
@@ -21,55 +18,67 @@ type MoreItem = {
   key: TrainerNavigationPermissionKey;
   screen: keyof ProfileStackParamList;
   icon: keyof typeof Ionicons.glyphMap;
+  color: string;
   title: string;
-  subtitle: string;
+  meta: string;
 };
 
 const ITEMS: MoreItem[] = [
   {
+    key: "categories",
+    screen: "Categories",
+    icon: "shield-outline",
+    color: "#3533CD",
+    title: "Squadre e categorie",
+    meta: "Le tue categorie, atleti e calendario",
+  },
+  {
     key: "board",
     screen: "Board",
     icon: "megaphone-outline",
+    color: "#2563EB",
     title: "Bacheca",
-    subtitle: "Gli avvisi del club",
+    meta: "Gli avvisi del club",
   },
   {
     key: "documents",
     screen: "Documents",
     icon: "document-text-outline",
+    color: "#F59E0B",
     title: "Documenti",
-    subtitle: "I tuoi documenti",
+    meta: "I tuoi documenti e le scadenze",
   },
   {
     key: "appointments",
     screen: "Appointments",
     icon: "calendar-outline",
+    color: "#2563EB",
     title: "Appuntamenti",
-    subtitle: "Colloqui con le famiglie",
+    meta: "Colloqui con le famiglie",
   },
   {
     key: "compensation",
     screen: "Compensation",
     icon: "cash-outline",
-    title: "I miei compensi",
-    subtitle: "Rapporti, rate, posizione annuale",
+    color: "#10B981",
+    title: "Compensi",
+    meta: "Rapporti, rate, posizione annuale",
   },
   {
-    key: "categories",
-    screen: "Categories",
-    icon: "shield-outline",
-    title: "Squadre",
-    subtitle: "Le tue categorie",
+    key: "notifications",
+    screen: "Notifications",
+    icon: "notifications-outline",
+    color: "#3533CD",
+    title: "Notifiche",
+    meta: "Promemoria e avvisi",
   },
 ];
 
 /**
- * Navigazione secondaria: le sezioni meno frequenti non hanno una tab
- * permanente (WP3, "Navigation Trainer") — si raggiungono da qui, un tocco
- * dal Profilo. Ogni voce e gated dal permesso reale del club
- * (`trainerPermissions.navigation.*`, allineato al Web in questo stesso WP):
- * una voce spenta dal club sparisce dall'elenco invece di aprire una
- * schermata che il server rifiuterebbe.
+ * L'hub delle sezioni secondarie (prototipo `isTServices`, "Tutte le
+ * sezioni"): l'elenco completo, gated dal permesso reale del club
+ * (`trainerPermissions.navigation.*`) — una voce spenta sparisce, non si
+ * ingrigisce. Righe di vetro con chevron: navigano, non agiscono.
  */
 export default function TrainerMoreScreen() {
   const navigation = useNavigation<Navigation>();
@@ -80,37 +89,21 @@ export default function TrainerMoreScreen() {
   );
 
   return (
-    <SecondaryScreenLayout title="Altre sezioni" eyebrow="Personale">
+    <SecondaryScreenLayout
+      title="Servizi"
+      eyebrow="Allenatore · Tutte le sezioni"
+      contentGap={8}
+    >
+      <SectionLabel label="Tutte le sezioni" trailing={String(items.length)} />
       {items.map((item) => (
-        <Pressable
+        <GlassRow
           key={item.key}
+          icon={item.icon}
+          iconColor={item.color}
+          title={item.title}
+          meta={item.meta}
           onPress={() => navigation.navigate(item.screen as never)}
-        >
-          <GlassCard>
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: Spacing.md,
-              }}
-            >
-              <IconChip name={item.icon} size={40} />
-              <View style={{ flex: 1 }}>
-                <SignatureText variant="h4" tone="ink">
-                  {item.title}
-                </SignatureText>
-                <SignatureText variant="small" tone="muted">
-                  {item.subtitle}
-                </SignatureText>
-              </View>
-              <Ionicons
-                name="chevron-forward-outline"
-                size={20}
-                color="#94A3B8"
-              />
-            </View>
-          </GlassCard>
-        </Pressable>
+        />
       ))}
     </SecondaryScreenLayout>
   );

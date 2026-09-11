@@ -144,3 +144,10 @@ export const getClubInitials = (value?: string | null) => {
 
   return `${parts[0][0] || ""}${parts[parts.length - 1][0] || ""}`.toUpperCase();
 };
+
+/** "Stagione 2026/27" — la stagione sportiva dal calendario (da luglio: anno/anno+1). */
+export const describeSportSeason = (date: Date = new Date()) => {
+  const year =
+    date.getMonth() >= 6 ? date.getFullYear() : date.getFullYear() - 1;
+  return `Stagione ${year}/${String((year + 1) % 100).padStart(2, "0")}`;
+};

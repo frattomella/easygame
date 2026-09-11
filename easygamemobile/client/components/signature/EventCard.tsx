@@ -53,7 +53,9 @@ export function EventCard({
   footer,
 }: EventCardProps) {
   const [pressed, setPressed] = useState(false);
-  const interactive = Boolean(onPress) && !footer;
+  // Un footer con i propri bottoni (RSVP, "Registra presenze") convive con la
+  // scheda toccabile: i Pressable annidati prendono il tocco per primi.
+  const interactive = Boolean(onPress);
 
   const inner = (
     <GlassSurface
@@ -93,12 +95,7 @@ export function EventCard({
         <View style={styles.divider} />
         <View style={styles.content}>
           <View style={styles.titleRow}>
-            <SignatureText
-              variant="h4"
-              tone="ink"
-              style={styles.title}
-              numberOfLines={2}
-            >
+            <SignatureText style={styles.title} numberOfLines={2}>
               {title}
             </SignatureText>
             {pill ? (
@@ -172,13 +169,13 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: "row",
-    paddingTop: 6,
   },
   rail: {
     width: 76,
     paddingLeft: Spacing.md,
-    paddingVertical: Spacing.md,
-    justifyContent: "center",
+    paddingTop: 18,
+    paddingBottom: Spacing.md,
+    justifyContent: "flex-start",
     gap: 2,
   },
   time: {
@@ -196,12 +193,12 @@ const styles = StyleSheet.create({
   divider: {
     width: 1,
     backgroundColor: EGGlass.hairline,
-    marginVertical: Spacing.md,
   },
   content: {
     flex: 1,
     paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.md,
+    paddingLeft: 14,
+    paddingRight: Spacing.md,
     gap: 6,
   },
   titleRow: {
@@ -212,6 +209,11 @@ const styles = StyleSheet.create({
   },
   title: {
     flex: 1,
+    color: "#0B1A3A",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "700",
+    letterSpacing: -0.16,
   },
   metaRow: {
     flexDirection: "row",
@@ -230,6 +232,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   footer: {
-    marginTop: Spacing.sm,
+    marginTop: 14,
   },
 });

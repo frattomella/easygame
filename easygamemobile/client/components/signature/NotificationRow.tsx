@@ -1,9 +1,8 @@
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { EGGlass, Spacing } from "@/constants/theme";
-import { GlassSurface } from "@/components/signature/GlassSurface";
+import { GlassRow } from "@/components/signature/GlassRow";
 import { IconChip } from "@/components/signature/IconChip";
 import { SignatureText } from "@/components/signature/SignatureText";
 
@@ -11,16 +10,18 @@ export type NotificationCategory =
   | "operational"
   | "payment"
   | "document"
-  | "priority";
+  | "priority"
+  | "match";
 
 const CATEGORY: Record<
   NotificationCategory,
   { icon: keyof typeof Ionicons.glyphMap; color: string }
 > = {
   operational: { icon: "megaphone-outline", color: "#2563EB" },
-  payment: { icon: "card-outline", color: "#F59E0B" },
+  payment: { icon: "card-outline", color: "#EF4444" },
   document: { icon: "document-text-outline", color: "#10B981" },
-  priority: { icon: "alert-circle-outline", color: "#EF4444" },
+  priority: { icon: "alert-circle-outline", color: "#F59E0B" },
+  match: { icon: "football-outline", color: "#F97316" },
 };
 
 interface NotificationRowProps {
@@ -33,10 +34,11 @@ interface NotificationRowProps {
 }
 
 /**
- * design-source `guidelines/component-specs.md` §C6. Marking as read is a
- * side effect of opening (the caller's `onPress`), never a separate
- * control on the row — the unread/read difference is carried by weight and
- * surface, not by colour alone.
+ * La riga di notifica del prototipo (`notifications`): pallino blu 8px in
+ * testa (trasparente da letta), `IconChip` per categoria, titolo 15 (700
+ * da non letta, 500 da letta), testo 13/500, "quando" 11/700 a destra.
+ * Non letta = vetro forte; letta = bianco 55%. Nessun chevron: la riga
+ * informa, e al piu segna come letta al tocco.
  */
 export function NotificationRow({
   title,
@@ -49,76 +51,48 @@ export function NotificationRow({
   const tone = CATEGORY[category];
 
   return (
-    <Pressable onPress={onPress} style={styles.wrap}>
-      {!read ? (
-        <View style={styles.unreadDot} />
-      ) : (
-        <View style={styles.dotSpacer} />
-      )}
-      <GlassSurface
-        tone="light"
-        corner="control"
-        style={[
-          styles.surface,
-          !read ? styles.surfaceUnread : styles.surfaceRead,
-        ]}
-      >
-        <View style={styles.row}>
+    <GlassRow
+      leading={
+        <View style={styles.leading}>
+          <View style={[styles.dot, read ? styles.dotRead : null]} />
           <IconChip name={tone.icon} color={tone.color} size={40} />
-          <View style={{ flex: 1, gap: 2 }}>
-            <SignatureText
-              variant="body"
-              tone="ink"
-              numberOfLines={1}
-              style={{ fontWeight: read ? "500" : "700" }}
-            >
-              {title}
-            </SignatureText>
-            <SignatureText variant="small" tone="muted" numberOfLines={2}>
-              {body}
-            </SignatureText>
-          </View>
-          <SignatureText variant="caption" tone="faint">
-            {timestampLabel}
-          </SignatureText>
         </View>
-      </GlassSurface>
-    </Pressable>
+      }
+      title={title}
+      meta={body}
+      emphasis={read ? "quiet" : "strong"}
+      trailing={
+        timestampLabel ? (
+          <SignatureText style={styles.time}>{timestampLabel}</SignatureText>
+        ) : undefined
+      }
+      onPress={onPress}
+      chevron={false}
+      accessibilityLabel={`${read ? "" : "Non letta. "}${title}. ${body}`}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    marginBottom: 8,
-  },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#2563EB",
-    marginTop: 28,
-  },
-  dotSpacer: {
-    width: 8,
-  },
-  surface: {
-    flex: 1,
-    minHeight: 64,
-    borderColor: EGGlass.border,
-  },
-  surfaceUnread: {
-    backgroundColor: EGGlass.bgStrong,
-  },
-  surfaceRead: {
-    opacity: 0.85,
-  },
-  row: {
+  leading: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.md,
-    padding: Spacing.md,
+    gap: 10,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#1D4ED8",
+  },
+  dotRead: {
+    backgroundColor: "transparent",
+  },
+  time: {
+    color: "rgba(11,26,58,0.42)",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "700",
+    flexShrink: 0,
   },
 });

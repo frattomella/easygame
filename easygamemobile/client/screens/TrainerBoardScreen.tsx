@@ -1,16 +1,17 @@
 import React from "react";
-import { View } from "react-native";
 
 import {
-  GlassCard,
+  GlassRow,
   SecondaryScreenLayout,
+  SectionLabel,
   SignatureText,
   StateMessage,
+  StatusPill,
+  SummaryCard,
 } from "@/components/signature";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import { useAsyncSection } from "@/hooks/useAsyncSection";
 import { formatItalianDate } from "@/lib/mobile-ui";
-import { Spacing } from "@/constants/theme";
 import type { Announcement } from "@/services/api";
 
 /**
@@ -18,6 +19,12 @@ import type { Announcement } from "@/services/api";
  * (`GET /api/v1/announcements?mine=1`, `trainer-board-dashboard-page.tsx`).
  * Nessun RSVP qui: e una scelta di prodotto dichiarata anche sul Web, non
  * un'omissione mobile.
+ *
+ * Composizione: design `IA e Home` §3c ("Bacheca") — scheda scura di
+ * riepilogo ("Avvisi del club" · conteggio) che parte nel cielo, poi una
+ * riga di vetro per avviso (icona, titolo, "chi · quando", pill). Il testo
+ * dell'avviso si legge sotto il titolo; la pill "Nuovo"/"Letto" viene da
+ * `readAt`, scritto dal server.
  */
 export default function TrainerBoardScreen() {
   const { status, data, errorMessage, reload } = useAsyncSection<
@@ -27,8 +34,16 @@ export default function TrainerBoardScreen() {
     (list) => list.length === 0,
   );
 
+  const announcements = data || [];
+  const unreadCount = announcements.filter((item) => !item.readAt).length;
+
   return (
-    <SecondaryScreenLayout title="Bacheca" eyebrow="Club">
+    <SecondaryScreenLayout
+      title="Bacheca"
+      eyebrow={`Allenatore · ${announcements.length === 1 ? "1 avviso" : `${announcements.length} avvisi`}`}
+      skyHeight={300}
+      contentGap={10}
+    >
       {status === "loading" ? (
         <StateMessage kind="loading" tone="dark" title="Carico gli avvisi…" />
       ) : status === "forbidden" ? (
@@ -53,23 +68,48 @@ export default function TrainerBoardScreen() {
           message="Non hai avvisi in bacheca al momento."
         />
       ) : (
-        (data || []).map((announcement) => (
-          <GlassCard key={announcement.id} style={{ gap: Spacing.xs }}>
-            <SignatureText variant="eyebrow" tone="faint">
-              {formatItalianDate(announcement.publishedAt)}
-            </SignatureText>
-            <SignatureText variant="h4" tone="ink">
-              {announcement.title}
-            </SignatureText>
-            {announcement.body ? (
-              <SignatureText variant="body" tone="muted">
-                {announcement.body}
-              </SignatureText>
-            ) : null}
-          </GlassCard>
-        ))
+        <>
+          <SummaryCard
+            icon="megaphone-outline"
+            eyebrow="Non letti"
+            title="Avvisi del club"
+            value={String(unreadCount)}
+          />
+          <SectionLabel
+            label="Tutti gli avvisi"
+            trailing={String(announcements.length)}
+            style={{ paddingTop: 4 }}
+          />
+          {announcements.map((announcement) => {
+            const recent = !announcement.readAt;
+            return (
+              <GlassRow
+                key={announcement.id}
+                icon="megaphone-outline"
+                iconColor={recent ? "#2563EB" : "#64748B"}
+                title={announcement.title}
+                meta={`Club · ${formatItalianDate(announcement.publishedAt)}`}
+                emphasis={recent ? "strong" : "default"}
+                trailing={
+                  <StatusPill
+                    label={recent ? "Nuovo" : "Letto"}
+                    tier={recent ? "solid" : "quiet"}
+                    tone={recent ? "info" : "neutral"}
+                    small
+                  />
+                }
+                actions={
+                  announcement.body ? (
+                    <SignatureText variant="small" tone="muted">
+                      {announcement.body}
+                    </SignatureText>
+                  ) : undefined
+                }
+              />
+            );
+          })}
+        </>
       )}
-      <View style={{ height: Spacing.lg }} />
     </SecondaryScreenLayout>
   );
 }

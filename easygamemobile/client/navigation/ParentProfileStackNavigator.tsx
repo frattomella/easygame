@@ -3,25 +3,23 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import ParentProfileScreen from "@/screens/ParentProfileScreen";
 import ParentChildrenScreen from "@/screens/ParentChildrenScreen";
-import ParentComingSoonScreen from "@/screens/ParentComingSoonScreen";
+import ParentAthleteProfileScreen from "@/screens/ParentAthleteProfileScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type ParentProfileStackParamList = {
   ParentProfile: undefined;
   ParentChildren: undefined;
-  ParentComingSoon: { title: string; message?: string };
+  /** La scheda del figlio, raggiungibile anche da "I miei figli" (stesso componente dello stack Home). */
+  ParentAthleteProfile: undefined;
 };
 
 const Stack = createNativeStackNavigator<ParentProfileStackParamList>();
 
 /**
- * v3.0 (`migration-v3.md` passo 8): `ParentMoreScreen` ("Altre sezioni") e
- * rimosso — Appuntamenti/Prenotazioni strutture/Contatti club, che ospitava,
- * sono confluiti nel tab Servizi (`ParentServicesStackNavigator`) insieme a
- * Documenti/Consensi/Iscrizione/Bacheca. Qui resta solo cio che riguarda
- * l'account: identita, multi-figlio, e il segnaposto condiviso
- * `ParentComingSoon` (WP6) per "Impostazioni", l'unica voce del vecchio hub
- * senza una sezione reale dietro.
+ * Profilo → I miei figli → scheda atleta. `ParentComingSoon` ("Impostazioni",
+ * un segnaposto senza una sezione reale dietro) e stato rimosso con il
+ * reskin v3: il Profilo del prototipo non lo prevede e nessuna funzione lo
+ * usava.
  */
 export default function ParentProfileStackNavigator() {
   const screenOptions = useScreenOptions({ transparent: false });
@@ -31,8 +29,8 @@ export default function ParentProfileStackNavigator() {
       <Stack.Screen name="ParentProfile" component={ParentProfileScreen} />
       <Stack.Screen name="ParentChildren" component={ParentChildrenScreen} />
       <Stack.Screen
-        name="ParentComingSoon"
-        component={ParentComingSoonScreen}
+        name="ParentAthleteProfile"
+        component={ParentAthleteProfileScreen}
       />
     </Stack.Navigator>
   );

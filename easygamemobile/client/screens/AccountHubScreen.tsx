@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import Animated, { FadeInDown } from "react-native-reanimated";
 
 import { useAuthContext } from "@/contexts/AuthContext";
 import { getRoleLabel } from "@/lib/mobile-ui";
@@ -16,6 +14,7 @@ import {
   ActionButton,
   BrandStateLayout,
   BottomSheet,
+  GhostButton,
   SignatureInput,
   SignatureText,
   StateMessage,
@@ -27,10 +26,12 @@ import {
  * (`mobileBackendStorage.*`, `setContext`/`clearContext`): questo passo
  * cambia solo la veste.
  *
- * v3.0 (`migration-v3.md` passo 7 — "Account Hub" e nel perimetro esplicito
- * dell'eccezione, ADR-0168 §4c): su `BrandStateLayout` come le altre
- * schermate auth/sistema — "The base band ... is gone from login,
- * registration, recovery and the account hub" (design-source, artboard 4c).
+ * Composizione: design `IA e Home` §5b / prototipo `isAccounts` — riga
+ * marchio con passo "Accessi", nome della persona in eyebrow, "Scegli come
+ * entrare", una scheda per accesso (crest, club, riga, pill di ruolo,
+ * anello), "Esci" in contorno bianco in fondo. Le azioni di servizio
+ * (profilo, nuovo club, token, assistenza) restano come rimandi testuali
+ * sotto l'elenco: funzioni reali, non chrome.
  * I tre moduli che prima erano `Modal` HTML-style diventano `BottomSheet`
  * (stesso componente delle altre schermate con moduli, passo 6): scrim-tap,
  * drag-to-dismiss, gesto indietro — nessuno screen scrive piu il proprio
@@ -60,6 +61,7 @@ export default function AccountHubScreen() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [creatingClub, setCreatingClub] = useState(false);
   const [redeemingToken, setRedeemingToken] = useState(false);
+  const [activatingId, setActivatingId] = useState<string | null>(null);
   const [profileForm, setProfileForm] = useState({
     name: user?.name || "",
     email: user?.email || "",
@@ -247,132 +249,113 @@ export default function AccountHubScreen() {
       roleLabel={getRoleLabel(access.role)}
       detailLine={access.summary || "Accesso collegato al tuo account"}
       supported={Boolean(normalizeMobileAccessRole(access.role))}
-      onPress={() => handleSelectAccess(access)}
+      active={activatingId === access.id}
+      onPress={() => {
+        setActivatingId(access.id);
+        void handleSelectAccess(access).finally(() => setActivatingId(null));
+      }}
     />
   );
 
+  const sheetActions = (
+    onCancel: () => void,
+    label: string,
+    onConfirm: () => void,
+    loading: boolean,
+  ) => (
+    <>
+      <ActionButton
+        variant="secondary"
+        onPress={onCancel}
+        style={styles.cancel}
+      >
+        Annulla
+      </ActionButton>
+      <ActionButton
+        trailingIcon="arrow-forward"
+        loading={loading}
+        onPress={onConfirm}
+        style={styles.confirm}
+      >
+        {label}
+      </ActionButton>
+    </>
+  );
+
   return (
-    <BrandStateLayout>
-      <Animated.View entering={FadeInDown.delay(80).duration(500)}>
-        <View style={styles.headerTopRow}>
-          <SignatureText variant="eyebrow" tone="onDarkMuted">
-            Accessi
-          </SignatureText>
-          <Pressable
-            onPress={() => void logout()}
-            style={styles.logoutButton}
-            accessibilityRole="button"
-            accessibilityLabel="Esci"
-          >
-            <Ionicons name="log-out-outline" size={18} color="#FFFFFF" />
-          </Pressable>
-        </View>
-        <SignatureText variant="display" tone="onDark" style={styles.title}>
-          Bentornato, {accountName}
+    <BrandStateLayout step="Accessi" centered={false}>
+      <View style={styles.head}>
+        <SignatureText style={styles.eyebrow} numberOfLines={1}>
+          {accountName}
         </SignatureText>
-        <SignatureText variant="body" tone="onDarkMuted">
+        <SignatureText style={styles.title}>Scegli come entrare</SignatureText>
+        <SignatureText style={styles.body}>
           {totalAccessCount > 0
-            ? `${totalAccessCount} access${totalAccessCount === 1 ? "o collegato" : "i collegati"} a questa email.`
-            : "Gestisci profilo, club di proprieta e accessi ricevuti prima di entrare in una dashboard."}
+            ? `${
+                totalAccessCount === 1
+                  ? "Un accesso collegato"
+                  : `${totalAccessCount} accessi collegati`
+              } a questa email.`
+            : "Nessun accesso collegato a questa email: crea un club o inserisci il token che il club ti ha dato."}
         </SignatureText>
-        <View style={styles.headerActions}>
-          <ActionButton
-            variant="secondary"
-            onSky
-            size="sm"
-            onPress={() => setShowProfileSheet(true)}
-          >
-            Profilo
-          </ActionButton>
-          <ActionButton
-            variant="secondary"
-            onSky
-            size="sm"
-            onPress={() => void handleOpenSupport()}
-          >
-            Assistenza
-          </ActionButton>
-        </View>
-      </Animated.View>
+      </View>
 
-      <Animated.View
-        entering={FadeInDown.delay(140).duration(500)}
-        style={styles.section}
-      >
-        <View style={styles.sectionHeader}>
-          <SignatureText variant="h4" tone="onDark">
-            Club di proprieta
-          </SignatureText>
-          <ActionButton
-            variant="secondary"
-            onSky
-            size="sm"
-            onPress={() => setShowCreateClubSheet(true)}
-          >
-            Nuovo club
-          </ActionButton>
-        </View>
-        {loading ? null : ownedClubs.length > 0 ? (
-          ownedClubs.map(renderClubCard)
+      <View style={styles.list}>
+        {loading ? (
+          <StateMessage kind="loading" tone="dark" />
         ) : (
-          <StateMessage
-            kind="empty"
-            tone="dark"
-            title="Nessun club creato"
-            message="Crea il tuo primo club per iniziare a lavorare anche lato mobile."
-          />
-        )}
-      </Animated.View>
-
-      <Animated.View
-        entering={FadeInDown.delay(200).duration(500)}
-        style={styles.section}
-      >
-        <View style={styles.sectionHeader}>
-          <SignatureText variant="h4" tone="onDark">
-            Accessi assegnati
-          </SignatureText>
-          <ActionButton
-            variant="secondary"
-            onSky
-            size="sm"
-            onPress={() => setShowTokenSheet(true)}
-          >
-            Inserisci token
-          </ActionButton>
-        </View>
-        {loading ? null : accesses.length > 0 ? (
-          accesses.map(renderAccessCard)
-        ) : (
-          <StateMessage
-            kind="empty"
-            tone="dark"
-            title="Nessun accesso collegato"
-            message="Quando un club ti condivide un token, lo inserisci qui e aggiungi il ruolo al tuo account."
-          />
+          <>
+            {accesses.map(renderAccessCard)}
+            {ownedClubs.map(renderClubCard)}
+            {accesses.length === 0 && ownedClubs.length === 0 ? (
+              <StateMessage
+                kind="empty"
+                tone="dark"
+                title="Nessun accesso"
+                message="Quando un club ti condivide un token, lo inserisci qui e aggiungi il ruolo al tuo account."
+              />
+            ) : null}
+          </>
         )}
         {clubError && !loading ? (
-          <SignatureText variant="small" style={styles.loadErrorText}>
+          <SignatureText style={styles.loadErrorText}>
             {clubError}
           </SignatureText>
         ) : null}
-      </Animated.View>
+      </View>
+
+      <View style={styles.linksRow}>
+        <TextLink label="Profilo" onPress={() => setShowProfileSheet(true)} />
+        <TextLink
+          label="Nuovo club"
+          onPress={() => setShowCreateClubSheet(true)}
+        />
+        <TextLink
+          label="Collega un token"
+          onPress={() => setShowTokenSheet(true)}
+        />
+        <TextLink label="Assistenza" onPress={() => void handleOpenSupport()} />
+      </View>
+
+      <View style={{ flex: 1 }} />
+      <GhostButton
+        label="Esci"
+        onPress={() => void logout()}
+        style={styles.logout}
+      />
 
       <BottomSheet
         visible={showProfileSheet}
         onClose={() => setShowProfileSheet(false)}
-        accessibilityLabel="Profilo account"
+        eyebrow="Account"
+        title="Profilo account"
+        actions={sheetActions(
+          () => setShowProfileSheet(false),
+          "Salva",
+          () => void handleSaveProfile(),
+          savingProfile,
+        )}
       >
-        <SignatureText
-          variant="eyebrow"
-          tone="faint"
-          style={styles.sheetEyebrow}
-        >
-          Account
-        </SignatureText>
-        <SignatureText variant="h3" tone="ink" style={styles.sheetTitle}>
-          Profilo account
-        </SignatureText>
         <View style={styles.sheetFields}>
           <SignatureInput
             label="Nome completo"
@@ -408,38 +391,21 @@ export default function AccountHubScreen() {
             }
             error={profileError || undefined}
           />
-          <View style={styles.sheetActions}>
-            <ActionButton
-              loading={savingProfile}
-              onPress={() => void handleSaveProfile()}
-            >
-              Salva
-            </ActionButton>
-            <ActionButton
-              variant="ghost"
-              onPress={() => setShowProfileSheet(false)}
-            >
-              Annulla
-            </ActionButton>
-          </View>
         </View>
       </BottomSheet>
 
       <BottomSheet
         visible={showCreateClubSheet}
         onClose={() => setShowCreateClubSheet(false)}
-        accessibilityLabel="Nuovo club"
+        eyebrow="Club di proprieta"
+        title="Nuovo club"
+        actions={sheetActions(
+          () => setShowCreateClubSheet(false),
+          "Crea club",
+          () => void handleCreateClub(),
+          creatingClub,
+        )}
       >
-        <SignatureText
-          variant="eyebrow"
-          tone="faint"
-          style={styles.sheetEyebrow}
-        >
-          Club di proprieta
-        </SignatureText>
-        <SignatureText variant="h3" tone="ink" style={styles.sheetTitle}>
-          Nuovo club
-        </SignatureText>
         <View style={styles.sheetFields}>
           <SignatureInput
             label="Nome club"
@@ -495,38 +461,21 @@ export default function AccountHubScreen() {
             }
             error={clubError || undefined}
           />
-          <View style={styles.sheetActions}>
-            <ActionButton
-              loading={creatingClub}
-              onPress={() => void handleCreateClub()}
-            >
-              Crea club
-            </ActionButton>
-            <ActionButton
-              variant="ghost"
-              onPress={() => setShowCreateClubSheet(false)}
-            >
-              Annulla
-            </ActionButton>
-          </View>
         </View>
       </BottomSheet>
 
       <BottomSheet
         visible={showTokenSheet}
         onClose={() => setShowTokenSheet(false)}
-        accessibilityLabel="Collega accesso"
+        eyebrow="Accessi assegnati"
+        title="Collega accesso"
+        actions={sheetActions(
+          () => setShowTokenSheet(false),
+          "Aggiungi",
+          () => void handleRedeemToken(),
+          redeemingToken,
+        )}
       >
-        <SignatureText
-          variant="eyebrow"
-          tone="faint"
-          style={styles.sheetEyebrow}
-        >
-          Accessi assegnati
-        </SignatureText>
-        <SignatureText variant="h3" tone="ink" style={styles.sheetTitle}>
-          Collega accesso
-        </SignatureText>
         <View style={styles.sheetFields}>
           <SignatureInput
             label="Token club"
@@ -539,77 +488,81 @@ export default function AccountHubScreen() {
             placeholder="TRN9CFGBNKED"
             error={tokenError || undefined}
           />
-          <View style={styles.sheetActions}>
-            <ActionButton
-              loading={redeemingToken}
-              onPress={() => void handleRedeemToken()}
-            >
-              Aggiungi
-            </ActionButton>
-            <ActionButton
-              variant="ghost"
-              onPress={() => setShowTokenSheet(false)}
-            >
-              Annulla
-            </ActionButton>
-          </View>
         </View>
       </BottomSheet>
     </BrandStateLayout>
   );
 }
 
+function TextLink({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={8} accessibilityRole="button">
+      <SignatureText style={styles.link}>{label}</SignatureText>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  headerTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  head: {
+    paddingTop: 12,
   },
-  logoutButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
-    alignItems: "center",
-    justifyContent: "center",
+  eyebrow: {
+    color: "rgba(255,255,255,0.78)",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "700",
+    letterSpacing: 1.32,
+    textTransform: "uppercase",
   },
   title: {
-    marginTop: 4,
-    marginBottom: 6,
+    color: "#FFFFFF",
+    fontSize: 28,
+    lineHeight: 33,
+    fontWeight: "800",
+    letterSpacing: -0.56,
+    marginTop: 3,
   },
-  headerActions: {
-    flexDirection: "row",
-    gap: Spacing.sm,
-    marginTop: Spacing.lg,
+  body: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: "500",
+    marginTop: 6,
   },
-  section: {
-    marginTop: Spacing["2xl"],
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: Spacing.md,
-    gap: Spacing.md,
+  list: {
+    gap: 10,
+    marginTop: 8,
   },
   loadErrorText: {
     color: "#FCA5A5",
-    marginTop: Spacing.sm,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
   },
-  sheetEyebrow: {
-    marginBottom: 4,
+  linksRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 18,
+    marginTop: 14,
   },
-  sheetTitle: {
-    marginBottom: Spacing.md,
+  link: {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
+  logout: {
+    marginTop: 24,
   },
   sheetFields: {
     gap: Spacing.md,
   },
-  sheetActions: {
-    flexDirection: "row",
-    gap: Spacing.sm,
-    marginTop: Spacing.xs,
+  cancel: {
+    width: 100,
+  },
+  confirm: {
+    flex: 1,
   },
 });

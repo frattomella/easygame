@@ -20,7 +20,11 @@ export type {
 } from "@/components/signature/SignatureText";
 export { IconChip } from "@/components/signature/IconChip";
 export { StatusPill } from "@/components/signature/StatusPill";
-export type { StatusPillVariant } from "@/components/signature/StatusPill";
+export type {
+  StatusPillVariant,
+  StatusPillTier,
+  StatusPillTone,
+} from "@/components/signature/StatusPill";
 export { ActionButton } from "@/components/signature/ActionButton";
 export type { ActionButtonVariant } from "@/components/signature/ActionButton";
 export { MetaRow } from "@/components/signature/MetaRow";
@@ -34,7 +38,10 @@ export { SignatureInput } from "@/components/signature/SignatureInput";
 export { NumberTile } from "@/components/signature/NumberTile";
 export type { NumberTileTone } from "@/components/signature/NumberTile";
 export { SelectableAthleteRow } from "@/components/signature/SelectableAthleteRow";
-export type { SelectableAthleteRowAccent } from "@/components/signature/SelectableAthleteRow";
+export type {
+  SelectableAthleteRowAccent,
+  SelectableAthleteRowMark,
+} from "@/components/signature/SelectableAthleteRow";
 export { BottomSheet } from "@/components/signature/BottomSheet";
 export { ChildSwitcher } from "@/components/signature/ChildSwitcher";
 export { ParentPrimaryScreenLayout } from "@/components/signature/ParentPrimaryScreenLayout";
@@ -43,18 +50,22 @@ export type { EventCardMeta } from "@/components/signature/EventCard";
 export { SectionHero } from "@/components/signature/SectionHero";
 export type { SectionHeroChip } from "@/components/signature/SectionHero";
 export { StatCard } from "@/components/signature/StatCard";
-export { HighlightCard } from "@/components/signature/HighlightCard";
-export type { HighlightCardPreviewRow } from "@/components/signature/HighlightCard";
 export { RSVPControl } from "@/components/signature/RSVPControl";
 export { AccountAccessCard } from "@/components/signature/AccountAccessCard";
 export { NotificationRow } from "@/components/signature/NotificationRow";
 export { PaymentCard } from "@/components/signature/PaymentCard";
-export { DocumentRow } from "@/components/signature/DocumentRow";
-export { DocumentCard } from "@/components/signature/DocumentCard";
-export { ConsentRow } from "@/components/signature/ConsentRow";
-export { AppointmentCard } from "@/components/signature/AppointmentCard";
-export { BookingCard } from "@/components/signature/BookingCard";
-export { EnrollmentStatusCard } from "@/components/signature/EnrollmentStatusCard";
 export { NotificationPermissionCard } from "@/components/signature/NotificationPermissionCard";
 export type { NotificationPermissionStatus } from "@/components/signature/NotificationPermissionCard";
 export { BrandStateLayout } from "@/components/signature/BrandStateLayout";
+export { BrandLine } from "@/components/signature/BrandLine";
+export type { BrandLineClub } from "@/components/signature/BrandLine";
+export { BrandMark, Wordmark } from "@/components/signature/BrandMark";
+export { GlassRow } from "@/components/signature/GlassRow";
+export { ActionBarButton } from "@/components/signature/ActionBarButton";
+export { NavTile, NavTileGrid } from "@/components/signature/NavTile";
+export type { NavTileItem } from "@/components/signature/NavTile";
+export { SectionLabel } from "@/components/signature/SectionLabel";
+export { SummaryCard } from "@/components/signature/SummaryCard";
+export { InfoNote } from "@/components/signature/InfoNote";
+export { SelectionRing } from "@/components/signature/SelectionRing";
+export { AuthFrame, GhostButton } from "@/components/signature/AuthFrame";

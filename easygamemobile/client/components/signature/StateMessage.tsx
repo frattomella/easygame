@@ -2,6 +2,7 @@ import React from "react";
 import { ActivityIndicator, StyleProp, View, ViewStyle } from "react-native";
 
 import { Spacing } from "@/constants/theme";
+import { GlassSurface } from "@/components/signature/GlassSurface";
 import { IconChip } from "@/components/signature/IconChip";
 import { SignatureText } from "@/components/signature/SignatureText";
 import { ActionButton } from "@/components/signature/ActionButton";
@@ -57,6 +58,12 @@ const DEFAULTS: Record<
  * all. This is a same-language extension (icon chip, eyebrow-weight title,
  * muted body, one optional action) documented as such rather than invented
  * from nothing.
+ *
+ * Always a glass panel (light, or dark for `tone="dark"`): a state is the
+ * screen's leading surface where a card would have been (EGDS v3 §4.3,
+ * "the screen's own leading surface covers the transition"), so a message
+ * that straddles the horizon never has one line on the sky and one on the
+ * mist.
  */
 export function StateMessage({
   kind,
@@ -70,9 +77,11 @@ export function StateMessage({
   const fallback = DEFAULTS[kind];
   const dark = tone === "dark";
 
+  const Wrap = dark ? DarkGlassWrap : LightGlassWrap;
+
   if (kind === "loading") {
     return (
-      <View style={[styles.container, style]}>
+      <Wrap style={[styles.container, style]}>
         <ActivityIndicator size="large" color={dark ? "#FFFFFF" : "#2563EB"} />
         {title || message ? (
           <SignatureText
@@ -83,12 +92,12 @@ export function StateMessage({
             {title || message}
           </SignatureText>
         ) : null}
-      </View>
+      </Wrap>
     );
   }
 
   return (
-    <View style={[styles.container, style]}>
+    <Wrap style={[styles.container, style]}>
       <IconChip
         name={fallback.icon as never}
         color={fallback.color}
@@ -121,7 +130,35 @@ export function StateMessage({
           {actionLabel}
         </ActionButton>
       ) : null}
-    </View>
+    </Wrap>
+  );
+}
+
+function LightGlassWrap({
+  style,
+  children,
+}: {
+  style?: StyleProp<ViewStyle>;
+  children?: React.ReactNode;
+}) {
+  return (
+    <GlassSurface tone="light" corner="card">
+      <View style={style}>{children}</View>
+    </GlassSurface>
+  );
+}
+
+function DarkGlassWrap({
+  style,
+  children,
+}: {
+  style?: StyleProp<ViewStyle>;
+  children?: React.ReactNode;
+}) {
+  return (
+    <GlassSurface tone="dark" corner="card" elevated>
+      <View style={style}>{children}</View>
+    </GlassSurface>
   );
 }
 

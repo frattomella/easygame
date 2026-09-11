@@ -5,7 +5,8 @@ import NotificationsScreen from "@/screens/NotificationsScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type MatchesStackParamList = {
-  Matches: { focusMatchId?: string } | undefined;
+  /** `openConvocations`: la Home ("Gestisci convocazioni") apre direttamente il foglio convocazioni della gara messa a fuoco. */
+  Matches: { focusMatchId?: string; openConvocations?: boolean } | undefined;
   Notifications: undefined;
 };
 

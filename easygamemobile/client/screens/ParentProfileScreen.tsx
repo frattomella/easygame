@@ -1,17 +1,17 @@
 import React from "react";
-import { View } from "react-native";
+import { Linking, StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import {
   ActionButton,
-  GlassCard,
+  GlassRow,
   ParentPrimaryScreenLayout,
   SignatureText,
 } from "@/components/signature";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useParentContext } from "@/contexts/ParentContext";
-import { Spacing } from "@/constants/theme";
+import { SUPPORT_MAILTO_URL } from "@/constants/external-links";
 import type { ParentProfileStackParamList } from "@/navigation/ParentProfileStackNavigator";
 
 type Navigation = NativeStackNavigationProp<
@@ -19,15 +19,21 @@ type Navigation = NativeStackNavigationProp<
   "ParentProfile"
 >;
 
+const initialsOf = (name: string) =>
+  name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("") || "?";
+
 /**
- * Identita account, gestione multi-figlio, cambio contesto, logout (WP4).
- *
- * v3.0 (`migration-v3.md` passo 8): l'hub `ParentMoreScreen` ("Altre
- * sezioni") e rimosso — le sue sezioni reali (Appuntamenti, Prenotazioni
- * strutture, Contatti) sono confluite nel tab Servizi insieme a
- * Documenti/Consensi/Iscrizione/Bacheca (ADR-0168 §4c2, nessuna di quelle
- * perde la propria schermata). L'unica voce senza una sezione reale dietro,
- * "Impostazioni", resta raggiungibile direttamente da qui.
+ * Il Profilo Parent del prototipo v3 (`isProfile`, ruolo Genitore): avatar
+ * con le iniziali, nome 22/800 e "Genitore · Club" nel cielo; la riga
+ * evidenziata "Accessi e club" (torna all'Account Hub); le righe I miei
+ * figli, Notifiche, Privacy e consensi, Assistenza; "Esci" distruttivo.
+ * Identita account, multi-figlio, cambio contesto e logout: le stesse
+ * funzioni di WP4, sulla composizione del design.
  */
 export default function ParentProfileScreen() {
   const navigation = useNavigation<Navigation>();
@@ -35,84 +41,141 @@ export default function ParentProfileScreen() {
   const { children, selectedChildId, selectedChild, switching, selectChild } =
     useParentContext();
 
+  const name = user?.name || "Il tuo account";
+  const tabs = navigation.getParent() as
+    | { navigate: (...args: unknown[]) => void }
+    | undefined;
+  const openSupport = async () => {
+    if (await Linking.canOpenURL(SUPPORT_MAILTO_URL)) {
+      await Linking.openURL(SUPPORT_MAILTO_URL);
+    }
+  };
+
   return (
     <ParentPrimaryScreenLayout
       title="Profilo"
-      eyebrow="Il tuo account"
+      eyebrow="Account EasyGame · Genitore"
       linkedChildren={children}
       selectedChildId={selectedChildId}
       childrenSwitching={switching}
       onSelectChild={selectChild}
+      skyHeight={300}
       content={
         <>
-          <GlassCard eyebrow="Account" title={user?.name || "Il tuo account"}>
-            <SignatureText variant="small" tone="muted">
-              {user?.email}
-            </SignatureText>
-          </GlassCard>
+          <View style={styles.identity}>
+            <View style={styles.avatar}>
+              <SignatureText style={styles.avatarLabel}>
+                {initialsOf(name)}
+              </SignatureText>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <SignatureText style={styles.name} numberOfLines={1}>
+                {name}
+              </SignatureText>
+              <SignatureText style={styles.role} numberOfLines={1}>
+                {`Genitore · ${selectedChild?.clubName || "Club"}`}
+              </SignatureText>
+            </View>
+          </View>
 
-          <GlassCard
-            eyebrow="Famiglia"
-            title={
+          <GlassRow
+            icon="swap-horizontal-outline"
+            iconColor="#2563EB"
+            title="Accessi e club"
+            meta="Cambia club o ruolo"
+            emphasis="strong"
+            borderColor="rgba(37,99,235,0.4)"
+            corner="card"
+            onPress={() => void clearContext()}
+          />
+          <GlassRow
+            icon="people-outline"
+            iconColor="#2563EB"
+            title="I miei figli"
+            meta={
               children.length === 1
-                ? "Un figlio collegato"
+                ? children[0]?.name
                 : `${children.length} figli collegati`
             }
-            description={
-              selectedChild
-                ? `Attivo: ${selectedChild.name} · ${selectedChild.clubName}`
-                : undefined
+            onPress={() => navigation.navigate("ParentChildren")}
+          />
+          <GlassRow
+            icon="notifications-outline"
+            iconColor="#3533CD"
+            title="Notifiche"
+            onPress={() =>
+              tabs?.navigate("ParentServicesTab", {
+                screen: "ParentBoard",
+                params: { initialSection: "notifications" },
+              })
             }
-          >
-            <View style={{ marginTop: Spacing.sm }}>
-              <ActionButton
-                variant="secondary"
-                size="sm"
-                onPress={() => navigation.navigate("ParentChildren")}
-              >
-                I miei figli
-              </ActionButton>
-            </View>
-          </GlassCard>
+          />
+          <GlassRow
+            icon="shield-checkmark-outline"
+            iconColor="#10B981"
+            title="Privacy e consensi"
+            onPress={() =>
+              tabs?.navigate("ParentServicesTab", { screen: "ParentConsents" })
+            }
+          />
+          <GlassRow
+            icon="help-circle-outline"
+            iconColor="#F59E0B"
+            title="Assistenza"
+            onPress={() => void openSupport()}
+          />
 
-          <GlassCard
-            eyebrow="Altro"
-            title="Impostazioni"
-            description="Preferenze dell'app."
+          <ActionButton
+            variant="destructive"
+            fullWidth
+            icon="log-out-outline"
+            onPress={() => void logout()}
+            style={{ marginTop: 4 }}
           >
-            <View style={{ marginTop: Spacing.sm }}>
-              <ActionButton
-                variant="secondary"
-                size="sm"
-                onPress={() =>
-                  navigation.navigate("ParentComingSoon", {
-                    title: "Impostazioni",
-                  })
-                }
-              >
-                Apri impostazioni
-              </ActionButton>
-            </View>
-          </GlassCard>
-
-          <View style={{ gap: Spacing.sm, marginTop: Spacing.sm }}>
-            <ActionButton
-              variant="secondary"
-              fullWidth
-              onPress={() => void clearContext()}
-            >
-              Cambia club o accesso
-            </ActionButton>
-            <ActionButton
-              variant="destructive"
-              fullWidth
-              onPress={() => void logout()}
-            >
-              Esci
-            </ActionButton>
-          </View>
+            Esci
+          </ActionButton>
         </>
       }
     />
   );
 }
+
+const styles = StyleSheet.create({
+  identity: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingHorizontal: 4,
+    paddingBottom: 6,
+  },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarLabel: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  name: {
+    color: "#FFFFFF",
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "800",
+    letterSpacing: -0.44,
+  },
+  role: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+});

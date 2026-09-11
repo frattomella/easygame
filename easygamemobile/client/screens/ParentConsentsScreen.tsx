@@ -5,8 +5,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ActionButton,
   BottomSheet,
-  ConsentRow,
+  GlassRow,
+  InfoNote,
   SecondaryScreenLayout,
+  SectionLabel,
   SignatureText,
   StateMessage,
   StatusPill,
@@ -29,7 +31,7 @@ import type { ConsentSubjectState } from "@/services/api";
  * server resta l'unico a farle valere davvero (400 su una non ammessa).
  */
 export default function ParentConsentsScreen() {
-  const { selectedChildId } = useParentContext();
+  const { selectedChildId, selectedChild } = useParentContext();
   const queryClient = useQueryClient();
   const [openConsent, setOpenConsent] = useState<ConsentSubjectState | null>(
     null,
@@ -80,11 +82,75 @@ export default function ParentConsentsScreen() {
     ? resolveConsentActions(openConsent.status)
     : null;
 
+  const consents = consentsQuery.data || [];
+  const pendingCount = consents.filter(
+    (consent) => consent.status === "missing" || consent.onOutdatedVersion,
+  ).length;
+
+  const describe = (consent: ConsentSubjectState) => {
+    // Quattro livelli del design (§5c): solid = aspetta la famiglia,
+    // outline = nuova versione da rileggere, quiet = deciso.
+    if (consent.status === "missing" && consent.required) {
+      return {
+        label: "Richiesto",
+        tier: "solid" as const,
+        tone: "warning" as const,
+        color: "#F59E0B",
+      };
+    }
+    if (consent.onOutdatedVersion) {
+      return {
+        label: "Nuova versione",
+        tier: "outline" as const,
+        tone: "warning" as const,
+        color: "#F59E0B",
+      };
+    }
+    switch (consent.status) {
+      case "accepted":
+        return {
+          label: "Accettato",
+          tier: "quiet" as const,
+          tone: "success" as const,
+          color: "#10B981",
+        };
+      case "revoked":
+        return {
+          label: "Revocato",
+          tier: "quiet" as const,
+          tone: "neutral" as const,
+          color: "#64748B",
+        };
+      case "rejected":
+        return {
+          label: "Rifiutato",
+          tier: "quiet" as const,
+          tone: "neutral" as const,
+          color: "#64748B",
+        };
+      default:
+        return {
+          label: "Da leggere",
+          tier: "outline" as const,
+          tone: "info" as const,
+          color: "#2563EB",
+        };
+    }
+  };
+
   return (
     <SecondaryScreenLayout
       title="Consensi"
-      eyebrow="Segreteria"
-      skyHeight={360}
+      eyebrow={`Segreteria · ${selectedChild?.name || "Atleta"}`}
+      contentGap={8}
+      club={
+        selectedChild
+          ? {
+              name: selectedChild.clubName,
+              avatarUrl: selectedChild.clubLogoUrl,
+            }
+          : undefined
+      }
     >
       {status === "loading" ? (
         <StateMessage kind="loading" tone="dark" title="Carico i consensi…" />
@@ -110,54 +176,95 @@ export default function ParentConsentsScreen() {
           message="Il club non ha ancora definito consensi per questo figlio."
         />
       ) : (
-        (consentsQuery.data || []).map((consent) => (
-          <ConsentRow
-            key={consent.definitionId}
-            title={consent.definitionTitle || "Consenso"}
-            state={consent}
-            metaLabel={
-              consent.decidedAt
-                ? `${consent.status === "accepted" ? "Accettato" : consent.status === "revoked" ? "Revocato" : "Deciso"} il ${formatItalianDate(consent.decidedAt)}${consent.version ? ` · v${consent.version}` : ""}`
-                : "Mai deciso"
+        <>
+          <SectionLabel
+            label="Consensi"
+            trailing={
+              pendingCount > 0
+                ? `${pendingCount} da decidere`
+                : String(consents.length)
             }
-            onPress={() => {
-              setDecisionError("");
-              setOpenConsent(consent);
-            }}
           />
-        ))
+          {consents.map((consent) => {
+            const look = describe(consent);
+            return (
+              <GlassRow
+                key={consent.definitionId}
+                icon="shield-checkmark-outline"
+                iconColor={look.color}
+                title={consent.definitionTitle || "Consenso"}
+                meta={
+                  consent.decidedAt
+                    ? `${consent.status === "accepted" ? "Accettato" : consent.status === "revoked" ? "Revocato" : "Deciso"} il ${formatItalianDate(consent.decidedAt)}${consent.version ? ` · v${consent.version}` : ""}`
+                    : consent.required
+                      ? "Necessario per alcune funzionalità del club"
+                      : "Mai deciso"
+                }
+                trailing={
+                  <StatusPill
+                    label={look.label}
+                    tier={look.tier}
+                    tone={look.tone}
+                    small
+                  />
+                }
+                chevron={false}
+                onPress={() => {
+                  setDecisionError("");
+                  setOpenConsent(consent);
+                }}
+                accessibilityLabel={`${consent.definitionTitle || "Consenso"}, ${look.label}`}
+              />
+            );
+          })}
+        </>
       )}
 
       <BottomSheet
         visible={Boolean(openConsent)}
         onClose={() => setOpenConsent(null)}
-        accessibilityLabel={openConsent?.definitionTitle || "Consenso"}
+        eyebrow="Consenso"
+        title={openConsent?.definitionTitle || "Consenso"}
+        actions={
+          actions?.canAccept || actions?.canRevoke ? (
+            <>
+              <ActionButton
+                variant="secondary"
+                onPress={() => setOpenConsent(null)}
+                style={{ width: 100 }}
+              >
+                Annulla
+              </ActionButton>
+              {actions?.canAccept ? (
+                <ActionButton
+                  variant="primary"
+                  loading={deciding}
+                  trailingIcon="arrow-forward"
+                  onPress={() => void handleDecide("accepted")}
+                  style={{ flex: 1 }}
+                >
+                  Accetto
+                </ActionButton>
+              ) : actions?.canRevoke ? (
+                <ActionButton
+                  variant="destructive"
+                  loading={deciding}
+                  onPress={() => void handleDecide("revoked")}
+                  style={{ flex: 1 }}
+                >
+                  Revoca il consenso
+                </ActionButton>
+              ) : null}
+            </>
+          ) : undefined
+        }
       >
         {openConsent ? (
           <View style={{ gap: Spacing.sm }}>
-            <SignatureText variant="eyebrow" tone="faint">
-              Consenso
-            </SignatureText>
-            <SignatureText variant="h3" tone="ink">
-              {openConsent.definitionTitle || "Consenso"}
-            </SignatureText>
             <StatusPill
-              label={
-                openConsent.status === "accepted"
-                  ? "Accettato"
-                  : openConsent.status === "revoked"
-                    ? "Revocato"
-                    : openConsent.status === "rejected"
-                      ? "Rifiutato"
-                      : "Da leggere"
-              }
-              variant={
-                openConsent.status === "accepted"
-                  ? "success"
-                  : openConsent.status === "missing"
-                    ? "warning"
-                    : "default"
-              }
+              label={describe(openConsent).label}
+              tier={describe(openConsent).tier}
+              tone={describe(openConsent).tone}
             />
             {openConsent.decidedAt ? (
               <SignatureText variant="small" tone="muted">
@@ -167,52 +274,17 @@ export default function ParentConsentsScreen() {
                   : ""}
               </SignatureText>
             ) : null}
-            <SignatureText variant="small" tone="muted">
+            <InfoNote>
               Il testo integrale di questo consenso non è ancora consultabile da
               qui — richiedilo in segreteria se vuoi rileggerlo prima di
               decidere.
-            </SignatureText>
-
+            </InfoNote>
             {decisionError ? (
-              <SignatureText
-                variant="small"
-                style={{ color: "#B91C1C", fontWeight: "600" }}
-              >
-                {decisionError}
-              </SignatureText>
+              <InfoNote tone="danger">{decisionError}</InfoNote>
             ) : null}
-
-            <View
-              style={{
-                flexDirection: "row",
-                gap: Spacing.sm,
-                marginTop: Spacing.sm,
-              }}
-            >
-              {actions?.canAccept ? (
-                <ActionButton
-                  variant="primary"
-                  loading={deciding}
-                  onPress={() => void handleDecide("accepted")}
-                >
-                  Accetto
-                </ActionButton>
-              ) : null}
-              {actions?.canRevoke ? (
-                <ActionButton
-                  variant="secondary"
-                  loading={deciding}
-                  onPress={() => void handleDecide("revoked")}
-                >
-                  Revoca
-                </ActionButton>
-              ) : null}
-            </View>
           </View>
         ) : null}
       </BottomSheet>
-
-      <View style={{ height: Spacing.lg }} />
     </SecondaryScreenLayout>
   );
 }

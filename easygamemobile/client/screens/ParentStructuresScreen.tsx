@@ -1,18 +1,21 @@
 import React, { useState } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  ActionBarButton,
   ActionButton,
-  BookingCard,
   BottomSheet,
-  GlassCard,
-  IconChip,
+  GlassRow,
   SecondaryScreenLayout,
+  SectionLabel,
   SignatureInput,
   SignatureText,
   StateMessage,
+  StatusPill,
+  SummaryCard,
 } from "@/components/signature";
+import type { StatusPillTier, StatusPillTone } from "@/components/signature";
 import { useParentContext } from "@/contexts/ParentContext";
 import { useParentSectionStatus } from "@/hooks/useParentSectionStatus";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
@@ -22,6 +25,7 @@ import {
   lowestFieldPrice,
 } from "@/lib/parent-structures";
 import { formatParentCurrency } from "@/lib/parent-payments";
+import { formatItalianDate } from "@/lib/mobile-ui";
 import { classifyFetchError, fetchErrorMessage } from "@/lib/fetch-error";
 import { Spacing } from "@/constants/theme";
 import type { ParentStructure } from "@/services/api";
@@ -40,7 +44,7 @@ interface FieldSelection {
  * modo di sovrascriverlo dall'interfaccia.
  */
 export default function ParentStructuresScreen() {
-  const { selectedChildId } = useParentContext();
+  const { selectedChildId, selectedChild } = useParentContext();
   const queryClient = useQueryClient();
   const [selection, setSelection] = useState<FieldSelection | null>(null);
   const [date, setDate] = useState("");
@@ -122,11 +126,56 @@ export default function ParentStructuresScreen() {
     }
   };
 
+  const bookableCount = structures.reduce(
+    (sum, structure) => sum + bookableFields(structure).length,
+    0,
+  );
+  const timeOf = (iso: string) => {
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) return "--:--";
+    return parsed.toLocaleTimeString("it-IT", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+  const bookingLook = (
+    booking: (typeof bookings)[number],
+  ): {
+    tier: StatusPillTier;
+    tone: StatusPillTone;
+    color: string;
+    label: string;
+  } =>
+    booking.status === "confirmed"
+      ? { tier: "solid", tone: "info", color: "#2563EB", label: "Confermata" }
+      : booking.status === "cancelled"
+        ? {
+            tier: "quiet",
+            tone: "neutral",
+            color: "#64748B",
+            label: "Annullata",
+          }
+        : {
+            tier: "outline",
+            tone: "warning",
+            color: "#F59E0B",
+            label: "Richiesta",
+          };
+
   return (
     <SecondaryScreenLayout
       title="Strutture"
-      eyebrow="Segreteria"
-      skyHeight={360}
+      eyebrow={`Prenotazioni · ${selectedChild?.clubName || "Club"}`}
+      skyHeight={300}
+      contentGap={10}
+      club={
+        selectedChild
+          ? {
+              name: selectedChild.clubName,
+              avatarUrl: selectedChild.clubLogoUrl,
+            }
+          : undefined
+      }
     >
       {status === "loading" ? (
         <StateMessage kind="loading" tone="dark" title="Carico le strutture…" />
@@ -149,95 +198,138 @@ export default function ParentStructuresScreen() {
           kind="empty"
           tone="dark"
           title="Nessuna struttura"
-          message="Il club non ha ancora reso disponibili strutture prenotabili."
+          message="Il club non ha strutture prenotabili dalle famiglie."
         />
       ) : (
         <>
-          {bookings.length > 0 ? (
-            <View style={{ gap: Spacing.sm, marginBottom: Spacing.lg }}>
-              <SignatureText variant="eyebrow" tone="faint">
-                Le tue prenotazioni
-              </SignatureText>
-              {bookings.map((booking) => (
-                <BookingCard key={booking.id} booking={booking} />
-              ))}
-            </View>
-          ) : null}
+          <SummaryCard
+            icon="business-outline"
+            eyebrow="Disponibili"
+            title={
+              structures.length === 1
+                ? structures[0].name
+                : `${structures.length} strutture del club`
+            }
+            value={String(bookableCount)}
+          />
 
-          <SignatureText
-            variant="eyebrow"
-            tone="faint"
-            style={{ marginBottom: Spacing.sm }}
-          >
-            Strutture disponibili
-          </SignatureText>
-          {structures.map((structure) => (
-            <GlassCard
-              key={structure.id}
-              eyebrow={structure.type}
-              title={structure.name}
-              description={[structure.address, structure.city]
-                .filter(Boolean)
-                .join(", ")}
-              style={{ gap: Spacing.sm, marginBottom: Spacing.md }}
-            >
-              {bookableFields(structure).map((field) => {
-                const price = lowestFieldPrice(field);
-                return (
-                  <Pressable
-                    key={field.id}
-                    onPress={() => openBookingSheet(structure, field)}
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: Spacing.sm,
-                      paddingVertical: Spacing.sm,
-                    }}
-                  >
-                    <IconChip name="football-outline" tone="tint" size={32} />
-                    <View style={{ flex: 1 }}>
-                      <SignatureText variant="body" tone="ink">
-                        {field.name}
-                      </SignatureText>
-                      {price !== null ? (
-                        <SignatureText variant="small" tone="muted">
-                          Da {formatParentCurrency(price)}
-                        </SignatureText>
-                      ) : null}
-                    </View>
-                    <SignatureText
-                      variant="small"
-                      style={{ color: "#2563EB", fontWeight: "700" }}
-                    >
-                      Prenota
-                    </SignatureText>
-                  </Pressable>
-                );
-              })}
-            </GlassCard>
-          ))}
+          {bookings.length > 0 ? (
+            <SectionLabel
+              label="Le tue prenotazioni"
+              trailing={String(bookings.length)}
+              style={{ paddingTop: 4 }}
+            />
+          ) : null}
+          {bookings.map((booking) => {
+            const look = bookingLook(booking);
+            return (
+              <GlassRow
+                key={booking.id}
+                icon={
+                  booking.status === "cancelled"
+                    ? "close-circle-outline"
+                    : "business-outline"
+                }
+                iconColor={look.color}
+                title={`${booking.fieldName} · ${formatItalianDate(booking.start.slice(0, 10), "EEE d")} · ${timeOf(booking.start)} – ${timeOf(booking.end)}`}
+                meta={[
+                  booking.structureName,
+                  typeof booking.amount === "number"
+                    ? formatParentCurrency(booking.amount)
+                    : "",
+                  booking.paymentStatus === "paid"
+                    ? "pagata"
+                    : booking.paymentStatus === "unpaid"
+                      ? "da pagare"
+                      : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                dimmed={booking.status === "cancelled"}
+                trailing={
+                  <StatusPill
+                    label={look.label}
+                    tier={look.tier}
+                    tone={look.tone}
+                    small
+                  />
+                }
+              />
+            );
+          })}
+
+          <SectionLabel
+            label="Campi prenotabili"
+            trailing={String(bookableCount)}
+            style={{ paddingTop: 6 }}
+          />
+          {structures.flatMap((structure) =>
+            bookableFields(structure).map((field) => {
+              const price = lowestFieldPrice(field);
+              return (
+                <GlassRow
+                  key={`${structure.id}-${field.id}`}
+                  icon="business-outline"
+                  iconColor="#2563EB"
+                  title={field.name}
+                  meta={[
+                    structure.name,
+                    [structure.address, structure.city]
+                      .filter(Boolean)
+                      .join(", "),
+                    price !== null ? `da ${formatParentCurrency(price)}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  trailing={
+                    <StatusPill
+                      label="Prenotabile"
+                      tier="solid"
+                      tone="info"
+                      small
+                    />
+                  }
+                  actions={
+                    <ActionBarButton
+                      label="Prenota"
+                      icon="calendar-outline"
+                      variant="primary"
+                      onPress={() => openBookingSheet(structure, field)}
+                    />
+                  }
+                />
+              );
+            }),
+          )}
         </>
       )}
 
       <BottomSheet
         visible={Boolean(selection)}
         onClose={() => setSelection(null)}
-        accessibilityLabel="Prenota struttura"
+        eyebrow={selection?.structure.name}
+        title={selection ? `Prenota ${selection.field.name}` : "Prenota"}
+        actions={
+          <>
+            <ActionButton
+              variant="secondary"
+              onPress={() => setSelection(null)}
+              style={{ width: 100 }}
+            >
+              Annulla
+            </ActionButton>
+            <ActionButton
+              disabled={!date.trim() || !time.trim() || !durationMinutes}
+              loading={submitting}
+              trailingIcon="arrow-forward"
+              onPress={() => void handleSubmit()}
+              style={{ flex: 1 }}
+            >
+              Invia richiesta
+            </ActionButton>
+          </>
+        }
       >
-        <SignatureText
-          variant="eyebrow"
-          tone="faint"
-          style={{ marginBottom: 4 }}
-        >
-          {selection?.structure.name}
-        </SignatureText>
-        <SignatureText
-          variant="h3"
-          tone="ink"
-          style={{ marginBottom: Spacing.md }}
-        >
-          Prenota {selection?.field.name}
-        </SignatureText>
         <View style={{ gap: Spacing.md }}>
           {selection && selection.field.pricing.length > 0 ? (
             <View>
@@ -248,38 +340,22 @@ export default function ParentStructuresScreen() {
               >
                 Durata
               </SignatureText>
-              <View
-                style={{
-                  flexDirection: "row",
-                  flexWrap: "wrap",
-                  gap: Spacing.sm,
-                }}
-              >
+              <View style={styles.chipRow}>
                 {selection.field.pricing.map((tariff) => {
                   const selected = durationMinutes === tariff.durationMinutes;
                   return (
                     <Pressable
                       key={tariff.id}
                       onPress={() => setDurationMinutes(tariff.durationMinutes)}
-                      style={{
-                        paddingVertical: 8,
-                        paddingHorizontal: 14,
-                        borderRadius: 999,
-                        borderWidth: 1,
-                        borderColor: selected
-                          ? "#2563EB"
-                          : "rgba(11,26,58,0.14)",
-                        backgroundColor: selected
-                          ? "#2563EB"
-                          : "rgba(255,255,255,0.6)",
-                      }}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      style={[styles.chip, selected ? styles.chipOn : null]}
                     >
                       <SignatureText
-                        variant="small"
-                        style={{
-                          fontWeight: "700",
-                          color: selected ? "#FFFFFF" : "rgba(11,26,58,0.62)",
-                        }}
+                        style={[
+                          styles.chipLabel,
+                          selected ? styles.chipLabelOn : null,
+                        ]}
                       >
                         {tariff.durationMinutes} min ·{" "}
                         {formatParentCurrency(tariff.price)}
@@ -295,38 +371,56 @@ export default function ParentStructuresScreen() {
             value={date}
             onChangeText={setDate}
             placeholder="2026-10-01"
+            leftIcon="calendar-outline"
           />
           <SignatureInput
             label="Ora (HH:MM)"
             value={time}
             onChangeText={setTime}
             placeholder="18:00"
+            leftIcon="time-outline"
           />
           <SignatureInput
             label="Note (facoltative)"
             value={notes}
             onChangeText={setNotes}
             multiline
-            placeholder="Eventuali richieste particolari"
+            placeholder="Eventuali dettagli utili al club"
             error={formError || undefined}
           />
-          <View style={{ flexDirection: "row", gap: Spacing.sm }}>
-            <ActionButton
-              disabled={!date.trim() || !time.trim() || !durationMinutes}
-              loading={submitting}
-              trailingIcon="arrow-forward"
-              onPress={() => void handleSubmit()}
-            >
-              Invia richiesta
-            </ActionButton>
-            <ActionButton variant="ghost" onPress={() => setSelection(null)}>
-              Annulla
-            </ActionButton>
-          </View>
         </View>
       </BottomSheet>
-
-      <View style={{ height: Spacing.lg }} />
     </SecondaryScreenLayout>
   );
 }
+
+const styles = StyleSheet.create({
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  chip: {
+    height: 30,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(11,26,58,0.14)",
+    backgroundColor: "rgba(255,255,255,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chipOn: {
+    backgroundColor: "#1D4ED8",
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+  chipLabel: {
+    color: "#0B1A3A",
+    fontSize: 11.5,
+    lineHeight: 14,
+    fontWeight: "700",
+  },
+  chipLabelOn: {
+    color: "#FFFFFF",
+  },
+});

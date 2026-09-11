@@ -53,3 +53,35 @@ export function resolveDocumentDensity(
 ): "row" | "card" {
   return item.required && item.description ? "card" : "row";
 }
+
+/**
+ * I quattro livelli del design v3 (`IA e Home` §5, "Status hierarchy") per
+ * gli stati del fascicolo: **quiet** per cio che e in regola (approvato),
+ * **outline** per cio che aspetta il club (in verifica), **solid** per cio
+ * che aspetta la famiglia (richiesto, mancante ma obbligatorio, rifiutato),
+ * **urgent** per cio che ha una scadenza superata (scaduto, in ritardo). Un
+ * documento facoltativo non ancora caricato resta neutro: non chiede nulla.
+ */
+export function resolveDocumentStatusTier(
+  item: Pick<FamilyDocumentItem, "state" | "required">,
+): {
+  tier: "quiet" | "outline" | "solid" | "urgent";
+  tone: "success" | "info" | "warning" | "danger" | "neutral";
+} {
+  switch (item.state) {
+    case "approved":
+      return { tier: "quiet", tone: "success" };
+    case "under_review":
+      return { tier: "outline", tone: "info" };
+    case "overdue":
+    case "expired":
+      return { tier: "urgent", tone: "danger" };
+    case "rejected":
+      return { tier: "solid", tone: "danger" };
+    case "missing":
+    default:
+      return item.required
+        ? { tier: "solid", tone: "warning" }
+        : { tier: "quiet", tone: "neutral" };
+  }
+}

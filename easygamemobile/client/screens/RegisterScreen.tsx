@@ -1,18 +1,14 @@
 import React, { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import Animated, { FadeInDown } from "react-native-reanimated";
 
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { Spacing } from "@/constants/theme";
 import {
   ActionButton,
-  BrandStateLayout,
+  AuthFrame,
   SignatureInput,
-  SignatureText,
 } from "@/components/signature";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -25,9 +21,11 @@ type Navigation = NativeStackNavigationProp<RootStackParamList, "Register">;
  * (`isPhoneNumberRequiredAtSignup`, ADR-0132) — il formato lo valida il
  * server, qui si raccoglie e basta.
  *
- * v3.0 (`migration-v3.md` passo 7): su `BrandStateLayout`, stesso registro di
- * `LoginScreen` — cielo pieno, `SignatureInput`/`ActionButton`, mai il
- * quadrato con gradiente attorno al marchio.
+ * Composizione: design `IA e Home` §5a (secondo artboard, "Nuovo
+ * account") — stessa `AuthFrame` del login: scheda di vetro con i campi e
+ * il CTA a gradiente, nota sui requisiti password, secondario in contorno
+ * "Hai già un account? Accedi". Nome e cognome restano due campi (il
+ * backend li vuole separati), affiancati sulla stessa riga.
  */
 export default function RegisterScreen() {
   const navigation = useNavigation<Navigation>();
@@ -105,172 +103,105 @@ export default function RegisterScreen() {
   };
 
   return (
-    <BrandStateLayout>
-      <Animated.View entering={FadeInDown.delay(100).duration(600)}>
-        <SignatureText
-          variant="eyebrow"
-          tone="onDarkMuted"
-          style={styles.centeredText}
-        >
-          Nuovo account
-        </SignatureText>
-        <SignatureText
-          variant="display"
-          tone="onDark"
-          style={[styles.title, styles.centeredText]}
-        >
-          Crea il tuo profilo
-        </SignatureText>
-        <SignatureText
-          variant="body"
-          tone="onDarkMuted"
-          style={styles.centeredText}
-        >
-          Lo stesso account funziona anche sulla Web App EasyGame.
-        </SignatureText>
-      </Animated.View>
-
-      <Animated.View
-        entering={FadeInDown.delay(200).duration(600)}
-        style={styles.formContainer}
-      >
-        <SignatureInput
-          label="Nome"
-          placeholder="Marco"
-          value={firstName}
-          onChangeText={setFirstName}
-          leftIcon="person-outline"
-          style={styles.field}
-        />
-        <SignatureInput
-          label="Cognome"
-          placeholder="Rossi"
-          value={lastName}
-          onChangeText={setLastName}
-          leftIcon="person-outline"
-          style={styles.field}
-        />
-        <SignatureInput
-          label="Cellulare"
-          placeholder="+39 333 0000000"
-          value={phone}
-          onChangeText={setPhone}
-          keyboardType="phone-pad"
-          leftIcon="call-outline"
-          style={styles.field}
-        />
-        <SignatureInput
-          label="Email"
-          placeholder="nome@esempio.it"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          autoCapitalize="none"
-          leftIcon="mail-outline"
-          style={styles.field}
-        />
-        <SignatureInput
-          label="Password"
-          placeholder="Almeno 12 caratteri"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={!showPassword}
-          leftIcon="lock-closed-outline"
-          rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
-          rightIconLabel={
-            showPassword ? "Nascondi password" : "Mostra password"
-          }
-          onRightIconPress={() => setShowPassword(!showPassword)}
-          style={styles.field}
-        />
-        <SignatureText variant="small" tone="onDarkMuted" style={styles.hint}>
-          Maiuscola, minuscola, numero e carattere speciale.
-        </SignatureText>
-        <SignatureInput
-          label="Conferma password"
-          placeholder="Ripeti la password"
-          value={confirmPassword}
-          onChangeText={setConfirmPassword}
-          secureTextEntry={!showPassword}
-          leftIcon="shield-checkmark-outline"
-          style={styles.field}
-        />
-
-        {error ? (
-          <View style={styles.errorContainer}>
-            <Ionicons name="alert-circle" size={16} color="#FCA5A5" />
-            <SignatureText
-              variant="small"
-              style={[styles.errorText, { flex: 1 }]}
-            >
-              {error}
-            </SignatureText>
+    <AuthFrame
+      step="Nuovo account"
+      eyebrow="Registrazione"
+      title="Crea il tuo profilo"
+      body="Il club ti collegherà ai tuoi atleti dopo la verifica dell'email."
+      error={error || undefined}
+      note="Password: almeno 12 caratteri, con maiuscola, minuscola, numero e carattere speciale."
+      card={
+        <>
+          <View style={styles.nameRow}>
+            <SignatureInput
+              label="Nome"
+              placeholder="Marco"
+              value={firstName}
+              onChangeText={setFirstName}
+              autoComplete="given-name"
+              leftIcon="person-outline"
+              style={styles.nameField}
+            />
+            <SignatureInput
+              label="Cognome"
+              placeholder="Rossi"
+              value={lastName}
+              onChangeText={setLastName}
+              autoComplete="family-name"
+              style={styles.nameField}
+            />
           </View>
-        ) : null}
-
-        <ActionButton
-          variant="primary"
-          onSky
-          onPress={() => void handleSubmit()}
-          loading={loading}
-          fullWidth
-          style={styles.submitButton}
-        >
-          Crea account
-        </ActionButton>
-
-        <View style={styles.footer}>
-          <SignatureText variant="small" tone="onDarkMuted">
-            Hai già un account?
-          </SignatureText>
-          <Pressable onPress={() => navigation.navigate("Login")}>
-            <SignatureText variant="small" style={styles.footerLink}>
-              Accedi
-            </SignatureText>
-          </Pressable>
-        </View>
-      </Animated.View>
-    </BrandStateLayout>
+          <SignatureInput
+            label="Cellulare"
+            placeholder="+39 333 0000000"
+            value={phone}
+            onChangeText={setPhone}
+            keyboardType="phone-pad"
+            autoComplete="tel"
+            leftIcon="call-outline"
+          />
+          <SignatureInput
+            label="Email"
+            placeholder="nome@email.it"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            leftIcon="mail-outline"
+          />
+          <SignatureInput
+            label="Password"
+            placeholder="Almeno 12 caratteri"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            leftIcon="lock-closed-outline"
+            rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
+            rightIconLabel={
+              showPassword ? "Nascondi password" : "Mostra password"
+            }
+            onRightIconPress={() => setShowPassword(!showPassword)}
+          />
+          <SignatureInput
+            label="Conferma password"
+            placeholder="Ripeti la password"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            secureTextEntry={!showPassword}
+            leftIcon="lock-closed-outline"
+            error={
+              confirmPassword && password !== confirmPassword
+                ? "Le password non coincidono"
+                : undefined
+            }
+          />
+          <ActionButton
+            variant="primary"
+            fullWidth
+            trailingIcon="arrow-forward"
+            onPress={() => void handleSubmit()}
+            loading={loading}
+          >
+            Crea account
+          </ActionButton>
+        </>
+      }
+      secondary={{
+        label: "Hai già un account? Accedi",
+        onPress: () => navigation.navigate("Login"),
+      }}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  title: {
-    marginVertical: 2,
-  },
-  centeredText: {
-    textAlign: "center",
-  },
-  formContainer: {
-    gap: Spacing.md,
-    marginTop: Spacing["2xl"],
-  },
-  field: {
-    marginBottom: 0,
-  },
-  hint: {
-    marginTop: -Spacing.xs,
-  },
-  submitButton: {
-    marginTop: Spacing.sm,
-  },
-  errorContainer: {
+  nameRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
+    gap: 10,
   },
-  errorText: {
-    color: "#FCA5A5",
-  },
-  footer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: Spacing.xs,
-    marginTop: Spacing.md,
-  },
-  footerLink: {
-    color: "#FFFFFF",
-    fontWeight: "700",
+  nameField: {
+    flex: 1,
+    minWidth: 0,
   },
 });

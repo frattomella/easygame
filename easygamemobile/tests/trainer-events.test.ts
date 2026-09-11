@@ -295,7 +295,7 @@ test("sortEventsByDateTime: ordina per data e ora, senza mutare l'elenco origina
 
 // --- mapParticipantsToAttendance -----------------------------------------
 
-test("mapParticipantsToAttendance: present/absent diventano righe, pending resta 'non ancora segnato' (nessuna riga)", () => {
+test("mapParticipantsToAttendance: present/absent/pending sono i tre stati del server — pending e una riga 'da segnare' (present: null), non un assente", () => {
   const entries = mapParticipantsToAttendance([
     { athlete_id: "a1", status: "present", notes: "In forma" },
     { athlete_id: "a2", status: "absent", notes: "" },
@@ -303,20 +303,24 @@ test("mapParticipantsToAttendance: present/absent diventano righe, pending resta
     { athlete_id: "a4", status: null },
   ]);
 
-  assert.equal(entries.length, 2);
+  assert.equal(entries.length, 4);
   assert.deepEqual(entries[0], {
     athleteId: "a1",
     present: true,
     notes: "In forma",
   });
   assert.deepEqual(entries[1], { athleteId: "a2", present: false, notes: "" });
+  assert.deepEqual(entries[2], { athleteId: "a3", present: null, notes: "" });
+  // Uno stato vuoto e cio che il server normalizza a pending: stessa lettura.
+  assert.deepEqual(entries[3], { athleteId: "a4", present: null, notes: "" });
 });
 
-test("mapParticipantsToAttendance: nessun tri-state esposto — 'pending' non diventa mai present:false visibile come 'segnato assente'", () => {
+test("mapParticipantsToAttendance: 'pending' non diventa mai present:false visibile come 'segnato assente'", () => {
   const entries = mapParticipantsToAttendance([
     { athlete_id: "a1", status: "pending" },
   ]);
-  assert.equal(entries.length, 0);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].present, null);
 });
 
 test("mapParticipantsToAttendance: elenco assente o vuoto → nessuna riga, mai un errore", () => {

@@ -19,9 +19,24 @@ import { SignatureText } from "@/components/signature/SignatureText";
  * Reads `options.tabBarIcon`'s Ionicons name from each screen the same way
  * the navigator's own descriptors do, so no change is needed to how
  * `Tab.Screen` declares its icon — only the chrome around it changes.
+ *
+ * v3 geometry (design `IA e Home` §2c): 56px pill, 5px padding, 46px puck
+ * (13/15px side padding, 7px icon-label gap, 11.5px label), 20px glyphs,
+ * inactive glyphs at white 62%. A slot badge is an 8px dot with a navy rim
+ * (`options.tabBarBadge` truthy) — "at 56px the dock has no room for
+ * numerals, and the count is already on the Home tile".
  */
 export function Dock({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+
+  // Regola di navigazione v3 ("Secondary screens ... never the dock"): la
+  // tab a fuoco ha uno stack annidato oltre la sua radice → e una schermata
+  // secondaria con la pillola "‹ Indietro", il Dock non si disegna.
+  const focusedRoute = state.routes[state.index];
+  const nestedIndex = focusedRoute?.state?.index ?? 0;
+  if (nestedIndex > 0) {
+    return null;
+  }
 
   return (
     <View
@@ -88,6 +103,9 @@ export function Dock({ state, descriptors, navigation }: BottomTabBarProps) {
                 {focused ? (
                   <SignatureText style={styles.label}>{label}</SignatureText>
                 ) : null}
+                {!focused && options.tabBarBadge ? (
+                  <View style={styles.dot} accessibilityLabel="Novita" />
+                ) : null}
               </Pressable>
             );
           })}
@@ -130,7 +148,7 @@ const styles = StyleSheet.create({
   },
   dock: {
     height: EGDock.height,
-    padding: 8,
+    padding: 5,
   },
   row: {
     flex: 1,
@@ -144,13 +162,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
-    gap: 8,
+    gap: 7,
     overflow: "hidden",
   },
   tabActive: {
-    flex: 0,
+    // Non `flex: 0`: su web diventa `0 1 0%` e, con overflow hidden, il puck
+    // collassa a minWidth e taglia l'etichetta ("Hom"). Base auto = contenuto.
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "auto",
     minWidth: 44,
-    paddingHorizontal: 18,
+    paddingLeft: 13,
+    paddingRight: 15,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.3)",
   },
@@ -160,8 +183,20 @@ const styles = StyleSheet.create({
   },
   label: {
     color: "#fff",
-    fontSize: 12,
+    fontSize: 11.5,
+    lineHeight: 14,
     fontWeight: "700",
-    letterSpacing: 0.2,
+    letterSpacing: 0.23,
+  },
+  dot: {
+    position: "absolute",
+    top: 6,
+    right: 12,
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#F97316",
+    borderWidth: 1.5,
+    borderColor: "rgba(18,38,90,0.9)",
   },
 });

@@ -177,7 +177,12 @@ export interface Athlete {
 
 export interface TrainingAttendanceEntry {
   athleteId: string;
-  present: boolean;
+  /**
+   * `true` presente, `false` assente, `null` "da segnare": e lo stato
+   * `pending` del vocabolario server (`ATTENDANCE_STATUSES`), scritto e
+   * riletto come gli altri due — non uno stato solo del client.
+   */
+  present: boolean | null;
   notes: string;
 }
 

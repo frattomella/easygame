@@ -5,7 +5,8 @@ import NotificationsScreen from "@/screens/NotificationsScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 
 export type TrainingsStackParamList = {
-  Trainings: { focusTrainingId?: string } | undefined;
+  /** `openAttendance`: la Home ("Registra presenze") apre direttamente il foglio presenze dell'allenamento messo a fuoco. */
+  Trainings: { focusTrainingId?: string; openAttendance?: boolean } | undefined;
   Notifications: undefined;
 };
 

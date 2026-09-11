@@ -1,21 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import Animated, { FadeInDown } from "react-native-reanimated";
 
 import { useAuthContext } from "@/contexts/AuthContext";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
 import { VerificationChannel, VerificationInfo } from "@/lib/auth-flow";
-import { Spacing } from "@/constants/theme";
-import {
-  ActionButton,
-  BrandStateLayout,
-  SignatureInput,
-  SignatureText,
-} from "@/components/signature";
+import { EGCorner, EGGlass } from "@/constants/theme";
+import { ActionButton, AuthFrame, SignatureText } from "@/components/signature";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList, "VerifyOtp">;
@@ -45,9 +38,11 @@ const channelLabel = (channel: VerificationChannel) =>
   channel === "email" ? "email" : "cellulare";
 
 /**
- * v3.0 (`migration-v3.md` passo 7): su `BrandStateLayout`, stesso registro di
- * `LoginScreen`/`RegisterScreen` — stesso backend, stesso flusso (nessuna
- * riga di logica cambiata rispetto alla veste precedente).
+ * Composizione: prototipo `isOtp` / design §3a — sei celle 48×56 su vetro
+ * forte (la cella attiva con anello blu, tutte rosse su codice non valido),
+ * CTA "Verifica" a gradiente, sotto "Riprova tra 0:42" o "Richiedi un nuovo
+ * codice". L'input reale e uno solo, nascosto dietro le celle: il sistema
+ * puo compilarlo dall'SMS (`oneTimeCode`). Stesso backend, stesso flusso.
  */
 export default function VerifyOtpScreen() {
   const navigation = useNavigation<Navigation>();
@@ -72,6 +67,7 @@ export default function VerifyOtpScreen() {
   const [countdown, setCountdown] = useState(0);
 
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const inputRef = useRef<TextInput>(null);
 
   useEffect(
     () => () => {
@@ -206,158 +202,177 @@ export default function VerifyOtpScreen() {
     }
   };
 
+  const cells = Array.from({ length: 6 }, (_, index) => code[index] || "");
+  const activeCell = Math.min(code.length, 5);
+  const invalid = Boolean(error) && !info;
+
   return (
-    <BrandStateLayout>
-      <Animated.View
-        entering={FadeInDown.delay(100).duration(600)}
-        style={styles.iconWrap}
-      >
-        <Ionicons
-          name={channel === "email" ? "mail-outline" : "chatbubble-outline"}
-          size={36}
-          color="#FFFFFF"
-        />
-      </Animated.View>
-
-      <Animated.View entering={FadeInDown.delay(160).duration(600)}>
-        <SignatureText
-          variant="display"
-          tone="onDark"
-          style={styles.centeredText}
-        >
-          Verifica il tuo {channelLabel(channel)}
-        </SignatureText>
-        <SignatureText
-          variant="body"
-          tone="onDarkMuted"
-          style={[styles.centeredText, styles.subtitle]}
-        >
-          {maskedTarget
-            ? `Abbiamo inviato un codice a ${maskedTarget}.`
-            : "Abbiamo inviato un codice di verifica."}
-        </SignatureText>
-      </Animated.View>
-
-      <Animated.View
-        entering={FadeInDown.delay(220).duration(600)}
-        style={styles.formContainer}
-      >
-        <SignatureInput
-          label="Codice di verifica"
-          placeholder="123456"
-          value={code}
-          onChangeText={(value) => {
-            setCode(value.replace(/[^0-9]/g, "").slice(0, 6));
-            setError("");
-          }}
-          keyboardType="number-pad"
-          maxLength={6}
-          leftIcon="keypad-outline"
-          style={styles.field}
-        />
-
-        {info ? (
-          <View style={styles.infoRow}>
-            <Ionicons name="checkmark-circle" size={16} color="#86EFAC" />
-            <SignatureText variant="small" style={styles.infoText}>
-              {info}
-            </SignatureText>
-          </View>
-        ) : null}
-
-        {error ? (
-          <View style={styles.errorContainer}>
-            <Ionicons name="alert-circle" size={16} color="#FCA5A5" />
-            <SignatureText
-              variant="small"
-              style={[styles.errorText, { flex: 1 }]}
-            >
-              {error}
-            </SignatureText>
-          </View>
-        ) : null}
-
-        {failedAttempts >= 3 ? (
-          <SignatureText
-            variant="small"
-            tone="onDarkMuted"
-            style={styles.centeredText}
+    <AuthFrame
+      step="2 di 3"
+      eyebrow="Verifica"
+      title="Inserisci il codice"
+      body={
+        maskedTarget
+          ? `Abbiamo inviato sei cifre a ${maskedTarget}`
+          : `Abbiamo inviato sei cifre al tuo ${channelLabel(channel)}.`
+      }
+      note={info || undefined}
+      error={error || undefined}
+      card={
+        <>
+          <Pressable
+            onPress={() => inputRef.current?.focus()}
+            accessibilityRole="button"
+            accessibilityLabel="Inserisci il codice di verifica"
+            style={styles.cells}
           >
-            Se il problema persiste, richiedi un nuovo codice.
-          </SignatureText>
-        ) : null}
-
-        <ActionButton
-          variant="primary"
-          onSky
-          onPress={() => void handleVerify()}
-          loading={loading}
-          fullWidth
-          style={styles.submitButton}
-        >
-          Verifica
-        </ActionButton>
-
-        <ActionButton
-          variant="secondary"
-          onSky
-          onPress={() => void handleResend()}
-          loading={resending}
-          disabled={countdown > 0}
-          fullWidth
-        >
-          {countdown > 0 ? `Rinvia codice (${countdown}s)` : "Rinvia codice"}
-        </ActionButton>
-
-        <ActionButton
-          variant="secondary"
-          onSky
-          onPress={() => navigation.goBack()}
-          fullWidth
-        >
-          Torna indietro
-        </ActionButton>
-      </Animated.View>
-    </BrandStateLayout>
+            {cells.map((value, index) => {
+              const active = index === activeCell && !invalid;
+              return (
+                <View
+                  key={index}
+                  style={[
+                    styles.cell,
+                    active ? styles.cellActive : null,
+                    invalid ? styles.cellInvalid : null,
+                  ]}
+                >
+                  <SignatureText style={styles.cellValue}>
+                    {value}
+                  </SignatureText>
+                </View>
+              );
+            })}
+            <TextInput
+              ref={inputRef}
+              value={code}
+              onChangeText={(value) => {
+                setCode(value.replace(/[^0-9]/g, "").slice(0, 6));
+                setError("");
+              }}
+              keyboardType="number-pad"
+              textContentType="oneTimeCode"
+              autoComplete="one-time-code"
+              maxLength={6}
+              autoFocus
+              caretHidden
+              style={styles.hiddenInput}
+              accessibilityLabel="Codice di verifica"
+            />
+          </Pressable>
+          {failedAttempts >= 3 ? (
+            <SignatureText style={styles.hint}>
+              Se il problema persiste, richiedi un nuovo codice.
+            </SignatureText>
+          ) : null}
+          <ActionButton
+            variant="primary"
+            fullWidth
+            trailingIcon="arrow-forward"
+            onPress={() => void handleVerify()}
+            loading={loading}
+            disabled={code.length < 6}
+          >
+            Verifica
+          </ActionButton>
+          <Pressable
+            onPress={
+              countdown > 0 || resending ? undefined : () => void handleResend()
+            }
+            disabled={countdown > 0 || resending}
+            hitSlop={8}
+            accessibilityRole="button"
+            style={styles.resend}
+          >
+            <SignatureText
+              style={[
+                styles.resendText,
+                countdown > 0 ? null : styles.resendTextActive,
+              ]}
+            >
+              {resending
+                ? "Invio in corso…"
+                : countdown > 0
+                  ? `Riprova tra ${formatCountdown(countdown)}`
+                  : "Richiedi un nuovo codice"}
+            </SignatureText>
+          </Pressable>
+        </>
+      }
+      secondary={{
+        label: "Torna indietro",
+        onPress: () => navigation.goBack(),
+      }}
+    />
   );
 }
 
+const formatCountdown = (seconds: number) =>
+  `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+
 const styles = StyleSheet.create({
-  iconWrap: {
-    alignItems: "center",
-    marginBottom: Spacing.md,
+  cells: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 8,
   },
-  centeredText: {
+  cell: {
+    flex: 1,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: EGGlass.bgStrong,
+    borderWidth: 1,
+    borderColor: EGGlass.hairlineStrong,
+    ...EGCorner.control,
+  },
+  cellActive: {
+    borderColor: "#2563EB",
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.35,
+    shadowRadius: 2,
+  },
+  cellInvalid: {
+    borderColor: "#EF4444",
+    shadowColor: "#EF4444",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.35,
+    shadowRadius: 2,
+  },
+  cellValue: {
+    color: "#0B1A3A",
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  hiddenInput: {
+    position: "absolute",
+    opacity: 0,
+    width: 1,
+    height: 1,
+  },
+  hint: {
+    color: "rgba(11,26,58,0.62)",
+    fontSize: 12.5,
+    lineHeight: 18,
+    fontWeight: "500",
     textAlign: "center",
   },
-  subtitle: {
-    marginTop: Spacing.xs,
+  resend: {
+    alignSelf: "center",
+    paddingVertical: 2,
   },
-  formContainer: {
-    gap: Spacing.md,
-    marginTop: Spacing["2xl"],
+  resendText: {
+    color: "rgba(11,26,58,0.42)",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    textAlign: "center",
   },
-  field: {
-    marginBottom: 0,
-  },
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-    justifyContent: "center",
-  },
-  infoText: {
-    color: "#86EFAC",
-  },
-  errorContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-  },
-  errorText: {
-    color: "#FCA5A5",
-  },
-  submitButton: {
-    marginTop: Spacing.sm,
+  resendTextActive: {
+    color: "#1D4ED8",
+    fontWeight: "700",
   },
 });

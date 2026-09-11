@@ -1,11 +1,16 @@
 import React from "react";
-import { Pressable, StyleProp, View, ViewStyle } from "react-native";
+import {
+  Pressable,
+  StyleProp,
+  StyleSheet,
+  View,
+  ViewStyle,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { GradientFill } from "@/components/signature/GradientFill";
 import { IconChip } from "@/components/signature/IconChip";
 import { SignatureText } from "@/components/signature/SignatureText";
-import { Spacing } from "@/constants/theme";
 
 interface AppBarProps {
   title: string;
@@ -25,12 +30,12 @@ interface AppBarProps {
 
 /**
  * The screen header living in the navy sky (design-source
- * `components/brand/AppBar.jsx`): a labelled back pill (left, own line, when
- * `onBack` is given), eyebrow + display title, glass chips on the right.
- * Transparent — `Floodlight` behind it provides the surface. Include
- * `useSafeAreaInsets().top` in the parent's padding; this component only
- * lays out its own content, it does not add safe-area padding itself so it
- * composes with whatever scroll container hosts it.
+ * `components/brand/AppBar.jsx` + prototipo v3 `showBack`): a labelled
+ * back pill (left, own line, when `onBack` is given — 36px, white 12% fill,
+ * white 28% rim, `chevron-back` + "Indietro"), eyebrow + display title, the
+ * bell alone on the right with ≥20px between title block and trailing
+ * actions. Transparent — `Floodlight`/`BrandLine` behind provide the
+ * surface. Include `useSafeAreaInsets().top` in the parent's padding.
  */
 export function AppBar({
   title,
@@ -43,43 +48,28 @@ export function AppBar({
   style,
 }: AppBarProps) {
   return (
-    <View style={[{ paddingHorizontal: Spacing.xl }, style]}>
+    <View style={style}>
       {onBack ? (
-        <Pressable
-          onPress={onBack}
-          accessibilityRole="button"
-          accessibilityLabel={backLabel}
-          hitSlop={8}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            alignSelf: "flex-start",
-            gap: 4,
-            marginBottom: Spacing.sm,
-          }}
-        >
-          <Ionicons name="chevron-back" size={18} color="#FFFFFF" />
-          <SignatureText
-            style={{ color: "#FFFFFF", fontSize: 15, fontWeight: "600" }}
+        <View style={styles.backRow}>
+          <Pressable
+            onPress={onBack}
+            accessibilityRole="button"
+            accessibilityLabel={backLabel}
+            hitSlop={8}
+            style={styles.backPill}
           >
-            {backLabel}
-          </SignatureText>
-        </Pressable>
+            <Ionicons name="chevron-back-outline" size={16} color="#FFFFFF" />
+            <SignatureText style={styles.backLabel}>{backLabel}</SignatureText>
+          </Pressable>
+        </View>
       ) : null}
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "flex-end",
-          justifyContent: "space-between",
-          gap: Spacing.xl,
-          minHeight: 44,
-        }}
-      >
+      <View style={[styles.titleRow, { paddingTop: onBack ? 6 : 10 }]}>
         <View style={{ flex: 1, minWidth: 0 }}>
           {eyebrow ? (
             <SignatureText
               variant="eyebrow"
               tone="onDarkMuted"
+              numberOfLines={1}
               style={{ marginBottom: 4 }}
             >
               {eyebrow}
@@ -89,58 +79,97 @@ export function AppBar({
             {title}
           </SignatureText>
         </View>
-        <View
-          style={{
-            flexDirection: "row",
-            gap: Spacing.sm,
-            alignItems: "center",
-          }}
-        >
-          {right}
-          {onNotifications ? (
-            <Pressable
-              onPress={onNotifications}
-              style={{ position: "relative" }}
-            >
-              <IconChip name="notifications-outline" tone="dark" size={40} />
-              {notificationCount > 0 ? (
-                <View
-                  style={{
-                    position: "absolute",
-                    top: -4,
-                    right: -4,
-                    minWidth: 18,
-                    height: 18,
-                    borderRadius: 999,
-                    paddingHorizontal: 5,
-                    borderWidth: 1.5,
-                    borderColor: "rgba(255,255,255,0.7)",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    overflow: "hidden",
-                  }}
-                >
-                  <GradientFill
-                    gradient="match"
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                    }}
-                  />
-                  <SignatureText
-                    style={{ color: "#fff", fontSize: 10, fontWeight: "800" }}
-                  >
-                    {notificationCount}
-                  </SignatureText>
-                </View>
-              ) : null}
-            </Pressable>
-          ) : null}
-        </View>
+        {right || onNotifications ? (
+          <View style={styles.trailing}>
+            {right}
+            {onNotifications ? (
+              <Pressable
+                onPress={onNotifications}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  notificationCount > 0
+                    ? `Notifiche, ${notificationCount} non lette`
+                    : "Notifiche"
+                }
+                style={{ position: "relative" }}
+              >
+                <IconChip name="notifications-outline" tone="dark" size={40} />
+                {notificationCount > 0 ? (
+                  <View style={styles.badge}>
+                    <GradientFill
+                      gradient="match"
+                      style={StyleSheet.absoluteFillObject}
+                    />
+                    <SignatureText style={styles.badgeLabel}>
+                      {notificationCount > 99 ? "99+" : notificationCount}
+                    </SignatureText>
+                  </View>
+                ) : null}
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
       </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  backRow: {
+    paddingTop: 12,
+    paddingHorizontal: 20,
+  },
+  backPill: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 36,
+    paddingLeft: 10,
+    paddingRight: 14,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.28)",
+  },
+  backLabel: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "700",
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 20,
+    paddingHorizontal: 20,
+    minHeight: 54,
+  },
+  trailing: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+    flexShrink: 0,
+  },
+  badge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  badgeLabel: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "800",
+  },
+});

@@ -55,3 +55,17 @@ test("array con un solo elemento viene spacchettato", () => {
   assert.ok(monday);
   assert.equal(formatOpeningHourSlots(monday!), "09:00-18:00");
 });
+
+test("le chiavi che non sono giorni (id, date, name) non diventano righe di orario e i giorni escono in ordine di settimana", () => {
+  const days = normalizeOpeningHours({
+    id: "oh-1",
+    name: "Segreteria",
+    date: "2026-09-01",
+    venerdi: { closed: true },
+    lunedi: { mattina: { start: "09:00", end: "12:00" } },
+  });
+  assert.deepEqual(
+    days.map((day) => day.label),
+    ["Lunedì", "Venerdì"],
+  );
+});

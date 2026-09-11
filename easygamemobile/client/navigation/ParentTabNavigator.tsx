@@ -2,11 +2,13 @@ import React from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 
 import {
   ActionButton,
   AppBar,
+  BrandLine,
   Dock,
   Floodlight,
   StateMessage,
@@ -14,6 +16,8 @@ import {
 import { Spacing } from "@/constants/theme";
 import { ParentProvider, useParentContext } from "@/contexts/ParentContext";
 import { useAuthContext } from "@/contexts/AuthContext";
+import { mobileBackendStorage } from "@/services/mobile-backend-storage";
+import { findFirstPayableParentPayment } from "@/lib/parent-payments";
 import ParentHomeStackNavigator from "@/navigation/ParentHomeStackNavigator";
 import ParentCalendarStackNavigator from "@/navigation/ParentCalendarStackNavigator";
 import ParentPaymentsStackNavigator from "@/navigation/ParentPaymentsStackNavigator";
@@ -108,7 +112,8 @@ function ParentGateShell({ children }: { children: React.ReactNode }) {
   return (
     <Floodlight>
       <View style={{ paddingTop: insets.top + Spacing.sm }}>
-        <AppBar title="Area Genitore" eyebrow="EasyGame" />
+        <BrandLine club={null} />
+        <AppBar title="Area Genitore" eyebrow="Genitore" />
       </View>
       <View
         style={{
@@ -121,7 +126,8 @@ function ParentGateShell({ children }: { children: React.ReactNode }) {
       >
         {children}
         <ActionButton
-          variant="onDark"
+          variant="primary"
+          onSky
           size="sm"
           onPress={() => void clearContext()}
         >
@@ -133,6 +139,21 @@ function ParentGateShell({ children }: { children: React.ReactNode }) {
 }
 
 function ParentTabs() {
+  const { selectedChildId } = useParentContext();
+  // Stessa query key delle cinque tab: nessuna fetch in piu. Il pallino sul
+  // Dock (design §2b, "Dock badge": 8px con bordo navy, mai un numero) dice
+  // solo che c'e una rata da saldare — il conteggio vive sulla tile della Home.
+  const dashboardQuery = useQuery({
+    queryKey: ["parent-dashboard", selectedChildId],
+    queryFn: () =>
+      mobileBackendStorage.getParentDashboard(selectedChildId as string),
+    enabled: Boolean(selectedChildId),
+  });
+  const hasPayable = Boolean(
+    dashboardQuery.data &&
+      findFirstPayableParentPayment(dashboardQuery.data.payments.items),
+  );
+
   return (
     <Tab.Navigator
       tabBar={(props) => <Dock {...props} />}
@@ -163,6 +184,7 @@ function ParentTabs() {
         component={ParentPaymentsStackNavigator}
         options={{
           title: "Pagamenti",
+          tabBarBadge: hasPayable ? "•" : undefined,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="wallet" size={size} color={color} />
           ),

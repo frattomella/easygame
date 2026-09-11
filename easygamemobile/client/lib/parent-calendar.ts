@@ -67,13 +67,33 @@ const MONTH_NAMES = [
   "dic",
 ];
 
-/** `"2026-09-12"` -> `{ dayName: "Sab", dayNumber: "12", monthLabel: "set" }` — la rotaia data di `EventCard`/`AppointmentCard`. Torna `null` per una data non valida (l'evento non ha ancora una data reale). */
+/**
+ * La data di un evento del cruscotto famiglia arriva in due forme: il solo
+ * giorno (`"2026-09-12"`, letto a mezzanotte locale) oppure l'istante
+ * completo (`"2026-09-11T16:00:00.000Z"`, com'e nel payload reale di
+ * `GET /api/parent-dashboard/[athleteId]`). `null` per una data non valida.
+ */
+export function parseEventDate(isoDate: string | undefined): Date | null {
+  const raw = String(isoDate || "").trim();
+  if (!raw) return null;
+  const parsed = new Date(raw.length <= 10 ? `${raw}T00:00:00` : raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/** Il giorno locale (`"2026-09-11"`) di un evento — la chiave di raggruppamento del calendario; `""` senza data. */
+export function eventDayKey(isoDate: string | undefined): string {
+  const parsed = parseEventDate(isoDate);
+  if (!parsed) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
+}
+
+/** `"2026-09-12"` -> `{ dayName: "Sab", dayNumber: "12", monthLabel: "set" }` — la rotaia data di `EventCard`. Torna `null` per una data non valida (l'evento non ha ancora una data reale). */
 export function formatEventDateRail(
   isoDate: string | undefined,
 ): { dayName: string; dayNumber: string; monthLabel: string } | null {
-  if (!isoDate) return null;
-  const parsed = new Date(`${isoDate}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return null;
+  const parsed = parseEventDate(isoDate);
+  if (!parsed) return null;
 
   return {
     dayName: DAY_NAMES[parsed.getDay()],

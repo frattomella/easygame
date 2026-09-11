@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 
-import { Spacing } from "@/constants/theme";
-import { GlassCard } from "@/components/signature/GlassCard";
+import { EGGlass, EGShadow } from "@/constants/theme";
+import { GlassSurface } from "@/components/signature/GlassSurface";
+import { SelectionRing } from "@/components/signature/SelectionRing";
 import { SignatureText } from "@/components/signature/SignatureText";
 import { StatusPill } from "@/components/signature/StatusPill";
 
@@ -10,15 +11,15 @@ interface AccountAccessCardProps {
   clubName: string;
   clubAvatarUrl?: string | null;
   roleLabel: string;
-  /** e.g. "Stagione 2026/27", "2 figli · Marco, Giulia" — one optional secondary line. */
   detailLine?: string;
-  /** `false` when this role has no mobile area yet — shown, never hidden (spec C10). */
+  /** `false`: ruolo non ancora su mobile — scheda al 60%, crest grigio, niente anello (design 5b, terza scheda). */
   supported?: boolean;
-  activating?: boolean;
+  /** La scheda che si sta aprendo: vetro forte, bordo blu, anello pieno con spunta (design 5b, prima scheda). */
+  active?: boolean;
   onPress?: () => void;
 }
 
-const initialsOf = (value: string) =>
+const crestOf = (value: string) =>
   value
     .trim()
     .split(/\s+/)
@@ -27,10 +28,12 @@ const initialsOf = (value: string) =>
     .join("") || "?";
 
 /**
- * design-source `guidelines/component-specs.md` §C10. Never auto-selects
- * when more than one membership exists (the caller — `AccountHubScreen` —
- * always requires an explicit tap); never hides a membership the app
- * cannot open, it explains why instead.
+ * La scheda di accesso dell'Account Hub (design `IA e Home` §5b,
+ * prototipo `isAccounts`): crest tondo 44 (immagine o sigla bianca su
+ * #1D4ED8), nome club 16/700, riga 12/500 (stagione · persona, o "1 figlio ·
+ * Matteo"), pill di ruolo (solida per il ruolo in apertura, neutra per gli
+ * altri), anello di scelta a destra. Il ruolo non supportato resta
+ * visibile ma spento: dice perche, e non si tocca.
  */
 export function AccountAccessCard({
   clubName,
@@ -38,54 +41,61 @@ export function AccountAccessCard({
   roleLabel,
   detailLine,
   supported = true,
-  activating = false,
+  active = false,
   onPress,
 }: AccountAccessCardProps) {
   const [pressed, setPressed] = useState(false);
-  const interactive = supported && Boolean(onPress) && !activating;
+  const interactive = supported && Boolean(onPress);
 
   const inner = (
-    <GlassCard
+    <GlassSurface
+      tone={active ? "strong" : "light"}
+      corner="card"
       style={[
         styles.card,
-        pressed ? styles.pressed : null,
+        active ? [styles.cardActive, EGShadow.glowPrimary] : EGShadow.row,
         !supported ? styles.unsupported : null,
+        pressed ? styles.pressed : null,
       ]}
     >
       <View style={styles.row}>
-        <View style={styles.avatar}>
+        <View style={[styles.crest, !supported ? styles.crestOff : null]}>
           {clubAvatarUrl ? (
             <Image
               source={{ uri: clubAvatarUrl }}
               style={{ width: "100%", height: "100%" }}
             />
           ) : (
-            <SignatureText style={styles.avatarLabel}>
-              {initialsOf(clubName)}
+            <SignatureText
+              style={[
+                styles.crestLabel,
+                !supported ? styles.crestLabelOff : null,
+              ]}
+            >
+              {crestOf(clubName)}
             </SignatureText>
           )}
         </View>
-        <View style={{ flex: 1, gap: 4 }}>
-          <SignatureText variant="h4" tone="ink" numberOfLines={1}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <SignatureText style={styles.club} numberOfLines={1}>
             {clubName}
           </SignatureText>
-          <StatusPill label={roleLabel} variant="primary" small />
-          {detailLine ? (
-            <SignatureText variant="small" tone="muted">
-              {detailLine}
-            </SignatureText>
-          ) : null}
-          {!supported ? (
-            <SignatureText variant="small" tone="faint" style={styles.reason}>
-              Ruolo non ancora disponibile su mobile
-            </SignatureText>
-          ) : null}
+          <SignatureText style={styles.detail} numberOfLines={2}>
+            {supported
+              ? detailLine || "Accesso collegato al tuo account"
+              : "Ruolo non ancora disponibile su mobile"}
+          </SignatureText>
+          <StatusPill
+            label={roleLabel}
+            tier={active ? "solid" : "quiet"}
+            tone={active ? "info" : "neutral"}
+            small
+            style={{ marginTop: 8 }}
+          />
         </View>
-        <View
-          style={[styles.ring, activating ? styles.ringActivating : null]}
-        />
+        {supported ? <SelectionRing on={active} check /> : null}
       </View>
-    </GlassCard>
+    </GlassSurface>
   );
 
   if (!interactive) {
@@ -97,6 +107,8 @@ export function AccountAccessCard({
       onPress={onPress}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
+      accessibilityRole="button"
+      accessibilityLabel={`${clubName}, ${roleLabel}`}
     >
       {inner}
     </Pressable>
@@ -105,45 +117,55 @@ export function AccountAccessCard({
 
 const styles = StyleSheet.create({
   card: {
-    marginBottom: Spacing.md,
+    borderColor: EGGlass.border,
+  },
+  cardActive: {
+    borderColor: "rgba(37,99,235,0.4)",
   },
   pressed: {
-    transform: [{ scale: 0.99 }],
+    transform: [{ scale: 0.985 }],
   },
   unsupported: {
-    opacity: 0.55,
+    opacity: 0.6,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.md,
+    gap: 12,
+    padding: 16,
   },
-  avatar: {
+  crest: {
     width: 44,
     height: 44,
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(11,26,58,0.14)",
-    backgroundColor: "rgba(37,99,235,0.12)",
+    backgroundColor: "#1D4ED8",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
   },
-  avatarLabel: {
-    color: "#2563EB",
+  crestOff: {
+    backgroundColor: "rgba(11,26,58,0.1)",
+  },
+  crestLabel: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    lineHeight: 44,
     fontWeight: "800",
   },
-  reason: {
+  crestLabelOff: {
+    color: "rgba(11,26,58,0.5)",
+  },
+  club: {
+    color: "#0B1A3A",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "700",
+  },
+  detail: {
+    color: "rgba(11,26,58,0.42)",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
     marginTop: 2,
-  },
-  ring: {
-    width: 28,
-    height: 28,
-    borderRadius: 999,
-    borderWidth: 2,
-    borderColor: "rgba(11,26,58,0.22)",
-  },
-  ringActivating: {
-    borderColor: "#2563EB",
   },
 });

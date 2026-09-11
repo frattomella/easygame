@@ -5,10 +5,12 @@ import { Ionicons } from "@expo/vector-icons";
 
 import {
   GlassCard,
+  GlassSurface,
   MetaRow,
   NumberTile,
   SecondaryScreenLayout,
   SignatureText,
+  StatCard,
   StateMessage,
   StatusPill,
 } from "@/components/signature";
@@ -17,14 +19,10 @@ import {
   getMobileMedicalCertificateAvailability,
   getMobileMedicalCertificateAvailabilityLabel,
 } from "@/lib/medical-certificates";
-import {
-  formatItalianDate,
-  getAthleteStatusLabel,
-  getAthleteStatusVariant,
-} from "@/lib/mobile-ui";
+import { formatItalianDate, getAthleteStatusLabel } from "@/lib/mobile-ui";
 import { Athlete, Match, Training } from "@/services/api";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { EGInk, Spacing } from "@/constants/theme";
+import { EGGlass, EGInk, EGShadow, Spacing } from "@/constants/theme";
 import { AthletesStackParamList } from "@/navigation/AthletesStackNavigator";
 
 const renderValue = (value?: string | null, fallback = "Non disponibile") =>
@@ -35,20 +33,80 @@ const normalizeText = (value: unknown) =>
     .trim()
     .toLowerCase();
 
-const MEDICAL_TONE: Record<string, "success" | "warning" | "destructive"> = {
-  valid: "success",
-  expiring: "warning",
-  expired: "destructive",
-  missing: "destructive",
+const RECENT_TRAININGS_LIMIT = 12;
+
+const isAthleteTraining = (training: Training, athlete: Athlete) =>
+  (training.categoryId &&
+    athlete.categoryId &&
+    normalizeText(training.categoryId) === normalizeText(athlete.categoryId)) ||
+  normalizeText(training.category) === normalizeText(athlete.category);
+
+/**
+ * D-MOB-12: la lista (`GET /api/v1/events`) porta solo i conteggi
+ * dell'appello, non le righe. "Presenze %" e "Ultime presenze" del
+ * prototipo (`isTAthlete`) vogliono l'appello dell'atleta: si chiede il
+ * dettaglio (`GET /api/v1/events/:id`, la stessa rotta del foglio
+ * Presenze) per gli ultimi allenamenti della sua categoria in cui un
+ * appello e stato registrato — pochi, gia filtrati sul perimetro dal
+ * server. Un dettaglio che fallisce lascia l'allenamento senza appello,
+ * non blocca la scheda.
+ */
+const withAthleteAttendance = async (
+  items: Training[],
+  athlete: Athlete | null,
+): Promise<Training[]> => {
+  if (!athlete) return items;
+  const today = new Date().toISOString().slice(0, 10);
+  const recorded = items
+    .filter(
+      (training) =>
+        training.date <= today &&
+        (training.totalCount ?? 0) > 0 &&
+        isAthleteTraining(training, athlete),
+    )
+    .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))
+    .slice(0, RECENT_TRAININGS_LIMIT);
+  const rosters = await Promise.all(
+    recorded.map((training) =>
+      mobileBackendStorage
+        .getTrainingAttendance(training.id)
+        .catch(() => undefined),
+    ),
+  );
+  const byId = new Map(
+    recorded.map((training, index) => [training.id, rosters[index]]),
+  );
+  return items.map((training) =>
+    byId.has(training.id) && byId.get(training.id)
+      ? { ...training, attendance: byId.get(training.id) }
+      : training,
+  );
+};
+
+const MEDICAL_TONE: Record<
+  string,
+  {
+    tier: "quiet" | "outline" | "solid" | "urgent";
+    tone: "success" | "warning" | "danger";
+  }
+> = {
+  valid: { tier: "quiet", tone: "success" },
+  expiring: { tier: "solid", tone: "warning" },
+  expired: { tier: "urgent", tone: "danger" },
+  missing: { tier: "outline", tone: "warning" },
 };
 
 /**
- * design-source `guidelines/trainer-migration.md` — schermata di dettaglio
- * collegata alla migrazione di Atleti (WP10). Stessi dati, stesse porte di
- * permesso (`viewAthleteTechnicalSheet`, `viewAthleteContacts`,
- * `viewMedicalStatus`) di prima; `canSeeEnrollment` resta `false` come nel
- * codice preesistente — quel ramo non e mai stato raggiungibile e non e
- * stato toccato in questa migrazione visiva (vedi debito tecnico).
+ * La scheda atleta del prototipo v3 (`isTAthlete`, design turno 6 §11):
+ * la testata e una scheda di vetro scuro che **attraversa l'orizzonte**
+ * (`NumberTile` 56 navy, nome 22/800, "categoria · ruolo", pill bianca
+ * di stato), poi due `StatCard` (Presenze %, Convocazioni), la "Scheda"
+ * con le `MetaRow` (nascita, tutore, certificato) e "Ultime presenze" a
+ * righe (data · titolo · pill). Le sezioni ulteriori (anagrafica completa,
+ * scheda tecnica, contatti, area medica) seguono con le stesse porte di
+ * permesso di prima (`viewAthleteTechnicalSheet`, `viewAthleteContacts`,
+ * `viewMedicalStatus`); `canSeeEnrollment` resta `false` come nel codice
+ * preesistente (vedi debito tecnico).
  */
 export default function TrainerAthleteProfileScreen() {
   const route = useRoute<RouteProp<AthletesStackParamList, "AthleteProfile">>();
@@ -77,7 +135,7 @@ export default function TrainerAthleteProfileScreen() {
       mobileBackendStorage.getMatches(),
     ]);
     setAthlete(nextAthlete);
-    setTrainings(nextTrainings);
+    setTrainings(await withAthleteAttendance(nextTrainings, nextAthlete));
     setMatches(nextMatches);
   }, [athleteId]);
 
@@ -107,27 +165,23 @@ export default function TrainerAthleteProfileScreen() {
     return trainings.filter(
       (training) =>
         training.attendance?.some((entry) => entry.athleteId === athlete.id) ||
-        (training.categoryId &&
-          athlete.categoryId &&
-          normalizeText(training.categoryId) ===
-            normalizeText(athlete.categoryId)) ||
-        normalizeText(training.category) === normalizeText(athlete.category),
+        isAthleteTraining(training, athlete),
     );
   }, [athlete, trainings]);
   const attendanceEntries = useMemo(
     () =>
       athleteTrainings.flatMap((training) =>
         (training.attendance || [])
-          .filter((entry) => entry.athleteId === athlete?.id)
+          .filter(
+            (entry) =>
+              entry.athleteId === athlete?.id && entry.present !== null,
+          )
           .map((entry) => ({ ...entry, training })),
       ),
     [athlete?.id, athleteTrainings],
   );
   const presentCount = attendanceEntries.filter(
     (entry) => entry.present,
-  ).length;
-  const absenceCount = attendanceEntries.filter(
-    (entry) => !entry.present,
   ).length;
   const attendanceRate = attendanceEntries.length
     ? Math.round((presentCount / attendanceEntries.length) * 100)
@@ -148,66 +202,126 @@ export default function TrainerAthleteProfileScreen() {
     );
   }, [athlete, matches]);
 
+  const firstGuardian = athlete?.guardians?.[0];
+  const recentAttendance = [...attendanceEntries]
+    .sort((a, b) =>
+      `${b.training.date} ${b.training.time}`.localeCompare(
+        `${a.training.date} ${a.training.time}`,
+      ),
+    )
+    .slice(0, 5);
+
   return (
     <SecondaryScreenLayout
       title="Atleta"
-      eyebrow="Scheda"
+      eyebrow={`${athlete?.category || "Rosa"} · Scheda`}
+      skyHeight={300}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
       {athlete ? (
-        <View style={styles.content}>
-          <GlassCard stripe="action">
+        <>
+          <GlassSurface
+            tone="dark"
+            corner="card"
+            elevated
+            style={[styles.hero, EGShadow.glassRaised]}
+          >
             <View style={styles.heroRow}>
               <NumberTile number={athlete.number} size={56} />
-              <View style={{ flex: 1, gap: 4 }}>
-                <SignatureText variant="h3" tone="ink">
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <SignatureText style={styles.heroName} numberOfLines={2}>
                   {athlete.name}
                 </SignatureText>
-                <SignatureText variant="small" tone="muted">
-                  {athlete.category} · {athlete.position || "Ruolo da definire"}
+                <SignatureText style={styles.heroMeta} numberOfLines={1}>
+                  {`${athlete.category || "Categoria"} · ${athlete.position || "Ruolo da definire"}`}
                 </SignatureText>
-                <View style={styles.badgeWrap}>
-                  <StatusPill
-                    label={getAthleteStatusLabel(athlete.status)}
-                    variant={getAthleteStatusVariant(athlete.status)}
-                    small
-                  />
-                  {canSeeMedical ? (
-                    <StatusPill
-                      label={getMobileMedicalCertificateAvailabilityLabel(
-                        medicalAvailability,
-                      )}
-                      variant={MEDICAL_TONE[medicalAvailability]}
-                      small
-                    />
-                  ) : null}
-                </View>
+                <StatusPill
+                  label={getAthleteStatusLabel(athlete.status)}
+                  onSky
+                  tone={athlete.status === "attivo" ? "success" : "warning"}
+                  small
+                  style={{ marginTop: 8 }}
+                />
               </View>
             </View>
+          </GlassSurface>
+
+          <View style={styles.statsRow}>
+            <StatCard
+              icon="barbell-outline"
+              iconColor="#10B981"
+              value={attendanceEntries.length ? `${attendanceRate}%` : "–"}
+              label="Presenze"
+              style={{ flex: 1 }}
+            />
+            <StatCard
+              icon="football-outline"
+              iconColor="#F97316"
+              value={String(
+                athleteMatches.filter((match) =>
+                  match.convocatedAthletes?.includes(athlete.id),
+                ).length,
+              )}
+              label="Convocazioni"
+              style={{ flex: 1 }}
+            />
+          </View>
+
+          <GlassCard eyebrow="Scheda">
+            <MetaRow icon="calendar-outline">
+              {athlete.birthDate
+                ? `Nato il ${formatItalianDate(athlete.birthDate)}`
+                : "Data di nascita non disponibile"}
+            </MetaRow>
+            {canSeeContacts ? (
+              <MetaRow icon="people-outline">
+                {firstGuardian
+                  ? `${firstGuardian.relationship || "Tutore"} · ${[firstGuardian.name, firstGuardian.surname].filter(Boolean).join(" ")}`
+                  : "Nessun tutore registrato"}
+              </MetaRow>
+            ) : null}
+            {canSeeMedical ? (
+              <MetaRow icon="medkit-outline">
+                {medicalAvailability === "valid" && athlete.medicalCertExpiry
+                  ? `Certificato medico valido al ${formatItalianDate(athlete.medicalCertExpiry)}`
+                  : `Certificato medico: ${getMobileMedicalCertificateAvailabilityLabel(medicalAvailability).toLowerCase()}`}
+              </MetaRow>
+            ) : null}
+            <MetaRow icon="shirt-outline">
+              {`Numero ${athlete.number || "–"} · ${renderValue(athlete.city, "Citta non disponibile")}`}
+            </MetaRow>
           </GlassCard>
 
-          <GlassCard eyebrow="Anagrafica" title={undefined}>
-            <MetaRow icon="person-outline">
-              Nome: {renderValue(athlete.firstName || athlete.name)}
-            </MetaRow>
-            <MetaRow icon="person-outline">
-              Cognome: {renderValue(athlete.lastName)}
-            </MetaRow>
-            <MetaRow icon="calendar-outline">
-              Data di nascita: {formatItalianDate(athlete.birthDate)}
-            </MetaRow>
-            <MetaRow icon="ribbon-outline">
-              Categoria: {renderValue(athlete.category)}
-            </MetaRow>
-            <MetaRow icon="shirt-outline">
-              Numero maglia:{" "}
-              {athlete.number ? String(athlete.number) : "Non disponibile"}
-            </MetaRow>
-            <MetaRow icon="location-outline">
-              Citta: {renderValue(athlete.city)}
-            </MetaRow>
+          <GlassCard eyebrow="Ultime presenze">
+            {recentAttendance.length > 0 ? (
+              <View style={styles.logList}>
+                {recentAttendance.map((entry) => (
+                  <View
+                    key={`${entry.training.id}-${entry.athleteId}`}
+                    style={styles.logRow}
+                  >
+                    <SignatureText style={styles.logDate}>
+                      {formatItalianDate(entry.training.date, "d MMM")}
+                    </SignatureText>
+                    <SignatureText style={styles.logTitle} numberOfLines={1}>
+                      {entry.training.title}
+                    </SignatureText>
+                    <StatusPill
+                      label={entry.present ? "Presente" : "Assente"}
+                      tier={entry.present ? "solid" : "quiet"}
+                      tone={entry.present ? "success" : "neutral"}
+                      small
+                    />
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <SignatureText variant="small" tone="faint">
+                Nessuna presenza registrata.
+              </SignatureText>
+            )}
           </GlassCard>
 
           {canSeeTechnicalSheet ? (
@@ -220,6 +334,20 @@ export default function TrainerAthleteProfileScreen() {
               </MetaRow>
             </GlassCard>
           ) : null}
+
+          <GlassCard eyebrow="Anagrafica">
+            <MetaRow icon="person-outline">
+              {[athlete.firstName || athlete.name, athlete.lastName]
+                .filter(Boolean)
+                .join(" ")}
+            </MetaRow>
+            <MetaRow icon="ribbon-outline">
+              Categoria: {renderValue(athlete.category)}
+            </MetaRow>
+            <MetaRow icon="location-outline">
+              Citta: {renderValue(athlete.city)}
+            </MetaRow>
+          </GlassCard>
 
           {canSeeContacts ? (
             <GlassCard eyebrow="Contatti e tutori">
@@ -260,28 +388,18 @@ export default function TrainerAthleteProfileScreen() {
 
           {canSeeMedical ? (
             <GlassCard eyebrow="Area medica">
-              <View style={styles.listItem}>
-                <Ionicons
-                  name={
-                    medicalAvailability === "valid"
-                      ? "checkmark-circle"
-                      : "warning-outline"
-                  }
-                  size={18}
-                  color={
-                    medicalAvailability === "valid" ? "#22C55E" : "#F59E0B"
-                  }
+              <View style={styles.medicalRow}>
+                <SignatureText variant="small" tone="muted" style={{ flex: 1 }}>
+                  {`Scadenza: ${formatItalianDate(athlete.medicalCertExpiry)}`}
+                </SignatureText>
+                <StatusPill
+                  label={getMobileMedicalCertificateAvailabilityLabel(
+                    medicalAvailability,
+                  )}
+                  tier={MEDICAL_TONE[medicalAvailability]?.tier || "quiet"}
+                  tone={MEDICAL_TONE[medicalAvailability]?.tone || "success"}
+                  small
                 />
-                <View style={{ flex: 1 }}>
-                  <SignatureText variant="small" tone="muted">
-                    {getMobileMedicalCertificateAvailabilityLabel(
-                      medicalAvailability,
-                    )}
-                  </SignatureText>
-                  <SignatureText variant="small" tone="faint">
-                    Scadenza: {formatItalianDate(athlete.medicalCertExpiry)}
-                  </SignatureText>
-                </View>
               </View>
               {athlete.documents?.length
                 ? athlete.documents.map((document) => (
@@ -298,171 +416,22 @@ export default function TrainerAthleteProfileScreen() {
             </GlassCard>
           ) : null}
 
-          <GlassCard eyebrow="Analitiche">
-            <View style={styles.analyticsGrid}>
-              <View style={styles.analyticsItem}>
-                <SignatureText variant="h4" tone="ink">
-                  {presentCount}
-                </SignatureText>
-                <SignatureText variant="small" tone="faint">
-                  Presenze
-                </SignatureText>
-              </View>
-              <View style={styles.analyticsItem}>
-                <SignatureText variant="h4" tone="ink">
-                  {absenceCount}
-                </SignatureText>
-                <SignatureText variant="small" tone="faint">
-                  Assenze
-                </SignatureText>
-              </View>
-              <View style={styles.analyticsItem}>
-                <SignatureText variant="h4" tone="ink">
-                  {attendanceEntries.length ? `${attendanceRate}%` : "-"}
-                </SignatureText>
-                <SignatureText variant="small" tone="faint">
-                  Frequenza
-                </SignatureText>
-              </View>
-              <View style={styles.analyticsItem}>
-                <SignatureText variant="h4" tone="ink">
-                  {athleteMatches.length}
-                </SignatureText>
-                <SignatureText variant="small" tone="faint">
-                  Gare
-                </SignatureText>
-              </View>
-            </View>
-            {attendanceEntries.length > 0 ? (
-              attendanceEntries.slice(0, 4).map((entry) => (
-                <View
-                  key={`${entry.training.id}-${entry.athleteId}`}
-                  style={styles.listItem}
-                >
-                  <Ionicons
-                    name={
-                      entry.present
-                        ? "checkmark-circle-outline"
-                        : "close-circle-outline"
-                    }
-                    size={16}
-                    color={entry.present ? "#22C55E" : "#F59E0B"}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <SignatureText variant="small" tone="muted">
-                      {entry.training.title}
-                    </SignatureText>
-                    <SignatureText variant="small" tone="faint">
-                      {formatItalianDate(entry.training.date)} -{" "}
-                      {entry.present ? "Presente" : "Assente"}
-                    </SignatureText>
-                  </View>
-                </View>
-              ))
-            ) : (
-              <SignatureText variant="small" tone="faint">
-                Nessuna presenza registrata.
-              </SignatureText>
-            )}
-          </GlassCard>
-
           {canSeeEnrollment ? (
-            <>
-              <GlassCard eyebrow="Tesseramenti e iscrizione">
-                {athlete.registrations?.length ? (
-                  athlete.registrations.map((registration) => (
-                    <View key={registration.id} style={styles.listItem}>
-                      <Ionicons
-                        name="ribbon-outline"
-                        size={16}
-                        color={EGInk.onLightFaint}
-                      />
-                      <View style={{ flex: 1 }}>
-                        <SignatureText variant="small" tone="muted">
-                          {registration.federation} · {registration.number}
-                        </SignatureText>
-                        <SignatureText variant="small" tone="faint">
-                          {[
-                            registration.status,
-                            formatItalianDate(registration.expiryDate),
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </SignatureText>
-                      </View>
-                    </View>
-                  ))
-                ) : (
-                  <SignatureText variant="small" tone="faint">
-                    Nessun tesseramento disponibile.
-                  </SignatureText>
-                )}
-
-                {athlete.enrollmentDocuments?.length ? (
-                  <View style={styles.groupBlock}>
-                    <SignatureText variant="small" tone="ink">
-                      Documenti iscrizione
-                    </SignatureText>
-                    {athlete.enrollmentDocuments.map((document) => (
-                      <SignatureText
-                        key={document.id}
-                        variant="small"
-                        tone="muted"
-                      >
-                        {document.name}
-                      </SignatureText>
-                    ))}
-                  </View>
-                ) : null}
-              </GlassCard>
-
-              <GlassCard eyebrow="Pagamenti e documenti">
-                {athlete.payments?.length ? (
-                  athlete.payments.map((payment) => (
-                    <View key={payment.id} style={styles.listItem}>
-                      <Ionicons
-                        name="card-outline"
-                        size={16}
-                        color={EGInk.onLightFaint}
-                      />
-                      <View style={{ flex: 1 }}>
-                        <SignatureText variant="small" tone="muted">
-                          {payment.description} · {payment.amount}
-                        </SignatureText>
-                        <SignatureText variant="small" tone="faint">
-                          {[payment.status, formatItalianDate(payment.date)]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </SignatureText>
-                      </View>
-                    </View>
-                  ))
-                ) : (
-                  <SignatureText variant="small" tone="faint">
-                    Nessun pagamento registrato.
-                  </SignatureText>
-                )}
-
-                {athlete.identityDocuments?.length ? (
-                  <View style={styles.groupBlock}>
-                    <SignatureText variant="small" tone="ink">
-                      Documenti identita
-                    </SignatureText>
-                    {athlete.identityDocuments.map((document) => (
-                      <SignatureText
-                        key={document.id}
-                        variant="small"
-                        tone="muted"
-                      >
-                        {document.name}
-                      </SignatureText>
-                    ))}
-                  </View>
-                ) : null}
-              </GlassCard>
-            </>
+            <GlassCard eyebrow="Tesseramenti e iscrizione">
+              {athlete.registrations?.length ? (
+                athlete.registrations.map((registration) => (
+                  <MetaRow icon="ribbon-outline" key={registration.id}>
+                    {registration.federation} · {registration.number}
+                  </MetaRow>
+                ))
+              ) : (
+                <SignatureText variant="small" tone="faint">
+                  Nessun tesseramento disponibile.
+                </SignatureText>
+              )}
+            </GlassCard>
           ) : null}
-        </View>
+        </>
       ) : (
         <StateMessage
           kind="empty"
@@ -476,17 +445,63 @@ export default function TrainerAthleteProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { gap: Spacing.md },
+  hero: {
+    borderColor: "rgba(255,255,255,0.2)",
+  },
   heroRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.lg,
+    gap: 14,
+    padding: Spacing.lg,
   },
-  badgeWrap: {
+  heroName: {
+    color: "#FFFFFF",
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "800",
+    letterSpacing: -0.44,
+  },
+  heroMeta: {
+    color: "rgba(255,255,255,0.78)",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  statsRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: Spacing.sm,
-    marginTop: Spacing.xs,
+    gap: Spacing.md,
+  },
+  logList: {
+    gap: 8,
+  },
+  logRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(11,26,58,0.04)",
+    borderWidth: 1,
+    borderColor: EGGlass.hairline,
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
+    borderBottomRightRadius: 4,
+    borderBottomLeftRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+  },
+  logDate: {
+    minWidth: 52,
+    color: "rgba(11,26,58,0.42)",
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  logTitle: {
+    flex: 1,
+    color: "#0B1A3A",
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "600",
   },
   listItem: {
     flexDirection: "row",
@@ -494,22 +509,9 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     marginTop: Spacing.sm,
   },
-  groupBlock: {
-    marginTop: Spacing.sm,
-    gap: Spacing.xs,
-  },
-  analyticsGrid: {
+  medicalRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    alignItems: "center",
     gap: Spacing.sm,
-    marginBottom: Spacing.sm,
-  },
-  analyticsItem: {
-    flexBasis: "47%",
-    flexGrow: 1,
-    borderWidth: 1,
-    borderColor: "rgba(11,26,58,0.1)",
-    borderRadius: 14,
-    padding: Spacing.md,
   },
 });

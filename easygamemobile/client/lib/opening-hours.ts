@@ -236,12 +236,31 @@ export const normalizeOpeningHours = (
       .filter((day) => day.key);
   }
 
+  // Nell'oggetto per giorno il server puo lasciare anche chiavi che non
+  // sono giorni (`id`, `date`, `name`, …): si tengono solo i giorni veri,
+  // in ordine di settimana — sul Web la stessa mappa le stampava come giorni
+  // (vedi 16, debito tecnico).
   const record = asRecord(source);
-  return Object.entries(record).map(([day, value]) => {
-    const key = normalizeDayKey(day);
-    return normalizeDayValue(key, DAY_LABELS[key] || day, value);
-  });
+  return Object.entries(record)
+    .map(([day, value]) => {
+      const key = normalizeDayKey(day);
+      return WEEK_ORDER.includes(key)
+        ? normalizeDayValue(key, DAY_LABELS[key] || day, value)
+        : null;
+    })
+    .filter((day): day is NormalizedOpeningDay => day !== null)
+    .sort((a, b) => WEEK_ORDER.indexOf(a.key) - WEEK_ORDER.indexOf(b.key));
 };
+
+const WEEK_ORDER = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+];
 
 export const formatOpeningHourSlots = (day: NormalizedOpeningDay) => {
   if (day.closed || day.slots.length === 0) return "Chiuso";

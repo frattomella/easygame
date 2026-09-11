@@ -8,25 +8,27 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { EGGlass, EGInk, EGMark, EGShadow, Spacing } from "@/constants/theme";
+import { EGGlass, EGMark, EGShadow, Spacing } from "@/constants/theme";
 import { GlassSurface } from "@/components/signature/GlassSurface";
 import { NumberTile } from "@/components/signature/NumberTile";
 import { SignatureText } from "@/components/signature/SignatureText";
 
 export type SelectableAthleteRowAccent = "success" | "primary";
 
+/** `yes` = presente/convocato · `no` = assente (solo presenze) · `null` = ancora da segnare. */
+export type SelectableAthleteRowMark = "yes" | "no" | null;
+
 interface SelectableAthleteRowProps {
-  /** The athlete's jersey number, rendered on a 44px `NumberTile` — never a face or initials. */
+  /** The athlete's jersey number, rendered on a 44px navy `NumberTile` — never a face or initials. */
   number: number;
   name: string;
-  /** e.g. "Under 15 · Centrocampista" — omitted rows still show the state word. */
+  /** e.g. "Ala" — under the name; a disabled row shows the reason here instead. */
   role?: string;
-  selected: boolean;
-  /** `success` (#22C55E) for attendance, `primary` (#2563EB) for call-ups — spec B3. */
+  mark: SelectableAthleteRowMark;
+  /** `success` (#15803D) for attendance, `primary` (#1D4ED8) for call-ups — prototipo `TONE`. */
   accent: SelectableAthleteRowAccent;
-  selectedLabel: string;
-  unselectedLabel: string;
-  /** A disabled row must always say why (`Infortunato`, `Squalificato`) — it never just goes grey. */
+  labels: { yes: string; no: string; unmarked: string };
+  /** A disabled row must always say why (`Infortunato`, `Certificato scaduto`) — it never just goes grey. */
   disabled?: boolean;
   disabledReason?: string;
   onPress?: () => void;
@@ -34,109 +36,102 @@ interface SelectableAthleteRowProps {
 }
 
 const ACCENT_HEX: Record<SelectableAthleteRowAccent, string> = {
-  success: "#22C55E",
-  primary: "#2563EB",
+  success: "#15803D",
+  primary: "#1D4ED8",
 };
+const NO_HEX = "#B45309";
 
 /**
- * design-source `guidelines/component-specs.md` §B3, ported in WP10.
- * Selection is shown redundantly on the four axes the spec makes
- * mandatory — ring fill + halo, border tint, and the Italian state word,
- * plus (v2) the tile tone — so a colour-blind or greyscale reading of the
- * row still carries the information. One documented simplification: the
- * surface itself stays regular glass rather than "glass strong" on
- * selection (that distinction is not part of the mandatory four, and
- * `GlassSurface` has no per-instance alpha hook today) — see the WP10
- * design-sync report.
- *
- * v3.0 (`migration-v3.md` passo 5, WP13/ADR-0168): the tile stays **navy in
- * every state** — the WP10 tint-on-select tile tone and the marked-row
- * success glow are both removed (row keeps glass with only a hairline
- * border shift on selection); the mark shrinks to `EGMark`'s 30px ring at
- * 12% tint. This is the visual half of the spec's tri-state attendance
- * change — the boolean `selected` model itself is unchanged (ADR-0168
- * point 3: the third "not marked" state would need the mobile app to call
- * a different attendance endpoint, a domain change out of scope here).
+ * The attendance / call-up row (prototipo v3 `sheetAthletes`, design turno
+ * 6 §5-6): number tile **navy in every state**; name 15/700 + role 12/500;
+ * the state as a *word* in the accent colour on the right (`Presente`,
+ * `Assente`, `Da segnare`); a 30px ring mark at 12% tint with a 1.5px
+ * border and a `checkmark` / `close` / `ellipse-outline` glyph. The row
+ * keeps regular glass with only a hairline shift — "a list nobody has
+ * touched looks untouched", success emphasis lives on the save CTA alone.
  */
 export function SelectableAthleteRow({
   number,
   name,
   role,
-  selected,
+  mark,
   accent,
-  selectedLabel,
-  unselectedLabel,
+  labels,
   disabled = false,
   disabledReason,
   onPress,
   style,
 }: SelectableAthleteRowProps) {
   const [pressed, setPressed] = useState(false);
-  const accentHex = ACCENT_HEX[accent];
-  const active = !disabled && selected;
+  const effective: SelectableAthleteRowMark = disabled ? null : mark;
+  const accentHex =
+    effective === "yes"
+      ? ACCENT_HEX[accent]
+      : effective === "no"
+        ? NO_HEX
+        : null;
   const stateWord = disabled
-    ? disabledReason || unselectedLabel
-    : selected
-      ? selectedLabel
-      : unselectedLabel;
+    ? disabledReason || labels.unmarked
+    : effective === "yes"
+      ? labels.yes
+      : effective === "no"
+        ? labels.no
+        : labels.unmarked;
   const interactive = !disabled && Boolean(onPress);
 
   const inner = (
     <GlassSurface
-      tone="light"
+      tone={accentHex ? "strong" : "light"}
       corner="control"
       style={[
         styles.surface,
-        { borderColor: active ? `${accentHex}66` : EGGlass.border },
         EGShadow.row,
+        { borderColor: accentHex ? `${accentHex}40` : EGGlass.border },
         disabled ? styles.disabled : null,
         pressed ? styles.pressed : null,
         style,
       ]}
     >
       <View style={styles.row}>
-        <NumberTile
-          number={number}
-          size={44}
-          tone={disabled ? "muted" : "navy"}
-        />
+        <NumberTile number={number} size={44} tone="navy" />
         <View style={styles.info}>
-          <SignatureText
-            variant="body"
-            tone="ink"
-            style={styles.name}
-            numberOfLines={1}
-          >
+          <SignatureText style={styles.name} numberOfLines={1}>
             {name}
           </SignatureText>
-          {role ? (
-            <SignatureText variant="caption" tone="faint" numberOfLines={1}>
-              {role}
-            </SignatureText>
-          ) : null}
-          <SignatureText
-            style={[
-              styles.stateWord,
-              { color: active ? accentHex : EGInk.onLightMuted },
-            ]}
-          >
-            {stateWord}
+          <SignatureText style={styles.role} numberOfLines={1}>
+            {disabled ? disabledReason || role || "" : role || ""}
           </SignatureText>
         </View>
+        <SignatureText
+          style={[
+            styles.stateWord,
+            { color: accentHex || "rgba(11,26,58,0.62)" },
+          ]}
+        >
+          {stateWord}
+        </SignatureText>
         <View
           style={[
             styles.ring,
-            active
+            accentHex
               ? {
-                  backgroundColor: `${accentHex}1F` /* ~12% tint, EGMark.tintAlpha */,
-                  borderColor: accentHex,
+                  backgroundColor: `${accentHex}1F` /* 12% tint, EGMark.tintAlpha */,
+                  borderColor: `${accentHex}66`,
                 }
               : styles.ringRest,
           ]}
         >
-          {active ? (
-            <Ionicons name="checkmark" size={15} color={accentHex} />
-          ) : null}
+          <Ionicons
+            name={
+              effective === "yes"
+                ? "checkmark"
+                : effective === "no"
+                  ? "close"
+                  : "ellipse-outline"
+            }
+            size={16}
+            color={accentHex || "rgba(11,26,58,0.35)"}
+          />
         </View>
       </View>
     </GlassSurface>
@@ -152,7 +147,7 @@ export function SelectableAthleteRow({
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       accessibilityRole="button"
-      accessibilityState={{ selected, disabled }}
+      accessibilityState={{ selected: effective === "yes", disabled }}
       accessibilityLabel={`${name}, ${stateWord}`}
     >
       {inner}
@@ -174,20 +169,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.md,
-    padding: Spacing.md,
+    paddingVertical: 10,
+    paddingHorizontal: Spacing.md,
   },
   info: {
     flex: 1,
-    gap: 2,
+    minWidth: 0,
   },
   name: {
+    color: "#0B1A3A",
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: "700",
-    letterSpacing: -0.15,
   },
-  stateWord: {
+  role: {
+    color: "rgba(11,26,58,0.42)",
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "500",
+  },
+  stateWord: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    letterSpacing: 0.44,
+    flexShrink: 0,
   },
   ring: {
     width: EGMark.size,
@@ -196,9 +202,10 @@ const styles = StyleSheet.create({
     borderWidth: EGMark.border,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   ringRest: {
-    borderColor: "rgba(11,26,58,0.22)",
-    backgroundColor: "rgba(255,255,255,0.6)",
+    borderColor: "rgba(11,26,58,0.16)",
+    backgroundColor: "rgba(11,26,58,0.05)",
   },
 });

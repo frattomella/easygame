@@ -4011,7 +4011,31 @@ vale la pena costruirla una volta sola, non per questa singola guardia.
 
 ## Debito aperto dal reskin completo a EGDS v3.0.0 (WP13, ADR-0168, 2026-09-11)
 
-### D-MOB-11 — Le presenze mobile restano sul modello binario: il vero tri-state (`pending`) richiede un cambio di endpoint
+### D-WEB — `normalizeOpeningHours` stampa come giorni le chiavi non-giorno (2026-09-11)
+
+**Dove.** `src/lib/opening-hours-utils.ts`, ramo "oggetto per giorno":
+`Object.entries(record)` non filtra le chiavi che non sono giorni (`id`,
+`date`, `name` compaiono nell'oggetto `opening_hours` del club di
+staging) e ne fa righe "Chiuso". Trovato nel passaggio di parita visiva
+mobile: il porto mobile (`easygamemobile/client/lib/opening-hours.ts`)
+tiene solo i sette giorni, in ordine di settimana. Da allineare sul Web
+(commit Web separato, CLAUDE.md §3).
+
+### D-MOB-11 — Le presenze mobile restano sul modello binario: il vero tri-state (`pending`) richiede un cambio di endpoint — CHIUSO (2026-09-11, parita visiva WP13)
+
+**Chiusura.** Il vincolo che teneva aperto questo debito — "il mobile non
+chiama `POST /api/v1/events/:id/participants`" — e caduto con il batch di
+completamento funzionale (le presenze passano da quell'endpoint da
+`f03854e`). Quell'endpoint fa un **upsert per riga**: nel passaggio di
+parita visiva la riga cicla `da segnare → presente → assente → da segnare`
+e al salvataggio le righe segnate vanno come present/absent, una riga
+che il server aveva ed e tornata "da segnare" si riscrive come `pending`
+(stato ammesso da `ATTENDANCE_STATUSES`), e chi non ha mai avuto una riga
+resta senza riga — cioe lo stesso `pending` del dominio. Alla rilettura
+una riga `pending` torna "da segnare": nessuno stato che viva solo sul
+client, verificato a runtime con andata e ritorno dal server (2026-09-11).
+Nessun cambio di endpoint, nessun nuovo campo. Il testo sotto resta come
+storia della decisione.
 
 **Dove.** `easygamemobile/client/services/mobile-backend-storage.ts`
 (`saveTrainingAttendance`), `easygamemobile/client/services/api.ts`

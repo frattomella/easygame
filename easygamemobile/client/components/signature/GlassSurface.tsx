@@ -4,7 +4,8 @@ import { BlurView } from "expo-blur";
 
 import { EGCorner, EGGlass, EGShadow } from "@/constants/theme";
 
-export type GlassTone = "light" | "dark" | "solid";
+/** `light` 74% · `strong` 88% (riga non letta, scheda scelta) · `quiet` 55% (voce in regola) · `dark` navy 66% · `solid` bianco pieno. */
+export type GlassTone = "light" | "strong" | "quiet" | "dark" | "solid";
 
 interface GlassSurfaceProps {
   tone?: GlassTone;
@@ -64,7 +65,11 @@ export function GlassSurface({
               ? "#FFFFFF"
               : dark
                 ? EGGlass.darkBg
-                : EGGlass.bg,
+                : tone === "strong"
+                  ? EGGlass.bgStrong
+                  : tone === "quiet"
+                    ? "rgba(255,255,255,0.55)"
+                    : EGGlass.bg,
           },
         ]}
       />
@@ -98,5 +103,7 @@ const styles = StyleSheet.create({
   },
   content: {
     position: "relative",
+    /** Lascia che un genitore con `maxHeight` (il foglio) limiti il corpo scorrevole. */
+    flexShrink: 1,
   },
 });

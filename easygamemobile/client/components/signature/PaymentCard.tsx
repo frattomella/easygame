@@ -1,21 +1,25 @@
 import React from "react";
-import { StyleSheet, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { Pressable, StyleSheet, View } from "react-native";
 
-import { EGGradients, EGMoney, Spacing } from "@/constants/theme";
+import { EGGradients, EGMoney, EGShadow, Spacing } from "@/constants/theme";
 import { GlassSurface } from "@/components/signature/GlassSurface";
 import { GradientFill } from "@/components/signature/GradientFill";
 import { SignatureText } from "@/components/signature/SignatureText";
-import {
-  StatusPill,
-  StatusPillVariant,
+import { StatusPill } from "@/components/signature/StatusPill";
+import type {
+  StatusPillTier,
+  StatusPillTone,
 } from "@/components/signature/StatusPill";
-import { ActionButton } from "@/components/signature/ActionButton";
+import { ActionBarButton } from "@/components/signature/ActionBarButton";
 import {
   formatParentCurrency,
   resolvePaymentCardState,
 } from "@/lib/parent-payments";
-import { formatItalianDate } from "@/lib/mobile-ui";
+import {
+  describeDueDate,
+  resolvePaymentPlanIdentity,
+  resolveRemainingAmount,
+} from "@/lib/parent-payment-plan";
 import type { ParentPayment } from "@/services/api";
 
 interface PaymentCardProps {
@@ -23,6 +27,11 @@ interface PaymentCardProps {
   onPayNow?: () => void;
   payNowDisabled?: boolean;
   payNowLoading?: boolean;
+  /** "Ricevuta" / "Fattura" compaiono solo quando il documento esiste (payload `payments.receipts`/`.invoices`). */
+  onReceipt?: () => void;
+  onInvoice?: () => void;
+  documentLoading?: boolean;
+  onDetail?: () => void;
 }
 
 const STRIPE: Record<string, keyof typeof EGGradients> = {
@@ -33,140 +42,151 @@ const STRIPE: Record<string, keyof typeof EGGradients> = {
   cancelled: "neutral",
 };
 
-const PILL: Record<string, { label: string; variant: StatusPillVariant }> = {
-  due: { label: "Da saldare", variant: "primary" },
-  partially_paid: { label: "Parzialmente pagato", variant: "warning" },
-  paid: { label: "Saldato", variant: "success" },
-  overdue: { label: "Scaduto", variant: "destructive" },
-  cancelled: { label: "Annullato", variant: "default" },
+/** Quattro livelli del design (§5c): quiet per il saldato, solid per il dovuto, urgent per lo scaduto. */
+const PILL: Record<
+  string,
+  { label: string; tier: StatusPillTier; tone: StatusPillTone }
+> = {
+  due: { label: "Da saldare", tier: "solid", tone: "info" },
+  partially_paid: { label: "Parziale", tier: "solid", tone: "warning" },
+  paid: { label: "Saldato", tier: "quiet", tone: "success" },
+  overdue: { label: "Scaduto", tier: "urgent", tone: "danger" },
+  cancelled: { label: "Annullato", tier: "quiet", tone: "neutral" },
 };
 
 /**
- * design-source `guidelines/component-specs.md` §C3, raffinato in v2.2.
- * Lo stato e l'etichetta li scrive il server (`payment.status`/
- * `statusKey`, via `resolvePaymentCardState`) — questo componente non
- * confronta mai una data col proprio orologio.
+ * La scheda pagamento del prototipo v3 (`payments`): striscia modulo,
+ * eyebrow del piano, titolo, importo 24/800 a destra (rosso se scaduto,
+ * verde se saldato), pill + riga di scadenza, poi la barra azioni
+ * etichettata — "Paga ora" su cio che e dovuto, "Ricevuta" e "Fattura" su
+ * cio che e saldato, "Dettaglio" dove c'e altro da leggere. Lo stato e
+ * l'etichetta li scrive il server (`resolvePaymentCardState`): questa
+ * scheda non confronta mai una data col proprio orologio per decidere.
  */
 export function PaymentCard({
   payment,
   onPayNow,
   payNowDisabled = false,
   payNowLoading = false,
+  onReceipt,
+  onInvoice,
+  documentLoading = false,
+  onDetail,
 }: PaymentCardProps) {
   const state = resolvePaymentCardState(payment);
   const pill = PILL[state];
-  const showProgress = state === "partially_paid";
-  const progressRatio = showProgress
-    ? Math.min(1, Math.max(0, payment.paidAmount / payment.amount))
-    : 0;
-  const daysOverdue =
-    state === "overdue" && payment.dueDate
-      ? Math.max(
-          0,
-          Math.floor(
-            (Date.now() - new Date(`${payment.dueDate}T00:00:00`).getTime()) /
-              86400000,
-          ),
-        )
-      : null;
+  const remaining = resolveRemainingAmount(payment);
+  const due = describeDueDate(payment);
+  const plan = resolvePaymentPlanIdentity(payment);
+  const showPay =
+    (state === "due" || state === "partially_paid" || state === "overdue") &&
+    Boolean(onPayNow);
+  const amountColor =
+    state === "overdue"
+      ? EGMoney.due
+      : state === "paid"
+        ? EGMoney.paid
+        : "#0B1A3A";
 
-  return (
+  const inner = (
     <GlassSurface
-      elevated
-      style={
-        state === "overdue"
-          ? [styles.surface, styles.overdueBorder]
-          : styles.surface
-      }
+      corner="card"
+      style={[
+        styles.surface,
+        EGShadow.glass,
+        state === "overdue" ? styles.overdueBorder : null,
+      ]}
     >
       <View style={styles.stripeWrap}>
         <GradientFill gradient={STRIPE[state]} style={styles.stripe} />
       </View>
       <View style={styles.content}>
-        <SignatureText variant="eyebrow" tone="faint">
-          {payment.type || "Quota"}
-        </SignatureText>
-        <SignatureText variant="h4" tone="ink" style={styles.title}>
-          {payment.description || "Pagamento"}
-        </SignatureText>
-
-        <SignatureText
-          style={[
-            styles.amount,
-            state === "paid" ? { color: EGMoney.paid } : null,
-            state === "overdue" ? { color: EGMoney.due } : null,
-          ]}
-        >
-          {formatParentCurrency(payment.amount)}
-        </SignatureText>
-
-        {showProgress ? (
-          <>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  { width: `${Math.max(4, progressRatio * 100)}%` },
-                ]}
-              />
-            </View>
-            <SignatureText variant="small" tone="muted">
-              già versato {formatParentCurrency(payment.paidAmount)} di{" "}
-              {formatParentCurrency(payment.amount)}
+        <View style={styles.headRow}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <SignatureText style={styles.plan} numberOfLines={1}>
+              {plan.name}
             </SignatureText>
-          </>
-        ) : null}
-
-        <View style={styles.metaRow}>
-          <Ionicons
-            name="calendar-outline"
-            size={15}
-            color={state === "overdue" ? EGMoney.due : "rgba(11,26,58,0.42)"}
-          />
-          <SignatureText
-            variant="small"
-            style={
-              state === "overdue"
-                ? { color: EGMoney.due, fontWeight: "600" }
-                : { color: "rgba(11,26,58,0.62)" }
-            }
-          >
-            {payment.dueDate
-              ? `Scadenza ${formatItalianDate(payment.dueDate)}`
-              : "Nessuna scadenza"}
-            {daysOverdue !== null && daysOverdue > 0
-              ? ` · in ritardo da ${daysOverdue} giorni`
-              : ""}
+            <SignatureText style={styles.title} numberOfLines={2}>
+              {plan.instalmentLabel}
+            </SignatureText>
+          </View>
+          <SignatureText style={[styles.amount, { color: amountColor }]}>
+            {formatParentCurrency(payment.amount)}
           </SignatureText>
         </View>
 
-        <View style={styles.footerRow}>
-          <StatusPill label={pill.label} variant={pill.variant} small />
-          {(state === "due" ||
-            state === "partially_paid" ||
-            state === "overdue") &&
-          onPayNow ? (
-            <ActionButton
-              variant="primary"
-              size="sm"
-              loading={payNowLoading}
-              disabled={payNowDisabled}
-              trailingIcon="arrow-forward"
-              onPress={onPayNow}
-            >
-              {`Paga ora ${formatParentCurrency(payment.amount - payment.paidAmount)}`}
-            </ActionButton>
-          ) : null}
+        {state === "partially_paid" ? (
+          <SignatureText style={styles.partial}>
+            {`già versato ${formatParentCurrency(payment.paidAmount)} · restano ${formatParentCurrency(remaining)}`}
+          </SignatureText>
+        ) : null}
+
+        <View style={styles.stateRow}>
+          <StatusPill
+            label={pill.label}
+            tier={pill.tier}
+            tone={pill.tone}
+            small
+          />
+          <SignatureText
+            style={[styles.due, due.urgent ? { color: EGMoney.due } : null]}
+            numberOfLines={1}
+          >
+            {due.label}
+          </SignatureText>
         </View>
+
+        {showPay || onReceipt || onInvoice || onDetail ? (
+          <View style={styles.actions}>
+            {showPay ? (
+              <ActionBarButton
+                label={`Paga ora ${formatParentCurrency(remaining)}`}
+                icon="card-outline"
+                variant="primary"
+                loading={payNowLoading}
+                disabled={payNowDisabled}
+                onPress={onPayNow}
+              />
+            ) : null}
+            {onReceipt ? (
+              <ActionBarButton
+                label="Ricevuta"
+                icon="receipt-outline"
+                loading={documentLoading}
+                onPress={onReceipt}
+              />
+            ) : null}
+            {onInvoice ? (
+              <ActionBarButton
+                label="Fattura"
+                icon="document-text-outline"
+                loading={documentLoading}
+                onPress={onInvoice}
+              />
+            ) : null}
+            {onDetail ? (
+              <ActionBarButton
+                label="Dettaglio"
+                icon="chevron-forward-outline"
+                onPress={onDetail}
+              />
+            ) : null}
+          </View>
+        ) : null}
       </View>
     </GlassSurface>
+  );
+
+  if (!onDetail) return inner;
+  return (
+    <Pressable onPress={onDetail} accessibilityRole="button">
+      {inner}
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  surface: {
-    marginBottom: Spacing.md,
-  },
+  surface: {},
   overdueBorder: {
     borderColor: "rgba(239,68,68,0.35)",
   },
@@ -184,43 +204,59 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: Spacing.lg,
-    gap: 6,
+  },
+  headRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  plan: {
+    color: "rgba(11,26,58,0.42)",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "700",
+    letterSpacing: 1.32,
+    textTransform: "uppercase",
   },
   title: {
-    marginBottom: 6,
+    color: "#0B1A3A",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "700",
   },
   amount: {
-    fontSize: 28,
-    lineHeight: 30,
+    fontSize: 24,
+    lineHeight: 28,
     fontWeight: "800",
-    letterSpacing: -0.84,
+    letterSpacing: -0.72,
     fontVariant: ["tabular-nums"],
-    color: "#0B1A3A",
+    flexShrink: 0,
   },
-  progressTrack: {
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: "rgba(11,26,58,0.08)",
-    overflow: "hidden",
-    marginTop: 4,
+  partial: {
+    marginTop: 6,
+    color: "rgba(11,26,58,0.62)",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "500",
   },
-  progressFill: {
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: "#22C55E",
-  },
-  metaRow: {
+  stateRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.xs,
-    marginTop: 4,
+    gap: 8,
+    marginTop: 12,
   },
-  footerRow: {
+  due: {
+    flex: 1,
+    color: "rgba(11,26,58,0.42)",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  actions: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: Spacing.sm,
     flexWrap: "wrap",
-    gap: Spacing.sm,
+    gap: 8,
+    marginTop: 12,
   },
 });

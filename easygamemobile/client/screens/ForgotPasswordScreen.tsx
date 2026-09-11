@@ -2,14 +2,12 @@ import React, { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Ionicons } from "@expo/vector-icons";
-import Animated, { FadeInDown } from "react-native-reanimated";
 
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { Spacing } from "@/constants/theme";
 import {
   ActionButton,
-  BrandStateLayout,
+  AuthFrame,
+  IconChip,
   SignatureInput,
   SignatureText,
 } from "@/components/signature";
@@ -32,8 +30,8 @@ type Navigation = NativeStackNavigationProp<
  * browser del telefono sulla stessa pagina Web che completa il reset: non e
  * un secondo sistema, e lo stesso, con l'ultimo passo fuori dall'app.
  *
- * v3.0 (`migration-v3.md` passo 7): su `BrandStateLayout`, stesso registro
- * delle altre schermate auth.
+ * Composizione: design §5a (terzo artboard, "Recupero") prima dell'invio;
+ * §3a ("Controlla la posta": chip busta aperta, indirizzo, nota) dopo.
  */
 export default function ForgotPasswordScreen() {
   const navigation = useNavigation<Navigation>();
@@ -73,63 +71,42 @@ export default function ForgotPasswordScreen() {
     }
   };
 
-  return (
-    <BrandStateLayout>
-      <Animated.View
-        entering={FadeInDown.delay(100).duration(600)}
-        style={styles.iconWrap}
-      >
-        <Ionicons name="key-outline" size={36} color="#FFFFFF" />
-      </Animated.View>
-
-      <Animated.View entering={FadeInDown.delay(160).duration(600)}>
-        <SignatureText
-          variant="display"
-          tone="onDark"
-          style={styles.centeredText}
-        >
-          Password dimenticata
-        </SignatureText>
-        <SignatureText
-          variant="body"
-          tone="onDarkMuted"
-          style={[styles.centeredText, styles.subtitle]}
-        >
-          Inserisci la tua email: se e associata a un account EasyGame, ti
-          mandiamo le istruzioni per reimpostare la password.
-        </SignatureText>
-      </Animated.View>
-
-      <Animated.View
-        entering={FadeInDown.delay(220).duration(600)}
-        style={styles.formContainer}
-      >
-        {sent ? (
-          <Animated.View
-            entering={FadeInDown.duration(300)}
-            style={styles.confirmation}
-          >
-            <Ionicons name="checkmark-circle" size={28} color="#86EFAC" />
-            <SignatureText
-              variant="body"
-              tone="onDark"
-              style={styles.centeredText}
-            >
-              {message}
-            </SignatureText>
-            <SignatureText
-              variant="small"
-              tone="onDarkMuted"
-              style={styles.centeredText}
-            >
-              Apri il link ricevuto via email per scegliere la nuova password,
-              poi torna qui per accedere.
-            </SignatureText>
-          </Animated.View>
-        ) : (
+  return sent ? (
+    <AuthFrame
+      step="Recupero"
+      eyebrow="Recupero accesso"
+      title="Controlla la posta"
+      body={
+        message ||
+        "Se l'indirizzo è registrato riceverai un link per reimpostare la password."
+      }
+      card={
+        <View style={styles.sentCard}>
+          <IconChip name="mail-open-outline" color="#2563EB" size={40} />
+          <SignatureText style={styles.sentEmail}>{email.trim()}</SignatureText>
+          <SignatureText style={styles.sentHint}>
+            Apri il link ricevuto via email per scegliere la nuova password, poi
+            torna qui per accedere. Controlla anche la cartella spam.
+          </SignatureText>
+        </View>
+      }
+      secondary={{
+        label: "Torna al login",
+        onPress: () => navigation.goBack(),
+      }}
+    />
+  ) : (
+    <AuthFrame
+      step="Recupero"
+      eyebrow="Recupero accesso"
+      title="Reimposta la password"
+      body="Se l'indirizzo è registrato riceverai un link valido 30 minuti."
+      error={error || undefined}
+      card={
+        <>
           <SignatureInput
             label="Email"
-            placeholder="nome@esempio.it"
+            placeholder="nome@email.it"
             value={email}
             onChangeText={(value) => {
               setEmail(value);
@@ -137,81 +114,44 @@ export default function ForgotPasswordScreen() {
             }}
             keyboardType="email-address"
             autoCapitalize="none"
+            autoComplete="email"
             leftIcon="mail-outline"
-            style={styles.field}
+            onSubmitEditing={() => void handleSubmit()}
           />
-        )}
-
-        {error ? (
-          <View style={styles.errorContainer}>
-            <Ionicons name="alert-circle" size={16} color="#FCA5A5" />
-            <SignatureText
-              variant="small"
-              style={[styles.errorText, { flex: 1 }]}
-            >
-              {error}
-            </SignatureText>
-          </View>
-        ) : null}
-
-        {!sent ? (
           <ActionButton
             variant="primary"
-            onSky
+            fullWidth
+            trailingIcon="arrow-forward"
             onPress={() => void handleSubmit()}
             loading={loading}
-            fullWidth
-            style={styles.submitButton}
           >
-            Invia istruzioni
+            Invia richiesta
           </ActionButton>
-        ) : null}
-
-        <ActionButton
-          variant="secondary"
-          onSky
-          onPress={() => navigation.goBack()}
-          fullWidth
-        >
-          Torna al login
-        </ActionButton>
-      </Animated.View>
-    </BrandStateLayout>
+        </>
+      }
+      secondary={{
+        label: "Torna al login",
+        onPress: () => navigation.goBack(),
+      }}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  iconWrap: {
-    alignItems: "center",
-    marginBottom: Spacing.md,
+  sentCard: {
+    alignItems: "flex-start",
+    gap: 12,
   },
-  centeredText: {
-    textAlign: "center",
+  sentEmail: {
+    color: "#0B1A3A",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "700",
   },
-  subtitle: {
-    marginTop: Spacing.xs,
-  },
-  formContainer: {
-    gap: Spacing.md,
-    marginTop: Spacing["2xl"],
-  },
-  field: {
-    marginBottom: 0,
-  },
-  confirmation: {
-    alignItems: "center",
-    gap: Spacing.sm,
-    marginBottom: Spacing.sm,
-  },
-  errorContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-  },
-  errorText: {
-    color: "#FCA5A5",
-  },
-  submitButton: {
-    marginTop: Spacing.sm,
+  sentHint: {
+    color: "rgba(11,26,58,0.62)",
+    fontSize: 13.5,
+    lineHeight: 20,
+    fontWeight: "500",
   },
 });

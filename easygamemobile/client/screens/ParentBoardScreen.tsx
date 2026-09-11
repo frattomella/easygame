@@ -4,12 +4,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRoute, RouteProp } from "@react-navigation/native";
 
 import {
-  GlassCard,
+  GlassRow,
   NotificationPermissionCard,
   NotificationRow,
   SecondaryScreenLayout,
+  SectionLabel,
   SignatureText,
   StateMessage,
+  StatusPill,
 } from "@/components/signature";
 import { useNotificationPermissionCard } from "@/hooks/useNotificationPermissionCard";
 import { useParentContext } from "@/contexts/ParentContext";
@@ -21,7 +23,6 @@ import {
   resolveNotificationCategory,
   sortNotificationsNewestFirst,
 } from "@/lib/parent-notifications";
-import { Spacing } from "@/constants/theme";
 import type { ParentServicesStackParamList } from "@/navigation/ParentServicesStackNavigator";
 
 type Route = RouteProp<ParentServicesStackParamList, "ParentBoard">;
@@ -44,7 +45,7 @@ type Section = "board" | "notifications";
  */
 export default function ParentBoardScreen() {
   const route = useRoute<Route>();
-  const { selectedChildId } = useParentContext();
+  const { selectedChildId, selectedChild } = useParentContext();
   const [section, setSection] = useState<Section>(
     route.params?.initialSection || "board",
   );
@@ -120,13 +121,25 @@ export default function ParentBoardScreen() {
     : [];
   const hasUnread = (dashboardQuery.data?.notificationsUnread || 0) > 0;
 
+  const announcements = boardQuery.data || [];
+  const unreadBoard = announcements.filter((item) => !item.readAt).length;
+  const unreadNotifications = dashboardQuery.data?.notificationsUnread || 0;
+
   return (
     <SecondaryScreenLayout
-      title="Bacheca"
+      title={section === "board" ? "Bacheca" : "Notifiche"}
+      eyebrow={`Genitore · ${selectedChild?.name || "Atleta"}`}
       scrollable={status === "ready"}
-      skyHeight={360}
-    >
-      <>
+      contentGap={8}
+      club={
+        selectedChild
+          ? {
+              name: selectedChild.clubName,
+              avatarUrl: selectedChild.clubLogoUrl,
+            }
+          : undefined
+      }
+      aboveContent={
         <View style={styles.tabs}>
           <SectionTab
             label="Bacheca"
@@ -139,107 +152,131 @@ export default function ParentBoardScreen() {
             onPress={() => setSection("notifications")}
           />
         </View>
-
-        {status === "loading" ? (
-          <StateMessage kind="loading" tone="dark" />
-        ) : status === "forbidden" ? (
-          <StateMessage kind="forbidden" tone="dark" message={errorMessage} />
-        ) : status === "network" || status === "error" ? (
+      }
+    >
+      {status === "loading" ? (
+        <StateMessage kind="loading" tone="dark" />
+      ) : status === "forbidden" ? (
+        <StateMessage kind="forbidden" tone="dark" message={errorMessage} />
+      ) : status === "network" || status === "error" ? (
+        <StateMessage
+          kind="error"
+          tone="dark"
+          message={errorMessage}
+          actionLabel="Riprova"
+          onAction={onRetry}
+        />
+      ) : section === "board" ? (
+        status === "empty" ? (
           <StateMessage
-            kind="error"
-            tone="dark"
-            message={errorMessage}
-            actionLabel="Riprova"
-            onAction={onRetry}
+            kind="empty"
+            title="Nessun avviso"
+            message="Non ci sono avvisi in bacheca per questo figlio."
           />
-        ) : section === "board" ? (
-          status === "empty" ? (
-            <StateMessage
-              kind="empty"
-              title="Nessun avviso"
-              message="Non ci sono avvisi in bacheca per questo figlio."
-            />
-          ) : (
-            (boardQuery.data || []).map((announcement) => (
-              <Pressable
-                key={announcement.id}
-                onPress={() => markBoardRead(announcement.deliveryId)}
-              >
-                <GlassCard style={{ gap: Spacing.xs }}>
-                  <View style={styles.boardHeader}>
-                    <SignatureText variant="eyebrow" tone="faint">
-                      {formatItalianDate(announcement.publishedAt)}
-                    </SignatureText>
-                    {!announcement.readAt ? (
-                      <View style={styles.unreadDot} />
-                    ) : null}
-                  </View>
-                  <SignatureText variant="h4" tone="ink">
-                    {announcement.title}
-                  </SignatureText>
-                  {announcement.body ? (
-                    <SignatureText variant="body" tone="muted">
-                      {announcement.body}
-                    </SignatureText>
-                  ) : null}
-                </GlassCard>
-              </Pressable>
-            ))
-          )
         ) : (
           <>
-            <NotificationPermissionCard
-              status={permission.status}
-              onEnable={() => void permission.enable()}
-              onOpenSettings={permission.openSettings}
+            <SectionLabel
+              label="Avvisi del club"
+              trailing={
+                unreadBoard > 0
+                  ? `${unreadBoard} non ${unreadBoard === 1 ? "letto" : "letti"}`
+                  : String(announcements.length)
+              }
             />
-            {notificationGroups.length === 0 ? (
-              <StateMessage
-                kind="empty"
-                title="Nessuna notifica"
-                message="Non ci sono notifiche per questo figlio."
-              />
-            ) : (
-              <>
-                {hasUnread ? (
-                  <Pressable
-                    onPress={markAllNotificationsRead}
-                    style={styles.markAll}
-                  >
-                    <SignatureText variant="small" style={styles.markAllLabel}>
-                      Segna tutte come lette
-                    </SignatureText>
-                  </Pressable>
-                ) : null}
-                {notificationGroups.map((group) => (
-                  <View key={group.label} style={{ gap: Spacing.xs }}>
-                    <SignatureText variant="eyebrow" tone="faint">
-                      {group.label.toUpperCase()}
-                    </SignatureText>
-                    {group.items.map((item) => (
-                      <NotificationRow
-                        key={item.id}
-                        title={item.title}
-                        body={item.message}
-                        read={item.read}
-                        category={resolveNotificationCategory(item.type)}
-                        timestampLabel={formatRelativeOrAbsolute(
-                          item.created_at,
-                        )}
-                        onPress={() => markNotificationRead(item.id)}
-                      />
-                    ))}
-                  </View>
-                ))}
-              </>
-            )}
+            {announcements.map((announcement) => {
+              const unread = !announcement.readAt;
+              return (
+                <GlassRow
+                  key={announcement.id}
+                  icon="megaphone-outline"
+                  iconColor={unread ? "#2563EB" : "#64748B"}
+                  title={announcement.title}
+                  meta={`Club · ${formatItalianDate(announcement.publishedAt)}`}
+                  emphasis={unread ? "strong" : "quiet"}
+                  trailing={
+                    <StatusPill
+                      label={unread ? "Nuovo" : "Letto"}
+                      tier={unread ? "solid" : "quiet"}
+                      tone={unread ? "info" : "neutral"}
+                      small
+                    />
+                  }
+                  chevron={false}
+                  onPress={
+                    unread
+                      ? () => markBoardRead(announcement.deliveryId)
+                      : undefined
+                  }
+                  actions={
+                    announcement.body ? (
+                      <SignatureText variant="small" tone="muted">
+                        {announcement.body}
+                      </SignatureText>
+                    ) : undefined
+                  }
+                />
+              );
+            })}
           </>
-        )}
-      </>
+        )
+      ) : (
+        <>
+          <NotificationPermissionCard
+            status={permission.status}
+            onEnable={() => void permission.enable()}
+            onOpenSettings={permission.openSettings}
+          />
+          {notificationGroups.length === 0 ? (
+            <StateMessage
+              kind="empty"
+              title="Nessuna notifica"
+              message="Non ci sono notifiche per questo figlio."
+            />
+          ) : (
+            notificationGroups.map((group, index) => (
+              <View key={group.label} style={{ gap: 8 }}>
+                <SectionLabel
+                  label={group.label}
+                  action={
+                    index === 0 && hasUnread
+                      ? {
+                          label: "Segna tutte come lette",
+                          onPress: markAllNotificationsRead,
+                        }
+                      : undefined
+                  }
+                  trailing={
+                    index === 0 && unreadNotifications > 0
+                      ? String(unreadNotifications)
+                      : undefined
+                  }
+                  style={index > 0 ? { paddingTop: 6 } : undefined}
+                />
+                {group.items.map((item) => (
+                  <NotificationRow
+                    key={item.id}
+                    title={item.title}
+                    body={item.message}
+                    read={item.read}
+                    category={resolveNotificationCategory(item.type)}
+                    timestampLabel={formatRelativeOrAbsolute(item.created_at)}
+                    onPress={
+                      item.read
+                        ? undefined
+                        : () => markNotificationRead(item.id)
+                    }
+                  />
+                ))}
+              </View>
+            ))
+          )}
+        </>
+      )}
     </SecondaryScreenLayout>
   );
 }
 
+/** I due filtri a pillola del prototipo (Calendario): attivo #1D4ED8 con etichetta bianca, gli altri bianco 70% con inchiostro. */
 function SectionTab({
   label,
   active,
@@ -252,14 +289,12 @@ function SectionTab({
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
       style={[styles.tab, active ? styles.tabActive : null]}
     >
       <SignatureText
-        variant="small"
-        style={{
-          fontWeight: "700",
-          color: active ? "#FFFFFF" : "rgba(11,26,58,0.62)",
-        }}
+        style={[styles.tabLabel, active ? styles.tabLabelActive : null]}
       >
         {label}
       </SignatureText>
@@ -270,38 +305,32 @@ function SectionTab({
 const styles = StyleSheet.create({
   tabs: {
     flexDirection: "row",
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
+    gap: 6,
+    paddingHorizontal: 20,
+    paddingTop: 12,
   },
   tab: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+    height: 30,
+    paddingHorizontal: 12,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: "rgba(11,26,58,0.14)",
-    backgroundColor: "rgba(255,255,255,0.6)",
+    borderColor: "rgba(255,255,255,0.28)",
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   tabActive: {
-    backgroundColor: "#2563EB",
-    borderColor: "#2563EB",
+    backgroundColor: "#FFFFFF",
+    borderColor: "rgba(255,255,255,0.9)",
   },
-  boardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#2563EB",
-  },
-  markAll: {
-    alignSelf: "flex-end",
-    marginBottom: Spacing.sm,
-  },
-  markAllLabel: {
-    color: "#2563EB",
+  tabLabel: {
+    color: "#FFFFFF",
+    fontSize: 11.5,
+    lineHeight: 14,
     fontWeight: "700",
+    letterSpacing: 0.46,
+  },
+  tabLabelActive: {
+    color: "#12265A",
   },
 });
