@@ -3774,27 +3774,36 @@ andrebbe accompagnato da cosa fare delle righe gia scritte senza conto.
 
 ## Debito trovato durante il reskin visivo Trainer, non toccato perche fuori scope (WP10, 2026-09-10)
 
-### D-MOB-1 — Cinque schermate Trainer orfane in `easygamemobile/client/screens/`
+### D-MOB-1 — Schermate Trainer/Parent orfane in `easygamemobile/client/screens/` — `RISOLTO` (WP13, 2026-09-11)
 
-**Dove.** `TrainerHomeScreen.tsx`, `TrainingsScreen.tsx`, `MatchesScreen.tsx`,
-`AthletesScreen.tsx`, `ProfileScreen.tsx` — a fianco delle omonime
-`TrainerXDashboardScreen.tsx`/`TrainerXScreen.tsx` che i navigator (`HomeStackNavigator`
-e affini) importano davvero.
+**Dove (erano).** `TrainerHomeScreen.tsx`, `TrainingsScreen.tsx`,
+`MatchesScreen.tsx`, `AthletesScreen.tsx`, `ProfileScreen.tsx` — a fianco
+delle omonime `TrainerXDashboardScreen.tsx`/`TrainerXScreen.tsx` che i
+navigator (`HomeStackNavigator` e affini) importano davvero.
 
-**Il fatto.** Nessun file del repository le importa (verificato con una
-ricerca testuale su tutto `easygamemobile/`): sono una seconda
+**Il fatto (allora).** Nessun file del repository le importava (verificato
+con una ricerca testuale su tutto `easygamemobile/`): erano una seconda
 implementazione mai raggiunta da nessuna rotta, lo stesso pattern che
 `CLAUDE.md` §11 elenca fra gli errori tipici gia successi su questo
-repository ("dashboard trainer", punto 1). Spiegano anche i warning di lint
-preesistenti su quei file (`loading` non usato, import morti) che il
-baseline di 20 warning porta avanti da prima di WP10.
+repository ("dashboard trainer", punto 1).
 
-**Perche non e stato chiuso qui.** WP10 e migrazione visiva delle schermate
-**raggiungibili**; cancellare cinque file non importati da nessuno e un
-cambiamento indipendente, sicuro ma estraneo al diff di questo WP
-(CLAUDE.md §3: "vietato il refactoring opportunistico"). La cancellazione
-stessa e a rischio zero — bastera confermare ancora, al momento di farla,
-che nessun test o script li referenzi per nome file.
+**Perche non era stato chiuso allora.** WP10 era migrazione visiva delle
+schermate **raggiungibili**; cancellare file non importati da nessuno era
+un cambiamento indipendente, sicuro ma estraneo al diff di quel WP
+(CLAUDE.md §3: "vietato il refactoring opportunistico").
+
+**Risolto in WP13.** Una riverifica testuale in apertura di WP13 ha trovato
+il conteggio incompleto: **dieci** file orfani, non cinque — mancavano
+`ContextSelectionScreen.tsx` (la rotta `"ContextSelection"` in
+`RootStackNavigator` monta `AccountHubScreen`, mai questo file) e i
+duplicati `TrainerMatchesScreen.tsx`/`TrainerProfileScreen.tsx`/
+`TrainerTrainingsScreen.tsx` delle rispettive `...DashboardScreen`.
+Verificato ancora zero riferimenti (nessun import, nessun test in
+`tests/**`) prima della cancellazione: i dieci file sono stati rimossi in
+un commit dedicato (`chore(mobile): rimuove le dieci schermate orfane`) —
+cancellazione a rischio zero, non un reskin, tenuta separata dai commit
+dei passi di `migration-v3.md` per la stessa ragione per cui non era
+stata fatta in WP10.
 
 ### D-MOB-2 — Il contenuto padding di `SecondaryScreenLayout`/`ParentPrimaryScreenLayout` raddoppia sotto un `SectionHero`
 
