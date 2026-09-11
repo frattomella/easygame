@@ -97,24 +97,24 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "GET|POST",
     path: "/api/v1/events",
     description:
-      "Il calendario del club: allenamenti e gare sulla stessa rotta, con il tipo come parametro. In POST crea un evento, o un blocco di eventi con {events: [...]}. Sostituisce /api/v1/trainings e /api/v1/matches, che scrivevano due colonne JSON del club. Ogni evento porta i conteggi dell'appello e gli identificativi dei convocati (convocated_athlete_ids), filtrati sul perimetro di chi legge: il conteggio dice quante, l'avviso sui certificati chiede quali",
-    mobile_ready: false,
+      "Il calendario del club: allenamenti e gare sulla stessa rotta, con il tipo come parametro. In POST crea un evento, o un blocco di eventi con {events: [...]}. Sostituisce /api/v1/trainings e /api/v1/matches, che scrivevano due colonne JSON del club. Ogni evento porta i conteggi dell'appello e gli identificativi dei convocati (convocated_athlete_ids), filtrati sul perimetro di chi legge: il conteggio dice quante, l'avviso sui certificati chiede quali. Letta dal mobile Trainer da WP13/D-MOB-12 (GET, sola lettura)",
+    mobile_ready: true,
   },
   {
     name: "events.item",
     method: "GET|PATCH|DELETE",
     path: "/api/v1/events/:id",
     description:
-      "Un evento. Il PATCH porta la versione su cui si sta lavorando: due salvataggi concorrenti non si sovrascrivono, il secondo riceve 409. Il DELETE vale solo per un evento senza presenze, convocazioni o risposte: gli altri si annullano. Su un evento annullato o archiviato l'unico atto ammesso e la riapertura: data, sede, campo e squadra non si cambiano finche non torna in programma",
-    mobile_ready: false,
+      "Un evento. Il PATCH porta la versione su cui si sta lavorando: due salvataggi concorrenti non si sovrascrivono, il secondo riceve 409. Il DELETE vale solo per un evento senza presenze, convocazioni o risposte: gli altri si annullano. Su un evento annullato o archiviato l'unico atto ammesso e la riapertura: data, sede, campo e squadra non si cambiano finche non torna in programma. Letta dal mobile Trainer da WP13/D-MOB-12 (GET per l'appello del dettaglio, PATCH per annullare/ripristinare un allenamento)",
+    mobile_ready: true,
   },
   {
     name: "events.participants",
     method: "GET|POST",
     path: "/api/v1/events/:id/participants",
     description:
-      "Convocazione (action: convoke) e appello (action: attendance) di un evento. Un evento annullato o archiviato non ne riceve piu, e lo stato si rilegge dentro la transazione che scrive: un annullamento in volo non si scavalca. La risposta della famiglia non passa di qui: ha la sua rotta e il suo gate, che e il legame e non il ruolo",
-    mobile_ready: false,
+      "Convocazione (action: convoke) e appello (action: attendance) di un evento. Un evento annullato o archiviato non ne riceve piu, e lo stato si rilegge dentro la transazione che scrive: un annullamento in volo non si scavalca. La risposta della famiglia non passa di qui: ha la sua rotta e il suo gate, che e il legame e non il ruolo. Scritta dal mobile Trainer da WP13/D-MOB-12 (Presenze → action:attendance, Convocazioni → action:convoke; solo present/absent mandati, mai pending — vedi ADR-0168 punto 3)",
+    mobile_ready: true,
   },
   {
     name: "document_requests.list",

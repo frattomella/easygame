@@ -11,7 +11,6 @@ import {
   ConsentRecordSummary,
   ConsentSubjectState,
   FamilyDocumentItem,
-  Match,
   MembershipRecord,
   OwnCompensationStatement,
   ParentChild,
@@ -42,10 +41,17 @@ import {
 } from "@/lib/trainer-data";
 import {
   canManageMobileTrainingAttendance,
-  formatMobileMatchLocationLabel,
   getMobileReminderTargetSummary,
   isReminderVisibleToMobileContext,
 } from "@/lib/trainer-dashboard-utils";
+import {
+  filterMatchesForTrainerScope,
+  filterTrainingsForTrainerScope,
+  mapEventRowToMatch,
+  mapEventRowToTraining,
+  mapParticipantsToAttendance,
+  sortEventsByDateTime,
+} from "@/lib/trainer-events";
 
 const KEYS = {
   currentContext: "@easygame/mobile/current-context",
@@ -343,161 +349,6 @@ const mapAthlete = (
     pantsSize: String(data.pantsSize || "").trim() || undefined,
     shoeSize: String(data.shoeSize || "").trim() || undefined,
     clothingProfile: String(data.clothingProfile || "").trim() || undefined,
-  };
-};
-
-const mapTraining = (
-  rawTraining: any,
-  categories: ClubCategorySummary[],
-): Training => {
-  const training = toRecord(rawTraining);
-  const data = toRecord(training.data);
-  const categoryId = resolveCategoryId(
-    training.categoryId ||
-      training.category_id ||
-      data.categoryId ||
-      data.category_id,
-    training.category ||
-      training.categoryName ||
-      data.category ||
-      data.categoryName,
-    categories,
-  );
-  const category = resolveCategoryName(
-    categoryId,
-    training.category ||
-      training.categoryName ||
-      data.category ||
-      data.categoryName,
-    categories,
-  );
-  const attendance = toArray<TrainingAttendanceEntry>(
-    training.attendance || data.attendance,
-  );
-
-  return {
-    id: String(training.id || "").trim(),
-    clubId:
-      String(training.organization_id || training.club_id || "").trim() ||
-      undefined,
-    title: String(
-      training.title || data.title || `${category} Training`,
-    ).trim(),
-    date: isoDate(training.date || data.date) || "",
-    time: String(training.time || data.time || "").trim(),
-    endTime: String(training.endTime || data.endTime || "").trim() || undefined,
-    location:
-      String(training.location || data.location || "").trim() ||
-      "Luogo da definire",
-    category,
-    categoryId,
-    coachName:
-      String(training.trainer || data.trainer || "").trim() || undefined,
-    status: String(
-      training.status || data.status || "scheduled",
-    ).trim() as Training["status"],
-    presentCount:
-      Number(
-        training.attendees ??
-          training.presentCount ??
-          data.attendees ??
-          data.presentCount,
-      ) || attendance.filter((entry) => Boolean(entry?.present)).length,
-    totalCount:
-      Number(
-        training.expectedAttendees ??
-          training.totalCount ??
-          data.expectedAttendees ??
-          data.totalCount,
-      ) || undefined,
-    notes: String(training.notes || data.notes || "").trim() || undefined,
-    attendance,
-    trainerIds: toArray<string>(training.trainerIds || data.trainerIds),
-  };
-};
-
-const mapMatch = (rawMatch: any, categories: ClubCategorySummary[]): Match => {
-  const match = toRecord(rawMatch);
-  const data = toRecord(match.data);
-  const isHome = Boolean(match.isHome ?? data.isHome ?? true);
-  const categoryId = resolveCategoryId(
-    match.categoryId ||
-      match.category_id ||
-      data.categoryId ||
-      data.category_id,
-    match.category || data.category,
-    categories,
-  );
-  const category = resolveCategoryName(
-    categoryId,
-    match.category || data.category,
-    categories,
-  );
-  const opponent =
-    String(match.opponent || data.opponent || "").trim() || undefined;
-  const structureId =
-    String(match.structureId || data.structureId || "").trim() || undefined;
-  const fieldId =
-    String(
-      match.fieldId ||
-        match.locationId ||
-        data.fieldId ||
-        data.locationId ||
-        "",
-    ).trim() || undefined;
-  const structureName =
-    String(match.structureName || data.structureName || "").trim() || undefined;
-  const fieldName =
-    String(match.fieldName || data.fieldName || "").trim() || undefined;
-  const displayLocation = formatMobileMatchLocationLabel({
-    structureName,
-    fieldName,
-    location: String(match.location || data.location || "").trim(),
-  });
-
-  return {
-    id: String(match.id || "").trim(),
-    clubId:
-      String(match.organization_id || match.club_id || "").trim() || undefined,
-    date: isoDate(match.date || data.date) || "",
-    time: String(match.time || data.time || "").trim(),
-    homeTeam:
-      String(
-        match.homeTeam ||
-          data.homeTeam ||
-          (!isHome && opponent ? opponent : "Casa"),
-      ).trim() || "Casa",
-    awayTeam:
-      String(
-        match.awayTeam ||
-          data.awayTeam ||
-          (isHome && opponent ? opponent : "Ospiti"),
-      ).trim() || "Ospiti",
-    opponent,
-    location: displayLocation,
-    structureId,
-    fieldId,
-    locationId: fieldId,
-    kit: String(match.kit || data.kit || "").trim() || undefined,
-    isHome,
-    category,
-    categoryId,
-    convokedCount:
-      toArray(match.convocatedAthletes || data.convocatedAthletes).length ||
-      undefined,
-    totalConvocable:
-      Number(match.totalConvocable || data.totalConvocable || 0) || undefined,
-    result:
-      typeof match.result === "object" && match.result
-        ? match.result
-        : undefined,
-    convocatedAthletes: toArray<string>(
-      match.convocatedAthletes || data.convocatedAthletes,
-    ),
-    convocationsStatus: String(
-      match.convocationsStatus || data.convocationsStatus || "none",
-    ).trim() as Match["convocationsStatus"],
-    trainers: toArray<string>(match.trainers || data.trainers),
   };
 };
 
@@ -1176,50 +1027,58 @@ class MobileBackendStorageService {
     return athletes.find((athlete) => athlete.id === id) || null;
   }
 
+  /**
+   * D-MOB-12 (WP13): `GET /api/v1/events?kind=training` sostituisce il
+   * registro generico su `trainings` (rimosso dal Web il 2026-09-01,
+   * `d25934d` — vedi `client/lib/trainer-events.ts`). Nessun flag
+   * `trainer_dashboard`: il perimetro per il ruolo "trainer" lo applica
+   * ora il server in automatico; il filtro client resta come difesa in
+   * profondita e per il ruolo "assistant".
+   */
   async getTrainings() {
     const snapshot = await this.getActiveSnapshot();
     if (!snapshot?.context?.clubId) {
       return [];
     }
 
-    const trainings = await api.listResource<any>("trainings", {
+    const rows = await api.listEvents("training", {
       clubId: snapshot.context.clubId,
-      query: roleHasFullClubAccess(snapshot.context.role)
-        ? undefined
-        : { trainer_dashboard: "1" },
+      role: snapshot.context.role,
+      includeCancelled: true,
     });
-    let mapped = trainings.map((training) =>
-      mapTraining(training, snapshot.categories),
+    const mapped = rows.map((row) =>
+      mapEventRowToTraining(row, snapshot.categories),
     );
 
-    if (!roleHasFullClubAccess(snapshot.context.role)) {
-      mapped = mapped.filter((training) => {
-        const byCategory =
-          training.categoryId &&
-          snapshot.assignedCategoryIds.some(
-            (value) =>
-              normalizeText(value) === normalizeText(training.categoryId),
-          );
-        const trainerIds = training.trainerIds || [];
-        const coachName = training.coachName || "";
+    return sortEventsByDateTime(
+      filterTrainingsForTrainerScope(mapped, {
+        role: snapshot.context.role,
+        assignedCategoryIds: snapshot.assignedCategoryIds,
+        trainerId: snapshot.trainerProfile?.id,
+        trainerName: snapshot.trainerProfile?.name,
+      }),
+    );
+  }
 
-        return (
-          byCategory ||
-          trainerIds.some(
-            (value) =>
-              normalizeText(value) ===
-              normalizeText(snapshot.trainerProfile?.id),
-          ) ||
-          normalizeText(coachName).includes(
-            normalizeText(snapshot.trainerProfile?.name || ""),
-          )
-        );
-      });
+  /**
+   * L'appello di un allenamento — `GET /api/v1/events/:id`, che porta i
+   * partecipanti per intero (la lista no, solo i conteggi). Va letto
+   * all'apertura del foglio Presenze, non prima: nessuno schermo tiene
+   * piu l'appello gia in memoria dalla lista.
+   */
+  async getTrainingAttendance(
+    trainingId: string,
+  ): Promise<TrainingAttendanceEntry[]> {
+    const snapshot = await this.getActiveSnapshot();
+    if (!snapshot?.context?.clubId) {
+      return [];
     }
 
-    return mapped.sort((left, right) =>
-      `${left.date}T${left.time}`.localeCompare(`${right.date}T${right.time}`),
-    );
+    const event = await api.getEvent(trainingId, {
+      clubId: snapshot.context.clubId,
+      role: snapshot.context.role,
+    });
+    return mapParticipantsToAttendance(event?.participants);
   }
 
   async saveTrainingAttendance(
@@ -1240,15 +1099,20 @@ class MobileBackendStorageService {
       );
     }
 
-    return api.updateResource(
-      "trainings",
+    // Binario per scelta dichiarata (ADR-0168 punto 3, D-MOB-11): si manda
+    // solo present/absent, mai "pending" — un atleta omesso dall'elenco
+    // resta "non ancora segnato" perche la scrittura e un upsert per riga,
+    // non una sostituzione dell'intero elenco (src/lib/server/events.ts,
+    // `saveEventAttendance`).
+    return api.saveEventParticipants(
       trainingId,
-      {
-        attendance,
-        attendees: attendance.filter((entry) => entry.present).length,
-        updated_at: new Date().toISOString(),
-      },
-      snapshot.context.clubId,
+      "attendance",
+      attendance.map((entry) => ({
+        athleteId: entry.athleteId,
+        status: entry.present ? "present" : "absent",
+        notes: entry.notes || undefined,
+      })),
+      { clubId: snapshot.context.clubId, role: snapshot.context.role },
     );
   }
 
@@ -1258,52 +1122,41 @@ class MobileBackendStorageService {
       throw new Error("Club attivo non disponibile");
     }
 
-    return api.updateResource(
-      "trainings",
+    const trainings = await this.getTrainings();
+    const selectedTraining =
+      trainings.find((training) => training.id === trainingId) || null;
+
+    return api.patchEvent(
       trainingId,
-      {
-        status,
-        updated_at: new Date().toISOString(),
-      },
-      snapshot.context.clubId,
+      { status },
+      selectedTraining?.version ?? 0,
+      { clubId: snapshot.context.clubId, role: snapshot.context.role },
     );
   }
 
+  /** D-MOB-12 (WP13): `GET /api/v1/events?kind=match` — stesso ragionamento di `getTrainings`. */
   async getMatches() {
     const snapshot = await this.getActiveSnapshot();
     if (!snapshot?.context?.clubId) {
       return [];
     }
 
-    const matches = await api.listResource<any>("matches", {
+    const rows = await api.listEvents("match", {
       clubId: snapshot.context.clubId,
-      query: roleHasFullClubAccess(snapshot.context.role)
-        ? undefined
-        : { trainer_dashboard: "1" },
+      role: snapshot.context.role,
+      includeCancelled: true,
     });
-    let mapped = matches.map((match) => mapMatch(match, snapshot.categories));
+    const mapped = rows.map((row) =>
+      mapEventRowToMatch(row, snapshot.categories),
+    );
 
-    if (!roleHasFullClubAccess(snapshot.context.role)) {
-      mapped = mapped.filter((match) => {
-        const byCategory =
-          match.categoryId &&
-          snapshot.assignedCategoryIds.some(
-            (value) => normalizeText(value) === normalizeText(match.categoryId),
-          );
-
-        return (
-          byCategory ||
-          (match.trainers || []).some((trainerName) =>
-            normalizeText(trainerName).includes(
-              normalizeText(snapshot.trainerProfile?.name || ""),
-            ),
-          )
-        );
-      });
-    }
-
-    return mapped.sort((left, right) =>
-      `${left.date}T${left.time}`.localeCompare(`${right.date}T${right.time}`),
+    return sortEventsByDateTime(
+      filterMatchesForTrainerScope(mapped, {
+        role: snapshot.context.role,
+        assignedCategoryIds: snapshot.assignedCategoryIds,
+        trainerId: snapshot.trainerProfile?.id,
+        trainerName: snapshot.trainerProfile?.name,
+      }),
     );
   }
 
@@ -1313,15 +1166,15 @@ class MobileBackendStorageService {
       throw new Error("Club attivo non disponibile");
     }
 
-    return api.updateResource(
-      "matches",
+    // Sostituzione dell'intero elenco, ma solo dentro il perimetro di chi
+    // chiama (`saveEventConvocations` lato server): un atleta tolto da
+    // qui torna "da decidere" (`convocation_status: null`), non
+    // "escluso" — stesso comportamento di sempre per questa funzione.
+    return api.saveEventParticipants(
       matchId,
-      {
-        convocatedAthletes: athleteIds,
-        convocationsStatus: athleteIds.length > 0 ? "completed" : "none",
-        updated_at: new Date().toISOString(),
-      },
-      snapshot.context.clubId,
+      "convoke",
+      athleteIds.map((athleteId) => ({ athleteId, status: "convocated" })),
+      { clubId: snapshot.context.clubId, role: snapshot.context.role },
     );
   }
 

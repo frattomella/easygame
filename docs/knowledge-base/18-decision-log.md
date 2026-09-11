@@ -10713,18 +10713,26 @@ veri:
    cielo — l'unico caso opposto ai precedenti: corretto in
    `tone="onDarkFaint"`.
 
-**Confermato bloccante, non affrontato in questo WP** (gia in
-D-MOB-11/D-MOB-12, vedi anche [16](16-technical-debt.md)): il registro
-generico non accetta piu `trainings`/`matches` da `d25934d` (2026-09-01)
-— non solo le scritture, **anche le letture**. Quattro schermate
-Trainer (Home, Allenamenti, Gare, Squadre) restano silenziosamente
-vuote su un club con dati reali. E un cambio di contratto/dominio, non
-visivo — fuori perimetro per un reskin, richiede una decisione propria.
-Per questo stesso motivo **non verificate in questo giro**: Presenze,
-Convocazioni, scheda atleta Trainer (nessuna lista da cui aprirle).
-Anche **non verificate**, ma per un motivo diverso — dati assenti sul
-club demo, non un difetto noto: pagamenti/checkout/ricevute Parent,
-upload/download documenti Parent, RSVP, cambio figlio multiplo/cross-club
-(l'account demo ha un solo figlio).
+**Confermato bloccante, non affrontato in questo WP** (documentato in
+[16](16-technical-debt.md), sezione "Wave 5 — 5C: la proiezione delle
+due colonne JSON" — **non** D-MOB-12, quel numero e dell'Offline/
+Manutenzione qui sopra; correzione di un refuso di questo stesso
+addendum): il registro generico non accetta piu `trainings`/`matches`
+da `d25934d` (2026-09-01) — non solo le scritture, **anche le letture**.
+Quattro schermate Trainer (Home, Allenamenti, Gare, Squadre) restano
+silenziosamente vuote su un club con dati reali. E un cambio di
+contratto/dominio, non visivo — fuori perimetro per un reskin, richiede
+una decisione propria. Per questo stesso motivo **non verificate in
+questo giro**: Presenze, Convocazioni, scheda atleta Trainer (nessuna
+lista da cui aprirle). Anche **non verificate**, ma per un motivo
+diverso — dati assenti sul club demo, non un difetto noto: pagamenti/
+checkout/ricevute Parent, upload/download documenti Parent, RSVP,
+cambio figlio multiplo/cross-club (l'account demo ha un solo figlio).
+
+**Aggiornamento — stesso giorno, batch di completamento funzionale.**
+Il gap sopra e **risolto**: `getTrainings`/`getMatches` e le scritture
+di presenze/convocazioni ora parlano con `GET/PATCH /api/v1/events` e
+`POST /api/v1/events/:id/participants` invece del registro generico
+rimosso. Dettagli in [16](16-technical-debt.md#wave-5--5c-la-proiezione-delle-due-colonne-json).
 
 ---

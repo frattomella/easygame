@@ -1692,16 +1692,30 @@ uno stato vuoto onesto per un errore silenzioso, la stessa cosa che
 
 **Perche non e stato chiuso nel WP che lo ha trovato (WP13, reskin
 EGDS v3.0.0).** E esattamente il caso "cambio di contratto/dominio, non
-visivo" che ADR-0168 elenca come fuori dal proprio perimetro: la
-correzione vera e o (a) riammettere `trainings`/`matches` nel registro
-generico come alias di sola lettura verso `club_events` — una decisione
-lato Web, servirebbe un ADR proprio — o (b) far parlare
-`getTrainings`/`getMatches` con `GET /api/v1/events` (il bersaglio che
-questa stessa voce di debito gia indica per `training_attendance`,
-sotto), un cambio di contratto mobile con la sua mappatura dati. Nessuna
-delle due e "same logic, new dress". **Serve una decisione propria,
-prima possibile**: oggi quattro schermate Trainer centrali sono
-silenziosamente vuote su dati reali.
+visivo" che ADR-0168 elenca come fuori dal proprio perimetro — la
+correzione (b) sotto, non un reskin.
+
+**RISOLTO — 2026-09-11, stesso giorno, batch di completamento funzionale
+WP13.** `getTrainings`/`getMatches` (`easygamemobile/client/services/
+mobile-backend-storage.ts`) e le scritture di presenze/convocazioni ora
+parlano con `GET/PATCH /api/v1/events` e `POST /api/v1/events/:id/
+participants` — la correzione (b) qui sopra, non l'alias (a). Mappatura
+e filtro di perimetro (client, difesa in profondita — il server applica
+gia da solo il perimetro per il ruolo "trainer") vivono in un modulo
+puro nuovo, `easygamemobile/client/lib/trainer-events.ts`, con test
+propri (`tests/trainer-events.test.ts`). Registro aggiornato:
+`events.list`/`events.item`/`events.participants` sono ora
+`mobile_ready: true` in `src/lib/api/registry.ts`. Presenze resta sul
+modello binario per scelta dichiarata — vedi D-MOB-11, non toccato da
+questa correzione. Dettagli completi in
+[18](18-decision-log.md#adr-0168--reskin-completo-a-egds-v300-easygame-blue-trainer-e-parent-ancora-solo-visivo-wp13),
+addendum "batch di completamento funzionale".
+
+*(Nota di correzione: un addendum precedente su questo stesso giorno
+aveva chiamato questo gap "D-MOB-12" — numero gia occupato
+dall'omonima voce su Offline/Manutenzione qualche paragrafo sotto.
+Questo gap non ha mai avuto un numero proprio: viveva qui, sotto
+"Wave 5 — 5C". Corretto.)*
 
 ## Wave 5 — 5C: `training_attendance` come nome di risorsa
 

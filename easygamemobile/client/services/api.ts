@@ -198,6 +198,8 @@ export interface Training {
   notes?: string;
   attendance?: TrainingAttendanceEntry[];
   trainerIds?: string[];
+  /** Concorrenza ottimistica di `PATCH /api/v1/events/:id` (D-MOB-12) — assente sugli allenamenti letti prima di WP13. */
+  version?: number;
 }
 
 export interface Match {
@@ -225,6 +227,8 @@ export interface Match {
   convocatedAthletes?: string[];
   convocationsStatus?: "pending" | "completed" | "none";
   trainers?: string[];
+  /** Concorrenza ottimistica di `PATCH /api/v1/events/:id` (D-MOB-12) — assente sulle gare lette prima di WP13. */
+  version?: number;
 }
 
 export interface Task {
@@ -1114,12 +1118,20 @@ class EasyGameApiService {
       /** Un upload multipart — mai insieme a `body`. Niente `Content-Type` esplicito: `fetch` genera il boundary da solo, impostarlo a mano lo romperebbe. */
       formData?: FormData;
       clubId?: string | null;
+      /**
+       * `x-active-access-role`: alcune rotte (es. `/api/v1/events/:id/participants`,
+       * `resolveOrganizationScopeForUser` lato Web) risolvono il perimetro
+       * **solo** dagli header, senza il ripiego su querystring che altre
+       * rotte hanno — va passato esplicitamente da chi chiama, non e un
+       * default silenzioso.
+       */
+      role?: string | null;
       query?: Record<string, string | number | boolean | null | undefined>;
       headers?: HeadersInit;
     },
   ) {
     const url = new URL(path, baseUrl);
-    const { method, body, formData, clubId, query, headers } = options;
+    const { method, body, formData, clubId, role, query, headers } = options;
 
     if (query) {
       Object.entries(query).forEach(([key, value]) => {
@@ -1141,6 +1153,10 @@ class EasyGameApiService {
 
     if (clubId) {
       requestHeaders["x-active-club-id"] = clubId;
+    }
+
+    if (role) {
+      requestHeaders["x-active-access-role"] = role;
     }
 
     if (!formData && body !== undefined && body !== null) {
@@ -1201,6 +1217,7 @@ class EasyGameApiService {
       body?: Record<string, any> | null;
       formData?: FormData;
       clubId?: string | null;
+      role?: string | null;
       query?: Record<string, string | number | boolean | null | undefined>;
       headers?: HeadersInit;
     } = {},
@@ -1220,6 +1237,7 @@ class EasyGameApiService {
           body: options.body,
           formData: options.formData,
           clubId: options.clubId,
+          role: options.role,
           query: options.query,
           headers: options.headers,
         });
@@ -1717,6 +1735,106 @@ class EasyGameApiService {
         body: {
           data,
         },
+      },
+    );
+  }
+
+  /**
+   * Allenamenti e gare — `GET /api/v1/events` (`src/app/api/v1/events/route.ts`).
+   * Sostituisce, da WP13/D-MOB-12, il registro generico su `trainings`/
+   * `matches`: quel nome di risorsa e stato tolto dal registro (commit Web
+   * `d25934d`, 2026-09-01) — non solo le scritture, anche le letture, da
+   * allora `GET /api/v1/trainings` risponde 400 "Unknown resource". Nessun
+   * parametro `trainer_dashboard`: il perimetro allenatore lo applica il
+   * server in automatico quando il ruolo attivo e "trainer"
+   * (`readTrainerEventPerimeter`, `src/lib/server/events.ts`) — non e piu
+   * un flag che il client decide di mandare o no.
+   */
+  async listEvents(
+    kind: "training" | "match",
+    options: {
+      clubId: string;
+      role?: string | null;
+      includeCancelled?: boolean;
+    },
+  ): Promise<any[]> {
+    return this.request<any[]>(`${API_PREFIX}/events`, {
+      method: "GET",
+      clubId: options.clubId,
+      role: options.role,
+      query: {
+        kind,
+        include_cancelled: options.includeCancelled ? "1" : undefined,
+      },
+    });
+  }
+
+  /**
+   * Un evento con i suoi partecipanti gia inclusi (`participants` —
+   * presenze e convocazioni insieme) — `GET /api/v1/events/:id`. Una sola
+   * chiamata per aprire il foglio Presenze/Convocazioni, invece di leggere
+   * un'istantanea gia in lista (che ora non porta piu i partecipanti per
+   * intero, solo i conteggi aggregati).
+   */
+  async getEvent(
+    eventId: string,
+    options: { clubId: string; role?: string | null },
+  ): Promise<any> {
+    return this.request<any>(
+      `${API_PREFIX}/events/${encodeURIComponent(eventId)}`,
+      {
+        method: "GET",
+        clubId: options.clubId,
+        role: options.role,
+      },
+    );
+  }
+
+  /**
+   * `PATCH /api/v1/events/:id` — richiede sempre `version` (concorrenza
+   * ottimistica lato server, un valore diverso da quello atteso risponde
+   * 409 "modificato da qualcun altro"): chi chiama deve passare la
+   * versione letta l'ultima volta, non un valore a caso.
+   */
+  async patchEvent(
+    eventId: string,
+    data: Record<string, any>,
+    version: number,
+    options: { clubId: string; role?: string | null },
+  ): Promise<any> {
+    return this.request<any>(
+      `${API_PREFIX}/events/${encodeURIComponent(eventId)}`,
+      {
+        method: "PATCH",
+        clubId: options.clubId,
+        role: options.role,
+        body: { ...data, version },
+      },
+    );
+  }
+
+  /**
+   * `POST /api/v1/events/:id/participants` — un'unica rotta per due azioni
+   * distinte (`action: "attendance" | "convoke"`), tre colonne con tre
+   * scrittori separati lato server (presenza, convocazione, RSVP di
+   * famiglia — quest'ultima mai da qui). Risolve il perimetro **solo**
+   * dagli header (`x-active-club-id`/`x-active-access-role`): a differenza
+   * delle altre due rotte eventi, non ha un ripiego su querystring, quindi
+   * `role` va sempre passato per questa chiamata.
+   */
+  async saveEventParticipants(
+    eventId: string,
+    action: "attendance" | "convoke",
+    entries: Record<string, any>[],
+    options: { clubId: string; role?: string | null },
+  ): Promise<any[]> {
+    return this.request<any[]>(
+      `${API_PREFIX}/events/${encodeURIComponent(eventId)}/participants`,
+      {
+        method: "POST",
+        clubId: options.clubId,
+        role: options.role,
+        body: { action, entries },
       },
     );
   }

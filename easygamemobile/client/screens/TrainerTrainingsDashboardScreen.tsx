@@ -89,6 +89,9 @@ export default function TrainerTrainingsDashboardScreen() {
   >([]);
   const [attendanceSaving, setAttendanceSaving] = useState(false);
   const [statusSavingId, setStatusSavingId] = useState<string | null>(null);
+  const [attendanceLoadingId, setAttendanceLoadingId] = useState<string | null>(
+    null,
+  );
 
   const focusedTrainingId = route.params?.focusTrainingId || null;
   const canManageAttendance =
@@ -172,7 +175,14 @@ export default function TrainerTrainingsDashboardScreen() {
     );
   };
 
-  const openAttendanceSheet = (training: Training) => {
+  /**
+   * D-MOB-12 (WP13): l'appello non arriva piu gia incluso nella lista
+   * (`GET /api/v1/events` porta solo i conteggi aggregati) — va letto
+   * all'apertura del foglio, da `GET /api/v1/events/:id`. Stesso esito di
+   * prima per chi lo guarda: un atleta assente dall'appello resta "non
+   * ancora segnato", present:false.
+   */
+  const openAttendanceSheet = async (training: Training) => {
     const relevantAthletes = athletes.filter((athlete) => {
       if (training.categoryId && athlete.categoryId) {
         return (
@@ -186,27 +196,42 @@ export default function TrainerTrainingsDashboardScreen() {
       );
     });
 
-    const existingAttendance = new Map(
-      (training.attendance || []).map((entry) => [
-        entry.athleteId,
-        {
-          present: Boolean(entry.present),
-          notes: String(entry.notes || ""),
-        },
-      ]),
-    );
+    setAttendanceLoadingId(training.id);
+    try {
+      const attendance = await mobileBackendStorage.getTrainingAttendance(
+        training.id,
+      );
+      const existingAttendance = new Map(
+        attendance.map((entry) => [
+          entry.athleteId,
+          {
+            present: Boolean(entry.present),
+            notes: String(entry.notes || ""),
+          },
+        ]),
+      );
 
-    setAttendanceDraft(
-      relevantAthletes.map((athlete) => ({
-        athleteId: athlete.id,
-        name: athlete.name,
-        number: athlete.number,
-        present: existingAttendance.get(athlete.id)?.present || false,
-        notes: existingAttendance.get(athlete.id)?.notes || "",
-        medicalCertExpiry: athlete.medicalCertExpiry,
-      })),
-    );
-    setSelectedTraining(training);
+      setAttendanceDraft(
+        relevantAthletes.map((athlete) => ({
+          athleteId: athlete.id,
+          name: athlete.name,
+          number: athlete.number,
+          present: existingAttendance.get(athlete.id)?.present || false,
+          notes: existingAttendance.get(athlete.id)?.notes || "",
+          medicalCertExpiry: athlete.medicalCertExpiry,
+        })),
+      );
+      setSelectedTraining(training);
+    } catch (error) {
+      Alert.alert(
+        "Presenze non disponibili",
+        error instanceof Error
+          ? error.message
+          : "Impossibile caricare l'appello. Riprova.",
+      );
+    } finally {
+      setAttendanceLoadingId(null);
+    }
   };
 
   const toggleAttendance = (athleteId: string) => {
@@ -342,7 +367,8 @@ export default function TrainerTrainingsDashboardScreen() {
               {canTakeAttendance ? (
                 <ActionButton
                   size="sm"
-                  onPress={() => openAttendanceSheet(training)}
+                  onPress={() => void openAttendanceSheet(training)}
+                  loading={attendanceLoadingId === training.id}
                 >
                   Presenze
                 </ActionButton>
