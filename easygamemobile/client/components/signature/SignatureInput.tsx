@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import {
+  Pressable,
   StyleProp,
   TextInput,
   TextInputProps,
@@ -15,6 +16,10 @@ interface SignatureInputProps extends TextInputProps {
   label?: string;
   error?: string;
   leftIcon?: keyof typeof Ionicons.glyphMap;
+  /** e.g. the show/hide-password toggle — a tappable icon in the trailing slot. */
+  rightIcon?: keyof typeof Ionicons.glyphMap;
+  onRightIconPress?: () => void;
+  rightIconLabel?: string;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -28,6 +33,9 @@ export function SignatureInput({
   label,
   error,
   leftIcon,
+  rightIcon,
+  onRightIconPress,
+  rightIconLabel,
   style,
   onFocus,
   onBlur,
@@ -89,13 +97,24 @@ export function SignatureInput({
             minWidth: 0,
             minHeight: multiline ? 66 : undefined,
             paddingLeft: leftIcon ? 0 : 16,
-            paddingRight: 16,
+            paddingRight: rightIcon ? 0 : 16,
             fontSize: 16,
             fontWeight: "500",
             color: EGInk.onLight,
             textAlignVertical: multiline ? "top" : "center",
           }}
         />
+        {rightIcon ? (
+          <Pressable
+            onPress={onRightIconPress}
+            accessibilityRole={onRightIconPress ? "button" : undefined}
+            accessibilityLabel={rightIconLabel}
+            hitSlop={8}
+            style={{ paddingHorizontal: 14 }}
+          >
+            <Ionicons name={rightIcon} size={20} color={EGInk.onLightFaint} />
+          </Pressable>
+        ) : null}
       </View>
       {error ? (
         <SignatureText

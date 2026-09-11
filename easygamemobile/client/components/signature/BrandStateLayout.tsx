@@ -1,17 +1,12 @@
 import React from "react";
-import {
-  ScrollView,
-  StyleProp,
-  StyleSheet,
-  View,
-  ViewStyle,
-} from "react-native";
+import { StyleProp, StyleSheet, View, ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle, Line } from "react-native-svg";
 
 import { EGPage, Spacing } from "@/constants/theme";
 import { GradientFill } from "@/components/signature/GradientFill";
 import { SignatureText } from "@/components/signature/SignatureText";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 
 interface BrandStateLayoutProps {
   children: React.ReactNode;
@@ -50,7 +45,7 @@ export function BrandStateLayout({
   style,
 }: BrandStateLayoutProps) {
   const insets = useSafeAreaInsets();
-  const Content = scrollable ? ScrollView : View;
+  const Content = scrollable ? KeyboardAwareScrollViewCompat : View;
 
   return (
     <View style={[styles.root, style]}>
@@ -142,6 +137,7 @@ function CourtMotif() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    overflow: "hidden",
   },
   content: {
     flex: 1,

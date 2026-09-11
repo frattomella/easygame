@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet, Image, Pressable } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { View, StyleSheet, Pressable } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,15 +11,16 @@ import Animated, {
   FadeInDown,
 } from "react-native-reanimated";
 
-import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { ThemedText } from "@/components/ThemedText";
-import { Input } from "@/components/Input";
-import { Button } from "@/components/Button";
-import { useTheme } from "@/hooks/useTheme";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { EASYGAME_APP_NAME, EASYGAME_LOGO } from "@/constants/branding";
-import { Spacing, BorderRadius, Colors } from "@/constants/theme";
+import { EASYGAME_APP_NAME } from "@/constants/branding";
+import { Spacing } from "@/constants/theme";
+import {
+  ActionButton,
+  BrandStateLayout,
+  SignatureInput,
+  SignatureText,
+} from "@/components/signature";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList, "Login">;
@@ -30,10 +30,13 @@ type Navigation = NativeStackNavigationProp<RootStackParamList, "Login">;
  * (`POST /api/v1/auth/login`). Registrazione, verifica OTP e recupero
  * password vivono in schermate dedicate — vedi `RegisterScreen`,
  * `VerifyOtpScreen`, `ForgotPasswordScreen`.
+ *
+ * v3.0 (`migration-v3.md` passo 7): su `BrandStateLayout` — cielo pieno,
+ * mai il quadrato con gradiente attorno al marchio (regola di brand
+ * CLAUDE.md, "no unnecessary gradient tile around the icon"): il marchio
+ * vive solo nel watermark del fondo, il titolo resta testo puro.
  */
 export default function LoginScreen() {
-  const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
   const navigation = useNavigation<Navigation>();
   const { login } = useAuthContext();
 
@@ -116,55 +119,41 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardAwareScrollViewCompat
-      style={[styles.container, { backgroundColor: theme.backgroundRoot }]}
-      contentContainerStyle={[
-        styles.content,
-        {
-          paddingTop: insets.top + Spacing["4xl"],
-          paddingBottom: insets.bottom + Spacing["2xl"],
-        },
-      ]}
-    >
+    <BrandStateLayout>
       <Animated.View
         entering={FadeInDown.delay(100).duration(600)}
-        style={styles.logoContainer}
+        style={styles.titleContainer}
       >
-        <Pressable
-          style={[
-            styles.logoWrapper,
-            { backgroundColor: Colors.light.primary },
-          ]}
-          onLongPress={toggleServerConfig}
-        >
-          <Image
-            source={{ uri: EASYGAME_LOGO }}
-            style={styles.logo}
-            resizeMode="contain"
-          />
+        <Pressable onLongPress={toggleServerConfig}>
+          <SignatureText
+            variant="eyebrow"
+            tone="onDarkMuted"
+            style={styles.centeredText}
+          >
+            Benvenuto su
+          </SignatureText>
         </Pressable>
+        <SignatureText
+          variant="display"
+          tone="onDark"
+          style={[styles.title, styles.centeredText]}
+        >
+          {EASYGAME_APP_NAME}
+        </SignatureText>
+        <SignatureText
+          variant="body"
+          tone="onDarkMuted"
+          style={styles.centeredText}
+        >
+          Accesso account e dashboard EasyGame
+        </SignatureText>
       </Animated.View>
 
       <Animated.View
         entering={FadeInDown.delay(200).duration(600)}
-        style={styles.titleContainer}
-      >
-        <ThemedText type="h1" style={styles.title}>
-          {EASYGAME_APP_NAME}
-        </ThemedText>
-        <ThemedText
-          type="body"
-          style={[styles.subtitle, { color: theme.textSecondary }]}
-        >
-          Accesso account e dashboard EasyGame
-        </ThemedText>
-      </Animated.View>
-
-      <Animated.View
-        entering={FadeInDown.delay(300).duration(600)}
         style={styles.formContainer}
       >
-        <Input
+        <SignatureInput
           label="Email"
           placeholder="coach@example.com"
           value={email}
@@ -172,9 +161,10 @@ export default function LoginScreen() {
           keyboardType="email-address"
           autoCapitalize="none"
           leftIcon="mail-outline"
+          style={styles.field}
         />
 
-        <Input
+        <SignatureInput
           label="Password"
           placeholder="La tua password"
           value={password}
@@ -182,63 +172,61 @@ export default function LoginScreen() {
           secureTextEntry={!showPassword}
           leftIcon="lock-closed-outline"
           rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
+          rightIconLabel={
+            showPassword ? "Nascondi password" : "Mostra password"
+          }
           onRightIconPress={() => setShowPassword(!showPassword)}
+          style={styles.field}
         />
 
-        <ThemedText
-          type="link"
+        <Pressable
           onPress={() => navigation.navigate("ForgotPassword")}
           style={styles.forgotLink}
         >
-          Password dimenticata?
-        </ThemedText>
+          <SignatureText variant="small" style={styles.forgotLinkText}>
+            Password dimenticata?
+          </SignatureText>
+        </Pressable>
 
         {error ? (
           <View style={styles.errorContainer}>
-            <Ionicons
-              name="alert-circle"
-              size={16}
-              color={Colors.light.destructive}
-            />
-            <ThemedText
-              type="small"
-              style={[styles.errorText, { color: Colors.light.destructive }]}
+            <Ionicons name="alert-circle" size={16} color="#FCA5A5" />
+            <SignatureText
+              variant="small"
+              style={[styles.errorText, { flex: 1 }]}
             >
               {error}
-            </ThemedText>
+            </SignatureText>
           </View>
         ) : null}
 
-        <Button
-          onPress={handleSubmit}
+        <ActionButton
+          variant="primary"
+          onSky
+          onPress={() => void handleSubmit()}
           loading={loading}
           fullWidth
           style={styles.loginButton}
         >
           Accedi
-        </Button>
+        </ActionButton>
 
         <View style={styles.footer}>
-          <ThemedText type="small" style={{ color: theme.textSecondary }}>
+          <SignatureText variant="small" tone="onDarkMuted">
             Non hai un account?
-          </ThemedText>
-          <ThemedText
-            type="link"
-            onPress={() => navigation.navigate("Register")}
-            style={styles.footerLink}
-          >
-            Crea account
-          </ThemedText>
+          </SignatureText>
+          <Pressable onPress={() => navigation.navigate("Register")}>
+            <SignatureText variant="small" style={styles.footerLink}>
+              Crea account
+            </SignatureText>
+          </Pressable>
         </View>
 
         <Animated.View style={animatedConfigStyle}>
-          <ThemedText
-            type="small"
-            style={[styles.devLabel, { color: theme.textSecondary }]}
-          >
+          <SignatureText variant="small" style={styles.devLabel}>
             Configurazione tecnica backend
-          </ThemedText>
-          <Input
+          </SignatureText>
+          <SignatureInput
             placeholder="https://api.example.com"
             value={serverUrl}
             onChangeText={setServerUrl}
@@ -248,50 +236,35 @@ export default function LoginScreen() {
           />
         </Animated.View>
       </Animated.View>
-    </KeyboardAwareScrollViewCompat>
+    </BrandStateLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    flexGrow: 1,
-    paddingHorizontal: Spacing["2xl"],
-  },
-  logoContainer: {
-    alignItems: "center",
-    marginBottom: Spacing["3xl"],
-  },
-  logoWrapper: {
-    width: 100,
-    height: 100,
-    borderRadius: BorderRadius["2xl"],
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logo: {
-    width: 70,
-    height: 70,
-  },
   titleContainer: {
     alignItems: "center",
+    marginTop: Spacing["2xl"],
     marginBottom: Spacing["4xl"],
+    gap: 4,
   },
   title: {
-    textAlign: "center",
+    marginVertical: 2,
   },
-  subtitle: {
+  centeredText: {
     textAlign: "center",
-    marginTop: Spacing.xs,
   },
   formContainer: {
-    flex: 1,
+    gap: Spacing.md,
+  },
+  field: {
+    marginBottom: 0,
   },
   forgotLink: {
-    textAlign: "right",
-    marginBottom: Spacing.lg,
+    alignSelf: "flex-end",
+  },
+  forgotLinkText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
   },
   loginButton: {
     marginTop: Spacing.sm,
@@ -300,23 +273,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.xs,
-    marginBottom: Spacing.lg,
   },
   errorText: {
-    flex: 1,
+    color: "#FCA5A5",
   },
   footer: {
     flexDirection: "row",
     justifyContent: "center",
     gap: Spacing.xs,
-    marginTop: Spacing.xl,
+    marginTop: Spacing.md,
   },
   footerLink: {
+    color: "#FFFFFF",
     fontWeight: "700",
   },
   devLabel: {
     textAlign: "center",
     marginTop: Spacing["3xl"],
     marginBottom: Spacing.sm,
+    color: "rgba(255,255,255,0.72)",
   },
 });
