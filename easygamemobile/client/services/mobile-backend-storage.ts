@@ -701,7 +701,12 @@ class MobileBackendStorageService {
     const membership =
       memberships.find((item) => item.organization_id === context.clubId) ||
       null;
-    const categories = await this.fetchClubCategories(context.clubId);
+    // Stesso motivo del catch in `getAccesses`: un ruolo senza accesso alle
+    // categorie (es. Genitore) non deve far fallire l'intero bootstrap
+    // della sessione (`checkAuth`, `useAuth.ts`) per un 403 atteso.
+    const categories = await this.fetchClubCategories(context.clubId).catch(
+      () => [],
+    );
     const clubDetails = await api
       .getResourceById<any>("clubs", context.clubId)
       .catch(() => null);
@@ -983,9 +988,14 @@ class MobileBackendStorageService {
           return null;
         }
 
+        // Un ruolo senza accesso alle categorie del club (es. Genitore) fa
+        // fallire `GET /api/v1/categories` con 403 — atteso, non un errore
+        // da propagare: senza questo `.catch` (gia presente sui due
+        // fetch qui sotto) un solo 403 fa fallire `Promise.all` per
+        // *tutti* gli accessi, non solo per quello del ruolo coinvolto.
         const categories = await this.fetchClubCategories(
           membership.organization_id,
-        );
+        ).catch(() => []);
         const trainerProfile = await this.fetchTrainerProfile(
           membership.organization_id,
           user,

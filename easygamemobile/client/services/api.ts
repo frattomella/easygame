@@ -1227,7 +1227,20 @@ class EasyGameApiService {
         const envelope = result.payload as ApiEnvelope<T> | null;
         if (result.status >= 200 && result.status < 300 && !envelope?.error) {
           await this.persistWinningBaseUrl(baseUrl);
-          return (envelope?.data ?? result.payload) as T;
+          // `envelope?.data ?? result.payload` sbagliava quando `data` era
+          // legittimamente `null` (es. GET /api/v1/sport-work/me per un
+          // allenatore senza rapporto configurato): `??` tratta `null` come
+          // assente e ripiegava sull'intero payload grezzo (l'involucro
+          // stesso, `{data: null, error: null}`) al posto di `null` —
+          // chi chiama vede un oggetto verita invece del vuoto reale, e un
+          // accesso come `data.relationships.length` va in crash. Il
+          // ripiego su `result.payload` resta solo per una risposta che non
+          // e affatto un involucro (nessuna chiave `data`).
+          return (
+            envelope && typeof envelope === "object" && "data" in envelope
+              ? envelope.data
+              : result.payload
+          ) as T;
         }
 
         lastFailure = result;
@@ -1774,11 +1787,26 @@ class EasyGameApiService {
    * I figli collegati alla propria identita — `GET /api/v1/family/children`
    * (`listParentChildren`). Nessun `clubId`: e la stessa identita in tutti i
    * club, non uno scope di club da passare.
+   *
+   * La rotta (`src/app/api/v1/family/children/route.ts`, `mobile_ready:
+   * false` in `src/lib/api/registry.ts` — mai formalmente contrattata per
+   * il mobile) risponde `{data: {children: [...]}, error: null}`, un
+   * livello piu annidato di quanto questa funzione promettesse: il tipo di
+   * ritorno diceva `ParentChild[]`, a runtime arrivava l'oggetto che lo
+   * contiene. Con un figlio collegato, `ParentProvider`
+   * (`contexts/ParentContext.tsx`) spargeva quell'oggetto
+   * (`[...children]` su `{children: [...]}`) e andava in crash con
+   * "children is not iterable" prima ancora di mostrare la Home Parent —
+   * confermato in staging con `parent@easygame.it` (WP13, acceptance pass
+   * autenticata). Corretto qui, non nel chiamante: e la forma della
+   * risposta di questo endpoint, non una regola del dominio Parent.
    */
   async getFamilyChildren(): Promise<ParentChild[]> {
-    return this.request<ParentChild[]>(`${API_PREFIX}/family/children`, {
-      method: "GET",
-    });
+    const result = await this.request<{ children: ParentChild[] } | null>(
+      `${API_PREFIX}/family/children`,
+      { method: "GET" },
+    );
+    return result?.children || [];
   }
 
   /**

@@ -22,8 +22,20 @@ const config = getDefaultConfig(__dirname);
  * fuori da `easygamemobile/`) e non esiste fuori dal dev server: `expo
  * export` non esegue `enhanceMiddleware`, quindi non finisce mai ne nel
  * bundle Web ne tantomeno in quello nativo iOS/Android.
+ *
+ * Un solo prefisso (`/api/v1/`) non bastava: tutta l'area Parent
+ * (`client/services/api.ts` — cruscotto, bacheca, notifiche, checkout,
+ * documenti, consensi, appuntamenti, strutture) chiama deliberatamente
+ * `/api/parent-dashboard/**`, **fuori** da `/api/v1` (stesso path che usa
+ * la Web App da `/parent-view/[id]`, per non duplicare la rotta). Senza
+ * anche questo prefisso, ogni chiamata Parent su Expo Web cadeva sul
+ * fallback SPA di Metro (200 con l'HTML della shell, non JSON) invece che
+ * sul backend — confermato in staging durante l'acceptance pass
+ * autenticata di WP13: la Home Parent restava bianca, senza errore
+ * visibile, perche uno stato "200 ma non JSON" non e uno stato di errore
+ * per `request()`.
  */
-const API_PROXY_PREFIX = "/api/v1/";
+const API_PROXY_PREFIXES = ["/api/v1/", "/api/parent-dashboard/"];
 const PROXY_TARGET =
   process.env.EXPO_PUBLIC_EASYGAME_API_URL ||
   "https://easygame-staging-pi.vercel.app";
@@ -38,7 +50,10 @@ config.server = {
       : middleware;
 
     return (req, res, next) => {
-      if (!req.url || !req.url.startsWith(API_PROXY_PREFIX)) {
+      if (
+        !req.url ||
+        !API_PROXY_PREFIXES.some((prefix) => req.url.startsWith(prefix))
+      ) {
         return withDefault(req, res, next);
       }
 
