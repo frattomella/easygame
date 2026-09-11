@@ -10673,4 +10673,58 @@ account Apple Developer — non da questo WP. Verificato invece che il
 bundle iOS **non firmato** risolve senza errori (`expo export --platform
 ios`, 2647 moduli).
 
+**Avanzamento — 2026-09-11, acceptance pass autenticata (continuazione
+stessa giornata).** Il "non verificato" del paragrafo sopra e stato
+colmato in parte: login reale su staging con `trainer@easygame.it` e
+`parent@easygame.it` (credenziali gia in `.staging-credentials.local`,
+non committate), walkthrough completo dell'Account Hub, di tutte le
+cinque tab Trainer e di tutte le cinque tab Parent (incluso l'intero hub
+Servizi), club/context switch, logout. Trovate e corrette sei
+regressioni reali, nessuna delle quali visibile senza dati e sessione
+veri:
+
+1. `request()` (api.ts) trattava un `data: null` legittimo come assente
+   e restituiva l'involucro grezzo — `TrainerCompensationScreen` andava
+   in crash. Corretto controllando la presenza della chiave `data`.
+2. `getFamilyChildren()` prometteva `ParentChild[]`, la rotta (mai
+   `mobile_ready`) risponde un livello piu annidato
+   (`{children:[...]}`)  — `ParentContext` andava in crash con
+   "children is not iterable" prima di mostrare la Home Parent.
+   Corretto spacchettando `.children` nel client.
+3. `fetchClubCategories` senza `.catch` in due dei tre call site (il
+   terzo gia lo aveva): un 403 atteso per un ruolo senza accesso alle
+   categorie (Genitore) faceva fallire l'intero `Promise.all` di
+   `getAccesses()` e di `getActiveSnapshot()`. Allineato al pattern gia
+   presente nella stessa funzione.
+4. `metro.config.js` (dev-only): il proxy CORS forwardava solo
+   `/api/v1/*`; l'intera area Parent chiama `/api/parent-dashboard/**`,
+   deliberatamente fuori da quel prefisso. Senza il proxy anche li, ogni
+   chiamata Parent su Expo Web cadeva sul fallback SPA di Metro (200,
+   HTML non JSON) — bloccava l'intero acceptance pass Parent su web.
+5. Testo chiaro (`tone="dark"`) su contenuto che cade oltre `skyHeight`
+   (il cielo di `Floodlight` sfuma in nebbia chiara li) — nove
+   schermate, due varianti dello stesso difetto (hero che spinge il
+   contenuto in nebbia; messaggio vuoto di 2-3 righe che a `skyHeight`
+   default ci arriva comunque). Corretto per-schermata: tolto `tone`
+   dove il contenuto cade sempre in nebbia, alzato `skyHeight` dove
+   deve restare in cielo.
+6. Un'etichetta di raggruppamento club (`ParentChildrenScreen`) usava
+   `tone="faint"` (pensato per la nebbia chiara) mentre cadeva nel
+   cielo — l'unico caso opposto ai precedenti: corretto in
+   `tone="onDarkFaint"`.
+
+**Confermato bloccante, non affrontato in questo WP** (gia in
+D-MOB-11/D-MOB-12, vedi anche [16](16-technical-debt.md)): il registro
+generico non accetta piu `trainings`/`matches` da `d25934d` (2026-09-01)
+— non solo le scritture, **anche le letture**. Quattro schermate
+Trainer (Home, Allenamenti, Gare, Squadre) restano silenziosamente
+vuote su un club con dati reali. E un cambio di contratto/dominio, non
+visivo — fuori perimetro per un reskin, richiede una decisione propria.
+Per questo stesso motivo **non verificate in questo giro**: Presenze,
+Convocazioni, scheda atleta Trainer (nessuna lista da cui aprirle).
+Anche **non verificate**, ma per un motivo diverso — dati assenti sul
+club demo, non un difetto noto: pagamenti/checkout/ricevute Parent,
+upload/download documenti Parent, RSVP, cambio figlio multiplo/cross-club
+(l'account demo ha un solo figlio).
+
 ---

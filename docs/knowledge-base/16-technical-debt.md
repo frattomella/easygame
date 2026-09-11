@@ -1664,6 +1664,45 @@ ogni lane che ne sposta una parte.
 nessuno deve leggerle come **fonte** quando la riga e disponibile: la copia e
 per chi non e ancora passato, non un'alternativa.
 
+**Aggiornamento — 2026-09-11, verificato in staging con account reale
+(WP13, acceptance pass autenticata).** Il registro generico
+(`src/app/api/v1/[resource]/route.ts`, whitelist in
+`src/lib/server/resources.ts`) non ha **mai** avuto `trainings`/`matches`
+riammessi dopo la rimozione del commit `d25934d` (2026-09-01): oggi
+`GET /api/v1/trainings` e `GET /api/v1/matches` rispondono **400 "Unknown
+resource"**, non solo le scritture. Il testo sopra ("resta... come
+proiezione in sola lettura") descrive la colonna, non la rotta —
+la proiezione e leggibile solo da chi gia parla con `GET /api/v1/events`,
+non piu dal registro generico.
+
+Il mobile (`easygamemobile/client/services/mobile-backend-storage.ts`,
+`getTrainings`/`getMatches`, invariate dal 2026-04-07, mai aggiornate dopo
+`d25934d`) chiama ancora `api.listResource("trainings"|"matches", …)` —
+cioe proprio quella rotta. Effetto reale, confermato in staging con
+`trainer@easygame.it`: Home (contatori/anteprima allenamenti e gare),
+`TrainerTrainingsDashboardScreen`, `TrainerMatchesDashboardScreen`,
+`TrainerCategoriesScreen` (che aggrega anche trainings/matches) — quattro
+schermate su un club con dati reali non possono piu mostrare ne
+allenamenti ne gare. Il fallimento **non e visibile**: l'errore 400 viene
+assorbito a monte di `useAsyncSection`/`useAsyncData` (schema non
+indagato oltre) e la UI mostra "Nessun allenamento"/"Nessuna gara" —
+uno stato vuoto onesto per un errore silenzioso, la stessa cosa che
+`StateMessage`'s quattro stati distinti (`05-mobile-architecture.md`,
+"Error Handling") esistono apposta per evitare.
+
+**Perche non e stato chiuso nel WP che lo ha trovato (WP13, reskin
+EGDS v3.0.0).** E esattamente il caso "cambio di contratto/dominio, non
+visivo" che ADR-0168 elenca come fuori dal proprio perimetro: la
+correzione vera e o (a) riammettere `trainings`/`matches` nel registro
+generico come alias di sola lettura verso `club_events` — una decisione
+lato Web, servirebbe un ADR proprio — o (b) far parlare
+`getTrainings`/`getMatches` con `GET /api/v1/events` (il bersaglio che
+questa stessa voce di debito gia indica per `training_attendance`,
+sotto), un cambio di contratto mobile con la sua mappatura dati. Nessuna
+delle due e "same logic, new dress". **Serve una decisione propria,
+prima possibile**: oggi quattro schermate Trainer centrali sono
+silenziosamente vuote su dati reali.
+
 ## Wave 5 — 5C: `training_attendance` come nome di risorsa
 
 La tabella e diventata `club_event_participants`, ma il nome della risorsa nel
