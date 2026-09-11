@@ -3946,3 +3946,38 @@ progetto (`tests/` copre solo moduli puri con `node --test`).
 `fetch`/`SecureStore` per un solo caso avrebbe superato il perimetro
 dell'hardening. Se in futuro servisse testare altro nella stessa classe,
 vale la pena costruirla una volta sola, non per questa singola guardia.
+
+## Debito aperto dal reskin completo a EGDS v3.0.0 (WP13, ADR-0168, 2026-09-11)
+
+### D-MOB-11 — Le presenze mobile restano sul modello binario: il vero tri-state (`pending`) richiede un cambio di endpoint
+
+**Dove.** `easygamemobile/client/services/mobile-backend-storage.ts`
+(`saveTrainingAttendance`), `easygamemobile/client/services/api.ts`
+(`TrainingAttendanceEntry.present: boolean`),
+`TrainerTrainingsDashboardScreen.tsx` (toggle binario, `|| false` su
+attendance non ancora segnata).
+
+**Il fatto.** `migration-v3.md` passo 5 chiede un attendance a tre stati
+(non segnato / presente / assente) con "assente" persistito come fatto
+distinto da "non ancora segnato". Il backend gia lo rappresenta cosi:
+`ClubEventParticipant.status` e il vocabolario chiuso `present | absent |
+pending` (`src/lib/events/model.ts`), scritto **solo** da
+`saveEventAttendance` in `src/lib/server/events.ts` dietro `POST
+/api/v1/events/[id]/participants` (per la riga di ownership di CLAUDE.md
+§2 su "Eventi sportivi"). Il mobile pero non chiama quell'endpoint: scrive
+le presenze via `api.updateResource("trainings", …)`, che atterra sulla
+proiezione JSON legacy `clubs.trainings[].attendance` — la stessa colonna
+che ADR-0098 dichiara "sola lettura, un solo scrittore" (`events.ts`, non
+la rotta generica). WP13 ha portato solo la **veste** del passo 5 (tile
+navy, anello 30px, riga di progresso, "Segna tutti presenti", enfasi di
+successo sul solo CTA di salvataggio) sul modello binario esistente,
+senza introdurre uno stato "non segnato" che il backend non puo
+confermare — vedi ADR-0168 punto 3.
+
+**Perche non e stato chiuso qui.** Passare al tri-state reale significa
+cambiare quale endpoint il mobile chiama per le presenze — un cambio di
+contratto/dominio, non una scelta visiva, ed e esplicitamente escluso da
+un WP dichiarato "solo reskin" (CLAUDE.md: adeguamenti al mobile ammessi
+solo per sicurezza o per un cambio di contratto **deciso lato Web**).
+Serve una decisione esplicita propria, con lo stesso proprietario
+(`src/lib/server/events.ts`) che gia norma le scritture di presenza.
