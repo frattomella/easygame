@@ -10541,3 +10541,92 @@ Nessun deploy, nessun invio a TestFlight o App Store.
 [14](14-security.md), [16](16-technical-debt.md).
 
 ---
+
+## ADR-0168 — Reskin completo a EGDS v3.0.0 "EasyGame blue": Trainer e Parent, ancora solo visivo (WP13)
+
+**Data:** 2026-09-11
+
+**Contesto.** ADR-0165 aveva esteso l'eccezione al reskin visivo delle sole
+sei schermate Trainer raggiungibili dal Dock, sulla versione allora CURRENT
+(EGDS v2.3.0). Da allora il design system e salito a **EGDS v3.0.0
+"EasyGame blue", 2026-09-11** (`design-source/CHANGELOG.md`): non una nuova
+direzione ma "una correzione di colore, chrome e branding" — il taglio
+d'angolo, la grammatica del vetro, le strisce modulo, la rotaia oraria, i
+number tile, il gradiente azione e la coppia eyebrow/display restano
+intatti. L'artefatto approvato (due export Claude Design, `EasyGame Mobile -
+IA e Home` e `EasyGame Mobile - Prototipo`, gia presenti in
+`design-source/uploads/Extending EasyGame Design System/`) e stato
+verificato **identico** — a meno di due refinement gia applicati lato
+repository — a quello fornito per questo giro di lavoro: nessun disallineamento
+fra le due fonti di verita. La guida di implementazione,
+`design-source/guidelines/migration-v3.md`, era gia scritta: 9 passi
+ordinati (token → shell → pill di stato → bottoni → righe → presenze/
+convocazioni → fogli → schermate auth/sistema → navigazione Parent), con
+Home e Atleti per ultime perche "ereditano soltanto".
+
+Una decisione esplicita successiva ha chiesto di **estendere il reskin
+all'intera app** — non piu solo le sei schermate Trainer di WP10, ma ogni
+schermata Trainer e Parent raggiungibile — restando nello stesso registro di
+ADR-0165: veste nuova, stessa logica.
+
+**Decisione.** Si estende l'eccezione al reskin visivo completo a EGDS
+v3.0.0, Trainer e Parent, eseguito nell'ordine di `migration-v3.md`, un
+commit atomico per passo (o gruppo di passi correlati):
+
+1. **Stessa logica, veste nuova — di nuovo.** Nessuna schermata cambia le
+   chiavi che legge da `mobileBackendStorage.*`, i permessi
+   `trainerPermissions.*`/l'equivalente Parent, il perimetro dati per ruolo,
+   o gli endpoint chiamati — con la sola eccezione dichiarata al punto 4.
+2. **Copertura.** Tutte le schermate Trainer e Parent elencate in
+   [05](05-mobile-architecture.md), piu le schermate Auth/Account/sistema
+   condivise. Nessuna nuova area funzionale: dove il design v3 introduce un
+   raggruppamento nuovo (l'hub `Servizi` Parent, passo 8 di
+   `migration-v3.md`), e un **contenitore di navigazione** per schermate
+   gia esistenti (Documenti, Consensi, Iscrizione, Appuntamenti, Strutture,
+   Contatti, Bacheca) — nessuna di quelle perde la propria schermata,
+   cambia solo come vi si arriva.
+3. **Presenze/Convocazioni — verificato e ridotto per questo giro.**
+   `migration-v3.md` passo 5 chiede un attendance a tre stati (non segnato /
+   presente / assente, con "assente" distinto da "non ancora segnato").
+   Verifica fatta: **il backend gia supporta questa distinzione** —
+   `ClubEventParticipant.status` e un vocabolario chiuso
+   `present | absent | pending` (`src/lib/events/model.ts`,
+   `normalizeAttendanceStatus`), scritto da `POST
+   /api/v1/events/[id]/participants` → `saveEventAttendance` in
+   `src/lib/server/events.ts` (l'unico scrittore, per la riga di ownership
+   di CLAUDE.md §2). **Ma il mobile non parla con quell'endpoint**: scrive
+   oggi le presenze via `api.updateResource("trainings", …)`, che finisce
+   sulla proiezione JSON legacy `clubs.trainings[].attendance` — esattamente
+   la colonna che ADR-0098 dichiara "sola lettura, un solo scrittore"
+   (`events.ts`, non la rotta generica). Passare al tri-state reale
+   richiederebbe quindi **cambiare l'endpoint che il mobile chiama per le
+   presenze**, non solo la veste: e un cambio di contratto/dominio, non
+   visivo, ed e esattamente il caso «gap di contratto backend che
+   richiederebbe di cambiare comportamento di prodotto» che resta fuori da
+   questa eccezione. **Questo WP porta quindi solo la veste** del passo 5
+   (tile navy sempre, anello 30px, riga di progresso, scorciatoia "Segna
+   tutti presenti", enfasi di successo solo sul CTA di salvataggio) sul
+   modello binario **esistente**; il terzo stato "non segnato" resta
+   locale/derivato come oggi (nessuna riga finche non si salva), non uno
+   stato server distinto — niente stato visivo che il backend non puo
+   confermare. La migrazione al vero tri-state (cambio di endpoint) e
+   annotata in [16](16-technical-debt.md) come lavoro a se, dietro una
+   decisione esplicita propria: non e coperta da questa eccezione.
+4. **Restringimento dichiarato, non silenzioso.** Ogni scostamento dal
+   passo-per-passo di `migration-v3.md` che questo WP introduce per lo
+   stesso motivo del punto 3 (uno stato che il contratto dati corrente non
+   distingue) va annotato nel commit e in
+   [05](05-mobile-architecture.md), non semplicemente omesso.
+
+**Cio che questa decisione non cambia.** Nessuna nuova area funzionale oltre
+al contenitore di navigazione del punto 2. Nessuna modifica alla dashboard
+Web. Nessun cambio di endpoint, di permesso o di modello dati — eccetto il
+non-cambiamento dichiarato al punto 3. Push, deep linking, recupero
+password nativo e la preparazione release iOS restano quanto chiuso da
+ADR-0166/ADR-0167; l'export iOS firmato resta bloccato dall'assenza di un
+account Apple Developer configurato, non da questo WP.
+
+**Vedi anche.** ADR-0165, ADR-0166, ADR-0167, [05](05-mobile-architecture.md),
+`design-source/guidelines/migration-v3.md`, [16](16-technical-debt.md).
+
+---

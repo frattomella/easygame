@@ -9,14 +9,20 @@
 > [ADR-0164](18-decision-log.md#adr-0164--il-batch-parent-si-chiude-pagamenti-documenti-consensi-segreteria-strutture-iscrizione-contatti)
 > (area Parent, WP4-WP9) e
 > [ADR-0165](18-decision-log.md#adr-0165--il-reskin-delle-quattro-tab-trainer-primarie-wp10) (reskin
-> visivo delle quattro tab Trainer primarie, WP10), tutte 2026-09-10). La
-> priorita assoluta resta completare EasyGame Web V1 e renderla responsive.
-> **Nessuna nuova area funzionale Mobile** oltre a quanto queste eccezioni
-> coprono, fino a una decisione esplicita — WP10 e **visivo**, non aggiunge
-> funzionalita. Push, deep linking, recupero password nativo e la
-> preparazione release iOS restano fuori da questo giro. Vedi la sezione
-> "Autenticazione mobile" qui sotto, che descrive lo stato **attuale**, non
-> congelato.
+> visivo delle quattro tab Trainer primarie, WP10, 2026-09-10),
+> [ADR-0166](18-decision-log.md#adr-0166--push-deep-linking-e-recupero-password-nativo-restano-unanagrafica-non-una-pipeline-di-invio-wp11)
+> (push/deep linking/recupero password, WP11),
+> [ADR-0167](18-decision-log.md#adr-0167--candidato-al-rilascio-ios-hardening-non-nuove-funzioni-wp12)
+> (candidato iOS, WP12, entrambe 2026-09-10) e
+> [ADR-0168](18-decision-log.md#adr-0168--reskin-completo-a-egds-v300-easygame-blue-trainer-e-parent-ancora-solo-visivo-wp13)
+> (reskin visivo completo a EGDS v3.0.0, Trainer **e** Parent, WP13,
+> 2026-09-11). La priorita assoluta resta completare EasyGame Web V1 e
+> renderla responsive. **Nessuna nuova area funzionale Mobile** oltre a
+> quanto queste eccezioni coprono, fino a una decisione esplicita — WP10 e
+> WP13 sono **visivi**, non aggiungono funzionalita (WP13 lascia
+> esplicitamente fuori il vero attendance a tre stati: vedi ADR-0168 punto
+> 3). Vedi la sezione "Autenticazione mobile" qui sotto, che descrive lo
+> stato **attuale**, non congelato.
 
 Cartella: `easygamemobile/`. **Progetto npm indipendente**: proprio
 `package.json`, `package-lock.json`, `tsconfig.json`, `eslint.config.js`,
@@ -31,9 +37,14 @@ TanStack Query 5 · expo-secure-store**. TypeScript `~5.9`.
 ## Design system mobile
 
 **Source design version**: Claude Design, namespace
-`EasyGameDesignSystem_845326`, attualmente **EGDS v2.3.0 "Real data",
-sync 2026-09-10** (`design-source/CHANGELOG.md`, `design-source/github.md`)
-— CURRENT. Versioni precedenti nello stesso changelog: v2.2.0 "Sheet & shell"
+`EasyGameDesignSystem_845326`, attualmente **EGDS v3.0.0 "EasyGame blue",
+2026-09-11** (`design-source/CHANGELOG.md`) — CURRENT. Non una nuova
+direzione: una correzione di colore, chrome e branding sull'artefatto
+approvato gia consolidato in `design-source/uploads/Extending EasyGame
+Design System/` (verificato identico all'input fornito per WP13). Guida di
+implementazione normativa: `design-source/guidelines/migration-v3.md`
+(supersede `guidelines/archive/v2.3/trainer-migration.md`). Versioni
+precedenti: v2.3.0 "Real data" (2026-09-10, WP10), v2.2.0 "Sheet & shell"
 (2026-09-10, formalizza `BottomSheet`/`ParentPrimaryScreenLayout` da
 implementazione e affina i componenti Parte C), v2.1.0 "Parent-ready"
 (2026-09-10, formalizza `StateMessage`/`SecondaryScreenLayout`/
@@ -44,19 +55,16 @@ per "agisci qui", eyebrow su display compatto) e v1.0.0 (2026-09-09,
 estrazione iniziale). Verificato prima di scrivere UI nuova in ciascun WP,
 come richiesto — mai usata una versione precedente a quella disponibile al
 momento: i WP4-6 sono stati costruiti quando v2.1.0 era CURRENT (dichiarato
-li sotto cosi), i WP7-9 con v2.2.0, **WP10 con v2.3.0** (component-coverage
-matrix di Parte B2 e Parte E/F/G del changelog — quest'ultime due non
-riguardano WP10, vedi sotto). Riguarda **solo** la mobile app: "nothing here
-was derived from [the web dashboard], and no web UI is defined" (readme.md)
-— la dashboard Web non e stata ne consultata ne modificata per nessuno di
-questi WP.
+li sotto cosi), i WP7-9 con v2.2.0, WP10 con v2.3.0, **WP13 con v3.0.0**.
+Riguarda **solo** la mobile app: "nothing here was derived from [the web
+dashboard], and no web UI is defined" (readme.md) — la dashboard Web non e
+stata ne consultata ne modificata per nessuno di questi WP.
 
-**Implementation version**: 2026-09-10, parziale — vedi sotto cosa e stato
+**Implementation version**: 2026-09-11, parziale — vedi sotto cosa e stato
 portato e cosa no. Il codice sorgente del design system (CSS, JSX, HTML di
-anteprima, le tre guide normative `guidelines/component-specs.md`,
-`guidelines/navigation.md`, `guidelines/trainer-migration.md`) vive in
-`design-source/` alla radice del repository, escluse le parti binarie non
-necessarie (illustrazioni — l'app non ne usa — icone gia vendorizzate via
+anteprima, le guide normative in `guidelines/`) vive in `design-source/`
+alla radice del repository, escluse le parti binarie non necessarie
+(illustrazioni — l'app non ne usa — icone gia vendorizzate via
 `@expo/vector-icons`, l'HTML di anteprima offline, il bundle compilato dello
 strumento): sono elencate in `.gitignore` con la motivazione.
 
