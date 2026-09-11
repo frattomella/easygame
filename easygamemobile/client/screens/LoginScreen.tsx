@@ -38,7 +38,19 @@ type Navigation = NativeStackNavigationProp<RootStackParamList, "Login">;
  */
 export default function LoginScreen() {
   const navigation = useNavigation<Navigation>();
-  const { login } = useAuthContext();
+  const { login, signOutReason, clearSignOutReason } = useAuthContext();
+
+  const [sessionExpiredNotice] = useState(signOutReason === "expired");
+
+  useEffect(() => {
+    // Letto una sola volta al mount (vedi `useAuth.ts`): consumato subito,
+    // cosi un login riuscito o un logout volontario successivo non lo
+    // ritrovano ancora impostato.
+    if (signOutReason) {
+      clearSignOutReason();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -153,6 +165,18 @@ export default function LoginScreen() {
         entering={FadeInDown.delay(200).duration(600)}
         style={styles.formContainer}
       >
+        {sessionExpiredNotice ? (
+          <View style={styles.sessionExpiredNotice}>
+            <Ionicons name="time-outline" size={16} color="#FCD34D" />
+            <SignatureText
+              variant="small"
+              style={[styles.sessionExpiredText, { flex: 1 }]}
+            >
+              Sessione scaduta. Accedi di nuovo per continuare.
+            </SignatureText>
+          </View>
+        ) : null}
+
         <SignatureInput
           label="Email"
           placeholder="coach@example.com"
@@ -276,6 +300,19 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: "#FCA5A5",
+  },
+  sessionExpiredNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    backgroundColor: "rgba(252,211,77,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(252,211,77,0.35)",
+    borderRadius: 12,
+    padding: Spacing.sm,
+  },
+  sessionExpiredText: {
+    color: "#FCD34D",
   },
   footer: {
     flexDirection: "row",

@@ -13,6 +13,29 @@
  * accedere anche dalla Web App.
  */
 
+/**
+ * v3.0 (`migration-v3.md` passo 7, "Sessione scaduta"): **non** cambia
+ * quando la sessione si chiude — resta lo stesso istante di sempre (WP12,
+ * session hardening, `useAuth.ts`) — porta solo perche. `"manual"` (logout
+ * volontario) e `null` (boot / mai loggato) sono equivalenti per chi legge
+ * lo stato: solo `"expired"` accende l'avviso su `LoginScreen`.
+ */
+export type SignOutReason = "manual" | "expired" | null;
+
+/**
+ * Fonde il motivo dentro uno stato "sloggato" gia pronto, senza toccare
+ * nient'altro. Vive qui (non in `useAuth.ts`) perche questo modulo non ha
+ * dipendenze da React Native: `useAuth.ts` importa `mobileBackendStorage`,
+ * che trascina l'intero grafo RN, e questa suite di test (`node --test`,
+ * nessun renderer) non puo importarlo direttamente.
+ */
+export function withSignOutReason<T extends { signOutReason?: SignOutReason }>(
+  signedOutState: T,
+  reason: SignOutReason,
+): T {
+  return { ...signedOutState, signOutReason: reason };
+}
+
 export type VerificationChannel = "email" | "phone";
 
 export interface VerificationInfo {

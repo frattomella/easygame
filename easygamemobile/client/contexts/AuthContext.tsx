@@ -2,7 +2,7 @@ import React, { createContext, useContext, ReactNode } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Access, Club, ClubCategorySummary, User } from "@/services/api";
 import { TrainerDashboardPermissions } from "@/lib/trainer-permissions";
-import { AuthOutcome } from "@/lib/auth-flow";
+import { AuthOutcome, SignOutReason } from "@/lib/auth-flow";
 import { TrainerProfile } from "@/services/mobile-backend-storage";
 
 interface AuthContextType {
@@ -16,6 +16,7 @@ interface AuthContextType {
   trainerPermissions: TrainerDashboardPermissions | null;
   assignedCategories: ClubCategorySummary[];
   trainerProfile: TrainerProfile | null;
+  signOutReason: SignOutReason;
   login: (email: string, password: string) => Promise<AuthOutcome>;
   logout: () => Promise<void>;
   setContext: (
@@ -25,6 +26,7 @@ interface AuthContextType {
     source?: "owned" | "assigned" | null,
   ) => Promise<void>;
   clearContext: () => Promise<void>;
+  clearSignOutReason: () => void;
   updateUserProfile: (
     updates: Partial<
       Pick<User, "name" | "email" | "phone" | "city" | "avatar">

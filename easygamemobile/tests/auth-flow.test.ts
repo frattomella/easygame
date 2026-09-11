@@ -8,6 +8,7 @@ import {
   interpretPasswordResetResponse,
   parseRetryAfterSeconds,
   pickVerificationChannel,
+  withSignOutReason,
 } from "../client/lib/auth-flow";
 
 // --- register → verifica richiesta -----------------------------------
@@ -340,4 +341,44 @@ test("reset password: nessun messaggio d'errore e nessun successo → error gene
     error: null,
   });
   assert.equal(outcome.kind, "error");
+});
+
+// --- sessione scaduta (v3.0, migration-v3.md passo 7) -------------------
+// `withSignOutReason` non decide *quando* la sessione si chiude — resta lo
+// stesso istante di sempre (WP12, session hardening, `useAuth.ts`) — porta
+// solo perche, cosi `LoginScreen` puo distinguere uno sloggato volontario
+// da una sessione scaduta sotto i piedi della persona.
+
+const SIGNED_OUT_BASE = {
+  isLoggedIn: false,
+  hasContext: false,
+  user: null as null,
+  signOutReason: null as "manual" | "expired" | null,
+};
+
+test("withSignOutReason('expired') porta il motivo senza toccare il resto dello stato", () => {
+  const state = withSignOutReason(SIGNED_OUT_BASE, "expired");
+  assert.equal(state.isLoggedIn, false);
+  assert.equal(state.hasContext, false);
+  assert.equal(state.user, null);
+  assert.equal(state.signOutReason, "expired");
+});
+
+test("withSignOutReason('manual') e withSignOutReason(null) non accendono l'avviso di sessione scaduta", () => {
+  assert.notEqual(
+    withSignOutReason(SIGNED_OUT_BASE, "manual").signOutReason,
+    "expired",
+  );
+  assert.notEqual(
+    withSignOutReason(SIGNED_OUT_BASE, null).signOutReason,
+    "expired",
+  );
+});
+
+test("qualunque motivo lascia identico lo stato sloggato di base — solo signOutReason cambia", () => {
+  const manual = withSignOutReason(SIGNED_OUT_BASE, "manual");
+  const expired = withSignOutReason(SIGNED_OUT_BASE, "expired");
+  const { signOutReason: _m, ...manualRest } = manual;
+  const { signOutReason: _e, ...expiredRest } = expired;
+  assert.deepEqual(manualRest, expiredRest);
 });

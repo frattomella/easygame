@@ -1,45 +1,59 @@
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  Linking,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown } from "react-native-reanimated";
 
-import { Button } from "@/components/Button";
-import { Card } from "@/components/Card";
-import { Input } from "@/components/Input";
-import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
-import { ThemedText } from "@/components/ThemedText";
-import { ThemedView } from "@/components/ThemedView";
-import { AccountAccessCard } from "@/components/signature";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { useTheme } from "@/hooks/useTheme";
 import { getRoleLabel } from "@/lib/mobile-ui";
 import { normalizeMobileAccessRole } from "@/lib/mobile-role-gate";
 import { Club, Access } from "@/services/api";
 import { mobileBackendStorage } from "@/services/mobile-backend-storage";
-import { BorderRadius, Colors, Spacing } from "@/constants/theme";
+import { Spacing } from "@/constants/theme";
 import { SUPPORT_MAILTO_URL } from "@/constants/external-links";
+import {
+  AccountAccessCard,
+  ActionButton,
+  BrandStateLayout,
+  BottomSheet,
+  SignatureInput,
+  SignatureText,
+  StateMessage,
+} from "@/components/signature";
 
+/**
+ * Il punto dove chi ha piu di un accesso sceglie con quale entrare — o crea
+ * il primo club, o collega un token. Stessi dati e stessa logica di sempre
+ * (`mobileBackendStorage.*`, `setContext`/`clearContext`): questo passo
+ * cambia solo la veste.
+ *
+ * v3.0 (`migration-v3.md` passo 7 — "Account Hub" e nel perimetro esplicito
+ * dell'eccezione, ADR-0168 §4c): su `BrandStateLayout` come le altre
+ * schermate auth/sistema — "The base band ... is gone from login,
+ * registration, recovery and the account hub" (design-source, artboard 4c).
+ * I tre moduli che prima erano `Modal` HTML-style diventano `BottomSheet`
+ * (stesso componente delle altre schermate con moduli, passo 6): scrim-tap,
+ * drag-to-dismiss, gesto indietro — nessuno screen scrive piu il proprio
+ * modale. Restano "Annulla" + azione primaria perche sono moduli con piu
+ * campi, non fogli di selezione (la regola "niente Annulla" del passo 6
+ * riguarda i fogli-opzione, dove la scelta stessa chiude il foglio).
+ *
+ * Il blocco di servizio (nome · versione) che il mockup mostra su questo
+ * artboard **non** compare qui: `BrandStateLayout`'s `footer` e riservato
+ * alle schermate di manutenzione/offline/errore/supporto/stato-servizio
+ * (`migration-v3.md` passo 7) — Account Hub non lo e. "Esci" resta
+ * un'azione in testata, non nel blocco di servizio.
+ */
 export default function AccountHubScreen() {
-  const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
   const { user, logout, refresh, setContext, updateUserProfile } =
     useAuthContext();
 
   const [ownedClubs, setOwnedClubs] = useState<Club[]>([]);
   const [accesses, setAccesses] = useState<Access[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [showCreateClubModal, setShowCreateClubModal] = useState(false);
-  const [showTokenModal, setShowTokenModal] = useState(false);
+  const [showProfileSheet, setShowProfileSheet] = useState(false);
+  const [showCreateClubSheet, setShowCreateClubSheet] = useState(false);
+  const [showTokenSheet, setShowTokenSheet] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [clubError, setClubError] = useState("");
   const [tokenError, setTokenError] = useState("");
@@ -65,6 +79,7 @@ export default function AccountHubScreen() {
   const accountName = user?.name || "Utente EasyGame";
   const ownedCount = ownedClubs.length;
   const slotLabel = useMemo(() => `${ownedCount}/5 club`, [ownedCount]);
+  const totalAccessCount = ownedClubs.length + accesses.length;
 
   useEffect(() => {
     setProfileForm({
@@ -126,7 +141,7 @@ export default function AccountHubScreen() {
     try {
       await updateUserProfile(profileForm);
       await refresh();
-      setShowProfileModal(false);
+      setShowProfileSheet(false);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       setProfileError(
@@ -154,7 +169,7 @@ export default function AccountHubScreen() {
     try {
       await mobileBackendStorage.createOwnedClub(clubForm);
       await loadData();
-      setShowCreateClubModal(false);
+      setShowCreateClubSheet(false);
       setClubForm({
         name: "",
         city: "",
@@ -192,7 +207,7 @@ export default function AccountHubScreen() {
       }
 
       await loadData();
-      setShowTokenModal(false);
+      setShowTokenSheet(false);
       setToken("");
       setTokenError("");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -208,18 +223,6 @@ export default function AccountHubScreen() {
     }
   };
 
-  /**
-   * `AccountAccessCard` (design system CURRENT, spec C10) sostituisce le
-   * righe `Card` generiche qui e sotto — solo il rendering: la logica di
-   * selezione (`handleSelectOwnedClub`/`handleSelectAccess`) e i dati
-   * restano quelli di sempre. Un club posseduto e sempre "owner", e
-   * `resolveMobileRoleGate` non apre nessuna area per owner/admin in questa
-   * V1 (Area management mobile: MISSING) — mostrarlo come "non ancora
-   * disponibile" invece di lasciarlo aprire uno schermo di atterraggio e
-   * la stessa informazione, resa prima del tocco anziche dopo (il gate di
-   * ruolo resta invariato: e solo la card a non navigare piu verso di
-   * esso).
-   */
   const renderClubCard = (club: Club) => (
     <AccountAccessCard
       key={club.id}
@@ -249,410 +252,341 @@ export default function AccountHubScreen() {
   );
 
   return (
-    <ThemedView style={styles.container}>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={{
-          paddingTop: insets.top + Spacing.lg,
-          paddingBottom: insets.bottom + Spacing["4xl"],
-          paddingHorizontal: Spacing.lg,
-        }}
-      >
-        <Animated.View entering={FadeInDown.duration(350)}>
-          <View style={styles.heroShell}>
-            <View
-              style={[
-                styles.heroCard,
-                { backgroundColor: Colors.light.primary },
-              ]}
-            >
-              <View style={styles.heroTopRow}>
-                <View style={styles.brandRow}>
-                  <View style={styles.brandBadge}>
-                    <Ionicons
-                      name="sparkles"
-                      size={22}
-                      color={Colors.light.primary}
-                    />
-                  </View>
-                  <View>
-                    <ThemedText type="small" style={styles.heroEyebrow}>
-                      Home Account
-                    </ThemedText>
-                    <ThemedText type="h3" style={styles.heroTitle}>
-                      Bentornato, {accountName}
-                    </ThemedText>
-                  </View>
-                </View>
-                <Pressable
-                  onPress={() => void logout()}
-                  style={styles.iconButton}
-                >
-                  <Ionicons name="log-out-outline" size={20} color="#FFFFFF" />
-                </Pressable>
-              </View>
-
-              <ThemedText type="small" style={styles.heroSubtitle}>
-                Gestisci profilo, club di proprieta e accessi ricevuti prima di
-                entrare in una dashboard.
-              </ThemedText>
-
-              <View style={styles.heroActions}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  style={styles.heroGhostButton}
-                  onPress={() => setShowProfileModal(true)}
-                >
-                  Profilo
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  style={styles.heroWhiteButton}
-                  onPress={handleOpenSupport}
-                >
-                  Assistenza
-                </Button>
-              </View>
-            </View>
-          </View>
-        </Animated.View>
-
-        <Animated.View
-          entering={FadeInDown.delay(80).duration(350)}
-          style={styles.section}
-        >
-          <View style={styles.sectionHeader}>
-            <View>
-              <ThemedText type="h4">Club di proprieta</ThemedText>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                I club creati dal tuo account e pronti da aprire.
-              </ThemedText>
-            </View>
-            <Button size="sm" onPress={() => setShowCreateClubModal(true)}>
-              Nuovo club
-            </Button>
-          </View>
-          {loading ? null : ownedClubs.length > 0 ? (
-            ownedClubs.map(renderClubCard)
-          ) : (
-            <Card style={styles.emptyCard}>
-              <ThemedText type="body" style={styles.emptyTitle}>
-                Nessun club creato
-              </ThemedText>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Crea il tuo primo club per iniziare a lavorare anche lato
-                mobile.
-              </ThemedText>
-            </Card>
-          )}
-        </Animated.View>
-
-        <Animated.View
-          entering={FadeInDown.delay(140).duration(350)}
-          style={styles.section}
-        >
-          <View style={styles.sectionHeader}>
-            <View>
-              <ThemedText type="h4">Accessi assegnati</ThemedText>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Token ricevuti dai club e ruoli collegati al tuo account.
-              </ThemedText>
-            </View>
-            <Button
-              size="sm"
-              variant="outline"
-              onPress={() => setShowTokenModal(true)}
-            >
-              Inserisci token
-            </Button>
-          </View>
-          {loading ? null : accesses.length > 0 ? (
-            accesses.map(renderAccessCard)
-          ) : (
-            <Card style={styles.emptyCard}>
-              <ThemedText type="body" style={styles.emptyTitle}>
-                Nessun accesso collegato
-              </ThemedText>
-              <ThemedText type="small" style={{ color: theme.textSecondary }}>
-                Quando un club ti condivide un token, lo inserisci qui e
-                aggiungi il ruolo al tuo account.
-              </ThemedText>
-            </Card>
-          )}
-        </Animated.View>
-      </ScrollView>
-
-      <Modal
-        visible={showProfileModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowProfileModal(false)}
-      >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setShowProfileModal(false)}
-        >
-          <KeyboardAwareScrollViewCompat
-            contentContainerStyle={styles.modalScrollWrap}
+    <BrandStateLayout>
+      <Animated.View entering={FadeInDown.delay(80).duration(500)}>
+        <View style={styles.headerTopRow}>
+          <SignatureText variant="eyebrow" tone="onDarkMuted">
+            Accessi
+          </SignatureText>
+          <Pressable
+            onPress={() => void logout()}
+            style={styles.logoutButton}
+            accessibilityRole="button"
+            accessibilityLabel="Esci"
           >
-            <Pressable
-              style={[
-                styles.modalCard,
-                { backgroundColor: theme.backgroundDefault },
-              ]}
-              onPress={(event) => event.stopPropagation()}
-            >
-              <ThemedText type="h4" style={styles.modalTitle}>
-                Profilo account
-              </ThemedText>
-              <Input
-                label="Nome completo"
-                value={profileForm.name}
-                onChangeText={(value) => {
-                  setProfileForm((current) => ({ ...current, name: value }));
-                  setProfileError("");
-                }}
-              />
-              <Input
-                label="Email"
-                value={profileForm.email}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                onChangeText={(value) => {
-                  setProfileForm((current) => ({ ...current, email: value }));
-                  setProfileError("");
-                }}
-              />
-              <Input
-                label="Telefono"
-                value={profileForm.phone}
-                keyboardType="phone-pad"
-                onChangeText={(value) =>
-                  setProfileForm((current) => ({ ...current, phone: value }))
-                }
-              />
-              <Input
-                label="Citta"
-                value={profileForm.city}
-                onChangeText={(value) =>
-                  setProfileForm((current) => ({ ...current, city: value }))
-                }
-                error={profileError || undefined}
-              />
-              <View style={styles.modalButtons}>
-                <Button
-                  variant="ghost"
-                  onPress={() => setShowProfileModal(false)}
-                >
-                  Annulla
-                </Button>
-                <Button onPress={handleSaveProfile} loading={savingProfile}>
-                  Salva
-                </Button>
-              </View>
-            </Pressable>
-          </KeyboardAwareScrollViewCompat>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        visible={showCreateClubModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowCreateClubModal(false)}
-      >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setShowCreateClubModal(false)}
-        >
-          <KeyboardAwareScrollViewCompat
-            contentContainerStyle={styles.modalScrollWrap}
+            <Ionicons name="log-out-outline" size={18} color="#FFFFFF" />
+          </Pressable>
+        </View>
+        <SignatureText variant="display" tone="onDark" style={styles.title}>
+          Bentornato, {accountName}
+        </SignatureText>
+        <SignatureText variant="body" tone="onDarkMuted">
+          {totalAccessCount > 0
+            ? `${totalAccessCount} access${totalAccessCount === 1 ? "o collegato" : "i collegati"} a questa email.`
+            : "Gestisci profilo, club di proprieta e accessi ricevuti prima di entrare in una dashboard."}
+        </SignatureText>
+        <View style={styles.headerActions}>
+          <ActionButton
+            variant="secondary"
+            onSky
+            size="sm"
+            onPress={() => setShowProfileSheet(true)}
           >
-            <Pressable
-              style={[
-                styles.modalCard,
-                { backgroundColor: theme.backgroundDefault },
-              ]}
-              onPress={(event) => event.stopPropagation()}
-            >
-              <ThemedText type="h4" style={styles.modalTitle}>
-                Nuovo club
-              </ThemedText>
-              <Input
-                label="Nome club"
-                value={clubForm.name}
-                onChangeText={(value) => {
-                  setClubForm((current) => ({ ...current, name: value }));
-                  setClubError("");
-                }}
-              />
-              <Input
-                label="Citta"
-                value={clubForm.city}
-                onChangeText={(value) =>
-                  setClubForm((current) => ({ ...current, city: value }))
-                }
-              />
-              <Input
-                label="Provincia"
-                value={clubForm.province}
-                onChangeText={(value) =>
-                  setClubForm((current) => ({ ...current, province: value }))
-                }
-              />
-              <Input
-                label="Email contatto"
-                value={clubForm.contactEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                onChangeText={(value) =>
-                  setClubForm((current) => ({
-                    ...current,
-                    contactEmail: value,
-                  }))
-                }
-              />
-              <Input
-                label="Telefono contatto"
-                value={clubForm.contactPhone}
-                keyboardType="phone-pad"
-                onChangeText={(value) =>
-                  setClubForm((current) => ({
-                    ...current,
-                    contactPhone: value,
-                  }))
-                }
-              />
-              <Input
-                label="Logo URL (opzionale)"
-                value={clubForm.logoUrl}
-                autoCapitalize="none"
-                onChangeText={(value) =>
-                  setClubForm((current) => ({ ...current, logoUrl: value }))
-                }
-                error={clubError || undefined}
-              />
-              <View style={styles.modalButtons}>
-                <Button
-                  variant="ghost"
-                  onPress={() => setShowCreateClubModal(false)}
-                >
-                  Annulla
-                </Button>
-                <Button onPress={handleCreateClub} loading={creatingClub}>
-                  Crea club
-                </Button>
-              </View>
-            </Pressable>
-          </KeyboardAwareScrollViewCompat>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        visible={showTokenModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowTokenModal(false)}
-      >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setShowTokenModal(false)}
-        >
-          <KeyboardAwareScrollViewCompat
-            contentContainerStyle={styles.modalScrollWrap}
+            Profilo
+          </ActionButton>
+          <ActionButton
+            variant="secondary"
+            onSky
+            size="sm"
+            onPress={() => void handleOpenSupport()}
           >
-            <Pressable
-              style={[
-                styles.modalCard,
-                { backgroundColor: theme.backgroundDefault },
-              ]}
-              onPress={(event) => event.stopPropagation()}
+            Assistenza
+          </ActionButton>
+        </View>
+      </Animated.View>
+
+      <Animated.View
+        entering={FadeInDown.delay(140).duration(500)}
+        style={styles.section}
+      >
+        <View style={styles.sectionHeader}>
+          <SignatureText variant="h4" tone="onDark">
+            Club di proprieta
+          </SignatureText>
+          <ActionButton
+            variant="secondary"
+            onSky
+            size="sm"
+            onPress={() => setShowCreateClubSheet(true)}
+          >
+            Nuovo club
+          </ActionButton>
+        </View>
+        {loading ? null : ownedClubs.length > 0 ? (
+          ownedClubs.map(renderClubCard)
+        ) : (
+          <StateMessage
+            kind="empty"
+            tone="dark"
+            title="Nessun club creato"
+            message="Crea il tuo primo club per iniziare a lavorare anche lato mobile."
+          />
+        )}
+      </Animated.View>
+
+      <Animated.View
+        entering={FadeInDown.delay(200).duration(500)}
+        style={styles.section}
+      >
+        <View style={styles.sectionHeader}>
+          <SignatureText variant="h4" tone="onDark">
+            Accessi assegnati
+          </SignatureText>
+          <ActionButton
+            variant="secondary"
+            onSky
+            size="sm"
+            onPress={() => setShowTokenSheet(true)}
+          >
+            Inserisci token
+          </ActionButton>
+        </View>
+        {loading ? null : accesses.length > 0 ? (
+          accesses.map(renderAccessCard)
+        ) : (
+          <StateMessage
+            kind="empty"
+            tone="dark"
+            title="Nessun accesso collegato"
+            message="Quando un club ti condivide un token, lo inserisci qui e aggiungi il ruolo al tuo account."
+          />
+        )}
+        {clubError && !loading ? (
+          <SignatureText variant="small" style={styles.loadErrorText}>
+            {clubError}
+          </SignatureText>
+        ) : null}
+      </Animated.View>
+
+      <BottomSheet
+        visible={showProfileSheet}
+        onClose={() => setShowProfileSheet(false)}
+        accessibilityLabel="Profilo account"
+      >
+        <SignatureText
+          variant="eyebrow"
+          tone="faint"
+          style={styles.sheetEyebrow}
+        >
+          Account
+        </SignatureText>
+        <SignatureText variant="h3" tone="ink" style={styles.sheetTitle}>
+          Profilo account
+        </SignatureText>
+        <View style={styles.sheetFields}>
+          <SignatureInput
+            label="Nome completo"
+            value={profileForm.name}
+            onChangeText={(value) => {
+              setProfileForm((current) => ({ ...current, name: value }));
+              setProfileError("");
+            }}
+          />
+          <SignatureInput
+            label="Email"
+            value={profileForm.email}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            onChangeText={(value) => {
+              setProfileForm((current) => ({ ...current, email: value }));
+              setProfileError("");
+            }}
+          />
+          <SignatureInput
+            label="Telefono"
+            value={profileForm.phone}
+            keyboardType="phone-pad"
+            onChangeText={(value) =>
+              setProfileForm((current) => ({ ...current, phone: value }))
+            }
+          />
+          <SignatureInput
+            label="Citta"
+            value={profileForm.city}
+            onChangeText={(value) =>
+              setProfileForm((current) => ({ ...current, city: value }))
+            }
+            error={profileError || undefined}
+          />
+          <View style={styles.sheetActions}>
+            <ActionButton
+              loading={savingProfile}
+              onPress={() => void handleSaveProfile()}
             >
-              <ThemedText type="h4" style={styles.modalTitle}>
-                Collega accesso
-              </ThemedText>
-              <Input
-                label="Token club"
-                value={token}
-                autoCapitalize="characters"
-                onChangeText={(value) => {
-                  setToken(value.toUpperCase().replace(/\s+/g, ""));
-                  setTokenError("");
-                }}
-                placeholder="TRN9CFGBNKED"
-                error={tokenError || undefined}
-              />
-              <View style={styles.modalButtons}>
-                <Button
-                  variant="ghost"
-                  onPress={() => setShowTokenModal(false)}
-                >
-                  Annulla
-                </Button>
-                <Button onPress={handleRedeemToken} loading={redeemingToken}>
-                  Aggiungi
-                </Button>
-              </View>
-            </Pressable>
-          </KeyboardAwareScrollViewCompat>
-        </Pressable>
-      </Modal>
-    </ThemedView>
+              Salva
+            </ActionButton>
+            <ActionButton
+              variant="ghost"
+              onPress={() => setShowProfileSheet(false)}
+            >
+              Annulla
+            </ActionButton>
+          </View>
+        </View>
+      </BottomSheet>
+
+      <BottomSheet
+        visible={showCreateClubSheet}
+        onClose={() => setShowCreateClubSheet(false)}
+        accessibilityLabel="Nuovo club"
+      >
+        <SignatureText
+          variant="eyebrow"
+          tone="faint"
+          style={styles.sheetEyebrow}
+        >
+          Club di proprieta
+        </SignatureText>
+        <SignatureText variant="h3" tone="ink" style={styles.sheetTitle}>
+          Nuovo club
+        </SignatureText>
+        <View style={styles.sheetFields}>
+          <SignatureInput
+            label="Nome club"
+            value={clubForm.name}
+            onChangeText={(value) => {
+              setClubForm((current) => ({ ...current, name: value }));
+              setClubError("");
+            }}
+          />
+          <SignatureInput
+            label="Citta"
+            value={clubForm.city}
+            onChangeText={(value) =>
+              setClubForm((current) => ({ ...current, city: value }))
+            }
+          />
+          <SignatureInput
+            label="Provincia"
+            value={clubForm.province}
+            onChangeText={(value) =>
+              setClubForm((current) => ({ ...current, province: value }))
+            }
+          />
+          <SignatureInput
+            label="Email contatto"
+            value={clubForm.contactEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            onChangeText={(value) =>
+              setClubForm((current) => ({
+                ...current,
+                contactEmail: value,
+              }))
+            }
+          />
+          <SignatureInput
+            label="Telefono contatto"
+            value={clubForm.contactPhone}
+            keyboardType="phone-pad"
+            onChangeText={(value) =>
+              setClubForm((current) => ({
+                ...current,
+                contactPhone: value,
+              }))
+            }
+          />
+          <SignatureInput
+            label="Logo URL (opzionale)"
+            value={clubForm.logoUrl}
+            autoCapitalize="none"
+            onChangeText={(value) =>
+              setClubForm((current) => ({ ...current, logoUrl: value }))
+            }
+            error={clubError || undefined}
+          />
+          <View style={styles.sheetActions}>
+            <ActionButton
+              loading={creatingClub}
+              onPress={() => void handleCreateClub()}
+            >
+              Crea club
+            </ActionButton>
+            <ActionButton
+              variant="ghost"
+              onPress={() => setShowCreateClubSheet(false)}
+            >
+              Annulla
+            </ActionButton>
+          </View>
+        </View>
+      </BottomSheet>
+
+      <BottomSheet
+        visible={showTokenSheet}
+        onClose={() => setShowTokenSheet(false)}
+        accessibilityLabel="Collega accesso"
+      >
+        <SignatureText
+          variant="eyebrow"
+          tone="faint"
+          style={styles.sheetEyebrow}
+        >
+          Accessi assegnati
+        </SignatureText>
+        <SignatureText variant="h3" tone="ink" style={styles.sheetTitle}>
+          Collega accesso
+        </SignatureText>
+        <View style={styles.sheetFields}>
+          <SignatureInput
+            label="Token club"
+            value={token}
+            autoCapitalize="characters"
+            onChangeText={(value) => {
+              setToken(value.toUpperCase().replace(/\s+/g, ""));
+              setTokenError("");
+            }}
+            placeholder="TRN9CFGBNKED"
+            error={tokenError || undefined}
+          />
+          <View style={styles.sheetActions}>
+            <ActionButton
+              loading={redeemingToken}
+              onPress={() => void handleRedeemToken()}
+            >
+              Aggiungi
+            </ActionButton>
+            <ActionButton
+              variant="ghost"
+              onPress={() => setShowTokenSheet(false)}
+            >
+              Annulla
+            </ActionButton>
+          </View>
+        </View>
+      </BottomSheet>
+    </BrandStateLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  scrollView: { flex: 1 },
-  heroShell: { marginBottom: Spacing.lg },
-  heroCard: {
-    borderRadius: BorderRadius["2xl"],
-    padding: Spacing["2xl"],
-    overflow: "hidden",
-  },
-  heroTopRow: {
+  headerTopRow: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    alignItems: "flex-start",
   },
-  brandRow: { flexDirection: "row", gap: Spacing.md, flex: 1 },
-  brandBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
+  logoutButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
     alignItems: "center",
     justifyContent: "center",
   },
-  heroEyebrow: {
-    color: "rgba(255,255,255,0.78)",
-    marginBottom: 2,
-    fontWeight: "700",
+  title: {
+    marginTop: 4,
+    marginBottom: 6,
   },
-  heroTitle: { color: "#FFFFFF" },
-  heroSubtitle: {
-    color: "rgba(255,255,255,0.82)",
-    marginTop: Spacing.md,
-    lineHeight: 20,
+  headerActions: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    marginTop: Spacing.lg,
   },
-  heroActions: { flexDirection: "row", gap: Spacing.sm, marginTop: Spacing.lg },
-  heroGhostButton: {
-    borderColor: "rgba(255,255,255,0.25)",
-    backgroundColor: "rgba(255,255,255,0.12)",
+  section: {
+    marginTop: Spacing["2xl"],
   },
-  heroWhiteButton: { backgroundColor: "#FFFFFF" },
-  iconButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: Spacing.md,
-  },
-  section: { marginTop: Spacing.lg },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -660,36 +594,22 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     gap: Spacing.md,
   },
-  accountCard: { marginBottom: Spacing.md },
-  accountCardHeader: { flexDirection: "row", alignItems: "center" },
-  accountCardInfo: { flex: 1, marginLeft: Spacing.md },
-  accountCardTitle: { fontWeight: "700", marginBottom: 2 },
-  metaRow: {
+  loadErrorText: {
+    color: "#FCA5A5",
+    marginTop: Spacing.sm,
+  },
+  sheetEyebrow: {
+    marginBottom: 4,
+  },
+  sheetTitle: {
+    marginBottom: Spacing.md,
+  },
+  sheetFields: {
+    gap: Spacing.md,
+  },
+  sheetActions: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: Spacing.sm,
-    marginTop: Spacing.md,
-  },
-  logoBadge: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyCard: { gap: Spacing.sm },
-  emptyTitle: { fontWeight: "700" },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(15,23,42,0.45)" },
-  modalScrollWrap: {
-    flexGrow: 1,
-    justifyContent: "center",
-    padding: Spacing.lg,
-  },
-  modalCard: { borderRadius: BorderRadius["2xl"], padding: Spacing["2xl"] },
-  modalTitle: { marginBottom: Spacing.lg },
-  modalButtons: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: Spacing.sm,
+    marginTop: Spacing.xs,
   },
 });

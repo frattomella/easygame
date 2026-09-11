@@ -5,7 +5,7 @@ import {
 } from "@/services/mobile-backend-storage";
 import { Access, Club, ClubCategorySummary, User } from "@/services/api";
 import { TrainerDashboardPermissions } from "@/lib/trainer-permissions";
-import { AuthOutcome } from "@/lib/auth-flow";
+import { AuthOutcome, SignOutReason, withSignOutReason } from "@/lib/auth-flow";
 
 interface AuthState {
   isLoading: boolean;
@@ -19,6 +19,17 @@ interface AuthState {
   assignedCategories: ClubCategorySummary[];
   /** `null` per chi ha accesso pieno al club (owner/admin), non solo per errore. */
   trainerProfile: TrainerProfile | null;
+  /**
+   * v3.0 (`migration-v3.md` passo 7, "Sessione scaduta"): **non** cambia il
+   * momento in cui la sessione viene chiusa — resta lo stesso istante,
+   * stesso motivo documentato sopra (WP12, niente attesa, niente ciclo).
+   * Porta solo *perche* si e arrivati a `SIGNED_OUT_STATE`, cosi
+   * `LoginScreen` puo mostrare un avviso invece di un login muto quando il
+   * motivo e la scadenza e non una scelta della persona. Letto una sola
+   * volta al mount di `LoginScreen`, poi azzerato: non e uno stato che
+   * sopravvive a un nuovo login o a un logout volontario successivo.
+   */
+  signOutReason: SignOutReason;
 }
 
 const SIGNED_OUT_STATE: AuthState = {
@@ -32,6 +43,7 @@ const SIGNED_OUT_STATE: AuthState = {
   trainerPermissions: null,
   assignedCategories: [],
   trainerProfile: null,
+  signOutReason: null,
 };
 
 export function useAuth() {
@@ -125,6 +137,7 @@ export function useAuth() {
       trainerPermissions,
       assignedCategories,
       trainerProfile,
+      signOutReason: null,
     });
   }, []);
 
@@ -142,7 +155,9 @@ export function useAuth() {
   */
   useEffect(
     () =>
-      mobileBackendStorage.onSessionExpired(() => setState(SIGNED_OUT_STATE)),
+      mobileBackendStorage.onSessionExpired(() =>
+        setState(withSignOutReason(SIGNED_OUT_STATE, "expired")),
+      ),
     [],
   );
 
@@ -159,7 +174,7 @@ export function useAuth() {
 
   const logout = async () => {
     await mobileBackendStorage.logout();
-    setState(SIGNED_OUT_STATE);
+    setState(withSignOutReason(SIGNED_OUT_STATE, "manual"));
   };
 
   const setContext = async (
@@ -187,6 +202,12 @@ export function useAuth() {
     return nextUser;
   };
 
+  const clearSignOutReason = useCallback(() => {
+    setState((current) =>
+      current.signOutReason ? { ...current, signOutReason: null } : current,
+    );
+  }, []);
+
   return {
     ...state,
     login,
@@ -194,6 +215,7 @@ export function useAuth() {
     setContext,
     clearContext,
     updateUserProfile,
+    clearSignOutReason,
     refresh: checkAuth,
   };
 }

@@ -13,11 +13,11 @@ import AccountHubScreen from "@/screens/AccountHubScreen";
 import UnsupportedRoleScreen from "@/screens/UnsupportedRoleScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { useAuthContext } from "@/contexts/AuthContext";
-import { useTheme } from "@/hooks/useTheme";
 import { resolveMobileRoleGate } from "@/lib/mobile-role-gate";
 import { VerificationChannel, VerificationInfo } from "@/lib/auth-flow";
 import { useDeepLinkRouter } from "@/hooks/useDeepLinkRouter";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { BrandStateLayout } from "@/components/signature";
 
 export type RootStackParamList = {
   Login: undefined;
@@ -53,7 +53,6 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export default function RootStackNavigator() {
   const screenOptions = useScreenOptions();
   const { isLoading, isLoggedIn, hasContext, currentRole } = useAuthContext();
-  const { theme } = useTheme();
 
   const roleGate = hasContext ? resolveMobileRoleGate(currentRole) : null;
   const deepLinkRoleGate =
@@ -80,10 +79,15 @@ export default function RootStackNavigator() {
   });
 
   if (isLoading) {
+    // v3.0 (`migration-v3.md` passo 7): stato di bootstrap sulla stessa
+    // veste delle altre schermate auth/sistema — mai piu il grigio fisso
+    // del tema chiaro prima che l'app sappia quale schermata mostrare.
     return (
-      <View style={[styles.loading, { backgroundColor: theme.backgroundRoot }]}>
-        <ActivityIndicator size="large" color={theme.primary} />
-      </View>
+      <BrandStateLayout scrollable={false}>
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color="#FFFFFF" />
+        </View>
+      </BrandStateLayout>
     );
   }
 
