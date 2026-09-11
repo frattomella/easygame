@@ -154,7 +154,6 @@ export default function ParentPaymentsScreen() {
         ) : status === "empty" ? (
           <StateMessage
             kind="empty"
-            tone="dark"
             title="Nessuna quota"
             message="Non ci sono quote registrate per questo figlio."
           />

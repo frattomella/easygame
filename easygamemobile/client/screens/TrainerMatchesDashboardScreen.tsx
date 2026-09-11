@@ -348,7 +348,6 @@ export default function TrainerMatchesDashboardScreen() {
         <View style={styles.section}>
           <StateMessage
             kind="empty"
-            tone="dark"
             title="Nessuna gara"
             message="Non hai ancora gare in calendario."
           />

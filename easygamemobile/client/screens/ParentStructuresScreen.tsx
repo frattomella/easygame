@@ -123,7 +123,11 @@ export default function ParentStructuresScreen() {
   };
 
   return (
-    <SecondaryScreenLayout title="Strutture" eyebrow="Segreteria">
+    <SecondaryScreenLayout
+      title="Strutture"
+      eyebrow="Segreteria"
+      skyHeight={360}
+    >
       {status === "loading" ? (
         <StateMessage kind="loading" tone="dark" title="Carico le strutture…" />
       ) : status === "forbidden" ? (

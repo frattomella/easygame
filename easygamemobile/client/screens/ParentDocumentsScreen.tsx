@@ -157,7 +157,11 @@ export default function ParentDocumentsScreen() {
   const uploaded = dashboardQuery.data?.documents.uploaded || [];
 
   return (
-    <SecondaryScreenLayout title="Documenti" eyebrow="Segreteria">
+    <SecondaryScreenLayout
+      title="Documenti"
+      eyebrow="Segreteria"
+      skyHeight={360}
+    >
       {status === "loading" ? (
         <StateMessage kind="loading" tone="dark" title="Carico i documenti…" />
       ) : status === "forbidden" ? (

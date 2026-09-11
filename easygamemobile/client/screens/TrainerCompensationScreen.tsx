@@ -34,7 +34,11 @@ export default function TrainerCompensationScreen() {
     );
 
   return (
-    <SecondaryScreenLayout title="I miei compensi" eyebrow="Personale">
+    <SecondaryScreenLayout
+      title="I miei compensi"
+      eyebrow="Personale"
+      skyHeight={360}
+    >
       {status === "loading" ? (
         <StateMessage kind="loading" tone="dark" title="Carico i compensi…" />
       ) : status === "forbidden" ? (

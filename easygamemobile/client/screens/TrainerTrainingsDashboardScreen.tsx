@@ -430,7 +430,6 @@ export default function TrainerTrainingsDashboardScreen() {
         <View style={styles.section}>
           <StateMessage
             kind="empty"
-            tone="dark"
             title="Nessun allenamento"
             message="Non hai ancora allenamenti in calendario."
           />

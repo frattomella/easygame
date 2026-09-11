@@ -46,7 +46,11 @@ export default function TrainerCategoriesScreen() {
   );
 
   return (
-    <SecondaryScreenLayout title="Squadre" eyebrow="Le tue categorie">
+    <SecondaryScreenLayout
+      title="Squadre"
+      eyebrow="Le tue categorie"
+      skyHeight={360}
+    >
       {status === "loading" ? (
         <StateMessage kind="loading" tone="dark" title="Carico le squadre…" />
       ) : status === "forbidden" ? (

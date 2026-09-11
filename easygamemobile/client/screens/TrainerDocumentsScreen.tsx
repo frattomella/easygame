@@ -51,7 +51,11 @@ export default function TrainerDocumentsScreen() {
   );
 
   return (
-    <SecondaryScreenLayout title="Documenti" eyebrow="Personale">
+    <SecondaryScreenLayout
+      title="Documenti"
+      eyebrow="Personale"
+      skyHeight={360}
+    >
       {status === "loading" ? (
         <StateMessage kind="loading" tone="dark" title="Carico i documenti…" />
       ) : status === "forbidden" ? (

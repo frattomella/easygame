@@ -81,7 +81,11 @@ export default function ParentConsentsScreen() {
     : null;
 
   return (
-    <SecondaryScreenLayout title="Consensi" eyebrow="Segreteria">
+    <SecondaryScreenLayout
+      title="Consensi"
+      eyebrow="Segreteria"
+      skyHeight={360}
+    >
       {status === "loading" ? (
         <StateMessage kind="loading" tone="dark" title="Carico i consensi…" />
       ) : status === "forbidden" ? (
