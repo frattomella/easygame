@@ -2930,7 +2930,40 @@ export const createClubEventsBatch = async (
     ? righe.filter((riga) => !saltate.some((scarto) => scarto.riga === riga))
     : righe;
 
-  if (!daCreare.length) return { righe: [], conflitti: [], esclusi: saltate.length };
+  /*
+    **Un blocco interamente scartato non lasciava traccia** (R1
+    dell'hostile audit del mandato): chi guardava il registro non poteva
+    distinguere "la generazione non era ancora dovuta" da "e girata, e ha
+    escluso tutto" — un campo chiuso per l'intero intervallo, o un
+    programma che si sovrappone ovunque a cio che c'e gia. La riga di
+    audit qui sotto e la stessa forma di quella a fine funzione, con
+    `generati: 0`: non serve un secondo schema per chi legge.
+  */
+  const registraEsitoVuoto = async (extra: Record<string, unknown>) => {
+    const diSistema = isSystemExecutionContext(scope.system) ? scope.system : null;
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.eventCreated,
+      actorUserId: diSistema ? null : attore.userId || null,
+      actorEmail: diSistema ? null : attore.email || null,
+      actorRole: diSistema ? SYSTEM_ACTOR_ROLE : scope.activeRole || null,
+      organizationId,
+      resource: "club_events",
+      resourceId: null,
+      metadata: {
+        kind,
+        generati: 0,
+        ...(diSistema ? { automazione: diSistema.job } : {}),
+        ...extra,
+      },
+    });
+  };
+
+  if (!daCreare.length) {
+    if (!opzioni.soloAnteprima) {
+      await registraEsitoVuoto({ saltate: saltate.length });
+    }
+    return { righe: [], conflitti: [], esclusi: saltate.length };
+  }
 
   const conflitti = await rilevaConflittiSovrapposizione(organizationId, daCreare);
   const inConflitto = new Set(conflitti.map((c) => c.riga));
@@ -2939,6 +2972,12 @@ export const createClubEventsBatch = async (
     : daCreare;
 
   if (!senzaConflitto.length) {
+    if (!opzioni.soloAnteprima) {
+      await registraEsitoVuoto({
+        ...(saltate.length ? { saltate: saltate.length } : {}),
+        conflitti: conflitti.length,
+      });
+    }
     return {
       righe: [],
       conflitti: conflitti.map(toEsitoConflitto),

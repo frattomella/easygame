@@ -11339,3 +11339,39 @@ restare in corso, e lo stesso passo a una scala che il tetto lascia
 passare (8 fasce, 104 eventi) si applica in ~9s.
 
 ---
+
+## ADR-0179 — L'audit ostile del mandato: un blocco interamente scartato non lasciava traccia (R1)
+
+**Data:** 2026-09-12
+
+**Contesto.** `createClubEventsBatch` (`src/lib/server/events.ts`) e la
+porta con cui la training-automation genera gli allenamenti dal programma
+settimanale. Prima di scrivere la riga di audit che riassume l'esito,
+tornava presto in due casi: ogni candidato del blocco scartato per campo
+chiuso (`opzioni.campoChiuso === "salta"`), oppure ogni candidato rimasto
+in conflitto con qualcosa gia in calendario. In entrambi i casi il
+risultato tornava a chi ha chiamato — zero righe create, il motivo nel
+valore di ritorno — ma **nel registro non restava niente**.
+
+Chi guarda l'audit per capire perche un club non ha ricevuto nessun
+allenamento in una settimana non poteva distinguere due storie diverse:
+"la generazione non era ancora dovuta" (nessuna riga, perche il cron non e
+neppure girato) da "e girata, e ha escluso tutto" (nessuna riga, ma con un
+motivo preciso — un campo chiuso per l'intero intervallo, un programma che
+si sovrappone ovunque a cio che c'e gia). La seconda e un fatto operativo
+che merita una riga quanto la prima creazione riuscita.
+
+**Decisione.** Le due uscite anticipate scrivono ora la stessa riga di
+audit della creazione riuscita — stessa azione, stesso attore (o
+`system:automation` per un cron), `metadata.generati: 0` piu il conteggio
+di cio che e stato scartato o e entrato in conflitto. La terza uscita
+anticipata (`opzioni.soloAnteprima`) **resta senza audit**: e per
+costruzione un calcolo che non scrive niente, e restava cosi anche in
+questo giro — un'anteprima non e un tentativo, e chi la chiede sta ancora
+decidendo.
+
+Verificato con `tests/server/audit-blocco-interamente-scartato.test.mjs`
+(3 prove: campo chiuso, conflitto totale, anteprima invariata), oltre alla
+suite completa, typecheck, lint, build.
+
+---
