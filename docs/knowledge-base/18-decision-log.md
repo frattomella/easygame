@@ -11255,3 +11255,87 @@ prove), oltre alla suite completa e alle sonde PostgreSQL reali, rieseguite
 senza regressioni.
 
 ---
+
+## ADR-0178 — Un allenamento generato non portava mai il campo, solo la struttura; e un salvataggio in blocco poteva restare appeso per minuti
+
+**Data:** 2026-09-12
+
+**Contesto.** L'estensione della sonda di performance (WP-20) al percorso
+di WP-08 — misurare, su PostgreSQL reale, l'impatto di un salvataggio che
+cambia 50 fasce insieme dopo aver gia generato 90 giorni in avanti — ha
+mostrato un'anomalia che nessun test con la finta Prisma aveva mai potuto
+vedere: l'applicazione dell'impatto aggiornava **zero** eventi su 645
+attesi.
+
+Il ciclo di generazione (`runTrainingAutomationForClub`,
+`src/lib/server/training-automation.ts`) scrive l'oggetto passato a
+`createClubEventsBatch` con la chiave `locationId: location?.fieldId || ...`,
+ma `toEventColumns` (`src/lib/events/model.ts`) legge la colonna `field_id`
+**solo** da `source.fieldId`/`source.field_id`, mai da `source.locationId`.
+Ogni allenamento generato nasceva quindi con `field_id: null` — un difetto
+**preesistente al mandato** (confermato con `git diff fix/web-consolidated`
+sulla riga esatta), non introdotto da nessuno dei commit precedenti.
+
+La conseguenza non e cosmetica: `findEventOverlaps` tratta "nessun campo
+dichiarato" come "occupa tutta la struttura". Ogni struttura con piu di un
+campo ha quindi trattato, da sempre, due squadre su due campi diversi alla
+stessa ora come **potenzialmente sullo stesso posto** invece che su posti
+distinti — un falso allargamento del conflitto che nessun test lo vedeva,
+perche la finta Prisma dei test esistenti seminava `field_id` direttamente
+sulla riga, scavalcando `toEventColumns` per costruzione. La stessa
+omissione era duplicata nella riscrittura di WP-08
+(`applyWeeklyScheduleSlotChanges`), che passa a `updateClubEvent` la
+medesima forma senza `fieldId`.
+
+Una seconda anomalia, trovata correggendo la prima: con il campo ora letto
+correttamente, l'applicazione di WP-08 su 645 eventi "sicuri" — uno alla
+volta tramite `updateClubEvent`, lo stesso scrittore (e le stesse verifiche:
+permesso, perimetro, sovrapposizione, campo chiuso) di una modifica umana
+— restava in corso **oltre un minuto e mezzo**, ~7800 query, un tempo che
+nessuna richiesta HTTP sincrona sopravvive. Il caso e volutamente estremo
+(50 fasce cambiate in un solo salvataggio, con 90 giorni gia generati), ma
+e esattamente lo scenario che l'audit ostile del mandato chiedeva di
+misurare, e la mancanza di un tetto lo rendeva una richiesta appesa e
+muta, non un rifiuto leggibile.
+
+**Decisione.**
+
+1. **`fieldId` accanto a `locationId`**, in entrambi i punti del ciclo di
+   generazione e in `applyWeeklyScheduleSlotChanges`: la chiave che
+   `toEventColumns` legge per davvero, non solo quella storica che nessun
+   consumatore attuale consulta piu per il campo. `locationId` resta,
+   per chi legge ancora quella forma.
+2. **Un drappello a concorrenza limitata (8) invece di una fila seriale**
+   in `applyWeeklyScheduleSlotChanges`: ogni evento passa comunque dallo
+   stesso `updateClubEvent`, solo quanti ne procedono insieme cambia. Da
+   solo non basta — alzare la concorrenza a 20 ha guadagnato meno del 10%,
+   perche il costo e nelle verifiche per riga, non nelle connessioni.
+3. **Un tetto esplicito** (`MAX_EVENTI_APPLICAZIONE_IMPATTO = 200`): il
+   conteggio dei "sicuri" si calcola per intero, prima di scrivere
+   qualunque riga, e un'operazione che lo supera si rifiuta con un
+   messaggio leggibile — non un timeout muto — invitando ad applicare il
+   cambiamento a un sottoinsieme di fasce alla volta. 200 copre con
+   margine la scala di riferimento del mandato (rotazione a 21 giorni su
+   50 fasce: 152 eventi) e un salvataggio tipico (poche fasce alla
+   volta); chi la supera e un caso raro (un intero programma riscritto
+   dopo aver gia generato mesi in avanti).
+
+Il tetto e una mitigazione dichiarata, non la soluzione definitiva: una
+primitiva di scrittura in blocco dedicata (che non ripeta permesso,
+perimetro e verifica di sovrapposizione una query alla volta per riga), o
+un'esecuzione fuori dalla richiesta HTTP, restano debito tecnico
+documentato (D-AUD-31) — non necessari alla scala che il mandato chiede di
+reggere oggi, ma la strada per reggere una scala maggiore in futuro.
+
+Verificato con `tests/server/evento-generato-field-id.test.mjs` (2 prove:
+il campo risolto arriva in colonna, e due campi della stessa struttura
+restano distinguibili) e `tests/server/tetto-applicazione-impatto.test.mjs`
+(2 prove: oltre il tetto si rifiuta senza scrivere niente, sotto il tetto
+si applica normalmente), oltre alla suite completa e alla sonda di
+performance su PostgreSQL reale
+(`scripts/wp-remediation-performance-probe.mjs`), rieseguita dopo la
+correzione: il passo WP-08 con 645 eventi ora rifiuta in ~90ms invece di
+restare in corso, e lo stesso passo a una scala che il tetto lascia
+passare (8 fasce, 104 eventi) si applica in ~9s.
+
+---

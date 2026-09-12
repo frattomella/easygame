@@ -148,6 +148,8 @@ const semina = async () => {
       updated_at: new Date(),
     },
   });
+
+  return { weeklySchedule };
 };
 
 const misura = async (etichetta, azione) => {
@@ -169,7 +171,7 @@ const main = async () => {
   console.log("  ------------------------------------------------------------");
 
   try {
-    await semina();
+    const { weeklySchedule } = await semina();
     const automazione = await carica("src/lib/server/training-automation.ts");
 
     const { durataMs: msRolling, query: qRolling } = await misura(
@@ -202,6 +204,104 @@ const main = async () => {
       where: { organization_id: CLUB, kind: "training" },
     });
 
+    /*
+      **WP-08, misurato su Postgres reale** (chiude un reperto dell'audit
+      ostile: prima solo la generazione era misurata, non l'impatto di una
+      modifica al programma settimanale). Sposta le 50 voci di 15 minuti in
+      un colpo solo — lo scenario "20+ slot cambiati in un salvataggio" che
+      l'audit chiedeva di misurare.
+    */
+    const nextSchedule = weeklySchedule.map((slot) => {
+      const [ore, minuti] = slot.startTime.split(":").map(Number);
+      const [oreFine, minutiFine] = slot.endTime.split(":").map(Number);
+      const sposta = (o, m) => {
+        const totale = o * 60 + m + 15;
+        return `${String(Math.floor(totale / 60) % 24).padStart(2, "0")}:${String(totale % 60).padStart(2, "0")}`;
+      };
+      return { ...slot, startTime: sposta(ore, minuti), endTime: sposta(oreFine, minutiFine) };
+    });
+
+    const { durataMs: msImpattoAnteprima, query: qImpattoAnteprima } = await misura(
+      "WP-08 · anteprima impatto (50 slot cambiati)",
+      async () => {
+        const impatto = await automazione.previewWeeklyScheduleImpact(CLUB, {
+          previousSchedule: weeklySchedule,
+          nextSchedule,
+        });
+        return {
+          generatedCount: impatto.reduce((tot, v) => tot + v.safeCount, 0),
+          conflicts: [],
+          existingCount: impatto.reduce((tot, v) => tot + v.matchedCount, 0),
+          excludedCount: 0,
+        };
+      },
+    );
+
+    /*
+      **Il tetto esplicito (WP-20), non un tempo di risposta scoperto.**
+      Cambiare le 50 fasce insieme, con i 90 giorni gia generati sopra,
+      tocca 645 eventi «sicuri» — ben oltre `MAX_EVENTI_APPLICAZIONE_IMPATTO`
+      (200). Prima di questa correzione l'applicazione restava in corso
+      1-3 minuti, con migliaia di query una alla volta: questa sonda prova
+      ora che si rifiuta **subito** (le sole query di lettura dell'anteprima,
+      nessuna scrittura), con un messaggio leggibile — non un timeout muto.
+    */
+    const inizioTetto = performance.now();
+    let tettoRispettato = false;
+    let messaggioTetto = "";
+    try {
+      await automazione.applyWeeklyScheduleSlotChanges(
+        { activeOrganizationId: CLUB, activeRole: "owner", allowedOrganizationIds: [CLUB] },
+        CLUB,
+        {},
+        { previousSchedule: weeklySchedule, nextSchedule },
+      );
+    } catch (errore) {
+      messaggioTetto = String(errore?.message || errore);
+      tettoRispettato = /troppi eventi/i.test(messaggioTetto);
+    }
+    const msTetto = Math.round(performance.now() - inizioTetto);
+    console.log(
+      `  WP-08 · tetto sull'applicazione (50 slot, 645 eventi)  ${String(msTetto).padStart(6)} ms   ${tettoRispettato ? "✓ rifiutata subito: " + messaggioTetto : "⚠ non rifiutata — vedi sopra"}`,
+    );
+
+    /*
+      **La stessa applicazione, a una scala che il tetto lascia passare**:
+      poche fasce di un salvataggio tipico, non l'intero programma
+      riscritto in un colpo solo. Misura il percorso reale che WP-08
+      promette di reggere (concorrenza limitata, non piu una fila seriale).
+    */
+    const slotDaCambiareDavvero = weeklySchedule.slice(0, 8);
+    const nextSchedulePiccola = nextSchedule.filter((s) =>
+      slotDaCambiareDavvero.some((originale) => originale.id === s.id),
+    );
+    const { risultato: risultatoImpattoApply, durataMs: msImpattoApply, query: qImpattoApply } = await misura(
+      "WP-08 · applicazione impatto (8 slot cambiati, sotto il tetto)",
+      async () => {
+        const esiti = await automazione.applyWeeklyScheduleSlotChanges(
+          { activeOrganizationId: CLUB, activeRole: "owner", allowedOrganizationIds: [CLUB] },
+          CLUB,
+          {},
+          { previousSchedule: slotDaCambiareDavvero, nextSchedule: nextSchedulePiccola },
+        );
+        return {
+          generatedCount: esiti.reduce((tot, v) => tot + v.updatedCount, 0),
+          conflicts: [],
+          existingCount: 0,
+          excludedCount: esiti.reduce((tot, v) => tot + v.skippedCount, 0),
+        };
+      },
+    );
+    /*
+      Ogni evento sicuro passa dallo stesso `updateClubEvent` di una modifica
+      umana (permesso, perimetro, sovrapposizione, campo chiuso): il numero
+      di query cresce con il numero di eventi toccati, non e un difetto in
+      se. La soglia guarda il **rapporto** (query per evento), non il totale
+      grezzo — quello lo limita gia `MAX_EVENTI_APPLICAZIONE_IMPATTO` sopra.
+    */
+    const eventiToccatiApply = Math.max(1, risultatoImpattoApply.generatedCount || 0);
+    const queryPerEventoApply = qImpattoApply / eventiToccatiApply;
+
     console.log("");
     console.log(`  Righe finali in club_events: ${righeFinali}`);
     console.log("");
@@ -212,8 +312,27 @@ const main = async () => {
     console.log(
       `  - fino a 90gg:   ${qFinoA90} query, ${msFinoA90} ms (anteprima), ${msFinoA90Reale} ms (esecuzione)  ${qFinoA90 > 400 || msFinoA90 > 10000 ? "⚠ oltre la soglia attesa" : "entro la soglia attesa"}`,
     );
+    console.log(
+      `  - WP-08 anteprima: ${qImpattoAnteprima} query (${msImpattoAnteprima} ms)  ${qImpattoAnteprima > 20 ? "⚠ oltre la soglia attesa" : "entro la soglia attesa"}`,
+    );
+    console.log(
+      `  - WP-08 applicazione (8 slot, ${eventiToccatiApply} eventi): ${qImpattoApply} query (${queryPerEventoApply.toFixed(1)}/evento), ${msImpattoApply} ms  ${queryPerEventoApply > 20 || msImpattoApply > 15000 ? "⚠ oltre la soglia attesa" : "entro la soglia attesa"}`,
+    );
+    console.log(
+      `  - WP-08 tetto (50 slot, oltre il limite): ${msTetto} ms  ${tettoRispettato && msTetto < 5000 ? "entro la soglia attesa" : "⚠ oltre la soglia attesa"}`,
+    );
 
-    if (qRolling > 200 || msRolling > 5000 || qFinoA90 > 400 || msFinoA90 > 10000) {
+    if (
+      qRolling > 200 ||
+      msRolling > 5000 ||
+      qFinoA90 > 400 ||
+      msFinoA90 > 10000 ||
+      qImpattoAnteprima > 20 ||
+      queryPerEventoApply > 20 ||
+      msImpattoApply > 15000 ||
+      !tettoRispettato ||
+      msTetto > 5000
+    ) {
       process.exitCode = 1;
     }
   } finally {

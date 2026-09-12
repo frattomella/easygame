@@ -36,6 +36,7 @@ import {
   filterCollectionBySeason,
   normalizeClubSeasons,
 } from "@/lib/club-seasons";
+import { toEventDay, toEventTime } from "@/lib/events/model";
 
 /**
  * Limite oltre il quale "Genera fino a..." rifiuta (WP-03).
@@ -667,73 +668,174 @@ export const findWeeklyScheduleSlotChanges = (
 };
 
 /**
- * Gli eventi futuri che la definizione **precedente** di uno slot ha
- * generato, e che esistono ancora sotto quell'identificativo storico.
- *
- * **Approssimazione deliberata**: la chiave usa `categoryId`/`locationId`
- * cosi come il programma settimanale li porta, senza ri-risolverli contro il
- * catalogo di categorie/strutture come fa la generazione (`resolveCategoryId`,
- * `findTrainingLocationOption`). Nel caso comune — un ID gia canonico, che e
- * come la UI li salva — coincide con la chiave che la generazione ha usato
- * davvero. Se diverge (una voce con un riferimento non ancora risolto), la
- * conseguenza e sotto-riportare l'impatto, mai toccare la riga sbagliata: e
- * il verso sicuro dell'errore.
+ * Il catalogo di categorie/campi del club, caricato **una volta** per
+ * l'intero calcolo di impatto — non una volta per slot cambiato (WP-20: 20
+ * voci cambiate in un salvataggio non devono aprire 20 letture separate del
+ * club).
  */
-const findFutureEventsForPreviousSlotDefinition = async (
-  clubId: string,
+const loadWeeklyScheduleCatalog = async (clubId: string) => {
+  const [club, resourcePayloadsByType] = await Promise.all([
+    prisma.club.findUnique({
+      where: { id: clubId },
+      select: { categories: true, structures: true },
+    }),
+    getResourcePayloadsByType(clubId),
+  ]);
+
+  const categoryList = buildClubCategoryOptions({
+    clubCategories: club?.categories,
+    resourceCategories: resourcePayloadsByType.categories || [],
+  });
+  const builtLocationOptions = buildTrainingLocationOptions(
+    Array.isArray(club?.structures) ? (club.structures as any[]) : [],
+  );
+  const locationOptions =
+    builtLocationOptions.length > 0
+      ? builtLocationOptions
+      : getFallbackTrainingLocationOptions();
+
+  return { categoryList, locationOptions };
+};
+
+type WeeklyScheduleCatalog = Awaited<ReturnType<typeof loadWeeklyScheduleCatalog>>;
+
+/**
+ * La stessa risoluzione che la generazione userebbe per uno slot — non
+ * un'approssimazione (chiude un reperto dell'audit ostile del mandato:
+ * questa funzione usava prima `categoryId`/`locationId` cosi come il
+ * programma li porta, senza passare da `resolveCategoryId`/
+ * `findTrainingLocationOption` come fa `runTrainingAutomationForClub`. Con
+ * un riferimento non ancora canonico — una voce scritta fuori dal pannello,
+ * per esempio da un import — le due strade potevano risolvere in modo
+ * diverso, e l'impatto abbinava la fascia sbagliata invece di sotto-
+ * riportarla).
+ *
+ * Il gruppo operativo, quando presente, ha la priorita sulla categoria
+ * nella chiave — la stessa regola della generazione (ADR-0055, D-AUD-30).
+ */
+const resolveSlotOccurrenceKey = (
   slot: Pick<
     NormalizedWeeklyScheduleSlot,
-    "day" | "startTime" | "categoryId" | "locationId"
+    "categoryId" | "structureId" | "locationId" | "groupId"
   >,
-  now: Date,
+  catalogo: WeeklyScheduleCatalog,
 ) => {
-  const legacyIds: string[] = [];
+  const rawCategoryReference = getNonEmptyString(slot.categoryId);
+  const resolvedCategoryId =
+    resolveCategoryId(rawCategoryReference, catalogo.categoryList) || "";
+  const resolvedCategoryLabel =
+    resolveCategoryLabel(rawCategoryReference, catalogo.categoryList) ||
+    rawCategoryReference;
+  const categoryKey = resolvedCategoryId || resolvedCategoryLabel || rawCategoryReference;
+
+  const location = findTrainingLocationOption(catalogo.locationOptions, {
+    structureId: slot.structureId,
+    fieldId: slot.locationId,
+    locationId: slot.locationId,
+  });
+
+  return {
+    locationKey: location?.fieldId || slot.locationId || "",
+    categoryKey: slot.groupId || categoryKey,
+    /** Cio che la riga scritta da questa definizione porterebbe in colonna. */
+    resolvedStructureId: location?.structureId || slot.structureId || null,
+    resolvedFieldId: location?.fieldId || slot.locationId || null,
+    resolvedCategoryId: (resolvedCategoryId || categoryKey || null) as string | null,
+  };
+};
+
+type SlotOccurrenceMatch = {
+  id: string;
+  status: string;
+  starts_at: Date;
+  ends_at: Date | null;
+  structure_id: string | null;
+  field_id: string | null;
+  category_id: string | null;
+  payload: unknown;
+};
+
+/**
+ * Gli eventi futuri che le definizioni **precedenti** di piu slot hanno
+ * generato — una query sola per l'intero blocco di slot cambiati (WP-20),
+ * non una per slot.
+ */
+const findFutureEventsForPreviousSlotDefinitions = async (
+  clubId: string,
+  cambi: readonly WeeklyScheduleSlotChange[],
+  now: Date,
+  catalogo: WeeklyScheduleCatalog,
+): Promise<Map<string, SlotOccurrenceMatch[]>> => {
   const startDate = getDateOnly(now);
   const endDate = getDateOnly(now);
   endDate.setDate(endDate.getDate() + MAX_MANUAL_GENERATION_DAYS_AHEAD);
 
-  for (
-    const currentDate = new Date(startDate);
-    currentDate <= endDate;
-    currentDate.setDate(currentDate.getDate() + 1)
-  ) {
-    if (getWeekdayLabelFromDate(currentDate) !== slot.day) {
-      continue;
-    }
+  const legacyIdToSlotId = new Map<string, string>();
 
-    const trainingDate = formatLocalDateKey(currentDate);
-    const trainingStart = buildTrainingStart(trainingDate, slot.startTime);
-    if (!trainingStart || trainingStart <= now) {
-      continue;
-    }
+  for (const cambio of cambi) {
+    const slot = cambio.previous;
+    const { locationKey, categoryKey } = resolveSlotOccurrenceKey(slot, catalogo);
 
-    legacyIds.push(
-      `auto:${buildTrainingDuplicateKey({
+    for (
+      const currentDate = new Date(startDate);
+      currentDate <= endDate;
+      currentDate.setDate(currentDate.getDate() + 1)
+    ) {
+      if (getWeekdayLabelFromDate(currentDate) !== slot.day) {
+        continue;
+      }
+
+      const trainingDate = formatLocalDateKey(currentDate);
+      const trainingStart = buildTrainingStart(trainingDate, slot.startTime);
+      if (!trainingStart || trainingStart <= now) {
+        continue;
+      }
+
+      const legacyId = `auto:${buildTrainingDuplicateKey({
         trainingDate,
         time: slot.startTime,
-        locationKey: slot.locationId,
-        categoryKey: slot.categoryId,
-      })}`,
-    );
+        locationKey,
+        categoryKey,
+      })}`;
+      legacyIdToSlotId.set(legacyId, cambio.slotId);
+    }
   }
 
-  if (!legacyIds.length) {
-    return [];
+  const risultatoPerSlot = new Map<string, SlotOccurrenceMatch[]>();
+  for (const cambio of cambi) {
+    risultatoPerSlot.set(cambio.slotId, []);
   }
 
-  return prisma.clubEvent.findMany({
+  if (!legacyIdToSlotId.size) {
+    return risultatoPerSlot;
+  }
+
+  const righe = await prisma.clubEvent.findMany({
     where: {
       organization_id: clubId,
       kind: "training",
-      legacy_id: { in: legacyIds },
+      legacy_id: { in: [...legacyIdToSlotId.keys()] },
     },
     select: {
       id: true,
       status: true,
       starts_at: true,
+      ends_at: true,
+      structure_id: true,
+      field_id: true,
+      category_id: true,
       payload: true,
+      legacy_id: true,
     },
   });
+
+  for (const riga of righe) {
+    const slotId = legacyIdToSlotId.get(riga.legacy_id || "");
+    if (!slotId) continue;
+    risultatoPerSlot.get(slotId)?.push(riga);
+  }
+
+  return risultatoPerSlot;
 };
 
 /**
@@ -741,6 +843,9 @@ const findFutureEventsForPreviousSlotDefinition = async (
  * stessa condizione che `updateClubEvent` congela da sola (ADR-0112) — qui
  * serve **prima** di scrivere, perche il riepilogo deve poter dire "sicuro"
  * con lo stesso significato con cui l'esecuzione poi lo user (WP-17).
+ *
+ * Una query sola per **tutti** gli eventi trovati, di tutti gli slot
+ * cambiati (WP-20) — non una per slot.
  */
 const eventIdsConPartecipazioni = async (
   eventIds: readonly string[],
@@ -757,10 +862,48 @@ const eventIdsConPartecipazioni = async (
   return new Set(righe.map((riga: { event_id: string }) => riga.event_id));
 };
 
+/**
+ * "Sicuro" e attivo, mai modificato a mano, senza partecipazioni — **e**
+ * ancora esattamente cio che la definizione precedente dello slot avrebbe
+ * scritto. Quest'ultimo confronto (per valore, non solo per il segno
+ * `manuallyModified`) chiude un reperto dell'audit ostile: un evento
+ * generato **prima** che WP-10 esistesse non ha mai potuto ricevere quel
+ * segno, e senza un secondo controllo indipendente sarebbe stato trattato
+ * come "sicuro" a prescindere da una correzione manuale fatta mesi prima
+ * del suo deploy. Un evento i cui valori sono ancora quelli della
+ * definizione precedente e sicuro **a prescindere** dal segno; un evento i
+ * cui valori sono gia diversi non lo e, **anche se** il segno manca.
+ */
 const classificaEventiPerSlot = (
-  eventi: Array<{ id: string; status: string; payload: unknown }>,
+  eventi: readonly SlotOccurrenceMatch[],
   conPartecipazioni: ReadonlySet<string>,
+  slot: NormalizedWeeklyScheduleSlot,
+  catalogo: WeeklyScheduleCatalog,
 ) => {
+  const atteso = resolveSlotOccurrenceKey(slot, catalogo);
+
+  const nonAncoraToccato = (evento: SlotOccurrenceMatch) => {
+    const oraInizio = toEventTime(evento.starts_at);
+    if (oraInizio !== slot.startTime) return false;
+
+    if (slot.endTime) {
+      const oraFine = evento.ends_at ? toEventTime(evento.ends_at) : "";
+      if (oraFine !== slot.endTime) return false;
+    }
+
+    if ((evento.structure_id || null) !== (atteso.resolvedStructureId || null)) {
+      return false;
+    }
+    if ((evento.field_id || null) !== (atteso.resolvedFieldId || null)) {
+      return false;
+    }
+    if ((evento.category_id || null) !== (atteso.resolvedCategoryId || null)) {
+      return false;
+    }
+
+    return true;
+  };
+
   const attivi = eventi.filter(
     (evento) => evento.status !== "cancelled" && evento.status !== "archived",
   );
@@ -770,7 +913,8 @@ const classificaEventiPerSlot = (
   const sicuri = attivi.filter(
     (evento) =>
       !(evento.payload as any)?.manuallyModified &&
-      !conPartecipazioni.has(evento.id),
+      !conPartecipazioni.has(evento.id) &&
+      nonAncoraToccato(evento),
   );
 
   return {
@@ -808,35 +952,50 @@ export const previewWeeklyScheduleImpact = async (
     options.nextSchedule,
   );
 
-  const risultati: WeeklyScheduleImpactSlotSummary[] = [];
-  for (const cambio of cambi) {
-    const eventi = await findFutureEventsForPreviousSlotDefinition(
-      clubId,
-      cambio.previous,
-      now,
-    );
-    const conPartecipazioni = await eventIdsConPartecipazioni(
-      eventi.map((evento) => evento.id),
-    );
-    const classificati = classificaEventiPerSlot(eventi, conPartecipazioni);
+  if (!cambi.length) return [];
 
-    risultati.push({
+  const catalogo = await loadWeeklyScheduleCatalog(clubId);
+  const eventiPerSlot = await findFutureEventsForPreviousSlotDefinitions(
+    clubId,
+    cambi,
+    now,
+    catalogo,
+  );
+  const conPartecipazioni = await eventIdsConPartecipazioni(
+    [...eventiPerSlot.values()].flat().map((evento) => evento.id),
+  );
+
+  return cambi.map((cambio) => {
+    const eventi = eventiPerSlot.get(cambio.slotId) || [];
+    const classificati = classificaEventiPerSlot(
+      eventi,
+      conPartecipazioni,
+      cambio.previous,
+      catalogo,
+    );
+
+    return {
       slotId: cambio.slotId,
       changeType: cambio.changeType,
       matchedCount: classificati.matchedCount,
       activeCount: classificati.activeCount,
       manuallyModifiedCount: classificati.manuallyModifiedCount,
       safeCount: cambio.changeType === "removed" ? 0 : classificati.safeEventIds.length,
-    });
-  }
-
-  return risultati;
+    };
+  });
 };
 
 export type ApplyWeeklyScheduleImpactResult = {
   slotId: string;
   updatedCount: number;
   skippedCount: number;
+  /**
+   * Il motivo di ogni scarto, non solo il conteggio (chiude un reperto
+   * dell'audit ostile: un `catch` cieco confondeva "un'altra persona lo ha
+   * appena toccato" — atteso, concorrenza normale — con un bug, un permesso
+   * o una sovrapposizione, e chi leggeva il riepilogo non poteva distinguerli).
+   */
+  skippedReasons: string[];
 };
 
 /**
@@ -844,12 +1003,67 @@ export type ApplyWeeklyScheduleImpactResult = {
  *
  * Tocca solo cio che `previewWeeklyScheduleImpact` ha gia contato come
  * sicuro: eventi ancora attivi, generati dalla definizione precedente dello
- * slot, mai modificati a mano. Passa da `updateClubEvent` — lo stesso
- * scrittore di una modifica umana qualsiasi, con lo stesso scope di chi ha
- * chiesto l'aggiornamento: il suo perimetro, il suo nome nell'audit. Una voce
- * **rimossa** non tocca niente: farlo sarebbe cancellare eventi operativi
- * senza un'azione esplicita su di loro (WP-14).
+ * slot, mai modificati a mano e ancora ai suoi valori. Passa da
+ * `updateClubEvent` — lo stesso scrittore di una modifica umana qualsiasi,
+ * con lo stesso scope di chi ha chiesto l'aggiornamento: il suo perimetro,
+ * il suo nome nell'audit. Una voce **rimossa** non tocca niente: farlo
+ * sarebbe cancellare eventi operativi senza un'azione esplicita su di loro
+ * (WP-14).
  */
+/*
+  **Non una fila, un piccolo drappello** (WP-20, trovato dalla sonda di
+  performance su Postgres reale dopo la correzione del `field_id`: 645
+  eventi "sicuri" in fila, uno alla volta, hanno impiegato 173 secondi e
+  7756 query — un tempo che nessuna richiesta HTTP sopravvive). Ogni evento
+  passa comunque da `updateClubEvent`, lo stesso scrittore con lo stesso
+  controllo di una modifica umana: qui si limita solo **quanti** ne
+  procedono insieme, non cosa ciascuno controlla. Un numero basso e
+  deliberato: e la stessa connessione Postgres di tutto il resto della
+  richiesta, non un pool dedicato.
+*/
+const CONCORRENZA_APPLICAZIONE_IMPATTO = 8;
+
+/*
+  **Un tetto esplicito, non un tempo di risposta scoperto** (WP-20, stessa
+  sonda). Anche con il drappello qui sopra, la sonda su Postgres reale (20
+  categorie, 50 fasce, 3 strutture) misura ~10-11 eventi al secondo — il
+  costo e nelle stesse verifiche di `updateClubEvent` (permesso, perimetro,
+  sovrapposizione, campo chiuso) ripetute per riga, non nel numero di
+  connessioni: alzare il drappello da 8 a 20 ha guadagnato meno del 10%.
+  Il caso volutamente estremo della sonda — 50 fasce cambiate in un colpo
+  solo con 90 giorni gia generati, 645 eventi da toccare — resta oltre il
+  minuto, che nessuna richiesta HTTP sincrona sopravvive.
+
+  200 eventi (~18-20s a questo ritmo) copre con margine la scala di
+  riferimento del mandato (rotazione a 21 giorni su 50 fasce: 152 eventi) e
+  una modifica tipica (poche fasce alla volta); chi la supera — un caso
+  raro, un intero programma riscritto dopo aver gia generato mesi in avanti
+  — riceve un rifiuto leggibile, non un timeout muto, e puo applicare il
+  cambiamento a un sottoinsieme di fasce alla volta. Una soluzione che non
+  abbia affatto questo tetto (una scrittura in blocco dedicata, o
+  un'esecuzione fuori dalla richiesta) resta debito tecnico documentato,
+  non necessario alla scala che il mandato chiede di reggere oggi.
+*/
+const MAX_EVENTI_APPLICAZIONE_IMPATTO = 200;
+
+const eseguiConConcorrenzaLimitata = async <T>(
+  elementi: readonly T[],
+  limite: number,
+  azione: (elemento: T) => Promise<void>,
+): Promise<void> => {
+  let indice = 0;
+  const drappello = Array.from(
+    { length: Math.max(1, Math.min(limite, elementi.length)) },
+    async () => {
+      while (indice < elementi.length) {
+        const mio = indice++;
+        await azione(elementi[mio]);
+      }
+    },
+  );
+  await Promise.all(drappello);
+};
+
 export const applyWeeklyScheduleSlotChanges = async (
   scope: Parameters<typeof import("./events").updateClubEvent>[0],
   clubId: string,
@@ -862,53 +1076,126 @@ export const applyWeeklyScheduleSlotChanges = async (
     options.nextSchedule,
   ).filter((cambio) => cambio.changeType === "modified" && cambio.next);
 
+  if (!cambi.length) return [];
+
   const { updateClubEvent } = await import("./events");
 
-  const risultati: ApplyWeeklyScheduleImpactResult[] = [];
-  for (const cambio of cambi) {
-    const successivo = cambio.next as NormalizedWeeklyScheduleSlot;
-    const eventi = await findFutureEventsForPreviousSlotDefinition(
-      clubId,
+  const catalogo = await loadWeeklyScheduleCatalog(clubId);
+  const eventiPerSlot = await findFutureEventsForPreviousSlotDefinitions(
+    clubId,
+    cambi,
+    now,
+    catalogo,
+  );
+  const conPartecipazioni = await eventIdsConPartecipazioni(
+    [...eventiPerSlot.values()].flat().map((evento) => evento.id),
+  );
+
+  /*
+    Il conteggio dei "sicuri" si calcola una volta sola, prima di scrivere
+    niente: e cio che permette di rifiutare l'intera operazione con un
+    messaggio leggibile quando supera il tetto, invece di scoprirlo a meta
+    strada con meta eventi gia aggiornati.
+  */
+  const sicuriPerCambio = cambi.map((cambio) => {
+    const eventi = eventiPerSlot.get(cambio.slotId) || [];
+    const { safeEventIds } = classificaEventiPerSlot(
+      eventi,
+      conPartecipazioni,
       cambio.previous,
-      now,
+      catalogo,
     );
-    const conPartecipazioni = await eventIdsConPartecipazioni(
-      eventi.map((evento) => evento.id),
+    return { cambio, safeEventIds };
+  });
+  const totaleSicuri = sicuriPerCambio.reduce(
+    (tot, voce) => tot + voce.safeEventIds.length,
+    0,
+  );
+  if (totaleSicuri > MAX_EVENTI_APPLICAZIONE_IMPATTO) {
+    throw new Error(
+      `Troppi eventi da aggiornare in una sola operazione (${totaleSicuri}, il limite e ${MAX_EVENTI_APPLICAZIONE_IMPATTO}): applica il cambiamento a un numero minore di fasce per volta.`,
     );
-    const { safeEventIds } = classificaEventiPerSlot(eventi, conPartecipazioni);
+  }
+
+  const risultati: ApplyWeeklyScheduleImpactResult[] = [];
+  let aggiornatiTotale = 0;
+  let scartatiTotale = 0;
+
+  for (const { cambio, safeEventIds } of sicuriPerCambio) {
+    const successivo = cambio.next as NormalizedWeeklyScheduleSlot;
 
     let updatedCount = 0;
-    for (const eventId of safeEventIds) {
-      try {
-        await updateClubEvent(
-          scope,
-          eventId,
-          {
-            time: successivo.startTime,
-            endTime: successivo.endTime,
-            structureId: successivo.structureId,
-            locationId: successivo.locationId,
-            categoryId: successivo.categoryId,
-          },
-          attore,
-        );
-        updatedCount += 1;
-      } catch {
-        /*
-          Un evento che nel frattempo ha ricevuto una storia (appello,
-          convocazione) o e stato annullato non si tocca: `updateClubEvent`
-          lo rifiuta da solo (ADR-0112), e questa porta non insiste. Resta
-          nel conteggio degli scartati.
-        */
-      }
-    }
+    const skippedReasons: string[] = [];
+    await eseguiConConcorrenzaLimitata(
+      safeEventIds,
+      CONCORRENZA_APPLICAZIONE_IMPATTO,
+      async (eventId) => {
+        try {
+          await updateClubEvent(
+            scope,
+            eventId,
+            {
+              time: successivo.startTime,
+              endTime: successivo.endTime,
+              structureId: successivo.structureId,
+              // `fieldId`, non solo `locationId`: vedi la nota nel loop di
+              // generazione piu sopra — `toEventColumns` legge solo `fieldId`/
+              // `field_id`, mai `locationId`.
+              fieldId: successivo.locationId,
+              locationId: successivo.locationId,
+              categoryId: successivo.categoryId,
+            },
+            attore,
+          );
+          updatedCount += 1;
+        } catch (errore) {
+          /*
+            Un evento che nel frattempo ha ricevuto una storia (appello,
+            convocazione), e' stato annullato, o si e' scontrato con
+            un'altra riga (campo chiuso, sovrapposizione, perimetro) non si
+            tocca: `updateClubEvent` lo rifiuta da solo. Il motivo pero non
+            si inghiotte piu: resta nel riepilogo, non solo nel conteggio.
+          */
+          skippedReasons.push(String((errore as any)?.message || errore));
+        }
+      },
+    );
+
+    aggiornatiTotale += updatedCount;
+    scartatiTotale += safeEventIds.length - updatedCount;
 
     risultati.push({
       slotId: cambio.slotId,
       updatedCount,
       skippedCount: safeEventIds.length - updatedCount,
+      skippedReasons,
     });
   }
+
+  /*
+    **Una riga di riepilogo per l'intera operazione** (chiude un reperto
+    dell'audit ostile): prima, un'applicazione in blocco lasciava solo N
+    righe di audit indistinguibili da N modifiche manuali separate, mai una
+    che dicesse "questa e' stata un'applicazione in blocco, su questi slot,
+    con questo esito".
+  */
+  const { recordAuditEvent, AUDIT_ACTIONS } = await import("./audit");
+  const diSistema = (scope as any)?.system;
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.eventUpdated,
+    actorUserId: diSistema ? null : (attore as any)?.userId || null,
+    actorEmail: diSistema ? null : (attore as any)?.email || null,
+    actorRole: (scope as any)?.activeRole || null,
+    organizationId: clubId,
+    resource: "club_events",
+    resourceId: null,
+    metadata: {
+      operazione: "weekly_schedule.apply_impact",
+      slot: cambi.length,
+      aggiornati: aggiornatiTotale,
+      scartati: scartatiTotale,
+    },
+  });
 
   return risultati;
 };
@@ -1323,6 +1610,19 @@ export async function runTrainingAutomationForClub(
           trainerNames.length > 0 ? trainerNames.join(", ") : "Allenatore",
         structureId:
           location?.structureId || scheduleItem.structureId || null,
+        /*
+          **`fieldId`, non solo `locationId`** (bug preesistente trovato
+          dalla sonda di performance dell'hostile audit, su Postgres reale):
+          `toEventColumns` legge `field_id` da `source.fieldId`/
+          `source.field_id`, mai da `source.locationId`. Ogni allenamento
+          generato scriveva quindi `field_id: null` — la struttura risultava
+          occupata per intero (`findEventOverlaps` tratta "nessun campo"
+          come "tutta la struttura"), e il conflitto fra due squadre su
+          **campi diversi** della stessa struttura non si distingueva da un
+          vero conflitto sullo stesso campo. `locationId` resta, per chi
+          legge ancora questa forma storica.
+        */
+        fieldId: location?.fieldId || scheduleItem.locationId || null,
         locationId: location?.fieldId || scheduleItem.locationId || null,
         location: location?.name || scheduleItem.location || "Campo",
         attendees: 0,
