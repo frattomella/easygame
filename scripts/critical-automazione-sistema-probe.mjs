@@ -34,6 +34,14 @@
  *
  * `PASS` significa «la proprieta regge sull'archivio, non nel racconto».
  *
+ * **J3-J5 (WP-11, mandato Weekly Program & Training Automation)**: dopo che
+ * un allenamento generato ha preso un titolo a mano e una presenza,
+ * un'ulteriore esecuzione dell'automazione non deve riportare indietro il
+ * titolo, non deve far sparire la presenza, e non deve generare un secondo
+ * allenamento per la fascia gia coperta — il percorso completo
+ * "programma → genera → presenze → riesegui" che il mandato chiede di
+ * dimostrare, non solo dedurre dall'idempotenza di E/F.
+ *
  * Il file non tocca una riga di produzione: crea due club suoi e li cancella
  * in `finally`.
  */
@@ -477,6 +485,42 @@ const esegui = async () => {
     where: { event_id: bersaglio.id },
   });
   prova("J2 e la presenza e in archivio", 1, presenze);
+
+  /* ================================================================== J3 */
+  /*
+    **Rieseguire l'automazione dopo l'appello non deve muovere niente**
+    (WP-11). Il bersaglio ha gia una storia (la presenza appena registrata):
+    la prossima esecuzione lo trova come "gia esistente" per chiave
+    (giorno/ora/campo/categoria) e non lo tocca, non lo duplica, non gli
+    fa perdere l'appello.
+  */
+  const eventiPrimaDelRiavvio = (await allenamentiInRiga()).length;
+  await automazione.runTrainingAutomationForClub(CLUB, { force: true });
+
+  const dopoRiesecuzione = await prisma.clubEvent.findUnique({
+    where: { id: bersaglio.id },
+  });
+  prova(
+    "J3 il titolo modificato a mano non torna indietro dopo una nuova esecuzione",
+    "Titolo cambiato a mano",
+    dopoRiesecuzione?.title ?? null,
+  );
+
+  const presenzeDopoRiesecuzione = await prisma.clubEventParticipant.count({
+    where: { event_id: bersaglio.id },
+  });
+  prova(
+    "J4 la presenza registrata sopravvive a una nuova esecuzione dell'automazione",
+    1,
+    presenzeDopoRiesecuzione,
+  );
+
+  prova(
+    "J5 nessun allenamento nuovo compare per lo stesso slot gia coperto",
+    eventiPrimaDelRiavvio,
+    (await allenamentiInRiga()).length,
+    "la chiave esistente (giorno/ora/campo/categoria) copre ancora quella fascia, anche se il titolo e cambiato",
+  );
 
   /* ================================================================== I */
   /*
