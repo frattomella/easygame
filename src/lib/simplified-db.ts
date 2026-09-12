@@ -12,22 +12,12 @@ import {
 import {
   athleteMatchesAnyCategory,
   buildClubCategoryOptions,
-  resolveCategoryId,
-  resolveCategoryLabel,
 } from "./category-utils";
 import { compareAthletesByLastName } from "./athlete-name-utils";
 import { normalizeAthleteStatus } from "./athletes/status";
 import {
-  buildTrainingLocationOptions,
-  findTrainingLocationOption,
-  getFallbackTrainingLocationOptions,
-} from "./training-location-options";
-import {
-  buildTrainingStart,
   compareTrainingsByStart,
   dedupeTrainings,
-  formatLocalDateKey,
-  formatTrainingTitle,
   getTrainingCategoryReferences,
   getTrainingEndTime,
   getTrainingStartTime,
@@ -36,7 +26,6 @@ import {
   isScheduledTraining,
   resolveCategoryLabelForTraining,
   resolveExplicitWeeklyScheduleDay,
-  resolveTrainingWeekday,
 } from "./training-utils";
 import {
   applySeasonIdToCollection,
@@ -51,7 +40,6 @@ import {
 } from "./payments/payment-status-utils";
 import { calculatePlatformFee } from "./payments/platform-fees";
 import {
-  createEventsBatch as createEventsBatchRemote,
   deleteEventIfEmpty as deleteEventRemote,
   listEvents as listEventsRemote,
   saveEventAttendance as saveEventAttendanceRemote,
@@ -3718,218 +3706,23 @@ export async function clearUpcomingGeneratedTrainings(
 }
 
 /**
- * Genera gli allenamenti dal programma settimanale.
+ * **Rimossa (chiude D-AUD-21).**
+ *
+ * Qui viveva `generateTrainingsFromWeeklySchedule`: un secondo generatore,
+ * mai chiamato da nessuna schermata (zero riferimenti in tutto l'albero,
+ * verificato prima di toglierla), che coniava un identificativo diverso da
+ * quello del generatore reale — `training-<data>-<slot>` invece di
+ * `auto:<giorno|ora|campo|categoria>` (`src/lib/server/training-automation.ts`).
+ *
+ * Il debito diceva: due schemi di identificativo per la stessa fascia
+ * significano che il vincolo unico su `legacy_id` non puo riconoscerli come
+ * la stessa cosa, quindi rigenerare da qui una fascia che il cron ha gia
+ * creato — e magari poi annullato — produce un doppione **attivo**. Il
+ * codice esisteva ed era pericoloso se richiamato; non era raggiungibile.
+ * Una seconda implementazione di una cosa che esiste gia non si corregge,
+ * si toglie (CLAUDE.md §11.1): un solo generatore, un solo schema di
+ * identificativo, in `training-automation.ts`.
  */
-export async function generateTrainingsFromWeeklySchedule(
-  clubId: string,
-  weeklySchedule: any[],
-  startDate: Date,
-  endDate: Date,
-) {
-  try {
-    const generatedTrainings = [];
-    const dayMap = {
-      Lunedì: 1,
-      Martedì: 2,
-      Mercoledì: 3,
-      Giovedì: 4,
-      Venerdì: 5,
-      Sabato: 6,
-      Domenica: 0,
-    };
-
-    const normalizedWeeklySchedule = (Array.isArray(weeklySchedule)
-      ? weeklySchedule
-      : []
-    )
-      .map((item) =>
-        item && typeof item === "object"
-          ? normalizeWeeklyScheduleSourceItem(item)
-          : null,
-      )
-      .filter(Boolean) as Record<string, any>[];
-
-    if (!normalizedWeeklySchedule.length) {
-      return [];
-    }
-
-    const [
-      { data: clubData },
-      clubCategories,
-      trainers,
-      structures,
-      athletes,
-    ] = await Promise.all([
-      listEventsRemote({ kind: "training" }).then((trainings) => ({
-        data: { trainings },
-      })),
-      getClubData(clubId, "categories"),
-      getClubTrainers(clubId),
-      getClubStructures(clubId),
-      getClubAthletes(clubId),
-    ]);
-
-    const existingTrainings = Array.isArray(clubData?.trainings)
-      ? clubData.trainings
-      : [];
-    const normalizedExistingTrainings = dedupeTrainings(existingTrainings);
-    const categoryList = Array.isArray(clubCategories) ? clubCategories : [];
-    const trainerList = Array.isArray(trainers) ? trainers : [];
-    const athleteList = Array.isArray(athletes) ? athletes : [];
-    const builtLocationOptions = buildTrainingLocationOptions(structures);
-    const locationOptions =
-      builtLocationOptions.length > 0
-        ? builtLocationOptions
-        : getFallbackTrainingLocationOptions();
-    const existingKeys = new Set(
-      normalizedExistingTrainings.map((training: any) =>
-        [
-          training.date,
-          training.time,
-          training.locationId || training.fieldId || "",
-          training.categoryId || "",
-        ].join("|"),
-      ),
-    );
-
-    // Generate trainings for each day in the date range
-    const currentDate = new Date(startDate);
-    while (currentDate <= endDate) {
-      const dayName = resolveTrainingWeekday({ date: currentDate });
-
-      if (dayName) {
-        const daySchedule = normalizedWeeklySchedule.filter(
-          (item) => item.day === dayName,
-        );
-
-        for (const scheduleItem of daySchedule) {
-          const trainingDate = formatLocalDateKey(currentDate);
-          const trainingStart = buildTrainingStart(
-            trainingDate,
-            scheduleItem.startTime,
-          );
-
-          if (!trainingStart || trainingStart <= new Date()) {
-            continue;
-          }
-
-          const trainingId = `training-${trainingDate}-${scheduleItem.id}`;
-          const rawScheduleCategory = String(
-            scheduleItem.categoryId ||
-              scheduleItem.category?.id ||
-              scheduleItem.category?.name ||
-              scheduleItem.category ||
-              "",
-          ).trim();
-          const resolvedCategoryId =
-            resolveCategoryId(rawScheduleCategory, categoryList) || "";
-          const resolvedCategoryLabel = resolveCategoryLabel(
-            rawScheduleCategory,
-            categoryList,
-          );
-          const category = categoryList.find(
-            (item: any) =>
-              String(item?.id || "").trim() === resolvedCategoryId ||
-              String(item?.name || "").trim() === resolvedCategoryLabel,
-          );
-          const categoryId = resolvedCategoryId || rawScheduleCategory;
-          const categoryOptions =
-            category || categoryId || resolvedCategoryLabel
-              ? [
-                  category || {
-                    id: categoryId || resolvedCategoryLabel,
-                    name: resolvedCategoryLabel || categoryId || "Categoria",
-                  },
-                ]
-              : [];
-          const trainerNames = Array.isArray(scheduleItem.trainerIds)
-            ? scheduleItem.trainerIds
-                .map(
-                  (trainerId: string) =>
-                    trainerList.find((trainer: any) => trainer.id === trainerId)
-                      ?.name,
-                )
-                .filter(Boolean)
-            : [];
-          const location = findTrainingLocationOption(locationOptions, {
-            structureId: scheduleItem.structureId,
-            fieldId: scheduleItem.locationId,
-            locationId: scheduleItem.locationId,
-          });
-          const duplicateKey = [
-            trainingDate,
-            scheduleItem.startTime,
-            location?.fieldId || scheduleItem.locationId || "",
-            categoryId || "",
-          ].join("|");
-
-          // Check if training already exists
-          const exists = existingKeys.has(duplicateKey);
-
-          if (!exists) {
-            generatedTrainings.push({
-              id: trainingId,
-              title: formatTrainingTitle(trainingDate),
-              date: trainingDate,
-              time: scheduleItem.startTime,
-              endTime: scheduleItem.endTime,
-              categoryId: categoryId || null,
-              categories: categoryId ? [categoryId] : [],
-              category: resolvedCategoryLabel || category?.name || "Categoria",
-              trainerIds: Array.isArray(scheduleItem.trainerIds)
-                ? scheduleItem.trainerIds
-                : [],
-              trainer:
-                trainerNames.length > 0
-                  ? trainerNames.join(", ")
-                  : "Allenatore",
-              structureId:
-                location?.structureId || scheduleItem.structureId || null,
-              locationId: location?.fieldId || scheduleItem.locationId,
-              location: location?.name || "Campo",
-              attendees: 0,
-              expectedAttendees: athleteList.filter((athlete: any) =>
-                athleteMatchesAnyCategory(athlete, categoryOptions),
-              ).length,
-              categoryColor: "bg-blue-500 text-white",
-              status: "upcoming",
-              generated: true,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            });
-            existingKeys.add(duplicateKey);
-          }
-        }
-      }
-
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-
-    const updatedTrainings = dedupeTrainings([
-      ...normalizedExistingTrainings,
-      ...generatedTrainings,
-    ]);
-
-    /*
-      **Si scrivono solo gli allenamenti nuovi** (chiude STAG-02).
-
-      Prima si riscriveva l'intera colonna con la lista deduplicata: un
-      allenamento modificato da qualcun altro fra la lettura e la scrittura
-      tornava indietro alla versione letta, e nessuno se ne accorgeva. Adesso
-      si creano le righe nuove, e la deduplicazione la fa la chiave unica del
-      database invece di una `Set` costruita nel browser.
-    */
-    if (generatedTrainings.length > 0) {
-      await createEventsBatchRemote("training", generatedTrainings);
-    }
-
-    void updatedTrainings;
-    return generatedTrainings;
-  } catch (error) {
-    console.error("Error generating trainings from weekly schedule:", error);
-    throw error;
-  }
-}
 
 /**
  * Aggiunge un membro dello staff al club (separato dagli allenatori)

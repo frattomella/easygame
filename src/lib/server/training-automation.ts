@@ -31,6 +31,10 @@ import {
   shouldRunTrainingAutomation,
   type TrainingAutomationSettings,
 } from "@/lib/training-automation-utils";
+import {
+  filterCollectionBySeason,
+  normalizeClubSeasons,
+} from "@/lib/club-seasons";
 
 type AutomationRunOptions = {
   force?: boolean;
@@ -84,6 +88,11 @@ type AutomationRunResult = {
   lastRunAt: string | null;
   settings: TrainingAutomationSettings;
   reason?: "not_due" | "missing_schedule";
+  /**
+   * Le fasce che il programma settimanale avrebbe generato e che occupano un
+   * posto gia occupato: non create, «da verificare» (WP-07).
+   */
+  conflicts: import("./events").BatchConflict[];
 };
 
 const isMissingCategoryMembershipTableError = (error: unknown) =>
@@ -319,19 +328,37 @@ const normalizeWeeklyScheduleSourceItem = (item: Record<string, any>) => {
   };
 };
 
+/**
+ * **La stagione si filtra sulla voce grezza, non su quella normalizzata**
+ * (chiude parte di WP-13).
+ *
+ * `normalizeWeeklyScheduleSourceItem` ricostruisce l'oggetto e non porta
+ * `seasonId` nel risultato: filtrare dopo di li significherebbe non poter
+ * piu distinguere una voce della stagione scorsa da una di quella attiva.
+ * Il filtro entra quindi qui, sulle voci come arrivano dalle due fonti
+ * (`clubs.weekly_schedule` e `club_resource_items`), con la stessa regola
+ * gia in uso nel resto del prodotto (`resources.ts`,
+ * `filterCollectionBySeason`): una voce senza `seasonId` e una voce
+ * precedente all'esistenza delle stagioni e resta visibile finche la
+ * stagione «legacy» e quella attiva.
+ */
 const mergeWeeklyScheduleSources = ({
   clubWeeklySchedule,
   resourceWeeklySchedule,
+  seasonFilter,
 }: {
   clubWeeklySchedule: unknown;
   resourceWeeklySchedule: unknown;
+  seasonFilter?: (entries: Record<string, any>[]) => Record<string, any>[];
 }) => {
   const scheduleSources = [clubWeeklySchedule, resourceWeeklySchedule];
   const merged: Record<string, any>[] = [];
   const seen = new Set<string>();
 
   scheduleSources.forEach((source) => {
-    toWeeklyScheduleEntries(source).forEach((item) => {
+    const rawEntries = toWeeklyScheduleEntries(source);
+    const scopedEntries = seasonFilter ? seasonFilter(rawEntries) : rawEntries;
+    scopedEntries.forEach((item) => {
       const normalizedItem = normalizeWeeklyScheduleSourceItem(item);
       if (!normalizedItem) {
         return;
@@ -562,8 +589,30 @@ export async function runTrainingAutomationForClub(
       lastRunAt: effectiveSettings.lastRunAt,
       settings: effectiveSettings,
       reason: "not_due",
+      conflicts: [],
     };
   }
+
+  /*
+    **La stagione attiva, letta dal `club.settings` gia in mano** (WP-13).
+
+    Nessuna query in piu: `normalizeClubSeasons` e la stessa primitiva pura
+    che usa `readClubSeasonState`, e qui il club e gia stato caricato per
+    intero. Un club che non ha ancora salvato nessuna stagione (`isFallback`)
+    non filtra e non marca — la stagione sintetizzata non e un dato del club,
+    e marcarci sopra un evento lo legherebbe a un identificativo che sparisce
+    alla prima stagione vera (stessa regola di `resolveRequestSeason` in
+    `resources.ts`).
+  */
+  const seasonState = normalizeClubSeasons(club.settings);
+  const activeSeasonId = seasonState.isFallback ? null : seasonState.activeSeasonId;
+  const seasonFilter = activeSeasonId
+    ? (entries: Record<string, any>[]) =>
+        filterCollectionBySeason("weekly_schedule", entries, activeSeasonId, {
+          legacySeasonId: seasonState.legacySeasonId,
+          knownSeasonIds: seasonState.seasons.map((season) => season.id),
+        })
+    : undefined;
 
   const hasWeeklyScheduleOverride = options.weeklyScheduleOverride !== undefined;
   const weeklySchedule = mergeWeeklyScheduleSources({
@@ -574,6 +623,7 @@ export async function runTrainingAutomationForClub(
     resourceWeeklySchedule: hasWeeklyScheduleOverride
       ? []
       : resourcePayloadsByType.weekly_schedule || [],
+    seasonFilter,
   });
 
   if (!weeklySchedule.length) {
@@ -585,6 +635,7 @@ export async function runTrainingAutomationForClub(
       lastRunAt: effectiveSettings.lastRunAt,
       settings: effectiveSettings,
       reason: "missing_schedule",
+      conflicts: [],
     };
   }
 
@@ -743,6 +794,9 @@ export async function runTrainingAutomationForClub(
 
       generatedTrainings.push({
         id: trainingId,
+        // La stagione dell'evento e quella attiva al momento della
+        // generazione: un club senza stagioni salvate non ne marca nessuna.
+        seasonId: activeSeasonId || null,
         title: formatTrainingTitle(trainingDate),
         date: trainingDate,
         time: scheduleItem.startTime,
@@ -816,6 +870,8 @@ export async function runTrainingAutomationForClub(
     L'autorita e un contesto di sistema legato a **questo** club e con una
     capacita sola. Non e il proprietario, non e un'utenza, e l'audit lo dice.
   */
+  let conflicts: import("./events").BatchConflict[] = [];
+
   if (generatedTrainings.length > 0) {
     const { createClubEventsBatch } = await import("./events");
 
@@ -850,13 +906,14 @@ export async function runTrainingAutomationForClub(
       di scrivere `lastRunAt`, quindi al giro dopo era di nuovo dovuta e
       falliva di nuovo. Rotta per sempre, e in silenzio.
     */
-    await createClubEventsBatch(
+    const esito = await createClubEventsBatch(
       scopeDiScrittura,
       "training",
       generatedTrainings,
       options.caller?.actor ?? {},
       { campoChiuso: options.caller ? "rifiuta" : "salta" },
     );
+    conflicts = esito.conflitti;
   }
 
   /*
@@ -875,13 +932,16 @@ export async function runTrainingAutomationForClub(
   return {
     ran: true,
     due: true,
-    generatedCount: generatedTrainings.length,
+    // Le fasce in conflitto non sono state create: il conteggio riflette
+    // quello che e finito davvero in `club_events` (WP-07).
+    generatedCount: generatedTrainings.length - conflicts.length,
     generatedTrainings,
     lastRunAt,
     settings: {
       ...effectiveSettings,
       lastRunAt,
     },
+    conflicts,
   };
 }
 

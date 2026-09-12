@@ -4101,3 +4101,27 @@ di sign-out — una fetta di **D-MOB-10**, non la sua chiusura: la classe
 infrastruttura nuova (D-MOB-9, invariato). Il foglio di sessione scaduta
 richiederebbe di ritardare un taglio di sicurezza deliberato — decisione
 propria, non un effetto collaterale di un reskin.
+
+---
+
+## Debito chiuso — mandato Weekly Program & Training Automation (2026-09-12)
+
+Audit end-to-end di `Programma settimanale → Training automation →
+club_events` (WEB App). Dettaglio della decisione in
+[ADR-0169](18-decision-log.md#adr-0169--programma-settimanale-la-generazione-rispetta-la-stagione-e-una-sovrapposizione-non-si-crea-piu-in-silenzio).
+
+| # | Stato | Cosa |
+|---|-------|------|
+| **D-AUD-21** | ~~**CHIUSO**~~ | Il generatore col secondo schema di identificativo (`generateTrainingsFromWeeklySchedule`, `src/lib/simplified-db.ts`) non aveva piu nessun chiamante — verificato con grep su tutto l'albero prima di toglierlo. Non corretto: **rimosso**, insieme alle funzioni-supporto rimaste orfane (`resolveCategoryId`/`resolveCategoryLabel`/`buildTrainingLocationOptions`/`findTrainingLocationOption`/`getFallbackTrainingLocationOptions`/`createEventsBatchRemote`/`formatTrainingTitle`/`buildTrainingStart`/`resolveTrainingWeekday`/`formatLocalDateKey` negli import di quel file, dove non servivano ad altro). Un solo generatore resta, con un solo schema di identificativo (`auto:<giorno\|ora\|campo\|categoria>`) |
+| **D-AUD-22** | ~~**CHIUSO**~~ | `createClubEventsBatch` rileva ora le sovrapposizioni — contro un evento gia esistente e contro un'altra riga dello stesso blocco — e la riga in conflitto non si crea: torna nel risultato come «conflitto da verificare» (`BatchConflict`). `tests/server/generazione-eventi-conflitti.test.mjs` (4 prove) |
+| **Nessuno scoping di stagione nella training-automation** | ~~**CHIUSO**~~ | Non aveva un numero di debito proprio (trovato durante questo audit, non nella lista precedente). `runTrainingAutomationForClub` filtra ora `weekly_schedule` per stagione attiva con `filterCollectionBySeason`, e marca `season_id` sugli eventi generati. `tests/server/training-automation-stagione.test.mjs` (2 prove) |
+
+Restano aperti e fuori da questo commit, perche sono lavoro distinto (vedi
+il mandato in corso per il piano completo): «Genera fino a...» con data
+assoluta e preview (oggi solo rolling relativo), la distinzione esplicita
+fra evento generato invariato e generato-poi-modificato-a-mano, l'impatto
+di una modifica al programma settimanale sugli eventi futuri gia generati,
+il flag attivo/disattivato per singolo slot, un modello minimo di
+sospensioni/eccezioni, la granularita dei permessi per i ruoli
+personalizzati (`D-AUD-25`, invariato), e una misura di performance a scala
+realistica (WP-20).

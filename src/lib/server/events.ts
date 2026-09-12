@@ -37,6 +37,7 @@ import {
   normalizeEventStatus,
   campiCongelatiToccati,
   toEventColumns,
+  toEventDay,
   toEventLegacyShape,
   type EventKind,
 } from "@/lib/events/model";
@@ -2583,11 +2584,159 @@ export const deleteClubEvent = async (
 };
 
 /**
+ * Cio che il risultato di una generazione a blocchi porta su una riga
+ * scartata per sovrapposizione: abbastanza per una schermata («conflitto da
+ * verificare», con data, categoria, risorsa e l'evento che la occupa gia),
+ * senza dover rileggere niente (WP-07).
+ */
+export type BatchConflict = {
+  data: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  structureId: string | null;
+  fieldId: string | null;
+  siteId: string | null;
+  startsAt: Date;
+  endsAt: Date | null;
+  /** L'identificativo storico della riga scartata (`auto:<chiave>` per il generatore). */
+  legacyId: string | null;
+  /** Gli eventi gia presenti che occupano lo stesso posto nello stesso intervallo. */
+  conflictsWith: Array<{
+    id: string;
+    title: string | null;
+    startsAt: Date;
+    endsAt: Date | null;
+  }>;
+};
+
+/**
+ * Rileva, per un blocco di righe da creare, quali si sovrappongono a un
+ * evento gia esistente **o a un'altra riga dello stesso blocco** — due voci
+ * del programma settimanale che si accavallano sulla stessa risorsa generano
+ * altrettante righe candidate nello stesso giro, e senza questo secondo
+ * confronto passerebbero entrambe (nessuna delle due e ancora in tabella).
+ *
+ * Una query sola per l'intera finestra del blocco, non una per riga: la
+ * stessa ragione per cui la creazione e in blocco (WP-20).
+ */
+const rilevaConflittiSovrapposizione = async (
+  organizationId: string,
+  righe: readonly any[],
+): Promise<Array<{ riga: any; conflittoCon: Array<{ id: string; title: string | null; starts_at: Date; ends_at: Date | null }> }>> => {
+  const inizi = righe
+    .map((riga) => new Date(riga.starts_at).getTime())
+    .filter((valore) => !Number.isNaN(valore));
+  if (!inizi.length) return [];
+
+  const fini = righe.map((riga) => {
+    const inizio = new Date(riga.starts_at).getTime();
+    return riga.ends_at ? new Date(riga.ends_at).getTime() : inizio + 60 * 60 * 1000;
+  });
+
+  const inizioFinestra = new Date(Math.min(...inizi) - 24 * 60 * 60 * 1000);
+  const fineFinestra = new Date(Math.max(...fini));
+
+  const esistenti = await prisma.clubEvent.findMany({
+    where: {
+      organization_id: organizationId,
+      starts_at: { gte: inizioFinestra, lte: fineFinestra },
+      status: { not: "cancelled" },
+    },
+    select: {
+      id: true,
+      structure_id: true,
+      field_id: true,
+      site_id: true,
+      starts_at: true,
+      ends_at: true,
+      status: true,
+      title: true,
+    },
+  });
+
+  const risultato: Array<{ riga: any; conflittoCon: Array<{ id: string; title: string | null; starts_at: Date; ends_at: Date | null }> }> = [];
+  const accettate: Array<{
+    id: string;
+    structure_id: string | null;
+    field_id: string | null;
+    site_id: string | null;
+    starts_at: Date;
+    ends_at: Date | null;
+    status: string;
+    title: string | null;
+  }> = [];
+
+  for (const riga of righe) {
+    const candidato = {
+      structure_id: riga.structure_id ?? null,
+      field_id: riga.field_id ?? null,
+      site_id: riga.site_id ?? null,
+      starts_at: riga.starts_at,
+      ends_at: riga.ends_at ?? null,
+    };
+
+    const contro = [...esistenti, ...accettate];
+    const conflitti = findEventOverlaps(candidato, contro);
+
+    if (conflitti.length) {
+      risultato.push({
+        riga,
+        conflittoCon: conflitti.map((c: any) => ({
+          id: c.id ?? null,
+          title: c.title ?? null,
+          starts_at: c.starts_at,
+          ends_at: c.ends_at ?? null,
+        })),
+      });
+      continue;
+    }
+
+    accettate.push({
+      id: riga.legacy_id || "",
+      structure_id: candidato.structure_id,
+      field_id: candidato.field_id,
+      site_id: candidato.site_id,
+      starts_at: candidato.starts_at,
+      ends_at: candidato.ends_at,
+      status: riga.status || "upcoming",
+      title: riga.title ?? null,
+    });
+  }
+
+  return risultato;
+};
+
+const toEsitoConflitto = (voce: {
+  riga: any;
+  conflittoCon: Array<{ id: string; title: string | null; starts_at: Date; ends_at: Date | null }>;
+}): BatchConflict => ({
+  data: toEventDay(voce.riga.starts_at) || null,
+  categoryId: voce.riga.category_id ?? null,
+  categoryName: voce.riga.category_name ?? null,
+  structureId: voce.riga.structure_id ?? null,
+  fieldId: voce.riga.field_id ?? null,
+  siteId: voce.riga.site_id ?? null,
+  startsAt: voce.riga.starts_at,
+  endsAt: voce.riga.ends_at ?? null,
+  legacyId: voce.riga.legacy_id ?? null,
+  conflictsWith: voce.conflittoCon.map((c) => ({
+    id: c.id,
+    title: c.title,
+    startsAt: c.starts_at,
+    endsAt: c.ends_at,
+  })),
+});
+
+/**
  * La creazione in blocco, per la generazione dal programma settimanale.
  *
  * Una sola proiezione alla fine invece di una per evento: generare un mese di
  * allenamenti riscriveva la colonna del club trenta volte, ed era la ragione
  * per cui la generazione impiegava secondi.
+ *
+ * Torna `{ righe, conflitti }`: le righe create e le righe scartate per
+ * sovrapposizione, con abbastanza dettaglio da mostrare «conflitto da
+ * verificare» senza rileggere niente (WP-07, chiude D-AUD-22).
  */
 export const createClubEventsBatch = async (
   scope: EventsScope,
@@ -2619,7 +2768,7 @@ export const createClubEventsBatch = async (
     });
   }
 
-  if (!righe.length) return [];
+  if (!righe.length) return { righe: [], conflitti: [] };
 
   /*
     Il perimetro si legge **una volta** per l'intero blocco: e la ragione per
@@ -2659,14 +2808,20 @@ export const createClubEventsBatch = async (
     chiama decide cosa farne. Una persona invece riceve il rifiuto, che e cio
     su cui puo agire.
 
-    ## E la sovrapposizione non si controlla affatto, qui
+    ## La sovrapposizione qui e un avviso a chi ha chiesto la generazione,
+    ## non piu un silenzio (chiude D-AUD-22, WP-07)
 
-    Va detto invece che lasciato credere: `assertNoOverlap` **non** viene
-    chiamata da questa porta. La sovrapposizione e un avviso e non un muro
-    (PP-01 §C), e un avviso pretende qualcuno a cui darlo; in un blocco
-    generato non c'e. Un allenamento generato puo quindi sovrapporsi a un
-    altro evento senza che nessuno lo sappia: e un debito dichiarato, non una
-    cosa che questo codice fa e non dice.
+    Fino a qui la sovrapposizione non si controllava affatto in questa
+    porta: un allenamento generato poteva occupare un campo gia occupato
+    senza che nessuno lo sapesse. Restava un avviso e non un muro (PP-01
+    §C) — ma un avviso pretende qualcuno a cui darlo, e in un blocco
+    generato non c'era nessuno.
+
+    Ora c'e: la riga in conflitto **non si crea**, e torna nel risultato
+    come «conflitto da verificare», con l'evento che occupa gia quel posto
+    e l'intervallo in questione. Chi ha chiesto la generazione — la
+    persona dietro «Genera fino a...» o il pannello che legge il risultato
+    del cron — decide cosa farne; il posto resta quello che era.
   */
   const saltate: Array<{ riga: any; motivo: string }> = [];
 
@@ -2683,7 +2838,17 @@ export const createClubEventsBatch = async (
     ? righe.filter((riga) => !saltate.some((scarto) => scarto.riga === riga))
     : righe;
 
-  if (!daCreare.length) return [];
+  if (!daCreare.length) return { righe: [], conflitti: [] };
+
+  const conflitti = await rilevaConflittiSovrapposizione(organizationId, daCreare);
+  const inConflitto = new Set(conflitti.map((c) => c.riga));
+  const senzaConflitto = inConflitto.size
+    ? daCreare.filter((riga) => !inConflitto.has(riga))
+    : daCreare;
+
+  if (!senzaConflitto.length) {
+    return { righe: [], conflitti: conflitti.map(toEsitoConflitto) };
+  }
 
   /*
     `skipDuplicates` sulla chiave (club, tipo, identificativo storico): la
@@ -2699,7 +2864,7 @@ export const createClubEventsBatch = async (
     forma di difetto che questa lane ha gia trovato quattro volte.
   */
   const daScrivere = await Promise.all(
-    daCreare.map((riga) => riconciliaGrafiaDellaCategoria(organizationId, riga)),
+    senzaConflitto.map((riga) => riconciliaGrafiaDellaCategoria(organizationId, riga)),
   );
 
   await prisma.clubEvent.createMany({ data: daScrivere, skipDuplicates: true });
@@ -2728,23 +2893,26 @@ export const createClubEventsBatch = async (
     resourceId: null,
     metadata: {
       kind,
-      generati: daCreare.length,
+      generati: senzaConflitto.length,
       ...(saltate.length ? { saltate: saltate.length } : {}),
+      ...(conflitti.length ? { conflitti: conflitti.length } : {}),
       ...(diSistema ? { automazione: diSistema.job } : {}),
     },
   });
 
-  return prisma.clubEvent.findMany({
+  const righeCreate = await prisma.clubEvent.findMany({
     where: {
       organization_id: organizationId,
       kind,
       legacy_id: {
-        in: daCreare
+        in: senzaConflitto
           .map((riga) => riga.legacy_id)
           .filter((value): value is string => Boolean(value)),
       },
     },
   });
+
+  return { righe: righeCreate, conflitti: conflitti.map(toEsitoConflitto) };
 };
 
 export { toEventLegacyShape };

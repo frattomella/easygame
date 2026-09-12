@@ -10787,3 +10787,74 @@ di sistema; sul web si apre in una scheda) e la scelta **dalla galleria**
 nel caricamento documenti (`expo-image-picker`, gia dipendenza).
 
 ---
+
+## ADR-0169 — Programma settimanale: la generazione rispetta la stagione, e una sovrapposizione non si crea piu in silenzio
+
+**Data:** 2026-09-12
+
+**Contesto.** Un audit end-to-end della pipeline «Programma settimanale →
+Training automation → `club_events`» (mandato Weekly Program & Training
+Automation) ha confermato che l'impianto principale gia rispetta ADR-0098 e
+ADR-0156: un solo scrittore canonico (`src/lib/server/events.ts`), identita
+di occorrenza deterministica (`auto:<giorno|ora|campo|categoria>`) con
+vincolo unico Prisma, generazione idempotente anche sotto concorrenza reale
+(misurato da `scripts/critical-automazione-sistema-probe.mjs`). Ha pero
+trovato due scostamenti reali fra cio che il prodotto fa altrove e cio che
+fa qui:
+
+1. **Nessuno scoping di stagione.** `runTrainingAutomationForClub` leggeva
+   `clubs.weekly_schedule` e `club_resource_items` senza applicare
+   `filterCollectionBySeason`, la stessa primitiva che il resto del prodotto
+   usa in lettura (`resources.ts`, WP-32). Un programma settimanale di una
+   stagione archiviata, mai ripulito, veniva generato ugualmente nella
+   stagione nuova; gli eventi generati uscivano sempre con `season_id: null`.
+2. **`D-AUD-22` (16-technical-debt.md): la creazione a blocchi non
+   controllava le sovrapposizioni.** Il commento in `events.ts` lo
+   dichiarava gia invece di lasciarlo credere, ma restava vero: un
+   allenamento generato poteva occupare un campo gia occupato da un altro
+   evento, o da un'altra voce dello stesso programma settimanale, senza che
+   nessuno lo sapesse.
+
+Un terzo punto, **`D-AUD-21`** (due generatori con due schemi di
+identificativo diversi per la stessa fascia), si e rivelato — verificato con
+grep su tutto l'albero — un debito su codice **irraggiungibile**:
+`generateTrainingsFromWeeklySchedule` (`src/lib/simplified-db.ts`) non aveva
+piu nessun chiamante; la UI reale ("Genera ora") passa gia dall'endpoint
+canonico con lo stesso schema id del cron. Il codice esisteva ed era
+pericoloso se richiamato, non era in uso.
+
+**Decisione.**
+
+1. **La stagione attiva si legge dal `club.settings` gia in mano** (nessuna
+   query in piu) e filtra le voci del programma settimanale con la stessa
+   regola del resto del prodotto: una voce senza `seasonId` appartiene alla
+   stagione «legacy» (la piu vecchia salvata) e resta visibile finche quella
+   e anche l'attiva — cosi un club a stagione singola, il caso di quasi
+   tutti oggi, non perde nessuna voce storica. Un club senza stagioni salvate
+   (`isFallback`) non filtra e non marca, per la stessa ragione per cui
+   `resolveRequestSeason` non lo fa altrove: la stagione sintetizzata non e
+   un dato del club.
+2. **Ogni evento generato porta `season_id`**: la stagione attiva al momento
+   della generazione, o `null` se il club non ne ha ancora salvata una.
+3. **La creazione a blocchi rileva le sovrapposizioni** — contro un evento
+   gia esistente **e** contro un'altra riga dello stesso blocco, con una
+   query sola per l'intera finestra del blocco (non una per riga). La riga in
+   conflitto **non si crea**: torna nel risultato come «conflitto da
+   verificare», con l'evento che occupa gia quel posto e l'intervallo in
+   questione (`BatchConflict`, `src/lib/server/events.ts`). Resta la regola
+   di ADR-0098/PP-01 §C — la sovrapposizione e un avviso, non un muro — solo
+   che ora l'avviso ha qualcuno a cui arrivare: chi ha chiesto la
+   generazione, non piu nessuno. Chiude `D-AUD-22`.
+4. **Un solo generatore.** `generateTrainingsFromWeeklySchedule` e le
+   funzioni che esistevano solo per servirlo sono state rimosse — non
+   corrette, tolte (CLAUDE.md §11.1): un secondo schema di identificativo per
+   la stessa fascia non puo esistere nel codice, nemmeno spento. Chiude
+   `D-AUD-21`.
+
+Verificato con `tests/server/training-automation-stagione.test.mjs` (2
+prove: stagione non attiva esclusa, club a stagione singola non regredisce)
+e `tests/server/generazione-eventi-conflitti.test.mjs` (4 prove: conflitto
+con evento esistente, conflitto interno al blocco, evento annullato non
+occupa piu il suo posto, sedi/campi diversi non sono un conflitto).
+
+---

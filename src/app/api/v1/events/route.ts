@@ -244,12 +244,19 @@ export async function POST(request: Request) {
           insieme: una richiesta sola, e **una** riproiezione alla fine invece
           di una per evento.
         */
-        const rows = await createClubEventsBatch(scope, kind, batch, {
+        const { righe, conflitti } = await createClubEventsBatch(scope, kind, batch, {
           userId: session.db.user_id,
           email: session.db.user.email,
         });
         return NextResponse.json({
-          data: rows.map((row) => ({ ...toEventLegacyShape(row), id: row.id })),
+          data: righe.map((row) => ({ ...toEventLegacyShape(row), id: row.id })),
+          /*
+            «Conflitto da verificare» (WP-07): la riga non e stata creata
+            perche occupava un posto gia occupato. Chi ha chiamato questa
+            rotta decide cosa farne — la generazione manuale la mostra nel
+            riepilogo finale.
+          */
+          conflicts: conflitti,
           error: null,
         });
       }
