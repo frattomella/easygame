@@ -1721,8 +1721,37 @@ export const updateClubEvent = async (
       ? existing.version
       : Number(options.expectedVersion);
 
+  /*
+    **"Generato e mai toccato" contro "generato e poi modificato a mano"**
+    (WP-10). Senza questo, la prossima generazione non ha modo di sapere se
+    una fascia e ancora quella che ha scritto o se qualcuno l'ha spostata:
+    la deduzione per valore (stessa chiave giorno/ora/campo/categoria) vale
+    solo finche nessuno tocca proprio quei valori — che e l'unico caso che
+    conta.
+
+    Non si inventa un secondo elenco di campi: sono esattamente quelli che
+    un evento con storia congela (`campiCongelatiToccati`) — chi ha scritto
+    quella regola aveva gia in mano la stessa domanda, "questo cambia il
+    significato della fascia?". Il segno e a una via: una volta apposto,
+    non si toglie qui — nemmeno se la modifica successiva riporta i valori
+    uguali a come l'aveva lasciati l'automazione.
+  */
+  const payloadEsistente = (existing.payload as Record<string, any>) || {};
+  const daSegnalareComeModificato =
+    Boolean(payloadEsistente.generated) &&
+    !payloadEsistente.manuallyModified &&
+    campiCongelatiToccati(existing, colonne).length > 0;
+
   /* La grafia in colonna la detta il registro, non la richiesta (§17.2). */
   const daScrivere = await riconciliaGrafiaDellaCategoria(organizationId, colonne);
+
+  if (daSegnalareComeModificato) {
+    daScrivere.payload = {
+      ...(daScrivere.payload as Record<string, any> | undefined),
+      manuallyModified: true,
+      manuallyModifiedAt: new Date().toISOString(),
+    };
+  }
 
   const aggiornati = await prisma.clubEvent.updateMany({
     where: { id: existing.id, version: attesa },

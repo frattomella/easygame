@@ -10915,3 +10915,48 @@ prove) e `tests/ui/training-schedule-automation-panel.test.mjs` (5 prove,
 statiche sulla sorgente — nessun renderer React in questa suite).
 
 ---
+
+## ADR-0171 — Un evento generato sa dire se e ancora quello che l'automazione ha scritto
+
+**Data:** 2026-09-12
+
+**Contesto.** Il mandato Weekly Program & Training Automation chiede una
+distinzione affidabile fra "evento generato e mai toccato" e "evento
+generato e poi modificato a mano" — necessaria perche una futura modifica
+in blocco del programma settimanale (WP-08) possa sapere quali eventi
+futuri sono ancora sicuri da aggiornare. Oggi non esisteva: il solo segno
+di origine e `payload.generated: true`, scritto alla creazione e mai piu
+toccato, e la deduplica del generatore confronta **per valore** (stessa
+chiave giorno/ora/campo/categoria) — un confronto che smette di funzionare
+esattamente quando qualcuno cambia uno di quei valori a mano, che e l'unico
+caso in cui la distinzione conta.
+
+**Decisione.** `updateClubEvent` marca `payload.manuallyModified: true` (con
+`manuallyModifiedAt`) quando **tutte e due** sono vere: l'evento era
+`generated: true`, e la modifica cambia almeno uno dei campi che un evento
+con storia gia congela (`campiCongelatiToccati` — istante, fine, sede,
+struttura, campo, categorie, gruppi, capienza, regole RSVP;
+`src/lib/events/model.ts`). Non un secondo elenco di campi: e la stessa
+domanda ("questo cambia il significato della fascia?") che quella funzione
+gia risponde per un motivo diverso.
+
+Tre scelte deliberate:
+
+1. **Titolo, note e allenatori non innescano il segno.** Sono descrizioni
+   (`CAMPI_SEMPRE_MODIFICABILI`): correggerle non sposta la fascia rispetto
+   a quella che il programma settimanale genererebbe.
+2. **Il segno e a una via.** Una volta apposto non si toglie qui — nemmeno
+   se una modifica successiva riporta i valori uguali a come li aveva
+   lasciati l'automazione: "e stato toccato" resta un fatto della storia
+   dell'evento, non uno stato che si ricalcola ogni volta.
+3. **`updateClubEvent` e l'unico chiamante possibile.** L'automazione crea
+   con `createClubEventsBatch` (`createMany`, mai un `UPDATE` su una riga
+   esistente): ogni chiamata a `updateClubEvent` e quindi gia, per
+   costruzione, una modifica umana — non serve distinguere qui chi ha
+   chiamato.
+
+Verificato con `tests/server/evento-generato-modificato-a-mano.test.mjs`
+(4 prove: orario spostato segna, solo titolo non segna, evento non generato
+non porta il flag, il segno non si toglie tornando ai valori originali).
+
+---
