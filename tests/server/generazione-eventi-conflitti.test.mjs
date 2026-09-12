@@ -194,3 +194,33 @@ test("WP-07 · sedi/strutture diverse alla stessa ora non sono un conflitto", as
   assert.equal(conflitti.length, 0);
   assert.equal(righe.length, 2);
 });
+
+test("WP-20 · il club si legge una volta per il blocco, non una per riga", async () => {
+  const candidati = Array.from({ length: 8 }, (_, i) =>
+    candidato({
+      id: `perf-${i}`,
+      structureId: `STRUCT-PERF-${i}`,
+      fieldId: `FIELD-PERF-${i}`,
+      start: "10:00",
+      end: "11:00",
+    }),
+  );
+
+  fake.calls.length = 0;
+  const { righe, conflitti } = await eventi.createClubEventsBatch(
+    scope(),
+    "training",
+    candidati,
+  );
+
+  assert.equal(righe.length, 8);
+  assert.equal(conflitti.length, 0);
+
+  const letureClub = fake.calls.filter(
+    (chiamata) => chiamata.delegate === "club" && chiamata.method === "findUnique",
+  );
+  assert.ok(
+    letureClub.length <= 2,
+    `attese al piu due letture del club (strutture + categorie) su un blocco di 8 candidati, trovate ${letureClub.length}`,
+  );
+});

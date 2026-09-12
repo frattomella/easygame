@@ -11148,3 +11148,51 @@ su una sospensione club-wide e su una per singolo slot) e
 `tests/ui/sospensioni-automazione-panel.test.mjs` (1 prova statica).
 
 ---
+
+## ADR-0176 — Performance a scala realistica (WP-20): il club si legge una volta per il blocco, non una per riga
+
+**Data:** 2026-09-12
+
+**Contesto.** WP-20 chiede di misurare la generazione a scala realistica (20
+categorie, 50 voci di programma, piu sedi/strutture/campi) e di non
+accettare "migliaia di query evitabili". Una sonda dedicata
+(`scripts/wp-remediation-performance-probe.mjs`) ha creato un club con
+esattamente questa forma e misurato `createClubEventsBatch` con
+`prisma.$on("query")` agganciato al client vero (non un doppio): la
+generazione rolling a 21 giorni (129 righe create) e "Genera fino a" a 90
+giorni (414 righe create, 104 conflitti) sono stati i due scenari.
+
+**La prima misura ha trovato due N+1 reali**, non ipotetici: `Genera fino a
+90 giorni` costava **523 query** e ~1.6-2.1 secondi. Due funzioni dentro
+`createClubEventsBatch` interrogavano il club **dentro** un ciclo per riga:
+
+1. `riconciliaGrafiaDellaCategoria` — una `prisma.club.findUnique({select:
+   {categories: true}})` per ogni riga da scrivere;
+2. `assertFieldIsOpen` — una `prisma.club.findUnique({select: {structures:
+   true}})` per ogni riga da controllare.
+
+Il club e lo stesso per **tutte** le righe di una chiamata: 414 candidati
+leggevano 414 volte lo stesso identico record.
+
+**Decisione.** Entrambe le funzioni si dividono in due: una parte pura che
+riceve il registro (categorie o strutture) gia caricato e non fa query
+(`riconciliaGrafiaConRegistro`, `assertFieldIsOpenConStrutture`), e il
+wrapper esistente che lo carica per una riga sola — resta invariato per
+`updateClubEvent`, che scrive sempre una riga alla volta e non ha niente da
+issare fuori da un ciclo. `createClubEventsBatch` carica il club **una
+volta**, prima dei due cicli, e passa il registro gia in mano a ogni
+iterazione.
+
+**Risultato misurato** (stesso club, stesso scenario): da 523 a **6-15
+query**, da ~1.6-2.1s a **0.17-0.64s**. Nessun'altra query nel percorso
+della generazione a blocchi vive dentro un ciclo per riga — verificato
+leggendo ogni `await prisma.` di `events.ts` e confermando che
+`rilevaConflittiSovrapposizione` (ADR-0169) era gia una query sola per
+l'intero blocco.
+
+Verificato con `tests/server/generazione-eventi-conflitti.test.mjs`
+("WP-20 · il club si legge una volta per il blocco, non una per riga": al
+piu due letture di `club.findUnique` su un blocco di 8 candidati) e con la
+sonda di performance su PostgreSQL reale, rieseguita dopo la correzione.
+
+---

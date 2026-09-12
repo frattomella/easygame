@@ -1103,8 +1103,14 @@ export const reprojectClubEvents = async (organizationId: string) => {
  * non la leggeva nessuno: si poteva fissare un allenamento delle 23:00 su un
  * campo che chiude alle 20:00, e a scoprirlo era chi ci andava.
  */
-const assertFieldIsOpen = async (
-  organizationId: string,
+/**
+ * Il campo aperto a quell'ora, contro un elenco di strutture **gia in
+ * mano** — nessuna query qui dentro. Stessa ragione di
+ * `riconciliaGrafiaConRegistro`: su un blocco di righe le strutture del
+ * club si leggono una volta sola, non una per riga (WP-20).
+ */
+const assertFieldIsOpenConStrutture = (
+  strutture: readonly unknown[],
   candidate: {
     structure_id: string | null;
     field_id: string | null;
@@ -1113,12 +1119,6 @@ const assertFieldIsOpen = async (
   },
 ) => {
   if (!candidate.structure_id && !candidate.field_id) return;
-
-  const club = await prisma.club.findUnique({
-    where: { id: organizationId },
-    select: { structures: true },
-  });
-  const strutture = Array.isArray(club?.structures) ? club.structures : [];
 
   const struttura = (strutture as any[]).find(
     (voce) => asText(voce?.id) === asText(candidate.structure_id),
@@ -1142,6 +1142,26 @@ const assertFieldIsOpen = async (
       `Il campo «${asText(campo.name) || "selezionato"}» non e disponibile in quel giorno e a quell'ora`,
     );
   }
+};
+
+const assertFieldIsOpen = async (
+  organizationId: string,
+  candidate: {
+    structure_id: string | null;
+    field_id: string | null;
+    starts_at: Date;
+    ends_at: Date | null;
+  },
+) => {
+  if (!candidate.structure_id && !candidate.field_id) return;
+
+  const club = await prisma.club.findUnique({
+    where: { id: organizationId },
+    select: { structures: true },
+  });
+  const strutture = Array.isArray(club?.structures) ? club.structures : [];
+
+  assertFieldIsOpenConStrutture(strutture, candidate);
 };
 
 const assertNoOverlap = async (
@@ -1486,6 +1506,33 @@ const assertEventoNonConsolidato = (
  * dichiarato: togliere l'etichetta a un evento storico sarebbe una perdita di
  * dato, non una difesa.
  */
+/**
+ * La grafia della categoria contro un registro **gia in mano** — nessuna
+ * query qui dentro. Separata da `riconciliaGrafiaDellaCategoria` perche
+ * quest'ultima serve anche a una riga sola (`updateClubEvent`), dove
+ * caricare il club per quella riga e l'unica query che serve; su un blocco
+ * di righe (`createClubEventsBatch`) il registro va caricato **una volta
+ * sola per il blocco**, non una per riga (WP-20: 414 candidate leggevano lo
+ * stesso club 414 volte).
+ */
+const riconciliaGrafiaConRegistro = <T extends { category_id?: string | null; category_name?: string | null }>(
+  registro: readonly unknown[],
+  colonne: T,
+): T => {
+  const identificativo = asText(colonne.category_id);
+  if (!identificativo) return colonne;
+
+  const voce = registro
+    .filter((riga): riga is Record<string, unknown> => Boolean(riga) && typeof riga === "object")
+    .find((riga) => asText(riga.id).toLowerCase() === identificativo.toLowerCase());
+  if (!voce) return colonne;
+
+  const nome = asText(voce.name ?? voce.label);
+  if (!nome || nome === asText(colonne.category_name)) return colonne;
+
+  return { ...colonne, category_name: nome };
+};
+
 const riconciliaGrafiaDellaCategoria = async <T extends { category_id?: string | null; category_name?: string | null }>(
   organizationId: string,
   colonne: T,
@@ -1501,15 +1548,7 @@ const riconciliaGrafiaDellaCategoria = async <T extends { category_id?: string |
     ? (club.categories as unknown[])
     : [];
 
-  const voce = registro
-    .filter((riga): riga is Record<string, unknown> => Boolean(riga) && typeof riga === "object")
-    .find((riga) => asText(riga.id).toLowerCase() === identificativo.toLowerCase());
-  if (!voce) return colonne;
-
-  const nome = asText(voce.name ?? voce.label);
-  if (!nome || nome === asText(colonne.category_name)) return colonne;
-
-  return { ...colonne, category_name: nome };
+  return riconciliaGrafiaConRegistro(registro, colonne);
 };
 
 export const createClubEvent = async (
@@ -2862,11 +2901,25 @@ export const createClubEventsBatch = async (
     persona dietro «Genera fino a...» o il pannello che legge il risultato
     del cron — decide cosa farne; il posto resta quello che era.
   */
+  /*
+    **Le strutture si leggono una volta per il blocco, non una per riga**
+    (WP-20): `assertFieldIsOpen` interrogava il club a ogni iterazione — 414
+    letture identiche su un blocco di 414 candidati, la stessa forma di
+    query evitabile trovata su `riconciliaGrafiaDellaCategoria` qui sopra.
+  */
+  const clubPerLeStrutture = await prisma.club.findUnique({
+    where: { id: organizationId },
+    select: { structures: true },
+  });
+  const struttureDelClub = Array.isArray(clubPerLeStrutture?.structures)
+    ? (clubPerLeStrutture.structures as unknown[])
+    : [];
+
   const saltate: Array<{ riga: any; motivo: string }> = [];
 
   for (const riga of righe) {
     try {
-      await assertFieldIsOpen(organizationId, riga);
+      assertFieldIsOpenConStrutture(struttureDelClub, riga);
     } catch (errore) {
       if (opzioni.campoChiuso !== "salta") throw errore;
       saltate.push({ riga, motivo: String((errore as any)?.message || errore) });
@@ -2920,9 +2973,22 @@ export const createClubEventsBatch = async (
     in blocco e la terza porta sulla stessa scrittura, e una correzione che
     coprisse le prime due lascerebbe aperta questa — che e esattamente la
     forma di difetto che questa lane ha gia trovato quattro volte.
+
+    **Il registro si legge una volta per il blocco, non una per riga**
+    (WP-20): il club e lo stesso per tutte le righe di questa chiamata, e
+    leggerlo dentro `.map()` significava una query identica per ogni
+    candidato — 414 letture dello stesso club su un blocco di 414, misurato
+    dalla sonda di performance.
   */
-  const daScrivere = await Promise.all(
-    senzaConflitto.map((riga) => riconciliaGrafiaDellaCategoria(organizationId, riga)),
+  const clubPerLaGrafia = await prisma.club.findUnique({
+    where: { id: organizationId },
+    select: { categories: true },
+  });
+  const registroCategorie = Array.isArray(clubPerLaGrafia?.categories)
+    ? (clubPerLaGrafia.categories as unknown[])
+    : [];
+  const daScrivere = senzaConflitto.map((riga) =>
+    riconciliaGrafiaConRegistro(registroCategorie, riga),
   );
 
   await prisma.clubEvent.createMany({ data: daScrivere, skipDuplicates: true });
