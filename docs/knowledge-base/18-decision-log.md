@@ -11054,3 +11054,56 @@ Verificato con `tests/server/programma-disattivato.test.mjs` (4 prove) e
 `tests/ui/programma-settimanale-toggle-attivo.test.mjs` (2 prove statiche).
 
 ---
+
+## ADR-0174 — `training_automation.manage`: un ruolo personalizzato puo generare gli allenamenti
+
+**Data:** 2026-09-12
+
+**Contesto.** WP-19 chiede che i ruoli personalizzati funzionino per la
+generazione degli allenamenti, e che un allenatore non riceva quella
+capacita solo perche gestisce le presenze. Le due rotte della generazione
+(`/api/v1/training-automation`, `.../schedule-impact`) chiedevano
+`canManageClubConfigurationAsActor`, definita `!isCustomRoleValue(role) &&
+canManageClubConfiguration(role)`: la prima meta rifiuta **ogni** ruolo
+personalizzato a prescindere dalle caselle. Un club che avesse costruito
+«Segreteria allenamenti» a partire dal gestore non poteva premere "Genera
+ora", ne "Genera fino a...", ne aggiornare in blocco gli allenamenti futuri
+dopo una modifica al programma settimanale — e nessuna casella dell'editor
+poteva rimediare, perche la chiave non esisteva. La stessa forma di difetto
+gia chiusa su `funding.manage` (ADR-0159) e `seasons.change` (ADR-0153).
+
+**Decisione.** `training_automation.manage` (dominio `training_automation`,
+matrice `DIREZIONE`) entra in catalogo. `src/lib/training-automation-permissions.ts`
+lo fa valere con la forma collaudata: prima `narrowDomainPermission` (che
+risponde `null` su un ruolo canonico, `false` se la **base** del ruolo
+personalizzato non ha gia la capacita), poi la delega a
+`canManageClubConfiguration`. Le due rotte chiedono
+`canManageTrainingAutomationAsActor` al posto di
+`canManageClubConfigurationAsActor`.
+
+Il perimetro canonico non cambia: proprietario e gestore generano come
+prima; collaboratore, staff, allenatore, genitore e atleta continuano a non
+generare — e un ruolo personalizzato costruito su **trainer** con la chiave
+forzata resta rifiutato, perche la sua base non ha
+`canManageClubConfiguration` (`narrowDomainPermission` lo nega prima di
+guardare le caselle). Un allenatore non riceve quindi questa capacita per
+il solo fatto di avere `events.manage` sulle presenze: le due chiavi sono
+distinte per costruzione.
+
+La lettura/modifica del programma settimanale resta dov'era: CRUD generico
+su `weekly_schedule`, nessuna chiave di catalogo lo governa, e un ruolo
+personalizzato costruito su `club_manager` lo raggiunge gia
+(`customRoleReachesResource` tratta una risorsa a `keys: []` come
+raggiungibile). Questa chiave copre solo l'atto che **genera eventi**.
+
+**Da non confondere con `training_automation.generate`**, aggiunta a
+`NON_SONO_CHIAVI` nel censimento del catalogo
+(`tests/lib/catalogo-permessi.test.mjs`): quella e la capacita del contesto
+di sistema del cron (`system-actor.ts`), tradotta in `events.manage` prima
+di decidere (D-AUD-25, **non chiuso da questo ADR** — resta il debito
+distinto sulla granularita della capacita di sistema). Due stringhe nello
+stesso spazio dei nomi, due proprietari e due domande diverse.
+
+Verificato con `tests/lib/training-automation-permessi.test.mjs` (5 prove).
+
+---

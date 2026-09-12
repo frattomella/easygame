@@ -904,6 +904,24 @@ significa togliere.
 > dominio con una chiave propria deve fare la stessa cosa, o accendere un
 > pulsante che nessun ruolo personalizzato vedra.
 
+> **Il sesto chiamante di `narrowDomainPermission` e
+> `src/lib/training-automation-permissions.ts`** (WP-19, mandato Weekly
+> Program & Training Automation). Stessa forma di difetto e stessa
+> correzione di `funding.manage`: le rotte della generazione
+> (`/api/v1/training-automation`, `/api/v1/training-automation/schedule-impact`)
+> chiedevano `canManageClubConfigurationAsActor`, e nessuna casella
+> dell'editor poteva concedere a un ruolo personalizzato di premere «Genera
+> ora», «Genera fino a...» o aggiornare in blocco gli allenamenti futuri.
+> `training_automation.manage` (dominio `training_automation`, matrice
+> `DIREZIONE`) e la chiave. La lettura/modifica del programma settimanale
+> non si e mossa: `weekly_schedule` resta CRUD generico senza una chiave
+> propria, e un ruolo personalizzato costruito su `club_manager` lo legge e
+> lo scrive gia oggi. Da distinguere da `training_automation.generate`, che
+> **non** e una chiave di catalogo: e la capacita del contesto di sistema
+> del cron (`system-actor.ts`), tradotta in `events.manage` prima di
+> decidere (D-AUD-25) — due stringhe nello stesso spazio dei nomi, due
+> proprietari diversi.
+
 ### Cosa un ruolo non puo contenere
 
 **Le tre chiavi di legame**, elencate a mano e non dedotte:

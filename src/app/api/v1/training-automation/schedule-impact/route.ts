@@ -3,7 +3,7 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
-import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { canManageTrainingAutomationAsActor } from "@/lib/training-automation-permissions";
 import {
   applyWeeklyScheduleSlotChanges,
   previewWeeklyScheduleImpact,
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
+    if (!canManageTrainingAutomationAsActor(scope.activeRole)) {
       return NextResponse.json(
         {
           data: null,

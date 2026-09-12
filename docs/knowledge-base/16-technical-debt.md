@@ -4118,20 +4118,24 @@ club_events` (WEB App). Dettaglio della decisione in
 
 Restano aperti e fuori da questo commit, perche sono lavoro distinto (vedi
 il mandato in corso per il piano completo): un modello minimo di
-sospensioni/eccezioni (WP-15), la granularita dei permessi per i ruoli
-personalizzati (`D-AUD-25`, invariato, WP-19), e una misura di performance a
-scala realistica (WP-20).
+sospensioni/eccezioni (WP-15) e una misura di performance a scala realistica
+(WP-20). `D-AUD-25` resta **invariato**: la capacita di sistema
+`training_automation.generate` e ancora mappata sull'ampio `events.manage`
+— un problema distinto da WP-19, che riguardava il **ruolo umano**, non la
+capacita del cron (ADR-0174).
 
 «Genera fino a...» con data assoluta e preview (WP-03, WP-17), la
 distinzione esplicita fra evento generato invariato e generato-poi-
 modificato-a-mano (WP-10), l'impatto di una modifica al programma
-settimanale sugli eventi futuri gia generati (WP-08), e il flag attivo/
-disattivato per singolo slot (WP-14) sono stati chiusi in commit successivi
-dello stesso mandato — vedi
+settimanale sugli eventi futuri gia generati (WP-08), il flag attivo/
+disattivato per singolo slot (WP-14), e la granularita dei permessi per i
+ruoli personalizzati sulla generazione (WP-19) sono stati chiusi in commit
+successivi dello stesso mandato — vedi
 [ADR-0170](18-decision-log.md#adr-0170--genera-fino-a-anteprima-e-perche-un-campo-chiuso-non-ferma-piu-una-generazione-lunga),
 [ADR-0171](18-decision-log.md#adr-0171--un-evento-generato-sa-dire-se-e-ancora-quello-che-lautomazione-ha-scritto),
-[ADR-0172](18-decision-log.md#adr-0172--limpatto-di-una-modifica-al-programma-settimanale-e-un-avviso-dopo-lautosave-non-una-finestra-prima)
-e [ADR-0173](18-decision-log.md#adr-0173--una-regola-disattivata-smette-di-generare-e-conta-come-una-rimozione-per-limpatto).
+[ADR-0172](18-decision-log.md#adr-0172--limpatto-di-una-modifica-al-programma-settimanale-e-un-avviso-dopo-lautosave-non-una-finestra-prima),
+[ADR-0173](18-decision-log.md#adr-0173--una-regola-disattivata-smette-di-generare-e-conta-come-una-rimozione-per-limpatto)
+e [ADR-0174](18-decision-log.md#adr-0174--training_automationmanage-un-ruolo-personalizzato-puo-generare-gli-allenamenti).
 
 | # | Gravita | Cosa | Da dove si riparte |
 |---|---------|------|--------------------|

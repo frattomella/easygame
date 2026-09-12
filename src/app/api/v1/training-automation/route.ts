@@ -3,7 +3,7 @@ import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
-import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { canManageTrainingAutomationAsActor } from "@/lib/training-automation-permissions";
 import { authorizeCronRequest } from "@/lib/server/cron-auth";
 import {
   MAX_MANUAL_GENERATION_DAYS_AHEAD,
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!canManageClubConfigurationAsActor(scope.activeRole)) {
+    if (!canManageTrainingAutomationAsActor(scope.activeRole)) {
       return NextResponse.json(
         {
           data: null,

@@ -95,6 +95,7 @@ const ETICHETTE_DOMINIO: Record<PermissionDomain, string> = {
   members: "Libro soci",
   seasons: "Stagioni sportive",
   sport_work: "Lavoro sportivo",
+  training_automation: "Generazione allenamenti",
 };
 
 /**

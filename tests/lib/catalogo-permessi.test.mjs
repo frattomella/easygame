@@ -528,6 +528,10 @@ const NON_SONO_CHIAVI = new Map([
     "club_roles.owner_only",
     "etichetta di audit: a decidere e `assertOwnerOnlyAction`, e gli atti riservati al proprietario non sono delegabili per definizione",
   ],
+  [
+    "training_automation.generate",
+    "capacita di un contesto di sistema (`system-actor.ts`), non un permesso di ruolo: la mappa in `events.ts` la traduce in `events.manage` prima di decidere. Il dominio `training_automation` esiste in catalogo per `training_automation.manage` (WP-19, ruolo umano); questa e un'altra stringa nello stesso spazio dei nomi, con un altro proprietario (D-AUD-25)",
+  ],
 ]);
 
 /*

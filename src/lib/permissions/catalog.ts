@@ -65,7 +65,8 @@ export type PermissionDomain =
   | "health"
   | "members"
   | "seasons"
-  | "sport_work";
+  | "sport_work"
+  | "training_automation";
 
 export type PermissionEntry = {
   key: string;
@@ -480,6 +481,31 @@ const ENTRIES: readonly PermissionEntry[] = [
     domain: "funding",
     label:
       "Iscrivere a un contributo, decidere la maturazione di un periodo e revocare un voucher",
+    roles: DIREZIONE,
+  },
+
+  /* --------------------------------- generazione allenamenti (WP-19) --- */
+  /*
+    Stessa forma di `funding.manage`: la rotta chiedeva
+    `canManageClubConfigurationAsActor`, che rifiuta ogni ruolo personalizzato
+    a prescindere dalle caselle spuntate. Un club che avesse costruito
+    «Segreteria allenamenti» a partire dal gestore non poteva premere «Genera
+    ora», ne «Genera fino a...», ne aggiornare in blocco gli allenamenti
+    futuri dopo una modifica al programma settimanale — e nessuna casella
+    dell'editor poteva rimediare, perche la chiave non esisteva.
+
+    Il perimetro canonico non cambia: proprietario e gestore continuano a
+    generare come prima. Cio che si aggiunge e un ruolo personalizzato
+    costruito su quei due che porti questa chiave. La lettura e la modifica
+    del programma settimanale restano dove sono gia (CRUD generico su
+    `weekly_schedule`, nessuna chiave lo governa): qui c'e solo l'atto che
+    scrive eventi — generare, e aggiornarli in blocco dopo una modifica.
+  */
+  {
+    key: "training_automation.manage",
+    domain: "training_automation",
+    label:
+      "Generare gli allenamenti dal programma settimanale (anche fino a una data scelta) e aggiornare in blocco quelli futuri dopo una modifica",
     roles: DIREZIONE,
   },
 
