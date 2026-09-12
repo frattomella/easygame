@@ -4117,15 +4117,20 @@ club_events` (WEB App). Dettaglio della decisione in
 | **Nessuno scoping di stagione nella training-automation** | ~~**CHIUSO**~~ | Non aveva un numero di debito proprio (trovato durante questo audit, non nella lista precedente). `runTrainingAutomationForClub` filtra ora `weekly_schedule` per stagione attiva con `filterCollectionBySeason`, e marca `season_id` sugli eventi generati. `tests/server/training-automation-stagione.test.mjs` (2 prove) |
 
 Restano aperti e fuori da questo commit, perche sono lavoro distinto (vedi
-il mandato in corso per il piano completo): l'impatto di una modifica al
-programma settimanale sugli eventi futuri gia generati (WP-08), il flag
-attivo/disattivato per singolo slot, un modello minimo di sospensioni/
-eccezioni, la granularita dei permessi per i ruoli personalizzati
-(`D-AUD-25`, invariato), e una misura di performance a scala realistica
-(WP-20).
+il mandato in corso per il piano completo): il flag attivo/disattivato per
+singolo slot (WP-14), un modello minimo di sospensioni/eccezioni (WP-15),
+la granularita dei permessi per i ruoli personalizzati (`D-AUD-25`,
+invariato, WP-19), e una misura di performance a scala realistica (WP-20).
 
-«Genera fino a...» con data assoluta e preview (WP-03, WP-17) e la
+«Genera fino a...» con data assoluta e preview (WP-03, WP-17), la
 distinzione esplicita fra evento generato invariato e generato-poi-
-modificato-a-mano (WP-10) sono stati chiusi in due commit successivi dello
-stesso mandato — vedi [ADR-0170](18-decision-log.md#adr-0170--genera-fino-a-anteprima-e-perche-un-campo-chiuso-non-ferma-piu-una-generazione-lunga)
-e [ADR-0171](18-decision-log.md#adr-0171--un-evento-generato-sa-dire-se-e-ancora-quello-che-lautomazione-ha-scritto).
+modificato-a-mano (WP-10), e l'impatto di una modifica al programma
+settimanale sugli eventi futuri gia generati (WP-08) sono stati chiusi in
+commit successivi dello stesso mandato — vedi
+[ADR-0170](18-decision-log.md#adr-0170--genera-fino-a-anteprima-e-perche-un-campo-chiuso-non-ferma-piu-una-generazione-lunga),
+[ADR-0171](18-decision-log.md#adr-0171--un-evento-generato-sa-dire-se-e-ancora-quello-che-lautomazione-ha-scritto)
+e [ADR-0172](18-decision-log.md#adr-0172--limpatto-di-una-modifica-al-programma-settimanale-e-un-avviso-dopo-lautosave-non-una-finestra-prima).
+
+| # | Gravita | Cosa | Da dove si riparte |
+|---|---------|------|--------------------|
+| **D-AUD-30** | Low | **Il gruppo operativo non entra mai davvero nella chiave di deduplica della training-automation**, contrariamente a quanto il commento sopra `duplicateKey` in `training-automation.ts` dichiara (ADR-0055). `normalizeWeeklyScheduleSourceItem` non porta `groupId` nell'oggetto normalizzato che restituisce; il codice piu sotto legge `scheduleItem.groupId`/`group_id` su **quello** stesso oggetto, quindi trova sempre stringa vuota. Non raggiungibile come duplicazione oggi: `categoryKey` da solo resta comunque una chiave valida (verificato dalla sonda `critical-automazione-sistema-probe.mjs`, prova K, che usa categorie omonime **senza** gruppo) — ma due squadre della stessa categoria in due sedi diverse, con un gruppo operativo distinto, collidono sulla stessa chiave invece di restare due fasce | Portare `groupId` nell'oggetto che `normalizeWeeklyScheduleSourceItem` restituisce |

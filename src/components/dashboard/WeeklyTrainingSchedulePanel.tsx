@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { apiRequest } from "@/lib/api/client";
 import {
   getClubWeeklySchedule,
   updateClubData,
@@ -166,6 +167,25 @@ export function WeeklyTrainingSchedule({
   const [savedAt, setSavedAt] = React.useState<Date | null>(null);
   const saving = saveState === "saving";
   const lastPersistedScheduleRef = React.useRef("[]");
+  /*
+    La stessa cosa di `lastPersistedScheduleRef`, ma l'array e non
+    l'impronta: serve a WP-08 per chiedere "cosa e cambiato rispetto a
+    prima?" dopo un salvataggio riuscito, senza dover riparlare del server.
+  */
+  const lastPersistedScheduleArrayRef = React.useRef<WeeklyTrainingItem[]>([]);
+  const [scheduleImpact, setScheduleImpact] = React.useState<{
+    previousSchedule: WeeklyTrainingItem[];
+    nextSchedule: WeeklyTrainingItem[];
+    slots: Array<{
+      slotId: string;
+      changeType: "modified" | "removed";
+      matchedCount: number;
+      activeCount: number;
+      manuallyModifiedCount: number;
+      safeCount: number;
+    }>;
+  } | null>(null);
+  const [isApplyingImpact, setIsApplyingImpact] = React.useState(false);
   const defaultCategoryId = categories[0]?.id || "";
   const [newTraining, setNewTraining] = React.useState<WeeklyTrainingItem>({
     id: "",
@@ -350,6 +370,7 @@ export function WeeklyTrainingSchedule({
     if (!activeClub?.id) {
       setSchedule([]);
       lastPersistedScheduleRef.current = "[]";
+      lastPersistedScheduleArrayRef.current = [];
       setLoaded(true);
       return;
     }
@@ -365,12 +386,14 @@ export function WeeklyTrainingSchedule({
         setSchedule(normalizedSchedule);
         lastPersistedScheduleRef.current =
           buildScheduleSnapshot(normalizedSchedule);
+        lastPersistedScheduleArrayRef.current = normalizedSchedule;
       } catch (error) {
         console.error("Error loading weekly schedule:", error);
         const normalizedFallback = initialSchedule.map(normalizeScheduleItem);
         setSchedule(normalizedFallback);
         lastPersistedScheduleRef.current =
           buildScheduleSnapshot(normalizedFallback);
+        lastPersistedScheduleArrayRef.current = normalizedFallback;
       } finally {
         setLoaded(true);
       }
@@ -389,6 +412,96 @@ export function WeeklyTrainingSchedule({
       resetNewTraining();
     }
   }, [resetNewTraining, showAddDialog]);
+
+  /*
+    **"La modifica interessa X allenamenti futuri gia generati"** (WP-08).
+    Un avviso non bloccante dopo l'autosave, non una finestra prima: vedi il
+    commento dentro `persistSchedule`. Usa lo stesso servizio che poi
+    l'aggiornamento in blocco chiamera per davvero (WP-17): l'anteprima e
+    l'esecuzione condividono le stesse regole di dominio.
+  */
+  const checkScheduleImpact = React.useCallback(
+    async (
+      previousSchedule: WeeklyTrainingItem[],
+      nextSchedule: WeeklyTrainingItem[],
+    ) => {
+      if (!activeClub?.id) {
+        return;
+      }
+
+      try {
+        const response = await apiRequest<{
+          impact: Array<{
+            slotId: string;
+            changeType: "modified" | "removed";
+            matchedCount: number;
+            activeCount: number;
+            manuallyModifiedCount: number;
+            safeCount: number;
+          }>;
+        }>("/api/v1/training-automation/schedule-impact", {
+          method: "POST",
+          body: { previousSchedule, nextSchedule },
+        });
+
+        const impatto = (response.data?.impact || []).filter(
+          (voce) => voce.matchedCount > 0,
+        );
+
+        setScheduleImpact(
+          impatto.length ? { previousSchedule, nextSchedule, slots: impatto } : null,
+        );
+      } catch (error) {
+        // Un avviso in piu che non arriva non deve rompere il salvataggio,
+        // che a questo punto e gia riuscito.
+        console.error("Error checking weekly schedule impact:", error);
+      }
+    },
+    [activeClub?.id],
+  );
+
+  const applyScheduleImpact = React.useCallback(async () => {
+    if (!activeClub?.id || !scheduleImpact) {
+      return;
+    }
+
+    setIsApplyingImpact(true);
+    try {
+      const response = await apiRequest<{
+        applied: Array<{ slotId: string; updatedCount: number; skippedCount: number }>;
+      }>("/api/v1/training-automation/schedule-impact", {
+        method: "POST",
+        body: {
+          previousSchedule: scheduleImpact.previousSchedule,
+          nextSchedule: scheduleImpact.nextSchedule,
+          apply: true,
+        },
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || "Aggiornamento fallito");
+      }
+
+      const applicati = response.data?.applied || [];
+      const aggiornati = applicati.reduce((tot, voce) => tot + voce.updatedCount, 0);
+      const saltati = applicati.reduce((tot, voce) => tot + voce.skippedCount, 0);
+
+      showToast(
+        "success",
+        `${aggiornati} allenamenti futuri aggiornati${saltati ? `, ${saltati} lasciati com'erano` : ""}`,
+      );
+      setScheduleImpact(null);
+      onTrainingsGenerated();
+    } catch (error) {
+      console.error("Error applying weekly schedule impact:", error);
+      showToast(
+        "error",
+        "Errore durante l'aggiornamento degli allenamenti futuri",
+      );
+    } finally {
+      setIsApplyingImpact(false);
+    }
+  }, [activeClub?.id, onTrainingsGenerated, scheduleImpact, showToast]);
 
   const saveRunnerRef = React.useRef<
     ((value: { schedule: WeeklyTrainingItem[]; notify: boolean }) => Promise<void>) | null
@@ -409,16 +522,28 @@ export function WeeklyTrainingSchedule({
         saveRunnerRef.current = createCoalescingSaver(
           async ({ schedule: scheduleToSave, notify: shouldNotify }) => {
             setSaveState("saving");
+            const scheduleDiPrima = lastPersistedScheduleArrayRef.current;
             try {
               await updateClubData(clubId, "weekly_schedule", scheduleToSave);
               lastPersistedScheduleRef.current =
                 buildScheduleSnapshot(scheduleToSave);
+              lastPersistedScheduleArrayRef.current = scheduleToSave;
               await onSave(scheduleToSave);
               setSavedAt(new Date());
               setSaveState("saved");
               if (shouldNotify) {
                 showToast("success", "Programma settimanale salvato");
               }
+              /*
+                **WP-08, dopo il salvataggio, non prima.** Il programma si
+                salva in automatico a ogni modifica (autosave, ~1200ms di
+                debounce): una finestra di conferma bloccante a ogni
+                digitazione sarebbe inutilizzabile. L'impatto si informa
+                quindi come un avviso non bloccante, dopo che il salvataggio
+                e gia avvenuto — e chi lo vede decide se estendere la
+                modifica anche agli allenamenti futuri gia generati.
+              */
+              checkScheduleImpact(scheduleDiPrima, scheduleToSave);
             } catch (error) {
               console.error("Error saving weekly schedule:", error);
               setSaveState("error");
@@ -438,7 +563,7 @@ export function WeeklyTrainingSchedule({
 
       await saveRunnerRef.current({ schedule: nextSchedule, notify });
     },
-    [activeClub?.id, buildScheduleSnapshot, onSave, showToast],
+    [activeClub?.id, buildScheduleSnapshot, checkScheduleImpact, onSave, showToast],
   );
 
   // Cambiando club il runner precedente scriverebbe sul club sbagliato.
@@ -765,6 +890,48 @@ export function WeeklyTrainingSchedule({
           </Button>
         </div>
       </div>
+
+      {scheduleImpact ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-medium">
+            La modifica interessa{" "}
+            {scheduleImpact.slots.reduce((tot, voce) => tot + voce.matchedCount, 0)}{" "}
+            allenament
+            {scheduleImpact.slots.reduce((tot, voce) => tot + voce.matchedCount, 0) === 1
+              ? "o"
+              : "i"}{" "}
+            futuri gia generati.
+          </p>
+          <p className="mt-1 text-amber-800">
+            {scheduleImpact.slots.reduce((tot, voce) => tot + voce.safeCount, 0)}{" "}
+            si possono aggiornare in sicurezza (nessuno modificato a mano,
+            annullato o con presenze registrate). Puoi anche non fare niente:
+            gli allenamenti gia creati restano come sono, e solo le prossime
+            generazioni useranno la nuova definizione.
+          </p>
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setScheduleImpact(null)}
+              disabled={isApplyingImpact}
+            >
+              Applica solo alle nuove generazioni
+            </Button>
+            <Button
+              onClick={applyScheduleImpact}
+              disabled={
+                isApplyingImpact ||
+                scheduleImpact.slots.reduce((tot, voce) => tot + voce.safeCount, 0) === 0
+              }
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              Aggiorna{" "}
+              {scheduleImpact.slots.reduce((tot, voce) => tot + voce.safeCount, 0)}{" "}
+              allenamenti futuri non modificati
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {showAutomation && (
         <TrainingScheduleAutomationPanel

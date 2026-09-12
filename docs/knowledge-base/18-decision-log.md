@@ -10960,3 +10960,61 @@ Verificato con `tests/server/evento-generato-modificato-a-mano.test.mjs`
 non porta il flag, il segno non si toglie tornando ai valori originali).
 
 ---
+
+## ADR-0172 — L'impatto di una modifica al programma settimanale e un avviso dopo l'autosave, non una finestra prima
+
+**Data:** 2026-09-12
+
+**Contesto.** Il mandato Weekly Program & Training Automation chiede che
+modificare una voce del programma settimanale informi: "la modifica
+interessa X allenamenti futuri gia generati", con due scelte — applicare
+solo alle nuove generazioni, o aggiornare anche i futuri non modificati —
+senza mai sovrascrivere in automatico eventi conclusi, con presenze,
+annullati o gia modificati a mano.
+
+Il programma settimanale pero **si salva in automatico**:
+`WeeklyTrainingSchedulePanel` scrive a ogni modifica con un debounce di
+~1200ms (`persistSchedule`/`createCoalescingSaver`), non con un pulsante
+"Salva" esplicito. Una finestra di conferma **bloccante prima** di
+scrivere — il modello letto nella richiesta — significherebbe interrompere
+la digitazione a ogni carattere: inutilizzabile, e un cambio della UX di
+salvataggio esistente che nessun'altra parte di questo mandato chiede.
+
+**Decisione.**
+
+1. **L'avviso arriva dopo l'autosave, non prima.** Il salvataggio procede
+   com'e oggi; subito dopo, il pannello chiede
+   (`POST /api/v1/training-automation/schedule-impact`, senza `apply`)
+   quanti eventi futuri la modifica appena salvata riguarda, e mostra un
+   riquadro non bloccante con le due scelte. Ignorarlo — chiudere la
+   pagina, continuare a modificare — equivale a "applica solo alle nuove
+   generazioni", che e gia il comportamento se non si preme niente.
+2. **Una voce cambiata identifica i suoi eventi futuri per valore, non per
+   riferimento memorizzato.** Non esiste (ancora) un campo che leghi un
+   `ClubEvent` allo slot che l'ha generato: la corrispondenza si ricostruisce
+   dalla definizione **precedente** dello slot (giorno, ora, campo,
+   categoria), la stessa chiave che la generazione ha usato per scrivere
+   `legacy_id` (`auto:<chiave>`). Approssimazione deliberata e documentata
+   (`findFutureEventsForPreviousSlotDefinition`): usa i valori cosi come il
+   programma li porta, senza ri-risolverli contro il catalogo come fa la
+   generazione — nel caso comune (ID gia canonici) coincide; se diverge,
+   sotto-riporta invece di toccare la riga sbagliata.
+3. **"Sicuro" e la stessa domanda in anteprima e in esecuzione.** Un evento
+   e sicuro da aggiornare solo se e ancora attivo (non annullato, non
+   archiviato), non e stato modificato a mano (ADR-0171) e non ha
+   partecipazioni (`clubEventParticipant`) — la stessa condizione che
+   `updateClubEvent` congela da solo. L'esecuzione passa da `updateClubEvent`,
+   nessun secondo scrittore; un evento che nel frattempo ricevesse una
+   storia viene comunque rifiutato da la, e il conteggio lo segna come
+   scartato invece di fallire rumorosamente.
+4. **Una voce rimossa non tocca mai un evento gia generato.** Cancellare o
+   modificare in blocco gli eventi futuri di uno slot tolto dal programma
+   resta un'azione esplicita e distinta, non ancora costruita (WP-14).
+
+Verificato con `tests/server/impatto-modifica-programma-settimanale.test.mjs`
+(6 prove: diff puro delle voci, conteggio anteprima con evento annullato/
+modificato a mano/con presenze, parita fra conteggio d'anteprima ed
+esecuzione, nessun effetto per una voce rimossa) e
+`tests/ui/weekly-schedule-impact-banner.test.mjs` (4 prove statiche).
+
+---

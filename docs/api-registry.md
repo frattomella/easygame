@@ -862,6 +862,12 @@ ovunque — perche e l'unico che **cancella righe**.
   limite `MAX_MANUAL_GENERATION_DAYS_AHEAD` = 366 giorni) e `preview`
   (calcola senza scrivere). Risposta: `generatedCount`, `existingCount`,
   `excludedCount`, `conflicts[]`, `generatedUntil`
+- `POST /api/v1/training-automation/schedule-impact` — quanti allenamenti
+  futuri gia generati una modifica al programma settimanale riguarda, e
+  quanti sono sicuri da aggiornare (WP-08). Stesso permesso della
+  generazione manuale. Corpo: `previousSchedule`, `nextSchedule`, `apply`
+  (assente o `false` = sola anteprima). Risposta: `{ impact: [...] }` in
+  anteprima, `{ applied: [...] }` con `apply: true`
 - `POST /api/medical-certificate-reminders` — il promemoria su **un** atleta,
   a mano dalla segreteria. Richiede una sessione e l'atleta deve appartenere a
   un club nello scope

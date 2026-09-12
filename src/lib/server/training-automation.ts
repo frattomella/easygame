@@ -532,6 +532,326 @@ const getDateOnly = (value: Date) =>
 const getWeekdayLabelFromDate = (value: Date) =>
   resolveTrainingWeekday({ date: getDateOnly(value) });
 
+/* ============================================================== WP-08 === */
+
+export type NormalizedWeeklyScheduleSlot = NonNullable<
+  ReturnType<typeof normalizeWeeklyScheduleSourceItem>
+>;
+
+export type WeeklyScheduleSlotChange = {
+  slotId: string;
+  changeType: "modified" | "removed";
+  previous: NormalizedWeeklyScheduleSlot;
+  next: NormalizedWeeklyScheduleSlot | null;
+};
+
+/**
+ * I campi che spostano la fascia rispetto a cio che la generazione precedente
+ * ha scritto: sono gli stessi che entrano nella chiave di deduplica
+ * (`buildTrainingDuplicateKey`) piu il giorno, che decide quale weekday la
+ * genera. Cambiarne uno vuol dire che gli eventi gia generati con la
+ * definizione precedente non corrispondono piu a nessuna riga del programma.
+ */
+const CAMPI_CHE_SPOSTANO_LA_FASCIA = [
+  "day",
+  "startTime",
+  "endTime",
+  "structureId",
+  "locationId",
+  "categoryId",
+] as const;
+
+const stessaFascia = (
+  a: NormalizedWeeklyScheduleSlot,
+  b: NormalizedWeeklyScheduleSlot,
+) => CAMPI_CHE_SPOSTANO_LA_FASCIA.every((campo) => (a[campo] || "") === (b[campo] || ""));
+
+/**
+ * **Cosa e cambiato nel programma settimanale, per chi ha gia generato
+ * qualcosa** (WP-08).
+ *
+ * Confronta due versioni del programma per `id` di voce: una voce sparita e
+ * "removed", una voce rimasta ma con giorno/ora/campo/categoria diversi e
+ * "modified". Una voce nuova (nessun `id` corrispondente nel programma
+ * precedente) non e un cambiamento: non ha ancora generato niente.
+ */
+export const findWeeklyScheduleSlotChanges = (
+  previousSchedule: unknown,
+  nextSchedule: unknown,
+): WeeklyScheduleSlotChange[] => {
+  const previousSlots = toWeeklyScheduleEntries(previousSchedule)
+    .map(normalizeWeeklyScheduleSourceItem)
+    .filter((slot): slot is NormalizedWeeklyScheduleSlot => Boolean(slot));
+  const nextSlots = toWeeklyScheduleEntries(nextSchedule)
+    .map(normalizeWeeklyScheduleSourceItem)
+    .filter((slot): slot is NormalizedWeeklyScheduleSlot => Boolean(slot));
+
+  const nextById = new Map(nextSlots.map((slot) => [slot.id, slot]));
+
+  const changes: WeeklyScheduleSlotChange[] = [];
+  for (const previous of previousSlots) {
+    const next = nextById.get(previous.id) || null;
+
+    if (!next) {
+      changes.push({ slotId: previous.id, changeType: "removed", previous, next: null });
+      continue;
+    }
+
+    if (!stessaFascia(previous, next)) {
+      changes.push({ slotId: previous.id, changeType: "modified", previous, next });
+    }
+  }
+
+  return changes;
+};
+
+/**
+ * Gli eventi futuri che la definizione **precedente** di uno slot ha
+ * generato, e che esistono ancora sotto quell'identificativo storico.
+ *
+ * **Approssimazione deliberata**: la chiave usa `categoryId`/`locationId`
+ * cosi come il programma settimanale li porta, senza ri-risolverli contro il
+ * catalogo di categorie/strutture come fa la generazione (`resolveCategoryId`,
+ * `findTrainingLocationOption`). Nel caso comune — un ID gia canonico, che e
+ * come la UI li salva — coincide con la chiave che la generazione ha usato
+ * davvero. Se diverge (una voce con un riferimento non ancora risolto), la
+ * conseguenza e sotto-riportare l'impatto, mai toccare la riga sbagliata: e
+ * il verso sicuro dell'errore.
+ */
+const findFutureEventsForPreviousSlotDefinition = async (
+  clubId: string,
+  slot: Pick<
+    NormalizedWeeklyScheduleSlot,
+    "day" | "startTime" | "categoryId" | "locationId"
+  >,
+  now: Date,
+) => {
+  const legacyIds: string[] = [];
+  const startDate = getDateOnly(now);
+  const endDate = getDateOnly(now);
+  endDate.setDate(endDate.getDate() + MAX_MANUAL_GENERATION_DAYS_AHEAD);
+
+  for (
+    const currentDate = new Date(startDate);
+    currentDate <= endDate;
+    currentDate.setDate(currentDate.getDate() + 1)
+  ) {
+    if (getWeekdayLabelFromDate(currentDate) !== slot.day) {
+      continue;
+    }
+
+    const trainingDate = formatLocalDateKey(currentDate);
+    const trainingStart = buildTrainingStart(trainingDate, slot.startTime);
+    if (!trainingStart || trainingStart <= now) {
+      continue;
+    }
+
+    legacyIds.push(
+      `auto:${buildTrainingDuplicateKey({
+        trainingDate,
+        time: slot.startTime,
+        locationKey: slot.locationId,
+        categoryKey: slot.categoryId,
+      })}`,
+    );
+  }
+
+  if (!legacyIds.length) {
+    return [];
+  }
+
+  return prisma.clubEvent.findMany({
+    where: {
+      organization_id: clubId,
+      kind: "training",
+      legacy_id: { in: legacyIds },
+    },
+    select: {
+      id: true,
+      status: true,
+      starts_at: true,
+      payload: true,
+    },
+  });
+};
+
+/**
+ * Chi ha gia partecipazioni: convocazioni, presenze, risposte. Sono la
+ * stessa condizione che `updateClubEvent` congela da sola (ADR-0112) — qui
+ * serve **prima** di scrivere, perche il riepilogo deve poter dire "sicuro"
+ * con lo stesso significato con cui l'esecuzione poi lo user (WP-17).
+ */
+const eventIdsConPartecipazioni = async (
+  eventIds: readonly string[],
+): Promise<Set<string>> => {
+  if (!eventIds.length) {
+    return new Set();
+  }
+
+  const righe = await prisma.clubEventParticipant.groupBy({
+    by: ["event_id"],
+    where: { event_id: { in: [...eventIds] } },
+  });
+
+  return new Set(righe.map((riga: { event_id: string }) => riga.event_id));
+};
+
+const classificaEventiPerSlot = (
+  eventi: Array<{ id: string; status: string; payload: unknown }>,
+  conPartecipazioni: ReadonlySet<string>,
+) => {
+  const attivi = eventi.filter(
+    (evento) => evento.status !== "cancelled" && evento.status !== "archived",
+  );
+  const modificatiAMano = attivi.filter(
+    (evento) => Boolean((evento.payload as any)?.manuallyModified),
+  );
+  const sicuri = attivi.filter(
+    (evento) =>
+      !(evento.payload as any)?.manuallyModified &&
+      !conPartecipazioni.has(evento.id),
+  );
+
+  return {
+    matchedCount: eventi.length,
+    activeCount: attivi.length,
+    manuallyModifiedCount: modificatiAMano.length,
+    safeEventIds: sicuri.map((evento) => evento.id),
+  };
+};
+
+export type WeeklyScheduleImpactSlotSummary = {
+  slotId: string;
+  changeType: "modified" | "removed";
+  matchedCount: number;
+  activeCount: number;
+  manuallyModifiedCount: number;
+  safeCount: number;
+};
+
+/**
+ * **"La modifica interessa X allenamenti futuri gia generati"** (WP-08).
+ *
+ * Non e una stima: e lo stesso calcolo che l'esecuzione poi userebbe per
+ * decidere quali righe toccare (`applyWeeklyScheduleSlotChanges`), fermato
+ * prima di scrivere — la stessa relazione fra anteprima ed esecuzione che
+ * WP-17 tiene per la generazione.
+ */
+export const previewWeeklyScheduleImpact = async (
+  clubId: string,
+  options: { previousSchedule: unknown; nextSchedule: unknown; now?: Date },
+): Promise<WeeklyScheduleImpactSlotSummary[]> => {
+  const now = options.now ?? new Date();
+  const cambi = findWeeklyScheduleSlotChanges(
+    options.previousSchedule,
+    options.nextSchedule,
+  );
+
+  const risultati: WeeklyScheduleImpactSlotSummary[] = [];
+  for (const cambio of cambi) {
+    const eventi = await findFutureEventsForPreviousSlotDefinition(
+      clubId,
+      cambio.previous,
+      now,
+    );
+    const conPartecipazioni = await eventIdsConPartecipazioni(
+      eventi.map((evento) => evento.id),
+    );
+    const classificati = classificaEventiPerSlot(eventi, conPartecipazioni);
+
+    risultati.push({
+      slotId: cambio.slotId,
+      changeType: cambio.changeType,
+      matchedCount: classificati.matchedCount,
+      activeCount: classificati.activeCount,
+      manuallyModifiedCount: classificati.manuallyModifiedCount,
+      safeCount: cambio.changeType === "removed" ? 0 : classificati.safeEventIds.length,
+    });
+  }
+
+  return risultati;
+};
+
+export type ApplyWeeklyScheduleImpactResult = {
+  slotId: string;
+  updatedCount: number;
+  skippedCount: number;
+};
+
+/**
+ * **"Aggiorna anche gli allenamenti futuri non modificati"** (WP-08).
+ *
+ * Tocca solo cio che `previewWeeklyScheduleImpact` ha gia contato come
+ * sicuro: eventi ancora attivi, generati dalla definizione precedente dello
+ * slot, mai modificati a mano. Passa da `updateClubEvent` — lo stesso
+ * scrittore di una modifica umana qualsiasi, con lo stesso scope di chi ha
+ * chiesto l'aggiornamento: il suo perimetro, il suo nome nell'audit. Una voce
+ * **rimossa** non tocca niente: farlo sarebbe cancellare eventi operativi
+ * senza un'azione esplicita su di loro (WP-14).
+ */
+export const applyWeeklyScheduleSlotChanges = async (
+  scope: Parameters<typeof import("./events").updateClubEvent>[0],
+  clubId: string,
+  attore: Parameters<typeof import("./events").updateClubEvent>[3],
+  options: { previousSchedule: unknown; nextSchedule: unknown; now?: Date },
+): Promise<ApplyWeeklyScheduleImpactResult[]> => {
+  const now = options.now ?? new Date();
+  const cambi = findWeeklyScheduleSlotChanges(
+    options.previousSchedule,
+    options.nextSchedule,
+  ).filter((cambio) => cambio.changeType === "modified" && cambio.next);
+
+  const { updateClubEvent } = await import("./events");
+
+  const risultati: ApplyWeeklyScheduleImpactResult[] = [];
+  for (const cambio of cambi) {
+    const successivo = cambio.next as NormalizedWeeklyScheduleSlot;
+    const eventi = await findFutureEventsForPreviousSlotDefinition(
+      clubId,
+      cambio.previous,
+      now,
+    );
+    const conPartecipazioni = await eventIdsConPartecipazioni(
+      eventi.map((evento) => evento.id),
+    );
+    const { safeEventIds } = classificaEventiPerSlot(eventi, conPartecipazioni);
+
+    let updatedCount = 0;
+    for (const eventId of safeEventIds) {
+      try {
+        await updateClubEvent(
+          scope,
+          eventId,
+          {
+            time: successivo.startTime,
+            endTime: successivo.endTime,
+            structureId: successivo.structureId,
+            locationId: successivo.locationId,
+            categoryId: successivo.categoryId,
+          },
+          attore,
+        );
+        updatedCount += 1;
+      } catch {
+        /*
+          Un evento che nel frattempo ha ricevuto una storia (appello,
+          convocazione) o e stato annullato non si tocca: `updateClubEvent`
+          lo rifiuta da solo (ADR-0112), e questa porta non insiste. Resta
+          nel conteggio degli scartati.
+        */
+      }
+    }
+
+    risultati.push({
+      slotId: cambio.slotId,
+      updatedCount,
+      skippedCount: safeEventIds.length - updatedCount,
+    });
+  }
+
+  return risultati;
+};
+
 const loadAutomationAthletes = async (clubId: string) => {
   const athletes = await prisma.athlete.findMany({
     where: { organization_id: clubId },
