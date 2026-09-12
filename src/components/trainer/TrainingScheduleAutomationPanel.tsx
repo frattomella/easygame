@@ -104,6 +104,49 @@ export function TrainingScheduleAutomationPanel({
     null,
   );
 
+  /* ---- Sospensioni/eccezioni (WP-15) ------------------------------------ */
+  const [newExclusionFrom, setNewExclusionFrom] = React.useState("");
+  const [newExclusionTo, setNewExclusionTo] = React.useState("");
+  const [newExclusionReason, setNewExclusionReason] = React.useState("");
+
+  const addExclusion = () => {
+    if (!newExclusionFrom) {
+      showToast("error", "Scegli almeno la data di inizio");
+      return;
+    }
+
+    const from = newExclusionFrom;
+    const to = newExclusionTo || newExclusionFrom;
+    if (to < from) {
+      showToast("error", "La data di fine non puo precedere l'inizio");
+      return;
+    }
+
+    setSettings((current) => ({
+      ...current,
+      exclusions: [
+        ...current.exclusions,
+        {
+          id: `excl-${from}-${to}-club-${Date.now()}`,
+          from,
+          to,
+          reason: newExclusionReason.trim() || null,
+          slotId: null,
+        },
+      ],
+    }));
+    setNewExclusionFrom("");
+    setNewExclusionTo("");
+    setNewExclusionReason("");
+  };
+
+  const removeExclusion = (id: string) => {
+    setSettings((current) => ({
+      ...current,
+      exclusions: current.exclusions.filter((exclusion) => exclusion.id !== id),
+    }));
+  };
+
   const loadSettings = React.useCallback(async () => {
     if (!activeClub?.id) {
       return;
@@ -610,6 +653,72 @@ export function TrainingScheduleAutomationPanel({
                   ? formatItDate(settings.generatedUntil)
                   : "Nessuna generazione ancora eseguita"}
               </p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-xl border p-4">
+            <p className="text-sm font-medium text-slate-900">
+              Sospensioni ed eccezioni
+            </p>
+            <p className="text-xs text-slate-500">
+              Un intervallo (vacanze, chiusura impianti) o un singolo giorno
+              in cui non generare: la regola resta attiva, riprende da sola
+              subito dopo.
+            </p>
+
+            {settings.exclusions.length > 0 ? (
+              <ul className="mt-3 space-y-2">
+                {settings.exclusions.map((exclusion) => (
+                  <li
+                    key={exclusion.id}
+                    className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2 text-sm"
+                  >
+                    <span>
+                      {formatItDate(exclusion.from)}
+                      {exclusion.to !== exclusion.from
+                        ? ` → ${formatItDate(exclusion.to)}`
+                        : ""}
+                      {exclusion.reason ? ` · ${exclusion.reason}` : ""}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeExclusion(exclusion.id)}
+                      className="h-7 w-7 text-slate-500 hover:text-red-600"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-xs text-slate-400">
+                Nessuna sospensione attiva.
+              </p>
+            )}
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-4">
+              <Input
+                type="date"
+                value={newExclusionFrom}
+                onChange={(event) => setNewExclusionFrom(event.target.value)}
+                aria-label="Dal"
+              />
+              <Input
+                type="date"
+                value={newExclusionTo}
+                onChange={(event) => setNewExclusionTo(event.target.value)}
+                aria-label="Al"
+                placeholder="Al (opzionale)"
+              />
+              <Input
+                value={newExclusionReason}
+                onChange={(event) => setNewExclusionReason(event.target.value)}
+                placeholder="Motivo (opzionale)"
+              />
+              <Button variant="outline" onClick={addExclusion}>
+                Aggiungi
+              </Button>
             </div>
           </div>
 

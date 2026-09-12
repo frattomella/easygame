@@ -27,6 +27,7 @@ import {
   resolveTrainingWeekday,
 } from "@/lib/training-utils";
 import {
+  isDateExcludedForSlot,
   parseTrainingAutomationSettings,
   shouldRunTrainingAutomation,
   type TrainingAutomationSettings,
@@ -1148,6 +1149,23 @@ export async function runTrainingAutomationForClub(
       );
 
       if (!trainingStart || trainingStart <= now) {
+        continue;
+      }
+
+      /*
+        **Una sospensione salta la data, non la regola** (WP-15): la
+        settimana dopo la pausa natalizia torna a generare da sola, perche
+        lo slot resta nel programma — solo quella singola occorrenza (o
+        l'intervallo) non nasce. Stesso concetto per un salto singolo:
+        `from === to`.
+      */
+      if (
+        isDateExcludedForSlot(
+          effectiveSettings.exclusions,
+          trainingDate,
+          scheduleItem.id,
+        )
+      ) {
         continue;
       }
 

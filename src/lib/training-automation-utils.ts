@@ -1,5 +1,21 @@
 export type TrainingAutomationFrequency = "weekly" | "interval";
 
+/**
+ * **Un'eccezione alla generazione** (WP-15): niente di nuovo da generare fra
+ * `from` e `to` (incluse), per lo slot indicato — o per **tutto** il
+ * programma se `slotId` e assente, che e la forma di una sospensione
+ * (vacanze natalizie, torneo, chiusura impianti). Un salto di una sola
+ * occorrenza e lo stesso concetto con `from === to`: non e un secondo
+ * modello, e lo stesso con un intervallo di un giorno.
+ */
+export type TrainingAutomationExclusion = {
+  id: string;
+  from: string;
+  to: string;
+  reason?: string | null;
+  slotId?: string | null;
+};
+
 export type TrainingAutomationSettings = {
   enabled: boolean;
   frequency: TrainingAutomationFrequency;
@@ -16,6 +32,8 @@ export type TrainingAutomationSettings = {
    * se stessa, per poterlo mostrare senza rileggere il calendario.
    */
   generatedUntil: string | null;
+  /** Le sospensioni/eccezioni attive (WP-15). Mai generate: la lista resta corta. */
+  exclusions: TrainingAutomationExclusion[];
 };
 
 export const TRAINING_AUTOMATION_DAY_LABELS: Record<string, string> = {
@@ -50,10 +68,59 @@ export const DEFAULT_TRAINING_AUTOMATION_SETTINGS: TrainingAutomationSettings = 
   generateDaysAhead: 21,
   lastRunAt: null,
   generatedUntil: null,
+  exclusions: [],
 };
 
 const isRecord = (value: unknown): value is Record<string, any> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const isValidIsoDate = (value: unknown) =>
+  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+const normalizeExclusion = (
+  value: unknown,
+): TrainingAutomationExclusion | null => {
+  if (!isRecord(value)) return null;
+
+  const from = String(value.from || "").slice(0, 10);
+  const to = String(value.to || value.from || "").slice(0, 10);
+  if (!isValidIsoDate(from) || !isValidIsoDate(to) || to < from) return null;
+
+  const slotId = String(value.slotId || "").trim() || null;
+  const reason = String(value.reason || "").trim() || null;
+  /*
+    Deterministico apposta: `parseTrainingAutomationSettings` gira a ogni
+    lettura, e un id casuale qui cambierebbe a ogni parse per una voce che
+    non ne ha ancora uno proprio — instabile esattamente dove servirebbe
+    stabile (confronti, chiavi React, rimozione mirata).
+  */
+  const id =
+    String(value.id || "").trim() || `excl-${from}-${to}-${slotId || "club"}`;
+
+  return { id, from, to, reason, slotId };
+};
+
+const normalizeExclusions = (value: unknown): TrainingAutomationExclusion[] =>
+  (Array.isArray(value) ? value : [])
+    .map(normalizeExclusion)
+    .filter((entry): entry is TrainingAutomationExclusion => Boolean(entry));
+
+/**
+ * Vero se `dateKey` (`YYYY-MM-DD`) cade in una sospensione che riguarda lo
+ * slot indicato — o tutto il programma, se la sospensione non nomina uno
+ * slot.
+ */
+export const isDateExcludedForSlot = (
+  exclusions: readonly TrainingAutomationExclusion[],
+  dateKey: string,
+  slotId: string | null | undefined,
+) =>
+  exclusions.some(
+    (exclusion) =>
+      dateKey >= exclusion.from &&
+      dateKey <= exclusion.to &&
+      (!exclusion.slotId || exclusion.slotId === slotId),
+  );
 
 const toPositiveInteger = (value: unknown, fallback: number, minimum = 1) => {
   const parsed = Number(value);
@@ -118,6 +185,7 @@ export const parseTrainingAutomationSettings = (
       source.generatedUntil === null || source.generatedUntil === undefined
         ? null
         : String(source.generatedUntil).slice(0, 10),
+    exclusions: normalizeExclusions(source.exclusions),
   };
 };
 

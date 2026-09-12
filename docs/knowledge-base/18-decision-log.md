@@ -11107,3 +11107,44 @@ stesso spazio dei nomi, due proprietari e due domande diverse.
 Verificato con `tests/lib/training-automation-permessi.test.mjs` (5 prove).
 
 ---
+
+## ADR-0175 — Sospensioni ed eccezioni: un salto e una sospensione sono la stessa cosa, con un intervallo diverso
+
+**Data:** 2026-09-12
+
+**Contesto.** WP-15 chiede di saltare una singola occorrenza o sospendere la
+generazione su un intervallo (vacanze natalizie, chiusura impianti), senza
+disattivare la regola — e senza costruire "un enorme sistema ferie". Prima
+non esisteva niente di equivalente: l'unico modo di evitare una fascia era
+disattivare l'intera regola (WP-14, ADR-0173) o cancellare a mano l'evento
+gia generato.
+
+**Decisione.** Un'unica lista di eccezioni,
+`settings.trainingAutomation.exclusions: Array<{id, from, to, reason?,
+slotId?}>` (date `YYYY-MM-DD`, incluse). Un salto singolo e `from === to`;
+una sospensione e `from < to`; l'assenza di `slotId` la estende a **tutto**
+il programma — non tre concetti, uno con un parametro in piu. Il filtro
+vive nel ciclo di generazione (`isDateExcludedForSlot`), sulla singola data
+candidata: la settimana dopo la sospensione il ciclo torna a generare da
+solo, perche la regola non e mai stata toccata.
+
+Non e legato a WP-08: un'eccezione impedisce generazioni **future**, non
+tocca eventi gia creati — nessuna interazione con
+`previewWeeklyScheduleImpact`/`applyWeeklyScheduleSlotChanges` necessaria.
+
+**UI**: il pannello Automazione elenca le sospensioni attive e permette di
+aggiungerne (data inizio, fine opzionale, motivo opzionale) o rimuoverle.
+Solo sospensioni **club-wide** sono raggiungibili da qui — il modello
+sostiene gia una sospensione per un singolo slot (`slotId`), ma un
+selettore di slot nell'editor resta debito minimo dichiarato, non
+implementato in questo commit: la forma piu comune (vacanze, chiusura
+impianti) e club-wide, e costruire il selettore ora senza un caso d'uso
+reale sarebbe esattamente il "sistema ferie" che il mandato chiede di non
+costruire.
+
+Verificato con `tests/server/sospensioni-generazione.test.mjs` (5 prove:
+funzione pura su salto singolo/sospensione club-wide/per-slot, integrazione
+su una sospensione club-wide e su una per singolo slot) e
+`tests/ui/sospensioni-automazione-panel.test.mjs` (1 prova statica).
+
+---
