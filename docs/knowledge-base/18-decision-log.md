@@ -11196,3 +11196,62 @@ piu due letture di `club.findUnique` su un blocco di 8 candidati) e con la
 sonda di performance su PostgreSQL reale, rieseguita dopo la correzione.
 
 ---
+
+## ADR-0177 — L'audit ostile del mandato: il gruppo operativo nell'identità di uno slot, e la chiave che protegge la generazione anche sulla rotta generica
+
+**Data:** 2026-09-12
+
+**Contesto.** A valle dei 9 commit di questo mandato, 4 reviewer indipendenti
+in sola lettura hanno cercato Critical/High su duplicati, sicurezza,
+identità delle risorse, audit/concorrenza/performance. Due reperti **High**
+condividono la stessa causa: `normalizeWeeklyScheduleSourceItem` non
+portava mai `groupId`/`group_id` nell'oggetto normalizzato, nonostante il
+ciclo di generazione lo leggesse già (`scheduleGroupId`) — un campo letto
+da un oggetto che non lo conteneva mai, sempre stringa vuota (D-AUD-30, già
+dichiarato ma classificato Low perché "non raggiungibile come duplicazione
+oggi"). L'audit ha trovato che la stessa assenza si propaga, con
+conseguenze più gravi, a due meccanismi diversi da quello per cui D-AUD-30
+era stato aperto:
+
+1. **`mergeWeeklyScheduleSources` scartava in silenzio una seconda squadra**
+   sullo stesso giorno/ora/struttura/campo con `groupId` diverso (il caso
+   ADR-0055: due sedi nella stessa fascia oraria) — non un doppione
+   mancato, una squadra che smette di generare allenamenti senza errore,
+   senza avviso, senza riga di audit.
+2. **`findWeeklyScheduleSlotChanges` (WP-08) era cieco a un cambio di sede
+   puro**: spostare una squadra da un gruppo operativo a un altro, senza
+   toccare giorno/ora/struttura/campo/categoria, non produceva mai un
+   avviso di impatto.
+
+Un terzo reperto, distinto ma nella stessa area: la nuova chiave
+`training_automation.manage` (ADR-0174) protegge le due rotte dedicate alla
+generazione, ma non il canale generico `PATCH /api/v1/clubs/:id` da cui
+`settings.trainingAutomation` (l'interruttore "Automazione attiva" e le
+sospensioni, WP-15) è scritto per davvero — stessa forma di buco che
+ADR-0153 aveva già chiuso per `seasons.change`, non replicata qui.
+
+**Decisione.**
+
+1. **`groupId` entra nell'oggetto normalizzato**, in
+   `buildWeeklyScheduleIdentityKey` (l'identità usata dal merge) e in
+   `CAMPI_CHE_SPOSTANO_LA_FASCIA` (il confronto di WP-08). Anche
+   `buildExistingTrainingKey` — il pre-filtro che confronta un candidato
+   con `clubs.trainings` — ora calcola la stessa chiave con lo stesso
+   gruppo, o le due metà del confronto (candidata ed esistente) tornavano
+   a divergere silenziosamente per i club che usano gruppi operativi.
+2. **`guardPlatformOwnedClubSettings` (`resources.ts`) guarda anche
+   `settings.trainingAutomation`**, con la stessa forma della guardia
+   già in campo per `seasons`/`activeSeasonId`: chi scrive quella sezione
+   dalla rotta generica deve portare `training_automation.manage`, o
+   riceve lo stesso rifiuto e la stessa riga di `permission.denied` che
+   riceverebbe dalla rotta dedicata. Le altre sezioni di `settings`
+   restano scrivibili come prima — la guardia guarda solo se
+   `trainingAutomation` è **davvero cambiato** nel confronto valore per
+   valore, non se è presente nel payload.
+
+Verificato con `tests/server/gruppo-operativo-identita-slot.test.mjs` (3
+prove) e `tests/server/permesso-generazione-da-rotta-generica.test.mjs` (4
+prove), oltre alla suite completa e alle sonde PostgreSQL reali, rieseguite
+senza regressioni.
+
+---

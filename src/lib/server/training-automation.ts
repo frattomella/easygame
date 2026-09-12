@@ -247,6 +247,18 @@ const toWeeklyScheduleEntries = (source: unknown): Record<string, any>[] => {
   return [];
 };
 
+/**
+ * **Il gruppo operativo entra nell'identità della voce** (chiude la parte di
+ * D-AUD-30 su questa chiave, trovata dall'audit ostile del mandato).
+ *
+ * Senza `groupId`/`group_id` qui, due squadre della stessa categoria nella
+ * stessa fascia fisica (stesso giorno/ora/struttura/campo — il caso ADR-0055
+ * esiste apposta per questo: due sedi, stessa fascia oraria) risultavano
+ * la **stessa** identità: `mergeWeeklyScheduleSources` ne scartava una in
+ * silenzio come "duplicato", prima ancora che il ciclo di generazione la
+ * vedesse. Non un doppione mancato: una squadra intera che smette di
+ * generare allenamenti senza errore, senza avviso, senza riga di audit.
+ */
 const buildWeeklyScheduleIdentityKey = (item: Record<string, any>) =>
   [
     item.day || "",
@@ -255,6 +267,7 @@ const buildWeeklyScheduleIdentityKey = (item: Record<string, any>) =>
     item.categoryId || item.category_id || item.category || "",
     item.structureId || item.structure_id || "",
     item.locationId || item.location_id || item.location || "",
+    item.groupId || item.group_id || "",
   ]
     .map((value) => String(value || "").trim())
     .join("|");
@@ -363,6 +376,15 @@ const normalizeWeeklyScheduleSourceItem = (item: Record<string, any>) => {
       item.field_id,
     ),
     location: getNonEmptyString(item.location, item.fieldName, item.field_name),
+    /*
+      **Il gruppo operativo, portato fino in fondo** (chiude D-AUD-30 sulla
+      chiave di deduplica della generazione, oltre a quella del merge qui
+      sopra). Prima questo campo veniva letto dal ciclo di generazione
+      (`scheduleItem.groupId`) su un oggetto che non lo conteneva mai:
+      sempre stringa vuota, quindi il gruppo non entrava mai davvero nella
+      chiave che distingue due squadre della stessa categoria in due sedi.
+    */
+    groupId: getNonEmptyString(item.groupId, item.group_id) || null,
     /*
       **Assente vale attivo** (WP-14). Ogni voce salvata prima che questo
       flag esistesse non ha `active` nel proprio JSON: leggerla come
@@ -487,6 +509,20 @@ const buildExistingTrainingKey = (
     resolveCategoryLabel(rawCategoryReference, categories) ||
     rawCategoryReference;
 
+  /*
+    **Lo stesso gruppo che la candidata userebbe** (chiude D-AUD-30 anche
+    qui): la chiave di un training gia esistente deve calcolarsi con la
+    stessa regola di una candidata nuova, o le due non si riconoscono a
+    vicenda — una squadra con gruppo operativo risulterebbe sempre "non
+    ancora generata" secondo questo pre-filtro, anche quando lo e gia.
+  */
+  const existingGroupId = getNonEmptyString(
+    Array.isArray(training.groupIds) ? training.groupIds[0] : undefined,
+    Array.isArray(training.group_ids) ? training.group_ids[0] : undefined,
+    training.groupId,
+    training.group_id,
+  );
+
   return buildTrainingDuplicateKey({
     trainingDate: formatLocalDateKey(trainingDate),
     time: startTime,
@@ -497,7 +533,7 @@ const buildExistingTrainingKey = (
       training.field_id,
       training.location,
     ),
-    categoryKey: resolvedCategory,
+    categoryKey: existingGroupId || resolvedCategory,
   });
 };
 
@@ -557,8 +593,12 @@ export type WeeklyScheduleSlotChange = {
  * I campi che spostano la fascia rispetto a cio che la generazione precedente
  * ha scritto: sono gli stessi che entrano nella chiave di deduplica
  * (`buildTrainingDuplicateKey`) piu il giorno, che decide quale weekday la
- * genera. Cambiarne uno vuol dire che gli eventi gia generati con la
- * definizione precedente non corrispondono piu a nessuna riga del programma.
+ * genera, piu il gruppo operativo — che chiude la propagazione di D-AUD-30
+ * su questo meccanismo: senza `groupId`, spostare una squadra da una sede
+ * a un'altra (stesso giorno/ora/campo/categoria, gruppo diverso) non
+ * produceva **nessun** avviso di impatto, in silenzio. Cambiarne uno vuol
+ * dire che gli eventi gia generati con la definizione precedente non
+ * corrispondono piu a nessuna riga del programma.
  */
 const CAMPI_CHE_SPOSTANO_LA_FASCIA = [
   "day",
@@ -567,6 +607,7 @@ const CAMPI_CHE_SPOSTANO_LA_FASCIA = [
   "structureId",
   "locationId",
   "categoryId",
+  "groupId",
 ] as const;
 
 const stessaFascia = (

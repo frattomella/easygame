@@ -82,6 +82,7 @@ import {
 import { toBirthDateIso } from "../birth-date";
 import { withPlatformOwnedSettings } from "../entitlements/ownership";
 import { hasSeasonPermission } from "@/lib/seasons/permissions";
+import { hasTrainingAutomationPermission } from "@/lib/training-automation-permissions";
 import { assertPersonalDataDisposed } from "./data-subject";
 import {
   normalizeAccessScopes,
@@ -7283,6 +7284,43 @@ const guardPlatformOwnedClubSettings = async (
     });
     throw new Error(
       "Accesso negato: la stagione attiva la cambia chi ne ha il permesso, e questa strada non lo chiedeva",
+    );
+  }
+
+  /*
+    **`training_automation.manage` aveva la stessa forma di buco** (trovato
+    dall'audit ostile del mandato Weekly Program & Training Automation): la
+    chiave protegge le due rotte dedicate alla generazione, ma
+    `settings.trainingAutomation` — che porta `enabled` (l'interruttore
+    "Automazione attiva"), `generateDaysAhead` e le sospensioni (WP-15) —
+    restava scrivibile da questa porta generica senza chiedere niente. Un
+    ruolo a cui il proprietario NON ha dato quella chiave poteva comunque
+    spegnere l'automazione, o sospenderla per un anno, scrivendo qui invece
+    che dalla rotta dedicata.
+  */
+  const toccaLAutomazione =
+    Object.prototype.hasOwnProperty.call(settingsNuovi, "trainingAutomation") &&
+    JSON.stringify(settingsNuovi.trainingAutomation ?? null) !==
+      JSON.stringify(settingsVecchi.trainingAutomation ?? null);
+
+  if (
+    toccaLAutomazione &&
+    scope &&
+    !hasTrainingAutomationPermission(scope.activeRole, "training_automation.manage")
+  ) {
+    await recordPermissionDenied({
+      scope: {
+        userId: scope.userId,
+        activeRole: scope.activeRole,
+        activeOrganizationId: scope.activeOrganizationId,
+      },
+      permission: "training_automation.manage",
+      resource: "clubs",
+      resourceId: String(organizationId || ""),
+      metadata: { reason: "training_automation_settings_from_generic_route" },
+    });
+    throw new Error(
+      "Accesso negato: la configurazione della generazione allenamenti la cambia chi ne ha il permesso, e questa strada non lo chiedeva",
     );
   }
 
