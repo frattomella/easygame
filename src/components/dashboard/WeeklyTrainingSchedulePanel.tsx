@@ -4,6 +4,7 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/toast-notification";
 import {
   Dialog,
@@ -65,6 +66,13 @@ export interface WeeklyTrainingItem {
   structureId: string;
   locationId: string;
   location?: string | null;
+  /**
+   * Assente o `true`: la voce genera. `false`: smette di generare **nuove**
+   * occorrenze, ma non tocca quelle gia create (WP-14) — la stessa
+   * distinzione di ADR-0169 fra "genera" e "cancella cio che ha gia
+   * generato".
+   */
+  active?: boolean;
 }
 
 interface WeeklyTrainingSchedulePanelProps {
@@ -341,6 +349,10 @@ export function WeeklyTrainingSchedule({
         locationId: resolvedLocationId,
         location:
           matchedLocation?.name || String(item?.location || item?.fieldName || "").trim() || null,
+        // Assente sul dato precedente al flag: si legge come attiva, non
+        // come disattivata (WP-14) — un vuoto non deve spegnere in silenzio
+        // ogni voce salvata prima che il flag esistesse.
+        active: item?.active === false ? false : true,
       };
     },
     [categories, effectiveLocations, groupedLocations],
@@ -361,6 +373,7 @@ export function WeeklyTrainingSchedule({
           structureId: item.structureId,
           locationId: item.locationId,
           location: item.location || null,
+          active: item.active === false ? false : true,
         })),
       ),
     [],
@@ -1024,13 +1037,24 @@ export function WeeklyTrainingSchedule({
                                     draggable={canDrag}
                                     onDragStart={() => setDraggedItemId(item.id)}
                                     onDragEnd={() => setDraggedItemId(null)}
-                                    className="rounded-xl border border-blue-100 bg-blue-50 p-3"
+                                    className={
+                                      item.active === false
+                                        ? "rounded-xl border border-slate-200 bg-slate-100 p-3 opacity-70"
+                                        : "rounded-xl border border-blue-100 bg-blue-50 p-3"
+                                    }
                                   >
                                     <div className="flex items-start justify-between gap-2">
                                       <div>
-                                        <p className="text-sm font-semibold text-slate-900">
-                                          {getScheduleItemLabel(item)}
-                                        </p>
+                                        <div className="flex items-center gap-2">
+                                          <p className="text-sm font-semibold text-slate-900">
+                                            {getScheduleItemLabel(item)}
+                                          </p>
+                                          {item.active === false ? (
+                                            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                              Disattivato
+                                            </span>
+                                          ) : null}
+                                        </div>
                                         <p className="text-xs text-slate-500">
                                           {item.startTime} - {item.endTime}
                                         </p>
@@ -1507,6 +1531,27 @@ export function WeeklyTrainingSchedule({
                     </p>
                   )}
                 </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded-xl border bg-slate-50 p-3 md:col-span-2">
+                <div>
+                  <p className="text-sm font-medium text-slate-900">
+                    Regola attiva
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Disattivata, questa voce smette di generare nuovi
+                    allenamenti. Quelli gia creati restano: disattivare non li
+                    tocca.
+                  </p>
+                </div>
+                <Switch
+                  checked={editingTraining.active !== false}
+                  onCheckedChange={(checked) =>
+                    setEditingTraining((current) =>
+                      current ? { ...current, active: checked } : current,
+                    )
+                  }
+                />
               </div>
             </div>
           )}

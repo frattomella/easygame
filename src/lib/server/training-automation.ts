@@ -362,6 +362,13 @@ const normalizeWeeklyScheduleSourceItem = (item: Record<string, any>) => {
       item.field_id,
     ),
     location: getNonEmptyString(item.location, item.fieldName, item.field_name),
+    /*
+      **Assente vale attivo** (WP-14). Ogni voce salvata prima che questo
+      flag esistesse non ha `active` nel proprio JSON: leggerla come
+      disattivata spegnerebbe in silenzio l'intero programma settimanale di
+      ogni club che non ha mai toccato il campo.
+    */
+    active: item.active === false ? false : true,
   };
 };
 
@@ -593,6 +600,18 @@ export const findWeeklyScheduleSlotChanges = (
     const next = nextById.get(previous.id) || null;
 
     if (!next) {
+      changes.push({ slotId: previous.id, changeType: "removed", previous, next: null });
+      continue;
+    }
+
+    /*
+      **Disattivare e trattato come "removed"** (WP-14): smette di generare
+      nuove occorrenze esattamente come una voce tolta, e allo stesso modo
+      non deve offrire un aggiornamento in blocco — non c'e una nuova
+      definizione a cui aggiornare quelle esistenti, solo la fine della
+      generazione futura.
+    */
+    if (previous.active !== false && next.active === false) {
       changes.push({ slotId: previous.id, changeType: "removed", previous, next: null });
       continue;
     }
@@ -1115,7 +1134,10 @@ export async function runTrainingAutomationForClub(
     }
 
     const daySchedule = weeklySchedule.filter(
-      (item) => resolveTrainingWeekday(item) === currentWeekday,
+      // Una regola disattivata smette di generare nuove occorrenze, e non
+      // tocca quelle gia create (WP-14): il filtro sta qui, non a monte —
+      // gli eventi gia esistenti restano leggibili da existingKeys.
+      (item) => resolveTrainingWeekday(item) === currentWeekday && item.active !== false,
     );
 
     for (const scheduleItem of daySchedule) {

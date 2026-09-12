@@ -4117,19 +4117,21 @@ club_events` (WEB App). Dettaglio della decisione in
 | **Nessuno scoping di stagione nella training-automation** | ~~**CHIUSO**~~ | Non aveva un numero di debito proprio (trovato durante questo audit, non nella lista precedente). `runTrainingAutomationForClub` filtra ora `weekly_schedule` per stagione attiva con `filterCollectionBySeason`, e marca `season_id` sugli eventi generati. `tests/server/training-automation-stagione.test.mjs` (2 prove) |
 
 Restano aperti e fuori da questo commit, perche sono lavoro distinto (vedi
-il mandato in corso per il piano completo): il flag attivo/disattivato per
-singolo slot (WP-14), un modello minimo di sospensioni/eccezioni (WP-15),
-la granularita dei permessi per i ruoli personalizzati (`D-AUD-25`,
-invariato, WP-19), e una misura di performance a scala realistica (WP-20).
+il mandato in corso per il piano completo): un modello minimo di
+sospensioni/eccezioni (WP-15), la granularita dei permessi per i ruoli
+personalizzati (`D-AUD-25`, invariato, WP-19), e una misura di performance a
+scala realistica (WP-20).
 
 «Genera fino a...» con data assoluta e preview (WP-03, WP-17), la
 distinzione esplicita fra evento generato invariato e generato-poi-
-modificato-a-mano (WP-10), e l'impatto di una modifica al programma
-settimanale sugli eventi futuri gia generati (WP-08) sono stati chiusi in
-commit successivi dello stesso mandato — vedi
+modificato-a-mano (WP-10), l'impatto di una modifica al programma
+settimanale sugli eventi futuri gia generati (WP-08), e il flag attivo/
+disattivato per singolo slot (WP-14) sono stati chiusi in commit successivi
+dello stesso mandato — vedi
 [ADR-0170](18-decision-log.md#adr-0170--genera-fino-a-anteprima-e-perche-un-campo-chiuso-non-ferma-piu-una-generazione-lunga),
-[ADR-0171](18-decision-log.md#adr-0171--un-evento-generato-sa-dire-se-e-ancora-quello-che-lautomazione-ha-scritto)
-e [ADR-0172](18-decision-log.md#adr-0172--limpatto-di-una-modifica-al-programma-settimanale-e-un-avviso-dopo-lautosave-non-una-finestra-prima).
+[ADR-0171](18-decision-log.md#adr-0171--un-evento-generato-sa-dire-se-e-ancora-quello-che-lautomazione-ha-scritto),
+[ADR-0172](18-decision-log.md#adr-0172--limpatto-di-una-modifica-al-programma-settimanale-e-un-avviso-dopo-lautosave-non-una-finestra-prima)
+e [ADR-0173](18-decision-log.md#adr-0173--una-regola-disattivata-smette-di-generare-e-conta-come-una-rimozione-per-limpatto).
 
 | # | Gravita | Cosa | Da dove si riparte |
 |---|---------|------|--------------------|

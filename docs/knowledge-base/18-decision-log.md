@@ -11018,3 +11018,39 @@ esecuzione, nessun effetto per una voce rimossa) e
 `tests/ui/weekly-schedule-impact-banner.test.mjs` (4 prove statiche).
 
 ---
+
+## ADR-0173 — Una regola disattivata smette di generare, e conta come una rimozione per l'impatto
+
+**Data:** 2026-09-12
+
+**Contesto.** WP-14 chiede che una voce del programma settimanale possa
+essere disattivata senza cancellare gli allenamenti che ha gia generato:
+"smette di generare nuove occorrenze", non "cancella cio che esiste". Il
+modello non aveva un flag di questo tipo — rimuovere una voce dall'array
+era l'unico modo, e non lasciava traccia del fatto che fosse esistita.
+
+**Decisione.**
+
+1. **`active?: boolean` sullo slot**, assente o `true` = genera, `false` =
+   non genera piu. Un valore assente si legge come `true`: ogni voce
+   salvata prima che il campo esistesse non deve spegnersi in silenzio.
+2. **Il filtro sta nel ciclo di generazione, non a monte.** `weeklySchedule`
+   porta ancora le voci disattivate (servono a `previewWeeklyScheduleImpact`
+   per trovare gli eventi che hanno generato); e il confronto per giorno
+   della settimana, dentro il ciclo, a escluderle dalla creazione di nuove
+   occorrenze.
+3. **Disattivare conta come "removed" per l'impatto** (ADR-0172, WP-08): la
+   stessa conseguenza pratica — smette di generare, non tocca cio che
+   esiste — merita lo stesso messaggio ("X allenamenti futuri gia
+   generati"), non un secondo tipo di avviso. Riattivare una regola
+   invariata non e un cambiamento da segnalare: non c'e niente a rischio.
+4. **UI**: un interruttore "Regola attiva" nel dialog di modifica, con
+   l'avviso esplicito che disattivare non tocca gli allenamenti gia creati;
+   una voce disattivata resta visibile nell'elenco, in grigio, con
+   un'etichetta — sparire del tutto avrebbe fatto perdere la regola invece
+   di sospenderla.
+
+Verificato con `tests/server/programma-disattivato.test.mjs` (4 prove) e
+`tests/ui/programma-settimanale-toggle-attivo.test.mjs` (2 prove statiche).
+
+---
