@@ -825,10 +825,24 @@ export function WeeklyTrainingSchedule({
     }));
   }, [groups, categories]);
 
-  const groupsPerCategory = React.useMemo(() => {
+  /*
+    **Il conteggio e per nome, non per `categoryId`** (pilota Fortitudo Scauri;
+    stessa famiglia di difetto di P0-4 e D-AUD-35, ma un terzo lettore: quello
+    non toccava questa select).
+
+    Un club puo avere due categorie *diverse* — due identificativi veri,
+    ADR-0155 — chiamate entrambe «Pulcini»: dato storico, precedente ai
+    gruppi, in cui ogni sede aveva la propria anagrafica categoria. Ciascuna
+    ha un solo gruppo operativo, e contare per `categoryId` darebbe sempre
+    uno: la sede non compariva mai, e le due squadre si leggevano come due
+    voci «Pulcini» identiche e indistinguibili in ogni tendina di questo
+    pannello. Il conteggio giusto e quello del **nome scritto a schermo**.
+  */
+  const groupsPerCategoryName = React.useMemo(() => {
     const counts = new Map<string, number>();
     groupOptions.forEach((group) => {
-      counts.set(group.categoryId, (counts.get(group.categoryId) || 0) + 1);
+      const key = group.categoryName.trim().toLowerCase();
+      counts.set(key, (counts.get(key) || 0) + 1);
     });
     return counts;
   }, [groupOptions]);
@@ -840,10 +854,11 @@ export function WeeklyTrainingSchedule({
   */
   const getGroupLabel = React.useCallback(
     (group: TrainingGroupOption) =>
-      (groupsPerCategory.get(group.categoryId) || 0) > 1 && group.siteName
+      (groupsPerCategoryName.get(group.categoryName.trim().toLowerCase()) || 0) > 1 &&
+      group.siteName
         ? `${group.categoryName}${CATEGORY_GROUP_SEPARATOR}${group.siteName}`
         : group.categoryName,
-    [groupsPerCategory],
+    [groupsPerCategoryName],
   );
 
   /** Il gruppo di una riga: dichiarato, o dedotto dalla sua categoria. */
@@ -1371,17 +1386,17 @@ export function WeeklyTrainingSchedule({
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
                 <option value="" disabled>
-                  {categories.length > 0
-                    ? "Seleziona categoria"
-                    : "Nessuna categoria disponibile"}
+                  {groupOptions.length > 0
+                    ? "Seleziona gruppo"
+                    : "Nessun gruppo disponibile"}
                 </option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
+                {groupOptions.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {getGroupLabel(group)}
                   </option>
                 ))}
               </select>
-              {categories.length === 0 && (
+              {groupOptions.length === 0 && (
                 <p className="text-xs text-muted-foreground">
                   Nessuna categoria registrata per questo club.
                 </p>

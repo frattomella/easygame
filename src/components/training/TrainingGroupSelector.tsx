@@ -45,11 +45,21 @@ export function TrainingGroupSelector({
   /*
     L'etichetta porta la sede solo quando serve a distinguere: con una squadra
     sola per categoria «Pulcini · Scauri» aggiunge rumore e non informazione.
+
+    **Il conteggio e per nome, non per `categoryId`** (pilota Fortitudo Scauri;
+    stessa famiglia di difetto di P0-4 e D-AUD-35, ma un terzo lettore).
+    Un club puo avere due categorie *diverse* — due identificativi veri,
+    ADR-0155 — chiamate entrambe «Pulcini», dato storico precedente ai gruppi:
+    ciascuna ha un solo gruppo, e contare per `categoryId` darebbe sempre uno,
+    quindi mai la sede. Il nome mostrato e cio che l'utente confronta, ed e
+    la sede a doverlo distinguere quando due gruppi — dello stesso
+    identificativo o di due omonimi — scrivono la stessa scritta.
   */
-  const groupsPerCategory = React.useMemo(() => {
+  const groupsPerCategoryName = React.useMemo(() => {
     const counts = new Map<string, number>();
     groups.forEach((group) => {
-      counts.set(group.categoryId, (counts.get(group.categoryId) || 0) + 1);
+      const key = group.categoryName.trim().toLowerCase();
+      counts.set(key, (counts.get(key) || 0) + 1);
     });
     return counts;
   }, [groups]);
@@ -61,8 +71,8 @@ export function TrainingGroupSelector({
         {groups.length ? (
           groups.map((group) => {
             const showSite =
-              (groupsPerCategory.get(group.categoryId) || 0) > 1 &&
-              Boolean(group.siteName);
+              (groupsPerCategoryName.get(group.categoryName.trim().toLowerCase()) ||
+                0) > 1 && Boolean(group.siteName);
 
             return (
               <label
