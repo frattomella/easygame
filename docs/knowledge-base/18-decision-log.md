@@ -10858,3 +10858,60 @@ con evento esistente, conflitto interno al blocco, evento annullato non
 occupa piu il suo posto, sedi/campi diversi non sono un conflitto).
 
 ---
+
+## ADR-0170 — "Genera fino a...", anteprima, e perche un campo chiuso non ferma piu una generazione lunga
+
+**Data:** 2026-09-12
+
+**Contesto.** Il mandato Weekly Program & Training Automation chiede
+un'azione manuale "Genera fino a una data assoluta", con un'anteprima prima
+di eseguire, riusando lo stesso servizio di generazione dell'automazione —
+non un secondo generatore. Oggi l'unica leva esistente era la finestra
+rolling relativa (`generateDaysAhead`, minimo 7 giorni), pensata per
+un'esecuzione quotidiana breve, non per pianificare mesi in anticipo.
+
+**Decisione.**
+
+1. **Stesso planner, stesso scrittore, una data invece di un numero di
+   giorni.** `runTrainingAutomationForClub` accetta `untilDate`: quando
+   presente, sostituisce il calcolo della finestra rolling con la data
+   richiesta. Limite: **366 giorni** da oggi
+   (`MAX_MANUAL_GENERATION_DAYS_AHEAD`, `training-automation.ts`) — oltre,
+   la richiesta e un rifiuto esplicito (`reason: "until_out_of_range"`), non
+   un troncamento silenzioso.
+2. **L'anteprima e un calcolo, non una seconda implementazione.**
+   `createClubEventsBatch` accetta `soloAnteprima`: applica le stesse
+   guardie di permesso e perimetro, lo stesso controllo di campo chiuso, lo
+   stesso controllo di sovrapposizione (ADR-0169) — e si ferma prima di
+   `createMany`/`projectEventsToClubColumn`/l'audit. Verificato
+   (`tests/server/training-automation-genera-fino-a.test.mjs`) che
+   anteprima ed esecuzione concordano sul numero di righe.
+3. **Un campo chiuso, su un intervallo lungo, si salta e si riporta — non
+   ferma piu tutto.** La regola esistente ("una persona riceve il rifiuto,
+   e cio su cui puo agire", ADR-0156) resta per "Genera ora" — pochi giorni,
+   dove un rifiuto netto e correggibile subito. "Genera fino a..." e
+   l'anteprima coprono invece un intervallo pensato per essere lungo: un
+   giorno con l'impianto chiuso non deve bloccare la generazione di mesi.
+   La riga si salta e torna nel riepilogo come esclusa, esattamente come gia
+   fa il cron.
+4. **Il riepilogo ha quattro numeri, non uno**: creati, gia esistenti,
+   conflitti (ADR-0169), esclusi. `AutomationRunResult` porta
+   `existingCount` ed `excludedCount` accanto a `generatedCount` e
+   `conflicts`.
+5. **"Generato fino al" e cio che l'ultima esecuzione ha scritto di se
+   stessa**, non uno stato calcolato a parte: persistito in
+   `settings.trainingAutomation.generatedUntil`, e **non regredisce** — il
+   cron notturno con la sua finestra di 21 giorni non deve far dimenticare
+   una generazione di dicembre fatta con "Genera fino a...".
+6. **UI**: il preset dei giorni della finestra automatica diventa una
+   scelta chiusa (7/14/21 default/30/60) invece di un numero libero — la
+   disattivazione resta l'interruttore "Automazione attiva" gia esistente,
+   nessun secondo modo di dire la stessa cosa. "Genera fino a..." e
+   l'anteprima vivono nello stesso pannello (`TrainingScheduleAutomationPanel`),
+   dietro lo stesso endpoint canonico.
+
+Verificato con `tests/server/training-automation-genera-fino-a.test.mjs` (6
+prove) e `tests/ui/training-schedule-automation-panel.test.mjs` (5 prove,
+statiche sulla sorgente — nessun renderer React in questa suite).
+
+---

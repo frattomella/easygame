@@ -2734,9 +2734,17 @@ const toEsitoConflitto = (voce: {
  * allenamenti riscriveva la colonna del club trenta volte, ed era la ragione
  * per cui la generazione impiegava secondi.
  *
- * Torna `{ righe, conflitti }`: le righe create e le righe scartate per
- * sovrapposizione, con abbastanza dettaglio da mostrare «conflitto da
- * verificare» senza rileggere niente (WP-07, chiude D-AUD-22).
+ * Torna `{ righe, conflitti, esclusi }`: le righe create, le righe scartate
+ * per sovrapposizione con abbastanza dettaglio da mostrare «conflitto da
+ * verificare» senza rileggere niente (WP-07, chiude D-AUD-22), e quante
+ * sono state escluse perche il campo era chiuso.
+ *
+ * Con `soloAnteprima`, fa lo stesso calcolo — stesse guardie, stesso
+ * controllo di sovrapposizione, stesso controllo di campo chiuso — ma non
+ * scrive niente: `righe` porta le candidate che **verrebbero** create (senza
+ * `id`, non sono righe vere), per una "Genera fino a..." che mostra un
+ * riepilogo prima di eseguire con le stesse regole di dominio dell'esecuzione
+ * reale (WP-17).
  */
 export const createClubEventsBatch = async (
   scope: EventsScope,
@@ -2750,6 +2758,8 @@ export const createClubEventsBatch = async (
      * l unica risposta possibile per un lavoro di sfondo.
      */
     campoChiuso?: "rifiuta" | "salta";
+    /** Calcola e torna il risultato senza scrivere niente (WP-17). */
+    soloAnteprima?: boolean;
   } = {},
 ) => {
   await assertEventsPermission(scope, "events.manage");
@@ -2768,7 +2778,7 @@ export const createClubEventsBatch = async (
     });
   }
 
-  if (!righe.length) return { righe: [], conflitti: [] };
+  if (!righe.length) return { righe: [], conflitti: [], esclusi: 0 };
 
   /*
     Il perimetro si legge **una volta** per l'intero blocco: e la ragione per
@@ -2838,7 +2848,7 @@ export const createClubEventsBatch = async (
     ? righe.filter((riga) => !saltate.some((scarto) => scarto.riga === riga))
     : righe;
 
-  if (!daCreare.length) return { righe: [], conflitti: [] };
+  if (!daCreare.length) return { righe: [], conflitti: [], esclusi: saltate.length };
 
   const conflitti = await rilevaConflittiSovrapposizione(organizationId, daCreare);
   const inConflitto = new Set(conflitti.map((c) => c.riga));
@@ -2847,7 +2857,26 @@ export const createClubEventsBatch = async (
     : daCreare;
 
   if (!senzaConflitto.length) {
-    return { righe: [], conflitti: conflitti.map(toEsitoConflitto) };
+    return {
+      righe: [],
+      conflitti: conflitti.map(toEsitoConflitto),
+      esclusi: saltate.length,
+    };
+  }
+
+  /*
+    **L'anteprima si ferma qui** (WP-17): stesse guardie, stesso controllo di
+    campo chiuso, stesso controllo di sovrapposizione di sopra — la sola
+    differenza e che da qui in poi non si scrive niente. Le righe che
+    "verrebbero create" sono le candidate stesse: non hanno un `id` reale
+    perche nessuna riga esiste ancora.
+  */
+  if (opzioni.soloAnteprima) {
+    return {
+      righe: senzaConflitto,
+      conflitti: conflitti.map(toEsitoConflitto),
+      esclusi: saltate.length,
+    };
   }
 
   /*
@@ -2912,7 +2941,11 @@ export const createClubEventsBatch = async (
     },
   });
 
-  return { righe: righeCreate, conflitti: conflitti.map(toEsitoConflitto) };
+  return {
+    righe: righeCreate,
+    conflitti: conflitti.map(toEsitoConflitto),
+    esclusi: saltate.length,
+  };
 };
 
 export { toEventLegacyShape };

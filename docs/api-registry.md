@@ -857,7 +857,11 @@ ovunque — perche e l'unico che **cancella righe**.
 
 - `POST /api/v1/training-automation` — la stessa generazione sul solo club
   attivo, a mano. Richiede una sessione e un ruolo che possa configurare il
-  club
+  club. Corpo: `force`, `weeklySchedule`/`settings` (override), e da WP-03/
+  WP-17 anche `untilDate` (data assoluta invece della finestra rolling,
+  limite `MAX_MANUAL_GENERATION_DAYS_AHEAD` = 366 giorni) e `preview`
+  (calcola senza scrivere). Risposta: `generatedCount`, `existingCount`,
+  `excludedCount`, `conflicts[]`, `generatedUntil`
 - `POST /api/medical-certificate-reminders` — il promemoria su **un** atleta,
   a mano dalla segreteria. Richiede una sessione e l'atleta deve appartenere a
   un club nello scope

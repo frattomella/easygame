@@ -6,6 +6,7 @@ import {
 import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { authorizeCronRequest } from "@/lib/server/cron-auth";
 import {
+  MAX_MANUAL_GENERATION_DAYS_AHEAD,
   runDueTrainingAutomationForAllClubs,
   runTrainingAutomationForClub,
 } from "@/lib/server/training-automation";
@@ -76,8 +77,27 @@ export async function POST(request: NextRequest) {
         force: Boolean(body?.force ?? true),
         weeklyScheduleOverride: body?.weeklySchedule,
         settingsOverride: body?.settings,
+        /*
+          **"Genera fino a..." e l'anteprima** (WP-03, WP-17): la stessa
+          rotta, con una data assoluta al posto della finestra relativa e,
+          quando richiesto, senza scrivere niente. Nessun secondo endpoint.
+        */
+        untilDate: body?.untilDate ?? null,
+        preview: Boolean(body?.preview),
       },
     );
+
+    if (result.reason === "until_out_of_range") {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            message: `La data richiesta e fuori dall'intervallo consentito (fino a ${MAX_MANUAL_GENERATION_DAYS_AHEAD} giorni da oggi)`,
+          },
+        },
+        { status: 400 },
+      );
+    }
 
     return NextResponse.json({
       data: result,

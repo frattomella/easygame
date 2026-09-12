@@ -9,6 +9,13 @@ export type TrainingAutomationSettings = {
   startDate: string;
   generateDaysAhead: number;
   lastRunAt: string | null;
+  /**
+   * L'ultimo giorno fino a cui un'esecuzione (automatica, manuale o
+   * «Genera fino a...») ha davvero generato, in `YYYY-MM-DD` (WP-16). Non e
+   * uno stato calcolato a parte: e cio che l'ultima esecuzione ha scritto di
+   * se stessa, per poterlo mostrare senza rileggere il calendario.
+   */
+  generatedUntil: string | null;
 };
 
 export const TRAINING_AUTOMATION_DAY_LABELS: Record<string, string> = {
@@ -42,6 +49,7 @@ export const DEFAULT_TRAINING_AUTOMATION_SETTINGS: TrainingAutomationSettings = 
   startDate: todayIsoDate(),
   generateDaysAhead: 21,
   lastRunAt: null,
+  generatedUntil: null,
 };
 
 const isRecord = (value: unknown): value is Record<string, any> =>
@@ -106,6 +114,10 @@ export const parseTrainingAutomationSettings = (
       source.lastRunAt === null || source.lastRunAt === undefined
         ? null
         : String(source.lastRunAt),
+    generatedUntil:
+      source.generatedUntil === null || source.generatedUntil === undefined
+        ? null
+        : String(source.generatedUntil).slice(0, 10),
   };
 };
 

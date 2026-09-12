@@ -23,12 +23,51 @@ import {
 } from "@/lib/training-automation-utils";
 import {
   CalendarClock,
+  CalendarRange,
   RefreshCw,
   RotateCcw,
   Save,
   Sparkles,
   Trash2,
 } from "lucide-react";
+
+/** Preset del rolling automatico (WP-02): 7 / 14 / 21 (default) / 30 / 60 giorni. */
+const GENERATE_DAYS_AHEAD_PRESETS = [7, 14, 21, 30, 60] as const;
+
+/**
+ * La stessa forma di `BatchConflict` (`src/lib/server/events.ts`), ripetuta
+ * qui invece di importata: un componente client non importa `src/lib/server/**`
+ * (CLAUDE.md §8), nemmeno un tipo che si cancella alla compilazione.
+ */
+type GenerateUntilConflict = {
+  data: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  structureId: string | null;
+  fieldId: string | null;
+  siteId: string | null;
+  legacyId: string | null;
+  conflictsWith: Array<{ id: string; title: string | null }>;
+};
+
+type GenerateUntilResponse = {
+  ran: boolean;
+  due: boolean;
+  generatedCount: number;
+  existingCount: number;
+  excludedCount: number;
+  conflicts: GenerateUntilConflict[];
+  preview: boolean;
+  generatedUntil: string | null;
+  reason?: string;
+};
+
+const formatItDate = (value: string) => {
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString("it-IT");
+};
 
 const formatNextRun = (settings: TrainingAutomationSettings) =>
   getNextTrainingAutomationRun(settings).toLocaleString("it-IT", {
@@ -55,6 +94,14 @@ export function TrainingScheduleAutomationPanel({
   const [isSaving, setIsSaving] = React.useState(false);
   const [settings, setSettings] = React.useState<TrainingAutomationSettings>(
     DEFAULT_TRAINING_AUTOMATION_SETTINGS,
+  );
+
+  /* ---- "Genera fino a..." + anteprima (WP-03, WP-17) ------------------- */
+  const [untilDate, setUntilDate] = React.useState("");
+  const [isPreviewing, setIsPreviewing] = React.useState(false);
+  const [isGeneratingUntil, setIsGeneratingUntil] = React.useState(false);
+  const [preview, setPreview] = React.useState<GenerateUntilResponse | null>(
+    null,
   );
 
   const loadSettings = React.useCallback(async () => {
@@ -168,6 +215,101 @@ export function TrainingScheduleAutomationPanel({
       setIsGenerating(false);
     }
   }, [activeClub?.id, onGenerateTrainings, settings, showToast, weeklySchedule]);
+
+  /*
+    **"Genera fino a..." usa lo stesso servizio di generazione** dell'
+    automazione — la stessa rotta, lo stesso planner, lo stesso scrittore
+    canonico — con una data assoluta al posto della finestra relativa
+    (WP-03). L'anteprima e l'esecuzione passano dalla stessa funzione, con
+    `preview` a cambiare se si scrive o no (WP-17): le stesse regole di
+    dominio decidono in tutti e due i casi.
+  */
+  const runGenerateUntil = React.useCallback(
+    async (mode: "preview" | "execute") => {
+      if (!activeClub?.id) {
+        showToast("error", "Nessun club attivo selezionato");
+        return;
+      }
+
+      if (!untilDate) {
+        showToast("error", "Scegli prima una data");
+        return;
+      }
+
+      if (!Array.isArray(weeklySchedule) || weeklySchedule.length === 0) {
+        showToast(
+          "error",
+          "Configura prima il programma settimanale per generare gli allenamenti",
+        );
+        return;
+      }
+
+      const setLoading =
+        mode === "preview" ? setIsPreviewing : setIsGeneratingUntil;
+      setLoading(true);
+      try {
+        const response = await apiRequest<GenerateUntilResponse>(
+          "/api/v1/training-automation",
+          {
+            method: "POST",
+            body: {
+              force: true,
+              weeklySchedule,
+              settings,
+              untilDate,
+              preview: mode === "preview",
+            },
+          },
+        );
+
+        if (response.error) {
+          throw new Error(response.error.message || "Generazione fallita");
+        }
+
+        const data = response.data;
+        if (!data) {
+          return;
+        }
+
+        if (data.reason === "missing_schedule") {
+          showToast(
+            "error",
+            "Il programma settimanale non contiene sessioni valide da generare",
+          );
+          return;
+        }
+
+        if (mode === "preview") {
+          setPreview(data);
+          return;
+        }
+
+        setPreview(null);
+        setSettings((current) => ({
+          ...current,
+          lastRunAt: new Date().toISOString(),
+          generatedUntil: data.generatedUntil ?? current.generatedUntil,
+        }));
+        onGenerateTrainings();
+
+        showToast(
+          "success",
+          `Generazione completata: ${data.generatedCount} creati, ${data.existingCount} già esistenti, ${data.conflicts.length} conflitti, ${data.excludedCount} esclusi`,
+        );
+      } catch (error) {
+        console.error("Error generating trainings until date:", error);
+        showToast(
+          "error",
+          error instanceof Error && error.message
+            ? error.message
+            : "Errore nella generazione degli allenamenti",
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [activeClub?.id, onGenerateTrainings, settings, showToast, untilDate, weeklySchedule],
+  );
 
   const saveManualSettings = async () => {
     try {
@@ -419,23 +561,29 @@ export function TrainingScheduleAutomationPanel({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="generate-days-ahead">
-                Giorni da generare in anticipo
+                Generazione automatica
               </Label>
-              <Input
+              <select
                 id="generate-days-ahead"
-                type="number"
-                min={7}
                 value={settings.generateDaysAhead}
                 onChange={(event) =>
                   setSettings((prev) => ({
                     ...prev,
-                    generateDaysAhead: Math.max(
-                      7,
-                      Number(event.target.value || 7),
-                    ),
+                    generateDaysAhead: Number(event.target.value),
                   }))
                 }
-              />
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                {GENERATE_DAYS_AHEAD_PRESETS.map((giorni) => (
+                  <option key={giorni} value={giorni}>
+                    {giorni} giorni{giorni === 21 ? " (predefinito)" : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500">
+                Per disattivare la generazione automatica, usa
+                l&apos;interruttore &quot;Automazione attiva&quot;.
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -448,9 +596,21 @@ export function TrainingScheduleAutomationPanel({
             </div>
           </div>
 
-          <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
-            <p className="font-medium text-slate-900">Prossima esecuzione</p>
-            <p className="mt-1">{formatNextRun(settings)}</p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">Prossima esecuzione</p>
+              <p className="mt-1">{formatNextRun(settings)}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+              <p className="font-medium text-slate-900">
+                Allenamenti generati fino al
+              </p>
+              <p className="mt-1">
+                {settings.generatedUntil
+                  ? formatItDate(settings.generatedUntil)
+                  : "Nessuna generazione ancora eseguita"}
+              </p>
+            </div>
           </div>
 
           <div className="mt-4 flex flex-wrap justify-end gap-2">
@@ -472,6 +632,83 @@ export function TrainingScheduleAutomationPanel({
               {isSaving ? "Salvataggio..." : "Salva impostazioni"}
             </Button>
           </div>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-2">
+            <Label htmlFor="generate-until-date">Genera fino a...</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                id="generate-until-date"
+                type="date"
+                value={untilDate}
+                onChange={(event) => {
+                  setUntilDate(event.target.value);
+                  setPreview(null);
+                }}
+                className="w-auto"
+              />
+              <Button
+                variant="outline"
+                onClick={() => runGenerateUntil("preview")}
+                disabled={isPreviewing || isGeneratingUntil || !untilDate}
+              >
+                {isPreviewing ? (
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CalendarRange className="mr-2 h-4 w-4" />
+                )}
+                Anteprima
+              </Button>
+            </div>
+            <p className="text-xs text-slate-500">
+              Usa lo stesso motore di generazione dell&apos;automazione, con
+              una data assoluta al posto della finestra a giorni.
+            </p>
+          </div>
+
+          {preview ? (
+            <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-700">
+              <p className="font-medium text-slate-900">
+                Generazione fino al {formatItDate(untilDate)}
+              </p>
+              <p className="mt-1">
+                Da creare: {preview.generatedCount} · Già esistenti:{" "}
+                {preview.existingCount} · Conflitti: {preview.conflicts.length}{" "}
+                · Esclusi: {preview.excludedCount}
+              </p>
+              {preview.conflicts.length > 0 ? (
+                <p className="mt-1 text-amber-700">
+                  {preview.conflicts.length} fascia
+                  {preview.conflicts.length === 1 ? "" : "e"} da verificare:
+                  occupano un posto gia occupato e non verranno create.
+                </p>
+              ) : null}
+              <div className="mt-3 flex flex-wrap justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setPreview(null)}
+                  disabled={isGeneratingUntil}
+                >
+                  Annulla
+                </Button>
+                <Button
+                  onClick={() => runGenerateUntil("execute")}
+                  disabled={isGeneratingUntil}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  {isGeneratingUntil ? (
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <CalendarClock className="mr-2 h-4 w-4" />
+                  )}
+                  Genera {preview.generatedCount} allenamenti
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

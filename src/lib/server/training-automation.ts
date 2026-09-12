@@ -36,11 +36,40 @@ import {
   normalizeClubSeasons,
 } from "@/lib/club-seasons";
 
+/**
+ * Limite oltre il quale "Genera fino a..." rifiuta (WP-03).
+ *
+ * Non c'e un massimo dichiarato altrove: la finestra automatica ha solo un
+ * minimo forzato (7 giorni). Un anno e ampiamente sufficiente per pianificare
+ * una stagione sportiva intera, e tiene la query di sovrapposizione e il
+ * numero di righe generate dentro una dimensione che non serve misurare per
+ * sapere che e ragionevole.
+ */
+export const MAX_MANUAL_GENERATION_DAYS_AHEAD = 366;
+
 type AutomationRunOptions = {
   force?: boolean;
   now?: Date;
   weeklyScheduleOverride?: unknown;
   settingsOverride?: unknown;
+  /**
+   * **"Genera fino a..."** (WP-03): una data assoluta invece della finestra
+   * relativa (`generateDaysAhead`). Usa lo stesso ciclo di generazione — non
+   * un secondo generatore — e passa dallo stesso planner e dallo stesso
+   * scrittore canonico.
+   *
+   * Quando presente, implica l'esecuzione (come `force`): e un'azione
+   * esplicita di chi la chiede, non l'automazione schedulata, e non ha senso
+   * risponderle «non ancora dovuta».
+   */
+  untilDate?: Date | string | null;
+  /**
+   * **Anteprima** (WP-17): calcola cosa la generazione creerebbe — creati,
+   * gia esistenti, conflitti, esclusi per campo chiuso — senza scrivere
+   * niente. Usa lo stesso planner dell'esecuzione reale: la differenza e
+   * solo se `createClubEventsBatch` scrive o si ferma prima.
+   */
+  preview?: boolean;
   /**
    * **Chi ha chiesto la generazione, quando a chiederla e una persona.**
    *
@@ -87,12 +116,20 @@ type AutomationRunResult = {
   generatedTrainings: Record<string, any>[];
   lastRunAt: string | null;
   settings: TrainingAutomationSettings;
-  reason?: "not_due" | "missing_schedule";
+  reason?: "not_due" | "missing_schedule" | "until_out_of_range";
   /**
    * Le fasce che il programma settimanale avrebbe generato e che occupano un
    * posto gia occupato: non create, «da verificare» (WP-07).
    */
   conflicts: import("./events").BatchConflict[];
+  /** Fasce che esistevano gia (stessa identita: giorno, ora, campo, categoria). */
+  existingCount: number;
+  /** Fasce non create perche cadono quando la struttura e chiusa. */
+  excludedCount: number;
+  /** `true` se non si e scritto niente: la stessa pianificazione, mostrata invece che eseguita (WP-17). */
+  preview: boolean;
+  /** L'ultimo giorno fino a cui questa esecuzione ha generato, in `YYYY-MM-DD`. */
+  generatedUntil: string | null;
 };
 
 const isMissingCategoryMembershipTableError = (error: unknown) =>
@@ -459,17 +496,32 @@ const buildExistingTrainingKey = (
 const buildStoredAutomationSettings = (
   clubSettings: unknown,
   lastRunAt: string,
+  candidateGeneratedUntil: string | null,
 ) => {
   const settingsRecord = isRecord(clubSettings) ? clubSettings : {};
   const currentAutomation = parseTrainingAutomationSettings(
     settingsRecord.trainingAutomation,
   );
 
+  /*
+    **Non regredisce.** Un «Genera fino a...» che copre dicembre e seguito
+    dal cron notturno, che genera solo i prossimi 21 giorni: il secondo non
+    deve far dimenticare cio che il primo ha gia messo in calendario. Il
+    valore mostrato e il piu lontano fra i due, non l'ultimo.
+  */
+  const generatedUntil =
+    candidateGeneratedUntil &&
+    (!currentAutomation.generatedUntil ||
+      candidateGeneratedUntil > currentAutomation.generatedUntil)
+      ? candidateGeneratedUntil
+      : currentAutomation.generatedUntil;
+
   return {
     ...settingsRecord,
     trainingAutomation: {
       ...currentAutomation,
       lastRunAt,
+      generatedUntil,
     },
   };
 };
@@ -579,7 +631,15 @@ export async function runTrainingAutomationForClub(
       : storedSettings,
   );
 
-  const due = options.force ? true : shouldRunTrainingAutomation(effectiveSettings, now);
+  /*
+    **"Genera fino a..." e l'anteprima sono un'azione esplicita di chi le
+    chiede** (WP-03, WP-17): non hanno senso rifiutate con «non ancora
+    dovuta», che e una risposta pensata per il cron che ripassa fra un po'.
+  */
+  const isManualUntilRequest = options.untilDate != null || options.preview === true;
+  const due = options.force || isManualUntilRequest
+    ? true
+    : shouldRunTrainingAutomation(effectiveSettings, now);
   if (!due) {
     return {
       ran: false,
@@ -590,7 +650,42 @@ export async function runTrainingAutomationForClub(
       settings: effectiveSettings,
       reason: "not_due",
       conflicts: [],
+      existingCount: 0,
+      excludedCount: 0,
+      preview: Boolean(options.preview),
+      generatedUntil: null,
     };
+  }
+
+  let untilDateOnly: Date | null = null;
+  if (options.untilDate != null) {
+    const parsedUntil = new Date(options.untilDate);
+    if (Number.isNaN(parsedUntil.getTime())) {
+      throw new Error("Data di generazione non valida");
+    }
+
+    untilDateOnly = getDateOnly(parsedUntil);
+    const startOfToday = getDateOnly(now);
+    const giorniRichiesti = Math.round(
+      (untilDateOnly.getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000),
+    );
+
+    if (giorniRichiesti < 0 || giorniRichiesti > MAX_MANUAL_GENERATION_DAYS_AHEAD) {
+      return {
+        ran: false,
+        due: true,
+        generatedCount: 0,
+        generatedTrainings: [],
+        lastRunAt: effectiveSettings.lastRunAt,
+        settings: effectiveSettings,
+        reason: "until_out_of_range",
+        conflicts: [],
+        existingCount: 0,
+        excludedCount: 0,
+        preview: Boolean(options.preview),
+        generatedUntil: null,
+      };
+    }
   }
 
   /*
@@ -636,6 +731,10 @@ export async function runTrainingAutomationForClub(
       settings: effectiveSettings,
       reason: "missing_schedule",
       conflicts: [],
+      existingCount: 0,
+      excludedCount: 0,
+      preview: Boolean(options.preview),
+      generatedUntil: null,
     };
   }
 
@@ -674,10 +773,16 @@ export async function runTrainingAutomationForClub(
   );
 
   const startDate = getDateOnly(now);
-  const endDate = getDateOnly(now);
-  endDate.setDate(
-    endDate.getDate() + Math.max(7, effectiveSettings.generateDaysAhead),
-  );
+  const endDate = untilDateOnly
+    ? new Date(untilDateOnly)
+    : (() => {
+        const rolling = getDateOnly(now);
+        rolling.setDate(
+          rolling.getDate() + Math.max(7, effectiveSettings.generateDaysAhead),
+        );
+        return rolling;
+      })();
+  let existingCount = 0;
 
   for (
     const currentDate = new Date(startDate);
@@ -747,6 +852,7 @@ export async function runTrainingAutomationForClub(
       });
 
       if (existingKeys.has(duplicateKey)) {
+        existingCount += 1;
         continue;
       }
 
@@ -871,6 +977,8 @@ export async function runTrainingAutomationForClub(
     capacita sola. Non e il proprietario, non e un'utenza, e l'audit lo dice.
   */
   let conflicts: import("./events").BatchConflict[] = [];
+  let excludedCount = 0;
+  let createdCount = 0;
 
   if (generatedTrainings.length > 0) {
     const { createClubEventsBatch } = await import("./events");
@@ -898,50 +1006,72 @@ export async function runTrainingAutomationForClub(
         };
 
     /*
-      **Un cron non puo correggere un calendario.**
+      **Un cron non puo correggere un calendario — e nemmeno "Genera fino
+      a...", che non ha nessuno li per confermare riga per riga.**
 
-      Con una persona dietro, una fascia su un campo chiuso e un rifiuto: e
-      cio su cui puo agire. Senza, il rifiuto fermava la generazione **di
-      tutto il club** — anche degli altri sei giorni — e si interrompeva prima
-      di scrivere `lastRunAt`, quindi al giro dopo era di nuovo dovuta e
-      falliva di nuovo. Rotta per sempre, e in silenzio.
+      Con una persona dietro **e senza una data assoluta**, una fascia su un
+      campo chiuso resta un rifiuto: e cio su cui puo agire, sull'unica
+      azione che oggi genera solo pochi giorni avanti. "Genera fino a..." e
+      l'anteprima coprono invece un intervallo lungo apposta, e un giorno
+      chiuso non deve fermare mesi di generazione: la riga si salta e torna
+      nel riepilogo come esclusa, come gia faceva il cron.
     */
     const esito = await createClubEventsBatch(
       scopeDiScrittura,
       "training",
       generatedTrainings,
       options.caller?.actor ?? {},
-      { campoChiuso: options.caller ? "rifiuta" : "salta" },
+      {
+        campoChiuso: options.caller && !isManualUntilRequest ? "rifiuta" : "salta",
+        soloAnteprima: options.preview,
+      },
     );
     conflicts = esito.conflitti;
+    excludedCount = esito.esclusi;
+    createdCount = esito.righe.length;
   }
 
   /*
-    `settings` resta di questo modulo: `lastRunAt` dice quando l'automazione ha
-    girato, non e una proiezione degli eventi, e nessun altro lo scrive.
+    **L'anteprima non scrive niente** (WP-17): ne le righe, ne `lastRunAt`.
+    Rieseguirla o esaminarla non deve avere alcun effetto collaterale.
   */
-  await prisma.club.update({
-    where: { id: clubId },
-    data: {
-      settings: buildStoredAutomationSettings(club.settings, lastRunAt),
-    },
-  });
+  if (!options.preview) {
+    await prisma.club.update({
+      where: { id: clubId },
+      data: {
+        settings: buildStoredAutomationSettings(
+          club.settings,
+          lastRunAt,
+          formatLocalDateKey(endDate),
+        ),
+      },
+    });
+  }
 
   void currentStoredTrainings;
 
   return {
     ran: true,
     due: true,
-    // Le fasce in conflitto non sono state create: il conteggio riflette
-    // quello che e finito davvero in `club_events` (WP-07).
-    generatedCount: generatedTrainings.length - conflicts.length,
+    generatedCount: createdCount,
     generatedTrainings,
-    lastRunAt,
-    settings: {
-      ...effectiveSettings,
-      lastRunAt,
-    },
+    lastRunAt: options.preview ? effectiveSettings.lastRunAt : lastRunAt,
+    settings: options.preview
+      ? effectiveSettings
+      : {
+          ...effectiveSettings,
+          lastRunAt,
+          generatedUntil:
+            effectiveSettings.generatedUntil &&
+            effectiveSettings.generatedUntil > formatLocalDateKey(endDate)
+              ? effectiveSettings.generatedUntil
+              : formatLocalDateKey(endDate),
+        },
     conflicts,
+    existingCount,
+    excludedCount,
+    preview: Boolean(options.preview),
+    generatedUntil: formatLocalDateKey(endDate),
   };
 }
 
