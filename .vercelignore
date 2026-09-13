@@ -1,6 +1,8 @@
 easygamemobile/
 node_modules/
 .next/
+.next-verify/
+design-source/
 .git/
 .env
 .env.*
