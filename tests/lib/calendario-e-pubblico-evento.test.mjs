@@ -15,7 +15,10 @@ import {
   weekdayKeyOf,
 } from "../../src/lib/events/model.ts";
 import { calculateCategoryAthleteStats } from "../../src/lib/category-athlete-stats.ts";
-import { instantFromLocalTime } from "../../src/lib/structures-utils.ts";
+import {
+  instantFromLocalTime,
+  isWithinFieldAvailability as isWithinFieldAvailabilityDaStrutture,
+} from "../../src/lib/structures-utils.ts";
 
 /**
  * **Cio che l'evento come riga rende esprimibile** (lane 5F).
@@ -154,37 +157,38 @@ test("un campo che non dichiara niente non e un campo chiuso", () => {
 
 test("un allenamento fuori dalla fascia del campo viene visto", () => {
   /*
-    **Le ore sono quelle dell'orologio del club, non UTC.**
-
-    Questa prova le scriveva in UTC, perche l'implementazione le leggeva cosi —
-    e quella dell'area famiglia no. Sullo stesso campo alla stessa ora la
-    famiglia prenotava e l'allenatore veniva rifiutato: due implementazioni
-    della stessa domanda, con risposte opposte per due ore d'estate.
-
-    Adesso la funzione e una sola, e legge `Europe/Rome`: la fascia la scrive
-    una persona nell'editor delle strutture, e la deve rileggere come l'ha
-    scritta.
+    **`club_events` non ha un fuso orario: le sue cifre UTC SONO l'ora
+    locale** (ADR-0183). Questa `isWithinFieldAvailability` e quella di
+    `src/lib/events/model.ts`, che ha un solo chiamante — `club_events`
+    (`src/lib/server/events.ts`) — il cui istante nasce da `toEventInstant`
+    con `setUTCHours`: le cifre digitate diventano letteralmente le cifre
+    UTC in colonna, mai un vero istante da riconvertire. Le prove qui
+    scrivono quindi gli orari come stringhe ISO **UTC dirette**, la stessa
+    forma che `toEventInstant`/`toEventDay`/`toEventTime` gia usano in tutto
+    il dominio degli eventi — non con `instantFromLocalTime`, che calcola un
+    vero UTC ed e la primitiva dell'area famiglia (vedi il test successivo
+    per il contrasto).
   */
   const disponibilita = {
     Sab: [{ start: "09:00", end: "20:00" }],
     Lun: [{ start: "17:00", end: "22:00" }],
   };
 
-  const locale = (giorno, ora) => instantFromLocalTime(giorno, ora);
+  const cifre = (giorno, ora) => new Date(`${giorno}T${ora}:00.000Z`);
 
   assert.equal(
     isWithinFieldAvailability(
       disponibilita,
-      locale("2026-09-05", "18:00"),
-      locale("2026-09-05", "19:30"),
+      cifre("2026-09-05", "18:00"),
+      cifre("2026-09-05", "19:30"),
     ),
     true,
   );
   assert.equal(
     isWithinFieldAvailability(
       disponibilita,
-      locale("2026-09-05", "23:00"),
-      locale("2026-09-06", "00:30"),
+      cifre("2026-09-05", "23:00"),
+      cifre("2026-09-06", "00:30"),
     ),
     false,
     "un allenamento delle 23:00 su un campo che chiude alle 20:00",
@@ -192,27 +196,53 @@ test("un allenamento fuori dalla fascia del campo viene visto", () => {
   assert.equal(
     isWithinFieldAvailability(
       disponibilita,
-      locale("2026-09-05", "19:00"),
-      locale("2026-09-05", "21:00"),
+      cifre("2026-09-05", "19:00"),
+      cifre("2026-09-05", "21:00"),
     ),
     false,
     "finire dopo la chiusura conta quanto cominciare dopo",
   );
 
   /*
-    **E la stessa risposta della strada che usa la famiglia.**
-
-    E la proprieta che il difetto violava, ed e quella che va tenuta ferma: non
-    «questa funzione risponde X», ma «le due rispondono la stessa cosa».
+    **Le due `isWithinFieldAvailability` rispondono deliberatamente cose
+    diverse sullo stesso dato scritto in due modi** (ADR-0183): questa (le
+    cifre UTC sono l'ora locale) e quella di `structures-utils.ts` (un vero
+    UTC va riconvertito in Europe/Rome) non sono la stessa funzione con due
+    nomi — sono la risposta giusta per due domini che costruiscono il loro
+    istante in due modi diversi. Non e piu un invariante da difendere che
+    "rispondano la stessa cosa": lo era quando entrambe ricevevano lo stesso
+    genere di istante, e non e piu cosi.
   */
   assert.equal(
     isWithinFieldAvailability(
       { Lun: [{ start: "18:00", end: "20:00" }] },
-      locale("2026-09-07", "18:00"),
-      locale("2026-09-07", "19:00"),
+      cifre("2026-09-07", "18:00"),
+      cifre("2026-09-07", "19:00"),
     ),
     true,
-    "il lunedi alle 18:00 di Roma il campo e aperto per tutti e due",
+    "il lunedi alle 18:00, cifre digitate, il campo e aperto",
+  );
+});
+
+test("l'area famiglia continua a leggere un vero UTC in Europe/Rome, senza passare da events/model.ts", () => {
+  /*
+    Contrasto esplicito con il test sopra: `structures-utils.ts` e la
+    funzione che l'area famiglia chiama **direttamente**
+    (`parent-dashboard-pages.tsx`,
+    `app/api/parent-dashboard/[athleteId]/structures/route.ts`), mai
+    passando da qui. Il suo istante e un vero UTC (`instantFromLocalTime`),
+    e la conversione in Europe/Rome resta corretta e invariata.
+  */
+  const disponibilita = { Lun: [{ start: "18:00", end: "20:00" }] };
+
+  assert.equal(
+    isWithinFieldAvailabilityDaStrutture(
+      { availability: disponibilita },
+      instantFromLocalTime("2026-09-07", "18:00"),
+      instantFromLocalTime("2026-09-07", "19:00"),
+    ),
+    true,
+    "il lunedi alle 18:00 di Roma, vero UTC, il campo e aperto per la famiglia",
   );
 });
 

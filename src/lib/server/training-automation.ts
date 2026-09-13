@@ -128,6 +128,12 @@ type AutomationRunResult = {
   existingCount: number;
   /** Fasce non create perche cadono quando la struttura e chiusa. */
   excludedCount: number;
+  /**
+   * Il dettaglio di ogni fascia esclusa: giorno, categoria, risorsa e il
+   * motivo gia leggibile (ADR-0170-bis). Non solo un numero: un "Genera ora"
+   * che salta una fascia deve dire **quale**, non solo quante.
+   */
+  excludedSlots: import("./events").BatchExclusion[];
   /** `true` se non si e scritto niente: la stessa pianificazione, mostrata invece che eseguita (WP-17). */
   preview: boolean;
   /** L'ultimo giorno fino a cui questa esecuzione ha generato, in `YYYY-MM-DD`. */
@@ -1320,6 +1326,7 @@ export async function runTrainingAutomationForClub(
       conflicts: [],
       existingCount: 0,
       excludedCount: 0,
+      excludedSlots: [],
       preview: Boolean(options.preview),
       generatedUntil: null,
     };
@@ -1350,6 +1357,7 @@ export async function runTrainingAutomationForClub(
         conflicts: [],
         existingCount: 0,
         excludedCount: 0,
+        excludedSlots: [],
         preview: Boolean(options.preview),
         generatedUntil: null,
       };
@@ -1401,6 +1409,7 @@ export async function runTrainingAutomationForClub(
       conflicts: [],
       existingCount: 0,
       excludedCount: 0,
+      excludedSlots: [],
       preview: Boolean(options.preview),
       generatedUntil: null,
     };
@@ -1679,6 +1688,7 @@ export async function runTrainingAutomationForClub(
   */
   let conflicts: import("./events").BatchConflict[] = [];
   let excludedCount = 0;
+  let excludedSlots: import("./events").BatchExclusion[] = [];
   let createdCount = 0;
 
   if (generatedTrainings.length > 0) {
@@ -1707,15 +1717,25 @@ export async function runTrainingAutomationForClub(
         };
 
     /*
-      **Un cron non puo correggere un calendario — e nemmeno "Genera fino
-      a...", che non ha nessuno li per confermare riga per riga.**
+      **Un calendario a meta e peggio di un errore solo se nessuno sa quale
+      meta — e adesso lo sa.**
 
-      Con una persona dietro **e senza una data assoluta**, una fascia su un
-      campo chiuso resta un rifiuto: e cio su cui puo agire, sull'unica
-      azione che oggi genera solo pochi giorni avanti. "Genera fino a..." e
-      l'anteprima coprono invece un intervallo lungo apposta, e un giorno
-      chiuso non deve fermare mesi di generazione: la riga si salta e torna
-      nel riepilogo come esclusa, come gia faceva il cron.
+      Fino a qui, con una persona dietro il pulsante "Genera ora" e senza una
+      data assoluta, una sola fascia su un campo chiuso rifiutava l'**intero**
+      blocco: sessanta righe valide scartate per colpa di una, con un
+      messaggio che nominava un solo campo e nessun giorno, nessun'ora,
+      nessuna categoria — l'UAT su Fortitudo Scauri lo ha mostrato in campo
+      (issue "il campo Palazzetto non e disponibile"). "Genera fino a..." e
+      l'anteprima gia salvavano le righe buone e riportavano le escluse nel
+      riepilogo: non c'era ragione per cui lo stesso clic, con una finestra
+      piu corta, si comportasse diversamente e peggio.
+
+      Ora tutte e tre le vie — cron, "Genera fino a...", "Genera ora" —
+      salvano cio che possono e restituiscono il dettaglio di cio che non
+      hanno potuto: giorno, categoria, risorsa e motivo di ogni fascia
+      esclusa (`esclusiDettaglio`, la stessa forma di `conflitti`). Nessuna
+      riga invalida viene comunque creata: e sempre e solo un salto, mai
+      un'invenzione. Vedi ADR-0170-bis in 18-decision-log.md.
     */
     const esito = await createClubEventsBatch(
       scopeDiScrittura,
@@ -1723,12 +1743,13 @@ export async function runTrainingAutomationForClub(
       generatedTrainings,
       options.caller?.actor ?? {},
       {
-        campoChiuso: options.caller && !isManualUntilRequest ? "rifiuta" : "salta",
+        campoChiuso: "salta",
         soloAnteprima: options.preview,
       },
     );
     conflicts = esito.conflitti;
     excludedCount = esito.esclusi;
+    excludedSlots = esito.esclusiDettaglio;
     createdCount = esito.righe.length;
   }
 
@@ -1771,6 +1792,7 @@ export async function runTrainingAutomationForClub(
     conflicts,
     existingCount,
     excludedCount,
+    excludedSlots,
     preview: Boolean(options.preview),
     generatedUntil: formatLocalDateKey(endDate),
   };

@@ -50,16 +50,51 @@ type GenerateUntilConflict = {
   conflictsWith: Array<{ id: string; title: string | null }>;
 };
 
+/**
+ * La stessa forma di `BatchExclusion` (`src/lib/server/events.ts`), ripetuta
+ * per lo stesso motivo di `GenerateUntilConflict` qui sopra: una fascia
+ * saltata perche il campo era chiuso in quel giorno e a quell'ora, con
+ * abbastanza dettaglio da mostrare "quale" senza rileggere niente.
+ */
+type GenerateUntilExclusion = {
+  data: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  structureId: string | null;
+  fieldId: string | null;
+  siteId: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  legacyId: string | null;
+  reasonCode: "OUTSIDE_OPENING_HOURS";
+  reason: string;
+};
+
 type GenerateUntilResponse = {
   ran: boolean;
   due: boolean;
   generatedCount: number;
   existingCount: number;
   excludedCount: number;
+  excludedSlots: GenerateUntilExclusion[];
   conflicts: GenerateUntilConflict[];
   preview: boolean;
   generatedUntil: string | null;
   reason?: string;
+};
+
+const formatItTime = (value: string) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+};
+
+const formatItWeekday = (value: string) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleDateString("it-IT", { weekday: "long", day: "2-digit", month: "2-digit" });
 };
 
 const formatItDate = (value: string) => {
@@ -92,6 +127,14 @@ export function TrainingScheduleAutomationPanel({
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [isResetting, setIsResetting] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
+  /**
+   * L'esito dell'ultima "Genera ora" (WP-XX, issue UAT Fortitudo Scauri):
+   * non solo un toast a una riga, lo stesso riepilogo con dettaglio che
+   * "Genera fino a..." mostra gia in anteprima — creati, esistenti,
+   * conflitti ed esclusi, questi ultimi con giorno/categoria/motivo.
+   */
+  const [lastGenerationResult, setLastGenerationResult] =
+    React.useState<GenerateUntilResponse | null>(null);
   const [settings, setSettings] = React.useState<TrainingAutomationSettings>(
     DEFAULT_TRAINING_AUTOMATION_SETTINGS,
   );
@@ -196,13 +239,14 @@ export function TrainingScheduleAutomationPanel({
     }
 
     setIsGenerating(true);
+    setLastGenerationResult(null);
     try {
-      const response = await apiRequest<{
-        generatedCount: number;
-        generatedTrainings: any[];
-        lastRunAt: string | null;
-        reason?: string;
-      }>("/api/v1/training-automation", {
+      const response = await apiRequest<
+        GenerateUntilResponse & {
+          generatedTrainings: any[];
+          lastRunAt: string | null;
+        }
+      >("/api/v1/training-automation", {
         method: "POST",
         body: {
           force: true,
@@ -223,11 +267,8 @@ export function TrainingScheduleAutomationPanel({
         return;
       }
 
-      const generatedTrainings = Array.isArray(response.data?.generatedTrainings)
-        ? response.data.generatedTrainings
-        : [];
-      const nextLastRunAt =
-        response.data?.lastRunAt || new Date().toISOString();
+      const data = response.data;
+      const nextLastRunAt = data?.lastRunAt || new Date().toISOString();
 
       setSettings((current) => ({
         ...current,
@@ -235,10 +276,36 @@ export function TrainingScheduleAutomationPanel({
       }));
       onGenerateTrainings();
 
-      if (generatedTrainings.length > 0) {
+      /*
+        **`generatedCount`, non la lunghezza di `generatedTrainings`.**
+
+        `generatedTrainings` e l'elenco delle candidate costruite dal
+        planner, prima che il batch scarti conflitti ed esclusioni: con
+        `campoChiuso: "salta"` una candidata puo non diventare mai una riga.
+        Il numero che conta per l'utente e quante righe sono state scritte
+        davvero (`generatedCount`, cioe `createdCount` lato server).
+      */
+      const createdCount = data?.generatedCount ?? 0;
+      const conflictsCount = data?.conflicts?.length || 0;
+      const excludedCount = data?.excludedCount || 0;
+      if (data) {
+        /*
+          **Il risultato resta a schermo, non solo nel toast** (issue UAT
+          Fortitudo Scauri): un "1 escluso" letto e basta non dice quale
+          fascia, ne perche. Il pannello sotto il pulsante lo mostra.
+        */
+        setLastGenerationResult(data);
+      }
+
+      if (conflictsCount > 0 || excludedCount > 0) {
         showToast(
           "success",
-          `${generatedTrainings.length} allenamenti creati dal programma settimanale`,
+          `${createdCount} creati · ${conflictsCount} conflitt${conflictsCount === 1 ? "o" : "i"} · ${excludedCount} escl${excludedCount === 1 ? "uso" : "usi"}: dettaglio qui sotto`,
+        );
+      } else if (createdCount > 0) {
+        showToast(
+          "success",
+          `${createdCount} allenamenti creati dal programma settimanale`,
         );
       } else {
         showToast(
@@ -486,6 +553,71 @@ export function TrainingScheduleAutomationPanel({
           </Button>
         </div>
       </div>
+
+      {lastGenerationResult ? (
+        <div className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
+          <p className="font-medium text-slate-900">Ultima generazione</p>
+          <p className="mt-1 text-sm text-slate-700">
+            Creati: {lastGenerationResult.generatedCount} · Già esistenti:{" "}
+            {lastGenerationResult.existingCount} · Conflitti:{" "}
+            {lastGenerationResult.conflicts.length} · Non disponibili:{" "}
+            {lastGenerationResult.excludedCount}
+          </p>
+
+          {lastGenerationResult.excludedSlots.length > 0 ? (
+            <div className="mt-3">
+              <p className="text-sm font-medium text-amber-800">
+                Impossibile generare {lastGenerationResult.excludedSlots.length}{" "}
+                allenament
+                {lastGenerationResult.excludedSlots.length === 1 ? "o" : "i"}:
+              </p>
+              <ul className="mt-2 space-y-2">
+                {lastGenerationResult.excludedSlots.map((slot, index) => (
+                  <li
+                    key={`${slot.legacyId || index}`}
+                    className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+                  >
+                    <span className="font-medium">
+                      {slot.categoryName || "Categoria"}
+                    </span>
+                    {" · "}
+                    {formatItWeekday(slot.startsAt)} {formatItTime(slot.startsAt)}
+                    {slot.endsAt ? `–${formatItTime(slot.endsAt)}` : ""}
+                    <br />
+                    <span className="text-amber-700">Motivo: {slot.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {lastGenerationResult.conflicts.length > 0 ? (
+            <div className="mt-3">
+              <p className="text-sm font-medium text-amber-800">
+                {lastGenerationResult.conflicts.length} fascia
+                {lastGenerationResult.conflicts.length === 1 ? "" : "e"} da
+                verificare: occupano un posto gia occupato e non sono state
+                create.
+              </p>
+              <ul className="mt-2 space-y-2">
+                {lastGenerationResult.conflicts.map((conflict, index) => (
+                  <li
+                    key={`${conflict.legacyId || index}`}
+                    className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+                  >
+                    <span className="font-medium">
+                      {conflict.categoryName || "Categoria"}
+                    </span>
+                    {" · "}
+                    Occupa lo stesso posto di «
+                    {conflict.conflictsWith[0]?.title || "un altro evento"}»
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border bg-white p-4 shadow-sm">
@@ -794,6 +926,32 @@ export function TrainingScheduleAutomationPanel({
                   {preview.conflicts.length === 1 ? "" : "e"} da verificare:
                   occupano un posto gia occupato e non verranno create.
                 </p>
+              ) : null}
+              {preview.excludedSlots.length > 0 ? (
+                <div className="mt-2">
+                  <p className="text-amber-700">
+                    {preview.excludedSlots.length} fascia
+                    {preview.excludedSlots.length === 1 ? "" : "e"} non
+                    disponibile{preview.excludedSlots.length === 1 ? "" : "i"}:
+                  </p>
+                  <ul className="mt-1 space-y-1">
+                    {preview.excludedSlots.map((slot, index) => (
+                      <li
+                        key={`${slot.legacyId || index}`}
+                        className="rounded-md border border-amber-200 bg-white px-2 py-1 text-xs text-amber-900"
+                      >
+                        <span className="font-medium">
+                          {slot.categoryName || "Categoria"}
+                        </span>
+                        {" · "}
+                        {formatItWeekday(slot.startsAt)}{" "}
+                        {formatItTime(slot.startsAt)}
+                        {slot.endsAt ? `–${formatItTime(slot.endsAt)}` : ""} —{" "}
+                        {slot.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
               <div className="mt-3 flex flex-wrap justify-end gap-2">
                 <Button

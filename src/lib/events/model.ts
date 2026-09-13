@@ -731,18 +731,45 @@ const minutiDi = (orario: string) => {
 };
 
 /**
- * **La disponibilita di un campo ha un proprietario, e non e questo file.**
+ * **La disponibilita di un campo ha un proprietario, e non e questo file** —
+ * ma questo file e `club_events`, e `club_events` non ha un fuso orario.
  *
- * Ne esistevano due implementazioni, sullo stesso dato, con risposte opposte:
- * questa leggeva l'istante in **UTC** (`toISOString`, `getUTCDay`), quella di
- * `structures-utils.ts` — che l'area famiglia usa — in `Europe/Rome`. Il
- * lunedi alle 18:00 di Roma, su un campo aperto `Lun 18:00-20:00`, la famiglia
- * prenotava e l'allenatore che fissava l'allenamento **sullo stesso campo alla
- * stessa ora** veniva rifiutato.
+ * Ne esistevano due implementazioni, sullo stesso dato, con risposte
+ * opposte: questa leggeva l'istante in **UTC** (`toISOString`, `getUTCDay`),
+ * quella di `structures-utils.ts` — che l'area famiglia usa **direttamente**,
+ * mai passando da qui (vedi `parent-dashboard-pages.tsx` e
+ * `app/api/parent-dashboard/[athleteId]/structures/route.ts`) — in
+ * `Europe/Rome`. La correzione di allora ha fatto delegare questa funzione a
+ * quella, per avere una risposta sola invece di due implementazioni
+ * divergenti — ma ha anche ereditato il suo fuso di default, ed e li che
+ * l'unificazione si e fermata a meta.
  *
- * Il fuso giusto e quello locale, perche la fascia la scrive una persona
- * nell'editor delle strutture e la legge come l'ha scritta. Questa firma resta
- * per i chiamanti — prende la mappa, non il campo — ma la risposta e una sola.
+ * **Il fuso giusto non e una proprieta della funzione, e una proprieta di
+ * come il chiamante ha costruito il suo istante.** L'area famiglia passa un
+ * vero UTC (`instantFromLocalTime` lo calcola apposta, perche il dispositivo
+ * di una famiglia puo stare altrove rispetto al campo): per quello,
+ * `Europe/Rome` e la conversione corretta, ed e infatti quella che usa
+ * chiamando `structures-utils.ts` **senza passare da qui**.
+ *
+ * `club_events` invece non converte mai niente: `toEventInstant`, qualche
+ * riga sopra in questo stesso file, scrive `starts_at`/`ends_at` con
+ * `setUTCHours(ora, minuti, 0, 0)` — le cifre digitate diventano
+ * letteralmente le cifre UTC in colonna — e `toEventDay`/`toEventTime` le
+ * rileggono cosi per mostrarle ovunque nell'app. Convertire quello stesso
+ * istante in `Europe/Rome` qui applica un fuso vero a un valore che non lo
+ * ha mai avuto: un allenamento digitato 19:30-21:30 (dentro un campo aperto
+ * 13:00-23:00, per chi lo amministra) diventava, riletto in `Europe/Rome` a
+ * settembre (UTC+2), le 21:30-23:30 — fuori da quella stessa fascia. E la
+ * causa reale, verificata sui dati dello staging del pilota Fortitudo
+ * Scauri, dietro la segnalazione "il campo «Palazzetto» non e disponibile in
+ * quel giorno e a quell'ora" su una fascia interamente dentro l'orario di
+ * apertura.
+ *
+ * Questa funzione ha oggi **un solo chiamante** (`src/lib/server/events.ts`,
+ * verificato: l'area famiglia non passa piu da qui), quindi la risposta
+ * giusta non e un parametro in piu da propagare ovunque: e allineare qui,
+ * una volta sola, alla convenzione che `club_events` gia usa per tutto il
+ * resto — le cifre UTC lette cosi come sono, senza nessuna conversione.
  */
 export const isWithinFieldAvailability = (
   availability: unknown,
@@ -762,6 +789,7 @@ export const isWithinFieldAvailability = (
     { availability } as never,
     inizio,
     Number.isNaN(fine.getTime()) ? inizio : fine,
+    "UTC",
   );
 };
 

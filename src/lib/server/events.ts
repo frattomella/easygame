@@ -1131,6 +1131,17 @@ const assertFieldIsOpenConStrutture = (
     : campi[0];
   if (!campo) return;
 
+  /*
+    **`club_events` non ha un fuso orario: le sue cifre UTC SONO l'ora
+    locale** (vedi il commento su `isWithinFieldAvailability` in
+    `src/lib/events/model.ts`, che allinea il confronto a questa stessa
+    convenzione — nessun parametro da passare qui, e un solo posto che lo
+    sa). Un allenamento digitato 19:30-21:30 su un campo aperto fino alle
+    23:00 non e piu rifiutato per una conversione di fuso che l'evento non
+    ha mai avuto: causa reale, verificata sui dati dello staging del pilota
+    Fortitudo Scauri, dietro la segnalazione "il campo «Palazzetto» non e
+    disponibile in quel giorno e a quell'ora".
+  */
   if (
     !isWithinFieldAvailability(
       campo.availability,
@@ -2678,6 +2689,32 @@ export type BatchConflict = {
 };
 
 /**
+ * Cio che il risultato di una generazione a blocchi porta su una riga
+ * scartata perche il campo era chiuso (o fuori dall'orario di apertura) in
+ * quel giorno e a quell'ora — la stessa forma di `BatchConflict`, per lo
+ * stesso motivo: abbastanza per una schermata senza dover rileggere niente.
+ *
+ * Un solo codice oggi (`OUTSIDE_OPENING_HOURS`): e l'unico motivo per cui
+ * `assertFieldIsOpenConStrutture` lancia. Una struttura o un campo non
+ * trovati non finiscono qui — quella funzione li ignora in silenzio (nessun
+ * candidato da giudicare), non li rifiuta.
+ */
+export type BatchExclusion = {
+  data: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  structureId: string | null;
+  fieldId: string | null;
+  siteId: string | null;
+  startsAt: Date;
+  endsAt: Date | null;
+  legacyId: string | null;
+  reasonCode: "OUTSIDE_OPENING_HOURS";
+  /** Il messaggio gia pronto per l'utente, con il nome del campo dentro. */
+  reason: string;
+};
+
+/**
  * Rileva, per un blocco di righe da creare, quali si sovrappongono a un
  * evento gia esistente **o a un'altra riga dello stesso blocco** — due voci
  * del programma settimanale che si accavallano sulla stessa risorsa generano
@@ -2795,6 +2832,20 @@ const toEsitoConflitto = (voce: {
   })),
 });
 
+const toEsitoEsclusione = (voce: { riga: any; motivo: string }): BatchExclusion => ({
+  data: toEventDay(voce.riga.starts_at) || null,
+  categoryId: voce.riga.category_id ?? null,
+  categoryName: voce.riga.category_name ?? null,
+  structureId: voce.riga.structure_id ?? null,
+  fieldId: voce.riga.field_id ?? null,
+  siteId: voce.riga.site_id ?? null,
+  startsAt: voce.riga.starts_at,
+  endsAt: voce.riga.ends_at ?? null,
+  legacyId: voce.riga.legacy_id ?? null,
+  reasonCode: "OUTSIDE_OPENING_HOURS",
+  reason: voce.motivo,
+});
+
 /**
  * La creazione in blocco, per la generazione dal programma settimanale.
  *
@@ -2846,7 +2897,8 @@ export const createClubEventsBatch = async (
     });
   }
 
-  if (!righe.length) return { righe: [], conflitti: [], esclusi: 0 };
+  if (!righe.length)
+    return { righe: [], conflitti: [], esclusi: 0, esclusiDettaglio: [] };
 
   /*
     Il perimetro si legge **una volta** per l'intero blocco: e la ragione per
@@ -2962,7 +3014,12 @@ export const createClubEventsBatch = async (
     if (!opzioni.soloAnteprima) {
       await registraEsitoVuoto({ saltate: saltate.length });
     }
-    return { righe: [], conflitti: [], esclusi: saltate.length };
+    return {
+      righe: [],
+      conflitti: [],
+      esclusi: saltate.length,
+      esclusiDettaglio: saltate.map(toEsitoEsclusione),
+    };
   }
 
   const conflitti = await rilevaConflittiSovrapposizione(organizationId, daCreare);
@@ -2982,6 +3039,7 @@ export const createClubEventsBatch = async (
       righe: [],
       conflitti: conflitti.map(toEsitoConflitto),
       esclusi: saltate.length,
+      esclusiDettaglio: saltate.map(toEsitoEsclusione),
     };
   }
 
@@ -2997,6 +3055,7 @@ export const createClubEventsBatch = async (
       righe: senzaConflitto,
       conflitti: conflitti.map(toEsitoConflitto),
       esclusi: saltate.length,
+      esclusiDettaglio: saltate.map(toEsitoEsclusione),
     };
   }
 
@@ -3079,6 +3138,7 @@ export const createClubEventsBatch = async (
     righe: righeCreate,
     conflitti: conflitti.map(toEsitoConflitto),
     esclusi: saltate.length,
+    esclusiDettaglio: saltate.map(toEsitoEsclusione),
   };
 };
 
