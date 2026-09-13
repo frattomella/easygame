@@ -64,7 +64,15 @@ type MatchTrainerOption = {
 interface AddMatchFormProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: any) => void;
+  /**
+   * **Il chiamante dice se e andata** (bug UAT "creazione nuova gara
+   * fallisce"): un `false` esplicito e un salvataggio fallito o annullato
+   * (conflitto/cross-site) — il form resta aperto e compilato, non si perde
+   * niente. Qualunque altro esito (`true`, `undefined`, un vecchio
+   * chiamante che non dichiara ancora l'esito) si comporta come prima:
+   * si chiude e si azzera.
+   */
+  onSubmit: (data: any) => void | boolean | Promise<void | boolean>;
   categories: MatchCategoryOption[];
   /**
    * I gruppi operativi del club (ADR-0055), stessa fonte del form
@@ -106,6 +114,8 @@ export function AddMatchForm({
   initialData,
 }: AddMatchFormProps) {
   const previousAutoTrainerIdsRef = React.useRef<string[]>([]);
+  /** Disabilita "Aggiungi Gara" mentre `onSubmit` e in corso (nessun doppio invio). */
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     title: initialData?.title || "",
     date: initialData?.date || selectedDate || new Date(),
@@ -406,7 +416,7 @@ export function AddMatchForm({
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (categoryOptions.length === 0) {
       alert("Nessuna categoria registrata. Crea prima una categoria.");
@@ -432,16 +442,38 @@ export function AddMatchForm({
       alert("Compila tutti i campi obbligatori");
       return;
     }
-    onSubmit({
-      ...formData,
-      ...toEventRsvpPayload(rsvp),
-      location: resolvedLocation,
-      isHome: formData.venueMode === "home",
-    });
-    if (!editMode) {
-      resetForm();
+
+    /*
+      **Il form si chiude solo su un successo confermato** (bug UAT
+      "creazione nuova gara fallisce"). Prima si chiudeva e si azzerava
+      subito, senza aspettare `onSubmit` — un `handleAddMatch` asincrono
+      restava a meta strada (una conferma cross-site, un conflitto, la
+      chiamata di rete vera e propria) e il dato inserito era gia perso
+      quando l'eventuale toast d'errore compariva. Un `false` esplicito e
+      un salvataggio fallito o annullato: il form resta aperto — la stessa
+      istanza, con lo stesso stato — e completamente compilato, cosi si puo
+      correggere e riprovare senza rifare tutto.
+    */
+    setIsSubmitting(true);
+    try {
+      const esito = await onSubmit({
+        ...formData,
+        ...toEventRsvpPayload(rsvp),
+        location: resolvedLocation,
+        isHome: formData.venueMode === "home",
+      });
+
+      if (esito === false) {
+        return;
+      }
+
+      if (!editMode) {
+        resetForm();
+      }
+      onClose();
+    } finally {
+      setIsSubmitting(false);
     }
-    onClose();
   };
 
   const resetForm = () => {
@@ -701,15 +733,24 @@ export function AddMatchForm({
           </div>
 
           <DialogFooter className="mt-6">
-            <Button type="button" variant="outline" onClick={handleClose}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleClose}
+              disabled={isSubmitting}
+            >
               Annulla
             </Button>
             <Button
               type="submit"
               className="bg-blue-600 hover:bg-blue-700"
-              disabled={categoryOptions.length === 0}
+              disabled={categoryOptions.length === 0 || isSubmitting}
             >
-              {editMode ? "Salva Modifiche" : "Aggiungi Gara"}
+              {isSubmitting
+                ? "Salvataggio..."
+                : editMode
+                  ? "Salva Modifiche"
+                  : "Aggiungi Gara"}
             </Button>
           </DialogFooter>
         </form>

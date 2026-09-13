@@ -231,6 +231,46 @@ const buildMatchAthleteOption = ({
   };
 };
 
+/**
+ * **Il messaggio reale, quando e sicuro mostrarlo** (bug UAT "creazione
+ * nuova gara fallisce").
+ *
+ * `createEvent`/`unwrap` (`src/lib/events/client.ts`) rilancia gia
+ * `response.error.message` come `Error.message`: quando il server rifiuta
+ * per una regola di dominio (`"Il campo «X» non e disponibile in quel
+ * giorno e a quell'ora"`, `"Giorno e ora dell'evento sono obbligatori"`,
+ * un "Accesso negato: ...") quel messaggio e gia in italiano, gia una frase
+ * sola, gia pensato per chi non legge codice. Scartarlo per un testo fisso
+ * e la ragione per cui "Errore nell'aggiunta della gara" non diceva mai
+ * *quale* errore.
+ *
+ * Il filtro esiste per il verso opposto: un errore di rete, un errore JS
+ * non gestito, un dettaglio tecnico (stack, nomi di eccezione, piu righe)
+ * non deve arrivare all'utente com'e — quello resta il fallback generico.
+ */
+const isReadableBusinessErrorMessage = (message: string) => {
+  const trimmed = message.trim();
+  if (!trimmed || trimmed.length > 300) return false;
+  if (/\n/.test(trimmed)) return false;
+  if (
+    /^(TypeError|ReferenceError|SyntaxError|RangeError|EvalError|URIError|Prisma[A-Za-z]*Error|Error):/i.test(
+      trimmed,
+    )
+  ) {
+    return false;
+  }
+  if (/\bat\s+[\w.$]+\s*\(/.test(trimmed)) return false;
+  return true;
+};
+
+const GENERIC_MATCH_SAVE_ERROR =
+  "Errore nell'aggiunta della gara. Riprova o contatta l'assistenza se il problema persiste.";
+
+const getReadableMatchErrorMessage = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return isReadableBusinessErrorMessage(message) ? message : GENERIC_MATCH_SAVE_ERROR;
+};
+
 export default function MatchesPage() {
   const [date, setDate] = React.useState<Date | undefined>(undefined);
   const [matches, setMatches] = React.useState<Match[]>([]);
@@ -621,15 +661,22 @@ export default function MatchesPage() {
     [homeLocations],
   );
 
-  const handleAddMatch = async (matchData: any) => {
+  /**
+   * Ritorna `false` per ogni esito che non e un salvataggio riuscito —
+   * validazione mancante, cross-site annullato, conflitto annullato, o
+   * l'errore del writer — cosi `AddMatchForm` sa di dover lasciare il form
+   * aperto com'era, invece di azzerarlo (bug UAT "creazione nuova gara
+   * fallisce").
+   */
+  const handleAddMatch = async (matchData: any): Promise<boolean> => {
     if (!activeClub?.id || !user) {
       showToast("error", "Club o utente non trovato");
-      return;
+      return false;
     }
 
     if (!matchData.categoryIds || matchData.categoryIds.length === 0) {
       showToast("error", "Seleziona almeno una categoria per la gara");
-      return;
+      return false;
     }
 
     /*
@@ -663,7 +710,7 @@ export default function MatchesPage() {
             "Puoi salvarla lo stesso: e una proprieta di questa gara, non " +
             "cambia la sede della categoria ne sposta nessun atleta.",
         });
-        if (!confermatoCrossSite) return;
+        if (!confermatoCrossSite) return false;
       }
     }
 
@@ -695,7 +742,7 @@ export default function MatchesPage() {
         "❓ Desideri procedere comunque con la creazione della gara?";
 
       // Show custom conflict dialog instead of browser confirm
-      return new Promise((resolve) => {
+      const shouldContinue = await new Promise<boolean>((resolve) => {
         setConflictData({
           message: conflictMessage,
           onConfirm: () => {
@@ -704,17 +751,16 @@ export default function MatchesPage() {
           },
         });
         setShowConflictDialog(true);
-      }).then((shouldContinue) => {
-        if (!shouldContinue) return;
-        // Continue with the rest of the function
-        proceedWithMatchCreation(matchData);
       });
-    } else {
-      proceedWithMatchCreation(matchData);
+      if (!shouldContinue) return false;
+      return proceedWithMatchCreation(matchData);
     }
+
+    return proceedWithMatchCreation(matchData);
   };
 
-  const proceedWithMatchCreation = async (matchData: any) => {
+  /** `true` se la gara e stata salvata davvero — vedi `handleAddMatch`. */
+  const proceedWithMatchCreation = async (matchData: any): Promise<boolean> => {
     try {
       const trainerNames = matchData.trainerIds
         .map((id: string) => trainers.find((t) => t.id === id)?.name || "")
@@ -803,9 +849,11 @@ export default function MatchesPage() {
 
       showToast("success", `Gare per ${categoryNames} aggiunte con successo`);
       setShowAddMatchModal(false);
+      return true;
     } catch (error) {
       console.error("Error adding match:", error);
-      showToast("error", "Errore nell'aggiunta della gara");
+      showToast("error", getReadableMatchErrorMessage(error));
+      return false;
     }
   };
 
