@@ -861,7 +861,11 @@ ovunque — perche e l'unico che **cancella righe**.
   WP-17 anche `untilDate` (data assoluta invece della finestra rolling,
   limite `MAX_MANUAL_GENERATION_DAYS_AHEAD` = 366 giorni) e `preview`
   (calcola senza scrivere). Risposta: `generatedCount`, `existingCount`,
-  `excludedCount`, `conflicts[]`, `generatedUntil`
+  `excludedCount`, `excludedSlots[]` (giorno, categoria, struttura/campo/
+  sede e motivo di ogni fascia esclusa perche il campo era chiuso —
+  [ADR-0180](knowledge-base/18-decision-log.md#adr-0180--genera-ora-salva-cio-che-puo-come-gia-faceva-genera-fino-a-un-campo-chiuso-non-abortisce-piu-lintero-blocco):
+  una fascia su un campo chiuso non abortisce piu l'intero blocco, ne per
+  "Genera ora" ne per "Genera fino a..."), `conflicts[]`, `generatedUntil`
 - `POST /api/v1/training-automation/schedule-impact` — quanti allenamenti
   futuri gia generati una modifica al programma settimanale riguarda, e
   quanti sono sicuri da aggiornare (WP-08). Stesso permesso della

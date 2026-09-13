@@ -11375,3 +11375,253 @@ Verificato con `tests/server/audit-blocco-interamente-scartato.test.mjs`
 suite completa, typecheck, lint, build.
 
 ---
+
+## ADR-0180 — "Genera ora" salva cio che puo, come gia faceva "Genera fino a...": un campo chiuso non abortisce piu l'intero blocco
+
+**Data:** 2026-09-13
+
+**Contesto.** ADR-0170 aveva deciso, per una buona ragione, due comportamenti
+diversi per lo stesso motore di generazione (`createClubEventsBatch`,
+`src/lib/server/events.ts`): con una persona dietro il pulsante "Genera
+ora" **e senza** una data assoluta, una fascia su un campo chiuso rifiuta
+l'**intero** blocco (`campoChiuso: "rifiuta"`); con "Genera fino a...", con
+l'anteprima o con il cron, la stessa fascia viene saltata e riportata nel
+risultato (`campoChiuso: "salta"`). Il ragionamento era che una persona,
+davanti a un rifiuto immediato su una finestra corta, puo correggere subito
+— un calendario scritto a meta e peggio di un errore, perche nessuno sa
+quale meta.
+
+L'UAT sul pilota Fortitudo Scauri ha mostrato il difetto in quel
+ragionamento: **il rifiuto non diceva quale meta**. Il messaggio nominava
+un solo campo ("il campo «Palazzetto» non e disponibile in quel giorno e a
+quell'ora") senza giorno, ora o categoria, e scartava anche le decine di
+altre fasce valide dello stesso programma settimanale — esattamente il
+sintomo che "Genera fino a..." aveva gia risolto con lo stesso motore,
+sulla stessa funzione, un clic piu in la.
+
+**Decisione.** `runTrainingAutomationForClub` passa ora **sempre**
+`campoChiuso: "salta"` a `createClubEventsBatch`, indipendentemente da chi
+chiama e da quale finestra usa. La differenza fra "Genera ora", "Genera
+fino a...", l'anteprima e il cron resta **solo** nella finestra di date che
+ciascuno copre — non piu nel modo in cui una fascia su un campo chiuso
+viene trattata.
+
+Il timore originale di ADR-0170 (un calendario scritto a meta, senza sapere
+quale meta) si chiude non tornando al rifiuto, ma **rendendo il salto
+leggibile**: `createClubEventsBatch` torna ora anche `esclusiDettaglio`
+(`BatchExclusion[]`, `src/lib/server/events.ts`) — la stessa forma di
+`BatchConflict` che ADR-0169 aveva gia introdotto per le sovrapposizioni —
+con giorno, categoria, struttura/campo/sede e il motivo gia leggibile per
+ogni fascia esclusa. `AutomationRunResult.excludedSlots` la porta fino al
+pannello (`TrainingScheduleAutomationPanel.tsx`), che ora mostra un
+riepilogo — "Impossibile generare N allenamenti: <categoria>, <giorno>
+<ora>, motivo: <messaggio>" — sia per "Genera ora" sia nell'anteprima di
+"Genera fino a...", che prima riportava solo il conteggio.
+
+**Cosa non cambia.** Una fascia in **sovrapposizione** con un evento
+esistente resta un avviso distinto (`conflitti`/`BatchConflict`,
+invariato). Un `createClubEvent`/`updateClubEvent` **singolo** — una
+persona che crea un allenamento a mano dal form, non dal programma
+settimanale — continua a rifiutare subito su un campo chiuso: quella
+rotta non e passata da qui, e un rifiuto immediato su un'azione di un solo
+evento resta la risposta giusta.
+
+Verificato con
+`tests/server/training-automation-genera-ora-non-abortisce-il-blocco.test.mjs`
+(un lunedi su un campo aperto solo il martedi non impedisce piu la
+generazione del martedi), oltre alla suite esistente
+(`training-automation-genera-fino-a.test.mjs`,
+`audit-blocco-interamente-scartato.test.mjs`, invariate) e
+`tests/ui/training-schedule-automation-panel-genera-ora.test.mjs`.
+
+---
+
+## ADR-0181 — La struttura consigliata segue la sede del gruppo, non e mai obbligatoria; l'evento cross-site e un'eccezione sua, non della categoria
+
+**Data:** 2026-09-13
+
+**Contesto.** Creare un allenamento o una gara richiede di scegliere una
+struttura fra tutte quelle del club, senza nessun aiuto che tenga conto
+della sede in cui la categoria (per la precisione: il **gruppo operativo**,
+ADR-0055 — la coppia categoria/sede) gioca davvero. Il ripiego automatico
+di ogni form era "la prima struttura dell'elenco", indipendentemente dalla
+sede: un club con due sedi vedeva proporsi, di default, una struttura a
+trenta chilometri da dove la squadra si allena.
+
+**Decisione.** `src/lib/club-sites.ts` (proprietario gia del modello
+categoria/sede/gruppo, ADR-0038) guadagna due funzioni pure:
+
+- `resolveRecommendedStructures(structures, siteId, siteIndex?)`: **non
+  filtra**, riordina — le strutture della stessa sede del gruppo scelto
+  vengono segnalate (`recommended: true`) e portate in cima, le altre
+  restano selezionabili subito sotto. Senza una sede da confrontare
+  (categoria senza sede, club mono-sede) nessuna e "consigliata": e il
+  comportamento di sempre;
+- `isCrossSiteEvent(categorySiteId, structureSiteId, siteIndex?)`: un
+  predicato puro, vero solo quando **entrambe** le sedi sono note e
+  diverse. Una categoria senza sede o una struttura senza sede non
+  producono mai un avviso — non c'e niente con cui essere in conflitto.
+
+Le tre superfici di creazione con la priorita piu alta le usano:
+`AddTrainingForm.tsx`, `AddMatchForm.tsx` (struttura consigliata nella
+select, "· Consigliata (stessa sede)"; il ripiego automatico ora preferisce
+la consigliata) e `WeeklyTrainingSchedulePanel.tsx` (stesso trattamento nei
+dialoghi Aggiungi/Modifica dello slot). Alla conferma del salvataggio, se
+la struttura scelta e di una sede diversa da quella del gruppo,
+`src/app/training/page.tsx`/`src/app/matches/page.tsx` chiedono conferma
+con la stessa primitiva gia in uso per la sovrapposizione (`richiediConferma`
++ `AlertDialog`/`ConfirmDialog`, a seconda di quale la pagina gia usa): un
+avviso, mai un blocco. Nel programma settimanale l'avviso scatta solo
+quando la struttura **cambia** rispetto a quella con cui il dialogo si e
+aperto — riaprire e risalvare uno slot gia cross-site senza toccarlo non
+lo ripropone.
+
+**Cosa questa decisione non fa.** Non sposta la sede della categoria, non
+sposta atleti, non tocca `category_groups`: l'evento cross-site resta una
+proprieta **sua**, non della categoria. Non introduce un concetto di
+struttura "attiva"/"primaria": con piu strutture della stessa sede, nessuna
+viene scelta arbitrariamente — restano tutte consigliate, in cima, nello
+stesso ordine con cui sono arrivate.
+
+**Cosa resta fuori da questo commit**, deliberatamente (D-AUD-41):
+`EditTrainingForm.tsx` (le sue location sono etichette, senza `siteId`) e
+`trainer-event-editor-dialog.tsx` (il dialogo lato allenatore). Sono
+segnalati come debito, non affrontati qui, per restare in un cambiamento
+atomico.
+
+Verificato con `tests/lib/struttura-consigliata-per-sede.test.mjs` (le due
+primitive pure, in isolamento) e
+`tests/ui/struttura-consigliata-cross-site-superfici.test.mjs` (il
+cablaggio nelle superfici), oltre alla suite completa, typecheck, lint,
+build.
+
+---
+
+## ADR-0182 — Un modulo di dominio si reinizializza sul bersaglio che apre, non su un riferimento di prop che cambia mentre resta aperto
+
+**Data:** 2026-09-13
+
+**Contesto.** "Crea categoria" perdeva tutti i valori inseriti quando il
+salvataggio falliva per un errore di validazione (date/anni non validi):
+la notifica di errore compariva correttamente, ma il modulo tornava vuoto
+invece di restare compilato per la correzione. Causa in
+`CategoryEditorDialog.tsx`: l'effetto che inizializza `formData` da
+`initialData`/`initialAssignedTrainerIds`/`initialSiteIds` ripartiva a ogni
+cambio di **riferimento** di quelle prop. `src/app/categories/page.tsx`
+passa `initialAssignedTrainerIds`/`availableTrainers` come array letterali
+ricostruiti a ogni render, e la notifica d'errore (`showToast`) ne
+provocava uno proprio mentre il dialogo restava aperto: l'effetto
+ripartiva e sovrascriveva tutto con lo stato iniziale.
+
+**Decisione.** Il reset ora dipende dal **bersaglio** — il dialogo si
+apre (`isOpen` passa a vero) su una categoria diversa (o su "nuova") — non
+dal riferimento delle prop che lo popolano. Un `useRef` tiene la chiave
+dell'ultimo bersaglio per cui si e reinizializzato; un re-render a dialogo
+gia aperto sullo stesso bersaglio esce presto, qualunque sia la causa del
+re-render. La chiave si azzera alla chiusura, cosi una riapertura sullo
+stesso bersaglio riparte comunque da capo.
+
+**La regola vale in generale, non solo qui.** Un modulo controllato che
+reinizializza il proprio stato da una prop composta dal genitore a ogni
+render (un array o un oggetto letterale, non memoizzato) e vulnerabile a
+qualunque causa di re-render del genitore — un toast, un timer, uno stato
+non correlato — non solo a un errore di validazione. La correzione va
+cercata nel modulo stesso (dipendere dal bersaglio, non dal riferimento),
+non nel genitore: memoizzare ogni prop che un componente riceve e un
+rincorrersi, non una difesa.
+
+`src/components/forms/AddCategoryForm.tsx` — un duplicato non referenziato
+da nessuna pagina, con lo stesso difetto — e stato rimosso invece di
+corretto: due implementazioni della stessa cosa sono l'errore tipico #1 di
+[17](17-development-conventions.md), e una copia morta con lo stesso
+difetto non e un secondo posto da proteggere, e un secondo posto da
+cancellare.
+
+Verificato con
+`tests/ui/category-editor-dialog-preserva-il-form-su-errore.test.mjs`,
+oltre alla suite completa, typecheck, lint, build. Debito residuo
+documentato in D-AUD-40 (`ToastProvider` ricrea il proprio valore di
+contesto a ogni `showToast`, moltiplicando — non causando — questa classe
+di re-render).
+
+---
+
+## ADR-0183 — `club_events` non ha un fuso orario: la disponibilita di un campo si legge nelle sue stesse cifre, non in Europe/Rome
+
+**Data:** 2026-09-13
+
+**Contesto.** La sonda read-only sul club pilota Fortitudo Scauri (staging,
+per l'issue "il campo «Palazzetto» non e disponibile in quel giorno e a
+quell'ora") ha trovato la causa reale, distinta e piu profonda del
+comportamento all-or-nothing chiuso da ADR-0180: una fascia del programma
+settimanale — martedi, Palazzetto, 19:30-21:30 — veniva rifiutata da un
+campo la cui disponibilita dichiarata (13:00-23:00 nei giorni feriali) la
+conteneva **interamente**.
+
+La causa era un disallineamento di fuso orario fra due parti del sistema
+che avrebbero dovuto concordare:
+
+- `toEventInstant` (`src/lib/events/model.ts`) scrive `starts_at`/`ends_at`
+  di **ogni** `club_event` con `setUTCHours(ora, minuti, 0, 0)`: "19:30"
+  digitato in un form diventa letteralmente `…T19:30:00.000Z`, **senza
+  nessuna conversione di fuso**. E una scelta deliberata, condivisa da tutto
+  il dominio: `toEventDay`/`toEventTime` rileggono le stesse cifre allo
+  stesso modo per mostrarle in calendario, negli appelli, nelle chiavi di
+  deduplica del programma settimanale — l'intero dominio degli eventi tratta
+  quelle cifre UTC come **l'ora locale del club**, mai come un vero istante
+  UTC da riconvertire;
+- `isWithinFieldAvailability` (`src/lib/events/model.ts`, che delega a
+  `src/lib/structures-utils.ts`) convertiva invece l'istante ricevuto nel
+  fuso reale `Europe/Rome` prima di confrontarlo con le fasce dichiarate.
+  Applicato a un istante di `club_events` — che non e mai stato un vero UTC —
+  quella conversione lo sposta di un'ora (inverno) o due (estate, con l'ora
+  legale) rispetto a cio che chi lo aveva digitato intendeva: 19:30 diventa
+  21:30, e un campo che chiude alle 23:00 rifiuta una fascia che, nei
+  termini in cui l'ha scritta il club, non aveva mai superato quell'orario.
+
+**Una correzione precedente aveva gia trovato — e frainteso — questo
+stesso confine.** Il commento storico su `isWithinFieldAvailability`
+raccontava di **due implementazioni divergenti** sullo stesso dato (una in
+UTC, una in Europe/Rome) e le aveva unificate su Europe/Rome "perche la
+fascia la scrive una persona nell'editor delle strutture e la legge come
+l'ha scritta." La premessa e giusta; la conclusione vale pero solo per un
+istante che sia **davvero** UTC — come quello dell'area famiglia
+(`instantFromLocalTime`, PP-02 §L, che converte apposta perche il
+dispositivo di una famiglia puo stare in un fuso diverso da quello del
+campo). Verificato in questo giro: l'area famiglia **non passa mai** da
+`events/model.ts` — chiama `structures-utils.ts` direttamente, sia dalla
+pagina (`parent-dashboard-pages.tsx`) sia dalla rotta
+(`app/api/parent-dashboard/[athleteId]/structures/route.ts`). Il wrapper di
+`events/model.ts` ha oggi **un solo chiamante**,
+`src/lib/server/events.ts`, il cui istante non e mai stato un vero UTC. La
+correzione di allora aveva la ragione giusta e il chiamante sbagliato.
+
+**Decisione.** `isWithinFieldAvailability` in `src/lib/events/model.ts`
+passa ora esplicitamente `"UTC"` a `isWithinStructureFieldAvailability`
+invece di lasciare il fuso di default (`Europe/Rome`): legge le cifre di
+`starts_at`/`ends_at` cosi come sono, nella stessa convenzione che
+`toEventDay`/`toEventTime` gia usano per tutto il resto del dominio degli
+eventi. La versione di `structures-utils.ts` — quella che l'area famiglia
+chiama **direttamente**, con un vero UTC — resta invariata, con il suo
+fuso di default `Europe/Rome`: e ancora la risposta corretta per quel
+chiamante, e questa correzione non la tocca.
+
+**Cosa questa decisione non risolve, deliberatamente.** `club_events` resta
+un dominio "senza fuso": i suoi istanti sono cifre digitate, non veri UTC.
+Questo e sufficiente e corretto finche tutto cio che legge `starts_at`/
+`ends_at` — display, dedup, sovrapposizione, e ora anche la disponibilita —
+concorda sulla stessa convenzione, com'e oggi. Farlo diventare un vero UTC
+(con conversione a Europe/Rome anche per display e sovrapposizione)
+sarebbe un cambiamento enormemente piu ampio, su superfici che oggi
+funzionano correttamente proprio perche concordano tutte fra loro: non e
+stato affrontato qui, e resterebbe rischioso farlo in fretta.
+
+Verificato con
+`tests/server/campo-aperto-nelle-cifre-dell-evento-non-a-roma.test.mjs`
+(la fascia reale dello staging, 19:30-21:30 su un campo aperto fino alle
+23:00, si crea; una fascia davvero fuori orario resta esclusa), oltre alla
+suite completa (inclusi i test esistenti sulla disponibilita e sulla
+sovrapposizione, invariati), typecheck, lint, build. Nessun dato toccato:
+la sonda su Fortitudo Scauri e stata di sola lettura.
+
+---

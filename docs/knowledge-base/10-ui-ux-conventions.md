@@ -912,6 +912,26 @@ Non c'e uno standard unico:
 Per il codice nuovo segui il pattern prevalente (state controllato) salvo WP che
 introduca `react-hook-form` in modo sistematico.
 
+### Un errore non svuota il modulo (ADR-0182)
+
+Un errore di validazione — client o server, 400/409, una regola di dominio —
+**non deve mai** far perdere i valori gia inseriti. Il modulo resta compilato,
+l'utente corregge solo il campo sbagliato e conferma di nuovo. Il reset (o la
+chiusura) avviene **solo** dopo un successo — mai in un `finally`, mai prima
+che la richiesta risolva, mai come effetto collaterale di un re-render del
+genitore.
+
+Il modo piu comune in cui questa regola si rompe non e un reset esplicito nel
+percorso d'errore: e un modulo controllato il cui effetto di inizializzazione
+dipende dal **riferimento** di una prop (un array o un oggetto che il genitore
+ricostruisce a ogni render) invece che dal **bersaglio** (quale record si sta
+creando o modificando). Un `showToast` per mostrare l'errore, o qualunque
+altro re-render del genitore non correlato, rifa scattare l'effetto e
+sovrascrive lo stato — vedi [ADR-0182](18-decision-log.md#adr-0182--un-modulo-di-dominio-si-reinizializza-sul-bersaglio-che-apre-non-su-un-riferimento-di-prop-che-cambia-mentre-resta-aperto)
+per il caso reale (`CategoryEditorDialog.tsx`) e la correzione: l'effetto di
+reset dipende da `isOpen` + una chiave del bersaglio (l'id in modifica, o
+"nuovo" in creazione), non dalle prop di supporto.
+
 ## Responsive
 
 Breakpoint Tailwind standard. Il pattern ricorrente e duplicare il markup:
