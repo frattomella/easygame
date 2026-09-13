@@ -100,7 +100,39 @@ export function CategoryEditorDialog({
     getInitialFormState(initialData, initialAssignedTrainerIds, initialSiteIds),
   );
 
+  /**
+   * **Il modulo si reinizializza quando si apre su un bersaglio diverso, non
+   * a ogni re-render del genitore.**
+   *
+   * Prima questo effetto ripartiva da `initialData`/`initialAssignedTrainerIds`
+   * /`initialSiteIds` per **riferimento**: il genitore (`categories/page.tsx`)
+   * passa `availableTrainers`/`initialAssignedTrainerIds` come array letterali
+   * ricostruiti a ogni render, e un errore di validazione — che passa da
+   * `showToast`, il cui contesto cambia a ogni chiamata — faceva ri-renderizzare
+   * il genitore proprio mentre il dialogo restava aperto. L'effetto ripartiva,
+   * `setFormData` sovrascriveva tutto con lo stato iniziale, e l'utente perdeva
+   * cio che aveva appena scritto per correggere l'errore.
+   *
+   * La chiave che conta e il **bersaglio** (la categoria in modifica, o "nuova"
+   * in creazione): finche il dialogo resta aperto sullo stesso bersaglio, un
+   * re-render qualunque non deve piu toccare `formData`. Alla chiusura la
+   * chiave si azzera, cosi una riapertura sullo stesso bersaglio riparte
+   * comunque da capo.
+   */
+  const resetTargetRef = React.useRef<string | null>(null);
+
   React.useEffect(() => {
+    if (!isOpen) {
+      resetTargetRef.current = null;
+      return;
+    }
+
+    const targetKey = String(initialData?.id ?? "__new__");
+    if (resetTargetRef.current === targetKey) {
+      return;
+    }
+
+    resetTargetRef.current = targetKey;
     setFormData(
       getInitialFormState(
         initialData,
@@ -108,7 +140,10 @@ export function CategoryEditorDialog({
         initialSiteIds,
       ),
     );
-  }, [initialData, initialAssignedTrainerIds, initialSiteIds, isOpen]);
+    // Le liste di riferimento (allenatori/sedi disponibili) non devono far
+    // ripartire il reset: solo l'apertura su un bersaglio nuovo lo fa.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialData]);
 
   /*
     Il club mono-sede non vede il concetto: una sola sede non aggiunge
