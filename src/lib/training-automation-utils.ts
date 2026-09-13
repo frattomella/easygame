@@ -1,5 +1,7 @@
 export type TrainingAutomationFrequency = "weekly" | "interval";
 
+export type TrainingAutomationRunStatus = "success" | "failed";
+
 export type TrainingAutomationSettings = {
   enabled: boolean;
   frequency: TrainingAutomationFrequency;
@@ -8,7 +10,16 @@ export type TrainingAutomationSettings = {
   intervalDays: number;
   startDate: string;
   generateDaysAhead: number;
+  /** Timestamp of the last run that actually produced/persisted a result. Real proof of execution. */
   lastRunAt: string | null;
+  /** Timestamp of the last time the runner attempted this automation, success or failure. */
+  lastAttemptAt: string | null;
+  /** Outcome of the run at lastAttemptAt. Null only when the automation has never been attempted. */
+  lastRunStatus: TrainingAutomationRunStatus | null;
+  /** Error message when lastRunStatus is "failed". Null otherwise. */
+  lastRunError: string | null;
+  /** Number of trainings created on the last successful run. */
+  lastGeneratedCount: number | null;
 };
 
 export const TRAINING_AUTOMATION_DAY_LABELS: Record<string, string> = {
@@ -42,6 +53,10 @@ export const DEFAULT_TRAINING_AUTOMATION_SETTINGS: TrainingAutomationSettings = 
   startDate: todayIsoDate(),
   generateDaysAhead: 21,
   lastRunAt: null,
+  lastAttemptAt: null,
+  lastRunStatus: null,
+  lastRunError: null,
+  lastGeneratedCount: null,
 };
 
 const isRecord = (value: unknown): value is Record<string, any> =>
@@ -106,6 +121,21 @@ export const parseTrainingAutomationSettings = (
       source.lastRunAt === null || source.lastRunAt === undefined
         ? null
         : String(source.lastRunAt),
+    lastAttemptAt:
+      source.lastAttemptAt === null || source.lastAttemptAt === undefined
+        ? null
+        : String(source.lastAttemptAt),
+    lastRunStatus:
+      source.lastRunStatus === "success" || source.lastRunStatus === "failed"
+        ? source.lastRunStatus
+        : null,
+    lastRunError:
+      source.lastRunError === null || source.lastRunError === undefined
+        ? null
+        : String(source.lastRunError),
+    lastGeneratedCount: Number.isFinite(Number(source.lastGeneratedCount))
+      ? Math.max(0, Math.trunc(Number(source.lastGeneratedCount)))
+      : null,
   };
 };
 

@@ -46,6 +46,15 @@ type AutomationRunResult = {
   lastRunAt: string | null;
   settings: TrainingAutomationSettings;
   reason?: "not_due" | "missing_schedule";
+  /**
+   * "success": the writer persisted new/updated state for a real run.
+   * "failed": the automation was due and attempted, but did not complete
+   *   (missing schedule counts as failed — it is due but produces nothing).
+   * "not_run": the automation was not due, so nothing was attempted.
+   * Failure must never be reported as "success" — callers rely on this to
+   * avoid masking a non-execution as a completed run.
+   */
+  status: "success" | "failed" | "not_run";
 };
 
 const isMissingCategoryMembershipTableError = (error: unknown) =>
@@ -390,9 +399,18 @@ const buildExistingTrainingKey = (
   });
 };
 
+type AutomationRunOutcome = {
+  attemptAt: string;
+  status: "success" | "failed";
+  error?: string | null;
+  generatedCount?: number;
+  /** When false, lastRunAt is left untouched — a failed attempt is never proof of a real run. */
+  markLastRunAt?: boolean;
+};
+
 const buildStoredAutomationSettings = (
   clubSettings: unknown,
-  lastRunAt: string,
+  outcome: AutomationRunOutcome,
 ) => {
   const settingsRecord = isRecord(clubSettings) ? clubSettings : {};
   const currentAutomation = parseTrainingAutomationSettings(
@@ -403,7 +421,15 @@ const buildStoredAutomationSettings = (
     ...settingsRecord,
     trainingAutomation: {
       ...currentAutomation,
-      lastRunAt,
+      lastRunAt:
+        outcome.markLastRunAt !== false
+          ? outcome.attemptAt
+          : currentAutomation.lastRunAt,
+      lastAttemptAt: outcome.attemptAt,
+      lastRunStatus: outcome.status,
+      lastRunError: outcome.status === "failed" ? outcome.error || "Errore sconosciuto" : null,
+      lastGeneratedCount:
+        outcome.status === "success" ? outcome.generatedCount ?? 0 : currentAutomation.lastGeneratedCount,
     },
   };
 };
@@ -520,6 +546,7 @@ export async function runTrainingAutomationForClub(
       lastRunAt: effectiveSettings.lastRunAt,
       settings: effectiveSettings,
       reason: "not_due",
+      status: "not_run",
     };
   }
 
@@ -535,14 +562,35 @@ export async function runTrainingAutomationForClub(
   });
 
   if (!weeklySchedule.length) {
+    const attemptAt = now.toISOString();
+    const missingScheduleError =
+      "Programma settimanale mancante o senza sessioni valide da generare";
+    const attemptSettings = buildStoredAutomationSettings(club.settings, {
+      attemptAt,
+      status: "failed",
+      error: missingScheduleError,
+      markLastRunAt: false,
+    });
+
+    try {
+      await prisma.club.update({
+        where: { id: clubId },
+        data: { settings: attemptSettings },
+      });
+    } catch {
+      // Best-effort observability write: a failure here must not hide the
+      // original "missing_schedule" outcome from the caller.
+    }
+
     return {
       ran: true,
       due: true,
       generatedCount: 0,
       generatedTrainings: [],
       lastRunAt: effectiveSettings.lastRunAt,
-      settings: effectiveSettings,
+      settings: attemptSettings.trainingAutomation,
       reason: "missing_schedule",
+      status: "failed",
     };
   }
 
@@ -706,25 +754,52 @@ export async function runTrainingAutomationForClub(
     }
   }
 
-  const lastRunAt = now.toISOString();
-  await prisma.club.update({
-    where: { id: clubId },
-    data: {
-      trainings: dedupeTrainings([...currentStoredTrainings, ...generatedTrainings]),
-      settings: buildStoredAutomationSettings(club.settings, lastRunAt),
-    },
+  const attemptAt = now.toISOString();
+  const successSettings = buildStoredAutomationSettings(club.settings, {
+    attemptAt,
+    status: "success",
+    generatedCount: generatedTrainings.length,
   });
+
+  try {
+    await prisma.club.update({
+      where: { id: clubId },
+      data: {
+        trainings: dedupeTrainings([...currentStoredTrainings, ...generatedTrainings]),
+        settings: successSettings,
+      },
+    });
+  } catch (error: any) {
+    // The writer failed: this run must NOT be reported as successful, and
+    // lastRunAt must stay untouched — a failed attempt is not a real run.
+    const failureSettings = buildStoredAutomationSettings(club.settings, {
+      attemptAt,
+      status: "failed",
+      error: error?.message || "Errore durante la scrittura degli allenamenti",
+      markLastRunAt: false,
+    });
+
+    try {
+      await prisma.club.update({
+        where: { id: clubId },
+        data: { settings: failureSettings },
+      });
+    } catch {
+      // Best-effort: if even this write fails, the original error below
+      // still propagates and the caller still won't see a false success.
+    }
+
+    throw error;
+  }
 
   return {
     ran: true,
     due: true,
     generatedCount: generatedTrainings.length,
     generatedTrainings,
-    lastRunAt,
-    settings: {
-      ...effectiveSettings,
-      lastRunAt,
-    },
+    lastRunAt: attemptAt,
+    settings: successSettings.trainingAutomation,
+    status: "success",
   };
 }
 
@@ -742,8 +817,10 @@ export async function runDueTrainingAutomationForAllClubs(now = new Date()) {
     clubName: string;
     generatedCount: number;
     ran: boolean;
+    status: "success" | "failed";
     reason?: string;
   }> = [];
+  let dueCount = 0;
 
   for (const club of clubs) {
     const settings = parseTrainingAutomationSettings(
@@ -754,6 +831,8 @@ export async function runDueTrainingAutomationForAllClubs(now = new Date()) {
       continue;
     }
 
+    dueCount += 1;
+
     try {
       const result = await runTrainingAutomationForClub(club.id, { now });
       results.push({
@@ -761,6 +840,7 @@ export async function runDueTrainingAutomationForAllClubs(now = new Date()) {
         clubName: club.name,
         generatedCount: result.generatedCount,
         ran: result.ran,
+        status: result.status === "success" ? "success" : "failed",
         reason: result.reason,
       });
     } catch (error: any) {
@@ -769,10 +849,22 @@ export async function runDueTrainingAutomationForAllClubs(now = new Date()) {
         clubName: club.name,
         generatedCount: 0,
         ran: false,
+        status: "failed",
         reason: error?.message || "automation_error",
       });
     }
   }
 
-  return results;
+  const failedCount = results.filter((entry) => entry.status === "failed").length;
+  const succeededCount = results.length - failedCount;
+  const status: "not_run" | "success" | "partial" | "failed" =
+    dueCount === 0
+      ? "not_run"
+      : failedCount === 0
+        ? "success"
+        : succeededCount === 0
+          ? "failed"
+          : "partial";
+
+  return { status, dueCount, results };
 }

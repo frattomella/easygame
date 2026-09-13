@@ -89,10 +89,14 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const results = await runDueTrainingAutomationForAllClubs(new Date());
+    const { status, dueCount, results } = await runDueTrainingAutomationForAllClubs(
+      new Date(),
+    );
 
     return NextResponse.json({
       data: {
+        status,
+        dueClubs: dueCount,
         processedClubs: results.length,
         results,
       },

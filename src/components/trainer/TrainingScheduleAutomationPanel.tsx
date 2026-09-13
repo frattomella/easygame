@@ -39,6 +39,38 @@ const formatNextRun = (settings: TrainingAutomationSettings) =>
     minute: "2-digit",
   });
 
+// "Ultima esecuzione" must only ever reflect a run that really happened —
+// lastRunAt is proof of execution, never a projection.
+const formatLastRun = (settings: TrainingAutomationSettings) => {
+  if (!settings.lastRunAt) {
+    return "Mai eseguita";
+  }
+
+  const base = new Date(settings.lastRunAt).toLocaleString("it-IT");
+  return typeof settings.lastGeneratedCount === "number"
+    ? `${base} · ${settings.lastGeneratedCount} creati`
+    : base;
+};
+
+// The most recent attempt is only surfaced here when it failed and is more
+// recent than the last real run — a failed attempt must never masquerade as
+// (or hide behind) "Mai eseguita".
+const getFailedAttemptAt = (settings: TrainingAutomationSettings) => {
+  if (settings.lastRunStatus !== "failed" || !settings.lastAttemptAt) {
+    return null;
+  }
+
+  if (
+    settings.lastRunAt &&
+    new Date(settings.lastRunAt).getTime() >=
+      new Date(settings.lastAttemptAt).getTime()
+  ) {
+    return null;
+  }
+
+  return settings.lastAttemptAt;
+};
+
 interface TrainingScheduleAutomationPanelProps {
   weeklySchedule?: any[];
   onGenerateTrainings?: () => void;
@@ -56,6 +88,7 @@ export function TrainingScheduleAutomationPanel({
   const [settings, setSettings] = React.useState<TrainingAutomationSettings>(
     DEFAULT_TRAINING_AUTOMATION_SETTINGS,
   );
+  const failedAttemptAt = getFailedAttemptAt(settings);
 
   const loadSettings = React.useCallback(async () => {
     if (!activeClub?.id) {
@@ -112,6 +145,7 @@ export function TrainingScheduleAutomationPanel({
         generatedTrainings: any[];
         lastRunAt: string | null;
         reason?: string;
+        settings?: unknown;
       }>("/api/v1/training-automation", {
         method: "POST",
         body: {
@@ -125,6 +159,12 @@ export function TrainingScheduleAutomationPanel({
         throw new Error(response.error.message || "Generazione fallita");
       }
 
+      // The server is the source of truth for lastRunAt/lastRunStatus: it
+      // only marks a real run once the writer has actually persisted.
+      if (response.data?.settings) {
+        setSettings(parseTrainingAutomationSettings(response.data.settings));
+      }
+
       if (response.data?.reason === "missing_schedule") {
         showToast(
           "error",
@@ -136,13 +176,6 @@ export function TrainingScheduleAutomationPanel({
       const generatedTrainings = Array.isArray(response.data?.generatedTrainings)
         ? response.data.generatedTrainings
         : [];
-      const nextLastRunAt =
-        response.data?.lastRunAt || new Date().toISOString();
-
-      setSettings((current) => ({
-        ...current,
-        lastRunAt: nextLastRunAt,
-      }));
       onGenerateTrainings();
 
       if (generatedTrainings.length > 0) {
@@ -164,10 +197,21 @@ export function TrainingScheduleAutomationPanel({
           ? error.message
           : "Errore nella generazione degli allenamenti",
       );
+      // The runner may have persisted a failed-attempt record even though
+      // this request errored out — refresh so "Ultimo tentativo" reflects it
+      // instead of silently staying on stale state.
+      await loadSettings();
     } finally {
       setIsGenerating(false);
     }
-  }, [activeClub?.id, onGenerateTrainings, settings, showToast, weeklySchedule]);
+  }, [
+    activeClub?.id,
+    loadSettings,
+    onGenerateTrainings,
+    settings,
+    showToast,
+    weeklySchedule,
+  ]);
 
   const saveManualSettings = async () => {
     try {
@@ -441,12 +485,22 @@ export function TrainingScheduleAutomationPanel({
             <div className="space-y-2">
               <Label>Ultima esecuzione</Label>
               <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                {settings.lastRunAt
-                  ? new Date(settings.lastRunAt).toLocaleString("it-IT")
-                  : "Mai eseguita"}
+                {formatLastRun(settings)}
               </div>
             </div>
           </div>
+
+          {failedAttemptAt ? (
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              <p className="font-medium">
+                Ultimo tentativo: {new Date(failedAttemptAt).toLocaleString("it-IT")}
+              </p>
+              <p className="mt-1">
+                Errore nell&apos;esecuzione
+                {settings.lastRunError ? `: ${settings.lastRunError}` : ""}
+              </p>
+            </div>
+          ) : null}
 
           <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
             <p className="font-medium text-slate-900">Prossima esecuzione</p>
