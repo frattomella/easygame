@@ -53,6 +53,33 @@ export type NormalizedCategoryOption = {
    * rispettare.
    */
   sortOrder?: number | null;
+  /**
+   * **Il club l'ha configurata, o esiste solo perche una scheda la cita?**
+   * (pilota Fortitudo Scauri).
+   *
+   * Vero quando questa voce viene da `clubCategories` o `resourceCategories`
+   * — l'anagrafica che il club ha scritto. Falso **solo** quando esiste
+   * esclusivamente perche l'appartenenza di un atleta porta un riferimento
+   * (`category_id`/`category_name`) che il catalogo del club non conosce e
+   * che non combacia per nome con nessuna voce configurata: un dato legacy,
+   * spesso un'etichetta scritta per errore dove serviva un identificativo
+   * (es. `"Pulcini - S. Cosma"`), non una squadra che il club abbia deciso
+   * di avere.
+   *
+   * Questa distinzione esiste **solo** per non far sparire l'atleta da
+   * elenchi e report — vedi il commento su `deriveCategoryFromAthlete` — non
+   * per offrire la voce come unita operativa selezionabile. Chi costruisce
+   * un elenco di **gruppi** da assegnare a un allenamento o a una gara
+   * (`buildCategoryGroups`, in `@/lib/club-sites`) scarta le voci con
+   * `configured: false` prima di generarne una implicita: altrimenti un
+   * riferimento legacy diventerebbe una terza squadra selezionabile,
+   * indistinguibile a schermo da quelle vere.
+   *
+   * Assente (non `false`) per ogni voce costruita fuori da
+   * `buildClubCategoryOptions` — test, script, elenchi scritti a mano — che
+   * continuano a valere come "configurata", cioe il comportamento di prima.
+   */
+  configured?: boolean;
 };
 
 const YEAR_PATTERN = /(\d{4})\D+(\d{4})/;
@@ -325,7 +352,13 @@ const mergeCategoryOption = (
   const index = findCategoryIndex(categories, candidate, origine);
 
   if (index === -1) {
-    categories.push(candidate);
+    /*
+      Una voce nuova nata da una candidata "derivata" che non ha trovato
+      nessuna configurata a cui riunirsi non e mai configurata: esiste solo
+      perche una scheda la cita (D-AUD-37/38, pilota Fortitudo Scauri). Vedi
+      `configured` sul tipo.
+    */
+    categories.push({ ...candidate, configured: origine === "configurata" });
     return;
   }
 
@@ -371,6 +404,12 @@ const mergeCategoryOption = (
       typeof current.sortOrder === "number"
         ? current.sortOrder
         : (candidate.sortOrder ?? null),
+    /*
+      Una volta configurata resta configurata: una fusione "derivata"
+      successiva non la retrocede. Assente su `current` conta come
+      configurata (ripiego per chi costruisce l'elenco senza questo campo).
+    */
+    configured: (current.configured ?? true) || origine === "configurata",
   };
 };
 

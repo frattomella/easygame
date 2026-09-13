@@ -256,7 +256,18 @@ export const buildCategoryGroupLabel = (
 export const buildCategoryGroupId = (categoryId: string, siteId: string) =>
   siteId ? `group:${categoryId}:${siteId}` : `group:${categoryId}`;
 
-type CategoryLike = { id?: string | null; name?: string | null };
+type CategoryLike = {
+  id?: string | null;
+  name?: string | null;
+  /**
+   * Vero (o assente) quando il club ha configurato questa categoria; falso
+   * **solo** quando esiste nel catalogo esclusivamente perche una scheda
+   * atleta la cita — un riferimento legacy che il catalogo del club non
+   * riconosce, spesso un'etichetta scritta dove serviva un identificativo.
+   * Vedi `NormalizedCategoryOption.configured` in `@/lib/category-utils`.
+   */
+  configured?: boolean | null;
+};
 
 const buildCategoryLookup = (categories: readonly CategoryLike[]) => {
   const byReference = new Map<string, { id: string; name: string }>();
@@ -379,6 +390,18 @@ export const buildCategoryGroups = ({
   );
 
   const implicit = categories
+    /*
+      **Un gruppo implicito rappresenta una categoria che il club ha
+      configurato e per cui non ha (ancora) definito nessuna sede** — non
+      un riferimento che esiste solo perche una scheda atleta lo cita
+      (pilota Fortitudo Scauri, D-AUD-37/38). `getClubCategories` include
+      quei riferimenti nel catalogo apposta, per non far sparire l'atleta
+      da elenchi e report — ma promuoverli a **unita operativa
+      selezionabile** qui li faceva comparire come una terza squadra,
+      indistinguibile a schermo da quelle vere, ogni volta che il
+      riferimento non coincideva per nome con nessuna categoria reale.
+    */
+    .filter((category) => category?.configured !== false)
     .map((category) => {
       const categoryId = trimText(category?.id) || trimText(category?.name);
       const categoryName = trimText(category?.name) || categoryId;
