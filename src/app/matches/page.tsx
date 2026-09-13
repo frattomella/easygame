@@ -80,6 +80,7 @@ import {
   buildCategoryGroups,
   buildSiteIndex,
   getAthleteGroupIds,
+  isCrossSiteEvent,
   normalizeClubSites,
   readTrainingGroupIds,
 } from "@/lib/club-sites";
@@ -368,6 +369,38 @@ export default function MatchesPage() {
     message: string;
     onConfirm: () => void;
   } | null>(null);
+  /*
+    **La conferma cross-site, come promessa** (stesso pattern di
+    `src/app/training/page.tsx`, `ConfirmDialog` invece di `AlertDialog`
+    perche e la primitiva gia in uso in questa pagina): la struttura scelta
+    e di una sede diversa dal gruppo — un avviso da confermare, non un muro.
+  */
+  const [confermaInSospeso, setConfermaInSospeso] = useState<{
+    title: string;
+    description: string;
+    confirmText: string;
+    risolvi: (esito: boolean) => void;
+  } | null>(null);
+
+  const richiediConferma = React.useCallback(
+    (richiesta: { title: string; description: string; confirmText?: string }) =>
+      new Promise<boolean>((risolvi) => {
+        setConfermaInSospeso({
+          title: richiesta.title,
+          description: richiesta.description,
+          confirmText: richiesta.confirmText ?? "Conferma",
+          risolvi,
+        });
+      }),
+    [],
+  );
+
+  const chiudiConferma = React.useCallback((esito: boolean) => {
+    setConfermaInSospeso((corrente) => {
+      corrente?.risolvi(esito);
+      return null;
+    });
+  }, []);
   const { showToast } = useToast();
   const { activeClub, user } = useAuth();
 
@@ -597,6 +630,41 @@ export default function MatchesPage() {
     if (!matchData.categoryIds || matchData.categoryIds.length === 0) {
       showToast("error", "Seleziona almeno una categoria per la gara");
       return;
+    }
+
+    /*
+      **La struttura scelta e di un'altra sede rispetto al gruppo?** Un
+      avviso da confermare, non un blocco — l'evento puo essere
+      eccezionalmente cross-site, la categoria non si sposta (issue UAT).
+      Non si applica a una gara in trasferta: non c'e nessuna struttura del
+      club da confrontare.
+    */
+    if (matchData.venueMode !== "away") {
+      const gruppiSelezionati = matchGroupOptions.filter((group) =>
+        Array.isArray(matchData.groupIds)
+          ? matchData.groupIds.includes(group.id)
+          : false,
+      );
+      const sediDeiGruppi = Array.from(
+        new Set(gruppiSelezionati.map((group) => group.siteId).filter(Boolean)),
+      );
+      const sedeDelGruppo = sediDeiGruppi.length === 1 ? sediDeiGruppi[0] : "";
+      const sedeDellaStruttura =
+        resolveSelectedHomeLocation(matchData)?.siteId || "";
+
+      if (isCrossSiteEvent(sedeDelGruppo, sedeDellaStruttura)) {
+        const siteIndexPerAvviso = buildSiteIndex(normalizeClubSites(clubSites));
+        const confermatoCrossSite = await richiediConferma({
+          title: "La struttura appartiene a un'altra sede",
+          confirmText: "Conferma comunque",
+          description:
+            `La categoria e a «${siteIndexPerAvviso.getSiteName(sedeDelGruppo)}», ` +
+            `la struttura scelta e a «${siteIndexPerAvviso.getSiteName(sedeDellaStruttura)}». ` +
+            "Puoi salvarla lo stesso: e una proprieta di questa gara, non " +
+            "cambia la sede della categoria ne sposta nessun atleta.",
+        });
+        if (!confermatoCrossSite) return;
+      }
     }
 
     // Check for scheduling conflicts
@@ -2465,6 +2533,19 @@ export default function MatchesPage() {
           type="warning"
         />
       )}
+
+      {confermaInSospeso ? (
+        <ConfirmDialog
+          isOpen={true}
+          onClose={() => chiudiConferma(false)}
+          onConfirm={() => chiudiConferma(true)}
+          title={confermaInSospeso.title}
+          description={confermaInSospeso.description}
+          confirmText={confermaInSospeso.confirmText}
+          cancelText="Annulla"
+          type="warning"
+        />
+      ) : null}
     </div>
   );
 }

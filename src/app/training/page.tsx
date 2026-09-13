@@ -83,6 +83,7 @@ import {
   buildSiteIndex,
   getActiveCategoryGroups,
   getAthleteGroupIds,
+  isCrossSiteEvent,
   normalizeClubSites,
   readSiteReference,
   readTrainingGroupIds,
@@ -1100,6 +1101,42 @@ const versioneSalvata = (risposta: any): number | null => {
             "verra creato accanto agli altri.",
         });
         if (!sovrapposizioneConfermata) return;
+      }
+
+      /*
+        **La struttura scelta e di un'altra sede rispetto al gruppo?** Un
+        avviso da confermare, non un blocco: l'evento puo essere
+        eccezionalmente cross-site, la categoria non si sposta e gli atleti
+        restano dove sono (issue UAT).
+
+        Il confronto vale solo quando i gruppi selezionati condividono
+        **una** sede: con gruppi di sedi diverse, o senza gruppi con sede
+        (club mono-sede, categoria non ancora collocata), non c'e un
+        riferimento unico con cui essere in conflitto.
+      */
+      const gruppiSelezionati = groupOptions.filter((group) =>
+        Array.isArray(trainingData.groupIds)
+          ? trainingData.groupIds.includes(group.id)
+          : false,
+      );
+      const sediDeiGruppi = Array.from(
+        new Set(gruppiSelezionati.map((group) => group.siteId).filter(Boolean)),
+      );
+      const sedeDelGruppo = sediDeiGruppi.length === 1 ? sediDeiGruppi[0] : "";
+      const sedeDellaStruttura = selectedLocation?.siteId || "";
+
+      if (isCrossSiteEvent(sedeDelGruppo, sedeDellaStruttura)) {
+        const siteIndexPerAvviso = buildSiteIndex(sites);
+        const confermatoCrossSite = await richiediConferma({
+          title: "La struttura appartiene a un'altra sede",
+          confirmText: "Conferma comunque",
+          description:
+            `La categoria e a «${siteIndexPerAvviso.getSiteName(sedeDelGruppo)}», ` +
+            `la struttura scelta e a «${siteIndexPerAvviso.getSiteName(sedeDellaStruttura)}». ` +
+            "Puoi salvarlo lo stesso: e una proprieta di questo allenamento, non " +
+            "cambia la sede della categoria ne sposta nessun atleta.",
+        });
+        if (!confermatoCrossSite) return;
       }
 
       const newTraining = {

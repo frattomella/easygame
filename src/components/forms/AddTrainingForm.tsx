@@ -12,6 +12,7 @@ import {
   type TrainingLocationOption,
 } from "@/lib/training-location-options";
 import { getAssociatedTrainerIdsForGroups } from "@/lib/trainer-utils";
+import { resolveRecommendedStructures } from "@/lib/club-sites";
 import {
   TrainingGroupSelector,
   categoryIdsFromGroups,
@@ -81,13 +82,17 @@ export function AddTrainingForm({
   const previousAutoTrainerIdsRef = React.useRef<string[]>([]);
 
   const structureOptions = React.useMemo(() => {
-    const structureMap = new Map<string, { id: string; name: string }>();
+    const structureMap = new Map<
+      string,
+      { id: string; name: string; siteId: string | null }
+    >();
 
     locations.forEach((location) => {
       if (!structureMap.has(location.structureId)) {
         structureMap.set(location.structureId, {
           id: location.structureId,
           name: location.structureName,
+          siteId: location.siteId,
         });
       }
     });
@@ -126,6 +131,33 @@ export function AddTrainingForm({
   }, [groups, categories]);
 
   /*
+    **La sede del gruppo scelto, se e una sola.** Con gruppi di sedi diverse
+    selezionati insieme, o senza gruppi con sede (club mono-sede, categoria
+    non ancora collocata), non c'e un riferimento unico con cui confrontare
+    la struttura: nessuna e "consigliata", comportamento attuale invariato.
+  */
+  const selectedGroupSiteId = React.useMemo(() => {
+    const selected = groupOptions.filter((group) =>
+      formData.groupIds.includes(group.id),
+    );
+    const siteIds = Array.from(
+      new Set(selected.map((group) => group.siteId).filter(Boolean)),
+    );
+    return siteIds.length === 1 ? siteIds[0]! : "";
+  }, [groupOptions, formData.groupIds]);
+
+  /**
+   * Le strutture con quelle della sede del gruppo scelto **consigliate e in
+   * cima** — non filtrate: una struttura di un'altra sede resta
+   * selezionabile, con un avviso alla conferma (gestito dal chiamante, vedi
+   * `src/app/training/page.tsx`).
+   */
+  const structureRecommendations = React.useMemo(
+    () => resolveRecommendedStructures(structureOptions, selectedGroupSiteId),
+    [structureOptions, selectedGroupSiteId],
+  );
+
+  /*
     Gli allenatori proposti seguono i gruppi scelti.
   */
   const autoTrainerIds = React.useMemo(
@@ -153,8 +185,16 @@ export function AddTrainingForm({
       location: formData.location,
     });
 
+    /*
+      **Il ripiego preferisce la struttura consigliata** (stessa sede del
+      gruppo scelto), non semplicemente "la prima strutturale dell'elenco":
+      `structureRecommendations` porta gia le strutture della sede in cima.
+    */
     const nextStructureId =
-      matchedLocation?.structureId || formData.structureId || structureOptions[0].id;
+      matchedLocation?.structureId ||
+      formData.structureId ||
+      structureRecommendations[0]?.structure.id ||
+      structureOptions[0].id;
     const nextFields = getStructureFieldOptions(locations, nextStructureId);
     const nextFieldId =
       matchedLocation?.fieldId ||
@@ -183,6 +223,7 @@ export function AddTrainingForm({
     isAppointment,
     locations,
     structureOptions,
+    structureRecommendations,
     formData.structureId,
     formData.locationId,
     formData.location,
@@ -546,10 +587,11 @@ export function AddTrainingForm({
                 <option value="" disabled>
                   Seleziona una struttura
                 </option>
-                {structureOptions.length > 0 ? (
-                  structureOptions.map((structure) => (
+                {structureRecommendations.length > 0 ? (
+                  structureRecommendations.map(({ structure, recommended }) => (
                     <option key={structure.id} value={structure.id}>
                       {structure.name}
+                      {recommended ? " · Consigliata (stessa sede)" : ""}
                     </option>
                   ))
                 ) : (

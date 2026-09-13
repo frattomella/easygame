@@ -32,6 +32,8 @@ import {
 import { getAssociatedTrainerIds } from "@/lib/trainer-utils";
 import {
   CATEGORY_GROUP_SEPARATOR,
+  isCrossSiteEvent,
+  resolveRecommendedStructures,
 } from "@/lib/club-sites";
 import type { TrainingGroupOption } from "@/components/training/TrainingGroupSelector";
 import { createCoalescingSaver } from "@/lib/performance";
@@ -124,7 +126,12 @@ const normalizeDay = (value?: string | null) => {
 const groupLocationsByStructure = (locations: TrainingLocationOption[]) => {
   const groups = new Map<
     string,
-    { structureId: string; structureName: string; fields: TrainingLocationOption[] }
+    {
+      structureId: string;
+      structureName: string;
+      siteId: string | null;
+      fields: TrainingLocationOption[];
+    }
   >();
 
   locations.forEach((location) => {
@@ -132,6 +139,7 @@ const groupLocationsByStructure = (locations: TrainingLocationOption[]) => {
       groups.set(location.structureId, {
         structureId: location.structureId,
         structureName: location.structureName,
+        siteId: location.siteId,
         fields: [],
       });
     }
@@ -708,11 +716,25 @@ export function WeeklyTrainingSchedule({
       return;
     }
 
+    const crossSiteMessage = buildCrossSiteWarning(normalizedNewTraining);
+    if (crossSiteMessage && !window.confirm(crossSiteMessage)) {
+      return;
+    }
+
     setSchedule((current) => [...current, normalizedNewTraining]);
     setShowAddDialog(false);
   };
 
+  /*
+    **La combinazione struttura/sede al momento dell'apertura** — non si
+    riavvisa un evento gia salvato cross-site che l'utente non ha toccato
+    (issue UAT): il confronto in `saveEditedTraining` e contro questo
+    riferimento, non contro un valore ricalcolato a ogni render.
+  */
+  const editingOriginalStructureIdRef = React.useRef<string>("");
+
   const openEditDialog = (item: WeeklyTrainingItem) => {
+    editingOriginalStructureIdRef.current = item.structureId;
     setEditingTraining({ ...item });
     setShowEditDialog(true);
   };
@@ -755,6 +777,21 @@ export function WeeklyTrainingSchedule({
     );
     if (conflictMessage && !window.confirm(conflictMessage)) {
       return;
+    }
+
+    /*
+      Solo se la struttura e **cambiata** rispetto a quella con cui il
+      dialogo si e aperto: riaprire e risalvare un evento gia cross-site
+      senza toccare la struttura non deve riproporre l'avviso.
+    */
+    if (
+      normalizedEditingTraining.structureId !==
+      editingOriginalStructureIdRef.current
+    ) {
+      const crossSiteMessage = buildCrossSiteWarning(normalizedEditingTraining);
+      if (crossSiteMessage && !window.confirm(crossSiteMessage)) {
+        return;
+      }
     }
 
     setSchedule((current) =>
@@ -868,6 +905,75 @@ export function WeeklyTrainingSchedule({
       groupOptions.find((group) => group.categoryId === item.categoryId) ||
       null,
     [groupOptions],
+  );
+
+  /**
+   * Le strutture con quelle della sede del **gruppo** scelto consigliate e
+   * in cima — non filtrate: una struttura di un'altra sede resta
+   * selezionabile, con un avviso alla conferma (issue UAT).
+   */
+  const structureRecommendationsForNewTraining = React.useMemo(
+    () =>
+      resolveRecommendedStructures(
+        groupedLocations,
+        resolveItemGroup(newTraining)?.siteId || "",
+      ),
+    [groupedLocations, resolveItemGroup, newTraining],
+  );
+  const structureRecommendationsForEditingTraining = React.useMemo(
+    () =>
+      resolveRecommendedStructures(
+        groupedLocations,
+        editingTraining ? resolveItemGroup(editingTraining)?.siteId || "" : "",
+      ),
+    [groupedLocations, resolveItemGroup, editingTraining],
+  );
+
+  /** Il nome di una sede, a partire dal suo id — dai gruppi, che gia lo portano. */
+  const siteNameById = React.useMemo(() => {
+    const map = new Map<string, string>();
+    groupOptions.forEach((group) => {
+      if (group.siteId && group.siteName) {
+        map.set(group.siteId, group.siteName);
+      }
+    });
+    return map;
+  }, [groupOptions]);
+
+  /**
+   * **La struttura scelta e di un'altra sede rispetto al gruppo?** Un
+   * messaggio di conferma pronto per `window.confirm` — stessa primitiva
+   * gia in uso in questo pannello per la sovrapposizione (`buildConflictMessage`)
+   * — o `null` quando non c'e niente da confermare (nessun gruppo con sede,
+   * struttura senza sede, o stessa sede: comportamento attuale, invariato).
+   */
+  const buildCrossSiteWarning = React.useCallback(
+    (item: WeeklyTrainingItem) => {
+      const group = resolveItemGroup(item);
+      const groupSiteId = group?.siteId || "";
+      const struttura = groupedLocations.find(
+        (voce) => voce.structureId === item.structureId,
+      );
+      const structureSiteId = struttura?.siteId || "";
+
+      if (!isCrossSiteEvent(groupSiteId, structureSiteId)) {
+        return null;
+      }
+
+      const groupSiteName = siteNameById.get(groupSiteId) || groupSiteId;
+      const structureSiteName =
+        siteNameById.get(structureSiteId) || structureSiteId;
+
+      return (
+        "Attenzione: la struttura selezionata appartiene a una sede diversa dalla categoria.\n\n" +
+        `Categoria: ${group?.categoryName || item.categoryName || ""}\n` +
+        `Sede categoria: ${groupSiteName}\n\n` +
+        `Struttura: ${struttura?.structureName || ""}\n` +
+        `Sede struttura: ${structureSiteName}\n\n` +
+        "Vuoi continuare comunque?"
+      );
+    },
+    [resolveItemGroup, groupedLocations, siteNameById],
   );
 
   const getScheduleItemLabel = React.useCallback(
@@ -1222,11 +1328,14 @@ export function WeeklyTrainingSchedule({
                 }}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
-                {groupedLocations.map((structure) => (
-                  <option key={structure.structureId} value={structure.structureId}>
-                    {structure.structureName}
-                  </option>
-                ))}
+                {structureRecommendationsForNewTraining.map(
+                  ({ structure, recommended }) => (
+                    <option key={structure.structureId} value={structure.structureId}>
+                      {structure.structureName}
+                      {recommended ? " · Consigliata (stessa sede)" : ""}
+                    </option>
+                  ),
+                )}
               </select>
             </div>
 
@@ -1462,11 +1571,14 @@ export function WeeklyTrainingSchedule({
                   }}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
-                  {groupedLocations.map((structure) => (
-                    <option key={structure.structureId} value={structure.structureId}>
-                      {structure.structureName}
-                    </option>
-                  ))}
+                  {structureRecommendationsForEditingTraining.map(
+                    ({ structure, recommended }) => (
+                      <option key={structure.structureId} value={structure.structureId}>
+                        {structure.structureName}
+                        {recommended ? " · Consigliata (stessa sede)" : ""}
+                      </option>
+                    ),
+                  )}
                 </select>
               </div>
 

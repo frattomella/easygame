@@ -36,6 +36,7 @@ import {
   TrainingGroupSelector,
   type TrainingGroupOption,
 } from "@/components/training/TrainingGroupSelector";
+import { resolveRecommendedStructures } from "@/lib/club-sites";
 
 type MatchLocationOption = {
   id: string;
@@ -45,6 +46,8 @@ type MatchLocationOption = {
   fieldId?: string;
   fieldName?: string;
   label?: string;
+  /** Sede della struttura (`TrainingLocationOption.siteId`, ADR-0038). */
+  siteId?: string | null;
 };
 
 type MatchCategoryOption = {
@@ -159,19 +162,49 @@ export function AddMatchForm({
   }, [groups, categoryOptions]);
 
   const structureOptions = React.useMemo(() => {
-    const structureMap = new Map<string, { id: string; name: string }>();
+    const structureMap = new Map<
+      string,
+      { id: string; name: string; siteId: string | null }
+    >();
 
     homeFields.forEach((field) => {
       if (field.structureId && field.structureName) {
         structureMap.set(field.structureId, {
           id: field.structureId,
           name: field.structureName,
+          siteId: field.siteId ?? null,
         });
       }
     });
 
     return Array.from(structureMap.values());
   }, [homeFields]);
+
+  /*
+    **La sede del gruppo scelto, se e una sola** — stessa logica di
+    `AddTrainingForm`. Con gruppi di sedi diverse selezionati insieme, o
+    senza gruppi con sede, nessuna struttura e "consigliata".
+  */
+  const selectedGroupSiteId = React.useMemo(() => {
+    const selected = groupOptions.filter((group) =>
+      formData.groupIds.includes(group.id),
+    );
+    const siteIds = Array.from(
+      new Set(selected.map((group) => group.siteId).filter(Boolean)),
+    );
+    return siteIds.length === 1 ? siteIds[0]! : "";
+  }, [groupOptions, formData.groupIds]);
+
+  /**
+   * Le strutture con quelle della sede del gruppo scelto **consigliate e in
+   * cima** — non filtrate: una struttura di un'altra sede resta
+   * selezionabile, con un avviso alla conferma (gestito dal chiamante, vedi
+   * `src/app/matches/page.tsx`).
+   */
+  const structureRecommendations = React.useMemo(
+    () => resolveRecommendedStructures(structureOptions, selectedGroupSiteId),
+    [structureOptions, selectedGroupSiteId],
+  );
 
   const fieldOptions = React.useMemo(
     () =>
@@ -248,7 +281,10 @@ export function AddMatchForm({
     }
 
     const nextStructureId =
-      formData.structureId || structureOptions[0]?.id || "";
+      formData.structureId ||
+      structureRecommendations[0]?.structure.id ||
+      structureOptions[0]?.id ||
+      "";
     const nextFieldOptions = homeFields.filter(
       (field) => field.structureId === nextStructureId,
     );
@@ -278,6 +314,7 @@ export function AddMatchForm({
     formData.venueMode,
     homeFields,
     structureOptions,
+    structureRecommendations,
   ]);
 
   const handleChange = (
@@ -550,9 +587,10 @@ export function AddMatchForm({
                   onChange={handleChange}
                 >
                   <option value="">Seleziona struttura...</option>
-                  {structureOptions.map((structure) => (
+                  {structureRecommendations.map(({ structure, recommended }) => (
                     <option key={structure.id} value={structure.id}>
                       {structure.name}
+                      {recommended ? " · Consigliata (stessa sede)" : ""}
                     </option>
                   ))}
                 </select>

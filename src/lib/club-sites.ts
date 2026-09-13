@@ -508,6 +508,91 @@ export const filterStructuresBySite = <T,>(
     return recordMatchesSite(reference ? [reference] : [], siteId);
   });
 
+/* ============================================ struttura consigliata per sede
+   Categoria → sede → struttura, e l'avviso cross-site (issue UAT).
+   ========================================================================== */
+
+/**
+ * Due riferimenti di sede sono la **stessa** sede?
+ *
+ * A differenza di `recordMatchesSite` — pensato per un filtro, dove "nessuna
+ * sede dichiarata" deve restare visibile ovunque — qui serve un confronto
+ * **esatto**: una struttura senza sede non e "della stessa sede" di una
+ * categoria che ne ha una, e una categoria senza sede non ha una sede con cui
+ * confrontarsi. L'indulgenza del filtro sarebbe qui un falso "consigliata".
+ */
+export const isSameSite = (
+  siteIdA: unknown,
+  siteIdB: unknown,
+  siteIndex?: SiteIndex,
+): boolean => {
+  const a = siteIndex ? siteIndex.resolveSiteId(siteIdA) : trimText(siteIdA);
+  const b = siteIndex ? siteIndex.resolveSiteId(siteIdB) : trimText(siteIdB);
+  return Boolean(a) && Boolean(b) && normalizeReference(a) === normalizeReference(b);
+};
+
+export type StructureRecommendation<T> = {
+  structure: T;
+  /** Vero quando la struttura appartiene alla stessa sede della categoria scelta. */
+  recommended: boolean;
+};
+
+/**
+ * Le strutture del club con quelle della **sede della categoria** segnalate
+ * come consigliate e portate in cima — **non filtrate**: una struttura di
+ * un'altra sede resta selezionabile (l'evento puo essere eccezionalmente
+ * cross-site, la categoria no).
+ *
+ * Senza una sede da confrontare (`siteId` vuoto: categoria senza sede, o
+ * club mono-sede) nessuna struttura e "consigliata" — comportamento attuale,
+ * nessuna restrizione — e l'ordine di ingresso resta invariato.
+ */
+export const resolveRecommendedStructures = <T,>(
+  structures: readonly T[],
+  siteId: string,
+  siteIndex?: SiteIndex,
+): StructureRecommendation<T>[] => {
+  const wanted = trimText(siteId);
+  if (!wanted) {
+    return structures.map((structure) => ({ structure, recommended: false }));
+  }
+
+  const scored = structures.map((structure) => ({
+    structure,
+    recommended: isSameSite(readSiteReference(structure), wanted, siteIndex),
+  }));
+
+  /*
+    Partizione stabile: consigliate prima, poi le altre — l'ordine relativo
+    dentro ciascun gruppo e quello con cui le strutture sono arrivate, non un
+    riordino alfabetico che il chiamante non ha chiesto.
+  */
+  const recommended = scored.filter((entry) => entry.recommended);
+  const other = scored.filter((entry) => !entry.recommended);
+  return [...recommended, ...other];
+};
+
+/**
+ * **Un evento e cross-site?** Un avviso da mostrare prima della conferma, mai
+ * un blocco (l'evento e un'eccezione della singola occorrenza, non della
+ * categoria: niente auto-migrazione).
+ *
+ * Nessun avviso quando manca un termine del confronto: una categoria senza
+ * sede (club mono-sede, o categoria non ancora collocata) o una struttura
+ * senza sede non hanno una sede con cui essere "in conflitto" — e il
+ * comportamento attuale, invariato.
+ */
+export const isCrossSiteEvent = (
+  categorySiteId: unknown,
+  structureSiteId: unknown,
+  siteIndex?: SiteIndex,
+): boolean => {
+  const category = trimText(categorySiteId);
+  const structure = trimText(structureSiteId);
+  if (!category || !structure) return false;
+  return !isSameSite(category, structure, siteIndex);
+};
+
 export const filterCategoryGroupsBySite = (
   groups: readonly CategoryGroup[],
   siteId: string,
