@@ -52,7 +52,9 @@ import {
 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
 import {
+  cancelEvent,
   createEvent,
+  deleteEventIfEmpty,
   listEventParticipants,
   listEvents,
   saveEventConvocations,
@@ -266,9 +268,24 @@ const isReadableBusinessErrorMessage = (message: string) => {
 const GENERIC_MATCH_SAVE_ERROR =
   "Errore nell'aggiunta della gara. Riprova o contatta l'assistenza se il problema persiste.";
 
-const getReadableMatchErrorMessage = (error: unknown) => {
+const GENERIC_MATCH_DELETE_ERROR =
+  "Errore nell'eliminazione della gara. Riprova o contatta l'assistenza se il problema persiste.";
+
+const GENERIC_MATCH_CANCEL_ERROR =
+  "Errore nell'annullamento della gara. Riprova o contatta l'assistenza se il problema persiste.";
+
+/**
+ * Stesso filtro, fallback diverso secondo l'operazione (bug UAT "elimina /
+ * annulla gara usa ancora il writer legacy"): un `403 Accesso negato` o «ha
+ * gia una storia — si annulla, non si cancella» sono messaggi reali del
+ * dominio, non testo tecnico, e devono arrivare com'erano.
+ */
+const getReadableMatchErrorMessage = (
+  error: unknown,
+  fallback: string = GENERIC_MATCH_SAVE_ERROR,
+) => {
   const message = error instanceof Error ? error.message : String(error ?? "");
-  return isReadableBusinessErrorMessage(message) ? message : GENERIC_MATCH_SAVE_ERROR;
+  return isReadableBusinessErrorMessage(message) ? message : fallback;
 };
 
 export default function MatchesPage() {
@@ -925,6 +942,19 @@ export default function MatchesPage() {
     }
   };
 
+  /**
+   * **Elimina il canonico, non la proiezione** (bug UAT "elimina / annulla
+   * gara usa ancora il writer legacy").
+   *
+   * Scriveva su `clubs.matches` con `getClubData`/`updateClubData`: quella
+   * colonna e una proiezione in sola lettura da quando esiste `club_events`
+   * (ADR-0098), e un vaglio server-side rifiuta ogni scrittura diretta con
+   * `403 Accesso negato`. `deleteEventIfEmpty` passa dal writer canonico
+   * (`/api/v1/events/[id]` `DELETE` -> `deleteClubEvent`), che rifiuta da
+   * solo — con un messaggio reale, non un 403 generico — una gara che ha
+   * gia una storia (presenze, convocazioni, risposte delle famiglie): quella
+   * si annulla, non si cancella.
+   */
   const handleDeleteMatch = async (matchId: string) => {
     if (!activeClub?.id) {
       showToast("error", "Club non trovato");
@@ -932,53 +962,53 @@ export default function MatchesPage() {
     }
 
     try {
-      // Remove from database
-      const currentMatches = await getClubData(activeClub.id, "matches");
-      const updatedMatches = currentMatches.filter(
-        (match: any) => match.id !== matchId,
-      );
-      await updateClubData(activeClub.id, "matches", updatedMatches);
+      await deleteEventIfEmpty(matchId);
 
-      // Update local state
-      setMatches(matches.filter((match) => match.id !== matchId));
+      setMatches((prev) =>
+        prev.filter((match) => match.id !== matchId && match.eventId !== matchId),
+      );
       showToast("success", "Gara eliminata con successo");
     } catch (error) {
       console.error("Error deleting match:", error);
-      showToast("error", "Errore nell'eliminazione della gara");
+      showToast("error", getReadableMatchErrorMessage(error, GENERIC_MATCH_DELETE_ERROR));
     }
   };
 
+  /** Stesso principio di `handleDeleteMatch`, per `cancelEvent` (`PATCH` -> `status: "cancelled"`). */
   const handleCancelMatch = async (matchId: string) => {
     if (!activeClub?.id) {
       showToast("error", "Club non trovato");
       return;
     }
 
-    try {
-      // Update in database
-      const currentMatches = await getClubData(activeClub.id, "matches");
-      const updatedMatches = currentMatches.map((match: any) =>
-        match.id === matchId
-          ? {
-              ...match,
-              status: "cancelled",
-              updated_at: new Date().toISOString(),
-            }
-          : match,
-      );
-      await updateClubData(activeClub.id, "matches", updatedMatches);
+    const gara = matches.find(
+      (match) => match.id === matchId || match.eventId === matchId,
+    );
 
-      // Update local state
-      const updatedLocalMatches = matches.map((match) =>
-        match.id === matchId
-          ? { ...match, status: "cancelled" as const }
-          : match,
+    try {
+      const annullata = await cancelEvent(matchId, gara?.version ?? null);
+      const versioneAnnullata =
+        typeof (annullata as any)?.row?.version === "number"
+          ? (annullata as any).row.version
+          : typeof (annullata as any)?.version === "number"
+            ? (annullata as any).version
+            : null;
+
+      setMatches((prev) =>
+        prev.map((match) =>
+          match.id === matchId || match.eventId === matchId
+            ? {
+                ...match,
+                status: "cancelled" as const,
+                version: versioneAnnullata ?? match.version,
+              }
+            : match,
+        ),
       );
-      setMatches(updatedLocalMatches);
       showToast("success", "Gara annullata");
     } catch (error) {
       console.error("Error cancelling match:", error);
-      showToast("error", "Errore nell'annullamento della gara");
+      showToast("error", getReadableMatchErrorMessage(error, GENERIC_MATCH_CANCEL_ERROR));
     }
   };
 
@@ -1806,7 +1836,9 @@ export default function MatchesPage() {
                                                 "Sei sicuro di voler annullare questa gara?",
                                               )
                                             ) {
-                                              handleCancelMatch(match.id);
+                                              handleCancelMatch(
+                                                match.eventId || match.id,
+                                              );
                                             }
                                           }}
                                           className="text-amber-600"
@@ -1821,7 +1853,9 @@ export default function MatchesPage() {
                                               "Sei sicuro di voler eliminare questa gara?",
                                             )
                                           ) {
-                                            handleDeleteMatch(match.id);
+                                            handleDeleteMatch(
+                                              match.eventId || match.id,
+                                            );
                                           }
                                         }}
                                         className="text-red-600"
