@@ -13,6 +13,7 @@ import {
   compareAthletesByLastName,
   getAthleteDisplayName,
 } from "@/lib/athlete-name-utils";
+import { formatLocalDateOnly, todayLocalDateOnly } from "@/lib/date-only";
 
 /**
  * Il certificato che si sta correggendo, quando la finestra si apre in
@@ -47,7 +48,7 @@ interface AddCertificateFormProps {
   certificate?: EditableCertificate | null;
 }
 
-const todayDate = () => new Date().toISOString().split("T")[0];
+const todayDate = () => todayLocalDateOnly();
 
 /**
  * Un `<input type="date">` vuole `YYYY-MM-DD`. Dall'archivio la data puo
@@ -62,12 +63,19 @@ const toDateInputValue = (value: unknown) => {
   return match ? match[1] : "";
 };
 
+/*
+  **La stessa data, un anno dopo — non l'istante UTC** (bug UAT "date-only
+  timezone shift"). `new Date(...)T00:00:00` e mezzanotte locale, giusta
+  per il calcolo; era `.toISOString()` a sbagliare, riconvertendo in UTC e
+  spostando la scadenza indietro di un giorno a Roma — una copertura
+  sanitaria in meno, non in piu.
+*/
 function addOneYear(dateString: string) {
   if (!dateString) return "";
   const date = new Date(`${dateString}T00:00:00`);
   if (Number.isNaN(date.getTime())) return "";
   date.setFullYear(date.getFullYear() + 1);
-  return date.toISOString().split("T")[0];
+  return formatLocalDateOnly(date);
 }
 
 const initialCertificateForm = () => {

@@ -56,6 +56,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { todayLocalDateOnly } from "@/lib/date-only";
 import {
   getClubData,
   addClubData,
@@ -133,7 +134,7 @@ export default function ProcuraPage() {
   const [newPayment, setNewPayment] = useState({
     personId: "",
     personType: "athlete",
-    date: new Date().toISOString().split("T")[0],
+    date: todayLocalDateOnly(),
     amount: 0,
     type: "entrata",
     description: "",
@@ -626,7 +627,7 @@ export default function ProcuraPage() {
     setNewPayment({
       personId: "",
       personType: "athlete",
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocalDateOnly(),
       amount: 0,
       type: "entrata",
       description: "",

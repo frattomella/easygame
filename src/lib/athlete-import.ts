@@ -1,5 +1,6 @@
 import { findCategoryForBirthDate, resolveCategoryId } from "@/lib/category-utils";
 import { isWellFormedCodiceFiscale } from "@/lib/italian-registry";
+import { todayLocalDateOnly } from "@/lib/date-only";
 import {
   MIN_PLAUSIBLE_BIRTH_YEAR,
   isRealCalendarDate,
@@ -609,8 +610,7 @@ export const normalizeImportedAthletes = (
   } = {},
 ): NormalizedImportedAthleteRow[] => {
   const todayIso =
-    String(options.today || "").slice(0, 10) ||
-    new Date().toISOString().slice(0, 10);
+    String(options.today || "").slice(0, 10) || todayLocalDateOnly();
   const existingKeys = new Set(
     (options.existingAthletes || []).map((athlete) =>
       identityKey({

@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast-notification";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 interface AddTrainerPaymentFormProps {
   isOpen: boolean;
@@ -27,7 +28,7 @@ export function AddTrainerPaymentForm({
   const [formData, setFormData] = useState({
     month: "",
     amount: "",
-    date: new Date().toISOString().split("T")[0],
+    date: todayLocalDateOnly(),
     status: "paid",
   });
 

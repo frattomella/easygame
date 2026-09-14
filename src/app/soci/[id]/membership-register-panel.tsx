@@ -31,6 +31,7 @@ import {
   type MembershipEventType,
 } from "@/lib/members/model";
 import { canManageMembershipRegister } from "@/lib/members/permissions";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 /**
  * Il libro soci nella scheda di un socio.
@@ -56,7 +57,7 @@ const formatDate = (value?: string | null) => {
   });
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayLocalDateOnly();
 
 export function MembershipRegisterPanel({
   clubId,

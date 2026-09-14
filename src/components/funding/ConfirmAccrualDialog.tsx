@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { requirementUnitLabel } from "@/lib/funding/funding-model";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 /**
  * La **conferma di maturazione** di un periodo (ADR-0054).
@@ -79,7 +80,7 @@ export function ConfirmAccrualDialog({
         ) || 0,
       ),
     );
-    setConfirmedAt(new Date().toISOString().slice(0, 10));
+    setConfirmedAt(todayLocalDateOnly());
     setExternalReference(String(accrual.external_reference || ""));
     setNotes(String(accrual.confirmation_notes || ""));
   }, [accrual]);

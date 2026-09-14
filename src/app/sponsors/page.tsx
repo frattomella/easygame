@@ -57,6 +57,7 @@ import {
 } from "@/lib/simplified-db";
 import { useRouter } from "next/navigation";
 import { sortByName } from "@/lib/sorting";
+import { todayLocalDateOnly } from "@/lib/date-only";
 import {
   fromSponsorCents,
   normalizeSponsorContract,
@@ -203,7 +204,7 @@ export default function SponsorsPage() {
   // New payment form state
   const [newPayment, setNewPayment] = useState<SponsorPaymentDraft>({
     sponsorId: "",
-    date: new Date().toISOString().split("T")[0],
+    date: todayLocalDateOnly(),
     amount: "",
     description: "",
     type: "entrata",
@@ -238,7 +239,7 @@ export default function SponsorsPage() {
   const resetNewPayment = React.useCallback(() => {
     setNewPayment({
       sponsorId: selectedSponsor ? selectedSponsor.id : "",
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocalDateOnly(),
       amount: "",
       description: "",
       type: "entrata",

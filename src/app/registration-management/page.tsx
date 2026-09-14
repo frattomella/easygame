@@ -110,6 +110,7 @@ import {
 } from "@/lib/payments/provider-registry";
 import type { ClubPaymentSettings as ClubPaymentSettingsType } from "@/lib/payments/payment-types";
 import { allClothingSizesFor } from "@/lib/clothing-sizes";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 const calculateAgeFromBirthDate = (birthDate?: string) => {
   if (!birthDate) {
@@ -500,13 +501,13 @@ export default function RegistrationManagementPage() {
   const prorationPreview = calculateProratedTotal({
     total: currentPlanTotal,
     proration: normalizePaymentPlan(newPlan).proration,
-    startDate: new Date().toISOString().slice(0, 10),
+    startDate: todayLocalDateOnly(),
     fallbackPeriod: seasonPeriod,
   });
   const planInstallmentPreview = generateInstallmentPreview(
     newPlan,
     prorationPreview.total,
-    { startDate: new Date().toISOString().slice(0, 10) },
+    { startDate: todayLocalDateOnly() },
   );
   const displayedInstallmentAmount =
     planInstallmentPreview.installments[0]?.amount ||

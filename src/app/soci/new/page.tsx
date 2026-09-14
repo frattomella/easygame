@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DEFAULT_MEMBER_TYPE, MEMBER_TYPES } from "@/lib/member-types";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 function NewSocioPageContent() {
   const router = useRouter();
@@ -64,7 +65,7 @@ function NewSocioPageContent() {
     address: "",
     city: "",
     postalCode: "",
-    membershipDate: new Date().toISOString().split("T")[0],
+    membershipDate: todayLocalDateOnly(),
     /*
       La delibera che ammette (Wave 4, §19). Non e un campo in piu: e il
       consiglio direttivo ad ammettere un socio, e un'ammissione senza i suoi

@@ -125,6 +125,7 @@ import {
   ClothingSizesFields,
   ClothingSizesSummary,
 } from "@/components/forms/clothing-sizes-fields";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 const TOKEN_EXPIRY_HOURS = 72;
 
@@ -1050,7 +1051,7 @@ export default function TrainerDetailsPage() {
     try {
       const updates = {
         status: "paid",
-        date: new Date().toISOString().split("T")[0],
+        date: todayLocalDateOnly(),
       };
 
       await updateTrainerPayment(clubId, trainerId, paymentId, updates);
@@ -1118,8 +1119,7 @@ export default function TrainerDetailsPage() {
         const newStatus = payment.status === "paid" ? "pending" : "paid";
         const updates = {
           status: newStatus,
-          date:
-            newStatus === "paid" ? new Date().toISOString().split("T")[0] : "",
+          date: newStatus === "paid" ? todayLocalDateOnly() : "",
         };
 
         await updateTrainerPayment(

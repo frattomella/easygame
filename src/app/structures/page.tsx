@@ -75,6 +75,7 @@ import {
 } from "@/lib/club-sites";
 import { ClubSitesSection } from "@/components/sites/club-sites-section";
 import { SiteFilter, SiteSelect } from "@/components/sites/site-filter";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 type PaymentStatus = "Pagato" | "In attesa" | "Scaduto";
 
@@ -248,7 +249,7 @@ function normalizeField(raw: any): StructureField {
 function normalizePayment(raw: any): StructurePayment {
   return {
     id: raw?.id || uid("payment"),
-    date: raw?.date || new Date().toISOString().split("T")[0],
+    date: raw?.date || todayLocalDateOnly(),
     description: raw?.description || "",
     type:
       raw?.type === "Iscrizione" ||
@@ -329,7 +330,7 @@ export default function StrutturePage() {
     if (!newPayment.date) {
       setNewPayment((prev) => ({
         ...prev,
-        date: new Date().toISOString().split("T")[0],
+        date: todayLocalDateOnly(),
       }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -560,7 +561,7 @@ export default function StrutturePage() {
   const openAddPayment = (structureId: string) => {
     setShowAddPaymentFor(structureId);
     setNewPayment({
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocalDateOnly(),
       description: "",
       type: "Quota",
       amount: "",

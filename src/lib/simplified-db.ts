@@ -39,6 +39,7 @@ import {
   isPaymentPaidLike,
 } from "./payments/payment-status-utils";
 import { calculatePlatformFee } from "./payments/platform-fees";
+import { todayLocalDateOnly } from "./date-only";
 import {
   deleteEventIfEmpty as deleteEventRemote,
   listEvents as listEventsRemote,
@@ -3777,7 +3778,7 @@ export async function addStaffMember(clubId: string, staffMemberData: any) {
       department: staffMemberData.department || "Amministrazione",
       status: staffMemberData.status || "active",
       hireDate:
-        staffMemberData.hireDate || new Date().toISOString().split("T")[0],
+        staffMemberData.hireDate || todayLocalDateOnly(),
       avatar:
         staffMemberData.avatar ||
         `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent((fullName || firstName).replace(/\s+/g, ""))}&format=svg`,
@@ -3922,7 +3923,7 @@ export async function getClubStaff(clubId: string) {
                     status: staff.status || "active",
                     phone: staff.phone || "",
                     hireDate:
-                      staff.hireDate || new Date().toISOString().split("T")[0],
+                      staff.hireDate || todayLocalDateOnly(),
                     avatar:
                       staff.avatar ||
                       `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent((staff.name || "staff").replace(/\s+/g, ""))}&format=svg`,

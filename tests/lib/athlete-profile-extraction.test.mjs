@@ -250,7 +250,36 @@ test("i form si aprono sempre nello stesso stato", () => {
 });
 
 test("la data di oggi e in ISO, senza ora", () => {
-  assert.equal(getTodayDateString(new Date("2026-08-25T22:30:00.000Z")), "2026-08-25");
+  assert.equal(getTodayDateString(new Date(2026, 7, 25)), "2026-08-25");
+});
+
+/*
+  **Il giorno civile, non l'istante UTC** (audit semantico post-UAT, ticket
+  "date-only timezone shift": era l'ultima eccezione dichiarata dello
+  sweep). Questo test usava un istante gia vicino alla mezzanotte UTC
+  ("2026-08-25T22:30:00.000Z", che a Roma in CEST e gia le 00:30 del 26) e
+  si aspettava "2026-08-25" — l'esito **sbagliato**, quello che
+  `.toISOString().slice(0, 10)` dava spostando la data indietro di un
+  giorno. Qui si prova l'esito giusto, esplicitamente nel fuso in cui la
+  pagina gira.
+*/
+test("getTodayDateString legge il giorno civile locale, non l'istante UTC troncato", () => {
+  const TZ_ORIGINALE = process.env.TZ;
+  try {
+    process.env.TZ = "Europe/Rome";
+    // Le 22:30 UTC del 25 agosto sono gia le 00:30 del 26 a Roma (CEST,
+    // UTC+2): il giorno civile per chi la scheda la guarda e il 26, non il 25.
+    assert.equal(
+      getTodayDateString(new Date("2026-08-25T22:30:00.000Z")),
+      "2026-08-26",
+    );
+  } finally {
+    if (TZ_ORIGINALE === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = TZ_ORIGINALE;
+    }
+  }
 });
 
 test("i componenti del kit arrivano selezionati e da consegnare", () => {

@@ -25,6 +25,7 @@ import {
   type CategoryGroup,
   type ClubSite,
 } from "@/lib/club-sites";
+import { formatLocalDateOnly, todayLocalDateOnly } from "@/lib/date-only";
 
 /**
  * **Il calendario unico.**
@@ -67,10 +68,17 @@ type EventoCalendario = {
   capacity?: number | null;
 };
 
-const OGGI = () => new Date().toISOString().slice(0, 10);
+/*
+  **"Oggi" come giorno civile del dispositivo, non come istante UTC troncato**
+  (bug UAT "date-only timezone shift"): `new Date().toISOString().slice(0,10)`
+  per un'ora o due dopo la mezzanotte locale (la finestra fra le 00:00 e
+  l'offset del fuso) rispondeva ancora "ieri" — il filtro "Da" del
+  calendario partiva un giorno indietro proprio nelle prime ore del giorno.
+*/
+const OGGI = () => todayLocalDateOnly();
 
 const fraTrentaGiorni = () =>
-  new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  formatLocalDateOnly(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
 
 const etichettaStato = (status: string) => {
   switch (String(status || "").toLowerCase()) {

@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast-notification";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 interface AddTrainerFormProps {
   isOpen: boolean;
@@ -36,7 +37,7 @@ export function AddTrainerForm({
     birthYear: "",
     bio: "",
     salary: "",
-    startDate: new Date().toISOString().split("T")[0],
+    startDate: todayLocalDateOnly(),
     selectedCategories: [] as string[],
   });
 
@@ -126,7 +127,7 @@ export function AddTrainerForm({
       birthYear: "",
       bio: "",
       salary: "",
-      startDate: new Date().toISOString().split("T")[0],
+      startDate: todayLocalDateOnly(),
       selectedCategories: [],
     });
 

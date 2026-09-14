@@ -1,3 +1,5 @@
+import { todayLocalDateOnly } from "./date-only";
+
 export type PaymentStatus = "Pagato" | "In attesa" | "Scaduto";
 
 export type StructurePayment = {
@@ -218,7 +220,7 @@ export function normalizeField(raw: any): StructureField {
 export function normalizePayment(raw: any): StructurePayment {
   return {
     id: raw?.id || uid("payment"),
-    date: raw?.date || new Date().toISOString().split("T")[0],
+    date: raw?.date || todayLocalDateOnly(),
     description: firstText(raw?.description),
     type:
       raw?.type === "Iscrizione" ||

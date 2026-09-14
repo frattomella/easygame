@@ -19,6 +19,7 @@ import {
   type TrainingGroupOption,
 } from "@/components/training/TrainingGroupSelector";
 import { isValidTimeRange } from "@/lib/training-utils";
+import { formatLocalDateOnly } from "@/lib/date-only";
 import {
   EMPTY_EVENT_RSVP,
   EventRsvpFields,
@@ -59,9 +60,13 @@ export function AddTrainingForm({
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
     title: "",
-    date: selectedDate
-      ? selectedDate.toISOString().split("T")[0]
-      : new Date().toISOString().split("T")[0],
+    /*
+      **Il giorno civile scelto, non l'istante UTC** (bug UAT "date-only
+      timezone shift"): `selectedDate`/`new Date()` sono istanti a
+      mezzanotte locale, e `.toISOString().split("T")[0]` li riconvertiva
+      in UTC — a Roma la data proposta finiva un giorno prima.
+    */
+    date: formatLocalDateOnly(selectedDate || new Date()),
     time: "18:00",
     endTime: "19:30",
     categories: [] as string[],
@@ -375,9 +380,7 @@ export function AddTrainingForm({
     // Reset form
     setFormData({
       title: "",
-      date: selectedDate
-        ? selectedDate.toISOString().split("T")[0]
-        : new Date().toISOString().split("T")[0],
+      date: formatLocalDateOnly(selectedDate || new Date()),
       time: "18:00",
       endTime: "19:30",
       categories: [],

@@ -44,6 +44,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
+import { formatLocalDateOnly, todayLocalDateOnly } from "@/lib/date-only";
 import {
   cancelClubAppointment,
   closeClubAppointment,
@@ -645,7 +646,7 @@ export default function SecretariatPage() {
       */
       const creato = await createClubAppointment(
         {
-          date: appointmentDate.toISOString().split("T")[0],
+          date: formatLocalDateOnly(appointmentDate),
           time: newAppointment.time,
           reason: newAppointment.title,
           notes: newAppointment.description,
@@ -653,7 +654,7 @@ export default function SecretariatPage() {
             ? `Nominativo: ${newAppointment.person}`
             : null,
           outsideAvailability: true,
-          idempotencyKey: `desk-${activeClub.id}-${appointmentDate.toISOString().split("T")[0]}-${newAppointment.time}-${newAppointment.title}`,
+          idempotencyKey: `desk-${activeClub.id}-${formatLocalDateOnly(appointmentDate)}-${newAppointment.time}-${newAppointment.title}`,
         },
         intestazioniClub(activeClub.id),
       );
@@ -1471,7 +1472,7 @@ export default function SecretariatPage() {
                               type="date"
                               value={
                                 appointmentDate
-                                  ? appointmentDate.toISOString().split("T")[0]
+                                  ? formatLocalDateOnly(appointmentDate)
                                   : ""
                               }
                               onChange={(e) => {
@@ -1480,7 +1481,7 @@ export default function SecretariatPage() {
                                   : undefined;
                                 setAppointmentDate(selectedDate);
                               }}
-                              min={new Date().toISOString().split("T")[0]}
+                              min={todayLocalDateOnly()}
                               className="w-full"
                               required
                             />
@@ -1765,7 +1766,7 @@ export default function SecretariatPage() {
                               : undefined;
                             setNewNoteExpiryDate(selectedDate);
                           }}
-                          min={new Date().toISOString().split("T")[0]}
+                          min={todayLocalDateOnly()}
                           className="w-full"
                         />
                       </div>

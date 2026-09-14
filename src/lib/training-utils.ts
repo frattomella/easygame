@@ -1,6 +1,7 @@
 import type { NormalizedCategoryOption } from "./category-utils";
 import type { NormalizedTrainerViewModel } from "./trainer-utils";
 import { getTrainerDisplayName } from "./trainer-utils";
+import { formatLocalDateOnly } from "./date-only";
 
 export type ScheduleConflictItem = {
   id?: string;
@@ -121,13 +122,13 @@ const normalizeLookupValue = (value: unknown) =>
     .trim()
     .toLowerCase();
 
-export const formatLocalDateKey = (value: Date) => {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-};
+/**
+ * Alias storico di `formatLocalDateOnly` (`src/lib/date-only.ts`), che dal
+ * bug UAT "date-only timezone shift" e la casa canonica di questa
+ * conversione — nessuna seconda implementazione qui, solo il nome con cui
+ * il programma settimanale la conosce gia.
+ */
+export const formatLocalDateKey = formatLocalDateOnly;
 
 const firstNonEmptyString = (...values: unknown[]) => {
   for (const value of values) {

@@ -119,19 +119,38 @@ test("la conferma richiesta porta con se la scadenza", () => {
   assert.equal(payload.capacity, null);
 });
 
-test("un evento gia salvato si rilegge nei tre campi", () => {
-  assert.deepEqual(
-    fromEventRsvpPayload({
-      rsvpRequired: true,
-      rsvpDeadline: "2026-09-04T18:00:00.000Z",
-      capacity: 18,
-    }),
-    {
-      rsvpRequired: true,
-      rsvpDeadline: "2026-09-04T18:00",
-      capacity: "18",
-    },
-  );
+test("un evento gia salvato si rilegge nei tre campi, riconvertendo l'ora nel fuso locale", () => {
+  /*
+    **Correzione della correzione** (audit semantico post-UAT, ticket
+    "date-only timezone shift"): questo test si aspettava, dall'istante
+    UTC vero "2026-09-04T18:00:00.000Z", di rileggere "18:00" — le cifre
+    letterali, senza riconversione. Era proprio il difetto che l'audit ha
+    trovato: `fromEventRsvpPayload` deve leggere nel fuso di chi guarda
+    (Europe/Rome per il client Web, l'unico chiamante), e le 18:00 UTC del
+    4 settembre (CEST, UTC+2) sono le 20:00 locali — non le 18:00.
+  */
+  const TZ_ORIGINALE = process.env.TZ;
+  try {
+    process.env.TZ = "Europe/Rome";
+    assert.deepEqual(
+      fromEventRsvpPayload({
+        rsvpRequired: true,
+        rsvpDeadline: "2026-09-04T18:00:00.000Z",
+        capacity: 18,
+      }),
+      {
+        rsvpRequired: true,
+        rsvpDeadline: "2026-09-04T20:00",
+        capacity: "18",
+      },
+    );
+  } finally {
+    if (TZ_ORIGINALE === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = TZ_ORIGINALE;
+    }
+  }
   assert.deepEqual(fromEventRsvpPayload({}), EMPTY_EVENT_RSVP);
 });
 

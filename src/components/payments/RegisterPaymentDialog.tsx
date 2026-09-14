@@ -25,6 +25,7 @@ import {
   validatePaymentTransactionInput,
   type InstallmentLedger,
 } from "@/lib/payments/installment-ledger";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 /**
  * «Registra pagamento»: **l'unica** finestra con cui si incassa una rata.
@@ -50,7 +51,7 @@ const formatCurrency = (value: unknown) =>
     minimumFractionDigits: 2,
   }).format(Number(value || 0));
 
-const todayIsoDate = () => new Date().toISOString().slice(0, 10);
+const todayIsoDate = () => todayLocalDateOnly();
 
 /**
  * Un identificativo per il gesto in corso.

@@ -12,6 +12,7 @@ import {
   type RelationshipType,
   type SportWorkRole,
 } from "@/lib/sport-work/model";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 /**
  * Formattazione e colori del dominio «Lavoro sportivo».
@@ -50,7 +51,7 @@ export const formatDateInput = (value?: unknown) => {
   return date.toISOString().slice(0, 10);
 };
 
-export const todayInput = () => new Date().toISOString().slice(0, 10);
+export const todayInput = () => todayLocalDateOnly();
 
 export const relationshipStatusBadge: Record<
   RelationshipStatus,

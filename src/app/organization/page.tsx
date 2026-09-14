@@ -77,6 +77,7 @@ import { OperationTypesPanel } from "@/components/fiscal/OperationTypesPanel";
 import { readSubscriptionSettingsSource } from "@/lib/entitlements";
 import { CapabilityGate } from "@/components/club/capability-gate";
 import { ClubPaymentSettings } from "@/components/payments/ClubPaymentSettings";
+import { todayLocalDateOnly } from "@/lib/date-only";
 import {
   normalizeExtraServices,
   normalizePaymentSettings,
@@ -898,7 +899,7 @@ const [federations, setFederations] = useState<any[]>([]);
       id: `fed-${Date.now()}`,
       name: "",
       registrationNumber: "",
-      affiliationDate: new Date().toISOString().split("T")[0],
+      affiliationDate: todayLocalDateOnly(),
     };
     setFederations([...federations, newFederation]);
   };

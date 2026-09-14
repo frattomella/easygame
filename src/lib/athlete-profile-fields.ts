@@ -1,6 +1,7 @@
 import type { KitComponent } from "@/components/forms/CustomKitComponentsBuilder";
 import { normalizeKitComponents } from "@/lib/clothing-kit-utils";
 import { listClubFederations } from "@/lib/club-federations";
+import { formatLocalDateOnly } from "@/lib/date-only";
 
 /**
  * Stati iniziali e conversioni dei form della scheda atleta.
@@ -103,8 +104,19 @@ export const coerceBooleanField = (value: unknown): boolean => {
   );
 };
 
+/*
+  **Il giorno civile di `today`, non il suo istante UTC** (audit semantico
+  post-UAT, ticket "date-only timezone shift": questa era l'unica
+  eccezione rimasta dichiarata nello sweep, perche la pagina che la usa e
+  al limite del guardiano anti-crescita — vedi
+  `tests/lib/athlete-profile-extraction.test.mjs`). `today.toISOString()`
+  su un `Date` a mezzanotte locale (o su "adesso") lo riconvertiva in UTC,
+  spostandolo indietro di un giorno a Roma. Correggerla qui, nel modulo gia
+  estratto, chiude il difetto per tutte le chiamate della pagina senza
+  aggiungerle una riga.
+*/
 export const getTodayDateString = (today: Date = new Date()): string =>
-  today.toISOString().slice(0, 10);
+  formatLocalDateOnly(today);
 
 /** I componenti di un kit, nella forma che vuole il builder. */
 export const buildAthleteKitBuilderComponents = (

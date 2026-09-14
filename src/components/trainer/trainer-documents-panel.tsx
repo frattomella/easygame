@@ -38,6 +38,7 @@ import {
 } from "@/lib/api/attachments";
 import { parseAttachmentReference } from "@/lib/attachments";
 import { downloadAttachment, openClientFileUrl } from "@/lib/client-files";
+import { todayLocalDateOnly } from "@/lib/date-only";
 import {
   TRAINER_DOCUMENT_STATUS_CLASSES,
   TRAINER_DOCUMENT_STATUS_LABELS,
@@ -165,7 +166,7 @@ export function TrainerDocumentsPanel({
           trainerDocumentTypeLabel(type),
         fileName: draft.file.name,
         fileUrl,
-        uploadedAt: new Date().toISOString().slice(0, 10),
+        uploadedAt: todayLocalDateOnly(),
         expiryDate: draft.expiryDate,
         notes: "",
       };
@@ -225,7 +226,7 @@ export function TrainerDocumentsPanel({
           ...target,
           fileName: file.name,
           fileUrl,
-          uploadedAt: new Date().toISOString().slice(0, 10),
+          uploadedAt: todayLocalDateOnly(),
         }),
       );
       showToast("success", "Documento sostituito");

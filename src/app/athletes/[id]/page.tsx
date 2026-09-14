@@ -503,7 +503,7 @@ export default function AthleteProfilePage() {
     if (!newPayment.date) {
       setNewPayment((prev) => ({
         ...prev,
-        date: new Date().toISOString().split("T")[0],
+        date: getTodayDateString(),
       }));
     }
   }, []);

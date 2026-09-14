@@ -30,6 +30,7 @@ import {
   type StructureBooking,
   type StructureBookingStatus,
 } from "@/lib/structures-utils";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 type StructureBookingsSectionProps = {
   structure: ClubStructure;
@@ -52,7 +53,7 @@ type BookingForm = {
 };
 
 const emptyForm = (): BookingForm => {
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayLocalDateOnly();
   return {
     id: "",
     fieldId: "",
@@ -86,12 +87,25 @@ const toDateTime = (date: string, time: string) => {
   return new Date(`${date}T${time}`).toISOString();
 };
 
+/*
+  **La stessa lettura, per la data e per l'ora** (bug UAT "date-only
+  timezone shift"). `toDateTime` converte un giorno+ora locale in un
+  istante UTC vero — la convenzione di questa sezione, diversa da quella
+  letterale di `club_events` e non e questo il punto da cambiare qui. Il
+  difetto era che la lettura inversa usava due metodi diversi sullo stesso
+  istante: l'ora con gli accessori **locali** (`toTimeString`, sempre
+  stati cosi, vedi `bookingTimeLabel` piu sotto), la data con quelli
+  **UTC** (`toISOString`) — corretto lontano dalla mezzanotte, sbagliato
+  di un giorno vicino ad essa, perche i due accessori raccontano fusi
+  diversi dello stesso momento. La data torna a leggersi con `localDateKey`,
+  come l'ora: la stessa lettura, non una nuova.
+*/
 const fromIso = (value: string) => {
   const date = value ? new Date(value) : new Date();
   if (Number.isNaN(date.getTime())) return { date: "", time: "" };
 
   return {
-    date: date.toISOString().split("T")[0],
+    date: localDateKey(date),
     time: date.toTimeString().slice(0, 5),
   };
 };

@@ -1,3 +1,5 @@
+import { todayLocalDateOnly } from "./date-only";
+
 export type TrainingAutomationFrequency = "weekly" | "interval";
 
 /**
@@ -56,7 +58,7 @@ const DAY_TO_NUMBER: Record<string, number> = {
   saturday: 6,
 };
 
-const todayIsoDate = () => new Date().toISOString().slice(0, 10);
+const todayIsoDate = () => todayLocalDateOnly();
 
 export const DEFAULT_TRAINING_AUTOMATION_SETTINGS: TrainingAutomationSettings = {
   enabled: false,

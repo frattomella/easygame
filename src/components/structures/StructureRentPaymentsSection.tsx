@@ -23,6 +23,7 @@ import {
   type PaymentStatus,
   type StructurePayment,
 } from "@/lib/structures-utils";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 type StructureRentPaymentsSectionProps = {
   structure: ClubStructure;
@@ -40,7 +41,7 @@ export function StructureRentPaymentsSection({
   onChange,
 }: StructureRentPaymentsSectionProps) {
   const [paymentForm, setPaymentForm] = useState({
-    date: new Date().toISOString().split("T")[0],
+    date: todayLocalDateOnly(),
     description: "Canone struttura",
     amount: "",
     status: "In attesa" as PaymentStatus,
@@ -69,7 +70,7 @@ export function StructureRentPaymentsSection({
 
     patch({ payments: [...structure.payments, nextPayment] });
     setPaymentForm({
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocalDateOnly(),
       description: "Canone struttura",
       amount: "",
       status: "In attesa",

@@ -70,6 +70,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 export default function SponsorDetailsPage() {
   const params = useParams<{ id: string }>();
@@ -90,7 +91,7 @@ export default function SponsorDetailsPage() {
     description: "",
     amount: 0,
     type: "entrata",
-    date: new Date().toISOString().split("T")[0],
+    date: todayLocalDateOnly(),
     paymentMethod: "",
     bankAccount: "",
     notes: "",
@@ -346,7 +347,7 @@ export default function SponsorDetailsPage() {
         description: "",
         amount: 0,
         type: "entrata",
-        date: new Date().toISOString().split("T")[0],
+        date: todayLocalDateOnly(),
         paymentMethod: "",
         bankAccount: "",
         notes: "",

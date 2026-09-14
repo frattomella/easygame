@@ -78,6 +78,7 @@ import {
   saveClubSettings,
 } from "@/lib/simplified-db";
 import { athleteMatchesAnyCategory } from "@/lib/category-utils";
+import { formatLocalDateOnly } from "@/lib/date-only";
 import {
   buildCategoryGroups,
   buildSiteIndex,
@@ -788,7 +789,17 @@ export default function MatchesPage() {
       const matchPromises = matchData.categoryIds.map(
         async (categoryId: string) => {
           const categoryObj = categories.find((c) => c.id === categoryId);
-          const matchDateIso = matchData.date.toISOString();
+          /*
+            **Il giorno civile scelto, non l'istante UTC** (bug UAT
+            "date-only timezone shift"). `matchData.date` e un `Date`
+            costruito a mezzanotte locale dal calendario di `AddMatchForm`:
+            `.toISOString()` lo riconvertiva in un istante UTC vero, che a
+            Roma (sempre avanti su UTC) sposta la data indietro di un
+            giorno — una gara di giovedi 17 diventava una gara di mercoledi
+            16. `formatLocalDateOnly` legge anno/mese/giorno dagli
+            accessori locali dell'oggetto, mai da quelli UTC.
+          */
+          const matchDateIso = formatLocalDateOnly(matchData.date);
           /*
             Solo i gruppi di **questa** categoria: una gara nasce una riga
             per categoria selezionata, e ogni riga porta i gruppi che le
@@ -890,12 +901,15 @@ export default function MatchesPage() {
         (c) => c.id === matchData.categoryIds[0],
       );
 
+      /* Stessa correzione di proceedWithMatchCreation qui sopra: il giorno civile, non l'istante UTC. */
+      const matchDateIso = formatLocalDateOnly(matchData.date);
+
       const updatedMatchData = {
         ...selectedMatch,
         title:
           matchData.title ||
           `Partita ${categoryObj?.name || ""} vs ${matchData.opponent}`,
-        date: matchData.date.toISOString(),
+        date: matchDateIso,
         time: matchData.time,
         category: categoryObj?.name || "Categoria",
         categoryId: matchData.categoryIds[0],
@@ -912,7 +926,7 @@ export default function MatchesPage() {
         matchNumber: matchData.matchNumber || "",
         status: getEffectiveMatchStatus({
           status: selectedMatch.status,
-          date: matchData.date.toISOString(),
+          date: matchDateIso,
           time: matchData.time,
         }),
         updated_at: new Date().toISOString(),

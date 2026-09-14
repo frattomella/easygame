@@ -29,6 +29,7 @@ import {
   type ClothingSizes,
 } from "@/lib/clothing-sizes";
 import { ArrowLeft, Calendar, Euro, Mail, Phone, Save, User } from "lucide-react";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 type TrainerFormState = {
   firstName: string;
@@ -74,7 +75,7 @@ const initialFormState: TrainerFormState = {
   city: "",
   postalCode: "",
   salary: "",
-  startDate: new Date().toISOString().split("T")[0],
+  startDate: todayLocalDateOnly(),
   bio: "",
   selectedCategories: [],
 };

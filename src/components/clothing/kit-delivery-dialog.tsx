@@ -29,6 +29,7 @@ import {
   type ClothingItemState,
 } from "@/lib/clothing-delivery";
 import type { ClothingAssignment } from "@/lib/clothing-inventory-utils";
+import { todayLocalDateOnly } from "@/lib/date-only";
 
 const ITEM_STATES: ClothingItemState[] = [
   "to_prepare",
@@ -50,7 +51,7 @@ const KIT_STATE_BADGE_CLASS = {
   completed: "border-emerald-200 bg-emerald-50 text-emerald-700",
 } as const;
 
-const todayInputValue = () => new Date().toISOString().slice(0, 10);
+const todayInputValue = () => todayLocalDateOnly();
 
 const dateInputValue = (value?: string | null) => {
   if (!value) return "";

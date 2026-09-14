@@ -82,6 +82,7 @@ import { getTrainingStableKey } from "@/lib/training-utils";
 import { getFamilyDocumentStateClassName } from "@/lib/documents/family-dossier";
 import { withPayableInstalment } from "@/lib/payments/family-checkout";
 import { apiRequest } from "@/lib/api/client";
+import { todayLocalDateOnly } from "@/lib/date-only";
 import {
   describeFieldAvailability,
   instantFromLocalTime,
@@ -2833,7 +2834,7 @@ export function ParentStructuresPage() {
   const [form, setForm] = useState({
     structureId: "",
     fieldId: "",
-    date: new Date().toISOString().split("T")[0],
+    date: todayLocalDateOnly(),
     startTime: "18:00",
     endTime: "19:00",
     notes: "",

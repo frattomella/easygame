@@ -509,7 +509,20 @@ export const toEventLegacyShape = (row: EventRowLike) => {
     endsAt: row.ends_at ? new Date(row.ends_at).toISOString() : null,
     timezone: row.timezone || "Europe/Rome",
     title: row.title ?? payload.title ?? "",
-    status: row.status,
+    /*
+      **La riga puo ancora portare una grafia storica** (bug UAT
+      "riconciliazione gare Web/Mobile", pilota Fortitudo Scauri: 7
+      gare e 28 allenamenti su tutto il prodotto hanno ancora `upcoming`
+      in colonna, scritti da una migrazione che non passava da
+      `toEventColumns`). Il client Web se la cava da solo — la sua tabella
+      ha un secondo vocabolario che tratta `upcoming` come "in programma" —
+      ma il mobile non ce l'ha e usa questo valore com'e: senza
+      normalizzarlo qui, alla fonte unica (ADR-0098), un evento con una
+      grafia storica risultava indistinguibile da un evento davvero
+      "programmato" ogni volta che qualcuno lo leggeva senza passare dal
+      vocabolario del Web.
+    */
+    status: normalizeEventStatus(row.status),
     seasonId: row.season_id ?? null,
     season_id: row.season_id ?? null,
     siteId: row.site_id ?? null,
@@ -1071,6 +1084,36 @@ export const EMPTY_EVENT_RSVP: EventRsvpValue = {
  * Un evento che non chiede conferma con una scadenza dichiarata e uno stato in
  * cui nessuno sa cosa succede al passaggio della data.
  */
+/*
+  **`rsvp_deadline` e un istante vero, non le cifre letterali di
+  `club_events`** (audit semantico post-UAT del ticket "date-only timezone
+  shift": la correzione originaria di questa funzione andava nella
+  direzione sbagliata). A differenza di `starts_at`/`ends_at` — cifre
+  letterali per convenzione d'archivio (ADR-0098), che non attraversano mai
+  un confronto con `Date.now()` — `rsvp_deadline` **e** confrontato con un
+  istante reale: `src/lib/rsvp/model.ts` fa `deadline.getTime() <
+  now.getTime()` per decidere se accettare ancora una risposta. Un confronto
+  cosi vuole due istanti nello stesso sistema di riferimento; le cifre
+  letterali di `club_events` non lo sono per costruzione (`21:00` scritto
+  li non e le 21:00 vere).
+
+  `toEventRsvpPayload` gira **nel browser** — e chiamata solo da componenti
+  client (`AddMatchForm`, `AddTrainingForm`, `trainer-event-editor-dialog`):
+  `new Date(value.rsvpDeadline)` su una stringa `datetime-local` senza fuso
+  la legge gia nel fuso di chi la digita (Europe/Rome per chi amministra un
+  club), e `.toISOString()` la converte nell'istante UTC vero che il
+  confronto sopra si aspetta. Questo lato non aveva mai avuto il bug
+  "date-only": non c'e nessun `Date` costruito a mezzanotte locale qui, solo
+  una stringa con l'ora scelta dall'utente, letta e convertita una volta
+  sola.
+
+  Il difetto vero era nella lettura inversa, in `fromEventRsvpPayload` qui
+  sotto: leggeva le cifre dell'istante UTC gia convertito come se fossero
+  ancora locali (`.slice(0, 16)`) — la stessa doppia-lettura che ADR-0098
+  vieta per `club_events`, ma qui applicata a un valore che *e* un istante
+  vero: la riconversione all'ora locale va fatta con gli accessori locali,
+  non saltata.
+*/
 export const toEventRsvpPayload = (value: EventRsvpValue) => ({
   rsvpRequired: Boolean(value.rsvpRequired),
   rsvpDeadline:
@@ -1080,12 +1123,25 @@ export const toEventRsvpPayload = (value: EventRsvpValue) => ({
   capacity: value.capacity ? Number(value.capacity) : null,
 });
 
+/** L'istante convertito nella forma di un `<input type="datetime-local">`, con gli accessori locali di chi legge (il browser del club, Europe/Rome) — mai una lettura letterale delle cifre UTC gia scritte da `toEventRsvpPayload`. */
+const toLocalDateTimeInputValue = (value: Date): string => {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  const hours = String(value.getHours()).padStart(2, "0");
+  const minutes = String(value.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
 export const fromEventRsvpPayload = (event: any): EventRsvpValue => {
   const deadline = event?.rsvpDeadline || event?.rsvp_deadline || "";
+  const parsedDeadline = deadline ? new Date(deadline) : null;
   return {
     rsvpRequired: Boolean(event?.rsvpRequired ?? event?.rsvp_required ?? false),
-    /* `datetime-local` vuole `YYYY-MM-DDTHH:MM`, senza fuso e senza secondi. */
-    rsvpDeadline: deadline ? String(deadline).slice(0, 16) : "",
+    rsvpDeadline:
+      parsedDeadline && !Number.isNaN(parsedDeadline.getTime())
+        ? toLocalDateTimeInputValue(parsedDeadline)
+        : "",
     capacity:
       event?.capacity === null || event?.capacity === undefined
         ? ""

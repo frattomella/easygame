@@ -27,6 +27,8 @@
  * risorse e per chiunque la chieda in seguito, senza essere riscritta.
  */
 
+import { formatLocalDateOnly, todayLocalDateOnly } from "./date-only";
+
 /**
  * Sotto questo anno non e piu una data implausibile, e un errore di battitura
  * o una cella con dentro altro. E la stessa soglia che l'import applica da
@@ -82,8 +84,16 @@ const pad = (value: string | number) => String(value).padStart(2, "0");
 const isoDatePartOf = (value: unknown): string | null | "" => {
   if (value === null || value === undefined || value === "") return null;
 
+  /*
+    **Il giorno civile del `Date`, non il suo istante UTC** (bug UAT
+    "date-only timezone shift"): un `Date` costruito a mezzanotte locale
+    (o un formato scritto per esteso, letto poco sotto da `new Date(text)`,
+    che per un orario implicito assume anch'esso mezzanotte locale) va
+    letto con gli accessori locali — `.toISOString()` lo spostava indietro
+    di un giorno a Roma.
+  */
   if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+    return Number.isNaN(value.getTime()) ? null : formatLocalDateOnly(value);
   }
 
   const text = String(value).trim();
@@ -112,7 +122,7 @@ const isoDatePartOf = (value: unknown): string | null | "" => {
     grafie o si leggono per intero o non si leggono affatto.
   */
   const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+  return Number.isNaN(parsed.getTime()) ? null : formatLocalDateOnly(parsed);
 };
 
 /**
@@ -142,7 +152,7 @@ export const checkBirthDate = (
   options: { today?: Date | string } = {},
 ): BirthDateCheck => {
   const iso = isoDatePartOf(value);
-  const written = String(value instanceof Date ? value.toISOString().slice(0, 10) : (value ?? "")).trim();
+  const written = String(value instanceof Date ? formatLocalDateOnly(value) : (value ?? "")).trim();
 
   if (iso === null) {
     return {
@@ -162,11 +172,16 @@ export const checkBirthDate = (
     };
   }
 
+  /*
+    **"Oggi" come giorno civile, non come istante UTC troncato** (bug UAT
+    "date-only timezone shift"): `.toISOString()` su un `Date` ricevuto (o
+    su "adesso") poteva rifiutare come "nel futuro" una nascita scritta
+    per il giorno stesso, per un'ora o due dopo la mezzanotte locale.
+  */
   const todayIso =
-    (options.today instanceof Date
-      ? options.today.toISOString()
-      : String(options.today || "")
-    ).slice(0, 10) || new Date().toISOString().slice(0, 10);
+    options.today instanceof Date
+      ? formatLocalDateOnly(options.today)
+      : String(options.today || "").slice(0, 10) || todayLocalDateOnly();
 
   if (iso > todayIso) {
     return {
