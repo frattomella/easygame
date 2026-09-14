@@ -161,6 +161,40 @@ test("mapEventRowToMatch: struttura+campo formano il luogo, come il vecchio form
   assert.equal(match.location, "Centro Sportivo - Campo A");
 });
 
+// --- status (bug UAT "riconciliazione gare Web/Mobile") ----------------
+//
+// Mancava del tutto: una gara annullata arrivava allo schermo senza modo
+// di saperlo, indistinguibile da una programmata. Il server ora manda
+// `toEventLegacyShape`'s status gia normalizzato (`src/lib/events/model.ts`,
+// ADR-0098) — qui si verifica solo che il mapper lo porti avanti, non che
+// lo inventi un secondo vocabolario.
+
+test("mapEventRowToMatch: lo stato annullato arriva allo schermo", () => {
+  const match = mapEventRowToMatch(
+    { id: "match-5", date: "2026-09-14", time: "19:30", status: "cancelled" },
+    categories,
+  );
+  assert.equal(match.status, "cancelled");
+});
+
+test("mapEventRowToMatch: senza stato in riga, il ripiego e 'scheduled' — mai 'cancelled' per assenza", () => {
+  const match = mapEventRowToMatch(
+    { id: "match-6", date: "2026-09-21", time: "10:00" },
+    categories,
+  );
+  assert.equal(match.status, "scheduled");
+});
+
+test("mapEventRowToMatch: una grafia storica gia normalizzata dal server ('scheduled') non torna 'upcoming'", () => {
+  // Il server normalizza 'upcoming' -> 'scheduled' in `toEventLegacyShape`;
+  // il mapper non deve riscoprire o ricostruire quella regola.
+  const match = mapEventRowToMatch(
+    { id: "match-7", date: "2026-09-21", time: "10:00", status: "scheduled" },
+    categories,
+  );
+  assert.equal(match.status, "scheduled");
+});
+
 // --- filterTrainingsForTrainerScope / filterMatchesForTrainerScope -----
 
 // `coachName`/`trainers` fissi e non corrispondenti di proposito: isolano

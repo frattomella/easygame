@@ -265,7 +265,16 @@ export default function TrainerMatchesDashboardScreen() {
 
   const renderMatchCard = (match: Match, primary = false) => {
     const focused = match.id === focusedMatchId;
+    const cancelled = match.status === "cancelled";
     const played = Boolean(match.result) || match.date < today;
+    /*
+      **Annullata resta visibile, non scompare** (bug UAT "riconciliazione
+      gare Web/Mobile" — la stessa gara che la tabella Web marca "Annullata"
+      in rosso qui non aveva nessun segno: stessa scheda di una gara vera,
+      con lo stesso invito a convocare). Lo storico del Web tiene le
+      annullate come record storico (ADR-0098, "si annulla e non si
+      cancella"): il mobile le tiene nello stesso elenco, e le distingue.
+    */
     const card = (
       <EventCard
         kind="match"
@@ -283,18 +292,25 @@ export default function TrainerMatchesDashboardScreen() {
           },
           {
             icon: "people-outline",
-            label:
-              (match.convokedCount ?? 0) > 0
+            label: cancelled
+              ? match.category || "Gara"
+              : (match.convokedCount ?? 0) > 0
                 ? `${match.convokedCount} convocati`
                 : canManageConvocations && !played
                   ? "Convocazioni da inviare"
                   : match.category || "Gara",
           },
         ]}
-        statusLabel={match.result ? `Risultato ${match.result}` : undefined}
-        statusColor="#15803D"
+        statusLabel={
+          cancelled
+            ? "Annullata"
+            : match.result
+              ? `Risultato ${match.result}`
+              : undefined
+        }
+        statusColor={cancelled ? "#DC2626" : "#15803D"}
         footer={
-          canManageConvocations && !played ? (
+          canManageConvocations && !played && !cancelled ? (
             <ActionButton
               size="sm"
               fullWidth

@@ -44,6 +44,12 @@ import {
   toEventLegacyShape,
   type EventKind,
 } from "@/lib/events/model";
+import {
+  buildCategoryGroups,
+  getActiveCategoryGroups,
+  normalizeClubSites,
+} from "@/lib/club-sites";
+import { buildClubCategoryOptions } from "@/lib/category-utils";
 
 /**
  * **L'unica strada per creare, modificare o annullare un evento sportivo.**
@@ -1666,6 +1672,109 @@ const riconciliaGrafiaDellaCategoria = async <T extends { category_id?: string |
   return riconciliaGrafiaConRegistro(registro, colonne);
 };
 
+/**
+ * **`site_id` in colonna si deriva dal catalogo, non si affida al chiamante**
+ * (chiude il write-path gap trovato sul pilota Fortitudo Scauri: una gara
+ * creata dal form Web con dei `groupIds` scelti — la sede si vede a schermo
+ * come "consigliata" — non mandava mai `siteId` al server, e
+ * `toEventColumns` non deriva niente da sola perche e una funzione pura
+ * senza catalogo in mano. Il risultato: `listClubEvents` applica il
+ * perimetro di sede di un **ruolo** con `where.site_id = { in: sedi } ` — un
+ * filtro SQL diretto, `club_access_scopes`, non il profilo allenatore — e
+ * una gara senza `site_id` sparisce per ogni ruolo ristretto a una sede,
+ * qualunque sia la sua categoria (Wave 6 §11.3).
+ *
+ * La stessa correzione gia in campo per gli allenamenti generati
+ * (`training-automation.ts`) vive qui una volta sola, per **ogni** evento
+ * che passa da questo registro — allenamento o gara, creato a mano o in
+ * blocco — cosi nessun chiamante futuro puo dimenticarla di nuovo.
+ *
+ * **Deriva solo `site_id`, mai `group_ids` da sola.** `group_ids` non e solo
+ * un dato di visualizzazione: `eventWithinTrainerPerimeter` lo legge per
+ * decidere *chi puo scrivere* l'evento (§B, "in scrittura i due assi stanno
+ * in AND"), e un allenatore recintato per **sola categoria** (il caso piu
+ * comune, profilo senza gruppi dichiarati) fallirebbe quella guardia se
+ * l'evento acquisisse un gruppo che lui non ha — misurato da
+ * `perimetro-allenatore.test.mjs`, "l'allenatore crea l'allenamento del
+ * proprio gruppo": inventare `group_ids` qui lo faceva rifiutare come
+ * "evento condiviso con una squadra che non e tua". `site_id` non ha questo
+ * effetto collaterale: `eventWithinAccessScope` guarda `scope.accessScopes`
+ * di **chi scrive**, non la sede della riga, quindi resta innocuo per chi
+ * non ha un perimetro di sede proprio.
+ *
+ * Quando la riga gia dichiara `group_ids` (dal client, o da una
+ * generazione precedente) la sede si legge da li — nessun gruppo nuovo,
+ * solo la sua sede, se tutti i gruppi indicati condividono la stessa.
+ * Altrimenti si guarda la categoria primaria, ma **solo per la sede**: mai
+ * quando la categoria ha piu di un gruppo configurato (ADR-0055) — due sedi
+ * vere non si indovinano.
+ *
+ * Non tocca `site_id` gia valorizzato: una sede dichiarata (client, o una
+ * generazione precedente) resta quella che era.
+ */
+const derivaSedeMancante = <
+  T extends {
+    category_id?: string | null;
+    site_id?: string | null;
+    group_ids?: readonly string[] | null;
+  },
+>(
+  colonne: T,
+  gruppiCategoria: ReturnType<typeof buildCategoryGroups>,
+): T => {
+  if (asText(colonne.site_id)) return colonne;
+
+  const gruppiRiga = Array.isArray(colonne.group_ids)
+    ? colonne.group_ids.map((valore) => asText(valore)).filter(Boolean)
+    : [];
+
+  const sorgente = gruppiRiga.length
+    ? gruppiRiga
+    : (() => {
+        const categoriaId = asText(colonne.category_id);
+        if (!categoriaId) return [];
+        const corrispondenze = gruppiCategoria.filter(
+          (gruppo) => gruppo.categoryId === categoriaId,
+        );
+        return corrispondenze.length === 1 ? [corrispondenze[0].id] : [];
+      })();
+
+  if (!sorgente.length) return colonne;
+
+  const sedi = Array.from(
+    new Set(
+      sorgente
+        .map((id) => gruppiCategoria.find((gruppo) => gruppo.id === id)?.siteId)
+        .filter((sede): sede is string => Boolean(sede)),
+    ),
+  );
+
+  return sedi.length === 1 ? { ...colonne, site_id: sedi[0] } : colonne;
+};
+
+/** Il catalogo dei gruppi operativi del club — una lettura, riusabile su un blocco intero. */
+const caricaGruppiCategoriaDelClub = async (organizationId: string) => {
+  const club = await prisma.club.findUnique({
+    where: { id: organizationId },
+    select: { categories: true, club_sites: true, category_groups: true },
+  });
+  if (!club) return [];
+
+  /*
+    Un gruppo archiviato non conta per questa derivazione: e la stessa
+    esclusione delle tendine di creazione (`getActiveCategoryGroups`) — una
+    categoria migrata a un gruppo nuovo, con quello vecchio disattivato, non
+    deve restare ambigua per sempre.
+  */
+  return getActiveCategoryGroups(
+    buildCategoryGroups({
+      categories: buildClubCategoryOptions({ clubCategories: club.categories }),
+      sites: normalizeClubSites(club.club_sites),
+      groups: club.category_groups,
+    }),
+  );
+};
+
 export const createClubEvent = async (
   scope: EventsScope,
   kind: EventKind,
@@ -1675,7 +1784,10 @@ export const createClubEvent = async (
 ) => {
   await assertEventsPermission(scope, "events.manage");
   const organizationId = requireActiveOrganization(scope);
-  const colonne = toEventColumns(normalizeEventKind(kind), input);
+  const colonne = derivaSedeMancante(
+    toEventColumns(normalizeEventKind(kind), input),
+    await caricaGruppiCategoriaDelClub(organizationId),
+  );
   const consenteSovrapposizione = Boolean(
     options.allowOverlap ??
       (input && typeof input === "object"
@@ -2988,9 +3100,47 @@ export const createClubEventsBatch = async (
   await assertEventsPermission(scope, "events.manage");
   const organizationId = requireActiveOrganization(scope);
 
+  /*
+    **Una lettura sola per l'intero blocco** (WP-20): strutture, registro
+    categorie e catalogo dei gruppi operativi servono tre porte diverse di
+    questa stessa funzione (derivazione sede, apertura campo, grafia della
+    categoria) — leggerli separatamente, tre volte per blocco invece di una,
+    e la stessa forma di query evitabile che WP-20 ha gia chiuso qui sotto
+    (`generazione-eventi-conflitti.test.mjs`, "il club si legge una volta
+    per il blocco, non una per riga": conta le letture, non le righe, ma tre
+    letture indipendenti per blocco sono comunque tre di troppo quando ne
+    basta una).
+  */
+  const clubDelBlocco = await prisma.club.findUnique({
+    where: { id: organizationId },
+    select: {
+      structures: true,
+      categories: true,
+      club_sites: true,
+      category_groups: true,
+    },
+  });
+  const struttureDelClub = Array.isArray(clubDelBlocco?.structures)
+    ? (clubDelBlocco.structures as unknown[])
+    : [];
+  const registroCategorie = Array.isArray(clubDelBlocco?.categories)
+    ? (clubDelBlocco.categories as unknown[])
+    : [];
+  const gruppiCategoria = getActiveCategoryGroups(
+    buildCategoryGroups({
+      categories: buildClubCategoryOptions({
+        clubCategories: clubDelBlocco?.categories,
+      }),
+      sites: normalizeClubSites(clubDelBlocco?.club_sites),
+      groups: clubDelBlocco?.category_groups,
+    }),
+  );
   const righe = [] as any[];
   for (const input of inputs) {
-    const colonne = toEventColumns(normalizeEventKind(kind), input);
+    const colonne = derivaSedeMancante(
+      toEventColumns(normalizeEventKind(kind), input),
+      gruppiCategoria,
+    );
     righe.push({
       organization_id: organizationId,
       ...colonne,
@@ -3057,20 +3207,6 @@ export const createClubEventsBatch = async (
     persona dietro «Genera fino a...» o il pannello che legge il risultato
     del cron — decide cosa farne; il posto resta quello che era.
   */
-  /*
-    **Le strutture si leggono una volta per il blocco, non una per riga**
-    (WP-20): `assertFieldIsOpen` interrogava il club a ogni iterazione — 414
-    letture identiche su un blocco di 414 candidati, la stessa forma di
-    query evitabile trovata su `riconciliaGrafiaDellaCategoria` qui sopra.
-  */
-  const clubPerLeStrutture = await prisma.club.findUnique({
-    where: { id: organizationId },
-    select: { structures: true },
-  });
-  const struttureDelClub = Array.isArray(clubPerLeStrutture?.structures)
-    ? (clubPerLeStrutture.structures as unknown[])
-    : [];
-
   const saltate: Array<{ riga: any; motivo: string }> = [];
 
   for (const riga of righe) {
@@ -3176,19 +3312,11 @@ export const createClubEventsBatch = async (
     coprisse le prime due lascerebbe aperta questa — che e esattamente la
     forma di difetto che questa lane ha gia trovato quattro volte.
 
-    **Il registro si legge una volta per il blocco, non una per riga**
-    (WP-20): il club e lo stesso per tutte le righe di questa chiamata, e
-    leggerlo dentro `.map()` significava una query identica per ogni
-    candidato — 414 letture dello stesso club su un blocco di 414, misurato
-    dalla sonda di performance.
+    **Il registro e letto una volta sola per l'intero blocco** (WP-20),
+    insieme a strutture e catalogo dei gruppi, in cima a questa funzione:
+    leggerlo di nuovo qui — o dentro `.map()` — sarebbe la stessa query
+    ripetuta una seconda (o una per riga) volta.
   */
-  const clubPerLaGrafia = await prisma.club.findUnique({
-    where: { id: organizationId },
-    select: { categories: true },
-  });
-  const registroCategorie = Array.isArray(clubPerLaGrafia?.categories)
-    ? (clubPerLaGrafia.categories as unknown[])
-    : [];
   const daScrivere = senzaConflitto.map((riga) =>
     riconciliaGrafiaConRegistro(registroCategorie, riga),
   );

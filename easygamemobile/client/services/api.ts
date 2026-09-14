@@ -229,6 +229,8 @@ export interface Match {
     homeScore: number;
     awayScore: number;
   };
+  /** Specchio di `EventStatus` server (`src/lib/events/model.ts`) — assente prima del bug UAT "riconciliazione gare Web/Mobile". */
+  status?: "scheduled" | "completed" | "cancelled" | "archived";
   convocatedAthletes?: string[];
   convocationsStatus?: "pending" | "completed" | "none";
   trainers?: string[];

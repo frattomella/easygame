@@ -915,6 +915,113 @@ export const updateAssignmentScopes = async (
 };
 
 /**
+ * **Sincronizza l'asse categoria di `club_access_scopes` con la scheda di
+ * un allenatore/staff, quando questa tessera ha GIA' un perimetro di
+ * categoria.** Chiude il divario trovato sul pilota Fortitudo Scauri: la
+ * scheda in `clubs.trainers[].data.categories` e `club_access_scopes` sono
+ * due archivi distinti (la prima e il perimetro dell'appello letto da
+ * `readTrainerEventPerimeter`, la seconda e il confine SQL di
+ * `listClubEvents`/`buildAthleteAccessScopeConditions`, Wave 6 §11.3) e
+ * nessun codice li teneva insieme: aggiungere una categoria alla scheda di
+ * un allenatore non la faceva comparire nel suo perimetro di sede, e
+ * l'allenamento di quella categoria restava invisibile per sempre a un
+ * allenatore ristretto a una sede — non finche qualcuno non riapriva a
+ * mano "Gestisci accesso" e risalvava lo stesso perimetro.
+ *
+ * **Mai per chi non ha ancora nessuna riga di categoria.** Un allenatore
+ * senza righe e "di tutto il club" per quell'asse (ADR-0103): iniziare a
+ * scrivere righe come effetto collaterale di una modifica alla scheda
+ * sarebbe la prima restrizione mai vista, decisa da una schermata che non
+ * lo sta chiedendo. Sincronizza solo chi e **gia** dentro il sistema di
+ * perimetro — aggiunge le categorie nuove della scheda, togli quelle che
+ * la scheda non ha piu.
+ *
+ * **L'asse sede non si tocca mai da qui**: `updateAssignmentScopes`
+ * sostituisce l'intero perimetro apposta perche e una scelta esplicita di
+ * chi la fa; questa funzione legge e scrive **solo** `scope_kind:
+ * "category"`, mai `"site"` — una sede assegnata a mano resta quella che
+ * era, quale che sia la scheda dell'allenatore.
+ *
+ * Restituisce `null` quando non c'e nessuna tessera per questa persona in
+ * questo club (profilo non ancora collegato a un'utenza), o quando quella
+ * tessera non ha ancora nessuna riga di categoria da sincronizzare.
+ */
+export const syncTrainerCategoryAccessScope = async (
+  organizationId: string,
+  userId: string,
+  categorieProfilo: readonly unknown[],
+  attore: { userId?: string | null; email?: string | null } = {},
+): Promise<{ aggiunte: string[]; rimosse: string[] } | null> => {
+  const club = testo(organizationId);
+  const utente = testo(userId);
+  if (!club || !utente) return null;
+
+  const tessera = await prisma.organizationUser.findFirst({
+    where: { organization_id: club, user_id: utente },
+  });
+  if (!tessera) return null;
+
+  const righeAttuali = await prisma.clubAccessScope.findMany({
+    where: { organization_user_id: tessera.id, scope_kind: "category" },
+  });
+  if (!righeAttuali.length) return null;
+
+  const valoriAttuali = new Set(righeAttuali.map((riga) => riga.scope_value));
+  const valoriProfilo = new Set(
+    categorieProfilo.map((valore) => testo(valore)).filter(Boolean),
+  );
+
+  const daAggiungere = Array.from(valoriProfilo).filter(
+    (valore) => !valoriAttuali.has(valore),
+  );
+  const daRimuovere = Array.from(valoriAttuali).filter(
+    (valore) => !valoriProfilo.has(valore),
+  );
+
+  if (!daAggiungere.length && !daRimuovere.length) {
+    return { aggiunte: [], rimosse: [] };
+  }
+
+  if (daRimuovere.length) {
+    await prisma.clubAccessScope.deleteMany({
+      where: {
+        organization_user_id: tessera.id,
+        scope_kind: "category",
+        scope_value: { in: daRimuovere },
+      },
+    });
+  }
+  if (daAggiungere.length) {
+    await prisma.clubAccessScope.createMany({
+      data: daAggiungere.map((valore) => ({
+        organization_user_id: tessera.id,
+        scope_kind: "category",
+        scope_value: valore,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.clubRoleScopeChanged,
+    actorUserId: testo(attore.userId) || null,
+    actorEmail: testo(attore.email) || null,
+    actorRole: null,
+    organizationId: club,
+    resource: "club_roles",
+    resourceId: tessera.id,
+    metadata: {
+      sincronizzazione: "trainer_profile_categories",
+      aggiunte: daAggiungere,
+      rimosse: daRimuovere,
+      target_user_id: tessera.user_id,
+    },
+  });
+
+  return { aggiunte: daAggiungere, rimosse: daRimuovere };
+};
+
+/**
  * Revoca un accesso.
  *
  * Tre dinieghi, e ognuno ha il suo motivo:

@@ -252,6 +252,16 @@ export const mapEventRowToMatch = (
         : undefined,
     totalConvocable:
       typeof row.capacity === "number" ? row.capacity : undefined,
+    /*
+      **Mancava del tutto** (bug UAT "riconciliazione gare Web/Mobile"): una
+      gara annullata arrivava qui com'era, e sparendo lo stato spariva anche
+      il modo di saperlo — restava indistinguibile da una gara vera, con lo
+      stesso invito a "Gestisci convocazioni". Il server la manda gia
+      normalizzata (`toEventLegacyShape`, ADR-0098): qui si porta avanti,
+      non si inventa un secondo vocabolario come fa la tabella Web.
+    */
+    status: (String(row.status || "scheduled").trim() ||
+      "scheduled") as Match["status"],
     convocatedAthletes: toArray<string>(row.convocated_athlete_ids),
     convocationsStatus: (toArray(row.convocated_athlete_ids).length > 0
       ? "completed"

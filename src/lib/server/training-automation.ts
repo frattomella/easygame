@@ -37,6 +37,12 @@ import {
   normalizeClubSeasons,
 } from "@/lib/club-seasons";
 import { toEventDay, toEventTime } from "@/lib/events/model";
+import {
+  buildCategoryGroupId,
+  buildCategoryGroups,
+  getActiveCategoryGroups,
+  normalizeClubSites,
+} from "@/lib/club-sites";
 
 /**
  * Limite oltre il quale "Genera fino a..." rifiuta (WP-03).
@@ -1283,6 +1289,8 @@ export async function runTrainingAutomationForClub(
       weekly_schedule: true,
       trainers: true,
       structures: true,
+      club_sites: true,
+      category_groups: true,
     },
   });
 
@@ -1420,6 +1428,39 @@ export async function runTrainingAutomationForClub(
     resourceCategories: resourcePayloadsByType.categories || [],
     athletes,
   });
+  /*
+    **Il gruppo operativo si deriva dal catalogo, non solo dalla fascia**
+    (chiude il write-path regression trovato sul pilota Fortitudo Scauri:
+    Trainer con perimetro di sede parziale, zero allenamenti visibili).
+
+    Una fascia del programma settimanale che non porta `groupId` — una
+    voce salvata prima che la sede entrasse nell'identita, o una copia
+    del client rimasta indietro rispetto al catalogo del club — non deve
+    piu produrre un evento senza `site_id` ne `group_ids`: per un
+    Trainer ristretto a una sede (righe in `club_access_scopes`, non
+    "tutte"), quell'evento e invisibile per sempre, non solo finche
+    qualcuno rigenera. Quando la categoria ha **un solo** gruppo
+    configurato la sede non e ambigua e si ricava da li; con piu gruppi
+    (due sedi vere, ADR-0055) restare senza indovinare e la scelta
+    giusta, non una svista. Un gruppo **archiviato** non conta: e la
+    stessa esclusione che le tendine di creazione gia applicano
+    (`getActiveCategoryGroups`) — una categoria migrata a un gruppo nuovo,
+    con quello vecchio disattivato, non deve restare ambigua per sempre.
+  */
+  const categoryGroups = getActiveCategoryGroups(
+    buildCategoryGroups({
+      categories: categoryList,
+      sites: normalizeClubSites(club.club_sites),
+      groups: club.category_groups,
+    }),
+  );
+  const deriveGroupIdForCategory = (categoryId: string): string => {
+    if (!categoryId) return "";
+    const matches = categoryGroups.filter(
+      (group) => group.categoryId === categoryId,
+    );
+    return matches.length === 1 ? matches[0].id : "";
+  };
   const trainerList = normalizeTrainerList(
     [club.trainers, ...(resourcePayloadsByType.trainers || [])],
     categoryList,
@@ -1531,10 +1572,21 @@ export async function runTrainingAutomationForClub(
         fieldId: scheduleItem.locationId,
         locationId: scheduleItem.locationId,
       });
-      const scheduleGroupId = getNonEmptyString(
-        scheduleItem.groupId,
-        scheduleItem.group_id,
-      );
+      const scheduleGroupId =
+        getNonEmptyString(scheduleItem.groupId, scheduleItem.group_id) ||
+        deriveGroupIdForCategory(resolvedCategoryId);
+      /*
+        **`site_id` in colonna, non solo nel gruppo** (stessa correzione del
+        commento sopra `deriveGroupIdForCategory`): `listClubEvents` applica
+        il perimetro di sede di un ruolo (`club_access_scopes`) con
+        `where.site_id = { in: sedi }` — un filtro SQL diretto sulla
+        colonna, che un `group_ids` corretto da solo non soddisfa mai. Senza
+        questo, un Trainer con sedi assegnate (non "tutte", ADR-0103) vedeva
+        zero allenamenti generati, qualunque fosse la loro categoria.
+      */
+      const scheduleSiteId =
+        categoryGroups.find((group) => group.id === scheduleGroupId)
+          ?.siteId || "";
       /*
         Il gruppo entra nella chiave di deduplica: due squadre della stessa
         categoria, in due sedi diverse, alla stessa ora, sono **due**
@@ -1608,6 +1660,8 @@ export async function runTrainingAutomationForClub(
         categories: resolvedCategoryId || categoryKey ? [resolvedCategoryId || categoryKey] : [],
         // La squadra concreta: e cio che decide chi comparira nell'appello.
         groupIds: scheduleGroupId ? [scheduleGroupId] : [],
+        // Vedi la nota su `scheduleSiteId`: la colonna, non solo il gruppo.
+        siteId: scheduleSiteId || null,
         category:
           resolvedCategoryLabel ||
           categoryOption?.name ||

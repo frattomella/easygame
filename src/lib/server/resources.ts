@@ -14,6 +14,7 @@ import {
   listClubFederations,
 } from "@/lib/club-federations";
 import { eraseProfileInvites } from "./profile-account-links";
+import { syncTrainerCategoryAccessScope } from "./club-roles";
 import {
   customRoleReachesResource,
   roleHasPermission,
@@ -8125,6 +8126,18 @@ export const updateResource = async (
       await syncClubAggregateField(normalized.organization_id, resource);
     }
 
+    /*
+      **Non e qui che la scheda di un allenatore si aggiorna davvero.**
+      `normalizeCommonAliases` toglie `categories` da ogni input che passa
+      da `normalizeClubResourceInput` (e' un alias per le altre risorse, la
+      colonna aggregata del club la preserva altrove) — su questo ramo un
+      `PATCH` con `categories` non la scrive mai. Il percorso vero e
+      `PUT /api/v1/resources/clubs/<id>` con l'intero array
+      `trainers`/`staff_members`: la sincronizzazione con
+      `club_access_scopes` vive li, subito dopo
+      `syncClubResourceItemsFromField`, dove il campo arriva intero.
+    */
+
     return serializeRecord(resource, record, scope);
   }
 
@@ -8552,6 +8565,42 @@ export const updateResource = async (
         assertNotDomainOwnedResourceItem(field, field);
         assertNotAdminOnlyFromClubAggregate(field);
         await syncClubResourceItemsFromField(record.id, field, input[field]);
+
+        /*
+          **La scheda dell'allenatore/staff e `club_access_scopes` sono due
+          archivi distinti, e nessun altro codice li teneva insieme**
+          (pilota Fortitudo Scauri): la prima e il perimetro dell'appello
+          letto da `readTrainerEventPerimeter`; la seconda e il confine SQL
+          di `listClubEvents`/`buildAthleteAccessScopeConditions` (Wave 6
+          §11.3). Questo e il **vero** punto di scrittura — `PUT
+          /api/v1/resources/clubs/<id>` con l'intero array, la strada che
+          `updateClubDataItem`/`simplified-db.ts` usa davvero (il ramo per
+          singolo elemento di `club_resource_items` non arriva mai qui:
+          `normalizeCommonAliases` toglie `categories` da quel percorso).
+          `syncTrainerCategoryAccessScope` (proprietaria unica di
+          `club_access_scopes`, club-roles.ts) decide da sola se c'e
+          qualcosa da toccare: mai per chi non ha ancora righe di
+          categoria, mai l'asse sede.
+        */
+        if (field === "trainers" || field === "staff_members") {
+          const voci = Array.isArray(input[field])
+            ? (input[field] as unknown[])
+            : [];
+          for (const voce of voci) {
+            const linkedUserId =
+              (voce as any)?.linkedUserId ?? (voce as any)?.linked_user_id;
+            if (!linkedUserId) continue;
+            const categorieScheda = Array.isArray((voce as any)?.categories)
+              ? ((voce as any).categories as unknown[])
+              : [];
+            await syncTrainerCategoryAccessScope(
+              record.id,
+              String(linkedUserId),
+              categorieScheda,
+              { userId: scope?.userId || null },
+            );
+          }
+        }
       }
     }
   }

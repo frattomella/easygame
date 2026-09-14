@@ -290,6 +290,45 @@ test("la forma storica si ricostruisce dalle colonne, e le colonne vincono", () 
   assert.deepEqual(storico.groupIds, ["group:u15:sede-scauri"]);
 });
 
+/*
+  Bug UAT "riconciliazione gare Web/Mobile" (pilota Fortitudo Scauri): 7
+  gare e 28 allenamenti su tutto il prodotto hanno ancora `upcoming` in
+  colonna — una grafia di migrazione che non e mai passata da
+  `toEventColumns`. La tabella Web se la cava con un vocabolario suo; il
+  mobile la leggeva com'era e un evento con questa grafia risultava
+  indistinguibile da un annullato vero solo per chi non passava dal
+  vocabolario del Web. La normalizzazione vive nella fonte unica
+  (`toEventLegacyShape`, ADR-0098), non in ciascun lettore.
+*/
+test("una grafia storica di stato si normalizza nella forma storica, non solo nella tabella Web", () => {
+  const base = {
+    id: "22222222-2222-4000-8000-000000000002",
+    organization_id: "club",
+    kind: "match",
+    starts_at: new Date("2026-09-05T17:30:00.000Z"),
+    ends_at: null,
+  };
+
+  assert.equal(
+    toEventLegacyShape({ ...base, status: "upcoming" }).status,
+    "scheduled",
+    "'upcoming' e la grafia di migrazione, non un quinto stato",
+  );
+  assert.equal(
+    toEventLegacyShape({ ...base, status: "annullato" }).status,
+    "cancelled",
+  );
+  assert.equal(
+    toEventLegacyShape({ ...base, status: "conclusa" }).status,
+    "completed",
+  );
+  assert.equal(
+    toEventLegacyShape({ ...base, status: "scheduled" }).status,
+    "scheduled",
+    "una grafia gia canonica resta se stessa",
+  );
+});
+
 test("la traduzione va e torna senza perdere il giorno", () => {
   const colonne = toEventColumns("match", {
     id: "match-1",
