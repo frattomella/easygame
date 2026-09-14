@@ -156,6 +156,35 @@ export const assertEventTransition = (from: unknown, to: unknown) => {
 
 const DATE_ONLY = /^(\d{4}-\d{2}-\d{2})/;
 const TIME_ONLY = /(\d{1,2}):(\d{2})/;
+/** Le due ore di un intervallo scritto come una sola stringa: `"19:30 - 21:00"`. */
+const TIME_RANGE = /(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/;
+
+/**
+ * **La seconda ora di un intervallo, quando non c'e un campo di fine
+ * separato** (bug UAT "creazione nuova gara fallisce": il campo «Palazzetto»
+ * rifiutava una gara 19:30-21:00 interamente dentro il proprio orario
+ * 13:00-23:00).
+ *
+ * `AddTrainingForm` manda `time`/`endTime` come due input separati, e
+ * `toEventColumns` li legge entrambi correttamente. `AddMatchForm` invece
+ * ha un solo campo libero — l'utente digita `"19:30 - 21:00"` in una sola
+ * casella — e senza questa lettura la fine non arrivava **mai**: `endsAt`
+ * restava a `00:00` (nessun match nel campo mancante), e `resolveEndsAt`
+ * la trattava come una sessione che scavalca la notte, allungando la
+ * durata reale fino a mezzanotte. Un campo aperto fino alle 23:00 rifiutava
+ * quindi qualunque gara la cui fine "indovinata" (mezzanotte) superasse
+ * quell'orario — anche quando l'orario vero, scritto proprio li nello
+ * stesso campo, ci stava benissimo.
+ *
+ * Non e un parser specifico delle gare: vive nel modello condiviso apposta,
+ * cosi qualunque chiamante che scriva l'intervallo in una stringa sola
+ * (invece di due campi) ottiene la stessa interpretazione — un solo posto
+ * che sa leggere "inizio - fine", non uno per tipo di evento.
+ */
+const secondTimeFromRange = (value: unknown): string => {
+  const match = TIME_RANGE.exec(asText(value));
+  return match ? match[2] : "";
+};
 
 /**
  * Da «giorno» + «ora» a un **istante**.
@@ -316,7 +345,15 @@ export const toEventColumns = (
       source.matchDate,
       source.match_date,
     ),
-    firstText(source.endTime, source.end_time, source.endsAt, source.ends_at),
+    firstText(
+      source.endTime,
+      source.end_time,
+      source.endsAt,
+      source.ends_at,
+      secondTimeFromRange(source.time),
+      secondTimeFromRange(source.startTime),
+      secondTimeFromRange(source.start_time),
+    ),
   );
 
   const deadline = firstText(source.rsvpDeadline, source.rsvp_deadline);
