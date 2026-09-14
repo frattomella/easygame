@@ -9,7 +9,7 @@ import {
   readClubEvent,
   updateClubEvent,
 } from "@/lib/server/events";
-import { toEventLegacyShape } from "@/lib/events/model";
+import { isEventAvailabilityError, toEventLegacyShape } from "@/lib/events/model";
 
 type Context = { params: { id: string } };
 
@@ -102,7 +102,12 @@ export async function PATCH(request: Request, context: Context) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore modifica evento" },
+        error: {
+          message: error?.message || "Errore modifica evento",
+          ...(isEventAvailabilityError(error)
+            ? { code: error.code, details: error.details }
+            : {}),
+        },
       },
       { status: errorStatus(error) },
     );

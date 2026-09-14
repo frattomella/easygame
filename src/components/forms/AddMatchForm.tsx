@@ -37,6 +37,7 @@ import {
   type TrainingGroupOption,
 } from "@/components/training/TrainingGroupSelector";
 import { resolveRecommendedStructures } from "@/lib/club-sites";
+import { suggerisciIntervalloGara } from "@/lib/matches/match-time-suggestion";
 
 type MatchLocationOption = {
   id: string;
@@ -444,6 +445,16 @@ export function AddMatchForm({
     }
 
     /*
+      Ripiego per chi salva senza mai lasciare il campo Orario (es. un invio
+      da tastiera che non passa da `onBlur`): la stessa proposta, applicata
+      qui cosi il dato che parte non e mai un solo orario senza fine.
+    */
+    const time = suggerisciIntervalloGara(formData.time);
+    if (time !== formData.time) {
+      setFormData((prev) => ({ ...prev, time }));
+    }
+
+    /*
       **Il form si chiude solo su un successo confermato** (bug UAT
       "creazione nuova gara fallisce"). Prima si chiudeva e si azzerava
       subito, senza aspettare `onSubmit` — un `handleAddMatch` asincrono
@@ -458,6 +469,7 @@ export function AddMatchForm({
     try {
       const esito = await onSubmit({
         ...formData,
+        time,
         ...toEventRsvpPayload(rsvp),
         location: resolvedLocation,
         isHome: formData.venueMode === "home",
@@ -561,8 +573,18 @@ export function AddMatchForm({
                 name="time"
                 value={formData.time}
                 onChange={handleChange}
+                onBlur={() =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    time: suggerisciIntervalloGara(prev.time),
+                  }))
+                }
                 placeholder="Es. 16:30 - 18:00"
               />
+              <p className="text-xs text-muted-foreground">
+                Scrivi solo l&apos;inizio (es. 19:00) e la fine viene proposta
+                in automatico — resta modificabile.
+              </p>
             </div>
           </div>
 

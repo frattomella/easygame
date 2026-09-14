@@ -180,7 +180,7 @@ test("la stessa gara, con la struttura CHIUSA in quell'orario, e rifiutata con i
       userId: OWNER,
       email: "owner@club.it",
     }),
-    /Il campo «Palazzetto» non e disponibile in quel giorno e a quell'ora/,
+    /Il campo «Palazzetto» non e disponibile nell'intervallo richiesto\. Orario disponibile: 08:00-12:00/,
   );
 });
 
@@ -210,7 +210,7 @@ test("un intervallo genuinamente fuori orario (dopo la chiusura) resta rifiutato
       matchPayload({ time: "23:15 - 23:45" }),
       { userId: OWNER, email: "owner@club.it" },
     ),
-    /Il campo «Palazzetto» non e disponibile in quel giorno e a quell'ora/,
+    /Il campo «Palazzetto» non e disponibile nell'intervallo richiesto\. Orario disponibile: 13:00-23:00/,
   );
 });
 
@@ -275,16 +275,22 @@ test("un intervallo unico senza spazi intorno al trattino (\"19:30-21:00\") si l
   assert.equal(row.ends_at?.toISOString().slice(11, 16), "21:00");
 });
 
-test("senza alcun intervallo leggibile (un solo orario, nessun trattino), il comportamento resta quello di prima — non e questa la correzione", async () => {
+test("senza alcun intervallo leggibile (un solo orario, nessun trattino), il DOMINIO resta quello di prima — la correzione di questo ticket vive nel form, non qui", async () => {
   // Un orario libero senza trattino (un dato scritto male, o un vecchio
   // formato): non c'e una seconda ora da leggere, quindi la fine resta la
   // stessa ipotesi "scavalca la notte fino a mezzanotte" di prima di questa
   // correzione — e su un campo che chiude prima di mezzanotte quell'ipotesi
   // resta rifiutata, esattamente come sarebbe stata rifiutata anche senza
-  // questo fix. E un limite preesistente, diverso da quello del ticket
-  // (che riguarda specificamente un intervallo scritto come stringa unica
-  // "inizio - fine"), e questa correzione non doveva — e non deve —
-  // cambiarlo: lo documenta cosi nessuno lo confonda con una regressione.
+  // questo fix.
+  //
+  // E lo stesso caso del bug UAT "giovedi 17 alle 19:00" — ma quella
+  // correzione (src/lib/matches/match-time-suggestion.ts) vive nel FORM: un
+  // "19:00" digitato da solo diventa "19:00 - 20:30" *prima* che la
+  // richiesta parta, quindi il dominio non vede piu quasi mai questo caso
+  // per una gara creata dalla schermata. Il dominio stesso resta quello che
+  // era — non tutti i chiamanti passano dal form (una richiesta diretta
+  // all'API, un vecchio dato importato) — solo il messaggio e piu preciso
+  // adesso: dice anche l'orario disponibile.
   await assert.rejects(
     eventi.createClubEvent(
       scope,
@@ -292,6 +298,6 @@ test("senza alcun intervallo leggibile (un solo orario, nessun trattino), il com
       matchPayload({ time: "19:30" }),
       { userId: OWNER, email: "owner@club.it" },
     ),
-    /Il campo «Palazzetto» non e disponibile in quel giorno e a quell'ora/,
+    /Il campo «Palazzetto» non e disponibile nell'intervallo richiesto\. Orario disponibile: 13:00-23:00/,
   );
 });

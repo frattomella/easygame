@@ -15,7 +15,23 @@ export type EventKindParam = "training" | "match";
 
 const unwrap = <T,>(response: { data: T | null; error: any }, fallback: string) => {
   if (response.error) {
-    throw new Error(response.error.message || fallback);
+    const error = new Error(response.error.message || fallback);
+    /*
+      La causa strutturata di un conflitto di disponibilita (bug UAT
+      "giovedi 17 alle 19:00") viaggia con l'errore quando il server la
+      manda — `code`/`details`, la stessa forma di
+      `EventAvailabilityError` in `src/lib/events/model.ts`. Chi legge solo
+      `.message` (le schermate di oggi) non cambia comportamento; chi vuole
+      distinguere un campo chiuso da un evento in conflitto lo trova qui,
+      senza dover riparsare l'italiano.
+    */
+    if (response.error.code) {
+      (error as any).code = response.error.code;
+    }
+    if (response.error.details) {
+      (error as any).details = response.error.details;
+    }
+    throw error;
   }
   return response.data;
 };

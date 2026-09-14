@@ -10,7 +10,11 @@ import {
   listClubEvents,
   listConvocatedAthleteIdsByEvent,
 } from "@/lib/server/events";
-import { normalizeEventKind, toEventLegacyShape } from "@/lib/events/model";
+import {
+  isEventAvailabilityError,
+  normalizeEventKind,
+  toEventLegacyShape,
+} from "@/lib/events/model";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { RSVP_NEUTRAL_ATTENDANCE_STATUS } from "@/lib/server/rsvp";
 import { isPresentAttendance } from "@/lib/funding/attendance-measure";
@@ -290,7 +294,17 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         data: null,
-        error: { message: error?.message || "Errore creazione evento" },
+        error: {
+          message: error?.message || "Errore creazione evento",
+          /*
+            La causa strutturata viaggia solo quando c'e (bug UAT "giovedi 17
+            alle 19:00"): un client che non la legge vede lo stesso envelope
+            di sempre, `message` compreso.
+          */
+          ...(isEventAvailabilityError(error)
+            ? { code: error.code, details: error.details }
+            : {}),
+        },
       },
       { status: errorStatus(error) },
     );

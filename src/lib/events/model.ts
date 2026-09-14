@@ -17,7 +17,10 @@
  * c'e una fonte, e una copia che qualcuno mantiene.
  */
 
-import { isWithinFieldAvailability as isWithinStructureFieldAvailability } from "@/lib/structures-utils";
+import {
+  isWithinFieldAvailability as isWithinStructureFieldAvailability,
+  describeFieldAvailabilityForDay as describeStructureFieldAvailabilityForDay,
+} from "@/lib/structures-utils";
 
 export const EVENT_KINDS = ["training", "match"] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
@@ -714,6 +717,131 @@ export const findEventOverlaps = (
   });
 };
 
+/* --------------------------------------------- il rifiuto, con la causa --- */
+
+/**
+ * **Perche un campo ha rifiutato una gara — non solo che l'ha rifiutata**
+ * (bug UAT "giovedi 17 alle 19:00 il campo non e disponibile").
+ *
+ * I due controlli qui sopra lanciavano un `Error` con un solo messaggio in
+ * italiano: bastava a mostrarlo, non a distinguerlo. Un client che vuole
+ * sapere *quale* dei due motivi — il campo e chiuso, o il campo e occupato
+ * da un altro evento — doveva analizzare il testo del messaggio, e un
+ * messaggio che cambia forma (un titolo con un accento, una virgoletta)
+ * rompe quel confronto in silenzio.
+ *
+ * `reason` e i due soli valori che i controlli di dominio producono oggi:
+ * non e un vocabolario aperto, e un chiamante che ne vede uno che non
+ * riconosce lo tratta come *altra indisponibilita* — lo stesso principio
+ * di `normalizeEventKind`, fallire su un valore noto, non su un default
+ * indovinato.
+ */
+export type EventConflictReason = "OVERLAP" | "OUTSIDE_OPENING_HOURS";
+
+export type EventConflictDetails = {
+  reason: EventConflictReason;
+  structureName: string | null;
+  fieldName: string | null;
+  /** L'intervallo richiesto — quello che ha causato il rifiuto. */
+  startsAt: string;
+  endsAt: string | null;
+  /** Solo `OUTSIDE_OPENING_HOURS`: le fasce del campo per quel giorno, gia formattate. */
+  availableHours?: string | null;
+  /** Solo `OVERLAP`: l'evento che occupa gia il posto. */
+  conflictingEventId?: string;
+  conflictingEventKind?: EventKind | "other";
+  conflictingEventTitle?: string | null;
+  conflictingCategory?: string | null;
+  conflictingOpponent?: string | null;
+  conflictingStartsAt?: string;
+  conflictingEndsAt?: string | null;
+};
+
+/**
+ * L'errore che porta la causa, non solo il messaggio.
+ *
+ * `message` resta un testo italiano gia pronto per una schermata — lo
+ * stesso che un client che non legge `details` mostra cosi com'e, come
+ * faceva prima con un `Error` semplice (compatibilita). `details` esiste
+ * per chi vuole costruire una UI diversa senza dover riparsare l'italiano.
+ */
+export class EventAvailabilityError extends Error {
+  readonly code = "EVENT_AVAILABILITY_CONFLICT";
+  readonly details: EventConflictDetails;
+
+  constructor(message: string, details: EventConflictDetails) {
+    super(message);
+    this.name = "EventAvailabilityError";
+    this.details = details;
+  }
+}
+
+export const isEventAvailabilityError = (
+  error: unknown,
+): error is EventAvailabilityError =>
+  error instanceof EventAvailabilityError ||
+  (typeof error === "object" &&
+    error !== null &&
+    (error as any).code === "EVENT_AVAILABILITY_CONFLICT");
+
+/**
+ * **Il messaggio pronto per chi occupa gia il posto** — allenamento, gara, o
+ * altro (bug UAT "giovedi 17 alle 19:00").
+ *
+ * Vive qui, non nella schermata: la frase dipende da campi che solo il
+ * server conosce (`category_name`, `opponent` dell'evento in conflitto), e
+ * "non duplicare la logica di dominio nel frontend" vale anche per un
+ * messaggio — non solo per un calcolo. Il client mostra questa stringa
+ * cosi com'e.
+ *
+ * Non inventa un descrittore che l'evento non ha: un allenamento senza
+ * categoria, o una gara senza avversario, cade sul titolo — mai su un
+ * "vs" vuoto o una categoria indovinata.
+ */
+export const describeEventConflictMessage = (
+  fieldName: string | null,
+  conflict: {
+    kind: unknown;
+    title: string | null;
+    categoryName: string | null;
+    opponent: string | null;
+    startsAt: Date | string;
+    endsAt: Date | string | null;
+  },
+): string => {
+  const inizio = new Date(conflict.startsAt);
+  const fine = conflict.endsAt ? new Date(conflict.endsAt) : null;
+  const intervallo = fine
+    ? `dalle ${toEventTime(inizio)} alle ${toEventTime(fine)}`
+    : `dalle ${toEventTime(inizio)}`;
+  const campo = asText(fieldName) ? `il ${asText(fieldName)}` : "il campo";
+  /*
+    Non `normalizeEventKind`: quella funzione fa collassare ogni valore che
+    non e "match" su "training" (e giusto per chi CREA un evento, dove il
+    default e l'allenamento) — qui invece un `kind` che non e ne l'uno ne
+    l'altro deve cadere sul titolo, non essere etichettato come un
+    allenamento che non e mai stato.
+  */
+  const kind = conflict.kind === "match" ? "match" : conflict.kind === "training" ? "training" : "other";
+
+  if (kind === "training") {
+    const categoria = asText(conflict.categoryName);
+    if (categoria) {
+      return `Attenzione: ${campo} e gia occupato ${intervallo} dall'allenamento ${categoria}.`;
+    }
+  } else if (kind === "match") {
+    const categoria = asText(conflict.categoryName);
+    if (categoria) {
+      const avversario = asText(conflict.opponent);
+      const vs = avversario ? ` vs ${avversario}` : "";
+      return `Attenzione: ${campo} e gia occupato ${intervallo} dalla gara ${categoria}${vs}.`;
+    }
+  }
+
+  const titolo = asText(conflict.title) || "un altro evento";
+  return `Attenzione: ${campo} e gia occupato ${intervallo} da «${titolo}».`;
+};
+
 /**
  * La capienza: il numero e il conteggio, **non la coda**.
  *
@@ -826,6 +954,28 @@ export const isWithinFieldAvailability = (
     { availability } as never,
     inizio,
     Number.isNaN(fine.getTime()) ? inizio : fine,
+    "UTC",
+  );
+};
+
+/**
+ * Le fasce di un giorno, per il messaggio di rifiuto — stessa correzione di
+ * `isWithinFieldAvailability` qui sopra e per la stessa ragione: `club_events`
+ * non ha un fuso, le sue cifre UTC sono gia l'ora locale. Chiamare il
+ * descrittore di `structures-utils` con `Europe/Rome` le convertirebbe una
+ * seconda volta, e il giorno citato nel messaggio potrebbe non essere piu
+ * quello su cui `isWithinFieldAvailability` ha deciso.
+ */
+export const describeFieldAvailabilityForDay = (
+  availability: unknown,
+  startsAt: Date | string,
+): string => {
+  const inizio = startsAt instanceof Date ? startsAt : new Date(startsAt);
+  if (Number.isNaN(inizio.getTime())) return "";
+
+  return describeStructureFieldAvailabilityForDay(
+    { availability } as never,
+    inizio,
     "UTC",
   );
 };

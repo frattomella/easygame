@@ -631,6 +631,28 @@ export function describeFieldAvailability(
 }
 
 /**
+ * Le fasce di **un giorno solo**, per un rifiuto mirato (bug UAT "giovedi 17
+ * alle 19:00 il campo non e disponibile"): `describeFieldAvailability` elenca
+ * l'intera settimana, e un rifiuto che risponde con sette giorni quando la
+ * domanda era su uno solo costringe chi legge a cercare il proprio fra gli
+ * altri sei.
+ *
+ * Stessa risoluzione del giorno di `isWithinFieldAvailability` — lo stesso
+ * fuso, la stessa conversione — cosi il giorno che il messaggio cita e
+ * sempre quello su cui il controllo ha davvero deciso.
+ */
+export function describeFieldAvailabilityForDay(
+  field: Pick<StructureField, "availability">,
+  date: Date,
+  timeZone: string = DEFAULT_STRUCTURE_TIMEZONE,
+): string {
+  const availability = normalizeAvailability(field?.availability);
+  const { dayKey } = describeInstantForAvailability(date, timeZone);
+  const slots = dayKey ? availability[dayKey] || [] : [];
+  return slots.map((slot) => `${slot.start}-${slot.end}`).join(", ");
+}
+
+/**
  * **L'istante di un giorno e un'ora, letti nel fuso dichiarato.**
  *
  * PP-02 §L. Il modulo della famiglia componeva

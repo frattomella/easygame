@@ -29,6 +29,9 @@ import {
   ATTENDANCE_STATUSES,
   assertEventHasRoom,
   assertEventTransition,
+  describeEventConflictMessage,
+  describeFieldAvailabilityForDay,
+  EventAvailabilityError,
   findEventOverlaps,
   isWithinFieldAvailability,
   normalizeAttendanceStatus,
@@ -1149,8 +1152,31 @@ const assertFieldIsOpenConStrutture = (
       candidate.ends_at,
     )
   ) {
-    throw new Error(
-      `Il campo «${asText(campo.name) || "selezionato"}» non e disponibile in quel giorno e a quell'ora`,
+    const nomeCampo = asText(campo.name) || "selezionato";
+    /*
+      **Il giorno che conta e quello dell'inizio richiesto** (bug UAT
+      "giovedi 17 alle 19:00"): le fasce disponibili si leggono per lo
+      stesso giorno su cui `isWithinFieldAvailability` ha appena deciso, non
+      per l'intera settimana — altrimenti il rifiuto risponde a una domanda
+      diversa da quella che l'utente ha fatto.
+    */
+    const orarioDisponibile = describeFieldAvailabilityForDay(
+      campo.availability,
+      candidate.starts_at,
+    );
+
+    throw new EventAvailabilityError(
+      orarioDisponibile
+        ? `Il campo «${nomeCampo}» non e disponibile nell'intervallo richiesto. Orario disponibile: ${orarioDisponibile}`
+        : `Il campo «${nomeCampo}» non e disponibile in quel giorno e a quell'ora`,
+      {
+        reason: "OUTSIDE_OPENING_HOURS",
+        structureName: asText(struttura?.name) || null,
+        fieldName: nomeCampo,
+        startsAt: candidate.starts_at.toISOString(),
+        endsAt: candidate.ends_at ? candidate.ends_at.toISOString() : null,
+        availableHours: orarioDisponibile || null,
+      },
     );
   }
 };
@@ -1173,6 +1199,42 @@ const assertFieldIsOpen = async (
   const strutture = Array.isArray(club?.structures) ? club.structures : [];
 
   assertFieldIsOpenConStrutture(strutture, candidate);
+};
+
+/**
+ * Il nome di struttura e campo, per un messaggio che possa nominarli — la
+ * stessa lettura di `assertFieldIsOpen`, ripetuta qui perche
+ * `assertNoOverlap` non riceve le strutture gia in mano: e il percorso di
+ * un singolo evento, non il blocco che WP-20 ottimizza.
+ */
+const risolviNomeCampo = async (
+  organizationId: string,
+  structureId: string | null,
+  fieldId: string | null,
+): Promise<{ structureName: string | null; fieldName: string | null }> => {
+  if (!structureId && !fieldId) return { structureName: null, fieldName: null };
+
+  const club = await prisma.club.findUnique({
+    where: { id: organizationId },
+    select: { structures: true },
+  });
+  const strutture = Array.isArray(club?.structures)
+    ? (club!.structures as any[])
+    : [];
+  const struttura = strutture.find(
+    (voce) => asText(voce?.id) === asText(structureId),
+  );
+  if (!struttura) return { structureName: null, fieldName: null };
+
+  const campi = Array.isArray(struttura.fields) ? struttura.fields : [];
+  const campo = fieldId
+    ? campi.find((voce: any) => asText(voce?.id) === asText(fieldId))
+    : campi[0];
+
+  return {
+    structureName: asText(struttura?.name) || null,
+    fieldName: campo ? asText(campo?.name) || null : null,
+  };
 };
 
 const assertNoOverlap = async (
@@ -1254,15 +1316,20 @@ const assertNoOverlap = async (
       ends_at: true,
       status: true,
       title: true,
+      kind: true,
+      category_name: true,
+      opponent: true,
     },
   });
 
   const conflitti = findEventOverlaps(candidate, altri);
   if (!conflitti.length) return [];
 
-  const nomi = conflitti
+  const righeConflitto = conflitti
     .map((conflitto) => altri.find((row) => row.id === conflitto.id))
-    .map((row) => row?.title || "un altro evento");
+    .filter((row): row is (typeof altri)[number] => Boolean(row));
+
+  const nomi = righeConflitto.map((row) => row.title || "un altro evento");
 
   /*
     **La sovrapposizione e un avviso, non un muro** (PP-01 §C).
@@ -1279,8 +1346,45 @@ const assertNoOverlap = async (
     un giudizio di opportunita, e un orario in cui la struttura non apre.
   */
   if (!consentito) {
-    throw new Error(
-      `Il campo e gia occupato in quell'orario da «${nomi[0]}»`,
+    const primo = righeConflitto[0];
+    const { fieldName } = await risolviNomeCampo(
+      organizationId,
+      candidate.structure_id,
+      candidate.field_id,
+    );
+
+    throw new EventAvailabilityError(
+      describeEventConflictMessage(fieldName, {
+        kind: primo.kind,
+        title: primo.title,
+        categoryName: primo.category_name,
+        opponent: primo.opponent,
+        startsAt: primo.starts_at,
+        endsAt: primo.ends_at,
+      }),
+      {
+        reason: "OVERLAP",
+        structureName: null,
+        fieldName,
+        startsAt: new Date(candidate.starts_at).toISOString(),
+        endsAt: candidate.ends_at
+          ? new Date(candidate.ends_at).toISOString()
+          : null,
+        conflictingEventId: primo.id,
+        conflictingEventKind:
+          primo.kind === "match"
+            ? "match"
+            : primo.kind === "training"
+              ? "training"
+              : "other",
+        conflictingEventTitle: primo.title,
+        conflictingCategory: primo.category_name,
+        conflictingOpponent: primo.opponent,
+        conflictingStartsAt: new Date(primo.starts_at).toISOString(),
+        conflictingEndsAt: primo.ends_at
+          ? new Date(primo.ends_at).toISOString()
+          : null,
+      },
     );
   }
 
