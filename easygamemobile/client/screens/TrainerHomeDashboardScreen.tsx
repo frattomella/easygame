@@ -57,14 +57,27 @@ export default function TrainerHomeDashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [nextTrainings, nextMatches, nextTasks] = await Promise.all([
-      mobileBackendStorage.getTrainings(),
-      mobileBackendStorage.getMatches(),
-      mobileBackendStorage.getTasks(),
-    ]);
-    setTrainings(nextTrainings);
-    setMatches(nextMatches);
-    setTasks(nextTasks.filter((item) => !item.completed));
+    /*
+      **Un errore qui non deve bloccare per sempre il pulsante di
+      aggiornamento** (accettazione finale Trainer, §9): senza try/finally
+      un fallimento di rete lasciava `refreshing` a `true` — lo spinner di
+      pull-to-refresh restava acceso senza che nessuna nuova richiesta
+      fosse in corso. Home non ha un unico stato vuoto/errore a schermo
+      intero come Allenamenti/Gare (resta comunque la sua chrome), quindi
+      qui basta non spezzare il ciclo di caricamento, non un `StateMessage`.
+    */
+    try {
+      const [nextTrainings, nextMatches, nextTasks] = await Promise.all([
+        mobileBackendStorage.getTrainings(),
+        mobileBackendStorage.getMatches(),
+        mobileBackendStorage.getTasks(),
+      ]);
+      setTrainings(nextTrainings);
+      setMatches(nextMatches);
+      setTasks(nextTasks.filter((item) => !item.completed));
+    } catch (error) {
+      console.error("Errore nel caricamento della Home Trainer", error);
+    }
   }, []);
 
   useFocusEffect(
@@ -75,8 +88,11 @@ export default function TrainerHomeDashboardScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
+    try {
+      await loadData();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const today = format(new Date(), "yyyy-MM-dd");
@@ -96,7 +112,17 @@ export default function TrainerHomeDashboardScreen() {
     return open[0] || null;
   }, [today, trainings]);
   const nextMatch = useMemo(() => {
-    const open = matches.filter((match) => match.date >= today);
+    /*
+      **Stessa regola dell'allenamento, mancava qui** (bug UAT "riconciliazione
+      gare Web/Mobile" — accettazione finale): una gara annullata futura
+      restava "la prossima gara" in Home, con lo stesso invito a gestire le
+      convocazioni di una gara vera. Resta comunque nell'elenco completo
+      (Gare la mostra come storico, badge "Annullata") — qui si esclude solo
+      dal ruolo di "prossimo impegno".
+    */
+    const open = matches.filter(
+      (match) => match.date >= today && !isCancelled(match.status),
+    );
     return open[0] || null;
   }, [matches, today]);
 

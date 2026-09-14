@@ -113,6 +113,13 @@ export default function TrainerTrainingsDashboardScreen() {
     null,
   );
   const [noteOpenFor, setNoteOpenFor] = useState<string | null>(null);
+  /*
+    **Un errore non e uno zero** (accettazione finale Trainer, §9) — stessa
+    correzione di TrainerMatchesDashboardScreen: senza questo un fallimento
+    di rete/permesso restava `trainings: []` e lo schermo mostrava "Nessun
+    allenamento", indistinguibile da un club davvero senza allenamenti.
+  */
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const focusedTrainingId = route.params?.focusTrainingId || null;
   const openAttendanceRequested = Boolean(route.params?.openAttendance);
@@ -122,12 +129,19 @@ export default function TrainerTrainingsDashboardScreen() {
     trainerPermissions?.actions.manageTrainingStatus !== false;
 
   const loadData = useCallback(async () => {
-    const [nextTrainings, nextAthletes] = await Promise.all([
-      mobileBackendStorage.getTrainings(),
-      mobileBackendStorage.getAthletes(),
-    ]);
-    setTrainings(nextTrainings);
-    setAthletes(nextAthletes);
+    try {
+      const [nextTrainings, nextAthletes] = await Promise.all([
+        mobileBackendStorage.getTrainings(),
+        mobileBackendStorage.getAthletes(),
+      ]);
+      setTrainings(nextTrainings);
+      setAthletes(nextAthletes);
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(
+        error instanceof Error ? error.message : "Errore di connessione",
+      );
+    }
   }, []);
 
   useFocusEffect(
@@ -138,8 +152,11 @@ export default function TrainerTrainingsDashboardScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
+    try {
+      await loadData();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const today = getTodayKey();
@@ -514,7 +531,14 @@ export default function TrainerTrainingsDashboardScreen() {
         />
       }
     >
-      {trainings.length === 0 ? (
+      {loadError ? (
+        <StateMessage
+          kind={loadError.includes("Accesso negato") ? "forbidden" : "error"}
+          message={loadError}
+          actionLabel="Riprova"
+          onAction={() => void loadData()}
+        />
+      ) : trainings.length === 0 ? (
         <StateMessage
           kind="empty"
           title="Nessun allenamento"

@@ -75,6 +75,15 @@ export default function TrainerMatchesDashboardScreen() {
     ConvocationDraftEntry[]
   >([]);
   const [convocationSaving, setConvocationSaving] = useState(false);
+  /*
+    **Un errore non e uno zero** (accettazione finale Trainer, §9): senza
+    questo, un `GET /api/v1/events` che risponde 403/500/rete cadeva senza
+    essere catturato — `matches` restava `[]` (lo stato iniziale) e lo
+    schermo mostrava "Nessuna gara", indistinguibile da un club davvero
+    senza gare. `StateMessage` porta gia il vocabolario `forbidden`/`error`
+    (usato dalle schermate Parent); qui si applica alla stessa domanda.
+  */
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const focusedMatchId = route.params?.focusMatchId || null;
   const openConvocationsRequested = Boolean(route.params?.openConvocations);
@@ -82,12 +91,19 @@ export default function TrainerMatchesDashboardScreen() {
     trainerPermissions?.actions.manageConvocations !== false;
 
   const loadData = useCallback(async () => {
-    const [nextMatches, nextAthletes] = await Promise.all([
-      mobileBackendStorage.getMatches(),
-      mobileBackendStorage.getAthletes(),
-    ]);
-    setMatches(nextMatches);
-    setAthletes(nextAthletes);
+    try {
+      const [nextMatches, nextAthletes] = await Promise.all([
+        mobileBackendStorage.getMatches(),
+        mobileBackendStorage.getAthletes(),
+      ]);
+      setMatches(nextMatches);
+      setAthletes(nextAthletes);
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(
+        error instanceof Error ? error.message : "Errore di connessione",
+      );
+    }
   }, []);
 
   useFocusEffect(
@@ -98,8 +114,11 @@ export default function TrainerMatchesDashboardScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
+    try {
+      await loadData();
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const today = getTodayKey();
@@ -386,7 +405,14 @@ export default function TrainerMatchesDashboardScreen() {
         />
       }
     >
-      {matches.length === 0 ? (
+      {loadError ? (
+        <StateMessage
+          kind={loadError.includes("Accesso negato") ? "forbidden" : "error"}
+          message={loadError}
+          actionLabel="Riprova"
+          onAction={() => void loadData()}
+        />
+      ) : matches.length === 0 ? (
         <StateMessage
           kind="empty"
           title="Nessuna gara"
