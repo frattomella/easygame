@@ -30,12 +30,18 @@ export function AssignmentEditDrawer({
   onOpenChange,
   initial,
   athletes,
+  categories = [],
+  categoryLabel,
   onSave,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initial: AssignmentEditForm;
   athletes: any[];
+  /** Il catalogo del club: la categoria si legge per identita (ADR-0185). */
+  categories?: readonly { id?: string | null; name?: string | null }[];
+  /** Come si scrive una categoria (ADR-0185). */
+  categoryLabel?: (reference: { categoryId: string; categoryName: string }) => string;
   onSave: (form: AssignmentEditForm) => Promise<boolean>;
 }) {
   const [form, setForm] = React.useState<AssignmentEditForm>(initial);
@@ -95,7 +101,7 @@ export function AssignmentEditDrawer({
                 id="assignment-edit-athlete"
                 value={form.athleteId}
                 onValueChange={(value) => { patch({ athleteId: value || "" }); setError(null); }}
-                options={athletes.map((athlete) => ({ value: String(athlete.id), label: athleteLabel(athlete), description: getAthleteCategoryLabel(athlete) }))}
+                options={athletes.map((athlete) => ({ value: String(athlete.id), label: athleteLabel(athlete), description: getAthleteCategoryLabel(athlete, categories, categoryLabel) }))}
                 placeholder="Seleziona atleta"
                 searchPlaceholder="Cerca atleta"
               />

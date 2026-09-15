@@ -28,11 +28,14 @@ import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 import { getClubCategories, getClubData } from "@/lib/simplified-db";
 import { downloadAttachment, openClientFileUrl } from "@/lib/client-files";
 import {
+  buildCategoryGroups,
   buildSiteIndex,
   getActiveClubSites,
   normalizeClubSites,
+  type CategoryGroup,
   type ClubSite,
 } from "@/lib/club-sites";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import { PageHeader, HeaderStat } from "@/components/web/page/PageHeader";
 import { AlertBlock } from "@/components/web/page/Alerts";
 import { EmptyStateCard } from "@/components/web/page/Cards";
@@ -91,8 +94,14 @@ export default function MedicalPage() {
   const [clubResolved, setClubResolved] = useState(false);
   const [rows, setRows] = useState<CertificateRow[]>([]);
   const [athletes, setAthletes] = useState<MedicalAthleteRecord[]>([]);
-  const [categoryOptions, setCategoryOptions] = useState<{ id: string; name: string }[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<{ id: string; name: string; configured?: boolean | null }[]>([]);
+  const [categoryGroups, setCategoryGroups] = useState<CategoryGroup[]>([]);
   const [sites, setSites] = useState<ClubSite[]>([]);
+  /** Come si scrive una categoria in questa pagina (ADR-0185). */
+  const categoryDisplay = useMemo(
+    () => buildCategoryDisplayIndex({ categories: categoryOptions, groups: categoryGroups, sites }),
+    [categoryOptions, categoryGroups, sites],
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -210,13 +219,20 @@ export default function MedicalPage() {
         if (athletesError) throw athletesError;
         const athleteRecords = (athletesData || []) as MedicalAthleteRecord[];
         setAthletes(athleteRecords);
-        const [categoriesData, rawSites] = await Promise.all([
+        const [categoriesData, rawSites, rawGroups] = await Promise.all([
           getClubCategories(clubId),
           getClubData(clubId, "club_sites").catch(() => []),
+          getClubData(clubId, "category_groups").catch(() => []),
         ]);
         setCategoryOptions(categoriesData);
         const normalizedSites = getActiveClubSites(normalizeClubSites(rawSites));
         setSites(normalizedSites);
+        const groups = buildCategoryGroups({
+          categories: categoriesData,
+          sites: normalizeClubSites(rawSites),
+          groups: rawGroups,
+        });
+        setCategoryGroups(groups);
 
         // Fetch medical certificates - only if we have athletes
         let certificatesData: MedicalCertificateRecord[] = [];
@@ -241,6 +257,7 @@ export default function MedicalPage() {
             athletes: athleteRecords,
             certificates: certificatesData,
             categories: categoriesData,
+            groups,
             siteIndex: normalizedSites.length ? buildSiteIndex(normalizedSites) : null,
           }),
         );
@@ -513,10 +530,11 @@ export default function MedicalPage() {
     () =>
       buildCertificateFilters({
         categoryOptions,
+        categoryLabel: (category) => categoryDisplay.label(category.id),
         sites: sites.map((site) => ({ id: site.id, name: site.name || site.id })),
         typeOptions: collectCertificateTypeOptions(rows),
       }),
-    [categoryOptions, rows, sites],
+    [categoryDisplay, categoryOptions, rows, sites],
   );
 
   const search = useMemo(

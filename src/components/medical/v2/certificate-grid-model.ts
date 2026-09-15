@@ -7,9 +7,13 @@ import { getMedicalCertificateStatus } from "@/lib/medical-certificates";
 import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 import {
   athleteMatchesAnyCategory,
-  resolveCategoryLabel,
+  selectableCategoryOptions,
 } from "@/lib/category-utils";
 import { normalizeAthleteCategoryMemberships } from "@/lib/athlete-category-memberships";
+import {
+  buildCategoryDisplayIndex,
+  type CategoryGroupLike,
+} from "@/lib/categories/display";
 import {
   getAthleteSiteIds,
   recordMatchesSite,
@@ -148,7 +152,7 @@ export type MedicalCertificateRecord = {
   document_url?: string | null;
 };
 
-type CategoryCatalogOption = { id: string; name: string };
+type CategoryCatalogOption = { id: string; name: string; configured?: boolean | null };
 
 /** Il piu recente fra emissione e scadenza: e cio che decide quale certificato tenere. */
 export const getCertificateSortTime = (
@@ -163,13 +167,15 @@ const describeAthlete = (
   athlete: MedicalAthleteRecord,
   categories: readonly CategoryCatalogOption[],
   siteIndex: SiteIndex | null,
+  display: ReturnType<typeof buildCategoryDisplayIndex>,
 ) => {
   const catalog = [...categories];
   const memberships = normalizeAthleteCategoryMemberships(athlete, catalog);
   const membership = memberships.find((item) => item.isPrimary) || memberships[0] || null;
   const categoryId = membership?.categoryId || null;
+  /* L'etichetta canonica (ADR-0185): mai un identificativo, la sede dove serve. */
   const categoryLabel = membership
-    ? resolveCategoryLabel(membership.categoryId || membership.categoryName, catalog)
+    ? display.label({ categoryId: membership.categoryId, categoryName: membership.categoryName })
     : "Senza categoria";
   const siteIds = siteIndex ? getAthleteSiteIds(athlete, siteIndex) : [];
   const siteName = siteIndex
@@ -195,15 +201,19 @@ export const buildCertificateRows = ({
   athletes,
   certificates,
   categories = [],
+  groups = [],
   siteIndex = null,
   today,
 }: {
   athletes: readonly MedicalAthleteRecord[];
   certificates: readonly MedicalCertificateRecord[];
   categories?: readonly CategoryCatalogOption[];
+  /** I gruppi operativi costruiti (`buildCategoryGroups`): servono a scrivere la sede. */
+  groups?: readonly CategoryGroupLike[];
   siteIndex?: SiteIndex | null;
   today?: Date;
 }): CertificateRow[] => {
+  const display = buildCategoryDisplayIndex({ categories, groups, sites: siteIndex?.sites });
   const byAthlete = new Map<string, CertificateRow>();
   const athletesById = new Map(athletes.map((athlete) => [athlete.id, athlete]));
 
@@ -218,7 +228,7 @@ export const buildCertificateRows = ({
       expiryDate: cert.expiry_date,
       status: getMedicalCertificateStatus(cert.expiry_date, today),
       fileUrl: cert.file_url || cert.document_url || "",
-      ...describeAthlete(athlete, categories, siteIndex),
+      ...describeAthlete(athlete, categories, siteIndex, display),
     };
     const current = byAthlete.get(athlete.id);
     if (!current || getCertificateSortTime(candidate) >= getCertificateSortTime(current)) {
@@ -236,7 +246,7 @@ export const buildCertificateRows = ({
       expiryDate: "",
       status: "missing",
       fileUrl: "",
-      ...describeAthlete(athlete, categories, siteIndex),
+      ...describeAthlete(athlete, categories, siteIndex, display),
     });
   }
 
@@ -300,10 +310,13 @@ const dayOf = (value: string) => {
 
 export const buildCertificateFilters = ({
   categoryOptions,
+  categoryLabel = (category) => category.name,
   sites = [],
   typeOptions = CERTIFICATE_TYPE_OPTIONS,
 }: {
   categoryOptions: readonly CategoryCatalogOption[];
+  /** Come si scrive una categoria nel filtro (ADR-0185). */
+  categoryLabel?: (category: CategoryCatalogOption) => string;
   sites?: ReadonlyArray<{ id: string; name: string }>;
   typeOptions?: ReadonlyArray<{ value: string; label: string }>;
 }): FilterDef<CertificateRow>[] => {
@@ -324,7 +337,11 @@ export const buildCertificateFilters = ({
       id: CERTIFICATE_CATEGORY_FILTER_ID,
       label: "Categoria",
       type: "multi",
-      options: categoryOptions.map((category) => ({ value: category.id, label: category.name })),
+      /* Solo le configurate: un'etichetta storica non e un filtro (ADR-0185). */
+      options: selectableCategoryOptions(categoryOptions).map((category) => ({
+        value: category.id,
+        label: categoryLabel(category),
+      })),
       apply: (row, value) => {
         const wanted = asList(value);
         if (!wanted.length) return true;

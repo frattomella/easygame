@@ -39,7 +39,8 @@ import { getJerseyGroupSummaries } from "@/lib/jersey-numbering-utils";
 import { compareAthletesByLastName } from "@/lib/athlete-name-utils";
 import { sortByName } from "@/lib/sorting";
 import { buildClubCategoryOptions, type NormalizedCategoryOption } from "@/lib/category-utils";
-import { normalizeClubSites, type ClubSite } from "@/lib/club-sites";
+import { buildCategoryGroups, normalizeClubSites, type CategoryGroup, type ClubSite } from "@/lib/club-sites";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import { formatInteger, MISSING } from "@/lib/web/format";
 import { ItemDrawer } from "@/components/clothing/v2/item-drawer";
 import { KitDrawer } from "@/components/clothing/v2/kit-drawer";
@@ -124,6 +125,12 @@ export default function ClothingPage() {
   const [athletes, setAthletes] = React.useState<any[]>([]);
   const [sites, setSites] = React.useState<ClubSite[]>([]);
   const [categoryOptions, setCategoryOptions] = React.useState<NormalizedCategoryOption[]>([]);
+  const [categoryGroups, setCategoryGroups] = React.useState<CategoryGroup[]>([]);
+  /** Come si scrive una categoria in questa pagina (ADR-0185): la sede solo dove il nome ne nomina due. */
+  const categoryDisplay = React.useMemo(
+    () => buildCategoryDisplayIndex({ categories: categoryOptions, groups: categoryGroups, sites }),
+    [categoryOptions, categoryGroups, sites],
+  );
 
   const loadData = React.useCallback(async () => {
     if (!activeClub?.id || !user) {
@@ -133,7 +140,7 @@ export default function ClothingPage() {
     setLoading(true);
     try {
       const { getClubData, getClubAthletes } = await import("@/lib/simplified-db");
-      const [products, kits, inventory, assignments, groups, jerseyAssignments, categories, clubSites, clubAthletes] = await Promise.all([
+      const [products, kits, inventory, assignments, groups, jerseyAssignments, categories, clubSites, clubAthletes, rawCategoryGroups] = await Promise.all([
         getClubData(activeClub.id, "clothing_products"),
         getClubData(activeClub.id, "clothing_kits"),
         getClubData(activeClub.id, "clothing_inventory"),
@@ -143,11 +150,14 @@ export default function ClothingPage() {
         getClubData(activeClub.id, "categories"),
         getClubData(activeClub.id, "club_sites"),
         getClubAthletes(activeClub.id),
+        getClubData(activeClub.id, "category_groups"),
       ]);
       const sortedAthletes = Array.isArray(clubAthletes) ? [...clubAthletes].sort(compareAthletesByLastName) : [];
       setAthletes(sortedAthletes);
       setSites(normalizeClubSites(clubSites));
-      setCategoryOptions(buildClubCategoryOptions({ clubCategories: categories, athletes: sortedAthletes }));
+      const options = buildClubCategoryOptions({ clubCategories: categories, athletes: sortedAthletes });
+      setCategoryOptions(options);
+      setCategoryGroups(buildCategoryGroups({ categories: options, sites: normalizeClubSites(clubSites), groups: rawCategoryGroups }));
       setState(normalizeClubClothingState({ products, kits, inventory, assignments, jerseyGroups: groups, jerseyAssignments }));
       setLoadError(null);
     } catch (error: any) {
@@ -747,6 +757,8 @@ export default function ClothingPage() {
               <AssignmentsGrid
                 assignments={athleteAssignments}
                 athletesById={athletesById}
+                categories={categoryOptions}
+                categoryLabel={(reference) => categoryDisplay.label(reference)}
                 stockById={stockById}
                 canManage={canManageAssignments}
                 loading={loading}
@@ -764,6 +776,7 @@ export default function ClothingPage() {
               <NumberingArea
                 summaries={jerseyGroupSummaries}
                 categoryOptions={categoryOptions}
+                categoryLabel={(categoryId) => categoryDisplay.label(categoryId)}
                 canManage={canManageNumbering}
                 loading={loading}
                 onEditGroup={(group) => setGroupDraft(group)}
@@ -779,9 +792,9 @@ export default function ClothingPage() {
       <ItemDrawer open={Boolean(itemDraft)} onOpenChange={(open) => !open && setItemDraft(null)} initial={itemDraft || EMPTY_ITEM} onSave={saveItem} />
       <KitDrawer open={Boolean(kitDraft)} onOpenChange={(open) => !open && setKitDraft(null)} initial={kitDraft || EMPTY_KIT} items={sortedCatalogItems} groups={sortedNumberingGroups} onSave={saveKit} />
       <StockDrawer open={Boolean(stockDraft)} onOpenChange={(open) => !open && setStockDraft(null)} initial={stockDraft || EMPTY_STOCK} items={sortedCatalogItems} groups={sortedNumberingGroups} onSave={saveStock} />
-      <GroupDrawer open={Boolean(groupDraft)} onOpenChange={(open) => !open && setGroupDraft(null)} initial={groupDraft || EMPTY_GROUP} categoryOptions={categoryOptions} sites={sites} onSave={saveGroup} />
-      <AssignmentDrawer open={Boolean(assignmentDraft)} onOpenChange={(open) => !open && setAssignmentDraft(null)} initial={assignmentDraft || EMPTY_ASSIGNMENT} athletes={athletes} state={state} onSubmit={createAssignment} />
-      <AssignmentEditDrawer open={Boolean(editingAssignment)} onOpenChange={(open) => !open && setEditingAssignment(null)} initial={editingAssignmentForm} athletes={athletes} onSave={saveAssignmentEdit} />
+      <GroupDrawer open={Boolean(groupDraft)} onOpenChange={(open) => !open && setGroupDraft(null)} initial={groupDraft || EMPTY_GROUP} categoryOptions={categoryOptions} categoryLabel={(categoryId) => categoryDisplay.label(categoryId)} sites={sites} onSave={saveGroup} />
+      <AssignmentDrawer open={Boolean(assignmentDraft)} onOpenChange={(open) => !open && setAssignmentDraft(null)} initial={assignmentDraft || EMPTY_ASSIGNMENT} athletes={athletes} categories={categoryOptions} categoryLabel={(reference) => categoryDisplay.label(reference)} state={state} onSubmit={createAssignment} />
+      <AssignmentEditDrawer open={Boolean(editingAssignment)} onOpenChange={(open) => !open && setEditingAssignment(null)} initial={editingAssignmentForm} athletes={athletes} categories={categoryOptions} categoryLabel={(reference) => categoryDisplay.label(reference)} onSave={saveAssignmentEdit} />
       <AssignmentStatusDrawer
         open={Boolean(statusAssignment)}
         onOpenChange={(open) => !open && setStatusAssignment(null)}

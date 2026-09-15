@@ -39,6 +39,7 @@ const MEMBERSHIP_OPTIONS = [
 export function NumberingArea({
   summaries,
   categoryOptions,
+  categoryLabel,
   canManage,
   loading,
   onEditGroup,
@@ -48,6 +49,8 @@ export function NumberingArea({
 }: {
   summaries: JerseyGroupSummary[];
   categoryOptions: NormalizedCategoryOption[];
+  /** Come si scrive una categoria (ADR-0185). */
+  categoryLabel?: (categoryId: string) => string;
   canManage: boolean;
   loading: boolean;
   onEditGroup: (group: NumberingGroup) => void;
@@ -58,7 +61,13 @@ export function NumberingArea({
   const [openGroupId, setOpenGroupId] = React.useState<string | null>(null);
   const summary = summaries.find((entry) => entry.group.id === openGroupId) || null;
 
-  const categoryName = React.useCallback((id: string) => categoryOptions.find((category) => category.id === id)?.name || id, [categoryOptions]);
+  /* Mai un identificativo come testo (ADR-0185): una categoria sconosciuta si dice, non si stampa. */
+  const categoryName = React.useCallback(
+    (id: string) =>
+      (categoryLabel ? categoryLabel(id) : categoryOptions.find((category) => category.id === id)?.name) ||
+      "Categoria non disponibile",
+    [categoryLabel, categoryOptions],
+  );
 
   /* ── Gruppi ─────────────────────────────────────────────────────────── */
   const groupColumns = React.useMemo<ColumnDef<JerseyGroupSummary>[]>(

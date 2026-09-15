@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/web/primitives/Controls";
 import { Button } from "@/components/web/primitives/Button";
 import { InsetBlock } from "@/components/web/primitives/Surface";
 import type { NumberingGroup } from "@/lib/clothing-inventory-utils";
-import type { NormalizedCategoryOption } from "@/lib/category-utils";
+import { selectableCategoryOptions, type NormalizedCategoryOption } from "@/lib/category-utils";
 import { getActiveClubSites, isMultiSiteClub, type ClubSite } from "@/lib/club-sites";
 
 /**
@@ -23,6 +23,7 @@ export function GroupDrawer({
   onOpenChange,
   initial,
   categoryOptions,
+  categoryLabel,
   sites,
   onSave,
 }: {
@@ -30,6 +31,8 @@ export function GroupDrawer({
   onOpenChange: (open: boolean) => void;
   initial: NumberingGroup;
   categoryOptions: NormalizedCategoryOption[];
+  /** Come si scrive una categoria (ADR-0185): lo dice la pagina con l'indice canonico. */
+  categoryLabel?: (categoryId: string) => string;
   sites: ClubSite[];
   onSave: (group: NumberingGroup) => Promise<boolean>;
 }) {
@@ -112,7 +115,10 @@ export function GroupDrawer({
                 id="group-categories"
                 values={form.categoryIds}
                 onValuesChange={(values) => patch({ categoryIds: values })}
-                options={categoryOptions.map((category) => ({ value: category.id, label: category.name }))}
+                options={selectableCategoryOptions(categoryOptions).map((category) => ({
+                  value: category.id,
+                  label: categoryLabel ? categoryLabel(category.id) : category.name,
+                }))}
                 placeholder="Tutte le categorie"
                 searchPlaceholder="Cerca categoria"
                 disabled={!categoryOptions.length}

@@ -1,3 +1,4 @@
+import { getPrimaryAthleteCategoryMembership } from "@/lib/athlete-category-memberships";
 import {
   assignmentStatusLabels,
   getAssignmentNumberLabel,
@@ -349,8 +350,37 @@ export const firstText = (...values: unknown[]) => {
 
 export const athleteLabel = (athlete: any) => getAthleteDisplayName(athlete) || String(athlete?.id || "");
 
-export const getAthleteCategoryLabel = (athlete: any) =>
-  athlete?.category_name || athlete?.data?.categoryName || athlete?.data?.category || athlete?.category || "Senza categoria";
+/**
+ * **La categoria di un atleta si legge dalle appartenenze, non dalla colonna**
+ * (ADR-0185). `athletes.category_name` e una cache che dopo una rinomina dice
+ * ancora il nome vecchio («Pulcini - S. Cosma»): con il catalogo in mano la
+ * primaria risolve al nome corrente. Senza catalogo resta la lettura di prima.
+ */
+export const getAthleteCategoryLabel = (
+  athlete: any,
+  categories: readonly { id?: string | null; name?: string | null }[] = [],
+  /** L'indice canonico della pagina (ADR-0185): «Pulcini · Scauri» dove serve. */
+  categoryLabel?: (reference: { categoryId: string; categoryName: string }) => string,
+) => {
+  const primaria = getPrimaryAthleteCategoryMembership(athlete, categories);
+  if (primaria && categoryLabel) {
+    return categoryLabel({ categoryId: primaria.categoryId, categoryName: primaria.categoryName });
+  }
+  return (
+    primaria?.categoryName ||
+    athlete?.category_name ||
+    athlete?.data?.categoryName ||
+    athlete?.data?.category ||
+    athlete?.category ||
+    "Senza categoria"
+  );
+};
+
+/** L'identificativo della categoria primaria: la chiave con cui si filtra, mai l'etichetta. */
+export const getAthletePrimaryCategoryId = (
+  athlete: any,
+  categories: readonly { id?: string | null; name?: string | null }[] = [],
+) => getPrimaryAthleteCategoryMembership(athlete, categories)?.categoryId || "";
 
 export const stockLabel = (stock: InventoryStock) => {
   const details = [stock.size, stock.color, stock.variant].filter(Boolean).join(" / ");

@@ -154,7 +154,8 @@ test("il cambio di sede: impatto live, riallineamento esplicito, gruppi archivia
   assert.match(drawer, /resta assegnato a una sede che questa categoria non servirà più/);
   assert.match(drawer, /id="riallineamento-sede"/);
   assert.match(drawer, /Lascia come sono/);
-  assert.match(drawer, /Sposta su \$\{sede\?\.name \|\| siteId\}/);
+  /* Mai un identificativo come testo (ADR-0185): la sede sconosciuta si dice. */
+  assert.match(drawer, /Sposta su \$\{sede\?\.name \|\| UNKNOWN_SITE_LABEL\}/);
   assert.match(drawer, /Togli la sede \(restano nella categoria, senza sede\)/);
   assert.match(drawer, /"__senza_sede__"/);
   assert.match(drawer, /riallineamento:\s*\n?\s*atletiDisallineati > 0 && sedeDiRiallineamento/);

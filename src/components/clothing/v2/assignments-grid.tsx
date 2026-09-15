@@ -16,6 +16,7 @@ import {
   assignmentNumberLabels,
   athleteLabel,
   getAthleteCategoryLabel,
+  getAthletePrimaryCategoryId,
   SOURCE_LABELS,
 } from "@/components/clothing/v2/clothing-model";
 
@@ -44,6 +45,8 @@ const deliveryKey = (assignment: ClothingAssignment) => (assignment.items.length
 export function AssignmentsGrid({
   assignments,
   athletesById,
+  categories = [],
+  categoryLabel,
   stockById,
   canManage,
   loading,
@@ -55,6 +58,10 @@ export function AssignmentsGrid({
 }: {
   assignments: ClothingAssignment[];
   athletesById: Map<string, any>;
+  /** Il catalogo del club: la categoria si legge per identita (ADR-0185). */
+  categories?: readonly { id?: string | null; name?: string | null }[];
+  /** Come si scrive una categoria (ADR-0185): lo dice la pagina con l'indice canonico. */
+  categoryLabel?: (reference: { categoryId: string; categoryName: string }) => string;
   stockById: Map<string, InventoryStock>;
   canManage: boolean;
   loading: boolean;
@@ -74,7 +81,7 @@ export function AssignmentsGrid({
         kind: "identity",
         locked: true,
         width: 2,
-        cell: (row) => <IdentityCell name={athleteLabel(athleteOf(row))} round meta={getAthleteCategoryLabel(athleteOf(row))} onClick={canManage ? () => onEdit(row) : undefined} />,
+        cell: (row) => <IdentityCell name={athleteLabel(athleteOf(row))} round meta={getAthleteCategoryLabel(athleteOf(row), categories, categoryLabel)} onClick={canManage ? () => onEdit(row) : undefined} />,
         sortValue: (row) => athleteLabel(athleteOf(row)).toLowerCase(),
         exportValue: (row) => athleteLabel(athleteOf(row)),
         title: (row) => athleteLabel(athleteOf(row)),
@@ -93,8 +100,8 @@ export function AssignmentsGrid({
         header: "Categoria",
         kind: "classification",
         hidden: true,
-        cell: (row) => getAthleteCategoryLabel(athleteOf(row)),
-        sortValue: (row) => getAthleteCategoryLabel(athleteOf(row)).toLowerCase(),
+        cell: (row) => getAthleteCategoryLabel(athleteOf(row), categories, categoryLabel),
+        sortValue: (row) => getAthleteCategoryLabel(athleteOf(row), categories, categoryLabel).toLowerCase(),
       },
       {
         id: "kit",
@@ -146,7 +153,7 @@ export function AssignmentsGrid({
       },
       { id: "notes", header: "Note", kind: "text", hidden: true, cell: (row) => row.notes, sortValue: (row) => row.notes || null },
     ],
-    [athleteOf, canManage, onEdit, stockById],
+    [athleteOf, canManage, categories, categoryLabel, onEdit, stockById],
   );
 
   const filters = React.useMemo<FilterDef<ClothingAssignment>[]>(
@@ -180,13 +187,31 @@ export function AssignmentsGrid({
         id: "category",
         label: "Categoria",
         type: "select",
-        options: Array.from(new Set(assignments.map((row) => getAthleteCategoryLabel(athleteOf(row)))))
-          .sort((a, b) => a.localeCompare(b))
-          .map((label) => ({ value: label, label })),
-        apply: (row, value) => (typeof value === "string" && value ? getAthleteCategoryLabel(athleteOf(row)) === value : true),
+        /*
+          **Il filtro e per identificativo, l'etichetta e solo da leggere**
+          (ADR-0185): con la chiave sull'etichetta due «Pulcini» su due sedi
+          erano un filtro solo e sceglierlo mostrava tutte e due le squadre.
+        */
+        options: Array.from(
+          new Map(
+            assignments
+              .map((row) => athleteOf(row))
+              .map((athlete) => [
+                getAthletePrimaryCategoryId(athlete, categories),
+                getAthleteCategoryLabel(athlete, categories, categoryLabel),
+              ] as const)
+              .filter(([id]) => Boolean(id)),
+          ).entries(),
+        )
+          .sort(([, a], [, b]) => a.localeCompare(b))
+          .map(([id, label]) => ({ value: id, label })),
+        apply: (row, value) =>
+          typeof value === "string" && value
+            ? getAthletePrimaryCategoryId(athleteOf(row), categories) === value
+            : true,
       },
     ],
-    [assignments, athleteOf],
+    [assignments, athleteOf, categories, categoryLabel],
   );
 
   const rowActions = React.useMemo<RowActionDef<ClothingAssignment>[]>(

@@ -219,11 +219,18 @@ test("la pagina Atleti raggruppa per gruppo operativo", () => {
 test("l'etichetta porta la sede solo quando ci sono piu squadre", () => {
   const source = read("app/athletes/page.tsx");
 
+  /*
+    ADR-0185: la regola — la sede quando il nome che si legge compare piu di
+    una volta — vive in `labelCategoryGroupOptions` e la pagina la importa.
+    Contare per `categoryId` in pagina dava «Pulcini» due volte a un club con
+    due categorie omonime da un gruppo l'una.
+  */
   assert.match(
     source,
-    /const needsSite = \(groupCountByCategory\.get\(key\) \|\| 0\) > 1;/,
-    "il club mono-gruppo non deve vedere il concetto",
+    /const etichettaDelGruppo = labelCategoryGroupOptions\(groups\);/,
+    "il club mono-gruppo non deve vedere il concetto, e la regola non si riscrive in pagina",
   );
+  assert.doesNotMatch(source, /groupCountByCategory/);
 });
 
 test("un allenamento si assegna ai gruppi, non alla categoria", () => {
@@ -265,11 +272,11 @@ test("il programma settimanale dice quale squadra, non solo quale fascia", () =>
   const source = read("components/dashboard/WeeklyTrainingSchedulePanel.tsx");
 
   assert.match(source, /<Label>Gruppo<\/Label>/);
-  assert.match(source, /const getGroupLabel = React\.useCallback\(/);
+  /* ADR-0185: l'etichetta del gruppo la scrive il modulo proprietario, non il pannello. */
   assert.match(
     source,
-    /CATEGORY_GROUP_SEPARATOR/,
-    "l'etichetta composta usa il separatore del modulo proprietario",
+    /const getGroupLabel = React\.useMemo\(\s*\(\) => labelCategoryGroupOptions\(groupOptions\),/,
+    "l'etichetta composta arriva dal modulo proprietario",
   );
 });
 

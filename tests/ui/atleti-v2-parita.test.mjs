@@ -127,7 +127,8 @@ test("§2.1 · le colonne della V1 ci sono tutte, con le stesse etichette di esp
   );
 
   /* I valori esportati della V1. */
-  assert.ok(colonne.includes("`${row.categoryLabel} (secondaria)`"));
+  /* ADR-0185: l'etichetta della categoria la scrive l'indice canonico della pagina. */
+  assert.ok(colonne.includes("`${categoryLabel(row)} (secondaria)`"));
   assert.ok(colonne.includes('" (scaduto)"'));
   assert.ok(colonne.includes('"Completa" : "Da completare"'));
 });

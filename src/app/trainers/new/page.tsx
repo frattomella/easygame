@@ -25,6 +25,12 @@ import {
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
+import {
+  buildCategoryGroups,
+  normalizeClubSites,
+  type CategoryGroup,
+} from "@/lib/club-sites";
 import { addClubData } from "@/lib/simplified-db";
 import { PersonResidenceFields } from "@/components/forms/assisted-anagrafica";
 import { PersonIdentityFields } from "@/components/forms/person-identity-fields";
@@ -95,6 +101,12 @@ function NewTrainerPageContent() {
   const { activeClub } = useAuth();
   const [clubId, setClubId] = useState<string | null>(null);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [categoryGroups, setCategoryGroups] = useState<CategoryGroup[]>([]);
+  /** Come si scrive una categoria (ADR-0185): la sede solo dove il nome ne nomina due. */
+  const categoryDisplay = useMemo(
+    () => buildCategoryDisplayIndex({ categories, groups: categoryGroups }),
+    [categories, categoryGroups],
+  );
   const [formData, setFormData] = useState<TrainerFormState>(initialFormState);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingCategories, setIsLoadingCategories] = useState(true);
@@ -138,7 +150,7 @@ function NewTrainerPageContent() {
       try {
         const { data: clubData, error } = await supabase
           .from("clubs")
-          .select("categories")
+          .select("categories, club_sites, category_groups")
           .eq("id", clubId)
           .single();
         if (error) throw error;
@@ -151,6 +163,13 @@ function NewTrainerPageContent() {
               .filter((category: { id: string; name: string }) => Boolean(category.id && category.name))
           : [];
         setCategories(nextCategories);
+        setCategoryGroups(
+          buildCategoryGroups({
+            categories: nextCategories,
+            sites: normalizeClubSites(clubData?.club_sites),
+            groups: clubData?.category_groups,
+          }),
+        );
       } catch (error) {
         console.error("Error loading trainer categories:", error);
         setCategories([]);
@@ -163,8 +182,11 @@ function NewTrainerPageContent() {
   }, [clubId, showToast]);
 
   const selectedCategoryNames = useMemo(
-    () => categories.filter((category) => formData.selectedCategories.includes(category.id)).map((c) => c.name),
-    [categories, formData.selectedCategories],
+    () =>
+      categories
+        .filter((category) => formData.selectedCategories.includes(category.id))
+        .map((category) => ({ id: category.id, label: categoryDisplay.label(category.id) })),
+    [categories, categoryDisplay, formData.selectedCategories],
   );
 
   const patch = (next: Partial<TrainerFormState>) => {
@@ -400,14 +422,14 @@ function NewTrainerPageContent() {
                           id="trainer-new-categories"
                           values={formData.selectedCategories}
                           onValuesChange={(next) => patch({ selectedCategories: next })}
-                          options={categories.map((category) => ({ value: category.id, label: category.name }))}
+                          options={categories.map((category) => ({ value: category.id, label: categoryDisplay.label(category.id) }))}
                           placeholder="Seleziona le categorie"
                         />
                         <div className="mt-2.5 flex flex-wrap gap-1.5">
                           {selectedCategoryNames.length > 0 ? (
-                            selectedCategoryNames.map((categoryName) => (
-                              <DataChip key={categoryName} tone="blue" size="sm">
-                                {categoryName}
+                            selectedCategoryNames.map((category) => (
+                              <DataChip key={category.id} tone="blue" size="sm">
+                                {category.label}
                               </DataChip>
                             ))
                           ) : (

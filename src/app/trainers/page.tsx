@@ -54,6 +54,7 @@ import {
   type CategoryGroup,
   type ClubSite,
 } from "@/lib/club-sites";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import { getTrainerCategoryIds, getTrainerGroupIds } from "@/lib/trainer-utils";
 import { supabase } from "@/lib/supabase";
 import { apiRequest } from "@/lib/api/client";
@@ -261,6 +262,12 @@ export default function TrainersPage() {
   }, [clubId]);
 
   /* ── Derivazioni ─────────────────────────────────────────────────────── */
+  /** Come si scrive una categoria nei filtri (ADR-0185): la sede solo dove serve. */
+  const categoryDisplay = React.useMemo(
+    () => buildCategoryDisplayIndex({ categories, groups: categoryGroups }),
+    [categories, categoryGroups],
+  );
+
   const groupNameById = React.useMemo(
     () =>
       new Map(categoryGroups.map((group) => [String(group.id), group.name])),
@@ -685,7 +692,7 @@ export default function TrainersPage() {
         pinned: true,
         options: categories.map((category) => ({
           value: category.id,
-          label: category.name,
+          label: categoryDisplay.label(category.id),
         })),
         apply: (row, value) => {
           const wanted = Array.isArray(value)
@@ -738,7 +745,7 @@ export default function TrainersPage() {
       },
     });
     return defs;
-  }, [categories, multiSite, sites]);
+  }, [categories, categoryDisplay, multiSite, sites]);
 
   /* ── Azioni di riga e di massa ───────────────────────────────────────── */
   const rowActions: RowActionDef<TrainerRow>[] = [

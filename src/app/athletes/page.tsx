@@ -72,14 +72,13 @@ import { csvFileName, downloadCsv, toCsv } from "@/lib/csv";
 import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import {
   buildCategoryGroups,
-  buildCategoryGroupLabel,
+  labelCategoryGroupOptions,
   buildSiteIndex,
   compareCategoryGroups,
   getActiveCategoryGroups,
   getMembershipGroupId,
   normalizeClubSites,
   recordMatchesSite,
-  UNASSIGNED_SITE_LABEL,
   type CategoryGroup,
   type ClubSite,
 } from "@/lib/club-sites";
@@ -1710,14 +1709,13 @@ export default function AthletesPage() {
     const groups = Array.from(buckets.values());
 
     /*
-      Quante squadre ha ogni categoria: e la domanda che decide se l'etichetta
-      deve dire anche la sede. Con una sola, dirla e rumore.
+      **L'etichetta di un gruppo e una sola** (ADR-0185): qui si contava per
+      `categoryId`, e due «Pulcini» con un gruppo ciascuna — due categorie,
+      un gruppo l'una — si leggevano «Pulcini» e «Pulcini». La regola vive in
+      `labelCategoryGroupOptions`, la stessa del selettore dei gruppi e del
+      programma settimanale.
     */
-    const groupCountByCategory = new Map<string, number>();
-    groups.forEach((group) => {
-      const key = group.categoryId || UNCATEGORIZED_CATEGORY_ID;
-      groupCountByCategory.set(key, (groupCountByCategory.get(key) || 0) + 1);
-    });
+    const etichettaDelGruppo = labelCategoryGroupOptions(groups);
 
     const index = new Map<
       string,
@@ -1725,22 +1723,12 @@ export default function AthletesPage() {
     >();
 
     groups.forEach((group) => {
-      const key = group.categoryId || UNCATEGORIZED_CATEGORY_ID;
-      const needsSite = (groupCountByCategory.get(key) || 0) > 1;
       const category = categories.find((item) => item.id === group.categoryId);
 
       index.set(group.id, {
         ...group,
         color: category?.color ?? null,
-        label:
-          needsSite && (group.siteName || group.siteId)
-            ? buildCategoryGroupLabel(group.categoryName, group.siteName)
-            : needsSite
-              ? buildCategoryGroupLabel(
-                  group.categoryName,
-                  UNASSIGNED_SITE_LABEL,
-                )
-              : group.categoryName,
+        label: etichettaDelGruppo(group),
       });
     });
 
@@ -1754,8 +1742,15 @@ export default function AthletesPage() {
         clubId: resolvedClubId,
         onOpen: (athlete) =>
           router.push(buildAthleteProfileHref(athlete.id, resolvedClubId)),
+        categoryLabel: (athlete) =>
+          athlete.categoryId
+            ? categoryDisplay.label({
+                categoryId: athlete.categoryId,
+                categoryName: athlete.categoryLabel,
+              })
+            : athlete.categoryLabel,
       }),
-    [resolvedClubId, router],
+    [categoryDisplay, resolvedClubId, router],
   );
 
   const filters = useMemo(

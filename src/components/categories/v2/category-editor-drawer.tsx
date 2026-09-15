@@ -8,6 +8,7 @@ import {
   normalizeClubSites,
   rilevaDisallineamentiDiSede,
 } from "@/lib/club-sites";
+import { UNKNOWN_SITE_LABEL } from "@/lib/categories/display";
 import { sortByName } from "@/lib/sorting";
 import { cn } from "@/lib/utils";
 import { Drawer, DrawerSection } from "@/components/web/overlays/Drawer";
@@ -599,7 +600,7 @@ export function CategoryEditorDrawer({
                               { value: "__lascia__", label: "Lascia come sono" },
                               ...formData.siteIds.map((siteId: string) => {
                                 const sede = availableSites.find((voce) => voce.id === siteId);
-                                return { value: siteId, label: `Sposta su ${sede?.name || siteId}` };
+                                return { value: siteId, label: `Sposta su ${sede?.name || UNKNOWN_SITE_LABEL}` };
                               }),
                               {
                                 value: "__senza_sede__",

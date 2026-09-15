@@ -59,6 +59,7 @@ export function TrainerSectionDrawer({
   section,
   initialValues,
   categories,
+  categoryLabel,
   assignableGroups,
   onClose,
   onSave,
@@ -67,6 +68,12 @@ export function TrainerSectionDrawer({
   /** Il record dell'allenatore piu `categoryIds` e `groupIds` gia risolti. */
   initialValues: Record<string, any>;
   categories: Array<{ id: string; name: string }>;
+  /**
+   * Come si scrive una categoria (ADR-0185): la pagina la chiede all'indice
+   * canonico. Senza, due «Pulcini» su due sedi erano due voci identiche nel
+   * multiselect, e assegnare l'allenatore a quella sbagliata era un clic.
+   */
+  categoryLabel?: (categoryId: string) => string;
   assignableGroups: CategoryGroup[];
   onClose: () => void;
   onSave: (values: Record<string, any>) => Promise<void>;
@@ -344,7 +351,10 @@ export function TrainerSectionDrawer({
                     id="trainer-edit-categories"
                     values={categoryIds}
                     onValuesChange={(next) => patch({ categoryIds: next })}
-                    options={categories.map((category) => ({ value: category.id, label: category.name }))}
+                    options={categories.map((category) => ({
+                      value: category.id,
+                      label: categoryLabel ? categoryLabel(category.id) : category.name,
+                    }))}
                     placeholder="Seleziona le categorie"
                   />
                 )}

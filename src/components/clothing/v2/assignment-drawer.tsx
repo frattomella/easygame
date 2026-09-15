@@ -57,6 +57,8 @@ export function AssignmentDrawer({
   onOpenChange,
   initial,
   athletes,
+  categories = [],
+  categoryLabel,
   state,
   onSubmit,
 }: {
@@ -65,6 +67,10 @@ export function AssignmentDrawer({
   initial: AssignmentForm;
   /** Gli atleti del club, gia ordinati per cognome. */
   athletes: any[];
+  /** Il catalogo del club: la categoria si legge per identita (ADR-0185). */
+  categories?: readonly { id?: string | null; name?: string | null }[];
+  /** Come si scrive una categoria (ADR-0185). */
+  categoryLabel?: (reference: { categoryId: string; categoryName: string }) => string;
   state: ClothingState;
   /** V1 `createAssignment`: torna `true` se il server ha scritto. */
   onSubmit: (payload: AssignmentSubmit) => Promise<boolean>;
@@ -306,7 +312,7 @@ export function AssignmentDrawer({
                   patch({ athleteId: value || "", kitId: "", itemId: "", sharedNumber: "", components: {} });
                   setErrors((c) => ({ ...c, athlete: undefined }));
                 }}
-                options={athletes.map((athlete) => ({ value: String(athlete.id), label: athleteLabel(athlete), description: getAthleteCategoryLabel(athlete) }))}
+                options={athletes.map((athlete) => ({ value: String(athlete.id), label: athleteLabel(athlete), description: getAthleteCategoryLabel(athlete, categories, categoryLabel) }))}
                 placeholder="Seleziona atleta"
                 searchPlaceholder="Cerca atleta o categoria"
                 emptyLabel="Nessun atleta trovato"

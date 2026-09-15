@@ -52,10 +52,17 @@ const certificateExportValue = (row: Athlete) => {
 export const buildAthleteColumns = ({
   clubId,
   onOpen,
+  categoryLabel = (row) => row.categoryLabel,
 }: {
   clubId: string | null | undefined;
   /** Apre la scheda senza ricaricare la pagina; l'`href` resta per il tasto centrale. */
   onOpen?: (row: Athlete) => void;
+  /**
+   * Come si scrive la categoria della riga (ADR-0185): la pagina la chiede
+   * all'indice canonico, che accosta la sede dove il nome ne nomina due.
+   * Senza, due «Pulcini» erano due chip identici e l'export li mescolava.
+   */
+  categoryLabel?: (row: Athlete) => string;
 }): ColumnDef<Athlete>[] => [
   {
     id: "atleta",
@@ -101,15 +108,15 @@ export const buildAthleteColumns = ({
     label: "Categoria",
     kind: "chips",
     minWidth: 150,
-    sortValue: (row) => row.categoryLabel,
+    sortValue: (row) => categoryLabel(row),
     exportValue: (row) =>
       row.membershipType === "secondary"
-        ? `${row.categoryLabel} (secondaria)`
-        : row.categoryLabel,
-    title: (row) => row.categoryLabel,
+        ? `${categoryLabel(row)} (secondaria)`
+        : categoryLabel(row),
+    title: (row) => categoryLabel(row),
     cell: (row) => (
       <>
-        <DataChip size="sm">{row.categoryLabel}</DataChip>
+        <DataChip size="sm">{categoryLabel(row)}</DataChip>
         {row.membershipType === "primary" && row.categoryId ? (
           <DataChip size="sm" tone="green">
             Primaria

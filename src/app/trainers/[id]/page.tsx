@@ -79,6 +79,7 @@ import {
   normalizeClubSites,
   type CategoryGroup,
 } from "@/lib/club-sites";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import { todayLocalDateOnly } from "@/lib/date-only";
 
 /**
@@ -393,6 +394,12 @@ export default function TrainerDetailsPage() {
    * Le squadre a cui si puo assegnare un allenatore: solo quelle di categorie
    * che hanno **piu** di una squadra (ADR-0055).
    */
+  /** Come si scrive una categoria in questa pagina (ADR-0185). */
+  const categoryDisplay = React.useMemo(
+    () => buildCategoryDisplayIndex({ categories, groups: categoryGroups }),
+    [categories, categoryGroups],
+  );
+
   const assignableGroups = React.useMemo(() => {
     const counts = new Map<string, number>();
     categoryGroups.forEach((group) => {
@@ -875,7 +882,7 @@ export default function TrainerDetailsPage() {
         <span className="flex flex-wrap gap-1.5">
           {trainer.categories.map((category: { id: string; name: string }) => (
             <DataChip key={category.id} tone="blue">
-              {category.name}
+              {categoryDisplay.label({ categoryId: category.id, categoryName: category.name })}
             </DataChip>
           ))}
         </span>
@@ -1148,6 +1155,7 @@ export default function TrainerDetailsPage() {
         section={editingSection}
         initialValues={editInitialValues}
         categories={categories}
+        categoryLabel={(categoryId) => categoryDisplay.label(categoryId)}
         assignableGroups={assignableGroups}
         onClose={() => setEditingSection(null)}
         onSave={handleSaveSection}
