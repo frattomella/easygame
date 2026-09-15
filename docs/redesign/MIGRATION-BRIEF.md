@@ -116,3 +116,26 @@ niente glass/blur, niente emoji, niente punti esclamativi, niente `window.confir
 3. Componenti generici che ti sono mancati (candidati alle fondamenta).
 4. Esito di typecheck e test (numeri, e cosa hai ripuntato).
 5. Cosa il lead deve verificare a schermo (percorsi e casi).
+
+## Addendum (Wave D e seguenti) — audit e migrazione nello stesso incarico
+
+Per le pagine senza un audit gia scritto, l'incaricato **scrive prima l'audit**
+in `docs/redesign/audit/wave-d-<rotta>.md` con le 13 sezioni dell'audit di
+Wave A (dati mostrati · azioni · moduli con ogni campo e validazione · filtri
+e viste · azioni di massa · esportazioni e importazioni · permessi con la
+chiave esatta · stati con il testo · flussi distruttivi · navigazione e
+parametri · schede/sezioni · test collegati · inventario componenti), e **poi**
+migra. Il rapporto finale resta quello in cinque parti.
+
+Fondamenta aggiunte dopo il primo brief: `StickyActionBar`/`DangerZone`
+(`@/components/web/page/StickyActionBar`), `useConfirm` (conferma a promessa,
+`@/components/web/overlays/useConfirm`), e nel `DataGrid` `rowLabel`,
+`totalCount`, `onQueryChange`/`onFiltersChange`/`onViewChange`,
+`requestedViewId`, `initialFilters`, `serverTotal`, `onRun(rows, { all })`.
+Stati `PERSON_STATUS.on_leave`, `MONEY_STATUS.paid_out`. Esempi gia migrati da
+copiare: `src/app/athletes/page.tsx` (elenco), `src/app/staff/**` +
+`src/components/staff/v2/*` (elenco + modulo intero + scheda),
+`src/app/training/page.tsx` + `src/components/training/v2/*` (giornata con
+rail), `src/app/movements/page.tsx` (pattern 10 con lettura server),
+`src/components/procura/v2/*` (ispettore a modi). `SiteContextControl` vive in
+`src/components/athletes/v2/athletes-context-controls.tsx`.
