@@ -676,10 +676,80 @@ Due varianti e basta, entrambe in `Header.tsx`:
 azioni rapide erano un pulsante in gradiente animato: si mangiava l'attenzione
 di tutta la barra e nessun altro comando aveva piu il suo peso.
 
+## Web V2 — il sistema EGDS v3.1.0 (2026-09-15, ADR-0184)
+
+Dal redesign Web V2 le pagine di gestione del club seguono il sistema
+**EasyGame Web Design System v3.1.0** (`design-source/guidelines/05`–`10`,
+mockup in `design-source/web/`, manifesto `design-source/web/CURRENT.md`).
+Questa sezione dice **cosa vale nel codice**; il perche sta nell'ADR-0184.
+
+### Le due fonti di verita
+
+Per le *funzionalita* vale il codice esistente; per *aspetto, parole e forma
+dell'interazione* valgono le guideline e i mockup. Una capacita non disegnata
+si ricostruisce con i pattern del sistema, non si toglie. Prima di sostituire
+una pagina si scrive il suo inventario (`docs/redesign/audit/`) e si segue
+`docs/redesign/MIGRATION-BRIEF.md`; la parita si verifica in
+`docs/redesign/PARITY.md`.
+
+### Dove vive il sistema
+
+| Cosa | File |
+|---|---|
+| Token `--egw-*` (fondi, inchiostro a tre livelli, semantici, gradienti, raggi con angolo tagliato, piani, geometria, densita, tipi) | `src/styles/egw-tokens.css` (copia di `design-source/tokens/web.css`) + `src/styles/egw-base.css`; utility Tailwind `egw-*` in `tailwind.config.ts` |
+| Font | **Poppins** (`font-brand`, `--font-poppins`, self-hosted) per tutto il Web V2; Inter e Archivo restano per le pagine non migrate. Numeri sempre `egw-num` (tabellari) |
+| Guscio | `src/components/web/shell/`: `navigation.ts` (sei gruppi, tutte le destinazioni, filtro per ruolo, breadcrumb, azioni rapide), `ShellProvider`, `Sidebar` (gradiente blu, 256/72), `Topbar` (breadcrumb, ricerca ⌘K, stagione, Azioni rapide ⌘J, campanello a punto, account), `QuickActionsDrawer`, `NotificationDrawer`. `src/components/dashboard/{Sidebar,Header,shared-page-header,dashboard-page-container}.tsx` sono **porte** verso questi file |
+| Primitive | `src/components/web/primitives/`: `Button` (otto varianti, **un solo gradiente per schermata**), `IconButton`, `Panel`/`InsetBlock`/`Eyebrow`, `StatusPill`/`DataChip`/`IconChip`, `IdentityTile`/`Avatar`/`IdentityCell`, `SegmentedControl`, `Checkbox`, `Toggle`, `Skeleton`, `ProgressBar`, `Tooltip`/`Popover`/`Menu` |
+| Overlay | `src/components/web/overlays/`: `Drawer` (392 · 480 · 720, guardia `dirty`), `Modal`, `ConfirmDialog`, `DangerConfirmDialog` (conferma scritta solo se irreversibile o ampia), `DirtyGuardDialog` |
+| Moduli | `src/components/web/forms/Field.tsx`: `Field`, `TextInput`, `CurrencyInput`, `Textarea`, `Select`, `SearchableSelect` (obbligatorio sopra otto opzioni), `MultiSelect`, `DateInput`, `TimeInput`, `FieldGroup`, `FormGrid`, `ValidationSummary`; `StickyActionBar`/`DangerZone` in `web/page/` |
+| Griglia | `src/components/web/datagrid/`: **l'unica** tabella del prodotto (viste, filtri, colonne, densita, esportazione, selezione e azioni di massa, raggruppamento, otto stati, tastiera). Filtri e pagine sono client-side sulle righe passate; chi legge dal server usa `onFiltersChange`/`onQueryChange` + `serverTotal` |
+| Card e avvisi | `src/components/web/page/`: `PageHeader`/`HeaderStat`/`ContextControl`, `KpiCard`/`KpiBar`, `SummaryCard` (`dashed` per crediti e debiti), `InfoCard`, `EmptyStateCard`, `DetailCard`, `TimelineRow`, `AlertBlock`, `AlertCard` |
+| Scheda | `src/components/web/record/Record.tsx`: `RecordHeader` (le distruttive solo nel `···`), `RecordAreaSwitcher` (3–5 aree, mai nove tab), `RecordAlertStrip`, `CollapsedSection`, `SectionNav` |
+| Stato | `src/lib/web/status.ts`: **l'unico** posto delle etichette (ATTIVO, IN SCADENZA, INCASSATO, NON REGISTRATO…). `resolveStatus` accetta le grafie dell'API; `certificateStatusFromExpiry` deriva lo stato di un certificato |
+| Formattazione | `src/lib/web/format.ts`: `24 set 2026`, `305,00 €`, `—` per cio che manca |
+| Preferenze | `src/lib/web/preferences.ts`: chiavi `egw.<modulo>.<impostazione>` in `localStorage` |
+
+### Le regole che non si piegano (guideline 10 §10.5)
+
+Un ambiente per pagina (mist piatto; il cielo **solo** sulla Dashboard, la
+sky-full su accesso/sistema); un gradiente d'azione per schermata; lo stato e
+una parola con il suo punto ad anello, mai un colore da solo; numeri
+tabellari, importi a destra, date a sinistra, `—` per cio che manca; tre
+piani, nessuna card dentro una card; angolo tagliato su ogni superficie
+(solo pillola e avatar sono rotondi); righe ≤48px; ogni elenco e il DataGrid;
+i cassetti creano e modificano, i modali confermano soltanto, un livello alla
+volta; conferma proporzionata al rischio; permesso negato = **assente**, mai
+disabilitato; italiano senza emoji ne punti esclamativi; le etichette lunghe
+entrano. Niente `window.confirm`, niente titoli in gradiente, niente
+glass/blur su una pagina di lavoro, niente footer «powered by».
+
+### Le deroghe scritte (ADR-0184)
+
+- **Sotto i 1024 px vale la barra mobile V1** (`MobileTopBar`), non il
+  guscio V2: ADR-0025 impone che ogni pagina resti usabile a 375 e 768 px. Le
+  destinazioni dei due menu devono coincidere (test
+  `navigazione-sotto-1024-e-768`).
+- «Ruoli e accessi» e «Permessi allenatore» restano i nomi decisi in PP-01 §M.
+- Il cassetto Azioni rapide apre il modulo della pagina (`?action=new`)
+  invece di un modulo compatto interno.
+
+### Pagine migrate (2026-09-15)
+
+Dashboard, Atleti (elenco, nuovo, scheda), Allenatori (elenco, nuovo, scheda),
+Staff (elenco, nuovo, scheda, modifica), Allenamenti, Categorie, Certificati
+medici, Prima nota (con Rate e Previsti), Report, Procure. Il guscio vale su
+**tutte** le pagine di gestione anche dove il corpo e ancora V1 (Soci,
+Calendario, Gare, Strutture, Abbigliamento, Iscrizioni, Documenti,
+Modulistica, Consensi, Segreteria, Appuntamenti, Comunicazioni, Notifiche,
+Sponsor, Lavoro sportivo, Club, Impostazioni, Ruoli e accessi, Permessi
+allenatore, Registro attivita) — vedi [20](20-work-packages.md).
+
 ## Tipografia: le regole definitive
 
-**Due font, dichiarati una volta sola.** `Inter` (`--font-sans`) per testo e
-dati, `Archivo` (`--font-display`) per i titoli, self-hosted con `next/font` in
+**Tre font, dichiarati una volta sola.** `Inter` (`--font-sans`) per testo e
+dati e `Archivo` (`--font-display`) per i titoli sulle pagine non ancora
+migrate; `Poppins` (`--font-poppins`, `font-brand`) per il Web V2 (EGDS
+v3.1.0, dal 2026-09-15). Tutti self-hosted con `next/font` in
 `src/app/layout.tsx`. **Non se ne aggiungono altri e non si dichiarano
 altrove**: un test lo impedisce.
 
@@ -696,7 +766,10 @@ tre, scritte a mano con valori arbitrari diversi (`0.5625rem` qui, `0.625rem`
 la): la stessa cosa in tre misure.
 
 **Le taglie di testo vengono dalla scala Tailwind.** Nessun `text-[13px]`,
-nessun `text-[0.9rem]`. Due eccezioni dichiarate, entrambe verificate dai test:
+nessun `text-[0.9rem]` — **fuori dal Web V2**: `src/components/web/` e le
+pagine migrate usano la scala del sistema (`05-web-desktop.md` §5.3: 32/20/15/
+13.5/12.5/10/9.5), che e loro e non della scala Tailwind. Due eccezioni
+dichiarate, entrambe verificate dai test:
 
 - i **documenti generati** per stampa, PDF ed email hanno il loro font di
   sistema: `next/font` non arriva dentro un PDF ne dentro un client di posta;

@@ -2303,3 +2303,25 @@ ricalcolo azzerava un maturato gia in parte incassato.
 
 **Cinque voci di debito** restano aperte in [16](16-technical-debt.md):
 `D-LIQ-1` … `D-LIQ-5`.
+
+## WP-RD · Redesign Web V2 (EGDS v3.1.0) — `IN CORSO` (2026-09-15)
+
+Branch `feat/web-redesign`, ambiente `easygame-redesign-staging` + branch
+Neon `web-redesign-staging` (`docs/redesign/DEPLOY.md`). Lo staging di
+Fortitudo non e mai stato toccato. Decisione: [ADR-0184](18-decision-log.md).
+
+| Lotto | Stato |
+|-------|-------|
+| Fonte di design in repo (`design-source/`, `web/CURRENT.md`) | **Chiuso** |
+| Audit di parita V1 delle rotte da migrare (`docs/redesign/audit/`) | **Chiuso** |
+| Fondamenta: token, primitive, overlay, moduli, DataGrid, card, scheda, guscio (`src/components/web/`, `src/lib/web/`) | **Chiuso** (34 test in `tests/web/`) |
+| Guscio V2 su tutte le pagine di gestione (porte in `src/components/dashboard/`) | **Chiuso**; sotto i 1024 px resta `MobileTopBar` |
+| Wave A — Dashboard, Atleti, Nuovo atleta, Scheda atleta, Allenatori, Staff | **Chiuso** |
+| Wave B — Allenamenti, Categorie, Certificati medici | **Chiuso** |
+| Wave C — Prima nota (+Rate, Previsti), Report, Procure | **Chiuso** |
+| Verifica di parita indipendente (`docs/redesign/PARITY.md`) | vedi il file |
+| Pagine con il corpo ancora V1 (guscio gia V2): Soci, Calendario, Gare, Strutture, Abbigliamento, Iscrizioni, Documenti, Modulistica, Consensi, Segreteria, Appuntamenti, Comunicazioni, Notifiche, Sponsor, Lavoro sportivo, Club, Impostazioni, Ruoli e accessi, Permessi allenatore, Registro attivita, Accesso/registrazione (ambiente 3), area allenatore/famiglia/atleta | **Aperto** — stessa procedura: audit → brief → migrazione → parita |
+| Blocchi anagrafici condivisi ancora V1 dentro moduli V2 (`PersonIdentityFields`, `PersonResidenceFields`, `PhoneField`, `ClothingSizesFields`, `DocumentExtractionField`, `AssistedAddressFields`) | **Aperto** — una migrazione sola per tutti (D-RD-1 in [16](16-technical-debt.md)) |
+| Candidati alle fondamenta emersi dalle migrazioni (guscio di azione di massa guidata, `RailPanel`, `RecordRowList`/`FieldList`/`RecordSection`, `FileInput`, righe ripetibili nel cassetto, cassetto a modi, `SiteContextControl`, KPI a piano 0, filtri server-side nel DataGrid) | **Aperto** — vivono oggi accanto alle pagine (`src/components/<dominio>/v2/`); si promuovono quando una seconda pagina li chiede (D-RD-2) |
+| Tavolozza dei comandi ⌘K (§6.6) | **Aperto** — la ricerca porta a `/athletes?q=`; non si costruisce una seconda ricerca |
+| Stripe sul redesign staging | **Aperto** — le chiavi sono `sensitive` su Vercel e non copiabili (`DEPLOY.md`) |
