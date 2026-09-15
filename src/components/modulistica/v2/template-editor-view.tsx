@@ -4,7 +4,7 @@ import * as React from "react";
 import { ArrowLeft, Upload } from "lucide-react";
 import DocumentEditor from "@/components/forms/DocumentEditor";
 import { Button } from "@/components/web/primitives/Button";
-import { Panel, PanelHeader } from "@/components/web/primitives/Surface";
+import { Eyebrow, Panel, PanelHeader } from "@/components/web/primitives/Surface";
 import { Field, Select } from "@/components/web/forms/Field";
 import { InfoCard } from "@/components/web/page/Cards";
 import { AlertBlock } from "@/components/web/page/Alerts";
@@ -63,9 +63,16 @@ export function TemplateEditorView({
             <TemplateStateLine template={template} className="mt-3" />
           </div>
           <div className="flex w-full flex-wrap items-end gap-3 sm:w-auto">
-            <Field label="Di chi parla" htmlFor={subjectId} className="w-full sm:w-56">
-              <Select id={subjectId} value={subject} onValueChange={(value) => onSubjectChange(value as TemplateSubject)} options={SUBJECT_OPTIONS} disabled={!canManage} />
-            </Field>
+            {canManage ? (
+              <Field label="Di chi parla" htmlFor={subjectId} className="w-full sm:w-56">
+                <Select id={subjectId} value={subject} onValueChange={(value) => onSubjectChange(value as TemplateSubject)} options={SUBJECT_OPTIONS} />
+              </Field>
+            ) : (
+              <div className="w-full sm:w-56">
+                <Eyebrow>Di chi parla</Eyebrow>
+                <p className="mt-1 font-brand text-[13.5px] font-semibold text-egw-ink">{SUBJECT_OPTIONS.find((option) => option.value === subject)?.label ?? subject}</p>
+              </div>
+            )}
             {canManage ? (
               <Button variant="primary" icon={<Upload />} onClick={onPublish} loading={publishing} disabled={savingDraft}>
                 Pubblica
