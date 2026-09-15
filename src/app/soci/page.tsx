@@ -26,7 +26,7 @@ import { MEMBERSHIP_REGISTER_DISCLAIMER } from "@/lib/members/model";
 import { canManageMembershipRegister, canReadMembershipRegister } from "@/lib/members/permissions";
 import { DeleteMemberDialog } from "@/components/soci/v2/delete-member-dialog";
 import { SetMemberTypeDrawer } from "@/components/soci/v2/set-member-type-drawer";
-import { useMemberClubId, withClubId } from "@/components/soci/v2/use-member-club-id";
+import { useRouteClubId, withClubId } from "@/components/web/hooks/use-route-club-id";
 import {
   getMemberDisplayName,
   isMemberCardActive,
@@ -76,7 +76,7 @@ export default function SociPage() {
   const router = useRouter();
   const { activeClub, userRole } = useAuth();
   const { showToast } = useToast();
-  const { clubId, resolved } = useMemberClubId(null);
+  const { clubId, resolved } = useRouteClubId(null);
   const role = activeClub?.role || userRole;
   const canManage = canManageMembershipRegister(role);
   const canReadRegister = canReadMembershipRegister(role);

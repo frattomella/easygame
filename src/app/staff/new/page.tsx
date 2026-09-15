@@ -14,7 +14,7 @@ import { addStaffMember } from "@/lib/simplified-db";
 import { collectStaffRoles, type StaffDepartment } from "@/lib/staff-directory";
 import { ensureStaffDepartment, resolveStaffDepartments } from "@/lib/api/staff-departments";
 import { StaffForm, emptyStaffFormValues, type StaffFormValues } from "@/components/staff/v2/staff-form";
-import { useStaffClubId, withClubId } from "@/components/staff/v2/use-staff-club-id";
+import { useRouteClubId, withClubId } from "@/components/web/hooks/use-route-club-id";
 
 /**
  * `/staff/new` — nuovo membro dello staff (Web V2, pattern 6: modulo a pagina
@@ -28,7 +28,7 @@ function NewStaffMemberPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { showToast } = useToast();
-  const { clubId } = useStaffClubId(searchParams?.get("clubId"));
+  const { clubId } = useRouteClubId(searchParams?.get("clubId"));
   const [departments, setDepartments] = React.useState<StaffDepartment[]>([]);
   const [roles, setRoles] = React.useState<string[]>(() => collectStaffRoles());
   const [submitting, setSubmitting] = React.useState(false);

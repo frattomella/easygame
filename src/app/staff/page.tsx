@@ -32,7 +32,7 @@ import { DepartmentsDrawer } from "@/components/staff/v2/departments-drawer";
 import { MoveDepartmentDrawer } from "@/components/staff/v2/move-department-drawer";
 import { DeleteStaffDialog } from "@/components/staff/v2/delete-staff-dialog";
 import { useStaffAccessEmails } from "@/components/staff/v2/use-staff-access-emails";
-import { useStaffClubId, withClubId } from "@/components/staff/v2/use-staff-club-id";
+import { useRouteClubId, withClubId } from "@/components/web/hooks/use-route-club-id";
 import {
   departmentChipTone,
   getStaffDisplayName,
@@ -79,7 +79,7 @@ export default function StaffPage() {
   const router = useRouter();
   const { activeClub } = useAuth();
   const { showToast } = useToast();
-  const { clubId, resolved } = useStaffClubId(null);
+  const { clubId, resolved } = useRouteClubId(null);
   const access = useStaffAccessEmails();
 
   const [staffMembers, setStaffMembers] = React.useState<StaffMember[]>([]);

@@ -20,7 +20,7 @@ import { collectStaffRoles, type StaffDepartment } from "@/lib/staff-directory";
 import { ensureStaffDepartment, resolveStaffDepartments } from "@/lib/api/staff-departments";
 import { StaffForm, staffFormValuesFrom, type StaffFormValues } from "@/components/staff/v2/staff-form";
 import { DeleteStaffDialog } from "@/components/staff/v2/delete-staff-dialog";
-import { useStaffClubId, withClubId } from "@/components/staff/v2/use-staff-club-id";
+import { useRouteClubId, withClubId } from "@/components/web/hooks/use-route-club-id";
 import { getStaffDisplayName, type StaffMember } from "@/components/staff/v2/staff-model";
 
 /**
@@ -36,7 +36,7 @@ function EditStaffMemberPageContent() {
   const searchParams = useSearchParams();
   const { showToast } = useToast();
   const staffId = params?.id as string;
-  const { clubId, resolved } = useStaffClubId(searchParams?.get("clubId"));
+  const { clubId, resolved } = useRouteClubId(searchParams?.get("clubId"));
 
   const [member, setMember] = React.useState<StaffMember | null>(null);
   const [members, setMembers] = React.useState<StaffMember[]>([]);

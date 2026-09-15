@@ -38,7 +38,7 @@ import { CollectionDrawer, type SponsorCollectionSubmission } from "@/components
 import { SponsorCollectionsGrid } from "@/components/sponsors/v2/collections-grid";
 import { DeleteSponsorDialog } from "@/components/sponsors/v2/delete-sponsor-dialog";
 import { StornoIncassoDialog } from "@/components/sponsors/v2/storno-incasso-dialog";
-import { useSponsorClubId, withClubId } from "@/components/sponsors/v2/use-sponsor-club-id";
+import { useRouteClubId, withClubId } from "@/components/web/hooks/use-route-club-id";
 import {
   contractLifecycle,
   contractStatusSpec,
@@ -94,7 +94,7 @@ function SponsorsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { activeClub, userRole } = useAuth();
-  const { clubId, resolved } = useSponsorClubId(searchParams?.get("clubId"));
+  const { clubId, resolved } = useRouteClubId(searchParams?.get("clubId"));
   const activeRole = activeClub?.role || userRole || null;
 
   /*

@@ -21,7 +21,7 @@ import { canManageMembershipRegister } from "@/lib/members/permissions";
 import { MemberForm, memberFormValuesFrom, type MemberFormValues } from "@/components/soci/v2/member-form";
 import { memberEditPayload } from "@/components/soci/v2/member-form-model";
 import { DeleteMemberDialog } from "@/components/soci/v2/delete-member-dialog";
-import { useMemberClubId, withClubId } from "@/components/soci/v2/use-member-club-id";
+import { useRouteClubId, withClubId } from "@/components/web/hooks/use-route-club-id";
 import { memberRecordFrom, type MemberRecord } from "@/components/soci/v2/member-model";
 
 /**
@@ -40,7 +40,7 @@ function EditMemberPageContent() {
   const { showToast } = useToast();
   const { activeClub, userRole } = useAuth();
   const memberId = params?.id as string;
-  const { clubId, resolved } = useMemberClubId(searchParams?.get("clubId"));
+  const { clubId, resolved } = useRouteClubId(searchParams?.get("clubId"));
   const canManage = canManageMembershipRegister(activeClub?.role || userRole);
 
   const [member, setMember] = React.useState<MemberRecord | null>(null);

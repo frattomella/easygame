@@ -27,7 +27,7 @@ import { MemberSectionDrawer, type MemberEditSection } from "@/components/soci/v
 import { MembershipEventDrawer } from "@/components/soci/v2/membership-event-drawer";
 import { MembershipRegisterSection } from "@/components/soci/v2/membership-register-section";
 import { DeleteMemberDialog } from "@/components/soci/v2/delete-member-dialog";
-import { useMemberClubId, withClubId } from "@/components/soci/v2/use-member-club-id";
+import { useRouteClubId, withClubId } from "@/components/web/hooks/use-route-club-id";
 import {
   MEMBER_AREAS,
   computeMemberAlerts,
@@ -63,7 +63,7 @@ function MemberDetailsPageContent() {
   const { showToast } = useToast();
   const { activeClub, userRole } = useAuth();
   const memberId = params?.id as string;
-  const { clubId, resolved } = useMemberClubId(searchParams?.get("clubId"));
+  const { clubId, resolved } = useRouteClubId(searchParams?.get("clubId"));
   const role = activeClub?.role || userRole;
   const canManage = canManageMembershipRegister(role);
   const canReadRegister = canReadMembershipRegister(role);

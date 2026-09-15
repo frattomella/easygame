@@ -39,7 +39,7 @@ const sources = {
   payment: read(`${V2}/rent-payment-drawer.tsx`),
   del: read(`${V2}/delete-structure-dialog.tsx`),
   model: read(`${V2}/structure-model.ts`),
-  clubId: read(`${V2}/use-structures-club-id.ts`),
+  clubId: read("src/components/web/hooks/use-route-club-id.ts"),
 };
 const everything = Object.values(sources).join("\n");
 
@@ -382,5 +382,5 @@ test("il codice V1 specifico della rotta e stato rimosso", () => {
     assert.equal(existsSync(path.join(process.cwd(), file)), false, `${file} non deve restare in parallelo alla V2`);
   }
   assert.equal(sources.list.includes("normalizeAvailability"), false, "la seconda copia di normalizeAvailability (PP-02 §L) e sparita con la pagina V1");
-  assert.match(sources.clubId, /activeClub_\$\{userId\}/, "il ripiego sul club salvato per utente resta");
+  assert.match(sources.clubId, /activeClub_\$\{owner\}/, "il ripiego sul club salvato per utente resta");
 });

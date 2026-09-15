@@ -45,7 +45,7 @@ const sources = {
   del: read(`${V2}/delete-sponsor-dialog.tsx`),
   document: read(`${V2}/document-drawer.tsx`),
   model: read(`${V2}/sponsor-model.ts`),
-  clubId: read(`${V2}/use-sponsor-club-id.ts`),
+  clubId: read("src/components/web/hooks/use-route-club-id.ts"),
 };
 const everything = Object.values(sources).join("\n");
 const code = everything.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

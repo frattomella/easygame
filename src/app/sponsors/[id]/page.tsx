@@ -43,7 +43,7 @@ import { DocumentDrawer, type SponsorDocumentSubmission } from "@/components/spo
 import { SponsorCollectionsGrid } from "@/components/sponsors/v2/collections-grid";
 import { DeleteSponsorDialog } from "@/components/sponsors/v2/delete-sponsor-dialog";
 import { StornoIncassoDialog } from "@/components/sponsors/v2/storno-incasso-dialog";
-import { useSponsorClubId, withClubId } from "@/components/sponsors/v2/use-sponsor-club-id";
+import { useRouteClubId, withClubId } from "@/components/web/hooks/use-route-club-id";
 import {
   SPONSOR_AREAS,
   computeSponsorAlerts,
@@ -90,7 +90,7 @@ function SponsorDetailsPageContent() {
   const { showToast } = useToast();
   const { activeClub, userRole } = useAuth();
   const sponsorId = params?.id as string;
-  const { clubId, resolved } = useSponsorClubId(searchParams?.get("clubId"));
+  const { clubId, resolved } = useRouteClubId(searchParams?.get("clubId"));
   const activeRole = activeClub?.role || userRole || null;
 
   const canReadCredit = hasAccountingPermission(activeRole, "accounting.read");

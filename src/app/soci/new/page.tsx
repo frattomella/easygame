@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/web/primitives/Controls";
 import { admitNewMember } from "@/lib/members/client";
 import { MemberForm, emptyMemberFormValues, type MemberFormValues } from "@/components/soci/v2/member-form";
 import { memberAdmissionPayload } from "@/components/soci/v2/member-form-model";
-import { useMemberClubId, withClubId } from "@/components/soci/v2/use-member-club-id";
+import { useRouteClubId, withClubId } from "@/components/web/hooks/use-route-club-id";
 
 /**
  * `/soci/new` — nuovo socio (Web V2, pattern 6: modulo a pagina intera,
@@ -28,7 +28,7 @@ function NewSocioPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { showToast } = useToast();
-  const { clubId } = useMemberClubId(searchParams?.get("clubId"));
+  const { clubId } = useRouteClubId(searchParams?.get("clubId"));
   const [submitting, setSubmitting] = React.useState(false);
 
   const handleSubmit = async (values: MemberFormValues) => {

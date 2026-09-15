@@ -34,7 +34,7 @@ import { BookingDrawer } from "@/components/structures/v2/booking-drawer";
 import { BookingsCalendar } from "@/components/structures/v2/bookings-calendar";
 import { RentPaymentDrawer } from "@/components/structures/v2/rent-payment-drawer";
 import { DeleteStructureDialog } from "@/components/structures/v2/delete-structure-dialog";
-import { useStructuresClubId } from "@/components/structures/v2/use-structures-club-id";
+import { useRouteClubId } from "@/components/web/hooks/use-route-club-id";
 import {
   BOOKING_STATUS,
   STRUCTURE_AREAS,
@@ -81,7 +81,7 @@ function StructureDetailPageContent() {
   const searchParams = useSearchParams();
   const { showToast } = useToast();
   const structureId = String(params?.id || "");
-  const { clubId, resolved } = useStructuresClubId(searchParams?.get("clubId"));
+  const { clubId, resolved } = useRouteClubId(searchParams?.get("clubId"));
   const area: StructureArea = resolveStructureArea(searchParams?.get("tab"));
   const [confirm, confirmDialog] = useConfirm();
 

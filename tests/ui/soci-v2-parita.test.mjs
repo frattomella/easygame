@@ -54,7 +54,7 @@ const sources = {
   register: read(`${V2}/membership-register-section.tsx`),
   setType: read(`${V2}/set-member-type-drawer.tsx`),
   del: read(`${V2}/delete-member-dialog.tsx`),
-  clubId: read(`${V2}/use-member-club-id.ts`),
+  clubId: read("src/components/web/hooks/use-route-club-id.ts"),
 };
 const everything = Object.values(sources).join("\n");
 const senzaCommenti = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

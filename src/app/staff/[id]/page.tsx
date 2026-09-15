@@ -26,7 +26,7 @@ import { collectStaffRoles, findStaffDepartment, normalizeDepartmentName, type S
 import { ensureStaffDepartment, resolveStaffDepartments } from "@/lib/api/staff-departments";
 import { StaffSectionDrawer, type StaffEditSection } from "@/components/staff/v2/staff-section-drawer";
 import { DeleteStaffDialog } from "@/components/staff/v2/delete-staff-dialog";
-import { useStaffClubId, withClubId } from "@/components/staff/v2/use-staff-club-id";
+import { useRouteClubId, withClubId } from "@/components/web/hooks/use-route-club-id";
 import {
   STAFF_AREAS,
   computeStaffAlerts,
@@ -70,7 +70,7 @@ function StaffMemberDetailsPageContent() {
   const searchParams = useSearchParams();
   const { showToast } = useToast();
   const staffId = params?.id as string;
-  const { clubId, resolved } = useStaffClubId(searchParams?.get("clubId"));
+  const { clubId, resolved } = useRouteClubId(searchParams?.get("clubId"));
   const requested = resolveStaffArea(searchParams?.get("tab"));
 
   const [isLoading, setIsLoading] = React.useState(true);

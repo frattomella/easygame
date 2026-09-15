@@ -4,14 +4,15 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/providers/AuthProvider";
 
 /**
- * L'identificativo del club per le pagine Strutture, con l'ordine di ripiego
- * che le due pagine V1 avevano: il parametro `clubId` dell'URL (solo la
- * scheda), poi il club attivo del contesto, poi
- * `localStorage["activeClub_<userId>"]`, poi `localStorage.activeClub`.
+ * L'identificativo del club per le pagine che lo accettano dall'URL
+ * (`?clubId=`), con l'ordine di ripiego che le pagine V1 avevano ciascuna a
+ * modo proprio e che qui e uno solo: il parametro dell'URL, poi il club attivo
+ * del contesto, poi `localStorage["activeClub_<userId>"]` (l'utente del
+ * contesto o `localStorage.userId`), poi `localStorage.activeClub`.
  *
- * Si legge dopo il montaggio: `localStorage` sul server non esiste. La V1
- * ascoltava anche l'evento `storage` per seguire un cambio di club in
- * un'altra scheda del browser: qui basta il contesto, che gia lo propaga.
+ * Si legge dopo il montaggio: `localStorage` sul server non esiste. Il cambio
+ * di club in un'altra scheda del browser arriva dal contesto, che gia lo
+ * propaga: non serve ascoltare l'evento `storage`.
  */
 const parseStoredClub = (raw: string | null): string | null => {
   if (!raw) return null;
@@ -25,8 +26,9 @@ const parseStoredClub = (raw: string | null): string | null => {
 
 const readStoredClubId = (userId?: string | null): string | null => {
   if (typeof window === "undefined") return null;
-  if (userId) {
-    const own = parseStoredClub(localStorage.getItem(`activeClub_${userId}`));
+  const owner = userId || localStorage.getItem("userId");
+  if (owner) {
+    const own = parseStoredClub(localStorage.getItem(`activeClub_${owner}`));
     if (own) return own;
   }
   return parseStoredClub(localStorage.getItem("activeClub"));
@@ -35,7 +37,7 @@ const readStoredClubId = (userId?: string | null): string | null => {
 const isValid = (value?: string | null) =>
   Boolean(value && value !== "null" && value !== "undefined" && value.trim());
 
-export function useStructuresClubId(preferred?: string | null) {
+export function useRouteClubId(preferred?: string | null) {
   const { activeClub, user } = useAuth();
   const [clubId, setClubId] = useState<string | null>(isValid(preferred) ? preferred! : null);
   const [resolved, setResolved] = useState(false);
@@ -46,9 +48,8 @@ export function useStructuresClubId(preferred?: string | null) {
       setResolved(true);
       return;
     }
-    const fromContext = (activeClub as { id?: string } | null)?.id;
-    if (fromContext) {
-      setClubId(String(fromContext));
+    if (activeClub?.id) {
+      setClubId(String(activeClub.id));
       setResolved(true);
       return;
     }
@@ -58,3 +59,7 @@ export function useStructuresClubId(preferred?: string | null) {
 
   return { clubId, resolved };
 }
+
+/** `/<rotta>/…?clubId=` come la V1 lo componeva, senza il parametro se manca. */
+export const withClubId = (path: string, clubId?: string | null) =>
+  clubId ? `${path}${path.includes("?") ? "&" : "?"}clubId=${encodeURIComponent(clubId)}` : path;

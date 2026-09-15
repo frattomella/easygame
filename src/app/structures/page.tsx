@@ -21,7 +21,7 @@ import { SiteContextControl } from "@/components/athletes/v2/athletes-context-co
 import { StructureDrawer } from "@/components/structures/v2/structure-drawer";
 import { SitesDrawer } from "@/components/structures/v2/sites-drawer";
 import { DeleteStructureDialog } from "@/components/structures/v2/delete-structure-dialog";
-import { useStructuresClubId } from "@/components/structures/v2/use-structures-club-id";
+import { useRouteClubId } from "@/components/web/hooks/use-route-club-id";
 import {
   STRUCTURE_BOOKABILITY,
   STRUCTURE_VISIBILITY,
@@ -58,7 +58,7 @@ const YES_NO = [
 export default function StrutturePage() {
   const router = useRouter();
   const { showToast } = useToast();
-  const { clubId, resolved } = useStructuresClubId(null);
+  const { clubId, resolved } = useRouteClubId(null);
 
   const [structures, setStructures] = React.useState<ClubStructure[]>([]);
   const [sites, setSites] = React.useState<ClubSite[]>([]);
