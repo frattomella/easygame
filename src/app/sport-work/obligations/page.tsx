@@ -14,9 +14,9 @@ import { AlertBlock } from "@/components/web/page/Alerts";
 import { InfoCard } from "@/components/web/page/Cards";
 import { useConfirm } from "@/components/web/overlays/useConfirm";
 import { DataGrid } from "@/components/web/datagrid/DataGrid";
-import type { ColumnDef, ExportRequest, FilterDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
+import type { ColumnDef, FilterDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
 import { formatDateShort, formatMoney, joinMeta } from "@/lib/web/format";
-import { downloadCsv, toCsv } from "@/lib/csv";
+import { exportGridCsv } from "@/lib/web/export-grid-csv";
 import { OBLIGATION_KINDS, OBLIGATION_KIND_LABELS, OBLIGATION_STATUSES, OBLIGATION_STATUS_LABELS } from "@/lib/sport-work/model";
 import { CONFIGURED_RULE_YEARS } from "@/lib/sport-work/rules";
 import { SportWorkShell } from "@/components/sport-work/v2/sport-work-shell";
@@ -57,12 +57,6 @@ const AGENDA_VIEWS: ViewDef[] = [
   { id: "contributions", label: "Contributi e F24", filters: { kind: ["CONTRIBUTION", "F24"] }, builtIn: true },
   { id: "contracts", label: "Contratti", filters: { kind: "CONTRACT_EXPIRY" }, builtIn: true },
 ];
-
-const exportCsv = <Row,>(request: ExportRequest<Row>, fileName: string) => {
-  const columns = request.columns.map((column) => ({ key: column.id, label: column.label || (typeof column.header === "string" ? column.header : column.id) }));
-  const rows = request.rows.map((row) => Object.fromEntries(request.columns.map((column) => [column.id, column.exportValue?.(row) ?? column.sortValue?.(row) ?? ""])));
-  downloadCsv(fileName, toCsv(columns, rows));
-};
 
 function ObligationsPage() {
   const router = useRouter();
@@ -301,7 +295,7 @@ function ObligationsPage() {
           onRetry={() => void load()}
           noun={{ singular: "adempimento", plural: "adempimenti" }}
           canSelect={false}
-          export={{ onExport: (request) => exportCsv(request, "adempimenti-dovuti.csv"), kinds: ["csv"] }}
+          export={{ onExport: (request) => exportGridCsv(request, "adempimenti-dovuti.csv"), kinds: ["csv"] }}
           empty={{
             icon: <ClipboardList />,
            
@@ -333,7 +327,7 @@ function ObligationsPage() {
             noun={{ singular: "riga", plural: "righe" }}
             canSelect={false}
             hideViews
-            export={{ onExport: (request) => exportCsv(request, `f24-${year}.csv`), kinds: ["csv"] }}
+            export={{ onExport: (request) => exportGridCsv(request, `f24-${year}.csv`), kinds: ["csv"] }}
             empty={{ icon: <ClipboardList />, title: `Nessun contributo maturato nel ${year}`, description: "Le righe nascono dalle erogazioni registrate nell'anno." }}
           />
         </div>
@@ -357,7 +351,7 @@ function ObligationsPage() {
             noun={{ singular: "persona", plural: "persone" }}
             canSelect={false}
             hideViews
-            export={{ onExport: (request) => exportCsv(request, `cu-${year}.csv`), kinds: ["csv"] }}
+            export={{ onExport: (request) => exportGridCsv(request, `cu-${year}.csv`), kinds: ["csv"] }}
             empty={{ icon: <ClipboardList />, title: `Nessun compenso erogato nel ${year}`, description: "Le righe nascono dalle erogazioni e dalle autocertificazioni dell'anno." }}
           />
         </div>
@@ -381,7 +375,7 @@ function ObligationsPage() {
             onRetry={() => void load()}
             noun={{ singular: "adempimento", plural: "adempimenti" }}
             canSelect={false}
-            export={{ onExport: (request) => exportCsv(request, "adempimenti-storico.csv"), kinds: ["csv"] }}
+            export={{ onExport: (request) => exportGridCsv(request, "adempimenti-storico.csv"), kinds: ["csv"] }}
             empty={{ icon: <ClipboardList />, title: "Nessun adempimento in questa vista", description: "Gli adempimenti assolti o non più dovuti restano qui." }}
           />
         </div>

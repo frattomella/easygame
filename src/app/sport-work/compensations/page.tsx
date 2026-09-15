@@ -11,9 +11,9 @@ import { SegmentedControl } from "@/components/web/primitives/Controls";
 import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
 import { useConfirm } from "@/components/web/overlays/useConfirm";
 import { DataGrid } from "@/components/web/datagrid/DataGrid";
-import type { ColumnDef, ExportRequest, FilterDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
+import type { ColumnDef, FilterDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
 import { formatDateShort, formatMoney, joinMeta } from "@/lib/web/format";
-import { csvFileName, downloadCsv, toCsv } from "@/lib/csv";
+import { exportGridCsv } from "@/lib/web/export-grid-csv";
 import { EXPENSE_CATEGORIES, EXPENSE_CATEGORY_LABELS, REIMBURSEMENT_STATUSES, REIMBURSEMENT_STATUS_LABELS } from "@/lib/sport-work/model";
 import { SportWorkShell } from "@/components/sport-work/v2/sport-work-shell";
 import { useSportWorkRole } from "@/components/sport-work/v2/use-sport-work-role";
@@ -64,12 +64,6 @@ const resolveTab = (value: string | null): Tab => (TABS.some((tab) => tab.value 
 type BonusRow = { id: string; person_id: string; reason: string; competition?: string | null; amount: number; award_date: string; fiscal_treatment: string; status: string; personName: string };
 type ReimbursementRow = { id: string; person_id: string; category: string; description: string; expense_date: string; amount: number; status: string; personName: string };
 type InvoiceRow = { id: string; person_id: string; document_number: string; document_date: string; due_date: string | null; total_amount: number; taxable_amount?: number; vat_amount?: number; withholding_amount?: number; status: string; personName: string };
-
-const exportCsv = <Row,>(request: ExportRequest<Row>, name: string) => {
-  const columns = request.columns.map((column) => ({ key: column.id, label: column.label || (typeof column.header === "string" ? column.header : column.id) }));
-  const rows = request.rows.map((row) => Object.fromEntries(request.columns.map((column) => [column.id, column.exportValue?.(row) ?? column.sortValue?.(row) ?? ""])));
-  downloadCsv(csvFileName(name), toCsv(columns, rows));
-};
 
 const REIMBURSEMENT_VIEWS: ViewDef[] = [
   { id: "to-approve", label: "Da approvare", filters: { status: "SUBMITTED" }, builtIn: true, tone: "amber" },
@@ -443,7 +437,7 @@ function CompensationsPage() {
           onRetry={() => void load()}
           noun={{ singular: "premio", plural: "premi" }}
           canSelect={false}
-          export={{ onExport: (request) => exportCsv(request, "Premi"), kinds: ["csv"] }}
+          export={{ onExport: (request) => exportGridCsv(request, "Premi"), kinds: ["csv"] }}
           empty={{
             icon: <Award />,
            
@@ -476,7 +470,7 @@ function CompensationsPage() {
           onRetry={() => void load()}
           noun={{ singular: "rimborso", plural: "rimborsi" }}
           canSelect={false}
-          export={{ onExport: (request) => exportCsv(request, "Rimborsi spese"), kinds: ["csv"] }}
+          export={{ onExport: (request) => exportGridCsv(request, "Rimborsi spese"), kinds: ["csv"] }}
           empty={{
             icon: <ReceiptText />,
            
@@ -524,7 +518,7 @@ function CompensationsPage() {
           onRetry={() => void load()}
           noun={{ singular: "fattura", plural: "fatture" }}
           canSelect={false}
-          export={{ onExport: (request) => exportCsv(request, "Fatture dei professionisti"), kinds: ["csv"] }}
+          export={{ onExport: (request) => exportGridCsv(request, "Fatture dei professionisti"), kinds: ["csv"] }}
           empty={{
             icon: <FileText />,
            

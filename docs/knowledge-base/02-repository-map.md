@@ -22,7 +22,7 @@ easygame/
 | `src/app/api/v1/` | API versionata: auth, admin, registry, risorse generiche | Superficie usata anche dal mobile |
 | `src/app/api/` (fuori `v1`) | Endpoint di dominio non versionati: parent-dashboard, payments, athletes/documents, clothing, forms/assets, medical-certificate-reminders, **public/forms** | Incoerenza nota, vedi [09](09-api-conventions.md). `public/forms` sta fuori da `v1` di proposito: non e la superficie ufficiale, e l'unico endpoint senza sessione |
 | `src/components/web/` | **Il sistema Web V2** (EGDS v3.1.0, ADR-0184): `shell/` (barra laterale, topbar, navigazione, cassetti globali), `primitives/`, `overlays/`, `forms/`, `datagrid/` (l'unica griglia), `page/` (intestazione, card, avvisi, barra azioni), `record/` (scheda), `hooks/` (`usePreference`, `useRouteClubId`) | Le regole in [10](10-ui-ux-conventions.md) §Web V2; i test in `tests/web/` |
-| `src/lib/web/` | Puro: formattazione italiana, mappa degli stati, preferenze `egw.*` | |
+| `src/lib/web/` | Puro: formattazione italiana, mappa degli stati, preferenze `egw.*`, accordo dei nomi (`nouns.ts`), esportazione CSV di una griglia (`export-grid-csv.ts`) | |
 | `src/styles/` | Token `--egw-*` (copia di `design-source/tokens/web.css`) e base del Web V2 | |
 | `src/components/<dominio>/v2/` | Composizioni V2 di una pagina migrata (`athletes/v2`, `athletes/profile/v2`, `trainer/v2`, `staff/v2`, `dashboard/v2`, `training/v2`, `categories/v2`, `medical/v2`, `accounting/v2`, `reports/v2`, `procura/v2`) | Candidati alle fondamenta in D-RD-2 |
 | `src/components/ui/` | 58 file. Primitive shadcn/ui + componenti custom (chat, avatar-upload, toast) | 18 primitive non referenziate, vedi [cleanup-report](cleanup-report.md); il toast ha l'aspetto V2 |

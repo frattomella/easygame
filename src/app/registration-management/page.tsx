@@ -30,7 +30,7 @@ import { SegmentedControl } from "@/components/web/primitives/Controls";
 import { PanelHeader } from "@/components/web/primitives/Surface";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/components/web/primitives/Overlays";
 import { DataGrid } from "@/components/web/datagrid/DataGrid";
-import type { ExportRequest, RowActionDef } from "@/components/web/datagrid/types";
+import type { RowActionDef } from "@/components/web/datagrid/types";
 import { useConfirm } from "@/components/web/overlays/useConfirm";
 import { FundingProgramsPanel } from "@/components/funding/FundingProgramsPanel";
 import {
@@ -52,7 +52,7 @@ import {
 } from "@/lib/payments/payment-config-utils";
 import { PAYMENT_PROVIDER_ORDER, PAYMENT_PROVIDER_REGISTRY } from "@/lib/payments/provider-registry";
 import type { ClubPaymentSettings } from "@/lib/payments/payment-types";
-import { csvFileName, downloadCsv, toCsv } from "@/lib/csv";
+import { exportGridCsv } from "@/lib/web/export-grid-csv";
 import { PaymentPlanDrawer } from "@/components/registration-management/v2/payment-plan-drawer";
 import { PaymentMethodDrawer, type PaymentMethodDraft } from "@/components/registration-management/v2/payment-method-drawer";
 import { DiscountDrawer, type DiscountDraft } from "@/components/registration-management/v2/discount-drawer";
@@ -157,23 +157,6 @@ const PageShell = ({ children }: { children: React.ReactNode }) => (
     </div>
   </div>
 );
-
-/** Il CSV di una griglia: le colonne visibili con il loro `exportValue`. */
-const exportGridCsv = <Row,>(request: ExportRequest<Row>, name: string) => {
-  const columns = request.columns.map((column) => ({
-    key: column.id,
-    label: column.label || (typeof column.header === "string" ? column.header : column.id),
-  }));
-  const rows = request.rows.map((row) =>
-    Object.fromEntries(
-      request.columns.map((column) => {
-        const value = column.exportValue?.(row) ?? column.sortValue?.(row);
-        return [column.id, value ?? ""];
-      }),
-    ),
-  );
-  downloadCsv(csvFileName(name), toCsv(columns, rows));
-};
 
 export default function RegistrationManagementPage() {
   const { showToast } = useToast();

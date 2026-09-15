@@ -9,9 +9,9 @@ import { apiRequest } from "@/lib/api/client";
 import { StatusPill, DataChip } from "@/components/web/primitives/StatusPill";
 import { KpiBar, KpiCard } from "@/components/web/page/Cards";
 import { DataGrid } from "@/components/web/datagrid/DataGrid";
-import type { ColumnDef, ExportRequest, FilterDef, GroupDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
+import type { ColumnDef, FilterDef, GroupDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
 import { formatDateShort, formatInteger, formatMoney, joinMeta } from "@/lib/web/format";
-import { csvFileName, downloadCsv, toCsv } from "@/lib/csv";
+import { exportGridCsv } from "@/lib/web/export-grid-csv";
 import { SportWorkShell } from "@/components/sport-work/v2/sport-work-shell";
 import { useSportWorkRole } from "@/components/sport-work/v2/use-sport-work-role";
 import { PayoutDrawer } from "@/components/sport-work/v2/payout-drawer";
@@ -49,12 +49,6 @@ const DEADLINE_VIEWS: ViewDef[] = [
   { id: "installments", label: "Solo compensi", filters: { kind: "installment", bucket: ["overdue", "week", "month"] }, builtIn: true },
   { id: "obligations", label: "Solo adempimenti", filters: { kind: "obligation", bucket: ["overdue", "week", "month"] }, builtIn: true },
 ];
-
-const exportCsv = (request: ExportRequest<DeadlineEntry>) => {
-  const columns = request.columns.map((column) => ({ key: column.id, label: column.label || (typeof column.header === "string" ? column.header : column.id) }));
-  const rows = request.rows.map((row) => Object.fromEntries(request.columns.map((column) => [column.id, column.exportValue?.(row) ?? column.sortValue?.(row) ?? ""])));
-  downloadCsv(csvFileName("Scadenze del lavoro sportivo"), toCsv(columns, rows));
-};
 
 function DeadlinesPage() {
   const router = useRouter();
@@ -241,7 +235,7 @@ function DeadlinesPage() {
           onRetry={() => void load()}
           noun={{ singular: "voce", plural: "voci" }}
           canSelect={false}
-          export={{ onExport: exportCsv, kinds: ["csv"] }}
+          export={{ onExport: (request) => exportGridCsv(request, "Scadenze del lavoro sportivo"), kinds: ["csv"] }}
           empty={{ icon: <CalendarClock />, title: "Niente in scadenza", description: "Nessuna rata residua e nessun adempimento dovuto: qui compaiono appena nascono." }}
         />
       </div>

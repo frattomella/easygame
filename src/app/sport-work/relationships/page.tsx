@@ -11,9 +11,9 @@ import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
 import { IdentityCell } from "@/components/web/primitives/Identity";
 import { HeaderStat } from "@/components/web/page/PageHeader";
 import { DataGrid } from "@/components/web/datagrid/DataGrid";
-import type { ColumnDef, ExportRequest, FilterDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
+import type { ColumnDef, FilterDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
 import { daysUntil, formatDateShort, formatInteger, formatMoney, joinMeta } from "@/lib/web/format";
-import { csvFileName, downloadCsv, toCsv } from "@/lib/csv";
+import { exportGridCsv } from "@/lib/web/export-grid-csv";
 import { RELATIONSHIP_STATUSES, RELATIONSHIP_STATUS_LABELS, RELATIONSHIP_TYPES, RELATIONSHIP_TYPE_LABELS, SPORT_WORK_ROLES, SPORT_WORK_ROLE_LABELS } from "@/lib/sport-work/model";
 import { SportWorkShell } from "@/components/sport-work/v2/sport-work-shell";
 import { useSportWorkRole } from "@/components/sport-work/v2/use-sport-work-role";
@@ -52,12 +52,6 @@ const RELATIONSHIP_VIEWS: ViewDef[] = [
   { id: "expiring", label: "In scadenza", filters: { expiring: true }, builtIn: true, tone: "amber" },
   { id: "closed", label: "Scaduti e cessati", filters: { status: ["EXPIRED", "TERMINATED"] }, builtIn: true },
 ];
-
-const exportGridCsv = (request: ExportRequest<GridRow>) => {
-  const columns = request.columns.map((column) => ({ key: column.id, label: column.label || (typeof column.header === "string" ? column.header : column.id) }));
-  const rows = request.rows.map((row) => Object.fromEntries(request.columns.map((column) => [column.id, column.exportValue?.(row) ?? column.sortValue?.(row) ?? ""])));
-  downloadCsv(csvFileName("Rapporti di lavoro sportivo"), toCsv(columns, rows));
-};
 
 function RelationshipsPage() {
   const router = useRouter();
@@ -268,7 +262,7 @@ function RelationshipsPage() {
         onRetry={() => void load()}
         noun={{ singular: "rapporto", plural: "rapporti" }}
         canSelect={false}
-        export={{ onExport: exportGridCsv, kinds: ["csv"] }}
+        export={{ onExport: (request) => exportGridCsv(request, "Rapporti di lavoro sportivo"), kinds: ["csv"] }}
         empty={{
           icon: <Briefcase />,
           title: "Nessun rapporto",

@@ -3,10 +3,10 @@
 import * as React from "react";
 import { ChevronRight, Wallet } from "lucide-react";
 import { DataGrid } from "@/components/web/datagrid/DataGrid";
-import type { ColumnDef, ExportRequest, FilterDef, GridState, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
+import type { ColumnDef, FilterDef, GridState, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
 import { StatusPill } from "@/components/web/primitives/StatusPill";
 import { formatDateShort, formatMoney, joinMeta } from "@/lib/web/format";
-import { csvFileName, downloadCsv, toCsv } from "@/lib/csv";
+import { exportGridCsv } from "@/lib/web/export-grid-csv";
 import { INSTALLMENT_STATUSES, INSTALLMENT_STATUS_LABELS } from "@/lib/sport-work/model";
 import { INSTALLMENT_STATUS_SPEC, specOf } from "@/components/sport-work/v2/sport-work-status";
 import { dueLabel, type InstallmentRow } from "@/components/sport-work/v2/sport-work-model";
@@ -26,12 +26,6 @@ const INSTALLMENT_VIEWS: ViewDef[] = [
   { id: "overdue", label: "Scadute", filters: { status: "OVERDUE" }, builtIn: true, tone: "red" },
   { id: "paid", label: "Erogate", filters: { status: "PAID" }, builtIn: true },
 ];
-
-export const exportInstallmentsCsv = (request: ExportRequest<InstallmentGridRow>, name = "Scadenze compenso") => {
-  const columns = request.columns.map((column) => ({ key: column.id, label: column.label || (typeof column.header === "string" ? column.header : column.id) }));
-  const rows = request.rows.map((row) => Object.fromEntries(request.columns.map((column) => [column.id, column.exportValue?.(row) ?? column.sortValue?.(row) ?? ""])));
-  downloadCsv(csvFileName(name), toCsv(columns, rows));
-};
 
 export const installmentIsPayable = (row: InstallmentRow) => Number(row.remaining_amount) > 0 && !row.cancelled;
 
@@ -162,7 +156,7 @@ export function InstallmentsGrid({
       hideViews={compact}
       hideFooter={compact && rows.length <= 25}
       persist={!compact}
-      export={compact ? undefined : { onExport: (request) => exportInstallmentsCsv(request), kinds: ["csv"] }}
+      export={compact ? undefined : { onExport: (request) => exportGridCsv(request, "Scadenze compenso"), kinds: ["csv"] }}
       empty={{ icon: <Wallet />, title: emptyTitle, description: emptyDescription }}
     />
   );

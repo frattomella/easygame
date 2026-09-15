@@ -3,10 +3,10 @@
 import * as React from "react";
 import { ChevronRight, Receipt, RotateCcw } from "lucide-react";
 import { DataGrid } from "@/components/web/datagrid/DataGrid";
-import type { ColumnDef, ExportRequest, FilterDef, GridState, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
+import type { ColumnDef, FilterDef, GridState, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
 import { StatusPill } from "@/components/web/primitives/StatusPill";
 import { formatDateShort, formatMoney, joinMeta } from "@/lib/web/format";
-import { csvFileName, downloadCsv, toCsv } from "@/lib/csv";
+import { exportGridCsv } from "@/lib/web/export-grid-csv";
 import { OUTBOUND_TRANSACTION_TYPES, OUTBOUND_TRANSACTION_TYPE_LABELS } from "@/lib/sport-work/model";
 import { FISCAL_TO_VERIFY_SPEC, PAYOUT_RECORDED_SPEC, PAYOUT_REVERSED_SPEC } from "@/components/sport-work/v2/sport-work-status";
 import { transactionTypeLabel, type PayoutRow } from "@/components/sport-work/v2/sport-work-model";
@@ -26,12 +26,6 @@ const PAYOUT_VIEWS: ViewDef[] = [
   { id: "reversed", label: "Stornate", filters: { reversed: true }, builtIn: true },
   { id: "to-verify", label: "Fiscale da verificare", filters: { fiscal: true }, builtIn: true, tone: "amber" },
 ];
-
-export const exportPayoutsCsv = (request: ExportRequest<PayoutGridRow>, name = "Registro delle uscite") => {
-  const columns = request.columns.map((column) => ({ key: column.id, label: column.label || (typeof column.header === "string" ? column.header : column.id) }));
-  const rows = request.rows.map((row) => Object.fromEntries(request.columns.map((column) => [column.id, column.exportValue?.(row) ?? column.sortValue?.(row) ?? ""])));
-  downloadCsv(csvFileName(name), toCsv(columns, rows));
-};
 
 export const payoutIsReversible = (row: PayoutRow) => !row.reversed_at && row.transaction_type === "COMPENSATION_PAYMENT";
 
@@ -162,7 +156,7 @@ export function PayoutsGrid({
       hideViews={compact}
       hideFooter={compact && rows.length <= 25}
       persist={!compact}
-      export={compact ? undefined : { onExport: (request) => exportPayoutsCsv(request), kinds: ["csv"] }}
+      export={compact ? undefined : { onExport: (request) => exportGridCsv(request, "Registro delle uscite"), kinds: ["csv"] }}
       empty={{ icon: <Receipt />, title: "Nessuna uscita registrata", description: "Le erogazioni e i pagamenti compaiono qui appena registrati." }}
     />
   );
