@@ -15,6 +15,10 @@ import { readFileSync } from "node:fs";
  * ma il suo stato veniva sovrascritto con quello iniziale (vuoto, in
  * creazione) proprio mentre l'utente doveva correggere un campo.
  *
+ * Nel Web V2 la modale e diventata il cassetto
+ * `src/components/categories/v2/category-editor-drawer.tsx`, con lo stesso
+ * meccanismo di reset sul bersaglio: la prova legge quel sorgente.
+ *
  * Nessun renderer React in questa suite (coerente con
  * `training-schedule-automation-panel.test.mjs` e le altre prove statiche di
  * questa cartella): la prova e sulla sorgente, e verifica che il reset ora
@@ -23,7 +27,7 @@ import { readFileSync } from "node:fs";
  */
 const sorgente = readFileSync(
   new URL(
-    "../../src/components/forms/CategoryEditorDialog.tsx",
+    "../../src/components/categories/v2/category-editor-drawer.tsx",
     import.meta.url,
   ),
   "utf8",

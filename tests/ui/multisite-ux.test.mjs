@@ -36,7 +36,15 @@ test("il filtro sede non si monta se il club non e multi-sede", () => {
 });
 
 test("le pagine che filtrano per sede usano il componente, non una tendina propria", () => {
+  /*
+    La V1 monta `SiteFilter`; il Web V2 monta la sua forma V2, il controllo
+    di contesto `SiteContextControl` nell'intestazione di pagina — con la
+    **stessa regola**: la decisione «non multi-sede = niente filtro» sta nel
+    componente, non nella pagina, e il valore vuoto vuol dire «tutte». Una
+    pagina che si e spostata sul V2 non deve tornare a una tendina propria.
+  */
   for (const file of [
+    "app/athletes/page.tsx",
     "app/categories/page.tsx",
     "app/structures/page.tsx",
     "app/training/page.tsx",
@@ -44,24 +52,16 @@ test("le pagine che filtrano per sede usano il componente, non una tendina propr
     const source = read(file);
     assert.match(
       source,
-      /<SiteFilter/,
-      `${file} deve montare SiteFilter e non una tendina sede propria`,
+      /<SiteFilter|<SiteContextControl/,
+      `${file} deve montare il filtro sede condiviso e non una tendina sede propria`,
+    );
+    assert.doesNotMatch(
+      source,
+      /<select[\s\S]{0,200}site/i,
+      `nessuna tendina sede propria in ${file}`,
     );
   }
 
-  /*
-    L'elenco Atleti nel Web V2 monta la forma V2 dello stesso filtro — un
-    controllo di contesto nell'intestazione di pagina — con la **stessa
-    regola**: la decisione «non multi-sede = niente filtro» sta nel
-    componente, non nella pagina, e il valore vuoto vuol dire «tutte».
-  */
-  const athletes = read("app/athletes/page.tsx");
-  assert.match(athletes, /<SiteContextControl/);
-  assert.doesNotMatch(
-    athletes,
-    /<select[\s\S]{0,200}site/i,
-    "nessuna tendina sede propria nella pagina",
-  );
   const control = read("components/athletes/v2/athletes-context-controls.tsx");
   assert.match(
     control,
@@ -143,9 +143,9 @@ test("una sede con strutture collegate non si elimina, si disattiva", () => {
  * il salvataggio della categoria scrive i gruppi (ADR-0055).
  */
 test("le sedi di una categoria si spuntano nel modulo della categoria", () => {
-  const source = read("components/forms/CategoryEditorDialog.tsx");
+  const source = read("components/categories/v2/category-editor-drawer.tsx");
 
-  assert.match(source, /Sedi in cui e attiva/);
+  assert.match(source, /Sedi in cui [eè] attiva/);
   assert.match(source, /siteIds: showSites \? formData\.siteIds : \[\]/);
   assert.equal(
     /setCategories|createCategory|categories\.push/.test(source),

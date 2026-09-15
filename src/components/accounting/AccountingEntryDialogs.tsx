@@ -1,27 +1,22 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Undo2 } from "lucide-react";
+import { Drawer, DrawerSection } from "@/components/web/overlays/Drawer";
+import { Modal } from "@/components/web/overlays/Modal";
+import { Button } from "@/components/web/primitives/Button";
+import { InsetBlock } from "@/components/web/primitives/Surface";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
+  CurrencyInput,
+  DateInput,
+  Field,
+  FieldSizeProvider,
+  FormGrid,
   Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { SiteSelect } from "@/components/sites/site-filter";
-import { isMultiSiteClub, type ClubSite } from "@/lib/club-sites";
+  TextInput,
+  Textarea,
+} from "@/components/web/forms/Field";
+import { getActiveClubSites, isMultiSiteClub, type ClubSite } from "@/lib/club-sites";
 import {
   RECONCILIATION_STATUSES,
   RECONCILIATION_STATUS_LABELS,
@@ -37,10 +32,17 @@ import {
 } from "./accounting-view";
 
 /**
- * Le finestre che **scrivono** in prima nota.
+ * Le finestre che **scrivono** in prima nota (Web V2).
  *
  * Sono quattro, e ognuna corrisponde a una rotta sola: registrare, girocontare,
  * stornare, riconciliare. Nessuna di esse cancella: il denaro non si cancella.
+ *
+ * **Cassetti e modali** (guideline 06 §6.7, 08 §8.9). I cassetti creano e
+ * modificano: registrare un movimento, un giroconto e la riconciliazione
+ * stanno in un cassetto da 480. I modali **solo** confermano: lo storno e una
+ * conferma distruttiva con il motivo obbligatorio, e sta in un modale che non
+ * si chiude sul velo. Ogni cassetto porta la guardia sulle modifiche non
+ * salvate (`dirty`).
  *
  * **La causale non e testo libero.** Il modulo precedente precompilava il campo
  * «categoria» con la **categoria sportiva dell'atleta** — «Under 14» diventava
@@ -56,6 +58,45 @@ import {
  */
 
 const oggi = () => toDateInputValue(new Date());
+
+/*
+  `Select` non accetta la stringa vuota come valore di una voce: la sede
+  «tutte» ha quindi una sentinella, tradotta in stringa vuota prima di uscire
+  dal componente, come fa `SiteSelect` con `ALL_SITES_VALUE`.
+*/
+const NESSUNA_SEDE = "__all_sites__";
+
+const siteOptions = (sites: ClubSite[]) => [
+  { value: NESSUNA_SEDE, label: "Tutte le sedi" },
+  ...getActiveClubSites(sites).map((site) => ({ value: site.id, label: site.name })),
+];
+
+const accountOptions = (accounts: readonly FinancialAccountView[]) =>
+  accounts.map((account) => ({ value: account.id, label: `${account.name} · ${account.kindLabel}` }));
+
+/**
+ * Da euro digitati a numero. Accetta la virgola perche in Italia si scrive
+ * cosi («1.234,56»); un punto senza virgola resta il decimale («12.5»), come
+ * accettava il campo numerico della V1.
+ */
+const parseImporto = (amount: string) => {
+  const testo = String(amount).trim();
+  if (!testo) return Number.NaN;
+  return testo.includes(",")
+    ? Number(testo.replace(/\./g, "").replace(",", "."))
+    : Number(testo);
+};
+
+/** L'anteprima della riga su cui si agisce (storno, riconciliazione). */
+const LinePreview = ({ line, withAccount }: { line: AccountingLine; withAccount?: boolean }) => (
+  <InsetBlock>
+    <p className="font-brand text-[13px] font-semibold text-egw-ink">{line.description}</p>
+    <p className="egw-num mt-1 font-brand text-[12px] text-egw-ink-62">
+      {formatDate(line.entryDate)} · {formatCents(line.amountCents)}
+      {withAccount ? ` · ${line.financialAccountName || "conto non attribuito"}` : ""}
+    </p>
+  </InsetBlock>
+);
 
 /* ========================================================================== */
 /* Registrare un movimento                                                     */
@@ -89,7 +130,8 @@ export function RecordEntryDialog({
   operationTypes: readonly OperationTypeView[];
   sites: ClubSite[];
   saving: boolean;
-  onSubmit: (payload: RecordEntryPayload) => void;
+  /** Torna `true` se il server ha registrato: serve a «Salva e aggiungi un altro». */
+  onSubmit: (payload: RecordEntryPayload, options: { keepOpen: boolean }) => Promise<boolean> | boolean | void;
 }) {
   const [entryDate, setEntryDate] = useState(oggi);
   const [direction, setDirection] = useState("IN");
@@ -101,19 +143,32 @@ export function RecordEntryDialog({
   const [paymentMethod, setPaymentMethod] = useState("");
   const [counterpartyLabel, setCounterpartyLabel] = useState("");
   const [siteId, setSiteId] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [keepOpenSaving, setKeepOpenSaving] = useState(false);
+
+  /** I campi che «Salva e aggiungi un altro» svuota: tutto tranne il contesto (data, verso, conto, causale, sede). */
+  const clearNonContext = () => {
+    setAmount("");
+    setDescription("");
+    setNotes("");
+    setPaymentMethod("");
+    setCounterpartyLabel("");
+  };
 
   useEffect(() => {
     if (!open) return;
     setEntryDate(oggi());
     setDirection("IN");
-    setAmount("");
     setAccountId(accounts.length === 1 ? accounts[0].id : "");
     setOperationTypeCode("");
+    setSiteId("");
+    setAmount("");
     setDescription("");
     setNotes("");
     setPaymentMethod("");
     setCounterpartyLabel("");
-    setSiteId("");
+    setDirty(false);
+    setKeepOpenSaving(false);
   }, [open, accounts]);
 
   const causali = useMemo(
@@ -134,198 +189,187 @@ export function RecordEntryDialog({
     }
   }, [causali, operationTypeCode]);
 
-  const importo = Number(String(amount).replace(",", "."));
+  const touch = <T,>(setter: (value: T) => void) => (value: T) => {
+    setDirty(true);
+    setter(value);
+  };
+
+  const importo = parseImporto(amount);
+  const importoValido = Number.isFinite(importo) && importo > 0;
   const completo =
     Boolean(entryDate) &&
-    Number.isFinite(importo) &&
-    importo > 0 &&
+    importoValido &&
     Boolean(accountId) &&
     Boolean(operationTypeCode) &&
     Boolean(description.trim());
 
+  const payload = (): RecordEntryPayload => ({
+    entry_date: entryDate,
+    direction,
+    amount: importo,
+    financial_account_id: accountId,
+    operation_type_code: operationTypeCode,
+    description: description.trim(),
+    notes: notes.trim(),
+    payment_method: paymentMethod.trim(),
+    counterparty_label: counterpartyLabel.trim(),
+    site_id: siteId,
+  });
+
+  const registra = async (keepOpen: boolean) => {
+    setKeepOpenSaving(keepOpen);
+    const esito = await onSubmit(payload(), { keepOpen });
+    if (keepOpen && esito) {
+      clearNonContext();
+      setDirty(false);
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Registra un movimento</DialogTitle>
-          <DialogDescription>
-            Un fatto di cassa che nessun altro evento ha generato: l&apos;affitto
-            della palestra, una spesa in contanti, un rimborso spese. Gli incassi
-            delle quote si registrano sulla scheda dell&apos;atleta e compaiono
-            qui da soli.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-4 py-2">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="movimento-data">Data</Label>
-              <Input
-                id="movimento-data"
-                type="date"
-                value={entryDate}
-                onChange={(event) => setEntryDate(event.target.value)}
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      width="default"
+      eyebrow="Prima nota"
+      title="Registra un movimento"
+      description="Un fatto di cassa che nessun altro evento ha generato: l'affitto della palestra, una spesa in contanti, un rimborso spese. Gli incassi delle quote si registrano sulla scheda dell'atleta e compaiono qui da soli."
+      dirty={dirty}
+      locked={saving}
+      data-test="accounting-record-entry-drawer"
+      footer={
+        <>
+          <Button
+            variant="primary"
+            disabled={!completo || saving}
+            loading={saving && !keepOpenSaving}
+            onClick={() => void registra(false)}
+          >
+            {saving && !keepOpenSaving ? "Registrazione..." : "Registra"}
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={!completo || saving}
+            loading={saving && keepOpenSaving}
+            onClick={() => void registra(true)}
+          >
+            Salva e aggiungi un altro
+          </Button>
+          <Button variant="text" onClick={() => onOpenChange(false)} disabled={saving}>
+            Annulla
+          </Button>
+        </>
+      }
+    >
+      <FieldSizeProvider size="sm">
+        <p className="mb-5 font-brand text-[11.5px] text-egw-ink-62">
+          Tutti i campi sono obbligatori, salvo dove indicato.
+        </p>
+        <div className="flex flex-col gap-5">
+          <FormGrid columns={2}>
+            <Field label="Data" htmlFor="movimento-data">
+              <DateInput id="movimento-data" value={entryDate} onChange={(event) => touch(setEntryDate)(event.target.value)} />
+            </Field>
+            <Field label="Verso" htmlFor="movimento-verso">
+              <Select
+                id="movimento-verso"
+                value={direction}
+                onValueChange={touch(setDirection)}
+                options={[
+                  { value: "IN", label: "Entrata" },
+                  { value: "OUT", label: "Uscita" },
+                ]}
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="movimento-verso">Verso</Label>
-              <Select value={direction} onValueChange={setDirection}>
-                <SelectTrigger id="movimento-verso">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="IN">Entrata</SelectItem>
-                  <SelectItem value="OUT">Uscita</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+            </Field>
+          </FormGrid>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="movimento-importo">Importo (EUR)</Label>
-              <Input
-                id="movimento-importo"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0,00"
-                value={amount}
-                onChange={(event) => setAmount(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="movimento-conto">Conto</Label>
-              <Select value={accountId} onValueChange={setAccountId}>
-                <SelectTrigger id="movimento-conto">
-                  <SelectValue placeholder="Dove si e mosso il denaro" />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts.map((account) => (
-                    <SelectItem key={account.id} value={account.id}>
-                      {account.name} · {account.kindLabel}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="movimento-causale">Causale</Label>
-            <Select
-              value={operationTypeCode}
-              onValueChange={setOperationTypeCode}
+          <FormGrid columns={2}>
+            <Field
+              label="Importo"
+              htmlFor="movimento-importo"
+              error={amount.trim() && !importoValido ? "L'importo deve essere un numero maggiore di zero." : undefined}
             >
-              <SelectTrigger id="movimento-causale">
-                <SelectValue placeholder="Scegli una causale" />
-              </SelectTrigger>
-              <SelectContent>
-                {causali.map((type) => (
-                  <SelectItem key={type.code} value={type.code}>
-                    {type.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-slate-500">
-              Obbligatoria, e scelta da un elenco: e cio che rende il movimento
-              leggibile in un rendiconto. Le causali si configurano nel profilo
-              fiscale del club.
-            </p>
-          </div>
+              <CurrencyInput
+                id="movimento-importo"
+                value={amount}
+                onChange={(event) => touch(setAmount)(event.target.value)}
+              />
+            </Field>
+            <Field label="Conto" htmlFor="movimento-conto">
+              <Select
+                id="movimento-conto"
+                value={accountId}
+                onValueChange={touch(setAccountId)}
+                options={accountOptions(accounts)}
+                placeholder="Dove si e mosso il denaro"
+              />
+            </Field>
+          </FormGrid>
 
-          <div className="space-y-2">
-            <Label htmlFor="movimento-descrizione">Descrizione</Label>
-            <Input
+          <Field
+            label="Causale"
+            htmlFor="movimento-causale"
+            helper="Obbligatoria, e scelta da un elenco: e cio che rende il movimento leggibile in un rendiconto. Le causali si configurano nel profilo fiscale del club."
+          >
+            <Select
+              id="movimento-causale"
+              value={operationTypeCode}
+              onValueChange={touch(setOperationTypeCode)}
+              options={causali.map((type) => ({ value: type.code, label: type.label }))}
+              placeholder="Scegli una causale"
+            />
+          </Field>
+
+          <Field label="Descrizione" htmlFor="movimento-descrizione">
+            <TextInput
               id="movimento-descrizione"
               placeholder="Cosa e successo"
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={(event) => touch(setDescription)(event.target.value)}
             />
-          </div>
+          </Field>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="movimento-controparte">
-                Controparte (facoltativa)
-              </Label>
-              <Input
+          <FormGrid columns={2}>
+            <Field label="Controparte" htmlFor="movimento-controparte" optional>
+              <TextInput
                 id="movimento-controparte"
                 placeholder="Chi sta dall'altra parte"
                 value={counterpartyLabel}
-                onChange={(event) => setCounterpartyLabel(event.target.value)}
+                onChange={(event) => touch(setCounterpartyLabel)(event.target.value)}
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="movimento-metodo">
-                Metodo di pagamento (facoltativo)
-              </Label>
-              <Input
+            </Field>
+            <Field label="Metodo di pagamento" htmlFor="movimento-metodo" optional>
+              <TextInput
                 id="movimento-metodo"
                 placeholder="Contanti, bonifico, POS"
                 value={paymentMethod}
-                onChange={(event) => setPaymentMethod(event.target.value)}
+                onChange={(event) => touch(setPaymentMethod)(event.target.value)}
               />
-            </div>
-          </div>
+            </Field>
+          </FormGrid>
 
+          {/* Si chiede solo ai club multi-sede (ADR-0038). */}
           {isMultiSiteClub(sites) ? (
-            <div className="space-y-2">
-              <Label htmlFor="movimento-sede">Sede (facoltativa)</Label>
-              <SiteSelect
+            <Field label="Sede" htmlFor="movimento-sede" optional>
+              <Select
                 id="movimento-sede"
-                sites={sites}
-                value={siteId}
-                onChange={setSiteId}
-                emptyLabel="Tutte le sedi"
+                value={siteId || NESSUNA_SEDE}
+                onValueChange={(next) => touch(setSiteId)(next === NESSUNA_SEDE ? "" : next)}
+                options={siteOptions(sites)}
               />
-            </div>
+            </Field>
           ) : null}
 
-          <div className="space-y-2">
-            <Label htmlFor="movimento-note">Note (facoltative)</Label>
+          <Field label="Note" htmlFor="movimento-note" optional>
             <Textarea
               id="movimento-note"
               rows={2}
               value={notes}
-              onChange={(event) => setNotes(event.target.value)}
+              onChange={(event) => touch(setNotes)(event.target.value)}
             />
-          </div>
+          </Field>
         </div>
-
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
-          >
-            Annulla
-          </Button>
-          <Button
-            type="button"
-            disabled={!completo || saving}
-            onClick={() =>
-              onSubmit({
-                entry_date: entryDate,
-                direction,
-                amount: importo,
-                financial_account_id: accountId,
-                operation_type_code: operationTypeCode,
-                description: description.trim(),
-                notes: notes.trim(),
-                payment_method: paymentMethod.trim(),
-                counterparty_label: counterpartyLabel.trim(),
-                site_id: siteId,
-              })
-            }
-          >
-            {saving ? "Registrazione..." : "Registra"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </FieldSizeProvider>
+    </Drawer>
   );
 }
 
@@ -372,6 +416,7 @@ export function TransferDialog({
   const [description, setDescription] = useState("");
   const [notes, setNotes] = useState("");
   const [siteId, setSiteId] = useState("");
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -382,138 +427,41 @@ export function TransferDialog({
     setDescription("");
     setNotes("");
     setSiteId("");
+    setDirty(false);
   }, [open]);
 
-  const importo = Number(String(amount).replace(",", "."));
+  const touch = <T,>(setter: (value: T) => void) => (value: T) => {
+    setDirty(true);
+    setter(value);
+  };
+
+  const importo = parseImporto(amount);
+  const importoValido = Number.isFinite(importo) && importo > 0;
+  const stessoConto = Boolean(fromAccountId) && fromAccountId === toAccountId;
   const completo =
     Boolean(entryDate) &&
-    Number.isFinite(importo) &&
-    importo > 0 &&
+    importoValido &&
     Boolean(fromAccountId) &&
     Boolean(toAccountId) &&
-    fromAccountId !== toAccountId;
+    !stessoConto;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Registra un giroconto</DialogTitle>
-          <DialogDescription>
-            Denaro che cambia conto senza entrare ne uscire dal club: un
-            versamento della cassa in banca, un prelievo. Non compare fra le
-            entrate ne fra le uscite del periodo, e la liquidita totale non
-            cambia.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="grid gap-4 py-2">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="giroconto-data">Data</Label>
-              <Input
-                id="giroconto-data"
-                type="date"
-                value={entryDate}
-                onChange={(event) => setEntryDate(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="giroconto-importo">Importo (EUR)</Label>
-              <Input
-                id="giroconto-importo"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0,00"
-                value={amount}
-                onChange={(event) => setAmount(event.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="giroconto-da">Dal conto</Label>
-              <Select value={fromAccountId} onValueChange={setFromAccountId}>
-                <SelectTrigger id="giroconto-da">
-                  <SelectValue placeholder="Conto di partenza" />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts.map((account) => (
-                    <SelectItem key={account.id} value={account.id}>
-                      {account.name} · {account.kindLabel}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="giroconto-a">Al conto</Label>
-              <Select value={toAccountId} onValueChange={setToAccountId}>
-                <SelectTrigger id="giroconto-a">
-                  <SelectValue placeholder="Conto di arrivo" />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts
-                    .filter((account) => account.id !== fromAccountId)
-                    .map((account) => (
-                      <SelectItem key={account.id} value={account.id}>
-                        {account.name} · {account.kindLabel}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="giroconto-descrizione">
-              Descrizione (facoltativa)
-            </Label>
-            <Input
-              id="giroconto-descrizione"
-              placeholder="Versamento incassi di settembre"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </div>
-
-          {isMultiSiteClub(sites) ? (
-            <div className="space-y-2">
-              <Label htmlFor="giroconto-sede">Sede (facoltativa)</Label>
-              <SiteSelect
-                id="giroconto-sede"
-                sites={sites}
-                value={siteId}
-                onChange={setSiteId}
-                emptyLabel="Tutte le sedi"
-              />
-            </div>
-          ) : null}
-
-          <div className="space-y-2">
-            <Label htmlFor="giroconto-note">Note (facoltative)</Label>
-            <Textarea
-              id="giroconto-note"
-              rows={2}
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      width="default"
+      eyebrow="Prima nota"
+      title="Registra un giroconto"
+      description="Denaro che cambia conto senza entrare ne uscire dal club: un versamento della cassa in banca, un prelievo. Non compare fra le entrate ne fra le uscite del periodo, e la liquidita totale non cambia."
+      dirty={dirty}
+      locked={saving}
+      data-test="accounting-transfer-drawer"
+      footer={
+        <>
           <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
-          >
-            Annulla
-          </Button>
-          <Button
-            type="button"
+            variant="primary"
             disabled={!completo || saving}
+            loading={saving}
             onClick={() =>
               onSubmit({
                 entry_date: entryDate,
@@ -528,9 +476,80 @@ export function TransferDialog({
           >
             {saving ? "Registrazione..." : "Registra giroconto"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={saving}>
+            Annulla
+          </Button>
+        </>
+      }
+    >
+      <FieldSizeProvider size="sm">
+        <div className="flex flex-col gap-5">
+          <FormGrid columns={2}>
+            <Field label="Data" htmlFor="giroconto-data" required>
+              <DateInput id="giroconto-data" value={entryDate} onChange={(event) => touch(setEntryDate)(event.target.value)} />
+            </Field>
+            <Field
+              label="Importo"
+              htmlFor="giroconto-importo"
+              required
+              error={amount.trim() && !importoValido ? "L'importo deve essere un numero maggiore di zero." : undefined}
+            >
+              <CurrencyInput id="giroconto-importo" value={amount} onChange={(event) => touch(setAmount)(event.target.value)} />
+            </Field>
+          </FormGrid>
+
+          <FormGrid columns={2}>
+            <Field label="Dal conto" htmlFor="giroconto-da" required>
+              <Select
+                id="giroconto-da"
+                value={fromAccountId}
+                onValueChange={touch(setFromAccountId)}
+                options={accountOptions(accounts)}
+                placeholder="Conto di partenza"
+              />
+            </Field>
+            <Field
+              label="Al conto"
+              htmlFor="giroconto-a"
+              required
+              error={stessoConto ? "Il conto di arrivo deve essere diverso da quello di partenza." : undefined}
+            >
+              <Select
+                id="giroconto-a"
+                value={toAccountId}
+                onValueChange={touch(setToAccountId)}
+                options={accountOptions(accounts.filter((account) => account.id !== fromAccountId))}
+                placeholder="Conto di arrivo"
+              />
+            </Field>
+          </FormGrid>
+
+          <Field label="Descrizione" htmlFor="giroconto-descrizione">
+            <TextInput
+              id="giroconto-descrizione"
+              placeholder="Versamento incassi di settembre"
+              value={description}
+              onChange={(event) => touch(setDescription)(event.target.value)}
+            />
+          </Field>
+
+          {isMultiSiteClub(sites) ? (
+            <Field label="Sede" htmlFor="giroconto-sede">
+              <Select
+                id="giroconto-sede"
+                value={siteId || NESSUNA_SEDE}
+                onValueChange={(next) => touch(setSiteId)(next === NESSUNA_SEDE ? "" : next)}
+                options={siteOptions(sites)}
+              />
+            </Field>
+          ) : null}
+
+          <Field label="Note" htmlFor="giroconto-note">
+            <Textarea id="giroconto-note" rows={2} value={notes} onChange={(event) => touch(setNotes)(event.target.value)} />
+          </Field>
+        </div>
+      </FieldSizeProvider>
+    </Drawer>
   );
 }
 
@@ -539,7 +558,8 @@ export function TransferDialog({
 /* ========================================================================== */
 
 /**
- * Lo storno, con il **motivo obbligatorio**.
+ * Lo storno, con il **motivo obbligatorio**: una conferma distruttiva in un
+ * modale che non si chiude sul velo (guideline 08 §8.9).
  *
  * Senza motivo la riga non spiega niente, e chi la rilegge fra sei mesi vede
  * due importi uguali e opposti senza sapere se fu un errore di battitura o un
@@ -567,78 +587,64 @@ export function ReverseEntryDialog({
   }, [line]);
 
   return (
-    <Dialog open={Boolean(line)} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Storna il movimento</DialogTitle>
-          <DialogDescription>
-            Il denaro non si cancella. Lo storno lascia visibili entrambe le
-            righe, l&apos;originale e la sua correzione, con il motivo scritto
-            sopra.
-          </DialogDescription>
-        </DialogHeader>
-
-        {line ? (
-          <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
-            <p className="font-medium text-slate-900">{line.description}</p>
-            <p className="mt-1 text-slate-600">
+    <Modal
+      open={Boolean(line)}
+      onOpenChange={saving ? () => {} : onOpenChange}
+      title="Storna il movimento"
+      description="Il denaro non si cancella. Lo storno lascia visibili entrambe le righe, l'originale e la sua correzione, con il motivo scritto sopra."
+      tone="danger"
+      icon={<Undo2 />}
+      strict
+      width={560}
+      footer={
+        <>
+          <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={saving}>
+            Annulla
+          </Button>
+          <Button
+            variant="danger"
+            disabled={!reason.trim() || saving}
+            loading={saving}
+            onClick={() => onSubmit({ reason: reason.trim(), entry_date: entryDate })}
+          >
+            {saving ? "Storno..." : "Storna"}
+          </Button>
+        </>
+      }
+    >
+      {line ? (
+        <div className="flex flex-col gap-4">
+          <div className="rounded-egw-field border border-egw-tint-red-bd bg-egw-tint-red px-4 py-3">
+            <p className="font-brand text-[13px] font-semibold text-egw-ink">{line.description}</p>
+            <p className="egw-num mt-1 font-brand text-[12px] text-egw-ink-72">
               {formatDate(line.entryDate)} · {formatCents(line.amountCents)} ·{" "}
               {line.financialAccountName || "conto non attribuito"}
             </p>
             {line.transferGroupId ? (
-              <p className="mt-2 text-slate-600">
-                E la gamba di un giroconto: lo storno riguarda entrambe le
-                gambe, altrimenti le due meta divergono e il denaro sparisce fra
-                due conti.
+              <p className="mt-2 font-brand text-[12.5px] font-medium text-egw-ink">
+                E la gamba di un giroconto: lo storno riguarda entrambe le gambe,
+                altrimenti le due meta divergono e il denaro sparisce fra due conti.
               </p>
             ) : null}
           </div>
-        ) : null}
 
-        <div className="grid gap-4 py-2">
-          <div className="space-y-2">
-            <Label htmlFor="storno-motivo">Motivo dello storno</Label>
-            <Textarea
-              id="storno-motivo"
-              rows={3}
-              placeholder="Perche questo movimento va corretto"
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="storno-data">Data dello storno</Label>
-            <Input
-              id="storno-data"
-              type="date"
-              value={entryDate}
-              onChange={(event) => setEntryDate(event.target.value)}
-            />
-          </div>
+          <FieldSizeProvider size="sm">
+            <Field label="Motivo dello storno" htmlFor="storno-motivo" required>
+              <Textarea
+                id="storno-motivo"
+                rows={3}
+                placeholder="Perche questo movimento va corretto"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+              />
+            </Field>
+            <Field label="Data dello storno" htmlFor="storno-data" className="mt-4" width="20ch">
+              <DateInput id="storno-data" value={entryDate} onChange={(event) => setEntryDate(event.target.value)} />
+            </Field>
+          </FieldSizeProvider>
         </div>
-
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
-          >
-            Annulla
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={!reason.trim() || saving}
-            onClick={() =>
-              onSubmit({ reason: reason.trim(), entry_date: entryDate })
-            }
-          >
-            {saving ? "Storno..." : "Storna"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      ) : null}
+    </Modal>
   );
 }
 
@@ -664,6 +670,7 @@ export function ReconcileEntryDialog({
   const [status, setStatus] = useState<string>("reconciled");
   const [valueDate, setValueDate] = useState("");
   const [bankReference, setBankReference] = useState("");
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     if (!line) return;
@@ -674,83 +681,31 @@ export function ReconcileEntryDialog({
     );
     setValueDate(line.valueDate ? line.valueDate.slice(0, 10) : "");
     setBankReference(line.bankReference || "");
+    setDirty(false);
   }, [line]);
 
+  const touch = <T,>(setter: (value: T) => void) => (value: T) => {
+    setDirty(true);
+    setter(value);
+  };
+
   return (
-    <Dialog open={Boolean(line)} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Spunta contro l&apos;estratto conto</DialogTitle>
-          <DialogDescription>
-            Riconciliare non cambia nessun numero: dice che l&apos;estratto
-            conto conferma il movimento. E cosi che «cosa non ho ancora visto
-            arrivare in banca» diventa una domanda con una risposta.
-          </DialogDescription>
-        </DialogHeader>
-
-        {line ? (
-          <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
-            <p className="font-medium text-slate-900">{line.description}</p>
-            <p className="mt-1 text-slate-600">
-              {formatDate(line.entryDate)} · {formatCents(line.amountCents)}
-            </p>
-          </div>
-        ) : null}
-
-        <div className="grid gap-4 py-2">
-          <div className="space-y-2">
-            <Label htmlFor="riconcilia-stato">Stato</Label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger id="riconcilia-stato">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RECONCILIATION_STATUSES.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {RECONCILIATION_STATUS_LABELS[value]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="riconcilia-valuta">
-              Data valuta (facoltativa)
-            </Label>
-            <Input
-              id="riconcilia-valuta"
-              type="date"
-              value={valueDate}
-              onChange={(event) => setValueDate(event.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="riconcilia-riferimento">
-              Riferimento bancario (facoltativo)
-            </Label>
-            <Input
-              id="riconcilia-riferimento"
-              placeholder="CRO, numero distinta"
-              value={bankReference}
-              onChange={(event) => setBankReference(event.target.value)}
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
+    <Drawer
+      open={Boolean(line)}
+      onOpenChange={onOpenChange}
+      width="default"
+      eyebrow="Prima nota"
+      title="Spunta contro l'estratto conto"
+      description="Riconciliare non cambia nessun numero: dice che l'estratto conto conferma il movimento. E cosi che «cosa non ho ancora visto arrivare in banca» diventa una domanda con una risposta."
+      dirty={dirty}
+      locked={saving}
+      data-test="accounting-reconcile-drawer"
+      footer={
+        <>
           <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
+            variant="primary"
             disabled={saving}
-          >
-            Annulla
-          </Button>
-          <Button
-            type="button"
-            disabled={saving}
+            loading={saving}
             onClick={() =>
               onSubmit({
                 status,
@@ -761,8 +716,42 @@ export function ReconcileEntryDialog({
           >
             {saving ? "Salvataggio..." : "Salva"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={saving}>
+            Annulla
+          </Button>
+        </>
+      }
+    >
+      <FieldSizeProvider size="sm">
+        {line ? (
+          <DrawerSection eyebrow="Movimento">
+            <LinePreview line={line} />
+          </DrawerSection>
+        ) : null}
+        <DrawerSection eyebrow="Riconciliazione">
+          <div className="flex flex-col gap-5">
+            <Field label="Stato" htmlFor="riconcilia-stato">
+              <Select
+                id="riconcilia-stato"
+                value={status}
+                onValueChange={touch(setStatus)}
+                options={RECONCILIATION_STATUSES.map((value) => ({ value, label: RECONCILIATION_STATUS_LABELS[value] }))}
+              />
+            </Field>
+            <Field label="Data valuta" htmlFor="riconcilia-valuta" optional>
+              <DateInput id="riconcilia-valuta" value={valueDate} onChange={(event) => touch(setValueDate)(event.target.value)} />
+            </Field>
+            <Field label="Riferimento bancario" htmlFor="riconcilia-riferimento" optional>
+              <TextInput
+                id="riconcilia-riferimento"
+                placeholder="CRO, numero distinta"
+                value={bankReference}
+                onChange={(event) => touch(setBankReference)(event.target.value)}
+              />
+            </Field>
+          </div>
+        </DrawerSection>
+      </FieldSizeProvider>
+    </Drawer>
   );
 }

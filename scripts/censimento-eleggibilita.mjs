@@ -249,7 +249,12 @@ const TABELLA = {
     catalogo: false,
     canonico: false,
   },
-  "src/app/medical/page.tsx": {
+  /*
+    Dal Web V2 il filtro vive nel modello puro della griglia, non nella
+    pagina: e la stessa decisione (per identita, con il catalogo), spostata
+    dove i test la possono provare senza React.
+  */
+  "src/components/medical/v2/certificate-grid-model.ts": {
     decide: "il filtro per categoria della schermata sanitaria",
     catalogo: true,
     canonico: false,

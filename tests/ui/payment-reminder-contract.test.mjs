@@ -142,10 +142,15 @@ test("la finestra del sollecito impila invece di scorrere in orizzontale", () =>
     /<table|<Table\b/,
     "a 375 px una tabella nasconderebbe proprio la colonna del motivo",
   );
+  /*
+    Dal Web V2 l'anteprima e un cassetto: il corpo scorre da solo e il piede
+    con il pulsante resta sempre raggiungibile (`Drawer`, guideline 06 §6.7).
+  */
+  assert.match(source, /<Drawer\b/, "l'anteprima e un cassetto delle fondamenta");
   assert.match(
-    source,
-    /max-h-\[90vh\] overflow-y-auto/,
-    "un dialogo piu alto della finestra e un dialogo il cui pulsante non si raggiunge",
+    readFileSync(path.join(SRC, "components", "web", "overlays", "Drawer.tsx"), "utf8"),
+    /min-h-0 flex-1 overflow-y-auto/,
+    "un cassetto piu alto della finestra e un cassetto il cui pulsante non si raggiunge",
   );
 });
 
@@ -162,11 +167,19 @@ test("il pulsante di invio si disabilita mentre l'invio e in corso", () => {
 test("l'elenco pagamenti offre la selezione multipla e l'azione «Sollecita»", () => {
   const source = read("app/movements/page.tsx");
 
-  assert.match(source, /useListSelection\(\)/, "la selezione e quella condivisa");
-  assert.match(source, /<BulkSelectionToolbar/, "manca la barra delle azioni");
-  assert.match(source, /<SelectRowCheckbox/, "manca la casella di riga");
-  assert.match(source, /<SelectAllCheckbox/, "manca «seleziona tutti visibili»");
-  assert.match(source, /Sollecita/, "manca l'azione di massa");
+  /*
+    Dal Web V2 la selezione multipla e la barra di massa sono quelle del
+    DataGrid (guideline 07 §7.7): la pagina dichiara l'azione e la selezione,
+    la griglia disegna caselle di riga, «seleziona la pagina» e la barra.
+  */
+  assert.match(source, /selectedIds=\{reminderSelection\}/, "la selezione e controllata dalla pagina");
+  assert.match(source, /bulkActions=\{rateBulkActions\}/, "manca la barra delle azioni di massa");
+  assert.match(source, /label: "Sollecita"/, "manca l'azione di massa");
+  assert.match(
+    source,
+    /canSendReminders\s*\?\s*\[/,
+    "senza permesso l'azione e assente, non disabilitata",
+  );
   assert.match(
     source,
     /<PaymentReminderDialog/,

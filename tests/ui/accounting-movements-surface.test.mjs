@@ -45,12 +45,21 @@ const readCode = (relative) =>
 
 const PAGE = "src/app/movements/page.tsx";
 
+/*
+  Dal Web V2 la barra dei filtri e la tabella (`AccountingFilters`,
+  `AccountingEntries`) non esistono piu: il registro e una configurazione del
+  `DataGrid` (`v2/prima-nota-grid.tsx`), le rate un'altra (`v2/rate-grid.tsx`)
+  e anno fiscale e stagione sono controlli di contesto nell'intestazione.
+*/
+const GRID = "src/components/accounting/v2/prima-nota-grid.tsx";
+
 const SURFACE = [
   PAGE,
   "src/components/accounting/accounting-view.ts",
   "src/components/accounting/AccountingSummary.tsx",
-  "src/components/accounting/AccountingFilters.tsx",
-  "src/components/accounting/AccountingEntries.tsx",
+  GRID,
+  "src/components/accounting/v2/rate-grid.tsx",
+  "src/components/accounting/v2/context-controls.tsx",
   "src/components/accounting/AccountingEntryDialogs.tsx",
 ];
 
@@ -210,17 +219,26 @@ test("lo storno esiste, e chiede un motivo", () => {
 /* ========================================================================== */
 
 test("le azioni di riga nascono dai flag del servizio, non da un ricalcolo locale", () => {
-  const lista = readCode("src/components/accounting/AccountingEntries.tsx");
+  const lista = readCode(GRID);
 
+  /*
+    Nel DataGrid un'azione negata e **assente** (`hidden`), mai disabilitata:
+    la regola e la stessa della V1, cambia solo la forma.
+  */
   assert.match(
     lista,
-    /line\.canReconcile \?/,
+    /hidden: \(line\) => !line\.canReconcile/,
     "«Riconcilia» compare solo se la riga lo consente",
   );
   assert.match(
     lista,
-    /line\.canReverse \?/,
+    /hidden: \(line\) => !line\.canReverse/,
     "«Storna» compare solo se la riga lo consente",
+  );
+  assert.equal(
+    /disabled:/.test(lista),
+    false,
+    "un permesso negato e un'azione assente, non un pulsante spento",
   );
 
   /*
@@ -316,18 +334,29 @@ test("chi non puo vedere i saldi legge perche, e non degli zeri", () => {
 /* Multi-sede                                                                  */
 /* ========================================================================== */
 
-test("il filtro sede passa dal componente che conosce ADR-0038", () => {
-  const filtri = read("src/components/accounting/AccountingFilters.tsx");
+test("il filtro sede passa dal predicato che conosce ADR-0038", () => {
+  /*
+    Nel Web V2 i filtri sono definizioni per il DataGrid, non componenti: la
+    regola «il club mono-sede non paga niente» resta nel suo proprietario
+    (`isMultiSiteClub` di `@/lib/club-sites`, lo stesso che usa `SiteFilter`)
+    e qui si **importa**, non si riscrive contando le sedi.
+  */
+  const filtri = readCode(GRID);
 
   assert.match(
     filtri,
-    /<SiteFilter/,
-    "il club mono-sede non paga niente: la regola vive in SiteFilter, non qui",
+    /import \{ getActiveClubSites, isMultiSiteClub \} from "@\/lib\/club-sites"/,
+    "la regola vive in club-sites, e qui si importa",
+  );
+  assert.match(
+    filtri,
+    /if \(isMultiSiteClub\(sites\)\) \{[\s\S]{0,200}label: "Sede"/,
+    "il filtro sede si monta solo ai club multi-sede",
   );
   assert.equal(
-    /isMultiSiteClub/.test(filtri),
+    /sites\.length\s*[><=]/.test(filtri),
     false,
-    "riscrivere la condizione qui sarebbe la seconda copia della stessa regola",
+    "contare le sedi qui sarebbe la seconda copia della stessa regola",
   );
 });
 
@@ -341,8 +370,13 @@ test("la sede di un movimento e facoltativa e si chiede solo ai club multi-sede"
   );
   assert.match(
     dialoghi,
-    /Sede \(facoltativa\)/,
+    /label="Sede" htmlFor="movimento-sede" optional/,
     "il brief vieta di obbligare la sede su ogni movimento",
+  );
+  assert.equal(
+    /htmlFor="(movimento|giroconto)-sede" required/.test(dialoghi),
+    false,
+    "la sede non e mai obbligatoria",
   );
 });
 
@@ -473,17 +507,24 @@ test("il riepilogo mostra la riga che qualifica i numeri", () => {
 /* ========================================================================== */
 
 test("a 375 px la tabella dei movimenti non allarga la pagina", () => {
-  const lista = read("src/components/accounting/AccountingEntries.tsx");
-
-  assert.match(
-    lista,
-    /md:hidden/,
-    "sotto md i movimenti sono schede: nove colonne restano illeggibili anche scorrendo",
+  /*
+    Dal Web V2 l'elenco e il DataGrid delle fondamenta, che scorre nel proprio
+    contenitore: la pagina deve solo usarlo e non disegnare una tabella propria.
+  */
+  const page = read(PAGE);
+  assert.match(page, /<DataGrid<AccountingLine>/, "il registro e il DataGrid");
+  assert.match(page, /module="prima-nota"/);
+  assert.equal(
+    /<Table|<table/.test(read(GRID) + page),
+    false,
+    "nessuna tabella propria: nove colonne in una tabella restano illeggibili a 375 px",
   );
+
+  const grid = read("src/components/web/datagrid/DataGrid.tsx");
   assert.match(
-    lista,
-    /hidden overflow-x-auto[^"]*md:block/,
-    "la tabella scorre nel proprio contenitore, non nel documento",
+    grid,
+    /overflow-auto/,
+    "la griglia scorre nel proprio contenitore, non nel documento",
   );
 });
 

@@ -49,9 +49,10 @@ const RIEPILOGO = "src/components/accounting/AccountingSummary.tsx";
 test("la scheda «Previsti» esiste di nuovo, e monta il suo componente", () => {
   const page = read(PAGE);
 
+  /* Dal Web V2 le schede sono un `SegmentedControl` con le sue opzioni. */
   assert.match(
     page,
-    /<TabsTrigger value="previsti">Previsti<\/TabsTrigger>/,
+    /\{ value: "previsti", label: "Previsti" \}/,
     "senza la scheda `expected_income` e `expected_expenses` non hanno nessuna interfaccia",
   );
   assert.match(page, /<ExpectedEntries clubId=\{activeClubId\} \/>/);
@@ -403,18 +404,24 @@ test("la conferma di rimozione e un dialogo, non un `confirm()` del browser", ()
 /* Responsivita                                                                */
 /* ========================================================================== */
 
-test("a 375 px l'elenco dei previsti e a schede, e la tabella scorre da sola", () => {
+test("a 375 px l'elenco dei previsti e il DataGrid, che scorre da solo", () => {
+  /*
+    Dal Web V2 l'elenco e il DataGrid delle fondamenta, che scorre nel proprio
+    contenitore: la scheda deve solo usarlo e non disegnare una tabella propria.
+  */
   const scheda = read(SCHEDA);
 
-  assert.match(
-    scheda,
-    /md:hidden/,
-    "sotto md una scheda per previsione: sei colonne restano illeggibili anche scorrendo",
+  assert.match(scheda, /<DataGrid<ExpectedEntryView>/, "l'elenco e il DataGrid");
+  assert.match(scheda, /module="previsti"/);
+  assert.equal(
+    /<Table\b|<table\b/.test(scheda),
+    false,
+    "nessuna tabella propria: sei colonne in una tabella restano illeggibili a 375 px",
   );
   assert.match(
-    scheda,
-    /hidden overflow-x-auto[^"]*md:block/,
-    "la tabella scorre nel proprio contenitore, non nel documento",
+    read("src/components/web/datagrid/DataGrid.tsx"),
+    /overflow-auto/,
+    "la griglia scorre nel proprio contenitore, non nel documento",
   );
 });
 

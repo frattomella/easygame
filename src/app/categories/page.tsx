@@ -1,42 +1,61 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { CategoryAthletesDialog } from "@/components/dialogs/CategoryAthletesDialog";
+import { useRouter } from "next/navigation";
+import {
+  ArrowUp,
+  ArrowDown,
+  ArrowUpRight,
+  BarChart3,
+  Layers,
+  MapPin,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  Users,
+} from "lucide-react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import {
   DashboardPageContainer,
   dashboardMainClassName,
 } from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { PageHeader, HeaderStat } from "@/components/web/page/PageHeader";
+import { EmptyStateCard } from "@/components/web/page/Cards";
+import { Button, IconButton } from "@/components/web/primitives/Button";
 import {
-  Search,
-  Plus,
-  Filter,
-  Users,
-  Calendar,
-  MoreVertical,
-  ChevronUp,
-  ChevronDown,
-} from "lucide-react";
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuTrigger,
+} from "@/components/web/primitives/Overlays";
+import { DangerConfirmDialog } from "@/components/web/overlays/Modal";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { RowActionDef } from "@/components/web/datagrid/types";
+import { formatInteger } from "@/lib/web/format";
+import { SiteContextControl } from "@/components/athletes/v2/athletes-context-controls";
 import {
   CATEGORY_DESCRIPTION_MAX_LENGTH,
-  CategoryEditorDialog,
-} from "@/components/forms/CategoryEditorDialog";
-import { CategoryDetailsDialog } from "@/components/categories/CategoryDetailsDialog";
+  CategoryEditorDrawer,
+  DEFAULT_CATEGORY_COLOR,
+} from "@/components/categories/v2/category-editor-drawer";
+import { CategoryInspectorDrawer } from "@/components/categories/v2/category-inspector-drawer";
+import { buildCategoryColumns } from "@/components/categories/v2/category-grid-columns";
+import {
+  CATEGORY_GRID_MODULE,
+  CATEGORY_VIEWS,
+  buildCategoryFilters,
+  categoryRowId,
+  categoryRowMatchesQuery,
+  collectCategoryBirthYears,
+  type CategoryRow,
+  type CategoryViewModel,
+} from "@/components/categories/v2/category-grid-model";
 import { apiRequest } from "@/lib/api/client";
 import { useToast } from "@/components/ui/toast-notification";
-import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/providers/AuthProvider";
-import {
-  compareAthletesByLastName,
-  getAthleteDisplayName,
-} from "@/lib/athlete-name-utils";
+import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 import {
   formatCategoryBirthYears,
   normalizeCategoryBirthYears,
@@ -53,20 +72,6 @@ import {
   getTrainerDisplayName,
   trainerHasCategory,
 } from "@/lib/trainer-utils";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { normalizeClubSeasons } from "@/lib/club-seasons";
 import { updateClubAthlete } from "@/lib/simplified-db";
 import {
@@ -79,45 +84,25 @@ import {
   type CategoryGroup,
   type ClubSite,
 } from "@/lib/club-sites";
-import { SiteFilter } from "@/components/sites/site-filter";
-import { MapPin } from "lucide-react";
 
-interface Category {
-  id: string;
-  name: string;
-  sport: string;
-  ageRange: string;
-  birthYearFrom?: number;
-  birthYearTo?: number;
-  birthYearsLabel: string;
-  athletesCount: number;
-  trainersCount: number;
-  trainingsPerWeek: number;
-  color: string;
-  /**
-   * Il posto scelto dal club (D-INT-9), quando c'e.
-   *
-   * Mancava, e questo modello di vista e un oggetto **chiuso**: il valore
-   * letto dal database si fermava qui, e `ordineDelClub` — che lo legge —
-   * trovava sempre `undefined`. Lo stato ottimistico dopo una freccia faceva
-   * sembrare che l'ordine tenesse; al ricaricamento successivo l'elenco
-   * tornava all'ordine di creazione, e la pagina che **scrive** l'ordine era
-   * l'unica a non saperlo rileggere.
-   */
-  sortOrder: number | null;
-  /**
-   * Categorie in cui gli atleti di questa categoria possono essere utilizzati.
-   * Configurazione esplicita, vedi `@/lib/category-compatibility`.
-   */
-  compatibleCategoryIds: string[];
-}
-
-type CategoryDialogAthlete = {
-  id: string;
-  name: string;
-  avatar?: string;
-  status: "active" | "inactive" | "suspended";
-};
+/**
+ * **Categorie — Web V2** (pattern 1, elenco operativo).
+ *
+ * La logica dati e quella della V1 — stesse letture dall'adattatore tabella,
+ * stesso `upsert`/`delete` su `categories`, stessa scrittura dei gruppi
+ * operativi (ADR-0055), stesso riordino a frecce (D-INT-9), stesso
+ * riallineamento esplicito (P0-8) — e vive in questo file come prima. Cambia
+ * la superficie: intestazione di pagina con i numeri, il contesto di sede
+ * (solo multi-sede, ADR-0038), un primario «Nuova categoria» che apre il
+ * cassetto 720 a sezioni, la griglia con viste, filtri, colonne, e le
+ * azioni di riga al posto del menu della card. L'ispettore sostituisce la
+ * modale «Info»; la conferma di eliminazione dice **cosa se ne va**.
+ *
+ * Due cose la V1 aveva e non facevano niente: il menu «Filtri» dietro
+ * `{false ? … : null}` e `CategoryAthletesDialog`, che nessun pulsante apriva.
+ * Sono state tolte, non tradotte (CLAUDE.md §11.8).
+ */
+type Category = CategoryViewModel;
 
 type ClubTrainer = {
   id: string;
@@ -450,19 +435,17 @@ const buildCategoryViewModel = (
       weeklySchedule,
       activeSeasonId,
     ),
-    color: rawCategory.color || "bg-blue-500 text-white",
+    color: rawCategory.color || DEFAULT_CATEGORY_COLOR,
     compatibleCategoryIds: readCategoryCompatibilityList(rawCategory),
     sortOrder: readCategorySortOrder(rawCategory),
   };
 };
 
 export default function CategoriesPage() {
-  const [searchQuery, setSearchQuery] = React.useState("");
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [loading, setLoading] = React.useState(true);
   const { user, activeClub, loading: authLoading } = useAuth();
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
-  const [showAthletesDialog, setShowAthletesDialog] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(
     null,
   );
@@ -473,11 +456,15 @@ export default function CategoriesPage() {
     null,
   );
   const [showCategoryDetails, setShowCategoryDetails] = useState(false);
-
-  // Real data for athletes in a category - loaded from database
-  const [categoryAthletes, setCategoryAthletes] = useState<
-    CategoryDialogAthlete[]
-  >([]);
+  /*
+    Cio che la griglia sta mostrando: serve solo a decidere se le frecce
+    dell'ordine hanno senso (V1: «compaiono solo quando l'elenco non e
+    filtrato»). La griglia filtra da se; qui non si rifiltra niente.
+  */
+  const [gridQuery, setGridQuery] = useState("");
+  const [gridFiltered, setGridFiltered] = useState(false);
+  /* La vista chiesta da un contatore dell'intestazione. */
+  const [requestedViewId, setRequestedViewId] = useState<string | null>(null);
   const [clubAthletes, setClubAthletes] = useState<any[]>([]);
   const [clubTrainers, setClubTrainers] = useState<ClubTrainer[]>([]);
   const [sites, setSites] = useState<ClubSite[]>([]);
@@ -619,21 +606,6 @@ export default function CategoriesPage() {
     );
   };
 
-const buildDialogAthletesForCategory = (category: Category) =>
-  clubAthletes
-    .slice()
-    .sort(compareAthletesByLastName)
-    .filter((athlete: any) => athleteBelongsToCategory(athlete, category))
-    .map((athlete: any) => ({
-      id: athlete.id,
-      name: getAthleteDisplayName(athlete) || "Atleta",
-        avatar: athlete.avatar_url || athlete.data?.avatar || undefined,
-        status: (athlete.status || athlete.data?.status || "active") as
-          | "active"
-          | "inactive"
-          | "suspended",
-      }));
-
   const handleAddCategory = async (categoryData: any) => {
     try {
 
@@ -693,7 +665,7 @@ const buildDialogAthletesForCategory = (category: Category) =>
         ageRange: categoryData.ageRange.trim(),
         birthYearFrom,
         birthYearTo,
-        color: categoryData.color || "bg-blue-500 text-white",
+        color: categoryData.color || DEFAULT_CATEGORY_COLOR,
         compatibleCategoryIds: readCategoryCompatibilityList(categoryData),
       };
 
@@ -1080,7 +1052,7 @@ const buildDialogAthletesForCategory = (category: Category) =>
     con cui e arrivata — cioe l'ordine di creazione, che e cio che il
     prodotto faceva prima e resta il ripiego onesto.
   */
-  const ordineDelClub = (elenco: any[]) =>
+  const ordineDelClub = <T extends Category>(elenco: T[]): T[] =>
     elenco
       .map((category, indice) => ({ category, indice }))
       .sort((sinistra, destra) => {
@@ -1092,8 +1064,8 @@ const buildDialogAthletesForCategory = (category: Category) =>
           in cui due schermate finiscono per ordinare in modo diverso lo
           stesso elenco.
         */
-        const postoSinistra = readCategorySortOrder(sinistra.category);
-        const postoDestra = readCategorySortOrder(destra.category);
+        const postoSinistra = readCategorySortOrder(sinistra.category as Record<string, unknown>);
+        const postoDestra = readCategorySortOrder(destra.category as Record<string, unknown>);
 
         const a = postoSinistra ?? Number.MAX_SAFE_INTEGER;
         const b = postoDestra ?? Number.MAX_SAFE_INTEGER;
@@ -1121,7 +1093,7 @@ const buildDialogAthletesForCategory = (category: Category) =>
     if (!activeClub) return;
 
     const ordinate = ordineDelClub(categories);
-    const da = ordinate.findIndex((voce: any) => voce.id === categoryId);
+    const da = ordinate.findIndex((voce) => voce.id === categoryId);
     const a = da + verso;
     if (da < 0 || a < 0 || a >= ordinate.length) return;
 
@@ -1157,322 +1129,377 @@ const buildDialogAthletesForCategory = (category: Category) =>
     }
   };
 
-  const filteredCategories = ordineDelClub(
-    categories.filter((category) => {
-      const matchesQuery =
-        category.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        category.sport.toLowerCase().includes(searchQuery.toLowerCase());
-
-      if (!matchesQuery || !siteFilter) {
-        return matchesQuery;
-      }
-
-      // Una categoria appartiene alla sede se ha un gruppo in quella sede.
-      // Il gruppo implicito (categoria senza sede) resta visibile ovunque:
-      // filtrare per sede non deve nascondere cio che non e ancora collocato.
-      return (groupsByCategoryId.get(category.id) || []).some(
-        (group) => !group.siteId || group.siteId === siteFilter,
-      );
-    }),
+  /*
+    La ricerca per nome/sport la fa la griglia (`search`); qui resta solo il
+    contesto di sede. Una categoria appartiene alla sede se ha un gruppo in
+    quella sede. Il gruppo implicito (categoria senza sede) resta visibile
+    ovunque: filtrare per sede non deve nascondere cio che non e ancora
+    collocato.
+  */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const ordinate = useMemo(() => ordineDelClub(categories), [categories]);
+  const filteredCategories = useMemo(
+    () =>
+      siteFilter
+        ? ordinate.filter((category) =>
+            (groupsByCategoryId.get(category.id) || []).some(
+              (group) => !group.siteId || group.siteId === siteFilter,
+            ),
+          )
+        : ordinate,
+    [ordinate, siteFilter, groupsByCategoryId],
   );
 
+  const multiSite = isMultiSiteClub(sites);
+
+  /*
+    Le righe della griglia: il modello di vista piu cio che la card V1
+    mostrava accanto — le sedi dei gruppi operativi non impliciti, i nomi
+    degli allenatori, le categorie compatibili — e la posizione nell'ordine
+    del club, che e l'ordinamento di partenza.
+  */
+  const rows: CategoryRow[] = useMemo(
+    () =>
+      filteredCategories.map((category) => {
+        const groups = groupsByCategoryId.get(category.id) || [];
+        const configured = groups.filter((group) => !group.implicit);
+        const trainers = clubTrainers.filter((trainer) =>
+          trainerHasCategory(trainer, category, categories),
+        );
+        return {
+          ...category,
+          posizione: ordinate.findIndex((voce) => voce.id === category.id) + 1,
+          siteNames: configured
+            .filter((group) => group.active && group.siteId)
+            .map((group) => group.siteName),
+          siteIds: configured
+            .filter((group) => group.active && group.siteId)
+            .map((group) => group.siteId),
+          archivedSiteNames: configured
+            .filter((group) => !group.active && group.siteId)
+            .map((group) => group.siteName),
+          trainerIds: trainers.map((trainer) => String(trainer.id)),
+          trainerNames: sortByName(
+            trainers.map((trainer) => getTrainerDisplayName(trainer)),
+            (name) => name,
+          ),
+          compatibleCategoryNames: category.compatibleCategoryIds
+            .map((id) => categories.find((voce) => voce.id === id)?.name)
+            .filter((name): name is string => Boolean(name)),
+        };
+      }),
+    [filteredCategories, ordinate, groupsByCategoryId, clubTrainers, categories],
+  );
+
+  const trainerOptions = useMemo(
+    () =>
+      sortByName(
+        clubTrainers.map((trainer) => ({
+          id: String(trainer.id),
+          name: getTrainerDisplayName(trainer),
+        })),
+        (trainer) => trainer.name,
+      ),
+    [clubTrainers],
+  );
+
+  const birthYears = useMemo(() => collectCategoryBirthYears(rows), [rows]);
+
+  const filters = useMemo(
+    () => buildCategoryFilters({ years: birthYears, trainers: trainerOptions }),
+    [birthYears, trainerOptions],
+  );
+
+  const openInspector = (row: Category) => {
+    setSelectedCategory(row);
+    setShowCategoryDetails(true);
+  };
+
+  const openEditor = (row: Category) => {
+    setShowCategoryDetails(false);
+    setSelectedCategory(row);
+    setEditingCategory(true);
+    setShowAddCategoryModal(true);
+  };
+
+  const openCreate = () => {
+    setSelectedCategory(null);
+    setEditingCategory(false);
+    setShowAddCategoryModal(true);
+  };
+
+  const goToAthletes = (row: Category) =>
+    router.push(`/athletes?category=${encodeURIComponent(row.id)}`);
+
+  const goToReport = (row: Category) =>
+    router.push(`/reports?report=categories&categoryId=${encodeURIComponent(row.id)}`);
+
+  const columns = useMemo(
+    () => buildCategoryColumns({ multiSite, onOpen: openInspector }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [multiSite],
+  );
+
+  /*
+    Le frecce dell'ordine compaiono solo quando l'elenco non e filtrato ne
+    cercato ne ristretto a una sede (V1): spostare «di un posto» dentro una
+    vista parziale sposterebbe di un posto che non si vede.
+  */
+  const canReorder = !gridQuery && !gridFiltered && !siteFilter;
+
+  const selectedRow = selectedCategory
+    ? rows.find((row) => row.id === selectedCategory.id) ?? null
+    : null;
+
+  /*
+    Le azioni di riga sono chiusure sullo stato corrente e si ricostruiscono
+    a ogni render: la griglia le usa solo per disegnare.
+  */
+  const rowActions: RowActionDef<CategoryRow>[] = [
+    {
+      id: "apri",
+      label: "Apri",
+      primary: true,
+      icon: <ArrowUpRight />,
+      onClick: (row) => openInspector(row),
+    },
+    {
+      id: "modifica",
+      label: "Modifica",
+      icon: <Pencil />,
+      onClick: (row) => openEditor(row),
+    },
+    {
+      /*
+        Le sedi si cambiano dove si cambia la categoria: una superficie
+        sola, non due (ADR-0055). La voce resta perche la card V1 la aveva.
+      */
+      id: "sedi",
+      label: "Cambia sedi",
+      icon: <MapPin />,
+      hidden: (row) => !multiSite || row.siteNames.length === 0,
+      onClick: (row) => openEditor(row),
+    },
+    {
+      id: "assegna-sedi",
+      label: "Assegna sedi",
+      icon: <MapPin />,
+      hidden: (row) => !multiSite || row.siteNames.length > 0,
+      onClick: (row) => openEditor(row),
+    },
+    {
+      id: "atleti",
+      label: "Vedi atleti",
+      icon: <Users />,
+      onClick: (row) => goToAthletes(row),
+    },
+    {
+      id: "report",
+      label: "Report",
+      icon: <BarChart3 />,
+      onClick: (row) => goToReport(row),
+    },
+    {
+      id: "sposta-su",
+      label: "Sposta in su",
+      icon: <ArrowUp />,
+      hidden: (row) => !canReorder || row.posizione <= 1,
+      onClick: (row) => void spostaCategoria(row.id, -1),
+    },
+    {
+      id: "sposta-giu",
+      label: "Sposta in giù",
+      icon: <ArrowDown />,
+      hidden: (row) => !canReorder || row.posizione >= ordinate.length,
+      onClick: (row) => void spostaCategoria(row.id, 1),
+    },
+    {
+      id: "elimina",
+      label: "Elimina",
+      tone: "danger",
+      icon: <Trash2 />,
+      onClick: (row) => {
+        setCategoryToDelete(row);
+        setShowDeleteConfirm(true);
+      },
+    },
+  ];
+
+  /* I numeri dell'intestazione: sull'intero club, non sulla sede scelta. */
+  const atletiAssegnati = useMemo(
+    () =>
+      new Set(
+        clubAthletes
+          .filter((athlete: any) => {
+            const athleteStatus = athlete.status || athlete.data?.status || "active";
+            return (
+              athleteStatus === "active" &&
+              categories.some((category) => athleteBelongsToCategory(athlete, category))
+            );
+          })
+          .map((athlete: any) => firstNonEmptyText(athlete?.id, athlete?.athlete_id)),
+      ).size,
+    [clubAthletes, categories],
+  );
+  const senzaAtleti = categories.filter((category) => category.athletesCount === 0).length;
+  const senzaAllenatore = categories.filter((category) => category.trainersCount === 0).length;
+
+  const ready = !loading && !authLoading;
+  const noClub = ready && (!user || !activeClub);
+  const archiveEmpty = ready && Boolean(user && activeClub) && categories.length === 0;
+
   return (
-    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header title="Categorie" />
         <main className={dashboardMainClassName}>
           <DashboardPageContainer>
-            <SharedPageHeader
+            <PageHeader
+              eyebrow="Sport"
               title="Categorie"
-              subtitle="Organizza le categorie e i gruppi sportivi del club."
-            />
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div className="relative w-full sm:w-auto">
-                <Input
-                  placeholder="Cerca categorie..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10 w-full sm:w-80"
-                />
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className="flex gap-2 w-full sm:w-auto">
-                {false ? (
-                  <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="flex-1 sm:flex-none">
-                      <Filter className="h-4 w-4 mr-2" />
-                      Filtri
+              description="Organizza le categorie e i gruppi sportivi del club."
+              stats={
+                activeClub && ready && categories.length > 0 ? (
+                  <>
+                    <HeaderStat value={formatInteger(categories.length)} label="categorie" />
+                    <HeaderStat value={formatInteger(atletiAssegnati)} label="atleti assegnati" tone="green" />
+                    <HeaderStat
+                      value={formatInteger(senzaAtleti)}
+                      label="senza atleti"
+                      tone={senzaAtleti > 0 ? "amber" : "ink"}
+                      onClick={() => setRequestedViewId("senza-atleti")}
+                    />
+                    <HeaderStat
+                      value={formatInteger(senzaAllenatore)}
+                      label="senza allenatore"
+                      tone={senzaAllenatore > 0 ? "amber" : "ink"}
+                      onClick={() => setRequestedViewId("senza-allenatore")}
+                    />
+                    {multiSite ? (
+                      <HeaderStat value={formatInteger(getActiveClubSites(sites).length)} label="sedi" />
+                    ) : null}
+                  </>
+                ) : null
+              }
+              context={
+                activeClub ? (
+                  <SiteContextControl
+                    sites={sites}
+                    value={siteFilter}
+                    onChange={setSiteFilter}
+                    id="categories-site-filter"
+                  />
+                ) : null
+              }
+              actions={
+                activeClub ? (
+                  <>
+                    <Menu>
+                      <MenuTrigger asChild>
+                        <IconButton aria-label="Altre azioni" variant="secondary" size="md">
+                          <MoreHorizontal />
+                        </IconButton>
+                      </MenuTrigger>
+                      <MenuContent align="end" width={220}>
+                        <MenuItem onSelect={() => router.push("/reports?report=categories")}>
+                          <BarChart3 />
+                          Report categorie
+                        </MenuItem>
+                        {multiSite ? (
+                          <MenuItem onSelect={() => router.push("/structures")}>
+                            <MapPin />
+                            Sedi e strutture
+                          </MenuItem>
+                        ) : null}
+                      </MenuContent>
+                    </Menu>
+                    <Button variant="primary" onClick={openCreate}>
+                      Nuova categoria
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        showToast("info", "Filtro per sport applicato")
-                      }
-                    >
-                      Per Sport
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        showToast("info", "Filtro per età applicato")
-                      }
-                    >
-                      Per Età
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() =>
-                        showToast("info", "Filtro per numero atleti applicato")
-                      }
-                    >
-                      Per Numero Atleti
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => showToast("info", "Filtri resettati")}
-                    >
-                      Resetta Filtri
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : null}
-                <Button
-                  className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700"
-                  onClick={() => setShowAddCategoryModal(true)}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Nuova Categoria
-                </Button>
-              </div>
-            </div>
-
-            <SiteFilter
-              sites={sites}
-              value={siteFilter}
-              onChange={setSiteFilter}
-              label="Mostra le categorie svolte a"
-              id="categories-site-filter"
+                  </>
+                ) : null
+              }
             />
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {loading || authLoading ? (
-                <div className="col-span-full flex justify-center py-12">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                </div>
-              ) : !user || !activeClub ? (
-                <div className="col-span-full flex flex-col items-center justify-center py-12 text-center">
-                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
-                    <Users className="h-8 w-8 text-red-400" />
-                  </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">
-                    Club non selezionato
-                  </h3>
-                  <p className="text-gray-500 mb-4">
-                    Seleziona un club per visualizzare e gestire le categorie
-                  </p>
-                  <Button
-                    className="bg-blue-600 hover:bg-blue-700"
-                    onClick={() => (window.location.href = "/dashboard")}
-                  >
+            {noClub ? (
+              <EmptyStateCard
+                icon={<Users />}
+                iconTone="red"
+                title="Club non selezionato"
+                description="Seleziona un club per visualizzare e gestire le categorie"
+                primary={
+                  <Button variant="neutral" onClick={() => router.push("/dashboard")}>
                     Vai alla Dashboard
                   </Button>
-                </div>
-              ) : filteredCategories.length === 0 ? (
-                <div className="col-span-full flex flex-col items-center justify-center py-12 text-center">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                    <Users className="h-8 w-8 text-gray-400" />
-                  </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">
-                    Nessuna categoria presente
-                  </h3>
-                  <p className="text-gray-500 mb-4">
-                    Inizia creando la prima categoria per il tuo club
-                  </p>
-                  <Button
-                    className="bg-blue-600 hover:bg-blue-700"
-                    onClick={() => setShowAddCategoryModal(true)}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Crea Prima Categoria
+                }
+              />
+            ) : archiveEmpty ? (
+              /*
+                Il modulo vuoto (pattern 8): un pannello solo, con la prima
+                azione. La V1 mostrava questa stessa proposta anche quando la
+                ricerca non trovava niente; qui il «nessun risultato» e della
+                griglia, e non propone di creare.
+              */
+              <EmptyStateCard
+                icon={<Layers />}
+                title="Nessuna categoria presente"
+                description="Inizia creando la prima categoria per il tuo club"
+                primary={
+                  <Button variant="neutral" onClick={openCreate}>
+                    Crea la prima categoria
                   </Button>
-                </div>
-              ) : (
-                filteredCategories.map((category, posizione) => (
-                  <Card key={category.id} className="overflow-hidden">
-                    <div
-                      className={`h-2 ${category.color.split(" ")[0]}`}
-                    ></div>
-                    <CardHeader className="pb-2">
-                      <div className="flex justify-between items-start gap-2">
-                        <div className="flex min-w-0 items-center gap-1">
-                          {/*
-                            **L'ordine si sposta da qui** (D-INT-9).
-
-                            Due frecce e non un trascinamento: questa pagina
-                            si apre in palestra, e il trascinamento su un
-                            telefono e la cosa piu difficile da azzeccare che
-                            ci sia. Due pulsanti funzionano al primo colpo,
-                            con il pollice, e da tastiera senza aggiungere
-                            niente.
-
-                            Compaiono solo quando l'elenco non e filtrato:
-                            spostare «di un posto» dentro una vista parziale
-                            sposterebbe di un posto **che non si vede**, e il
-                            risultato sembrerebbe casuale.
-                          */}
-                          {!searchQuery && !siteFilter ? (
-                            <div className="flex flex-col">
-                              <button
-                                type="button"
-                                aria-label={`Sposta ${category.name} in su`}
-                                data-testid="sposta-su"
-                                disabled={posizione === 0}
-                                className="rounded p-0.5 text-muted-foreground transition hover:bg-muted disabled:opacity-30"
-                                onClick={() => spostaCategoria(category.id, -1)}
-                              >
-                                <ChevronUp className="h-4 w-4" />
-                              </button>
-                              <button
-                                type="button"
-                                aria-label={`Sposta ${category.name} in giu`}
-                                data-testid="sposta-giu"
-                                disabled={posizione === filteredCategories.length - 1}
-                                className="rounded p-0.5 text-muted-foreground transition hover:bg-muted disabled:opacity-30"
-                                onClick={() => spostaCategoria(category.id, 1)}
-                              >
-                                <ChevronDown className="h-4 w-4" />
-                              </button>
-                            </div>
-                          ) : null}
-                          <CardTitle className="truncate text-lg">
-                            {category.name}
-                          </CardTitle>
-                        </div>
-                        <Badge
-                          className={`${category.color} max-w-[180px] truncate`}
-                          title={category.sport}
-                        >
-                          {category.sport}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        Anni di nascita: {category.birthYearsLabel}
-                      </p>
-                      {isMultiSiteClub(sites) ? (
-                        <div className="flex flex-wrap items-center gap-1 pt-1">
-                          {(groupsByCategoryId.get(category.id) || [])
-                            .filter((group) => !group.implicit)
-                            .map((group) => (
-                              <Badge
-                                key={group.id}
-                                variant="outline"
-                                className="gap-1 text-slate-600"
-                              >
-                                <MapPin className="h-3 w-3" />
-                                {group.siteName}
-                              </Badge>
-                            ))}
-                          {/*
-                            Le sedi si cambiano dove si cambia la categoria:
-                            una superficie sola, non due (ADR-0055).
-                          */}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 px-2 text-xs text-blue-600"
-                            onClick={() => {
-                              setSelectedCategory(category);
-                              setEditingCategory(true);
-                              setShowAddCategoryModal(true);
-                            }}
-                          >
-                            {(groupsByCategoryId.get(category.id) || []).some(
-                              (group) => !group.implicit,
-                            )
-                              ? "Cambia sedi"
-                              : "Assegna sedi"}
-                          </Button>
-                        </div>
-                      ) : null}
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm">
-                              {category.athletesCount} atleti
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm">
-                              {category.trainersCount} allenatori
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          <span className="text-sm">
-                              {category.trainingsPerWeek}{" "}
-                              {category.trainingsPerWeek === 1
-                                ? "allenamento settimanale"
-                                : "allenamenti settimanali"}
-                          </span>
-                        </div>
-                        <div className="flex justify-end pt-2">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                aria-label={`Azioni per ${category.name}`}
-                              >
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setSelectedCategory(category);
-                                  setEditingCategory(true);
-                                  setShowAddCategoryModal(true);
-                                }}
-                              >
-                                Modifica
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setSelectedCategory(category);
-                                  setShowCategoryDetails(true);
-                                }}
-                              >
-                                Info
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="text-red-600"
-                                onClick={() => {
-                                  setCategoryToDelete(category);
-                                  setShowDeleteConfirm(true);
-                                }}
-                              >
-                                Elimina
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </div>
+                }
+              />
+            ) : (
+              <DataGrid<CategoryRow>
+                module={CATEGORY_GRID_MODULE}
+                aria-label="Elenco categorie"
+                rows={rows}
+                getRowId={categoryRowId}
+                rowLabel={(row) => row.name}
+                totalCount={rows.length}
+                columns={columns}
+                filters={filters}
+                views={CATEGORY_VIEWS}
+                search={{ placeholder: "Cerca categorie", match: categoryRowMatchesQuery }}
+                defaultSort={{ columnId: "ordine", direction: "asc" }}
+                rowActions={rowActions}
+                onOpenRow={openInspector}
+                onInspectRow={openInspector}
+                activeRowId={showCategoryDetails ? selectedRow?.id ?? null : null}
+                requestedViewId={requestedViewId}
+                onViewChange={() => setRequestedViewId(null)}
+                onQueryChange={setGridQuery}
+                onFiltersChange={(next) =>
+                  setGridFiltered(
+                    Object.values(next).some((value) =>
+                      Array.isArray(value) ? value.length > 0 : value !== null && value !== undefined && value !== "",
+                    ),
+                  )
+                }
+                state={ready ? "ready" : "loading"}
+                empty={{
+                  icon: <Layers />,
+                  title: "Nessuna categoria in questa sede",
+                  description:
+                    "Con la sede scelta non c'è nessuna categoria: prova a cambiare il contesto o assegna la sede a una categoria.",
+                  primary: (
+                    <Button variant="secondary" size="sm" onClick={() => setSiteFilter("")}>
+                      Tutte le sedi
+                    </Button>
+                  ),
+                }}
+                noun={{ singular: "categoria", plural: "categorie" }}
+                canSelect={false}
+                defaultPageSize={50}
+              />
+            )}
           </DashboardPageContainer>
         </main>
       </div>
 
-      <CategoryEditorDialog
+      <CategoryEditorDrawer
         isOpen={showAddCategoryModal}
         onClose={() => {
           setShowAddCategoryModal(false);
@@ -1481,13 +1508,7 @@ const buildDialogAthletesForCategory = (category: Category) =>
         onSubmit={handleAddCategory}
         initialData={editingCategory ? selectedCategory : undefined}
         isEditing={editingCategory}
-        availableTrainers={sortByName(
-          clubTrainers.map((trainer) => ({
-            id: trainer.id,
-            name: getTrainerDisplayName(trainer),
-          })),
-          (trainer) => trainer.name,
-        )}
+        availableTrainers={trainerOptions}
         availableCategories={categories.map((category) => ({
           id: category.id,
           name: category.name,
@@ -1508,83 +1529,59 @@ const buildDialogAthletesForCategory = (category: Category) =>
         initialSiteIds={editorSiteIds}
         /*
           Servono a **contare** cosa il cambio di sede rende incoerente,
-          non a spostarlo (P0-8): il dialogo mostra il numero prima della
+          non a spostarlo (P0-8): il cassetto mostra il numero prima della
           conferma, e il riallineamento resta un gesto esplicito.
         */
         athletes={clubAthletes}
       />
 
-      {selectedCategory && (
-        <CategoryAthletesDialog
-          isOpen={showAthletesDialog}
-          onClose={() => setShowAthletesDialog(false)}
-          categoryName={selectedCategory.name}
-          athletes={categoryAthletes}
-          onAddAthlete={() => {
-            setShowAthletesDialog(false);
-            router.push(`/athletes?category=${selectedCategory.id}`);
-            showToast(
-              "info",
-              "Reindirizzamento alla pagina atleti per aggiungere nuovi atleti",
-            );
-          }}
-        />
-      )}
-
-      <CategoryDetailsDialog
+      <CategoryInspectorDrawer
+        category={selectedRow}
         open={showCategoryDetails}
         onOpenChange={setShowCategoryDetails}
-        category={selectedCategory}
-        onEdit={() => {
-          setShowCategoryDetails(false);
-          setEditingCategory(true);
-          setShowAddCategoryModal(true);
-        }}
+        multiSite={multiSite}
+        onEdit={openEditor}
+        onViewAthletes={goToAthletes}
+        onReport={goToReport}
       />
 
-      <Dialog
+      {/*
+        Conferma proporzionata (guideline 08 §8.9): eliminare una categoria e
+        distruttivo; con atleti dentro e anche **ampio**, e chiede il nome
+        scritto. Il dominio non lo vieta: gli atleti passano in «Senza
+        categoria» (V1), e la conferma lo dice invece di nasconderlo.
+      */}
+      <DangerConfirmDialog
         open={showDeleteConfirm}
         onOpenChange={(open) => {
-          if (!deletingCategory) setShowDeleteConfirm(open);
+          if (!deletingCategory) {
+            setShowDeleteConfirm(open);
+            if (!open) setCategoryToDelete(null);
+          }
         }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Conferma eliminazione</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 text-sm text-slate-600">
-            <p>
-              <strong className="text-slate-900">Categoria:</strong>{" "}
-              {categoryToDelete?.name || "Categoria"}
-            </p>
-            <p>
-              <strong className="text-slate-900">Atleti collegati:</strong>{" "}
-              {categoryToDeleteAthletes.length}
-            </p>
-            <p>
-              {categoryToDeleteAthletes.length > 0
-                ? `Questa categoria contiene ${categoryToDeleteAthletes.length} atleti. Eliminando la categoria, gli atleti verranno spostati in Senza categoria.`
-                : "Questa categoria non contiene atleti. Puoi eliminarla senza spostare tesserati."}
-            </p>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowDeleteConfirm(false)}
-              disabled={deletingCategory}
-            >
-              Annulla
-            </Button>
-            <Button
-              className="bg-red-600 text-white hover:bg-red-700"
-              onClick={handleDeleteCategory}
-              disabled={deletingCategory}
-            >
-              {deletingCategory ? "Eliminazione..." : "Elimina categoria"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onConfirm={handleDeleteCategory}
+        loading={deletingCategory}
+        title={`Eliminare ${categoryToDelete?.name || "questa categoria"}?`}
+        description={
+          categoryToDeleteAthletes.length > 0
+            ? `Questa categoria contiene ${formatInteger(categoryToDeleteAthletes.length)} ${categoryToDeleteAthletes.length === 1 ? "atleta" : "atleti"}. Eliminando la categoria, gli atleti verranno spostati in Senza categoria.`
+            : "Questa categoria non contiene atleti. Puoi eliminarla senza spostare tesserati."
+        }
+        consequences={[
+          categoryToDeleteAthletes.length > 0
+            ? `${formatInteger(categoryToDeleteAthletes.length)} ${categoryToDeleteAthletes.length === 1 ? "atleta passa" : "atleti passano"} in «Senza categoria»: ${categoryToDeleteAthletes
+                .slice(0, 3)
+                .map((athlete: any) => getAthleteDisplayName(athlete) || "Atleta")
+                .join(", ")}${categoryToDeleteAthletes.length > 3 ? ` e altri ${formatInteger(categoryToDeleteAthletes.length - 3)}` : ""}`
+            : "Nessun atleta collegato: nessun tesserato viene spostato.",
+          "La fascia d'anno, il colore e le categorie compatibili configurate vengono rimosse.",
+          "Gli allenatori, i gruppi operativi e gli slot del programma settimanale che la citano non vengono ripuliti.",
+        ]}
+        confirmLabel="Elimina categoria"
+        typedConfirmation={
+          categoryToDeleteAthletes.length > 0 ? categoryToDelete?.name || "ELIMINA" : undefined
+        }
+      />
     </div>
   );
 }

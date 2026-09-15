@@ -1,11 +1,19 @@
 "use client";
 
 import React, { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Modal } from "@/components/ui/modal";
-import { useToast } from "@/components/ui/toast-notification";
+import { Drawer, DrawerSection } from "@/components/web/overlays/Drawer";
+import { Button } from "@/components/web/primitives/Button";
+import { Checkbox } from "@/components/web/primitives/Controls";
+import {
+  DateInput,
+  Field,
+  FieldSizeProvider,
+  FormGrid,
+  Select,
+  TextInput,
+  TimeInput,
+  ValidationSummary,
+} from "@/components/web/forms/Field";
 import {
   findTrainingLocationOption,
   getStructureFieldOptions,
@@ -27,10 +35,24 @@ import {
   type EventRsvpValue,
 } from "@/components/events/event-rsvp-fields";
 
+/**
+ * Il modulo «Nuovo allenamento» nel Web V2: un cassetto da 720 a sezioni
+ * (guideline 08 §8.5, undici campi in quattro gruppi). Stessi campi, stesse
+ * regole e stesso payload della V1: titolo, data, ora inizio/fine, le
+ * risposte delle famiglie, i **gruppi** (le squadre vere, ADR-0055), gli
+ * allenatori proposti dai gruppi, la struttura con quelle della stessa sede
+ * consigliate e in cima, il campo della struttura. La validazione e in linea,
+ * con il riepilogo in testa: un errore che l'utente ha causato non e un
+ * toast (guideline 09 §9.5).
+ *
+ * Il ramo «appuntamento» della V1 non aveva nessun chiamante su questa rotta
+ * ed e stato tolto: gli appuntamenti hanno il loro dominio (`/appuntamenti`).
+ */
 interface AddTrainingFormProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: any) => void;
+  /** Torna `false` se non ha salvato (conferma rifiutata, errore): il modulo resta aperto. */
+  onSubmit: (data: any) => void | boolean | Promise<void | boolean>;
   categories: { id: string; name: string }[];
   /**
    * I gruppi operativi del club. Un allenamento si assegna a **questi**, non
@@ -41,9 +63,22 @@ interface AddTrainingFormProps {
   trainers?: { id: string; name: string; categories?: any[] }[];
   locations?: TrainingLocationOption[];
   selectedDate?: Date;
-  isAppointment?: boolean;
-  availableTimes?: string[];
+  /** Vero mentre la pagina sta salvando: il piede lo mostra e il velo non chiude. */
+  saving?: boolean;
 }
+
+type FormErrors = Partial<Record<"title" | "date" | "time" | "endTime" | "groupIds" | "trainerIds" | "structureId" | "locationId", string>>;
+
+const FIELD_LABELS: Record<keyof FormErrors, string> = {
+  title: "Titolo",
+  date: "Data",
+  time: "Ora inizio",
+  endTime: "Ora fine",
+  groupIds: "Gruppi",
+  trainerIds: "Allenatori",
+  structureId: "Struttura",
+  locationId: "Campo della struttura",
+};
 
 export function AddTrainingForm({
   isOpen,
@@ -54,10 +89,8 @@ export function AddTrainingForm({
   trainers = [],
   locations = [],
   selectedDate,
-  isAppointment = false,
-  availableTimes = [],
+  saving = false,
 }: AddTrainingFormProps) {
-  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     title: "",
     /*
@@ -75,15 +108,15 @@ export function AddTrainingForm({
     structureId: "",
     locationId: "",
     location: "",
-    contactName: "",
-    athleteName: "",
-    description: "",
   });
   /*
     L'RSVP esisteva da due Wave e **nessun evento lo richiedeva mai**, perche
     non compariva in nessun form (W5-05).
   */
   const [rsvp, setRsvp] = React.useState<EventRsvpValue>(EMPTY_EVENT_RSVP);
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [submitted, setSubmitted] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const previousAutoTrainerIdsRef = React.useRef<string[]>([]);
 
   const structureOptions = React.useMemo(() => {
@@ -110,11 +143,6 @@ export function AddTrainingForm({
     [locations, formData.structureId],
   );
 
-  /*
-    Gli allenatori proposti seguono i **gruppi** scelti, non le categorie: con
-    due squadre di Pulcini in due sedi, proporre chi lavora nell'altra sede e
-    un invito a sbagliare (ADR-0055).
-  */
   /**
    * I gruppi selezionabili.
    *
@@ -163,7 +191,9 @@ export function AddTrainingForm({
   );
 
   /*
-    Gli allenatori proposti seguono i gruppi scelti.
+    Gli allenatori proposti seguono i **gruppi** scelti, non le categorie: con
+    due squadre di Pulcini in due sedi, proporre chi lavora nell'altra sede e
+    un invito a sbagliare (ADR-0055).
   */
   const autoTrainerIds = React.useMemo(
     () =>
@@ -176,7 +206,7 @@ export function AddTrainingForm({
   );
 
   React.useEffect(() => {
-    if (!isOpen || isAppointment) {
+    if (!isOpen) {
       return;
     }
 
@@ -225,7 +255,6 @@ export function AddTrainingForm({
     }
   }, [
     isOpen,
-    isAppointment,
     locations,
     structureOptions,
     structureRecommendations,
@@ -235,10 +264,6 @@ export function AddTrainingForm({
   ]);
 
   React.useEffect(() => {
-    if (isAppointment) {
-      return;
-    }
-
     setFormData((prev) => {
       const previousAutoIds = previousAutoTrainerIdsRef.current;
       const manualTrainerIds = prev.trainerIds.filter(
@@ -262,12 +287,10 @@ export function AddTrainingForm({
         trainerIds: nextTrainerIds,
       };
     });
-  }, [autoTrainerIds, isAppointment]);
+  }, [autoTrainerIds]);
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
-  ) => {
-    const { name, value } = e.target;
+  const setValue = (name: string, value: string) => {
+    setDirty(true);
     if (name === "structureId") {
       const nextFields = getStructureFieldOptions(locations, value);
       const nextFieldId = nextFields[0]?.id || "";
@@ -309,6 +332,7 @@ export function AddTrainingForm({
     group: TrainingGroupOption,
     checked: boolean,
   ) => {
+    setDirty(true);
     setFormData((prev) => {
       const groupIds = checked
         ? Array.from(new Set([...prev.groupIds, group.id]))
@@ -323,6 +347,7 @@ export function AddTrainingForm({
   };
 
   const handleTrainerToggle = (trainerId: string, checked: boolean) => {
+    setDirty(true);
     setFormData((prev) => {
       const trainerIds = new Set(prev.trainerIds);
       if (checked) {
@@ -338,46 +363,28 @@ export function AddTrainingForm({
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Validate form
-    if (
-      !formData.title ||
-      !formData.date ||
-      !formData.time ||
-      (isAppointment
-        ? !formData.contactName
-        : formData.groupIds.length === 0 ||
-          !formData.structureId ||
-          !formData.locationId ||
-          formData.trainerIds.length === 0)
-    ) {
-      showToast("error", "Compila tutti i campi obbligatori");
-      return;
+  /** Le stesse regole della V1, campo per campo invece che in un toast solo. */
+  const validate = (): FormErrors => {
+    const next: FormErrors = {};
+    if (!formData.title.trim()) next.title = "Il titolo è obbligatorio";
+    if (!formData.date) next.date = "La data è obbligatoria";
+    if (!formData.time) next.time = "L'ora di inizio è obbligatoria";
+    if (formData.groupIds.length === 0) next.groupIds = "Seleziona almeno un gruppo";
+    if (!formData.structureId) next.structureId = "Seleziona una struttura";
+    if (!formData.locationId) next.locationId = "Seleziona un campo";
+    if (formData.trainerIds.length === 0) next.trainerIds = "Seleziona almeno un allenatore";
+    if (formData.time && !isValidTimeRange(formData.time, formData.endTime)) {
+      next.endTime = "L'orario di fine deve essere successivo all'orario di inizio";
     }
+    return next;
+  };
 
-    if (
-      !isAppointment &&
-      !isValidTimeRange(formData.time, formData.endTime)
-    ) {
-      showToast(
-        "error",
-        "L'orario di fine deve essere successivo all'orario di inizio",
-      );
-      return;
-    }
+  React.useEffect(() => {
+    if (submitted) setErrors(validate());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData, submitted]);
 
-    // Submit form
-    onSubmit({
-      ...formData,
-      ...toEventRsvpPayload(rsvp),
-      trainers: formData.trainerIds,
-      status: "upcoming",
-      attendees: 0,
-    });
-
-    // Reset form
+  const resetForm = () => {
     setFormData({
       title: "",
       date: formatLocalDateOnly(selectedDate || new Date()),
@@ -389,287 +396,211 @@ export function AddTrainingForm({
       structureId: structureOptions[0]?.id || "",
       locationId: "",
       location: "",
-      contactName: "",
-      athleteName: "",
-      description: "",
     });
     setRsvp(EMPTY_EVENT_RSVP);
+    setErrors({});
+    setSubmitted(false);
+    setDirty(false);
     previousAutoTrainerIdsRef.current = [];
-
-    // Close modal
-    onClose();
-
-    // Show success toast
-    showToast(
-      "success",
-      isAppointment
-        ? "Appuntamento aggiunto con successo"
-        : "Allenamento aggiunto con successo",
-    );
   };
 
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setSubmitted(true);
+    const next = validate();
+    setErrors(next);
+    if (Object.keys(next).length) {
+      const first = Object.keys(next)[0];
+      document.getElementById(`add-training-${first}`)?.focus();
+      return;
+    }
+
+    /*
+      Il chiamante decide se salvare (sovrapposizione, sede diversa): il modulo
+      resta aperto finche non ha finito, e si chiude solo se ha salvato.
+    */
+    const saved = await onSubmit({
+      ...formData,
+      ...toEventRsvpPayload(rsvp),
+      trainers: formData.trainerIds,
+      status: "upcoming",
+      attendees: 0,
+    });
+    if (saved === false) return;
+    resetForm();
+  };
+
+  const summaryErrors = Object.entries(errors).map(([key, label]) => ({
+    id: `add-training-${key}`,
+    label: `${FIELD_LABELS[key as keyof FormErrors]}: ${label}`,
+  }));
+
   return (
-    <Modal
-      title={
-        isAppointment
-          ? "Aggiungi Nuovo Appuntamento"
-          : "Aggiungi Nuovo Allenamento"
-      }
-      description={
-        isAppointment
-          ? "Inserisci i dettagli del nuovo appuntamento"
-          : "Inserisci i dettagli del nuovo allenamento"
-      }
-      isOpen={isOpen}
-      onClose={onClose}
-      contentClassName="w-[calc(100vw-2rem)] max-w-4xl"
+    <Drawer
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          resetForm();
+          onClose();
+        }
+      }}
+      width="wide"
+      eyebrow="Allenamenti"
+      title="Nuovo allenamento"
+      description="Inserisci i dettagli del nuovo allenamento."
+      dirty={dirty}
+      locked={saving}
+      data-test="add-training-drawer"
       footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>
-            Annulla
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
+        <>
+          <Button variant="primary" type="submit" form="add-training-form" loading={saving}>
             Salva
           </Button>
-        </div>
+          <Button variant="secondary" onClick={() => { resetForm(); onClose(); }} disabled={saving}>
+            Annulla
+          </Button>
+        </>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="title">Titolo</Label>
-          <Input
-            id="title"
-            name="title"
-            value={formData.title}
-            onChange={handleChange}
-            placeholder="Es. Allenamento settimanale"
-            required
-          />
-        </div>
+      <FieldSizeProvider size="sm">
+        <form id="add-training-form" onSubmit={(event) => void handleSubmit(event)} noValidate>
+          <ValidationSummary errors={summaryErrors} className="mb-5" />
 
-        <div className={`grid gap-4 ${isAppointment ? "grid-cols-2" : "grid-cols-3"}`}>
-          <div className="space-y-2">
-            <Label htmlFor="date">Data</Label>
-            <Input
-              id="date"
-              name="date"
-              type="date"
-              value={formData.date}
-              onChange={handleChange}
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="time">{isAppointment ? "Ora" : "Ora inizio"}</Label>
-            {availableTimes.length > 0 ? (
-              <select
-                id="time"
-                name="time"
-                value={formData.time}
-                onChange={handleChange}
-                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                required
-              >
-                <option value="" disabled>
-                  Seleziona un orario
-                </option>
-                {availableTimes.map((time) => (
-                  <option key={time} value={time}>
-                    {time}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <Input
-                id="time"
-                name="time"
-                type="time"
-                value={formData.time}
-                onChange={handleChange}
-                required
+          <DrawerSection eyebrow="Seduta">
+            <Field label="Titolo" htmlFor="add-training-title" required error={errors.title}>
+              <TextInput
+                id="add-training-title"
+                name="title"
+                value={formData.title}
+                onChange={(event) => setValue("title", event.target.value)}
+                placeholder="Es. Allenamento settimanale"
               />
-            )}
-          </div>
+            </Field>
+            <FormGrid className="mt-5">
+              <Field label="Data" htmlFor="add-training-date" required error={errors.date}>
+                <DateInput
+                  id="add-training-date"
+                  name="date"
+                  value={formData.date}
+                  onChange={(event) => setValue("date", event.target.value)}
+                />
+              </Field>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="Ora inizio" htmlFor="add-training-time" required error={errors.time}>
+                  <TimeInput
+                    id="add-training-time"
+                    name="time"
+                    value={formData.time}
+                    onChange={(event) => setValue("time", event.target.value)}
+                  />
+                </Field>
+                <Field label="Ora fine" htmlFor="add-training-endTime" required error={errors.endTime}>
+                  <TimeInput
+                    id="add-training-endTime"
+                    name="endTime"
+                    value={formData.endTime}
+                    onChange={(event) => setValue("endTime", event.target.value)}
+                  />
+                </Field>
+              </div>
+            </FormGrid>
+          </DrawerSection>
 
-          {!isAppointment && (
-            <div className="space-y-2">
-              <Label htmlFor="endTime">Ora fine</Label>
-              <Input
-                id="endTime"
-                name="endTime"
-                type="time"
-                value={formData.endTime}
-                onChange={handleChange}
-                required
-              />
-            </div>
-          )}
-        </div>
-
-        {!isAppointment ? (
-          <>
+          <DrawerSection eyebrow="Famiglie">
             <EventRsvpFields
               value={rsvp}
-              onChange={setRsvp}
+              onChange={(next) => {
+                setDirty(true);
+                setRsvp(next);
+              }}
               idPrefix="add-training"
             />
+          </DrawerSection>
 
-            <TrainingGroupSelector
-              groups={groupOptions}
-              selectedGroupIds={formData.groupIds}
-              onToggle={handleGroupToggle}
-              idPrefix="add-training-group"
-              error={
-                formData.groupIds.length === 0
-                  ? "Seleziona almeno un gruppo"
-                  : null
-              }
-            />
-
-            <div className="space-y-2">
-              <Label>Allenatori</Label>
-              <div className="rounded-md border p-3">
-                {trainers.length > 0 ? (
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {trainers.map((trainer) => {
-                      const isAutoAssigned = autoTrainerIds.includes(trainer.id);
-                      return (
-                        <label
-                          key={trainer.id}
-                          className="flex items-center gap-2 rounded-md border border-transparent px-2 py-1 text-sm hover:bg-muted/50"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={formData.trainerIds.includes(trainer.id)}
-                            onChange={(event) =>
-                              handleTrainerToggle(trainer.id, event.target.checked)
-                            }
-                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="flex-1">{trainer.name}</span>
-                          {isAutoAssigned && (
-                            <span className="text-[11px] font-medium text-blue-600">
-                              Associato
-                            </span>
-                          )}
-                        </label>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500">
-                    Nessun allenatore disponibile
-                  </p>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Gli allenatori collegati alle categorie selezionate vengono
-                proposti automaticamente. Puoi aggiungerne altri manualmente.
-              </p>
-              {formData.trainerIds.length === 0 && (
-                <p className="text-xs text-red-500">
-                  Seleziona almeno un allenatore
-                </p>
-              )}
+          <DrawerSection eyebrow="Squadre e allenatori">
+            <div id="add-training-groupIds" tabIndex={-1} className="rounded-egw-chip focus-visible:outline-none focus-visible:shadow-egw-focus">
+              <TrainingGroupSelector
+                groups={groupOptions}
+                selectedGroupIds={formData.groupIds}
+                onToggle={handleGroupToggle}
+                idPrefix="add-training-group"
+                error={errors.groupIds ?? null}
+              />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="location">Luogo</Label>
-              <select
-                id="structureId"
-                name="structureId"
-                value={formData.structureId}
-                onChange={handleChange}
-                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+            <div className="mt-5">
+              <Field
+                label="Allenatori"
                 required
+                error={errors.trainerIds}
+                helper="Gli allenatori collegati alle categorie selezionate vengono proposti automaticamente. Puoi aggiungerne altri manualmente."
               >
-                <option value="" disabled>
-                  Seleziona una struttura
-                </option>
-                {structureRecommendations.length > 0 ? (
-                  structureRecommendations.map(({ structure, recommended }) => (
-                    <option key={structure.id} value={structure.id}>
-                      {structure.name}
-                      {recommended ? " · Consigliata (stessa sede)" : ""}
-                    </option>
-                  ))
-                ) : (
-                  <option value="" disabled>
-                    Nessuna struttura disponibile
-                  </option>
-                )}
-              </select>
+                <div id="add-training-trainerIds" tabIndex={-1} className="rounded-egw-field border border-egw-hairline bg-egw-page-100 p-2 focus-visible:outline-none focus-visible:shadow-egw-focus">
+                  {trainers.length > 0 ? (
+                    <div className="grid gap-1 sm:grid-cols-2">
+                      {trainers.map((trainer) => {
+                        const isAutoAssigned = autoTrainerIds.includes(trainer.id);
+                        return (
+                          <label
+                            key={trainer.id}
+                            className="flex min-h-[36px] cursor-pointer items-center gap-2.5 rounded-egw-chip px-2 font-brand text-[13px] text-egw-ink hover:bg-white"
+                          >
+                            <Checkbox
+                              size={16}
+                              checked={formData.trainerIds.includes(trainer.id)}
+                              onChange={(event) =>
+                                handleTrainerToggle(trainer.id, event.target.checked)
+                              }
+                            />
+                            <span className="egw-ellipsis flex-1">{trainer.name}</span>
+                            {isAutoAssigned ? (
+                              <span className="font-brand text-[10.5px] font-semibold text-egw-blue-700">
+                                Associato
+                              </span>
+                            ) : null}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="px-2 py-1.5 font-brand text-[12.5px] text-egw-ink-62">
+                      Nessun allenatore disponibile
+                    </p>
+                  )}
+                </div>
+              </Field>
             </div>
+          </DrawerSection>
 
-            <div className="space-y-2">
-              <Label htmlFor="locationId">Campo della struttura</Label>
-              <select
-                id="locationId"
-                name="locationId"
-                value={formData.locationId}
-                onChange={handleChange}
-                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                required
-              >
-                <option value="" disabled>
-                  Seleziona un campo
-                </option>
-                {availableFields.length > 0 ? (
-                  availableFields.map((field) => (
-                    <option key={field.id} value={field.id}>
-                      {field.name}
-                    </option>
-                  ))
-                ) : (
-                  <option value="" disabled>
-                    Nessun campo disponibile
-                  </option>
-                )}
-              </select>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="contactName">Nome Richiedente</Label>
-              <Input
-                id="contactName"
-                name="contactName"
-                value={formData.contactName}
-                onChange={handleChange}
-                placeholder="Es. Marco Bianchi"
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="athleteName">Nome Atleta (se applicabile)</Label>
-              <Input
-                id="athleteName"
-                name="athleteName"
-                value={formData.athleteName}
-                onChange={handleChange}
-                placeholder="Es. Luca Bianchi"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="description">Descrizione</Label>
-              <Input
-                id="description"
-                name="description"
-                value={formData.description}
-                onChange={handleChange}
-                placeholder="Descrizione dell'appuntamento"
-              />
-            </div>
-          </>
-        )}
-      </form>
-    </Modal>
+          <DrawerSection eyebrow="Luogo">
+            <FormGrid>
+              <Field label="Struttura" htmlFor="add-training-structureId" required error={errors.structureId}>
+                <Select
+                  id="add-training-structureId"
+                  value={formData.structureId}
+                  onValueChange={(value) => setValue("structureId", value)}
+                  placeholder={structureRecommendations.length ? "Seleziona una struttura" : "Nessuna struttura disponibile"}
+                  disabled={!structureRecommendations.length}
+                  options={structureRecommendations.map(({ structure, recommended }) => ({
+                    value: structure.id,
+                    label: `${structure.name}${recommended ? " · Consigliata (stessa sede)" : ""}`,
+                  }))}
+                />
+              </Field>
+              <Field label="Campo della struttura" htmlFor="add-training-locationId" required error={errors.locationId}>
+                <Select
+                  id="add-training-locationId"
+                  value={formData.locationId}
+                  onValueChange={(value) => setValue("locationId", value)}
+                  placeholder={availableFields.length ? "Seleziona un campo" : "Nessun campo disponibile"}
+                  disabled={!availableFields.length}
+                  options={availableFields.map((field) => ({ value: field.id, label: field.name }))}
+                />
+              </Field>
+            </FormGrid>
+          </DrawerSection>
+        </form>
+      </FieldSizeProvider>
+    </Drawer>
   );
 }

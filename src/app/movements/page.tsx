@@ -1,32 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeftRight, ChevronRight, Mail, Plus, ReceiptText, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import {
   DashboardPageContainer,
   dashboardMainClassName,
 } from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  BulkSelectionToolbar,
-  SelectAllCheckbox,
-  SelectRowCheckbox,
-  useListSelection,
-} from "@/components/ui/list-selection";
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { PageHeader } from "@/components/web/page/PageHeader";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { InfoCard } from "@/components/web/page/Cards";
+import { Button, IconButton } from "@/components/web/primitives/Button";
+import { SegmentedControl } from "@/components/web/primitives/Controls";
+import { Panel, PanelHeader } from "@/components/web/primitives/Surface";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { BulkActionDef, FilterState, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
 import { AthletePaymentLedger } from "@/components/payments/AthletePaymentLedger";
 import { PaymentReminderDialog } from "@/components/payments/PaymentReminderDialog";
 import { apiRequest } from "@/lib/api/client";
@@ -34,22 +27,15 @@ import { supabase } from "@/lib/supabase";
 import { getClub, getClubAthletes, getClubData } from "@/lib/simplified-db";
 import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
-import {
-  buildStatusLabels,
-  readChargeCollectedAmount,
-  resolveLedgerState,
-  toPaymentAmount,
-} from "@/lib/payments/installment-ledger";
 import { paymentDateOf, sortByDateDesc } from "@/lib/sorting";
 import { normalizeClubSites, type ClubSite } from "@/lib/club-sites";
+import { normalizeClubSeasons, type ClubSeason } from "@/lib/club-seasons";
 import {
   canOpenAccounting,
   hasAccountingPermission,
 } from "@/lib/accounting/permissions";
 import type { AccountingLine } from "@/lib/accounting/model";
 import { AccountingSummary } from "@/components/accounting/AccountingSummary";
-import { AccountingFilters } from "@/components/accounting/AccountingFilters";
-import { AccountingEntries } from "@/components/accounting/AccountingEntries";
 import { ExpectedEntries } from "@/components/accounting/ExpectedEntries";
 import {
   ReconcileEntryDialog,
@@ -63,6 +49,7 @@ import {
   buildEntriesQuery,
   buildReportQuery,
   emptyFilters,
+  hasActiveFilters,
   hasReportUnawareFilter,
   ownEntryId,
   type AccountingFilterState,
@@ -70,10 +57,32 @@ import {
   type FinancialAccountView,
   type OperationTypeView,
 } from "@/components/accounting/accounting-view";
-import { ArrowLeftRight, Mail, Plus, ShieldAlert } from "lucide-react";
+import {
+  PRIMA_NOTA_FILTER_IDS,
+  PrimaNotaPager,
+  buildPrimaNotaColumns,
+  buildPrimaNotaFilters,
+  buildPrimaNotaRowActions,
+  gridFiltersToAccounting,
+} from "@/components/accounting/v2/prima-nota-grid";
+import {
+  RATE_COLUMNS,
+  RATE_FILTERS,
+  RATE_VIEWS,
+  isRemindable,
+  rateSearch,
+  toInstallmentRows,
+  type InstallmentRow,
+} from "@/components/accounting/v2/rate-grid";
+import {
+  FiscalYearContextControl,
+  SeasonContextControl,
+} from "@/components/accounting/v2/context-controls";
 
 /**
- * **La prima nota.**
+ * **La prima nota** (Web V2, guideline 09 §9.1 pattern 10 «Dense
+ * administration»: intestazione → riepilogo finanziario ed economico → griglia
+ * con la sua barra di filtri).
  *
  * ---
  *
@@ -97,10 +106,20 @@ import { ArrowLeftRight, Mail, Plus, ShieldAlert } from "lucide-react";
  * riepilogo**, perche la pagina dell'elenco ne contiene cento righe e sommare
  * quelle darebbe il totale della pagina spacciato per totale del periodo.
  *
- * Una quarta lettura — le sedi, per il solo filtro — resta sulla colonna
- * `clubs` perche non esiste altra fonte; nessun numero ne dipende, e se non
- * riesce il filtro semplicemente non si monta, che e il comportamento giusto
- * per un club con una sede sola (ADR-0038).
+ * Due letture in piu restano sulla colonna `clubs` perche non esiste altra
+ * fonte: le sedi (per il filtro) e le impostazioni (stagioni per il controllo
+ * di contesto, metodi di incasso per il registro delle rate). Nessun numero ne
+ * dipende, e se non riescono il controllo semplicemente non si monta, che e il
+ * comportamento giusto per un club con una sede sola (ADR-0038).
+ *
+ * ## La griglia mostra i filtri, il server li applica
+ *
+ * Il `DataGrid` filtra e pagina sul lato client le righe che ha in mano; qui in
+ * mano ha **una pagina di cento righe**. Percio i suoi filtri e la sua casella
+ * di ricerca non filtrano niente: `onFiltersChange` e `onQueryChange`
+ * ricostruiscono la query (`buildEntriesQuery`) e rileggono dal servizio, e
+ * «Precedenti / Successivi» chiedono la pagina prima o dopo. E lo stesso
+ * contratto della V1 con la barra di filtri, nella forma della griglia.
  *
  * ## Il difetto di permessi che chiude
  *
@@ -139,11 +158,38 @@ type AccountsResponse = { accounts: FinancialAccountView[] };
 
 type ReportResponse = { report: AccountingReportView };
 
+type MovementsTab = "prima-nota" | "rate" | "previsti";
+
+const TABS: { value: MovementsTab; label: string }[] = [
+  { value: "prima-nota", label: "Prima nota" },
+  { value: "rate", label: "Rate e solleciti" },
+  { value: "previsti", label: "Previsti" },
+];
+
+const isMovementsTab = (value: unknown): value is MovementsTab =>
+  TABS.some((tab) => tab.value === value);
+
+/** Le viste di sistema del registro: ognuna e un filtro che il servizio applica. */
+const PRIMA_NOTA_VIEWS: ViewDef[] = [
+  { id: "in", label: "Solo entrate", filters: { [PRIMA_NOTA_FILTER_IDS.direction]: "IN" }, builtIn: true },
+  { id: "out", label: "Solo uscite", filters: { [PRIMA_NOTA_FILTER_IDS.direction]: "OUT" }, builtIn: true },
+  {
+    id: "unreconciled",
+    label: "Da riconciliare",
+    filters: { [PRIMA_NOTA_FILTER_IDS.reconciliationStatus]: "unreconciled" },
+    builtIn: true,
+    tone: "amber",
+  },
+];
+
+const sameFilters = (a: AccountingFilterState, b: AccountingFilterState) =>
+  (Object.keys(a) as (keyof AccountingFilterState)[]).every((key) => a[key] === b[key]);
+
 const PageShell = ({ children }: { children: React.ReactNode }) => (
-  <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
+  <div className="flex h-[100dvh] bg-egw-page">
     <Sidebar />
-    <div className="flex flex-1 flex-col overflow-hidden">
-      <Header title="Movimenti" />
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <Header title="Prima nota" />
       <main className={dashboardMainClassName}>
         <DashboardPageContainer>{children}</DashboardPageContainer>
       </main>
@@ -151,9 +197,16 @@ const PageShell = ({ children }: { children: React.ReactNode }) => (
   </div>
 );
 
+const PAGE_DESCRIPTION =
+  "Entrate, uscite e giroconti della societa, con la loro causale e il conto su cui il denaro si e mosso. Incassi, compensi e contributi restano ai loro domini e qui si leggono.";
+
 export default function MovementsPage() {
   const { showToast } = useToast();
   const { activeClub, userRole } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname() || "/movements";
+  const rawSearchParams = useSearchParams();
+  const searchParams = useMemo(() => rawSearchParams ?? new URLSearchParams(), [rawSearchParams]);
   const activeClubId = activeClub?.id || null;
   const activeRole = activeClub?.role || userRole || null;
 
@@ -167,12 +220,14 @@ export default function MovementsPage() {
   /*
     **Il permesso sui saldi non si valuta qui**, e non e una dimenticanza: il
     riepilogo risponde `accountBalances: null` a chi non ha
-    `accounting.accounts_read`, e la pagina mostra il diniego perche il numero
+    il permesso sui conti, e la pagina mostra il diniego perche il numero
     manca — non perche ha dedotto che dovrebbe mancare. Un permesso valutato in
     due posti e un permesso che prima o poi diverge, ed e la lezione W3-14.
   */
 
   const [filters, setFilters] = useState<AccountingFilterState>(emptyFilters);
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -189,6 +244,7 @@ export default function MovementsPage() {
   const [reportLoading, setReportLoading] = useState(true);
   const [operationTypes, setOperationTypes] = useState<OperationTypeView[]>([]);
   const [sites, setSites] = useState<ClubSite[]>([]);
+  const [seasons, setSeasons] = useState<ClubSeason[]>([]);
 
   const [showRecord, setShowRecord] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
@@ -202,7 +258,10 @@ export default function MovementsPage() {
     pagamenti — e perche toglierle non le avrebbe spostate altrove: le avrebbe
     tolte e basta. Il loro carico si paga solo aprendo la scheda.
   */
-  const [tab, setTab] = useState("prima-nota");
+  const [tab, setTab] = useState<MovementsTab>(() => {
+    const requested = searchParams.get("tab");
+    return isMovementsTab(requested) ? requested : "prima-nota";
+  });
   const [installments, setInstallments] = useState<any[]>([]);
   const [installmentsLoaded, setInstallmentsLoaded] = useState(false);
   const [installmentsLoading, setInstallmentsLoading] = useState(false);
@@ -212,7 +271,8 @@ export default function MovementsPage() {
   >([]);
   const [openLedgerId, setOpenLedgerId] = useState<string | null>(null);
   const [showReminderDialog, setShowReminderDialog] = useState(false);
-  const reminderSelection = useListSelection();
+  const [reminderChargeIds, setReminderChargeIds] = useState<string[]>([]);
+  const [reminderSelection, setReminderSelection] = useState<Set<string>>(() => new Set());
 
   /*
     Il sollecito lo governa lo stesso permesso che governa gli incassi, e la
@@ -220,6 +280,46 @@ export default function MovementsPage() {
     dialogo e poi fallisce e una promessa non mantenuta.
   */
   const canSendReminders = canManageClubConfigurationAsActor(activeClub?.role);
+
+  /* ---------------------------------------------------------------------- */
+  /* La scheda attiva e l'indirizzo                                          */
+  /* ---------------------------------------------------------------------- */
+
+  const selectTab = useCallback(
+    (next: MovementsTab) => {
+      setTab(next);
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "prima-nota") params.delete("tab");
+      else params.set("tab", next);
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  useEffect(() => {
+    const requested = searchParams.get("tab");
+    if (isMovementsTab(requested) && requested !== tab) setTab(requested);
+    // Il valore in URL guida la scheda; `tab` cambia per il clic e non deve rieseguire l'effetto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  /*
+    L'azione rapida del guscio («Registra pagamento — rata, importo, metodo»)
+    arriva con `?action=new`: e un incasso su una rata, quindi apre la scheda
+    delle rate, dove si sceglie la rata e si registra l'incasso.
+  */
+  useEffect(() => {
+    if (searchParams.get("action") !== "new") return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("action");
+    params.set("tab", "rate");
+    setTab("rate");
+    const frame = window.requestAnimationFrame(() => {
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pathname, router, searchParams]);
 
   /* ---------------------------------------------------------------------- */
   /* Letture                                                                 */
@@ -264,7 +364,7 @@ export default function MovementsPage() {
    * I conti: **solo l'anagrafica**, senza saldi.
    *
    * Serve a due cose, e nessuna delle due e un totale: riempire la tendina del
-   * filtro e quella della finestra di registrazione. I **saldi** arrivano dal
+   * filtro e quella del cassetto di registrazione. I **saldi** arrivano dal
    * riepilogo, che e il loro unico proprietario in questa pagina — chiederli
    * anche qui vorrebbe dire due letture dello stesso numero, e prima o poi due
    * numeri.
@@ -322,10 +422,10 @@ export default function MovementsPage() {
    * Le sedi, e solo per il filtro.
    *
    * **Un club mono-sede non ne ha bisogno**, e se questa lettura non riesce —
-   * e la sola che passi ancora dalla colonna `clubs`, riservata — l'elenco
-   * resta vuoto e `SiteFilter` non si monta: e esattamente il comportamento di
-   * ADR-0038 per chi una sede sola ce l'ha. Nessun numero dipende da questa
-   * lettura, quindi il suo fallimento non produce una pagina sbagliata.
+   * passa dalla colonna `clubs`, riservata — l'elenco resta vuoto e il filtro
+   * sede non si monta: e esattamente il comportamento di ADR-0038 per chi una
+   * sede sola ce l'ha. Nessun numero dipende da questa lettura, quindi il suo
+   * fallimento non produce una pagina sbagliata.
    */
   const loadSites = useCallback(async () => {
     if (!activeClubId || !canOpen) return;
@@ -334,20 +434,34 @@ export default function MovementsPage() {
   }, [activeClubId, canOpen]);
 
   /**
+   * Le impostazioni del club, per due cose che non sono numeri: le stagioni
+   * del controllo di contesto e i metodi di incasso configurati (che il
+   * registro delle rate chiede). Se la lettura non riesce il controllo di
+   * contesto non si monta e i metodi restano vuoti — nessun totale ne dipende.
+   */
+  const loadClubSettings = useCallback(async () => {
+    if (!activeClubId || !canOpen) return;
+    const club = await getClub(activeClubId).catch(() => null);
+    const settings = (club as any)?.settings;
+    setSeasons(club ? normalizeClubSeasons(settings).seasons : []);
+    setClubPaymentMethodChoices(getClubPaymentMethodChoices(settings));
+  }, [activeClubId, canOpen]);
+
+  /**
    * Le rate delle famiglie, e solo quando la scheda si apre.
    *
-   * Tre letture, non ventidue: le rate, i nomi degli atleti e i metodi di
-   * incasso configurati dal club. **Nessun totale nasce da qui**: quanto e
-   * incassato su una rata lo dice `readChargeCollectedAmount`, che e il
-   * proprietario del calcolo, e lo stato lo deriva `resolveLedgerState` — non
-   * si legge da una colonna, che era il difetto di ADR-0036.
+   * Due letture, non ventidue: le rate e i nomi degli atleti. **Nessun totale
+   * nasce da qui**: quanto e incassato su una rata lo dice
+   * `readChargeCollectedAmount`, che e il proprietario del calcolo, e lo stato
+   * lo deriva `resolveLedgerState` — non si legge da una colonna, che era il
+   * difetto di ADR-0036.
    */
   const loadInstallments = useCallback(async () => {
     if (!activeClubId || !canOpen) return;
 
     setInstallmentsLoading(true);
 
-    const [rows, athletes, club] = await Promise.all([
+    const [rows, athletes] = await Promise.all([
       supabase
         .from("payments")
         .select("*")
@@ -355,7 +469,6 @@ export default function MovementsPage() {
         .then((result: any) => result?.data || [])
         .catch(() => []),
       getClubAthletes(activeClubId, { view: "summary" }).catch(() => []),
-      getClub(activeClubId).catch(() => null),
     ]);
 
     const nomi: Record<string, string> = {};
@@ -370,9 +483,6 @@ export default function MovementsPage() {
     }
 
     setAthleteNames(nomi);
-    setClubPaymentMethodChoices(
-      getClubPaymentMethodChoices((club as any)?.settings),
-    );
     /* Le rate sono una cronologia: dalla piu recente, mai dall'inserimento. */
     setInstallments(sortByDateDesc(rows as any[], paymentDateOf));
     setInstallmentsLoaded(true);
@@ -396,7 +506,8 @@ export default function MovementsPage() {
     void loadAccounts();
     void loadOperationTypes();
     void loadSites();
-  }, [activeClubId, canOpen, loadAccounts, loadOperationTypes, loadSites]);
+    void loadClubSettings();
+  }, [activeClubId, canOpen, loadAccounts, loadOperationTypes, loadSites, loadClubSettings]);
 
   useEffect(() => {
     void loadEntries();
@@ -443,23 +554,27 @@ export default function MovementsPage() {
           motivo.
         */
         showToast("error", response.error.message);
-        return;
+        return false;
       }
 
       showToast("success", successMessage);
       onDone();
       await reloadAfterWrite();
+      return true;
     },
     [reloadAfterWrite, showToast],
   );
 
   const handleRecord = useCallback(
-    (payload: RecordEntryPayload) =>
+    (payload: RecordEntryPayload, { keepOpen }: { keepOpen: boolean }) =>
       submit(
         "/api/v1/accounting/entries",
         payload,
         "Movimento registrato",
-        () => setShowRecord(false),
+        () => {
+          /* «Salva e aggiungi un altro» tiene il cassetto aperto (guideline 08 §8.8). */
+          if (!keepOpen) setShowRecord(false);
+        },
       ),
     [submit],
   );
@@ -508,351 +623,340 @@ export default function MovementsPage() {
   );
 
   /* ---------------------------------------------------------------------- */
-  /* Vista                                                                   */
+  /* Filtri: la griglia li mostra, il servizio li applica                    */
+  /* ---------------------------------------------------------------------- */
+
+  const applyFilters = useCallback((next: Partial<AccountingFilterState>) => {
+    const merged = { ...filtersRef.current, ...next };
+    if (sameFilters(filtersRef.current, merged)) return;
+    /* Due cambi nello stesso giro (griglia e ricerca) non devono perdersi a vicenda. */
+    filtersRef.current = merged;
+    /* Cambiare un filtro riporta alla prima pagina: la seconda pagina di un
+       elenco diverso non e la seconda pagina di niente. */
+    setOffset(0);
+    setFilters(merged);
+  }, []);
+
+  const handleGridFilters = useCallback(
+    (state: FilterState) => applyFilters(gridFiltersToAccounting(state)),
+    [applyFilters],
+  );
+
+  /*
+    La ricerca in griglia scrive `q` nella query del servizio, con un breve
+    ritardo: una richiesta per ogni tasto sarebbe la pagina che si disegna
+    dieci volte per una parola.
+  */
+  const [searchDraft, setSearchDraft] = useState("");
+  useEffect(() => {
+    const handle = window.setTimeout(() => applyFilters({ search: searchDraft.trim() }), 300);
+    return () => window.clearTimeout(handle);
+  }, [applyFilters, searchDraft]);
+
+  const columns = useMemo(() => buildPrimaNotaColumns(), []);
+  const filterDefs = useMemo(
+    () => buildPrimaNotaFilters({ accounts, operationTypes, sites }),
+    [accounts, operationTypes, sites],
+  );
+  const rowActions = useMemo(
+    () => buildPrimaNotaRowActions({ onReconcile: setToReconcile, onReverse: setToReverse }),
+    [],
+  );
+  const entriesSearch = useMemo(
+    () => ({
+      placeholder: "Descrizione, controparte, causale, riferimento bancario",
+      /* Il predicato non filtra: filtra il servizio, con `q`. */
+      match: () => true,
+    }),
+    [],
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /* Le rate                                                                 */
   /* ---------------------------------------------------------------------- */
 
   /**
-   * Le rate sollecitabili, con il loro stato **derivato**.
-   *
-   * Una rata gia saldata non si sollecita, e non e una regola di questa
-   * pagina: lo stato lo decide il registro degli incassi.
+   * Le rate con il loro stato **derivato**. Una rata gia saldata non si
+   * sollecita, e non e una regola di questa pagina: lo stato lo decide il
+   * registro degli incassi.
    */
   const installmentRows = useMemo(
-    () =>
-      installments.map((charge) => {
-        const dueAmount = toPaymentAmount((charge as any)?.amount);
-        const paidAmount = readChargeCollectedAmount(charge);
-        const state = resolveLedgerState({ dueAmount, paidAmount });
-        const dueDate = (charge as any)?.due_date || (charge as any)?.dueDate;
-        const overdue =
-          state !== "paid" &&
-          Boolean(dueDate) &&
-          new Date(dueDate).getTime() < Date.now();
-
-        return {
-          charge,
-          id: String((charge as any)?.id || ""),
-          athleteId: String((charge as any)?.athlete_id || "").trim(),
-          dueAmount,
-          paidAmount,
-          state,
-          labels: buildStatusLabels(state, overdue),
-          dueDate: dueDate || null,
-        };
-      }),
-    [installments],
+    () => toInstallmentRows(installments, athleteNames),
+    [installments, athleteNames],
   );
 
   const remindableIds = useMemo(
-    () =>
-      installmentRows
-        .filter((row) => row.id && row.state !== "paid")
-        .map((row) => row.id),
+    () => new Set(installmentRows.filter(isRemindable).map((row) => row.id)),
     [installmentRows],
   );
 
   /*
-    Una selezione che tiene l'id di una rata sparita dopo una rilettura
-    mostrerebbe un conteggio che non corrisponde a niente. La potatura passa da
-    un riferimento e non dalle dipendenze dell'effetto: `useListSelection`
-    restituisce un oggetto nuovo a ogni cambio di selezione, e metterlo fra le
-    dipendenze farebbe rientrare l'effetto nel proprio risultato.
+    Solo le rate sollecitabili entrano nella selezione: una selezione che tiene
+    una rata saldata, o l'id di una rata sparita dopo una rilettura,
+    mostrerebbe un conteggio che non corrisponde a niente.
   */
-  const reminderSelectionRef = useRef(reminderSelection);
+  const handleReminderSelection = useCallback(
+    (next: Set<string>) => {
+      setReminderSelection(new Set(Array.from(next).filter((id) => remindableIds.has(id))));
+    },
+    [remindableIds],
+  );
   useEffect(() => {
-    reminderSelectionRef.current = reminderSelection;
-  }, [reminderSelection]);
-  useEffect(() => {
-    reminderSelectionRef.current.prune(remindableIds);
+    setReminderSelection((current) => {
+      const pruned = new Set(Array.from(current).filter((id) => remindableIds.has(id)));
+      return pruned.size === current.size ? current : pruned;
+    });
   }, [remindableIds]);
 
-  const selectedReminderIds = useMemo(
-    () => remindableIds.filter((id) => reminderSelection.isSelected(id)),
-    [remindableIds, reminderSelection],
+  const rateBulkActions = useMemo<BulkActionDef<InstallmentRow>[]>(
+    () =>
+      canSendReminders
+        ? [
+            {
+              id: "remind",
+              label: "Sollecita",
+              icon: <Mail />,
+              onRun: (rows) => {
+                setReminderChargeIds(rows.filter(isRemindable).map((row) => row.id));
+                setShowReminderDialog(true);
+              },
+            },
+          ]
+        : [],
+    [canSendReminders],
   );
 
-  const applyFilters = useCallback((next: Partial<AccountingFilterState>) => {
-    /* Cambiare un filtro riporta alla prima pagina: la seconda pagina di un
-       elenco diverso non e la seconda pagina di niente. */
-    setOffset(0);
-    setFilters((prev) => ({ ...prev, ...next }));
-  }, []);
+  const rateRowActions = useMemo<RowActionDef<InstallmentRow>[]>(
+    () => [
+      {
+        id: "ledger",
+        label: "Apri il registro incassi",
+        icon: <ChevronRight />,
+        primary: true,
+        hidden: (row) => !row.athleteId,
+        onClick: (row) => setOpenLedgerId((current) => (current === row.id ? null : row.id)),
+      },
+    ],
+    [],
+  );
+
+  const openLedgerRow = useMemo(
+    () => installmentRows.find((row) => row.id === openLedgerId && row.athleteId) || null,
+    [installmentRows, openLedgerId],
+  );
+
+  /* ---------------------------------------------------------------------- */
+  /* Vista                                                                   */
+  /* ---------------------------------------------------------------------- */
 
   if (!canOpen) {
     return (
       <PageShell>
-        <SharedPageHeader
+        <PageHeader
+          eyebrow="Cassa e amministrazione"
           title="Prima nota"
-          subtitle="Registro dei movimenti finanziari della societa."
+          description="Registro dei movimenti finanziari della societa."
         />
-        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden />
-          <div className="text-sm text-amber-900">
-            <p className="font-medium">La prima nota non e accessibile</p>
-            <p className="mt-1">
-              Il ruolo attivo su questo club non puo vedere la prima nota e il
-              riepilogo gestionale. Chiedi al proprietario o al gestore della
-              societa di attribuirti il permesso.
-            </p>
-          </div>
-        </div>
+        <AlertBlock severity="warning" title="La prima nota non e accessibile">
+          Il ruolo attivo su questo club non puo vedere la prima nota e il
+          riepilogo gestionale. Chiedi al proprietario o al gestore della
+          societa di attribuirti il permesso.
+        </AlertBlock>
       </PageShell>
     );
   }
 
+  const entriesState = error ? "error" : loading ? "loading" : "ready";
+
   return (
     <PageShell>
-      <SharedPageHeader
+      <PageHeader
+        eyebrow="Cassa e amministrazione"
         title="Prima nota"
-        subtitle="Entrate, uscite e giroconti della societa, con la loro causale e il conto su cui il denaro si e mosso. Incassi, compensi e contributi restano ai loro domini e qui si leggono."
+        description={PAGE_DESCRIPTION}
+        context={
+          tab === "prima-nota" ? (
+            <>
+              <FiscalYearContextControl
+                value={filters.fiscalYear}
+                onChange={(fiscalYear) => applyFilters({ fiscalYear })}
+              />
+              <SeasonContextControl
+                seasons={seasons}
+                value={filters.seasonId}
+                onChange={(seasonId) => applyFilters({ seasonId })}
+              />
+            </>
+          ) : null
+        }
         actions={
           canManage && tab === "prima-nota" ? (
             <>
-              <Button type="button" onClick={() => setShowRecord(true)}>
-                <Plus className="mr-2 h-4 w-4" aria-hidden />
-                Registra movimento
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowTransfer(true)}
-              >
-                <ArrowLeftRight className="mr-2 h-4 w-4" aria-hidden />
+              <Button variant="secondary" icon={<ArrowLeftRight />} onClick={() => setShowTransfer(true)}>
                 Giroconto
+              </Button>
+              <Button variant="primary" icon={<Plus />} onClick={() => setShowRecord(true)}>
+                Registra movimento
               </Button>
             </>
           ) : null
         }
-      />
+      >
+        <SegmentedControl<MovementsTab>
+          aria-label="Sezioni della prima nota"
+          value={tab}
+          onChange={selectTab}
+          options={TABS}
+          className="max-w-full overflow-x-auto"
+        />
+      </PageHeader>
 
-      <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3 sm:flex sm:w-fit">
-          <TabsTrigger value="prima-nota">Prima nota</TabsTrigger>
-          <TabsTrigger value="rate">Rate e solleciti</TabsTrigger>
-          <TabsTrigger value="previsti">Previsti</TabsTrigger>
-        </TabsList>
+      {/* ── Prima nota ─────────────────────────────────────────────────── */}
+      <div hidden={tab !== "prima-nota"} className={cn("flex-col gap-[18px]", tab === "prima-nota" ? "flex" : "hidden")}>
+        <AccountingSummary
+          accounts={accounts}
+          report={report}
+          loading={reportLoading && !report}
+          filtersBeyondSummary={hasReportUnawareFilter(filters)}
+        />
 
-        <TabsContent value="prima-nota" className="m-0 space-y-6 pt-6">
-          <AccountingSummary
-            accounts={accounts}
-            report={report}
-            loading={reportLoading}
-            filtersBeyondSummary={hasReportUnawareFilter(filters)}
-          />
-
-          <AccountingFilters
-            filters={filters}
-            onChange={applyFilters}
-            onReset={() => {
-              setOffset(0);
-              setFilters(emptyFilters);
-            }}
-            accounts={accounts}
-            operationTypes={operationTypes}
-            sites={sites}
-            disabled={busy}
-          />
-
-          {error ? (
-            <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
-              <ShieldAlert
-                className="mt-0.5 h-5 w-5 shrink-0 text-red-600"
-                aria-hidden
-              />
-              <div className="text-sm text-red-900">
-                <p className="font-medium">La prima nota non e stata letta</p>
-                <p className="mt-1">{error}</p>
-              </div>
-            </div>
-          ) : (
-            <AccountingEntries
-              entries={page.entries}
-              total={page.total}
-              limit={page.limit || PAGE_SIZE}
+        <DataGrid<AccountingLine>
+          module="prima-nota"
+          aria-label="Registro della prima nota"
+          rows={page.entries}
+          getRowId={(line) => line.id}
+          columns={columns}
+          filters={filterDefs}
+          views={PRIMA_NOTA_VIEWS}
+          search={entriesSearch}
+          onFiltersChange={handleGridFilters}
+          onQueryChange={setSearchDraft}
+          rowActions={rowActions}
+          rowLabel={(line) => line.description}
+          canSelect={false}
+          state={entriesState}
+          errorMessage={error ? `La prima nota non e stata letta. ${error}` : null}
+          onRetry={() => void reloadAfterWrite()}
+          noun={{ singular: "movimento", plural: "movimenti" }}
+          totalCount={page.total}
+          serverTotal={page.total}
+          defaultPageSize={100}
+          hideFooter
+          footerRow={
+            <PrimaNotaPager
               offset={page.offset || 0}
-              loading={loading}
-              busy={busy}
+              limit={page.limit || PAGE_SIZE}
+              count={page.entries.length}
+              total={page.total}
+              busy={busy || loading}
               onPageChange={setOffset}
-              onReverse={setToReverse}
-              onReconcile={setToReconcile}
             />
-          )}
-        </TabsContent>
+          }
+          empty={{
+            icon: <ReceiptText />,
+            title: "Nessun movimento con questi filtri.",
+            description: hasActiveFilters(filters)
+              ? "Allarga il periodo o togli un filtro: i totali qui sopra seguono lo stesso perimetro."
+              : "Gli incassi delle quote compaiono qui da soli; un fatto di cassa che nessun altro evento ha generato si registra con «Registra movimento».",
+          }}
+        />
+      </div>
+
+      {/*
+        Le rate sono **crediti**, non cassa: stanno in una scheda a parte e
+        non nella stessa riga di totali della prima nota. Da qui si fanno le
+        due cose che appartengono al dominio pagamenti e non hanno altro
+        posto: sollecitare, e registrare un incasso sulla rata.
+      */}
+      <div hidden={tab !== "rate"} className={cn("flex-col gap-[18px]", tab === "rate" ? "flex" : "hidden")}>
+        <InfoCard eyebrow="Rate delle famiglie">
+          Le rate dovute dalle famiglie. Non sono denaro incassato: lo
+          diventano quando un incasso viene registrato, e allora compaiono in
+          prima nota come proiezione del loro dominio.
+        </InfoCard>
+
+        <DataGrid<InstallmentRow>
+          module="rate"
+          aria-label="Rate e solleciti"
+          rows={installmentRows}
+          getRowId={(row) => row.id}
+          columns={RATE_COLUMNS}
+          filters={RATE_FILTERS}
+          views={RATE_VIEWS}
+          search={rateSearch}
+          defaultSort={{ columnId: "dueDate", direction: "desc" }}
+          bulkActions={rateBulkActions}
+          selectedIds={reminderSelection}
+          onSelectionChange={handleReminderSelection}
+          rowActions={rateRowActions}
+          rowLabel={(row) => `la rata di ${row.athleteName || "un atleta"}`}
+          onOpenRow={(row) => {
+            if (row.athleteId) setOpenLedgerId((current) => (current === row.id ? null : row.id));
+          }}
+          activeRowId={openLedgerId}
+          state={installmentsLoading || (!installmentsLoaded && tab === "rate") ? "loading" : "ready"}
+          noun={{ singular: "rata", plural: "rate" }}
+          empty={{
+            icon: <ReceiptText />,
+            title: "Nessuna rata registrata per questo club.",
+            description: "Le rate nascono dal piano di pagamento dell'iscrizione di ogni atleta.",
+          }}
+        />
 
         {/*
-          Le rate sono **crediti**, non cassa: stanno in una scheda a parte e
-          non nella stessa riga di totali della prima nota. Da qui si fanno le
-          due cose che appartengono al dominio pagamenti e non hanno altro
-          posto: sollecitare, e registrare un incasso sulla rata.
+          Registrare un incasso su una rata e una scrittura del dominio
+          pagamenti, e passa dal suo componente: due modi di registrare lo
+          stesso incasso sono due idee di «quanto ha pagato». Il registro si
+          apre in pagina, sotto l'elenco, cosi i suoi dialoghi non si
+          sovrappongono a un cassetto.
         */}
-        <TabsContent value="rate" className="m-0 space-y-4 pt-6">
-          <p className="text-sm text-slate-600">
-            Le rate dovute dalle famiglie. Non sono denaro incassato: lo
-            diventano quando un incasso viene registrato, e allora compaiono in
-            prima nota come proiezione del loro dominio.
-          </p>
+        {openLedgerRow ? (
+          <Panel as="section" data-test="installment-ledger-panel">
+            <PanelHeader
+              eyebrow="Registro incassi"
+              title={openLedgerRow.athleteName || "Atleta"}
+              description={openLedgerRow.description || undefined}
+              actions={
+                <IconButton aria-label="Chiudi il registro incassi" variant="secondary" onClick={() => setOpenLedgerId(null)}>
+                  <X />
+                </IconButton>
+              }
+            />
+            <AthletePaymentLedger
+              key={openLedgerRow.id}
+              athleteId={openLedgerRow.athleteId}
+              athleteName={openLedgerRow.athleteName || null}
+              charges={[openLedgerRow.charge]}
+              methodChoices={clubPaymentMethodChoices}
+              showTotals={false}
+              showHeading={false}
+              onLedgerChanged={() => {
+                void loadInstallments();
+                void reloadAfterWrite();
+              }}
+            />
+          </Panel>
+        ) : null}
+      </div>
 
-          <BulkSelectionToolbar
-            selection={reminderSelection}
-            nouns={{ one: "rata", many: "rate" }}
-          >
-            {canSendReminders ? (
-              <Button
-                size="sm"
-                className="h-8"
-                disabled={selectedReminderIds.length === 0}
-                onClick={() => setShowReminderDialog(true)}
-              >
-                <Mail className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                Sollecita
-              </Button>
-            ) : null}
-          </BulkSelectionToolbar>
+      {/*
+        I **previsti** sono impegni futuri: non sono cassa, non sono prima
+        nota e non toccano nessun saldo. Stanno in una scheda a parte per la
+        stessa ragione per cui ci stanno le rate — «Entrate» con sotto
+        «Previste» era il numero che nessuno sapeva piu leggere.
 
-          {installmentsLoading ? (
-            <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-              Lettura delle rate...
-            </div>
-          ) : installmentRows.length === 0 ? (
-            <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-600">
-              Nessuna rata registrata per questo club.
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-10">
-                      <SelectAllCheckbox
-                        selection={reminderSelection}
-                        ids={remindableIds}
-                        label="le rate aperte in elenco"
-                      />
-                    </TableHead>
-                    <TableHead className="whitespace-nowrap">Scadenza</TableHead>
-                    <TableHead>Atleta</TableHead>
-                    <TableHead>Descrizione</TableHead>
-                    <TableHead className="text-right whitespace-nowrap">
-                      Dovuto
-                    </TableHead>
-                    <TableHead className="text-right whitespace-nowrap">
-                      Incassato
-                    </TableHead>
-                    <TableHead>Stato</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {installmentRows.map((row) => (
-                    <TableRow
-                      key={row.id}
-                      className="cursor-pointer"
-                      onClick={() =>
-                        setOpenLedgerId((current) =>
-                          current === row.id ? null : row.id,
-                        )
-                      }
-                    >
-                      <TableCell
-                        className="w-10"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        {row.state !== "paid" ? (
-                          <SelectRowCheckbox
-                            selection={reminderSelection}
-                            id={row.id}
-                            label={`la rata di ${
-                              athleteNames[row.athleteId] || "un atleta"
-                            }`}
-                          />
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-sm">
-                        {row.dueDate
-                          ? new Date(row.dueDate).toLocaleDateString("it-IT")
-                          : "-"}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {athleteNames[row.athleteId] || "-"}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        {(row.charge as any)?.description || "-"}
-                      </TableCell>
-                      <TableCell className="text-right text-sm tabular-nums">
-                        {row.dueAmount.toFixed(2)} EUR
-                      </TableCell>
-                      <TableCell className="text-right text-sm tabular-nums">
-                        {row.paidAmount.toFixed(2)} EUR
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {row.labels.map((label) => (
-                            <Badge
-                              key={label}
-                              variant="outline"
-                              className="font-normal"
-                            >
-                              {label}
-                            </Badge>
-                          ))}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-
-          {/*
-            Registrare un incasso su una rata e una scrittura del dominio
-            pagamenti, e passa dal suo componente: due modi di registrare lo
-            stesso incasso sono due idee di «quanto ha pagato».
-          */}
-          {openLedgerId
-            ? installmentRows
-                .filter((row) => row.id === openLedgerId && row.athleteId)
-                .map((row) => (
-                  <div
-                    key={row.id}
-                    className="rounded-lg border border-slate-200 bg-white p-4"
-                  >
-                    <AthletePaymentLedger
-                      athleteId={row.athleteId}
-                      athleteName={athleteNames[row.athleteId] || null}
-                      charges={[row.charge]}
-                      methodChoices={clubPaymentMethodChoices}
-                      showTotals={false}
-                      onLedgerChanged={() => {
-                        void loadInstallments();
-                        void reloadAfterWrite();
-                      }}
-                    />
-                  </div>
-                ))
-            : null}
-        </TabsContent>
-
-        {/*
-          I **previsti** sono impegni futuri: non sono cassa, non sono prima
-          nota e non toccano nessun saldo. Stanno in una scheda a parte per la
-          stessa ragione per cui ci stanno le rate — «Entrate» con sotto
-          «Previste» era il numero che nessuno sapeva piu leggere.
-
-          La scheda si carica da sola e scrive dalle sue rotte: il
-          read-modify-write della colonna JSON dal browser, che era il difetto,
-          non torna qui dentro.
-        */}
-        <TabsContent value="previsti" className="m-0 pt-6">
-          {tab === "previsti" ? <ExpectedEntries clubId={activeClubId} /> : null}
-        </TabsContent>
-      </Tabs>
+        La scheda si carica da sola e scrive dalle sue rotte: il
+        read-modify-write della colonna JSON dal browser, che era il difetto,
+        non torna qui dentro.
+      */}
+      {tab === "previsti" ? <ExpectedEntries clubId={activeClubId} /> : null}
 
       <PaymentReminderDialog
         open={showReminderDialog}
         onOpenChange={setShowReminderDialog}
-        chargeIds={selectedReminderIds}
+        chargeIds={reminderChargeIds}
         onSent={() => {
-          reminderSelection.clear();
+          setReminderSelection(new Set());
           void loadInstallments();
         }}
       />

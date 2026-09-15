@@ -185,11 +185,15 @@ test("la riga di una categoria dice di quale categoria sono le azioni", () => {
     path.join(process.cwd(), "src/app/categories/page.tsx"),
     "utf8",
   );
-  const indice = source.indexOf("<MoreVertical className=\"h-4 w-4\" />");
 
-  assert.ok(indice > 0);
+  /*
+    Nel Web V2 il menu della riga e quello del DataGrid, che lo nomina da
+    `rowLabel` («Altre azioni per Under 15»): la pagina deve dirgli il nome.
+  */
+  assert.match(source, /<DataGrid<CategoryRow>/);
   assert.match(
-    source.slice(Math.max(0, indice - 300), indice),
-    /aria-label=\{`Azioni per \$\{category\.name\}`\}/,
+    source,
+    /rowLabel=\{\(row\) => row\.name\}/,
+    "la riga dice di quale categoria sono le azioni",
   );
 });

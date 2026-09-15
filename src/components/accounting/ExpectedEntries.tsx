@@ -1,42 +1,32 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { CalendarClock, Plus, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
-import { cn } from "@/lib/utils";
-import { ArrowDown, ArrowUp, CalendarClock, Plus, X } from "lucide-react";
+import { Button } from "@/components/web/primitives/Button";
+import { DataChip } from "@/components/web/primitives/StatusPill";
+import { Eyebrow, InsetBlock } from "@/components/web/primitives/Surface";
+import { InfoCard } from "@/components/web/page/Cards";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { Drawer } from "@/components/web/overlays/Drawer";
+import { ConfirmDialog } from "@/components/web/overlays/Modal";
+import {
+  CurrencyInput,
+  DateInput,
+  Field,
+  FieldSizeProvider,
+  FormGrid,
+  Select,
+  TextInput,
+} from "@/components/web/forms/Field";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { ColumnDef, FilterDef, RowActionDef } from "@/components/web/datagrid/types";
 import { formatCents, formatDate, toDateInputValue } from "./accounting-view";
 
 /**
- * La scheda **Previsti**.
+ * La scheda **Previsti** (Web V2).
  *
  * ---
  *
@@ -52,25 +42,22 @@ import { formatCents, formatDate, toDateInputValue } from "./accounting-view";
  * totali di cassa del periodo: quelli stanno nella fascia finanziaria della
  * prima nota, e una previsione non deve comparire accanto a loro. Qui i due
  * totali si chiamano «previsto», arrivano gia sommati dal servizio, e vivono
- * dentro un riquadro proprio, separato da un bordo.
+ * dentro un riquadro proprio, **tratteggiato** come la fascia economica del
+ * riepilogo: e la separazione fra grandezze.
  *
- * ## Perche qui «Elimina» esiste
+ * ## Perche qui «Togli» esiste
  *
  * Sulla prima nota non c'e, e non e una svista: un fatto di cassa e accaduto, e
  * si storna. Una previsione non e accaduta — e un promemoria — e un promemoria
  * sbagliato si toglie. La conferma e un dialogo che dice **cosa** si sta per
- * togliere, non un `confirm()` del browser.
+ * togliere (`ConfirmDialog`, tono distruttivo), non un `confirm()` del browser.
  *
  * ## Il permesso arriva con le righe
  *
  * `canManage` viene dal servizio insieme all'elenco. Questo componente non
  * conosce il ruolo di chi guarda e non deve conoscerlo: e la lezione W3-14, per
  * cui la matrice della pagina e quella della rotta devono essere la stessa.
- *
- * ## A 375 px
- *
- * Sotto `md` una scheda per previsione; da `md` in su la tabella, dentro un
- * contenitore che scorre per conto proprio.
+ * Senza permesso le azioni sono **assenti**, non disabilitate.
  */
 
 type ExpectedDirection = "income" | "expense";
@@ -110,33 +97,28 @@ const DIRECTION_LABEL: Record<ExpectedDirection, string> = {
  * errore che parla di un problema diverso da quello vero.
  */
 const parseAmountCents = (value: string): number | null => {
-  const testo = value.trim().replace(/\./g, "").replace(",", ".");
+  const testo = value.trim();
   if (!testo) return null;
-  const numero = Number(testo);
+  const numero = testo.includes(",")
+    ? Number(testo.replace(/\./g, "").replace(",", "."))
+    : Number(testo);
   if (!Number.isFinite(numero) || numero <= 0) return null;
   return Math.round(numero * 100);
 };
 
-const DirectionMark = ({ direction }: { direction: ExpectedDirection }) =>
-  direction === "income" ? (
-    <ArrowUp className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
-  ) : (
-    <ArrowDown className="h-4 w-4 shrink-0 text-amber-600" aria-hidden />
-  );
-
 /*
   **Il colore non e quello della cassa.** Verde acceso e rosso sono i colori di
-  entrate e uscite avvenute, in prima nota. Qui sono tonalita smorzate, perche
-  due righe identiche in due schede diverse sarebbero lette come la stessa cosa.
+  entrate e uscite avvenute, in prima nota. Qui l'uscita prevista e ambra,
+  perche due righe identiche in due schede diverse sarebbero lette come la
+  stessa cosa.
 */
 const amountClass = (direction: ExpectedDirection) =>
-  cn(
-    "font-semibold tabular-nums",
-    direction === "income" ? "text-emerald-700" : "text-amber-700",
-  );
+  cn(direction === "income" ? "text-egw-green" : "text-egw-amber-ink");
+
+const rowId = (entry: ExpectedEntryView) => `${entry.direction}-${entry.id}`;
 
 /* ========================================================================== */
-/* La finestra di creazione                                                    */
+/* Il cassetto di creazione                                                    */
 /* ========================================================================== */
 
 function NewExpectedDialog({
@@ -163,6 +145,7 @@ function NewExpectedDialog({
   const [category, setCategory] = useState("");
   const [reference, setReference] = useState("");
   const [amount, setAmount] = useState("");
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -172,114 +155,34 @@ function NewExpectedDialog({
     setCategory("");
     setReference("");
     setAmount("");
+    setDirty(false);
   }, [open]);
+
+  const touch = <T,>(setter: (value: T) => void) => (value: T) => {
+    setDirty(true);
+    setter(value);
+  };
 
   const amountCents = parseAmountCents(amount);
   const compilato = Boolean(description.trim() && date && amountCents);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Nuova previsione</DialogTitle>
-          <DialogDescription>
-            Una previsione e un impegno atteso, non un movimento: non entra in
-            prima nota, non tocca nessun saldo e non conta come denaro
-            incassato. Quando il denaro arriva davvero si registra un movimento.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="previsione-verso">Verso</Label>
-              <Select
-                value={direction}
-                onValueChange={(value) =>
-                  setDirection(value as ExpectedDirection)
-                }
-              >
-                <SelectTrigger id="previsione-verso">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="income">Entrata prevista</SelectItem>
-                  <SelectItem value="expense">Uscita prevista</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="previsione-data">Data attesa</Label>
-              <Input
-                id="previsione-data"
-                type="date"
-                value={date}
-                onChange={(event) => setDate(event.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="previsione-descrizione">Descrizione</Label>
-            <Input
-              id="previsione-descrizione"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Quote di aprile ancora da incassare"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="previsione-importo">Importo previsto</Label>
-              <Input
-                id="previsione-importo"
-                inputMode="decimal"
-                value={amount}
-                onChange={(event) => setAmount(event.target.value)}
-                placeholder="820,00"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="previsione-categoria">
-                Voce (facoltativa)
-              </Label>
-              <Input
-                id="previsione-categoria"
-                value={category}
-                onChange={(event) => setCategory(event.target.value)}
-                placeholder="Quote"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="previsione-riferimento">
-              Riferimento (facoltativo)
-            </Label>
-            <Input
-              id="previsione-riferimento"
-              value={reference}
-              onChange={(event) => setReference(event.target.value)}
-              placeholder="Delibera, preventivo, contratto"
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      width="default"
+      eyebrow="Previsti"
+      title="Nuova previsione"
+      description="Una previsione e un impegno atteso, non un movimento: non entra in prima nota, non tocca nessun saldo e non conta come denaro incassato. Quando il denaro arriva davvero si registra un movimento."
+      dirty={dirty}
+      locked={saving}
+      data-test="accounting-expected-drawer"
+      footer={
+        <>
           <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
-          >
-            Annulla
-          </Button>
-          <Button
-            type="button"
+            variant="primary"
             disabled={!compilato || saving}
+            loading={saving}
             onClick={() =>
               onSubmit({
                 direction,
@@ -293,14 +196,80 @@ function NewExpectedDialog({
           >
             {saving ? "Salvataggio..." : "Registra previsione"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={saving}>
+            Annulla
+          </Button>
+        </>
+      }
+    >
+      <FieldSizeProvider size="sm">
+        <div className="flex flex-col gap-5">
+          <FormGrid columns={2}>
+            <Field label="Verso" htmlFor="previsione-verso" required>
+              <Select
+                id="previsione-verso"
+                value={direction}
+                onValueChange={(value) => touch(setDirection)(value as ExpectedDirection)}
+                options={[
+                  { value: "income", label: "Entrata prevista" },
+                  { value: "expense", label: "Uscita prevista" },
+                ]}
+              />
+            </Field>
+            <Field label="Data attesa" htmlFor="previsione-data" required>
+              <DateInput id="previsione-data" value={date} onChange={(event) => touch(setDate)(event.target.value)} />
+            </Field>
+          </FormGrid>
+
+          <Field label="Descrizione" htmlFor="previsione-descrizione" required>
+            <TextInput
+              id="previsione-descrizione"
+              value={description}
+              onChange={(event) => touch(setDescription)(event.target.value)}
+              placeholder="Quote di aprile ancora da incassare"
+            />
+          </Field>
+
+          <FormGrid columns={2}>
+            <Field
+              label="Importo previsto"
+              htmlFor="previsione-importo"
+              required
+              error={amount.trim() && !amountCents ? "L'importo deve essere un numero maggiore di zero." : undefined}
+            >
+              <CurrencyInput
+                id="previsione-importo"
+                value={amount}
+                onChange={(event) => touch(setAmount)(event.target.value)}
+                placeholder="820,00"
+              />
+            </Field>
+            <Field label="Voce" htmlFor="previsione-categoria">
+              <TextInput
+                id="previsione-categoria"
+                value={category}
+                onChange={(event) => touch(setCategory)(event.target.value)}
+                placeholder="Quote"
+              />
+            </Field>
+          </FormGrid>
+
+          <Field label="Riferimento" htmlFor="previsione-riferimento">
+            <TextInput
+              id="previsione-riferimento"
+              value={reference}
+              onChange={(event) => touch(setReference)(event.target.value)}
+              placeholder="Delibera, preventivo, contratto"
+            />
+          </Field>
+        </div>
+      </FieldSizeProvider>
+    </Drawer>
   );
 }
 
 /* ========================================================================== */
-/* La finestra di cancellazione                                                */
+/* La conferma di rimozione                                                    */
 /* ========================================================================== */
 
 function RemoveExpectedDialog({
@@ -315,51 +284,138 @@ function RemoveExpectedDialog({
   onConfirm: () => void;
 }) {
   return (
-    <Dialog open={Boolean(entry)} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Togliere questa previsione?</DialogTitle>
-          <DialogDescription>
-            {entry
-              ? `${DIRECTION_LABEL[entry.direction]} di ${formatCents(
-                  entry.amountCents,
-                )} — ${entry.description}.`
-              : ""}
-          </DialogDescription>
-        </DialogHeader>
-
-        <p className="text-sm text-slate-600">
-          Non sparisce nessun movimento e nessun saldo cambia: una previsione non
-          e mai stata denaro. Se l&apos;incasso o il pagamento e gia avvenuto,
-          resta registrato in prima nota.
-        </p>
-
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
-          >
-            Annulla
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={saving}
-            onClick={onConfirm}
-          >
-            {saving ? "Rimozione..." : "Togli la previsione"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={Boolean(entry)}
+      onOpenChange={onOpenChange}
+      tone="danger"
+      title="Togliere questa previsione?"
+      description={
+        entry
+          ? `${DIRECTION_LABEL[entry.direction]} di ${formatCents(entry.amountCents)} — ${entry.description}.`
+          : ""
+      }
+      confirmLabel={saving ? "Rimozione..." : "Togli la previsione"}
+      loading={saving}
+      onConfirm={onConfirm}
+    >
+      <p className="font-brand text-[13px] leading-[1.55] text-egw-ink-72">
+        Non sparisce nessun movimento e nessun saldo cambia: una previsione non
+        e mai stata denaro. Se l&apos;incasso o il pagamento e gia avvenuto,
+        resta registrato in prima nota.
+      </p>
+    </ConfirmDialog>
   );
 }
 
 /* ========================================================================== */
+/* I totali previsionali                                                       */
+/* ========================================================================== */
+
+const ForecastTile = ({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  tone?: "green" | "amber";
+}) => (
+  <InsetBlock className="min-w-0">
+    <Eyebrow>{label}</Eyebrow>
+    <p
+      className={cn(
+        "egw-num mt-2 font-brand text-[24px] font-extrabold leading-none",
+        tone === "green" && "text-egw-green",
+        tone === "amber" && "text-egw-amber-ink",
+        !tone && "text-egw-ink",
+      )}
+    >
+      {value}
+    </p>
+    <p className="mt-1.5 font-brand text-[11.5px] leading-[1.45] text-egw-ink-62">{hint}</p>
+  </InsetBlock>
+);
+
+/* ========================================================================== */
 /* La scheda                                                                   */
 /* ========================================================================== */
+
+const EXPECTED_FILTERS: FilterDef<ExpectedEntryView>[] = [
+  {
+    id: "direction",
+    label: "Verso",
+    type: "select",
+    pinned: true,
+    options: [
+      { value: "income", label: "Entrate previste" },
+      { value: "expense", label: "Uscite previste" },
+    ],
+    apply: (row, value) => (typeof value === "string" && value ? row.direction === value : true),
+  },
+];
+
+const EXPECTED_COLUMNS: ColumnDef<ExpectedEntryView>[] = [
+  {
+    id: "date",
+    header: "Data attesa",
+    kind: "date",
+    width: "110px",
+    locked: true,
+    cell: (entry) => formatDate(entry.date),
+    sortValue: (entry) => entry.date || null,
+    exportValue: (entry) => entry.date || "",
+  },
+  {
+    id: "description",
+    header: "Descrizione",
+    kind: "identity",
+    locked: true,
+    width: 2,
+    cell: (entry) => (
+      <span className="egw-ellipsis block font-brand text-[13px] font-semibold text-egw-ink">{entry.description}</span>
+    ),
+    sortValue: (entry) => entry.description.toLowerCase(),
+    title: (entry) => entry.description,
+    exportValue: (entry) => entry.description,
+  },
+  {
+    id: "category",
+    header: "Voce",
+    kind: "classification",
+    cell: (entry) => (entry.category ? <DataChip size="sm">{entry.category}</DataChip> : null),
+    sortValue: (entry) => entry.category?.toLowerCase() || null,
+    title: (entry) => entry.category || undefined,
+    exportValue: (entry) => entry.category || "",
+  },
+  {
+    id: "reference",
+    header: "Riferimento",
+    kind: "text",
+    cell: (entry) => entry.reference || null,
+    sortValue: (entry) => entry.reference?.toLowerCase() || null,
+  },
+  {
+    id: "direction",
+    header: "Tipo",
+    kind: "classification",
+    minWidth: 130,
+    cell: (entry) => <DataChip size="sm" tone={entry.direction === "income" ? "green" : "amber"}>{DIRECTION_LABEL[entry.direction]}</DataChip>,
+    sortValue: (entry) => entry.direction,
+    exportValue: (entry) => DIRECTION_LABEL[entry.direction],
+  },
+  {
+    id: "amount",
+    header: "Importo previsto",
+    kind: "amount",
+    align: "right",
+    width: "140px",
+    cell: (entry) => <span className={amountClass(entry.direction)}>{formatCents(entry.amountCents)}</span>,
+    sortValue: (entry) => entry.amountCents,
+    exportValue: (entry) => entry.amountCents / 100,
+  },
+];
 
 export function ExpectedEntries({ clubId }: { clubId: string | null }) {
   const { showToast } = useToast();
@@ -446,23 +502,37 @@ export function ExpectedEntries({ clubId }: { clubId: string | null }) {
   const entries = useMemo(() => data?.entries || [], [data]);
   const canManage = Boolean(data?.canManage);
 
+  /* Senza permesso l'azione non compare: nessun pulsante disabilitato. */
+  const rowActions = useMemo<RowActionDef<ExpectedEntryView>[]>(
+    () =>
+      canManage
+        ? [
+            {
+              id: "remove",
+              label: "Togli",
+              icon: <X />,
+              tone: "danger",
+              primary: true,
+              onClick: (entry) => setToRemove(entry),
+            },
+          ]
+        : [],
+    [canManage],
+  );
+
+
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-[18px]" data-test="accounting-expected">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <p className="max-w-3xl text-sm text-slate-600">
+        <InfoCard eyebrow="Cosa sono le previsioni" className="max-w-3xl">
           Entrate e uscite <strong>previste</strong>: cose che il club si
           aspetta e che non sono ancora accadute. Non sono denaro, non entrano in
           prima nota e non toccano nessun saldo. Quando il denaro si muove
           davvero si registra un movimento, ed e quello a contare.
-        </p>
+        </InfoCard>
 
         {canManage ? (
-          <Button
-            type="button"
-            className="shrink-0"
-            onClick={() => setShowNew(true)}
-          >
-            <Plus className="mr-2 h-4 w-4" aria-hidden />
+          <Button variant="primary" icon={<Plus />} className="shrink-0" onClick={() => setShowNew(true)}>
             Nuova previsione
           </Button>
         ) : null}
@@ -470,224 +540,75 @@ export function ExpectedEntries({ clubId }: { clubId: string | null }) {
 
       {/*
         Il bordo tratteggiato e lo stesso della fascia economica del riepilogo:
-        e la separazione fra grandezze. Questi due numeri non sono cassa, e non
+        e la separazione fra grandezze. Questi numeri non sono cassa, e non
         stanno nella stessa riga di un saldo.
       */}
-      <div className="space-y-3 rounded-lg border border-dashed border-slate-300 bg-white p-4">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
-            Situazione previsionale
-          </h2>
-          <span className="text-xs text-slate-500">
+      <section className="rounded-egw-panel border border-dashed border-[rgba(11,26,58,.22)] bg-transparent p-5">
+        <div className="mb-3 flex flex-wrap items-baseline gap-2">
+          <Eyebrow as="h2">Situazione previsionale</Eyebrow>
+          <span className="font-brand text-[11.5px] text-egw-ink-62">
             attese, non ancora denaro — nessuno di questi numeri e un saldo
           </span>
         </div>
-
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-slate-500">
-                  Entrate previste
-                </p>
-                <ArrowUp
-                  className="h-4 w-4 shrink-0 text-emerald-600"
-                  aria-hidden
-                />
-              </div>
-              <p className="mt-1 text-xl font-bold text-emerald-700">
-                {formatCents(data?.totals.expectedIncomeCents || 0)}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Attese, mai incassate. Fonte: le previsioni del club.
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-slate-500">
-                  Uscite previste
-                </p>
-                <ArrowDown
-                  className="h-4 w-4 shrink-0 text-amber-600"
-                  aria-hidden
-                />
-              </div>
-              <p className="mt-1 text-xl font-bold text-amber-700">
-                {formatCents(data?.totals.expectedExpenseCents || 0)}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Attese, mai pagate. Fonte: le previsioni del club.
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-slate-500">
-                  Differenza prevista
-                </p>
-                <CalendarClock
-                  className="h-4 w-4 shrink-0 text-slate-400"
-                  aria-hidden
-                />
-              </div>
-              <p className="mt-1 text-xl font-bold text-slate-900">
-                {formatCents(data?.totals.expectedNetCents || 0)}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Differenza fra attese: non e liquidita, e non lo diventa
-                sommandola a un saldo.
-              </p>
-            </CardContent>
-          </Card>
+          <ForecastTile
+            label="Entrate previste"
+            value={formatCents(data?.totals.expectedIncomeCents || 0)}
+            hint="Attese, mai incassate. Fonte: le previsioni del club."
+            tone="green"
+          />
+          <ForecastTile
+            label="Uscite previste"
+            value={formatCents(data?.totals.expectedExpenseCents || 0)}
+            hint="Attese, mai pagate. Fonte: le previsioni del club."
+            tone="amber"
+          />
+          <ForecastTile
+            label="Differenza prevista"
+            value={formatCents(data?.totals.expectedNetCents || 0)}
+            hint="Differenza fra attese: non e liquidita, e non lo diventa sommandola a un saldo."
+          />
         </div>
-      </div>
+      </section>
 
       {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-          <p className="font-medium">Le previsioni non sono state lette</p>
-          <p className="mt-1">{error}</p>
-        </div>
-      ) : loading ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-          Lettura delle previsioni...
-        </div>
-      ) : entries.length === 0 ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-sm text-slate-600">
-          Nessuna previsione registrata per questo club.
-        </div>
+        <AlertBlock
+          severity="danger"
+          title="Le previsioni non sono state lette"
+          actions={
+            <Button variant="secondary" size="sm" onClick={() => void load()}>
+              Riprova
+            </Button>
+          }
+        >
+          {error}
+        </AlertBlock>
       ) : (
-        <div className="space-y-4">
-          {/* Sotto md: una scheda per previsione. */}
-          <div className="space-y-3 md:hidden">
-            {entries.map((entry) => (
-              <div
-                key={`${entry.direction}-${entry.id}`}
-                className="rounded-lg border border-dashed border-slate-300 bg-white p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-xs text-slate-500">
-                      {formatDate(entry.date)}
-                    </p>
-                    <p className="mt-0.5 break-words font-medium text-slate-900">
-                      {entry.description}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <DirectionMark direction={entry.direction} />
-                    <span className={amountClass(entry.direction)}>
-                      {formatCents(entry.amountCents)}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-1">
-                  <Badge variant="outline" className="font-normal">
-                    {DIRECTION_LABEL[entry.direction]}
-                  </Badge>
-                  {entry.category ? (
-                    <Badge variant="outline" className="font-normal">
-                      {entry.category}
-                    </Badge>
-                  ) : null}
-                </div>
-
-                {entry.reference ? (
-                  <p className="mt-2 break-words text-sm text-slate-600">
-                    {entry.reference}
-                  </p>
-                ) : null}
-
-                {canManage ? (
-                  <div className="mt-3">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-8"
-                      disabled={busy}
-                      onClick={() => setToRemove(entry)}
-                    >
-                      <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                      Togli
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-
-          {/* Da md in su la tabella, dentro un contenitore che scorre da solo. */}
-          <div className="hidden overflow-x-auto rounded-lg border border-dashed border-slate-300 bg-white md:block">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="whitespace-nowrap">
-                    Data attesa
-                  </TableHead>
-                  <TableHead>Descrizione</TableHead>
-                  <TableHead>Voce</TableHead>
-                  <TableHead>Riferimento</TableHead>
-                  <TableHead className="whitespace-nowrap">Tipo</TableHead>
-                  <TableHead className="whitespace-nowrap text-right">
-                    Importo previsto
-                  </TableHead>
-                  {canManage ? (
-                    <TableHead className="w-24 text-right">Azione</TableHead>
-                  ) : null}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {entries.map((entry) => (
-                  <TableRow key={`${entry.direction}-${entry.id}`}>
-                    <TableCell className="whitespace-nowrap text-sm">
-                      {formatDate(entry.date)}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {entry.description}
-                    </TableCell>
-                    <TableCell className="text-sm text-slate-600">
-                      {entry.category || "-"}
-                    </TableCell>
-                    <TableCell className="text-sm text-slate-600">
-                      {entry.reference || "-"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="font-normal">
-                        {DIRECTION_LABEL[entry.direction]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className={amountClass(entry.direction)}>
-                        {formatCents(entry.amountCents)}
-                      </span>
-                    </TableCell>
-                    {canManage ? (
-                      <TableCell className="text-right">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-8"
-                          disabled={busy}
-                          onClick={() => setToRemove(entry)}
-                        >
-                          <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                          Togli
-                        </Button>
-                      </TableCell>
-                    ) : null}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
+        <DataGrid<ExpectedEntryView>
+          module="previsti"
+          aria-label="Elenco delle previsioni"
+          rows={entries}
+          getRowId={rowId}
+          columns={EXPECTED_COLUMNS}
+          filters={EXPECTED_FILTERS}
+          defaultSort={{ columnId: "date", direction: "asc" }}
+          rowActions={rowActions}
+          rowLabel={(entry) => entry.description}
+          canSelect={false}
+          state={loading ? "loading" : "ready"}
+          noun={{ singular: "previsione", plural: "previsioni" }}
+          hideViews
+          empty={{
+            icon: <CalendarClock />,
+            title: "Nessuna previsione registrata per questo club.",
+            description: "Una previsione e un impegno atteso: si registra qui e non tocca nessun saldo.",
+            primary: canManage ? (
+              <Button variant="primary" size="sm" icon={<Plus />} onClick={() => setShowNew(true)}>
+                Nuova previsione
+              </Button>
+            ) : undefined,
+          }}
+        />
       )}
 
       <NewExpectedDialog

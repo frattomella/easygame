@@ -5,6 +5,7 @@ import {
   fromCents,
   type AccountingLine,
 } from "@/lib/accounting/model";
+import { formatDateShort, formatMoney } from "@/lib/web/format";
 
 /**
  * Cio che serve alla superficie della prima nota per **mostrare** una riga, e
@@ -21,24 +22,14 @@ import {
  * appartiene alla barriera o al servizio, non alla schermata.
  */
 
-const currency = new Intl.NumberFormat("it-IT", {
-  style: "currency",
-  currency: "EUR",
-});
+/**
+ * Da centesimi a «1.234,56 €», nella forma del Web V2 (`formatMoney`). Il
+ * segno non compare: lo dice il verso.
+ */
+export const formatCents = (cents: number) => formatMoney(fromCents(cents));
 
-/** Da centesimi a «1.234,56 EUR». Il segno non compare: lo dice il verso. */
-export const formatCents = (cents: number) => currency.format(fromCents(cents));
-
-export const formatDate = (value?: string | null) => {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("it-IT", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-};
+/** `24 set 2026`, o `—` se la data manca (`formatDateShort`). */
+export const formatDate = (value?: string | null) => formatDateShort(value);
 
 /** Da `Date` al valore di un `<input type="date">`, in UTC come l'anno fiscale. */
 export const toDateInputValue = (date: Date) => date.toISOString().slice(0, 10);
@@ -160,6 +151,11 @@ export type AccountingFilterState = {
   from: string;
   to: string;
   fiscalYear: string;
+  /**
+   * La stagione sportiva. E un asse diverso dall'anno fiscale, e le due rotte
+   * (`entries`, `reports`) li accettano entrambi: come su `/reports`.
+   */
+  seasonId: string;
   financialAccountId: string;
   operationTypeCode: string;
   direction: string;
@@ -173,6 +169,7 @@ export const emptyFilters: AccountingFilterState = {
   from: "",
   to: "",
   fiscalYear: "",
+  seasonId: "",
   financialAccountId: "",
   operationTypeCode: "",
   direction: "",
@@ -207,6 +204,7 @@ export const buildEntriesQuery = (
   put("from", filters.from);
   put("to", filters.to);
   put("fiscal_year", filters.fiscalYear);
+  put("season_id", filters.seasonId);
   put("financial_account_id", filters.financialAccountId);
   put("operation_type_code", filters.operationTypeCode);
   put("direction", filters.direction);
@@ -225,7 +223,7 @@ export const buildEntriesQuery = (
  * Dai filtri alla query del **riepilogo**.
  *
  * `GET /api/v1/accounting/reports` accetta gli assi del periodo — date, anno,
- * conto, causale, sede, verso — e **non** origine, stato di riconciliazione e
+ * stagione, conto, causale, sede, verso — e **non** origine, stato di riconciliazione e
  * ricerca testuale, che sono modi di restringere l'elenco, non il periodo.
  * Passargliene uno che non conosce non darebbe un errore: darebbe un totale
  * che ignora silenziosamente la restrizione, ed e il motivo per cui questa
@@ -248,6 +246,7 @@ export const buildReportQuery = (filters: AccountingFilterState) => {
   put("from", filters.from);
   put("to", filters.to);
   put("fiscal_year", filters.fiscalYear);
+  put("season_id", filters.seasonId);
   put("financial_account_id", filters.financialAccountId);
   put("operation_type_code", filters.operationTypeCode);
   put("direction", filters.direction);

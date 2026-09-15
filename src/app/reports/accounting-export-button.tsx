@@ -1,8 +1,8 @@
 "use client";
 
 import React from "react";
-import { Button } from "@/components/ui/button";
 import { AlertCircle, Download } from "lucide-react";
+import { Button } from "@/components/web/primitives/Button";
 import { apiDownload } from "@/lib/api/client";
 import { downloadCsv } from "@/lib/csv";
 import { hasAccountingPermission } from "@/lib/accounting/permissions";
@@ -21,7 +21,8 @@ import { hasAccountingPermission } from "@/lib/accounting/permissions";
  * rotta — un pulsante che si vede e poi risponde 403 e un difetto quanto una
  * porta aperta (lezione W3-14) — e il permesso la segreteria non ce l'ha:
  * l'export e la fotografia completa dei conti della societa che lascia
- * l'applicazione dentro un file.
+ * l'applicazione dentro un file. Permesso negato = pulsante **assente**, mai
+ * disabilitato (guideline 10 §10.5).
  *
  * **Il trasporto passa da `apiRequest`/`apiDownload`.** Nessun `fetch` diretto
  * verso `/api` da un componente: senza gli header di contesto il server non
@@ -77,17 +78,21 @@ export default function AccountingExportButton({
     <>
       <Button
         type="button"
-        variant="outline"
+        variant="secondary"
         size="sm"
+        icon={<Download />}
         onClick={scarica}
+        loading={scaricando}
         disabled={scaricando}
       >
-        <Download className="mr-2 h-4 w-4" />
         {scaricando ? "Preparazione del file..." : "Esporta in CSV"}
       </Button>
       {errore ? (
-        <span className="flex items-start gap-1.5 text-xs text-amber-900">
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span
+          role="alert"
+          className="flex items-start gap-1.5 font-brand text-[12px] text-egw-amber-ink"
+        >
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>{errore}</span>
         </span>
       ) : null}

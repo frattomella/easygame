@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
+import { Drawer } from "@/components/web/overlays/Drawer";
+import { Button as WebButton } from "@/components/web/primitives/Button";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import { replaceAttachment, uploadAttachment } from "@/lib/api/attachments";
@@ -46,6 +48,12 @@ interface AddCertificateFormProps {
    * protocollato, e lasciare orfano l'allegato di prima.
    */
   certificate?: EditableCertificate | null;
+  /**
+   * Il guscio: la finestra modale della V1 (default, scheda atleta) oppure
+   * il cassetto da 480 del Web V2 (`/medical`). Cambia solo l'involucro e i
+   * pulsanti del piede: campi, validazioni e caricamento sono gli stessi.
+   */
+  presentation?: "modal" | "drawer";
 }
 
 const todayDate = () => todayLocalDateOnly();
@@ -98,6 +106,7 @@ export function AddCertificateForm({
   athleteName,
   lockAthleteSelection = false,
   certificate = null,
+  presentation = "modal",
 }: AddCertificateFormProps) {
   const { showToast } = useToast();
   const isAthleteLocked = Boolean(lockAthleteSelection && athleteId);
@@ -111,6 +120,8 @@ export function AddCertificateForm({
   const [localAthletes, setLocalAthletes] = useState(athletes);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /* Qualcosa e stato toccato: il cassetto chiede prima di buttarlo via. */
+  const [touched, setTouched] = useState(false);
 
   const certificateTypes = [
     { value: "Agonistico", label: "Certificato Agonistico" },
@@ -150,6 +161,7 @@ export function AddCertificateForm({
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = e.target;
+    setTouched(true);
     if (name === "issueDate") {
       setFormData((prev) => ({
         ...prev,
@@ -202,6 +214,7 @@ export function AddCertificateForm({
 
   React.useEffect(() => {
     if (!isOpen) return;
+    setTouched(false);
 
     /*
       In modifica la finestra si apre **sui valori del certificato**, non su
@@ -402,6 +415,7 @@ export function AddCertificateForm({
       setSelectedFile(null);
       setSearchQuery("");
       setFilteredAthletes(localAthletes);
+      setTouched(false);
       onClose();
     } catch (error) {
       console.error("Error uploading certificate file:", error);
@@ -411,14 +425,205 @@ export function AddCertificateForm({
     }
   };
 
+  const description = isEditing
+    ? "Correggi i dati del certificato, o sostituiscine il file"
+    : "Inserisci i dettagli del certificato medico";
+
+  const body = (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="athleteId">Atleta</Label>
+        <div className="relative">
+          {isAthleteLocked ? (
+            <div className="h-10 rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
+              {athleteName ||
+                localAthletes.find((item) => item.id === athleteId)?.name ||
+                "Atleta selezionato"}
+            </div>
+          ) : (
+            <>
+              <Input
+                id="athleteSearch"
+                type="text"
+                placeholder="Cerca atleta..."
+                className="w-full mb-2"
+                value={searchQuery}
+                onChange={handleSearchChange}
+              />
+              <select
+                id="athleteId"
+                name="athleteId"
+                value={formData.athleteId}
+                onChange={handleChange}
+                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                required
+              >
+                <option value="" disabled>
+                  {filteredAthletes.length === 0
+                    ? "Nessun atleta trovato"
+                    : "Seleziona un atleta"}
+                </option>
+                {filteredAthletes.map((athlete) => (
+                  <option key={athlete.id} value={athlete.id}>
+                    {athlete.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          {localAthletes.length === 0 && isOpen && (
+            <p className="text-sm text-muted-foreground mt-1">
+              Caricamento atleti...
+            </p>
+          )}
+          {localAthletes.length === 0 && !isOpen && (
+            <p className="text-sm text-muted-foreground mt-1">
+              Nessun atleta disponibile per questo club
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="certificateType">Tipo di Certificato</Label>
+        <select
+          id="certificateType"
+          name="certificateType"
+          value={formData.certificateType}
+          onChange={handleChange}
+          className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+          required
+        >
+          {certificateTypes.map((type) => (
+            <option key={type.value} value={type.value}>
+              {type.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="issueDate">Data di Emissione</Label>
+          <Input
+            id="issueDate"
+            name="issueDate"
+            type="date"
+            value={formData.issueDate}
+            onChange={handleChange}
+            required
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="expiryDate">Data di Scadenza</Label>
+          <Input
+            id="expiryDate"
+            name="expiryDate"
+            type="date"
+            value={formData.expiryDate}
+            onChange={handleChange}
+            required
+          />
+          <div className="flex flex-col gap-2 text-xs text-muted-foreground">
+            <p>
+              {expiryManuallyEdited
+                ? "Scadenza modificata manualmente."
+                : "Impostata automaticamente a un anno dalla data di emissione. Puoi modificarla manualmente."}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-fit"
+              onClick={() => {
+                setFormData((prev) => ({
+                  ...prev,
+                  expiryDate: addOneYear(prev.issueDate),
+                }));
+                setExpiryManuallyEdited(false);
+              }}
+              disabled={!formData.issueDate}
+            >
+              Ricalcola da emissione
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="fileUrl">
+          {hasExistingFile ? "Sostituisci File" : "Carica File *"}
+        </Label>
+        <Input
+          id="fileUrl"
+          name="fileUrl"
+          type="file"
+          required={!hasExistingFile}
+          onChange={(e) => {
+            setSelectedFile(e.target.files?.[0] || null);
+            setTouched(true);
+          }}
+        />
+        {selectedFile ? (
+          <p className="text-sm text-muted-foreground">
+            File selezionato: {selectedFile.name}
+          </p>
+        ) : hasExistingFile ? (
+          <p className="text-sm text-muted-foreground">
+            Un file e gia allegato. Sceglierne uno nuovo lo sostituisce;
+            lasciando vuoto resta quello.
+          </p>
+        ) : null}
+      </div>
+    </form>
+  );
+
+  if (presentation === "drawer") {
+    /*
+      Il cassetto del Web V2 (guideline 06 §6.7): stesso modulo, stesse
+      validazioni, con la guardia sulle modifiche non salvate e il piede
+      con un solo primario. Le parole sono quelle del design: «Registra
+      certificato», non «Carica».
+    */
+    return (
+      <Drawer
+        open={isOpen}
+        onOpenChange={(open) => {
+          if (!open) onClose();
+        }}
+        width="default"
+        eyebrow="Certificati medici"
+        title={isEditing ? "Modifica certificato" : "Registra certificato"}
+        description={description}
+        dirty={touched || Boolean(selectedFile)}
+        locked={isSubmitting}
+        data-test="medical-certificate-drawer"
+        footer={
+          <>
+            <WebButton
+              variant="primary"
+              onClick={handleSubmit}
+              loading={isSubmitting}
+              disabled={isSubmitting}
+            >
+              {isEditing ? "Salva modifiche" : "Salva"}
+            </WebButton>
+            <WebButton variant="secondary" onClick={onClose} disabled={isSubmitting}>
+              Annulla
+            </WebButton>
+          </>
+        }
+      >
+        {body}
+      </Drawer>
+    );
+  }
+
   return (
     <Modal
       title={isEditing ? "Modifica Certificato" : "Carica Nuovo Certificato"}
-      description={
-        isEditing
-          ? "Correggi i dati del certificato, o sostituiscine il file"
-          : "Inserisci i dettagli del certificato medico"
-      }
+      description={description}
       isOpen={isOpen}
       onClose={onClose}
       footer={
@@ -436,152 +641,7 @@ export function AddCertificateForm({
         </div>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="athleteId">Atleta</Label>
-          <div className="relative">
-            {isAthleteLocked ? (
-              <div className="h-10 rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
-                {athleteName ||
-                  localAthletes.find((item) => item.id === athleteId)?.name ||
-                  "Atleta selezionato"}
-              </div>
-            ) : (
-              <>
-                <Input
-                  id="athleteSearch"
-                  type="text"
-                  placeholder="Cerca atleta..."
-                  className="w-full mb-2"
-                  value={searchQuery}
-                  onChange={handleSearchChange}
-                />
-                <select
-                  id="athleteId"
-                  name="athleteId"
-                  value={formData.athleteId}
-                  onChange={handleChange}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                  required
-                >
-                  <option value="" disabled>
-                    {filteredAthletes.length === 0
-                      ? "Nessun atleta trovato"
-                      : "Seleziona un atleta"}
-                  </option>
-                  {filteredAthletes.map((athlete) => (
-                    <option key={athlete.id} value={athlete.id}>
-                      {athlete.name}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-            {localAthletes.length === 0 && isOpen && (
-              <p className="text-sm text-muted-foreground mt-1">
-                Caricamento atleti...
-              </p>
-            )}
-            {localAthletes.length === 0 && !isOpen && (
-              <p className="text-sm text-muted-foreground mt-1">
-                Nessun atleta disponibile per questo club
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="certificateType">Tipo di Certificato</Label>
-          <select
-            id="certificateType"
-            name="certificateType"
-            value={formData.certificateType}
-            onChange={handleChange}
-            className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-            required
-          >
-            {certificateTypes.map((type) => (
-              <option key={type.value} value={type.value}>
-                {type.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="issueDate">Data di Emissione</Label>
-            <Input
-              id="issueDate"
-              name="issueDate"
-              type="date"
-              value={formData.issueDate}
-              onChange={handleChange}
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="expiryDate">Data di Scadenza</Label>
-            <Input
-              id="expiryDate"
-              name="expiryDate"
-              type="date"
-              value={formData.expiryDate}
-              onChange={handleChange}
-              required
-            />
-            <div className="flex flex-col gap-2 text-xs text-muted-foreground">
-              <p>
-                {expiryManuallyEdited
-                  ? "Scadenza modificata manualmente."
-                  : "Impostata automaticamente a un anno dalla data di emissione. Puoi modificarla manualmente."}
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-fit"
-                onClick={() => {
-                  setFormData((prev) => ({
-                    ...prev,
-                    expiryDate: addOneYear(prev.issueDate),
-                  }));
-                  setExpiryManuallyEdited(false);
-                }}
-                disabled={!formData.issueDate}
-              >
-                Ricalcola da emissione
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="fileUrl">
-            {hasExistingFile ? "Sostituisci File" : "Carica File *"}
-          </Label>
-          <Input
-            id="fileUrl"
-            name="fileUrl"
-            type="file"
-            required={!hasExistingFile}
-            onChange={(e) => {
-              setSelectedFile(e.target.files?.[0] || null);
-            }}
-          />
-          {selectedFile ? (
-            <p className="text-sm text-muted-foreground">
-              File selezionato: {selectedFile.name}
-            </p>
-          ) : hasExistingFile ? (
-            <p className="text-sm text-muted-foreground">
-              Un file e gia allegato. Sceglierne uno nuovo lo sostituisce;
-              lasciando vuoto resta quello.
-            </p>
-          ) : null}
-        </div>
-      </form>
+      {body}
     </Modal>
   );
 }

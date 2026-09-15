@@ -68,6 +68,17 @@ const TOUCHED = [
   "components/organization/club-signature-panel.tsx",
   "app/reports/page.tsx",
   /*
+    Dal Web V2 `/reports` e composta dai pannelli in `components/reports/v2/`
+    e dal riepilogo gestionale: dieci filtri, quattro riquadri di cassa e
+    cinque griglie che a 375 px devono restare una colonna e scorrere in se.
+  */
+  "app/reports/management-summary.tsx",
+  "app/reports/accounting-export-button.tsx",
+  "components/reports/v2/activity-report-panels.tsx",
+  "components/reports/v2/management-group-grid.tsx",
+  "components/reports/v2/report-stat-tile.tsx",
+  "components/reports/v2/report-context-controls.tsx",
+  /*
     Wave 2: la configurazione delle automazioni. Quattro schede con anticipi,
     pubblico e testo del messaggio — cioe la superficie che una segreteria
     apre per spegnere una regola, spesso di corsa e spesso dal telefono.
@@ -465,7 +476,6 @@ test("il nome del club puo troncare, cosi la stagione resta visibile", () => {
 test("le barre di schede non escono dallo schermo stretto", () => {
   const casi = [
     ["app/registration-management/page.tsx", /<TabsList className="mb-4 w-full justify-start overflow-x-auto/],
-    ["app/medical/page.tsx", /<TabsList className="w-full justify-start overflow-x-auto/],
     ["app/modulistica/page.tsx", /<TabsList className="h-auto w-full flex-wrap/],
   ];
 
@@ -476,6 +486,24 @@ test("le barre di schede non escono dallo schermo stretto", () => {
       `${file}: le schede oltre la terza erano tagliate via, cioe irraggiungibili da un telefono`,
     );
   }
+
+  /*
+    `/medical` nel Web V2 non ha piu una `TabsList`: le cinque schede (Tutti
+    · Validi · In scadenza · Scaduti · Mancanti) sono le viste del DataGrid,
+    e «Mancanti» — quella che una segreteria guarda per prima — deve restare
+    raggiungibile a 375 px: la barra delle viste va a capo invece di tagliare.
+  */
+  assert.match(
+    read("app/medical/page.tsx"),
+    /views=\{CERTIFICATE_VIEWS\}/,
+    "app/medical/page.tsx: le schede di stato sono le viste della griglia",
+  );
+  assert.doesNotMatch(read("app/medical/page.tsx"), /<TabsList/);
+  assert.match(
+    read("components/web/datagrid/DataGrid.tsx"),
+    /flex min-h-\[52px\] flex-wrap items-center gap-2 border-b border-egw-hairline[^"]*"[\s\S]{0,200}<Eyebrow className="mr-1">Viste<\/Eyebrow>/,
+    "la barra delle viste della griglia va a capo: nessuna vista viene tagliata a 375 px",
+  );
 });
 
 test("i comandi di intestazione vanno a capo prima di uscire", () => {

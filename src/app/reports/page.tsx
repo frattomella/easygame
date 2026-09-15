@@ -7,28 +7,11 @@ import {
   DashboardPageContainer,
   dashboardMainClassName,
 } from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast-notification";
-import {
-  AlertCircle,
-  CalendarDays,
-  CheckCircle2,
-  ClipboardList,
-  CreditCard,
-  FileText,
-  Trophy,
-  Users,
-} from "lucide-react";
+import { CalendarDays, CreditCard, Trophy, Users } from "lucide-react";
+import { PageHeader } from "@/components/web/page/PageHeader";
+import { EmptyStateCard, KpiBar, KpiCard } from "@/components/web/page/Cards";
+import { formatInteger, formatMoney } from "@/lib/web/format";
 import {
   aggregateClubPayments,
   loadClubFinancialSources,
@@ -40,16 +23,35 @@ import {
   calculateMatchConvocationReport,
   calculatePaymentReport,
   getClubCategoryOptions,
-  type AttendanceReport,
-  type CategoryReport,
-  type MatchConvocationReport,
-  type PaymentReport,
   type ReportPeriodKey,
 } from "@/lib/club-report-utils";
 import { getClub, getClubAthletes, getClubData } from "@/lib/simplified-db";
 import { supabase } from "@/lib/supabase";
 import type { NormalizedCategoryOption } from "@/lib/category-utils";
+import {
+  ALL_CATEGORIES_VALUE,
+  CategoryContextControl,
+  PeriodContextControl,
+} from "@/components/reports/v2/report-context-controls";
+import {
+  AttendancePanel,
+  CategoryAthleteGrid,
+  MatchPanel,
+  PaymentPanel,
+} from "@/components/reports/v2/activity-report-panels";
 import ManagementSummary from "./management-summary";
+
+/*
+  La pagina Report nel Web V2 (guideline 09 §9.1, pattern 4 «Analytics /
+  report»): intestazione con i controlli di contesto — categoria e periodo —
+  poi la riga dei KPI, poi un pannello per report, poi il riepilogo
+  gestionale con i filtri propri. Nessuna azione primaria: un report non ne
+  ha, e le uniche azioni sono le esportazioni dentro il loro pannello.
+
+  La logica dati e la stessa della V1 — stesse funzioni, stessi endpoint,
+  stessi calcoli in `src/lib/club-report-utils.ts` — e vive qui; cio che
+  disegna i pannelli sta in `src/components/reports/v2/`.
+*/
 
 type ClubData = {
   id: string;
@@ -76,19 +78,6 @@ type ReportState = {
   movements: NormalizedClubMovement[];
 };
 
-type MetricCardProps = {
-  title: string;
-  value: string | number;
-  description?: string;
-  icon: React.ReactNode;
-};
-
-const PERIOD_OPTIONS: Array<{ value: ReportPeriodKey; label: string }> = [
-  { value: "all", label: "Intero periodo" },
-  { value: "last30", label: "Ultimo mese" },
-  { value: "last90", label: "Ultimi 3 mesi" },
-];
-
 const emptyReportState: ReportState = {
   club: null,
   clubCategories: [],
@@ -99,10 +88,8 @@ const emptyReportState: ReportState = {
   movements: [],
 };
 
-const currencyFormatter = new Intl.NumberFormat("it-IT", {
-  style: "currency",
-  currency: "EUR",
-});
+/** L'ancora del collegamento `?report=categories` che arriva da Atleti. */
+const CATEGORY_REPORT_ANCHOR = "report-categorie";
 
 const readStoredActiveClub = (): StoredClub | null => {
   if (typeof window === "undefined") {
@@ -164,21 +151,11 @@ const loadTrainingAttendance = async (clubId: string) => {
   }
 };
 
-const formatCurrency = (value: number) => currencyFormatter.format(value || 0);
-
-const formatAthleteLastFirst = (athlete: any, fallback: string) => {
-  const lastName = String(athlete?.last_name || athlete?.lastName || "").trim();
-  const firstName = String(
-    athlete?.first_name || athlete?.firstName || "",
-  ).trim();
-  return [lastName, firstName].filter(Boolean).join(" ") || fallback;
-};
-
 const findSelectedCategory = (
   categories: NormalizedCategoryOption[],
   selectedCategoryId: string,
 ) =>
-  selectedCategoryId === "all"
+  selectedCategoryId === ALL_CATEGORIES_VALUE
     ? null
     : categories.find(
         (category) =>
@@ -186,249 +163,15 @@ const findSelectedCategory = (
           String(category.name) === String(selectedCategoryId),
       ) || null;
 
-function MetricCard({ title, value, description, icon }: MetricCardProps) {
-  return (
-    <Card className="border-slate-200 shadow-sm">
-      <CardContent className="flex items-center gap-4 p-5">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-700">
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-slate-500">{title}</p>
-          <p className="text-2xl font-semibold text-slate-950">{value}</p>
-          {description ? (
-            <p className="mt-1 text-xs text-slate-500">{description}</p>
-          ) : null}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function EmptyState({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="flex min-h-48 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">
-      <div className="mb-3 text-slate-400">{icon}</div>
-      <p className="font-medium text-slate-800">{title}</p>
-      <p className="mt-1 max-w-xl text-sm text-slate-500">{description}</p>
-    </div>
-  );
-}
-
-function CategoryAthleteTable({ report }: { report: CategoryReport }) {
-  if (report.rows.length === 0) {
-    return (
-      <EmptyState
-        icon={<Users className="h-10 w-10" />}
-        title="Nessun dato categoria"
-        description="Il report si popola quando esistono categorie salvate nel club e atleti associati."
-      />
-    );
-  }
-
-  return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="w-full min-w-[960px] text-sm">
-        <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-          <tr>
-            <th className="px-4 py-3 font-semibold">Atleta</th>
-            <th className="px-4 py-3 font-semibold">Categoria</th>
-            <th className="px-4 py-3 font-semibold">Convocazioni / gare</th>
-            <th className="px-4 py-3 font-semibold">
-              Presenze / allenamenti
-            </th>
-            <th className="px-4 py-3 font-semibold">Senza risposta</th>
-            <th className="px-4 py-3 font-semibold">% convocazione</th>
-            <th className="px-4 py-3 font-semibold">% presenza</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {report.rows.map((row) => (
-            <tr key={`${row.categoryId}-${row.athleteId}`}>
-              <td className="px-4 py-3 font-medium text-slate-900">
-                {formatAthleteLastFirst(row.athlete, row.athleteName)}
-              </td>
-              <td className="px-4 py-3 text-slate-600">{row.categoryName}</td>
-              <td className="px-4 py-3 text-slate-600">
-                {row.convocations}/{row.totalMatches}
-              </td>
-              <td className="px-4 py-3 text-slate-600">
-                {row.presences}/{row.totalTrainings}
-              </td>
-              <td className="px-4 py-3 text-slate-600">
-                {row.rsvpRequested
-                  ? `${row.noResponse}/${row.rsvpRequested}`
-                  : "—"}
-              </td>
-              <td className="px-4 py-3">
-                <Badge variant="outline">{row.convocationRate}%</Badge>
-              </td>
-              <td className="px-4 py-3">
-                <Badge variant="outline">{row.presenceRate}%</Badge>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function AttendanceSection({ report }: { report: AttendanceReport }) {
-  const hasData = report.totalTrainings > 0 || report.expectedAttendances > 0;
-
-  return (
-    <Card className="border-slate-200 shadow-sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CalendarDays className="h-5 w-5 text-blue-600" />
-          Report presenze
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {hasData ? (
-          <div className="grid gap-4 md:grid-cols-3">
-            <MetricCard
-              title="Allenamenti"
-              value={report.totalTrainings}
-              description="Allenamenti nel filtro"
-              icon={<CalendarDays className="h-5 w-5" />}
-            />
-            <MetricCard
-              title="Presenze registrate"
-              value={`${report.presentAttendances}/${report.expectedAttendances}`}
-              description={`${report.attendanceRate}% presenze`}
-              icon={<CheckCircle2 className="h-5 w-5" />}
-            />
-            <MetricCard
-              title="Presenze mancanti"
-              value={report.missingAttendances}
-              description={`${report.absentAttendances} assenze registrate`}
-              icon={<AlertCircle className="h-5 w-5" />}
-            />
-          </div>
-        ) : (
-          <EmptyState
-            icon={<CalendarDays className="h-10 w-10" />}
-            title="Nessuna presenza reale da mostrare"
-            description="Quando verranno salvati allenamenti e presenze, questa sezione mostrerà totali e percentuali reali."
-          />
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function MatchSection({ report }: { report: MatchConvocationReport }) {
-  return (
-    <Card className="border-slate-200 shadow-sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Trophy className="h-5 w-5 text-amber-600" />
-          Report gare e convocazioni
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {report.totalMatches > 0 ? (
-          <div className="grid gap-4 md:grid-cols-3">
-            <MetricCard
-              title="Gare"
-              value={report.totalMatches}
-              description="Gare nel filtro"
-              icon={<Trophy className="h-5 w-5" />}
-            />
-            <MetricCard
-              title="Convocazioni"
-              value={report.totalConvocations}
-              description={`${report.uniqueAthletesConvocated} atleti convocati`}
-              icon={<ClipboardList className="h-5 w-5" />}
-            />
-            <MetricCard
-              title="Gare senza convocazioni"
-              value={report.matchesWithoutConvocations}
-              description={`${report.convocationCompletionRate}% gare compilate`}
-              icon={<AlertCircle className="h-5 w-5" />}
-            />
-          </div>
-        ) : (
-          <EmptyState
-            icon={<Trophy className="h-10 w-10" />}
-            title="Nessuna gara reale nel filtro"
-            description="Le convocazioni appariranno qui quando saranno salvate gare associate alle categorie."
-          />
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function PaymentSection({ report }: { report: PaymentReport }) {
-  return (
-    <Card className="border-slate-200 shadow-sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <CreditCard className="h-5 w-5 text-emerald-600" />
-          Report pagamenti atleti
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {report.hasPayments ? (
-          <div className="grid gap-4 md:grid-cols-4">
-            <MetricCard
-              title="Totale dovuto"
-              value={formatCurrency(report.totalDue)}
-              description="Pagamenti atleti non annullati"
-              icon={<CreditCard className="h-5 w-5" />}
-            />
-            <MetricCard
-              title="Pagato"
-              value={formatCurrency(report.totalPaid)}
-              description={
-                report.partialCount
-                  ? `Denaro incassato · ${report.paidCount} rate saldate, ${report.partialCount} in parte`
-                  : `Denaro incassato · ${report.paidCount} rate saldate`
-              }
-              icon={<CheckCircle2 className="h-5 w-5" />}
-            />
-            <MetricCard
-              title="In attesa"
-              value={formatCurrency(report.totalPending)}
-              description={`Residuo su ${report.pendingCount} rate`}
-              icon={<FileText className="h-5 w-5" />}
-            />
-            <MetricCard
-              title="Scaduto"
-              value={formatCurrency(report.totalOverdue)}
-              description={`Residuo su ${report.overdueCount} rate`}
-              icon={<AlertCircle className="h-5 w-5" />}
-            />
-          </div>
-        ) : (
-          <EmptyState
-            icon={<CreditCard className="h-10 w-10" />}
-            title="Nessun pagamento atleta reale"
-            description="Questa sezione rimane vuota finché non esistono pagamenti salvati nel database."
-          />
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function ReportsPage() {
   const [reportState, setReportState] =
     React.useState<ReportState>(emptyReportState);
   const [loading, setLoading] = React.useState(true);
-  const [selectedCategoryId, setSelectedCategoryId] = React.useState("all");
+  const [selectedCategoryId, setSelectedCategoryId] = React.useState(
+    ALL_CATEGORIES_VALUE,
+  );
   const [period, setPeriod] = React.useState<ReportPeriodKey>("all");
+  const [requestedReport, setRequestedReport] = React.useState<string | null>(null);
   /*
     Club e ruolo attivi si leggono una volta e si tengono nello stato: il
     riepilogo gestionale ne ha bisogno a ogni render, e rileggerli da
@@ -445,6 +188,7 @@ export default function ReportsPage() {
     if (categoryId) {
       setSelectedCategoryId(categoryId);
     }
+    setRequestedReport(params.get("report"));
   }, []);
 
   React.useEffect(() => {
@@ -520,6 +264,18 @@ export default function ReportsPage() {
     };
   }, [showToast]);
 
+  /*
+    `?report=categories` arriva dal `···` di Atleti: la pagina si apre gia sul
+    report categoria per atleta, senza che chi arriva debba cercarlo sotto la
+    riga dei KPI.
+  */
+  React.useEffect(() => {
+    if (loading || requestedReport !== "categories") return;
+    document
+      .getElementById(CATEGORY_REPORT_ANCHOR)
+      ?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [loading, requestedReport]);
+
   const categoryOptions = React.useMemo(
     () =>
       getClubCategoryOptions({
@@ -531,11 +287,11 @@ export default function ReportsPage() {
 
   React.useEffect(() => {
     if (
-      selectedCategoryId !== "all" &&
+      selectedCategoryId !== ALL_CATEGORIES_VALUE &&
       categoryOptions.length > 0 &&
       !findSelectedCategory(categoryOptions, selectedCategoryId)
     ) {
-      setSelectedCategoryId("all");
+      setSelectedCategoryId(ALL_CATEGORIES_VALUE);
     }
   }, [categoryOptions, selectedCategoryId]);
 
@@ -633,129 +389,82 @@ export default function ReportsPage() {
     return new Set(categoryReport.rows.map((row) => row.athleteId)).size;
   }, [categoryReport.rows, reportState.athletes.length, selectedCategory]);
 
-  if (loading) {
-    return (
-      <div className="flex h-[100dvh] bg-slate-50">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header title="Report" />
-          <main className={dashboardMainClassName}>
-            <AppLoadingScreen subtitle="Caricamento report reali..." />
-          </main>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex h-[100dvh] bg-slate-50">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header title="Report" />
         <main className={dashboardMainClassName}>
-          <DashboardPageContainer className="max-w-7xl">
-            <SharedPageHeader
+          <DashboardPageContainer>
+            <PageHeader
+              eyebrow="Cassa e amministrazione"
               title="Report"
-              subtitle={`Dati reali salvati per ${reportState.club?.name || "il club"}.`}
-              actions={
-              <div className="grid gap-3 sm:grid-cols-2 lg:w-[520px]">
-                <div className="space-y-1.5">
-                  <p className="text-xs font-medium uppercase text-slate-500">
-                    Categoria
-                  </p>
-                  <Select
+              description={`Dati reali salvati per ${reportState.club?.name || "il club"}.`}
+              context={
+                <>
+                  <CategoryContextControl
+                    categories={categoryOptions}
                     value={selectedCategoryId}
-                    onValueChange={setSelectedCategoryId}
-                  >
-                    <SelectTrigger className="bg-white">
-                      <SelectValue placeholder="Tutte le categorie" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Tutte le categorie</SelectItem>
-                      {categoryOptions.map((category) => (
-                        <SelectItem key={category.id} value={category.id}>
-                          {category.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <p className="text-xs font-medium uppercase text-slate-500">
-                    Periodo
-                  </p>
-                  <Select
-                    value={period}
-                    onValueChange={(value) => setPeriod(value as ReportPeriodKey)}
-                  >
-                    <SelectTrigger className="bg-white">
-                      <SelectValue placeholder="Intero periodo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PERIOD_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+                    onChange={setSelectedCategoryId}
+                  />
+                  <PeriodContextControl value={period} onChange={setPeriod} />
+                </>
               }
             />
 
-            {categoryOptions.length === 0 ? (
-              <EmptyState
-                icon={<Users className="h-10 w-10" />}
+            {!loading && categoryOptions.length === 0 ? (
+              <EmptyStateCard
+                icon={<Users />}
+                iconTone="neutral"
                 title="Nessuna categoria salvata"
                 description="Il filtro categorie mostrerà le categorie reali appena saranno presenti in Club.categories o nelle associazioni atleta-categoria."
               />
             ) : null}
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <MetricCard
-                title="Atleti nel filtro"
-                value={athleteCount}
-                description={
-                  selectedCategory?.name || "Tutte le categorie reali del club"
-                }
-                icon={<Users className="h-5 w-5" />}
+            {/* ── La riga dei KPI (§9.3, barra compressa) ─────────────── */}
+            <KpiBar className="md:grid-cols-2 laptop:grid-cols-4">
+              <KpiCard
+                label="Atleti nel filtro"
+                value={formatInteger(athleteCount)}
+                qualifier={selectedCategory?.name || "Tutte le categorie reali del club"}
+                icon={<Users />}
+                iconTone="blue"
+                loading={loading}
               />
-              <MetricCard
-                title="Allenamenti"
-                value={categoryReport.totalTrainings}
-                description="Allenamenti nel filtro"
-                icon={<CalendarDays className="h-5 w-5" />}
+              <KpiCard
+                label="Allenamenti"
+                value={formatInteger(categoryReport.totalTrainings)}
+                qualifier="Allenamenti nel filtro"
+                icon={<CalendarDays />}
+                iconTone="blue"
+                loading={loading}
               />
-              <MetricCard
-                title="Gare"
-                value={categoryReport.totalMatches}
-                description="Gare nel filtro"
-                icon={<Trophy className="h-5 w-5" />}
+              <KpiCard
+                label="Gare"
+                value={formatInteger(categoryReport.totalMatches)}
+                qualifier="Gare nel filtro"
+                icon={<Trophy />}
+                iconTone="amber"
+                loading={loading}
               />
-              <MetricCard
-                title="Pagato atleti"
-                value={formatCurrency(paymentReport.totalPaid)}
-                description="Denaro incassato, annullati esclusi"
-                icon={<CreditCard className="h-5 w-5" />}
+              <KpiCard
+                label="Pagato atleti"
+                value={formatMoney(paymentReport.totalPaid)}
+                qualifier="Denaro incassato, annullati esclusi"
+                icon={<CreditCard />}
+                iconTone="green"
+                loading={loading}
               />
-            </div>
+            </KpiBar>
 
-            <Card className="border-slate-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="h-5 w-5 text-slate-700" />
-                  Report categoria per atleta
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CategoryAthleteTable report={categoryReport} />
-              </CardContent>
-            </Card>
-
-            <AttendanceSection report={attendanceReport} />
-            <MatchSection report={matchReport} />
-            <PaymentSection report={paymentReport} />
+            <CategoryAthleteGrid
+              report={categoryReport}
+              loading={loading}
+              gridId={CATEGORY_REPORT_ANCHOR}
+            />
+            <AttendancePanel report={attendanceReport} loading={loading} />
+            <MatchPanel report={matchReport} loading={loading} />
+            <PaymentPanel report={paymentReport} loading={loading} />
 
             {/*
               Il riepilogo gestionale ha filtri propri — date, anno fiscale,

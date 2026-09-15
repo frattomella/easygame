@@ -155,7 +155,7 @@ test("l'onboarding non scrive descrizioni piu lunghe del badge", () => {
     "la frase da 51 caratteri non deve piu finire in un campo da 25",
   );
 
-  const editor = read("src/components/forms/CategoryEditorDialog.tsx");
+  const editor = read("src/components/categories/v2/category-editor-drawer.tsx");
   const limite = /CATEGORY_DESCRIPTION_MAX_LENGTH/.test(editor);
   assert.ok(limite, "il limite deve restare dichiarato dove si modifica");
 
