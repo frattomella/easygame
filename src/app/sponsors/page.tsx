@@ -1,1616 +1,756 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import {
-  fetchSponsorsWithCredit,
-  recordSponsorCollection,
-} from "@/lib/sponsors/client";
+import * as React from "react";
+import { Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Building, ChevronRight, Euro, Pencil, Plus, Trash2 } from "lucide-react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
-import {
-  DashboardPageContainer,
-  dashboardMainClassName,
-} from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
-import { LogoUpload } from "@/components/ui/avatar-upload";
-import { EntityIcon } from "@/components/ui/entity-icon";
-import {
-  Building,
-  CreditCard,
-  Mail,
-  MapPin,
-  Phone,
-  Plus,
-  Search,
-  Trash2,
-  Edit,
-  FileText,
-  Euro,
-  Eye,
-} from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  addClubData,
-  getClubData,
-  updateClubData,
-  deleteClubDataItem,
-} from "@/lib/simplified-db";
-import { useRouter } from "next/navigation";
+import { HeaderStat, PageHeader } from "@/components/web/page/PageHeader";
+import { EmptyStateCard } from "@/components/web/page/Cards";
+import { Button } from "@/components/web/primitives/Button";
+import { SegmentedControl } from "@/components/web/primitives/Controls";
+import { IdentityCell } from "@/components/web/primitives/Identity";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { ColumnDef, FilterDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
+import { formatDateShort, formatDaysLabel, formatInteger, formatMoney, joinMeta } from "@/lib/web/format";
+import { apiRequest } from "@/lib/api/client";
+import { supabase } from "@/lib/supabase";
+import { addClubData, deleteClubDataItem, updateClubDataItem } from "@/lib/simplified-db";
 import { sortByName } from "@/lib/sorting";
-import { todayLocalDateOnly } from "@/lib/date-only";
+import { normalizeClubSeasons } from "@/lib/club-seasons";
+import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { hasAccountingPermission } from "@/lib/accounting/permissions";
+import { fetchSponsorsWithCredit, recordSponsorCollection } from "@/lib/sponsors/client";
 import {
   fromSponsorCents,
   normalizeSponsorContract,
-  resolveSponsorCredit,
-  type SponsorCollection,
+  type SponsorContract,
   type SponsorCredit,
 } from "@/lib/sponsors/model";
+import { SponsorDrawer } from "@/components/sponsors/v2/sponsor-drawer";
+import { CollectionDrawer, type SponsorCollectionSubmission } from "@/components/sponsors/v2/collection-drawer";
+import { SponsorCollectionsGrid } from "@/components/sponsors/v2/collections-grid";
+import { DeleteSponsorDialog } from "@/components/sponsors/v2/delete-sponsor-dialog";
+import { StornoIncassoDialog } from "@/components/sponsors/v2/storno-incasso-dialog";
+import { useSponsorClubId, withClubId } from "@/components/sponsors/v2/use-sponsor-club-id";
+import {
+  contractLifecycle,
+  contractStatusSpec,
+  creditStatusSpec,
+  matchesSponsorSearch,
+  newSponsorId,
+  sponsorDraftFrom,
+  sponsorKindLabel,
+  sponsorMeta,
+  sponsorName,
+  sponsorPayload,
+  sumCollectionsInPeriodCents,
+  type ContractLifecycle,
+  type SponsorCollectionRow,
+  type SponsorDraft,
+  type SponsorRecord,
+} from "@/components/sponsors/v2/sponsor-model";
 
-const SPONSOR_TYPE_OPTIONS = [
-  { value: "sponsor", label: "Sponsor" },
-  { value: "fornitore", label: "Fornitore" },
+/**
+ * `/sponsors` — sponsor e fornitori del club (Web V2, pattern 1:
+ * intestazione di pagina + DataGrid a tutta larghezza).
+ *
+ * Le tre schede della V1 diventano: **Sponsor** e **Fornitori** una griglia
+ * sola con il filtro «Tipologia» (stesso record, stesso `type`), e il
+ * registro **Pagamenti** un secondo segmento («Incassi», `?tab=incassi`) sul
+ * registro degli incassi che il server manda insieme al residuo. Le letture
+ * e le scritture sono quelle della V1: anagrafica via `simplified-db` sul
+ * CRUD generico `sponsors`; credito, contratto e incasso via
+ * `@/lib/sponsors/client`. Le tre cifre le calcola il server e qui non si
+ * ricalcolano (vedi `src/lib/server/sponsors.ts`).
+ */
+type SponsorRow = {
+  record: SponsorRecord;
+  contract: SponsorContract;
+  credit: SponsorCredit | null;
+  lifecycle: ContractLifecycle;
+};
+
+type ListTab = "sponsor" | "incassi";
+
+const SPONSOR_VIEWS: ViewDef[] = [
+  { id: "active", label: "Attivi", filters: { contract: "active" }, builtIn: true },
+  { id: "expiring", label: "Contratti in scadenza", filters: { contract: "expiring" }, builtIn: true, tone: "amber" },
+  { id: "expired", label: "Scaduti", filters: { contract: "expired" }, builtIn: true, tone: "red" },
 ];
 
-const getSponsorTypeLabel = (type?: string) =>
-  type === "fornitore" ? "Fornitore" : "Sponsor";
+const NO_VIEWS: ViewDef[] = [];
 
-type Sponsor = {
-  id: string;
-  name: string;
-  type: string;
-  phone: string;
-  email: string;
-  vatNumber: string;
-  /**
-   * Il codice fiscale, **accanto** alla partita IVA e non al posto suo: uno
-   * sponsor puo essere una persona fisica o un ente non commerciale, e una
-   * fattura senza nessuno dei due non e emettibile.
-   */
-  fiscalCode: string;
-  pec: string;
-  sdi: string;
-  iban: string;
-  address: string;
-  city: string;
-  postalCode: string;
-  country: string;
-  region: string;
-  province: string;
-  logo: string;
-  created_at?: string;
-  updated_at?: string;
-};
+const moneyCents = (cents: number) => formatMoney(fromSponsorCents(cents));
 
-type SponsorDraft = Omit<Sponsor, "id"> & { id?: string };
-
-/**
- * **Un incasso di sponsorizzazione, nella forma in cui il server lo manda.**
- *
- * Era la forma del vecchio blob JSON — `date`, `amount`, `type`, `status` —
- * e da questa Wave quel blob non riceve piu niente. La scheda «Pagamenti»
- * continuava a leggerlo, quindi mostrava una collezione ferma mentre il
- * residuo accanto veniva dal registro: due letture della stessa domanda, sulla
- * stessa pagina.
- */
-type SponsorPayment = SponsorCollection & { sponsorId: string };
-
-/**
- * La finestra «Registra pagamento» compila ancora i suoi campi: sono cio che
- * l'operatore digita, non cio che il registro conserva.
- */
-type SponsorPaymentDraft = {
-  sponsorId: string;
-  date: string;
-  amount: string;
-  description: string;
-  type: string;
-  status: string;
-};
-
-export default function SponsorsPage() {
+function SponsorsPageContent() {
   const { showToast } = useToast();
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState("sponsors");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showAddSponsorDialog, setShowAddSponsorDialog] = useState(false);
-  const [showAddPaymentDialog, setShowAddPaymentDialog] = useState(false);
-  const [selectedSponsor, setSelectedSponsor] = useState<Sponsor | null>(null);
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const searchParams = useSearchParams();
+  const { activeClub, userRole } = useAuth();
+  const { clubId, resolved } = useSponsorClubId(searchParams?.get("clubId"));
+  const activeRole = activeClub?.role || userRole || null;
 
-  // Sponsors and payments from database
-  const [sponsors, setSponsors] = useState<Sponsor[]>([]);
-  const [payments, setPayments] = useState<SponsorPayment[]>([]);
-  /* La lettura del residuo puo fallire, e allora la pagina lo dichiara. */
-  const [erroreCrediti, setErroreCrediti] = useState(false);
+  /*
+    Gli stessi predicati delle rotte, e nessun altro: il credito e gli
+    incassi chiedono `accounting.read`, contratto e incasso
+    `accounting.manage`, lo storno la direzione o `accounting.reverse`
+    (`src/app/api/v1/payment-transactions/[id]/route.ts`). L'anagrafica resta
+    al CRUD generico, aperto a tutti i ruoli gestionali.
+  */
+  const canReadCredit = hasAccountingPermission(activeRole, "accounting.read");
+  const canManageCredit = hasAccountingPermission(activeRole, "accounting.manage");
+  const canReverse = canManageClubConfigurationAsActor(activeRole) || hasAccountingPermission(activeRole, "accounting.reverse");
 
-  // Get club ID from localStorage or URL
-  const [clubId, setClubId] = useState<string | null>(null);
-  const [clubNotFound, setClubNotFound] = useState(false);
+  const tab: ListTab = searchParams?.get("tab") === "incassi" && canReadCredit ? "incassi" : "sponsor";
+  const setTab = (next: ListTab) => {
+    const query = new URLSearchParams(searchParams?.toString() || "");
+    if (next === "incassi") query.set("tab", "incassi");
+    else query.delete("tab");
+    const suffix = query.toString();
+    router.replace(`/sponsors${suffix ? `?${suffix}` : ""}`, { scroll: false });
+  };
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      // First check URL params
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlClubId = urlParams.get("clubId");
+  const [sponsors, setSponsors] = React.useState<SponsorRecord[]>([]);
+  const [clubSettings, setClubSettings] = React.useState<Record<string, any>>({});
+  const [credits, setCredits] = React.useState<Map<string, SponsorCredit>>(new Map());
+  const [collections, setCollections] = React.useState<SponsorCollectionRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [creditError, setCreditError] = React.useState<string | null>(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
+  const [requestedViewId, setRequestedViewId] = React.useState<string | null>(null);
 
-      if (urlClubId) {
-        setClubId(urlClubId);
-        setClubNotFound(false);
+  const [drawerOpen, setDrawerOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState<SponsorRecord | null>(null);
+  const [collectionFor, setCollectionFor] = React.useState<SponsorRecord | null>(null);
+  const [collectionOpen, setCollectionOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState<SponsorRecord | null>(null);
+  const [deleteBusy, setDeleteBusy] = React.useState(false);
+  const [reversing, setReversing] = React.useState<SponsorCollectionRow | null>(null);
+  const [reverseBusy, setReverseBusy] = React.useState(false);
+
+  /* ── Lettura: anagrafica + impostazioni, poi credito e incassi ─────────── */
+  const loadCredits = React.useCallback(
+    async (records: SponsorRecord[]) => {
+      if (!clubId || !canReadCredit) {
+        setCredits(new Map());
+        setCollections([]);
         return;
       }
-
-      // Then check localStorage
-      const activeClub = localStorage.getItem("activeClub");
-      if (activeClub) {
-        try {
-          const parsedClub = JSON.parse(activeClub);
-          if (parsedClub.id) {
-            setClubId(parsedClub.id);
-            setClubNotFound(false);
-          } else {
-            setClubNotFound(true);
-          }
-        } catch (e) {
-          console.error("Error parsing active club:", e);
-          setClubNotFound(true);
-        }
-      } else {
-        setClubNotFound(true);
-      }
-    }
-  }, []);
-
-  // New sponsor form state
-  const [newSponsor, setNewSponsor] = useState<SponsorDraft>({
-    name: "",
-    type: "sponsor",
-    phone: "",
-    email: "",
-    vatNumber: "",
-    fiscalCode: "",
-    pec: "",
-    sdi: "",
-    iban: "",
-    address: "",
-    city: "",
-    postalCode: "",
-    country: "Italia",
-    region: "",
-    province: "",
-    logo: "",
-  });
-
-  // New payment form state
-  const [newPayment, setNewPayment] = useState<SponsorPaymentDraft>({
-    sponsorId: "",
-    date: todayLocalDateOnly(),
-    amount: "",
-    description: "",
-    type: "entrata",
-    status: "completato",
-  });
-
-  // Reset new sponsor form
-  const resetNewSponsor = React.useCallback(() => {
-    setNewSponsor({
-      name: "",
-      type: "sponsor",
-      phone: "",
-      email: "",
-      vatNumber: "",
-      fiscalCode: "",
-      pec: "",
-      sdi: "",
-      iban: "",
-      address: "",
-      city: "",
-      postalCode: "",
-      country: "Italia",
-      region: "",
-      province: "",
-      logo: "",
-    });
-    setIsEditMode(false);
-    setSelectedSponsor(null);
-  }, []);
-
-  // Reset new payment form
-  const resetNewPayment = React.useCallback(() => {
-    setNewPayment({
-      sponsorId: selectedSponsor ? selectedSponsor.id : "",
-      date: todayLocalDateOnly(),
-      amount: "",
-      description: "",
-      type: "entrata",
-      status: "completato",
-    });
-  }, [selectedSponsor]);
-
-  // Load data from database function
-  const loadSponsorsAndPayments = React.useCallback(async () => {
-    if (!clubId) return;
-
-    try {
-      setLoading(true);
-      const sponsorsData = await getClubData(clubId, "sponsors");
-      setSponsors(Array.isArray(sponsorsData) ? sponsorsData : []);
-
       /*
         Le tre cifre le calcola il server, che conosce **entrambe** le fonti
-        degli incassi e sa perche non si sommano due volte. La lettura e
-        separata di proposito: se fallisce, l'elenco degli sponsor si vede
-        comunque, con il solo dovuto.
+        degli incassi. La lettura e separata di proposito: se fallisce,
+        l'elenco si vede comunque, e il residuo si dichiara non disponibile
+        invece di ricadere su un calcolo che conosce il solo contratto.
       */
       const conCredito = await fetchSponsorsWithCredit({ clubId });
       if (conCredito.error || !conCredito.data?.sponsors) {
-        /*
-          **Un residuo sbagliato e peggio di un residuo assente.**
-
-          Qui l'errore veniva ingoiato, e la pagina ricadeva su un calcolo che
-          conosce il solo contratto: ogni sponsor tornava a mostrare l'intero
-          dovuto come residuo, in disaccordo con la sua stessa scheda. E il
-          difetto che questa lettura esiste per chiudere, rimesso in piedi in
-          silenzio proprio quando la lettura non funziona.
-        */
-        setCreditiDalServer(new Map());
-        setPayments([]);
-        setErroreCrediti(true);
+        setCredits(new Map());
+        setCollections([]);
+        setCreditError(conCredito.error?.message || "Residuo e incassi non disponibili");
         return;
       }
-
-      setErroreCrediti(false);
-      setCreditiDalServer(
-        new Map(
-          conCredito.data.sponsors.map((riga) => [
-            String(riga.sponsor.id),
-            riga.credit,
-          ]),
-        ),
-      );
-
-      /*
-        La scheda «Pagamenti» legge **la stessa fonte del residuo**. Leggeva la
-        vecchia collezione JSON, che da questa Wave non riceve piu niente: un
-        incasso appena registrato spariva, con il messaggio di successo ancora
-        sullo schermo.
-      */
-      setPayments(
+      setCreditError(null);
+      const byId = new Map(records.map((record) => [String(record.id), record]));
+      setCredits(new Map(conCredito.data.sponsors.map((riga) => [String(riga.sponsor.id), riga.credit])));
+      /* Gli incassi arrivano con il residuo che spiegano: stessa fonte, stessa lettura. */
+      setCollections(
         conCredito.data.sponsors.flatMap((riga) =>
           riga.collections.map((incasso) => ({
             ...incasso,
             sponsorId: String(riga.sponsor.id),
+            sponsorName: byId.get(String(riga.sponsor.id))?.name || riga.sponsor.name || sponsorKindLabel(riga.sponsor.kind),
+            sponsorKind: riga.sponsor.kind,
           })),
         ),
       );
-    } catch (error) {
-      console.error("Error loading sponsors and payments:", error);
-      showToast("error", "Errore nel caricamento dei dati");
-      setSponsors([]);
-      setPayments([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [clubId, showToast]);
+    },
+    [clubId, canReadCredit],
+  );
 
-  // Load data from database
   React.useEffect(() => {
-    if (clubId) {
-      loadSponsorsAndPayments();
-    }
-  }, [clubId, loadSponsorsAndPayments]);
-
-  // Filter sponsors based on search query and type
-  const filteredSponsors = React.useMemo(() => {
-    if (!Array.isArray(sponsors) || sponsors.length === 0) return [];
-    return sortByName(sponsors, (sponsor) => sponsor?.name).filter((sponsor) => {
-      if (!sponsor || typeof sponsor !== "object") return false;
-      const name = sponsor.name || "";
-      const email = sponsor.email || "";
-      const vatNumber = sponsor.vatNumber || "";
-      const query = (searchQuery || "").toLowerCase();
-      return (
-        name.toLowerCase().includes(query) ||
-        email.toLowerCase().includes(query) ||
-        vatNumber.toLowerCase().includes(query)
-      );
-    });
-  }, [sponsors, searchQuery]);
-
-  // Separate sponsors and suppliers
-  const sponsorsList = React.useMemo(() => {
-    return filteredSponsors.filter((s) => s.type === "sponsor");
-  }, [filteredSponsors]);
-
-  const suppliersList = React.useMemo(() => {
-    return filteredSponsors.filter((s) => s.type === "fornitore");
-  }, [filteredSponsors]);
-
-  // Get payments for a specific sponsor
-  const getSponsorPayments = React.useCallback(
-    (sponsorId: string) => {
-      if (!Array.isArray(payments) || payments.length === 0) return [];
-      return payments.filter(
-        (payment) => payment && payment.sponsorId === sponsorId,
-      );
-    },
-    [payments],
-  );
-
-  /*
-    Il **residuo** di uno sponsor, ricalcolato ogni volta: pattuito meno
-    incassato. Non e una colonna in archivio e non deve diventarlo — un residuo
-    salvato divergerebbe dagli incassi il primo giorno in cui qualcuno storna.
-
-    Le due fonti degli incassi convivono per ragioni storiche: la collezione
-    `sponsor_payments` e la lista annidata sulla scheda. Si uniscono per id,
-    perche un club che ha usato entrambe non deve vedere lo stesso incasso due
-    volte.
-  */
-  /**
-   * **Le tre cifre arrivano dal server, e non si ricalcolano qui.**
-   *
-   * Erano calcolate nel browser da una fonte sola: la vecchia collezione JSON.
-   * Da quando un incasso di sponsorizzazione e una riga del registro degli
-   * incassi, quella collezione e la piu vecchia delle due — e uno sponsor che
-   * aveva appena pagato 2.000 su 5.000 compariva con residuo **5.000** in
-   * questo elenco e **3.000** nella sua scheda. Due schermate della stessa
-   * applicazione, due risposte alla stessa domanda.
-   *
-   * Il ripiego locale resta per il primo istante, prima che la lettura torni:
-   * mostra il dovuto, che il contratto porta con se, invece di un riquadro
-   * vuoto.
-   */
-  const [creditiDalServer, setCreditiDalServer] = useState<
-    Map<string, SponsorCredit>
-  >(new Map());
-
-  const sponsorCredit = React.useCallback(
-    (sponsor: any) => {
-      return creditiDalServer.get(String(sponsor?.id || "")) || null;
-    },
-    [creditiDalServer],
-  );
-
-  const formatAmount = React.useCallback(
-    (cents: number) =>
-      new Intl.NumberFormat("it-IT", {
-        style: "currency",
-        currency: "EUR",
-      }).format(fromSponsorCents(cents)),
-    [],
-  );
-
-  // Handle sponsor form change
-  const handleSponsorChange = React.useCallback(
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setNewSponsor((prev) => ({ ...prev, [name]: value }));
-    },
-    [],
-  );
-
-  // Handle payment form change
-  const handlePaymentChange = React.useCallback(
-    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setNewPayment((prev) => ({ ...prev, [name]: value }));
-    },
-    [],
-  );
-
-  // Add or update sponsor
-  const handleAddSponsor = React.useCallback(async () => {
-    if (
-      !newSponsor?.name?.trim() ||
-      !newSponsor?.email?.trim() ||
-      !newSponsor?.vatNumber?.trim()
-    ) {
-      showToast("error", "Compila tutti i campi obbligatori");
+    if (!resolved) return;
+    if (!clubId) {
+      setLoading(false);
       return;
     }
-
-    // Get the current clubId from state or URL
-    let currentClubId = clubId;
-    if (!currentClubId && typeof window !== "undefined") {
-      // Check URL params first
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlClubId = urlParams.get("clubId");
-      if (urlClubId) {
-        currentClubId = urlClubId;
-        setClubId(urlClubId);
-      } else {
-        // Then check localStorage as fallback
-        const activeClub = localStorage.getItem("activeClub");
-        if (activeClub) {
-          try {
-            const parsedClub = JSON.parse(activeClub);
-            currentClubId = parsedClub.id;
-          } catch (e) {
-            console.error("Error parsing active club:", e);
-          }
-        }
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const { data: clubData, error } = await supabase.from("clubs").select("sponsors, settings").eq("id", clubId).maybeSingle();
+        if (cancelled) return;
+        if (error) throw error;
+        const records: SponsorRecord[] = Array.isArray(clubData?.sponsors)
+          ? clubData.sponsors.filter((item: any) => item && typeof item === "object" && item.id)
+          : [];
+        setSponsors(records);
+        setClubSettings(clubData?.settings && typeof clubData.settings === "object" ? clubData.settings : {});
+        setLoadError(null);
+        await loadCredits(records);
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Error loading sponsors and payments:", error);
+        showToast("error", "Errore nel caricamento dei dati");
+        setSponsors([]);
+        setCollections([]);
+        setLoadError(error instanceof Error ? error.message : null);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [clubId, resolved, reloadKey, loadCredits, showToast]);
 
-    if (!currentClubId) {
-      console.error(
-        "Club ID not found. URL clubId:",
-        new URLSearchParams(window.location.search).get("clubId"),
-        "localStorage activeClub:",
-        localStorage.getItem("activeClub"),
-      );
-      showToast(
-        "error",
-        "Nessun club selezionato. Vai alla dashboard per selezionare un club.",
-      );
-      return;
-    }
+  const reload = () => setReloadKey((key) => key + 1);
 
+  /* ── Derivati ──────────────────────────────────────────────────────────── */
+  const rows = React.useMemo<SponsorRow[]>(
+    () =>
+      sortByName(sponsors, (sponsor) => sponsor?.name).map((record) => {
+        const contract = normalizeSponsorContract(record.contract);
+        return {
+          record,
+          contract,
+          credit: credits.get(String(record.id)) ?? null,
+          lifecycle: contractLifecycle(contract),
+        };
+      }),
+    [sponsors, credits],
+  );
+
+  const season = React.useMemo(() => normalizeClubSeasons(clubSettings).activeSeason, [clubSettings]);
+  const methodChoices = React.useMemo(() => getClubPaymentMethodChoices(clubSettings), [clubSettings]);
+
+  const stats = React.useMemo(() => {
+    const active = rows.filter((row) => row.lifecycle.state === "active" || row.lifecycle.state === "expiring").length;
+    const expiring = rows.filter((row) => row.lifecycle.state === "expiring").length;
+    const expired = rows.filter((row) => row.lifecycle.state === "expired").length;
+    const collectedSeasonCents = sumCollectionsInPeriodCents(collections, season.startDate, season.endDate);
+    return { active, expiring, expired, collectedSeasonCents };
+  }, [rows, collections, season]);
+
+  const collectionsOf = (sponsorId: string) => collections.filter((row) => row.sponsorId === sponsorId);
+
+  /* ── Scritture (stesse funzioni e stessi messaggi della V1) ────────────── */
+  const openCreate = () => {
+    setEditing(null);
+    setDrawerOpen(true);
+  };
+
+  const openEdit = (record: SponsorRecord) => {
+    setEditing(record);
+    setDrawerOpen(true);
+  };
+
+  const saveSponsor = async (draft: SponsorDraft): Promise<boolean> => {
+    if (!clubId) {
+      showToast("error", "Nessun club selezionato. Vai alla dashboard per selezionare un club.");
+      return false;
+    }
     try {
-      if (isEditMode && newSponsor.id) {
-        const sponsorId = newSponsor.id;
-        // Update existing sponsor
-        const currentSponsors = Array.isArray(sponsors) ? sponsors : [];
-        const updatedSponsors = currentSponsors.map((sponsor) =>
-          sponsor && sponsor.id === sponsorId
-            ? {
-                ...newSponsor,
-                id: sponsorId,
-                updated_at: new Date().toISOString(),
-              }
-            : sponsor,
-        );
-
-        await updateClubData(currentClubId, "sponsors", updatedSponsors);
-        setSponsors(updatedSponsors);
+      if (editing) {
+        const updated = await updateClubDataItem(clubId, "sponsors", editing.id, sponsorPayload(draft));
+        setSponsors(Array.isArray(updated) ? updated.filter((item: any) => item && item.id) : sponsors.map((item) => (item.id === editing.id ? { ...item, ...sponsorPayload(draft) } : item)));
         showToast("success", "Sponsor aggiornato con successo");
       } else {
-        // Add new sponsor
-        const newSponsorData = {
-          ...newSponsor,
-          id: `sponsor-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        const addedSponsor = await addClubData(
-          currentClubId,
-          "sponsors",
-          newSponsorData,
-        );
-        const currentSponsors = Array.isArray(sponsors) ? sponsors : [];
-        setSponsors([...currentSponsors, addedSponsor]);
+        const now = new Date().toISOString();
+        const added = await addClubData(clubId, "sponsors", { ...sponsorPayload(draft), id: newSponsorId(), created_at: now, updated_at: now });
+        setSponsors((current) => [...current, added]);
         showToast("success", "Sponsor aggiunto con successo");
       }
-
-      setShowAddSponsorDialog(false);
-      resetNewSponsor();
-      setIsEditMode(false);
+      setEditing(null);
+      return true;
     } catch (error) {
       console.error("Error saving sponsor:", error);
       showToast("error", "Errore nel salvare lo sponsor");
+      return false;
     }
-  }, [newSponsor, isEditMode, clubId, sponsors, showToast, resetNewSponsor]);
+  };
 
-  // Add new payment
-  const handleAddPayment = React.useCallback(async () => {
-    if (
-      !newPayment?.sponsorId?.trim() ||
-      !newPayment?.description?.trim() ||
-      !newPayment?.amount ||
-      parseFloat(newPayment.amount) <= 0
-    ) {
-      showToast("error", "Compila tutti i campi obbligatori");
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    if (!clubId) {
+      showToast("error", "Nessun club selezionato. Vai alla dashboard per selezionare un club.");
       return;
     }
-
-    // Get the current clubId from state or URL
-    let currentClubId = clubId;
-    if (!currentClubId && typeof window !== "undefined") {
-      // Check URL params first
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlClubId = urlParams.get("clubId");
-      if (urlClubId) {
-        currentClubId = urlClubId;
-        setClubId(urlClubId);
-      } else {
-        // Then check localStorage as fallback
-        const activeClub = localStorage.getItem("activeClub");
-        if (activeClub) {
-          try {
-            const parsedClub = JSON.parse(activeClub);
-            currentClubId = parsedClub.id;
-          } catch (e) {
-            console.error("Error parsing active club:", e);
-          }
-        }
-      }
+    setDeleteBusy(true);
+    try {
+      await deleteClubDataItem(clubId, "sponsors", deleting.id);
+      setSponsors((current) => current.filter((item) => item.id !== deleting.id));
+      /*
+        Gli incassi di uno sponsor cancellato **restano nel registro**, con la
+        controparte congelata: il denaro e entrato davvero. Qui spariscono
+        solo dalla vista, come nella V1; la prossima lettura li riporta con
+        l'etichetta congelata sulla riga.
+      */
+      setCollections((current) => current.filter((row) => row.sponsorId !== deleting.id));
+      showToast("success", "Sponsor eliminato con successo");
+      setDeleting(null);
+    } catch (error) {
+      console.error("Error deleting sponsor:", error);
+      showToast("error", "Errore nell'eliminare lo sponsor");
+    } finally {
+      setDeleteBusy(false);
     }
+  };
 
-    if (!currentClubId) {
-      console.error(
-        "Club ID not found. URL clubId:",
-        new URLSearchParams(window.location.search).get("clubId"),
-        "localStorage activeClub:",
-        localStorage.getItem("activeClub"),
-      );
-      showToast(
-        "error",
-        "Nessun club selezionato. Vai alla dashboard per selezionare un club.",
-      );
-      return;
+  const openCollection = (record: SponsorRecord | null) => {
+    setCollectionFor(record);
+    setCollectionOpen(true);
+  };
+
+  const submitCollection = async (submission: SponsorCollectionSubmission): Promise<boolean> => {
+    if (!clubId) {
+      showToast("error", "Nessun club selezionato. Vai alla dashboard per selezionare un club.");
+      return false;
     }
-
     try {
       /*
-        **L'incasso di uno sponsor va nel registro degli incassi**, come quello
-        della scheda. Questa riga scriveva ancora nella vecchia collezione
-        JSON, che la rotta degli incassi dichiara congelata: il denaro non
-        arrivava in prima nota, e il rendiconto del club non vedeva un euro di
-        sponsorizzazioni registrate da qui.
+        **L'incasso di uno sponsor va nel registro degli incassi**: da li lo
+        legge la prima nota. La vecchia collezione JSON non riceve piu niente.
       */
       const risposta = await recordSponsorCollection({
-        clubId: currentClubId,
-        sponsorId: newPayment.sponsorId,
-        amount: parseFloat(newPayment.amount),
-        paidAt: newPayment.date || null,
-        paymentMethod: newPayment.type === "entrata" ? "Bonifico" : "Bonifico",
-        notes: newPayment.description || null,
+        clubId,
+        sponsorId: submission.sponsorId,
+        amount: submission.amount,
+        paidAt: submission.paidAt,
+        paymentMethod: submission.paymentMethod,
+        financialAccountId: submission.financialAccountId,
+        operationTypeCode: submission.operationTypeCode,
+        notes: submission.notes,
       });
       if (risposta.error) throw new Error(risposta.error.message);
-
-      await loadSponsorsAndPayments();
-      setShowAddPaymentDialog(false);
-      resetNewPayment();
+      await loadCredits(sponsors);
       showToast("success", "Pagamento registrato con successo");
+      return true;
     } catch (error) {
       console.error("Error saving payment:", error);
-      showToast(
-        "error",
-        error instanceof Error && error.message
-          ? error.message
-          : "Errore nel salvare il pagamento",
+      showToast("error", error instanceof Error && error.message ? error.message : "Errore nel salvare il pagamento");
+      return false;
+    }
+  };
+
+  /**
+   * **Un incasso non si cancella: si storna.** Stesso endpoint del registro
+   * delle rate: nasce la riga opposta, l'originale resta con il motivo.
+   */
+  const confirmReverse = async (reason: string) => {
+    if (!reversing) return;
+    setReverseBusy(true);
+    try {
+      const { error } = await apiRequest(`/api/v1/payment-transactions/${encodeURIComponent(reversing.id)}`, {
+        method: "POST",
+        body: { action: "reverse", reason },
+      });
+      if (error) throw new Error(error.message || "Storno non riuscito");
+      await loadCredits(sponsors);
+      showToast("success", "Incasso stornato: resta visibile nello storico");
+      setReversing(null);
+    } catch (error) {
+      showToast("error", error instanceof Error && error.message ? error.message : "Storno non riuscito");
+    } finally {
+      setReverseBusy(false);
+    }
+  };
+
+  const recordHref = (record: SponsorRecord) => withClubId(`/sponsors/${encodeURIComponent(record.id)}`, clubId);
+  const openRecord = (record: SponsorRecord) => router.push(recordHref(record));
+
+  /* ── Griglia degli sponsor ─────────────────────────────────────────────── */
+  const columns = React.useMemo<ColumnDef<SponsorRow>[]>(() => {
+    const list: ColumnDef<SponsorRow>[] = [
+      {
+        id: "identity",
+        header: "Nome",
+        kind: "identity",
+        locked: true,
+        width: 2,
+        cell: (row) => <IdentityCell name={sponsorName(row.record)} meta={sponsorMeta(row.record)} round avatarSrc={row.record.logo || null} href={recordHref(row.record)} onClick={() => openRecord(row.record)} />,
+        sortValue: (row) => sponsorName(row.record).toLowerCase(),
+        exportValue: (row) => sponsorName(row.record),
+        title: (row) => sponsorName(row.record),
+      },
+      {
+        id: "kind",
+        header: "Tipologia",
+        kind: "classification",
+        cell: (row) => <DataChip tone={row.record.type === "fornitore" ? "neutral" : "blue"}>{sponsorKindLabel(row.record.type)}</DataChip>,
+        sortValue: (row) => sponsorKindLabel(row.record.type),
+        exportValue: (row) => sponsorKindLabel(row.record.type),
+      },
+    ];
+    if (canReadCredit) {
+      list.push(
+        {
+          id: "contractAmount",
+          header: "Contratto",
+          label: "Importo del contratto",
+          kind: "amount",
+          align: "right",
+          cell: (row) => (row.lifecycle.state === "none" ? null : moneyCents(row.contract.agreedAmountCents)),
+          sortValue: (row) => (row.lifecycle.state === "none" ? null : row.contract.agreedAmountCents),
+          exportValue: (row) => (row.lifecycle.state === "none" ? "" : fromSponsorCents(row.contract.agreedAmountCents)),
+        },
+        {
+          id: "contractEnd",
+          header: "Scadenza contratto",
+          kind: "status",
+          cell: (row) => {
+            if (row.lifecycle.state === "none") return <StatusPill status={contractStatusSpec(row.lifecycle)} />;
+            const detail =
+              row.lifecycle.state === "expiring" && row.lifecycle.days != null
+                ? formatDaysLabel(row.lifecycle.days)
+                : row.contract.endDate
+                  ? formatDateShort(row.contract.endDate)
+                  : null;
+            return <StatusPill status={contractStatusSpec(row.lifecycle)} detail={detail} />;
+          },
+          sortValue: (row) => row.contract.endDate || null,
+          exportValue: (row) => row.contract.endDate || "",
+          title: (row) => (row.contract.endDate ? formatDateShort(row.contract.endDate) : undefined),
+        },
+        {
+          id: "collected",
+          header: "Incassato",
+          kind: "amount",
+          align: "right",
+          cell: (row) => (row.credit ? moneyCents(row.credit.collectedCents) : null),
+          sortValue: (row) => row.credit?.collectedCents ?? null,
+          exportValue: (row) => (row.credit ? fromSponsorCents(row.credit.collectedCents) : ""),
+        },
+        {
+          id: "outstanding",
+          header: "Residuo",
+          kind: "amount",
+          align: "right",
+          cell: (row) => {
+            if (!row.credit) return <span className="text-egw-ink-62">{creditError ? "Non disponibile" : null}</span>;
+            if (!row.credit.hasContract) return <span className="text-egw-ink-62">Nessun contratto</span>;
+            return <span className={row.credit.outstandingCents > 0 ? "font-bold text-egw-amber-ink" : "font-bold"}>{moneyCents(row.credit.outstandingCents)}</span>;
+          },
+          sortValue: (row) => (row.credit?.hasContract ? row.credit.outstandingCents : null),
+          exportValue: (row) => (row.credit?.hasContract ? fromSponsorCents(row.credit.outstandingCents) : ""),
+        },
+        {
+          id: "credit",
+          header: "Credito",
+          kind: "status",
+          cell: (row) => {
+            const spec = creditStatusSpec(row.credit, row.lifecycle);
+            return spec ? <StatusPill status={spec} /> : null;
+          },
+          sortValue: (row) => creditStatusSpec(row.credit, row.lifecycle)?.label ?? null,
+          exportValue: (row) => creditStatusSpec(row.credit, row.lifecycle)?.label ?? "",
+        },
       );
     }
-  }, [newPayment, clubId, showToast, resetNewPayment, loadSponsorsAndPayments]);
-
-  // Delete sponsor
-  const handleDeleteSponsor = React.useCallback(
-    async (sponsorId: string) => {
-      if (
-        !sponsorId ||
-        !confirm("Sei sicuro di voler eliminare questo sponsor?")
-      ) {
-        return;
-      }
-
-      // Get the current clubId from state or URL
-      let currentClubId = clubId;
-      if (!currentClubId && typeof window !== "undefined") {
-        // Check URL params first
-        const urlParams = new URLSearchParams(window.location.search);
-        const urlClubId = urlParams.get("clubId");
-        if (urlClubId) {
-          currentClubId = urlClubId;
-          setClubId(urlClubId);
-        } else {
-          // Then check localStorage as fallback
-          const activeClub = localStorage.getItem("activeClub");
-          if (activeClub) {
-            try {
-              const parsedClub = JSON.parse(activeClub);
-              currentClubId = parsedClub.id;
-            } catch (e) {
-              console.error("Error parsing active club:", e);
-            }
-          }
-        }
-      }
-
-      if (!currentClubId) {
-        console.error(
-          "Club ID not found. URL clubId:",
-          new URLSearchParams(window.location.search).get("clubId"),
-          "localStorage activeClub:",
-          localStorage.getItem("activeClub"),
-        );
-        showToast(
-          "error",
-          "Nessun club selezionato. Vai alla dashboard per selezionare un club.",
-        );
-        return;
-      }
-
-      try {
-        // Delete sponsor from database
-        await deleteClubDataItem(currentClubId, "sponsors", sponsorId);
-        const currentSponsors = Array.isArray(sponsors) ? sponsors : [];
-        setSponsors(
-          currentSponsors.filter(
-            (sponsor) => sponsor && sponsor.id !== sponsorId,
-          ),
-        );
-
-        /*
-          **Gli incassi non si riscrivono da qui, e da questa Wave nemmeno si
-          leggono da li.**
-
-          Questo blocco filtrava l elenco mostrato e lo **risalvava** nella
-          vecchia collezione JSON. Finche l elenco veniva da quella collezione
-          era coerente; da quando viene dal registro non lo e piu, e la
-          riscrittura e distruttiva due volte.
-
-          `updateClubData` sostituisce la collezione **intera**: le righe
-          rimesse hanno la forma normalizzata (`amountCents`, senza `amount`),
-          che rileggendola vale **zero centesimi**. Cancellare uno sponsor
-          azzerava quindi lo storico di **tutti gli altri**, e lo faceva dopo
-          che la cancellazione era gia confermata — senza modo di tornare
-          indietro.
-
-          Gli incassi di uno sponsor cancellato restano nel registro, con la
-          loro controparte congelata: e cio che deve succedere, perche il
-          denaro e entrato davvero.
-        */
-        setPayments(
-          (Array.isArray(payments) ? payments : []).filter(
-            (payment) => payment && payment.sponsorId !== sponsorId,
-          ),
-        );
-
-        showToast("success", "Sponsor eliminato con successo");
-      } catch (error) {
-        console.error("Error deleting sponsor:", error);
-        showToast("error", "Errore nell'eliminare lo sponsor");
-      }
-    },
-    [clubId, sponsors, payments, showToast],
-  );
-
-  // Delete payment
-  const handleDeletePayment = React.useCallback(
-    async (paymentId: string) => {
-      if (
-        !paymentId ||
-        !confirm("Sei sicuro di voler eliminare questo pagamento?")
-      ) {
-        return;
-      }
-
-      // Get the current clubId from state or URL
-      let currentClubId = clubId;
-      if (!currentClubId && typeof window !== "undefined") {
-        // Check URL params first
-        const urlParams = new URLSearchParams(window.location.search);
-        const urlClubId = urlParams.get("clubId");
-        if (urlClubId) {
-          currentClubId = urlClubId;
-          setClubId(urlClubId);
-        } else {
-          // Then check localStorage as fallback
-          const activeClub = localStorage.getItem("activeClub");
-          if (activeClub) {
-            try {
-              const parsedClub = JSON.parse(activeClub);
-              currentClubId = parsedClub.id;
-            } catch (e) {
-              console.error("Error parsing active club:", e);
-            }
-          }
-        }
-      }
-
-      if (!currentClubId) {
-        console.error(
-          "Club ID not found. URL clubId:",
-          new URLSearchParams(window.location.search).get("clubId"),
-          "localStorage activeClub:",
-          localStorage.getItem("activeClub"),
-        );
-        showToast(
-          "error",
-          "Nessun club selezionato. Vai alla dashboard per selezionare un club.",
-        );
-        return;
-      }
-
-      try {
-        /*
-          **Un incasso non si cancella: si storna.**
-
-          Questa riga cancellava davvero, e dalla vecchia collezione JSON —
-          cioe da una fonte che non e piu quella che l'elenco mostra. Il
-          risultato era il peggiore possibile: il pulsante rispondeva
-          «eliminato», la riga spariva dallo schermo, e in prima nota il
-          denaro restava dov'era. La scheda dello sponsor lo rifiuta gia da
-          questa Wave; qui no, e le due schermate si contraddicevano.
-        */
-        showToast(
-          "error",
-          "Un incasso non si cancella: si storna dalla scheda dello sponsor, " +
-            "cosi che il registro conservi cio che e stato registrato e perche e stato annullato.",
-        );
-      } catch (error) {
-        console.error("Error deleting payment:", error);
-        showToast("error", "Operazione non riuscita");
-      }
-    },
-    [clubId, showToast],
-  );
-
-  // Format date
-  const formatDate = React.useCallback((dateString: string) => {
-    if (!dateString) return "N/A";
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString("it-IT", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
-    } catch (error) {
-      return "N/A";
-    }
-  }, []);
-
-  // Show message if no club is found
-  if (clubNotFound) {
-    return (
-      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header title="Gestione Sponsor" />
-          <main className={dashboardMainClassName}>
-            <DashboardPageContainer>
-              <Card>
-                <CardContent className="p-8 text-center">
-                  <Building className="h-16 w-16 mx-auto text-gray-400 mb-4" />
-                  <h2 className="text-xl font-semibold mb-2">
-                    Nessun Club Selezionato
-                  </h2>
-                  <p className="text-gray-600 mb-4">
-                    Per gestire sponsor e fornitori, devi prima selezionare un
-                    club.
-                  </p>
-                  <Button
-                    onClick={() => (window.location.href = "/dashboard")}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    Vai alla Dashboard
-                  </Button>
-                </CardContent>
-              </Card>
-            </DashboardPageContainer>
-          </main>
-        </div>
-      </div>
+    list.push(
+      {
+        id: "contacts",
+        header: "Contatti",
+        kind: "text",
+        width: 1.4,
+        cell: (row) => joinMeta(row.record.email, row.record.phone) || null,
+        sortValue: (row) => String(row.record.email || "").toLowerCase() || null,
+        exportValue: (row) => joinMeta(row.record.email, row.record.phone),
+        title: (row) => joinMeta(row.record.email, row.record.phone) || undefined,
+      },
+      {
+        id: "vatNumber",
+        header: "P.IVA",
+        kind: "text",
+        hidden: true,
+        cell: (row) => <span className="egw-num uppercase">{String(row.record.vatNumber || "").trim()}</span>,
+        sortValue: (row) => String(row.record.vatNumber || "").trim() || null,
+        exportValue: (row) => String(row.record.vatNumber || "").trim(),
+      },
+      {
+        id: "fiscalCode",
+        header: "Codice fiscale",
+        kind: "text",
+        hidden: true,
+        cell: (row) => <span className="egw-num uppercase">{String(row.record.fiscalCode || "").trim()}</span>,
+        sortValue: (row) => String(row.record.fiscalCode || "").trim() || null,
+        exportValue: (row) => String(row.record.fiscalCode || "").trim(),
+      },
+      {
+        id: "city",
+        header: "Città",
+        kind: "text",
+        hidden: true,
+        cell: (row) => String(row.record.city || "").trim(),
+        sortValue: (row) => String(row.record.city || "").trim().toLowerCase() || null,
+      },
+      {
+        id: "pec",
+        header: "PEC",
+        kind: "text",
+        hidden: true,
+        cell: (row) => String(row.record.pec || "").trim(),
+        sortValue: (row) => String(row.record.pec || "").trim().toLowerCase() || null,
+      },
     );
-  }
+    return list;
+    // `recordHref`/`openRecord` dipendono solo dal club.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReadCredit, creditError, clubId]);
 
-  const renderSponsorsMainContent = () => (
-    <main className={dashboardMainClassName}>
-      <DashboardPageContainer>
-        <SharedPageHeader
-          title="Gestione Sponsor e Fornitori"
-          subtitle="Gestisci sponsor, partner e fornitori della societa."
-          actions={
-            <Button
-              className="bg-blue-600 hover:bg-blue-700"
-              onClick={() => {
-                resetNewSponsor();
-                setNewSponsor((prev) => ({
-                  ...prev,
-                  type: activeTab === "suppliers" ? "fornitore" : "sponsor",
-                }));
-                setShowAddSponsorDialog(true);
-              }}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Nuovo Sponsor/Fornitore
-            </Button>
-          }
-        />
-        <div className="hidden">
-          <div>
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              Gestione Sponsor e Fornitori
-            </h1>
-            <p className="text-gray-600 mt-2">
-              Gestisci sponsor, partner e fornitori della società.
-            </p>
-          </div>
-          <Button
-            className="bg-blue-600 hover:bg-blue-700"
-            onClick={() => {
-              resetNewSponsor();
-              setNewSponsor((prev) => ({
-                ...prev,
-                type: activeTab === "suppliers" ? "fornitore" : "sponsor",
-              }));
-              setShowAddSponsorDialog(true);
-            }}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Nuovo Sponsor/Fornitore
-          </Button>
-        </div>
+  const filters = React.useMemo<FilterDef<SponsorRow>[]>(() => {
+    const list: FilterDef<SponsorRow>[] = [
+      {
+        id: "kind",
+        label: "Tipologia",
+        type: "select",
+        pinned: true,
+        options: [
+          { value: "sponsor", label: "Sponsor" },
+          { value: "fornitore", label: "Fornitori" },
+        ],
+        apply: (row, value) => (value === "sponsor" ? row.record.type !== "fornitore" : value === "fornitore" ? row.record.type === "fornitore" : true),
+      },
+    ];
+    if (canReadCredit) {
+      list.push(
+        {
+          id: "contract",
+          label: "Contratto",
+          type: "select",
+          options: [
+            { value: "active", label: "Attivo" },
+            { value: "expiring", label: "In scadenza", tone: "amber" },
+            { value: "expired", label: "Scaduto", tone: "red" },
+            { value: "none", label: "Senza contratto" },
+          ],
+          apply: (row, value) => {
+            if (value === "active") return row.lifecycle.state === "active" || row.lifecycle.state === "expiring";
+            if (value === "expiring" || value === "expired" || value === "none") return row.lifecycle.state === value;
+            return true;
+          },
+        },
+        {
+          id: "credit",
+          label: "Credito",
+          type: "select",
+          options: [
+            { value: "outstanding", label: "Con residuo", tone: "amber" },
+            { value: "settled", label: "Saldato", tone: "green" },
+          ],
+          apply: (row, value) => {
+            if (!row.credit?.hasContract) return value == null || value === "";
+            if (value === "outstanding") return row.credit.outstandingCents > 0;
+            if (value === "settled") return row.credit.isSettled;
+            return true;
+          },
+        },
+      );
+    }
+    return list;
+  }, [canReadCredit]);
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="flex h-auto w-full flex-wrap items-center justify-start gap-1 rounded-xl bg-muted p-1 sm:w-fit">
-            <TabsTrigger
-              value="sponsors"
-              className="flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm px-3 py-1.5"
-            >
-              <Building className="h-4 w-4" />
-              Sponsor
-            </TabsTrigger>
-            <TabsTrigger
-              value="suppliers"
-              className="flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm px-3 py-1.5"
-            >
-              <Building className="h-4 w-4" />
-              Fornitori
-            </TabsTrigger>
-            <TabsTrigger
-              value="payments"
-              className="flex items-center gap-2 whitespace-nowrap text-xs sm:text-sm px-3 py-1.5"
-            >
-              <Euro className="h-4 w-4" />
-              Pagamenti
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="sponsors" className="space-y-4 mt-4">
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>Elenco Sponsor</CardTitle>
-                  <div className="relative w-64">
-                    <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      placeholder="Cerca..."
-                      className="pl-8"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Nome</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Telefono</TableHead>
-                        <TableHead>P.IVA</TableHead>
-                        {/*
-                          Il residuo del contratto, non un totale: dovuto e
-                          incassato restano separati sulla scheda, dove c'e lo
-                          spazio per mostrarli accanto senza sommarli.
-                        */}
-                        <TableHead className="text-right">Residuo</TableHead>
-                        <TableHead className="text-right">Azioni</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {loading ? (
-                        <TableRow>
-                          <TableCell colSpan={6} className="h-24 text-center">
-                            Caricamento...
-                          </TableCell>
-                        </TableRow>
-                      ) : Array.isArray(sponsorsList) &&
-                        sponsorsList.length > 0 ? (
-                        sponsorsList
-                          .map((sponsor) => {
-                            if (!sponsor || !sponsor.id) return null;
-                            return (
-                              <TableRow key={sponsor.id}>
-                                <TableCell className="font-medium">
-                                  <div className="flex items-center gap-3">
-                                    {sponsor.logo ? (
-                                      <div className="h-10 w-10 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex-shrink-0">
-                                        <img
-                                          src={sponsor.logo}
-                                          alt={sponsor.name}
-                                          className="w-full h-full object-contain"
-                                        />
-                                      </div>
-                                    ) : (
-                                      <EntityIcon
-                                        type="sponsor"
-                                        shape="square"
-                                        label={sponsor.name}
-                                      />
-                                    )}
-                                    <span>{sponsor.name || "N/A"}</span>
-                                  </div>
-                                </TableCell>
-                                <TableCell>{sponsor.email || "N/A"}</TableCell>
-                                <TableCell>{sponsor.phone || "N/A"}</TableCell>
-                                <TableCell>
-                                  {sponsor.vatNumber || "N/A"}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  {(() => {
-                                    const credit = sponsorCredit(sponsor);
-                                    if (!credit) {
-                                      return (
-                                        <span className="text-muted-foreground">
-                                          Non disponibile
-                                        </span>
-                                      );
-                                    }
-                                    if (!credit.hasContract) {
-                                      return (
-                                        <span className="text-muted-foreground">
-                                          Nessun contratto
-                                        </span>
-                                      );
-                                    }
-                                    return (
-                                      <span
-                                        className={
-                                          credit.outstandingCents > 0
-                                            ? "font-medium text-amber-600"
-                                            : "font-medium"
-                                        }
-                                      >
-                                        {formatAmount(credit.outstandingCents)}
-                                      </span>
-                                    );
-                                  })()}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex justify-end gap-2">
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-8 w-8 p-0"
-                                      onClick={() =>
-                                        router.push(
-                                          `/sponsors/${sponsor.id}?clubId=${clubId}`,
-                                        )
-                                      }
-                                      title="Visualizza Profilo"
-                                    >
-                                      <Eye className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-8 w-8 p-0 text-red-600"
-                                      onClick={() =>
-                                        handleDeleteSponsor(sponsor.id)
-                                      }
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })
-                          .filter(Boolean)
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={6} className="h-24 text-center">
-                            Nessuno sponsor trovato.
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="suppliers" className="space-y-4 mt-4">
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>Elenco Fornitori</CardTitle>
-                  <div className="relative w-64">
-                    <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      placeholder="Cerca..."
-                      className="pl-8"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Nome</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Telefono</TableHead>
-                        <TableHead>P.IVA</TableHead>
-                        <TableHead className="text-right">Azioni</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {loading ? (
-                        <TableRow>
-                          <TableCell colSpan={5} className="h-24 text-center">
-                            Caricamento...
-                          </TableCell>
-                        </TableRow>
-                      ) : Array.isArray(suppliersList) &&
-                        suppliersList.length > 0 ? (
-                        suppliersList
-                          .map((supplier) => {
-                            if (!supplier || !supplier.id) return null;
-                            return (
-                              <TableRow key={supplier.id}>
-                                <TableCell className="font-medium">
-                                  {supplier.name || "N/A"}
-                                </TableCell>
-                                <TableCell>{supplier.email || "N/A"}</TableCell>
-                                <TableCell>{supplier.phone || "N/A"}</TableCell>
-                                <TableCell>
-                                  {supplier.vatNumber || "N/A"}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex justify-end gap-2">
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-8 w-8 p-0"
-                                      onClick={() =>
-                                        router.push(
-                                          `/sponsors/${supplier.id}?clubId=${clubId}`,
-                                        )
-                                      }
-                                      title="Visualizza Profilo"
-                                    >
-                                      <Eye className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-8 w-8 p-0 text-red-600"
-                                      onClick={() =>
-                                        handleDeleteSponsor(supplier.id)
-                                      }
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })
-                          .filter(Boolean)
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={5} className="h-24 text-center">
-                            Nessun fornitore trovato.
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="payments" className="space-y-4 mt-4">
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>Registro Pagamenti</CardTitle>
-                  <Button
-                    className="bg-blue-600 hover:bg-blue-700"
-                    onClick={() => {
-                      resetNewPayment();
-                      setNewPayment((prev) => ({
-                        ...prev,
-                        sponsorId: selectedSponsor?.id || "",
-                      }));
-                      setShowAddPaymentDialog(true);
-                    }}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Nuovo Pagamento
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Data</TableHead>
-                        <TableHead>Sponsor/Fornitore</TableHead>
-                        <TableHead>Descrizione</TableHead>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead>Importo</TableHead>
-                        <TableHead>Stato</TableHead>
-                        <TableHead className="text-right">Azioni</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {loading ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="h-24 text-center">
-                            Caricamento...
-                          </TableCell>
-                        </TableRow>
-                      ) : Array.isArray(payments) && payments.length > 0 ? (
-                        payments
-                          .map((payment) => {
-                            if (!payment || !payment.id) return null;
-                            const currentSponsors = Array.isArray(sponsors)
-                              ? sponsors
-                              : [];
-                            const sponsor = currentSponsors.find(
-                              (s) => s && s.id === payment.sponsorId,
-                            );
-                            return (
-                              <TableRow key={payment.id}>
-                                <TableCell>
-                                  {payment.paidAt ? formatDate(payment.paidAt) : "—"}
-                                </TableCell>
-                                <TableCell className="font-medium">
-                                  {sponsor?.name || "N/A"}
-                                </TableCell>
-                                <TableCell>
-                                  {payment.notes || payment.paymentMethod || "N/A"}
-                                </TableCell>
-                                <TableCell>
-                                  {/*
-                                    **Uno storno si dichiara.** La riga portava
-                                    gia `reversed`, e nessuno lo leggeva: un
-                                    incasso annullato compariva verde accanto
-                                    alla sua compensazione rossa, sotto un
-                                    «Incassato» che non contava ne l'uno ne
-                                    l'altra. Chi guardava vedeva due movimenti
-                                    e un totale che non li spiegava.
-                                  */}
-                                  <span
-                                    className={`px-2 py-1 rounded-full text-xs font-medium ${payment.reversed ? "bg-slate-100 text-slate-600" : "bg-green-100 text-green-800"}`}
-                                  >
-                                    {payment.reversed ? "Stornato" : "Entrata"}
-                                  </span>
-                                </TableCell>
-                                <TableCell
-                                  className={`font-medium ${payment.reversed ? "text-slate-500 line-through" : "text-green-600"}`}
-                                >
-                                  {payment.amountCents < 0 ? "-" : "+"} €
-                                  {(Math.abs(payment.amountCents || 0) / 100).toFixed(2)}
-                                </TableCell>
-                                <TableCell>
-                                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                    Registrato
-                                  </span>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 w-8 p-0 text-red-600"
-                                    onClick={() =>
-                                      handleDeletePayment(payment.id)
-                                    }
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })
-                          .filter(Boolean)
-                      ) : (
-                        <TableRow>
-                          <TableCell colSpan={7} className="h-24 text-center">
-                            Nessun pagamento registrato.
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </DashboardPageContainer>
-    </main>
+  const rowActions = React.useMemo<RowActionDef<SponsorRow>[]>(
+    () => [
+      { id: "open", label: "Apri", icon: <ChevronRight />, primary: true, onClick: (row) => openRecord(row.record) },
+      { id: "edit", label: "Modifica", icon: <Pencil />, onClick: (row) => openEdit(row.record) },
+      ...(canManageCredit
+        ? [{ id: "collect", label: "Registra incasso", icon: <Euro />, onClick: (row: SponsorRow) => openCollection(row.record) }]
+        : []),
+      { id: "delete", label: "Elimina", icon: <Trash2 />, tone: "danger", onClick: (row) => setDeleting(row.record) },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canManageCredit, clubId],
   );
+
+  const search = React.useMemo(
+    () => ({
+      placeholder: "Cerca per nome, email, P.IVA",
+      match: (row: SponsorRow, query: string) => matchesSponsorSearch(row.record, query),
+    }),
+    [],
+  );
+
+  const gridState = loading ? "loading" : loadError ? "error" : "ready";
+  const collectionsState: "ready" | "loading" | "error" = loading ? "loading" : creditError ? "error" : "ready";
 
   return (
-    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-      {/*
-        Una sola chrome, e il contenuto montato **una volta**.
-
-        Qui c'erano due rami — uno `hidden lg:flex`, uno `lg:hidden` — che
-        montavano entrambi la pagina: nascosta con il CSS, ma viva nel DOM.
-        React eseguiva due volte ogni effetto, quindi ogni lettura partiva due
-        volte e ogni autosave rischiava due PATCH sovrapposte sulla stessa
-        colonna. `Header` monta gia da se la barra mobile e quella desktop
-        (RC Fix 1, punto 11).
-      */}
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Header title="Gestione Sponsor" />
-        {renderSponsorsMainContent()}
+        <Header title="Sponsor" />
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            {resolved && !clubId ? (
+              <EmptyStateCard
+                icon={<Building />}
+                iconTone="neutral"
+                title="Nessun club selezionato"
+                description="Per gestire sponsor e fornitori, devi prima selezionare un club."
+                primary={
+                  <Button variant="primary" onClick={() => router.push("/dashboard")}>
+                    Vai alla Dashboard
+                  </Button>
+                }
+              />
+            ) : (
+              <>
+                <PageHeader
+                  eyebrow="Cassa e amministrazione"
+                  title="Sponsor e fornitori"
+                  description="Sponsor, partner e fornitori della società: contratti, incassi e residuo da incassare."
+                  stats={
+                    <>
+                      <HeaderStat value={formatInteger(sponsors.length)} label="in archivio" />
+                      {canReadCredit ? (
+                        <>
+                          <HeaderStat value={formatInteger(stats.active)} label="sponsor attivi" tone="green" onClick={() => setRequestedViewId("active")} />
+                          <HeaderStat value={formatInteger(stats.expiring)} label="contratti in scadenza" tone={stats.expiring ? "amber" : "ink"} onClick={() => setRequestedViewId("expiring")} />
+                          <HeaderStat value={formatInteger(stats.expired)} label="scaduti" tone={stats.expired ? "red" : "ink"} onClick={() => setRequestedViewId("expired")} />
+                          <HeaderStat value={moneyCents(stats.collectedSeasonCents)} label={`incassato ${season.label}`} tone="blue" />
+                        </>
+                      ) : null}
+                    </>
+                  }
+                  actions={
+                    <>
+                      <Button variant="primary" icon={<Plus />} onClick={openCreate}>
+                        Nuovo sponsor
+                      </Button>
+                      {canManageCredit && sponsors.length ? (
+                        <Button variant="secondary" icon={<Euro />} onClick={() => openCollection(null)}>
+                          Registra incasso
+                        </Button>
+                      ) : null}
+                    </>
+                  }
+                >
+                  {canReadCredit ? (
+                    <SegmentedControl<ListTab>
+                      value={tab}
+                      onChange={setTab}
+                      aria-label="Sezione"
+                      options={[
+                        { value: "sponsor", label: "Sponsor" },
+                        { value: "incassi", label: "Incassi" },
+                      ]}
+                    />
+                  ) : null}
+                </PageHeader>
+
+                {tab === "sponsor" ? (
+                  <DataGrid<SponsorRow>
+                    module="sponsor"
+                    aria-label="Elenco di sponsor e fornitori"
+                    rows={rows}
+                    getRowId={(row) => String(row.record.id)}
+                    rowLabel={(row) => sponsorName(row.record)}
+                    columns={columns}
+                    filters={filters}
+                    views={canReadCredit ? SPONSOR_VIEWS : NO_VIEWS}
+                    search={search}
+                    defaultSort={{ columnId: "identity", direction: "asc" }}
+                    rowActions={rowActions}
+                    onOpenRow={(row) => openRecord(row.record)}
+                    requestedViewId={requestedViewId}
+                    state={gridState}
+                    errorMessage={loadError}
+                    onRetry={reload}
+                    noun={{ singular: "partner", plural: "partner" }}
+                    empty={{
+                      icon: <Building />,
+                      title: "Nessuno sponsor in archivio",
+                      description: "Registra il primo sponsor o fornitore del club: ragione sociale, contatti, dati fiscali e sede.",
+                      primary: (
+                        <Button variant="primary" size="sm" icon={<Plus />} onClick={openCreate}>
+                          Nuovo sponsor
+                        </Button>
+                      ),
+                    }}
+                  />
+                ) : (
+                  <SponsorCollectionsGrid
+                    module="sponsor-incassi"
+                    rows={collections}
+                    showSponsor
+                    state={collectionsState}
+                    errorMessage={creditError}
+                    onRetry={reload}
+                    onReverse={canReverse ? (row) => setReversing(row) : undefined}
+                    onOpenSponsor={(row) => {
+                      const record = sponsors.find((item) => String(item.id) === row.sponsorId);
+                      if (record) openRecord(record);
+                    }}
+                    emptyPrimary={
+                      canManageCredit && sponsors.length ? (
+                        <Button variant="secondary" size="sm" icon={<Euro />} onClick={() => openCollection(null)}>
+                          Registra incasso
+                        </Button>
+                      ) : null
+                    }
+                  />
+                )}
+              </>
+            )}
+          </DashboardPageContainer>
+        </main>
       </div>
 
-      <Dialog
-        open={showAddSponsorDialog}
+      <SponsorDrawer
+        open={drawerOpen}
         onOpenChange={(open) => {
-          setShowAddSponsorDialog(open);
-          if (!open) {
-            resetNewSponsor();
-          }
+          setDrawerOpen(open);
+          if (!open) setEditing(null);
         }}
-      >
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl max-h-[90dvh] overflow-hidden">
-          <DialogHeader className="border-b px-6 py-4">
-            <DialogTitle className="text-lg">
-              {isEditMode
-                ? `Modifica ${getSponsorTypeLabel(newSponsor.type)}`
-                : `Nuovo ${getSponsorTypeLabel(newSponsor.type)}`}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[calc(90vh-9rem)] overflow-y-auto px-6 py-6">
-            <div className="hidden">
-              <div className="rounded-[24px] bg-white p-5 shadow-sm">
-                <div className="flex justify-center">
-                  <LogoUpload
-                    currentLogo={newSponsor.logo || null}
-                    onLogoChange={(value) =>
-                      setNewSponsor((prev) => ({
-                        ...prev,
-                        logo: value || "",
-                      }))
-                    }
-                    name={newSponsor.name || "Nuovo partner"}
-                    className="mx-auto"
-                  />
-                </div>
-                <div className="mt-4 space-y-1 text-center">
-                  <p className="text-lg font-semibold text-slate-900">
-                    {newSponsor.name || "Nuovo partner"}
-                  </p>
-                  <p className="text-sm text-slate-500">
-                    {getSponsorTypeLabel(newSponsor.type)}
-                  </p>
-                </div>
-              </div>
+        sponsor={editing}
+        onSave={saveSponsor}
+      />
 
-              <div className="rounded-[24px] bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Campi obbligatori
-                </p>
-                <div className="mt-4 space-y-3 text-sm text-slate-600">
-                  <p>Nome o ragione sociale</p>
-                  <p>Email di riferimento</p>
-                  <p>Partita IVA o identificativo fiscale</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="sponsor-name">Nome / Ragione sociale *</Label>
-                  <Input
-                    id="sponsor-name"
-                    name="name"
-                    value={newSponsor.name}
-                    onChange={handleSponsorChange}
-                    placeholder="Es. Partner Italia SRL"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sponsor-type">Tipologia *</Label>
-                  <select
-                    id="sponsor-type"
-                    name="type"
-                    value={newSponsor.type}
-                    onChange={handleSponsorChange}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                  >
-                    {SPONSOR_TYPE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sponsor-email">Email *</Label>
-                  <Input
-                    id="sponsor-email"
-                    name="email"
-                    type="email"
-                    value={newSponsor.email}
-                    onChange={handleSponsorChange}
-                    placeholder="amministrazione@azienda.it"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sponsor-phone">Telefono</Label>
-                  <Input
-                    id="sponsor-phone"
-                    name="phone"
-                    value={newSponsor.phone}
-                    onChange={handleSponsorChange}
-                    placeholder="+39 333 1234567"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sponsor-vat">Partita IVA *</Label>
-                  <Input
-                    id="sponsor-vat"
-                    name="vatNumber"
-                    value={newSponsor.vatNumber}
-                    onChange={handleSponsorChange}
-                    placeholder="IT01234567890"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sponsor-fiscal-code">Codice fiscale</Label>
-                  <Input
-                    id="sponsor-fiscal-code"
-                    name="fiscalCode"
-                    value={newSponsor.fiscalCode}
-                    onChange={handleSponsorChange}
-                    placeholder="RSSMRA80A01H501U"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sponsor-pec">PEC</Label>
-                  <Input
-                    id="sponsor-pec"
-                    name="pec"
-                    value={newSponsor.pec}
-                    onChange={handleSponsorChange}
-                    placeholder="partner@pec.it"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sponsor-sdi">Codice SDI</Label>
-                  <Input
-                    id="sponsor-sdi"
-                    name="sdi"
-                    value={newSponsor.sdi}
-                    onChange={handleSponsorChange}
-                    placeholder="ABC1234"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sponsor-iban">IBAN</Label>
-                  <Input
-                    id="sponsor-iban"
-                    name="iban"
-                    value={newSponsor.iban}
-                    onChange={handleSponsorChange}
-                    placeholder="IT60X0542811101000000123456"
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-5">
-                <p className="text-base font-semibold text-slate-900">
-                  Sede e localizzazione
-                </p>
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="sponsor-address">Indirizzo</Label>
-                    <Input
-                      id="sponsor-address"
-                      name="address"
-                      value={newSponsor.address}
-                      onChange={handleSponsorChange}
-                      placeholder="Via Roma 10"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="sponsor-city">Città</Label>
-                    <Input
-                      id="sponsor-city"
-                      name="city"
-                      value={newSponsor.city}
-                      onChange={handleSponsorChange}
-                      placeholder="Milano"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="sponsor-province">Provincia</Label>
-                    <Input
-                      id="sponsor-province"
-                      name="province"
-                      value={newSponsor.province}
-                      onChange={handleSponsorChange}
-                      placeholder="MI"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="sponsor-postal">CAP</Label>
-                    <Input
-                      id="sponsor-postal"
-                      name="postalCode"
-                      value={newSponsor.postalCode}
-                      onChange={handleSponsorChange}
-                      placeholder="20100"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="sponsor-region">Regione</Label>
-                    <Input
-                      id="sponsor-region"
-                      name="region"
-                      value={newSponsor.region}
-                      onChange={handleSponsorChange}
-                      placeholder="Lombardia"
-                    />
-                  </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label htmlFor="sponsor-country">Nazione</Label>
-                    <Input
-                      id="sponsor-country"
-                      name="country"
-                      value={newSponsor.country}
-                      onChange={handleSponsorChange}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <DialogFooter className="border-t px-6 py-4">
-            <Button variant="outline" onClick={() => setShowAddSponsorDialog(false)}>
-              Annulla
-            </Button>
-            <Button className="bg-blue-600 hover:bg-blue-700" onClick={handleAddSponsor}>
-              {isEditMode ? "Salva modifiche" : "Crea partner"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={showAddPaymentDialog}
+      <CollectionDrawer
+        open={collectionOpen}
         onOpenChange={(open) => {
-          setShowAddPaymentDialog(open);
-          if (!open) {
-            resetNewPayment();
-          }
+          setCollectionOpen(open);
+          if (!open) setCollectionFor(null);
         }}
-      >
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl rounded-[28px] border-slate-200 bg-white/95 p-0 shadow-[0_30px_90px_-32px_rgba(15,23,42,0.35)]">
-          <DialogHeader className="border-b border-slate-100 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 px-6 py-5 text-white">
-            <DialogTitle className="text-2xl">Nuovo pagamento sponsor</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-5 px-6 py-6">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="payment-sponsor">Sponsor / Fornitore *</Label>
-                <select
-                  id="payment-sponsor"
-                  name="sponsorId"
-                  value={newPayment.sponsorId}
-                  onChange={handlePaymentChange}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                >
-                  <option value="">Seleziona un partner</option>
-                  {sponsors.map((sponsor: any) => (
-                    <option key={sponsor.id} value={sponsor.id}>
-                      {sponsor.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="payment-date">Data *</Label>
-                <Input
-                  id="payment-date"
-                  name="date"
-                  type="date"
-                  value={newPayment.date}
-                  onChange={handlePaymentChange}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="payment-amount">Importo *</Label>
-                <Input
-                  id="payment-amount"
-                  name="amount"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={newPayment.amount}
-                  onChange={handlePaymentChange}
-                  placeholder="0.00"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="payment-type">Tipo movimento</Label>
-                <select
-                  id="payment-type"
-                  name="type"
-                  value={newPayment.type}
-                  onChange={handlePaymentChange}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                >
-                  {/*
-                    **«Uscita» non era un'opzione: era una bugia.**
+        sponsor={collectionFor}
+        sponsors={rows.map((row) => row.record)}
+        methodChoices={methodChoices}
+        onSubmit={submitCollection}
+      />
 
-                    Il gestore registrava sempre un incasso in entrata — la
-                    scelta sopravviveva solo in un ternario che restituiva
-                    "Bonifico" da entrambi i rami — quindi scegliendo «Uscita»
-                    il totale incassato dallo sponsor **saliva**. Un pagamento
-                    verso uno sponsor e un'altra cosa e non si registra da qui.
-                  */}
-                  <option value="entrata">Entrata</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="payment-status">Stato</Label>
-                <select
-                  id="payment-status"
-                  name="status"
-                  value={newPayment.status}
-                  onChange={handlePaymentChange}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                >
-                  <option value="completato">Completato</option>
-                  <option value="in_attesa">In attesa</option>
-                </select>
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="payment-description">Descrizione *</Label>
-                <Input
-                  id="payment-description"
-                  name="description"
-                  value={newPayment.description}
-                  onChange={handlePaymentChange}
-                  placeholder="Es. Saldo sponsorizzazione stagione 2026"
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter className="border-t border-slate-100 px-6 py-4">
-            <Button variant="outline" onClick={() => setShowAddPaymentDialog(false)}>
-              Annulla
-            </Button>
-            <Button className="bg-blue-600 hover:bg-blue-700" onClick={handleAddPayment}>
-              Registra pagamento
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteSponsorDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => !open && !deleteBusy && setDeleting(null)}
+        sponsor={deleting}
+        collectionsCount={deleting ? collectionsOf(deleting.id).filter((row) => !row.reversed).length : 0}
+        onConfirm={confirmDelete}
+        loading={deleteBusy}
+      />
+
+      <StornoIncassoDialog
+        row={reversing}
+        onOpenChange={(open) => {
+          if (!open) setReversing(null);
+        }}
+        saving={reverseBusy}
+        onSubmit={confirmReverse}
+      />
     </div>
+  );
+}
+
+export default function SponsorsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SponsorsPageContent />
+    </Suspense>
   );
 }

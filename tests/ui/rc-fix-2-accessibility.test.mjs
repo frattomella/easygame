@@ -48,13 +48,12 @@ test("ogni casella di selezione dice cosa sta selezionando", () => {
     e una frase, «Seleziona a1b2c3» no.
   */
   /*
-    Lo staff e passato al `DataGrid` condiviso, che nomina le proprie caselle
-    («Seleziona la riga», «Seleziona la pagina»): la sua tabella V1 non c'e
-    piu e non compare qui.
+    Staff e soci sono passati al `DataGrid` condiviso, che nomina le proprie
+    caselle («Seleziona la riga», «Seleziona la pagina») e riceve il nome
+    della riga da `rowLabel`: le loro tabelle V1 non ci sono piu.
   */
   for (const [file, label] of [
     ["app/trainers/page.tsx", "allenatori"],
-    ["app/soci/page.tsx", "soci"],
   ]) {
     assert.equal(
       /<SelectRowCheckbox[\s\S]{0,200}?label=\{String\(/.test(read(file)),
@@ -130,11 +129,16 @@ test("l'anteprima dei dati letti prende il fuoco e si annuncia", () => {
  * `div` e `onClick` si vede uguale e non si apre con la tastiera.
  */
 test("i menu delle azioni si aprono da tastiera perche sono quelli condivisi", () => {
+  /*
+    L'elenco soci (Web V2) non ha piu un menu proprio: azioni di riga, azioni
+    di massa ed export vivono nei menu del `DataGrid`, che sono quelli delle
+    primitive. La pagina deve montare la griglia e non fare menu a mano.
+  */
   for (const file of ["app/soci/page.tsx"]) {
     const source = read(file);
 
-    assert.match(source, /<DropdownMenuTrigger asChild>/);
-    assert.match(source, /<DropdownMenuItem/);
+    assert.match(source, /<DataGrid/);
+    assert.match(source, /rowLabel=\{\(row\) => getMemberDisplayName\(row\)\}/);
     assert.equal(
       /<div[^>]*role="menu"/.test(source),
       false,

@@ -22,7 +22,8 @@ const read = (relative) =>
 
 const SITE_UI = [
   "components/sites/site-filter.tsx",
-  "components/sites/club-sites-section.tsx",
+  // Dal Web V2 l'anagrafica delle sedi e il cassetto «Gestisci sedi» di Strutture.
+  "components/structures/v2/sites-drawer.tsx",
 ];
 
 test("il filtro sede non si monta se il club non e multi-sede", () => {
@@ -124,14 +125,22 @@ test("la sede di un allenamento viene dalla sua struttura", () => {
 });
 
 test("una sede con strutture collegate non si elimina, si disattiva", () => {
-  const source = read("components/sites/club-sites-section.tsx");
+  /*
+    Dal Web V2 le sedi si amministrano nel cassetto «Gestisci sedi» della
+    pagina Strutture. La regola e la stessa: eliminarla lascerebbe le
+    strutture con un riferimento morto, quindi la conferma rifiuta e il
+    comando e **assente** (mai disabilitato, guideline 10 §10.5) sulla riga
+    di una sede con strutture.
+  */
+  const source = read("components/structures/v2/sites-drawer.tsx");
 
   assert.match(
     source,
-    /if \(structureCountBySiteId\[site\.id\]\) \{\s*return;/,
+    /if \(structureCountBySiteId\[deleting\.id\]\) \{/,
     "eliminarla lascerebbe le strutture con un riferimento morto",
   );
-  assert.match(source, /disabled=\{disabled \|\| structureCount > 0\}/);
+  assert.match(source, /structureCount > 0 \? null : \(/);
+  assert.match(source, /disattivala invece di eliminarla/);
 });
 
 /**

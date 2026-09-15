@@ -206,8 +206,6 @@ const CHIAVI_DICHIARATE = new Map([
   ["trainer-sidebar-collapsed", "barra laterale aperta o chiusa"],
   ["profileImage_${}", "immagine del profilo, durante la verifica"],
   ["userName_${}", "nome mostrato, durante la verifica"],
-  ["matchSettings_scheduleConflicts", "preferenza di vista sulle gare"],
-  ["matchSettings_athleteStatusFilter", "preferenza di vista sulle gare"],
   ["userProfile_${}", "nome e immagine, per dipingere subito l'intestazione"],
   /*
     **La cache della sessione, ed e la sola chiave che ne contiene una.**

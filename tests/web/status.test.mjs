@@ -5,6 +5,7 @@ import {
   CALLUP_STATUS,
   CERTIFICATE_STATUS,
   ENROLMENT_STATUS,
+  MEMBERSHIP_STATUS,
   MONEY_STATUS,
   PERSON_STATUS,
   STATUS_UNKNOWN,
@@ -18,7 +19,7 @@ import {
  */
 
 test("ogni stato del sistema ha un'etichetta italiana in maiuscolo e un peso", () => {
-  const all = [PERSON_STATUS, CERTIFICATE_STATUS, MONEY_STATUS, ACTIVITY_STATUS, ENROLMENT_STATUS, CALLUP_STATUS]
+  const all = [PERSON_STATUS, CERTIFICATE_STATUS, MONEY_STATUS, ACTIVITY_STATUS, ENROLMENT_STATUS, CALLUP_STATUS, MEMBERSHIP_STATUS]
     .flatMap((group) => Object.values(group))
     .concat([STATUS_UNKNOWN]);
   for (const spec of all) {

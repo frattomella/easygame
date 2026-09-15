@@ -22,8 +22,8 @@ test("AddTrainingForm · usa resolveRecommendedStructures per ordinare/segnalare
   assert.match(sorgente, /Consigliata \(stessa sede\)/);
 });
 
-test("AddMatchForm · usa resolveRecommendedStructures per ordinare/segnalare la struttura consigliata", () => {
-  const sorgente = read("src/components/forms/AddMatchForm.tsx");
+test("MatchFormDrawer (la forma V2 di AddMatchForm) · usa resolveRecommendedStructures per ordinare/segnalare la struttura consigliata", () => {
+  const sorgente = read("src/components/matches/v2/MatchFormDrawer.tsx");
   assert.match(sorgente, /resolveRecommendedStructures/);
   assert.match(sorgente, /Consigliata \(stessa sede\)/);
 });
@@ -58,7 +58,8 @@ test("WeeklyTrainingSchedulePanel · l'avviso cross-site in modifica scatta solo
 test("nessuna delle superfici importa src/lib/server (CLAUDE.md §8)", () => {
   for (const file of [
     "src/components/forms/AddTrainingForm.tsx",
-    "src/components/forms/AddMatchForm.tsx",
+    "src/components/matches/v2/MatchFormDrawer.tsx",
+    "src/components/matches/v2/MultipleMatchesDrawer.tsx",
     "src/components/dashboard/WeeklyTrainingSchedulePanel.tsx",
   ]) {
     assert.doesNotMatch(read(file), /from ["']@\/lib\/server\//);

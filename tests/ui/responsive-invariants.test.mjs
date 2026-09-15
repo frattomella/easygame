@@ -269,21 +269,12 @@ test("il guscio del club non cresce con il proprio contenuto", () => {
  * stessa riga, era gia a capo automatico: la differenza era una classe.
  */
 test("le righe di comandi degli elenchi vanno a capo su schermo stretto", () => {
-  for (const file of ["app/soci/page.tsx"]) {
-    const source = read(file);
-
-    assert.match(
-      source,
-      /flex[^"]*flex-wrap[^"]*gap-2|flex gap-2 w-full sm:w-auto flex-wrap/,
-      `${file}: i comandi dell'intestazione non vanno a capo`,
-    );
-  }
-
   /*
-    L'elenco Allenatori e passato alla `PageHeader` del Web V2: la riga di
+    Allenatori e soci sono passati alla `PageHeader` del Web V2: la riga di
     titolo e azioni va a capo dentro il componente condiviso, non nella pagina.
   */
   assert.match(read("app/trainers/page.tsx"), /<PageHeader/);
+  assert.match(read("app/soci/page.tsx"), /<PageHeader/);
   assert.match(
     read("components/web/page/PageHeader.tsx"),
     /flex flex-wrap items-end justify-between/,
@@ -475,7 +466,13 @@ test("il nome del club puo troncare, cosi la stagione resta visibile", () => {
 
 test("le barre di schede non escono dallo schermo stretto", () => {
   const casi = [
-    ["app/registration-management/page.tsx", /<TabsList className="mb-4 w-full justify-start overflow-x-auto/],
+    /*
+      Dal Web V2 le quattro schede di «Iscrizioni» sono un `SegmentedControl`
+      dentro l'intestazione, e la regola e la stessa: la barra scorre nel
+      proprio contenitore invece di allargare la pagina, cosi «Contributi e
+      bandi» resta raggiungibile da un telefono.
+    */
+    ["app/registration-management/page.tsx", /<SegmentedControl<RegistrationTab>[\s\S]{0,400}?className="max-w-full overflow-x-auto"/],
     ["app/modulistica/page.tsx", /<TabsList className="h-auto w-full flex-wrap/],
   ];
 
@@ -512,10 +509,14 @@ test("i comandi di intestazione vanno a capo prima di uscire", () => {
     /flex flex-wrap gap-2 sm:shrink-0/,
     "`shrink-0` sotto sm faceva sporgere di qualche pixel un pulsante con etichetta lunga",
   );
+  /*
+    Nel Web V2 la navigazione della settimana vive nel rail delle gare: sotto
+    i 1024 px i sette giorni scorrono in riga invece di sporgere.
+  */
   assert.match(
-    read("app/matches/page.tsx"),
-    /flex flex-col items-start gap-3 sm:flex-row/,
-    "i tre pulsanti della settimana non stanno accanto al titolo a 375 px",
+    read("components/matches/v2/MatchWeekRail.tsx"),
+    /flex gap-1\.5 overflow-x-auto/,
+    "i giorni della settimana scorrono in riga a 375 px, non escono dal pannello",
   );
 });
 

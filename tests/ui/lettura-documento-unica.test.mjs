@@ -87,7 +87,7 @@ test("PP-01 §H · toglierla dalla scheda non l'ha tolta dalle altre cinque", ()
     campo condiviso credendo di finire il lavoro, questo controllo lo ferma.
   */
   const consumatori = [
-    "app/soci/new/page.tsx",
+    "components/soci/v2/member-form.tsx",
     "components/staff/v2/staff-form.tsx",
     "app/trainers/new/page.tsx",
     "components/forms/AthleteCreateForm.tsx",

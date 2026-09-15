@@ -114,7 +114,8 @@ test("W6-54 · il divieto vale anche sulla rotta, non solo nella schermata", () 
 });
 
 test("W6-54 · il club ha un comando per dirlo, e non e piu «Affittabile»", () => {
-  const pagina = leggi("app/structures/page.tsx");
+  // Dal Web V2 il comando vive nel cassetto della struttura (creazione e scheda).
+  const pagina = leggi("components/structures/v2/structure-drawer.tsx");
   assert.ok(pagina.includes("Prenotabile dalle famiglie"));
   assert.ok(pagina.includes("isBookableByMembers: checked"));
   assert.equal(
@@ -131,9 +132,9 @@ test("W6-55 · un campo nuovo non nasce con due tariffe a zero", () => {
     compila subito. Il difetto era che due righe a zero comparissero da sole, e
     che la famiglia le leggesse come una tariffa.
   */
+  // Dal Web V2 la fabbrica del campo e una sola, nel modello puro.
   const fabbriche = [
-    ["components/structures/StructureFieldsSection.tsx", "const newField = ()"],
-    ["app/structures/page.tsx", "const newField"],
+    ["components/structures/v2/structure-model.ts", "export const newField = ()"],
   ];
 
   for (const [file, ancora] of fabbriche) {

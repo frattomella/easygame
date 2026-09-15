@@ -1,851 +1,424 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import * as React from "react";
+import { Suspense } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { BookOpen, Pencil, Trash2 } from "lucide-react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
-import {
-  DashboardPageContainer,
-  dashboardMainClassName,
-} from "@/components/dashboard/dashboard-page-container";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ClubPersonDetailHeader } from "@/components/club/ClubPersonDetailHeader";
-import { ClubPersonAccessCard } from "@/components/club/club-person-access-card";
-import {
-  Calendar,
-  Mail,
-  Phone,
-  User,
-  MapPin,
-  Edit,
-  Trash2,
-  Briefcase,
-  IdCard,
-  CalendarDays,
-  CreditCard,
-  Shirt,
-  X,
-  BookOpen,
-} from "lucide-react";
-import { MembershipRegisterPanel } from "./membership-register-panel";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
-import { supabase } from "@/lib/supabase";
-import {
-  removeMemberProfile,
-  updateMemberProfile,
-} from "@/lib/members/client";
-import { formatPersonNameLastFirst } from "@/lib/athlete-name-utils";
-import { PhoneField } from "@/components/forms/phone-field";
-import { PersonResidenceFields } from "@/components/forms/assisted-anagrafica";
-import { PersonIdentityFields } from "@/components/forms/person-identity-fields";
-import type { PersonIdentityPatch } from "@/lib/person-identity";
+import { useBreadcrumbLabel } from "@/components/web/shell/ShellProvider";
+import { CollapsedSection, RecordAlertStrip, RecordAreaSwitcher, RecordHeader, type RecordAction } from "@/components/web/record/Record";
+import { DetailCard, EmptyStateCard, type DetailField } from "@/components/web/page/Cards";
+import { Button } from "@/components/web/primitives/Button";
+import { Skeleton } from "@/components/web/primitives/Controls";
+import { Panel } from "@/components/web/primitives/Surface";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { formatDateShort, MISSING, orMissing } from "@/lib/web/format";
+import { ClubPersonAccessCard } from "@/components/club/club-person-access-card";
+import { ClothingSizesSummary } from "@/components/forms/clothing-sizes-fields";
 import { genderLabel } from "@/lib/italian-registry";
+import { supabase } from "@/lib/supabase";
+import { fetchMembershipRecord, removeMemberProfile, updateMemberProfile, type MembershipRecordView } from "@/lib/members/client";
+import { canManageMembershipRegister, canReadMembershipRegister } from "@/lib/members/permissions";
+import { MemberSectionDrawer, type MemberEditSection } from "@/components/soci/v2/member-section-drawer";
+import { MembershipEventDrawer } from "@/components/soci/v2/membership-event-drawer";
+import { MembershipRegisterSection } from "@/components/soci/v2/membership-register-section";
+import { DeleteMemberDialog } from "@/components/soci/v2/delete-member-dialog";
+import { useMemberClubId, withClubId } from "@/components/soci/v2/use-member-club-id";
 import {
-  ClothingSizesFields,
-  ClothingSizesSummary,
-} from "@/components/forms/clothing-sizes-fields";
-import {
-  DEFAULT_MEMBER_TYPE,
-  MEMBER_TYPES,
-  normalizeMemberType,
-} from "@/lib/member-types";
+  MEMBER_AREAS,
+  computeMemberAlerts,
+  memberCardStatusSpec,
+  memberRecordFrom,
+  memberStatusDetail,
+  memberStatusSpec,
+  resolveMemberArea,
+  withRegisterRecord,
+  type MemberArea,
+  type MemberRecord,
+} from "@/components/soci/v2/member-model";
 
-const getMemberIdentity = (memberData: Record<string, any>) => {
-  const sanitizeText = (value: any) => {
-    const trimmed = String(value ?? "").trim();
-    return trimmed.toLowerCase() === "undefined undefined" ? "" : trimmed;
-  };
-  const firstName = String(
-    memberData?.firstName ?? memberData?.first_name ?? "",
-  ).trim();
-  const lastName = String(
-    memberData?.lastName ?? memberData?.last_name ?? memberData?.surname ?? "",
-  ).trim();
-  const explicitFullName = sanitizeText(
-    memberData?.fullName ?? memberData?.full_name ?? memberData?.name,
-  );
-  const fullName =
-    formatPersonNameLastFirst({
-      first_name: firstName,
-      last_name: lastName,
-      name: explicitFullName,
-      fullName: explicitFullName,
-    }) || explicitFullName;
+/**
+ * `/soci/[id]` — scheda di un socio (Web V2, pattern 2: intestazione di
+ * scheda, tre aree, sezioni chiudibili).
+ *
+ * Le tre tab della V1 diventano tre aree: **Profilo** (Informazioni
+ * personali, Contatti e residenza, Taglie), **Dati associativi** (tipo,
+ * date, stato della scheda, «Accesso EasyGame»), **Libro soci** (posizione
+ * derivata, registrazione di un evento, storico). `?tab=anagrafica|
+ * associativi|libro` restano link validi. Le modifiche per sezione della
+ * modale V1 vivono nei cassetti, con la stessa scrittura
+ * (`updateMemberProfile`, una riga sola); il libro si legge con
+ * `fetchMembershipRecord` e si scrive solo aggiungendo un evento.
+ */
+const dateOrMissing = (value?: string | null) => (String(value || "").trim() ? formatDateShort(value) : MISSING);
 
-  return {
-    firstName,
-    lastName,
-    fullName: fullName || "Nome non disponibile",
-  };
-};
-
-export default function MemberDetailsPage() {
+function MemberDetailsPageContent() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { showToast } = useToast();
+  const { activeClub, userRole } = useAuth();
   const memberId = params?.id as string;
-  const clubIdFromUrl = searchParams?.get("clubId");
-  const [clubId, setClubId] = useState<string | null>(clubIdFromUrl || null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [member, setMember] = useState<any>(null);
-  const [editingSection, setEditingSection] = useState<string | null>(null);
-  const [editFormData, setEditFormData] = useState<any>({});
+  const { clubId, resolved } = useMemberClubId(searchParams?.get("clubId"));
+  const role = activeClub?.role || userRole;
+  const canManage = canManageMembershipRegister(role);
+  const canReadRegister = canReadMembershipRegister(role);
+  const area: MemberArea = resolveMemberArea(searchParams?.get("tab"));
 
-  /**
-   * Nome e cognome del socio, tenendo allineato il nome composto.
-   *
-   * Esisteva gia, scritto due volte dentro gli `onChange`. Con la
-   * capitalizzazione al blur i punti di scrittura diventavano quattro: se
-   * restassero in linea, la prossima modifica ne allineerebbe tre su quattro.
-   */
-  /**
-   * Scrive una modifica dell'anagrafica tenendo allineato `name`.
-   *
-   * Il nome per esteso e un campo derivato che l'elenco soci mostra: se si
-   * scrive solo `firstName` resta quello vecchio, e nell'elenco il socio
-   * continua a chiamarsi come prima. Accetta l'intera modifica del blocco di
-   * identita, non solo nome e cognome, cosi c'e un solo modo di scrivere in
-   * questa scheda.
-   */
-  const applyMemberName = (patch: PersonIdentityPatch) => {
-    setEditFormData((current: any) => {
-      const next = { ...current, ...patch };
-      return {
-        ...next,
-        name: formatPersonNameLastFirst({
-          firstName: next.firstName,
-          lastName: next.lastName,
-          name: current.name,
-        }),
-      };
-    });
-  };
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [member, setMember] = React.useState<MemberRecord | null>(null);
+  const [record, setRecord] = React.useState<MembershipRecordView | null>(null);
+  const [recordLoading, setRecordLoading] = React.useState(true);
+  const [recordKey, setRecordKey] = React.useState(0);
+  const [editingSection, setEditingSection] = React.useState<MemberEditSection | null>(null);
+  const [eventOpen, setEventOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteBusy, setDeleteBusy] = React.useState(false);
 
-  // Get clubId from URL or localStorage
-  useEffect(() => {
-    if (clubIdFromUrl && clubIdFromUrl !== "null") {
-      setClubId(clubIdFromUrl);
+  useBreadcrumbLabel(member?.name || null);
+
+  /* ── Anagrafica ────────────────────────────────────────────────────────── */
+  React.useEffect(() => {
+    if (!resolved) return;
+    if (!clubId) {
+      showToast("error", "ID del club mancante. Torna alla lista soci.");
+      setIsLoading(false);
       return;
     }
-    
-    // Try to get from localStorage
-    if (typeof window !== "undefined") {
-      const storedClub = localStorage.getItem("activeClub");
-      if (storedClub) {
-        try {
-          const parsed = JSON.parse(storedClub);
-          if (parsed?.id) {
-            setClubId(parsed.id);
-          }
-        } catch (e) {
-          console.error("Error parsing activeClub from localStorage", e);
-        }
-      }
+    if (!memberId) {
+      showToast("error", "ID del socio mancante");
+      setIsLoading(false);
+      return;
     }
-  }, [clubIdFromUrl]);
-
-  // Fetch member data from database
-  useEffect(() => {
+    let cancelled = false;
     const fetchMemberData = async () => {
-      // Validate clubId - check if it's null, "null", or empty
-      if (!clubId || clubId === "null" || clubId.trim() === "") {
-        // Don't show error if we're still trying to get clubId from localStorage
-        if (clubIdFromUrl === null && typeof window !== "undefined") {
-          // Wait for localStorage check
-          return;
-        }
-        console.error("Invalid or missing clubId parameter:", clubId);
-        showToast("error", "ID del club mancante. Torna alla lista soci.");
-        setIsLoading(false);
-        return;
-      }
-
-      if (!memberId) {
-        console.error("Missing memberId parameter");
-        showToast("error", "ID del socio mancante");
-        setIsLoading(false);
-        return;
-      }
-
       setIsLoading(true);
       try {
-        
-        const { data: clubData, error: clubError } = await supabase
-          .from("clubs")
-          .select("members")
-          .eq("id", clubId)
-          .maybeSingle();
-
+        const { data: clubData, error: clubError } = await supabase.from("clubs").select("members").eq("id", clubId).maybeSingle();
+        if (cancelled) return;
         if (clubError) {
           console.error("Error fetching club data:", clubError);
-          // Handle network errors gracefully
-          const errorMessage = clubError.message?.includes("Failed to fetch") 
-            ? "Errore di connessione. Verifica la tua connessione internet e riprova."
-            : `Errore nel caricamento dei dati del club: ${clubError.message}`;
-          showToast("error", errorMessage);
-          setIsLoading(false);
-          return;
-        }
-
-        if (!clubData) {
-          console.error("Club data not found for clubId:", clubId);
-          showToast("error", "Club non trovato. Verifica l'ID del club.");
-          setIsLoading(false);
-          return;
-        }
-
-
-        // Find member in members array
-        let memberData = null;
-        if (clubData?.members && Array.isArray(clubData.members)) {
-          memberData = clubData.members.find(
-            (m: any) => m.id === memberId
+          showToast(
+            "error",
+            clubError.message?.includes("Failed to fetch")
+              ? "Errore di connessione. Verifica la tua connessione internet e riprova."
+              : `Errore nel caricamento dei dati del club: ${clubError.message}`,
           );
-        }
-
-        if (!memberData) {
-          console.error("Member not found in club data. MemberId:", memberId);
-          showToast("error", "Socio non trovato");
-          setIsLoading(false);
           return;
         }
-
-        const identity = getMemberIdentity(memberData);
-
-        setMember({
-          id: memberData.id,
-          // Anagrafica
-          name: identity.fullName,
-          firstName: identity.firstName,
-          lastName: identity.lastName,
-          
-          /*
-            Questi nove campi il modulo di creazione li scriveva gia, e questa
-            funzione li buttava via: costruiva un elenco chiuso di dodici
-            chiavi, e cio che non era nell'elenco non arrivava alla scheda
-            (Blocco A, punti 10 e 13).
-
-            Il dato non si perdeva — `updateClubDataItem` fonde l'elemento
-            invece di sostituirlo, quindi restava in archivio — ma nessuno
-            poteva vederlo ne correggerlo. Un elenco chiuso di campi in un
-            punto di lettura e un modo silenzioso di rendere invisibile meta
-            di un'anagrafica: chi aggiunge un campo al modulo di creazione non
-            ha nessun motivo di sospettare che esista anche qui.
-          */
-          birthDate: memberData.birthDate || "",
-          gender: memberData.gender || "",
-          birthPlace: memberData.birthPlace || "",
-          birthPlaceCode: memberData.birthPlaceCode || "",
-          fiscalCode: memberData.fiscalCode || "",
-          address: memberData.address || "",
-          city: memberData.city || "",
-          postalCode: memberData.postalCode || "",
-          clothingSizes: memberData.clothingSizes || null,
-
-          // Contatti
-          email: memberData.email || "",
-          phone: memberData.phone || "",
-          
-          // Dati associativi
-          type: normalizeMemberType(memberData.type),
-          status: memberData.status || "active",
-          registrationDate:
-            memberData.registrationDate || memberData.membershipDate || "",
-          membershipExpiry: memberData.membershipExpiry || "",
-          membershipNumber: memberData.membershipNumber || "",
-          notes: memberData.notes || "",
-          
-          // Avatar
-          avatar: memberData.avatar || null,
-        });
+        if (!clubData) {
+          showToast("error", "Club non trovato. Verifica l'ID del club.");
+          return;
+        }
+        const members: Record<string, any>[] = Array.isArray(clubData?.members) ? clubData.members : [];
+        const memberData = members.find((m) => String(m.id) === String(memberId));
+        if (!memberData) {
+          showToast("error", "Socio non trovato");
+          setMember(null);
+          return;
+        }
+        setMember(memberRecordFrom({ ...memberData, id: String(memberData.id) }));
       } catch (error: any) {
+        if (cancelled) return;
         console.error("Error fetching member data:", error);
-        // Handle network errors gracefully
-        const errorMessage = error?.message?.includes("Failed to fetch") 
-          ? "Errore di connessione. Verifica la tua connessione internet e riprova."
-          : "Errore nel caricamento dei dati del socio";
-        showToast("error", errorMessage);
+        showToast(
+          "error",
+          error?.message?.includes("Failed to fetch") ? "Errore di connessione. Verifica la tua connessione internet e riprova." : "Errore nel caricamento dei dati del socio",
+        );
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
+    void fetchMemberData();
+    return () => {
+      cancelled = true;
+    };
+  }, [clubId, resolved, memberId, showToast]);
 
-    fetchMemberData();
-  }, [clubId, clubIdFromUrl, memberId, showToast]);
+  /* ── Libro soci ────────────────────────────────────────────────────────── */
+  React.useEffect(() => {
+    if (!resolved || !clubId || !memberId) return;
+    if (!canReadRegister) {
+      setRecord(null);
+      setRecordLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setRecordLoading(true);
+      const { data, error } = await fetchMembershipRecord(memberId, { clubId });
+      if (cancelled) return;
+      // Un socio senza registro non e un errore da urlare: e il caso normale
+      // di chi e stato creato prima che il libro esistesse.
+      setRecord(error ? null : data);
+      setRecordLoading(false);
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [clubId, resolved, memberId, canReadRegister, recordKey]);
 
-  const handleEditSection = (section: string) => {
-    setEditingSection(section);
-    setEditFormData({ ...member });
+  const reloadRecord = () => setRecordKey((k) => k + 1);
+
+  /* ── Aree e link profondi ──────────────────────────────────────────────── */
+  const setArea = (next: MemberArea) => {
+    const query = new URLSearchParams();
+    if (clubId) query.set("clubId", clubId);
+    query.set("tab", next);
+    router.replace(`/soci/${memberId}?${query.toString()}`, { scroll: false });
   };
 
-  const handleSaveSection = async () => {
+  /* ── Scritture ─────────────────────────────────────────────────────────── */
+  const handleSaveSection = async (_section: MemberEditSection, payload: Record<string, any>) => {
     if (!clubId || !memberId) return;
-
     try {
-      const fullName = formatPersonNameLastFirst({
-        firstName: editFormData.firstName,
-        lastName: editFormData.lastName,
-        name: editFormData.name,
-        fullName: editFormData.fullName,
-      });
-      const payload = {
-        ...editFormData,
-        name: fullName || editFormData.name || undefined,
-        fullName: fullName || editFormData.fullName || undefined,
-      };
-
       /*
-        **Una scheda alla volta, e non l'elenco.**
-
-        Fino alla Wave 4 questa riga chiamava `updateClubDataItem`, che
-        rileggeva `clubs.members` intera, ne cambiava un elemento e la
-        risalvava tutta dal browser. Una sonda di concorrenza ha lanciato
-        quella riscrittura insieme a un'ammissione e ha ottenuto un socio
-        presente nel libro soci e assente dall'anagrafica: la copia partita
-        di qui non lo conteneva ancora.
+        **Una scheda alla volta, e non l'elenco.** `updateMemberProfile`
+        corregge una riga sotto il lock del club: la copia dell'elenco non
+        parte mai dal browser.
       */
-      const risposta = await updateMemberProfile({
-        clubId,
-        memberId,
-        updates: payload,
-      });
+      const risposta = await updateMemberProfile({ clubId, memberId, updates: payload });
       if (risposta.error) throw new Error(risposta.error.message);
-
-      setMember(risposta.data?.member || payload);
+      // Il record salvato torna dal server; la posizione nel libro si rideriva da `record`.
+      const saved = risposta.data?.member;
+      setMember((current) => {
+        if (!current) return current;
+        if (saved && typeof saved === "object") return memberRecordFrom({ ...saved, id: current.id });
+        return { ...current, ...(payload as Partial<MemberRecord>) };
+      });
       setEditingSection(null);
       showToast("success", "Modifiche salvate con successo");
     } catch (error) {
       console.error("Error updating member:", error);
-      showToast(
-        "error",
-        error instanceof Error && error.message
-          ? error.message
-          : "Errore nel salvataggio delle modifiche",
+      showToast("error", error instanceof Error && error.message ? error.message : "Errore nel salvataggio delle modifiche");
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!clubId || !memberId) return;
+    setDeleteBusy(true);
+    try {
+      /*
+        Il servizio rifiuta se il libro soci nomina questa persona, e dice
+        perche: il messaggio arriva fin qui invece di un generico «errore».
+      */
+      const esito = await removeMemberProfile({ clubId, memberId });
+      if (esito.error) throw new Error(esito.error.message);
+      showToast("success", "Socio eliminato con successo");
+      router.push(withClubId("/soci", clubId));
+    } catch (error) {
+      console.error("Error deleting member:", error);
+      showToast("error", error instanceof Error && error.message ? error.message : "Errore nell'eliminazione del socio");
+      setDeleteBusy(false);
+    }
+  };
+
+  /* ── Derivati ──────────────────────────────────────────────────────────── */
+  const socio = React.useMemo(() => (member ? withRegisterRecord(member, record) : null), [member, record]);
+  const alerts = React.useMemo(() => computeMemberAlerts(socio, { registerReadable: canReadRegister && !recordLoading }), [socio, canReadRegister, recordLoading]);
+
+  const headerActions: RecordAction[] = [
+    { id: "edit", label: "Modifica", icon: <Pencil />, hidden: !canManage, onClick: () => router.push(withClubId(`/soci/${memberId}/edit`, clubId)) },
+    { id: "delete", label: "Elimina", icon: <Trash2 />, tone: "danger", overflow: true, hidden: !canManage, onClick: () => setDeleting(true) },
+  ];
+
+  const personalFields: DetailField[] = socio
+    ? [
+        { label: "Nome", value: orMissing(socio.firstName) },
+        { label: "Cognome", value: orMissing(socio.lastName) },
+        { label: "Data di nascita", value: dateOrMissing(socio.birthDate) },
+        { label: "Sesso", value: socio.gender ? genderLabel(socio.gender) : MISSING },
+        { label: "Luogo di nascita", value: orMissing(socio.birthPlace) },
+        { label: "Codice fiscale", value: <span className="egw-num uppercase">{orMissing(socio.fiscalCode)}</span> },
+        { label: "Note", value: orMissing(socio.notes), wide: true },
+      ]
+    : [];
+
+  const contactFields: DetailField[] = socio
+    ? [
+        { label: "Email", value: orMissing(socio.email) },
+        { label: "Telefono", value: <span className="egw-num">{orMissing(socio.phone)}</span> },
+        { label: "Indirizzo", value: orMissing(socio.address), wide: true },
+        { label: "Città", value: orMissing(socio.city) },
+        { label: "CAP", value: <span className="egw-num">{orMissing(socio.postalCode)}</span> },
+      ]
+    : [];
+
+  const membershipFields: DetailField[] = socio
+    ? [
+        { label: "Tipo socio", value: orMissing(socio.type) },
+        {
+          label: "Scheda",
+          value: (
+            <div>
+              <StatusPill status={memberCardStatusSpec(socio.status)} />
+              {/* Lo stato dell'anagrafica dice se la scheda e in uso. Non dice se la persona e socia: quello lo dice il libro. */}
+              <p className="mt-1.5 font-brand text-[11.5px] text-[rgba(11,26,58,.55)]">La qualifica di socio è nell&apos;area «Libro soci».</p>
+            </div>
+          ),
+        },
+        { label: "Data iscrizione", value: dateOrMissing(socio.registrationDate) },
+        { label: "Scadenza iscrizione", value: dateOrMissing(socio.membershipExpiry) },
+        /* Il numero digitato a mano prima della Wave 4: le tessere gia consegnate lo portano stampato, ma non e piu la fonte. */
+        { label: "Numero tessera (storico)", value: <span className="egw-num">{orMissing(socio.legacyMembershipNumber)}</span> },
+      ]
+    : [];
+
+  const editButton = (section: MemberEditSection) =>
+    canManage ? (
+      <Button variant="secondary" size="sm" onClick={() => setEditingSection(section)}>
+        Modifica
+      </Button>
+    ) : null;
+
+  const alertAction = (id: string) => {
+    if (id === "not-in-register" && canManage) {
+      return (
+        <Button variant="secondary" size="xs" icon={<BookOpen />} onClick={() => setEventOpen(true)}>
+          Registra ammissione
+        </Button>
       );
     }
-  };
-
-  const handleDeleteMember = async () => {
-    if (!clubId || !memberId) return;
-
-    if (confirm("Sei sicuro di voler eliminare questo socio?")) {
-      try {
-        /*
-          Il servizio rifiuta se il libro soci nomina questa persona, e dice
-          perche: chi non e piu socio si dimette o si esclude — e un evento,
-          con una data e una delibera — e non e la stessa cosa che non essere
-          mai esistito. Il messaggio arriva fin qui invece di essere sostituito
-          da un generico «errore»: e l'unica cosa utile che si puo dire.
-        */
-        const esito = await removeMemberProfile({ clubId, memberId });
-        if (esito.error) throw new Error(esito.error.message);
-        showToast("success", "Socio eliminato con successo");
-        router.push(`/soci?clubId=${clubId}`);
-      } catch (error) {
-        console.error("Error deleting member:", error);
-        showToast(
-          "error",
-          error instanceof Error && error.message
-            ? error.message
-            : "Errore nell'eliminazione del socio",
-        );
-      }
+    if (id === "no-contact" && canManage) {
+      return (
+        <Button variant="secondary" size="xs" onClick={() => setEditingSection("contacts")}>
+          Aggiungi contatto
+        </Button>
+      );
     }
+    if (id === "card-inactive" && canManage) {
+      return (
+        <Button variant="secondary" size="xs" onClick={() => setEditingSection("membership")}>
+          Aggiorna scheda
+        </Button>
+      );
+    }
+    return undefined;
   };
-
-  const formatDate = (dateString: string) => {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("it-IT", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  // Show loading state
-  if (isLoading) {
-    return (
-      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header title="Dettaglio Socio" />
-          <main className={dashboardMainClassName}>
-            <div className="flex justify-center items-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700"></div>
-            </div>
-          </main>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error state if member not found
-  if (!member) {
-    return (
-      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header title="Socio Non Trovato" />
-          <main className={dashboardMainClassName}>
-            <div className="flex flex-col items-center justify-center py-8">
-              <h2 className="text-xl font-semibold mb-4">
-                Socio non trovato
-              </h2>
-              <Button onClick={() => router.push(`/soci?clubId=${clubId}`)}>
-                Torna alla lista soci
-              </Button>
-            </div>
-          </main>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Header title="Dettaglio Socio" />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <Header title="Soci" />
         <main className={dashboardMainClassName}>
-          <DashboardPageContainer className="max-w-7xl">
-            <ClubPersonDetailHeader
-              title={member.name}
-              iconType="member"
-              badges={[
-                { label: member.type, className: "bg-blue-500 text-white" },
-                {
-                  label: member.status === "active" ? "Attivo" : "Inattivo",
-                  className:
-                    member.status === "active" ? "bg-green-500" : "bg-gray-500",
-                },
-              ]}
-              /*
-                **«Invia Credenziali» non c'e piu** (W6-D05). Non chiamava
-                nessuna rotta: mostrava un toast e basta. Al suo posto, nella
-                scheda «Dati Associativi», la sezione «Accesso EasyGame» dice se
-                questo socio ha davvero un'utenza del club e con che ruolo, e
-                rimanda a «Ruoli e accessi», che e la schermata che quel ruolo
-                lo assegna sul serio.
-              */
-              actions={
-                <Button
-                  variant="destructive"
-                  className="flex-1 md:flex-none"
-                  onClick={handleDeleteMember}
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Elimina
-                </Button>
-              }
-            />
-
-            {/* Tabs for different sections */}
-            <Tabs defaultValue="anagrafica">
-              {/*
-                Tre colonne su schermo largo, una colonna sotto i 768 px: a 375
-                px tre etichette in fila diventano illeggibili.
-              */}
-              <TabsList className="grid w-full grid-cols-1 md:grid-cols-3">
-                <TabsTrigger value="anagrafica">
-                  <User className="h-4 w-4 mr-2" />
-                  Informazioni Personali
-                </TabsTrigger>
-                <TabsTrigger value="associativi">
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Dati Associativi
-                </TabsTrigger>
-                <TabsTrigger value="libro">
-                  <BookOpen className="h-4 w-4 mr-2" />
-                  Libro soci
-                </TabsTrigger>
-              </TabsList>
-
-              {/* ANAGRAFICA TAB */}
-              <TabsContent value="anagrafica" className="mt-4 space-y-6">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle className="flex items-center gap-2">
-                      <User className="h-5 w-5" />
-                      Informazioni Personali
-                    </CardTitle>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => handleEditSection('personal')}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Nome</h3>
-                        <p className="mt-1">{member.firstName}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Cognome</h3>
-                        <p className="mt-1">{member.lastName}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Email</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Mail className="h-4 w-4 text-muted-foreground" />
-                          <p>{member.email}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Telefono</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Phone className="h-4 w-4 text-muted-foreground" />
-                          <p>{member.phone}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Data di Nascita</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                          <p>{formatDate(member.birthDate) || "-"}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Sesso</h3>
-                        <p className="mt-1">{genderLabel(member.gender)}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Luogo di Nascita</h3>
-                        <p className="mt-1">{member.birthPlace || "-"}</p>
-                      </div>
-                      {/*
-                        Il codice fiscale sta dopo i dati anagrafici perche da
-                        quelli si ricava: metterlo prima chiede di digitare a
-                        mano cio che il campo sa calcolare (Blocco A, punto 1).
-                      */}
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Codice Fiscale</h3>
-                        <p className="mt-1 eg-tabular">{member.fiscalCode || "-"}</p>
-                      </div>
-                      <div className="md:col-span-2">
-                        <h3 className="text-sm font-medium text-muted-foreground">Note</h3>
-                        <p className="mt-1 text-sm">{member.notes || "-"}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/*
-                  Residenza e taglie si raccoglievano alla creazione e da li in
-                  poi non esistevano piu: la scheda non le mostrava e non le
-                  modificava, quindi un indirizzo sbagliato era definitivo
-                  (Blocco A, punti 10 e 13).
-                */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle className="flex items-center gap-2">
-                      <MapPin className="h-5 w-5" />
-                      Contatti e Residenza
-                    </CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEditSection("contacts")}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="md:col-span-2">
-                        <h3 className="text-sm font-medium text-muted-foreground">Indirizzo</h3>
-                        <p className="mt-1">{member.address || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Citta</h3>
-                        <p className="mt-1">{member.city || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">CAP</h3>
-                        <p className="mt-1 eg-tabular">{member.postalCode || "-"}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle className="flex items-center gap-2">
-                      <Shirt className="h-5 w-5" />
-                      Taglie vestiario
-                    </CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEditSection("clothing")}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <ClothingSizesSummary
-                      value={member.clothingSizes}
-                      person={{
-                        gender: member.gender,
-                        birthDate: member.birthDate,
-                      }}
+          <DashboardPageContainer>
+            {isLoading ? (
+              <>
+                <Panel className="flex items-center gap-5">
+                  <Skeleton className="h-[72px] w-[72px] rounded-full" />
+                  <div className="flex-1">
+                    <Skeleton className="mb-3 h-7 w-56" />
+                    <Skeleton className="h-4 w-40" />
+                  </div>
+                </Panel>
+                <DetailCard title="Informazioni personali" loading />
+                <DetailCard title="Contatti e residenza" loading />
+              </>
+            ) : !socio ? (
+              <EmptyStateCard
+                iconTone="neutral"
+                title="Socio non trovato"
+                description="La scheda che cerchi non è in questo club, oppure è stata eliminata."
+                primary={
+                  <Button variant="primary" onClick={() => router.push(withClubId("/soci", clubId))}>
+                    Torna alla lista soci
+                  </Button>
+                }
+              />
+            ) : (
+              <>
+                <RecordHeader
+                  eyebrow="Socio"
+                  name={socio.name}
+                  identity={{ name: socio.name, round: true, avatarSrc: socio.avatar }}
+                  chips={
+                    <>
+                      <DataChip>{socio.type}</DataChip>
+                      {socio.membershipNumber ? <DataChip tone="navy">tessera {socio.membershipNumber}</DataChip> : null}
+                    </>
+                  }
+                  status={<StatusPill status={memberStatusSpec(socio)} detail={memberStatusDetail(socio)} />}
+                  actions={headerActions}
+                  areas={
+                    <RecordAreaSwitcher
+                      value={area}
+                      onChange={setArea}
+                      areas={MEMBER_AREAS.map((item) => ({
+                        ...item,
+                        problems: item.value === "libro" ? alerts.filter((a) => a.id === "not-in-register").length : item.value === "profilo" ? alerts.filter((a) => a.id === "no-contact").length : alerts.filter((a) => a.id === "card-inactive").length,
+                      }))}
                     />
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                  }
+                >
+                  <RecordAlertStrip items={alerts.map((alert) => ({ id: alert.id, severity: alert.severity, text: alert.text, action: alertAction(alert.id) }))} />
+                </RecordHeader>
 
-              {/* DATI ASSOCIATIVI TAB */}
-              <TabsContent value="associativi" className="mt-4 space-y-6">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle className="flex items-center gap-2">
-                      <CreditCard className="h-5 w-5" />
-                      Dati Associativi
-                    </CardTitle>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => handleEditSection('membership')}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Tipo Socio</h3>
-                        <p className="mt-1">{member.type}</p>
-                      </div>
-                      {/*
-                        Il numero digitato a mano prima della Wave 4. Resta
-                        visibile perche le tessere gia consegnate lo portano
-                        stampato, ma **non e piu la fonte**: quello assegnato dal
-                        libro sta nella scheda «Libro soci».
-                      */}
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Numero tessera (storico)
-                        </h3>
-                        <p className="mt-1">{member.membershipNumber || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Data Iscrizione</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                          <p>{formatDate(member.registrationDate)}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Scadenza Iscrizione</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          <p>{formatDate(member.membershipExpiry)}</p>
-                        </div>
-                      </div>
-                      {/*
-                        Lo stato dell'anagrafica dice se la scheda e in uso.
-                        **Non dice se quella persona e socia**: quello lo dice il
-                        libro, che si ricava dagli eventi e sa rispondere anche a
-                        una data passata.
-                      */}
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Scheda</h3>
-                        <Badge className={member.status === "active" ? "bg-green-500" : "bg-gray-500"}>
-                          {member.status === "active" ? "Attiva" : "Non attiva"}
-                        </Badge>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          La qualifica di socio e nella scheda «Libro soci».
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                {area === "profilo" ? (
+                  <>
+                    <DetailCard eyebrow="Anagrafica" title="Informazioni personali" fields={personalFields} onEdit={canManage ? () => setEditingSection("personal") : undefined} />
+                    <DetailCard eyebrow="Contatti" title="Contatti e residenza" fields={contactFields} onEdit={canManage ? () => setEditingSection("contacts") : undefined} />
+                    <CollapsedSection id="taglie" recordType="member" title="Taglie vestiario" summary="Profilo, maglia, pantalone e scarpe" actions={editButton("clothing")}>
+                      <ClothingSizesSummary value={socio.clothingSizes} person={{ gender: socio.gender, birthDate: socio.birthDate }} />
+                    </CollapsedSection>
+                  </>
+                ) : null}
 
-                <ClubPersonAccessCard
-                  email={member.email}
-                  personaLabel="socio"
-                />
-              </TabsContent>
+                {area === "associativo" ? (
+                  <>
+                    <DetailCard eyebrow="Dati associativi" title="Dati associativi" fields={membershipFields} onEdit={canManage ? () => setEditingSection("membership") : undefined} />
+                    <ClubPersonAccessCard email={socio.email} personaLabel="socio" />
+                  </>
+                ) : null}
 
-              {/* LIBRO SOCI TAB */}
-              <TabsContent value="libro" className="mt-4">
-                <MembershipRegisterPanel clubId={clubId} memberId={memberId} />
-              </TabsContent>
-            </Tabs>
+                {area === "libro" ? (
+                  canReadRegister ? (
+                    <MembershipRegisterSection record={record} loading={recordLoading} canManage={canManage} onRecordEvent={() => setEventOpen(true)} />
+                  ) : (
+                    <EmptyStateCard iconTone="neutral" icon={<BookOpen />} title="Libro soci non leggibile con il tuo ruolo" description="Il libro soci del club lo legge chi ci lavora dentro." />
+                  )
+                ) : null}
+              </>
+            )}
           </DashboardPageContainer>
         </main>
       </div>
 
-      {/* Edit Section Modal */}
-      {editingSection && (
-        <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setEditingSection(null)}
-        >
-          <div 
-            className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90dvh] overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold">Modifica Informazioni</h3>
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={() => setEditingSection(null)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="p-6 overflow-auto max-h-[calc(90vh-140px)]">
-              {editingSection === 'personal' && (
-                <div className="space-y-4">
-                  {/*
-                    I sei campi di identita, nell'ordine condiviso. Qui email e
-                    telefono stavano fra il cognome e la data di nascita, e il
-                    luogo di nascita non c'era proprio: era la ricerca nascosta
-                    dentro il codice fiscale.
-                  */}
-                  <PersonIdentityFields
-                    idPrefix="member-edit"
-                    values={editFormData}
-                    onChange={applyMemberName}
-                  />
+      <MemberSectionDrawer section={editingSection} member={socio} onClose={() => setEditingSection(null)} onSave={handleSaveSection} />
 
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <Label>Email</Label>
-                      <Input
-                        type="email"
-                        value={editFormData.email || ''}
-                        onChange={(e) => setEditFormData({...editFormData, email: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <PhoneField
-                        label="Telefono"
-                        value={editFormData.phone || ''}
-                        onChange={(value) => setEditFormData({...editFormData, phone: value})}
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <Label>Note</Label>
-                      <Textarea
-                        value={editFormData.notes || ''}
-                        onChange={(e) => setEditFormData({...editFormData, notes: e.target.value})}
-                        rows={3}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
+      {canManage ? (
+        <MembershipEventDrawer
+          open={eventOpen}
+          onOpenChange={setEventOpen}
+          clubId={clubId}
+          memberId={memberId}
+          memberName={socio?.name || ""}
+          currentStatus={record?.status?.status || null}
+          onRecorded={reloadRecord}
+        />
+      ) : null}
 
-              {/*
-                Via, comune e CAP dal componente condiviso: il comune si cerca
-                nell'archivio ISTAT e porta con se il CAP quando ne ha uno solo
-                (Blocco A, punti 9 e 10).
-              */}
-              {editingSection === "contacts" && (
-                <PersonResidenceFields
-                  idPrefix="member-edit"
-                  values={editFormData}
-                  onChange={(patch) =>
-                    setEditFormData({ ...editFormData, ...patch })
-                  }
-                />
-              )}
-
-              {editingSection === "clothing" && (
-                <ClothingSizesFields
-                  idPrefix="member-clothing"
-                  value={editFormData.clothingSizes}
-                  person={{
-                    gender: editFormData.gender,
-                    birthDate: editFormData.birthDate,
-                  }}
-                  onChange={(next) =>
-                    setEditFormData({ ...editFormData, clothingSizes: next })
-                  }
-                />
-              )}
-
-              {editingSection === 'membership' && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <Label>Tipo Socio</Label>
-                      <select 
-                        className="w-full h-10 rounded-md border border-input bg-background px-3"
-                        value={editFormData.type || DEFAULT_MEMBER_TYPE}
-                        onChange={(e) => setEditFormData({...editFormData, type: e.target.value})}
-                      >
-                        {/* L'elenco vive in lib/member-types.ts: lo usa anche
-                            il form di creazione, che prima non lo conosceva. */}
-                        {MEMBER_TYPES.map((memberType) => (
-                          <option key={memberType} value={memberType}>
-                            {memberType}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <Label>Numero Tessera</Label>
-                      <Input 
-                        value={editFormData.membershipNumber || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, membershipNumber: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Data Iscrizione</Label>
-                      <Input 
-                        type="date"
-                        value={editFormData.registrationDate || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, registrationDate: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Scadenza Iscrizione</Label>
-                      <Input 
-                        type="date"
-                        value={editFormData.membershipExpiry || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, membershipExpiry: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Stato</Label>
-                      <select 
-                        className="w-full h-10 rounded-md border border-input bg-background px-3"
-                        value={editFormData.status || 'active'}
-                        onChange={(e) => setEditFormData({...editFormData, status: e.target.value})}
-                      >
-                        <option value="active">Attivo</option>
-                        <option value="inactive">Inattivo</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-2 p-4 border-t">
-              <Button variant="outline" onClick={() => setEditingSection(null)}>
-                Annulla
-              </Button>
-              <Button onClick={handleSaveSection} className="bg-blue-600 hover:bg-blue-700">
-                Salva Modifiche
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteMemberDialog
+        open={deleting}
+        onOpenChange={(open) => !deleteBusy && setDeleting(open)}
+        name={socio?.name || ""}
+        eventCount={socio?.eventCount || 0}
+        onConfirm={confirmDelete}
+        loading={deleteBusy}
+      />
     </div>
+  );
+}
+
+export default function MemberDetailsPage() {
+  return (
+    <Suspense fallback={null}>
+      <MemberDetailsPageContent />
+    </Suspense>
   );
 }

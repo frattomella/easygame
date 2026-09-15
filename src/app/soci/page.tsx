@@ -1,1107 +1,570 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import * as React from "react";
 import { useRouter } from "next/navigation";
+import { BookOpen, ChevronRight, FileDown, FileSpreadsheet, Pencil, Plus, Trash2, UserCheck, UserX, Users } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import {
-  removeMemberProfile,
-  updateMemberProfile,
-} from "@/lib/members/client";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  Plus,
-  Users,
-  Mail,
-  Phone,
-  Calendar,
-  Edit,
-  Trash2,
-  LayoutGrid,
-  Table as TableIcon,
-  Settings2,
-  UserCheck,
-  UserX,
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
-import {
-  BulkSelectionToolbar,
-  SelectAllCheckbox,
-  SelectRowCheckbox,
-  useListSelection,
-} from "@/components/ui/list-selection";
-import {
-  availableExportScopes,
-  exportScopeLabel,
-  resolveScopeRows,
-  type SelectionScope,
-} from "@/lib/list-selection";
-import { MEMBER_TYPES, normalizeMemberType } from "@/lib/member-types";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
-import { MobileTopBar } from "@/components/layout/MobileTopBar";
-import {
-  DashboardPageContainer,
-  dashboardMainClassName,
-} from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
 import { useAuth } from "@/components/providers/AuthProvider";
-import {
-  comparePeopleByLastName,
-  formatPersonNameLastFirst,
-} from "@/lib/athlete-name-utils";
-import { EntityIcon } from "@/components/ui/entity-icon";
-import { exportPeopleCsv, exportPeoplePdf } from "@/lib/person-export";
-import { fetchMembershipRegister } from "@/lib/members/client";
-import { MEMBERSHIP_REGISTER_DISCLAIMER } from "@/lib/members/model";
 import { useToast } from "@/components/ui/toast-notification";
-import { FileDown, FileSpreadsheet } from "lucide-react";
-
-interface Socio {
-  id: string;
-  name: string;
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  phone?: string;
-  membership_date?: string;
-  membership_start?: string;
-  is_active?: boolean;
-  status?: string;
-  role?: string;
-  /** Ordinario, sostenitore, onorario: l'elenco sta in `lib/member-types.ts`. */
-  type?: string;
-  /*
-    Il libro soci (Wave 4, §19). Sono campi **derivati** dagli eventi, non
-    scritti in anagrafica: arrivano dal registro e servono all'elenco e
-    all'export. `inRegister` distingue «non e socio» da «non e ancora nel
-    libro», che per un club che parte adesso sono due cose molto diverse.
-  */
-  membershipStatus?: string;
-  membershipNumber?: string;
-  admissionDate?: string;
-  cessationDate?: string;
-  cessationReason?: string;
-  isMemberNow?: boolean;
-  inRegister?: boolean;
-}
-
-const getSocioIdentity = (member: Record<string, any>) => {
-  const sanitizeText = (value: any) => {
-    const trimmed = String(value ?? "").trim();
-    return trimmed.toLowerCase() === "undefined undefined" ? "" : trimmed;
-  };
-  const firstName = String(
-    member?.firstName ?? member?.first_name ?? "",
-  ).trim();
-  const lastName = String(
-    member?.lastName ?? member?.last_name ?? member?.surname ?? "",
-  ).trim();
-  const explicitFullName = sanitizeText(
-    member?.fullName ?? member?.full_name ?? member?.name,
-  );
-  const fullName =
-    formatPersonNameLastFirst({
-      first_name: firstName,
-      last_name: lastName,
-      name: explicitFullName,
-      fullName: explicitFullName,
-    }) || explicitFullName;
-
-  return {
-    firstName,
-    lastName,
-    fullName,
-  };
-};
-
-const isRegisteredSocio = (member: Record<string, any>) => {
-  const identity = getSocioIdentity(member);
-
-  return Boolean(
-    identity.fullName ||
-      member?.membershipDate ||
-      member?.registrationDate ||
-      member?.email ||
-      member?.phone ||
-      member?.fiscalCode,
-  );
-};
+import { HeaderStat, PageHeader } from "@/components/web/page/PageHeader";
+import { InfoCard } from "@/components/web/page/Cards";
+import { Button } from "@/components/web/primitives/Button";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { IdentityCell } from "@/components/web/primitives/Identity";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { BulkActionDef, ColumnDef, ExportRequest, FilterDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
+import { formatDateShort, formatInteger, joinMeta } from "@/lib/web/format";
+import { exportPeopleCsv, exportPeoplePdf } from "@/lib/person-export";
+import type { SelectionScope } from "@/lib/list-selection";
+import { comparePeopleByLastName } from "@/lib/athlete-name-utils";
+import { collectMemberTypes } from "@/lib/member-types";
+import { fetchMembershipRegister, removeMemberProfile, updateMemberProfile } from "@/lib/members/client";
+import { MEMBERSHIP_REGISTER_DISCLAIMER } from "@/lib/members/model";
+import { canManageMembershipRegister, canReadMembershipRegister } from "@/lib/members/permissions";
+import { DeleteMemberDialog } from "@/components/soci/v2/delete-member-dialog";
+import { SetMemberTypeDrawer } from "@/components/soci/v2/set-member-type-drawer";
+import { useMemberClubId, withClubId } from "@/components/soci/v2/use-member-club-id";
+import {
+  getMemberDisplayName,
+  isMemberCardActive,
+  isRegisteredMember,
+  memberCardStatusSpec,
+  memberRecordFrom,
+  memberStatusDetail,
+  memberStatusFilterKey,
+  memberStatusSpec,
+  mergeRegisterRows,
+  type MemberRecord,
+} from "@/components/soci/v2/member-model";
 
 /**
- * Lo stato di un socio in elenco.
+ * `/soci` — elenco dei soci (Web V2, pattern 1: intestazione di pagina +
+ * DataGrid a tutta larghezza).
  *
- * **Perche non e piu il flag dell'anagrafica.** «Attivo» in `clubs.members` e
- * un interruttore che qualcuno ha premuto; la qualifica di socio si **ricava**
- * dagli eventi del libro, e sa dire anche da quando. Dove il libro parla, si
- * mostra il libro.
+ * La griglia unica sostituisce sia la tabella sia la vista a card della V1:
+ * cio che la card mostrava (stato, email, telefono, data di iscrizione) sono
+ * colonne o la riga meta dell'identita. I dati e le scritture sono quelli
+ * della V1: l'anagrafica da `clubs.members`, il libro da
+ * `GET /api/v1/membership/register`, ogni scrittura da `lib/members/client`
+ * — **una riga per socio**, mai la colonna intera dal browser.
  *
- * **Perche il flag resta quando il libro tace.** Un club che apre il libro
- * adesso ha centinaia di schede senza nessun evento: dire «Non socio» a tutte
- * sarebbe falso quanto dire «Attivo» a chi si e dimesso. Si dichiara che quella
- * persona non e ancora nel libro, che e cio che c'e da fare.
+ * I permessi sono quelli del dominio (`lib/members/permissions.ts`), gli
+ * stessi che il server applica: a chi non puo scrivere le azioni sono
+ * **assenti**, non disabilitate. La V1 le mostrava a tutti e rispondeva 403.
  */
-const MembershipStatusBadge = ({ socio }: { socio: Socio }) => {
-  if (socio.inRegister) {
-    return (
-      <Badge
-        variant={socio.isMemberNow ? "default" : "outline"}
-        className={
-          socio.isMemberNow
-            ? "bg-green-100 text-green-800 border-green-200"
-            : "bg-amber-100 text-amber-900 border-amber-200"
-        }
-      >
-        {socio.membershipStatus}
-      </Badge>
-    );
-  }
+const STATUS_FILTER_OPTIONS = [
+  { value: "member", label: "Socio" },
+  { value: "ceased", label: "Cessato" },
+  { value: "not_in_register", label: "Non nel libro" },
+];
 
-  return (
-    <Badge
-      variant="outline"
-      className="bg-gray-100 text-gray-800 border-gray-200"
-      title="Non ancora registrato nel libro soci"
-    >
-      {socio.is_active || socio.status === "active"
-        ? "Scheda attiva"
-        : "Scheda non attiva"}
-    </Badge>
-  );
-};
+const CARD_FILTER_OPTIONS = [
+  { value: "active", label: "Scheda attiva" },
+  { value: "inactive", label: "Scheda non attiva" },
+];
+
+const MEMBER_VIEWS: ViewDef[] = [
+  { id: "members", label: "Soci", filters: { status: "member" }, builtIn: true },
+  { id: "ceased", label: "Cessati", filters: { status: "ceased" }, builtIn: true },
+  { id: "not-in-register", label: "Non nel libro", filters: { status: "not_in_register" }, builtIn: true, tone: "amber" },
+];
 
 export default function SociPage() {
   const router = useRouter();
-  const { activeClub } = useAuth();
+  const { activeClub, userRole } = useAuth();
   const { showToast } = useToast();
-  const [soci, setSoci] = useState<Socio[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [clubId, setClubId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"cards" | "table">("table");
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const selection = useListSelection();
-  /**
-   * Gli ambiti di export che hanno senso adesso (RC Fix 2, punto 10).
-   *
-   * L'elenco Soci non ha filtri: «risultato filtrato» sarebbe una seconda
-   * voce «tutti» con un altro nome, e infatti `availableExportScopes` non la
-   * offre. Restano «selezionati» — quando una selezione c'e — e «tutti».
-   */
-  const exportScopes = availableExportScopes({
-    selectedCount: selection.count,
-    filteredCount: soci.length,
-    totalCount: soci.length,
-  });
+  const { clubId, resolved } = useMemberClubId(null);
+  const role = activeClub?.role || userRole;
+  const canManage = canManageMembershipRegister(role);
+  const canReadRegister = canReadMembershipRegister(role);
 
-  const rowsForScope = (scope: SelectionScope) =>
-    resolveScopeRows({
-      scope,
-      rows: soci,
-      filteredRows: soci,
-      selectedIds: selection.selectedIds,
-      idOf: (socio) => String(socio.id),
-    });
+  const [soci, setSoci] = React.useState<MemberRecord[]>([]);
+  const [registerLoaded, setRegisterLoaded] = React.useState(false);
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
+  const [requestedViewId, setRequestedViewId] = React.useState<string | null>(null);
+  const [typeRows, setTypeRows] = React.useState<MemberRecord[] | null>(null);
+  const [deleting, setDeleting] = React.useState<MemberRecord | null>(null);
+  const [deleteBusy, setDeleteBusy] = React.useState(false);
+  const [bulkBusy, setBulkBusy] = React.useState(false);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
 
-  /**
-   * Export PDF, con lo stesso motore dell'elenco Atleti.
-   *
-   * Non e una seconda implementazione: `printPeoplePdf` prende colonne e
-   * righe e non sa di che entita si tratti (Blocco 7, punto 13).
-   */
-  const handleExportPdf = (scope: SelectionScope) => {
-    const people = rowsForScope(scope);
-    const result = exportPeoplePdf({
-      entity: "members",
-      people: people as unknown as Record<string, any>[],
-      clubName: activeClub?.name || "EasyGame",
-      visibleColumns,
-      scope,
-    });
-
-    if (!result.ok) {
-      showToast(
-        "error",
-        result.reason === "empty"
-          ? "Nessun socio da esportare"
-          : "Consenti i popup per generare il PDF",
-      );
+  React.useEffect(() => {
+    if (!resolved) return;
+    if (!clubId) {
+      setLoading(false);
+      setSoci([]);
       return;
     }
-
-    showToast("success", "PDF pronto: si apre la finestra di stampa");
-  };
-
-  /**
-   * Lo stesso elenco in CSV: stesse colonne visibili, stessi valori.
-   *
-   * Il tracciato appartiene a `src/lib/csv.ts`, non a questa pagina.
-   */
-  const handleExportCsv = (scope: SelectionScope) => {
-    const result = exportPeopleCsv({
-      entity: "members",
-      people: rowsForScope(scope) as unknown as Record<string, any>[],
-      clubName: activeClub?.name || "EasyGame",
-      visibleColumns,
-      scope,
-    });
-
-    if (!result.ok) {
-      showToast("error", "Nessun socio da esportare");
-      return;
-    }
-
-    showToast("success", "CSV scaricato");
-  };
-
-  const [visibleColumns, setVisibleColumns] = useState({
-    name: true,
-    email: true,
-    phone: true,
-    membershipDate: true,
-    status: true,
-  });
-
-  useEffect(() => {
-    // Get clubId from auth context first, then localStorage as fallback
-    if (activeClub?.id) {
-      setClubId(activeClub.id);
-      return;
-    }
-
-    if (typeof window !== "undefined") {
-      const storedClub = localStorage.getItem("activeClub");
-      if (storedClub) {
-        try {
-          const parsed = JSON.parse(storedClub);
-          if (parsed?.id) {
-            setClubId(parsed.id);
-          }
-        } catch (e) {
-          console.error("Error parsing activeClub from localStorage", e);
-        }
-      }
-    }
-  }, [activeClub]);
-
-  const fetchSoci = React.useCallback(
-    async () => {
-      // Don't query if clubId is not set or is invalid
-      if (!clubId || clubId === "null" || clubId === "undefined") {
-        setLoading(false);
-        setSoci([]);
-        return;
-      }
-
+    let cancelled = false;
+    const load = async () => {
       setLoading(true);
-
       try {
-        // Fetch soci data from clubs.members JSONB column
-        const { data, error } = await supabase
-          .from("clubs")
-          .select("members")
-          .eq("id", clubId)
-          .single();
-
-        if (error) {
-          console.error("Error fetching soci:", error);
-          setSoci([]);
-          return;
-        }
-
-        // Extract members array from the JSONB column
-        const members = data?.members || [];
-
-        // Transform data to match expected format
-        const transformedData = members
-          .filter((member: any) => isRegisteredSocio(member))
-          .map((member: any) => {
-            const identity = getSocioIdentity(member);
-
-            return {
-              id: member.id,
-              name: identity.fullName || "Socio",
-              firstName: identity.firstName,
-              lastName: identity.lastName,
-              email: member.email || "",
-              phone: member.phone || "",
-              role: member.role || "socio",
-              type: normalizeMemberType(member.type),
-              status: member.status || "active",
-              is_active: member.status === "active",
-              membership_start:
-                member.membershipDate || member.registrationDate || "",
-              membership_date:
-                member.membershipDate || member.registrationDate || "",
-              club_id: clubId,
-            };
-          })
+        const { data, error } = await supabase.from("clubs").select("members").eq("id", clubId).single();
+        if (cancelled) return;
+        if (error) throw error;
+        const members: Record<string, any>[] = Array.isArray(data?.members) ? data.members : [];
+        const anagrafica = members
+          .filter((member) => isRegisteredMember(member))
+          .map((member) => memberRecordFrom({ ...member, id: String(member.id) }))
           .sort(comparePeopleByLastName);
 
         /*
-          Il libro soci, accanto all'anagrafica (Wave 4, §19).
-
-          Sono due letture perche sono due cose: l'anagrafica dice chi c'e, il
-          registro dice **chi e socio**, e lo dice derivandolo dagli eventi.
-          Se il registro non e leggibile — un ruolo che non ha il permesso, un
-          club che non ha ancora nessun evento — l'elenco resta quello di
-          prima invece di sparire.
+          Il libro soci, accanto all'anagrafica. Sono due letture perche sono
+          due cose: l'anagrafica dice chi c'e, il registro dice **chi e socio**.
+          Se il registro non e leggibile — un ruolo senza il permesso, un club
+          senza eventi — l'elenco resta quello dell'anagrafica invece di sparire.
         */
-        const { data: libro } = await fetchMembershipRegister({ clubId });
-        const perSocio = new Map(
-          (libro?.rows || []).map((riga) => [String(riga.memberId), riga]),
-        );
-
-        const conLibro = transformedData.map((socio: Socio) => {
-          const riga = perSocio.get(String(socio.id));
-          if (!riga) return socio;
-
-          return {
-            ...socio,
-            membershipStatus: riga.eventCount > 0 ? riga.status.label : "",
-            membershipNumber: riga.status.membershipNumber || "",
-            admissionDate: riga.status.admittedOn || "",
-            cessationDate: riga.status.endedOn || "",
-            cessationReason: riga.status.endedOn ? riga.status.reason || "" : "",
-            isMemberNow: riga.status.isMember,
-            inRegister: riga.eventCount > 0,
-          };
-        });
-
+        let conLibro = anagrafica;
+        let libroLetto = false;
+        if (canReadRegister) {
+          const { data: libro, error: libroError } = await fetchMembershipRegister({ clubId });
+          if (cancelled) return;
+          if (!libroError && libro) {
+            conLibro = mergeRegisterRows(anagrafica, libro.rows);
+            libroLetto = true;
+          }
+        }
         setSoci(conLibro);
+        setRegisterLoaded(libroLetto);
+        setLoadError(null);
         // Un id selezionato che non esiste piu mostrerebbe un conteggio che
         // non corrisponde a niente.
-        selection.prune(conLibro.map((socio: Socio) => String(socio.id)));
+        setSelectedIds((current) => new Set(Array.from(current).filter((id) => conLibro.some((m) => String(m.id) === id))));
       } catch (error) {
+        if (cancelled) return;
         console.error("Error fetching soci:", error);
         setSoci([]);
+        setLoadError(error instanceof Error ? error.message : null);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    },
-    // `selection` cambia a ogni spunta: fra le dipendenze rileggerebbe
-    // l'elenco a ogni casella premuta.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [clubId],
-  );
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [clubId, resolved, reloadKey, canReadRegister]);
 
-  useEffect(() => {
-    void fetchSoci();
-  }, [fetchSoci]);
+  const reload = () => setReloadKey((k) => k + 1);
+
+  /* ── Scritture ─────────────────────────────────────────────────────────── */
 
   /**
    * Scrive la stessa modifica su ogni socio selezionato, **una riga per
-   * volta**.
-   *
-   * Fino a questa Wave era una scrittura sola: si rileggeva `clubs.members`
-   * intera, si cambiavano gli elementi selezionati e si risalvava l'array. La
-   * indivisibilita che quel disegno prometteva era vera, e costava piu di
-   * quanto valesse — una sonda di concorrenza ha fatto sparire, per quella
-   * strada, un socio ammesso da un'altra segreteria un istante prima: la
-   * riscrittura portava con se una fotografia gia vecchia.
-   *
-   * Venti richieste invece di una sono venti scritture di una riga, ognuna
-   * sotto il `FOR UPDATE` del club. In cambio la modifica **non e piu
-   * indivisibile**: se una fallisce, le altre restano scritte. E per questo
-   * che l'esito parziale va detto e l'elenco va riletto comunque — il
-   * contrario di quello che il codice faceva.
+   * volta** (`PATCH /api/v1/membership/profiles/{id}`), ognuna sotto il
+   * `FOR UPDATE` del club. La modifica **non e indivisibile**: se una
+   * fallisce, le altre restano scritte. Per questo l'esito parziale va detto
+   * e l'elenco va riletto comunque.
    */
-  const applyToSelection = async (
-    updatesFor: (member: Record<string, any>) => Record<string, any>,
-    successMessage: (count: number) => string,
-  ) => {
-    if (!clubId || bulkBusy) return;
-
-    const targetIds = new Set(rowsForScope("selected").map((s) => String(s.id)));
-    if (!targetIds.size) return;
-
+  const applyToRows = async (rows: MemberRecord[], updatesFor: (member: MemberRecord) => Record<string, any>, successMessage: (count: number) => string) => {
+    if (!clubId || bulkBusy || !rows.length) return;
     setBulkBusy(true);
     try {
-      /*
-        **Un socio alla volta, anche quando sono venti.**
-
-        Questa azione rileggeva `clubs.members` intera, cambiava gli elementi
-        selezionati e risalvava l'array. E la riscrittura di massa che il
-        registro generico non accetta piu — perche una sonda di concorrenza le
-        ha fatto perdere un socio appena ammesso — e questa era l'ultima
-        superficie che ancora la tentava, tramite l'adapter `supabase`.
-
-        Venti richieste invece di una sono venti scritture di **una riga**,
-        ognuna sotto il `FOR UPDATE` del club: chi ammette un socio nello stesso
-        momento si mette in fila invece di sparire.
-      */
-      const bersagli = rowsForScope("selected");
-      const esiti = await Promise.all(
-        bersagli.map((socio) =>
-          updateMemberProfile({
-            clubId,
-            memberId: String(socio.id),
-            updates: updatesFor(socio),
-          }),
-        ),
-      );
-
+      const esiti = await Promise.all(rows.map((socio) => updateMemberProfile({ clubId, memberId: String(socio.id), updates: updatesFor(socio) })));
       const falliti = esiti.filter((esito) => esito.error);
-
-      /*
-        **La rilettura viene prima, e non ha condizioni.**
-
-        Prima l'errore usciva da un `throw`, quindi `fetchSoci()` non veniva
-        mai eseguita: la griglia restava a mostrare i valori di prima anche per
-        le righe che erano state scritte davvero. E il messaggio preciso —
-        costruito due righe sopra dal primo errore — veniva sostituito nel
-        `catch` da «Operazione non riuscita», che non dice ne quante ne quali.
-      */
-      await fetchSoci();
-
+      reload();
       if (falliti.length) {
-        showToast(
-          "error",
-          `${falliti.length} soci su ${bersagli.length} non sono stati aggiornati: ` +
-            (falliti[0].error?.message || "errore sconosciuto"),
-        );
+        showToast("error", `${falliti.length} soci su ${rows.length} non sono stati aggiornati: ` + (falliti[0].error?.message || "errore sconosciuto"));
         return;
       }
-
-      showToast("success", successMessage(targetIds.size));
+      showToast("success", successMessage(rows.length));
     } catch (error) {
       console.error("Error running bulk member action:", error);
-      await fetchSoci().catch(() => {});
-      showToast(
-        "error",
-        error instanceof Error && error.message
-          ? error.message
-          : "Operazione non riuscita",
-      );
+      reload();
+      showToast("error", error instanceof Error && error.message ? error.message : "Operazione non riuscita");
     } finally {
       setBulkBusy(false);
     }
   };
 
-  const setSelectionStatus = (status: "active" | "inactive") =>
-    applyToSelection(
-      () => ({ status }),
-      (count) =>
-        `${count} soci ${status === "active" ? "attivati" : "disattivati"}`,
-    );
+  const setRowsStatus = (rows: MemberRecord[], status: "active" | "inactive") =>
+    applyToRows(rows, () => ({ status }), (count) => `${count} soci ${status === "active" ? "attivati" : "disattivati"}`);
+
+  /** Il tipo di socio e **uno solo**: qui si sostituisce, non si aggiunge. */
+  const setRowsType = (rows: MemberRecord[], type: string) => applyToRows(rows, () => ({ type }), (count) => `${count} soci impostati come ${type}`);
 
   /**
-   * Il tipo di socio e **uno solo**: qui si sostituisce, non si aggiunge.
-   * L'elenco dei tipi e quello di `src/lib/member-types.ts`, lo stesso della
-   * scheda: inventarne uno qui vorrebbe dire avere due elenchi.
+   * La cancellazione passa dal servizio, che sa dire di no: un socio con una
+   * storia nel libro non si cancella, e il messaggio del server arriva fin qui.
    */
-  const setSelectionType = (type: string) =>
-    applyToSelection(
-      () => ({ type }),
-      (count) => `${count} soci impostati come ${type}`,
-    );
-
-  const handleDelete = async (socioId: string) => {
-    if (!confirm("Sei sicuro di voler eliminare questo socio?")) return;
-
+  const confirmDelete = async () => {
+    if (!deleting || !clubId) return;
+    const memberId = String(deleting.id);
+    setDeleteBusy(true);
     try {
-      /*
-        **La cancellazione passa dal servizio, che sa dire di no.**
-
-        Riscriveva l'array intero dal browser, e cosi facendo scavalcava la
-        guardia del libro soci: un socio con una storia associativa veniva
-        cancellato dall'anagrafica e restava citato nel registro, che e la sola
-        cosa che il libro esiste per impedire. La scheda del socio era gia stata
-        collegata al servizio; questo elenco no.
-      */
-      const esito = await removeMemberProfile({ clubId, memberId: socioId });
+      const esito = await removeMemberProfile({ clubId, memberId });
       if (esito.error) throw new Error(esito.error.message);
-
-      setSoci(soci.filter((socio) => socio.id !== socioId));
+      setSoci((current) => current.filter((socio) => String(socio.id) !== memberId));
+      setSelectedIds((current) => {
+        const copy = new Set(current);
+        copy.delete(memberId);
+        return copy;
+      });
       showToast("success", "Socio eliminato");
+      setDeleting(null);
     } catch (error) {
       console.error("Error deleting socio:", error);
-      showToast(
-        "error",
-        error instanceof Error && error.message
-          ? error.message
-          : "Errore nell'eliminazione del socio",
-      );
+      showToast("error", error instanceof Error && error.message ? error.message : "Errore nell'eliminazione del socio");
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
+  /* ── Esportazione (stesso motore della V1: person-export) ──────────────── */
+  const runExport = (kind: "csv" | "pdf", rows: MemberRecord[], columnIds: string[], requestScope: "filtered" | "selected") => {
+    const visibleColumns = {
+      name: true,
+      email: columnIds.includes("email"),
+      phone: columnIds.includes("phone"),
+      membershipDate: columnIds.includes("registrationDate"),
+      status: columnIds.includes("status"),
+    };
+    const scope: SelectionScope = requestScope === "selected" ? "selected" : rows.length === soci.length ? "all" : "filtered";
+    const people = rows as unknown as Record<string, any>[];
+    const clubName = activeClub?.name || "EasyGame";
+    if (kind === "pdf") {
+      const result = exportPeoplePdf({
+        entity: "members",
+        people,
+        clubName,
+        visibleColumns,
+        scope,
+      });
+      if (!result.ok) {
+        showToast("error", result.reason === "empty" ? "Nessun socio da esportare" : "Consenti i popup per generare il PDF");
+        return;
+      }
+      showToast("success", "PDF pronto: si apre la finestra di stampa");
+      return;
+    }
+    const result = exportPeopleCsv({
+      entity: "members",
+      people,
+      clubName,
+      visibleColumns,
+      scope,
+    });
+    if (!result.ok) {
+      showToast("error", "Nessun socio da esportare");
+      return;
+    }
+    showToast("success", "CSV scaricato");
+  };
+
+  const defaultExportColumnIds = ["email", "phone", "registrationDate", "status"];
+
+  /* ── Griglia ───────────────────────────────────────────────────────────── */
+  const recordHref = (member: MemberRecord) => withClubId(`/soci/${member.id}`, clubId);
+
+  const columns = React.useMemo<ColumnDef<MemberRecord>[]>(
+    () => [
+      {
+        id: "identity",
+        header: "Nome",
+        kind: "identity",
+        locked: true,
+        width: 2,
+        cell: (row) => (
+          <IdentityCell
+            name={getMemberDisplayName(row)}
+            round
+            href={recordHref(row)}
+            onClick={() => router.push(recordHref(row))}
+            meta={joinMeta(row.type, row.membershipNumber ? `tessera ${row.membershipNumber}` : null)}
+          />
+        ),
+        sortValue: (row) => `${row.lastName} ${row.firstName}`.trim().toLowerCase() || row.name.toLowerCase(),
+        exportValue: (row) => getMemberDisplayName(row),
+        title: (row) => getMemberDisplayName(row),
+      },
+      {
+        id: "type",
+        header: "Tipo socio",
+        kind: "classification",
+        cell: (row) => (
+          <DataChip size="sm" title={row.type}>
+            {row.type}
+          </DataChip>
+        ),
+        sortValue: (row) => row.type.toLowerCase() || null,
+        exportValue: (row) => row.type,
+      },
+      {
+        id: "status",
+        header: "Stato",
+        kind: "status",
+        cell: (row) => <StatusPill status={memberStatusSpec(row)} detail={memberStatusDetail(row)} />,
+        sortValue: (row) => memberStatusSpec(row).label,
+        exportValue: (row) => memberStatusSpec(row).label,
+      },
+      {
+        id: "membershipNumber",
+        header: "N. tessera",
+        kind: "number",
+        cell: (row) => <span className="egw-num">{row.membershipNumber}</span>,
+        sortValue: (row) => row.membershipNumber || null,
+        exportValue: (row) => row.membershipNumber,
+      },
+      {
+        id: "registrationDate",
+        header: "Data iscrizione",
+        kind: "date",
+        cell: (row) => (row.registrationDate ? formatDateShort(row.registrationDate) : null),
+        sortValue: (row) => row.registrationDate || null,
+        exportValue: (row) => row.registrationDate,
+      },
+      {
+        id: "email",
+        header: "Email",
+        kind: "text",
+        minWidth: 160,
+        cell: (row) => row.email,
+        sortValue: (row) => row.email.toLowerCase() || null,
+      },
+      {
+        id: "phone",
+        header: "Telefono",
+        kind: "text",
+        cell: (row) => <span className="egw-num">{row.phone}</span>,
+        sortValue: (row) => row.phone || null,
+        exportValue: (row) => row.phone,
+        title: (row) => row.phone || undefined,
+      },
+      {
+        id: "admissionDate",
+        header: "Ammesso il",
+        kind: "date",
+        hidden: true,
+        cell: (row) => (row.admissionDate ? formatDateShort(row.admissionDate) : null),
+        sortValue: (row) => row.admissionDate || null,
+        exportValue: (row) => row.admissionDate,
+      },
+      {
+        id: "cessationDate",
+        header: "Cessazione",
+        kind: "date",
+        hidden: true,
+        cell: (row) => (row.cessationDate ? formatDateShort(row.cessationDate) : null),
+        sortValue: (row) => row.cessationDate || null,
+        exportValue: (row) => row.cessationDate,
+        title: (row) => row.cessationReason || undefined,
+      },
+      {
+        id: "cessationReason",
+        header: "Motivo cessazione",
+        kind: "text",
+        hidden: true,
+        cell: (row) => row.cessationReason,
+        sortValue: (row) => row.cessationReason.toLowerCase() || null,
+      },
+      {
+        id: "cardStatus",
+        header: "Scheda",
+        kind: "status",
+        hidden: true,
+        cell: (row) => <StatusPill status={memberCardStatusSpec(row.status)} />,
+        sortValue: (row) => (isMemberCardActive(row) ? "active" : "inactive"),
+        exportValue: (row) => memberCardStatusSpec(row.status).label,
+      },
+      {
+        id: "fiscalCode",
+        header: "Codice fiscale",
+        kind: "text",
+        hidden: true,
+        cell: (row) => <span className="egw-num uppercase">{row.fiscalCode}</span>,
+        sortValue: (row) => row.fiscalCode || null,
+        exportValue: (row) => row.fiscalCode,
+      },
+      {
+        id: "city",
+        header: "Comune di residenza",
+        kind: "text",
+        hidden: true,
+        cell: (row) => row.city,
+        sortValue: (row) => row.city.toLowerCase() || null,
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clubId],
+  );
+
+  const typesInUse = React.useMemo(() => collectMemberTypes(soci), [soci]);
+
+  const filters = React.useMemo<FilterDef<MemberRecord>[]>(
+    () => [
+      {
+        id: "status",
+        label: "Stato",
+        type: "select",
+        pinned: true,
+        options: STATUS_FILTER_OPTIONS.map((option) => ({ ...option, count: soci.filter((row) => memberStatusFilterKey(row) === option.value).length })),
+        apply: (row, value) => (typeof value === "string" && value ? memberStatusFilterKey(row) === value : true),
+      },
+      {
+        id: "type",
+        label: "Tipo socio",
+        type: "select",
+        options: typesInUse.map((type) => ({ value: type, label: type, count: soci.filter((row) => row.type.toLowerCase() === type.toLowerCase()).length })),
+        apply: (row, value) => (typeof value === "string" && value ? row.type.toLowerCase() === value.toLowerCase() : true),
+      },
+      {
+        id: "card",
+        label: "Scheda",
+        type: "select",
+        options: CARD_FILTER_OPTIONS,
+        apply: (row, value) => (typeof value === "string" && value ? (isMemberCardActive(row) ? "active" : "inactive") === value : true),
+      },
+    ],
+    [soci, typesInUse],
+  );
+
+  const rowActions = React.useMemo<RowActionDef<MemberRecord>[]>(
+    () => [
+      { id: "open", label: "Apri scheda", icon: <ChevronRight />, primary: true, onClick: (row) => router.push(recordHref(row)) },
+      { id: "edit", label: "Modifica", icon: <Pencil />, hidden: () => !canManage, onClick: (row) => router.push(withClubId(`/soci/${row.id}/edit`, clubId)) },
+      { id: "delete", label: "Elimina", icon: <Trash2 />, tone: "danger", hidden: () => !canManage, onClick: (row) => setDeleting(row) },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clubId, canManage],
+  );
+
+  const bulkActions = React.useMemo<BulkActionDef<MemberRecord>[]>(
+    () => [
+      { id: "activate", label: "Attiva", icon: <UserCheck />, hidden: !canManage, onRun: (rows) => setRowsStatus(rows, "active"), disabled: () => bulkBusy },
+      { id: "deactivate", label: "Disattiva", icon: <UserX />, hidden: !canManage, onRun: (rows) => setRowsStatus(rows, "inactive"), disabled: () => bulkBusy },
+      { id: "set-type", label: "Tipo socio", icon: <Users />, hidden: !canManage, onRun: (rows) => setTypeRows(rows), disabled: () => bulkBusy },
+      { id: "export-pdf", label: "Esporta PDF", icon: <FileDown />, onRun: (rows) => runExport("pdf", rows, defaultExportColumnIds, "selected"), disabled: () => bulkBusy },
+      { id: "export-csv", label: "Esporta CSV", icon: <FileSpreadsheet />, onRun: (rows) => runExport("csv", rows, defaultExportColumnIds, "selected"), disabled: () => bulkBusy },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canManage, bulkBusy, soci, clubId, activeClub?.name],
+  );
+
+  const onExport = (request: ExportRequest<MemberRecord>) =>
+    runExport(request.kind === "pdf" ? "pdf" : "csv", request.rows, request.columns.map((c) => c.id), request.scope);
+
+  const search = React.useMemo(
+    () => ({
+      placeholder: "Cerca per nome, email, telefono, tessera",
+      match: (row: MemberRecord, query: string) => {
+        const q = query.trim().toLowerCase();
+        if (!q) return true;
+        return [getMemberDisplayName(row), row.email, row.phone, row.fiscalCode, row.membershipNumber, row.type]
+          .map((v) => String(v || "").toLowerCase())
+          .some((v) => v.includes(q));
+      },
+    }),
+    [],
+  );
+
+  const goToNew = () => router.push(withClubId("/soci/new", clubId));
+
+  const activeCount = soci.filter((m) => m.isMemberNow).length;
+  const notInRegisterCount = soci.filter((m) => !m.inRegister).length;
+  const gridState = loading ? "loading" : loadError ? "error" : "ready";
+
   return (
-    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-      {/* Sidebar */}
-      <div className="hidden lg:block">
-        <Sidebar />
-      </div>
-
-      {/* Main content */}
+    <div className="flex h-[100dvh] bg-egw-page">
+      <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="hidden lg:block">
-          <Header title="Soci" />
-        </div>
-        <div className="lg:hidden">
-          <MobileTopBar />
-        </div>
-
+        <Header title="Soci" />
         <main className={dashboardMainClassName}>
           <DashboardPageContainer>
-            {/* Header */}
-            <SharedPageHeader
+            <PageHeader
+              eyebrow="Persone"
               title="Soci"
-              subtitle="Gestisci i soci dell'associazione"
-              actions={
-              /*
-                A 375 px i due comandi in riga sforavano di sei pixel e
-                «Aggiungi Socio» finiva fuori dalla viewport (Blocco A, punto
-                22). E la stessa riga di comandi che l'elenco Allenatori ha,
-                dove pero era gia `w-full sm:w-auto flex-wrap`: due elenchi
-                gemelli con due comportamenti diversi a schermo stretto.
-              */
-              <div className="flex w-full flex-wrap gap-2 sm:w-auto">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" disabled={!exportScopes.length}>
-                      <FileDown className="mr-2 h-4 w-4" />
-                      Esporta PDF
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {exportScopes.map((scope) => (
-                      <DropdownMenuItem
-                        key={scope}
-                        onClick={() => handleExportPdf(scope)}
-                      >
-                        {exportScopeLabel(scope, rowsForScope(scope).length)}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" disabled={!exportScopes.length}>
-                      <FileSpreadsheet className="mr-2 h-4 w-4" />
-                      Esporta CSV
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {exportScopes.map((scope) => (
-                      <DropdownMenuItem
-                        key={scope}
-                        onClick={() => handleExportCsv(scope)}
-                      >
-                        {exportScopeLabel(scope, rowsForScope(scope).length)}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <Button
-                  variant={viewMode === "table" ? "default" : "outline"}
-                  size="icon"
-                  onClick={() => setViewMode("table")}
-                  title="Visualizzazione Tabella"
-                >
-                  <TableIcon className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant={viewMode === "cards" ? "default" : "outline"}
-                  size="icon"
-                  onClick={() => setViewMode("cards")}
-                  title="Visualizzazione Card"
-                >
-                  <LayoutGrid className="h-4 w-4" />
-                </Button>
-
-                {viewMode === "table" && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        title="Personalizza Colonne"
-                      >
-                        <Settings2 className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <DropdownMenuLabel>Colonne Visibili</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuCheckboxItem
-                        checked={visibleColumns.name}
-                        onCheckedChange={(checked) =>
-                          setVisibleColumns((prev) => ({
-                            ...prev,
-                            name: checked,
-                          }))
-                        }
-                      >
-                        Nome
-                      </DropdownMenuCheckboxItem>
-                      <DropdownMenuCheckboxItem
-                        checked={visibleColumns.email}
-                        onCheckedChange={(checked) =>
-                          setVisibleColumns((prev) => ({
-                            ...prev,
-                            email: checked,
-                          }))
-                        }
-                      >
-                        Email
-                      </DropdownMenuCheckboxItem>
-                      <DropdownMenuCheckboxItem
-                        checked={visibleColumns.phone}
-                        onCheckedChange={(checked) =>
-                          setVisibleColumns((prev) => ({
-                            ...prev,
-                            phone: checked,
-                          }))
-                        }
-                      >
-                        Telefono
-                      </DropdownMenuCheckboxItem>
-                      <DropdownMenuCheckboxItem
-                        checked={visibleColumns.membershipDate}
-                        onCheckedChange={(checked) =>
-                          setVisibleColumns((prev) => ({
-                            ...prev,
-                            membershipDate: checked,
-                          }))
-                        }
-                      >
-                        Data Iscrizione
-                      </DropdownMenuCheckboxItem>
-                      <DropdownMenuCheckboxItem
-                        checked={visibleColumns.status}
-                        onCheckedChange={(checked) =>
-                          setVisibleColumns((prev) => ({
-                            ...prev,
-                            status: checked,
-                          }))
-                        }
-                      >
-                        Stato
-                      </DropdownMenuCheckboxItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-                <Button
-                  onClick={() => {
-                    if (typeof window !== "undefined") {
-                      const storedClub = localStorage.getItem("activeClub");
-                      if (storedClub) {
-                        try {
-                          const parsed = JSON.parse(storedClub);
-                          if (parsed?.id) {
-                            router.push(`/soci/new?clubId=${parsed.id}`);
-                            return;
-                          }
-                        } catch (e) {
-                          console.error(
-                            "Errore nel parsing di activeClub da localStorage",
-                            e,
-                          );
-                        }
-                      }
-                    }
-                    router.push("/soci/new");
-                  }}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Aggiungi Socio
-                </Button>
-              </div>
+              description="Gestisci i soci dell'associazione."
+              stats={
+                <>
+                  <HeaderStat value={formatInteger(soci.length)} label={soci.length === 1 ? "socio" : "soci"} />
+                  {registerLoaded ? (
+                    <>
+                      <HeaderStat value={formatInteger(activeCount)} label="attivi nel libro" tone="green" onClick={() => setRequestedViewId("members")} />
+                      <HeaderStat
+                        value={formatInteger(notInRegisterCount)}
+                        label="non nel libro"
+                        tone={notInRegisterCount ? "amber" : "ink"}
+                        onClick={() => setRequestedViewId("not-in-register")}
+                      />
+                    </>
+                  ) : null}
+                </>
               }
-            />
-
-            {/*
-              Cosa e questo elenco, detto nel prodotto (§19, §31). Il libro
-              soci per una ASD non-ETS e obbligo statutario ed elemento
-              probatorio, non un modello da depositare: chiamarlo «conforme»
-              prometterebbe cio che nessuna norma definisce.
-            */}
-            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-              {MEMBERSHIP_REGISTER_DISCLAIMER}
-            </p>
-
-            <BulkSelectionToolbar
-              selection={selection}
-              nouns={{ one: "socio", many: "soci" }}
-              className="my-4"
+              actions={
+                canManage ? (
+                  <Button variant="primary" icon={<Plus />} onClick={goToNew}>
+                    Nuovo socio
+                  </Button>
+                ) : null
+              }
             >
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                disabled={bulkBusy}
-                onClick={() => void setSelectionStatus("active")}
-              >
-                <UserCheck className="mr-1.5 h-3.5 w-3.5 text-green-600" aria-hidden />
-                Attiva
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                disabled={bulkBusy}
-                onClick={() => void setSelectionStatus("inactive")}
-              >
-                <UserX className="mr-1.5 h-3.5 w-3.5 text-amber-600" aria-hidden />
-                Disattiva
-              </Button>
+              {/*
+                Cosa e questo elenco, detto nel prodotto (§19, §31). Il libro
+                soci per una ASD non-ETS e obbligo statutario ed elemento
+                probatorio, non un modello da depositare.
+              */}
+              <InfoCard eyebrow="Libro soci">
+                {MEMBERSHIP_REGISTER_DISCLAIMER}
+              </InfoCard>
+            </PageHeader>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8"
-                    disabled={bulkBusy}
-                  >
-                    <Users className="mr-1.5 h-3.5 w-3.5 text-blue-600" aria-hidden />
-                    Tipo socio
+            <DataGrid<MemberRecord>
+              module="soci"
+              aria-label="Elenco dei soci"
+              rows={soci}
+              getRowId={(row) => String(row.id)}
+              rowLabel={(row) => getMemberDisplayName(row)}
+              columns={columns}
+              filters={filters}
+              views={MEMBER_VIEWS}
+              requestedViewId={requestedViewId}
+              search={search}
+              defaultSort={{ columnId: "identity", direction: "asc" }}
+              rowActions={rowActions}
+              bulkActions={bulkActions}
+              selectedIds={selectedIds}
+              onSelectionChange={setSelectedIds}
+              onOpenRow={(row) => router.push(recordHref(row))}
+              state={gridState}
+              errorMessage={loadError}
+              onRetry={reload}
+              noun={{ singular: "socio", plural: "soci" }}
+              export={{ onExport, kinds: ["csv", "pdf"] }}
+              empty={{
+                icon: <BookOpen />,
+                title: "Nessun socio",
+                description: "Inizia aggiungendo il primo socio della tua associazione.",
+                primary: canManage ? (
+                  <Button variant="primary" size="sm" icon={<Plus />} onClick={goToNew}>
+                    Nuovo socio
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>Il tipo e uno solo: sostituisce</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {MEMBER_TYPES.map((memberType) => (
-                    <DropdownMenuItem
-                      key={memberType}
-                      onClick={() => void setSelectionType(memberType)}
-                    >
-                      {memberType}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                disabled={bulkBusy}
-                onClick={() => handleExportPdf("selected")}
-              >
-                <FileDown className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                Esporta PDF
-              </Button>
-
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8"
-                disabled={bulkBusy}
-                onClick={() => handleExportCsv("selected")}
-              >
-                <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                Esporta CSV
-              </Button>
-            </BulkSelectionToolbar>
-
-            {/* Content */}
-            {loading ? (
-              <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="mt-4 text-gray-600">Caricamento soci...</p>
-              </div>
-            ) : viewMode === "table" ? (
-              <Card>
-                <CardContent className="p-6">
-                  <div className="rounded-md border overflow-x-auto">
-                    <Table className="min-w-full">
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead key="select" className="w-12">
-                            <SelectAllCheckbox
-                              selection={selection}
-                              ids={soci.map((socio) => String(socio.id))}
-                              label="i soci in elenco"
-                            />
-                          </TableHead>
-                          {visibleColumns.name && (
-                            <TableHead key="name">Nome</TableHead>
-                          )}
-                          {visibleColumns.email && (
-                            <TableHead
-                              key="email"
-                              className="hidden md:table-cell"
-                            >
-                              Email
-                            </TableHead>
-                          )}
-                          {visibleColumns.phone && (
-                            <TableHead
-                              key="phone"
-                              className="hidden md:table-cell"
-                            >
-                              Telefono
-                            </TableHead>
-                          )}
-                          {visibleColumns.membershipDate && (
-                            <TableHead
-                              key="membershipDate"
-                              className="hidden md:table-cell"
-                            >
-                              Data Iscrizione
-                            </TableHead>
-                          )}
-                          {visibleColumns.status && (
-                            <TableHead
-                              key="status"
-                              className="hidden md:table-cell"
-                            >
-                              Stato
-                            </TableHead>
-                          )}
-                          <TableHead key="actions" className="text-right">
-                            Azioni
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {soci.map((socio) => (
-                          <TableRow
-                            key={socio.id}
-                            className="cursor-pointer hover:bg-muted/50"
-                          >
-                            <TableCell key={`${socio.id}-select`}>
-                              <SelectRowCheckbox
-                                selection={selection}
-                                id={String(socio.id)}
-                                label={socio.name}
-                              />
-                            </TableCell>
-                            {visibleColumns.name && (
-                              <TableCell
-                                key={`${socio.id}-name`}
-                                className="font-medium"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <EntityIcon
-                                    type="member"
-                                    size="sm"
-                                    label={socio.name}
-                                  />
-                                  {socio.name}
-                                </div>
-                              </TableCell>
-                            )}
-                            {visibleColumns.email && (
-                              <TableCell
-                                key={`${socio.id}-email`}
-                                className="hidden md:table-cell"
-                              >
-                                {socio.email || "N/A"}
-                              </TableCell>
-                            )}
-                            {visibleColumns.phone && (
-                              <TableCell
-                                key={`${socio.id}-phone`}
-                                className="hidden md:table-cell"
-                              >
-                                {socio.phone || "N/A"}
-                              </TableCell>
-                            )}
-                            {visibleColumns.membershipDate && (
-                              <TableCell
-                                key={`${socio.id}-membershipDate`}
-                                className="hidden md:table-cell"
-                              >
-                                {socio.membership_date || socio.membership_start
-                                  ? new Date(
-                                      socio.membership_date ||
-                                        socio.membership_start ||
-                                        "",
-                                    ).toLocaleDateString("it-IT")
-                                  : "N/A"}
-                              </TableCell>
-                            )}
-                            {visibleColumns.status && (
-                              <TableCell
-                                key={`${socio.id}-status`}
-                                className="hidden md:table-cell"
-                              >
-                                <MembershipStatusBadge socio={socio} />
-                              </TableCell>
-                            )}
-                            <TableCell
-                              key={`${socio.id}-actions`}
-                              className="text-right"
-                            >
-                              <div className="flex justify-end gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    router.push(
-                                      `/soci/${socio.id}?clubId=${clubId}`,
-                                    );
-                                  }}
-                                  title="Modifica"
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  className="h-8 w-8 text-red-600"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (
-                                      confirm(
-                                        "Sei sicuro di voler eliminare questo socio?",
-                                      )
-                                    ) {
-                                      handleDelete(socio.id);
-                                    }
-                                  }}
-                                  title="Elimina"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {soci.map((socio) => (
-                  <Card
-                    key={socio.id}
-                    className="hover:shadow-lg transition-shadow duration-200 cursor-pointer"
-                    onClick={() =>
-                      router.push(`/soci/${socio.id}?clubId=${clubId}`)
-                    }
-                  >
-                    <CardHeader className="flex flex-row items-center justify-between pb-2">
-                      <div className="flex items-center gap-3">
-                        {/*
-                          La scheda si apre al clic: spuntare non deve aprirla,
-                          o selezionare dieci soci vorrebbe dire aprire dieci
-                          pagine.
-                        */}
-                        <span onClick={(event) => event.stopPropagation()}>
-                          <SelectRowCheckbox
-                            selection={selection}
-                            id={String(socio.id)}
-                            label={socio.name}
-                          />
-                        </span>
-                        <EntityIcon
-                          type="member"
-                          size="sm"
-                          label={socio.name}
-                        />
-                        <div>
-                          <CardTitle className="text-lg">
-                            {socio.name}
-                          </CardTitle>
-                        </div>
-                      </div>
-                      <MembershipStatusBadge socio={socio} />
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Mail className="h-4 w-4 mr-2" />
-                        {socio.email || "Email non disponibile"}
-                      </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Phone className="h-4 w-4 mr-2" />
-                        {socio.phone || "Telefono non disponibile"}
-                      </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Calendar className="h-4 w-4 mr-2" />
-                        {socio.membership_date || socio.membership_start
-                          ? `Iscritto il ${new Date(socio.membership_date || socio.membership_start || "").toLocaleDateString("it-IT")}`
-                          : "Data iscrizione non disponibile"}
-                      </div>
-                      <div className="flex justify-end gap-2 mt-4">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            router.push(`/soci/${socio.id}?clubId=${clubId}`);
-                          }}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(socio.id);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-
-            {soci.length === 0 && !loading && (
-              <Card className="text-center py-12">
-                <CardContent>
-                  <Users className="h-16 w-16 mx-auto text-gray-400 mb-4" />
-                  <h3 className="text-xl font-semibold mb-2">Nessun socio</h3>
-                  <p className="text-gray-600 mb-4">
-                    Inizia aggiungendo il primo socio della tua associazione
-                  </p>
-                  <Button
-                    onClick={() => {
-                      if (typeof window !== "undefined") {
-                        const storedClub = localStorage.getItem("activeClub");
-                        if (storedClub) {
-                          try {
-                            const parsed = JSON.parse(storedClub);
-                            if (parsed?.id) {
-                              router.push(`/soci/new?clubId=${parsed.id}`);
-                              return;
-                            }
-                          } catch (e) {
-                            console.error(
-                              "Errore nel parsing di activeClub da localStorage",
-                              e,
-                            );
-                          }
-                        }
-                      }
-                      router.push("/soci/new");
-                    }}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Aggiungi Socio
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+                ) : null,
+              }}
+            />
           </DashboardPageContainer>
         </main>
       </div>
+
+      <SetMemberTypeDrawer
+        open={Boolean(typeRows)}
+        onOpenChange={(open) => !open && setTypeRows(null)}
+        rows={typeRows || []}
+        onConfirm={(type) => setRowsType(typeRows || [], type)}
+      />
+
+      <DeleteMemberDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => !open && !deleteBusy && setDeleting(null)}
+        name={deleting ? getMemberDisplayName(deleting) : ""}
+        eventCount={deleting?.eventCount || 0}
+        onConfirm={confirmDelete}
+        loading={deleteBusy}
+      />
     </div>
   );
 }

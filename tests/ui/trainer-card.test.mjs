@@ -219,7 +219,7 @@ test("nessuna schermata di persona rende obbligatorio un numero di tessera", () 
   for (const file of [
     TRAINER_NEW,
     "app/staff/new/page.tsx",
-    "app/soci/new/page.tsx",
+    "components/soci/v2/member-form.tsx",
   ]) {
     const source = readCode(file);
     assert.equal(

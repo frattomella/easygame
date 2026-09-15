@@ -280,8 +280,8 @@ test("le voci del menu dell'allenatore passano dalla mappa delle rotte, non da i
  */
 const DOPPIA_BARRA_NOTA = new Set([
   "app/modulistica/page.tsx",
-  "app/soci/page.tsx",
-  "app/structures/page.tsx",
+  /* `/soci` e passata al Web V2 (Wave D) e monta solo `Header`. */
+  /* `/structures` e passata al Web V2 (Wave D) e monta solo `Header`. */
 ]);
 
 const paginePagina = () => {

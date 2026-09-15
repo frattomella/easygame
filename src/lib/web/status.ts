@@ -83,6 +83,27 @@ export const ENROLMENT_STATUS = Object.freeze({
   suspended: spec("SOSPESA", "urgent", "red"),
 } as const);
 
+/* ── Libro soci (posizione associativa derivata dagli eventi) ───────────── */
+/**
+ * Le parole del libro soci (`src/lib/members/model.ts`, `MEMBER_STATUS_LABELS`).
+ * Nessuna di quelle di persona o di iscrizione dice «dimesso», «decaduto»,
+ * «escluso» o «non socio»: sono qualifiche del registro, non della scheda.
+ * `admitted` e la stessa parola di `PERSON_STATUS.active`, apposta: essere
+ * socio attivo e essere una persona attiva si pronunciano uguali.
+ * `card_active`/`card_inactive` sono la scheda di chi **non e ancora nel
+ * libro**: dicono che la scheda e in uso, non che la persona e socia.
+ */
+export const MEMBERSHIP_STATUS = Object.freeze({
+  admitted: PERSON_STATUS.active,
+  reinstated: spec("RIAMMESSO", "solid", "green"),
+  resigned: spec("DIMESSO", "quiet", "neutral"),
+  lapsed: spec("DECADUTO", "outline", "amber"),
+  expelled: spec("ESCLUSO", "urgent", "red"),
+  none: spec("NON SOCIO", "quiet", "neutral"),
+  card_active: spec("SCHEDA ATTIVA", "outline", "green"),
+  card_inactive: spec("SCHEDA NON ATTIVA", "quiet", "neutral"),
+} as const);
+
 /* ── Convocazione / presenza ────────────────────────────────────────────── */
 export const CALLUP_STATUS = Object.freeze({
   called: spec("CONVOCATO", "solid", "blue"),
@@ -190,6 +211,15 @@ const ALIASES: Record<string, StatusSpec> = {
   assente: CALLUP_STATUS.absent,
   justified: CALLUP_STATUS.justified,
   giustificato: CALLUP_STATUS.justified,
+  // libro soci
+  ammesso: MEMBERSHIP_STATUS.admitted,
+  riammesso: MEMBERSHIP_STATUS.reinstated,
+  dimesso: MEMBERSHIP_STATUS.resigned,
+  decaduto: MEMBERSHIP_STATUS.lapsed,
+  espulso: MEMBERSHIP_STATUS.expelled,
+  escluso: MEMBERSHIP_STATUS.expelled,
+  mai_ammesso: MEMBERSHIP_STATUS.none,
+  "non socio": MEMBERSHIP_STATUS.none,
   // account
   linked: ACCOUNT_STATUS.linked,
   collegato: ACCOUNT_STATUS.linked,

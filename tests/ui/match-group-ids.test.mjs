@@ -31,10 +31,11 @@ const read = (relative) =>
     "\n",
   );
 
-const ADD_MATCH_FORM = "components/forms/AddMatchForm.tsx";
+/* La forma V2 di `AddMatchForm` (Wave D): stesso selettore, stesso campo nel payload. */
+const ADD_MATCH_FORM = "components/matches/v2/MatchFormDrawer.tsx";
 const MATCHES_PAGE = "app/matches/page.tsx";
 
-test("AddMatchForm assegna la gara a un gruppo, non solo a una categoria", () => {
+test("MatchFormDrawer assegna la gara a un gruppo, non solo a una categoria", () => {
   const source = read(ADD_MATCH_FORM);
 
   assert.match(
@@ -44,8 +45,8 @@ test("AddMatchForm assegna la gara a un gruppo, non solo a una categoria", () =>
   );
   assert.match(
     source,
-    /groupIds:\s*\[\]\s*as string\[\]/,
-    "formData porta groupIds, come formData di AddTrainingForm",
+    /groupIds:\s*string\[\];/,
+    "lo stato del modulo porta groupIds, come formData di AddTrainingForm",
   );
   assert.match(
     source,
@@ -54,7 +55,7 @@ test("AddMatchForm assegna la gara a un gruppo, non solo a una categoria", () =>
   );
 });
 
-test("AddMatchForm non spunta piu categorie a mano: il checkbox categoria non c'e piu", () => {
+test("MatchFormDrawer non spunta piu categorie a mano: il checkbox categoria non c'e piu", () => {
   const source = read(ADD_MATCH_FORM);
 
   assert.doesNotMatch(

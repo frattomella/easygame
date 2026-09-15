@@ -285,7 +285,14 @@ test("la scheda atleta legge il periodo della stagione attiva", () => {
 });
 
 test("il modulo del piano dice quale periodo verra usato", () => {
-  const page = read("src/app/registration-management/page.tsx");
-  assert.match(page, /fallbackPeriod: seasonPeriod/);
-  assert.match(page, /periodo della stagione attiva/);
+  /*
+    Dal Web V2 il modulo del piano vive nel cassetto
+    `payment-plan-drawer.tsx` e i suoi calcoli in `plan-form-model.ts`: il
+    ripiego sulla stagione attiva e la frase che lo dichiara stanno li.
+  */
+  const model = read("src/components/registration-management/v2/plan-form-model.ts");
+  assert.match(model, /fallbackPeriod: seasonPeriod/);
+  assert.match(model, /periodo della stagione attiva/);
+  const drawer = read("src/components/registration-management/v2/payment-plan-drawer.tsx");
+  assert.match(drawer, /describeProrationPeriod\(draft\.proration, seasonPeriod\)/);
 });

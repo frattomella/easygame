@@ -26,7 +26,7 @@ const read = (relative) =>
     "\n",
   );
 
-test("AddMatchForm.tsx e matches/page.tsx: la data della gara passa da formatLocalDateOnly, non piu da .toISOString()", () => {
+test("MatchFormDrawer.tsx e matches/page.tsx: la data della gara passa da formatLocalDateOnly, non piu da .toISOString()", () => {
   const paginaGare = read("app/matches/page.tsx");
 
   assert.match(

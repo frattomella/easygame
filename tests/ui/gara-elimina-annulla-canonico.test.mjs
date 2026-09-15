@@ -123,17 +123,16 @@ test("il messaggio d'errore reale del dominio arriva all'utente su elimina/annul
   );
 });
 
-test("limite noto, non di questo ticket: handleEditMatch resta sul binario legacy (clubs.matches)", () => {
-  // Il ticket UAT riguardava esplicitamente elimina/annulla. La modifica di
-  // una gara (`handleEditMatch`) scrive ancora `clubs.matches` con
-  // `getClubData`/`updateClubData` — stesso difetto strutturale, ma fuori
-  // perimetro per questa correzione (CLAUDE.md §3: niente refactoring
-  // estraneo nello stesso commit). Lo documenta qui cosi nessuno lo confonda
-  // con una regressione di questo fix, e perche resti visibile come debito.
+test("handleEditMatch passa dal writer canonico (PATCH con la versione), non piu da clubs.matches", () => {
+  // Il ticket UAT riguardava elimina/annulla, e la modifica era rimasta sul
+  // binario legacy come debito dichiarato. La migrazione al Web V2 (Wave D,
+  // D-AUD-WD-1) lo ha chiuso: la modifica passa da `updateEvent` con la
+  // versione letta, e un conflitto ottimistico ricarica la copia locale.
   const source = read(MATCHES_PAGE);
-  assert.match(
-    source,
-    /updateClubData\(activeClub\.id,\s*"matches",\s*updatedMatches\)/,
-    "se questa riga sparisce, handleEditMatch e stato migrato: aggiorna questo test e il debito tecnico registrato per lui",
-  );
+  const corpo = extractHandlerBody(source, "handleEditMatch");
+
+  assert.match(corpo, /updateEvent\(eventId,\s*updateData,\s*selectedMatch\.version \?\? null\)/, "la modifica manda la versione allo scrittore canonico");
+  assert.doesNotMatch(source, /updateClubData/, "nessuna scrittura della proiezione in sola lettura resta in pagina (ADR-0098)");
+  assert.doesNotMatch(source, /getClubData\(activeClub\.id,\s*"matches"\)\s*;?\s*\n\s*const updatedMatches/, "non si ricostruisce piu l'array a mano");
+  assert.match(corpo, /modificato da qualcun altro/, "sul conflitto ottimistico si ricarica");
 });

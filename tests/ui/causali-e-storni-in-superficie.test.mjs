@@ -62,20 +62,42 @@ test("le causali si rileggono quando cambia il club attivo", () => {
 });
 
 test("uno storno si dichiara in tutte e due le schermate di uno sponsor", () => {
+  /*
+    Con il Web V2 le due schermate montano la **stessa** griglia del
+    registro (`SponsorCollectionsGrid`): e li che `reversed` si legge e
+    diventa la pillola STORNATO del sistema di stato. Il controllo resta
+    sull'intento — nessuna delle due pagine puo mostrare un incasso senza
+    passare da chi lo dichiara.
+  */
   for (const percorso of [
     "src/app/sponsors/[id]/page.tsx",
     "src/app/sponsors/page.tsx",
   ]) {
     const sorgente = leggi(percorso);
     assert.ok(
-      /payment\.reversed/.test(sorgente),
-      `${percorso} deve leggere \`reversed\`, non solo mapparlo`,
-    );
-    assert.ok(
-      sorgente.includes("Stornato"),
-      `${percorso} deve dirlo a chi guarda`,
+      sorgente.includes("<SponsorCollectionsGrid"),
+      `${percorso} deve montare la griglia del registro, che dichiara lo storno`,
     );
   }
+
+  const griglia = leggi("src/components/sponsors/v2/collections-grid.tsx");
+  assert.ok(
+    /row\.reversed/.test(griglia),
+    "la griglia deve leggere `reversed`, non solo mapparlo",
+  );
+  assert.ok(
+    griglia.includes("collectionStatusSpec(row)") && griglia.includes("line-through"),
+    "la griglia deve dirlo a chi guarda: pillola di stato e importo barrato",
+  );
+  const modello = leggi("src/components/sponsors/v2/sponsor-model.ts");
+  assert.ok(
+    /row\.reversed \? MONEY_STATUS\.reversed/.test(modello),
+    "la parola e quella del sistema di stato (STORNATO), non una copia",
+  );
+  assert.ok(
+    /reversed: spec\("STORNATO"/.test(leggi("src/lib/web/status.ts")),
+    "MONEY_STATUS.reversed deve dire STORNATO",
+  );
 });
 
 test("l'elenco degli sponsor legge gli incassi dalla stessa fonte del residuo", () => {

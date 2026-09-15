@@ -1,426 +1,112 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import * as React from "react";
 import { useRouter } from "next/navigation";
+import { Building2, ChevronRight, MapPin, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
-import {
-  DashboardPageContainer,
-  dashboardMainClassName,
-} from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { useAuth } from "@/components/providers/AuthProvider";
-import { MobileTopBar } from "@/components/layout/MobileTopBar";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
 import { useToast } from "@/components/ui/toast-notification";
+import { HeaderStat, PageHeader } from "@/components/web/page/PageHeader";
+import { Button, IconButton } from "@/components/web/primitives/Button";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/web/primitives/Overlays";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { IdentityCell } from "@/components/web/primitives/Identity";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { ColumnDef, FilterDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
+import { formatInteger, joinMeta, MISSING } from "@/lib/web/format";
+import { normalizeStructure, type ClubStructure } from "@/lib/structures-utils";
+import { filterStructuresBySite, isMultiSiteClub, normalizeClubSites, serializeClubSite, type ClubSite } from "@/lib/club-sites";
+import { SiteContextControl } from "@/components/athletes/v2/athletes-context-controls";
+import { StructureDrawer } from "@/components/structures/v2/structure-drawer";
+import { SitesDrawer } from "@/components/structures/v2/sites-drawer";
+import { DeleteStructureDialog } from "@/components/structures/v2/delete-structure-dialog";
+import { useStructuresClubId } from "@/components/structures/v2/use-structures-club-id";
 import {
-  Plus,
-  Pencil,
-  Trash2,
-  CreditCard,
-  CalendarClock,
-  Building2,
-  Save,
-  Eye,
-  EyeOff,
-  ChevronDown,
-  ChevronUp,
-} from "lucide-react";
-import { normalizeStructure } from "@/lib/structures-utils";
-import { sortByName } from "@/lib/sorting";
-import {
-  filterStructuresBySite,
-  isMultiSiteClub,
-  normalizeClubSites,
-  serializeClubSite,
-  type ClubSite,
-} from "@/lib/club-sites";
-import { ClubSitesSection } from "@/components/sites/club-sites-section";
-import { SiteFilter, SiteSelect } from "@/components/sites/site-filter";
-import { todayLocalDateOnly } from "@/lib/date-only";
+  STRUCTURE_BOOKABILITY,
+  STRUCTURE_VISIBILITY,
+  describeStructureHours,
+  structureAddressLine,
+  structureDisplayName,
+  structureSiteName,
+  withClubId,
+} from "@/components/structures/v2/structure-model";
 
-type PaymentStatus = "Pagato" | "In attesa" | "Scaduto";
-
-type StructurePayment = {
-  id: string;
-  date: string; // YYYY-MM-DD
-  description: string;
-  type: "Quota" | "Iscrizione" | "Abbigliamento" | "Trasferta" | "Altro";
-  amount: number;
-  status: PaymentStatus;
-};
-
-type FieldPricing = {
-  id: string;
-  durationMinutes: number; // 30, 60, 90...
-  price: number; // price for that slot
-};
-
-type AvailabilitySlot = { start: string; end: string };
-
-type FieldAvailabilityV2 = Record<string, AvailabilitySlot[]>; // per-day slots
-
-type FieldOwnership = "Pubblica" | "Privata";
-
-type StructureField = {
-  id: string;
-  name: string;
-  // Requested options
-  ownership: FieldOwnership; // Proprietà Pubblica/Privata
-  inRent: boolean; // In affitto
-  isBookable: boolean; // Campi Affittabili
-  isVisible: boolean; // Mostra/Nascondi per atleti/genitori
-
-  availability: FieldAvailabilityV2;
-  pricing: FieldPricing[];
-};
-
-type ClubStructure = {
-  id: string;
-  name: string;
-  address: string;
-  // Sede dell'impianto (ADR-0038). Il tipo proprietario resta quello di
-  // `@/lib/structures-utils`: questa copia locale lo rispecchia.
-  siteId: string;
-
-  // Struttura options
-  isPublic: boolean; // Pubblica/Privata
-  isVisibleToMembers: boolean; // Visibile/Non visibile ai tesserati
-  isBookableByMembers: boolean; // Prenotabile dall'area famiglia (W6-54)
-  isRentable: boolean; // Il contratto d'affitto, non la prenotabilita
-
-  payments: StructurePayment[];
-  fields: StructureField[];
-  bookings?: unknown[];
-};
-
-const WEEK_DAYS: { key: string; label: string }[] = [
-  { key: "Lun", label: "Lunedì" },
-  { key: "Mar", label: "Martedì" },
-  { key: "Mer", label: "Mercoledì" },
-  { key: "Gio", label: "Giovedì" },
-  { key: "Ven", label: "Venerdì" },
-  { key: "Sab", label: "Sabato" },
-  { key: "Dom", label: "Domenica" },
+/**
+ * `/structures` — elenco delle strutture (Web V2, pattern 1: intestazione di
+ * pagina + DataGrid a tutta larghezza).
+ *
+ * La griglia sostituisce le card della V1: cio che la card mostrava (nome,
+ * indirizzo, visibilita, campi, prenotazioni, affittabile, tipo) sono
+ * colonne. I dati e le scritture sono quelli della V1: `clubs.structures`
+ * letto con `getClubStructures` e riscritto **intero** con
+ * `saveClubStructures`; le sedi (ADR-0038) con `updateClubData("club_sites")`.
+ * Il filtro sede e il controllo di contesto V2, montato solo per un club
+ * multi-sede, con lo stesso contratto: vuoto = tutte.
+ */
+const VIEWS: ViewDef[] = [
+  { id: "bookable", label: "Prenotabili dalle famiglie", filters: { bookable: "yes" }, builtIn: true },
+  { id: "hidden", label: "Non visibili", filters: { visibility: "hidden" }, builtIn: true, tone: "amber" },
+  { id: "rent", label: "In affitto", filters: { rentable: "yes" }, builtIn: true },
 ];
 
-function uid(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function formatDate(dateString?: string) {
-  if (!dateString) return "-";
-  try {
-    const [y, m, d] = dateString.split("-").map((x) => parseInt(x, 10));
-    if (!y || !m || !d) return dateString;
-    return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
-  } catch {
-    return dateString;
-  }
-}
-
-function badgeClassForPaymentStatus(status: PaymentStatus) {
-  if (status === "Pagato") return "bg-green-500";
-  if (status === "Scaduto") return "bg-red-500";
-  return "bg-yellow-500";
-}
-
-function normalizeAvailability(input: any): FieldAvailabilityV2 {
-  // Accepts legacy shape: {days:[], startTime, endTime}
-  // or already v2: { Lun:[{start,end}], ... }
-  if (!input) {
-    return WEEK_DAYS.reduce((acc, d) => {
-      acc[d.key] = [];
-      return acc;
-    }, {} as FieldAvailabilityV2);
-  }
-
-  // v2-like
-  if (typeof input === "object" && !Array.isArray(input) && !input.days) {
-    const out: FieldAvailabilityV2 = {};
-    for (const day of WEEK_DAYS) {
-      const raw = (input as any)[day.key];
-      if (Array.isArray(raw)) {
-        out[day.key] = raw
-          .map((s: any) => ({
-            start: String(s?.start || "").slice(0, 5),
-            end: String(s?.end || "").slice(0, 5),
-          }))
-          .filter((s: any) => s.start && s.end);
-      } else {
-        out[day.key] = [];
-      }
-    }
-    return out;
-  }
-
-  // legacy
-  /*
-    **PP-02 §L. Gli orari non si inventano, nemmeno qui.**
-
-    Questa e una **seconda** copia di `normalizeAvailability`, e portava gli
-    stessi due ripieghi `18:00`/`22:00` di quella del dominio. Da quando la
-    fascia vincola la prenotazione della famiglia, il dominio non li mette piu:
-    lasciarli qui vorrebbe dire che il club **vede** una fascia che il server
-    non applica — due risposte alla stessa domanda, che e il modo in cui una
-    schermata comincia a mentire.
-
-    Che le copie siano due resta un difetto suo, e sta fra i residui.
-  */
-  const days: string[] = Array.isArray(input.days) ? input.days : [];
-  const startTime = String(input.startTime || "").slice(0, 5);
-  const endTime = String(input.endTime || "").slice(0, 5);
-  if (!startTime || !endTime) {
-    return WEEK_DAYS.reduce((acc, d) => {
-      acc[d.key] = [];
-      return acc;
-    }, {} as FieldAvailabilityV2);
-  }
-
-  const out: FieldAvailabilityV2 = WEEK_DAYS.reduce((acc, d) => {
-    acc[d.key] = [];
-    return acc;
-  }, {} as FieldAvailabilityV2);
-
-  for (const day of days) {
-    if (out[day]) out[day] = [{ start: startTime, end: endTime }];
-  }
-
-  return out;
-}
-
-function normalizeField(raw: any): StructureField {
-  return {
-    id: raw?.id || uid("field"),
-    name: raw?.name || "Campo",
-    ownership: raw?.ownership === "Privata" ? "Privata" : "Pubblica",
-    inRent: typeof raw?.inRent === "boolean" ? raw.inRent : false,
-    isBookable: typeof raw?.isBookable === "boolean" ? raw.isBookable : true,
-    isVisible: typeof raw?.isVisible === "boolean" ? raw.isVisible : true,
-    availability: normalizeAvailability(raw?.availability),
-    pricing: Array.isArray(raw?.pricing)
-      ? raw.pricing.map((p: any) => ({
-          id: p?.id || uid("price"),
-          durationMinutes: Number(p?.durationMinutes ?? 60),
-          price: Number(p?.price ?? 0),
-        }))
-      : [],
-  };
-}
-
-function normalizePayment(raw: any): StructurePayment {
-  return {
-    id: raw?.id || uid("payment"),
-    date: raw?.date || todayLocalDateOnly(),
-    description: raw?.description || "",
-    type:
-      raw?.type === "Iscrizione" ||
-      raw?.type === "Abbigliamento" ||
-      raw?.type === "Trasferta" ||
-      raw?.type === "Altro"
-        ? raw.type
-        : "Quota",
-    amount: Number(raw?.amount ?? 0),
-    status:
-      raw?.status === "In attesa" || raw?.status === "Scaduto"
-        ? raw.status
-        : "Pagato",
-  };
-}
+const YES_NO = [
+  { value: "yes", label: "Sì" },
+  { value: "no", label: "No" },
+];
 
 export default function StrutturePage() {
   const router = useRouter();
-  const { user, activeClub } = useAuth();
   const { showToast } = useToast();
+  const { clubId, resolved } = useStructuresClubId(null);
 
-  const [clubId, setClubId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [activeClubId, setActiveClubId] = useState<string | null>(null);
+  const [structures, setStructures] = React.useState<ClubStructure[]>([]);
+  const [sites, setSites] = React.useState<ClubSite[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
+  const [siteFilter, setSiteFilter] = React.useState("");
+  const [drawer, setDrawer] = React.useState<{ structure: ClubStructure | null } | null>(null);
+  const [sitesOpen, setSitesOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState<ClubStructure | null>(null);
+  const [deleteBusy, setDeleteBusy] = React.useState(false);
 
-  const [structures, setStructures] = useState<ClubStructure[]>([]);
-  const [sites, setSites] = useState<ClubSite[]>([]);
-  const [siteFilter, setSiteFilter] = useState("");
-  // L'elenco strutture si mostra in ordine alfabetico; `structures` resta la
-  // sorgente per le modifiche, che indicizzano per id.
-  const sortedStructures = useMemo(
-    () =>
-      sortByName(
-        filterStructuresBySite(structures, siteFilter),
-        (structure) => structure.name,
-      ),
-    [structures, siteFilter],
-  );
-  const structureCountBySiteId = useMemo(() => {
-    const counts: Record<string, number> = {};
-    structures.forEach((structure) => {
-      const siteId = String(structure.siteId || "");
-      if (!siteId) return;
-      counts[siteId] = (counts[siteId] || 0) + 1;
-    });
-    return counts;
-  }, [structures]);
-
-  // Structure create/edit modal
-  const [isStructureModalOpen, setIsStructureModalOpen] = useState(false);
-  const [editingStructureId, setEditingStructureId] = useState<string | null>(
-    null,
-  );
-  const [structureForm, setStructureForm] = useState({
-    name: "",
-    address: "",
-    siteId: "",
-    isPublic: true,
-    isVisibleToMembers: true,
-    isBookableByMembers: true,
-    isRentable: false,
-  });
-
-  // Payments (same UX as athletes)
-  const [showAddPaymentFor, setShowAddPaymentFor] = useState<string | null>(
-    null,
-  );
-  const [newPayment, setNewPayment] = useState({
-    date: "",
-    description: "",
-    type: "Quota" as StructurePayment["type"],
-    amount: "",
-    status: "Pagato" as PaymentStatus,
-  });
-
-  // Keep date initialized client-side (avoid hydration mismatch)
-  useEffect(() => {
-    if (!newPayment.date) {
-      setNewPayment((prev) => ({
-        ...prev,
-        date: todayLocalDateOnly(),
-      }));
+  React.useEffect(() => {
+    if (!resolved) return;
+    if (!clubId) {
+      setLoading(false);
+      setStructures([]);
+      setSites([]);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const [openPaymentsByStructure, setOpenPaymentsByStructure] = useState<
-    Record<string, boolean>
-  >({});
-  const [openFieldsByStructure, setOpenFieldsByStructure] = useState<
-    Record<string, boolean>
-  >({});
-
-  // Read active club after mount
-  useEffect(() => {
-    // Prefer AuthProvider activeClub (user-specific), fallback to localStorage for safety.
-    if (typeof window === "undefined") return;
-
-    const readActiveClubId = () => {
-      try {
-        // User-specific key first (matches AuthProvider/Header behaviour)
-        if (user?.id) {
-          const rawUser = localStorage.getItem(`activeClub_${user.id}`);
-          if (rawUser) {
-            const parsedUser = JSON.parse(rawUser);
-            return parsedUser?.id || null;
-          }
-        }
-
-        // Generic key fallback
-        const raw = localStorage.getItem("activeClub");
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        return parsed?.id || null;
-      } catch {
-        return null;
-      }
-    };
-
-    const idFromContext = (activeClub as any)?.id || null;
-    setActiveClubId(idFromContext ?? readActiveClubId());
-
-    const handleStorage = (e: StorageEvent) => {
-      if (!e.key) return;
-      if (e.key === "activeClub" || (user?.id && e.key === `activeClub_${user.id}`)) {
-        const id = idFromContext ?? readActiveClubId();
-        setActiveClubId(id);
-      }
-    };
-
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, [activeClub, user?.id]);;
-
-  useEffect(() => {
-    (async () => {
+    let cancelled = false;
+    const load = async () => {
       setLoading(true);
       try {
-        const id = activeClubId;
-        if (!id) {
-          setClubId(null);
-          setStructures([]);
-          return;
-        }
-
-        setClubId(id);
-
-        const { getClubStructures, getClubData } = await import(
-          "@/lib/simplified-db"
-        );
-        const [dbStructures, dbSites] = await Promise.all([
-          getClubStructures(id),
-          getClubData(id, "club_sites"),
-        ]);
-
-        const normalized: ClubStructure[] = (dbStructures || []).map((s: any) =>
-          normalizeStructure(s),
-        );
-
-        setStructures(normalized);
+        const { getClubStructures, getClubData } = await import("@/lib/simplified-db");
+        const [dbStructures, dbSites] = await Promise.all([getClubStructures(clubId), getClubData(clubId, "club_sites")]);
+        if (cancelled) return;
+        setStructures((dbStructures || []).map((item: unknown) => normalizeStructure(item)));
         setSites(normalizeClubSites(dbSites));
-      } catch (e) {
-        console.error(e);
+        setLoadError(null);
+      } catch (error) {
+        if (cancelled) return;
+        console.error(error);
+        setLoadError("Errore nel caricamento delle strutture");
         showToast("error", "Errore nel caricamento delle strutture");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeClubId]);
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [clubId, resolved, reloadKey, showToast]);
 
+  const reload = () => setReloadKey((key) => key + 1);
+
+  /* ── Scritture (le stesse della V1) ────────────────────────────────────── */
   const persist = async (next: ClubStructure[]) => {
     if (!clubId) return false;
     const { saveClubStructures } = await import("@/lib/simplified-db");
@@ -443,1328 +129,373 @@ export default function StrutturePage() {
     }
   };
 
-  const resetStructureForm = () => {
-    setEditingStructureId(null);
-    setStructureForm({
-      name: "",
-      address: "",
-      siteId: "",
-      isPublic: true,
-      isVisibleToMembers: true,
-      isBookableByMembers: true,
-      isRentable: false,
-    });
-  };
+  const openDetail = (structure: ClubStructure) => router.push(withClubId(`/structures/${structure.id}`, clubId));
 
-  const openCreateStructure = () => {
-    resetStructureForm();
-    setIsStructureModalOpen(true);
-  };
-
-  const openEditStructure = (id: string) => {
-    const s = structures.find((x) => x.id === id);
-    if (!s) return;
-
-    setEditingStructureId(id);
-    setStructureForm({
-      name: s.name,
-      address: s.address,
-      siteId: s.siteId || "",
-      isPublic: s.isPublic,
-      isVisibleToMembers: (s as any).isVisibleToMembers ?? true,
-      isBookableByMembers: (s as any).isBookableByMembers ?? true,
-      isRentable: s.isRentable,
-    });
-    setIsStructureModalOpen(true);
-  };
-
-  const openStructureDetail = (id: string) => {
-    router.push(`/structures/${id}${clubId ? `?clubId=${clubId}` : ""}`);
-  };
-
-  const handleDeleteStructure = async (id: string) => {
-    const next = structures.filter((s) => s.id !== id);
-    setStructures(next);
-    await persist(next);
-    showToast("success", "Struttura eliminata");
-  };
-
-  const handleSaveStructure = async () => {
-    if (!structureForm.name.trim()) {
-      showToast("error", "Inserisci il nome della struttura");
-      return;
+  const saveStructure = async (next: ClubStructure) => {
+    const exists = structures.some((item) => item.id === next.id);
+    const nextList = exists ? structures.map((item) => (item.id === next.id ? next : item)) : [...structures, next];
+    const previous = structures;
+    setStructures(nextList);
+    const ok = await persist(nextList);
+    if (!ok) {
+      setStructures(previous);
+      return false;
     }
+    showToast("success", "Struttura salvata");
+    setDrawer(null);
+    // Come nella V1: dopo la creazione si apre la scheda appena creata.
+    if (!exists) openDetail(next);
+    return true;
+  };
 
-    let next: ClubStructure[];
-    let createdStructureId: string | null = null;
-
-    if (editingStructureId) {
-      next = structures.map((s) =>
-        s.id === editingStructureId
-          ? {
-              ...s,
-              name: structureForm.name.trim(),
-              address: structureForm.address.trim(),
-              siteId: structureForm.siteId,
-              isPublic: structureForm.isPublic,
-              isVisibleToMembers: structureForm.isVisibleToMembers,
-              isBookableByMembers: structureForm.isBookableByMembers,
-              isRentable: structureForm.isRentable,
-            }
-          : s,
-      );
-    } else {
-      const newStructure: ClubStructure = {
-        id: uid("structure"),
-        name: structureForm.name.trim(),
-        address: structureForm.address.trim(),
-        siteId: structureForm.siteId,
-        isPublic: structureForm.isPublic,
-        isVisibleToMembers: structureForm.isVisibleToMembers,
-        isBookableByMembers: structureForm.isBookableByMembers,
-        isRentable: structureForm.isRentable,
-        payments: [],
-        fields: [],
-      };
-      createdStructureId = newStructure.id;
-      next = [...structures, newStructure];
-    }
-
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    setDeleteBusy(true);
+    const previous = structures;
+    const next = structures.filter((item) => item.id !== deleting.id);
     setStructures(next);
-    const ok = await persist(next);
-    if (ok) {
-      showToast("success", "Struttura salvata");
-      // IMPORTANT: close modal + reset mode to avoid "Modifica struttura" after create
-      setIsStructureModalOpen(false);
-      resetStructureForm();
-      if (createdStructureId) {
-        openStructureDetail(createdStructureId);
+    try {
+      const ok = await persist(next);
+      if (!ok) {
+        setStructures(previous);
+        return;
       }
+      showToast("success", "Struttura eliminata");
+      setDeleting(null);
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
-  const toggleStructurePayments = (structureId: string) => {
-    setOpenPaymentsByStructure((prev) => ({
-      ...prev,
-      [structureId]: !prev[structureId],
-    }));
-  };
-
-  const toggleStructureFields = (structureId: string) => {
-    setOpenFieldsByStructure((prev) => ({
-      ...prev,
-      [structureId]: !prev[structureId],
-    }));
-  };
-
-  // Payments logic (mirrors athletes page)
-  const openAddPayment = (structureId: string) => {
-    setShowAddPaymentFor(structureId);
-    setNewPayment({
-      date: todayLocalDateOnly(),
-      description: "",
-      type: "Quota",
-      amount: "",
-      status: "Pagato",
-    });
-  };
-
-  const addPayment = async () => {
-    const structureId = showAddPaymentFor;
-    if (!structureId) return;
-
-    if (!newPayment.description || !newPayment.amount || !newPayment.date) {
-      showToast("error", "Compila tutti i campi obbligatori");
-      return;
+  /* ── Derivati ──────────────────────────────────────────────────────────── */
+  const multiSite = isMultiSiteClub(sites);
+  const rows = React.useMemo(() => filterStructuresBySite(structures, siteFilter), [structures, siteFilter]);
+  const structureCountBySiteId = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const structure of structures) {
+      const siteId = String(structure.siteId || "");
+      if (siteId) counts[siteId] = (counts[siteId] || 0) + 1;
     }
-
-    const amount = parseFloat(String(newPayment.amount).replace(",", "."));
-    if (Number.isNaN(amount)) {
-      showToast("error", "Importo non valido");
-      return;
+    return counts;
+  }, [structures]);
+  const typesInUse = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const structure of structures) {
+      const type = String(structure.type || "").trim();
+      if (type && !seen.has(type.toLowerCase())) seen.set(type.toLowerCase(), type);
     }
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, "it", { sensitivity: "base" }));
+  }, [structures]);
+  const fieldsCount = structures.reduce((total, structure) => total + structure.fields.length, 0);
+  const bookableCount = structures.filter((structure) => structure.isVisibleToMembers && structure.isBookableByMembers).length;
 
-    const paymentData: StructurePayment = {
-      id: uid("payment"),
-      date: newPayment.date,
-      description: newPayment.description,
-      type: newPayment.type,
-      amount,
-      status: newPayment.status,
-    };
-
-    const next = structures.map((s) =>
-      s.id === structureId
-        ? { ...s, payments: [...(s.payments || []), paymentData] }
-        : s,
-    );
-
-    setStructures(next);
-    const ok = await persist(next);
-    if (ok) {
-      setShowAddPaymentFor(null);
-      showToast("success", "Pagamento aggiunto con successo");
-    }
-  };
-
-  const removePayment = async (structureId: string, paymentId: string) => {
-    const next = structures.map((s) =>
-      s.id === structureId
-        ? {
-            ...s,
-            payments: (s.payments || []).filter((p) => p.id !== paymentId),
-          }
-        : s,
-    );
-    setStructures(next);
-    const ok = await persist(next);
-    if (ok) showToast("success", "Pagamento eliminato");
-  };
-
-  // Fields
-  const addField = async (structureId: string) => {
-    const newField: StructureField = {
-      id: uid("field"),
-      name: "Nuovo campo",
-      ownership: "Pubblica",
-      inRent: false,
-      isBookable: true,
-      isVisible: true,
-      availability: normalizeAvailability({
-        days: ["Lun", "Mer", "Ven"],
-        startTime: "18:00",
-        endTime: "22:00",
-      }),
-      /*
-        W6-55. Un campo nuovo non nasce con due tariffe a zero: «€ 0,00» non
-        significa gratis, significa che nessuno ha ancora scritto un importo.
-        Finche non c'e, la famiglia legge «Tariffe non pubblicate».
-      */
-      pricing: [],
-    };
-    const next = structures.map((s) =>
-      s.id === structureId
-        ? {
-            ...s,
-            fields: [
-              ...(s.fields || []),
-              newField,
-            ],
-          }
-        : s,
-    );
-
-    setStructures(next);
-    await persist(next);
-  };
-
-  const updateField = async (
-    structureId: string,
-    fieldId: string,
-    patch: Partial<StructureField>,
-  ) => {
-    const next = structures.map((s) =>
-      s.id === structureId
-        ? {
-            ...s,
-            fields: (s.fields || []).map((f) =>
-              f.id === fieldId ? { ...f, ...patch } : f,
-            ),
-          }
-        : s,
-    );
-
-    setStructures(next);
-    await persist(next);
-  };
-
-  const removeField = async (structureId: string, fieldId: string) => {
-    const next = structures.map((s) =>
-      s.id === structureId
-        ? { ...s, fields: (s.fields || []).filter((f) => f.id !== fieldId) }
-        : s,
-    );
-
-    setStructures(next);
-    await persist(next);
-  };
-
-  const addSlot = async (
-    structureId: string,
-    fieldId: string,
-    dayKey: string,
-  ) => {
-    const s = structures.find((x) => x.id === structureId);
-    const f = s?.fields?.find((x) => x.id === fieldId);
-    const current = f?.availability || normalizeAvailability(null);
-    const nextDaySlots = [
-      ...(current[dayKey] || []),
-      { start: "18:00", end: "22:00" },
+  /* ── Griglia ───────────────────────────────────────────────────────────── */
+  const columns = React.useMemo<ColumnDef<ClubStructure>[]>(() => {
+    const base: ColumnDef<ClubStructure>[] = [
+      {
+        id: "identity",
+        header: "Struttura",
+        kind: "identity",
+        locked: true,
+        width: 2,
+        cell: (row) => (
+          <IdentityCell
+            name={structureDisplayName(row)}
+            href={withClubId(`/structures/${row.id}`, clubId)}
+            onClick={() => openDetail(row)}
+            meta={joinMeta(row.type, row.city) || undefined}
+          />
+        ),
+        sortValue: (row) => structureDisplayName(row).toLowerCase(),
+        exportValue: (row) => structureDisplayName(row),
+        title: (row) => structureDisplayName(row),
+      },
+      {
+        id: "type",
+        header: "Tipologia",
+        kind: "classification",
+        cell: (row) => (String(row.type || "").trim() ? <DataChip size="sm" title={row.type}>{row.type}</DataChip> : null),
+        sortValue: (row) => String(row.type || "").trim().toLowerCase() || null,
+        exportValue: (row) => String(row.type || "").trim(),
+      },
     ];
-    const nextAvail = { ...current, [dayKey]: nextDaySlots };
-    await updateField(structureId, fieldId, { availability: nextAvail });
-  };
-
-  const updateSlot = async (
-    structureId: string,
-    fieldId: string,
-    dayKey: string,
-    index: number,
-    patch: Partial<AvailabilitySlot>,
-  ) => {
-    const s = structures.find((x) => x.id === structureId);
-    const f = s?.fields?.find((x) => x.id === fieldId);
-    const current = f?.availability || normalizeAvailability(null);
-    const slots = [...(current[dayKey] || [])];
-    slots[index] = { ...slots[index], ...patch };
-    const nextAvail = { ...current, [dayKey]: slots };
-    await updateField(structureId, fieldId, { availability: nextAvail });
-  };
-
-  const removeSlot = async (
-    structureId: string,
-    fieldId: string,
-    dayKey: string,
-    index: number,
-  ) => {
-    const s = structures.find((x) => x.id === structureId);
-    const f = s?.fields?.find((x) => x.id === fieldId);
-    const current = f?.availability || normalizeAvailability(null);
-    const slots = [...(current[dayKey] || [])].filter((_, i) => i !== index);
-    const nextAvail = { ...current, [dayKey]: slots };
-    await updateField(structureId, fieldId, { availability: nextAvail });
-  };
-
-  const addPricing = async (structureId: string, fieldId: string) => {
-    const s = structures.find((x) => x.id === structureId);
-    const f = s?.fields?.find((x) => x.id === fieldId);
-    const pricing = Array.isArray(f?.pricing) ? f!.pricing : [];
-    const nextPricing = [
-      ...pricing,
-      { id: uid("price"), durationMinutes: 60, price: 0 },
-    ];
-    await updateField(structureId, fieldId, { pricing: nextPricing });
-  };
-
-  const updatePricing = async (
-    structureId: string,
-    fieldId: string,
-    priceId: string,
-    patch: Partial<FieldPricing>,
-  ) => {
-    const s = structures.find((x) => x.id === structureId);
-    const f = s?.fields?.find((x) => x.id === fieldId);
-    const pricing = Array.isArray(f?.pricing) ? f!.pricing : [];
-    const nextPricing = pricing.map((p) =>
-      p.id === priceId ? { ...p, ...patch } : p,
-    );
-    await updateField(structureId, fieldId, { pricing: nextPricing });
-  };
-
-  const removePricing = async (
-    structureId: string,
-    fieldId: string,
-    priceId: string,
-  ) => {
-    const s = structures.find((x) => x.id === structureId);
-    const f = s?.fields?.find((x) => x.id === fieldId);
-    const pricing = Array.isArray(f?.pricing) ? f!.pricing : [];
-    const nextPricing = pricing.filter((p) => p.id !== priceId);
-    await updateField(structureId, fieldId, { pricing: nextPricing });
-  };
-
-  const emptyState = useMemo(() => {
-    if (loading) return null;
-    if (!clubId) {
-      return (
-        <div className="flex items-center justify-center h-64">
-          <p className="text-gray-500">Nessun club selezionato</p>
-        </div>
-      );
+    if (multiSite) {
+      base.push({
+        id: "site",
+        header: "Sede",
+        kind: "classification",
+        cell: (row) => {
+          const name = structureSiteName(row, sites);
+          return name ? (
+            <DataChip size="sm" tone="blue" title={name}>
+              {name}
+            </DataChip>
+          ) : (
+            <DataChip size="sm">Tutte le sedi</DataChip>
+          );
+        },
+        sortValue: (row) => structureSiteName(row, sites).toLowerCase() || null,
+        exportValue: (row) => structureSiteName(row, sites),
+      });
     }
-    return null;
-  }, [clubId, loading]);
+    base.push(
+      {
+        id: "address",
+        header: "Indirizzo",
+        kind: "text",
+        minWidth: 160,
+        cell: (row) => structureAddressLine(row),
+        sortValue: (row) => structureAddressLine(row).toLowerCase() || null,
+        title: (row) => structureAddressLine(row) || undefined,
+      },
+      {
+        id: "fields",
+        header: "Campi",
+        kind: "number",
+        align: "right",
+        cell: (row) => <span className="egw-num font-bold">{formatInteger(row.fields.length)}</span>,
+        sortValue: (row) => row.fields.length,
+        exportValue: (row) => row.fields.length,
+      },
+      {
+        id: "hours",
+        header: "Orari",
+        kind: "text",
+        minWidth: 180,
+        cell: (row) => describeStructureHours(row) || MISSING,
+        sortValue: (row) => describeStructureHours(row) || null,
+        title: (row) => describeStructureHours(row) || "Nessuna fascia dichiarata: l'orario non è vincolato",
+      },
+      {
+        id: "bookings",
+        header: "Prenotazioni",
+        kind: "number",
+        align: "right",
+        cell: (row) => <span className="egw-num">{formatInteger((row.bookings || []).length)}</span>,
+        sortValue: (row) => (row.bookings || []).length,
+        exportValue: (row) => (row.bookings || []).length,
+      },
+      {
+        id: "visibility",
+        header: "Visibilità",
+        kind: "status",
+        cell: (row) => <StatusPill size="sm" status={row.isVisibleToMembers ? STRUCTURE_VISIBILITY.visible : STRUCTURE_VISIBILITY.hidden} />,
+        sortValue: (row) => (row.isVisibleToMembers ? "a" : "b"),
+        exportValue: (row) => (row.isVisibleToMembers ? "Visibile ai tesserati" : "Non visibile ai tesserati"),
+      },
+      {
+        id: "bookable",
+        header: "Prenotabile",
+        kind: "status",
+        cell: (row) => <StatusPill size="sm" status={row.isBookableByMembers ? STRUCTURE_BOOKABILITY.bookable : STRUCTURE_BOOKABILITY.closed} />,
+        sortValue: (row) => (row.isBookableByMembers ? "a" : "b"),
+        exportValue: (row) => (row.isBookableByMembers ? "Sì" : "No"),
+      },
+      {
+        id: "ownership",
+        header: "Proprietà",
+        kind: "classification",
+        hidden: true,
+        cell: (row) => <DataChip size="sm">{row.isPublic ? "Pubblica" : "Privata"}</DataChip>,
+        sortValue: (row) => (row.isPublic ? "Pubblica" : "Privata"),
+      },
+      {
+        id: "rentable",
+        header: "Affittabile",
+        kind: "text",
+        hidden: true,
+        cell: (row) => (row.isRentable ? "Sì" : "No"),
+        sortValue: (row) => (row.isRentable ? "a" : "b"),
+      },
+      {
+        id: "contact",
+        header: "Referente",
+        kind: "text",
+        hidden: true,
+        cell: (row) => joinMeta(row.contactName, row.contactPhone) || null,
+        sortValue: (row) => String(row.contactName || "").trim().toLowerCase() || null,
+        title: (row) => joinMeta(row.contactName, row.contactPhone, row.contactEmail) || undefined,
+      },
+    );
+    return base;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clubId, multiSite, sites]);
+
+  const filters = React.useMemo<FilterDef<ClubStructure>[]>(() => {
+    const list: FilterDef<ClubStructure>[] = [
+      {
+        id: "visibility",
+        label: "Visibilità",
+        type: "select",
+        pinned: true,
+        options: [
+          { value: "visible", label: "Visibile ai tesserati" },
+          { value: "hidden", label: "Non visibile" },
+        ],
+        apply: (row, value) => (typeof value === "string" && value ? (value === "visible") === row.isVisibleToMembers : true),
+      },
+      {
+        id: "bookable",
+        label: "Prenotabile dalle famiglie",
+        type: "select",
+        options: YES_NO,
+        apply: (row, value) => (typeof value === "string" && value ? (value === "yes") === row.isBookableByMembers : true),
+      },
+      {
+        id: "rentable",
+        label: "Affittabile",
+        type: "select",
+        options: YES_NO,
+        apply: (row, value) => (typeof value === "string" && value ? (value === "yes") === row.isRentable : true),
+      },
+      {
+        id: "ownership",
+        label: "Proprietà",
+        type: "select",
+        options: [
+          { value: "Pubblica", label: "Pubblica" },
+          { value: "Privata", label: "Privata" },
+        ],
+        apply: (row, value) => (typeof value === "string" && value ? (value === "Pubblica") === row.isPublic : true),
+      },
+    ];
+    if (typesInUse.length) {
+      list.splice(1, 0, {
+        id: "type",
+        label: "Tipologia",
+        type: "select",
+        options: typesInUse.map((type) => ({ value: type, label: type })),
+        apply: (row, value) => (typeof value === "string" && value ? String(row.type || "").trim().toLowerCase() === value.toLowerCase() : true),
+      });
+    }
+    return list;
+  }, [typesInUse]);
+
+  const rowActions = React.useMemo<RowActionDef<ClubStructure>[]>(
+    () => [
+      { id: "open", label: "Apri scheda", icon: <ChevronRight />, primary: true, onClick: (row) => openDetail(row) },
+      { id: "edit", label: "Modifica", icon: <Pencil />, onClick: (row) => setDrawer({ structure: row }) },
+      { id: "delete", label: "Elimina", icon: <Trash2 />, tone: "danger", onClick: (row) => setDeleting(row) },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clubId],
+  );
+
+  const search = React.useMemo(
+    () => ({
+      placeholder: "Cerca per nome, indirizzo, città, tipologia",
+      match: (row: ClubStructure, query: string) => {
+        const q = query.trim().toLowerCase();
+        if (!q) return true;
+        return [row.name, row.address, row.city, row.type, row.contactName]
+          .map((value) => String(value || "").toLowerCase())
+          .some((value) => value.includes(q));
+      },
+    }),
+    [],
+  );
+
+  const openCreate = () => setDrawer({ structure: null });
+  const gridState = loading ? "loading" : loadError ? "error" : "ready";
 
   return (
-    <div className="flex h-[100dvh] flex-col bg-background">
-      <MobileTopBar />
-      <div className="flex min-h-0 flex-1">
-        <Sidebar />
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <Header title="Strutture" />
-          <main className={dashboardMainClassName}>
-            <DashboardPageContainer>
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-              <SharedPageHeader
-                title="Strutture"
-                subtitle="Registra strutture, gestisci pagamenti e configura i campi."
-                className="flex-1"
-              />
-
-              <Dialog
-                open={isStructureModalOpen}
-                onOpenChange={(open) => {
-                  setIsStructureModalOpen(open);
-                  if (!open) resetStructureForm();
-                }}
-              >
-                <DialogTrigger asChild>
-                  <Button className="gap-2" onClick={openCreateStructure}>
-                    <Plus className="h-4 w-4" />
+    <div className="flex h-[100dvh] bg-egw-page">
+      <Sidebar />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <Header title="Strutture" />
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <PageHeader
+              eyebrow="Club"
+              title="Strutture"
+              description="Registra strutture, gestisci pagamenti e configura i campi."
+              context={<SiteContextControl sites={sites} value={siteFilter} onChange={setSiteFilter} id="structures-site-filter" />}
+              stats={
+                <>
+                  <HeaderStat value={formatInteger(structures.length)} label={structures.length === 1 ? "struttura" : "strutture"} />
+                  <HeaderStat value={formatInteger(fieldsCount)} label={fieldsCount === 1 ? "campo" : "campi"} />
+                  <HeaderStat value={formatInteger(bookableCount)} label="prenotabili" tone="green" />
+                  {sites.length ? <HeaderStat value={formatInteger(sites.length)} label={sites.length === 1 ? "sede" : "sedi"} onClick={() => setSitesOpen(true)} /> : null}
+                </>
+              }
+              actions={
+                <>
+                  <Menu>
+                    <MenuTrigger asChild>
+                      <IconButton aria-label="Altre azioni" variant="secondary" size="md">
+                        <MoreHorizontal />
+                      </IconButton>
+                    </MenuTrigger>
+                    <MenuContent align="end" width={240}>
+                      <MenuItem onSelect={() => setSitesOpen(true)}>
+                        <MapPin />
+                        Gestisci sedi
+                      </MenuItem>
+                    </MenuContent>
+                  </Menu>
+                  <Button variant="primary" icon={<Plus />} onClick={openCreate}>
                     Nuova struttura
                   </Button>
-                </DialogTrigger>
+                </>
+              }
+            />
 
-                <DialogContent className="max-w-xl">
-                  <DialogHeader>
-                    <DialogTitle>
-                      {editingStructureId
-                        ? "Modifica struttura"
-                        : "Aggiungi struttura"}
-                    </DialogTitle>
-                  </DialogHeader>
-
-                  <div className="space-y-4">
-                    <div className="space-y-1">
-                      <Label>Nome *</Label>
-                      <Input
-                        value={structureForm.name}
-                        onChange={(e) =>
-                          setStructureForm((prev) => ({
-                            ...prev,
-                            name: e.target.value,
-                          }))
-                        }
-                        placeholder="Es: PalaSport"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label>Indirizzo</Label>
-                      <Input
-                        value={structureForm.address}
-                        onChange={(e) =>
-                          setStructureForm((prev) => ({
-                            ...prev,
-                            address: e.target.value,
-                          }))
-                        }
-                        placeholder="Via..."
-                      />
-                    </div>
-
-                    {sites.length ? (
-                      <div className="space-y-1">
-                        <Label htmlFor="structure-site">Sede</Label>
-                        <SiteSelect
-                          id="structure-site"
-                          sites={sites}
-                          value={structureForm.siteId}
-                          onChange={(siteId) =>
-                            setStructureForm((prev) => ({ ...prev, siteId }))
-                          }
-                          emptyLabel="Nessuna sede"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Senza sede la struttura resta visibile con qualunque
-                          filtro.
-                        </p>
-                      </div>
-                    ) : null}
-
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <Label>Struttura pubblica</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Visibile nei contesti interni.
-                        </p>
-                      </div>
-                      <Switch
-                        checked={structureForm.isPublic}
-                        onCheckedChange={(checked) =>
-                          setStructureForm((prev) => ({
-                            ...prev,
-                            isPublic: checked,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <Label>Visibile ai tesserati</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Se disattivato, la struttura non sarà visibile ad
-                          atleti e genitori.
-                        </p>
-                      </div>
-                      <Switch
-                        checked={structureForm.isVisibleToMembers}
-                        onCheckedChange={(checked) =>
-                          setStructureForm((prev) => ({
-                            ...prev,
-                            isVisibleToMembers: checked,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    {/*
-                      W6-54. L'interruttore che mancava. «Affittabile», qui
-                      sotto, e il contratto d'affitto della struttura e non ha
-                      mai avuto effetto sull'area famiglia: chi lo spegneva
-                      credendo di chiudere le prenotazioni vedeva la famiglia
-                      prenotare lo stesso.
-                    */}
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <Label>Prenotabile dalle famiglie</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Se disattivato, la struttura resta visibile ma
-                          l&apos;area famiglia non mostra il modulo di
-                          prenotazione e la richiesta viene rifiutata.
-                        </p>
-                      </div>
-                      <Switch
-                        checked={structureForm.isBookableByMembers}
-                        onCheckedChange={(checked) =>
-                          setStructureForm((prev) => ({
-                            ...prev,
-                            isBookableByMembers: checked,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <Label>Affittabile</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Il contratto d&apos;affitto della struttura, con
-                          importo e scadenze. Non riguarda le prenotazioni
-                          delle famiglie.
-                        </p>
-                      </div>
-                      <Switch
-                        checked={structureForm.isRentable}
-                        onCheckedChange={(checked) =>
-                          setStructureForm((prev) => ({
-                            ...prev,
-                            isRentable: checked,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <Separator />
-
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => setIsStructureModalOpen(false)}
-                      >
-                        Annulla
-                      </Button>
-                      <Button className="gap-2" onClick={handleSaveStructure}>
-                        <Save className="h-4 w-4" />
-                        Salva
-                      </Button>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-
-            {emptyState}
-
-            {!loading && clubId ? (
-              <ClubSitesSection
-                sites={sites}
-                structureCountBySiteId={structureCountBySiteId}
-                onChange={persistSites}
-              />
-            ) : null}
-
-            {!loading && isMultiSiteClub(sites) ? (
-              <SiteFilter
-                sites={sites}
-                value={siteFilter}
-                onChange={setSiteFilter}
-                label="Mostra le strutture di"
-                id="structures-site-filter"
-              />
-            ) : null}
-
-            {loading ? (
-              <Card>
-                <CardContent className="py-10 text-center text-muted-foreground">
-                  Caricamento...
-                </CardContent>
-              </Card>
+            {!loading && resolved && !clubId ? (
+              <p className="font-brand text-[13px] text-egw-ink-62">Nessun club selezionato</p>
             ) : (
-              <div className="space-y-6">
-                {sortedStructures.length === 0 ? (
-                  <Card>
-                    <CardContent className="py-10 text-center text-muted-foreground">
-                      Nessuna struttura registrata.
-                    </CardContent>
-                  </Card>
-                ) : (
-                  sortedStructures.map((s) => (
-                    <Card key={s.id} className="overflow-hidden">
-                      <CardHeader className="flex flex-row items-start justify-between gap-4">
-                        <div>
-                          <CardTitle className="flex items-center gap-2">
-                            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
-                              <Building2 className="h-4 w-4" />
-                            </span>
-                            <span>{s.name || "(Senza nome)"}</span>
-                            {(s as any).isVisibleToMembers ? (
-                              <Badge className="bg-gray-100 text-gray-700 border border-gray-200">
-                                Visibile ai tesserati
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-gray-100 text-gray-500 border border-gray-200">
-                                Non visibile ai tesserati
-                              </Badge>
-                            )}
-                          </CardTitle>
-                          {s.address ? (
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {s.address}
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="gap-2"
-                            onClick={() => openStructureDetail(s.id)}
-                          >
-                            <Building2 className="h-4 w-4" />
-                            Apri scheda
-                          </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                title="Elimina struttura"
-                              >
-                                <Trash2 className="h-4 w-4 text-red-500" />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>
-                                  Eliminare la struttura?
-                                </AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Questa azione eliminerà anche campi, tariffe e
-                                  pagamenti associati. Non è reversibile.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Annulla</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleDeleteStructure(s.id)}
-                                >
-                                  Elimina
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                      </CardHeader>
-
-                      <CardContent>
-                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                          <div className="rounded-md border bg-slate-50 p-3">
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                              Campi
-                            </p>
-                            <p className="mt-1 text-xl font-semibold">
-                              {s.fields?.length || 0}
-                            </p>
-                          </div>
-                          <div className="rounded-md border bg-slate-50 p-3">
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                              Prenotazioni
-                            </p>
-                            <p className="mt-1 text-xl font-semibold">
-                              {s.bookings?.length || 0}
-                            </p>
-                          </div>
-                          <div className="rounded-md border bg-slate-50 p-3">
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                              Affittabile
-                            </p>
-                            <p className="mt-1 text-sm font-medium">
-                              {s.isRentable ? "Si" : "No"}
-                            </p>
-                          </div>
-                          <div className="rounded-md border bg-slate-50 p-3">
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                              Tipo
-                            </p>
-                            <p className="mt-1 text-sm font-medium">
-                              {s.isPublic ? "Pubblica" : "Privata"}
-                            </p>
-                          </div>
-                        </div>
-                      </CardContent>
-
-                      {false ? (
-                      <CardContent className="space-y-4">
-                        {/* Payments */}
-                        <div className="rounded-lg border p-3">
-                          <div className="flex items-center justify-between gap-3 flex-wrap">
-                            <div className="flex items-center gap-2">
-                              <CreditCard className="h-4 w-4" />
-                              <p className="font-medium">Pagamenti</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {openPaymentsByStructure[s.id] ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => openAddPayment(s.id)}
-                                >
-                                  <Plus className="h-4 w-4 mr-2" />
-                                  Aggiungi Pagamento
-                                </Button>
-                              ) : null}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => toggleStructurePayments(s.id)}
-                                aria-label={
-                                  openPaymentsByStructure[s.id]
-                                    ? "Nascondi pagamenti"
-                                    : "Mostra pagamenti"
-                                }
-                              >
-                                {openPaymentsByStructure[s.id] ? (
-                                  <ChevronUp className="h-5 w-5" />
-                                ) : (
-                                  <ChevronDown className="h-5 w-5" />
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-
-                          {openPaymentsByStructure[s.id] ? (
-                            <div className="mt-3 overflow-x-auto">
-                              <table className="w-full">
-                                <thead>
-                                  <tr className="border-b">
-                                    <th className="text-left p-2">Data</th>
-                                    <th className="text-left p-2">
-                                      Descrizione
-                                    </th>
-                                    <th className="text-left p-2">Importo</th>
-                                    <th className="text-left p-2">Stato</th>
-                                    <th className="text-left p-2">Azioni</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {s.payments?.length ? (
-                                    s.payments.map((p) => (
-                                      <tr key={p.id} className="border-b">
-                                        <td className="p-2">
-                                          {formatDate(p.date)}
-                                        </td>
-                                        <td className="p-2">{p.description}</td>
-                                        <td className="p-2">
-                                          € {Number(p.amount || 0).toFixed(2)}
-                                        </td>
-                                        <td className="p-2">
-                                          <Badge
-                                            className={badgeClassForPaymentStatus(
-                                              p.status,
-                                            )}
-                                          >
-                                            {p.status}
-                                          </Badge>
-                                        </td>
-                                        <td className="p-2">
-                                          <AlertDialog>
-                                            <AlertDialogTrigger asChild>
-                                              <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                title="Elimina"
-                                              >
-                                                <Trash2 className="h-4 w-4 text-red-500" />
-                                              </Button>
-                                            </AlertDialogTrigger>
-                                            <AlertDialogContent>
-                                              <AlertDialogHeader>
-                                                <AlertDialogTitle>
-                                                  Eliminare il pagamento?
-                                                </AlertDialogTitle>
-                                                <AlertDialogDescription>
-                                                  Questa azione non è
-                                                  reversibile.
-                                                </AlertDialogDescription>
-                                              </AlertDialogHeader>
-                                              <AlertDialogFooter>
-                                                <AlertDialogCancel>
-                                                  Annulla
-                                                </AlertDialogCancel>
-                                                <AlertDialogAction
-                                                  onClick={() =>
-                                                    removePayment(s.id, p.id)
-                                                  }
-                                                  className="bg-red-600 hover:bg-red-700"
-                                                >
-                                                  Elimina
-                                                </AlertDialogAction>
-                                              </AlertDialogFooter>
-                                            </AlertDialogContent>
-                                          </AlertDialog>
-                                        </td>
-                                      </tr>
-                                    ))
-                                  ) : (
-                                    <tr>
-                                      <td
-                                        colSpan={5}
-                                        className="p-4 text-center text-muted-foreground"
-                                      >
-                                        Nessun pagamento registrato
-                                      </td>
-                                    </tr>
-                                  )}
-                                </tbody>
-                              </table>
-                            </div>
-                          ) : null}
-                        </div>
-
-                        {/* Fields & Pricing */}
-                        <div className="rounded-lg border p-3">
-                          <div className="flex items-center justify-between gap-3 flex-wrap">
-                            <div className="flex items-center gap-2">
-                              <CalendarClock className="h-4 w-4" />
-                              <p className="font-medium">Campi e tariffe</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {openFieldsByStructure[s.id] ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => addField(s.id)}
-                                >
-                                  <Plus className="h-4 w-4 mr-2" />
-                                  Aggiungi campo
-                                </Button>
-                              ) : null}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => toggleStructureFields(s.id)}
-                                aria-label={
-                                  openFieldsByStructure[s.id]
-                                    ? "Nascondi campi e tariffe"
-                                    : "Mostra campi e tariffe"
-                                }
-                              >
-                                {openFieldsByStructure[s.id] ? (
-                                  <ChevronUp className="h-5 w-5" />
-                                ) : (
-                                  <ChevronDown className="h-5 w-5" />
-                                )}
-                              </Button>
-                            </div>
-                          </div>
-
-                          {openFieldsByStructure[s.id] ? (
-                            <div className="mt-3">
-                              {!s.fields?.length ? (
-                                <p className="text-sm text-muted-foreground">
-                                  Nessun campo registrato.
-                                </p>
-                              ) : (
-                                <Accordion type="multiple" className="w-full">
-                                  {s.fields.map((f) => (
-                                    <AccordionItem key={f.id} value={f.id}>
-                                      <AccordionTrigger>
-                                        <div className="flex items-center justify-between w-full pr-2 gap-3">
-                                          <div className="text-left">
-                                            <p className="font-medium">
-                                              {f.name}
-                                            </p>
-                                            <p className="text-xs text-muted-foreground">
-                                              Proprietà: {f.ownership} •{" "}
-                                              {f.isBookable
-                                                ? "Affittabile"
-                                                : "Non affittabile"}{" "}
-                                              •{" "}
-                                              {f.inRent
-                                                ? "In affitto"
-                                                : "Non in affitto"}
-                                            </p>
-                                          </div>
-                                          <div className="flex items-center gap-2">
-                                            <Button
-                                              variant="outline"
-                                              size="sm"
-                                              onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                updateField(s.id, f.id, {
-                                                  isVisible: !f.isVisible,
-                                                });
-                                              }}
-                                              title={
-                                                f.isVisible
-                                                  ? "Nascondi ad atleti/genitori"
-                                                  : "Mostra ad atleti/genitori"
-                                              }
-                                            >
-                                              {f.isVisible ? (
-                                                <>
-                                                  <Eye className="h-4 w-4 mr-2" />{" "}
-                                                  Mostra
-                                                </>
-                                              ) : (
-                                                <>
-                                                  <EyeOff className="h-4 w-4 mr-2" />{" "}
-                                                  Nascosto
-                                                </>
-                                              )}
-                                            </Button>
-                                            <Button
-                                              variant="ghost"
-                                              size="sm"
-                                              onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                removeField(s.id, f.id);
-                                              }}
-                                              title="Elimina campo"
-                                            >
-                                              <Trash2 className="h-4 w-4 text-red-500" />
-                                            </Button>
-                                          </div>
-                                        </div>
-                                      </AccordionTrigger>
-
-                                      <AccordionContent>
-                                        <div className="space-y-5 pt-2">
-                                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            <div className="space-y-1">
-                                              <Label>Nome campo</Label>
-                                              <Input
-                                                value={f.name}
-                                                onChange={(e) =>
-                                                  updateField(s.id, f.id, {
-                                                    name: e.target.value,
-                                                  })
-                                                }
-                                              />
-                                            </div>
-
-                                            <div className="space-y-1">
-                                              <Label>Proprietà</Label>
-                                              <Select
-                                                value={f.ownership}
-                                                onValueChange={(v) =>
-                                                  updateField(s.id, f.id, {
-                                                    ownership:
-                                                      v as FieldOwnership,
-                                                  })
-                                                }
-                                              >
-                                                <SelectTrigger>
-                                                  <SelectValue placeholder="Seleziona" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                  <SelectItem value="Pubblica">
-                                                    Pubblica
-                                                  </SelectItem>
-                                                  <SelectItem value="Privata">
-                                                    Privata
-                                                  </SelectItem>
-                                                </SelectContent>
-                                              </Select>
-                                            </div>
-
-                                            <div className="flex items-center justify-between rounded-lg border p-3">
-                                              <div>
-                                                <Label>In affitto</Label>
-                                                <p className="text-xs text-muted-foreground">
-                                                  Flag del campo
-                                                </p>
-                                              </div>
-                                              <Switch
-                                                checked={f.inRent}
-                                                onCheckedChange={(checked) =>
-                                                  updateField(s.id, f.id, {
-                                                    inRent: checked,
-                                                  })
-                                                }
-                                              />
-                                            </div>
-
-                                            <div className="flex items-center justify-between rounded-lg border p-3">
-                                              <div>
-                                                <Label>Campo affittabile</Label>
-                                                <p className="text-xs text-muted-foreground">
-                                                  Disponibile per prenotazioni
-                                                </p>
-                                              </div>
-                                              <Switch
-                                                checked={f.isBookable}
-                                                onCheckedChange={(checked) =>
-                                                  updateField(s.id, f.id, {
-                                                    isBookable: checked,
-                                                  })
-                                                }
-                                              />
-                                            </div>
-                                          </div>
-
-                                          <Separator />
-
-                                          <div>
-                                            <p className="font-medium mb-2">
-                                              Orari per giorno
-                                            </p>
-                                            <div className="space-y-3">
-                                              {WEEK_DAYS.map((d) => {
-                                                const slots =
-                                                  f.availability?.[d.key] || [];
-                                                return (
-                                                  <div
-                                                    key={d.key}
-                                                    className="rounded-lg border p-3"
-                                                  >
-                                                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                                                      <p className="font-medium">
-                                                        {d.label}
-                                                      </p>
-                                                      <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={() =>
-                                                          addSlot(
-                                                            s.id,
-                                                            f.id,
-                                                            d.key,
-                                                          )
-                                                        }
-                                                      >
-                                                        <Plus className="h-4 w-4 mr-2" />
-                                                        Aggiungi fascia
-                                                      </Button>
-                                                    </div>
-
-                                                    {slots.length === 0 ? (
-                                                      <p className="text-sm text-muted-foreground mt-2">
-                                                        Nessuna fascia oraria.
-                                                      </p>
-                                                    ) : (
-                                                      <div className="mt-2 space-y-2">
-                                                        {slots.map(
-                                                          (slot, idx) => (
-                                                            <div
-                                                              key={`${d.key}-${idx}`}
-                                                              className="flex items-center gap-2 flex-wrap"
-                                                            >
-                                                              <div className="space-y-1">
-                                                                <Label className="text-xs">
-                                                                  Inizio
-                                                                </Label>
-                                                                <Input
-                                                                  type="time"
-                                                                  value={
-                                                                    slot.start
-                                                                  }
-                                                                  onChange={(
-                                                                    e,
-                                                                  ) =>
-                                                                    updateSlot(
-                                                                      s.id,
-                                                                      f.id,
-                                                                      d.key,
-                                                                      idx,
-                                                                      {
-                                                                        start:
-                                                                          e
-                                                                            .target
-                                                                            .value,
-                                                                      },
-                                                                    )
-                                                                  }
-                                                                  className="w-36"
-                                                                />
-                                                              </div>
-                                                              <div className="space-y-1">
-                                                                <Label className="text-xs">
-                                                                  Fine
-                                                                </Label>
-                                                                <Input
-                                                                  type="time"
-                                                                  value={
-                                                                    slot.end
-                                                                  }
-                                                                  onChange={(
-                                                                    e,
-                                                                  ) =>
-                                                                    updateSlot(
-                                                                      s.id,
-                                                                      f.id,
-                                                                      d.key,
-                                                                      idx,
-                                                                      {
-                                                                        end: e
-                                                                          .target
-                                                                          .value,
-                                                                      },
-                                                                    )
-                                                                  }
-                                                                  className="w-36"
-                                                                />
-                                                              </div>
-                                                              <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                onClick={() =>
-                                                                  removeSlot(
-                                                                    s.id,
-                                                                    f.id,
-                                                                    d.key,
-                                                                    idx,
-                                                                  )
-                                                                }
-                                                                title="Rimuovi fascia"
-                                                              >
-                                                                <Trash2 className="h-4 w-4 text-red-500" />
-                                                              </Button>
-                                                            </div>
-                                                          ),
-                                                        )}
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                );
-                                              })}
-                                            </div>
-                                          </div>
-
-                                          <Separator />
-
-                                          <div>
-                                            <div className="flex items-center justify-between gap-2 flex-wrap">
-                                              <p className="font-medium">
-                                                Tariffe
-                                              </p>
-                                              <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() =>
-                                                  addPricing(s.id, f.id)
-                                                }
-                                              >
-                                                <Plus className="h-4 w-4 mr-2" />
-                                                Aggiungi tariffa
-                                              </Button>
-                                            </div>
-
-                                            <div className="mt-3 space-y-2">
-                                              {f.pricing?.length ? (
-                                                f.pricing.map((p) => (
-                                                  <div
-                                                    key={p.id}
-                                                    className="flex items-center gap-2 flex-wrap"
-                                                  >
-                                                    <div className="space-y-1">
-                                                      <Label className="text-xs">
-                                                        Durata (min)
-                                                      </Label>
-                                                      <Input
-                                                        type="number"
-                                                        value={
-                                                          p.durationMinutes
-                                                        }
-                                                        onChange={(e) =>
-                                                          updatePricing(
-                                                            s.id,
-                                                            f.id,
-                                                            p.id,
-                                                            {
-                                                              durationMinutes:
-                                                                Number(
-                                                                  e.target
-                                                                    .value || 0,
-                                                                ),
-                                                            },
-                                                          )
-                                                        }
-                                                        className="w-36"
-                                                      />
-                                                    </div>
-
-                                                    <div className="space-y-1">
-                                                      <Label className="text-xs">
-                                                        Prezzo (€)
-                                                      </Label>
-                                                      <Input
-                                                        type="number"
-                                                        step="0.01"
-                                                        value={p.price}
-                                                        onChange={(e) =>
-                                                          updatePricing(
-                                                            s.id,
-                                                            f.id,
-                                                            p.id,
-                                                            {
-                                                              price: Number(
-                                                                String(
-                                                                  e.target
-                                                                    .value,
-                                                                ).replace(
-                                                                  ",",
-                                                                  ".",
-                                                                ) || 0,
-                                                              ),
-                                                            },
-                                                          )
-                                                        }
-                                                        className="w-36"
-                                                      />
-                                                    </div>
-
-                                                    <Button
-                                                      variant="ghost"
-                                                      size="sm"
-                                                      onClick={() =>
-                                                        removePricing(
-                                                          s.id,
-                                                          f.id,
-                                                          p.id,
-                                                        )
-                                                      }
-                                                      title="Rimuovi tariffa"
-                                                    >
-                                                      <Trash2 className="h-4 w-4 text-red-500" />
-                                                    </Button>
-                                                  </div>
-                                                ))
-                                              ) : (
-                                                <p className="text-sm text-muted-foreground">
-                                                  Nessuna tariffa.
-                                                </p>
-                                              )}
-                                            </div>
-                                          </div>
-                                        </div>
-                                      </AccordionContent>
-                                    </AccordionItem>
-                                  ))}
-                                </Accordion>
-                              )}
-                            </div>
-                          ) : null}
-                        </div>
-                      </CardContent>
-                      ) : null}
-                    </Card>
-                  ))
-                )}
-              </div>
+              <DataGrid<ClubStructure>
+                module="strutture"
+                aria-label="Elenco delle strutture"
+                rows={rows}
+                getRowId={(row) => String(row.id)}
+                columns={columns}
+                filters={filters}
+                views={VIEWS}
+                search={search}
+                defaultSort={{ columnId: "identity", direction: "asc" }}
+                rowActions={rowActions}
+                rowLabel={(row) => structureDisplayName(row)}
+                canSelect={false}
+                onOpenRow={(row) => openDetail(row)}
+                state={gridState}
+                errorMessage={loadError}
+                onRetry={reload}
+                noun={{ singular: "struttura", plural: "strutture" }}
+                empty={{
+                  icon: <Building2 />,
+                  title: "Nessuna struttura registrata",
+                  description: "Registra il primo impianto del club: i campi, le fasce orarie e le tariffe si configurano nella scheda.",
+                  primary: (
+                    <Button variant="primary" size="sm" icon={<Plus />} onClick={openCreate}>
+                      Nuova struttura
+                    </Button>
+                  ),
+                }}
+              />
             )}
-            </DashboardPageContainer>
-          </main>
-        </div>
+          </DashboardPageContainer>
+        </main>
       </div>
 
-      {/* Add Payment Modal (same pattern as athletes/[id]) */}
-      <Dialog
-        open={!!showAddPaymentFor}
-        onOpenChange={(open) => {
-          if (!open) setShowAddPaymentFor(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Aggiungi Pagamento</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <Label>Data *</Label>
-              <Input
-                type="date"
-                value={newPayment.date}
-                onChange={(e) =>
-                  setNewPayment({ ...newPayment, date: e.target.value })
-                }
-              />
-            </div>
-            <div>
-              <Label>Descrizione *</Label>
-              <Input
-                value={newPayment.description}
-                onChange={(e) =>
-                  setNewPayment({ ...newPayment, description: e.target.value })
-                }
-                placeholder="Es: Canone mensile"
-              />
-            </div>
-            <div>
-              <Label>Importo (€) *</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={newPayment.amount}
-                onChange={(e) =>
-                  setNewPayment({ ...newPayment, amount: e.target.value })
-                }
-                placeholder="0.00"
-              />
-            </div>
-            <div>
-              <Label>Stato *</Label>
-              <Select
-                value={newPayment.status}
-                onValueChange={(value) =>
-                  setNewPayment({
-                    ...newPayment,
-                    status: value as PaymentStatus,
-                  })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleziona stato" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Pagato">Pagato</SelectItem>
-                  <SelectItem value="In attesa">In attesa</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowAddPaymentFor(null)}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={addPayment}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Aggiungi
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <StructureDrawer
+        open={Boolean(drawer)}
+        section="all"
+        structure={drawer?.structure ?? null}
+        sites={sites}
+        onClose={() => setDrawer(null)}
+        onSave={saveStructure}
+      />
+
+      <SitesDrawer open={sitesOpen} onOpenChange={setSitesOpen} sites={sites} structureCountBySiteId={structureCountBySiteId} onChange={persistSites} />
+
+      <DeleteStructureDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => !open && !deleteBusy && setDeleting(null)}
+        structure={deleting}
+        clubId={clubId}
+        onConfirm={confirmDelete}
+        loading={deleteBusy}
+      />
     </div>
   );
 }

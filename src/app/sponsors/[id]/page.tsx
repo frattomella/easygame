@@ -1,1513 +1,712 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import * as React from "react";
+import { Suspense } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Euro, FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
-import {
-  DashboardPageContainer,
-  dashboardMainClassName,
-} from "@/components/dashboard/dashboard-page-container";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
-import { LogoUpload } from "@/components/ui/avatar-upload";
-import { EntityIcon } from "@/components/ui/entity-icon";
-import {
-  Building,
-  Mail,
-  Phone,
-  MapPin,
-  Edit,
-  Trash2,
-  X,
-  CreditCard,
-  FileText,
-  Plus,
-  Download,
-  Upload,
-  Euro,
-  Calendar,
-  Ban,
-  TrendingUp,
-  TrendingDown,
-} from "lucide-react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
+import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/ui/toast-notification";
+import { useBreadcrumbLabel } from "@/components/web/shell/ShellProvider";
+import { CollapsedSection, RecordAlertStrip, RecordAreaSwitcher, RecordHeader, type RecordAction } from "@/components/web/record/Record";
+import { DetailCard, EmptyStateCard, SummaryCard, type DetailField } from "@/components/web/page/Cards";
+import { DangerConfirmDialog } from "@/components/web/overlays/Modal";
+import { Button } from "@/components/web/primitives/Button";
+import { Skeleton } from "@/components/web/primitives/Controls";
+import { Panel, PanelHeader } from "@/components/web/primitives/Surface";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { ColumnDef, RowActionDef } from "@/components/web/datagrid/types";
+import { MISSING, formatDateShort, formatMoney, joinMeta, orMissing } from "@/lib/web/format";
+import { apiRequest } from "@/lib/api/client";
 import { supabase } from "@/lib/supabase";
-import {
-  fetchSponsorCredit,
-  recordSponsorCollection,
-  saveSponsorContract,
-} from "@/lib/sponsors/client";
+import { deleteClubDataItem, updateClubDataItem } from "@/lib/simplified-db";
+import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { hasAccountingPermission } from "@/lib/accounting/permissions";
+import { fetchSponsorCredit, recordSponsorCollection, saveSponsorContract } from "@/lib/sponsors/client";
 import {
   EMPTY_SPONSOR_CONTRACT,
   fromSponsorCents,
-  normalizeLegacySponsorCollections,
   normalizeSponsorContract,
+  normalizeSponsorKind,
   resolveSponsorCredit,
-  sanitizeSponsorContract,
-  toSponsorCents,
   type SponsorContract,
   type SponsorCredit,
 } from "@/lib/sponsors/model";
+import { SponsorDrawer } from "@/components/sponsors/v2/sponsor-drawer";
+import { ContractDrawer } from "@/components/sponsors/v2/contract-drawer";
+import { CollectionDrawer, type SponsorCollectionSubmission } from "@/components/sponsors/v2/collection-drawer";
+import { DocumentDrawer, type SponsorDocumentSubmission } from "@/components/sponsors/v2/document-drawer";
+import { SponsorCollectionsGrid } from "@/components/sponsors/v2/collections-grid";
+import { DeleteSponsorDialog } from "@/components/sponsors/v2/delete-sponsor-dialog";
+import { StornoIncassoDialog } from "@/components/sponsors/v2/storno-incasso-dialog";
+import { useSponsorClubId, withClubId } from "@/components/sponsors/v2/use-sponsor-club-id";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { todayLocalDateOnly } from "@/lib/date-only";
+  SPONSOR_AREAS,
+  computeSponsorAlerts,
+  contractLifecycle,
+  contractPeriodLabel,
+  contractStatusSpec,
+  creditStatusSpec,
+  newSponsorDocument,
+  normalizeSponsorDocuments,
+  resolveSponsorArea,
+  sponsorKindLabel,
+  sponsorName,
+  sponsorPayload,
+  type SponsorArea,
+  type SponsorCollectionRow,
+  type SponsorDocument,
+  type SponsorDraft,
+  type SponsorFormSection,
+  type SponsorRecord,
+} from "@/components/sponsors/v2/sponsor-model";
 
-export default function SponsorDetailsPage() {
+/**
+ * `/sponsors/[id]` — scheda di uno sponsor o fornitore (Web V2, pattern 2:
+ * intestazione di scheda, striscia di avvisi, quattro aree, sezioni
+ * chiudibili).
+ *
+ * Le tre schede V1 (Anagrafica · Finanza · Archivio) diventano quattro aree:
+ * **Anagrafica** (dati, contatti, dati fiscali, sede), **Contratto** (le tre
+ * cifre e il contratto), **Incassi** (il registro, con «Registra incasso» e
+ * «Storna»), **Documenti**. `?tab=finanza|archivio` restano link validi.
+ * Le scritture sono quelle della V1: anagrafica e documenti con
+ * `updateClubDataItem` (che fonde), contratto con `saveSponsorContract`,
+ * incasso con `recordSponsorCollection`; lo storno — che la V1 rimandava
+ * alla pagina Movimenti — passa dallo stesso endpoint del registro rate.
+ */
+const moneyCents = (cents: number) => formatMoney(fromSponsorCents(cents));
+
+const dateOrMissing = (value: string | null | undefined) => (value ? formatDateShort(value) : MISSING);
+
+function SponsorDetailsPageContent() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { showToast } = useToast();
+  const { activeClub, userRole } = useAuth();
   const sponsorId = params?.id as string;
-  const clubId = searchParams?.get("clubId");
-  const [isLoading, setIsLoading] = useState(true);
-  const [sponsor, setSponsor] = useState<any>(null);
-  const [payments, setPayments] = useState<any[]>([]);
-  const [documents, setDocuments] = useState<any[]>([]);
-  const [editingSection, setEditingSection] = useState<string | null>(null);
-  const [editFormData, setEditFormData] = useState<any>({});
-  const [showAddPaymentDialog, setShowAddPaymentDialog] = useState(false);
-  const [showAddDocumentDialog, setShowAddDocumentDialog] = useState(false);
-  const [newPayment, setNewPayment] = useState({
-    description: "",
-    amount: 0,
-    type: "entrata",
-    date: todayLocalDateOnly(),
-    paymentMethod: "",
-    bankAccount: "",
-    notes: "",
-  });
-  const [newDocument, setNewDocument] = useState({
-    title: "",
-    description: "",
-    file: null as File | null,
-  });
-  /*
-    Il contratto vive accanto allo sponsor, non in una tabella sua: quattro
-    campi che rendono il credito calcolabile. Il **residuo non sta qui** e non
-    sta in archivio — si ricava a ogni render da contratto e incassi.
-  */
-  const [contract, setContract] = useState<SponsorContract>({
-    ...EMPTY_SPONSOR_CONTRACT,
-  });
-  const [isEditingContract, setIsEditingContract] = useState(false);
-  const [contractDraft, setContractDraft] = useState({
-    agreedAmount: "",
-    startDate: "",
-    endDate: "",
-    documentReference: "",
-    notes: "",
-  });
+  const { clubId, resolved } = useSponsorClubId(searchParams?.get("clubId"));
+  const activeRole = activeClub?.role || userRole || null;
 
-  // Fetch sponsor data from database
-  useEffect(() => {
+  const canReadCredit = hasAccountingPermission(activeRole, "accounting.read");
+  const canManageCredit = hasAccountingPermission(activeRole, "accounting.manage");
+  const canReverse = canManageClubConfigurationAsActor(activeRole) || hasAccountingPermission(activeRole, "accounting.reverse");
+
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [sponsor, setSponsor] = React.useState<SponsorRecord | null>(null);
+  const [contract, setContract] = React.useState<SponsorContract>({ ...EMPTY_SPONSOR_CONTRACT });
+  const [documents, setDocuments] = React.useState<SponsorDocument[]>([]);
+  const [clubSettings, setClubSettings] = React.useState<Record<string, any>>({});
+  const [creditFromServer, setCreditFromServer] = React.useState<SponsorCredit | null>(null);
+  const [collections, setCollections] = React.useState<SponsorCollectionRow[]>([]);
+  const [creditError, setCreditError] = React.useState<string | null>(null);
+  const [creditLoading, setCreditLoading] = React.useState(false);
+
+  const [editingSection, setEditingSection] = React.useState<SponsorFormSection | "all" | null>(null);
+  const [contractOpen, setContractOpen] = React.useState(false);
+  const [collectionOpen, setCollectionOpen] = React.useState(false);
+  const [documentOpen, setDocumentOpen] = React.useState(false);
+  const [deletingDocument, setDeletingDocument] = React.useState<SponsorDocument | null>(null);
+  const [documentBusy, setDocumentBusy] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteBusy, setDeleteBusy] = React.useState(false);
+  const [reversing, setReversing] = React.useState<SponsorCollectionRow | null>(null);
+  const [reverseBusy, setReverseBusy] = React.useState(false);
+
+  const displayName = sponsor ? sponsorName(sponsor) : null;
+  useBreadcrumbLabel(displayName);
+
+  /* ── Credito e incassi, dal server ─────────────────────────────────────── */
+  const ricaricaIncassi = React.useCallback(
+    async (record: SponsorRecord | null) => {
+      if (!clubId || !sponsorId || !canReadCredit) return;
+      setCreditLoading(true);
+      const risposta = await fetchSponsorCredit(sponsorId, { clubId });
+      setCreditLoading(false);
+      if (risposta.error || !risposta.data) {
+        setCreditError(risposta.error?.message || "Residuo e incassi non disponibili");
+        return;
+      }
+      setCreditError(null);
+      setCreditFromServer(risposta.data.credit || null);
+      const name = record?.name || risposta.data.sponsor.name || sponsorKindLabel(risposta.data.sponsor.kind);
+      setCollections(
+        (risposta.data.collections || []).map((incasso) => ({
+          ...incasso,
+          sponsorId,
+          sponsorName: name,
+          sponsorKind: risposta.data!.sponsor.kind,
+        })),
+      );
+    },
+    [clubId, sponsorId, canReadCredit],
+  );
+
+  /* ── Lettura della scheda ──────────────────────────────────────────────── */
+  React.useEffect(() => {
+    if (!resolved) return;
+    if (!clubId) {
+      showToast("error", "ID del club mancante. Torna alla lista sponsor.");
+      setIsLoading(false);
+      return;
+    }
+    if (!sponsorId) {
+      showToast("error", "ID dello sponsor mancante");
+      setIsLoading(false);
+      return;
+    }
+    let cancelled = false;
     const fetchSponsorData = async () => {
-      if (!clubId || clubId === "null" || clubId.trim() === "") {
-        console.error("Invalid or missing clubId parameter:", clubId);
-        showToast("error", "ID del club mancante. Torna alla lista sponsor.");
-        setIsLoading(false);
-        return;
-      }
-
-      if (!sponsorId) {
-        console.error("Missing sponsorId parameter");
-        showToast("error", "ID dello sponsor mancante");
-        setIsLoading(false);
-        return;
-      }
-
       setIsLoading(true);
       try {
-        
-        const { data: clubData, error: clubError } = await supabase
-          .from("clubs")
-          .select("sponsors")
-          .eq("id", clubId)
-          .maybeSingle();
-
+        const { data: clubData, error: clubError } = await supabase.from("clubs").select("sponsors, settings").eq("id", clubId).maybeSingle();
+        if (cancelled) return;
         if (clubError) {
           console.error("Error fetching club data:", clubError);
           showToast("error", `Errore nel caricamento dei dati del club: ${clubError.message}`);
           setIsLoading(false);
           return;
         }
-
         if (!clubData) {
-          console.error("Club data not found for clubId:", clubId);
           showToast("error", "Club non trovato. Verifica l'ID del club.");
           setIsLoading(false);
           return;
         }
-
-
-        // Find sponsor in sponsors array
-        let sponsorData = null;
-        if (clubData?.sponsors && Array.isArray(clubData.sponsors)) {
-          sponsorData = clubData.sponsors.find(
-            (sponsor: any) => sponsor.id === sponsorId
-          );
-        }
-
-        if (!sponsorData) {
-          console.error("Sponsor not found in club data. SponsorId:", sponsorId);
+        const found = Array.isArray(clubData.sponsors) ? clubData.sponsors.find((item: any) => item && String(item.id) === String(sponsorId)) : null;
+        if (!found) {
           showToast("error", "Sponsor/Fornitore non trovato");
+          setSponsor(null);
           setIsLoading(false);
           return;
         }
-
-        setSponsor({
-          id: sponsorData.id,
-          // Anagrafica
-          name: sponsorData.name || "Nome non disponibile",
-          fiscalCode: sponsorData.fiscalCode || "",
-          phone: sponsorData.phone || "",
-          phoneSecondary: sponsorData.phoneSecondary || "",
-          email: sponsorData.email || "",
-          isPublicAdministration: sponsorData.isPublicAdministration || false,
-          isSponsor: sponsorData.type === "sponsor" || sponsorData.isSponsor || false,
-          isSupplier: sponsorData.type === "fornitore" || sponsorData.isSupplier || false,
-          
-          // Sede
-          address: sponsorData.address || "",
-          streetNumber: sponsorData.streetNumber || "",
-          city: sponsorData.city || "",
-          postalCode: sponsorData.postalCode || "",
-          country: sponsorData.country || "Italia",
-          region: sponsorData.region || "",
-          province: sponsorData.province || "",
-          
-          // Finanza
-          vatNumber: sponsorData.vatNumber || "",
-          pec: sponsorData.pec || "",
-          sdi: sponsorData.sdi || "",
-          iban: sponsorData.iban || "",
-          
-          // Existing fields
-          type: sponsorData.type || "sponsor",
-        });
-
-        setContract(normalizeSponsorContract(sponsorData.contract));
-
-        /*
-          Gli incassi **non** si leggono piu dalla scheda: sono righe del
-          registro degli incassi, e le due fonti le unisce il server. Vedi
-          `ricaricaIncassi`, chiamata subito sotto.
-        */
-        void ricaricaIncassi();
-
-        const sponsorDocuments = sponsorData.documents || [];
-        setDocuments(sponsorDocuments);
+        setSponsor(found);
+        setContract(normalizeSponsorContract(found.contract));
+        setDocuments(normalizeSponsorDocuments(found.documents));
+        setClubSettings(clubData.settings && typeof clubData.settings === "object" ? clubData.settings : {});
+        void ricaricaIncassi(found);
       } catch (error) {
+        if (cancelled) return;
         console.error("Error fetching sponsor data:", error);
         showToast("error", "Errore nel caricamento dei dati dello sponsor");
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
+    void fetchSponsorData();
+    return () => {
+      cancelled = true;
+    };
+  }, [clubId, resolved, sponsorId, ricaricaIncassi, showToast]);
 
-    fetchSponsorData();
-  }, [clubId, sponsorId, showToast]);
-
-  const handleEditSection = (section: string) => {
-    setEditingSection(section);
-    setEditFormData({ ...sponsor });
+  /* ── Aree e link profondi ──────────────────────────────────────────────── */
+  const requestedArea = resolveSponsorArea(searchParams?.get("tab"));
+  const area: SponsorArea = !canReadCredit && (requestedArea === "contratto" || requestedArea === "incassi") ? "anagrafica" : requestedArea;
+  const setArea = (next: SponsorArea) => {
+    const query = new URLSearchParams();
+    if (clubId) query.set("clubId", clubId);
+    query.set("tab", next);
+    router.replace(`/sponsors/${encodeURIComponent(sponsorId)}?${query.toString()}`, { scroll: false });
   };
+  const areas = SPONSOR_AREAS.filter((item) => canReadCredit || (item.value !== "contratto" && item.value !== "incassi"));
 
-  const handleSaveSection = async () => {
-    if (!clubId || !sponsorId) return;
+  /* ── Derivati ──────────────────────────────────────────────────────────── */
+  const credit = React.useMemo(
+    () => creditFromServer || resolveSponsorCredit({ contract, collections }),
+    [creditFromServer, contract, collections],
+  );
+  const lifecycle = React.useMemo(() => contractLifecycle(contract), [contract]);
+  const alerts = React.useMemo(() => (canReadCredit ? computeSponsorAlerts(credit, lifecycle, moneyCents) : []), [canReadCredit, credit, lifecycle]);
+  const methodChoices = React.useMemo(() => getClubPaymentMethodChoices(clubSettings), [clubSettings]);
+  const kind = normalizeSponsorKind(sponsor?.type);
 
+  /* ── Scritture ─────────────────────────────────────────────────────────── */
+  const saveSection = async (draft: SponsorDraft): Promise<boolean> => {
+    if (!clubId || !sponsorId) return false;
     try {
-      const { updateClubDataItem } = await import("@/lib/simplified-db");
-      
-      await updateClubDataItem(clubId, "sponsors", sponsorId, editFormData);
-      
-      setSponsor(editFormData);
-      setEditingSection(null);
+      const payload = sponsorPayload(draft);
+      await updateClubDataItem(clubId, "sponsors", sponsorId, payload);
+      setSponsor((current) => (current ? { ...current, ...payload } : current));
       showToast("success", "Modifiche salvate con successo");
+      return true;
     } catch (error) {
       console.error("Error updating sponsor:", error);
       showToast("error", "Errore nel salvataggio delle modifiche");
+      return false;
     }
   };
 
-  const handleDeleteSponsor = async () => {
+  const confirmDelete = async () => {
     if (!clubId || !sponsorId) return;
-
-    if (confirm("Sei sicuro di voler eliminare questo sponsor/fornitore?")) {
-      try {
-        const { deleteClubDataItem } = await import("@/lib/simplified-db");
-        await deleteClubDataItem(clubId, "sponsors", sponsorId);
-        showToast("success", "Sponsor/Fornitore eliminato con successo");
-        router.push(`/sponsors?clubId=${clubId}`);
-      } catch (error) {
-        console.error("Error deleting sponsor:", error);
-        showToast("error", "Errore nell'eliminazione dello sponsor");
-      }
-    }
-  };
-
-  /**
-   * Rilegge gli incassi dello sponsor **dal server**.
-   *
-   * Le fonti sono due — le righe di `payment_transactions` con la controparte
-   * dichiarata, e la vecchia collezione JSON — e solo il server le conosce
-   * entrambe e sa perche non si sommano due volte. Una pagina che ne guardasse
-   * una sola direbbe un residuo sbagliato con la faccia di uno giusto.
-   */
-  const ricaricaIncassi = React.useCallback(async () => {
-    if (!clubId || !sponsorId) return;
-
-    const risposta = await fetchSponsorCredit(sponsorId, { clubId });
-    if (risposta.error || !risposta.data) return;
-
-    setCreditoDalServer(risposta.data.credit || null);
-    setPayments(
-      (risposta.data.collections || []).map((incasso) => ({
-        id: incasso.id,
-        description: incasso.notes || incasso.counterpartyLabel || "Incasso",
-        /*
-          L'importo esce sempre **positivo**, e il verso lo dice `type`: la
-          tabella scrive gia il segno davanti. Prendere il valore con il suo
-          segno stampava «-€-500,00» sulla riga di uno storno.
-        */
-        amount: Math.abs(fromSponsorCents(incasso.amountCents)),
-        /*
-          **Il verso lo dice il segno, non `reversed`.**
-
-          `reversed` e vero su **entrambe** le facce della coppia — l'originale
-          e il suo storno — perche serve a escluderle dai totali. Usarlo come
-          verso faceva comparire due righe «Uscita» per un incasso stornato,
-          sotto un riquadro «Incassato» che diceva correttamente zero.
-        */
-        type: incasso.amountCents < 0 ? "uscita" : "entrata",
-        date: incasso.paidAt || "",
-        paymentMethod: incasso.paymentMethod || "",
-        notes: incasso.notes || "",
-        reversed: incasso.reversed,
-      })),
-    );
-  }, [clubId, sponsorId]);
-
-  const handleAddPayment = async () => {
-    if (!newPayment.description || !newPayment.amount || !newPayment.paymentMethod) {
-      showToast("error", "Compila tutti i campi obbligatori");
-      return;
-    }
-
+    setDeleteBusy(true);
     try {
-      /*
-        **L'incasso di uno sponsor e un incasso, e va nel registro.**
+      await deleteClubDataItem(clubId, "sponsors", sponsorId);
+      showToast("success", "Sponsor/Fornitore eliminato con successo");
+      router.push(withClubId("/sponsors", clubId));
+    } catch (error) {
+      console.error("Error deleting sponsor:", error);
+      showToast("error", "Errore nell'eliminazione dello sponsor");
+      setDeleteBusy(false);
+    }
+  };
 
-        Questa riga scriveva nella collezione JSON annidata sulla scheda dello
-        sponsor. Il residuo dello sponsor tornava, e il denaro **non arrivava
-        in prima nota**: il §12 del piano chiede che un contratto da 5.000 con
-        2.000 incassati produca 2.000 di entrata nel registro, e ne produceva
-        zero. Il rendiconto del club non vedeva un euro di sponsorizzazioni.
+  /** Il contratto si salva dalla sua rotta, una scheda alla volta, sotto il lock del club. */
+  const saveContract = async (next: SponsorContract): Promise<boolean> => {
+    if (!clubId || !sponsorId) return false;
+    try {
+      const risposta = await saveSponsorContract({ clubId, sponsorId, contract: next });
+      if (risposta.error) throw new Error(risposta.error.message);
+      setContract(next);
+      showToast("success", "Contratto salvato");
+      return true;
+    } catch (error) {
+      console.error("Error saving sponsor contract:", error);
+      showToast("error", error instanceof Error && error.message ? error.message : "Errore nel salvataggio del contratto");
+      return false;
+    }
+  };
 
-        Adesso passa da `/api/v1/sponsorships/:id/collections`, che scrive una
-        riga di `payment_transactions` con la controparte dichiarata: da li la
-        legge il registro, che la proietta come qualunque altro incasso, e i
-        saldi dei conti, che la sommano.
-      */
+  /** L'incasso va nel registro degli incassi: da li passa in prima nota. */
+  const submitCollection = async (submission: SponsorCollectionSubmission): Promise<boolean> => {
+    if (!clubId || !sponsorId) return false;
+    try {
       const risposta = await recordSponsorCollection({
         clubId,
         sponsorId,
-        amount: newPayment.amount,
-        paidAt: newPayment.date || null,
-        paymentMethod: newPayment.paymentMethod,
-        notes:
-          [newPayment.description, newPayment.notes].filter(Boolean).join(" - ") ||
-          null,
+        amount: submission.amount,
+        paidAt: submission.paidAt,
+        paymentMethod: submission.paymentMethod,
+        financialAccountId: submission.financialAccountId,
+        operationTypeCode: submission.operationTypeCode,
+        notes: submission.notes,
       });
       if (risposta.error) throw new Error(risposta.error.message);
-
-      await ricaricaIncassi();
-
-      setShowAddPaymentDialog(false);
-      setNewPayment({
-        description: "",
-        amount: 0,
-        type: "entrata",
-        date: todayLocalDateOnly(),
-        paymentMethod: "",
-        bankAccount: "",
-        notes: "",
-      });
+      await ricaricaIncassi(sponsor);
       showToast("success", "Pagamento registrato con successo");
+      return true;
     } catch (error) {
       console.error("Error adding payment:", error);
-      showToast(
-        "error",
-        error instanceof Error && error.message
-          ? error.message
-          : "Errore nella registrazione del pagamento",
-      );
+      showToast("error", error instanceof Error && error.message ? error.message : "Errore nella registrazione del pagamento");
+      return false;
     }
   };
 
-  /**
-   * **Un incasso non si cancella: si storna.**
-   *
-   * E la regola centrale della Wave 4 (D-3), e vale anche qui. Fino a ieri
-   * questo pulsante toglieva un elemento dalla collezione JSON e risalvava
-   * l'array: il denaro spariva senza uno storno, senza un autore e senza una
-   * riga che lo raccontasse.
-   *
-   * Adesso l'incasso di uno sponsor e una riga del registro degli incassi, e si
-   * corregge dove gli incassi si correggono — con uno storno, che lascia
-   * l'originale al suo posto e gli mette accanto la riga opposta.
-   */
-  const handleDeletePayment = async (_paymentId: string) => {
-    showToast(
-      "error",
-      "Un incasso non si cancella: si storna dalla pagina Movimenti, cosi la correzione resta leggibile.",
-    );
-  };
-
-  const handleAddDocument = async () => {
-    if (!newDocument.title) {
-      showToast("error", "Inserisci un titolo per il documento");
-      return;
-    }
-
+  /** **Un incasso non si cancella: si storna.** Stesso endpoint del registro delle rate. */
+  const confirmReverse = async (reason: string) => {
+    if (!reversing) return;
+    setReverseBusy(true);
     try {
-      const documentData = {
-        id: `doc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        title: newDocument.title,
-        description: newDocument.description,
-        fileName: newDocument.file?.name || "",
-        created_at: new Date().toISOString(),
-      };
-
-      const updatedDocuments = [...documents, documentData];
-      setDocuments(updatedDocuments);
-
-      const { updateClubDataItem } = await import("@/lib/simplified-db");
-      await updateClubDataItem(clubId!, "sponsors", sponsorId, {
-        ...sponsor,
-        documents: updatedDocuments,
+      const { error } = await apiRequest(`/api/v1/payment-transactions/${encodeURIComponent(reversing.id)}`, {
+        method: "POST",
+        body: { action: "reverse", reason },
       });
+      if (error) throw new Error(error.message || "Storno non riuscito");
+      await ricaricaIncassi(sponsor);
+      showToast("success", "Incasso stornato: resta visibile nello storico");
+      setReversing(null);
+    } catch (error) {
+      showToast("error", error instanceof Error && error.message ? error.message : "Storno non riuscito");
+    } finally {
+      setReverseBusy(false);
+    }
+  };
 
-      setShowAddDocumentDialog(false);
-      setNewDocument({
-        title: "",
-        description: "",
-        file: null,
-      });
+  const writeDocuments = async (next: SponsorDocument[]) => {
+    if (!clubId || !sponsorId) throw new Error("Club o sponsor mancante");
+    await updateClubDataItem(clubId, "sponsors", sponsorId, { documents: next });
+    setDocuments(next);
+  };
+
+  const addDocument = async (submission: SponsorDocumentSubmission): Promise<boolean> => {
+    try {
+      await writeDocuments([...documents, newSponsorDocument(submission)]);
       showToast("success", "Documento aggiunto con successo");
+      return true;
     } catch (error) {
       console.error("Error adding document:", error);
       showToast("error", "Errore nell'aggiunta del documento");
+      return false;
     }
   };
 
-  const handleDeleteDocument = async (documentId: string) => {
-    if (!confirm("Sei sicuro di voler eliminare questo documento?")) return;
-
+  const confirmDeleteDocument = async () => {
+    if (!deletingDocument) return;
+    setDocumentBusy(true);
     try {
-      const updatedDocuments = documents.filter(d => d.id !== documentId);
-      setDocuments(updatedDocuments);
-
-      const { updateClubDataItem } = await import("@/lib/simplified-db");
-      await updateClubDataItem(clubId!, "sponsors", sponsorId, {
-        ...sponsor,
-        documents: updatedDocuments,
-      });
-
+      await writeDocuments(documents.filter((item) => item.id !== deletingDocument.id));
       showToast("success", "Documento eliminato con successo");
+      setDeletingDocument(null);
     } catch (error) {
       console.error("Error deleting document:", error);
       showToast("error", "Errore nell'eliminazione del documento");
+    } finally {
+      setDocumentBusy(false);
     }
   };
 
-  /*
-    Le tre cifre, ricalcolate a ogni render.
+  /* ── Intestazione ──────────────────────────────────────────────────────── */
+  const headerActions: RecordAction[] = [
+    { id: "edit", label: "Modifica", icon: <Pencil />, onClick: () => setEditingSection("all") },
+    { id: "collect", label: "Registra incasso", icon: <Euro />, hidden: !canManageCredit, onClick: () => setCollectionOpen(true) },
+    { id: "delete", label: "Elimina", icon: <Trash2 />, tone: "danger", overflow: true, onClick: () => setDeleting(true) },
+  ];
 
-    **Nessuna delle tre e salvata**, e il residuo meno delle altre: e la
-    sottrazione fra il pattuito e cio che e davvero arrivato. Salvarlo vorrebbe
-    dire vederlo divergere dagli incassi il primo giorno in cui qualcuno storna.
-  */
-  /**
-   * Le tre cifre dello sponsor, **calcolate dal server**.
-   *
-   * Erano calcolate qui, dalla sola collezione JSON annidata sulla scheda. Da
-   * quando un incasso di sponsorizzazione e una riga del registro degli
-   * incassi, quella collezione e una delle **due** fonti, e la piu vecchia:
-   * una pagina che guardasse solo lei direbbe che lo sponsor deve ancora tutto
-   * il giorno dopo aver pagato.
-   *
-   * Il ripiego locale resta per il primo istante, prima che la lettura torni:
-   * mostra il dovuto, che il contratto porta con se, invece di un riquadro
-   * vuoto.
-   */
-  const [creditoDalServer, setCreditoDalServer] = useState<SponsorCredit | null>(
-    null,
+  const identityFields: DetailField[] = sponsor
+    ? [
+        { label: "Nome / Ragione sociale", value: orMissing(sponsor.name) },
+        { label: "Tipologia", value: sponsorKindLabel(sponsor.type) },
+        { label: "Pubblica amministrazione", value: sponsor.isPublicAdministration ? "Sì" : "No" },
+        { label: "Codice fiscale", value: <span className="egw-num uppercase">{orMissing(sponsor.fiscalCode)}</span> },
+      ]
+    : [];
+
+  const contactFields: DetailField[] = sponsor
+    ? [
+        { label: "Email", value: orMissing(sponsor.email) },
+        { label: "PEC", value: orMissing(sponsor.pec) },
+        { label: "Telefono", value: <span className="egw-num">{orMissing(sponsor.phone)}</span> },
+        { label: "Telefono secondario", value: <span className="egw-num">{orMissing(sponsor.phoneSecondary)}</span> },
+      ]
+    : [];
+
+  const fiscalFields: DetailField[] = sponsor
+    ? [
+        { label: "Partita IVA", value: <span className="egw-num uppercase">{orMissing(sponsor.vatNumber)}</span> },
+        { label: "Codice fiscale", value: <span className="egw-num uppercase">{orMissing(sponsor.fiscalCode)}</span> },
+        { label: "Codice SDI", value: <span className="egw-num uppercase">{orMissing(sponsor.sdi)}</span> },
+        { label: "IBAN", value: <span className="egw-num uppercase">{orMissing(sponsor.iban)}</span> },
+      ]
+    : [];
+
+  const addressFields: DetailField[] = sponsor
+    ? [
+        { label: "Indirizzo", value: orMissing(joinMeta(sponsor.address, sponsor.streetNumber)) },
+        { label: "Comune", value: orMissing(sponsor.city) },
+        { label: "CAP", value: <span className="egw-num">{orMissing(sponsor.postalCode)}</span> },
+        { label: "Provincia", value: orMissing(sponsor.province) },
+        { label: "Regione", value: orMissing(sponsor.region) },
+        { label: "Paese", value: orMissing(sponsor.country || "Italia") },
+      ]
+    : [];
+
+  const addressSummary = sponsor
+    ? joinMeta(joinMeta(sponsor.address, sponsor.streetNumber), joinMeta(sponsor.postalCode, sponsor.city), sponsor.province) || "Nessuna sede registrata"
+    : "";
+
+  const contractFields: DetailField[] = [
+    { label: "Importo pattuito", value: moneyCents(contract.agreedAmountCents) },
+    { label: "Periodo", value: orMissing(contractPeriodLabel(contract, dateOrMissing)) },
+    { label: "Riferimento del contratto", value: orMissing(contract.documentReference) },
+    { label: "Note", value: <span className="whitespace-pre-line">{orMissing(contract.notes)}</span>, wide: true },
+  ];
+
+  /* ── Documenti ─────────────────────────────────────────────────────────── */
+  const documentColumns = React.useMemo<ColumnDef<SponsorDocument>[]>(
+    () => [
+      { id: "title", header: "Titolo", kind: "identity", locked: true, width: 1.6, cell: (row) => <span className="font-semibold text-egw-ink">{row.title}</span>, sortValue: (row) => row.title.toLowerCase(), title: (row) => row.title },
+      { id: "description", header: "Descrizione", kind: "text", width: 2, cell: (row) => row.description || null, sortValue: (row) => row.description.toLowerCase() || null, title: (row) => row.description || undefined },
+      { id: "fileName", header: "File", kind: "text", cell: (row) => row.fileName || null, sortValue: (row) => row.fileName.toLowerCase() || null, title: (row) => row.fileName || undefined },
+      { id: "createdAt", header: "Data creazione", kind: "date", cell: (row) => formatDateShort(row.created_at), sortValue: (row) => row.created_at || null },
+    ],
+    [],
+  );
+  const documentActions = React.useMemo<RowActionDef<SponsorDocument>[]>(
+    () => [{ id: "delete", label: "Elimina", icon: <Trash2 />, tone: "danger", onClick: (row) => setDeletingDocument(row) }],
+    [],
   );
 
-  const credit = React.useMemo(
-    () =>
-      creditoDalServer ||
-      resolveSponsorCredit({
-        contract,
-        collections: normalizeLegacySponsorCollections(payments),
-      }),
-    [creditoDalServer, contract, payments],
+  const editButton = (section: SponsorFormSection) => (
+    <Button variant="secondary" size="sm" onClick={() => setEditingSection(section)}>
+      Modifica
+    </Button>
   );
 
-  const openContractEditor = () => {
-    setContractDraft({
-      agreedAmount: contract.agreedAmountCents
-        ? String(fromSponsorCents(contract.agreedAmountCents))
-        : "",
-      startDate: contract.startDate || "",
-      endDate: contract.endDate || "",
-      documentReference: contract.documentReference,
-      notes: contract.notes,
-    });
-    setIsEditingContract(true);
-  };
-
-  const handleSaveContract = async () => {
-    if (!clubId || !sponsorId) return;
-
-    let next: SponsorContract;
-    try {
-      next = sanitizeSponsorContract({
-        agreedAmountCents: toSponsorCents(contractDraft.agreedAmount),
-        startDate: contractDraft.startDate,
-        endDate: contractDraft.endDate,
-        documentReference: contractDraft.documentReference,
-        notes: contractDraft.notes,
-      });
-    } catch (error) {
-      showToast(
-        "error",
-        error instanceof Error ? error.message : "Contratto non valido",
-      );
-      return;
-    }
-
-    try {
-      /*
-        **Il contratto si salva dalla sua rotta, non riscrivendo la scheda.**
-
-        `updateClubDataItem` rileggeva `clubs.sponsors` intera, ne cambiava un
-        elemento e la risalvava tutta dal browser. Una sonda di concorrenza ha
-        salvato due contratti insieme e li ha visti fallire **tutte e otto le
-        volte** su un conflitto di chiave primaria, con un messaggio che a chi
-        lo riceveva non diceva niente.
-      */
-      const risposta = await saveSponsorContract({
-        clubId,
-        sponsorId,
-        contract: next,
-      });
-      if (risposta.error) throw new Error(risposta.error.message);
-
-      setContract(next);
-      setIsEditingContract(false);
-      showToast("success", "Contratto salvato");
-    } catch (error) {
-      console.error("Error saving sponsor contract:", error);
-      showToast(
-        "error",
-        error instanceof Error && error.message
-          ? error.message
-          : "Errore nel salvataggio del contratto",
-      );
-    }
-  };
-
-  const formatAmount = (cents: number) =>
-    new Intl.NumberFormat("it-IT", {
-      style: "currency",
-      currency: "EUR",
-    }).format(fromSponsorCents(cents));
-
-  const formatDate = (dateString: string) => {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("it-IT", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  // Show loading state
-  if (isLoading) {
-    return (
-      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header title="Dettaglio Sponsor/Fornitore" />
-          <main className={dashboardMainClassName}>
-            <div className="flex justify-center items-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700"></div>
-            </div>
-          </main>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error state if sponsor not found
-  if (!sponsor) {
-    return (
-      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header title="Sponsor/Fornitore Non Trovato" />
-          <main className={dashboardMainClassName}>
-            <div className="flex flex-col items-center justify-center py-8">
-              <h2 className="text-xl font-semibold mb-4">
-                Sponsor/Fornitore non trovato
-              </h2>
-              <Button onClick={() => router.push(`/sponsors?clubId=${clubId}`)}>
-                Torna alla lista sponsor
-              </Button>
-            </div>
-          </main>
-        </div>
-      </div>
-    );
-  }
+  const collectButton = (size: "xs" | "sm" | "md" = "sm") =>
+    canManageCredit ? (
+      <Button variant="secondary" size={size} icon={<Euro />} onClick={() => setCollectionOpen(true)}>
+        Registra incasso
+      </Button>
+    ) : null;
 
   return (
-    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Header title="Dettaglio Sponsor/Fornitore" />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <Header title="Sponsor" />
         <main className={dashboardMainClassName}>
-          <DashboardPageContainer className="max-w-7xl">
-            {/* Header with info and actions */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-              <div className="flex items-center gap-4">
-                {sponsor.logo ? (
-                  <div className="h-16 w-16 rounded-lg overflow-hidden border-2 border-gray-200 dark:border-gray-700">
-                    <img 
-                      src={sponsor.logo} 
-                      alt={sponsor.name} 
-                      className="w-full h-full object-contain"
+          <DashboardPageContainer>
+            {isLoading ? (
+              <>
+                <Panel className="flex items-center gap-5">
+                  <Skeleton className="h-[72px] w-[72px] rounded-full" />
+                  <div className="flex-1">
+                    <Skeleton className="mb-3 h-7 w-56" />
+                    <Skeleton className="h-4 w-40" />
+                  </div>
+                </Panel>
+                <DetailCard title="Dati anagrafici" loading />
+                <DetailCard title="Contatti" loading />
+              </>
+            ) : !sponsor ? (
+              <EmptyStateCard
+                iconTone="neutral"
+                title="Sponsor/Fornitore non trovato"
+                description="La scheda che cerchi non è in questo club, oppure è stata eliminata."
+                primary={
+                  <Button variant="primary" onClick={() => router.push(withClubId("/sponsors", clubId))}>
+                    Torna alla lista sponsor
+                  </Button>
+                }
+              />
+            ) : (
+              <>
+                <RecordHeader
+                  eyebrow={sponsorKindLabel(sponsor.type)}
+                  name={sponsorName(sponsor)}
+                  identity={{ name: sponsorName(sponsor), round: true, avatarSrc: sponsor.logo || null }}
+                  chips={
+                    <>
+                      <DataChip tone={kind === "fornitore" ? "neutral" : "blue"}>{sponsorKindLabel(sponsor.type)}</DataChip>
+                      {sponsor.isPublicAdministration ? <DataChip tone="navy">P.A.</DataChip> : null}
+                      {sponsor.city ? <DataChip>{sponsor.city}</DataChip> : null}
+                    </>
+                  }
+                  status={canReadCredit ? <StatusPill status={contractStatusSpec(lifecycle)} detail={lifecycle.state !== "none" && contract.endDate ? formatDateShort(contract.endDate) : undefined} /> : null}
+                  meta={joinMeta(sponsor.email, sponsor.vatNumber ? `P.IVA ${sponsor.vatNumber}` : null) || undefined}
+                  actions={headerActions}
+                  areas={
+                    <RecordAreaSwitcher
+                      value={area}
+                      onChange={setArea}
+                      areas={areas.map((item) => ({ ...item, problems: item.value === "contratto" ? alerts.length : 0 }))}
                     />
-                  </div>
-                ) : (
-                  <EntityIcon
-                    type="sponsor"
-                    size="lg"
-                    shape="square"
-                    label={sponsor.name}
+                  }
+                >
+                  <RecordAlertStrip
+                    items={alerts.map((alert) => ({
+                      id: alert.id,
+                      severity: alert.severity,
+                      text: alert.text,
+                      action:
+                        alert.id === "outstanding" ? (
+                          collectButton("xs")
+                        ) : canManageCredit ? (
+                          <Button variant="secondary" size="xs" onClick={() => setContractOpen(true)}>
+                            Aggiorna contratto
+                          </Button>
+                        ) : undefined,
+                    }))}
                   />
-                )}
-                <div>
-                  <h1 className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-3xl font-bold leading-tight tracking-tight text-transparent md:text-4xl">{sponsor.name}</h1>
-                  <div className="flex items-center gap-2 mt-1">
-                    {sponsor.isSponsor && (
-                      <Badge className="bg-blue-500 text-white">
-                        Sponsor
-                      </Badge>
-                    )}
-                    {sponsor.isSupplier && (
-                      <Badge className="bg-green-500 text-white">
-                        Fornitore
-                      </Badge>
-                    )}
-                    {sponsor.isPublicAdministration && (
-                      <Badge variant="outline">
-                        P.A.
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-2 w-full md:w-auto">
-                <Button variant="destructive" className="flex-1 md:flex-none" onClick={handleDeleteSponsor}>
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Elimina
-                </Button>
-              </div>
-            </div>
+                </RecordHeader>
 
-            {/* Tabs for different sections */}
-            <Tabs defaultValue="anagrafica">
-              {/*
-                Tre linguette in 375 px stanno strette. La stessa forma di
-                /movements e della scheda socio: a colonna su telefono, in fila
-                da tablet in su.
-              */}
-              <TabsList className="grid w-full grid-cols-3 sm:flex sm:w-fit">
-                <TabsTrigger value="anagrafica">
-                  <Building className="h-4 w-4 mr-2" />
-                  Anagrafica
-                </TabsTrigger>
-                <TabsTrigger value="finanza">
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Finanza
-                </TabsTrigger>
-                <TabsTrigger value="archivio">
-                  <FileText className="h-4 w-4 mr-2" />
-                  Archivio
-                </TabsTrigger>
-              </TabsList>
-
-              {/* ANAGRAFICA TAB */}
-              <TabsContent value="anagrafica" className="mt-4 space-y-6">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Dati Anagrafici</CardTitle>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => handleEditSection('anagrafica')}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Ruolo</h3>
-                        <div className="flex gap-2 mt-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm">Sponsor:</span>
-                            <Badge className={sponsor.isSponsor ? "bg-blue-500" : "bg-gray-400"}>
-                              {sponsor.isSponsor ? "SÌ" : "NO"}
-                            </Badge>
+                {area === "anagrafica" ? (
+                  <>
+                    <DetailCard eyebrow="Identità" title="Dati anagrafici" fields={identityFields} onEdit={() => setEditingSection("identity")} />
+                    <DetailCard eyebrow="Contatti" title="Contatti" fields={contactFields} onEdit={() => setEditingSection("contacts")} />
+                    <DetailCard eyebrow="Dati fiscali" title="Dati fiscali" fields={fiscalFields} onEdit={() => setEditingSection("fiscal")} />
+                    <CollapsedSection id="sede" recordType="sponsor" title="Sede" summary={addressSummary} actions={editButton("address")}>
+                      <dl className="grid grid-cols-1 gap-x-6 gap-y-[18px] sm:grid-cols-2 lg:grid-cols-3">
+                        {addressFields.map((field) => (
+                          <div key={String(field.label)} className="min-w-0">
+                            <dt className="font-brand text-[12px] text-[rgba(11,26,58,.55)]">{field.label}</dt>
+                            <dd className="mt-1 break-words font-brand text-[13.5px] text-egw-ink">{field.value}</dd>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm">Fornitore:</span>
-                            <Badge className={sponsor.isSupplier ? "bg-green-500" : "bg-gray-400"}>
-                              {sponsor.isSupplier ? "SÌ" : "NO"}
-                            </Badge>
-                          </div>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Nome/Ragione Sociale *</h3>
-                        <p className="mt-1">{sponsor.name}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Codice Fiscale</h3>
-                        <p className="mt-1">{sponsor.fiscalCode || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Telefono (Primario)</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Phone className="h-4 w-4 text-muted-foreground" />
-                          <p>{sponsor.phone || "-"}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Telefono (Secondario)</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Phone className="h-4 w-4 text-muted-foreground" />
-                          <p>{sponsor.phoneSecondary || "-"}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Email</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Mail className="h-4 w-4 text-muted-foreground" />
-                          <p>{sponsor.email}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Pubblica Amministrazione</h3>
-                        <Badge className={sponsor.isPublicAdministration ? "bg-blue-500" : "bg-gray-400"}>
-                          {sponsor.isPublicAdministration ? "SÌ" : "NO"}
-                        </Badge>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                        ))}
+                      </dl>
+                    </CollapsedSection>
+                  </>
+                ) : null}
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Sede</CardTitle>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => handleEditSection('sede')}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Indirizzo</h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <MapPin className="h-4 w-4 text-muted-foreground" />
-                          <p>{sponsor.address || "-"}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Numero Civico</h3>
-                        <p className="mt-1">{sponsor.streetNumber || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Comune</h3>
-                        <p className="mt-1">{sponsor.city || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">CAP</h3>
-                        <p className="mt-1">{sponsor.postalCode || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Paese</h3>
-                        <p className="mt-1">{sponsor.country}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Regione</h3>
-                        <p className="mt-1">{sponsor.region || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Provincia</h3>
-                        <p className="mt-1">{sponsor.province || "-"}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* FINANZA TAB */}
-              <TabsContent value="finanza" className="mt-4 space-y-6">
-                <Card>
-                  <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <CardTitle>Contratto e credito</CardTitle>
-                    {!isEditingContract && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="self-start sm:self-auto"
-                        onClick={openContractEditor}
-                      >
-                        <Edit className="h-4 w-4 mr-2" />
-                        {credit.hasContract ? "Modifica" : "Registra contratto"}
-                      </Button>
-                    )}
-                  </CardHeader>
-                  <CardContent className="space-y-6">
+                {area === "contratto" ? (
+                  <>
                     {/*
-                      Le tre cifre stanno **accanto**, mai sommate: il dovuto e
-                      un impegno, l'incassato e cassa, il residuo e la loro
-                      differenza. Un riquadro unico che le sommasse direbbe un
-                      numero che non esiste.
+                      Le tre cifre stanno **accanto**, mai sommate: il dovuto e un
+                      impegno, l'incassato e cassa, il residuo e la loro differenza.
+                      Il contenitore e tratteggiato perche non e cassa.
                     */}
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                      <div className="rounded-lg border p-4">
-                        <p className="text-sm text-muted-foreground">Dovuto</p>
-                        <p className="mt-1 text-2xl font-semibold">
-                          {formatAmount(credit.dueCents)}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Pattuito dal contratto. Non e cassa.
-                        </p>
-                      </div>
-                      <div className="rounded-lg border p-4">
-                        <p className="text-sm text-muted-foreground">Incassato</p>
-                        <p className="mt-1 text-2xl font-semibold text-green-600">
-                          {formatAmount(credit.collectedCents)}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Somma degli incassi registrati.
-                        </p>
-                      </div>
-                      <div className="rounded-lg border p-4">
-                        <p className="text-sm text-muted-foreground">Residuo</p>
-                        <p
-                          className={
-                            credit.outstandingCents > 0
-                              ? "mt-1 text-2xl font-semibold text-amber-600"
-                              : "mt-1 text-2xl font-semibold"
-                          }
-                        >
-                          {formatAmount(credit.outstandingCents)}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {credit.hasContract
-                            ? "Dovuto meno incassato."
-                            : "Nessun contratto registrato."}
-                        </p>
-                      </div>
-                    </div>
-
-                    {isEditingContract ? (
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                          <div className="space-y-2">
-                            <Label htmlFor="contract-amount">
-                              Importo pattuito (€)
-                            </Label>
-                            <Input
-                              id="contract-amount"
-                              inputMode="decimal"
-                              value={contractDraft.agreedAmount}
-                              onChange={(event) =>
-                                setContractDraft({
-                                  ...contractDraft,
-                                  agreedAmount: event.target.value,
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="contract-reference">
-                              Riferimento del contratto
-                            </Label>
-                            <Input
-                              id="contract-reference"
-                              value={contractDraft.documentReference}
-                              onChange={(event) =>
-                                setContractDraft({
-                                  ...contractDraft,
-                                  documentReference: event.target.value,
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="contract-start">Dal</Label>
-                            <Input
-                              id="contract-start"
-                              type="date"
-                              value={contractDraft.startDate}
-                              onChange={(event) =>
-                                setContractDraft({
-                                  ...contractDraft,
-                                  startDate: event.target.value,
-                                })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="contract-end">Al</Label>
-                            <Input
-                              id="contract-end"
-                              type="date"
-                              value={contractDraft.endDate}
-                              onChange={(event) =>
-                                setContractDraft({
-                                  ...contractDraft,
-                                  endDate: event.target.value,
-                                })
-                              }
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="contract-notes">Note</Label>
-                          <Textarea
-                            id="contract-notes"
-                            value={contractDraft.notes}
-                            onChange={(event) =>
-                              setContractDraft({
-                                ...contractDraft,
-                                notes: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                          <Button
-                            variant="outline"
-                            onClick={() => setIsEditingContract(false)}
-                          >
-                            Annulla
-                          </Button>
-                          <Button
-                            className="bg-blue-600 hover:bg-blue-700"
-                            onClick={handleSaveContract}
-                          >
-                            Salva contratto
-                          </Button>
-                        </div>
-                      </div>
+                    <SummaryCard
+                      dashed
+                      eyebrow="Credito"
+                      title="Dovuto, incassato, residuo"
+                      rows={[
+                        { label: "Dovuto · pattuito dal contratto, non e cassa", value: moneyCents(credit.dueCents) },
+                        { label: "Incassato · somma degli incassi registrati", value: moneyCents(credit.collectedCents), tone: "green" },
+                      ]}
+                      total={{
+                        label: credit.hasContract ? "Residuo · dovuto meno incassato" : "Residuo · nessun contratto registrato",
+                        value: moneyCents(credit.outstandingCents),
+                        tone: credit.outstandingCents > 0 ? "amber" : credit.outstandingCents < 0 ? "red" : "ink",
+                      }}
+                      footer={
+                        <>
+                          {creditError ? <span className="mr-auto font-brand text-[12px] text-egw-red">{creditError}</span> : null}
+                          {(() => {
+                            const spec = creditStatusSpec(credit, lifecycle);
+                            return spec ? <StatusPill status={spec} /> : null;
+                          })()}
+                          {collectButton()}
+                        </>
+                      }
+                    />
+                    {credit.hasContract ? (
+                      <DetailCard
+                        eyebrow="Contratto"
+                        title={contract.documentReference || "Contratto di sponsorizzazione"}
+                        fields={contractFields}
+                        onEdit={canManageCredit ? () => setContractOpen(true) : undefined}
+                        actions={<StatusPill status={contractStatusSpec(lifecycle)} detail={contract.endDate ? formatDateShort(contract.endDate) : undefined} />}
+                      />
                     ) : (
-                      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                        <div>
-                          <h3 className="text-sm font-medium text-muted-foreground">
-                            Periodo
-                          </h3>
-                          <p className="mt-1">
-                            {contract.startDate || contract.endDate
-                              ? `${formatDate(contract.startDate || "") || "—"} → ${formatDate(contract.endDate || "") || "—"}`
-                              : "-"}
-                          </p>
-                        </div>
-                        <div>
-                          <h3 className="text-sm font-medium text-muted-foreground">
-                            Riferimento del contratto
-                          </h3>
-                          <p className="mt-1">
-                            {contract.documentReference || "-"}
-                          </p>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <h3 className="text-sm font-medium text-muted-foreground">
-                            Note
-                          </h3>
-                          <p className="mt-1 whitespace-pre-line">
-                            {contract.notes || "-"}
-                          </p>
-                        </div>
-                      </div>
+                      <EmptyStateCard
+                        icon={<FileText />}
+                        title="Nessun contratto registrato"
+                        description="Importo pattuito, periodo e riferimento della scrittura firmata: da questi il residuo si calcola."
+                        primary={
+                          canManageCredit ? (
+                            <Button variant="secondary" size="sm" icon={<Plus />} onClick={() => setContractOpen(true)}>
+                              Registra contratto
+                            </Button>
+                          ) : null
+                        }
+                      />
                     )}
-                  </CardContent>
-                </Card>
+                  </>
+                ) : null}
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Dati Finanziari</CardTitle>
-                    <Button 
-                      variant="ghost" 
-                      size="sm"
-                      onClick={() => handleEditSection('finanza')}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">Partita IVA</h3>
-                        <p className="mt-1">{sponsor.vatNumber || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">PEC</h3>
-                        <p className="mt-1">{sponsor.pec || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">SDI (Fatturazione Elettronica)</h3>
-                        <p className="mt-1">{sponsor.sdi || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">IBAN</h3>
-                        <p className="mt-1 font-mono">{sponsor.iban || "-"}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                {area === "incassi" ? (
+                  <>
+                    <PanelHeader
+                      eyebrow="Registro"
+                      title="Incassi"
+                      description="Le righe del registro degli incassi con questa controparte. Un incasso non si cancella: si storna, e restano visibili entrambe le righe."
+                      actions={collectButton()}
+                      className="mb-0"
+                    />
+                    <SponsorCollectionsGrid
+                      module="sponsor-scheda-incassi"
+                      rows={collections}
+                      showSponsor={false}
+                      state={creditLoading ? "loading" : creditError ? "error" : "ready"}
+                      errorMessage={creditError}
+                      onRetry={() => void ricaricaIncassi(sponsor)}
+                      onReverse={canReverse ? (row) => setReversing(row) : undefined}
+                      emptyPrimary={
+                        canManageCredit ? (
+                          <Button variant="secondary" size="sm" icon={<Euro />} onClick={() => setCollectionOpen(true)}>
+                            Registra incasso
+                          </Button>
+                        ) : null
+                      }
+                    />
+                  </>
+                ) : null}
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Pagamenti</CardTitle>
-                    <Button 
-                      className="bg-blue-600 hover:bg-blue-700"
-                      onClick={() => setShowAddPaymentDialog(true)}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Nuovo Pagamento
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Data</TableHead>
-                            <TableHead>Causale</TableHead>
-                            <TableHead>Tipo</TableHead>
-                            <TableHead>Importo</TableHead>
-                            <TableHead>Metodo</TableHead>
-                            <TableHead className="text-right">Azioni</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {payments.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={6} className="h-24 text-center">
-                                Nessun pagamento registrato
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            payments.map((payment) => (
-                              <TableRow key={payment.id}>
-                                <TableCell>{formatDate(payment.date)}</TableCell>
-                                <TableCell>{payment.description}</TableCell>
-                                <TableCell>
-                                  {/*
-                                    **Uno storno si dichiara.** `reversed`
-                                    veniva mappato qui sopra e non letto in
-                                    nessuna riga: un incasso di 500 stornato
-                                    mostrava un «+€500» verde accanto a un
-                                    «−€500» rosso, sotto un riquadro
-                                    «Incassato €0». Chi guardava vedeva due
-                                    movimenti e un totale che non li spiegava,
-                                    e non aveva modo di capire quale dei due
-                                    fosse l'annullamento dell'altro.
-                                  */}
-                                  {payment.reversed ? (
-                                    <div className="flex items-center gap-1 text-slate-500">
-                                      <Ban className="h-4 w-4" />
-                                      <span>Stornato</span>
-                                    </div>
-                                  ) : payment.type === "entrata" ? (
-                                    <div className="flex items-center gap-1 text-green-600">
-                                      <TrendingUp className="h-4 w-4" />
-                                      <span>Entrata</span>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center gap-1 text-red-600">
-                                      <TrendingDown className="h-4 w-4" />
-                                      <span>Uscita</span>
-                                    </div>
-                                  )}
-                                </TableCell>
-                                <TableCell
-                                  className={
-                                    payment.reversed
-                                      ? "text-slate-500 font-medium line-through"
-                                      : payment.type === "entrata"
-                                        ? "text-green-600 font-medium"
-                                        : "text-red-600 font-medium"
-                                  }
-                                >
-                                  {payment.type === "entrata" ? "+" : "-"}€{payment.amount.toFixed(2)}
-                                </TableCell>
-                                <TableCell>{payment.paymentMethod}</TableCell>
-                                <TableCell className="text-right">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 w-8 p-0 text-red-600"
-                                    onClick={() => handleDeletePayment(payment.id)}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                    {/*
-                      Il pulsante di cancellazione resta, e dice perche non
-                      cancella: un incasso si storna, dalla pagina Movimenti.
-                      Toglierlo del tutto lascerebbe chi lo cercava senza
-                      risposta; lasciarlo muto era peggio, perche prometteva
-                      un'azione che non c'e.
-                    */}
-                    <p className="mt-3 text-xs text-slate-500">
-                      Un incasso non si cancella: si storna dalla pagina
-                      Movimenti, cosi la correzione resta leggibile.
-                    </p>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* ARCHIVIO TAB */}
-              <TabsContent value="archivio" className="mt-4 space-y-6">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Documenti e Contratti</CardTitle>
-                    <Button 
-                      className="bg-blue-600 hover:bg-blue-700"
-                      onClick={() => setShowAddDocumentDialog(true)}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Nuovo Documento
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Titolo</TableHead>
-                            <TableHead>Descrizione</TableHead>
-                            <TableHead>Data Creazione</TableHead>
-                            <TableHead className="text-right">Azioni</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {documents.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={4} className="h-24 text-center">
-                                Nessun documento registrato
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            documents.map((document) => (
-                              <TableRow key={document.id}>
-                                <TableCell className="font-medium">{document.title}</TableCell>
-                                <TableCell>{document.description || "-"}</TableCell>
-                                <TableCell>{formatDate(document.created_at)}</TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex justify-end gap-2">
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-8 w-8 p-0"
-                                    >
-                                      <Download className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-8 w-8 p-0 text-red-600"
-                                      onClick={() => handleDeleteDocument(document.id)}
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
+                {area === "documenti" ? (
+                  <>
+                    <PanelHeader
+                      eyebrow="Archivio"
+                      title="Documenti e contratti"
+                      description="Titolo, descrizione e nome del file di riferimento."
+                      actions={
+                        <Button variant="secondary" size="sm" icon={<Plus />} onClick={() => setDocumentOpen(true)}>
+                          Nuovo documento
+                        </Button>
+                      }
+                      className="mb-0"
+                    />
+                    <DataGrid<SponsorDocument>
+                      module="sponsor-documenti"
+                      aria-label="Documenti dello sponsor"
+                      rows={documents}
+                      getRowId={(row) => row.id}
+                      rowLabel={(row) => row.title}
+                      columns={documentColumns}
+                      defaultSort={{ columnId: "createdAt", direction: "desc" }}
+                      rowActions={documentActions}
+                      canSelect={false}
+                      hideViews
+                      hideFooter={documents.length <= 25}
+                      noun={{ singular: "documento", plural: "documenti" }}
+                      empty={{
+                        icon: <FileText />,
+                        title: "Nessun documento registrato",
+                        description: "Contratto firmato, lettera d'intenti, materiale di visibilità: un riferimento sulla scheda.",
+                        primary: (
+                          <Button variant="secondary" size="sm" icon={<Plus />} onClick={() => setDocumentOpen(true)}>
+                            Nuovo documento
+                          </Button>
+                        ),
+                      }}
+                    />
+                  </>
+                ) : null}
+              </>
+            )}
           </DashboardPageContainer>
         </main>
       </div>
 
-      {/* Edit Section Modal */}
-      {editingSection && (
-        <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setEditingSection(null)}
-        >
-          <div 
-            className="bg-white dark:bg-gray-800 rounded-lg max-w-2xl w-full max-h-[90dvh] overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold">Modifica Informazioni</h3>
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={() => setEditingSection(null)}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="p-6 overflow-auto max-h-[calc(90vh-140px)]">
-              {editingSection === 'anagrafica' && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div className="flex items-center gap-2">
-                      <Label>Sponsor</Label>
-                      <Switch 
-                        checked={editFormData.isSponsor}
-                        onCheckedChange={(checked) => setEditFormData({...editFormData, isSponsor: checked})}
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Label>Fornitore</Label>
-                      <Switch 
-                        checked={editFormData.isSupplier}
-                        onCheckedChange={(checked) => setEditFormData({...editFormData, isSupplier: checked})}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>Nome/Ragione Sociale *</Label>
-                    <Input 
-                      value={editFormData.name || ''} 
-                      onChange={(e) => setEditFormData({...editFormData, name: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <Label>Codice Fiscale</Label>
-                    <Input 
-                      value={editFormData.fiscalCode || ''} 
-                      onChange={(e) => setEditFormData({...editFormData, fiscalCode: e.target.value})}
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <Label>Telefono (Primario)</Label>
-                      <Input 
-                        value={editFormData.phone || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, phone: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Telefono (Secondario)</Label>
-                      <Input 
-                        value={editFormData.phoneSecondary || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, phoneSecondary: e.target.value})}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>Email</Label>
-                    <Input 
-                      type="email"
-                      value={editFormData.email || ''} 
-                      onChange={(e) => setEditFormData({...editFormData, email: e.target.value})}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label>Pubblica Amministrazione</Label>
-                    <Switch 
-                      checked={editFormData.isPublicAdministration}
-                      onCheckedChange={(checked) => setEditFormData({...editFormData, isPublicAdministration: checked})}
-                    />
-                  </div>
-                </div>
-              )}
+      <SponsorDrawer
+        open={Boolean(editingSection)}
+        onOpenChange={(open) => !open && setEditingSection(null)}
+        sponsor={sponsor}
+        section={editingSection === "all" ? null : editingSection}
+        onSave={saveSection}
+      />
 
-              {editingSection === 'sede' && (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <Label>Indirizzo</Label>
-                      <Input 
-                        value={editFormData.address || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, address: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Numero Civico</Label>
-                      <Input 
-                        value={editFormData.streetNumber || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, streetNumber: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Comune</Label>
-                      <Input 
-                        value={editFormData.city || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, city: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>CAP</Label>
-                      <Input 
-                        value={editFormData.postalCode || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, postalCode: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Paese</Label>
-                      <Input 
-                        value={editFormData.country || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, country: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Regione</Label>
-                      <Input 
-                        value={editFormData.region || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, region: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>Provincia</Label>
-                      <Input 
-                        value={editFormData.province || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, province: e.target.value})}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
+      <ContractDrawer open={contractOpen} onOpenChange={setContractOpen} contract={contract} hasContract={credit.hasContract} onSave={saveContract} />
 
-              {editingSection === 'finanza' && (
-                <div className="space-y-4">
-                  <div>
-                    <Label>Partita IVA</Label>
-                    <Input 
-                      value={editFormData.vatNumber || ''} 
-                      onChange={(e) => setEditFormData({...editFormData, vatNumber: e.target.value})}
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <Label>PEC</Label>
-                      <Input 
-                        value={editFormData.pec || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, pec: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Label>SDI (Fatturazione Elettronica)</Label>
-                      <Input 
-                        value={editFormData.sdi || ''} 
-                        onChange={(e) => setEditFormData({...editFormData, sdi: e.target.value})}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>IBAN</Label>
-                    <Input 
-                      value={editFormData.iban || ''} 
-                      onChange={(e) => setEditFormData({...editFormData, iban: e.target.value})}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-2 p-4 border-t">
-              <Button variant="outline" onClick={() => setEditingSection(null)}>
-                Annulla
-              </Button>
-              <Button onClick={handleSaveSection} className="bg-blue-600 hover:bg-blue-700">
-                Salva Modifiche
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CollectionDrawer
+        open={collectionOpen}
+        onOpenChange={setCollectionOpen}
+        sponsor={sponsor}
+        sponsors={sponsor ? [sponsor] : []}
+        methodChoices={methodChoices}
+        onSubmit={submitCollection}
+      />
 
-      {/* Add Payment Dialog */}
-      <Dialog open={showAddPaymentDialog} onOpenChange={setShowAddPaymentDialog}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>Crea Nuovo Pagamento</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div>
-              <Label>Causale *</Label>
-              <Input 
-                value={newPayment.description}
-                onChange={(e) => setNewPayment({...newPayment, description: e.target.value})}
-              />
-            </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <Label>Importo (€) *</Label>
-                <Input 
-                  type="number"
-                  value={newPayment.amount || ''}
-                  onChange={(e) => setNewPayment({...newPayment, amount: parseFloat(e.target.value) || 0})}
-                />
-              </div>
-              <div>
-                <Label>Tipo *</Label>
-                <select 
-                  className="w-full h-10 rounded-md border border-input bg-background px-3"
-                  value={newPayment.type}
-                  onChange={(e) => setNewPayment({...newPayment, type: e.target.value})}
-                >
-                  <option value="entrata">In entrata</option>
-                  <option value="uscita">In uscita</option>
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <Label>Data *</Label>
-                <Input 
-                  type="date"
-                  value={newPayment.date}
-                  onChange={(e) => setNewPayment({...newPayment, date: e.target.value})}
-                />
-              </div>
-              <div>
-                <Label>Metodo di pagamento *</Label>
-                <Input 
-                  value={newPayment.paymentMethod}
-                  onChange={(e) => setNewPayment({...newPayment, paymentMethod: e.target.value})}
-                />
-              </div>
-            </div>
-            <div>
-              <Label>Conto Corrente</Label>
-              <Input 
-                value={newPayment.bankAccount}
-                onChange={(e) => setNewPayment({...newPayment, bankAccount: e.target.value})}
-              />
-            </div>
-            <div>
-              <Label>Note</Label>
-              <Textarea 
-                value={newPayment.notes}
-                onChange={(e) => setNewPayment({...newPayment, notes: e.target.value})}
-                rows={3}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddPaymentDialog(false)}>
-              Annulla
-            </Button>
-            <Button onClick={handleAddPayment} className="bg-blue-600 hover:bg-blue-700">
-              Registra Pagamento
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DocumentDrawer open={documentOpen} onOpenChange={setDocumentOpen} onSave={addDocument} />
 
-      {/* Add Document Dialog */}
-      <Dialog open={showAddDocumentDialog} onOpenChange={setShowAddDocumentDialog}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Aggiungi Documento</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div>
-              <Label>Titolo *</Label>
-              <Input 
-                value={newDocument.title}
-                onChange={(e) => setNewDocument({...newDocument, title: e.target.value})}
-              />
-            </div>
-            <div>
-              <Label>Descrizione</Label>
-              <Textarea 
-                value={newDocument.description}
-                onChange={(e) => setNewDocument({...newDocument, description: e.target.value})}
-                rows={3}
-              />
-            </div>
-            <div>
-              <Label>Allega documento</Label>
-              <div className="flex items-center gap-2 mt-2">
-                <Button 
-                  variant="outline"
-                  onClick={() => document.getElementById('document-file-input')?.click()}
-                  className="flex items-center gap-2"
-                >
-                  <Upload className="h-4 w-4" />
-                  {newDocument.file ? newDocument.file.name : "Seleziona file"}
-                </Button>
-                <input
-                  id="document-file-input"
-                  type="file"
-                  className="hidden"
-                  onChange={(e) => setNewDocument({...newDocument, file: e.target.files?.[0] || null})}
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDocumentDialog(false)}>
-              Annulla
-            </Button>
-            <Button onClick={handleAddDocument} className="bg-blue-600 hover:bg-blue-700">
-              Aggiungi Documento
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DangerConfirmDialog
+        open={Boolean(deletingDocument)}
+        onOpenChange={(open) => !open && !documentBusy && setDeletingDocument(null)}
+        title={`Eliminare ${deletingDocument?.title ?? "questo documento"}?`}
+        description="Sei sicuro di voler eliminare questo documento?"
+        consequences={["Il titolo, la descrizione e il riferimento al file", "Il documento non compare più nell'archivio della scheda"]}
+        confirmLabel="Elimina"
+        onConfirm={confirmDeleteDocument}
+        loading={documentBusy}
+      />
+
+      <DeleteSponsorDialog
+        open={deleting}
+        onOpenChange={(open) => !deleteBusy && setDeleting(open)}
+        sponsor={sponsor}
+        collectionsCount={collections.filter((row) => !row.reversed).length}
+        onConfirm={confirmDelete}
+        loading={deleteBusy}
+      />
+
+      <StornoIncassoDialog
+        row={reversing}
+        onOpenChange={(open) => {
+          if (!open) setReversing(null);
+        }}
+        saving={reverseBusy}
+        onSubmit={confirmReverse}
+      />
     </div>
+  );
+}
+
+export default function SponsorDetailsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SponsorDetailsPageContent />
+    </Suspense>
   );
 }

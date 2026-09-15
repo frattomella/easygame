@@ -26,11 +26,17 @@ const SOCI_PAGES = [
   "src/app/soci/page.tsx",
   "src/app/soci/new/page.tsx",
   "src/app/soci/[id]/page.tsx",
-  "src/app/soci/[id]/membership-register-panel.tsx",
+  "src/app/soci/[id]/edit/page.tsx",
+  /* Dal Web V2 il pannello del libro e diviso in sezione (lettura) e cassetto (scrittura). */
+  "src/components/soci/v2/membership-register-section.tsx",
+  "src/components/soci/v2/membership-event-drawer.tsx",
+  "src/components/soci/v2/member-form.tsx",
+  "src/components/soci/v2/member-form-model.ts",
+  "src/components/soci/v2/member-section-drawer.tsx",
 ];
 
 test("la creazione di un socio non riscrive piu la colonna dal browser", () => {
-  const source = read("src/app/soci/new/page.tsx");
+  const source = read("src/app/soci/new/page.tsx") + read("src/components/soci/v2/member-form-model.ts");
 
   assert.equal(
     /\.update\(\s*\{\s*members/.test(source),

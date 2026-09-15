@@ -19,8 +19,12 @@ const SRC = path.join(process.cwd(), "src");
 const read = (relative) =>
   readFileSync(path.join(SRC, ...relative.split("/")), "utf8");
 
-/** Gli elenchi V1 che selezionano e agiscono sulla selezione. */
-const SELECTION_SURFACES = [["app/soci/page.tsx", "elenco soci"]];
+/**
+ * Gli elenchi V1 che selezionano e agiscono sulla selezione. Vuoto dalla
+ * Wave D: anche i soci sono passati al `DataGrid`. L'elenco resta perche una
+ * quarta schermata di persone nata fuori dalla griglia deve venire qui.
+ */
+const SELECTION_SURFACES = [];
 
 /**
  * Gli elenchi migrati al Web V2: la selezione, la casella «tutti visibili»,
@@ -31,6 +35,7 @@ const SELECTION_SURFACES = [["app/soci/page.tsx", "elenco soci"]];
 const GRID_SURFACES = [
   ["app/trainers/page.tsx", "elenco allenatori"],
   ["app/staff/page.tsx", "elenco staff"],
+  ["app/soci/page.tsx", "elenco soci"],
 ];
 
 test("i tre elenchi usano la selezione condivisa, non una copia per pagina", () => {
@@ -78,12 +83,12 @@ test("i tre elenchi usano la selezione condivisa, non una copia per pagina", () 
 /**
  * «Seleziona tutti visibili» dove le righe stanno in una tabella.
  *
- * Allenatori e staff sono passati al `DataGrid`, che monta la casella di
- * testata da se (`aria-label="Seleziona la pagina"`): per questo i loro file
- * non compaiono.
+ * Allenatori, staff e soci sono passati al `DataGrid`, che monta la casella
+ * di testata da se (`aria-label="Seleziona la pagina"`): per questo i loro
+ * file non compaiono e l'elenco delle tabelle V1 e vuoto.
  */
 test("dove c'e una tabella c'e la casella «seleziona tutti visibili»", () => {
-  for (const file of ["app/soci/page.tsx"]) {
+  for (const [file] of SELECTION_SURFACES) {
     assert.match(
       read(file),
       /<SelectAllCheckbox/,

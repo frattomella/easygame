@@ -13,8 +13,9 @@ import path from "node:path";
  * difendono il *cablaggio* lato UI: che il messaggio reale arrivi cosi
  * com'e (non un fisso generico), che il form resti compilato su un
  * rifiuto, e che l'Orario proponga una fine quando l'utente scrive solo
- * l'inizio — senza duplicare in `AddMatchForm` la logica di dominio che
- * costruisce il messaggio (quella resta sul server).
+ * l'inizio — senza duplicare in `MatchFormDrawer` (la forma V2 di
+ * `AddMatchForm`, Wave D) la logica di dominio che costruisce il messaggio
+ * (quella resta sul server).
  */
 
 const SRC = path.join(process.cwd(), "src");
@@ -24,10 +25,10 @@ const read = (relative) =>
     "\n",
   );
 
-const ADD_MATCH_FORM = "components/forms/AddMatchForm.tsx";
+const ADD_MATCH_FORM = "components/matches/v2/MatchFormDrawer.tsx";
 const MATCHES_PAGE = "app/matches/page.tsx";
 
-test("AddMatchForm propone la fine (+90 minuti) quando si lascia il campo Orario con un solo inizio", () => {
+test("MatchFormDrawer propone la fine (+90 minuti) quando si lascia l'ora di inizio senza una fine", () => {
   const source = read(ADD_MATCH_FORM);
 
   assert.match(
@@ -35,14 +36,20 @@ test("AddMatchForm propone la fine (+90 minuti) quando si lascia il campo Orario
     /from\s*"@\/lib\/matches\/match-time-suggestion"/,
     "il suggerimento e dominio puro condiviso, non logica scritta due volte nel form",
   );
+  /*
+    La forma V2 ha due campi — ora di inizio e ora di fine esplicita (fix
+    ac8312a) — e la proposta scatta lasciando l'inizio, se la fine e vuota.
+  */
+  assert.match(source, /onBlur=\{proposeEnd\}/, "l'ora di inizio propone la fine appena l'utente lascia il campo");
   assert.match(
     source,
-    /onBlur=\{\(\)\s*=>\s*\n?\s*setFormData\(\(prev\)\s*=>\s*\(\{\s*\n?\s*\.\.\.prev,\s*\n?\s*time:\s*suggerisciIntervalloGara\(prev\.time\),/,
-    "l'Orario deve proporre l'intervallo appena l'utente lascia il campo, non solo al salvataggio",
+    /const proposeEnd = \(\) =>[\s\S]{0,400}suggerisciIntervalloGara\(prev\.startTime\)/,
+    "la fine proposta viene dal suggerimento di dominio (+90 minuti)",
   );
+  assert.match(source, /if \(prev\.endTime \|\| !prev\.startTime\) return prev;/, "una fine gia scritta non si tocca");
 });
 
-test("AddMatchForm applica lo stesso suggerimento anche al salvataggio, come ripiego", () => {
+test("MatchFormDrawer applica lo stesso suggerimento anche al salvataggio, come ripiego", () => {
   const source = read(ADD_MATCH_FORM);
   const handleSubmitStart = source.indexOf("const handleSubmit = async");
   assert.notEqual(handleSubmitStart, -1, "handleSubmit non trovato");
@@ -52,8 +59,13 @@ test("AddMatchForm applica lo stesso suggerimento anche al salvataggio, come rip
   const corpo = source.slice(handleSubmitStart, submitCallIndex);
   assert.match(
     corpo,
-    /const time = suggerisciIntervalloGara\(formData\.time\)/,
+    /const time = composeTime\(formData\)/,
     "un invio che non passa da onBlur (es. Invio da tastiera) non deve poter mandare un solo orario di inizio",
+  );
+  assert.match(
+    source,
+    /const composeTime = [\s\S]{0,300}return suggerisciIntervalloGara\(state\.startTime\);/,
+    "senza la fine, l'orario che parte e l'intervallo suggerito: mai un solo orario",
   );
 
   const payload = source.slice(submitCallIndex, submitCallIndex + 300);
