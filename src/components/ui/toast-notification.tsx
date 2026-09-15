@@ -12,35 +12,35 @@ interface ToastProps {
 }
 
 export function Toast({ type, message, onClose }: ToastProps) {
+  /*
+    Guideline 09 §9.5: un successo dura 4 secondi, un errore 8 — perche chi
+    ha sbagliato deve fare in tempo a leggere cosa.
+  */
   React.useEffect(() => {
     const timer = setTimeout(() => {
       onClose();
-    }, 5000);
+    }, type === "error" ? 8000 : 4000);
 
     return () => clearTimeout(timer);
-  }, [onClose]);
+  }, [onClose, type]);
 
   const getIcon = () => {
     switch (type) {
       case "success":
-        return <CheckCircle className="h-5 w-5 text-green-500" />;
+        return <CheckCircle className="h-[17px] w-[17px] text-egw-green" />;
       case "error":
-        return <AlertCircle className="h-5 w-5 text-red-500" />;
+        return <AlertCircle className="h-[17px] w-[17px] text-egw-red" />;
       case "info":
-        return <Info className="h-5 w-5 text-blue-500" />;
+        return <Info className="h-[17px] w-[17px] text-egw-blue-700" />;
     }
   };
 
-  const getBackgroundColor = () => {
-    switch (type) {
-      case "success":
-        return "bg-green-50 border-green-200";
-      case "error":
-        return "bg-red-50 border-red-200";
-      case "info":
-        return "bg-blue-50 border-blue-200";
-    }
-  };
+  const bar =
+    type === "success"
+      ? "before:bg-egw-green"
+      : type === "error"
+        ? "before:bg-egw-red"
+        : "before:bg-egw-blue-700";
 
   return (
     /*
@@ -52,21 +52,24 @@ export function Toast({ type, message, onClose }: ToastProps) {
       `alert` per un errore (interrompe), `status` per il resto (attende una
       pausa): un errore che aspetta il proprio turno arriva quando la persona
       ha gia premuto il pulsante una seconda volta.
+
+      L'aspetto e quello del Web V2 (EGDS v3.1.0, guideline 09 §9.5): 360px in
+      basso a destra, bianco, barra di 4px a sinistra nel colore semantico.
     */
     <div
       role={type === "error" ? "alert" : "status"}
       aria-live={type === "error" ? "assertive" : "polite"}
-      className={`fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-lg border p-4 shadow-md ${getBackgroundColor()}`}
+      className={`egw-toast-enter fixed bottom-6 right-6 z-[80] flex w-[360px] max-w-[calc(100vw-32px)] items-start gap-3 overflow-hidden rounded-egw-field bg-white py-3 pl-4 pr-3 font-brand shadow-egw-plane-2 before:absolute before:inset-y-0 before:left-0 before:w-1 before:content-[''] ${bar}`}
     >
-      {getIcon()}
-      <p className="flex-1 text-sm">{message}</p>
+      <span className="mt-px shrink-0">{getIcon()}</span>
+      <p className="flex-1 text-[12.5px] font-semibold leading-[1.45] text-egw-ink">{message}</p>
       <button
         type="button"
         onClick={onClose}
         aria-label="Chiudi la notifica"
-        className="rounded-full p-1 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-300"
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-egw-micro text-egw-ink-62 hover:bg-egw-page-100 focus:outline-none focus-visible:shadow-egw-focus"
       >
-        <X className="h-4 w-4" aria-hidden="true" />
+        <X className="h-[15px] w-[15px]" aria-hidden="true" />
       </button>
     </div>
   );

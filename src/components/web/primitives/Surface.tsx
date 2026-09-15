@@ -14,7 +14,7 @@ export interface PanelProps extends React.HTMLAttributes<HTMLDivElement> {
   radius?: "md" | "sm";
   /** Senza padding interno (la griglia gestisce il proprio). */
   flush?: boolean;
-  as?: "div" | "section" | "article" | "aside";
+  as?: "div" | "section" | "article" | "aside" | "header";
 }
 
 export const Panel = React.forwardRef<HTMLDivElement, PanelProps>(
