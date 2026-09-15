@@ -111,6 +111,8 @@ easygame/
 | `.eslintrc.json` / `.eslintignore` | ESLint via `next/core-web-vitals`. |
 | `src/middleware.ts` | Cancello di autenticazione edge sui percorsi protetti. |
 | `scripts/db-guard.mjs` | Blocca le scritture locali verso database condivisi. |
+| `scripts/censimento-appartenenze-legacy.mjs` | Censimento in sola lettura delle righe di `athlete_category_memberships` con l'etichetta al posto dell'identificativo (ADR-0185, D-RD-16). |
+| `scripts/bonifica-appartenenze-legacy.mjs` + `scripts/lib/bonifica-appartenenze.mjs` | La bonifica D-RD-16: dry-run per default, scrittura solo con tutte le guardie del piano (`docs/redesign/D-RD-16-piano-bonifica-appartenenze.md`) e su un branch solo; le regole R1/R2/R3/R0 sono pure e provate su fixture (`tests/scripts/`). |
 | `EasyGame - Avvio Locale.bat`, `avvia-easygame.cmd`, `start-local.sh`, `scripts/start-local.*` | Launcher locali multi-piattaforma. |
 
 ## Directory locali non versionate

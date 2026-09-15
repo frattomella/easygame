@@ -1,10 +1,12 @@
 # D-RD-16 — Piano di bonifica delle righe storiche di `athlete_category_memberships`
 
-> **Stato: PIANO. Non eseguito. Nessuna scrittura autorizzata.**
+> **Stato: STRUMENTI PRONTI, DRY-RUN ESEGUITO, NESSUNA SCRITTURA.**
 > Redatto il 2026-09-15 sulla copia del pilota nel branch Neon
 > `web-redesign-staging` (`br-hidden-salad-alm93r7e`), in sola lettura.
-> L'esecuzione — anche il solo dry-run che apre una transazione — richiede
-> un'autorizzazione esplicita separata (CLAUDE.md §8, ADR-0185).
+> Lo script esiste (`scripts/bonifica-appartenenze-legacy.mjs`), il dry-run
+> e stato eseguito (§13) e la copia di sicurezza esiste (§7). L'esecuzione
+> richiede un'autorizzazione esplicita separata (CLAUDE.md §8, ADR-0185):
+> **non e stata data**.
 
 ## 0. Perche e perche adesso
 
@@ -140,7 +142,7 @@ di fase A.
 
 Prima di ogni esecuzione reale, nell'ordine:
 
-1. **Branch Neon** dal branch bersaglio, nominato `pre-drd16-<yyyymmdd>-<ambiente>` (per la prova generale: figlio di `web-redesign-staging`; per lo staging Fortitudo: figlio di `production`). E il ripristino di ultima istanza: si promuove o si legge.
+1. **Branch Neon** dal branch bersaglio, nominato `pre-drd16-<yyyymmdd>-<ambiente>` (per la prova generale: figlio di `web-redesign-staging`; per lo staging Fortitudo: figlio di `production`). E il ripristino di ultima istanza: si promuove o si legge. Neon **rifiuta gli snapshot sui branch non radice** (`not allowed to snapshot non-root branch`): per il redesign la copia e un branch figlio. **Creato il 2026-09-15**: `br-soft-bread-al8kcvmh` (`pre-drd16-20260915-web-redesign-staging`, figlio di `br-hidden-salad-alm93r7e` a LSN `0/1438BC30`, senza compute: si legge attaccandone uno). Il branch di Fortitudo (`br-shy-pine-alt2mp60`) non e stato toccato.
 2. **Estratto delle righe toccate**, prima della transazione, in
    `.codex-scratch/drd16/<run_id>/prima.json` (gitignorato): tutte le righe
    `athlete_category_memberships` del club (428) e le 215 sorgenti con ogni
@@ -154,23 +156,35 @@ Prima di ogni esecuzione reale, nell'ordine:
 
 ## 8. Dry-run
 
-`node scripts/bonifica-appartenenze-legacy.mjs --club <id>` (da scrivere;
-**non esiste ancora**) e in dry-run **per default**:
+`node scripts/bonifica-appartenenze-legacy.mjs --club <id>` (le regole in
+`scripts/lib/bonifica-appartenenze.mjs`, pure, provate su fixture in
+`tests/scripts/bonifica-appartenenze-legacy.test.mjs`) e in dry-run **per
+default**:
 
 - apre solo `SELECT`; non `BEGIN`, non blocchi;
 - stampa per ogni riga: `id`, `athlete_id`, etichetta, regola (R1/R2/R3/R0),
   categoria vera, azione, e per le R3 la dicitura `CONFERMA A MANO`;
 - stampa i conteggi di §4 «prima» e quelli «dopo» attesi;
 - scrive `.codex-scratch/drd16/<run_id>/piano.json` con lo stesso contenuto;
+- scrive anche `prima.json` (l'estratto di ritorno), `inverso.json` (le
+  operazioni inverse gia scritte), `validazioni.json` (V1–V5 prima e dopo
+  simulato, idempotenza, ritorno) e un `traccia-<riga>.md` per ogni R3;
 - esce con 0 se tutto e DETERMINISTIC, con 3 se c'e una `REVIEW`.
 
 L'esecuzione richiede **tutte** queste condizioni: `--esegui`,
 `--confermo <organization_id>` uguale a `--club`, `--attese …` uguale a cio che
-il dry-run ha calcolato, la variabile `BONIFICA_APPARTENENZE_AUTORIZZATA=<run_id
-del dry-run>`, `EASYGAME_DB_ENV` uguale all'ambiente dichiarato con
-`--ambiente` (`web-redesign-staging` | `staging`), e la connection string passata
-**esplicitamente** con `--url` (mai letta da `.env.local`, che punta al
-redesign). Manca una condizione → non parte.
+il dry-run ha calcolato, `--snapshot <branch Neon>` creato prima,
+`--conferma-r3 <id,…>` con **ogni** riga R3 del piano (una R3 non si approva
+da sola), la variabile `BONIFICA_APPARTENENZE_AUTORIZZATA=<run_id del dry-run>`
+(il cui `piano.json` deve esistere e riguardare lo stesso club),
+`EASYGAME_DB_ENV` uguale all'ambiente, e la connection string **diretta** (non
+il pooler) passata **esplicitamente** con `--url` (mai letta da `.env.local`).
+Il branch ammesso e **uno solo**, scritto nel codice (`BRANCH_AMMESSI`:
+`web-redesign-staging` → endpoint `ep-dry-block-alkxdiiu`): lo script rifiuta
+qualunque altro host anche in dry-run. Lo staging Fortitudo si aggiunge con
+una modifica del codice e la sua autorizzazione. Manca una condizione → non
+parte. Dentro la transazione il piano si **ricalcola** con i blocchi in mano e
+deve coincidere riga per riga con quello del dry-run approvato.
 
 Query del dry-run (le stesse del censimento, in SQL, sola lettura):
 
@@ -286,15 +300,56 @@ Poi, come passi **separati e a loro volta autorizzati**:
 
 ## 12. Cosa manca prima di poter eseguire
 
-- [ ] Scrivere `scripts/bonifica-appartenenze-legacy.mjs` (dry-run default,
+- [x] Scrivere `scripts/bonifica-appartenenze-legacy.mjs` (dry-run default,
       guardie di §8, audit di §7, annullamento di §10) e i suoi test su
-      fixture (`tests/scripts/…`): la regola R3 e il calcolo delle attese vanno
-      provati senza database.
-- [ ] Autorizzazione esplicita per la **prova generale** su
-      `web-redesign-staging` (branch Neon di sicurezza incluso).
-- [ ] Conferma a mano della riga `7fdcf885-…` (R3).
-- [ ] Rapporto della prova generale (conteggi §4, validazioni §9, parita §11).
-- [ ] Autorizzazione esplicita **separata** per lo staging Fortitudo.
+      fixture (`tests/scripts/bonifica-appartenenze-legacy.test.mjs`, 14).
+- [x] Copia di sicurezza del branch del redesign (§7.1).
+- [x] Dry-run sul redesign (§13).
+- [ ] Conferma a mano della riga `7fdcf885-…` (R3): il fascicolo e
+      `.codex-scratch/drd16/20260915-fortitudo-dryrun-1/traccia-7fdcf885-….md`.
+- [ ] Autorizzazione esplicita per l'**esecuzione** su `web-redesign-staging`.
+- [ ] Rapporto dell'esecuzione (conteggi §4, validazioni §9, parita §11).
+- [ ] Autorizzazione esplicita **separata** per lo staging Fortitudo (e la
+      modifica di `BRANCH_AMMESSI`).
+
+## 13. Dry-run del 2026-09-15 (`20260915-fortitudo-dryrun-1`, nessuna scrittura)
+
+Database `ep-dry-block-alkxdiiu…/neondb` (redesign), copia di sicurezza
+`br-soft-bread-al8kcvmh`. File in `.codex-scratch/drd16/20260915-fortitudo-dryrun-1/`.
+
+| misura | valore |
+| --- | ---: |
+| righe del club prima | 428 |
+| righe storiche (fuori catalogo) | 213 |
+| UPDATE `category_id` | 1 (`36bb34af-…` → `j8liup8`, R2) |
+| UPDATE sulla gemella (bandiera/sede) | 0 |
+| DELETE (copie) | 212 (211 R1/R2 + 1 R3) |
+| UPDATE `athletes.category_id` | 2 |
+| righe attese dopo | 216 |
+| R0 | 0 |
+| distribuzione | R1 165 · R2 47 · R3 1 · R0 0 |
+| `--attese` | `update=1,delete=212,colonne=2` |
+
+Validazioni sullo stato simulato dopo: V1 0 · V2 216 · V3 213 (V3b 0) · V4 0 ·
+V5 0 — tutte OK; V6 n/a (l'audit nasce in esecuzione). Idempotenza: il piano
+sullo stato dopo e vuoto. Ritorno: l'inverso (215 operazioni) applicato allo
+stato dopo restituisce lo stato prima, riga per riga. Controllo incrociato con
+il censimento (che usa il normalizzatore dell'app, non queste regole): 215 su
+215 bersagli coincidono. Le guardie di scrittura sono state provate una per
+una (senza `--url`, altro branch, pooler, `EASYGAME_DB_ENV` sbagliato, senza
+conferme/attese/snapshot/autorizzazione, R3 non confermata, attese diverse):
+tutte rifiutano prima di `BEGIN`; il database dopo le prove ha ancora
+428/213/213 e nessuna tabella di audit.
+
+**Organizzazione omonima `ef5317db-…`** (fuori perimetro, solo dry-run
+`20260915-ef5317db-dryrun-1`): 12 righe, 7 storiche, UPDATE 5 (R2, tutte
+primarie: la categoria vera e `category-a-pulcini-2019-2020-eonjic`, senza
+gemella), DELETE 2 (1 R2, 1 **R3** `e367e8e5-…` «Scoiattoli» fra due
+omonime), colonne 5, R0 0. **V5 dopo = 1, KO**: un atleta ha gia
+`athletes.category_id` nel catalogo ma diverso dalla sua riga primaria — un
+disallineamento che **non** viene dalle righe storiche e che la fase A non
+corregge. Per quell'organizzazione lo script rifiuterebbe l'esecuzione: prima
+si capisce quella colonna (fase B), poi si ripianifica.
 
 ---
 

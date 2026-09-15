@@ -268,7 +268,9 @@ mano; un riferimento che il catalogo non conosce **non** e un'appartenenza
 secondaria ed esce da `collectDanglingAthleteCategoryReferences`
 ([ADR-0185](18-decision-log.md#adr-0185--categoria-sede-gruppo-e-appartenenza-sono-quattro-identita-letichetta-non-e-nessuna-delle-quattro-e-si-scrive-in-un-punto-solo-per-la-web-corrente-e-per-il-redesign-v2)).
 `scripts/censimento-appartenenze-legacy.mjs` le conta e le classifica in sola
-lettura; la bonifica e una scrittura di massa e richiede autorizzazione.
+lettura; `scripts/bonifica-appartenenze-legacy.mjs` (D-RD-16) le bonifica —
+dry-run per default, scrittura solo con tutte le guardie del piano — e la
+bonifica e una scrittura di massa che richiede autorizzazione esplicita.
 
 I riferimenti dentro `compatibleCategoryIds` possono essere id o nomi:
 `buildCategoryCompatibilityIndex` li risolve senza distinguere maiuscole,
