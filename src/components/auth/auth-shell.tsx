@@ -6,7 +6,6 @@ import { useSearchParams } from "next/navigation";
 import { apiRequest } from "@/lib/api/client";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,7 +22,9 @@ import {
   Smartphone,
   UserRound,
 } from "lucide-react";
-import { EasyGameWordmark } from "@/components/brand/easygame-logo";
+import Image from "next/image";
+import logoWhite from "@/../public/images/brand/logotipo-w.png";
+import iconWhite from "@/../public/images/brand/icon-w.png";
 
 type AuthMode = "login" | "register";
 
@@ -458,75 +459,42 @@ export function AuthShell({
   ) : null;
 
   return (
-    <div className="eg-auth min-h-screen bg-[var(--eg-paper)] px-4 py-6 sm:py-10">
-      <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-5xl items-center justify-center">
-        <div className="grid w-full gap-6 lg:grid-cols-[1fr_460px] lg:gap-8">
-          {/*
-            Il pannello non vende: mostra l'oggetto che il prodotto amministra.
-            Una griglia settimanale e la targa della stagione — le due cose che
-            in EasyGame delimitano tutto il resto.
-          */}
-          <aside className="hidden rounded-2xl bg-[var(--eg-navy)] p-10 text-white lg:flex lg:flex-col lg:justify-between">
-            <div className="space-y-6">
-              <EasyGameWordmark tone="light" logoClassName="h-8" />
+    /*
+      Ambiente 3 — «fuori dal club» (EGDS v3.1.0, guideline 05 §5.1): cielo
+      pieno senza orizzonte, filigrana del marchio al 5%, un solo pannello
+      bianco centrato di 440px. Il credito «powered by» vive qui e solo qui
+      (deprecated.md: niente footer dentro l'app).
+    */
+    <div className="egw-sky-full relative min-h-screen overflow-hidden px-4 py-8 font-brand sm:py-12">
+      <Image
+        src={iconWhite}
+        alt=""
+        aria-hidden
+        className="pointer-events-none absolute -right-24 top-1/2 h-[520px] w-[520px] -translate-y-1/2 select-none object-contain opacity-[0.05]"
+      />
+      <div className="relative mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[440px] flex-col items-center justify-center gap-6">
+        <Link href="/" aria-label="EasyGame" className="rounded-egw-chip focus-visible:outline-none focus-visible:shadow-egw-focus-dark">
+          <Image src={logoWhite} alt="EasyGame" width={168} height={40} className="h-auto w-[168px] object-contain" priority />
+        </Link>
 
-              <h1 className="font-display text-3xl font-semibold leading-[1.15] tracking-tight">
-                Il registro della tua
-                <br />
-                societa sportiva.
-              </h1>
-              <p className="max-w-sm text-sm leading-relaxed text-slate-300">
-                Atleti, certificati medici, quote e programma settimanale.
-                Una stagione per volta, senza mescolare gli anni.
-              </p>
-            </div>
-
-            <div
-              aria-hidden
-              className="mt-10 rounded-xl border border-white/10 bg-white/[0.04] p-4"
-            >
-              <div className="mb-3 flex items-center justify-between">
-                <span className="eg-eyebrow text-slate-400">
-                  Programma settimanale
-                </span>
-                <span className="eg-tabular rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-xs font-semibold text-amber-300">
-                  2026/2027
-                </span>
-              </div>
-              <div className="grid grid-cols-6 gap-1">
-                {Array.from({ length: 24 }).map((_, index) => (
-                  <span
-                    key={index}
-                    className={
-                      [4, 9, 10, 15, 20].includes(index)
-                        ? "h-5 rounded bg-blue-500/80"
-                        : "h-5 rounded bg-white/[0.06]"
-                    }
-                  />
-                ))}
-              </div>
-            </div>
-          </aside>
-
-          <Card className="border-slate-200 shadow-sm">
-            <CardHeader className="space-y-3 pb-3">
-              <EasyGameWordmark className="lg:hidden" />
-              {/*
-                Il titolo segue la scheda aperta: `/register` monta questo
-                stesso guscio con la scheda «Registrazione» gia scelta, e
-                intitolarlo «Accedi» diceva a chi arriva da un invito che ha
-                sbagliato pagina.
-              */}
-              <CardTitle className="text-2xl text-slate-900">
-                {mode === "register" ? "Crea il tuo account" : "Accedi"}
-              </CardTitle>
-              <p className="text-sm text-slate-500">
-                {mode === "register"
-                  ? "Bastano nome, email e password: il club lo configuri dopo."
-                  : "Entra nella gestione della tua societa sportiva."}
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-6">
+        <div className="w-full rounded-egw-panel border border-white/60 bg-white p-6 shadow-egw-plane-2 sm:p-8">
+          <div className="space-y-2 pb-5">
+            {/*
+              Il titolo segue la scheda aperta: `/register` monta questo
+              stesso guscio con la scheda «Registrazione» gia scelta, e
+              intitolarlo «Accedi» diceva a chi arriva da un invito che ha
+              sbagliato pagina.
+            */}
+            <h1 className="text-[24px] font-extrabold leading-[1.1] tracking-[var(--egw-track-display)] text-egw-ink">
+              {mode === "register" ? "Crea il tuo account" : "Accedi"}
+            </h1>
+            <p className="text-[13px] leading-[1.5] text-egw-ink-62">
+              {mode === "register"
+                ? "Bastano nome, email e password: il club lo configuri dopo."
+                : "Entra nella gestione della tua società sportiva."}
+            </p>
+          </div>
+          <div className="space-y-6">
               {providerButtons}
 
               {hasProviderChoice ? (
@@ -938,9 +906,10 @@ export function AuthShell({
                   {error}
                 </div>
               )}
-            </CardContent>
-          </Card>
+          </div>
         </div>
+
+        <p className="text-center text-[11px] text-white/60">powered by Francesco srl</p>
       </div>
     </div>
   );
