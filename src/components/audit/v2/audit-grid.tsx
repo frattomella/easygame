@@ -4,9 +4,8 @@ import * as React from "react";
 import { getAccessRoleLabel } from "@/lib/access-roles";
 import { CellChips } from "@/components/web/datagrid/DataGrid";
 import type { ColumnDef, FilterDef, FilterState, ViewDef } from "@/components/web/datagrid/types";
-import { Button } from "@/components/web/primitives/Button";
 import { StatusPill } from "@/components/web/primitives/StatusPill";
-import { formatDateTime, formatInteger, joinMeta, MISSING } from "@/lib/web/format";
+import { formatDateTime, joinMeta, MISSING } from "@/lib/web/format";
 import {
   AUDIT_OUTCOME_LABELS,
   auditOutcomeLabel,
@@ -178,45 +177,3 @@ export const buildAuditColumns = (onOpen: (row: AuditEvent) => void): ColumnDef<
 
 /* ── Paginazione del server ──────────────────────────────────────────────── */
 
-/**
- * «Operazioni da {primo} a {ultimo} di {total}», «Precedenti» / «Successive».
- *
- * Copia del pager della prima nota (`PrimaNotaPager`): la griglia sa
- * paginare cio che ha in mano, qui in mano c'e una pagina del servizio.
- * Candidato alle fondamenta come `ServerPager`.
- */
-export function AuditPager({
-  offset,
-  limit,
-  count,
-  total,
-  busy,
-  onPageChange,
-}: {
-  offset: number;
-  limit: number;
-  count: number;
-  total: number;
-  busy: boolean;
-  onPageChange: (nextOffset: number) => void;
-}) {
-  if (count === 0) return null;
-  const primo = offset + 1;
-  const ultimo = offset + count;
-  return (
-    <div className="flex min-h-[44px] flex-wrap items-center justify-between gap-3 border-t border-egw-hairline bg-egw-page-100 px-4 py-1.5 font-brand text-[12px] text-egw-ink-62">
-      <span>
-        Operazioni da <strong className="egw-num text-egw-ink">{formatInteger(primo)}</strong> a <strong className="egw-num text-egw-ink">{formatInteger(ultimo)}</strong> di{" "}
-        <strong className="egw-num text-egw-ink">{formatInteger(total)}</strong>
-      </span>
-      <div className="flex items-center gap-2">
-        <Button variant="secondary" size="sm" disabled={offset <= 0 || busy} onClick={() => onPageChange(Math.max(0, offset - limit))}>
-          Precedenti
-        </Button>
-        <Button variant="secondary" size="sm" disabled={ultimo >= total || busy} onClick={() => onPageChange(offset + limit)}>
-          Successive
-        </Button>
-      </div>
-    </div>
-  );
-}

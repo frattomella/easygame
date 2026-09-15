@@ -163,11 +163,12 @@ test("/movements: il registro porta le colonne della V1 e lo stato come pillola"
   assert.match(sources.grid, /hidden: \(line\) => !line\.canReconcile \|\| !ownEntryId\(line\)/);
   assert.match(sources.grid, /hidden: \(line\) => !line\.canReverse \|\| !ownEntryId\(line\)/);
   assert.equal(/Elimina|Trash2|canDelete/.test(readCode(`${V2}/prima-nota-grid.tsx`)), false, "il denaro non si cancella: nessuna azione di eliminazione");
-  // paginazione del server con le parole della V1
-  assert.match(sources.grid, /Movimenti da/);
-  assert.match(sources.grid, /Precedenti/);
-  assert.match(sources.grid, /Successivi/);
-  assert.match(sources.page, /<PrimaNotaPager/);
+  // paginazione del server con le parole della V1 («Movimenti da», «Precedenti», «Successivi»)
+  const pager = readCode("src/components/web/datagrid/ServerPager.tsx");
+  assert.match(pager, /\{label\} da <strong/);
+  assert.match(pager, />\s*Precedenti\s*</);
+  assert.match(pager, /agree\(noun, 2, "Successiv"\)/);
+  assert.match(sources.page, /<ServerPager noun=\{\{ singular: "movimento", plural: "movimenti" \}\}/);
   assert.match(sources.page, /hideFooter/, "il piede della griglia paginerebbe la pagina del server, non l'elenco");
   // stati
   assert.match(sources.page, /Nessun movimento con questi filtri\./);

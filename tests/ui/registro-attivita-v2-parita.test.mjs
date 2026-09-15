@@ -62,12 +62,13 @@ test("/audit: i sette filtri della V1 arrivano al server con gli stessi parametr
 });
 
 test("/audit: la paginazione e quella del servizio, con «Precedenti» e «Successive»", () => {
-  assert.match(sources.page, /<AuditPager offset=\{offset\} limit=\{AUDIT_PAGE_SIZE\}/);
+  assert.match(sources.page, /<ServerPager noun=\{\{ singular: "operazione", plural: "operazioni" \}\} offset=\{offset\} limit=\{AUDIT_PAGE_SIZE\}/);
   assert.match(sources.page, /serverTotal=\{totale\}/);
   assert.match(sources.page, /hideFooter/);
-  assert.match(sources.grid, /Precedenti/);
-  assert.match(sources.grid, /Successive/);
-  assert.match(sources.grid, /onPageChange\(Math\.max\(0, offset - limit\)\)/);
+  const pager = read("src/components/web/datagrid/ServerPager.tsx");
+  assert.match(pager, />\s*Precedenti\s*</, "«precedente» ha un solo plurale");
+  assert.match(pager, /agree\(noun, 2, "Successiv"\)/, "«Successive» perche le operazioni sono femminili");
+  assert.match(pager, /onPageChange\(Math\.max\(0, offset - limit\)\)/);
 });
 
 test("/audit: un 403 si racconta con la chiave, non come elenco vuoto", () => {

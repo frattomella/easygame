@@ -59,12 +59,12 @@ import {
 } from "@/components/accounting/accounting-view";
 import {
   PRIMA_NOTA_FILTER_IDS,
-  PrimaNotaPager,
   buildPrimaNotaColumns,
   buildPrimaNotaFilters,
   buildPrimaNotaRowActions,
   gridFiltersToAccounting,
 } from "@/components/accounting/v2/prima-nota-grid";
+import { ServerPager } from "@/components/web/datagrid/ServerPager";
 import {
   RATE_COLUMNS,
   RATE_FILTERS,
@@ -843,7 +843,7 @@ export default function MovementsPage() {
           defaultPageSize={100}
           hideFooter
           footerRow={
-            <PrimaNotaPager
+            <ServerPager noun={{ singular: "movimento", plural: "movimenti" }}
               offset={page.offset || 0}
               limit={page.limit || PAGE_SIZE}
               count={page.entries.length}

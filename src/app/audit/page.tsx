@@ -16,11 +16,11 @@ import { formatInteger } from "@/lib/web/format";
 import {
   AUDIT_PAGE_SIZE,
   AUDIT_VIEWS,
-  AuditPager,
   auditFiltersToQuery,
   buildAuditColumns,
   buildAuditFilters,
 } from "@/components/audit/v2/audit-grid";
+import { ServerPager } from "@/components/web/datagrid/ServerPager";
 import { AuditInspector } from "@/components/audit/v2/audit-inspector";
 import type { AuditEvent } from "@/components/audit/v2/audit-model";
 
@@ -215,7 +215,7 @@ export default function AuditPage() {
                   defaultPageSize={100}
                   hideFooter
                   footerRow={
-                    <AuditPager offset={offset} limit={AUDIT_PAGE_SIZE} count={eventi.length} total={totale} busy={caricamento} onPageChange={setOffset} />
+                    <ServerPager noun={{ singular: "operazione", plural: "operazioni" }} offset={offset} limit={AUDIT_PAGE_SIZE} count={eventi.length} total={totale} busy={caricamento} onPageChange={setOffset} />
                   }
                   empty={{
                     icon: <ScrollText />,

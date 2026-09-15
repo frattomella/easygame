@@ -3,10 +3,8 @@
 import * as React from "react";
 import { CheckCircle2, Undo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/web/primitives/Button";
 import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
 import { MONEY_STATUS } from "@/lib/web/status";
-import { formatInteger } from "@/lib/web/format";
 import type { ColumnDef, FilterDef, FilterState, FilterValue, RowActionDef } from "@/components/web/datagrid/types";
 import type { ClubSite } from "@/lib/club-sites";
 import { getActiveClubSites, isMultiSiteClub } from "@/lib/club-sites";
@@ -379,57 +377,3 @@ export function buildPrimaNotaRowActions({
 
 /* ── Paginazione del server ──────────────────────────────────────────────── */
 
-/**
- * «Movimenti da {primo} a {ultimo} di {total}», «Precedenti» / «Successivi».
- *
- * La griglia sa paginare cio che ha in mano; qui in mano c'e **una pagina del
- * servizio** (cento righe, `offset`), quindi il piede della griglia resta
- * spento e questa banda chiede al servizio la pagina prima o quella dopo —
- * con le stesse parole e le stesse regole della V1.
- */
-export function PrimaNotaPager({
-  offset,
-  limit,
-  count,
-  total,
-  busy,
-  onPageChange,
-}: {
-  offset: number;
-  limit: number;
-  count: number;
-  total: number;
-  busy: boolean;
-  onPageChange: (nextOffset: number) => void;
-}) {
-  if (count === 0) return null;
-  const primo = offset + 1;
-  const ultimo = offset + count;
-  return (
-    <div className="flex min-h-[44px] flex-wrap items-center justify-between gap-3 border-t border-egw-hairline bg-egw-page-100 px-4 py-1.5 font-brand text-[12px] text-egw-ink-62">
-      <span>
-        Movimenti da <strong className="egw-num text-egw-ink">{formatInteger(primo)}</strong> a{" "}
-        <strong className="egw-num text-egw-ink">{formatInteger(ultimo)}</strong> di{" "}
-        <strong className="egw-num text-egw-ink">{formatInteger(total)}</strong>
-      </span>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={offset <= 0 || busy}
-          onClick={() => onPageChange(Math.max(0, offset - limit))}
-        >
-          Precedenti
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={ultimo >= total || busy}
-          onClick={() => onPageChange(offset + limit)}
-        >
-          Successivi
-        </Button>
-      </div>
-    </div>
-  );
-}
