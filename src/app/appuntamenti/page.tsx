@@ -1,217 +1,82 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import * as React from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { CalendarClock, Pencil, Plus, Power, Trash2 } from "lucide-react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
-import {
-  DashboardPageContainer,
-  dashboardMainClassName,
-} from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/components/ui/toast-notification";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { useToast } from "@/components/ui/toast-notification";
+import { HeaderStat, PageHeader } from "@/components/web/page/PageHeader";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { EmptyStateCard } from "@/components/web/page/Cards";
+import { Button, IconButton } from "@/components/web/primitives/Button";
+import { Checkbox, Toggle } from "@/components/web/primitives/Controls";
+import { Panel, PanelHeader, InsetBlock, Eyebrow } from "@/components/web/primitives/Surface";
+import { Field, FieldSizeProvider, TextInput } from "@/components/web/forms/Field";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { RowActionDef } from "@/components/web/datagrid/types";
+import { useConfirm } from "@/components/web/overlays/useConfirm";
+import { formatInteger } from "@/lib/web/format";
 import { isManagementAccessRole } from "@/lib/access-roles";
 import { getClubData } from "@/lib/simplified-db";
 import { normalizeClubSites } from "@/lib/club-sites";
 import { apiRequest } from "@/lib/api/client";
-import {
-  DEFAULT_APPOINTMENTS_CONFIG,
-  normalizeAppointmentsConfig,
-  type AppointmentsConfig,
-  familyCanRequestAppointment,
-} from "@/lib/appointments/config";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  createAppointmentSlot,
-  deleteAppointmentSlot,
-  listAppointmentSlots,
-  updateAppointmentSlot,
-  type AppointmentSlotRow,
-} from "@/lib/api/appointments-client";
-import { CalendarClock, Plus, Trash2 } from "lucide-react";
+import { DEFAULT_APPOINTMENTS_CONFIG, normalizeAppointmentsConfig, type AppointmentsConfig, familyCanRequestAppointment } from "@/lib/appointments/config";
+import { createAppointmentSlot, deleteAppointmentSlot, listAppointmentSlots, updateAppointmentSlot, type AppointmentSlotRow } from "@/lib/api/appointments-client";
+import { SlotDrawer } from "@/components/appuntamenti/v2/slot-drawer";
+import { SLOT_VIEWS, slotColumns, slotFilters, slotSearch } from "@/components/appuntamenti/v2/slots-grid";
+import { estraiOperatori, intestazioniClub, isSlotActive, slotStatusKey, soloData, type Operatore, type Sede, type SlotFormValues } from "@/components/appuntamenti/v2/slot-model";
 
 /**
- * **Quando la societa riceve: la configurazione che non aveva una schermata.**
+ * `/appuntamenti` — la disponibilita (Web V2, pattern 10: intestazione →
+ * avviso di ripiego → griglia delle fasce + rail «Come riceviamo»).
  *
- * W6-53. Le quattro rotte di `/api/v1/appointment-slots` e le quattro funzioni
- * di `src/lib/server/appointments.ts` esistono dalla Wave 5, e **nessun
- * componente le chiamava**. La conseguenza non era l'assenza di una comodita:
- * era che ogni club del prodotto stava — e sta, finche non apre questa pagina —
- * nella configurazione di **ripiego**. Senza una sola regola dichiarata,
- * `computeFreeAppointmentSlots` ricade sugli orari di apertura e ne ricava
- * fasce da trenta minuti, senza operatore, replicate su tutti e sette i giorni
- * della settimana quando gli orari sono una stringa sola. Alla famiglia veniva
- * quindi proposto di prenotare la domenica in una societa che la domenica e
- * chiusa, e la segreteria non aveva nessun modo di dirlo.
+ * **Quando la societa riceve: la configurazione che non aveva una schermata**
+ * (W6-53). Senza una sola regola dichiarata, `computeFreeAppointmentSlots`
+ * ricade sugli orari di apertura: colloqui di trenta minuti, senza operatore,
+ * replicati su tutti i giorni della settimana. Il ripiego non e un dettaglio
+ * da nascondere: e la configurazione in cui il club si trova adesso.
  *
- * ## Perche una pagina propria e non una scheda di `/secretariat`
+ * Il gate della pagina e lo stesso del dominio: la coda degli appuntamenti la
+ * lavora anche l'allenatore, sui propri, mentre la disponibilita la configura
+ * solo chi amministra il club (`assertPuoConfigurareLaDisponibilita`, che
+ * chiede `isManagementAccessRole`). Chi non lo passa legge una frase, non un
+ * modulo che risponde 403.
  *
- * La tentazione era metterla accanto agli orari di apertura, che stanno li. Ma
- * sono due cose con **due permessi diversi**, e l'abbiamo scoperto guardando
- * il dominio: la coda degli appuntamenti la lavora anche l'allenatore, sui
- * propri (`appointments.manage` con il perimetro di `assertPerimetro`), mentre
- * la disponibilita la configura solo chi amministra il club
- * (`assertPuoConfigurareLaDisponibilita`, che chiede
- * `isManagementAccessRole` — l'audit della Wave 5 lo ha aggiunto proprio
- * perche un allenatore poteva cancellare gli orari di ricevimento di tutti).
- *
- * Una scheda dentro una pagina con un gate piu largo sarebbe una scheda che a
- * un allenatore si apre e poi risponde 403 su ogni gesto: e la «superficie
- * finta» che §6 del piano della Wave 6 elenca fra i difetti peggiori di
- * un'assenza. Qui il gate della pagina e lo stesso del dominio, e chi non lo
- * passa legge una frase invece di un modulo che non funziona.
- *
- * L'ingresso e nella scheda Appuntamenti della Segreteria, che e da dove una
- * segretaria ci arriva pensando all'agenda. La voce di menu appartiene alle
- * sidebar, che sono di un'altra lane.
+ * Le scritture sono quelle della V1: i quattro verbi degli slot con
+ * `x-active-club-id` nell'intestazione, e la configurazione «Come riceviamo»
+ * (PP-02 §K) salvata **tutta** a ogni gesto, in modo ottimistico con
+ * ripristino se il server dice di no.
  */
-
-const GIORNI = [
-  { valore: 0, nome: "Domenica" },
-  { valore: 1, nome: "Lunedi" },
-  { valore: 2, nome: "Martedi" },
-  { valore: 3, nome: "Mercoledi" },
-  { valore: 4, nome: "Giovedi" },
-  { valore: 5, nome: "Venerdi" },
-  { valore: 6, nome: "Sabato" },
-];
-
-/** Il club su cui si sta lavorando viaggia nell'intestazione, come ovunque. */
-const intestazioniClub = (
-  organizationId?: string | null,
-): Record<string, string> =>
-  organizationId ? { "x-active-club-id": String(organizationId) } : {};
-
-const soloData = (value: unknown) => String(value ?? "").slice(0, 10);
-
-type Operatore = { userId: string; nome: string };
-
-/**
- * Gli operatori a cui una fascia si puo assegnare.
- *
- * Sono le persone dello staff e gli allenatori **che hanno un account**, e non
- * e una restrizione arbitraria: `appointment_slots.assigned_to_user_id` e un
- * identificativo di utente, e `assertPerimetro` lo confronta con quello della
- * sessione. Una persona senza account non potrebbe mai aprire l'appuntamento
- * che le e stato assegnato, quindi offrirla qui vorrebbe dire costruire
- * un'agenda che nessuno puo leggere.
- */
-const estraiOperatori = (righe: unknown): Operatore[] => {
-  if (!Array.isArray(righe)) return [];
-
-  const trovati = new Map<string, string>();
-  for (const riga of righe as any[]) {
-    if (!riga || typeof riga !== "object") continue;
-    const dati =
-      riga.data && typeof riga.data === "object" ? (riga.data as any) : {};
-    const userId = String(
-      riga.linkedUserId ||
-        riga.linked_user_id ||
-        riga.userId ||
-        riga.user_id ||
-        dati.linkedUserId ||
-        dati.userId ||
-        "",
-    ).trim();
-    if (!userId) continue;
-
-    const nome =
-      String(
-        riga.fullName ||
-          [riga.name, riga.surname || riga.lastName].filter(Boolean).join(" ") ||
-          riga.email ||
-          "",
-      ).trim() || "Operatore senza nome";
-
-    if (!trovati.has(userId)) trovati.set(userId, nome);
-  }
-
-  return Array.from(trovati.entries())
-    .map(([userId, nome]) => ({ userId, nome }))
-    .sort((sinistra, destra) => sinistra.nome.localeCompare(destra.nome, "it"));
-};
-
-type Modulo = {
-  id: string | null;
-  ambito: "weekly" | "date";
-  weekday: string;
-  specificDate: string;
-  startTime: string;
-  endTime: string;
-  durationMinutes: string;
-  siteId: string;
-  assignedToUserId: string;
-  validFrom: string;
-  validUntil: string;
-  active: boolean;
-  notes: string;
-};
-
-const MODULO_VUOTO: Modulo = {
-  id: null,
-  ambito: "weekly",
-  weekday: "1",
-  specificDate: "",
-  startTime: "09:00",
-  endTime: "12:00",
-  durationMinutes: "30",
-  siteId: "",
-  assignedToUserId: "",
-  validFrom: "",
-  validUntil: "",
-  active: true,
-  notes: "",
-};
-
 export default function AppuntamentiDisponibilitaPage() {
   const { showToast } = useToast();
   const { activeClub } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname() || "/appuntamenti";
+  const rawSearchParams = useSearchParams();
+  const searchParams = React.useMemo(() => rawSearchParams ?? new URLSearchParams(), [rawSearchParams]);
+  const [confirm, confirmDialog] = useConfirm();
 
-  const [slots, setSlots] = useState<AppointmentSlotRow[]>([]);
-  const [sedi, setSedi] = useState<{ id: string; name: string }[]>([]);
-  const [operatori, setOperatori] = useState<Operatore[]>([]);
-  const [caricamento, setCaricamento] = useState(true);
-  const [salvataggio, setSalvataggio] = useState(false);
-  const [daRimuovere, setDaRimuovere] = useState<AppointmentSlotRow | null>(
-    null,
-  );
-  const [modulo, setModulo] = useState<Modulo>(MODULO_VUOTO);
-  /*
-    PP-02 §K. «Come riceviamo»: se le famiglie possono chiedere, e per cosa.
-    Vive accanto alla disponibilita e non in una pagina sua perche e la stessa
-    domanda vista da un altro lato — e perche una seconda schermata con lo
-    stesso gate sarebbe una seconda strada da tenere allineata.
-  */
-  const [configurazione, setConfigurazione] = useState<AppointmentsConfig>(
-    DEFAULT_APPOINTMENTS_CONFIG,
-  );
-  const [nuovoTipo, setNuovoTipo] = useState({ name: "" });
+  const [slots, setSlots] = React.useState<AppointmentSlotRow[]>([]);
+  const [sedi, setSedi] = React.useState<Sede[]>([]);
+  const [operatori, setOperatori] = React.useState<Operatore[]>([]);
+  const [caricamento, setCaricamento] = React.useState(true);
+  const [erroreCaricamento, setErroreCaricamento] = React.useState<string | null>(null);
+  const [drawer, setDrawer] = React.useState<{ open: boolean; slot: AppointmentSlotRow | null }>({ open: false, slot: null });
+  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [configurazione, setConfigurazione] = React.useState<AppointmentsConfig>(DEFAULT_APPOINTMENTS_CONFIG);
+  const [nuovoTipo, setNuovoTipo] = React.useState({ name: "" });
 
   const puoConfigurare = isManagementAccessRole(activeClub?.role);
 
-  const carica = useCallback(async () => {
+  const carica = React.useCallback(async () => {
     if (!activeClub?.id || !puoConfigurare) {
       setCaricamento(false);
       return;
     }
-
     setCaricamento(true);
     try {
       const [righe, sitiGrezzi, staff, allenatori, config] = await Promise.all([
@@ -219,143 +84,76 @@ export default function AppuntamentiDisponibilitaPage() {
         getClubData(activeClub.id, "club_sites"),
         getClubData(activeClub.id, "staff_members"),
         getClubData(activeClub.id, "trainers"),
-        apiRequest<AppointmentsConfig>("/api/v1/appointments/config", {
-          headers: intestazioniClub(activeClub.id),
-        }),
+        apiRequest<AppointmentsConfig>("/api/v1/appointments/config", { headers: intestazioniClub(activeClub.id) }),
       ]);
-
       setSlots(Array.isArray(righe) ? righe : []);
       if (config?.data) setConfigurazione(normalizeAppointmentsConfig(config.data));
-      setSedi(
-        normalizeClubSites(sitiGrezzi).map((sede) => ({
-          id: sede.id,
-          name: sede.name,
-        })),
-      );
-      setOperatori(
-        estraiOperatori([
-          ...(Array.isArray(staff) ? staff : []),
-          ...(Array.isArray(allenatori) ? allenatori : []),
-        ]),
-      );
+      setSedi(normalizeClubSites(sitiGrezzi).map((sede) => ({ id: sede.id, name: sede.name })));
+      setOperatori(estraiOperatori([...(Array.isArray(staff) ? staff : []), ...(Array.isArray(allenatori) ? allenatori : [])]));
+      setErroreCaricamento(null);
     } catch (errore) {
-      showToast(
-        "error",
-        String(
-          (errore as Error)?.message ||
-            "Non riesco a leggere la disponibilita configurata",
-        ),
-      );
+      const messaggio = String((errore as Error)?.message || "Non riesco a leggere la disponibilita configurata");
+      setErroreCaricamento(messaggio);
+      showToast("error", messaggio);
     } finally {
       setCaricamento(false);
     }
   }, [activeClub?.id, puoConfigurare, showToast]);
 
+  React.useEffect(() => {
+    void carica();
+  }, [carica]);
+
+  /* `?action=new` apre il cassetto della nuova fascia (azioni rapide). */
+  React.useEffect(() => {
+    if (searchParams.get("action") !== "new" || !puoConfigurare) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("action");
+    setDrawer({ open: true, slot: null });
+    const query = params.toString();
+    const frame = window.requestAnimationFrame(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pathname, puoConfigurare, router, searchParams]);
+
   /*
     Si salva l'intera configurazione a ogni gesto — un motivo aggiunto, uno
     tolto, l'interruttore mosso — perche e un oggetto piccolo e perche il
-    server la normalizza comunque: mandare una patch parziale vorrebbe dire
-    due idee di cosa sia «la configurazione», e la seconda resterebbe
-    indietro.
+    server la normalizza comunque: una patch parziale sarebbe una seconda idea
+    di cosa sia «la configurazione».
   */
-  const salvaConfigurazione = useCallback(
+  const salvaConfigurazione = React.useCallback(
     async (prossima: AppointmentsConfig) => {
       if (!activeClub?.id) return;
       const precedente = configurazione;
       setConfigurazione(normalizeAppointmentsConfig(prossima));
-
-      const risposta = await apiRequest<AppointmentsConfig>(
-        "/api/v1/appointments/config",
-        {
-          method: "PUT",
-          headers: intestazioniClub(activeClub.id),
-          body: { data: prossima },
-        },
-      );
-
+      const risposta = await apiRequest<AppointmentsConfig>("/api/v1/appointments/config", {
+        method: "PUT",
+        headers: intestazioniClub(activeClub.id),
+        body: { data: prossima },
+      });
       if (risposta.error) {
         /* Il server ha detto di no: la schermata torna a cio che era vero. */
         setConfigurazione(precedente);
-        showToast(
-          "error",
-          risposta.error.message || "Non riesco a salvare la configurazione",
-        );
+        showToast("error", risposta.error.message || "Non riesco a salvare la configurazione");
         return;
       }
-
-      if (risposta.data) {
-        setConfigurazione(normalizeAppointmentsConfig(risposta.data));
-      }
+      if (risposta.data) setConfigurazione(normalizeAppointmentsConfig(risposta.data));
     },
     [activeClub?.id, configurazione, showToast],
   );
 
-  useEffect(() => {
-    void carica();
-  }, [carica]);
+  const inRipiego = React.useMemo(() => slots.filter((slot) => slot.active !== false).length === 0, [slots]);
 
-  /*
-    Il ripiego non e un dettaglio da nascondere: e la configurazione in cui il
-    club si trova adesso, e finche nessuno gliela nomina non ha modo di sapere
-    perche alle famiglie viene proposta la domenica mattina.
-  */
-  const inRipiego = useMemo(
-    () => slots.filter((slot) => slot.active !== false).length === 0,
-    [slots],
-  );
-
-  const nomeSede = useCallback(
-    (siteId: string | null) => {
-      if (!siteId) return "Tutte le sedi";
-      return sedi.find((sede) => sede.id === siteId)?.name || "Sede rimossa";
-    },
-    [sedi],
-  );
-
-  const nomeOperatore = useCallback(
-    (userId: string | null) => {
-      if (!userId) return "Segreteria";
-      return (
-        operatori.find((operatore) => operatore.userId === userId)?.nome ||
-        "Operatore non piu in organico"
-      );
-    },
-    [operatori],
-  );
-
-  const apriNuovo = () => setModulo({ ...MODULO_VUOTO });
-
-  const apriModifica = (slot: AppointmentSlotRow) =>
-    setModulo({
-      id: slot.id,
-      ambito: slot.specific_date ? "date" : "weekly",
-      weekday: slot.weekday === null ? "1" : String(slot.weekday),
-      specificDate: soloData(slot.specific_date),
-      startTime: slot.start_time || "09:00",
-      endTime: slot.end_time || "12:00",
-      durationMinutes: String(slot.duration_minutes || 30),
-      siteId: slot.site_id || "",
-      assignedToUserId: slot.assigned_to_user_id || "",
-      validFrom: soloData(slot.valid_from),
-      validUntil: soloData(slot.valid_until),
-      active: slot.active !== false,
-      notes: slot.notes || "",
-    });
-
-  const salva = async () => {
-    if (!activeClub?.id || salvataggio) return;
-
-    if (modulo.ambito === "date" && !modulo.specificDate) {
-      showToast("error", "Indica la data della fascia");
-      return;
-    }
-
-    setSalvataggio(true);
+  /* ── Scritture delle fasce (gli stessi verbi della V1) ─────────────────── */
+  const salva = async (modulo: SlotFormValues) => {
+    if (!activeClub?.id) return false;
     try {
       /*
         Giorno della settimana **oppure** data: il dominio rifiuta una regola
         che non dichiari nessuno dei due, e rifiuta di ragionare su entrambi.
-        Qui si manda solo quello scelto, cosi passare da una forma all'altra
+        Si manda solo quello scelto, cosi passare da una forma all'altra
         cancella davvero l'altra invece di lasciarla scritta sotto.
       */
       const corpo = {
@@ -371,52 +169,27 @@ export default function AppuntamentiDisponibilitaPage() {
         active: modulo.active,
         notes: modulo.notes || null,
       };
-
-      if (modulo.id) {
-        await updateAppointmentSlot(
-          modulo.id,
-          corpo,
-          intestazioniClub(activeClub.id),
-        );
-      } else {
-        await createAppointmentSlot(corpo, intestazioniClub(activeClub.id));
-      }
-
-      setModulo({ ...MODULO_VUOTO });
+      if (modulo.id) await updateAppointmentSlot(modulo.id, corpo, intestazioniClub(activeClub.id));
+      else await createAppointmentSlot(corpo, intestazioniClub(activeClub.id));
       await carica();
-      showToast(
-        "success",
-        modulo.id
-          ? "Fascia aggiornata: le famiglie vedono subito la nuova disponibilita"
-          : "Fascia aggiunta: le famiglie possono prenotarla",
-      );
+      showToast("success", modulo.id ? "Fascia aggiornata: le famiglie vedono subito la nuova disponibilita" : "Fascia aggiunta: le famiglie possono prenotarla");
+      return true;
     } catch (errore) {
-      showToast(
-        "error",
-        String((errore as Error)?.message || "Non riesco a salvare la fascia"),
-      );
-    } finally {
-      setSalvataggio(false);
+      showToast("error", String((errore as Error)?.message || "Non riesco a salvare la fascia"));
+      return false;
     }
   };
 
   /**
-   * Disattivare non e cancellare, ed e la mossa che serve piu spesso.
-   *
-   * Una fascia con una **data** e `active = false` e una chiusura
-   * straordinaria: il dominio la legge come «quel giorno non si riceve», e
-   * toglie il giorno invece di limitarsi a non aggiungerlo. Cancellarla
-   * significherebbe riaprire il giorno.
+   * Disattivare non e cancellare, ed e la mossa che serve piu spesso. Una
+   * fascia con una **data** e `active = false` e una chiusura: il dominio la
+   * legge come «quel giorno non si riceve». Si rimanda **tutta** la riga con
+   * il solo interruttore cambiato: un campo assente viaggerebbe come `null`.
    */
   const cambiaAttivazione = async (slot: AppointmentSlotRow) => {
-    if (!activeClub?.id) return;
+    if (!activeClub?.id || busyId) return;
+    setBusyId(slot.id);
     try {
-      /*
-        Si rimanda **tutta** la riga con il solo interruttore cambiato: il
-        trasporto manda ogni campo, e un campo assente da qui viaggerebbe come
-        `null`, cioe come «svuota». Un gesto che dice «disattiva» non deve
-        togliere la sede e l'operatore per strada.
-      */
       await updateAppointmentSlot(
         slot.id,
         {
@@ -435,660 +208,259 @@ export default function AppuntamentiDisponibilitaPage() {
         intestazioniClub(activeClub.id),
       );
       await carica();
-      showToast(
-        "success",
-        slot.active === false ? "Fascia riattivata" : "Fascia disattivata",
-      );
+      showToast("success", slot.active === false ? "Fascia riattivata" : "Fascia disattivata");
     } catch (errore) {
-      showToast(
-        "error",
-        String((errore as Error)?.message || "Non riesco a cambiare la fascia"),
-      );
+      showToast("error", String((errore as Error)?.message || "Non riesco a cambiare la fascia"));
+    } finally {
+      setBusyId(null);
     }
   };
 
-  const rimuovi = async () => {
-    if (!activeClub?.id || !daRimuovere) return;
+  /**
+   * La rimozione **non** cancella gli appuntamenti gia presi su quella fascia
+   * (la chiave esterna e `SET NULL`): si perde solo la regola che la
+   * proponeva. Conferma distruttiva con «cosa se ne va».
+   */
+  const rimuovi = async (slot: AppointmentSlotRow) => {
+    if (!activeClub?.id || busyId) return;
+    const ok = await confirm({
+      title: "Eliminare questa fascia?",
+      description: "Per smettere di offrirla senza toglierla dalla storia, disattivala.",
+      confirmLabel: "Elimina",
+      tone: "danger",
+      consequences: ["Si perde la regola che la proponeva alle famiglie", "Gli appuntamenti gia presi su questa fascia restano in agenda"],
+      irreversible: true,
+    });
+    if (!ok) return;
+    setBusyId(slot.id);
     try {
-      await deleteAppointmentSlot(
-        daRimuovere.id,
-        intestazioniClub(activeClub.id),
-      );
-      setDaRimuovere(null);
+      await deleteAppointmentSlot(slot.id, intestazioniClub(activeClub.id));
       await carica();
       showToast("success", "Fascia rimossa");
     } catch (errore) {
-      showToast(
-        "error",
-        String((errore as Error)?.message || "Non riesco a rimuovere la fascia"),
-      );
+      showToast("error", String((errore as Error)?.message || "Non riesco a rimuovere la fascia"));
+    } finally {
+      setBusyId(null);
     }
   };
 
-  const ordinati = useMemo(
-    () =>
-      [...slots].sort((sinistra, destra) => {
-        const chiave = (slot: AppointmentSlotRow) =>
-          `${slot.specific_date ? "1" : "0"}${String(slot.weekday ?? 9)}${soloData(slot.specific_date)}${slot.start_time}`;
-        return chiave(sinistra).localeCompare(chiave(destra));
-      }),
-    [slots],
+  /* ── Griglia ───────────────────────────────────────────────────────────── */
+  const columns = React.useMemo(() => slotColumns(sedi, operatori), [sedi, operatori]);
+  const filters = React.useMemo(() => slotFilters(slots, sedi, operatori), [slots, sedi, operatori]);
+  const search = React.useMemo(() => slotSearch(sedi, operatori), [sedi, operatori]);
+  const rowActions = React.useMemo<RowActionDef<AppointmentSlotRow>[]>(
+    () => [
+      { id: "edit", label: "Modifica", icon: <Pencil />, primary: true, onClick: (row) => setDrawer({ open: true, slot: row }) },
+      { id: "toggle-off", label: "Disattiva", icon: <Power />, hidden: (row) => !isSlotActive(row), onClick: (row) => void cambiaAttivazione(row) },
+      { id: "toggle-on", label: "Riattiva", icon: <Power />, hidden: (row) => isSlotActive(row), onClick: (row) => void cambiaAttivazione(row) },
+      { id: "delete", label: "Elimina", icon: <Trash2 />, tone: "danger", onClick: (row) => void rimuovi(row) },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeClub?.id, busyId],
   );
 
+  const attive = slots.filter(isSlotActive).length;
+  const chiusure = slots.filter((slot) => slotStatusKey(slot) === "closure").length;
+  const prenotazioniAperte = familyCanRequestAppointment(configurazione);
+  const gridState = caricamento ? "loading" : erroreCaricamento ? "error" : "ready";
+
   return (
-    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header title="Disponibilita appuntamenti" />
         <main className={dashboardMainClassName}>
           <DashboardPageContainer>
-            <SharedPageHeader
+            <PageHeader
+              eyebrow="Segreteria"
               title="Disponibilita appuntamenti"
-              subtitle="Dichiara quando la societa riceve: giorni, orari, durata del colloquio, sede e operatore."
-            />
+              description="Dichiara quando la societa riceve: giorni, orari, durata del colloquio, sede e operatore."
+              stats={
+                puoConfigurare ? (
+                  <>
+                    <HeaderStat value={formatInteger(attive)} label={attive === 1 ? "fascia attiva" : "fasce attive"} tone={attive ? "green" : "amber"} />
+                    <HeaderStat value={formatInteger(chiusure)} label={chiusure === 1 ? "chiusura" : "chiusure"} tone={chiusure ? "red" : "ink"} />
+                    <HeaderStat value={formatInteger(configurazione.types.length)} label="motivi" />
+                    <HeaderStat value={prenotazioniAperte ? "Aperte" : "Chiuse"} label="richieste online" tone={prenotazioniAperte ? "green" : "amber"} />
+                  </>
+                ) : null
+              }
+              actions={
+                puoConfigurare ? (
+                  <>
+                    <Button variant="primary" icon={<Plus />} onClick={() => setDrawer({ open: true, slot: null })} disabled={caricamento}>
+                      Nuova fascia
+                    </Button>
+                    <Button asChild variant="secondary">
+                      <Link href="/secretariat">Vai alla Segreteria</Link>
+                    </Button>
+                  </>
+                ) : null
+              }
+            >
+              {puoConfigurare && inRipiego && !caricamento ? (
+                <AlertBlock
+                  severity="warning"
+                  title="Nessuna fascia attiva: si sta usando l'orario di apertura."
+                  actions={
+                    <Button variant="secondary" size="sm" onClick={() => setDrawer({ open: true, slot: null })}>
+                      Dichiara la prima fascia
+                    </Button>
+                  }
+                >
+                  Finche non dichiari almeno una fascia, alle famiglie vengono proposti colloqui di trenta minuti dentro l&apos;orario di apertura, senza operatore, e — se l&apos;orario e uno solo per tutta la settimana — anche nei giorni in cui la segreteria e chiusa.
+                </AlertBlock>
+              ) : null}
+            </PageHeader>
 
             {!puoConfigurare ? (
-              <Card>
-                <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                  Gli orari di ricevimento del club li configura chi lo
-                  amministra. Gli appuntamenti che ti sono assegnati restano
-                  nella tua agenda.
-                </CardContent>
-              </Card>
+              <EmptyStateCard
+                icon={<CalendarClock />}
+                iconTone="amber"
+                title="Gli orari di ricevimento del club li configura chi lo amministra"
+                description="Gli appuntamenti che ti sono assegnati restano nella tua agenda."
+              />
             ) : (
-              <div className="space-y-4">
-                {inRipiego && !caricamento ? (
-                  <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/30">
-                    <CardContent className="py-4 text-sm">
-                      <p className="font-medium">
-                        Nessuna fascia attiva: si sta usando l&apos;orario di
-                        apertura.
-                      </p>
-                      <p className="mt-1 text-muted-foreground">
-                        Finche non dichiari almeno una fascia, alle famiglie
-                        vengono proposti colloqui di trenta minuti dentro
-                        l&apos;orario di apertura, senza operatore, e — se
-                        l&apos;orario e uno solo per tutta la settimana — anche
-                        nei giorni in cui la segreteria e chiusa.
-                      </p>
-                    </CardContent>
-                  </Card>
-                ) : null}
+              <div className="grid grid-cols-1 gap-[18px] lg:grid-cols-[minmax(0,1fr)_340px]">
+                <DataGrid<AppointmentSlotRow>
+                  module="appuntamenti-fasce"
+                  aria-label="Fasce di ricevimento"
+                  rows={slots}
+                  getRowId={(row) => row.id}
+                  rowLabel={(row) => `${row.specific_date ? soloData(row.specific_date) : "fascia"} ${row.start_time}`}
+                  columns={columns}
+                  filters={filters}
+                  views={SLOT_VIEWS}
+                  search={search}
+                  defaultSort={{ columnId: "identity", direction: "asc" }}
+                  rowActions={rowActions}
+                  onOpenRow={(row) => setDrawer({ open: true, slot: row })}
+                  canSelect={false}
+                  state={gridState}
+                  errorMessage={erroreCaricamento}
+                  onRetry={() => void carica()}
+                  noun={{ singular: "fascia", plural: "fasce" }}
+                  empty={{
+                    icon: <CalendarClock />,
+                    title: "Nessuna fascia dichiarata.",
+                    description: "Una fascia dice quando, dove e con chi la societa riceve; senza, vale l'orario di apertura.",
+                    primary: (
+                      <Button variant="primary" size="sm" icon={<Plus />} onClick={() => setDrawer({ open: true, slot: null })}>
+                        Nuova fascia
+                      </Button>
+                    ),
+                  }}
+                />
 
                 {/*
-                  **PP-02 §K. Come riceve questo club: se, e per cosa.**
-
-                  Due domande che la configurazione della disponibilita non
-                  sapeva porre. «Se» esisteva solo come `active` sulla singola
-                  fascia — che e un'altra cosa: un club che voleva chiudere le
-                  richieste doveva spegnerle a una a una. «Per cosa» non
-                  esisteva affatto, e il motivo arrivava come testo libero: in
-                  coda si leggeva «info», «parlare col mister», «pagamento?».
+                  **PP-02 §K. Come riceve questo club: se, e per cosa.** «Se»
+                  esisteva solo come `active` sulla singola fascia; «per cosa» non
+                  esisteva affatto, e il motivo arrivava come testo libero.
                 */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <CalendarClock className="h-4 w-4" />
-                      Come riceviamo
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-1">
-                        <Label>Le famiglie possono prenotare</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Se disattivato, l&apos;area famiglia non mostra il
-                          modulo e la richiesta viene rifiutata. Gli
-                          appuntamenti gia presi restano.
-                        </p>
-                      </div>
-                      <Checkbox
-                        id="prenotazioni-famiglia"
-                        checked={configurazione.familyBookingEnabled}
-                        onCheckedChange={(valore) =>
-                          salvaConfigurazione({
-                            ...configurazione,
-                            familyBookingEnabled: valore === true,
-                          })
-                        }
-                      />
-                    </div>
+                <Panel as="aside" aria-labelledby="egw-come-riceviamo" className="self-start">
+                  <PanelHeader eyebrow="Configurazione" title={<span id="egw-come-riceviamo">Come riceviamo</span>} description="Se le famiglie possono chiedere un appuntamento, e per quali motivi." />
 
-                    {/*
-                      **Chi chiude la porta deve vederla chiusa.**
+                  <InsetBlock className="flex items-start justify-between gap-3">
+                    <label htmlFor="prenotazioni-famiglia" className="font-brand text-[12.5px] font-semibold text-egw-ink">
+                      Le famiglie possono prenotare
+                      <span className="block font-normal text-egw-ink-62">{configurazione.familyBookingEnabled ? "Attivo" : "Non attivo: l'area famiglia non mostra il modulo e la richiesta viene rifiutata. Gli appuntamenti gia presi restano."}</span>
+                    </label>
+                    <Toggle
+                      id="prenotazioni-famiglia"
+                      checked={configurazione.familyBookingEnabled}
+                      onCheckedChange={(valore) => void salvaConfigurazione({ ...configurazione, familyBookingEnabled: valore })}
+                      aria-label="Le famiglie possono prenotare"
+                    />
+                  </InsetBlock>
 
-                      `familyCanRequestAppointment` e la risposta del dominio a
-                      «una famiglia puo davvero mandare una richiesta?», ed e
-                      falsa anche quando l'interruttore e acceso ma nessun
-                      motivo e prenotabile. La schermata della famiglia la
-                      chiede e scrive «Le richieste online non sono attive»;
-                      questa — che e quella che **causa** lo stato — mostrava
-                      solo l'interruttore grezzo. Un amministratore toglieva la
-                      spunta ai tre motivi, vedeva l'interruttore ancora acceso,
-                      e il club smetteva in silenzio di ricevere.
-                    */}
-                    {configurazione.familyBookingEnabled &&
-                    !familyCanRequestAppointment(configurazione) ? (
-                      <p
-                        role="status"
-                        className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
-                      >
-                        Nessun motivo e prenotabile dalle famiglie: per loro le
-                        richieste online risultano <strong>chiuse</strong>.
-                        Spunta «Le famiglie possono chiederlo» su almeno un
-                        motivo, oppure togli del tutto i motivi per accettare
-                        anche il testo libero.
-                      </p>
-                    ) : null}
+                  {/*
+                    **Chi chiude la porta deve vederla chiusa.** `familyCanRequestAppointment`
+                    e falsa anche con l'interruttore acceso, quando nessun motivo e
+                    prenotabile: la schermata della famiglia la chiede, e questa —
+                    che e quella che **causa** lo stato — la deve mostrare.
+                  */}
+                  {configurazione.familyBookingEnabled && !familyCanRequestAppointment(configurazione) ? (
+                    <AlertBlock severity="warning" title="Nessun motivo e prenotabile dalle famiglie: per loro le richieste online risultano chiuse." className="mt-4">
+                      Spunta «Le famiglie possono chiederlo» su almeno un motivo, oppure togli del tutto i motivi per accettare anche il testo libero.
+                    </AlertBlock>
+                  ) : null}
 
-                    <div className="space-y-2">
-                      <Label>Motivi che accettiamo</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Senza nessun motivo la famiglia continua a scriverlo a
-                        mano: i motivi restringono, la loro assenza non e un
-                        divieto.
-                      </p>
+                  <div className="mt-5">
+                    <Eyebrow as="h3" className="block">
+                      Motivi che accettiamo
+                    </Eyebrow>
+                    <p className="mt-1.5 font-brand text-[12px] leading-[1.5] text-egw-ink-62">Senza nessun motivo la famiglia continua a scriverlo a mano: i motivi restringono, la loro assenza non e un divieto.</p>
 
-                      {configurazione.types.length ? (
-                        <div className="divide-y rounded-md border">
-                          {configurazione.types.map((tipo) => (
-                            <div
-                              key={tipo.id}
-                              className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-                            >
-                              <span className="min-w-0">
+                    {configurazione.types.length ? (
+                      <ul className="mt-3 flex flex-col gap-2">
+                        {configurazione.types.map((tipo) => (
+                          <li key={tipo.id}>
+                            <InsetBlock className="flex flex-wrap items-center justify-between gap-2 p-3">
+                              <span className="min-w-0 font-brand text-[13px] font-semibold text-egw-ink">
                                 {tipo.name}
-                                {tipo.bookable ? "" : " · solo dal desk"}
+                                {tipo.bookable ? "" : <span className="ml-1.5 font-normal text-egw-ink-62">· solo dal desk</span>}
                               </span>
-                              {/*
-                                **PP-02 §K. `bookable` aveva due rami nel
-                                dominio e nessuno scrittore nella schermata.**
-
-                                Il club non poteva creare un motivo «solo dal
-                                desk» — «Convocazione», il caso per cui la
-                                distinzione esiste — mentre il servizio la
-                                applicava e una sonda la esercitava fabbricando
-                                la configurazione via API. E la stessa forma di
-                                funzione incompleta che questa lane ha tolto dal
-                                tipo, con il segno invertito: non un campo che
-                                sembra governare, ma una regola che governa e
-                                che nessuno puo esprimere.
-                              */}
-                              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <Checkbox
-                                  checked={tipo.bookable}
-                                  onCheckedChange={(valore) =>
-                                    salvaConfigurazione({
-                                      ...configurazione,
-                                      types: configurazione.types.map((voce) =>
-                                        voce.id === tipo.id
-                                          ? { ...voce, bookable: valore === true }
-                                          : voce,
-                                      ),
-                                    })
-                                  }
-                                />
-                                Le famiglie possono chiederlo
-                              </label>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  salvaConfigurazione({
-                                    ...configurazione,
-                                    types: configurazione.types.filter(
-                                      (voce) => voce.id !== tipo.id,
-                                    ),
-                                  })
-                                }
-                              >
-                                Rimuovi
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      <div className="flex flex-wrap items-end gap-2">
-                        <div className="min-w-[12rem] flex-1 space-y-1">
-                          <Label htmlFor="nuovo-motivo" className="text-xs">
-                            Nome
-                          </Label>
-                          <Input
-                            id="nuovo-motivo"
-                            value={nuovoTipo.name}
-                            onChange={(evento) =>
-                              setNuovoTipo((prima) => ({
-                                ...prima,
-                                name: evento.target.value,
-                              }))
-                            }
-                            placeholder="Es. Colloquio con la segreteria"
-                          />
-                        </div>
-                        <Button
-                          onClick={() => {
-                            const nome = nuovoTipo.name.trim();
-                            if (!nome) return;
-                            void salvaConfigurazione({
-                              ...configurazione,
-                              types: [
-                                ...configurazione.types,
-                                { id: "", name: nome, bookable: true },
-                              ],
-                            });
-                            setNuovoTipo({ name: "" });
-                          }}
-                        >
-                          Aggiungi
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <CalendarClock className="h-4 w-4" />
-                      {modulo.id ? "Modifica fascia" : "Nuova fascia"}
-                    </CardTitle>
-                    {modulo.id ? (
-                      <Button variant="ghost" size="sm" onClick={apriNuovo}>
-                        Annulla modifica
-                      </Button>
-                    ) : null}
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="slot-ambito">Ricorrenza</Label>
-                        <select
-                          id="slot-ambito"
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          value={modulo.ambito}
-                          onChange={(evento) =>
-                            setModulo((prima) => ({
-                              ...prima,
-                              ambito: evento.target.value as "weekly" | "date",
-                            }))
-                          }
-                        >
-                          <option value="weekly">Ogni settimana</option>
-                          <option value="date">Una data sola</option>
-                        </select>
-                      </div>
-
-                      {modulo.ambito === "weekly" ? (
-                        <div className="space-y-2">
-                          <Label htmlFor="slot-weekday">
-                            Giorno della settimana
-                          </Label>
-                          <select
-                            id="slot-weekday"
-                            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                            value={modulo.weekday}
-                            onChange={(evento) =>
-                              setModulo((prima) => ({
-                                ...prima,
-                                weekday: evento.target.value,
-                              }))
-                            }
-                          >
-                            {GIORNI.map((giorno) => (
-                              <option
-                                key={giorno.valore}
-                                value={String(giorno.valore)}
-                              >
-                                {giorno.nome}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <Label htmlFor="slot-data">Data</Label>
-                          <Input
-                            id="slot-data"
-                            type="date"
-                            value={modulo.specificDate}
-                            onChange={(evento) =>
-                              setModulo((prima) => ({
-                                ...prima,
-                                specificDate: evento.target.value,
-                              }))
-                            }
-                          />
-                        </div>
-                      )}
-
-                      <div className="space-y-2">
-                        <Label htmlFor="slot-inizio">Dalle *</Label>
-                        <Input
-                          id="slot-inizio"
-                          type="time"
-                          value={modulo.startTime}
-                          onChange={(evento) =>
-                            setModulo((prima) => ({
-                              ...prima,
-                              startTime: evento.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="slot-fine">Alle *</Label>
-                        <Input
-                          id="slot-fine"
-                          type="time"
-                          value={modulo.endTime}
-                          onChange={(evento) =>
-                            setModulo((prima) => ({
-                              ...prima,
-                              endTime: evento.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="slot-durata">
-                          Durata del colloquio (minuti)
-                        </Label>
-                        <Input
-                          id="slot-durata"
-                          type="number"
-                          min={5}
-                          step={5}
-                          value={modulo.durationMinutes}
-                          onChange={(evento) =>
-                            setModulo((prima) => ({
-                              ...prima,
-                              durationMinutes: evento.target.value,
-                            }))
-                          }
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          La fascia si divide in appuntamenti di questa durata.
-                        </p>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="slot-sede">Sede</Label>
-                        <select
-                          id="slot-sede"
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          value={modulo.siteId}
-                          onChange={(evento) =>
-                            setModulo((prima) => ({
-                              ...prima,
-                              siteId: evento.target.value,
-                            }))
-                          }
-                        >
-                          <option value="">Tutte le sedi</option>
-                          {sedi.map((sede) => (
-                            <option key={sede.id} value={sede.id}>
-                              {sede.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="slot-operatore">Operatore</Label>
-                        <select
-                          id="slot-operatore"
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          value={modulo.assignedToUserId}
-                          onChange={(evento) =>
-                            setModulo((prima) => ({
-                              ...prima,
-                              assignedToUserId: evento.target.value,
-                            }))
-                          }
-                        >
-                          <option value="">Segreteria</option>
-                          {operatori.map((operatore) => (
-                            <option
-                              key={operatore.userId}
-                              value={operatore.userId}
-                            >
-                              {operatore.nome}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="text-xs text-muted-foreground">
-                          Solo chi ha un account puo tenere un&apos;agenda
-                          propria.
-                        </p>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="slot-da">In vigore dal</Label>
-                        <Input
-                          id="slot-da"
-                          type="date"
-                          value={modulo.validFrom}
-                          onChange={(evento) =>
-                            setModulo((prima) => ({
-                              ...prima,
-                              validFrom: evento.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="slot-a">Fino al</Label>
-                        <Input
-                          id="slot-a"
-                          type="date"
-                          value={modulo.validUntil}
-                          onChange={(evento) =>
-                            setModulo((prima) => ({
-                              ...prima,
-                              validUntil: evento.target.value,
-                            }))
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="slot-note">Note interne</Label>
-                      <Textarea
-                        id="slot-note"
-                        rows={2}
-                        value={modulo.notes}
-                        onChange={(evento) =>
-                          setModulo((prima) => ({
-                            ...prima,
-                            notes: evento.target.value,
-                          }))
-                        }
-                        placeholder={"Promemoria per chi tiene l'agenda: la famiglia non le legge"}
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="slot-attiva"
-                        checked={modulo.active}
-                        onCheckedChange={(valore) =>
-                          setModulo((prima) => ({
-                            ...prima,
-                            active: valore === true,
-                          }))
-                        }
-                      />
-                      <Label htmlFor="slot-attiva" className="text-sm">
-                        Attiva
-                      </Label>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Una fascia con una data e disattivata e una chiusura:
-                      quel giorno non si riceve, nemmeno nelle fasce
-                      settimanali.
-                    </p>
-
-                    <Button
-                      className="w-full sm:w-auto"
-                      disabled={salvataggio}
-                      onClick={() => void salva()}
-                    >
-                      <Plus className="mr-2 h-4 w-4" />
-                      {modulo.id ? "Salva la fascia" : "Aggiungi la fascia"}
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">
-                      Fasce di ricevimento
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {caricamento ? (
-                      <p className="py-6 text-center text-sm text-muted-foreground">
-                        Caricamento della disponibilita...
-                      </p>
-                    ) : ordinati.length === 0 ? (
-                      <p className="py-6 text-center text-sm text-muted-foreground">
-                        Nessuna fascia dichiarata.
-                      </p>
-                    ) : (
-                      <div className="space-y-3">
-                        {ordinati.map((slot) => (
-                          <div
-                            key={slot.id}
-                            className="rounded-lg border p-3 text-sm"
-                          >
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-medium">
-                                {slot.specific_date
-                                  ? soloData(slot.specific_date)
-                                  : GIORNI.find(
-                                      (giorno) => giorno.valore === slot.weekday,
-                                    )?.nome || "Giorno non indicato"}
+                              <span className="flex items-center gap-2">
+                                {/* `bookable`: «Convocazione» la decide il club, la famiglia non la chiede. */}
+                                <label className="flex items-center gap-2 font-brand text-[11.5px] text-egw-ink-62">
+                                  <Checkbox
+                                    size={16}
+                                    checked={tipo.bookable}
+                                    onChange={(event) =>
+                                      void salvaConfigurazione({
+                                        ...configurazione,
+                                        types: configurazione.types.map((voce) => (voce.id === tipo.id ? { ...voce, bookable: event.target.checked } : voce)),
+                                      })
+                                    }
+                                  />
+                                  Le famiglie possono chiederlo
+                                </label>
+                                <IconButton
+                                  aria-label={`Rimuovi il motivo ${tipo.name}`}
+                                  size="xs"
+                                  variant="row"
+                                  className="text-egw-red hover:text-egw-red"
+                                  onClick={() => void salvaConfigurazione({ ...configurazione, types: configurazione.types.filter((voce) => voce.id !== tipo.id) })}
+                                >
+                                  <Trash2 />
+                                </IconButton>
                               </span>
-                              <span>
-                                {slot.start_time} — {slot.end_time}
-                              </span>
-                              <Badge variant="secondary">
-                                {slot.duration_minutes} min
-                              </Badge>
-                              <Badge variant="outline">
-                                {nomeSede(slot.site_id)}
-                              </Badge>
-                              <Badge variant="outline">
-                                {nomeOperatore(slot.assigned_to_user_id)}
-                              </Badge>
-                              {slot.active === false ? (
-                                <Badge variant="destructive">
-                                  {slot.specific_date
-                                    ? "Chiusura"
-                                    : "Disattivata"}
-                                </Badge>
-                              ) : null}
-                            </div>
-
-                            {slot.valid_from || slot.valid_until ? (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                In vigore
-                                {slot.valid_from
-                                  ? ` dal ${soloData(slot.valid_from)}`
-                                  : ""}
-                                {slot.valid_until
-                                  ? ` fino al ${soloData(slot.valid_until)}`
-                                  : ""}
-                              </p>
-                            ) : null}
-
-                            {slot.notes ? (
-                              <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                                {slot.notes}
-                              </p>
-                            ) : null}
-
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => apriModifica(slot)}
-                              >
-                                Modifica
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => void cambiaAttivazione(slot)}
-                              >
-                                {slot.active === false ? "Riattiva" : "Disattiva"}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setDaRimuovere(slot)}
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Elimina
-                              </Button>
-                            </div>
-                          </div>
+                            </InsetBlock>
+                          </li>
                         ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                      </ul>
+                    ) : null}
 
-                <p className="text-sm text-muted-foreground">
-                  Gli appuntamenti gia presi si lavorano dalla{" "}
-                  <Link className="underline" href="/secretariat">
-                    Segreteria
-                  </Link>
-                  .
-                </p>
+                    <form
+                      className="mt-3 flex flex-wrap items-end gap-2"
+                      onSubmit={(evento) => {
+                        evento.preventDefault();
+                        const nome = nuovoTipo.name.trim();
+                        if (!nome) return;
+                        void salvaConfigurazione({ ...configurazione, types: [...configurazione.types, { id: "", name: nome, bookable: true }] });
+                        setNuovoTipo({ name: "" });
+                      }}
+                    >
+                      <FieldSizeProvider size="sm">
+                        <Field label="Nuovo motivo" htmlFor="nuovo-motivo" className="min-w-[12rem] flex-1">
+                          <TextInput id="nuovo-motivo" value={nuovoTipo.name} placeholder="Es. Colloquio con la segreteria" onChange={(evento) => setNuovoTipo({ name: evento.target.value })} />
+                        </Field>
+                      </FieldSizeProvider>
+                      <Button type="submit" variant="neutral" disabled={!nuovoTipo.name.trim()}>
+                        Aggiungi
+                      </Button>
+                    </form>
+                  </div>
+                </Panel>
               </div>
             )}
           </DashboardPageContainer>
         </main>
       </div>
 
-      {/*
-        La cancellazione passa da un dialogo, non da `confirm()`: e la stessa
-        lezione di W6-07, dove la stessa scheda proteggeva un certificato con
-        un dialogo e cancellava un atleta con il popup del browser.
-      */}
-      <AlertDialog
-        open={Boolean(daRimuovere)}
-        onOpenChange={(aperto) => {
-          if (!aperto) setDaRimuovere(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Eliminare questa fascia?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Gli appuntamenti gia presi su questa fascia restano in agenda:
-              si perde solo la regola che la proponeva. Per smettere di offrirla
-              senza toglierla dalla storia, disattivala.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Annulla</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              onClick={(evento) => {
-                evento.preventDefault();
-                void rimuovi();
-              }}
-            >
-              Elimina
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <SlotDrawer open={drawer.open} onOpenChange={(open) => setDrawer((current) => ({ ...current, open }))} slot={drawer.slot} sedi={sedi} operatori={operatori} onSubmit={salva} />
+
+      {confirmDialog}
     </div>
   );
 }

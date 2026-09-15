@@ -32,7 +32,8 @@ const readCode = (relative) =>
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
 const PAGE = "app/modulistica/page.tsx";
-const DASHBOARD = "components/forms/forms-dashboard.tsx";
+/* Dal Web V2 (Wave E) il cruscotto dei moduli online e la sezione `online-forms-section.tsx`. */
+const DASHBOARD = "components/modulistica/v2/online-forms-section.tsx";
 const PUBLIC_FORM = "components/forms/public-form-page.tsx";
 const RENEWAL = "components/enrollment/renewal-form.tsx";
 
@@ -54,14 +55,15 @@ test("la scheda «Moduli online» e condizionata al suo permesso, non a quello d
 
   assert.match(
     page,
-    /\{canReadForms \?\s*\(?\s*<TabsTrigger value="online-forms">/,
+    /if \(canReadForms\) tabs\.push\("online-forms"\)/,
     "la scheda dei moduli deve dipendere da canReadForms",
   );
   assert.match(
     page,
-    /\{canRead \?\s*\(?\s*<TabsTrigger value="documents">/,
+    /if \(canRead\) tabs\.push\("documents"\)/,
     "la scheda dei documenti deve dipendere da canRead",
   );
+  assert.match(page, /\{canReadForms \? \([\s\S]{0,200}<OnlineFormsSection \/>/, "e il corpo della scheda con lei");
 });
 
 test("la pagina si apre se almeno uno dei due domini e aperto", () => {
@@ -90,7 +92,7 @@ test("un ruolo senza i modelli di stampa atterra su una scheda che esiste", () =
   */
   assert.match(page, /availableTabs/);
   assert.match(page, /currentTab/);
-  assert.match(page, /<Tabs\s+value=\{currentTab\}/);
+  assert.match(page, /<SegmentedControl<ModulisticaTab>[\s\S]{0,120}value=\{currentTab\}/);
 });
 
 /* ------------------------------ W6-43: un caricamento non smonta le altre */
@@ -106,12 +108,10 @@ test("l'uscita anticipata su loading non c'e piu", () => {
 
 test("la scheda dei moduli online non dipende dal caricamento dei documenti", () => {
   const page = readCode(PAGE);
-  const scheda = page.slice(
-    page.indexOf('<TabsContent value="online-forms">'),
-    page.indexOf("</TabsContent>", page.indexOf('<TabsContent value="online-forms">')),
-  );
+  const inizio = page.indexOf('currentTab === "online-forms"');
+  const scheda = page.slice(inizio, page.indexOf("</div>", inizio));
 
-  assert.ok(scheda.includes("<FormsDashboard />"));
+  assert.ok(scheda.includes("<OnlineFormsSection />"));
   assert.ok(
     !scheda.includes("documentsLoading") && !scheda.includes("loading"),
     "il cruscotto dei moduli si carica da solo",
@@ -121,11 +121,11 @@ test("la scheda dei moduli online non dipende dal caricamento dei documenti", ()
 test("le schede documentali mostrano il caricamento al proprio interno", () => {
   const page = readCode(PAGE);
 
-  assert.match(page, /documentsLoading \? \(/);
+  assert.match(page, /const documentsGridState = documentsLoading \? "loading"/);
   assert.match(
     page,
-    /\{documentsLoading \? \(\s*<div[^>]*>\s*<AppLoadingScreen/,
-    "il caricamento dei modelli sta dentro la sua scheda",
+    /<TemplatesGrid[\s\S]{0,200}state=\{documentsGridState\}/,
+    "il caricamento dei modelli sta dentro la sua griglia (scheletro), non prima delle schede",
   );
 });
 
@@ -134,12 +134,14 @@ test("le schede documentali mostrano il caricamento al proprio interno", () => {
 test("errore ed elenco vuoto sono due schermate diverse", () => {
   const dashboard = readCode(DASHBOARD);
 
-  for (const stato of [
-    'templatesState.status === "loading"',
-    'templatesState.status === "error"',
-    'submissionsState.status === "loading"',
-    'submissionsState.status === "error"',
-  ]) {
+  /*
+    Tre valori, non un booleano: `LoadState` porta «loading | ready | error»
+    e la griglia riceve lo stato tradotto (`gridStateOf`), cosi errore ed
+    elenco vuoto restano due schermate.
+  */
+  assert.match(dashboard, /type LoadState = \{ status: "loading" \| "ready" \| "error"; error: string \}/);
+  assert.match(dashboard, /state\.status === "loading" \? "loading" : state\.status === "error" \? "error" : "ready"/);
+  for (const stato of ["gridStateOf(templatesState)", "gridStateOf(submissionsState)"]) {
     assert.ok(
       dashboard.includes(stato),
       `manca lo stato ${stato}: un errore tornerebbe a leggersi come «non c'e niente»`,
@@ -153,8 +155,9 @@ test("errore ed elenco vuoto sono due schermate diverse", () => {
 test("l'errore si puo riprovare, e lo dice", () => {
   const dashboard = readCode(DASHBOARD);
 
-  assert.match(dashboard, /function LoadFailure|const LoadFailure/);
-  assert.match(dashboard, /Riprova/);
+  /* Dal Web V2 l'errore lo rende il DataGrid (`state="error"` + Riprova). */
+  assert.match(dashboard, /state=\{gridStateOf\(templatesState\)\}/);
+  assert.match(dashboard, /errorMessage=\{templatesState\.error \|\| null\}/);
   assert.match(dashboard, /onRetry=\{\(\) => void loadTemplates\(\)\}/);
   assert.match(dashboard, /onRetry=\{\(\) => void loadSubmissions\(\)\}/);
 });
@@ -172,7 +175,7 @@ test("i modelli consigliati sono un catalogo, non voci di «Nuovo modulo»", () 
   const dashboard = readCode(DASHBOARD);
 
   assert.match(dashboard, /Modelli consigliati/);
-  assert.match(dashboard, /<TabsTrigger value="modelli">/);
+  assert.match(dashboard, /value: "modelli", label: "Modelli consigliati"/);
   assert.ok(
     !dashboard.includes("STARTER_TEMPLATES"),
     "l'elenco dei modelli non e piu un menu a tendina sotto «Nuovo modulo»",
@@ -183,7 +186,8 @@ test("i modelli consigliati sono un catalogo, non voci di «Nuovo modulo»", () 
 test("una voce di catalogo dice classe, proprietario del contenuto e rilettura", () => {
   const dashboard = readCode(DASHBOARD);
 
-  assert.match(dashboard, /FORM_CATALOG_CLASS_LABELS/);
+  assert.match(dashboard, /formCatalogClassLabel\(entry\.catalogClass\)/);
+  assert.match(readCode("components/modulistica/v2/modulistica-model.ts"), /FORM_CATALOG_CLASS_LABELS/);
   assert.match(dashboard, /entry\.editorialOwner/);
   assert.match(dashboard, /entry\.lastReviewedAt/);
 });
@@ -192,7 +196,8 @@ test("un modulo nato da un modello dice da quale", () => {
   const dashboard = readCode(DASHBOARD);
 
   assert.match(dashboard, /Da modello EasyGame/);
-  assert.match(dashboard, /catalogTitleByKey\.get\(template\.catalogKey\)/);
+  assert.match(dashboard, /formCatalogTitle\(row\.catalogKey\)/);
+  assert.match(readCode("components/modulistica/v2/modulistica-model.ts"), /catalogTitleByKey\.get\(String\(catalogKey/);
 });
 
 /* --------------------------------------------- W6-48: salva e riprendi */

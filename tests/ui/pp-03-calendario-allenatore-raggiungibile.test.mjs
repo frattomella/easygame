@@ -118,7 +118,7 @@ test("PP-03 §11.1 · la modifica di un evento condiviso non ne perde le altre c
 
 test("PP-03 §11.1 · la leva del club dice cosa governa davvero", () => {
   const permessi = senzaCommenti(
-    leggi("components/permissions/trainer-permissions-page.tsx"),
+    leggi("components/permissions/v2/trainer-permissions-model.ts"),
   );
 
   const voce = permessi.slice(

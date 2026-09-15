@@ -27,7 +27,7 @@ import path from "node:path";
 const leggi = (percorso) =>
   readFileSync(path.join(process.cwd(), percorso), "utf8");
 
-const SCHERMATA_ACCOUNT = "src/components/account/account-home-screen.tsx";
+const SCHERMATA_ACCOUNT = "src/components/account/v2/account-home-screen.tsx";
 
 /**
  * Il corpo di un componente, dalla sua dichiarazione a quella successiva.

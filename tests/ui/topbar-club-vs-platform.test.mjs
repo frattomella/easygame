@@ -356,6 +356,10 @@ test("nessun font nuovo importato da next/font", () => {
 */
 const WEB_V2_SURFACES = new Set([
   "components/auth/auth-shell.tsx", // 2026-09-15, ambiente 3
+  "components/account/v2/account-home-screen.tsx", // 2026-09-15, Wave E, ambiente 3
+  "components/account/v2/account-profile-drawer.tsx", // 2026-09-15, Wave E
+  "components/account/v2/account-create-club-drawer.tsx", // 2026-09-15, Wave E
+  "components/account/v2/account-redeem-access-drawer.tsx", // 2026-09-15, Wave E
 ]);
 
 test("le superfici dell'identita non inventano taglie di testo", () => {

@@ -14,6 +14,10 @@ import path from "node:path";
  *    rappresentabile;
  * 3. il kit aveva un campo stagione che non filtrava niente, perche
  *    `clothing_kits` non e un tipo stagionale.
+ *
+ * Dal Web V2 (Wave E) la pagina e divisa in moduli sotto
+ * `components/clothing/v2/`: i test leggono il file in cui ogni regola vive
+ * ora, con lo stesso intento di prima.
  */
 
 const SRC = path.join(process.cwd(), "src");
@@ -21,10 +25,16 @@ const read = (relative) =>
   readFileSync(path.join(SRC, ...relative.split("/")), "utf8");
 
 const CLOTHING_PAGE = "app/clothing/page.tsx";
-const DELIVERY_DIALOG = "components/clothing/kit-delivery-dialog.tsx";
+const ASSIGNMENT_DRAWER = "components/clothing/v2/assignment-drawer.tsx";
+const DELIVERY_DRAWER = "components/clothing/v2/kit-delivery-drawer.tsx";
+const ASSIGNMENTS_GRID = "components/clothing/v2/assignments-grid.tsx";
+const KIT_DRAWER = "components/clothing/v2/kit-drawer.tsx";
+const ITEM_DRAWER = "components/clothing/v2/item-drawer.tsx";
+const GROUP_DRAWER = "components/clothing/v2/group-drawer.tsx";
+const NUMBERING_AREA = "components/clothing/v2/numbering-area.tsx";
 
 test("il modulo di assegnazione parte dalla taglia dell'anagrafica", () => {
-  const source = read(CLOTHING_PAGE);
+  const source = read(ASSIGNMENT_DRAWER);
 
   assert.match(
     source,
@@ -44,31 +54,30 @@ test("il modulo di assegnazione parte dalla taglia dell'anagrafica", () => {
 });
 
 test("la taglia proposta filtra anche lo stock di magazzino", () => {
-  assert.match(read(CLOTHING_PAGE), /size: sizeDescription\.size,/);
+  assert.match(read(ASSIGNMENT_DRAWER), /size: sizeDescription\.size,/);
 });
 
 test("l'assegnazione non scrive l'anagrafica taglie", () => {
-  const source = read(CLOTHING_PAGE);
-  const assignmentWrites = source
-    .split(/\r?\n/)
-    .filter((line) => /clothingSizes|shirtSize|pantsSize|shoeSize/.test(line))
-    .filter((line) => /set|update|save/i.test(line));
+  for (const file of [CLOTHING_PAGE, ASSIGNMENT_DRAWER, DELIVERY_DRAWER]) {
+    const assignmentWrites = read(file)
+      .split(/\r?\n/)
+      .filter((line) => /clothingSizes|shirtSize|pantsSize|shoeSize/.test(line))
+      .filter((line) => /set|update|save/i.test(line));
 
-  assert.deepEqual(
-    assignmentWrites,
-    [],
-    "assegnare un capo di una taglia diversa non deve riscrivere l'anagrafica",
-  );
+    assert.deepEqual(
+      assignmentWrites,
+      [],
+      `${file}: assegnare un capo di una taglia diversa non deve riscrivere l'anagrafica`,
+    );
+  }
 });
 
 test("lo stato del kit mostrato in elenco e quello derivato", () => {
-  const source = read(CLOTHING_PAGE);
-
-  assert.match(source, /<KitDeliveryStateBadge/);
+  assert.match(read(ASSIGNMENTS_GRID), /<KitDeliveryStatePill/);
   assert.match(
-    read(DELIVERY_DIALOG),
+    read(DELIVERY_DRAWER),
     /getKitDeliveryProgress\(assignment\)/,
-    "il badge legge il progresso, non un campo scritto a mano",
+    "la pillola legge il progresso, non un campo scritto a mano",
   );
 });
 
@@ -87,8 +96,8 @@ test("le consegne non passano dal cambio di stato globale", () => {
   );
 });
 
-test("il dialogo consegne offre i quattro stati per articolo", () => {
-  const source = read(DELIVERY_DIALOG);
+test("il cassetto consegne offre i quattro stati per articolo", () => {
+  const source = read(DELIVERY_DRAWER);
 
   assert.match(
     source,
@@ -97,16 +106,15 @@ test("il dialogo consegne offre i quattro stati per articolo", () => {
   for (const field of ["Taglia assegnata", "Quantita", "Data consegna", "Note"]) {
     assert.ok(
       source.includes(field),
-      `il dialogo deve permettere di registrare «${field}»`,
+      `il cassetto deve permettere di registrare «${field}»`,
     );
   }
 });
 
-test("il dialogo consegne e usabile a 375 px", () => {
-  const offending = read(DELIVERY_DIALOG)
+test("il cassetto consegne e usabile a 375 px", () => {
+  const offending = read(DELIVERY_DRAWER)
     .split(/\r?\n/)
-    .filter((line) => /(?<![a-z:])grid-cols-[23]\b/.test(line))
-    .filter((line) => !line.includes("TabsList"));
+    .filter((line) => /(?<![a-z:])grid-cols-[23]\b/.test(line));
 
   assert.deepEqual(
     offending,
@@ -116,20 +124,12 @@ test("il dialogo consegne e usabile a 375 px", () => {
 });
 
 test("il kit non chiede piu una stagione", () => {
-  const source = read(CLOTHING_PAGE);
-  const kitDialog = source.slice(
-    source.indexOf('<TabsContent value="kit"'),
-    source.indexOf('<TabsContent value="magazzino"'),
-  );
+  const kitDrawer = read(KIT_DRAWER);
 
   assert.equal(
-    /placeholder="Stagione"/.test(kitDialog),
+    /Stagione/.test(kitDrawer.replace(/\/\*[\s\S]*?\*\//g, "")),
     false,
     "clothing_kits non e un tipo stagionale: il campo sembrava un filtro e non filtrava niente",
-  );
-  assert.equal(
-    /<TableHead>Stagione<\/TableHead>/.test(kitDialog),
-    false,
   );
 
   /*
@@ -139,13 +139,14 @@ test("il kit non chiede piu una stagione", () => {
     verificato in tests/lib/clothing-catalog-model.test.mjs; qui si verifica
     che la pagina non lo scriva piu.
   */
+  const page = read(CLOTHING_PAGE);
   assert.equal(
-    /season: kitForm\.season/.test(source),
+    /season: (kitForm|form)\.season/.test(page),
     false,
     "la stagione del kit era nascosta dal form, non rimossa dal salvataggio",
   );
   assert.equal(
-    /season: kit\.season \|\| ""/.test(source),
+    /season: kit\.season \|\| ""/.test(page),
     false,
     "la stagione del kit torna nel form riaprendo un kit esistente",
   );
@@ -156,53 +157,41 @@ test("il kit non chiede piu una stagione", () => {
  *
  * Era una regola sportiva — chi puo giocare con chi, che vive in
  * `category-compatibility.ts` e serve ai gruppi di numerazione — applicata a
- * un magazzino, dove non significa niente. L'effetto visibile era una tendina
- * con meta delle voci disabilitate e la scritta «Categoria non compatibile»,
- * e un magazzino che risultava vuoto per una ragione inventata.
+ * un magazzino, dove non significa niente.
  */
 test("articoli e kit non dichiarano categorie compatibili", () => {
-  const source = read(CLOTHING_PAGE);
+  for (const file of [CLOTHING_PAGE, ITEM_DRAWER, KIT_DRAWER, ASSIGNMENT_DRAWER]) {
+    const code = read(file)
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
 
-  for (const form of ["itemForm", "kitForm"]) {
     assert.equal(
-      new RegExp(`${form}\\.compatibleCategoryIds`).test(source),
+      /compatibleCategoryIds/.test(code),
       false,
-      `${form} porta ancora le categorie compatibili del catalogo`,
+      `${file} porta ancora le categorie compatibili del catalogo`,
+    );
+    assert.equal(
+      /Categorie compatibili"|label="Categorie compatibili/.test(code),
+      false,
+      `${file}: il form del catalogo chiede ancora una compatibilita che non ha`,
+    );
+    assert.equal(
+      /Categoria non compatibile/.test(code),
+      false,
+      `${file}: le tendine disabilitano ancora le voci per una regola sportiva`,
     );
   }
-
-  assert.equal(
-    /<Label>Categorie compatibili<\/Label>/.test(source),
-    false,
-    "il form del catalogo chiede ancora una compatibilita che non ha",
-  );
-  /*
-    Senza commenti: un commento che *nomina* la regola rimossa non e la
-    regola. E la stessa lettura che usa tests/server/club-pin-removed.
-  */
-  const code = source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
-
-  assert.equal(
-    /Categoria non compatibile/.test(code),
-    false,
-    "le tendine disabilitano ancora le voci per una regola sportiva",
-  );
 });
 
 /**
  * Quel che **non** e stato toccato: la compatibilita fra categorie.
  *
- * Rimuovere il concetto dal catalogo non significa rimuoverlo dal dominio in
- * cui e giusto. I gruppi di numerazione continuano a offrirla, esplicita e
- * orientata (Blocco A, punto 15).
+ * I gruppi di numerazione continuano a offrirla, esplicita e orientata
+ * (Blocco A, punto 15).
  */
 test("i gruppi numerazione conservano la compatibilita fra categorie", () => {
-  const source = read(CLOTHING_PAGE);
-
-  assert.match(source, /groupForm\.includeCompatibleCategories/);
-  assert.match(source, /Categorie compatibili incluse/);
+  assert.match(read(GROUP_DRAWER), /form\.includeCompatibleCategories/);
+  assert.match(read(NUMBERING_AREA), /Categorie compatibili incluse/);
 });
 
 test("il catalogo articoli resta globale e le assegnazioni restano stagionali", async () => {
@@ -216,8 +205,6 @@ test("il catalogo articoli resta globale e le assegnazioni restano stagionali", 
 });
 
 test("l'articolo dichiara da quale taglia dell'anagrafica prende", () => {
-  const source = read(CLOTHING_PAGE);
-
-  assert.match(source, /sizeSource: itemForm\.sizeSource,/);
-  assert.match(source, /id="item-size-source"/);
+  assert.match(read(CLOTHING_PAGE), /sizeSource: form\.sizeSource,/);
+  assert.match(read(ITEM_DRAWER), /id="item-size-source"/);
 });

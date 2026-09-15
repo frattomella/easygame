@@ -127,7 +127,7 @@ test("nessun componente client importa il modulo server della firma", () => {
 
 test("l'anteprima passa dal trasporto, non da un fetch nel componente", () => {
   const panel = read(
-    path.join(SRC, "components", "organization", "club-signature-panel.tsx"),
+    path.join(SRC, "components", "organization", "v2", "club-signature-panel.tsx"),
   );
 
   assert.doesNotMatch(

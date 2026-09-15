@@ -1,59 +1,19 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import {
-  Download,
-  Edit,
-  Plus,
-  FileText,
-  Search,
-  MoreVertical,
-  RotateCcw,
-  Trash2,
-  Upload,
-  Users,
-} from "lucide-react";
-import DocumentEditor from "@/components/forms/DocumentEditor";
+import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { FileText, Lock, Plus } from "lucide-react";
+import { cn } from "@/lib/utils";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
-import { MobileTopBar } from "@/components/layout/MobileTopBar";
-import {
-  DashboardPageContainer,
-  dashboardMainClassName,
-} from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FormsDashboard } from "@/components/forms/forms-dashboard";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
+import { useAuth } from "@/components/providers/AuthProvider";
+import { useToast } from "@/components/ui/toast-notification";
+import { PageHeader } from "@/components/web/page/PageHeader";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { EmptyStateCard } from "@/components/web/page/Cards";
+import { Button } from "@/components/web/primitives/Button";
+import { SegmentedControl } from "@/components/web/primitives/Controls";
 import { getClubAthletes } from "@/lib/simplified-db";
 import {
   adoptCatalogEntry,
@@ -75,513 +35,220 @@ import {
   type TemplateStatus,
   type TemplateSubject,
 } from "@/lib/api/documents";
-import {
-  canManageDocumentTemplates,
-  canReadDocumentTemplates,
-} from "@/lib/documents/permissions";
+import { canManageDocumentTemplates, canReadDocumentTemplates } from "@/lib/documents/permissions";
 import { canReadClubForms } from "@/lib/forms/permissions";
-import {
-  applyPlaceholderValues,
-  describePlaceholderKey,
-  normalizePlaceholderKey,
-  DOCUMENT_SIGNATURE_TOKENS,
-} from "@/lib/documents/placeholders";
 import { renderBlankFormHtml } from "@/lib/documents/document-view";
 import { BulkGenerationDialog } from "@/components/documents/BulkGenerationDialog";
+import { buildDocumentBundleHtml, openBundleWindow, openPrintableBundle, renderBundleInto } from "@/components/documents/document-bundle";
+import { clearStoredBatch, pendingSubjects, readStoredBatch, type BulkBatchState } from "@/components/documents/bulk-generation";
+import { TemplatesGrid } from "@/components/modulistica/v2/templates-grid";
+import { CatalogGrid } from "@/components/modulistica/v2/catalog-grid";
+import { GeneratedGrid } from "@/components/modulistica/v2/generated-grid";
+import { OnlineFormsSection } from "@/components/modulistica/v2/online-forms-section";
+import { TemplateEditorView } from "@/components/modulistica/v2/template-editor-view";
+import { NewTemplateDrawer, type NewTemplateValues } from "@/components/modulistica/v2/new-template-drawer";
+import { GenerateDocumentDrawer } from "@/components/modulistica/v2/generate-document-drawer";
+import { FilledPreviewDrawer, type FilledPreviewState } from "@/components/modulistica/v2/filled-preview-drawer";
+import { DeleteTemplateDialog, PublishIssuesDialog } from "@/components/modulistica/v2/template-dialogs";
 import {
-  buildDocumentBundleHtml,
-  openBundleWindow,
-  openPrintableBundle,
-  renderBundleInto,
-} from "@/components/documents/document-bundle";
-import {
-  clearStoredBatch,
-  pendingSubjects,
-  readStoredBatch,
-  type BulkBatchState,
-} from "@/components/documents/bulk-generation";
-import { useAuth } from "@/components/providers/AuthProvider";
-import { useToast } from "@/components/ui/use-toast";
-import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
+  MODULISTICA_TABS,
+  MODULISTICA_TAB_LABELS,
+  isModulisticaTab,
+  newTemplateContent,
+  normalizeAthletes,
+  renderBlankTemplateForPdf,
+  type AthleteOption,
+  type ModulisticaTab,
+} from "@/components/modulistica/v2/modulistica-model";
 
 /**
- * Modulistica: i modelli del club, le loro versioni, i documenti che hanno
- * prodotto.
+ * `/modulistica` — i modelli del club, le loro versioni, i documenti che
+ * hanno prodotto, e i moduli online (Web V2). Audit:
+ * `docs/redesign/audit/wave-e-modulistica.md`.
  *
- * **Cosa e cambiato, e perche.** Fino alla Wave 3 questa pagina leggeva e
- * scriveva `clubs.document_templates`, cioe una colonna JSON della riga del
- * club: due schede aperte insieme si sovrascrivevano, e un modello non aveva
- * ne stato ne versioni. Adesso ogni gesto passa da `src/lib/api/documents.ts`,
- * e un modello ha un ciclo di vita dichiarato — bozza, pubblicato, ritirato.
- *
- * **Tre cose che qui non esistono piu**, e non e una potatura estetica:
- *
- * - i **quattro modelli predefiniti** generati nel browser (`DOC-02`): non li
- *   chiamava nessuno, e scrivevano segnaposto fuori catalogo;
- * - la **compilazione nel browser** (`DOC-03`): era una terza interpretazione
- *   della sostituzione dei segnaposto, con una mappa propria di chiavi
- *   storiche e l'anno sportivo letto da `localStorage`. Sullo stesso modello e
- *   sullo stesso atleta produceva un documento diverso da quello del server;
- * - il **«generatore IA»**: non chiamava nessuna intelligenza artificiale —
- *   componeva una stringa fissa — e ci scriveva dentro `{{first_name}}` e
- *   `{{fiscalCode}}`, che non sono nel catalogo e sarebbero rimasti bianchi
- *   per sempre (§17.3 del planning di Wave 3).
- *
- * Il gesto che resta e uno solo, ed e quello vero: **anteprima** dal
+ * Ogni gesto passa da `src/lib/api/documents.ts` e `src/lib/api/forms.ts`:
+ * un modello ha un ciclo di vita dichiarato — bozza, pubblicato, ritirato —
+ * e il gesto che produce un documento e uno solo: **anteprima** dal
  * risolutore lato server (`/api/v1/documents/filled`, che la pagina non
- * reimplementa), e poi la **produzione** del documento, che scrive una riga
- * con la versione citata.
- */
-
-type Athlete = {
-  id: string;
-  first_name: string;
-  last_name: string;
-  data?: {
-    [key: string]: any;
-    category?: string;
-  };
-};
-
-type PageTab =
-  | "documents"
-  | "catalog"
-  | "online-forms"
-  | "retired"
-  | "generated";
-
-/**
- * La classe redazionale di una voce di catalogo, detta a chi la adotta.
+ * reimplementa), poi la **produzione**, che scrive una riga con la versione
+ * citata.
  *
- * Non e una sigla da nascondere: dice **chi puo mantenere quel testo**, ed e
- * la ragione per cui il catalogo distribuisce sei voci e non settantasette
- * (ADR-0092). Oggi escono solo le `A`; le altre due esistono qui perche il
- * giorno in cui una `B` o una `C` venisse validata, l'elenco non debba
- * imparare una parola nuova.
- */
-const CATALOG_CLASS_LABELS: Record<string, string> = {
-  A: "Classe A — dice fatti del gestionale",
-  B: "Classe B — modulo di un ente terzo",
-  C: "Classe C — contenuto legale o fiscale",
-};
-
-const STATUS_LABELS: Record<TemplateStatus, string> = {
-  draft: "Bozza",
-  active: "Attivo",
-  retired: "Ritirato",
-};
-
-const STATUS_CLASSES: Record<TemplateStatus, string> = {
-  draft: "border-slate-200 bg-slate-100 text-slate-700",
-  active: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  retired: "border-amber-200 bg-amber-50 text-amber-800",
-};
-
-/**
- * I quattro soggetti che un modello puo dichiarare.
+ * **Due domini in una pagina sola, e quindi due cancelli** (W6-42): i
+ * modelli di documento che il club stampa e i moduli online che la famiglia
+ * compila hanno due proprietari e due matrici. Ogni scheda porta il permesso
+ * del suo dominio, e la scheda attiva si **ricava** dall'elenco di quelle
+ * disponibili invece di essere sincronizzata da un effetto.
  *
- * Non e una preferenza di catalogazione: il soggetto decide quali segnaposto
- * l'editor propone, e quindi quali dati il modello sapra scrivere.
+ * **Lo stato di caricamento di una sezione non smonta le altre** (W6-43):
+ * il caricamento dei modelli vive dentro le sue griglie, e «Moduli online»
+ * si carica da sola.
  */
-const SUBJECT_LABELS: Record<TemplateSubject, string> = {
-  club: "La societa",
-  athlete: "Un atleta",
-  person: "Una persona dello staff",
-  member: "Un socio",
-};
+const PAGE_DESCRIPTION = "Gestisci i modelli di documento, i moduli online e i file che il club produce.";
 
-const SUBJECT_HINT =
-  "Il soggetto decide quali dati il modello sapra scrivere: un modello che parla di un atleta non ha un allenatore a cui riferirsi, e quei campi resterebbero bianchi.";
-
-const GENERATED_STATUS_LABELS: Record<string, string> = {
-  generated: "Generato",
-  issued: "Consegnato",
-  awaiting_signature: "In attesa di firma",
-  signed: "Copia firmata rientrata",
-  rejected: "Respinto",
-  archived: "Archiviato",
-};
-
-const formatDate = (value?: string | null) => {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? "—"
-    : date.toLocaleDateString("it-IT");
-};
-
-const normalizeAthletes = (athletesData: any[]): Athlete[] =>
-  (Array.isArray(athletesData) ? athletesData : [])
-    .map((athlete) => {
-      const data =
-        typeof athlete?.data === "object" && athlete.data ? athlete.data : {};
-      const firstName =
-        athlete?.first_name ||
-        athlete?.name ||
-        data.first_name ||
-        data.firstName ||
-        "";
-      const lastName =
-        athlete?.last_name ||
-        athlete?.surname ||
-        data.last_name ||
-        data.lastName ||
-        "";
-
-      return {
-        ...athlete,
-        first_name: String(firstName || "").trim(),
-        last_name: String(lastName || "").trim(),
-        data,
-      } as Athlete;
-    })
-    .filter(
-      (athlete) =>
-        athlete &&
-        athlete.id &&
-        (athlete.first_name || athlete.last_name || athlete.data?.category),
-    );
-
-const escapeHtmlText = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-
-const signatureBlockHtml = (label: string) =>
-  `<div style="margin: 28px 0 18px; padding: 18px; border: 1px dashed #94a3b8; border-radius: 8px; color: #475569; background-color: #f8fafc;"><strong>${label}</strong></div>`;
-
-/*
-  I blocchi firma, e solo quelli: nel modulo vuoto diventano il riquadro
-  tratteggiato che si firma a penna, con scritto **quale** firma ci va. Tutto
-  il resto non e in questa mappa, e per un segnaposto assente
-  `applyPlaceholderValues` mette da se il campo tratteggiato.
-*/
-const BLANK_SIGNATURE_HTML: Record<string, string> = Object.fromEntries(
-  DOCUMENT_SIGNATURE_TOKENS.map((token) => [
-    normalizePlaceholderKey(token.value),
-    signatureBlockHtml(token.label),
-  ]),
-);
-
-/**
- * Il modulo da compilare a mano: i segnaposto diventano righe da riempire a
- * penna.
- *
- * **Perche non ha piu una regex sua.** Ne aveva tre, ricopiate da
- * `src/lib/documents/placeholders.ts`, e una delle tre era gia diversa
- * dall'originale: la pagina accettava `{{ a{b }}` che il proprietario rifiuta.
- * Due sintassi per la stessa cosa vogliono dire un modello che si stampa in un
- * modo e si genera in un altro, e la differenza si vede solo sul foglio in
- * mano alla famiglia. Il motore e uno: quello del catalogo dei segnaposto, lo
- * stesso che usa il risolutore del server.
- */
-const renderBlankTemplateForPdf = (content: string) =>
-  applyPlaceholderValues({ content, rendered: BLANK_SIGNATURE_HTML }).html;
-
-/**
- * Da questo modello si puo produrre un documento **compilato**?
- *
- * Sono le due condizioni di `loadPublishableVersion` lato server, dette qui
- * con le stesse parole: un modello ritirato non produce documenti nuovi, e uno
- * senza versione pubblicata non ha niente da citare. Offrire il gesto lo
- * stesso significa promettere un 400 — e il server ha ragione lui.
- */
-const canProduceFilled = (template: DocumentTemplateSummary) =>
-  template.status !== "retired" && template.publishedVersion > 0;
-
-
-const TemplateStatusBadge = ({ status }: { status: TemplateStatus }) => (
-  <span
-    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_CLASSES[status]}`}
-  >
-    {STATUS_LABELS[status]}
-  </span>
-);
-
-/** Lo stato di un modello, detto per intero: versione, e cosa non e uscito. */
-const TemplateStateLine = ({
-  template,
-}: {
-  template: DocumentTemplateSummary;
-}) => (
-  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-    <TemplateStatusBadge status={template.status} />
-    <span>
-      {template.publishedVersion > 0
-        ? `Versione ${template.publishedVersion} del ${formatDate(template.publishedAt)}`
-        : "Mai pubblicato"}
-    </span>
-    {template.hasUnpublishedChanges ? (
-      <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-medium text-blue-700">
-        Modifiche non pubblicate
-      </span>
-    ) : null}
-    {template.generatedCount > 0 ? (
-      <span>
-        {template.generatedCount}{" "}
-        {template.generatedCount === 1 ? "documento" : "documenti"} prodotti
-      </span>
-    ) : null}
+const PageShell = ({ children }: { children: React.ReactNode }) => (
+  <div className="flex h-[100dvh] bg-egw-page">
+    <Sidebar />
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      {/* `Header` monta gia `MobileTopBar` sotto i 1024 px: il titolo passa da qui. */}
+      <Header title="Modulistica" />
+      <main className={dashboardMainClassName}>
+        <DashboardPageContainer>{children}</DashboardPageContainer>
+      </main>
+    </div>
   </div>
 );
 
 function ModulisticaPage() {
   const { activeClub } = useAuth();
+  const { showToast } = useToast();
+  const router = useRouter();
+  const pathname = usePathname() || "/modulistica";
+  const rawSearchParams = useSearchParams();
+  const searchParams = React.useMemo(() => rawSearchParams ?? new URLSearchParams(), [rawSearchParams]);
+
   const clubId = activeClub?.id ? String(activeClub.id) : "";
   const activeRole = activeClub?.role ? String(activeClub.role) : "";
-  const activeSeasonId = activeClub?.activeSeasonId
-    ? String(activeClub.activeSeasonId)
-    : null;
+  const activeSeasonId = activeClub?.activeSeasonId ? String(activeClub.activeSeasonId) : null;
 
   /*
     Il server decide comunque: qui il permesso serve solo a non mostrare un
     pulsante che risponderebbe «Accesso negato», che e un difetto quanto una
-    porta aperta.
-
-    **Due domini in una pagina sola, e quindi due cancelli** (W6-42). Questa
-    schermata ospita i **modelli di documento** che il club stampa e i
-    **moduli online** che la famiglia compila: sono due domini distinti, con
-    due proprietari e due matrici. Fino a ieri la guardia della pagina usava
-    solo `canReadDocumentTemplates`, e un ruolo autorizzato ai moduli ma non
-    ai modelli di stampa leggeva «I modelli di documento li vede chi lavora
-    nella segreteria del club» e non vedeva mai la scheda «Moduli online».
-    Ogni scheda porta adesso il permesso del suo dominio.
+    porta aperta. Si entra nella pagina se **almeno uno** dei due domini e
+    aperto.
   */
   const canManage = canManageDocumentTemplates(activeRole);
   const canRead = canReadDocumentTemplates(activeRole);
   const canReadForms = canReadClubForms(activeRole);
-  /* Si entra nella pagina se **almeno uno** dei due domini e aperto. */
   const canOpenPage = canRead || canReadForms;
 
-  const { showToast } = useToast();
+  const [templates, setTemplates] = React.useState<DocumentTemplateSummary[]>([]);
+  const [generatedDocuments, setGeneratedDocuments] = React.useState<GeneratedDocumentSummary[]>([]);
+  const [athletes, setAthletes] = React.useState<AthleteOption[]>([]);
+  const [catalog, setCatalog] = React.useState<DocumentCatalogEntry[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
 
-  const [templates, setTemplates] = useState<DocumentTemplateSummary[]>([]);
-  const [generatedDocuments, setGeneratedDocuments] = useState<
-    GeneratedDocumentSummary[]
-  >([]);
-  const [athletes, setAthletes] = useState<Athlete[]>([]);
-  const [athleteSearchTerm, setAthleteSearchTerm] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [activeView, setActiveView] = React.useState<"list" | "editor">("list");
+  const [editorTemplate, setEditorTemplate] = React.useState<DocumentTemplateDetail | null>(null);
+  const [editorSubject, setEditorSubject] = React.useState<TemplateSubject>("athlete");
+  const [savingDraft, setSavingDraft] = React.useState(false);
+  const [publishing, setPublishing] = React.useState(false);
+  const [publishIssues, setPublishIssues] = React.useState<TemplateIssue[] | null>(null);
 
-  const [activeView, setActiveView] = useState<"list" | "editor">("list");
-  const [activeTab, setActiveTab] = useState<PageTab>("documents");
+  const [newDocumentDialog, setNewDocumentDialog] = React.useState(false);
+  const [creating, setCreating] = React.useState(false);
+  const [adoptingKey, setAdoptingKey] = React.useState("");
 
-  const [editorTemplate, setEditorTemplate] =
-    useState<DocumentTemplateDetail | null>(null);
-  const [editorSubject, setEditorSubject] = useState<TemplateSubject>("athlete");
-  const [savingDraft, setSavingDraft] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  const [publishIssues, setPublishIssues] = useState<TemplateIssue[] | null>(
-    null,
+  const [generateTarget, setGenerateTarget] = React.useState<DocumentTemplateSummary | null>(null);
+  const [generatingFilled, setGeneratingFilled] = React.useState(false);
+  const [producing, setProducing] = React.useState(false);
+  const [deleteTarget, setDeleteTarget] = React.useState<DocumentTemplateSummary | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+  const [filledPreview, setFilledPreview] = React.useState<FilledPreviewState | null>(null);
+
+  /*
+    La generazione massiva (W3-E). Il lotto vive in `sessionStorage`, non
+    qui: `interruptedBatch` e solo cio che questa pagina ha trovato li dentro
+    al montaggio, cioe un lotto che qualcuno ha lasciato a meta ricaricando.
+  */
+  const [bulkTarget, setBulkTarget] = React.useState<DocumentTemplateSummary | null>(null);
+  const [bulkResume, setBulkResume] = React.useState<BulkBatchState | null>(null);
+  const [interruptedBatch, setInterruptedBatch] = React.useState<BulkBatchState | null>(null);
+
+  /* ── Le schede e l'indirizzo ────────────────────────────────────────── */
+  const availableTabs = React.useMemo<ModulisticaTab[]>(() => {
+    const tabs: ModulisticaTab[] = [];
+    if (canRead) tabs.push("documents");
+    if (canManage) tabs.push("catalog");
+    if (canReadForms) tabs.push("online-forms");
+    if (canRead) tabs.push("generated");
+    return tabs;
+  }, [canRead, canManage, canReadForms]);
+
+  const [activeTab, setActiveTab] = React.useState<ModulisticaTab>(() => {
+    const requested = searchParams.get("tab");
+    return isModulisticaTab(requested) ? requested : "documents";
+  });
+
+  const currentTab: ModulisticaTab = availableTabs.includes(activeTab) ? activeTab : availableTabs[0] || "documents";
+
+  const selectTab = React.useCallback(
+    (next: ModulisticaTab) => {
+      setActiveTab(next);
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "documents") params.delete("tab");
+      else params.set("tab", next);
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
   );
 
-  const [newDocumentDialog, setNewDocumentDialog] = useState(false);
-  const [newDocumentTitle, setNewDocumentTitle] = useState("");
-  const [newDocumentDescription, setNewDocumentDescription] = useState("");
-  const [newDocumentSubject, setNewDocumentSubject] =
-    useState<TemplateSubject>("athlete");
-  const [creating, setCreating] = useState(false);
+  React.useEffect(() => {
+    const requested = searchParams.get("tab");
+    if (isModulisticaTab(requested) && requested !== activeTab) setActiveTab(requested);
+    // Il valore in URL guida la scheda; `activeTab` cambia per il clic e non deve rieseguire l'effetto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
-  /*
-    Il catalogo. Non e un elenco di modelli del club: e cio che il club **puo**
-    adottare, con la sua provenienza. Lo si legge solo se chi guarda potrebbe
-    adottarlo, perche una vetrina di cose che non si possono prendere e solo
-    una scheda in piu da chiudere.
-  */
-  const [catalog, setCatalog] = useState<DocumentCatalogEntry[]>([]);
-  const [adoptingKey, setAdoptingKey] = useState("");
+  /* `?action=new` apre il modulo di creazione (azioni rapide) e viene tolto dall'indirizzo. */
+  React.useEffect(() => {
+    if (searchParams.get("action") !== "new") return;
+    if (canManage) setNewDocumentDialog(true);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("action");
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, canManage]);
 
-  const [generateTarget, setGenerateTarget] =
-    useState<DocumentTemplateSummary | null>(null);
-  const [selectedAthlete, setSelectedAthlete] = useState("");
-  const [generatingFilled, setGeneratingFilled] = useState(false);
-  const [producing, setProducing] = useState(false);
-  const [deleteTarget, setDeleteTarget] =
-    useState<DocumentTemplateSummary | null>(null);
-
-  /*
-    La generazione massiva (W3-E). Il lotto vive in `sessionStorage`, non qui:
-    `interruptedBatch` e solo cio che questa pagina ha trovato li dentro al
-    montaggio, cioe un lotto che qualcuno ha lasciato a meta ricaricando.
-  */
-  const [bulkTarget, setBulkTarget] =
-    useState<DocumentTemplateSummary | null>(null);
-  const [bulkResume, setBulkResume] = useState<BulkBatchState | null>(null);
-  const [interruptedBatch, setInterruptedBatch] =
-    useState<BulkBatchState | null>(null);
-
-  /*
-    L'anteprima del documento compilato. Non e un dettaglio di comodo: §5.5.24
-    chiede che i segnaposto che il risolutore non ha saputo riempire siano
-    **elencati prima di produrre**. Un'attestazione con tre righe bianche che
-    nessuno ha notato e peggio di un modulo vuoto, perche sembra completa.
-  */
-  const [filledPreview, setFilledPreview] = useState<{
-    templateId: string;
-    athleteId: string;
-    title: string;
-    html: string;
-    unresolved: string[];
-    missing: string[];
-    warnings: string[];
-  } | null>(null);
-
-  /*
-    **Carica i modelli di documento, e nient'altro** (W6-43).
-
-    Questa funzione non deve piu sapere niente dei moduli online: `loading`
-    riguarda le schede documentali, e la scheda «Moduli online» si carica da
-    sola dentro `FormsDashboard`. Finche l'uscita anticipata su `loading` stava
-    prima dei Tabs, ogni ri-risoluzione del club **smontava** il cruscotto dei
-    moduli e ne perdeva l'elenco, la coda e il filtro — e con una chiamata
-    lenta o pendente la scheda non era raggiungibile affatto.
-  */
-  const loadAll = useCallback(async () => {
+  /* ── Le letture ─────────────────────────────────────────────────────── */
+  const loadAll = React.useCallback(async () => {
     if (!clubId || !canRead) {
       setLoading(false);
       return;
     }
-
     setLoading(true);
-
     try {
-      const [templatesResult, generatedResult, athletesData, catalogResult] =
-        await Promise.all([
-          listDocumentTemplates({ includeRetired: true }),
-          listGeneratedDocuments({ limit: 100 }),
-          getClubAthletes(clubId).catch(() => []),
-          canManage
-            ? listDocumentCatalog()
-            : Promise.resolve({ entries: [], error: null }),
-        ]);
-
-      if (templatesResult.error) {
-        showToast("error", templatesResult.error);
-      }
-
+      const [templatesResult, generatedResult, athletesData, catalogResult] = await Promise.all([
+        listDocumentTemplates({ includeRetired: true }),
+        listGeneratedDocuments({ limit: 100 }),
+        getClubAthletes(clubId).catch(() => []),
+        canManage ? listDocumentCatalog() : Promise.resolve({ entries: [] as DocumentCatalogEntry[], error: null }),
+      ]);
       setTemplates(templatesResult.templates);
       setGeneratedDocuments(generatedResult.documents);
-      setAthletes(normalizeAthletes((athletesData as any[]) || []));
+      setAthletes(normalizeAthletes(athletesData));
       setCatalog(catalogResult.entries);
+      setLoadError(templatesResult.error || null);
     } catch {
-      showToast("error", "Errore nel caricamento dei modelli");
+      setLoadError("Errore nel caricamento dei modelli");
     } finally {
       setLoading(false);
     }
-    // `showToast` cambia identita a ogni render: includerlo qui rifarebbe
-    // partire il caricamento a ogni render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clubId, canManage, canRead]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     void loadAll();
   }, [loadAll]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const params = new URLSearchParams(window.location.search);
-    const action = params.get("action");
-    if (!action) {
-      return;
-    }
-
-    if (action === "new") {
-      setNewDocumentDialog(true);
-    }
-
-    params.delete("action");
-    const nextQuery = params.toString();
-    const nextUrl = nextQuery
-      ? `${window.location.pathname}?${nextQuery}`
-      : window.location.pathname;
-    window.history.replaceState(window.history.state, "", nextUrl);
-  }, []);
-
   /*
-    Il lotto lasciato a meta si scopre al montaggio, e non e un dettaglio: e
-    **questo** che rende ripartibile la generazione massiva dopo un F5. Senza,
-    l'identificativo del lotto resterebbe in `sessionStorage` senza che nessuno
-    lo proponga, e chi ha ricaricato ricomincerebbe da capo.
+    Il lotto lasciato a meta si scopre al montaggio: e **questo** che rende
+    ripartibile la generazione massiva dopo un F5.
   */
-  useEffect(() => {
+  React.useEffect(() => {
     setInterruptedBatch(readStoredBatch());
   }, []);
 
-  const bulkAthletes = useMemo(
-    () =>
-      athletes.map((athlete) => ({
-        id: athlete.id,
-        label:
-          `${athlete.first_name} ${athlete.last_name}`.trim() ||
-          "Atleta senza nome",
-      })),
-    [athletes],
-  );
+  const bulkAthletes = React.useMemo(() => athletes.map((athlete) => ({ id: athlete.id, label: athlete.label })), [athletes]);
 
-  const filteredAthletes = useMemo(() => {
-    const term = athleteSearchTerm.trim().toLowerCase();
-    if (!term) return athletes;
-
-    return athletes.filter((athlete) =>
-      `${athlete.first_name} ${athlete.last_name}`.toLowerCase().includes(term),
-    );
-  }, [athleteSearchTerm, athletes]);
-
-  const listedTemplates = useMemo(
-    () => templates.filter((template) => template.status !== "retired"),
-    [templates],
-  );
-  const retiredTemplates = useMemo(
-    () => templates.filter((template) => template.status === "retired"),
-    [templates],
-  );
-  /*
-    Cio che resta da adottare. Le voci gia prese restano in elenco, dette come
-    tali: sparire vorrebbe dire lasciare chi cerca «l'attestazione» davanti a
-    un catalogo che non la nomina piu.
-  */
-  const adoptableCatalog = useMemo(
-    () => catalog.filter((entry) => !entry.adopted),
-    [catalog],
-  );
-
-  /*
-    **Le schede che questo ruolo puo davvero aprire**, in ordine.
-
-    Serve anche a scegliere quale mostrare per prima: `documents` era il valore
-    iniziale fisso, e chi non ha i modelli di stampa sarebbe atterrato su una
-    scheda che non esiste per lui — cioe su una pagina vuota. La scheda attiva
-    si **ricava** invece di essere sincronizzata da un effetto: un `useState`
-    che insegue un permesso e un fotogramma in cui i due non coincidono.
-  */
-  const availableTabs = useMemo<PageTab[]>(() => {
-    const tabs: PageTab[] = [];
-    if (canRead) tabs.push("documents");
-    if (canManage) tabs.push("catalog");
-    if (canReadForms) tabs.push("online-forms");
-    if (canRead) tabs.push("retired", "generated");
-    return tabs;
-  }, [canRead, canManage, canReadForms]);
-
-  const currentTab: PageTab = availableTabs.includes(activeTab)
-    ? activeTab
-    : availableTabs[0] || "documents";
-
-  /* ------------------------------------------------------------- l'editor */
-
+  /* ── L'editor ───────────────────────────────────────────────────────── */
   const openEditor = async (template: DocumentTemplateSummary) => {
     const { template: detail, error } = await getDocumentTemplate(template.id);
     if (error || !detail) {
       showToast("error", error || "Modello non trovato");
       return;
     }
-
     setEditorTemplate(detail);
     setEditorSubject(detail.subjectKind);
     setActiveView("editor");
@@ -594,265 +261,132 @@ function ModulisticaPage() {
 
   const handleSaveDraft = async (content: string) => {
     if (!editorTemplate) return;
-
     setSavingDraft(true);
-
-    const { template, error } = await saveDocumentTemplateDraft(
-      editorTemplate.id,
-      { content, subjectKind: editorSubject },
-    );
-
+    const { template, error } = await saveDocumentTemplateDraft(editorTemplate.id, { content, subjectKind: editorSubject });
     setSavingDraft(false);
-
     if (error || !template) {
       showToast("error", error || "Errore nel salvataggio del modello");
       return;
     }
-
     setEditorTemplate(template);
-    setTemplates((current) =>
-      current.map((item) => (item.id === template.id ? template : item)),
-    );
-    showToast(
-      "success",
-      "Bozza salvata. I documenti gia prodotti non cambiano: per farla valere, pubblicala",
-    );
+    setTemplates((current) => current.map((item) => (item.id === template.id ? template : item)));
+    showToast("success", "Bozza salvata. I documenti già prodotti non cambiano: per farla valere, pubblicala");
   };
 
   /**
-   * Pubblicare non e salvare.
-   *
-   * Salvare corregge la bozza; pubblicare crea una **versione**, e i documenti
-   * prodotti da quel momento la citeranno per sempre. Quando non si puo, le
-   * `issues` dicono **quale** parola e sbagliata: «non si puo pubblicare» e
-   * basta manda una segreteria a chiamare l'assistenza.
+   * Pubblicare non e salvare: crea una **versione**, e i documenti prodotti
+   * da quel momento la citeranno per sempre. Quando non si puo, le `issues`
+   * dicono **quale** parola e sbagliata.
    */
   const handlePublish = async (templateId: string) => {
     setPublishing(true);
-
-    const { template, error, issues } = await publishDocumentTemplate(
-      templateId,
-    );
-
+    const { template, error, issues } = await publishDocumentTemplate(templateId);
     setPublishing(false);
-
     if (error || !template) {
-      if (issues.length) {
-        setPublishIssues(issues);
-      } else {
-        showToast("error", error || "Errore nella pubblicazione del modello");
-      }
+      if (issues.length) setPublishIssues(issues);
+      else showToast("error", error || "Errore nella pubblicazione del modello");
       return;
     }
-
-    setTemplates((current) =>
-      current.map((item) => (item.id === template.id ? template : item)),
-    );
-    if (editorTemplate?.id === template.id) {
-      setEditorTemplate(template);
-    }
+    setTemplates((current) => current.map((item) => (item.id === template.id ? template : item)));
+    if (editorTemplate?.id === template.id) setEditorTemplate(template);
     showToast("success", `Pubblicata la versione ${template.publishedVersion}`);
   };
 
-  /* ------------------------------------------------------- il ciclo di vita */
-
-  const handleCreateNew = () => {
-    setNewDocumentTitle("");
-    setNewDocumentDescription("");
-    setNewDocumentSubject("athlete");
-    setNewDocumentDialog(true);
-  };
-
-  const handleCreateNewConfirm = async () => {
-    if (!newDocumentTitle.trim()) {
-      showToast("error", "Inserisci il titolo del documento");
-      return;
-    }
-
+  /* ── Il ciclo di vita ───────────────────────────────────────────────── */
+  const handleCreateNewConfirm = async (values: NewTemplateValues) => {
     setCreating(true);
-
     const { template, error } = await createDocumentTemplate({
-      title: newDocumentTitle.trim(),
-      description: newDocumentDescription.trim(),
-      subjectKind: newDocumentSubject,
-      content: `<h1>${escapeHtmlText(newDocumentTitle.trim())}</h1><p>Inserisci il contenuto qui.</p>`,
+      title: values.title,
+      description: values.description,
+      subjectKind: values.subjectKind,
+      content: newTemplateContent(values.title),
     });
-
     setCreating(false);
-
     if (error || !template) {
       showToast("error", error || "Errore nella creazione del documento");
       return;
     }
-
     setTemplates((current) => [...current, template]);
     setEditorTemplate(template);
     setEditorSubject(template.subjectKind);
     setActiveView("editor");
     setNewDocumentDialog(false);
-    setNewDocumentTitle("");
-    setNewDocumentDescription("");
-    showToast("success", "Nuovo modello creato: e una bozza, finche non lo pubblichi");
+    showToast("success", "Nuovo modello creato: è una bozza, finché non lo pubblichi");
   };
 
   /**
    * Adottare una voce di catalogo: l'unico gesto che porta un modello di
-   * piattaforma dentro il club.
-   *
-   * **Cosa c'era prima, e perche non c'e piu.** C'era un pulsante «Aggiungi
-   * attestazione di pagamento» che si scriveva da se la copia con
-   * `createDocumentTemplate`: nasceva bozza, senza classe redazionale, senza
-   * chi risponde del testo, senza la data dell'ultima rilettura e senza
-   * l'audit del catalogo. Era la stessa adozione, impoverita — e per giunta
-   * l'unica raggiungibile, perche delle sei voci le altre cinque non avevano
-   * nessuna porta. Adesso il gesto e uno e lo fa il server, che di quelle
-   * quattro informazioni e il proprietario.
+   * piattaforma dentro il club. Lo fa il server, che di classe,
+   * proprietario, rilettura e audit e il proprietario.
    */
   const adoptEntry = async (entry: DocumentCatalogEntry) => {
     setAdoptingKey(entry.key);
-
     const { template, error } = await adoptCatalogEntry(entry.key);
-
     setAdoptingKey("");
-
     if (error || !template) {
       showToast("error", error || "Errore nell'adozione del modello");
       return;
     }
-
     setTemplates((current) => [...current, template]);
-    setCatalog((current) =>
-      current.map((voce) =>
-        voce.key === entry.key
-          ? { ...voce, adopted: true, adoptedTemplateId: template.id }
-          : voce,
-      ),
-    );
-    showToast(
-      "success",
-      `«${template.title}» adottato: e gia pubblicato, lo trovi fra i modelli del club`,
-    );
+    setCatalog((current) => current.map((voce) => (voce.key === entry.key ? { ...voce, adopted: true, adoptedTemplateId: template.id } : voce)));
+    showToast("success", `«${template.title}» adottato: è già pubblicato, lo trovi fra i modelli del club`);
   };
 
-  const handleChangeStatus = async (
-    template: DocumentTemplateSummary,
-    status: TemplateStatus,
-  ) => {
-    const { template: updated, error } = await saveDocumentTemplateDraft(
-      template.id,
-      { status },
-    );
-
+  const handleChangeStatus = async (template: DocumentTemplateSummary, status: TemplateStatus) => {
+    const { template: updated, error } = await saveDocumentTemplateDraft(template.id, { status });
     if (error || !updated) {
       showToast("error", error || "Errore nel cambio di stato del modello");
       return;
     }
-
-    setTemplates((current) =>
-      current.map((item) => (item.id === updated.id ? updated : item)),
-    );
-    showToast(
-      "success",
-      status === "retired"
-        ? "Modello ritirato: non produce documenti nuovi, e continua a spiegare quelli gia prodotti"
-        : "Modello riattivato",
-    );
+    setTemplates((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    showToast("success", status === "retired" ? "Modello ritirato: non produce documenti nuovi, e continua a spiegare quelli già prodotti" : "Modello riattivato");
   };
 
   /*
     Cancellare e ammesso solo per un modello che non ha prodotto niente. Il
-    server lo rifiuta comunque, con un messaggio scritto per chi lo legge: qui
-    si mostra quello, senza riscriverlo.
+    server lo rifiuta comunque, con un messaggio scritto per chi lo legge.
   */
   const handleDeleteTemplate = async (template: DocumentTemplateSummary) => {
+    setDeleting(true);
     const { ok, error } = await deleteDocumentTemplate(template.id);
-
+    setDeleting(false);
     setDeleteTarget(null);
-
     if (!ok) {
       showToast("error", error || "Errore nell'eliminazione del modello");
       return;
     }
-
-    setTemplates((current) =>
-      current.filter((item) => item.id !== template.id),
-    );
+    setTemplates((current) => current.filter((item) => item.id !== template.id));
     showToast("success", "Modello eliminato");
   };
 
-  /* -------------------------------------------------------- la generazione */
+  /* ── La generazione ─────────────────────────────────────────────────── */
+  const openGenerateDialog = (template: DocumentTemplateSummary) => setGenerateTarget(template);
 
-  const openGenerateDialog = (template: DocumentTemplateSummary) => {
-    setGenerateTarget(template);
-    setSelectedAthlete("");
-    setAthleteSearchTerm("");
+  /** Una pagina stampabile, aperta come il fascicolo: stampa chi guarda, quando vede che c'e tutto. */
+  const printDocumentPage = (input: { id: string; title: string; html: string }) => {
+    const aperto = openPrintableBundle(buildDocumentBundleHtml({ title: input.title, documents: [input], printLabel: "Stampa il documento" }));
+    if (!aperto) showToast("error", "Il browser ha bloccato la finestra di stampa");
   };
 
   /**
-   * Una pagina stampabile, aperta come il fascicolo.
-   *
-   * **Perche non stampa piu da sola dopo mezzo secondo.** Lo faceva, e
-   * `src/components/documents/document-bundle.ts` aveva gia spiegato perche
-   * non si fa: una finestra di stampa che parte prima che il documento sia
-   * impaginato mostra la cosa sbagliata, e con un logo o una firma da
-   * caricare mezzo secondo non basta. Il pulsante lo preme chi guarda, quando
-   * vede che c'e tutto — e il fascicolo lo scrive gia, con la sua barra.
-   */
-  const printDocumentPage = (input: {
-    id: string;
-    title: string;
-    html: string;
-  }) => {
-    const aperto = openPrintableBundle(
-      buildDocumentBundleHtml({
-        title: input.title,
-        documents: [input],
-        printLabel: "Stampa il documento",
-      }),
-    );
-
-    if (!aperto) {
-      showToast("error", "Il browser ha bloccato la finestra di stampa");
-    }
-  };
-
-  /**
-   * Il modulo vuoto: si stampa e si compila a penna.
-   *
-   * **Quale testo stampa, e perche.** Stampa la **bozza**, ed e corretto in
-   * due casi su tre: il server considera «modifiche non pubblicate» qualunque
-   * differenza fra bozza e versione pubblicata (`publishedMatchesDraft`),
-   * quindi quando `hasUnpublishedChanges` e falso la bozza **e** il testo
-   * pubblicato, parola per parola. Nel terzo caso — bozza corretta e non
-   * pubblicata — il testo del modulo cartaceo non e quello che i documenti
-   * generati citeranno, e il dialogo lo dice **prima** di stampare invece di
-   * lasciarlo scoprire alla famiglia.
-   *
-   * Non stampa la versione pubblicata perche nessuna rotta la restituisce: il
-   * dettaglio di un modello porta la bozza e i **dati** delle versioni, non il
-   * loro contenuto. Farsela dare vorrebbe dire cambiare il contratto dell'API,
-   * che e una decisione a se e non un dettaglio di questa schermata.
+   * Il modulo vuoto: si stampa e si compila a penna. Stampa la **bozza**
+   * (nessuna rotta restituisce il contenuto pubblicato), e il cassetto lo
+   * dice prima quando bozza e versione pubblicata non coincidono.
    */
   const generateBlankPdf = async () => {
     if (!generateTarget) return;
-
-    /*
-      La finestra si apre **prima** della lettura: aperta dopo un `await`, il
-      browser non la collega piu al clic e la blocca come una pubblicita.
-    */
+    /* La finestra si apre **prima** della lettura: aperta dopo un `await`, il browser la blocca. */
     const finestra = openBundleWindow();
     if (!finestra) {
       showToast("error", "Il browser ha bloccato la finestra di stampa");
       return;
     }
-
     const { template, error } = await getDocumentTemplate(generateTarget.id);
     if (error || !template) {
       finestra.close();
       showToast("error", error || "Modello non trovato");
       return;
     }
-
     renderBundleInto(
       finestra,
       buildDocumentBundleHtml({
@@ -862,52 +396,31 @@ function ModulisticaPage() {
           {
             id: template.id,
             title: template.title,
-            html: renderBlankFormHtml({
-              title: template.title,
-              bodyHtml: renderBlankTemplateForPdf(template.draftContent),
-            }),
+            html: renderBlankFormHtml({ title: template.title, bodyHtml: renderBlankTemplateForPdf(template.draftContent) }),
           },
         ],
       }),
     );
-
     setGenerateTarget(null);
   };
 
-  /**
-   * L'anteprima del compilato: la costruisce il server, qui si guarda.
-   *
-   * Il risolutore vive in `src/lib/server/document-placeholders.ts` perche
-   * legge il registro incassi e le presenze: farlo qui vorrebbe dire spedire
-   * al browser l'intero storico economico di un atleta per stampare una riga,
-   * e riscrivere nel client la formula della cassa (ADR-0068). L'anteprima
-   * **non scrive niente**: e la differenza con la produzione qui sotto.
-   */
-  const previewFilled = async () => {
+  /** L'anteprima del compilato: la costruisce il server, qui si guarda. Non scrive niente. */
+  const previewFilled = async (athleteId: string) => {
     if (!generateTarget) return;
-    if (!selectedAthlete || selectedAthlete === "no-athletes") {
+    if (!athleteId) {
       showToast("error", "Seleziona prima un atleta");
       return;
     }
-
     setGeneratingFilled(true);
-
-    const { preview, error } = await previewFilledDocument({
-      templateId: generateTarget.id,
-      athleteId: selectedAthlete,
-      seasonId: activeSeasonId,
-    });
-
+    const { preview, error } = await previewFilledDocument({ templateId: generateTarget.id, athleteId, seasonId: activeSeasonId });
     setGeneratingFilled(false);
-
     if (error || !preview) {
       showToast("error", error || "Errore nella generazione del documento");
       return;
     }
-
     setFilledPreview({
       templateId: generateTarget.id,
-      athleteId: selectedAthlete,
+      athleteId,
       title: preview.title,
       html: preview.html,
       unresolved: Array.isArray(preview.unresolved) ? preview.unresolved : [],
@@ -917,110 +430,63 @@ function ModulisticaPage() {
     setGenerateTarget(null);
   };
 
-  /**
-   * Produrre il documento: questo scrive una riga.
-   *
-   * Da qui in poi il documento esiste, cita la versione con cui e stato
-   * prodotto e conserva la propria resa. E il gesto che l'anteprima non fa, ed
-   * e per questo che sono due pulsanti e non uno.
-   */
+  /** Produrre il documento: questo scrive una riga, che cita la versione con cui e stata prodotta. */
   const produceDocument = async () => {
     if (!filledPreview) return;
-
     setProducing(true);
-
     const { outcome, error } = await generateDocuments({
       templateId: filledPreview.templateId,
       subjects: [{ kind: "athlete", id: filledPreview.athleteId }],
       seasonId: activeSeasonId,
     });
-
     setProducing(false);
-
     if (error || !outcome) {
       showToast("error", error || "Errore nella produzione del documento");
       return;
     }
-
     const failure = outcome.failed[0];
     if (failure) {
       showToast("error", failure.reason);
       return;
     }
-
     setFilledPreview(null);
-    setActiveTab("generated");
-
+    selectTab("generated");
     const { documents } = await listGeneratedDocuments({ limit: 100 });
     setGeneratedDocuments(documents);
-
     showToast("success", "Documento prodotto: lo trovi in «Documenti generati»");
   };
 
-  /* --------------------------------------------- la generazione massiva */
-
+  /* ── La generazione massiva ─────────────────────────────────────────── */
   /**
-   * Un lotto nuovo, ma non sopra uno lasciato a meta.
-   *
-   * **Il difetto che questo rifiuto chiude.** Il lotto in sospeso vive sotto
-   * **una** chiave di `sessionStorage`: chi aveva un lotto da cento fermo a
-   * cinquanta e, invece di premere «Riprendi», ne apriva un altro su un altro
-   * modello, si vedeva sovrascrivere lo stato alla prima fetta. I cinquanta
-   * mancanti sparivano, il banner non tornava piu, e nessuno diceva niente.
-   *
-   * Fra una chiave per lotto e un rifiuto, il rifiuto e piu onesto: un lotto a
-   * meta e un lavoro non finito, e va ripreso o scartato — due gesti che il
-   * banner offre gia — prima di cominciarne un altro. Lo stato si rilegge qui
-   * dallo storage e non dalla memoria della pagina, perche fra il montaggio e
-   * questo clic il lotto puo essere finito in un'altra scheda.
+   * Un lotto nuovo, ma non sopra uno lasciato a meta: il lotto in sospeso
+   * vive sotto **una** chiave di `sessionStorage`, e sovrascriverlo in
+   * silenzio faceva sparire i mancanti. Lo stato si rilegge dallo storage e
+   * non dalla memoria della pagina, perche fra il montaggio e questo clic il
+   * lotto puo essere finito in un'altra scheda.
    */
   const openBulkDialog = (template: DocumentTemplateSummary) => {
     const sospeso = readStoredBatch();
-
-    /*
-      Un lotto che ha servito tutti non e «a meta»: e finito, e chi ha chiuso
-      la finestra senza dirlo non deve trovarsi sbarrata la strada. Si butta
-      qui, non prima, perche fino a questo momento il fascicolo poteva ancora
-      servire.
-    */
     if (sospeso && !pendingSubjects(sospeso).length) {
       clearStoredBatch();
       setInterruptedBatch(null);
     } else if (sospeso) {
       setInterruptedBatch(sospeso);
-      showToast(
-        "error",
-        `Un lotto di «${sospeso.templateTitle}» e rimasto a meta: riprendilo o scartalo prima di cominciarne un altro`,
-      );
+      showToast("error", `Un lotto di «${sospeso.templateTitle}» è rimasto a metà: riprendilo o scartalo prima di cominciarne un altro`);
       return;
     }
-
     setBulkResume(null);
     setBulkTarget(template);
   };
 
   const resumeBulkBatch = () => {
     if (!interruptedBatch) return;
-
-    const template = templates.find(
-      (item) => item.id === interruptedBatch.templateId,
-    );
-
-    /*
-      Il modello e stato cancellato o ritirato mentre il lotto era in sospeso:
-      quel lotto non puo piu andare avanti, e tenerlo li vorrebbe dire
-      riproporre per sempre un pulsante che non fa niente.
-    */
+    const template = templates.find((item) => item.id === interruptedBatch.templateId);
     if (!template) {
       clearStoredBatch();
       setInterruptedBatch(null);
-      showToast(
-        "error",
-        "Il modello di quel lotto non c'e piu: il lotto e stato scartato",
-      );
+      showToast("error", "Il modello di quel lotto non c'è più: il lotto è stato scartato");
       return;
     }
-
     setBulkResume(interruptedBatch);
     setBulkTarget(template);
   };
@@ -1036,773 +502,152 @@ function ModulisticaPage() {
     setInterruptedBatch(readStoredBatch());
   };
 
-  /*
-    A lotto finito si rileggono modelli e documenti, non tutta la pagina:
-    `loadAll` rimette `loading` a vero, e la schermata di caricamento
-    smonterebbe il dialogo con l'esito ancora aperto.
-  */
+  /* A lotto finito si rileggono modelli e documenti, non tutta la pagina. */
   const refreshAfterBulk = async () => {
-    const [templatesResult, generatedResult] = await Promise.all([
-      listDocumentTemplates({ includeRetired: true }),
-      listGeneratedDocuments({ limit: 100 }),
-    ]);
-
+    const [templatesResult, generatedResult] = await Promise.all([listDocumentTemplates({ includeRetired: true }), listGeneratedDocuments({ limit: 100 })]);
     setTemplates(templatesResult.templates);
     setGeneratedDocuments(generatedResult.documents);
   };
 
-  /*
-    **Lo stato di caricamento di una sezione non smonta le altre** (W6-43).
-
-    Qui stava `if (loading) return <AppLoadingScreen …/>`, **prima** dei Tabs.
-    `loadAll` rimette `loading` a vero a ogni ri-risoluzione del club, quindi
-    ogni volta l'intera pagina spariva e `FormsDashboard` con lei: elenco,
-    coda e filtro ripartivano da zero, e finche una chiamata documentale
-    restava pendente la scheda «Moduli online» non era raggiungibile affatto.
-    E il sintomo che il cliente descrive come «i moduli online non vengono
-    sempre caricati».
-
-    Il caricamento adesso vive **dentro** le schede che lo aspettano, e sotto
-    ognuna c'e il suo `documentsLoading`.
-  */
   const documentsLoading = loading;
+  const documentsGridState = documentsLoading ? "loading" : loadError ? "error" : "ready";
 
-  /*
-    Senza club attivo non c'e niente da dire sui permessi: e un'altra cosa, e
-    dirla come un diniego manderebbe a chiamare l'assistenza chi doveva solo
-    scegliere una societa.
-  */
+  /* ── Senza club, o senza permesso ───────────────────────────────────── */
   if (!clubId || !canOpenPage) {
     return (
-      <DashboardPageContainer>
-        <SharedPageHeader
-          title="Modulistica"
-          subtitle="Gestisci documenti, moduli e file condivisi del club."
+      <PageShell>
+        <PageHeader eyebrow="Segreteria" title="Modulistica" description={PAGE_DESCRIPTION} />
+        <EmptyStateCard
+          icon={<Lock />}
+          iconTone="neutral"
+          title={clubId ? "Non hai accesso alla modulistica" : "Nessun club attivo"}
+          description={clubId ? "I modelli di documento e i moduli online li vede chi lavora nella segreteria del club." : "Nessun club attivo: scegline uno dal menu in alto."}
         />
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-slate-500">
-            {clubId
-              ? "I modelli di documento e i moduli online li vede chi lavora nella segreteria del club."
-              : "Nessun club attivo: scegline uno dal menu in alto."}
-          </CardContent>
-        </Card>
-      </DashboardPageContainer>
+      </PageShell>
     );
   }
 
-  const renderTemplateCard = (template: DocumentTemplateSummary) => (
-    <Card key={template.id} className="h-fit">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <CardTitle className="break-words">{template.title}</CardTitle>
-            <CardDescription className="break-words">
-              {template.description ||
-                `Parla di: ${SUBJECT_LABELS[template.subjectKind].toLowerCase()}`}
-            </CardDescription>
-          </div>
-          {canManage ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                {/*
-                  Il nome del pulsante non e decorativo: e l'**unica** via a
-                  Modifica, Pubblica, Ritira ed Elimina, ed e ripetuto per ogni
-                  scheda. Senza etichetta, chi naviga per elementi attivi
-                  trovava venti pulsanti identici e senza nome.
-                */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`Azioni su ${template.title}`}
-                >
-                  <MoreVertical className="h-4 w-4" aria-hidden />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => void openEditor(template)}>
-                  <Edit className="mr-2 h-4 w-4" aria-hidden />
-                  Modifica
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => void handlePublish(template.id)}
-                >
-                  <Upload className="mr-2 h-4 w-4" aria-hidden />
-                  Pubblica
-                </DropdownMenuItem>
-                {/*
-                  Si offre solo cio che lo stato ammette: le transizioni sono
-                  `draft → active`, `active → retired|draft`, `retired →
-                  active` (`canTransitionTemplate`). «Ritira» su una bozza
-                  faceva rispondere 400 al server, cioe prometteva un gesto che
-                  non esiste. Su una bozza non compare nessuna delle due: si
-                  pubblica, e da li si ritira.
-                */}
-                {template.status === "retired" ? (
-                  <DropdownMenuItem
-                    onClick={() => void handleChangeStatus(template, "active")}
-                  >
-                    <RotateCcw className="mr-2 h-4 w-4" aria-hidden />
-                    Riattiva
-                  </DropdownMenuItem>
-                ) : template.status === "active" ? (
-                  <DropdownMenuItem
-                    onClick={() => void handleChangeStatus(template, "retired")}
-                  >
-                    <RotateCcw className="mr-2 h-4 w-4" aria-hidden />
-                    Ritira
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuItem
-                  onClick={() => setDeleteTarget(template)}
-                  className="text-red-600"
-                >
-                  <Trash2 className="mr-2 h-4 w-4" aria-hidden />
-                  Elimina
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
-        <TemplateStateLine template={template} />
-      </CardHeader>
-      <CardContent>
-        <div className="flex flex-col gap-2">
-          {/*
-            L'etichetta dice cosa succedera davvero: da una bozza o da un
-            modello ritirato il compilato non esce — il server risponde 400 —
-            e da qui si stampa solo il modulo da riempire a penna. Prometterlo
-            e poi negarlo e peggio che non prometterlo.
-          */}
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => openGenerateDialog(template)}
-          >
-            <Download className="mr-2 h-4 w-4" aria-hidden />
-            {canProduceFilled(template)
-              ? "Genera documento"
-              : "Stampa il modulo vuoto"}
-          </Button>
-          {/*
-            Il lotto parte solo da un modello **pubblicato** che parla di un
-            atleta: su una bozza il server rifiuterebbe cinquanta volte, e su un
-            altro soggetto produrrebbe cinquanta fogli con i campi bianchi.
-          */}
-          {template.status === "active" && template.subjectKind === "athlete" ? (
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => openBulkDialog(template)}
-            >
-              <Users className="mr-2 h-4 w-4" aria-hidden /> Genera per piu atleti
-            </Button>
-          ) : null}
-          {canManage ? (
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => void openEditor(template)}
-            >
-              <Edit className="mr-2 h-4 w-4" aria-hidden /> Modifica il testo
-            </Button>
-          ) : null}
-        </div>
-      </CardContent>
-    </Card>
-  );
+  const tabOptions = MODULISTICA_TABS.filter((tab) => availableTabs.includes(tab)).map((tab) => ({ value: tab, label: MODULISTICA_TAB_LABELS[tab] }));
 
   return (
-    <DashboardPageContainer>
-      <SharedPageHeader
-        title="Modulistica"
-        subtitle="Gestisci documenti, moduli e file condivisi del club."
-        actions={
-          activeView === "list" && currentTab === "documents" && canManage ? (
-            /*
-              Un'azione sola: «Aggiungi attestazione di pagamento» non e piu
-              qui, perche l'attestazione e la prima voce del catalogo e si
-              adotta dalla sua scheda insieme alle altre cinque.
-            */
-            <Button onClick={handleCreateNew}>
-              <Plus className="mr-2 h-4 w-4" /> Nuovo Documento
-            </Button>
-          ) : activeView === "list" ? null : (
-            <Button variant="outline" onClick={handleBackToList}>
-              Torna alla lista
-            </Button>
-          )
-        }
-      />
-
-      {activeView === "list" ? (
-        <Tabs
-          value={currentTab}
-          onValueChange={(value) => setActiveTab(value as PageTab)}
-          className="space-y-5"
-        >
-          {/*
-            `w-full` perche `flex-wrap` possa servire a qualcosa: la barra e
-            `inline-flex`, quindi si dimensiona sul contenuto e non manda mai
-            a capo. A 375 px «Archivio» finiva quarantanove pixel oltre il
-            bordo e veniva tagliata via.
-          */}
-          {/*
-            Ogni scheda compare solo se il **suo** dominio e aperto: le quattro
-            documentali con `documents.templates.read`, «Moduli online» con la
-            risorsa `forms`. Una scheda che si vede e poi risponde «Accesso
-            negato» e un difetto quanto una porta aperta — e una scheda che non
-            si vede benche il permesso ci sia lo e altrettanto (W6-42).
-          */}
-          <TabsList className="h-auto w-full flex-wrap justify-start">
-            {canRead ? (
-              <TabsTrigger value="documents">Documenti / Template</TabsTrigger>
-            ) : null}
+    <PageShell>
+      {activeView === "editor" && editorTemplate ? (
+        <TemplateEditorView
+          template={editorTemplate}
+          subject={editorSubject}
+          onSubjectChange={setEditorSubject}
+          canManage={canManage}
+          onSave={(content) => void handleSaveDraft(content)}
+          onPublish={() => void handlePublish(editorTemplate.id)}
+          onBack={handleBackToList}
+          savingDraft={savingDraft}
+          publishing={publishing}
+        />
+      ) : (
+        <>
+          <PageHeader
+            eyebrow="Segreteria"
+            title="Modulistica"
+            description={PAGE_DESCRIPTION}
+            actions={
+              currentTab === "documents" && canManage ? (
+                <Button variant="primary" icon={<Plus />} onClick={() => setNewDocumentDialog(true)}>
+                  Nuovo documento
+                </Button>
+              ) : null
+            }
+          >
             {/*
-              La scheda la vede solo chi puo adottare: la pagina e aperta anche
-              a collaboratori e staff, e una vetrina con sei pulsanti che
-              rispondono «Accesso negato» e un difetto quanto una porta aperta.
+              Ogni scheda compare solo se il **suo** dominio e aperto (W6-42).
+              La barra scorre nel proprio contenitore invece di allargare la
+              pagina, cosi «Documenti generati» resta raggiungibile da un
+              telefono.
             */}
-            {canManage ? (
-              <TabsTrigger value="catalog">Catalogo</TabsTrigger>
-            ) : null}
-            {canReadForms ? (
-              <TabsTrigger value="online-forms">Moduli online</TabsTrigger>
-            ) : null}
-            {canRead ? (
-              <TabsTrigger value="retired">Ritirati</TabsTrigger>
-            ) : null}
-            {canRead ? (
-              <TabsTrigger value="generated">Documenti generati</TabsTrigger>
-            ) : null}
-          </TabsList>
+            <SegmentedControl<ModulisticaTab> aria-label="Sezioni della modulistica" value={currentTab} onChange={selectTab} options={tabOptions} className="max-w-full overflow-x-auto" />
+          </PageHeader>
 
-          <TabsContent value="documents" className="space-y-4">
-            {/*
-              Il lotto interrotto si propone qui, non dentro il dialogo: chi ha
-              ricaricato la pagina non sa piu da quale modello era partito, e
-              cercarlo a memoria fra venti schede e il modo per rigenerare tutto
-              da capo.
-            */}
-            {interruptedBatch && !bulkTarget ? (
-              <Card className="border-amber-200 bg-amber-50">
-                <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0 text-sm text-amber-900">
-                    <p className="font-medium">
-                      Un lotto di «{interruptedBatch.templateTitle}» e rimasto a
-                      meta
-                    </p>
-                    <p className="break-words">
-                      {interruptedBatch.servedSubjectIds.length} di{" "}
-                      {interruptedBatch.subjects.length} serviti. Riprendendolo
-                      si generano solo i mancanti: i documenti gia prodotti non
-                      si duplicano.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" onClick={resumeBulkBatch}>
-                      Riprendi
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={discardBulkBatch}
-                    >
-                      Scarta
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : null}
-
-            {documentsLoading ? (
-              <div className="flex min-h-[280px] items-center justify-center">
-                <AppLoadingScreen subtitle="Caricamento documenti del club..." />
-              </div>
-            ) : listedTemplates.length > 0 ? (
-              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {listedTemplates.map(renderTemplateCard)}
-              </div>
-            ) : (
-              <Card className="border-dashed">
-                <CardContent className="flex min-h-[280px] flex-col items-center justify-center text-center">
-                  <FileText className="mb-4 h-12 w-12 text-slate-400" />
-                  <h2 className="text-xl font-semibold text-slate-900">
-                    Nessun modello salvato
-                  </h2>
-                  <p className="mt-2 max-w-xl text-sm text-slate-500">
-                    Crea un nuovo documento e modificalo direttamente nel foglio
-                    visuale, senza scrivere HTML.
-                  </p>
-                  {canManage ? (
-                    <Button className="mt-5" onClick={handleCreateNew}>
-                      <Plus className="mr-2 h-4 w-4" /> Nuovo Documento
-                    </Button>
-                  ) : null}
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
-          {/*
-            Il catalogo dei modelli di EasyGame.
-
-            Di ogni voce si vedono le tre cose che ADR-0092 esiste per non
-            tacere: di che **classe** e, **chi risponde** del testo, **quando**
-            e stato riletto l'ultima volta. Un modello che esce con il timbro
-            del presidente e scritto da noi, e un club ha diritto di sapere da
-            quanto tempo nessuno lo rilegge prima di firmarlo.
-          */}
-          {canManage ? (
-            <TabsContent value="catalog" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Catalogo dei modelli</CardTitle>
-                  <CardDescription>
-                    Modelli scritti da EasyGame che il club puo adottare.
-                    Adottarne uno ne crea una <strong>copia del club</strong>,
-                    gia pubblicata: da quel momento si modifica liberamente e il
-                    catalogo non la tocca piu.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {documentsLoading ? (
-                    <p className="text-sm text-slate-500">
-                      Caricamento del catalogo...
-                    </p>
-                  ) : catalog.length > 0 ? (
-                    <div className="space-y-3">
-                      {catalog.map((entry) => (
-                        <div
-                          key={entry.key}
-                          className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-start sm:justify-between"
-                        >
-                          <div className="min-w-0 space-y-1">
-                            <p className="break-words font-semibold text-slate-900">
-                              {entry.title}
-                            </p>
-                            <p className="break-words text-sm text-slate-600">
-                              {entry.description}
-                            </p>
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                              <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 font-medium text-slate-700">
-                                Parla di:{" "}
-                                {SUBJECT_LABELS[entry.subjectKind].toLowerCase()}
-                              </span>
-                              <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-medium text-blue-700">
-                                {CATALOG_CLASS_LABELS[entry.catalogClass] ||
-                                  `Classe ${entry.catalogClass}`}
-                              </span>
-                            </div>
-                            <p className="break-words text-xs text-slate-500">
-                              Del testo risponde {entry.editorialOwner} —
-                              riletto il {formatDate(entry.lastReviewedAt)}
-                            </p>
-                          </div>
-                          <div className="shrink-0">
-                            {entry.adopted ? (
-                              <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
-                                Gia fra i modelli del club
-                              </span>
-                            ) : (
-                              <Button
-                                size="sm"
-                                onClick={() => void adoptEntry(entry)}
-                                disabled={Boolean(adoptingKey)}
-                              >
-                                <Plus className="mr-2 h-4 w-4" />
-                                {adoptingKey === entry.key
-                                  ? "Adozione..."
-                                  : "Adotta"}
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-slate-500">
-                      Nessun modello disponibile nel catalogo.
-                    </p>
-                  )}
-
-                  {catalog.length > 0 && adoptableCatalog.length === 0 ? (
-                    <p className="mt-4 text-sm text-slate-500">
-                      Il club ha gia adottato tutto quello che il catalogo
-                      distribuisce.
-                    </p>
-                  ) : null}
-                </CardContent>
-              </Card>
-            </TabsContent>
-          ) : null}
-
-          {/*
-            Non dipende da `loading`: si carica da sola, e non deve essere
-            smontata da cio che stanno facendo le schede documentali (W6-43).
-          */}
-          {canReadForms ? (
-            <TabsContent value="online-forms">
-              <FormsDashboard />
-            </TabsContent>
-          ) : null}
-
-          <TabsContent value="retired" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Modelli ritirati</CardTitle>
-                <CardDescription>
-                  Un modello ritirato non produce documenti nuovi, e continua a
-                  spiegare quelli che ha gia prodotto. Per questo si ritira
-                  invece di cancellarlo.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {documentsLoading ? (
-                  <p className="text-sm text-slate-500">Caricamento...</p>
-                ) : retiredTemplates.length > 0 ? (
-                  <div className="space-y-3">
-                    {retiredTemplates.map((template) => (
-                      <div
-                        key={template.id}
-                        className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="min-w-0">
-                          <p className="break-words font-semibold text-slate-900">
-                            {template.title}
-                          </p>
-                          <TemplateStateLine template={template} />
-                        </div>
-                        {canManage ? (
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                void handleChangeStatus(template, "active")
-                              }
-                            >
-                              <RotateCcw className="mr-2 h-4 w-4" aria-hidden />
-                              Riattiva
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-red-600 hover:text-red-700"
-                              onClick={() => setDeleteTarget(template)}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" aria-hidden />
-                              Elimina
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-500">
-                    Nessun modello ritirato.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="generated" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Documenti generati</CardTitle>
-                <CardDescription>
-                  Cio che il club ha prodotto. Aprirne uno lo mostra
-                  <strong> com&apos;era</strong>: non viene rigenerato, perche
-                  modificare un modello non cambia un documento gia consegnato.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {documentsLoading ? (
-                  <p className="text-sm text-slate-500">Caricamento...</p>
-                ) : generatedDocuments.length > 0 ? (
-                  /*
-                    Una `<table>` non si restringe: senza contenitore
-                    scrollabile allargherebbe il documento e a 375 px
-                    scorrerebbe tutta la pagina.
-                  */
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[640px] text-left text-sm">
-                      <thead>
-                        <tr className="border-b text-xs uppercase text-slate-500">
-                          <th className="px-2 py-2">Modello</th>
-                          <th className="px-2 py-2">Versione</th>
-                          <th className="px-2 py-2">Soggetto</th>
-                          <th className="px-2 py-2">Data</th>
-                          <th className="px-2 py-2">Stato</th>
-                          <th className="px-2 py-2" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {generatedDocuments.map((document) => (
-                          <tr key={document.id} className="border-b last:border-0">
-                            <td className="px-2 py-2 font-medium text-slate-900">
-                              {document.templateTitle}
-                            </td>
-                            <td className="px-2 py-2 text-slate-600">
-                              v{document.version}
-                            </td>
-                            <td className="px-2 py-2 text-slate-600">
-                              {document.subjectLabel || document.subjectKind}
-                            </td>
-                            <td className="px-2 py-2 text-slate-600">
-                              {formatDate(document.generatedAt)}
-                            </td>
-                            <td className="px-2 py-2 text-slate-600">
-                              {GENERATED_STATUS_LABELS[document.status] ||
-                                document.status}
-                            </td>
-                            <td className="px-2 py-2 text-right">
-                              <a
-                                className="text-sm font-medium text-blue-700 hover:underline"
-                                href={`/api/v1/documents/generated/${document.id}?format=html`}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                Apri
-                              </a>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-500">
-                    Nessun documento generato: parti da un modello pubblicato e
-                    usa «Genera compilato».
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      ) : editorTemplate ? (
-        <div>
-          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0">
-              <h2 className="break-words text-2xl font-semibold">
-                {editorTemplate.title}
-              </h2>
-              <p className="break-words text-muted-foreground">
-                {editorTemplate.description}
-              </p>
-              <TemplateStateLine template={editorTemplate} />
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <div className="w-full sm:w-56">
-                <Label htmlFor="editor-subject" className="text-xs text-slate-500">
-                  Di chi parla
-                </Label>
-                <Select
-                  value={editorSubject}
-                  onValueChange={(value) =>
-                    setEditorSubject(value as TemplateSubject)
+          {/* ── Modelli di documento ─────────────────────────────────── */}
+          {canRead ? (
+            <div className={cn("flex-col gap-[18px]", currentTab === "documents" ? "flex" : "hidden")}>
+              {/*
+                Il lotto interrotto si propone qui, non dentro il dialogo: chi
+                ha ricaricato la pagina non sa piu da quale modello era partito.
+              */}
+              {interruptedBatch && !bulkTarget ? (
+                <AlertBlock
+                  severity="warning"
+                  title={`Un lotto di «${interruptedBatch.templateTitle}» è rimasto a metà`}
+                  actions={
+                    <>
+                      <Button variant="neutral" size="sm" onClick={resumeBulkBatch}>
+                        Riprendi
+                      </Button>
+                      <Button variant="secondary" size="sm" onClick={discardBulkBatch}>
+                        Scarta
+                      </Button>
+                    </>
                   }
                 >
-                  <SelectTrigger id="editor-subject">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(SUBJECT_LABELS).map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                className="w-full sm:w-auto"
-                onClick={() => void handlePublish(editorTemplate.id)}
-                disabled={publishing || savingDraft}
-              >
-                <Upload className="mr-2 h-4 w-4" aria-hidden />
-                {publishing ? "Pubblicazione..." : "Pubblica"}
-              </Button>
-            </div>
-          </div>
+                  <span className="egw-num">{interruptedBatch.servedSubjectIds.length}</span> di <span className="egw-num">{interruptedBatch.subjects.length}</span> serviti. Riprendendolo si
+                  generano solo i mancanti: i documenti già prodotti non si duplicano.
+                </AlertBlock>
+              ) : null}
 
-          <p className="mb-4 text-sm text-muted-foreground">
-            <strong>Salva</strong> scrive la bozza e non cambia nessun documento
-            gia prodotto. <strong>Pubblica</strong> crea una versione, e i
-            documenti generati da quel momento la citeranno per sempre: pubblica
-            dopo aver salvato.
-          </p>
-
-          {editorTemplate.versions.length > 0 ? (
-            <Card className="mb-4">
-              <CardHeader>
-                <CardTitle className="text-base">Versioni pubblicate</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-1 text-sm text-slate-600">
-                  {editorTemplate.versions.map((version) => (
-                    <li key={version.id}>
-                      <span className="font-medium text-slate-900">
-                        Versione {version.version}
-                      </span>{" "}
-                      — {formatDate(version.publishedAt)} — {version.title}
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          ) : null}
-
-          <DocumentEditor
-            initialContent={editorTemplate.draftContent}
-            onSave={handleSaveDraft}
-            onCancel={handleBackToList}
-            readOnly={!canManage}
-            subject={editorSubject}
-          />
-        </div>
-      ) : null}
-
-      {/* Genera: le due strade, modulo vuoto o documento compilato */}
-      <Dialog
-        open={Boolean(generateTarget)}
-        onOpenChange={(open) => {
-          if (!open) setGenerateTarget(null);
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Genera documento</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <p className="font-medium">{generateTarget?.title}</p>
-            <p className="text-sm text-muted-foreground">
-              <strong>Genera vuoto</strong> stampa il modulo da compilare a
-              mano. <strong>Genera compilato</strong> scrive dentro i dati
-              dell&apos;atleta, del club e della cassa: serve un atleta, e serve
-              un modello pubblicato.
-            </p>
-
-            {generateTarget && generateTarget.subjectKind !== "athlete" ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                Questo modello parla di{" "}
-                {SUBJECT_LABELS[generateTarget.subjectKind].toLowerCase()}: da
-                qui si stampa vuoto. Il compilato parte da un atleta.
-              </p>
-            ) : null}
-
-            {/*
-              Cosa stampera il modulo vuoto, detto prima di stamparlo. Quando
-              il modello e pubblicato e senza modifiche in sospeso non c'e
-              niente da dire: bozza e versione pubblicata sono lo stesso testo.
-            */}
-            {generateTarget?.status === "retired" ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                Questo modello e ritirato: non produce documenti nuovi, e
-                continua a spiegare quelli gia prodotti. Da qui esce solo il
-                modulo vuoto; per generare di nuovo, riattivalo.
-              </p>
-            ) : generateTarget && generateTarget.publishedVersion === 0 ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                Questo modello non e mai stato pubblicato:{" "}
-                <strong>Genera vuoto</strong> stampa la bozza, e il compilato
-                non si puo ancora produrre.
-              </p>
-            ) : generateTarget?.hasUnpublishedChanges ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                Questo modello ha modifiche non pubblicate:{" "}
-                <strong>Genera vuoto</strong> stampa la <strong>bozza</strong>,
-                mentre i documenti compilati continuano a citare la versione{" "}
-                {generateTarget.publishedVersion}. Pubblica prima, se il foglio
-                di carta deve dire la stessa cosa.
-              </p>
-            ) : null}
-
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-muted-foreground" />
-              <Input
-                placeholder="Cerca per nome o cognome..."
-                value={athleteSearchTerm}
-                onChange={(event) => setAthleteSearchTerm(event.target.value)}
-                className="pl-10"
+              <TemplatesGrid
+                templates={templates}
+                state={documentsGridState}
+                errorMessage={loadError}
+                onRetry={() => void loadAll()}
+                canManage={canManage}
+                handlers={{
+                  onGenerate: openGenerateDialog,
+                  onBulk: openBulkDialog,
+                  onEdit: (template) => void openEditor(template),
+                  onPublish: (template) => void handlePublish(template.id),
+                  onChangeStatus: (template, status) => void handleChangeStatus(template, status),
+                  onDelete: setDeleteTarget,
+                  onCreate: () => setNewDocumentDialog(true),
+                }}
               />
             </div>
+          ) : null}
 
-            <Select value={selectedAthlete} onValueChange={setSelectedAthlete}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleziona un atleta (solo per il compilato)" />
-              </SelectTrigger>
-              <SelectContent>
-                {filteredAthletes.length === 0 ? (
-                  <SelectItem value="no-athletes" disabled>
-                    {athleteSearchTerm
-                      ? "Nessun atleta trovato"
-                      : "Nessun atleta disponibile"}
-                  </SelectItem>
-                ) : (
-                  filteredAthletes.map((athlete) => (
-                    <SelectItem key={athlete.id} value={athlete.id}>
-                      {athlete.first_name} {athlete.last_name}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          {/*
-            In colonna sotto i 640 px: tre azioni affiancate a 375 px si
-            tagliano a vicenda.
-          */}
-          <DialogFooter className="flex-col gap-2 sm:flex-row">
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => setGenerateTarget(null)}
-            >
-              Annulla
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => void generateBlankPdf()}
-            >
-              Genera vuoto
-            </Button>
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => void previewFilled()}
-              /*
-                Le stesse condizioni con cui il server accetta di produrre: un
-                atleta scelto, un modello che parla di atleti, e una versione
-                pubblicata da citare su un modello non ritirato. Il compilato
-                si vedeva offerto anche su una bozza, e finiva in un 400 dopo
-                aver fatto scegliere l'atleta.
-              */
-              disabled={
-                generatingFilled ||
-                !selectedAthlete ||
-                selectedAthlete === "no-athletes" ||
-                generateTarget?.subjectKind !== "athlete" ||
-                !canProduceFilled(generateTarget)
-              }
-              title={
-                generateTarget && !canProduceFilled(generateTarget)
-                  ? "Serve un modello pubblicato e non ritirato"
-                  : undefined
-              }
-            >
-              {generatingFilled ? "Generazione..." : "Genera compilato"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {/* ── Catalogo: la vede solo chi puo adottare ──────────────── */}
+          {canManage ? (
+            <div className={cn("flex-col gap-[18px]", currentTab === "catalog" ? "flex" : "hidden")}>
+              <CatalogGrid entries={catalog} state={documentsLoading ? "loading" : "ready"} onRetry={() => void loadAll()} adoptingKey={adoptingKey} onAdopt={(entry) => void adoptEntry(entry)} />
+            </div>
+          ) : null}
 
-      {/*
-        Il lotto: montato solo quando serve, cosi che ogni lotto parta da uno
-        stato pulito senza che il dialogo debba azzerarsi da solo.
-      */}
+          {/* ── Moduli online: si carica da sola (W6-43) ─────────────── */}
+          {canReadForms ? (
+            <div className={cn("flex-col gap-[18px]", currentTab === "online-forms" ? "flex" : "hidden")}>
+              <OnlineFormsSection />
+            </div>
+          ) : null}
+
+          {/* ── Documenti generati ───────────────────────────────────── */}
+          {canRead ? (
+            <div className={cn("flex-col gap-[18px]", currentTab === "generated" ? "flex" : "hidden")}>
+              <GeneratedGrid documents={generatedDocuments} state={documentsGridState} errorMessage={loadError} onRetry={() => void loadAll()} />
+            </div>
+          ) : null}
+        </>
+      )}
+
+      <NewTemplateDrawer open={newDocumentDialog} onOpenChange={setNewDocumentDialog} onCreate={handleCreateNewConfirm} creating={creating} />
+
+      <GenerateDocumentDrawer
+        open={Boolean(generateTarget)}
+        onOpenChange={(open) => !open && !generatingFilled && setGenerateTarget(null)}
+        template={generateTarget}
+        athletes={athletes}
+        onBlank={() => void generateBlankPdf()}
+        onFilled={previewFilled}
+        generatingFilled={generatingFilled}
+      />
+
+      {/* Il lotto: montato solo quando serve, cosi che ogni lotto parta da uno stato pulito. */}
       {bulkTarget ? (
         <BulkGenerationDialog
           key={`${bulkTarget.id}-${bulkResume?.batchId || "nuovo"}`}
@@ -1815,289 +660,32 @@ function ModulisticaPage() {
         />
       ) : null}
 
-      {/* L'anteprima: cosa c'e dentro, e cosa non ci e entrato */}
-      <Dialog
+      <FilledPreviewDrawer
         open={Boolean(filledPreview)}
-        onOpenChange={(open) => {
-          if (!open) setFilledPreview(null);
-        }}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{filledPreview?.title || "Documento"}</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[60vh] space-y-4 overflow-y-auto py-2 text-sm">
-            {filledPreview?.warnings.length ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
-                <ul className="list-disc space-y-1 pl-4">
-                  {filledPreview.warnings.map((warning) => (
-                    <li key={warning}>{warning}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
+        onOpenChange={(open) => !open && !producing && setFilledPreview(null)}
+        preview={filledPreview}
+        onPrint={() => (filledPreview ? printDocumentPage({ id: filledPreview.templateId, title: filledPreview.title, html: filledPreview.html }) : undefined)}
+        onProduce={produceDocument}
+        producing={producing}
+      />
 
-            {filledPreview?.missing.length ? (
-              <div>
-                <p className="font-medium text-slate-900">
-                  Dati mancanti: restano campi da riempire a mano
-                </p>
-                <p className="mt-1 break-words text-muted-foreground">
-                  {filledPreview.missing.map(describePlaceholderKey).join(", ")}
-                </p>
-              </div>
-            ) : null}
+      <PublishIssuesDialog issues={publishIssues} onClose={() => setPublishIssues(null)} />
 
-            {filledPreview?.unresolved.length ? (
-              <div>
-                <p className="font-medium text-slate-900">
-                  Segnaposto non riconosciuti: restano vuoti
-                </p>
-                <p className="mt-1 break-words text-muted-foreground">
-                  {filledPreview.unresolved.join(", ")}
-                </p>
-              </div>
-            ) : null}
-
-            {!filledPreview?.warnings.length &&
-            !filledPreview?.missing.length &&
-            !filledPreview?.unresolved.length ? (
-              <p className="text-muted-foreground">
-                Tutti i segnaposto del modello sono stati compilati.
-              </p>
-            ) : null}
-
-            {filledPreview ? (
-              <iframe
-                title="Anteprima del documento"
-                srcDoc={filledPreview.html}
-                sandbox=""
-                className="h-64 w-full rounded-md border border-slate-200 bg-white"
-              />
-            ) : null}
-          </div>
-          <DialogFooter className="flex-col gap-2 sm:flex-row">
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => setFilledPreview(null)}
-            >
-              Annulla
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() =>
-                filledPreview
-                  ? printDocumentPage({
-                      id: filledPreview.templateId,
-                      title: filledPreview.title,
-                      html: filledPreview.html,
-                    })
-                  : undefined
-              }
-            >
-              Stampa l&apos;anteprima
-            </Button>
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => void produceDocument()}
-              disabled={producing}
-            >
-              {producing ? "Produzione..." : "Produci il documento"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Perche non si puo pubblicare: chiave per chiave */}
-      <Dialog
-        open={Boolean(publishIssues)}
-        onOpenChange={(open) => {
-          if (!open) setPublishIssues(null);
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Questo modello non si puo pubblicare</DialogTitle>
-          </DialogHeader>
-          <div className="max-h-[50vh] space-y-3 overflow-y-auto py-2 text-sm">
-            <p className="text-muted-foreground">
-              Correggi il testo del modello e riprova. Ogni riga dice la parola
-              che lo impedisce.
-            </p>
-            <ul className="space-y-2">
-              {(publishIssues || []).map((issue, index) => (
-                <li
-                  key={`${issue.field}-${issue.key || index}`}
-                  className="rounded-md border border-red-200 bg-red-50 p-3 text-red-900"
-                >
-                  {issue.key ? (
-                    <p className="font-mono text-xs font-semibold">
-                      {issue.key}
-                    </p>
-                  ) : null}
-                  <p className="break-words">{issue.message}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setPublishIssues(null)}>Ho capito</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Nuovo modello */}
-      <Dialog open={newDocumentDialog} onOpenChange={setNewDocumentDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Nuovo Documento</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="title">Titolo</Label>
-              <Input
-                id="title"
-                value={newDocumentTitle}
-                onChange={(event) => setNewDocumentTitle(event.target.value)}
-                placeholder="Inserisci il titolo del documento"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="description">Descrizione</Label>
-              <Input
-                id="description"
-                value={newDocumentDescription}
-                onChange={(event) =>
-                  setNewDocumentDescription(event.target.value)
-                }
-                placeholder="Inserisci una breve descrizione"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="subject">Di chi parla</Label>
-              <Select
-                value={newDocumentSubject}
-                onValueChange={(value) =>
-                  setNewDocumentSubject(value as TemplateSubject)
-                }
-              >
-                <SelectTrigger id="subject">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(SUBJECT_LABELS).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">{SUBJECT_HINT}</p>
-            </div>
-          </div>
-          <DialogFooter className="flex-col gap-2 sm:flex-row">
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => setNewDocumentDialog(false)}
-            >
-              Annulla
-            </Button>
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => void handleCreateNewConfirm()}
-              disabled={creating || !newDocumentTitle.trim()}
-            >
-              {creating ? "Creazione..." : "Crea"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Cancellare un modello */}
-      <Dialog
-        open={Boolean(deleteTarget)}
-        onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Eliminare «{deleteTarget?.title}»?</DialogTitle>
-          </DialogHeader>
-          <div className="py-2 text-sm text-muted-foreground">
-            {deleteTarget && deleteTarget.generatedCount > 0 ? (
-              <p>
-                Questo modello ha gia prodotto {deleteTarget.generatedCount}{" "}
-                {deleteTarget.generatedCount === 1 ? "documento" : "documenti"}:
-                si ritira, non si cancella, o quei documenti non saprebbero piu
-                spiegarsi.
-              </p>
-            ) : (
-              <p>
-                Il modello non ha prodotto nessun documento: si puo eliminare.
-                L&apos;operazione non si annulla.
-              </p>
-            )}
-          </div>
-          <DialogFooter className="flex-col gap-2 sm:flex-row">
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => setDeleteTarget(null)}
-            >
-              Annulla
-            </Button>
-            <Button
-              className="w-full bg-red-600 hover:bg-red-700 sm:w-auto"
-              onClick={() =>
-                deleteTarget ? void handleDeleteTemplate(deleteTarget) : undefined
-              }
-              disabled={Boolean(deleteTarget && deleteTarget.generatedCount > 0)}
-            >
-              Elimina
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </DashboardPageContainer>
+      <DeleteTemplateDialog template={deleteTarget} onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)} onConfirm={handleDeleteTemplate} loading={deleting} />
+    </PageShell>
   );
 }
 
-/**
- * Il guscio di questa pagina e lo stesso di tutte le altre.
- *
- * **Cosa c'era prima, e cosa faceva.** Modulistica era l'unica pagina che
- * montava `LayoutWithMobileNav`, una seconda generazione di guscio che
- * accostava `MobileNavigation` — una navigazione **in flusso normale** — al
- * contenuto. Su un telefono quella colonna prendeva 229 pixel su 375: la
- * pagina lavorava in 146, la targhetta della stagione finiva fuori schermo, e
- * comparivano un secondo marchio EasyGame e un secondo menu accanto al primo.
- *
- * Era l'errore tipico numero 1 di CLAUDE.md — una seconda implementazione di
- * qualcosa che esiste gia — e si vedeva solo aprendo la pagina a 375 px.
- */
 export default function ModulisticaPageWithLayout() {
   return (
-    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-      <div className="hidden lg:block">
-        <Sidebar />
-      </div>
-
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="hidden lg:block">
-          <Header title="Modulistica" />
-        </div>
-        <div className="lg:hidden">
-          <MobileTopBar />
-        </div>
-
-        <main className={dashboardMainClassName}>
-          <ModulisticaPage />
-        </main>
-      </div>
-    </div>
+    <React.Suspense
+      fallback={
+        <PageShell>
+          <PageHeader eyebrow="Segreteria" title="Modulistica" description={PAGE_DESCRIPTION} />
+        </PageShell>
+      }
+    >
+      <ModulisticaPage />
+    </React.Suspense>
   );
 }

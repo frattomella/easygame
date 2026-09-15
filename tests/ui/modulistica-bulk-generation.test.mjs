@@ -62,7 +62,10 @@ const readCode = (...segments) =>
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "");
 
+/* Dal Web V2 (Wave E) l'azione «Genera per piu atleti» vive nella griglia dei modelli. */
 const PAGE = readCode("app", "modulistica", "page.tsx");
+const GRID = readCode("components", "modulistica", "v2", "templates-grid.tsx");
+const MODEL = readCode("components", "modulistica", "v2", "modulistica-model.ts");
 const DIALOG = readCode("components", "documents", "BulkGenerationDialog.tsx");
 const BUNDLE_RAW = readRaw("components", "documents", "document-bundle.ts");
 const ROUTE_RAW = readRaw(
@@ -907,9 +910,10 @@ test("il lotto passa dal client documentale e conserva lo stato fra i ricaricame
     "la pagina deve accorgersi del lotto lasciato a meta, o nessuno lo riprendera",
   );
   assert.match(PAGE, /<BulkGenerationDialog/);
-  assert.match(PAGE, /Genera per piu atleti/);
+  assert.match(GRID, /Genera per pi[uù] atleti/);
+  assert.match(GRID, /hidden: \(row\) => !canGenerateInBulk\(row\)/);
   assert.match(
-    PAGE,
+    MODEL,
     /template\.status === "active" && template\.subjectKind === "athlete"/,
     "su una bozza il server rifiuterebbe cinquanta volte, su un altro soggetto produrrebbe cinquanta fogli bianchi",
   );

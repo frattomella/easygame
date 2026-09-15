@@ -1,50 +1,22 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import * as React from "react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { CalendarClock, CalendarDays, Check, ChevronRight, Pencil, Plus, StickyNote, Trash2, UserX, X } from "lucide-react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
-import {
-  DashboardPageContainer,
-  dashboardMainClassName,
-} from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar } from "@/components/ui/calendar";
-import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/components/ui/toast-notification";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
 import { useAuth } from "@/components/providers/AuthProvider";
-import {
-  getClubData,
-  addClubData,
-  deleteClubDataItem,
-  getClubStaff,
-  updateClubDataArray,
-  getClubAthletes,
-  getClubTrainers,
-} from "@/lib/simplified-db";
-import {
-  getReminderTargetSummary,
-  type ReminderTargetType,
-} from "@/lib/reminder-targeting";
-import {
-  Clock,
-  CalendarDays,
-  FileText,
-  Plus,
-  Trash2,
-  Edit,
-  Check,
-  Eye,
-  ChevronLeft,
-  ChevronRight,
-  ChevronDown,
-} from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
-import { formatLocalDateOnly, todayLocalDateOnly } from "@/lib/date-only";
+import { useToast } from "@/components/ui/toast-notification";
+import { HeaderStat, PageHeader } from "@/components/web/page/PageHeader";
+import { Button } from "@/components/web/primitives/Button";
+import { SegmentedControl } from "@/components/web/primitives/Controls";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { RowActionDef } from "@/components/web/datagrid/types";
+import { useConfirm } from "@/components/web/overlays/useConfirm";
+import { formatInteger } from "@/lib/web/format";
+import { getClubData, addClubData, deleteClubDataItem, getClubStaff, updateClubDataArray, getClubAthletes, getClubTrainers } from "@/lib/simplified-db";
 import {
   cancelClubAppointment,
   closeClubAppointment,
@@ -55,690 +27,417 @@ import {
   rescheduleClubAppointment,
   type ClubAppointment,
 } from "@/lib/api/appointments-client";
-import Link from "next/link";
+import { AgendaRail } from "@/components/secretariat/v2/agenda-rail";
+import { AppointmentInspector, type AppointmentDecision } from "@/components/secretariat/v2/appointment-inspector";
+import { NewAppointmentDrawer, type NewAppointmentValues } from "@/components/secretariat/v2/new-appointment-drawer";
+import { NoteDrawer, type NoteFormValues } from "@/components/secretariat/v2/note-drawer";
+import { OpeningHoursPanel } from "@/components/secretariat/v2/opening-hours-panel";
+import { APPOINTMENT_VIEWS, NOTE_VIEWS, appointmentColumns, appointmentFilters, appointmentSearch, noteColumns, noteFilters, noteSearch } from "@/components/secretariat/v2/secretariat-grids";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  SECRETARIAT_AREAS,
+  appointmentDay,
+  buildSecretariatPeople,
+  countOpenDays,
+  emptyOpeningHours,
+  intestazioniClub,
+  isAppointmentOnDay,
+  isInWeekOf,
+  isLiveAppointment,
+  isSameDay,
+  isSecretariatArea,
+  normalizeNote,
+  normalizeOpeningHours,
+  reminderTargetOptions,
+  type AgendaScope,
+  type OpeningHours,
+  type SecretariatArea,
+  type SecretariatNote,
+  type SecretariatPeople,
+} from "@/components/secretariat/v2/secretariat-model";
 
-const parseTimeRange = (timeRange?: string) => {
-  const [start = "", end = ""] = String(timeRange || "")
-    .trim()
-    .split("-", 2);
-
-  return {
-    start,
-    end,
-  };
-};
-
-const buildTimeRange = (start?: string, end?: string) => {
-  if (!start && !end) {
-    return "";
-  }
-
-  return `${start || ""}-${end || ""}`;
-};
-
-const buildAppointmentSlots = (timeRange: string) => {
-  const match = String(timeRange || "")
-    .trim()
-    .match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/);
-
-  if (!match) {
-    return [];
-  }
-
-  const [, startHour, startMin, endHour, endMin] = match;
-  const startTime = parseInt(startHour, 10) * 60 + parseInt(startMin, 10);
-  const endTime = parseInt(endHour, 10) * 60 + parseInt(endMin, 10);
-  const slots: string[] = [];
-
-  for (let time = startTime; time < endTime; time += 30) {
-    const hours = Math.floor(time / 60);
-    const minutes = time % 60;
-    slots.push(
-      `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`,
-    );
-  }
-
-  return slots;
-};
-
-type ReminderTargetOption = {
-  id: string;
-  label: string;
-};
-
-/** Il club su cui si sta lavorando viaggia nell'intestazione, come ovunque. */
-const intestazioniClub = (
-  organizationId?: string | null,
-): Record<string, string> =>
-  organizationId ? { "x-active-club-id": String(organizationId) } : {};
+/**
+ * `/secretariat` — la Segreteria (Web V2). Tre aree al posto delle tre schede
+ * della V1, scelte da un controllo segmentato sotto l'intestazione e
+ * rispecchiate in `?area=`: **Appuntamenti** (la coda, pattern 10: griglia +
+ * rail della settimana), **Note e promemoria** (griglia + cassetto),
+ * **Orari di apertura** (pannello con salvataggio unico).
+ *
+ * Gli appuntamenti arrivano dal dominio, non da `clubs.appointments`: con la
+ * riga arrivano lo stato vero, la versione per il controllo ottimistico e le
+ * mosse ammesse (`actions`, W6-51), che decide il dominio e non questa
+ * schermata. Ogni scrittura e quella della V1: gli stessi sette verbi del
+ * trasporto, `x-active-club-id` nell'intestazione, la `version` nella
+ * decisione. Le note e gli orari restano in `clubs.secretariat_notes` e
+ * `clubs.opening_hours` via `simplified-db`, letti anche dalla bacheca
+ * dell'allenatore e dalla Dashboard.
+ *
+ * Nessun predicato client sui permessi, come la V1: i quattro ruoli di
+ * gestione che passano la guardia hanno tutte le chiavi (`appointments.read`,
+ * `appointments.manage`, `appointments.request` = GESTIONE), e per un ruolo
+ * personalizzato il browser ha solo lo slug — risponde la rotta.
+ */
+const NO_CLUB = "Nessun club attivo trovato. Ricarica la pagina.";
 
 export default function SecretariatPage() {
   const { showToast } = useToast();
   const { user, activeClub } = useAuth();
-  const [date, setDate] = useState<Date | undefined>(undefined);
-  const [appointmentDate, setAppointmentDate] = useState<Date | undefined>(
-    undefined,
-  );
+  const router = useRouter();
+  const pathname = usePathname() || "/secretariat";
+  const rawSearchParams = useSearchParams();
+  const searchParams = React.useMemo(() => rawSearchParams ?? new URLSearchParams(), [rawSearchParams]);
+  const [confirm, confirmDialog] = useConfirm();
 
-  // Initialize dates on client side to avoid hydration mismatch
-  useEffect(() => {
-    if (!date) setDate(new Date());
-    if (!appointmentDate) setAppointmentDate(new Date());
-  }, []);
-  /*
-    **Gli appuntamenti arrivano dal dominio, non da `clubs.appointments`.**
-
-    La lane 5E aveva promosso l'appuntamento a tabella con un solo scrittore, e
-    questa pagina era rimasta sulla colonna JSON: da quel momento la richiesta
-    di una famiglia finiva in una riga che **nessuna schermata del club
-    leggeva**. Non e un difetto di visualizzazione — e la funzione che sparisce:
-    una famiglia chiedeva un colloquio e in segreteria non compariva niente.
-
-    Con la riga arrivano tre cose che la colonna non aveva: lo **stato** vero
-    (una richiesta in attesa si distingue da un appuntamento confermato), la
-    **versione** per il controllo ottimistico, e le **transizioni permesse**,
-    che le decide il dominio e non questa schermata.
-  */
-  const [appointments, setAppointments] = useState<ClubAppointment[]>([]);
-  const [decisione, setDecisione] = useState("");
-  const [decidendo, setDecidendo] = useState(false);
-  /*
-    W6-52. Lo spostamento e la chiusura erano le due risposte che la segreteria
-    non poteva dare: `rescheduleClubAppointment` esisteva nel trasporto ed era
-    importata **solo** dalla dashboard dell'allenatore, e per «concluso» e
-    «assente» il trasporto non aveva nemmeno la funzione, benche la rotta le
-    accettasse da sempre. Il risultato era una coda che si poteva solo
-    confermare, rifiutare o annullare: un colloquio avvenuto restava
-    «Confermato» per sempre, e spostarlo voleva dire annullarlo e ricrearlo,
-    perdendo il legame fra le due righe.
-  */
-  const [nuovaData, setNuovaData] = useState("");
-  const [nuovaOra, setNuovaOra] = useState("");
-  const [notes, setNotes] = useState<
-    Array<{
-      id: string;
-      content: string;
-      date: Date;
-      expiryDate?: Date;
-      notificationEnabled?: boolean;
-      isAllDay?: boolean;
-      notificationTime?: string;
-      targetType?: ReminderTargetType;
-      targetId?: string;
-      targetLabel?: string;
-    }>
-  >([]);
-  const [openingHours, setOpeningHours] = useState({
-    monday: {
-      morning: "",
-      afternoon: "",
-      morningStaff: "",
-      afternoonStaff: "",
-    },
-    tuesday: {
-      morning: "",
-      afternoon: "",
-      morningStaff: "",
-      afternoonStaff: "",
-    },
-    wednesday: {
-      morning: "",
-      afternoon: "",
-      morningStaff: "",
-      afternoonStaff: "",
-    },
-    thursday: {
-      morning: "",
-      afternoon: "",
-      morningStaff: "",
-      afternoonStaff: "",
-    },
-    friday: {
-      morning: "",
-      afternoon: "",
-      morningStaff: "",
-      afternoonStaff: "",
-    },
-    saturday: {
-      morning: "",
-      afternoon: "",
-      morningStaff: "",
-      afternoonStaff: "",
-    },
-    sunday: {
-      morning: "",
-      afternoon: "",
-      morningStaff: "",
-      afternoonStaff: "",
-    },
+  /* ── L'area attiva e l'indirizzo ───────────────────────────────────────── */
+  const [area, setArea] = React.useState<SecretariatArea>(() => {
+    const requested = searchParams.get("area");
+    return isSecretariatArea(requested) ? requested : "appuntamenti";
   });
-  const [staffMembers, setStaffMembers] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
-  const [trainerOptions, setTrainerOptions] = useState<ReminderTargetOption[]>(
-    [],
-  );
-  const [memberOptions, setMemberOptions] = useState<ReminderTargetOption[]>(
-    [],
-  );
-  const [athleteOptions, setAthleteOptions] = useState<
-    Array<{ id: string; label: string }>
-  >([]);
-  const [personOptions, setPersonOptions] = useState<
-    Array<{ id: string; label: string; athleteLabel?: string }>
-  >([]);
-  const [loading, setLoading] = useState(true);
 
-  // Load data from database
-  useEffect(() => {
-    const loadData = async () => {
-      if (!activeClub?.id) {
-        setLoading(false);
-        return;
-      }
+  const selectArea = React.useCallback(
+    (next: SecretariatArea) => {
+      setArea(next);
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "appuntamenti") params.delete("area");
+      else params.set("area", next);
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
 
+  React.useEffect(() => {
+    const requested = searchParams.get("area");
+    if (isSecretariatArea(requested) && requested !== area) setArea(requested);
+    // L'indirizzo guida l'area; `area` cambia per il clic e non deve rieseguire l'effetto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  /* ── Dati ──────────────────────────────────────────────────────────────── */
+  const [appointments, setAppointments] = React.useState<ClubAppointment[]>([]);
+  const [notes, setNotes] = React.useState<SecretariatNote[]>([]);
+  const [openingHours, setOpeningHours] = React.useState<OpeningHours>(emptyOpeningHours);
+  const [savedOpeningHours, setSavedOpeningHours] = React.useState<OpeningHours>(emptyOpeningHours);
+  const [people, setPeople] = React.useState<SecretariatPeople>({ staff: [], trainers: [], members: [], athletes: [], nominativi: [] });
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!user || !activeClub?.id) {
+      setLoading(false);
+      return;
+    }
+    const clubId = activeClub.id;
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
       try {
-        setLoading(true);
-
-        // Load all secretariat data
-        const [
-          appointmentsData,
-          notesData,
-          openingHoursData,
-          staffData,
-          athletesData,
-          trainersData,
-          membersData,
-        ] = await Promise.all([
-          listClubAppointments(intestazioniClub(activeClub.id)),
-          getClubData(activeClub.id, "secretariat_notes"),
-          getClubData(activeClub.id, "opening_hours"),
-          getClubStaff(activeClub.id),
-          getClubAthletes(activeClub.id),
-          getClubTrainers(activeClub.id),
-          getClubData(activeClub.id, "members"),
+        const [appointmentsData, notesData, openingHoursData, staffData, athletesData, trainersData, membersData] = await Promise.all([
+          listClubAppointments(intestazioniClub(clubId)),
+          getClubData(clubId, "secretariat_notes"),
+          getClubData(clubId, "opening_hours"),
+          getClubStaff(clubId),
+          getClubAthletes(clubId),
+          getClubTrainers(clubId),
+          getClubData(clubId, "members"),
         ]);
-
-
+        if (cancelled) return;
         /*
           Nessuna conversione: la proiezione del dominio porta gia `date` e
-          `time` nel fuso del club (`toClubAppointment`). Convertirle qui con
-          `new Date` le riporterebbe nel fuso del browser, che e il modo in cui
-          un appuntamento delle 09:00 diventa delle 08:00 per chi guarda da
-          un'altra nazione.
+          `time` nel fuso del club. Convertirle con `new Date` le riporterebbe
+          nel fuso del browser.
         */
-        const processedAppointments = (appointmentsData ||
-          []) as ClubAppointment[];
-
-        // Convert date strings back to Date objects for notes
-        const processedNotes = (notesData || []).map((note) => ({
-          ...note,
-          date: new Date(note.date),
-          expiryDate: note.expiryDate ? new Date(note.expiryDate) : undefined,
-          notificationEnabled: note.notificationEnabled || false,
-          isAllDay: note.isAllDay !== false,
-          notificationTime: note.notificationTime || "",
-          targetType: (note.targetType || note.target_type || "club_dashboard") as ReminderTargetType,
-          targetId: String(
-            note.targetId ||
-              note.target_id ||
-              note.trainerId ||
-              note.staffMemberId ||
-              note.memberId ||
-              "",
-          ).trim(),
-          targetLabel: String(
-            note.targetLabel ||
-              note.target_label ||
-              note.trainerName ||
-              note.staffMemberName ||
-              note.memberName ||
-              "",
-          ).trim(),
-        }));
-
-        setAppointments(processedAppointments);
-        setNotes(processedNotes);
-
-        // Process staff data to ensure it has the right format
-        const processedStaff = Array.isArray(staffData)
-          ? staffData.map((staff: any) => {
-              const processedStaffMember = {
-                id: staff.id || `staff-${Date.now()}-${Math.random()}`,
-                name: staff.name || "Nome non disponibile",
-              };
-              return processedStaffMember;
-            })
-          : [];
-        setStaffMembers(processedStaff);
-
-        const normalizedAthletes = Array.isArray(athletesData)
-          ? athletesData
-              .map((athlete: any) => {
-                const firstName = String(athlete?.first_name || "").trim();
-                const lastName = String(athlete?.last_name || "").trim();
-                const label = [firstName, lastName].filter(Boolean).join(" ").trim();
-
-                if (!athlete?.id || !label) {
-                  return null;
-                }
-
-                return {
-                  id: String(athlete.id),
-                  label,
-                  guardians: Array.isArray(athlete?.data?.guardians)
-                    ? athlete.data.guardians
-                    : [],
-                };
-              })
-              .filter(Boolean)
-          : [];
-
-        const trainerPeople = Array.isArray(trainersData)
-          ? trainersData
-              .map((trainer: any) => {
-                const label = String(
-                  trainer?.name ||
-                    [trainer?.firstName, trainer?.lastName]
-                      .filter(Boolean)
-                      .join(" ") ||
-                    "",
-                ).trim();
-
-                if (!trainer?.id || !label) {
-                  return null;
-                }
-
-                return {
-                  id: `trainer-${trainer.id}`,
-                  label,
-                };
-              })
-              .filter(Boolean)
-          : [];
-
-        const processedTrainerOptions = Array.isArray(trainersData)
-          ? trainersData
-              .map((trainer: any) => {
-                const label = String(
-                  trainer?.name ||
-                    [trainer?.firstName, trainer?.lastName]
-                      .filter(Boolean)
-                      .join(" ") ||
-                    "",
-                ).trim();
-
-                if (!trainer?.id || !label) {
-                  return null;
-                }
-
-                return {
-                  id: String(trainer.id),
-                  label,
-                };
-              })
-              .filter(Boolean)
-          : [];
-
-        const processedMemberOptions = Array.isArray(membersData)
-          ? membersData
-              .map((member: any) => {
-                const label = String(
-                  member?.fullName ||
-                    member?.name ||
-                    [member?.firstName, member?.lastName]
-                      .filter(Boolean)
-                      .join(" ") ||
-                    "",
-                ).trim();
-
-                if (!member?.id || !label) {
-                  return null;
-                }
-
-                return {
-                  id: String(member.id),
-                  label,
-                };
-              })
-              .filter(Boolean)
-          : [];
-
-        const guardianPeople = normalizedAthletes.flatMap((athlete: any) =>
-          (athlete.guardians || [])
-            .map((guardian: any, index: number) => {
-              const label = [
-                String(guardian?.name || "").trim(),
-                String(guardian?.surname || "").trim(),
-              ]
-                .filter(Boolean)
-                .join(" ")
-                .trim();
-
-              if (!label) {
-                return null;
-              }
-
-              return {
-                id: `guardian-${athlete.id}-${guardian.id || index}`,
-                label,
-                athleteLabel: athlete.label,
-              };
-            })
-            .filter(Boolean),
-        );
-
-        const athletePeople = normalizedAthletes.map((athlete: any) => ({
-          id: `athlete-${athlete.id}`,
-          label: athlete.label,
-          athleteLabel: athlete.label,
-        }));
-
-        const staffPeople = processedStaff.map((staff) => ({
-          id: `staff-${staff.id}`,
-          label: staff.name,
-        }));
-
-        const uniquePeople = [
-          ...athletePeople,
-          ...guardianPeople,
-          ...staffPeople,
-          ...trainerPeople,
-        ].filter(
-          (person, index, array) =>
-            person &&
-            array.findIndex(
-              (entry) =>
-                String(entry?.label || "").toLowerCase() ===
-                String(person?.label || "").toLowerCase(),
-            ) === index,
-        );
-
-        setAthleteOptions(
-          normalizedAthletes.map((athlete: any) => ({
-            id: athlete.id,
-            label: athlete.label,
-          })),
-        );
-        setTrainerOptions(processedTrainerOptions as ReminderTargetOption[]);
-        setMemberOptions(processedMemberOptions as ReminderTargetOption[]);
-        setPersonOptions(uniquePeople as Array<{
-          id: string;
-          label: string;
-          athleteLabel?: string;
-        }>);
-
-        // Set opening hours if they exist
-        if (openingHoursData && openingHoursData.length > 0) {
-          setOpeningHours(openingHoursData[0]);
-        }
-
+        setAppointments((appointmentsData || []) as ClubAppointment[]);
+        setNotes((notesData || []).map((note: Record<string, any>) => normalizeNote(note)));
+        const hours = openingHoursData && openingHoursData.length > 0 ? normalizeOpeningHours(openingHoursData[0]) : emptyOpeningHours();
+        setOpeningHours(hours);
+        setSavedOpeningHours(hours);
+        setPeople(buildSecretariatPeople({ staff: staffData, athletes: athletesData, trainers: trainersData, members: membersData }));
+        setLoadError(null);
       } catch (error) {
-        console.error(
-          "[SecretariatPage] Error loading secretariat data:",
-          error,
-        );
+        if (cancelled) return;
+        console.error("[SecretariatPage] Error loading secretariat data:", error);
+        setLoadError(error instanceof Error && error.message ? error.message : "Errore nel caricamento dei dati della segreteria");
         showToast("error", "Errore nel caricamento dei dati della segreteria");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
-
-    if (user && activeClub) {
-      loadData();
-    } else {
-      setLoading(false);
-    }
-  }, [user, activeClub, showToast]);
-
-  const [newAppointment, setNewAppointment] = useState({
-    title: "",
-    time: "",
-    description: "",
-    person: "",
-    athlete: "",
-  });
-
-  const [newNote, setNewNote] = useState("");
-  const [newNoteExpiryDate, setNewNoteExpiryDate] = useState<Date | undefined>(
-    undefined,
-  );
-  const [newNoteNotificationEnabled, setNewNoteNotificationEnabled] =
-    useState(false);
-  const [newNoteIsAllDay, setNewNoteIsAllDay] = useState(true);
-  const [newNoteTime, setNewNoteTime] = useState("");
-  const [newNoteTargetType, setNewNoteTargetType] =
-    useState<ReminderTargetType>("club_dashboard");
-  const [newNoteTargetId, setNewNoteTargetId] = useState("");
-  const [editingNote, setEditingNote] = useState<string | null>(null);
-  const [editedNoteContent, setEditedNoteContent] = useState("");
-  const [editedNoteExpiryDate, setEditedNoteExpiryDate] = useState<
-    Date | undefined
-  >(undefined);
-  const [editedNoteNotificationEnabled, setEditedNoteNotificationEnabled] =
-    useState(false);
-  const [editedNoteIsAllDay, setEditedNoteIsAllDay] = useState(true);
-  const [editedNoteTime, setEditedNoteTime] = useState("");
-  const [editedNoteTargetType, setEditedNoteTargetType] =
-    useState<ReminderTargetType>("club_dashboard");
-  const [editedNoteTargetId, setEditedNoteTargetId] = useState("");
-
-  const [isViewAppointmentOpen, setIsViewAppointmentOpen] = useState(false);
-  const [selectedAppointment, setSelectedAppointment] = useState<any | null>(
-    null,
-  );
-
-  const getReminderTargetOptions = (targetType: ReminderTargetType) => {
-    switch (targetType) {
-      case "trainer":
-        return trainerOptions;
-      case "staff_member":
-        return staffMembers.map((staff) => ({
-          id: staff.id,
-          label: staff.name,
-        }));
-      case "member":
-        return memberOptions;
-      default:
-        return [];
-    }
-  };
-
-  const buildReminderTargetData = (
-    targetType: ReminderTargetType,
-    targetId: string,
-  ) => {
-    if (targetType === "club_dashboard" || targetType === "all_trainers") {
-      return {
-        targetType,
-        targetId: "",
-        targetLabel: "",
-      };
-    }
-
-    const selectedOption = getReminderTargetOptions(targetType).find(
-      (option) => option.id === targetId,
-    );
-
-    return {
-      targetType,
-      targetId,
-      targetLabel: selectedOption?.label || "",
+    void load();
+    return () => {
+      cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, activeClub?.id, reloadKey]);
+
+  const reload = () => setReloadKey((k) => k + 1);
+
+  /* ── Agenda: giorno, settimana, ambito ─────────────────────────────────── */
+  const [selectedDate, setSelectedDate] = React.useState<Date>(() => new Date());
+  const [scope, setScope] = React.useState<AgendaScope>("week");
+
+  const agendaRows = React.useMemo(() => {
+    if (scope === "all") return appointments;
+    return appointments.filter((appointment) => {
+      const day = appointmentDay(appointment);
+      if (!day) return false;
+      return scope === "day" ? isSameDay(day, selectedDate) : isInWeekOf(day, selectedDate);
+    });
+  }, [appointments, scope, selectedDate]);
+
+  const countOnDay = React.useCallback((date: Date) => appointments.filter((appointment) => isLiveAppointment(appointment) && isAppointmentOnDay(appointment, date)).length, [appointments]);
+
+  /* ── Cassetti e ispettore ──────────────────────────────────────────────── */
+  const [newAppointmentOpen, setNewAppointmentOpen] = React.useState(false);
+  const [inspecting, setInspecting] = React.useState<ClubAppointment | null>(null);
+  const [inspectorOpen, setInspectorOpen] = React.useState(false);
+  const [noteDrawer, setNoteDrawer] = React.useState<{ open: boolean; note: SecretariatNote | null }>({ open: false, note: null });
+  const [decidendo, setDecidendo] = React.useState(false);
+  const [requestedAppointmentView, setRequestedAppointmentView] = React.useState<string | null>(null);
+
+  const openInspector = (appointment: ClubAppointment) => {
+    setInspecting(appointment);
+    setInspectorOpen(true);
   };
 
-  const handleOpeningHoursChange = (
-    day: string,
-    field: string,
-    value: string,
-  ) => {
-    setOpeningHours((prev) => ({
-      ...prev,
-      [day]: {
-        ...prev[day as keyof typeof prev],
-        [field]: value,
-      },
-    }));
-  };
+  /* `?action=new` apre il modulo di creazione dell'area corrente (azioni rapide). */
+  React.useEffect(() => {
+    if (searchParams.get("action") !== "new") return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("action");
+    const requested = params.get("area");
+    const target: SecretariatArea = isSecretariatArea(requested) ? requested : "appuntamenti";
+    if (target === "note") setNoteDrawer({ open: true, note: null });
+    else if (target === "appuntamenti") setNewAppointmentOpen(true);
+    const query = params.toString();
+    const frame = window.requestAnimationFrame(() => {
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pathname, router, searchParams]);
 
-  const handleAppointmentChange = (
-    e: React.ChangeEvent<
-      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >,
-  ) => {
-    const { name, value } = e.target;
-    if (name === "person") {
-      const matchedPerson = personOptions.find(
-        (person) => person.label.toLowerCase() === value.trim().toLowerCase(),
-      );
-
-      setNewAppointment((prev) => ({
-        ...prev,
-        person: value,
-        athlete:
-          matchedPerson?.athleteLabel && !prev.athlete
-            ? matchedPerson.athleteLabel
-            : prev.athlete,
-      }));
-      return;
-    }
-
-    setNewAppointment((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-  };
-
-  const addAppointment = async () => {
-
+  /* ── Scritture: appuntamenti (gli stessi verbi della V1) ───────────────── */
+  const addAppointment = async (values: NewAppointmentValues) => {
     if (!activeClub?.id) {
-      showToast("error", "Nessun club attivo trovato. Ricarica la pagina.");
-      return;
+      showToast("error", NO_CLUB);
+      return false;
     }
-
-    if (
-      !appointmentDate ||
-      !newAppointment.title.trim() ||
-      !newAppointment.time.trim() ||
-      !newAppointment.person.trim()
-    ) {
-      showToast(
-        "error",
-        "Inserisci data, titolo, orario e nominativo per l'appuntamento",
-      );
-      return;
-    }
-
     try {
       /*
         `outsideAvailability` e il colloquio preso al telefono: la
         disponibilita configurata vale per chi prenota da casa, non per chi sta
-        parlando con la segretaria. Non e un modo di aggirare il controllo — e
-        il modo di dichiarare che lo si sta scavalcando **con il permesso di
-        farlo** (`appointments.manage`, verificato dal server), e resta scritto
-        nell'audit.
+        parlando con la segretaria. Lo dichiara con il permesso di farlo
+        (`appointments.manage`, verificato dal server) e resta nell'audit.
       */
       const creato = await createClubAppointment(
         {
-          date: formatLocalDateOnly(appointmentDate),
-          time: newAppointment.time,
-          reason: newAppointment.title,
-          notes: newAppointment.description,
-          internalNotes: newAppointment.person
-            ? `Nominativo: ${newAppointment.person}`
-            : null,
+          date: values.date,
+          time: values.time,
+          reason: values.title,
+          notes: values.description,
+          internalNotes: values.person ? `Nominativo: ${values.person}` : null,
           outsideAvailability: true,
-          idempotencyKey: `desk-${activeClub.id}-${formatLocalDateOnly(appointmentDate)}-${newAppointment.time}-${newAppointment.title}`,
+          idempotencyKey: `desk-${activeClub.id}-${values.date}-${values.time}-${values.title}`,
         },
         intestazioniClub(activeClub.id),
       );
-
       if (creato) setAppointments((prev) => [...prev, creato]);
-      setNewAppointment({
-        title: "",
-        time: "",
-        description: "",
-        person: "",
-        athlete: "",
-      });
       showToast("success", "Appuntamento aggiunto con successo");
+      return true;
     } catch (error) {
       console.error("Error adding appointment:", error);
-      /*
-        Il messaggio del dominio arriva fino a qui invece di essere sostituito
-        con «Errore nel salvare»: «quell'orario e appena stato preso» dice a una
-        segretaria che cosa fare, «errore» no.
-      */
-      showToast(
-        "error",
-        String((error as Error)?.message || "Errore nel salvare l'appuntamento"),
-      );
+      // Il messaggio del dominio arriva fin qui: «quell'orario e appena stato preso» dice cosa fare, «errore» no.
+      showToast("error", String((error as Error)?.message || "Errore nel salvare l'appuntamento"));
+      return false;
     }
   };
 
-  const addNote = async () => {
-
-    if (!activeClub?.id) {
-      showToast("error", "Nessun club attivo trovato. Ricarica la pagina.");
-      return;
-    }
-
-    if (!newNote || !newNote.trim()) {
-      showToast("error", "Inserisci il contenuto della nota");
-      return;
-    }
-
-    if (
-      ["trainer", "staff_member", "member"].includes(newNoteTargetType) &&
-      !newNoteTargetId
-    ) {
-      showToast("error", "Seleziona il destinatario del promemoria");
-      return;
-    }
-
-    try {
-      const targetData = buildReminderTargetData(newNoteTargetType, newNoteTargetId);
-      const note = {
-        id: `note-${Date.now()}`,
-        content: newNote,
-        date: new Date(),
-        expiryDate: newNoteExpiryDate,
-        notificationEnabled: newNoteNotificationEnabled,
-        isAllDay: newNoteIsAllDay,
-        notificationTime: newNoteIsAllDay ? "08:00" : newNoteTime,
-        ...targetData,
-      };
-
-      // Save to database
-      await addClubData(activeClub.id, "secretariat_notes", note);
-
-      setNotes([...notes, note]);
-      setNewNote("");
-      setNewNoteExpiryDate(undefined);
-      setNewNoteNotificationEnabled(false);
-      setNewNoteIsAllDay(true);
-      setNewNoteTime("");
-      setNewNoteTargetType("club_dashboard");
-      setNewNoteTargetId("");
-      showToast("success", "Nota aggiunta con successo");
-    } catch (error) {
-      console.error("Error adding note:", error);
-      showToast("error", "Errore nel salvare la nota");
-    }
-  };
-
-  const deleteNote = async (id: string) => {
+  /**
+   * **Un appuntamento non si cancella: si annulla.** La riga resta, la
+   * famiglia legge «Annullato dalla segreteria» e il motivo, e l'audit
+   * conserva chi ha deciso.
+   */
+  const annullaAppuntamento = async (appuntamento: ClubAppointment, nota: string) => {
     if (!activeClub?.id) return;
+    const aggiornato = await cancelClubAppointment(appuntamento.id, { note: nota || null, version: appuntamento.version ?? null }, intestazioniClub(activeClub.id));
+    setAppointments((prev) => prev.map((app) => (app.id === appuntamento.id && aggiornato ? aggiornato : app)));
+    if (aggiornato) setInspecting(aggiornato);
+    showToast("success", "Appuntamento annullato: la famiglia lo vedra");
+  };
 
+  /**
+   * Le due risposte a una richiesta. La **versione** viaggia con la decisione:
+   * due operatori che rispondono insieme non si sovrascrivono, il secondo
+   * riceve un rifiuto e ricarica.
+   */
+  const decidiAppuntamento = async (appuntamento: ClubAppointment, azione: "confirm" | "reject", nota: string) => {
+    if (!activeClub?.id) return;
+    const input = { note: nota || null, version: appuntamento.version ?? null };
+    const aggiornato =
+      azione === "confirm"
+        ? await confirmClubAppointment(appuntamento.id, input, intestazioniClub(activeClub.id))
+        : await rejectClubAppointment(appuntamento.id, input, intestazioniClub(activeClub.id));
+    if (aggiornato) {
+      setAppointments((prev) => prev.map((app) => (app.id === appuntamento.id ? aggiornato : app)));
+      setInspecting(aggiornato);
+    }
+    showToast("success", azione === "confirm" ? "Appuntamento confermato: la famiglia riceve la notifica" : "Richiesta rifiutata: alla famiglia arriva il motivo");
+  };
+
+  /**
+   * **Spostare non e modificare la data.** Il dominio chiude la riga vecchia
+   * e ne crea una nuova collegata (ADR-0101): la risposta porta due righe e
+   * questa schermata non puo aggiornarne una sola. Si rilegge dalla sorgente.
+   */
+  const riprogrammaAppuntamento = async (appuntamento: ClubAppointment, nuovaData: string, nuovaOra: string, nota: string) => {
+    if (!activeClub?.id || decidendo) return false;
+    if (!nuovaData || !nuovaOra) {
+      showToast("error", "Indica il nuovo giorno e il nuovo orario");
+      return false;
+    }
+    setDecidendo(true);
     try {
-      await deleteClubDataItem(activeClub.id, "secretariat_notes", id);
-      setNotes(notes.filter((note) => note.id !== id));
+      await rescheduleClubAppointment(
+        appuntamento.id,
+        { date: nuovaData, time: nuovaOra, note: nota || null, version: appuntamento.version ?? null },
+        intestazioniClub(activeClub.id),
+      );
+      const aggiornati = await listClubAppointments(intestazioniClub(activeClub.id));
+      setAppointments(aggiornati);
+      setInspecting(null);
+      showToast("success", "Appuntamento spostato: la famiglia riceve il nuovo orario");
+      return true;
+    } catch (error) {
+      console.error("Error rescheduling appointment:", error);
+      showToast("error", String((error as Error)?.message || "Non riesco a spostarlo adesso"));
+      return false;
+    } finally {
+      setDecidendo(false);
+    }
+  };
+
+  /**
+   * La chiusura di un appuntamento avvenuto, o mancato. La nota qui non e per
+   * la famiglia: finisce in `internal_notes` e non parte nessuna notifica.
+   */
+  const chiudiAppuntamento = async (appuntamento: ClubAppointment, esito: "complete" | "no-show", nota: string) => {
+    if (!activeClub?.id) return;
+    const aggiornato = await closeClubAppointment(appuntamento.id, { outcome: esito, note: nota || null, version: appuntamento.version ?? null }, intestazioniClub(activeClub.id));
+    if (aggiornato) {
+      setAppointments((prev) => prev.map((app) => (app.id === appuntamento.id ? aggiornato : app)));
+      setInspecting(aggiornato);
+    }
+    showToast("success", esito === "complete" ? "Appuntamento concluso" : "Assenza registrata: resta una nota interna");
+  };
+
+  /**
+   * Una mossa dall'ispettore o dalla riga. Rifiuto e annullo sono terminali e
+   * avvisano la famiglia: chiedono conferma (§8.9, «notevole»); conferma,
+   * concluso e assente no — come la V1, con il toast.
+   */
+  const decide = async (appuntamento: ClubAppointment, decision: AppointmentDecision, nota: string) => {
+    if (!activeClub?.id || decidendo) return;
+    if (decision === "reject") {
+      const ok = await confirm({
+        title: `Rifiutare la richiesta di ${appuntamento.title || "appuntamento"}?`,
+        description: "La famiglia riceve il rifiuto con il motivo che hai scritto. Una richiesta rifiutata non si riapre.",
+        confirmLabel: "Rifiuta",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
+    if (decision === "cancel") {
+      const ok = await confirm({
+        title: `Annullare ${appuntamento.title || "l'appuntamento"}?`,
+        description: "Non e una cancellazione: la riga resta con «Annullato dalla segreteria» e la famiglia legge la nota. Un appuntamento annullato non si riapre.",
+        confirmLabel: "Annulla l'appuntamento",
+        cancelLabel: "Torna indietro",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
+    setDecidendo(true);
+    try {
+      if (decision === "confirm" || decision === "reject") await decidiAppuntamento(appuntamento, decision, nota);
+      else if (decision === "cancel") await annullaAppuntamento(appuntamento, nota);
+      else await chiudiAppuntamento(appuntamento, decision, nota);
+    } catch (error) {
+      console.error("Error deciding appointment:", error);
+      const fallback = decision === "cancel" ? "Errore nell'annullare l'appuntamento" : decision === "confirm" || decision === "reject" ? "Non riesco a rispondere adesso" : "Non riesco a chiuderlo adesso";
+      showToast("error", String((error as Error)?.message || fallback));
+    } finally {
+      setDecidendo(false);
+    }
+  };
+
+  /* ── Scritture: note (le stesse funzioni della V1) ─────────────────────── */
+  const buildReminderTargetData = (targetType: NoteFormValues["targetType"], targetId: string) => {
+    if (targetType === "club_dashboard" || targetType === "all_trainers") return { targetType, targetId: "", targetLabel: "" };
+    const selected = reminderTargetOptions(people, targetType).find((option) => option.id === targetId);
+    return { targetType, targetId, targetLabel: selected?.label || "" };
+  };
+
+  const saveNote = async (values: NoteFormValues, existing: SecretariatNote | null) => {
+    if (!activeClub?.id) {
+      showToast("error", NO_CLUB);
+      return false;
+    }
+    const targetData = buildReminderTargetData(values.targetType, values.targetId);
+    const expiryDate = values.expiryDate ? new Date(values.expiryDate) : undefined;
+    const notificationTime = values.isAllDay ? "08:00" : values.notificationTime;
+    if (!existing) {
+      try {
+        const note = {
+          id: `note-${Date.now()}`,
+          content: values.content,
+          date: new Date(),
+          expiryDate,
+          notificationEnabled: values.notificationEnabled,
+          isAllDay: values.isAllDay,
+          notificationTime,
+          ...targetData,
+        };
+        await addClubData(activeClub.id, "secretariat_notes", note);
+        setNotes((prev) => [...prev, normalizeNote(note)]);
+        showToast("success", "Nota aggiunta con successo");
+        return true;
+      } catch (error) {
+        console.error("Error adding note:", error);
+        showToast("error", "Errore nel salvare la nota");
+        return false;
+      }
+    }
+    try {
+      const updatedNotes = notes.map((note) =>
+        note.id === existing.id
+          ? { ...note, content: values.content, expiryDate, notificationEnabled: values.notificationEnabled, isAllDay: values.isAllDay, notificationTime, ...targetData }
+          : note,
+      );
+      await updateClubDataArray(activeClub.id, "secretariat_notes", updatedNotes);
+      setNotes(updatedNotes);
+      showToast("success", "Nota aggiornata con successo");
+      return true;
+    } catch (error) {
+      console.error("Error updating note:", error);
+      showToast("error", "Errore nell'aggiornare la nota");
+      return false;
+    }
+  };
+
+  const deleteNote = async (note: SecretariatNote) => {
+    if (!activeClub?.id) return;
+    const ok = await confirm({
+      title: "Eliminare questa nota?",
+      description: note.content.length > 120 ? `${note.content.slice(0, 120)}…` : note.content,
+      confirmLabel: "Elimina",
+      tone: "danger",
+      consequences: note.notificationEnabled ? ["La notifica programmata non parte piu"] : undefined,
+      irreversible: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteClubDataItem(activeClub.id, "secretariat_notes", note.id);
+      setNotes((prev) => prev.filter((row) => row.id !== note.id));
       showToast("success", "Nota eliminata con successo");
     } catch (error) {
       console.error("Error deleting note:", error);
@@ -746,1647 +445,250 @@ export default function SecretariatPage() {
     }
   };
 
-  const startEditNote = (note: {
-    id: string;
-    content: string;
-    expiryDate?: Date;
-    notificationEnabled?: boolean;
-    isAllDay?: boolean;
-    notificationTime?: string;
-    targetType?: ReminderTargetType;
-    targetId?: string;
-  }) => {
-    setEditingNote(note.id);
-    setEditedNoteContent(note.content);
-    setEditedNoteExpiryDate(note.expiryDate);
-    setEditedNoteNotificationEnabled(note.notificationEnabled || false);
-    setEditedNoteIsAllDay(note.isAllDay !== false);
-    setEditedNoteTime(note.notificationTime || "");
-    setEditedNoteTargetType(note.targetType || "club_dashboard");
-    setEditedNoteTargetId(note.targetId || "");
-  };
-
-  const saveEditedNote = async (id: string) => {
-    if (!activeClub?.id) return;
-
-    try {
-      if (
-        ["trainer", "staff_member", "member"].includes(editedNoteTargetType) &&
-        !editedNoteTargetId
-      ) {
-        showToast("error", "Seleziona il destinatario del promemoria");
-        return;
-      }
-
-      const targetData = buildReminderTargetData(
-        editedNoteTargetType,
-        editedNoteTargetId,
-      );
-      const updatedNotes = notes.map((note) =>
-        note.id === id
-          ? {
-              ...note,
-              content: editedNoteContent,
-              expiryDate: editedNoteExpiryDate,
-              notificationEnabled: editedNoteNotificationEnabled,
-              isAllDay: editedNoteIsAllDay,
-              notificationTime: editedNoteIsAllDay ? "08:00" : editedNoteTime,
-              ...targetData,
-            }
-          : note,
-      );
-
-      await updateClubDataArray(
-        activeClub.id,
-        "secretariat_notes",
-        updatedNotes,
-      );
-      setNotes(updatedNotes);
-      setEditingNote(null);
-      showToast("success", "Nota aggiornata con successo");
-    } catch (error) {
-      console.error("Error updating note:", error);
-      showToast("error", "Errore nell'aggiornare la nota");
-    }
-  };
-
-  /**
-   * **Un appuntamento non si cancella: si annulla.**
-   *
-   * E il difetto D-1 misurato al contrario. Prima questa funzione toglieva la
-   * riga dall'array JSON e non restava niente — ne la richiesta, ne il motivo,
-   * ne il fatto che una famiglia l'avesse mai chiesta, che e il modo piu
-   * silenzioso di dire di no a qualcuno. Adesso la riga resta, la famiglia
-   * legge «Annullato dalla segreteria» e il motivo, e l'audit conserva chi ha
-   * deciso.
-   */
-  const deleteAppointment = async (id: string) => {
-    if (!activeClub?.id) return;
-
-    try {
-      const aggiornato = await cancelClubAppointment(
-        id,
-        {
-          note: decisione.trim() || null,
-          version: appointments.find((app) => app.id === id)?.version ?? null,
-        },
-        intestazioniClub(activeClub.id),
-      );
-      setAppointments((prev) =>
-        prev.map((app) => (app.id === id && aggiornato ? aggiornato : app)),
-      );
-      setDecisione("");
-      showToast("success", "Appuntamento annullato: la famiglia lo vedra");
-    } catch (error) {
-      console.error("Error cancelling appointment:", error);
-      showToast(
-        "error",
-        String((error as Error)?.message || "Errore nell'annullare l'appuntamento"),
-      );
-    }
-  };
-
-  /**
-   * **Le due risposte che nessuno poteva dare.**
-   *
-   * Fino alla Wave 5 nessuna riga di codice scriveva `confirmed` ne
-   * `rejected`: una richiesta di famiglia restava in attesa per sempre, e
-   * l'unica risposta possibile era cancellarla senza avvisare nessuno. Il
-   * dominio le sa fare da 5E; questa e la schermata da cui si esercitano.
-   *
-   * La **versione** viaggia con la decisione: due operatori che rispondono
-   * insieme non si sovrascrivono, il secondo riceve un rifiuto e ricarica —
-   * che su una conferma vuol dire non mandare due orari diversi alla stessa
-   * famiglia.
-   */
-  const decidiAppuntamento = async (
-    appuntamento: ClubAppointment,
-    azione: "confirm" | "reject",
-  ) => {
-    if (!activeClub?.id || decidendo) return;
-    setDecidendo(true);
-
-    try {
-      const input = {
-        note: decisione.trim() || null,
-        version: appuntamento.version ?? null,
-      };
-      const aggiornato =
-        azione === "confirm"
-          ? await confirmClubAppointment(
-              appuntamento.id,
-              input,
-              intestazioniClub(activeClub.id),
-            )
-          : await rejectClubAppointment(
-              appuntamento.id,
-              input,
-              intestazioniClub(activeClub.id),
-            );
-
-      if (aggiornato) {
-        setAppointments((prev) =>
-          prev.map((app) => (app.id === appuntamento.id ? aggiornato : app)),
-        );
-        setSelectedAppointment(aggiornato);
-      }
-      setDecisione("");
-      showToast(
-        "success",
-        azione === "confirm"
-          ? "Appuntamento confermato: la famiglia riceve la notifica"
-          : "Richiesta rifiutata: alla famiglia arriva il motivo",
-      );
-    } catch (error) {
-      console.error("Error deciding appointment:", error);
-      showToast(
-        "error",
-        String((error as Error)?.message || "Non riesco a rispondere adesso"),
-      );
-    } finally {
-      setDecidendo(false);
-    }
-  };
-
-  /**
-   * **Spostare non e modificare la data.**
-   *
-   * Il dominio chiude la riga vecchia e ne crea una nuova collegata
-   * (ADR-0101), quindi la risposta porta **due** righe e questa schermata non
-   * puo aggiornarne una sola: la riga che aveva in mano ora e chiusa, e quella
-   * nuova non esiste nell'elenco. Si ricarica dalla sorgente, che e anche il
-   * solo modo per vedere la riga nuova con le sue transizioni.
-   */
-  const riprogrammaAppuntamento = async (appuntamento: ClubAppointment) => {
-    if (!activeClub?.id || decidendo) return;
-    if (!nuovaData || !nuovaOra) {
-      showToast("error", "Indica il nuovo giorno e il nuovo orario");
-      return;
-    }
-
-    setDecidendo(true);
-    try {
-      await rescheduleClubAppointment(
-        appuntamento.id,
-        {
-          date: nuovaData,
-          time: nuovaOra,
-          note: decisione.trim() || null,
-          version: appuntamento.version ?? null,
-        },
-        intestazioniClub(activeClub.id),
-      );
-
-      const aggiornati = await listClubAppointments(
-        intestazioniClub(activeClub.id),
-      );
-      setAppointments(aggiornati);
-      setDecisione("");
-      setNuovaData("");
-      setNuovaOra("");
-      setIsViewAppointmentOpen(false);
-      setSelectedAppointment(null);
-      showToast(
-        "success",
-        "Appuntamento spostato: la famiglia riceve il nuovo orario",
-      );
-    } catch (error) {
-      console.error("Error rescheduling appointment:", error);
-      showToast(
-        "error",
-        String((error as Error)?.message || "Non riesco a spostarlo adesso"),
-      );
-    } finally {
-      setDecidendo(false);
-    }
-  };
-
-  /**
-   * **La chiusura di un appuntamento avvenuto, o mancato.**
-   *
-   * La nota qui non e per la famiglia: `closeAppointment` la scrive in
-   * `internal_notes`, e la proiezione verso la famiglia non ha quel campo. E
-   * la ragione per cui non parte nessuna notifica — «assente» e una constatazione
-   * di chi era in segreteria, non un messaggio da mandare a qualcuno.
-   */
-  const chiudiAppuntamento = async (
-    appuntamento: ClubAppointment,
-    esito: "complete" | "no-show",
-  ) => {
-    if (!activeClub?.id || decidendo) return;
-    setDecidendo(true);
-
-    try {
-      const aggiornato = await closeClubAppointment(
-        appuntamento.id,
-        {
-          outcome: esito,
-          note: decisione.trim() || null,
-          version: appuntamento.version ?? null,
-        },
-        intestazioniClub(activeClub.id),
-      );
-
-      if (aggiornato) {
-        setAppointments((prev) =>
-          prev.map((app) => (app.id === appuntamento.id ? aggiornato : app)),
-        );
-        setSelectedAppointment(aggiornato);
-      }
-      setDecisione("");
-      showToast(
-        "success",
-        esito === "complete"
-          ? "Appuntamento concluso"
-          : "Assenza registrata: resta una nota interna",
-      );
-    } catch (error) {
-      console.error("Error closing appointment:", error);
-      showToast(
-        "error",
-        String((error as Error)?.message || "Non riesco a chiuderlo adesso"),
-      );
-    } finally {
-      setDecidendo(false);
-    }
-  };
-
-  const filteredAppointments = appointments.filter((app) => {
-    if (!date) return false;
-    const appDate = new Date(app.date);
-    return (
-      appDate.getDate() === date.getDate() &&
-      appDate.getMonth() === date.getMonth() &&
-      appDate.getFullYear() === date.getFullYear()
-    );
-  });
-
-  const formatDate = (date: Date, includeTime: boolean = false) => {
-    if (includeTime) {
-      return date.toLocaleDateString("it-IT", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    }
-    return date.toLocaleDateString("it-IT", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
+  /* ── Scritture: orari di apertura ──────────────────────────────────────── */
+  const [savingHours, setSavingHours] = React.useState(false);
+  const hoursDirty = JSON.stringify(openingHours) !== JSON.stringify(savedOpeningHours);
 
   const saveOpeningHours = async () => {
     if (!activeClub?.id) {
-      showToast("error", "Nessun club attivo trovato. Ricarica la pagina.");
+      showToast("error", NO_CLUB);
       return;
     }
-
+    setSavingHours(true);
     try {
-      // Use updateClubDataArray to replace the entire opening_hours array
       await updateClubDataArray(activeClub.id, "opening_hours", [openingHours]);
+      setSavedOpeningHours(openingHours);
       showToast("success", "Orari di apertura salvati con successo");
     } catch (error) {
       console.error("Error saving opening hours:", error);
       showToast("error", "Errore nel salvare gli orari di apertura");
+    } finally {
+      setSavingHours(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header title="Segreteria" />
-          <main className={dashboardMainClassName}>
-            <DashboardPageContainer>
-              <SharedPageHeader
-                title="Segreteria"
-                subtitle="Gestisci comunicazioni, documenti e attivita di segreteria."
-              />
-              <div className="hidden">
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  Segreteria
-                </h1>
-                <p className="text-gray-600 mt-2">
-                  Gestisci comunicazioni, documenti e attività di segreteria.
-                </p>
-              </div>
+  /* ── Griglie ───────────────────────────────────────────────────────────── */
+  const appointmentCols = React.useMemo(() => appointmentColumns(), []);
+  const appointmentFilterDefs = React.useMemo(() => appointmentFilters(agendaRows), [agendaRows]);
+  const appointmentRowActions = React.useMemo<RowActionDef<ClubAppointment>[]>(
+    () => [
+      { id: "open", label: "Apri", icon: <ChevronRight />, primary: true, onClick: openInspector },
+      // Le mosse le dichiara il dominio (`actions`, W6-51): un'azione assente e una transizione non ammessa.
+      { id: "confirm", label: "Conferma", icon: <Check />, hidden: (row) => !(row.actions || []).includes("confirm"), onClick: (row) => void decide(row, "confirm", "") },
+      { id: "reschedule", label: "Sposta", icon: <CalendarClock />, hidden: (row) => !(row.actions || []).includes("reschedule"), onClick: openInspector },
+      { id: "complete", label: "Concluso", icon: <Check />, hidden: (row) => !(row.actions || []).includes("complete"), onClick: (row) => void decide(row, "complete", "") },
+      { id: "no-show", label: "Assente", icon: <UserX />, hidden: (row) => !(row.actions || []).includes("no-show"), onClick: (row) => void decide(row, "no-show", "") },
+      // Rifiuto e annullo passano dall'ispettore, dove la nota per la famiglia si scrive.
+      { id: "reject", label: "Rifiuta", icon: <X />, tone: "danger", hidden: (row) => !(row.actions || []).includes("reject"), onClick: openInspector },
+      { id: "cancel", label: "Annulla l'appuntamento", icon: <Trash2 />, tone: "danger", hidden: (row) => !(row.actions || []).includes("cancel"), onClick: (row) => void decide(row, "cancel", "") },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeClub?.id, decidendo],
+  );
 
-              <div className="flex justify-center items-center h-64">
-                <div className="text-lg">Caricamento dati segreteria...</div>
-              </div>
-            </DashboardPageContainer>
-          </main>
-        </div>
-      </div>
-    );
-  }
+  const noteCols = React.useMemo(() => noteColumns(), []);
+  const noteFilterDefs = React.useMemo(() => noteFilters(notes), [notes]);
+  const noteRowActions = React.useMemo<RowActionDef<SecretariatNote>[]>(
+    () => [
+      { id: "edit", label: "Modifica", icon: <Pencil />, primary: true, onClick: (row) => setNoteDrawer({ open: true, note: row }) },
+      { id: "delete", label: "Elimina", icon: <Trash2 />, tone: "danger", onClick: (row) => void deleteNote(row) },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeClub?.id, notes],
+  );
+
+  /* ── Numeri dell'intestazione ──────────────────────────────────────────── */
+  const today = React.useMemo(() => new Date(), []);
+  const pendingCount = appointments.filter((appointment) => appointment.status === "requested").length;
+  const todayCount = appointments.filter((appointment) => isLiveAppointment(appointment) && isAppointmentOnDay(appointment, today)).length;
+  const openDays = countOpenDays(openingHours);
+  const gridState = loading ? "loading" : loadError ? "error" : "ready";
+
+  const primaryAction =
+    area === "appuntamenti" ? (
+      <Button variant="primary" icon={<Plus />} onClick={() => setNewAppointmentOpen(true)} disabled={loading}>
+        Nuovo appuntamento
+      </Button>
+    ) : area === "note" ? (
+      <Button variant="primary" icon={<Plus />} onClick={() => setNoteDrawer({ open: true, note: null })} disabled={loading}>
+        Nuova nota
+      </Button>
+    ) : null;
 
   return (
-    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header title="Segreteria" />
         <main className={dashboardMainClassName}>
           <DashboardPageContainer>
-            <SharedPageHeader
+            <PageHeader
+              eyebrow="Segreteria"
               title="Segreteria"
-              subtitle="Gestisci comunicazioni, documenti e attività di segreteria."
-            />
-            <div className="hidden">
-              <p className="text-gray-600 mt-2">
-                Gestisci comunicazioni, documenti e attività di segreteria.
-              </p>
+              description="Ricevi le famiglie, tieni l'agenda e i promemoria dell'ufficio."
+              stats={
+                <>
+                  <HeaderStat
+                    value={formatInteger(pendingCount)}
+                    label="in attesa di risposta"
+                    tone={pendingCount ? "amber" : "ink"}
+                    onClick={() => {
+                      selectArea("appuntamenti");
+                      setScope("all");
+                      setRequestedAppointmentView("requested");
+                    }}
+                  />
+                  <HeaderStat
+                    value={formatInteger(todayCount)}
+                    label={todayCount === 1 ? "appuntamento oggi" : "appuntamenti oggi"}
+                    onClick={() => {
+                      selectArea("appuntamenti");
+                      setSelectedDate(new Date());
+                      setScope("day");
+                    }}
+                  />
+                  <HeaderStat value={formatInteger(notes.length)} label="promemoria" onClick={() => selectArea("note")} />
+                  <HeaderStat value={formatInteger(openDays)} label="giorni di apertura" tone={openDays ? "ink" : "amber"} onClick={() => selectArea("orari")} />
+                </>
+              }
+              actions={
+                <>
+                  {primaryAction}
+                  {area === "appuntamenti" ? (
+                    <Button asChild variant="secondary">
+                      <Link href="/appuntamenti">Configura la disponibilita</Link>
+                    </Button>
+                  ) : null}
+                </>
+              }
+            >
+              <SegmentedControl<SecretariatArea>
+                aria-label="Aree della segreteria"
+                value={area}
+                onChange={selectArea}
+                options={SECRETARIAT_AREAS.map((item) => ({
+                  ...item,
+                  count: item.value === "appuntamenti" ? (pendingCount || null) : item.value === "note" ? (notes.length || null) : null,
+                }))}
+                className="max-w-full overflow-x-auto"
+              />
+            </PageHeader>
+
+            {/* ── Appuntamenti: griglia + rail ──────────────────────────────── */}
+            <div className={area === "appuntamenti" ? "grid grid-cols-1 gap-[18px] lg:grid-cols-[minmax(0,1fr)_300px]" : "hidden"}>
+              <AgendaRail
+                className="lg:order-2"
+                selectedDate={selectedDate}
+                onSelectDate={(date) => {
+                  setSelectedDate(date);
+                  if (scope === "all") setScope("day");
+                }}
+                scope={scope}
+                onScopeChange={setScope}
+                countOnDay={countOnDay}
+              />
+              <DataGrid<ClubAppointment>
+                className="lg:order-1"
+                module="segreteria-appuntamenti"
+                aria-label="Coda degli appuntamenti"
+                rows={agendaRows}
+                getRowId={(row) => row.id}
+                rowLabel={(row) => row.title || "Appuntamento"}
+                columns={appointmentCols}
+                filters={appointmentFilterDefs}
+                views={APPOINTMENT_VIEWS}
+                requestedViewId={requestedAppointmentView}
+                search={appointmentSearch}
+                defaultSort={{ columnId: "date", direction: "asc" }}
+                rowActions={appointmentRowActions}
+                onOpenRow={openInspector}
+                activeRowId={inspectorOpen ? inspecting?.id ?? null : null}
+                canSelect={false}
+                state={gridState}
+                errorMessage={loadError}
+                onRetry={reload}
+                noun={{ singular: "appuntamento", plural: "appuntamenti" }}
+                empty={{
+                  icon: <CalendarDays />,
+                  title: scope === "all" ? "Nessun appuntamento in agenda" : scope === "day" ? "Nessun appuntamento per questa data" : "Nessun appuntamento in questa settimana",
+                  description: "Le richieste delle famiglie e i colloqui presi allo sportello compaiono qui, con le mosse che ammettono.",
+                  primary: (
+                    <Button variant="primary" size="sm" icon={<Plus />} onClick={() => setNewAppointmentOpen(true)}>
+                      Nuovo appuntamento
+                    </Button>
+                  ),
+                }}
+              />
             </div>
-            <Tabs defaultValue="opening-hours">
-              <TabsList className="grid w-full grid-cols-3">
-                <TabsTrigger
-                  value="opening-hours"
-                  className="flex items-center gap-2"
-                >
-                  <Clock className="h-4 w-4" />
-                  <span>Orari di Apertura</span>
-                </TabsTrigger>
-                <TabsTrigger
-                  value="appointments"
-                  className="flex items-center gap-2"
-                >
-                  <CalendarDays className="h-4 w-4" />
-                  <span>Appuntamenti</span>
-                </TabsTrigger>
-                <TabsTrigger value="notes" className="flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  <span>Note e Promemoria</span>
-                </TabsTrigger>
-              </TabsList>
 
-              <TabsContent value="opening-hours" className="space-y-4 mt-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Orari di Apertura Segreteria</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {[
-                        ["monday", "Lunedì"],
-                        ["tuesday", "Martedì"],
-                        ["wednesday", "Mercoledì"],
-                        ["thursday", "Giovedì"],
-                        ["friday", "Venerdì"],
-                        ["saturday", "Sabato"],
-                        ["sunday", "Domenica"],
-                      ].map(([day, dayName]) => {
-                        const hours =
-                          openingHours[day as keyof typeof openingHours];
+            {/* ── Note e promemoria ─────────────────────────────────────────── */}
+            <div className={area === "note" ? "flex flex-col gap-[18px]" : "hidden"}>
+              <DataGrid<SecretariatNote>
+                module="segreteria-note"
+                aria-label="Note e promemoria"
+                rows={notes}
+                getRowId={(row) => row.id}
+                rowLabel={(row) => row.content}
+                columns={noteCols}
+                filters={noteFilterDefs}
+                views={NOTE_VIEWS}
+                search={noteSearch}
+                defaultSort={{ columnId: "created", direction: "desc" }}
+                rowActions={noteRowActions}
+                onOpenRow={(row) => setNoteDrawer({ open: true, note: row })}
+                canSelect={false}
+                state={gridState}
+                errorMessage={loadError}
+                onRetry={reload}
+                noun={{ singular: "nota", plural: "note" }}
+                empty={{
+                  icon: <StickyNote />,
+                  title: "Nessuna nota presente",
+                  description: "Un promemoria per la segreteria, per la Dashboard o per una persona del club.",
+                  primary: (
+                    <Button variant="primary" size="sm" icon={<Plus />} onClick={() => setNoteDrawer({ open: true, note: null })}>
+                      Nuova nota
+                    </Button>
+                  ),
+                }}
+              />
+            </div>
 
-                        return (
-                          <div
-                            key={day}
-                            className="grid grid-cols-3 gap-4 items-center"
-                          >
-                            <div className="font-medium">{dayName}</div>
-                            <div className="space-y-2">
-                              <Label htmlFor={`${day}-morning`}>Mattina</Label>
-                              <div className="flex gap-2">
-                                <Input
-                                  id={`${day}-morning-start`}
-                                  type="time"
-                                  value={parseTimeRange(hours.morning).start}
-                                  onChange={(e) =>
-                                    handleOpeningHoursChange(
-                                      day,
-                                      "morning",
-                                      buildTimeRange(
-                                        e.target.value,
-                                        parseTimeRange(hours.morning).end,
-                                      ),
-                                    )
-                                  }
-                                />
-                                <Input
-                                  id={`${day}-morning-end`}
-                                  type="time"
-                                  value={parseTimeRange(hours.morning).end}
-                                  onChange={(e) =>
-                                    handleOpeningHoursChange(
-                                      day,
-                                      "morning",
-                                      buildTimeRange(
-                                        parseTimeRange(hours.morning).start,
-                                        e.target.value,
-                                      ),
-                                    )
-                                  }
-                                />
-                                <select
-                                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                                  value={hours.morningStaff || ""}
-                                  onChange={(e) =>
-                                    handleOpeningHoursChange(
-                                      day,
-                                      "morningStaff",
-                                      e.target.value,
-                                    )
-                                  }
-                                >
-                                  <option value="">Seleziona staff</option>
-                                  {Array.isArray(staffMembers) &&
-                                  staffMembers.length > 0 ? (
-                                    staffMembers.map((staff) => {
-                                      return (
-                                        <option
-                                          key={staff.id}
-                                          value={staff.name}
-                                        >
-                                          {staff.name}
-                                        </option>
-                                      );
-                                    })
-                                  ) : (
-                                    <option disabled>
-                                      {loading
-                                        ? "Caricamento staff..."
-                                        : "Nessun membro dello staff trovato - Aggiungi staff dalla pagina Staff"}
-                                    </option>
-                                  )}
-                                </select>
-                              </div>
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor={`${day}-afternoon`}>
-                                Pomeriggio
-                              </Label>
-                              <div className="flex gap-2">
-                                <Input
-                                  id={`${day}-afternoon-start`}
-                                  type="time"
-                                  value={parseTimeRange(hours.afternoon).start}
-                                  onChange={(e) =>
-                                    handleOpeningHoursChange(
-                                      day,
-                                      "afternoon",
-                                      buildTimeRange(
-                                        e.target.value,
-                                        parseTimeRange(hours.afternoon).end,
-                                      ),
-                                    )
-                                  }
-                                />
-                                <Input
-                                  id={`${day}-afternoon-end`}
-                                  type="time"
-                                  value={parseTimeRange(hours.afternoon).end}
-                                  onChange={(e) =>
-                                    handleOpeningHoursChange(
-                                      day,
-                                      "afternoon",
-                                      buildTimeRange(
-                                        parseTimeRange(hours.afternoon).start,
-                                        e.target.value,
-                                      ),
-                                    )
-                                  }
-                                />
-                                <select
-                                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                                  value={hours.afternoonStaff || ""}
-                                  onChange={(e) =>
-                                    handleOpeningHoursChange(
-                                      day,
-                                      "afternoonStaff",
-                                      e.target.value,
-                                    )
-                                  }
-                                >
-                                  <option value="">Seleziona staff</option>
-                                  {Array.isArray(staffMembers) &&
-                                  staffMembers.length > 0 ? (
-                                    staffMembers.map((staff) => {
-                                      return (
-                                        <option
-                                          key={staff.id}
-                                          value={staff.name}
-                                        >
-                                          {staff.name}
-                                        </option>
-                                      );
-                                    })
-                                  ) : (
-                                    <option disabled>
-                                      {loading
-                                        ? "Caricamento staff..."
-                                        : "Nessun membro dello staff trovato - Aggiungi staff dalla pagina Staff"}
-                                    </option>
-                                  )}
-                                </select>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      <div className="flex justify-end mt-4">
-                        <Button
-                          className="bg-blue-600 hover:bg-blue-700"
-                          onClick={saveOpeningHours}
-                        >
-                          Salva Orari
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="appointments" className="space-y-4 mt-4">
-                {/*
-                  **L'ingresso alla configurazione della disponibilita.**
-
-                  W6-53: la pagina esiste ma non ha una voce di menu, perche le
-                  sidebar sono di un'altra lane. Senza questo collegamento
-                  sarebbe l'errore di CLAUDE.md §11.8 ripetuto una riga piu in
-                  la — codice raggiungibile solo da chi ne conosce l'indirizzo.
-                  Sta qui perche e da qui che una segretaria se ne accorge: il
-                  calendario mostra gli appuntamenti, e la domanda «quando
-                  possono prenotarmi?» nasce guardandolo.
-                */}
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 p-3">
-                  <p className="text-sm text-muted-foreground">
-                    Quando la societa riceve — giorni, orari, durata del
-                    colloquio, sede e operatore — si dichiara nella
-                    disponibilita. Senza fasce dichiarate si ricade
-                    sull&apos;orario di apertura.
-                  </p>
-                  <Button asChild variant="outline" size="sm">
-                    <Link href="/appuntamenti">Configura la disponibilita</Link>
-                  </Button>
-                </div>
-                <div className="grid grid-cols-1 gap-6">
-                  <Card>
-                    <CardHeader className="flex flex-row justify-between items-center">
-                      <CardTitle>
-                        Appuntamenti del{" "}
-                        {date?.toLocaleDateString("it-IT", {
-                          weekday: "long",
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })}
-                      </CardTitle>
-                      <div></div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="mb-6">
-                        <h4 className="font-medium mb-4">
-                          Calendario Settimanale
-                        </h4>
-                        <style>
-                          {
-                            ".column-calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }"
-                          }
-                          {
-                            ".column-calendar-header { padding: 8px; text-align: center; font-weight: 500; background-color: #f3f4f6; border-radius: 4px; }"
-                          }
-                          {
-                            ".column-calendar-cell { min-height: 80px; padding: 8px; border: 1px solid #e5e7eb; border-radius: 4px; }"
-                          }
-                          {
-                            "@media (max-width: 768px) { .column-calendar { grid-template-columns: repeat(7, 80px); overflow-x: auto; } }"
-                          }
-                        </style>
-                        <div className="flex justify-between items-center mb-4">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex items-center gap-1"
-                            onClick={() => {
-                              const prevWeek = new Date(date || new Date());
-                              prevWeek.setDate(prevWeek.getDate() - 7);
-                              setDate(prevWeek);
-                              showToast("info", "Settimana precedente");
-                            }}
-                          >
-                            <ChevronLeft size={16} />
-                            Settimana precedente
-                          </Button>
-                          <div className="font-medium">
-                            {new Date().toLocaleDateString("it-IT", {
-                              month: "long",
-                              year: "numeric",
-                            })}
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex items-center gap-1"
-                            onClick={() => {
-                              const nextWeek = new Date(date || new Date());
-                              nextWeek.setDate(nextWeek.getDate() + 7);
-                              setDate(nextWeek);
-                              showToast("info", "Settimana successiva");
-                            }}
-                          >
-                            Settimana successiva
-                            <ChevronRight size={16} />
-                          </Button>
-                        </div>
-                        <div className="column-calendar w-full">
-                          {Array.from({ length: 7 }, (_, i) => {
-                            const currentDay = new Date(date || new Date());
-                            const startOfWeek = new Date(currentDay);
-                            startOfWeek.setDate(
-                              currentDay.getDate() - currentDay.getDay() + 1,
-                            );
-                            const day = new Date(startOfWeek);
-                            day.setDate(startOfWeek.getDate() + i);
-                            const dayName = day.toLocaleDateString("it-IT", {
-                              weekday: "short",
-                            });
-                            const dayNum = day.getDate();
-                            return (
-                              <div key={i} className="column-calendar-header">
-                                {dayName}: {dayNum}
-                              </div>
-                            );
-                          })}
-
-                          {Array.from({ length: 7 }, (_, i) => {
-                            const currentDay = new Date(date || new Date());
-                            const startOfWeek = new Date(currentDay);
-                            startOfWeek.setDate(
-                              currentDay.getDate() - currentDay.getDay() + 1,
-                            );
-                            const day = new Date(startOfWeek);
-                            day.setDate(startOfWeek.getDate() + i);
-
-                            // Filter appointments for this specific day
-                            const dayAppointments = appointments.filter(
-                              (app) => {
-                                const appDate = new Date(app.date);
-                                return (
-                                  appDate.getDate() === day.getDate() &&
-                                  appDate.getMonth() === day.getMonth() &&
-                                  appDate.getFullYear() === day.getFullYear()
-                                );
-                              },
-                            );
-
-                            return (
-                              <div key={i} className="column-calendar-cell">
-                                {dayAppointments.map((appointment) => (
-                                  <div
-                                    key={appointment.id}
-                                    className="text-xs p-1 bg-blue-100 dark:bg-blue-900 rounded mb-1 cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                                    onClick={() => {
-                                      setSelectedAppointment(appointment);
-                                      /*
-                                        I campi dello spostamento si azzerano
-                                        all'apertura: restando pieni, il giorno
-                                        digitato per un appuntamento comparirebbe
-                                        gia scritto sul successivo, e basta un
-                                        clic per spostare quello sbagliato.
-                                      */
-                                      setNuovaData("");
-                                      setNuovaOra("");
-                                      setDecisione("");
-                                      setIsViewAppointmentOpen(true);
-                                    }}
-                                  >
-                                    {appointment.time} — {appointment.title}
-                                  </div>
-                                ))}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <div className="space-y-4">
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="appointment-date">Data *</Label>
-                            <Input
-                              id="appointment-date"
-                              type="date"
-                              value={
-                                appointmentDate
-                                  ? formatLocalDateOnly(appointmentDate)
-                                  : ""
-                              }
-                              onChange={(e) => {
-                                const selectedDate = e.target.value
-                                  ? new Date(e.target.value)
-                                  : undefined;
-                                setAppointmentDate(selectedDate);
-                              }}
-                              min={todayLocalDateOnly()}
-                              className="w-full"
-                              required
-                            />
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="appointment-title">
-                                Titolo *
-                              </Label>
-                              <Input
-                                id="appointment-title"
-                                name="title"
-                                value={newAppointment.title}
-                                onChange={handleAppointmentChange}
-                                placeholder="Titolo appuntamento"
-                                required
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="appointment-time">Orario *</Label>
-                              {(() => {
-                                if (!appointmentDate) {
-                                  return (
-                                    <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md">
-                                      <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                                        Seleziona prima una data per vedere gli
-                                        orari disponibili
-                                      </p>
-                                    </div>
-                                  );
-                                }
-
-                                const dayOfWeek = appointmentDate.getDay();
-                                const dayNames = [
-                                  "sunday",
-                                  "monday",
-                                  "tuesday",
-                                  "wednesday",
-                                  "thursday",
-                                  "friday",
-                                  "saturday",
-                                ];
-                                const dayKey = dayNames[
-                                  dayOfWeek
-                                ] as keyof typeof openingHours;
-                                const dayHours = openingHours[dayKey];
-
-                                const morningSlots = buildAppointmentSlots(
-                                  dayHours.morning,
-                                );
-                                const afternoonSlots = buildAppointmentSlots(
-                                  dayHours.afternoon,
-                                );
-                                const allSlots = [
-                                  ...morningSlots,
-                                  ...afternoonSlots,
-                                ];
-
-                                if (allSlots.length === 0) {
-                                  const dayName =
-                                    appointmentDate.toLocaleDateString(
-                                      "it-IT",
-                                      { weekday: "long" },
-                                    );
-                                  return (
-                                    <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
-                                      <p className="text-sm text-red-700 dark:text-red-300">
-                                        ⚠️ Nessun orario di apertura configurato
-                                        per {dayName}.
-                                        <br />
-                                        Configura gli orari nella sezione &quot;Orari
-                                        di Apertura&quot; o seleziona un altro
-                                        giorno.
-                                      </p>
-                                    </div>
-                                  );
-                                }
-
-                                return (
-                                  <select
-                                    id="appointment-time"
-                                    name="time"
-                                    value={newAppointment.time}
-                                    onChange={handleAppointmentChange}
-                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                    required
-                                  >
-                                    <option value="">Seleziona orario</option>
-                                    {morningSlots.length > 0 && (
-                                      <optgroup label="Mattina">
-                                        {morningSlots.map((slot) => (
-                                          <option key={slot} value={slot}>
-                                            {slot}
-                                          </option>
-                                        ))}
-                                      </optgroup>
-                                    )}
-                                    {afternoonSlots.length > 0 && (
-                                      <optgroup label="Pomeriggio">
-                                        {afternoonSlots.map((slot) => (
-                                          <option key={slot} value={slot}>
-                                            {slot}
-                                          </option>
-                                        ))}
-                                      </optgroup>
-                                    )}
-                                  </select>
-                                );
-                              })()}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="appointment-person">
-                              Nominativo *
-                            </Label>
-                            <Input
-                              id="appointment-person"
-                              list="secretariat-person-options"
-                              name="person"
-                              value={newAppointment.person}
-                              onChange={handleAppointmentChange}
-                              placeholder="Cerca atleta, genitore, tutore, staff o allenatore"
-                              required
-                            />
-                            <datalist id="secretariat-person-options">
-                              {personOptions.map((person) => (
-                                <option
-                                  key={person.id}
-                                  value={person.label}
-                                  label={
-                                    person.athleteLabel
-                                      ? `${person.label} • collegato a ${person.athleteLabel}`
-                                      : person.label
-                                  }
-                                />
-                              ))}
-                            </datalist>
-                            <p className="text-xs text-muted-foreground">
-                              La ricerca include atleti, tutori, genitori,
-                              staff e allenatori registrati nel club.
-                            </p>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="appointment-athlete">
-                              Atleta collegato (opzionale)
-                            </Label>
-                            <Input
-                              id="appointment-athlete"
-                              list="secretariat-athlete-options"
-                              name="athlete"
-                              value={newAppointment.athlete}
-                              onChange={handleAppointmentChange}
-                              placeholder="Cerca un atleta registrato"
-                            />
-                            <datalist id="secretariat-athlete-options">
-                              {athleteOptions.map((athlete) => (
-                                <option
-                                  key={athlete.id}
-                                  value={athlete.label}
-                                />
-                              ))}
-                            </datalist>
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="appointment-description">
-                            Descrizione (opzionale)
-                          </Label>
-                          <Textarea
-                            id="appointment-description"
-                            name="description"
-                            value={newAppointment.description}
-                            onChange={handleAppointmentChange}
-                            placeholder="Dettagli appuntamento"
-                            rows={3}
-                          />
-                        </div>
-
-                        <Button
-                          className="w-full bg-blue-600 hover:bg-blue-700"
-                          onClick={addAppointment}
-                        >
-                          <Plus className="h-4 w-4 mr-2" />
-                          Aggiungi Appuntamento
-                        </Button>
-
-                        <div className="border-t pt-4 mt-4">
-                          {filteredAppointments.length > 0 ? (
-                            <div className="space-y-4">
-                              {filteredAppointments.map((appointment) => (
-                                <div
-                                  key={appointment.id}
-                                  className="p-4 border rounded-lg"
-                                >
-                                  <div className="flex justify-between items-start">
-                                    <div>
-                                      <h4 className="font-medium">
-                                        {appointment.title}
-                                      </h4>
-                                      <p className="text-sm text-muted-foreground">
-                                        Orario: {appointment.time}
-                                      </p>
-                                      {/*
-                                        Lo **stato** e la cosa che la colonna
-                                        JSON non aveva e che la segreteria deve
-                                        vedere per prima: una richiesta in
-                                        attesa di risposta non e un
-                                        appuntamento confermato, e finche le due
-                                        cose si somigliavano nessuno rispondeva
-                                        a nessuno.
-                                      */}
-                                      <p className="text-sm text-muted-foreground">
-                                        {appointment.status_label}
-                                      </p>
-                                      {appointment.notes ? (
-                                        <p className="text-sm mt-2">
-                                          {appointment.notes}
-                                        </p>
-                                      ) : null}
-                                    </div>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={() =>
-                                        deleteAppointment(appointment.id)
-                                      }
-                                    >
-                                      <Trash2 className="h-4 w-4 text-red-500" />
-                                    </Button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-center text-muted-foreground py-4">
-                              Nessun appuntamento per questa data
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="notes" className="space-y-4 mt-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Note e Promemoria</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="note-content">Nuova Nota</Label>
-                        <Textarea
-                          id="note-content"
-                          value={newNote}
-                          onChange={(e) => setNewNote(e.target.value)}
-                          placeholder="Scrivi una nota o un promemoria..."
-                          rows={3}
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="note-expiry">
-                          Data di Scadenza (opzionale)
-                        </Label>
-                        <Input
-                          id="note-expiry"
-                          type="date"
-                          value={
-                            newNoteExpiryDate
-                              ? newNoteExpiryDate.toISOString().split("T")[0]
-                              : ""
-                          }
-                          onChange={(e) => {
-                            const selectedDate = e.target.value
-                              ? new Date(e.target.value)
-                              : undefined;
-                            setNewNoteExpiryDate(selectedDate);
-                          }}
-                          min={todayLocalDateOnly()}
-                          className="w-full"
-                        />
-                      </div>
-
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="note-target-type">
-                            Destinazione promemoria
-                          </Label>
-                          <select
-                            id="note-target-type"
-                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            value={newNoteTargetType}
-                            onChange={(e) => {
-                              setNewNoteTargetType(
-                                e.target.value as ReminderTargetType,
-                              );
-                              setNewNoteTargetId("");
-                            }}
-                          >
-                            <option value="club_dashboard">
-                              Interno dashboard club
-                            </option>
-                            <option value="all_trainers">
-                              Tutti gli allenatori
-                            </option>
-                            <option value="trainer">
-                              Allenatore specifico
-                            </option>
-                            <option value="staff_member">
-                              Membro staff specifico
-                            </option>
-                            <option value="member">Socio specifico</option>
-                          </select>
-                        </div>
-
-                        {["trainer", "staff_member", "member"].includes(
-                          newNoteTargetType,
-                        ) ? (
-                          <div className="space-y-2">
-                            <Label htmlFor="note-target-id">
-                              Seleziona destinatario
-                            </Label>
-                            <select
-                              id="note-target-id"
-                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                              value={newNoteTargetId}
-                              onChange={(e) => setNewNoteTargetId(e.target.value)}
-                            >
-                              <option value="">Seleziona...</option>
-                              {getReminderTargetOptions(newNoteTargetType).map(
-                                (option) => (
-                                  <option key={option.id} value={option.id}>
-                                    {option.label}
-                                  </option>
-                                ),
-                              )}
-                            </select>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="checkbox"
-                          id="note-notification"
-                          checked={newNoteNotificationEnabled}
-                          onChange={(e) =>
-                            setNewNoteNotificationEnabled(e.target.checked)
-                          }
-                          className="h-4 w-4 rounded border-gray-300"
-                        />
-                        <Label htmlFor="note-notification">
-                          Ricevi notifica alla scadenza
-                        </Label>
-                      </div>
-
-                      {newNoteNotificationEnabled && (
-                        <div className="space-y-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="radio"
-                              id="note-all-day"
-                              name="notification-type"
-                              checked={newNoteIsAllDay}
-                              onChange={() => setNewNoteIsAllDay(true)}
-                              className="h-4 w-4"
-                            />
-                            <Label
-                              htmlFor="note-all-day"
-                              className="cursor-pointer"
-                            >
-                              Promemoria per l&apos;intera giornata (notifica alle
-                              08:00)
-                            </Label>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="radio"
-                              id="note-specific-time"
-                              name="notification-type"
-                              checked={!newNoteIsAllDay}
-                              onChange={() => setNewNoteIsAllDay(false)}
-                              className="h-4 w-4"
-                            />
-                            <Label
-                              htmlFor="note-specific-time"
-                              className="cursor-pointer"
-                            >
-                              Orario specifico (notifica 30 min prima)
-                            </Label>
-                          </div>
-                          {!newNoteIsAllDay && (
-                            <div className="ml-6">
-                              <Label htmlFor="note-time">Orario</Label>
-                              <Input
-                                id="note-time"
-                                type="time"
-                                value={newNoteTime}
-                                onChange={(e) => setNewNoteTime(e.target.value)}
-                                className="w-32 mt-1"
-                              />
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      <Button
-                        className="w-full bg-blue-600 hover:bg-blue-700"
-                        onClick={addNote}
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Aggiungi Nota
-                      </Button>
-
-                      <div className="border-t pt-4 mt-4">
-                        {notes.length > 0 ? (
-                          <div className="space-y-4">
-                            {notes.map((note) => (
-                              <div
-                                key={note.id}
-                                className="p-4 border rounded-lg"
-                              >
-                                {editingNote === note.id ? (
-                                  <div className="space-y-4">
-                                    <div className="space-y-2">
-                                      <Label>Contenuto</Label>
-                                      <Textarea
-                                        value={editedNoteContent}
-                                        onChange={(e) =>
-                                          setEditedNoteContent(e.target.value)
-                                        }
-                                        rows={3}
-                                      />
-                                    </div>
-
-                                    <div className="space-y-2">
-                                      <Label>Data di scadenza</Label>
-                                      <Input
-                                        type="date"
-                                        value={
-                                          editedNoteExpiryDate
-                                            ? editedNoteExpiryDate
-                                                .toISOString()
-                                                .split("T")[0]
-                                            : ""
-                                        }
-                                        onChange={(e) =>
-                                          setEditedNoteExpiryDate(
-                                            e.target.value
-                                              ? new Date(e.target.value)
-                                              : undefined,
-                                          )
-                                        }
-                                      />
-                                    </div>
-
-                                    <div className="grid gap-3 md:grid-cols-2">
-                                      <div className="space-y-2">
-                                        <Label>Destinazione promemoria</Label>
-                                        <select
-                                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                          value={editedNoteTargetType}
-                                          onChange={(e) => {
-                                            setEditedNoteTargetType(
-                                              e.target.value as ReminderTargetType,
-                                            );
-                                            setEditedNoteTargetId("");
-                                          }}
-                                        >
-                                          <option value="club_dashboard">
-                                            Interno dashboard club
-                                          </option>
-                                          <option value="all_trainers">
-                                            Tutti gli allenatori
-                                          </option>
-                                          <option value="trainer">
-                                            Allenatore specifico
-                                          </option>
-                                          <option value="staff_member">
-                                            Membro staff specifico
-                                          </option>
-                                          <option value="member">
-                                            Socio specifico
-                                          </option>
-                                        </select>
-                                      </div>
-
-                                      {["trainer", "staff_member", "member"].includes(
-                                        editedNoteTargetType,
-                                      ) ? (
-                                        <div className="space-y-2">
-                                          <Label>Seleziona destinatario</Label>
-                                          <select
-                                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                            value={editedNoteTargetId}
-                                            onChange={(e) =>
-                                              setEditedNoteTargetId(e.target.value)
-                                            }
-                                          >
-                                            <option value="">Seleziona...</option>
-                                            {getReminderTargetOptions(
-                                              editedNoteTargetType,
-                                            ).map((option) => (
-                                              <option
-                                                key={option.id}
-                                                value={option.id}
-                                              >
-                                                {option.label}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                      ) : null}
-                                    </div>
-
-                                    <div className="flex items-center space-x-2">
-                                      <input
-                                        type="checkbox"
-                                        id={`edit-note-notification-${note.id}`}
-                                        checked={editedNoteNotificationEnabled}
-                                        onChange={(e) =>
-                                          setEditedNoteNotificationEnabled(
-                                            e.target.checked,
-                                          )
-                                        }
-                                        className="h-4 w-4 rounded border-gray-300"
-                                      />
-                                      <Label
-                                        htmlFor={`edit-note-notification-${note.id}`}
-                                      >
-                                        Ricevi notifica alla scadenza
-                                      </Label>
-                                    </div>
-
-                                    {editedNoteNotificationEnabled && (
-                                      <div className="space-y-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                                        <div className="flex items-center space-x-2">
-                                          <input
-                                            type="radio"
-                                            id={`edit-note-all-day-${note.id}`}
-                                            name={`edit-notification-type-${note.id}`}
-                                            checked={editedNoteIsAllDay}
-                                            onChange={() =>
-                                              setEditedNoteIsAllDay(true)
-                                            }
-                                            className="h-4 w-4"
-                                          />
-                                          <Label
-                                            htmlFor={`edit-note-all-day-${note.id}`}
-                                            className="cursor-pointer"
-                                          >
-                                            Promemoria per l&apos;intera giornata
-                                            (notifica alle 08:00)
-                                          </Label>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                          <input
-                                            type="radio"
-                                            id={`edit-note-specific-time-${note.id}`}
-                                            name={`edit-notification-type-${note.id}`}
-                                            checked={!editedNoteIsAllDay}
-                                            onChange={() =>
-                                              setEditedNoteIsAllDay(false)
-                                            }
-                                            className="h-4 w-4"
-                                          />
-                                          <Label
-                                            htmlFor={`edit-note-specific-time-${note.id}`}
-                                            className="cursor-pointer"
-                                          >
-                                            Orario specifico (notifica 30 min
-                                            prima)
-                                          </Label>
-                                        </div>
-                                        {!editedNoteIsAllDay && (
-                                          <div className="ml-6">
-                                            <Label
-                                              htmlFor={`edit-note-time-${note.id}`}
-                                            >
-                                              Orario
-                                            </Label>
-                                            <Input
-                                              id={`edit-note-time-${note.id}`}
-                                              type="time"
-                                              value={editedNoteTime}
-                                              onChange={(e) =>
-                                                setEditedNoteTime(
-                                                  e.target.value,
-                                                )
-                                              }
-                                              className="w-32 mt-1"
-                                            />
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-
-                                    <div className="flex justify-end gap-2">
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setEditingNote(null)}
-                                      >
-                                        Annulla
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        className="bg-blue-600 hover:bg-blue-700"
-                                        onClick={() => saveEditedNote(note.id)}
-                                      >
-                                        <Check className="h-4 w-4 mr-1" />
-                                        Salva
-                                      </Button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div>
-                                    <div className="flex justify-between items-start">
-                                      <div className="flex-1">
-                                        <p className="whitespace-pre-wrap">
-                                          {note.content}
-                                        </p>
-                                        <div className="text-xs text-muted-foreground mt-2 space-y-1">
-                                          <p>Creata: {formatDate(note.date)}</p>
-                                          <p>{getReminderTargetSummary(note)}</p>
-                                          {note.expiryDate && (
-                                            <p className="text-amber-600">
-                                              Scade:{" "}
-                                              {formatDate(note.expiryDate)}
-                                              {!note.isAllDay &&
-                                                note.notificationTime &&
-                                                ` alle ${note.notificationTime}`}
-                                            </p>
-                                          )}
-                                          {note.notificationEnabled && (
-                                            <p className="text-blue-600">
-                                              🔔 Notifica attiva
-                                            </p>
-                                          )}
-                                        </div>
-                                      </div>
-                                      <div className="flex gap-1">
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          onClick={() => startEditNote(note)}
-                                        >
-                                          <Edit className="h-4 w-4 text-blue-500" />
-                                        </Button>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          onClick={() => deleteNote(note.id)}
-                                        >
-                                          <Trash2 className="h-4 w-4 text-red-500" />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-center text-muted-foreground py-4">
-                            Nessuna nota presente
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
+            {/* ── Orari di apertura ─────────────────────────────────────────── */}
+            <div className={area === "orari" ? "flex flex-col gap-[18px]" : "hidden"}>
+              <OpeningHoursPanel value={openingHours} onChange={setOpeningHours} staff={people.staff} dirty={hoursDirty} saving={savingHours} loading={loading} onSave={() => void saveOpeningHours()} />
+            </div>
           </DashboardPageContainer>
         </main>
       </div>
 
-      {/* View Appointment Dialog */}
-      <Dialog
-        open={isViewAppointmentOpen}
-        onOpenChange={setIsViewAppointmentOpen}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {selectedAppointment?.title || "Dettagli Appuntamento"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {selectedAppointment && (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm font-medium">Data</p>
-                    <p className="text-sm">
-                      {new Date(selectedAppointment.date).toLocaleDateString(
-                        "it-IT",
-                        {
-                          weekday: "long",
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        },
-                      )}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Orario</p>
-                    <p className="text-sm">{selectedAppointment.time}</p>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-sm font-medium">Stato</p>
-                  <p className="text-sm">{selectedAppointment.status_label}</p>
-                </div>
-                {selectedAppointment.notes ? (
-                  <div>
-                    <p className="text-sm font-medium">Motivo</p>
-                    <p className="text-sm whitespace-pre-wrap">
-                      {selectedAppointment.notes}
-                    </p>
-                  </div>
-                ) : null}
-                {selectedAppointment.decision_note ? (
-                  <div>
-                    <p className="text-sm font-medium">Nota della decisione</p>
-                    <p className="text-sm whitespace-pre-wrap">
-                      {selectedAppointment.decision_note}
-                    </p>
-                  </div>
-                ) : null}
+      <NewAppointmentDrawer
+        open={newAppointmentOpen}
+        onOpenChange={setNewAppointmentOpen}
+        openingHours={openingHours}
+        nominativi={people.nominativi}
+        onSubmit={addAppointment}
+        onConfigureHours={() => {
+          setNewAppointmentOpen(false);
+          selectArea("orari");
+        }}
+      />
 
-                {/*
-                  **Le mosse le dichiara il dominio, non questa schermata.**
-                  `transitions` arriva da `listAppointmentTransitions`, che
-                  conosce la macchina a stati: un appuntamento gia rifiutato non
-                  mostra «Conferma», e non perche qui ci sia un `if` che se lo
-                  ricorda. Una schermata che decidesse da se quali pulsanti
-                  mostrare sarebbe una seconda macchina a stati, e prima o poi
-                  direbbe qualcosa di diverso dalla prima.
-                */}
-                {/*
-                  W6-51. Si legge `actions`, non `transitions`.
+      <AppointmentInspector
+        open={inspectorOpen}
+        onOpenChange={(open) => {
+          setInspectorOpen(open);
+          if (!open) setInspecting(null);
+        }}
+        appointment={inspecting}
+        busy={decidendo}
+        onDecide={decide}
+        onReschedule={riprogrammaAppuntamento}
+      />
 
-                  `transitions` porta gli **stati** di arrivo — `confirmed`,
-                  `rejected` — e qui si confrontavano con i nomi delle
-                  **azioni** che la rotta accetta: `"confirmed" !== "confirm"`,
-                  quindi i tre rami erano sempre falsi e il dialogo mostrava
-                  solo «Chiudi». Il dominio sapeva confermare e rifiutare, la
-                  rotta rispondeva, e la segreteria non aveva un pulsante.
-                */}
-                {(selectedAppointment.actions || []).length > 0 ? (
-                  <div className="space-y-2 border-t pt-4">
-                    <Label htmlFor="appointment-decision">Nota</Label>
-                    <Textarea
-                      id="appointment-decision"
-                      value={decisione}
-                      onChange={(event) => setDecisione(event.target.value)}
-                      placeholder="Il motivo, se rifiuti o annulli: la famiglia lo legge"
-                      rows={2}
-                    />
-                    {/*
-                      La stessa casella scrive in due campi diversi, e va detto:
-                      su rifiuto, annullo e spostamento diventa `decision_note`
-                      e la famiglia la legge; su «Concluso» e «Assente» diventa
-                      `internal_notes`, che la proiezione verso la famiglia non
-                      ha. Chi scrive deve sapere chi legge.
-                    */}
-                    <p className="text-xs text-muted-foreground">
-                      Su «Concluso» e «Assente» la nota resta interna: la
-                      famiglia non la vede e non riceve nessun avviso.
-                    </p>
-                  </div>
-                ) : null}
+      <NoteDrawer open={noteDrawer.open} onOpenChange={(open) => setNoteDrawer((current) => ({ ...current, open }))} note={noteDrawer.note} people={people} onSubmit={saveNote} />
 
-                {/*
-                  W6-52. Lo spostamento **crea una riga nuova e chiude questa**
-                  (ADR-0101): non e la modifica della data, ed e per questo che
-                  il dialogo si chiude e l'elenco si ricarica invece di
-                  aggiornare la riga che si aveva davanti.
-                */}
-                {(selectedAppointment.actions || []).includes("reschedule") ? (
-                  <div className="space-y-2 rounded-lg border p-3">
-                    <p className="text-sm font-medium">Sposta l&apos;appuntamento</p>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <div className="space-y-1">
-                        <Label htmlFor="appointment-new-date">Nuovo giorno</Label>
-                        <Input
-                          id="appointment-new-date"
-                          type="date"
-                          value={nuovaData}
-                          onChange={(event) => setNuovaData(event.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label htmlFor="appointment-new-time">Nuovo orario</Label>
-                        <Input
-                          id="appointment-new-time"
-                          type="time"
-                          value={nuovaOra}
-                          onChange={(event) => setNuovaOra(event.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      L&apos;orario deve cadere su uno slot libero: configura le
-                      fasce dalla{" "}
-                      <Link className="underline" href="/appuntamenti">
-                        disponibilita appuntamenti
-                      </Link>
-                      .
-                    </p>
-                    <Button
-                      variant="outline"
-                      className="w-full sm:w-auto"
-                      disabled={decidendo || !nuovaData || !nuovaOra}
-                      onClick={() =>
-                        void riprogrammaAppuntamento(selectedAppointment)
-                      }
-                    >
-                      Conferma lo spostamento
-                    </Button>
-                  </div>
-                ) : null}
-
-                {/*
-                  `flex-wrap`: a 375 px tre comandi in fila non ci stanno, e
-                  senza il ritorno a capo l'ultimo — che qui e «Chiudi» — esce
-                  dal dialogo.
-                */}
-                <div className="flex flex-wrap justify-end gap-2 pt-4">
-                  {(selectedAppointment.actions || []).includes("confirm") ? (
-                    <Button
-                      disabled={decidendo}
-                      onClick={() =>
-                        decidiAppuntamento(selectedAppointment, "confirm")
-                      }
-                    >
-                      Conferma
-                    </Button>
-                  ) : null}
-                  {(selectedAppointment.actions || []).includes("reject") ? (
-                    <Button
-                      variant="outline"
-                      disabled={decidendo}
-                      onClick={() =>
-                        decidiAppuntamento(selectedAppointment, "reject")
-                      }
-                    >
-                      Rifiuta
-                    </Button>
-                  ) : null}
-                  {(selectedAppointment.actions || []).includes("complete") ? (
-                    <Button
-                      variant="outline"
-                      disabled={decidendo}
-                      onClick={() =>
-                        void chiudiAppuntamento(selectedAppointment, "complete")
-                      }
-                    >
-                      Concluso
-                    </Button>
-                  ) : null}
-                  {(selectedAppointment.actions || []).includes("no-show") ? (
-                    <Button
-                      variant="outline"
-                      disabled={decidendo}
-                      onClick={() =>
-                        void chiudiAppuntamento(selectedAppointment, "no-show")
-                      }
-                    >
-                      Assente
-                    </Button>
-                  ) : null}
-                  {(selectedAppointment.actions || []).includes("cancel") ? (
-                    <Button
-                      variant="outline"
-                      disabled={decidendo}
-                      onClick={() => {
-                        void deleteAppointment(selectedAppointment.id);
-                        setIsViewAppointmentOpen(false);
-                      }}
-                    >
-                      Annulla l&#8217;appuntamento
-                    </Button>
-                  ) : null}
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsViewAppointmentOpen(false)}
-                  >
-                    Chiudi
-                  </Button>
-                </div>
-              </>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {confirmDialog}
     </div>
   );
 }

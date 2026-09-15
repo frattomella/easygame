@@ -34,13 +34,33 @@ import {
  */
 
 const SRC = path.join(process.cwd(), "src");
-const leggi = (relativo) =>
+const leggiFile = (relativo) =>
   readFileSync(path.join(SRC, ...relativo.split("/")), "utf8");
 
-const SCHERMATE = [
-  "app/communications/page.tsx",
-  "app/communications/bacheca/page.tsx",
-];
+/*
+  Dal Web V2 (Wave E) il blocco «criterio + caselle» vive una volta sola in
+  `components/communications/v2/audience-picker.tsx`, montato da entrambe le
+  pagine (la bacheca dentro il cassetto «Nuovo avviso»). Una «schermata» e
+  quindi la pagina **piu** i componenti V2 che compone: l'elenco dei criteri
+  offerti resta nella pagina, il caricamento degli eventi e l'etichetta che
+  va a capo stanno nel selettore.
+*/
+const COMPOSIZIONE = {
+  "app/communications/page.tsx": [
+    "app/communications/page.tsx",
+    "components/communications/v2/audience-picker.tsx",
+  ],
+  "app/communications/bacheca/page.tsx": [
+    "app/communications/bacheca/page.tsx",
+    "components/communications/v2/announcement-drawer.tsx",
+    "components/communications/v2/audience-picker.tsx",
+  ],
+};
+
+const leggi = (schermata) =>
+  (COMPOSIZIONE[schermata] || [schermata]).map(leggiFile).join("\n");
+
+const SCHERMATE = Object.keys(COMPOSIZIONE);
 
 // --- i due criteri sono selezionabili -------------------------------------
 

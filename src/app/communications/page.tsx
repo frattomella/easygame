@@ -1,35 +1,33 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Eye, Plus } from "lucide-react";
 import Header from "@/components/dashboard/Header";
 import Sidebar from "@/components/dashboard/Sidebar";
-import {
-  DashboardPageContainer,
-  dashboardMainClassName,
-} from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
-import { AUDIENCE_EXCLUSION_LABELS } from "@/lib/audience/recipients";
+import { type AudienceCriterionKind } from "@/lib/audience/criteria";
+import { PageHeader } from "@/components/web/page/PageHeader";
+import { Button } from "@/components/web/primitives/Button";
+import { Panel, PanelHeader } from "@/components/web/primitives/Surface";
+import { Field, TextInput, Textarea, ValidationSummary } from "@/components/web/forms/Field";
+import { useConfirm } from "@/components/web/overlays/useConfirm";
+import { formatInteger } from "@/lib/web/format";
+import { CommunicationsNav } from "@/components/communications/v2/communications-nav";
 import {
-  AUDIENCE_CRITERION_LABELS,
-  type AudienceCriterionKind,
-} from "@/lib/audience/criteria";
+  AudiencePicker,
+  audienceCriteriaPayload,
+  audienceSelectionError,
+  useAudienceOptions,
+} from "@/components/communications/v2/audience-picker";
 import {
-  audienceCriterionNeedsSelection,
-  eventAudienceOptions,
-  isEventAudienceKind,
-  loadSelectableEvents,
-  EVENT_AUDIENCE_WINDOW_DAYS,
-  type SelectableEvent,
-} from "@/components/communications/audience-events";
-import { AlertTriangle, Eye, Mail, Send, Users } from "lucide-react";
+  CommunicationOutcomePanel,
+  CommunicationPreviewPanel,
+  CommunicationRecipientsGrid,
+  type CommunicationOutcome,
+  type CommunicationPreview,
+} from "@/components/communications/v2/communication-preview";
 
 /**
  * Un punto di partenza per chi non sa da dove cominciare.
@@ -45,18 +43,11 @@ const COMMUNICATION_ID_KEY = "easygame_communication_id";
 
 const TESTO_DI_PARTENZA = {
   subject: "Comunicazione da {{club.name}}",
-  body: [
-    "Gentile {{recipient.name}},",
-    "",
-    "",
-    "",
-    "Un saluto,",
-    "{{club.name}}",
-  ].join("\n"),
+  body: ["Gentile {{recipient.name}},", "", "", "", "Un saluto,", "{{club.name}}"].join("\n"),
 };
 
 /**
- * La comunicazione massiva alle famiglie (W2-C, G-07).
+ * La comunicazione massiva alle famiglie (W2-C, G-07) — Web V2.
  *
  * **Perche l'anteprima non e facoltativa.** Un invio massivo e irreversibile e
  * raggiunge persone reali fuori dal prodotto: l'unico momento in cui si puo
@@ -102,69 +93,24 @@ const CRITERI_OFFERTI = [
 
 type AudienceKind = (typeof CRITERI_OFFERTI)[number];
 
-type Preview = {
-  clubName: string;
-  communicationId: string;
-  criteriaLabel: string;
-  reachable: Array<{
-    email: string;
-    name: string;
-    athleteNames: string[];
-    hasAccount: boolean;
-  }>;
-  excluded: Array<{
-    athleteName: string;
-    guardianName: string | null;
-    email: string | null;
-    reason: keyof typeof AUDIENCE_EXCLUSION_LABELS;
-  }>;
-  counts: { recipients: number; positions: number; excluded: number };
-  sample: {
-    to: string;
-    subject: string;
-    text: string;
-    unresolved: string[];
-  } | null;
-  invalidPlaceholders: string[];
-  emailConfigured: boolean;
-  canSend: boolean;
-  blockedReason: string | null;
-};
-
-type Outcome = {
-  totals: { sent: number; skipped: number; failed: number };
-  remaining: number;
-  deliveries: Array<{
-    email: string;
-    name: string;
-    status: "sent" | "skipped" | "failed";
-    reason: string | null;
-  }>;
-};
-
-type Option = { id: string; label: string };
-
-const asArray = (value: unknown): any[] => (Array.isArray(value) ? value : []);
-
-const optionLabel = (record: any) =>
-  String(record?.name || record?.label || record?.title || record?.id || "");
+const newCommunicationId = () =>
+  typeof globalThis.crypto?.randomUUID === "function" ? globalThis.crypto.randomUUID() : String(Date.now());
 
 export default function CommunicationsPage() {
   const { showToast } = useToast();
+  const [confirm, confirmDialog] = useConfirm();
 
   const [clubName, setClubName] = useState("");
   const [kind, setKind] = useState<AudienceKind>("all_families");
   const [selected, setSelected] = useState<string[]>([]);
-  const [categories, setCategories] = useState<Option[]>([]);
-  const [groups, setGroups] = useState<Option[]>([]);
-  const [sites, setSites] = useState<Option[]>([]);
-  const [events, setEvents] = useState<SelectableEvent[]>([]);
+  const { optionsFor } = useAudienceOptions();
 
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [errors, setErrors] = useState<Array<{ id?: string; label: string }>>([]);
 
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [preview, setPreview] = useState<CommunicationPreview | null>(null);
+  const [outcome, setOutcome] = useState<CommunicationOutcome | null>(null);
   const [busy, setBusy] = useState<"" | "preview" | "send">("");
 
   /*
@@ -201,11 +147,7 @@ export default function CommunicationsPage() {
       /* Sessione senza storage: si ripiega su un identificativo volatile. */
     }
 
-    const nuovo =
-      typeof globalThis.crypto?.randomUUID === "function"
-        ? globalThis.crypto.randomUUID()
-        : String(Date.now());
-
+    const nuovo = newCommunicationId();
     setCommunicationId(nuovo);
     try {
       window.sessionStorage.setItem(COMMUNICATION_ID_KEY, nuovo);
@@ -214,74 +156,18 @@ export default function CommunicationsPage() {
     }
   }, []);
 
-  useEffect(() => {
-    let annullato = false;
+  const opzioni = useMemo(() => optionsFor(kind), [kind, optionsFor]);
 
-    const carica = async () => {
-      /*
-        Gli eventi arrivano dalla **stessa** strada di categorie, gruppi e sedi
-        — `apiRequest` sulla rotta di lettura del dominio — invece che da un
-        caricamento inventato qui: quale evento si possa offrire lo decide
-        `audience-events.ts`, in un posto solo per questa pagina e per la
-        bacheca.
-      */
-      const [categorie, gruppi, sedi, eventi] = await Promise.all([
-        apiRequest<any[]>("/api/v1/categories"),
-        apiRequest<any[]>("/api/v1/category_groups"),
-        apiRequest<any[]>("/api/v1/club_sites"),
-        loadSelectableEvents(),
-      ]);
+  const criteria = useMemo(() => audienceCriteriaPayload(kind, selected), [kind, selected]);
 
-      if (annullato) return;
-
-      const mappa = (response: { data?: any }): Option[] =>
-        asArray(response?.data).map((record) => ({
-          id: String(record?.id || ""),
-          label: optionLabel(record),
-        }));
-
-      setCategories(mappa(categorie));
-      setGroups(mappa(gruppi));
-      setSites(mappa(sedi));
-      setEvents(eventi);
-    };
-
-    carica().catch(() => undefined);
-
-    return () => {
-      annullato = true;
-    };
-  }, []);
-
-  const opzioni = useMemo(() => {
-    if (kind === "category_ids") return categories;
-    if (kind === "group_ids") return groups;
-    if (kind === "site_ids") return sites;
-    if (isEventAudienceKind(kind)) return eventAudienceOptions(events, kind);
-    return [];
-  }, [kind, categories, groups, sites, events]);
-
-  /*
-    **Se un criterio pretende una selezione lo dice il dominio**, non la
-    tendina. Prima l'elenco dei criteri con valori era scritto qui una seconda
-    volta, e un criterio nuovo — i due di evento sono proprio questo caso —
-    sarebbe partito con `[{ kind }]` e il server lo avrebbe rifiutato.
-  */
-  const richiedeSelezione = useMemo(
-    () => audienceCriterionNeedsSelection(kind),
-    [kind],
-  );
-
-  const criteria = useMemo(
-    () => (richiedeSelezione ? [{ kind, values: selected }] : [{ kind }]),
-    [kind, selected, richiedeSelezione],
-  );
+  /** Ogni modifica al modulo invalida l'anteprima: si manda cio che si e visto. */
+  const invalidatePreview = () => setPreview(null);
 
   const richiedi = useCallback(
     async (modalita: "preview" | "send") => {
+      const trovati: Array<{ id?: string; label: string }> = [];
       if (!subject.trim() || !body.trim()) {
-        showToast("error", "Oggetto e testo del messaggio sono obbligatori");
-        return;
+        trovati.push({ id: !subject.trim() ? "comunicazione-oggetto" : "comunicazione-testo", label: "Oggetto e testo del messaggio sono obbligatori" });
       }
       /*
         Il controllo guarda **il criterio**, non quante opzioni sono arrivate:
@@ -289,14 +175,22 @@ export default function CommunicationsPage() {
         evento» senza eventi in programma — passava il controllo e finiva in
         un errore del server che non spiega cosa fare.
       */
-      if (richiedeSelezione && selected.length === 0) {
-        showToast(
-          "error",
-          opzioni.length === 0
-            ? "Nessuna voce disponibile per questo criterio: scegline un altro"
-            : "Seleziona almeno una voce per questo criterio",
-        );
+      const erroreSelezione = audienceSelectionError(kind, selected, opzioni);
+      if (erroreSelezione) trovati.push({ id: "comunicazione-opzioni", label: erroreSelezione });
+      setErrors(trovati);
+      if (trovati.length) {
+        showToast("error", trovati[0].label);
         return;
+      }
+
+      if (modalita === "send" && preview) {
+        const quanti = outcome && outcome.remaining > 0 ? outcome.remaining : preview.counts.recipients;
+        const ok = await confirm({
+          title: `Mandare a ${formatInteger(quanti)} ${quanti === 1 ? "destinatario" : "destinatari"}?`,
+          description: "L'email parte subito e non si puo richiamare. Chi e gia stato raggiunto con questa comunicazione non la riceve una seconda volta.",
+          confirmLabel: "Manda",
+        });
+        if (!ok) return;
       }
 
       setBusy(modalita);
@@ -312,38 +206,24 @@ export default function CommunicationsPage() {
       setBusy("");
 
       if (response.error || !response.data) {
-        showToast(
-          "error",
-          response.error?.message || "Operazione non riuscita",
-        );
+        showToast("error", response.error?.message || "Operazione non riuscita");
         return;
       }
 
       if (modalita === "preview") {
-        setPreview(response.data as Preview);
+        setPreview(response.data as CommunicationPreview);
         setOutcome(null);
         return;
       }
 
-      const esito = response.data as Outcome;
+      const esito = response.data as CommunicationOutcome;
       setOutcome(esito);
       showToast(
         esito.totals.sent > 0 ? "success" : "error",
-        esito.totals.sent > 0
-          ? `Inviato a ${esito.totals.sent} destinatari`
-          : "Nessun messaggio inviato: leggi l'esito per destinatario",
+        esito.totals.sent > 0 ? `Inviato a ${esito.totals.sent} destinatari` : "Nessun messaggio inviato: leggi l'esito per destinatario",
       );
     },
-    [
-      subject,
-      body,
-      criteria,
-      communicationId,
-      opzioni,
-      richiedeSelezione,
-      selected,
-      showToast,
-    ],
+    [subject, body, criteria, communicationId, opzioni, kind, selected, showToast, preview, outcome, confirm],
   );
 
   const nuovaComunicazione = () => {
@@ -352,16 +232,13 @@ export default function CommunicationsPage() {
     setSubject("");
     setBody("");
     setSelected([]);
+    setErrors([]);
 
     /*
       **Questo** e il gesto che dichiara una comunicazione nuova, ed e l'unico:
       il ricaricamento della pagina non lo e.
     */
-    const nuovo =
-      typeof globalThis.crypto?.randomUUID === "function"
-        ? globalThis.crypto.randomUUID()
-        : String(Date.now());
-
+    const nuovo = newCommunicationId();
     setCommunicationId(nuovo);
     try {
       window.sessionStorage.setItem(COMMUNICATION_ID_KEY, nuovo);
@@ -371,308 +248,126 @@ export default function CommunicationsPage() {
   };
 
   return (
-    <div className="flex h-[100dvh] bg-slate-50">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header title="Comunicazioni" />
         <main className={dashboardMainClassName}>
-          <DashboardPageContainer className="max-w-6xl">
-            <SharedPageHeader
+          <DashboardPageContainer>
+            <PageHeader
+              eyebrow="Segreteria"
               title="Comunicazioni"
-              subtitle={`Scrivi alle famiglie ${clubName ? `di ${clubName}` : "del club"} e vedi chi raggiungi prima di mandare.`}
+              description={`Scrivi alle famiglie ${clubName ? `di ${clubName}` : "del club"} e vedi chi raggiungi prima di mandare.`}
               actions={
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" asChild>
-                    <a href="/communications/bacheca">Bacheca</a>
-                  </Button>
-                  <Button variant="outline" asChild>
-                    <a href="/communications/automazioni">Automazioni</a>
-                  </Button>
-                  <Button variant="outline" onClick={nuovaComunicazione}>
-                    Nuova comunicazione
-                  </Button>
-                </div>
+                <Button variant="secondary" icon={<Plus />} onClick={nuovaComunicazione}>
+                  Nuova comunicazione
+                </Button>
               }
-            />
+            >
+              <CommunicationsNav />
+            </PageHeader>
 
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Users className="h-4 w-4" aria-hidden="true" />
-                    Destinatari
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="criterio">Criterio</Label>
-                    <select
-                      id="criterio"
-                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                      value={kind}
-                      onChange={(event) => {
-                        setKind(event.target.value as AudienceKind);
-                        setSelected([]);
-                        setPreview(null);
-                      }}
-                    >
-                      {CRITERI_OFFERTI.map((value) => (
-                        <option key={value} value={value}>
-                          {AUDIENCE_CRITERION_LABELS[value]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+            <div className="grid gap-[18px] lg:grid-cols-2">
+              <Panel as="section" data-test="communication-compose">
+                <PanelHeader eyebrow="Passo 1" title="Destinatari e messaggio" description="Scegli chi raggiungere e cosa scrivere; l'anteprima ti dice chi legge davvero." />
+                <form
+                  className="flex flex-col gap-5"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void richiedi("preview");
+                  }}
+                >
+                  <ValidationSummary errors={errors} />
 
-                  {richiedeSelezione ? (
-                    <div className="space-y-2">
-                      <Label>Seleziona</Label>
-                      {opzioni.length > 0 ? (
-                        <div className="max-h-52 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
-                          {opzioni.map((opzione) => (
-                            <label
-                              key={opzione.id}
-                              className="flex items-start gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
-                            >
-                              <input
-                                type="checkbox"
-                                className="mt-0.5 shrink-0"
-                                checked={selected.includes(opzione.id)}
-                                onChange={(event) => {
-                                  setPreview(null);
-                                  setSelected((current) =>
-                                    event.target.checked
-                                      ? [...current, opzione.id]
-                                      : current.filter(
-                                          (id) => id !== opzione.id,
-                                        ),
-                                  );
-                                }}
-                              />
-                              {/*
-                                A 375 px l'etichetta di un evento — data, ora,
-                                nome, categoria — e piu larga della colonna:
-                                senza `min-w-0` il testo non va a capo, allarga
-                                il riquadro e con lui la pagina.
-                              */}
-                              <span className="min-w-0 flex-1 break-words">
-                                {opzione.label}
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                      ) : (
-                        /*
-                          Vuoto e diverso da «non ancora scelto»: senza questa
-                          riga la schermata mostrava un criterio, nessuna
-                          opzione e nessuna spiegazione.
-                        */
-                        <p className="rounded-md border border-dashed border-slate-200 p-3 text-sm text-slate-500">
-                          {isEventAudienceKind(kind)
-                            ? kind === "event_no_rsvp"
-                              ? "Nessun evento in programma con la conferma di presenza attiva: accendila sull'evento per poter scrivere a chi non ha risposto."
-                              : `Nessun evento in programma nei prossimi ${EVENT_AUDIENCE_WINDOW_DAYS} giorni.`
-                            : "Nessuna voce disponibile per questo criterio."}
-                        </p>
-                      )}
-                    </div>
-                  ) : null}
+                  <AudiencePicker
+                    idPrefix="comunicazione"
+                    criteria={CRITERI_OFFERTI}
+                    kind={kind}
+                    onKindChange={(next) => {
+                      setKind(next);
+                      setSelected([]);
+                      invalidatePreview();
+                    }}
+                    selected={selected}
+                    onSelectedChange={(next) => {
+                      setSelected(next);
+                      invalidatePreview();
+                    }}
+                    options={opzioni}
+                    error={errors.find((e) => e.id === "comunicazione-opzioni")?.label}
+                  />
 
-                  <div className="space-y-2">
-                    <Label htmlFor="oggetto">Oggetto</Label>
-                    <Input
-                      id="oggetto"
+                  <Field label="Oggetto" htmlFor="comunicazione-oggetto" required error={errors.find((e) => e.id === "comunicazione-oggetto")?.label}>
+                    <TextInput
+                      id="comunicazione-oggetto"
                       value={subject}
                       onChange={(event) => {
                         setSubject(event.target.value);
-                        setPreview(null);
+                        invalidatePreview();
                       }}
                       placeholder="Comunicazione da {{club.name}}"
                     />
-                  </div>
+                  </Field>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="testo">Messaggio</Label>
+                  <Field
+                    label="Messaggio"
+                    htmlFor="comunicazione-testo"
+                    required
+                    error={errors.find((e) => e.id === "comunicazione-testo")?.label}
+                    helper={
+                      <>
+                        Segnaposto disponibili: <code>{"{{club.name}}"}</code>, <code>{"{{recipient.name}}"}</code>, <code>{"{{athlete.first_name}}"}</code>.
+                      </>
+                    }
+                  >
                     <Textarea
-                      id="testo"
-                      className="h-40"
+                      id="comunicazione-testo"
+                      rows={8}
                       value={body}
                       onChange={(event) => {
                         setBody(event.target.value);
-                        setPreview(null);
+                        invalidatePreview();
                       }}
                       placeholder="Gentile {{recipient.name}}, ..."
                     />
-                    <p className="text-xs text-slate-500">
-                      Segnaposto disponibili: <code>{"{{club.name}}"}</code>,{" "}
-                      <code>{"{{recipient.name}}"}</code>,{" "}
-                      <code>{"{{athlete.first_name}}"}</code>.
-                    </p>
+                  </Field>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <Button
                       type="button"
-                      variant="ghost"
-                      className="h-8 px-2 text-xs"
+                      variant="text"
+                      size="sm"
                       onClick={() => {
                         setSubject(TESTO_DI_PARTENZA.subject);
                         setBody(TESTO_DI_PARTENZA.body);
-                        setPreview(null);
+                        invalidatePreview();
                       }}
                     >
                       Parti da un testo
                     </Button>
+                    {/*
+                      Navy pieno e non gradiente (guideline 05 C6): il
+                      gradiente della pagina e «Manda», che compare
+                      nell'anteprima; due gradienti sullo stesso schermo
+                      direbbero che si puo mandare senza aver guardato.
+                    */}
+                    <Button type="submit" variant="neutral" icon={<Eye />} loading={busy === "preview"} disabled={busy === "send"}>
+                      Vedi chi raggiungo
+                    </Button>
                   </div>
+                </form>
+              </Panel>
 
-                  <Button
-                    className="w-full"
-                    disabled={busy !== ""}
-                    onClick={() => richiedi("preview")}
-                  >
-                    <Eye className="mr-2 h-4 w-4" aria-hidden="true" />
-                    {busy === "preview" ? "Calcolo…" : "Vedi chi raggiungo"}
-                  </Button>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Mail className="h-4 w-4" aria-hidden="true" />
-                    Anteprima
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {!preview ? (
-                    <p className="text-sm text-slate-500">
-                      Scrivi il messaggio e premi «Vedi chi raggiungo»: nessun
-                      invio parte prima di questo passaggio.
-                    </p>
-                  ) : (
-                    <>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
-                          {preview.counts.recipients} raggiungibili
-                        </Badge>
-                        <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100">
-                          {preview.counts.excluded} esclusi
-                        </Badge>
-                        <Badge variant="outline">{preview.criteriaLabel}</Badge>
-                      </div>
-
-                      {preview.blockedReason ? (
-                        <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-sm text-amber-800">
-                          <AlertTriangle
-                            className="mt-0.5 h-4 w-4 shrink-0"
-                            aria-hidden="true"
-                          />
-                          <span>{preview.blockedReason}</span>
-                        </div>
-                      ) : null}
-
-                      {preview.sample ? (
-                        <div className="rounded-md border border-slate-200 bg-white p-3">
-                          <p className="text-xs uppercase text-slate-500">
-                            Come lo leggera {preview.sample.to}
-                          </p>
-                          <p className="mt-1 font-medium text-slate-900">
-                            {preview.sample.subject}
-                          </p>
-                          <pre className="mt-2 whitespace-pre-wrap break-words text-sm text-slate-700">
-                            {preview.sample.text}
-                          </pre>
-                          {preview.sample.unresolved.length > 0 ? (
-                            <p className="mt-2 text-xs text-amber-700">
-                              Senza valore:{" "}
-                              {preview.sample.unresolved.join(", ")}
-                            </p>
-                          ) : null}
-                        </div>
-                      ) : null}
-
-                      {preview.excluded.length > 0 ? (
-                        <div className="max-h-48 overflow-y-auto rounded-md border border-slate-200">
-                          <table className="w-full text-left text-sm">
-                            <tbody>
-                              {preview.excluded.map((row, index) => (
-                                <tr
-                                  key={`${row.athleteName}-${row.email || index}`}
-                                  className="border-b last:border-0"
-                                >
-                                  <td className="px-3 py-2">
-                                    {row.athleteName}
-                                  </td>
-                                  <td className="px-3 py-2 text-slate-500">
-                                    {AUDIENCE_EXCLUSION_LABELS[row.reason] ||
-                                      row.reason}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : null}
-
-                      <Button
-                        className="w-full bg-blue-600 hover:bg-blue-700"
-                        disabled={!preview.canSend || busy !== ""}
-                        onClick={() => richiedi("send")}
-                      >
-                        <Send className="mr-2 h-4 w-4" aria-hidden="true" />
-                        {busy === "send"
-                          ? "Invio…"
-                          : `Manda a ${preview.counts.recipients}`}
-                      </Button>
-                    </>
-                  )}
-
-                  {outcome ? (
-                    <div className="space-y-2 rounded-md bg-slate-50 p-3">
-                      <p className="text-sm font-medium text-slate-900">
-                        Inviati {outcome.totals.sent} · saltati{" "}
-                        {outcome.totals.skipped} · falliti{" "}
-                        {outcome.totals.failed}
-                      </p>
-                      {outcome.remaining > 0 ? (
-                        <Button
-                          variant="outline"
-                          className="w-full"
-                          disabled={busy !== ""}
-                          onClick={() => richiedi("send")}
-                        >
-                          Continua: restano {outcome.remaining}
-                        </Button>
-                      ) : null}
-                      <div className="max-h-40 overflow-y-auto text-sm">
-                        {outcome.deliveries.map((row, index) => (
-                          <p
-                            key={`${row.email}-${index}`}
-                            className="flex justify-between gap-2 border-b py-1 last:border-0"
-                          >
-                            <span className="truncate">
-                              {row.email || row.name || "—"}
-                            </span>
-                            <span
-                              className={
-                                row.status === "sent"
-                                  ? "text-emerald-700"
-                                  : row.status === "failed"
-                                    ? "text-red-700"
-                                    : "text-slate-500"
-                              }
-                            >
-                              {row.status}
-                              {row.reason ? ` · ${row.reason}` : ""}
-                            </span>
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </CardContent>
-              </Card>
+              <CommunicationPreviewPanel preview={preview} busy={busy === "send"} onSend={() => void richiedi("send")} />
             </div>
+
+            {preview ? <CommunicationRecipientsGrid preview={preview} /> : null}
+
+            {outcome ? <CommunicationOutcomePanel outcome={outcome} busy={busy === "send"} onContinue={() => void richiedi("send")} /> : null}
           </DashboardPageContainer>
         </main>
       </div>
+      {confirmDialog}
     </div>
   );
 }

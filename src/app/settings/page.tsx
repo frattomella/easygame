@@ -1,626 +1,213 @@
 "use client";
 
-import React from "react";
-import { useToast } from "@/components/ui/toast-notification";
-import { saveClubSettings, getClubSettings } from "@/lib/simplified-db";
+import * as React from "react";
+import { Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
+import { useToast } from "@/components/ui/toast-notification";
+import { getClubSettings, saveClubSettings } from "@/lib/simplified-db";
+import { PageHeader } from "@/components/web/page/PageHeader";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { SectionNav } from "@/components/web/record/Record";
+import { SegmentedControl, Skeleton } from "@/components/web/primitives/Controls";
+import { Panel } from "@/components/web/primitives/Surface";
+import { NotificationsPanel, SecurityPanel, SystemPanel } from "@/components/settings/v2/settings-sections";
 import {
-  DashboardPageContainer,
-  dashboardMainClassName,
-} from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
-import { Settings, User, Bell, Shield, Building, Globe } from "lucide-react";
+  DEFAULT_PREFERENCES,
+  SETTINGS_SECTIONS,
+  preferencesFrom,
+  resolveSettingsSection,
+  type ClubPreferences,
+  type NotificationSettings,
+  type SettingsSectionId,
+  type SystemSettings,
+} from "@/components/settings/v2/settings-model";
 
-export default function SettingsPage() {
+/**
+ * `/settings` — le preferenze del club (Web V2, pattern 5 «Settings»:
+ * intestazione → rail di sezione → un pannello per sezione con il proprio
+ * «Salva»). Stessa lettura e stessa scrittura della V1: `getClubSettings` e
+ * `saveClubSettings` sulle chiavi `notifications` e `system` di
+ * `clubs.settings`. Le tre schede sono tre sezioni raggiungibili con
+ * `?tab=notifiche|sistema|sicurezza`.
+ *
+ * La sezione Sicurezza non ha piu un modulo: quello della V1 non cambiava
+ * nessuna password (audit `wave-e-impostazioni.md`).
+ */
+function SettingsPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { showToast } = useToast();
+  const section: SettingsSectionId = resolveSettingsSection(searchParams?.get("tab"));
+
   const [loading, setLoading] = React.useState(true);
   const [clubId, setClubId] = React.useState<string>("");
-  const [settings, setSettings] = React.useState({
-    notifications: {
-      certificates: true,
-      trainings: true,
-      athletes: true,
-      email: true,
-    },
-    system: {
-      language: "it",
-      dateFormat: "dd/mm/yyyy",
-      backup: true,
-    },
-    security: {
-      currentPassword: "",
-      newPassword: "",
-      confirmPassword: "",
-      currentPin: "",
-      newPin: "",
-      confirmPin: "",
-    },
-  });
+  const [preferences, setPreferences] = React.useState<ClubPreferences>(DEFAULT_PREFERENCES);
+  const [persisted, setPersisted] = React.useState<ClubPreferences>(DEFAULT_PREFERENCES);
+  const [saving, setSaving] = React.useState<"notifications" | "system" | "">("");
+  const [savedAt, setSavedAt] = React.useState<{ notifications: Date | null; system: Date | null }>({ notifications: null, system: null });
 
-  // Load settings on component mount
   React.useEffect(() => {
-    loadSettings();
-  }, []);
-
-  const loadSettings = async () => {
-    try {
-      setLoading(true);
-
-      // Get club ID from localStorage
-      const activeClubData = localStorage.getItem("activeClub");
-      if (!activeClubData) {
-        console.warn("No active club found in localStorage");
-        setLoading(false);
-        return;
-      }
-
-      let activeClub;
+    const loadSettings = async () => {
       try {
-        activeClub = JSON.parse(activeClubData);
-      } catch (e) {
-        console.error("Error parsing active club data:", e);
-        showToast("error", "Errore nel caricamento dei dati del club");
+        setLoading(true);
+        const activeClubData = localStorage.getItem("activeClub");
+        if (!activeClubData) {
+          console.warn("No active club found in localStorage");
+          return;
+        }
+        let activeClub: any;
+        try {
+          activeClub = JSON.parse(activeClubData);
+        } catch (error) {
+          console.error("Error parsing active club data:", error);
+          showToast("error", "Errore nel caricamento dei dati del club");
+          return;
+        }
+        if (!activeClub || !activeClub.id) {
+          console.error("Active club data is invalid:", activeClub);
+          showToast("error", "ID Club non trovato");
+          return;
+        }
+        setClubId(activeClub.id);
+        const clubSettings = await getClubSettings(activeClub.id);
+        const loaded = preferencesFrom(clubSettings);
+        setPreferences(loaded);
+        setPersisted(loaded);
+      } catch (error) {
+        console.error("Error loading settings:", error);
+        showToast("error", "Errore nel caricamento delle impostazioni");
+      } finally {
         setLoading(false);
-        return;
       }
+    };
+    void loadSettings();
+  }, [showToast]);
 
-      if (!activeClub || !activeClub.id) {
-        console.error("Active club data is invalid:", activeClub);
-        showToast("error", "ID Club non trovato");
-        setLoading(false);
-        return;
-      }
+  /* «Salvato · hh:mm» resta quattro secondi (08 §8.8). */
+  React.useEffect(() => {
+    if (!savedAt.notifications && !savedAt.system) return;
+    const timer = setTimeout(() => setSavedAt({ notifications: null, system: null }), 4000);
+    return () => clearTimeout(timer);
+  }, [savedAt]);
 
-      const currentClubId = activeClub.id;
-      setClubId(currentClubId);
+  const notificationsDirty = JSON.stringify(preferences.notifications) !== JSON.stringify(persisted.notifications);
+  const systemDirty = JSON.stringify(preferences.system) !== JSON.stringify(persisted.system);
 
-      // Load settings from database
-      const clubSettings = await getClubSettings(currentClubId);
-
-      // Merge with default settings
-      setSettings((prevSettings) => ({
-        notifications: {
-          ...prevSettings.notifications,
-          ...clubSettings.notifications,
-        },
-        system: {
-          ...prevSettings.system,
-          ...clubSettings.system,
-        },
-        security: {
-          ...prevSettings.security,
-          // Don't load passwords from database for security
-        },
-      }));
-    } catch (error) {
-      console.error("Error loading settings:", error);
-      showToast("error", "Errore nel caricamento delle impostazioni");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const updateNotifications = (patch: Partial<NotificationSettings>) => setPreferences((current) => ({ ...current, notifications: { ...current.notifications, ...patch } }));
+  const updateSystem = (patch: Partial<SystemSettings>) => setPreferences((current) => ({ ...current, system: { ...current.system, ...patch } }));
 
   const saveNotificationSettings = async () => {
+    if (!clubId) {
+      console.error("No club ID available for saving settings");
+      showToast("error", "ID club non disponibile");
+      return;
+    }
+    if (!notificationsDirty) return;
+    setSaving("notifications");
     try {
-      if (!clubId) {
-        console.error("No club ID available for saving settings");
-        showToast("error", "ID club non disponibile");
-        return;
-      }
-
-      await saveClubSettings(clubId, {
-        notifications: settings.notifications,
-      });
-
+      await saveClubSettings(clubId, { notifications: preferences.notifications });
+      setPersisted((current) => ({ ...current, notifications: preferences.notifications }));
+      setSavedAt((current) => ({ ...current, notifications: new Date() }));
       showToast("success", "Preferenze notifiche salvate con successo");
     } catch (error) {
       console.error("Error saving notification settings:", error);
       showToast("error", "Errore nel salvataggio delle preferenze notifiche");
+    } finally {
+      setSaving("");
     }
   };
 
   const saveSystemSettings = async () => {
+    if (!clubId) {
+      console.error("No club ID available for saving system settings");
+      showToast("error", "ID club non disponibile");
+      return;
+    }
+    if (!systemDirty) return;
+    setSaving("system");
     try {
-      if (!clubId) {
-        console.error("No club ID available for saving system settings");
-        showToast("error", "ID club non disponibile");
-        return;
-      }
+      await saveClubSettings(clubId, { system: preferences.system });
+      setPersisted((current) => ({ ...current, system: preferences.system }));
+      setSavedAt((current) => ({ ...current, system: new Date() }));
 
-      await saveClubSettings(clubId, {
-        system: settings.system,
-      });
-
-      // Apply language change immediately
-      document.documentElement.lang = settings.system.language;
-      localStorage.setItem("app-language", settings.system.language);
-
-      const event = new CustomEvent("language-change", {
-        detail: { language: settings.system.language },
-      });
-      window.dispatchEvent(event);
+      /* La lingua si applica subito, come nella V1: attributo del documento, memoria locale, evento per chi ascolta. */
+      document.documentElement.lang = preferences.system.language;
+      localStorage.setItem("app-language", preferences.system.language);
+      window.dispatchEvent(new CustomEvent("language-change", { detail: { language: preferences.system.language } }));
 
       showToast("success", "Impostazioni sistema salvate con successo");
-
-      // Reload page if language changed
-      if (settings.system.language !== "it") {
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
-      }
     } catch (error) {
       console.error("Error saving system settings:", error);
       showToast("error", "Errore nel salvataggio delle impostazioni sistema");
+    } finally {
+      setSaving("");
     }
   };
 
-  const saveSecuritySettings = async () => {
-    try {
-      if (!clubId) {
-        console.error("No club ID available for saving security settings");
-        showToast("error", "ID club non disponibile");
-        return;
-      }
+  const goToSection = (next: SettingsSectionId) => {
+    router.replace(`/settings?tab=${next}`, { scroll: false });
+  };
 
-      // Validate passwords
-      if (
-        settings.security.newPassword &&
-        settings.security.newPassword !== settings.security.confirmPassword
-      ) {
-        showToast("error", "Le password non corrispondono");
-        return;
-      }
+  const navItems = React.useMemo(() => SETTINGS_SECTIONS.map((item) => ({ id: item.id, label: item.label })), []);
 
-      if (
-        settings.security.newPin &&
-        settings.security.newPin !== settings.security.confirmPin
-      ) {
-        showToast("error", "I PIN non corrispondono");
-        return;
-      }
-
-      // Save security settings (excluding actual passwords for security)
-      await saveClubSettings(clubId, {
-        security: {
-          lastPasswordChange: new Date().toISOString(),
-          lastPinChange: settings.security.newPin
-            ? new Date().toISOString()
-            : undefined,
-        },
-      });
-
-      // Clear password fields
-      setSettings((prev) => ({
-        ...prev,
-        security: {
-          currentPassword: "",
-          newPassword: "",
-          confirmPassword: "",
-          currentPin: "",
-          newPin: "",
-          confirmPin: "",
-        },
-      }));
-
-      showToast("success", "Impostazioni di sicurezza aggiornate con successo");
-    } catch (error) {
-      console.error("Error saving security settings:", error);
-      showToast(
-        "error",
-        "Errore nel salvataggio delle impostazioni di sicurezza",
+  const renderSection = () => {
+    if (loading) {
+      return (
+        <Panel aria-busy aria-label="Impostazioni in caricamento">
+          <Skeleton className="mb-3 h-3 w-24" />
+          <Skeleton className="mb-5 h-5 w-56" />
+          {[0, 1, 2, 3].map((index) => (
+            <Skeleton key={index} className="mb-3 h-12 w-full" />
+          ))}
+        </Panel>
       );
     }
+    if (section === "sistema") {
+      return <SystemPanel value={preferences.system} onChange={updateSystem} dirty={systemDirty} saving={saving === "system"} savedAt={savedAt.system} onSave={() => void saveSystemSettings()} />;
+    }
+    if (section === "sicurezza") {
+      return <SecurityPanel />;
+    }
+    return <NotificationsPanel value={preferences.notifications} onChange={updateNotifications} dirty={notificationsDirty} saving={saving === "notifications"} savedAt={savedAt.notifications} onSave={() => void saveNotificationSettings()} />;
   };
-
-  const updateNotificationSetting = (key: string, value: boolean) => {
-    setSettings((prev) => ({
-      ...prev,
-      notifications: {
-        ...prev.notifications,
-        [key]: value,
-      },
-    }));
-  };
-
-  const updateSystemSetting = (key: string, value: string | boolean) => {
-    setSettings((prev) => ({
-      ...prev,
-      system: {
-        ...prev.system,
-        [key]: value,
-      },
-    }));
-  };
-
-  const updateSecuritySetting = (key: string, value: string) => {
-    setSettings((prev) => ({
-      ...prev,
-      security: {
-        ...prev.security,
-        [key]: value,
-      },
-    }));
-  };
-
-  if (loading) {
-    return (
-      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header title="Impostazioni" />
-          <main className={dashboardMainClassName}>
-            <DashboardPageContainer>
-              <SharedPageHeader
-                title="Impostazioni"
-                subtitle="Configura preferenze, accessi e parametri dell'app."
-              />
-              <div className="hidden">
-                <p className="text-gray-600 mt-2">
-                  Configura preferenze, accessi e parametri dell’app.
-                </p>
-              </div>
-
-              <div className="flex items-center justify-center h-64">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                  <p className="text-gray-600 dark:text-gray-400">
-                    Caricamento impostazioni...
-                  </p>
-                </div>
-              </div>
-            </DashboardPageContainer>
-          </main>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header title="Impostazioni" />
         <main className={dashboardMainClassName}>
           <DashboardPageContainer>
-            <SharedPageHeader
-              title="Impostazioni"
-              subtitle="Configura preferenze, accessi e parametri dell'app."
-            />
-            <div className="hidden">
-              <p className="text-gray-600 mt-2">
-                Configura preferenze, accessi e parametri dell’app.
-              </p>
-            </div>
-            <Tabs defaultValue="notifications">
-              <div className="flex overflow-x-auto pb-2">
-                <TabsList className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground">
-                  <TabsTrigger
-                    value="notifications"
-                    className="flex items-center gap-2"
-                  >
-                    <Bell className="h-4 w-4" />
-                    <span>Notifiche</span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="system"
-                    className="flex items-center gap-2"
-                  >
-                    <Settings className="h-4 w-4" />
-                    <span>Sistema</span>
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="security"
-                    className="flex items-center gap-2"
-                  >
-                    <Shield className="h-4 w-4" />
-                    <span>Sicurezza</span>
-                  </TabsTrigger>
-                </TabsList>
+            <PageHeader eyebrow="Impostazioni" title="Impostazioni" description="Configura preferenze, accessi e parametri dell'app.">
+              <div className="egw-scroll -mx-1 overflow-x-auto px-1 pb-1 xl:hidden">
+                <SegmentedControl aria-label="Sezioni delle impostazioni" value={section} onChange={goToSection} options={navItems.map((item) => ({ value: item.id, label: item.label }))} />
               </div>
+            </PageHeader>
 
-              <TabsContent value="notifications" className="space-y-4 mt-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Preferenze Notifiche</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label htmlFor="cert-notifications">
-                            Certificati in scadenza
-                          </Label>
-                          <p className="text-sm text-muted-foreground">
-                            Ricevi notifiche quando i certificati medici stanno
-                            per scadere
-                          </p>
-                        </div>
-                        <Switch
-                          id="cert-notifications"
-                          checked={settings.notifications.certificates}
-                          onCheckedChange={(checked) =>
-                            updateNotificationSetting("certificates", checked)
-                          }
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label htmlFor="training-notifications">
-                            Allenamenti
-                          </Label>
-                          <p className="text-sm text-muted-foreground">
-                            Ricevi notifiche per nuovi allenamenti programmati
-                          </p>
-                        </div>
-                        <Switch
-                          id="training-notifications"
-                          checked={settings.notifications.trainings}
-                          onCheckedChange={(checked) =>
-                            updateNotificationSetting("trainings", checked)
-                          }
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label htmlFor="athlete-notifications">
-                            Nuovi atleti
-                          </Label>
-                          <p className="text-sm text-muted-foreground">
-                            Ricevi notifiche quando vengono registrati nuovi
-                            atleti
-                          </p>
-                        </div>
-                        <Switch
-                          id="athlete-notifications"
-                          checked={settings.notifications.athletes}
-                          onCheckedChange={(checked) =>
-                            updateNotificationSetting("athletes", checked)
-                          }
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label htmlFor="email-notifications">
-                            Notifiche email
-                          </Label>
-                          <p className="text-sm text-muted-foreground">
-                            Ricevi notifiche anche via email
-                          </p>
-                        </div>
-                        <Switch
-                          id="email-notifications"
-                          checked={settings.notifications.email}
-                          onCheckedChange={(checked) =>
-                            updateNotificationSetting("email", checked)
-                          }
-                        />
-                      </div>
-                    </div>
-                    <Button
-                      className="bg-blue-600 hover:bg-blue-700"
-                      onClick={saveNotificationSettings}
-                    >
-                      Salva preferenze
-                    </Button>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+            {!loading && !clubId ? (
+              <AlertBlock severity="warning" title="Nessun club attivo" className="mb-[18px]">
+                Scegli un club dal guscio per modificarne le preferenze.
+              </AlertBlock>
+            ) : null}
 
-              <TabsContent value="system" className="space-y-4 mt-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Impostazioni Sistema</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label htmlFor="language">Lingua</Label>
-                          <p className="text-sm text-muted-foreground">
-                            Seleziona la lingua predefinita del sistema
-                          </p>
-                        </div>
-                        <div className="w-[180px]">
-                          <select
-                            className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                            value={settings.system.language}
-                            onChange={(e) =>
-                              updateSystemSetting("language", e.target.value)
-                            }
-                          >
-                            <option value="it">Italiano</option>
-                            <option value="en">English</option>
-                            <option value="es">Español</option>
-                            <option value="fr">Français</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label htmlFor="date-format">Formato data</Label>
-                          <p className="text-sm text-muted-foreground">
-                            Seleziona il formato data predefinito
-                          </p>
-                        </div>
-                        <div className="w-[180px]">
-                          <select
-                            className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                            value={settings.system.dateFormat}
-                            onChange={(e) =>
-                              updateSystemSetting("dateFormat", e.target.value)
-                            }
-                          >
-                            <option value="dd/mm/yyyy">DD/MM/YYYY</option>
-                            <option value="mm/dd/yyyy">MM/DD/YYYY</option>
-                            <option value="yyyy-mm-dd">YYYY-MM-DD</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label htmlFor="backup">Backup automatico</Label>
-                          <p className="text-sm text-muted-foreground">
-                            Esegui backup automatici dei dati
-                          </p>
-                        </div>
-                        <Switch
-                          id="backup"
-                          checked={settings.system.backup}
-                          onCheckedChange={(checked) =>
-                            updateSystemSetting("backup", checked)
-                          }
-                        />
-                      </div>
-                    </div>
-                    <Button
-                      className="bg-blue-600 hover:bg-blue-700 text-white dark:text-white"
-                      onClick={saveSystemSettings}
-                    >
-                      Salva impostazioni
-                    </Button>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="security" className="space-y-4 mt-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Sicurezza</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="space-y-4">
-                      <h3 className="text-lg font-medium">Cambia Password</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="current-password">
-                            Password Attuale
-                          </Label>
-                          <Input
-                            id="current-password"
-                            type="password"
-                            value={settings.security.currentPassword}
-                            onChange={(e) =>
-                              updateSecuritySetting(
-                                "currentPassword",
-                                e.target.value,
-                              )
-                            }
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="new-password">Nuova Password</Label>
-                          <Input
-                            id="new-password"
-                            type="password"
-                            value={settings.security.newPassword}
-                            onChange={(e) =>
-                              updateSecuritySetting(
-                                "newPassword",
-                                e.target.value,
-                              )
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="confirm-password">
-                            Conferma Password
-                          </Label>
-                          <Input
-                            id="confirm-password"
-                            type="password"
-                            value={settings.security.confirmPassword}
-                            onChange={(e) =>
-                              updateSecuritySetting(
-                                "confirmPassword",
-                                e.target.value,
-                              )
-                            }
-                          />
-                        </div>
-                      </div>
-                      <Button
-                        className="bg-blue-600 hover:bg-blue-700 text-white dark:text-white"
-                        onClick={saveSecuritySettings}
-                      >
-                        Aggiorna Password
-                      </Button>
-                    </div>
-
-                    <div className="space-y-4 pt-6 border-t">
-                      <h3 className="text-lg font-medium">
-                        Cambia PIN di Sicurezza
-                      </h3>
-                      <p className="text-sm text-muted-foreground">
-                        Il PIN a 4 cifre è utilizzato per proteggere i dati
-                        sensibili come stipendi e pagamenti.
-                      </p>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="current-pin">PIN Attuale</Label>
-                          <Input
-                            id="current-pin"
-                            type="password"
-                            maxLength={4}
-                            value={settings.security.currentPin}
-                            onChange={(e) =>
-                              updateSecuritySetting(
-                                "currentPin",
-                                e.target.value,
-                              )
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="new-pin">Nuovo PIN</Label>
-                          <Input
-                            id="new-pin"
-                            type="password"
-                            maxLength={4}
-                            value={settings.security.newPin}
-                            onChange={(e) =>
-                              updateSecuritySetting("newPin", e.target.value)
-                            }
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="confirm-pin">Conferma PIN</Label>
-                          <Input
-                            id="confirm-pin"
-                            type="password"
-                            maxLength={4}
-                            value={settings.security.confirmPin}
-                            onChange={(e) =>
-                              updateSecuritySetting(
-                                "confirmPin",
-                                e.target.value,
-                              )
-                            }
-                          />
-                        </div>
-                      </div>
-                      <Button
-                        className="bg-blue-600 hover:bg-blue-700 text-white dark:text-white"
-                        onClick={saveSecuritySettings}
-                      >
-                        Aggiorna PIN
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
+            <div className="flex items-start gap-[18px]">
+              <SectionNav items={navItems} activeId={section} onSelect={(id) => goToSection(id as SettingsSectionId)} />
+              <div className="flex min-w-0 flex-1 flex-col gap-[18px]">{renderSection()}</div>
+            </div>
           </DashboardPageContainer>
         </main>
       </div>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SettingsPageContent />
+    </Suspense>
   );
 }

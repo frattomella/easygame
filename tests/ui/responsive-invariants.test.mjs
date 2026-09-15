@@ -64,8 +64,14 @@ const TOUCHED = [
     riconferma puo avere duecento righe, e va deciso da uno smartphone il
     1o luglio, non da una scrivania.
   */
-  "components/organization/season-manager.tsx",
-  "components/organization/club-signature-panel.tsx",
+  "components/organization/v2/season-manager.tsx",
+  "components/organization/v2/club-signature-panel.tsx",
+  "components/organization/v2/club-profile-sections.tsx",
+  "components/organization/v2/club-federations-section.tsx",
+  "components/organization/v2/fiscal-profile-panel.tsx",
+  "components/organization/v2/operation-types-panel.tsx",
+  "app/settings/page.tsx",
+  "components/settings/v2/settings-sections.tsx",
   "app/reports/page.tsx",
   /*
     Dal Web V2 `/reports` e composta dai pannelli in `components/reports/v2/`
@@ -473,7 +479,7 @@ test("le barre di schede non escono dallo schermo stretto", () => {
       bandi» resta raggiungibile da un telefono.
     */
     ["app/registration-management/page.tsx", /<SegmentedControl<RegistrationTab>[\s\S]{0,400}?className="max-w-full overflow-x-auto"/],
-    ["app/modulistica/page.tsx", /<TabsList className="h-auto w-full flex-wrap/],
+    ["app/modulistica/page.tsx", /<SegmentedControl<ModulisticaTab>[\s\S]{0,400}?className="max-w-full overflow-x-auto"/],
   ];
 
   for (const [file, pattern] of casi) {
@@ -523,7 +529,9 @@ test("i comandi di intestazione vanno a capo prima di uscire", () => {
 test("esiste un guscio solo, e Modulistica usa quello", () => {
   const modulistica = read("app/modulistica/page.tsx");
 
-  assert.match(modulistica, /<MobileTopBar \/>/);
+  /* Dal Web V2 (Wave E) la barra mobile arriva da `Header`: montarne una seconda impilava due intestazioni. */
+  assert.match(modulistica, /<Header title="Modulistica" \/>/);
+  assert.doesNotMatch(modulistica, /<MobileTopBar/);
   assert.match(modulistica, /className={dashboardMainClassName}/);
   assert.doesNotMatch(
     modulistica,

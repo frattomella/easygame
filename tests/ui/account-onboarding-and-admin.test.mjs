@@ -14,7 +14,7 @@ import path from "node:path";
 const read = (relativePath) =>
   readFileSync(path.join(process.cwd(), relativePath), "utf8");
 
-const ACCOUNT_SCREEN = "src/components/account/account-home-screen.tsx";
+const ACCOUNT_SCREEN = "src/components/account/v2/account-home-screen.tsx";
 const ONBOARDING_PAGE = "src/app/onboarding/page.tsx";
 const IMPORT_DIALOG = "src/components/forms/AthleteImportDialog.tsx";
 const PLATFORM_ADMIN = "src/app/private/easygame-platform-admin-0c7a/page.tsx";
@@ -27,8 +27,10 @@ test("la home account non ha piu una tavolozza tutta sua in esadecimale", () => 
     [],
     "i colori vengono dai token e dalle classi Tailwind condivise, non da letterali",
   );
-  assert.match(source, /font-display/, "usa la tipografia del prodotto");
-  assert.match(source, /var\(--eg-/, "usa i token di identita");
+  /* Web V2 (Wave E): la tipografia e Poppins (`font-brand`) e i token sono `egw-*`. */
+  assert.match(source, /font-brand/, "usa la tipografia del prodotto");
+  assert.match(source, /egw-sky-full/, "usa l'ambiente 3 del sistema (fuori dal club)");
+  assert.doesNotMatch(source, /font-display|var\(--eg-/, "nessun residuo della tavolozza V1");
 });
 
 test("la home account distingue caricamento, vuoto ed errore", () => {

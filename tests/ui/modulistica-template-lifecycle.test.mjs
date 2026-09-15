@@ -40,7 +40,23 @@ const readCode = (...segments) =>
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "");
 
-const PAGE = readCode("app", "modulistica", "page.tsx");
+/*
+  Dal Web V2 (Wave E) la pagina e divisa: `page.tsx` tiene i gesti e le
+  letture, `components/modulistica/v2/*` le griglie, i cassetti e il modello.
+  I reperti si cercano nell'insieme, salvo dove conta **in quale** file stanno.
+*/
+const V2 = ["components", "modulistica", "v2"];
+const PAGE_ONLY = readCode("app", "modulistica", "page.tsx");
+const MODEL = readCode(...V2, "modulistica-model.ts");
+const GRID = readCode(...V2, "templates-grid.tsx");
+const CATALOG = readCode(...V2, "catalog-grid.tsx");
+const GENERATED = readCode(...V2, "generated-grid.tsx");
+const NEW_DRAWER = readCode(...V2, "new-template-drawer.tsx");
+const GENERATE_DRAWER = readCode(...V2, "generate-document-drawer.tsx");
+const PREVIEW_DRAWER = readCode(...V2, "filled-preview-drawer.tsx");
+const DIALOGS = readCode(...V2, "template-dialogs.tsx");
+const EDITOR_VIEW = readCode(...V2, "template-editor-view.tsx");
+const PAGE = [PAGE_ONLY, MODEL, GRID, CATALOG, GENERATED, NEW_DRAWER, GENERATE_DRAWER, PREVIEW_DRAWER, DIALOGS, EDITOR_VIEW].join("\n");
 const EDITOR = readCode("components", "forms", "DocumentEditor.tsx");
 const CLIENT = readCode("lib", "api", "documents.ts");
 const VIEW = readCode("lib", "documents", "document-view.ts");
@@ -65,7 +81,7 @@ test("la pagina non scrive piu i modelli passando da simplified-db", () => {
     `deleteDocumentTemplate` esiste con lo stesso nome anche nel client nuovo:
     qui conta da **dove** arriva.
   */
-  const importaDaSimplifiedDb = PAGE.match(
+  const importaDaSimplifiedDb = PAGE_ONLY.match(
     /import\s*\{([^}]*)\}\s*from\s*"@\/lib\/simplified-db"/,
   );
   assert.ok(importaDaSimplifiedDb, "la pagina importa ancora gli atleti da li");
@@ -76,7 +92,7 @@ test("la pagina non scrive piu i modelli passando da simplified-db", () => {
 });
 
 test("i gesti sui modelli passano dal client documentale", () => {
-  assert.match(PAGE, /from "@\/lib\/api\/documents"/);
+  assert.match(PAGE_ONLY, /from "@\/lib\/api\/documents"/);
 
   for (const gesto of [
     "listDocumentTemplates",
@@ -89,13 +105,13 @@ test("i gesti sui modelli passano dal client documentale", () => {
     "generateDocuments",
     "listGeneratedDocuments",
   ]) {
-    assert.ok(PAGE.includes(gesto), `${gesto} e il gesto del motore nuovo`);
+    assert.ok(PAGE_ONLY.includes(gesto), `${gesto} e il gesto del motore nuovo`);
   }
 });
 
 test("la pagina non chiama /api con il proprio trasporto", () => {
   assert.ok(
-    !/apiRequest\s*[<(]/.test(PAGE),
+    !/apiRequest\s*[<(]/.test(PAGE_ONLY),
     "il trasporto e src/lib/api/client.ts, e ci arriva il client documentale",
   );
   assert.ok(
@@ -176,7 +192,7 @@ test("pubblicare e un gesto separato, e quando fallisce dice quale chiave", () =
     /const \{ template, error, issues \} = await publishDocumentTemplate/,
     "le issues che tornano dal client vanno mostrate: «non si puo pubblicare» e basta manda a chiamare l'assistenza",
   );
-  assert.ok(PAGE.includes("setPublishIssues"));
+  assert.ok(PAGE_ONLY.includes("setPublishIssues"));
   assert.match(
     PAGE,
     /issue\.key/,
@@ -191,15 +207,21 @@ test("un modello si ritira, e si cancella solo se non ha prodotto niente", () =>
     "archiviare non e ritirare: un modello ritirato continua a spiegare i documenti che ha prodotto",
   );
   assert.match(
-    PAGE,
-    /deleteTarget && deleteTarget\.generatedCount > 0/,
+    DIALOGS,
+    /template && template\.generatedCount > 0/,
     "con documenti gia prodotti la cancellazione va spiegata, non solo rifiutata",
+  );
+  assert.match(
+    DIALOGS,
+    /Non puoi eliminare «/,
+    "e il pulsante distruttivo e assente, non disabilitato (guideline 08 §8.9, «Blocked»)",
   );
 });
 
 test("il nuovo modello chiede il soggetto, e lo spiega", () => {
-  assert.ok(PAGE.includes("newDocumentSubject"));
-  assert.match(PAGE, /subjectKind: newDocumentSubject/);
+  assert.ok(NEW_DRAWER.includes("newDocumentSubject"));
+  assert.match(NEW_DRAWER, /subjectKind: newDocumentSubject/);
+  assert.match(PAGE_ONLY, /subjectKind: values\.subjectKind/);
   assert.match(
     PAGE,
     /SUBJECT_HINT/,
@@ -214,16 +236,16 @@ test("il nuovo modello chiede il soggetto, e lo spiega", () => {
 });
 
 test("le versioni del modello si vedono, con numero e data", () => {
-  assert.match(PAGE, /editorTemplate\.versions\.map/);
-  assert.match(PAGE, /Versione \{version\.version\}/);
-  assert.match(PAGE, /formatDate\(version\.publishedAt\)/);
+  assert.match(EDITOR_VIEW, /template\.versions\.map/);
+  assert.match(EDITOR_VIEW, /Versione \{version\.version\}/);
+  assert.match(EDITOR_VIEW, /formatDate\(version\.publishedAt\)/);
 });
 
 /* ---------------------------------------------------------- la generazione */
 
 test("prima si vede cosa non e entrato nel documento, poi lo si produce", () => {
-  const anteprima = PAGE.indexOf("previewFilledDocument(");
-  const produzione = PAGE.indexOf("generateDocuments(");
+  const anteprima = PAGE_ONLY.indexOf("previewFilledDocument(");
+  const produzione = PAGE_ONLY.indexOf("generateDocuments(");
 
   assert.ok(anteprima > 0 && produzione > 0);
   assert.ok(
@@ -233,7 +255,7 @@ test("prima si vede cosa non e entrato nel documento, poi lo si produce", () => 
 
   for (const dichiarazione of ["missing", "unresolved", "warnings"]) {
     assert.ok(
-      PAGE.includes(`filledPreview.${dichiarazione}`),
+      PREVIEW_DRAWER.includes(`preview.${dichiarazione}`),
       `${dichiarazione} va elencato prima di produrre: un'attestazione con righe bianche sembra completa`,
     );
   }
@@ -248,7 +270,7 @@ test("prima si vede cosa non e entrato nel documento, poi lo si produce", () => 
 test("un documento generato si riapre com'era, senza rigenerarlo", () => {
   assert.match(
     PAGE,
-    /href=\{`\/api\/v1\/documents\/generated\/\$\{document\.id\}\?format=html`\}/,
+    /generatedDocumentHref = \(id: string\) => `\/api\/v1\/documents\/generated\/\$\{id\}\?format=html`/,
     "si apre la resa conservata: modificare un modello non cambia un documento gia consegnato",
   );
   assert.ok(PAGE.includes("Documenti generati"));
@@ -283,31 +305,31 @@ test("il catalogo si legge e si adotta dal client documentale", () => {
 test("la scheda «Catalogo» dice classe, proprietario e data di rilettura", () => {
   assert.match(
     PAGE,
-    /<TabsTrigger value="catalog">Catalogo<\/TabsTrigger>/,
+    /catalog: "Catalogo"/,
     "cinque voci su sei non avevano nessuna schermata da cui prenderle",
   );
 
-  assert.match(PAGE, /entry\.catalogClass/, "di che classe e la voce");
-  assert.match(PAGE, /entry\.editorialOwner/, "chi risponde del testo");
+  assert.match(CATALOG, /row\.catalogClass/, "di che classe e la voce");
+  assert.match(CATALOG, /row\.editorialOwner/, "chi risponde del testo");
   assert.match(
-    PAGE,
-    /formatDate\(entry\.lastReviewedAt\)/,
+    CATALOG,
+    /formatDateShort\(row\.lastReviewedAt\)/,
     "da quanto tempo nessuno lo rilegge: e meta di ADR-0092",
   );
   assert.match(
-    PAGE,
-    /entry\.adopted \?/,
+    CATALOG,
+    /row\.adopted \?/,
     "una voce gia adottata si dice, non si ripropone",
   );
 });
 
 test("la scheda «Catalogo» la vede solo chi puo adottare", () => {
   assert.match(
-    PAGE,
-    /\{canManage \? \(\s*<TabsTrigger value="catalog">/,
+    PAGE_ONLY,
+    /if \(canManage\) tabs\.push\("catalog"\)/,
     "la pagina e aperta anche a collaboratori e staff: una vetrina che risponde «Accesso negato» e un difetto",
   );
-  assert.match(PAGE, /canManage\s*\?\s*listDocumentCatalog\(\)/);
+  assert.match(PAGE_ONLY, /canManage\s*\?\s*listDocumentCatalog\(\)/);
 });
 
 test("la seconda adozione impoverita non esiste piu", () => {
@@ -344,12 +366,12 @@ test("il modulo vuoto non ha una sintassi dei segnaposto tutta sua", () => {
 
 test("il modulo vuoto stampa la bozza solo dicendolo", () => {
   assert.ok(
-    PAGE.includes("template.draftContent"),
+    PAGE_ONLY.includes("template.draftContent"),
     "il contenuto pubblicato non lo restituisce nessuna rotta: si stampa la bozza",
   );
   assert.match(
-    PAGE,
-    /generateTarget\?\.hasUnpublishedChanges/,
+    GENERATE_DRAWER,
+    /template\?\.hasUnpublishedChanges/,
     "quando bozza e versione pubblicata dicono cose diverse, va detto prima di stampare",
   );
   assert.match(
@@ -359,7 +381,7 @@ test("il modulo vuoto stampa la bozza solo dicendolo", () => {
   );
   assert.match(
     PAGE,
-    /Questo modello non e mai stato pubblicato/,
+    /Questo modello non [eè] mai stato pubblicato/,
     "mai pubblicato: la bozza si stampa lo stesso, ma dicendolo",
   );
 });
@@ -399,26 +421,26 @@ test("la stampa non parte a tempo, la fa partire chi guarda", () => {
     "la stampa temporizzata era una seconda strada accanto a quella del fascicolo",
   );
   assert.match(
-    PAGE,
+    PAGE_ONLY,
     /openBundleWindow\(\)/,
     "la finestra si apre nel gestore del clic, prima di ogni await, o il browser la blocca",
   );
-  assert.match(PAGE, /renderBundleInto\(/);
-  assert.match(PAGE, /openPrintableBundle\(/);
+  assert.match(PAGE_ONLY, /renderBundleInto\(/);
+  assert.match(PAGE_ONLY, /openPrintableBundle\(/);
 });
 
 /* ------------------------- le azioni hanno un nome, e stati che le ammettono */
 
 test("il menu azioni di ogni modello dice su cosa agisce (H6)", () => {
+  /*
+    Dal Web V2 il menu della riga lo disegna il DataGrid, che nomina la riga
+    (`Altre azioni per {rowLabel}`): qui si presidia che la griglia riceva il
+    nome, o venti pulsanti identici tornerebbero senza nome.
+  */
   assert.match(
-    PAGE,
-    /aria-label=\{`Azioni su \$\{template\.title\}`\}/,
+    GRID,
+    /rowLabel=\{\(row\) => row\.title\}/,
     "era l'unica via a Modifica/Pubblica/Ritira/Elimina, ripetuta N volte senza nome",
-  );
-  assert.match(
-    PAGE,
-    /<MoreVertical className="h-4 w-4" aria-hidden \/>/,
-    "l'icona non deve essere letta due volte accanto all'etichetta",
   );
 
   const iconeParlanti = PAGE.match(
@@ -433,37 +455,39 @@ test("il menu azioni di ogni modello dice su cosa agisce (H6)", () => {
 
 test("non si offre un gesto che il server rifiutera (M1)", () => {
   assert.match(
-    PAGE,
-    /\) : template\.status === "active" \? \(/,
+    GRID,
+    /hidden: \(row\) => !canManage \|\| row\.status !== "active"/,
     "«Ritira» su una bozza faceva rispondere 400: le transizioni sono draft→active, active→retired",
   );
+  assert.match(GRID, /hidden: \(row\) => !canManage \|\| row\.status !== "retired"/, "«Riattiva» solo su un modello ritirato");
 
   assert.match(
-    PAGE,
+    MODEL,
     /const canProduceFilled = \(template: DocumentTemplateSummary\) =>\s*\n\s*template\.status !== "retired" && template\.publishedVersion > 0;/,
     "sono le due condizioni di loadPublishableVersion, dette con le stesse parole",
   );
   assert.match(
-    PAGE,
-    /\?\s*"Genera documento"\s*\n?\s*:\s*"Stampa il modulo vuoto"/,
+    GRID,
+    /label: "Genera documento"[^\n]*hidden: \(row\) => !canProduceFilled\(row\)/,
     "su una bozza il gesto possibile e uno solo, e l'etichetta lo deve dire",
   );
+  assert.match(GRID, /label: "Stampa il modulo vuoto"[^\n]*hidden: \(row\) => canProduceFilled\(row\)/);
   assert.match(
-    PAGE,
-    /!canProduceFilled\(generateTarget\)/,
+    GENERATE_DRAWER,
+    /!canProduceFilled\(template\)/,
     "«Genera compilato» era offerto anche su bozze e ritirati",
   );
   assert.match(
     PAGE,
-    /Questo modello e ritirato/,
+    /Questo modello [eè] ritirato/,
     "un rifiuto va spiegato dove viene rifiutato",
   );
 });
 
 test("i dati mancanti si dicono in italiano, non in chiavi", () => {
   assert.match(
-    PAGE,
-    /filledPreview\.missing\.map\(describePlaceholderKey\)/,
+    PREVIEW_DRAWER,
+    /preview\.missing\.map\(describePlaceholderKey\)/,
     "«athlete.fiscal_code» e la chiave; l'etichetta umana e gia nel catalogo",
   );
   /*
@@ -473,8 +497,8 @@ test("i dati mancanti si dicono in italiano, non in chiavi", () => {
     cambiare.
   */
   assert.match(
-    PAGE,
-    /describePlaceholderKey,[\s\S]*from "@\/lib\/documents\/placeholders"/,
+    PREVIEW_DRAWER,
+    /describePlaceholderKey \} from "@\/lib\/documents\/placeholders"/,
     "l'etichetta si legge dal proprietario dei segnaposto, non si riscrive qui",
   );
   assert.doesNotMatch(
@@ -493,8 +517,8 @@ test("l'editor propone solo cio che il soggetto sa riempire (DOC-04)", () => {
     "il catalogo intero proponeva {{trainer.first_name}} dentro un modello che parla di un atleta",
   );
   assert.match(
-    PAGE,
-    /subject=\{editorSubject\}/,
+    EDITOR_VIEW,
+    /subject=\{subject\}/,
     "il soggetto del modello va passato all'editor, o l'elenco resta quello di prima",
   );
 });
@@ -520,18 +544,10 @@ test("la schermata regge 375 px", () => {
   }
 
   assert.match(
-    PAGE,
-    /<TabsList className="h-auto w-full flex-wrap/,
+    PAGE_ONLY,
+    /<SegmentedControl<ModulisticaTab>[\s\S]{0,400}?className="max-w-full overflow-x-auto"/,
     "le schede oltre la terza erano tagliate via, cioe irraggiungibili da un telefono",
   );
-
-  const piedi = PAGE.match(/<DialogFooter[^>]*>/g) || [];
-  const nonImpilati = piedi.filter(
-    (piede) => !piede.includes("flex-col") && !piede.includes("<DialogFooter>"),
-  );
-  assert.deepEqual(
-    nonImpilati,
-    [],
-    "tre azioni affiancate a 375 px si tagliano a vicenda",
-  );
+  /* I piedi dei cassetti V2 vanno a capo da soli (`flex-wrap` nel Drawer). */
+  assert.equal((PAGE.match(/<DialogFooter/g) || []).length, 0, "nessun Dialog V1: i moduli sono cassetti, i modali confermano");
 });

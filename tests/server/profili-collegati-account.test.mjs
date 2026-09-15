@@ -267,7 +267,7 @@ test("la card dell'account mostra i profili e li manda a capo", () => {
     `scrollWidth` 457 su un viewport di 375).
   */
   const sorgente = readFileSync(
-    "src/components/account/account-home-screen.tsx",
+    "src/components/account/v2/account-home-screen.tsx",
     "utf8",
   );
 

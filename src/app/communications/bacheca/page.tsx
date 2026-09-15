@@ -1,64 +1,48 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronRight, Megaphone, Plus, Send, Undo2 } from "lucide-react";
 import Header from "@/components/dashboard/Header";
 import Sidebar from "@/components/dashboard/Sidebar";
-import {
-  DashboardPageContainer,
-  dashboardMainClassName,
-} from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
+import { type AudienceCriterionKind } from "@/lib/audience/criteria";
+import { HeaderStat, PageHeader } from "@/components/web/page/PageHeader";
+import { Button } from "@/components/web/primitives/Button";
+import { StatusPill } from "@/components/web/primitives/StatusPill";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { ColumnDef, FilterDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
+import { formatDateShort, formatInteger } from "@/lib/web/format";
+import { CommunicationsNav } from "@/components/communications/v2/communications-nav";
+import { useAudienceOptions } from "@/components/communications/v2/audience-picker";
+import { AnnouncementDrawer, type AnnouncementDraft } from "@/components/communications/v2/announcement-drawer";
+import { AnnouncementInspector } from "@/components/communications/v2/announcement-inspector";
+import { SHELF_LABELS, SHELF_ORDER, shelfStatusSpec } from "@/components/communications/v2/communication-status";
 import {
-  AUDIENCE_CRITERION_LABELS,
-  type AudienceCriterionKind,
-} from "@/lib/audience/criteria";
-import {
-  audienceCriterionNeedsSelection,
-  eventAudienceOptions,
-  isEventAudienceKind,
-  loadSelectableEvents,
-  EVENT_AUDIENCE_WINDOW_DAYS,
-  type AudienceOption,
-  type SelectableEvent,
-} from "@/components/communications/audience-events";
-import { CalendarClock, Eye, Megaphone, Send, Undo2 } from "lucide-react";
+  canPublishAnnouncement,
+  canWithdrawAnnouncement,
+  countByShelf,
+  describeAudience,
+  describeReads,
+  type Announcement,
+} from "@/components/communications/v2/announcement-model";
 
 /**
- * La bacheca del club (W2-D, G-08).
+ * La bacheca del club (W2-D, G-08) — Web V2, pattern 1: intestazione +
+ * griglia a tutta larghezza.
  *
- * **Cosa distingue questa schermata da un elenco di notifiche.** Tre scaffali,
- * non uno: **programmati**, **in bacheca**, **scaduti**. Un avviso scaduto non
- * sparisce — resta consultabile, perche la prova di averlo pubblicato e proprio
- * cio per cui una bacheca esiste — ma non occupa lo spazio di quelli validi.
+ * **Cosa distingue questa schermata da un elenco di notifiche.** Quattro
+ * scaffali, non uno: **bozze**, **programmati**, **in bacheca**, **scaduti**.
+ * Un avviso scaduto non sparisce — resta consultabile, perche la prova di
+ * averlo pubblicato e proprio cio per cui una bacheca esiste — ma non occupa
+ * lo spazio di quelli validi. Nella V1 erano quattro card; qui sono le viste
+ * della griglia, con il loro conteggio.
  *
  * **Perche accanto a ogni annuncio ci sono due numeri.** «Lo vedono in venti,
  * lo hanno aperto in tre» e l'unica informazione che dice a una segreteria se
  * un canale funziona. Un conteggio solo non lo direbbe.
  */
-
-type Shelf = "draft" | "scheduled" | "current" | "expired";
-
-type Announcement = {
-  id: string;
-  title: string;
-  body: string;
-  status: "draft" | "published";
-  publishAt: string | null;
-  expiresAt: string | null;
-  publishedAt: string | null;
-  criteria: Array<{ kind: string; values?: string[] }>;
-  shelf: Shelf;
-  audienceCount: number;
-  readCount: number;
-};
 
 /**
  * I criteri che la bacheca offre, **nell'ordine in cui si scelgono**.
@@ -84,175 +68,75 @@ const CRITERI_OFFERTI = [
   "event_no_rsvp",
 ] as const satisfies readonly AudienceCriterionKind[];
 
-type CriterionKind = (typeof CRITERI_OFFERTI)[number];
-
-const SCAFFALI: Array<{ key: Shelf; label: string }> = [
-  { key: "draft", label: "Bozze" },
-  { key: "scheduled", label: "Programmati" },
-  { key: "current", label: "In bacheca" },
-  { key: "expired", label: "Scaduti" },
-];
-
 const asArray = (value: unknown): any[] => (Array.isArray(value) ? value : []);
 
-const formatDate = (value: string | null) => {
-  if (!value) return "";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? ""
-    : date.toLocaleDateString("it-IT", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      });
-};
+const SHELF_VIEWS: ViewDef[] = SHELF_ORDER.map((shelf) => ({
+  id: shelf,
+  label: SHELF_LABELS[shelf],
+  filters: { shelf },
+  builtIn: true,
+}));
 
 export default function BachecaPage() {
   const { showToast } = useToast();
+  const { optionsFor } = useAudienceOptions();
 
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [caricamento, setCaricamento] = useState(true);
-
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [kind, setKind] = useState<CriterionKind>("all_families");
-  const [selected, setSelected] = useState<string[]>([]);
-  const [publishAt, setPublishAt] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
-  const [categorie, setCategorie] = useState<AudienceOption[]>([]);
-  const [gruppi, setGruppi] = useState<AudienceOption[]>([]);
-  const [sedi, setSedi] = useState<AudienceOption[]>([]);
-  const [eventi, setEventi] = useState<SelectableEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [inspecting, setInspecting] = useState<Announcement | null>(null);
+  const [requestedViewId, setRequestedViewId] = useState<string | null>(null);
 
   const carica = useCallback(async () => {
+    setLoading(true);
     const response = await apiRequest<Announcement[]>("/api/v1/announcements");
-    setCaricamento(false);
+    setLoading(false);
 
     if (response.error) {
+      setLoadError(response.error.message || "Bacheca non leggibile");
       showToast("error", response.error.message || "Bacheca non leggibile");
       return;
     }
-    setAnnouncements(asArray(response.data) as Announcement[]);
+    setLoadError(null);
+    const rows = asArray(response.data) as Announcement[];
+    setAnnouncements(rows);
+    setInspecting((current) => (current ? rows.find((row) => row.id === current.id) || null : null));
   }, [showToast]);
 
   useEffect(() => {
-    carica();
+    void carica();
   }, [carica]);
 
-  useEffect(() => {
-    const caricaOpzioni = async () => {
-      /*
-        Gli eventi arrivano dalla **stessa** strada di categorie, gruppi e sedi
-        — `apiRequest` sulla rotta di lettura del dominio — e quali eventi si
-        possano offrire lo decide `audience-events.ts`, condiviso con la pagina
-        delle comunicazioni: due schermate con due idee di «evento scegliibile»
-        divergerebbero alla prima modifica.
-      */
-      const [risposteCategorie, risposteGruppi, risposteSedi, risposteEventi] =
-        await Promise.all([
-          apiRequest<any[]>("/api/v1/categories"),
-          apiRequest<any[]>("/api/v1/category_groups"),
-          apiRequest<any[]>("/api/v1/club_sites"),
-          loadSelectableEvents(),
-        ]);
-
-      const mappa = (response: { data?: any }): AudienceOption[] =>
-        asArray(response?.data).map((record) => ({
-          id: String(record?.id || ""),
-          label: String(record?.name || record?.label || record?.id || ""),
-        }));
-
-      setCategorie(mappa(risposteCategorie));
-      setGruppi(mappa(risposteGruppi));
-      setSedi(mappa(risposteSedi));
-      setEventi(risposteEventi);
-    };
-
-    caricaOpzioni().catch(() => undefined);
-  }, []);
-
-  const opzioni = useMemo<AudienceOption[]>(() => {
-    if (kind === "category_ids") return categorie;
-    if (kind === "group_ids") return gruppi;
-    if (kind === "site_ids") return sedi;
-    if (isEventAudienceKind(kind)) return eventAudienceOptions(eventi, kind);
-    return [];
-  }, [kind, categorie, gruppi, sedi, eventi]);
-
-  /*
-    **Se un criterio pretende una selezione lo dice il dominio**, non la
-    tendina: legarlo all'elenco delle opzioni faceva passare un criterio con
-    zero voci — «Convocati a un evento» senza eventi in programma — dritto in
-    un errore del server che non spiega cosa fare.
-  */
-  const richiedeSelezione = useMemo(
-    () => audienceCriterionNeedsSelection(kind),
-    [kind],
-  );
-
-  const perScaffale = useMemo(() => {
-    const gruppi: Record<Shelf, Announcement[]> = {
-      draft: [],
-      scheduled: [],
-      current: [],
-      expired: [],
-    };
-    for (const annuncio of announcements) {
-      gruppi[annuncio.shelf]?.push(annuncio);
-    }
-    return gruppi;
-  }, [announcements]);
-
-  const crea = async () => {
-    if (richiedeSelezione && selected.length === 0) {
-      showToast(
-        "error",
-        opzioni.length === 0
-          ? "Nessuna voce disponibile per questo criterio: scegline un altro"
-          : "Seleziona almeno una voce per questo criterio",
-      );
-      return;
-    }
-
+  const crea = async (draft: AnnouncementDraft): Promise<boolean> => {
     setBusy(true);
     const response = await apiRequest<Announcement>("/api/v1/announcements", {
       method: "POST",
       body: {
-        title,
-        body,
-        criteria: richiedeSelezione
-          ? [{ kind, values: selected }]
-          : [{ kind }],
-        publishAt: publishAt || null,
-        expiresAt: expiresAt || null,
+        title: draft.title,
+        body: draft.body,
+        criteria: draft.criteria,
+        publishAt: draft.publishAt,
+        expiresAt: draft.expiresAt,
       },
     });
     setBusy(false);
 
     if (response.error || !response.data) {
       showToast("error", response.error?.message || "Annuncio non creato");
-      return;
+      return false;
     }
 
-    setTitle("");
-    setBody("");
-    setSelected([]);
-    setPublishAt("");
-    setExpiresAt("");
     showToast("success", "Bozza salvata: pubblicala quando vuoi");
-    carica();
+    setRequestedViewId("draft");
+    void carica();
+    return true;
   };
 
-  const azione = async (
-    announcementId: string,
-    action: "publish" | "withdraw",
-  ) => {
+  const azione = async (announcementId: string, action: "publish" | "withdraw") => {
     setBusy(true);
-    const response = await apiRequest<any>(
-      `/api/v1/announcements/${announcementId}`,
-      { method: "POST", body: { action } },
-    );
+    const response = await apiRequest<any>(`/api/v1/announcements/${announcementId}`, { method: "POST", body: { action } });
     setBusy(false);
 
     if (response.error) {
@@ -272,265 +156,201 @@ export default function BachecaPage() {
       showToast("success", "Annuncio ritirato dalla bacheca");
     }
 
-    carica();
+    void carica();
   };
 
+  const counts = useMemo(() => countByShelf(announcements), [announcements]);
+
+  const columns = useMemo<ColumnDef<Announcement>[]>(
+    () => [
+      {
+        id: "title",
+        header: "Avviso",
+        kind: "identity",
+        locked: true,
+        width: 2.2,
+        cell: (row) => (
+          <span className="min-w-0">
+            <button
+              type="button"
+              onClick={() => setInspecting(row)}
+              className="egw-ellipsis block max-w-full text-left font-brand text-[12.5px] font-semibold text-egw-ink hover:text-egw-blue-700 hover:underline focus-visible:outline-none focus-visible:underline"
+            >
+              {row.title}
+            </button>
+            <span className="egw-ellipsis block font-brand text-[10px] text-[rgba(11,26,58,.5)]">{row.body}</span>
+          </span>
+        ),
+        sortValue: (row) => row.title.toLowerCase(),
+        exportValue: (row) => row.title,
+        title: (row) => row.title,
+      },
+      {
+        id: "shelf",
+        header: "Stato",
+        kind: "status",
+        cell: (row) => <StatusPill status={shelfStatusSpec(row.shelf)} />,
+        sortValue: (row) => SHELF_ORDER.indexOf(row.shelf),
+        exportValue: (row) => shelfStatusSpec(row.shelf).label,
+      },
+      {
+        id: "audience",
+        header: "Chi lo legge",
+        kind: "classification",
+        width: 1.3,
+        cell: (row) => describeAudience(row.criteria),
+        sortValue: (row) => describeAudience(row.criteria).toLowerCase(),
+        title: (row) => describeAudience(row.criteria),
+      },
+      {
+        id: "publishAt",
+        header: "Esce il",
+        kind: "date",
+        cell: (row) => (row.publishAt ? formatDateShort(row.publishAt) : null),
+        sortValue: (row) => row.publishAt || null,
+        exportValue: (row) => row.publishAt,
+      },
+      {
+        id: "expiresAt",
+        header: "Scade il",
+        kind: "date",
+        cell: (row) => (row.expiresAt ? formatDateShort(row.expiresAt) : null),
+        sortValue: (row) => row.expiresAt || null,
+        exportValue: (row) => row.expiresAt,
+      },
+      {
+        id: "reads",
+        header: "Letto da",
+        kind: "number",
+        align: "right",
+        width: 0.8,
+        cell: (row) => {
+          const reads = describeReads(row);
+          return reads ? <span className="egw-num">{reads}</span> : null;
+        },
+        sortValue: (row) => (row.status === "published" ? row.readCount : null),
+        exportValue: (row) => describeReads(row),
+      },
+      {
+        id: "publishedAt",
+        header: "Pubblicato il",
+        kind: "date",
+        hidden: true,
+        cell: (row) => (row.publishedAt ? formatDateShort(row.publishedAt) : null),
+        sortValue: (row) => row.publishedAt || null,
+      },
+    ],
+    [],
+  );
+
+  const filters = useMemo<FilterDef<Announcement>[]>(
+    () => [
+      {
+        id: "shelf",
+        label: "Scaffale",
+        type: "select",
+        pinned: true,
+        options: SHELF_ORDER.map((shelf) => ({ value: shelf, label: SHELF_LABELS[shelf], count: counts[shelf] })),
+        apply: (row, value) => (typeof value === "string" && value ? row.shelf === value : true),
+      },
+    ],
+    [counts],
+  );
+
+  const rowActions = useMemo<RowActionDef<Announcement>[]>(
+    () => [
+      { id: "open", label: "Apri", icon: <ChevronRight />, primary: true, onClick: (row) => setInspecting(row) },
+      { id: "publish", label: "Pubblica", icon: <Send />, hidden: (row) => !canPublishAnnouncement(row), onClick: (row) => void azione(row.id, "publish") },
+      { id: "withdraw", label: "Ritira", icon: <Undo2 />, hidden: (row) => !canWithdrawAnnouncement(row), onClick: (row) => void azione(row.id, "withdraw") },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const search = useMemo(
+    () => ({
+      placeholder: "Cerca per titolo o testo",
+      match: (row: Announcement, query: string) => {
+        const q = query.trim().toLowerCase();
+        if (!q) return true;
+        return [row.title, row.body].some((value) => String(value || "").toLowerCase().includes(q));
+      },
+    }),
+    [],
+  );
+
+  const gridState = loading ? "loading" : loadError ? "error" : "ready";
+
   return (
-    <div className="flex h-[100dvh] bg-slate-50">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header title="Bacheca" />
         <main className={dashboardMainClassName}>
-          <DashboardPageContainer className="max-w-6xl">
-            <SharedPageHeader
+          <DashboardPageContainer>
+            <PageHeader
+              eyebrow="Segreteria"
               title="Bacheca"
-              subtitle="Gli avvisi che restano: chi li legge lo decidi tu, e vedi quanti li hanno aperti."
-            />
+              description="Gli avvisi che restano: chi li legge lo decidi tu, e vedi quanti li hanno aperti."
+              stats={
+                <>
+                  <HeaderStat value={formatInteger(counts.current)} label="in bacheca" tone={counts.current ? "green" : "ink"} onClick={() => setRequestedViewId("current")} />
+                  <HeaderStat value={formatInteger(counts.draft)} label="bozze" tone={counts.draft ? "amber" : "ink"} onClick={() => setRequestedViewId("draft")} />
+                </>
+              }
+              actions={
+                <Button variant="primary" icon={<Plus />} onClick={() => setDrawerOpen(true)}>
+                  Nuovo avviso
+                </Button>
+              }
+            >
+              <CommunicationsNav />
+            </PageHeader>
 
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Megaphone className="h-4 w-4" aria-hidden="true" />
+            <DataGrid<Announcement>
+              module="bacheca"
+              aria-label="Avvisi in bacheca"
+              rows={announcements}
+              getRowId={(row) => row.id}
+              rowLabel={(row) => row.title}
+              columns={columns}
+              filters={filters}
+              views={SHELF_VIEWS}
+              requestedViewId={requestedViewId}
+              search={search}
+              defaultSort={{ columnId: "shelf", direction: "asc" }}
+              rowActions={rowActions}
+              onOpenRow={(row) => setInspecting(row)}
+              activeRowId={inspecting?.id || null}
+              canSelect={false}
+              state={gridState}
+              errorMessage={loadError}
+              onRetry={() => void carica()}
+              noun={{ singular: "avviso", plural: "avvisi" }}
+              empty={{
+                icon: <Megaphone />,
+                title: "Nessun avviso",
+                description: "Il primo che scrivi resta in bacheca finche non scade, e chi arriva dopo lo trova.",
+                primary: (
+                  <Button variant="primary" size="sm" icon={<Plus />} onClick={() => setDrawerOpen(true)}>
                     Nuovo avviso
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="titolo">Titolo</Label>
-                    <Input
-                      id="titolo"
-                      value={title}
-                      onChange={(event) => setTitle(event.target.value)}
-                      placeholder="Domenica il campo e chiuso"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="corpo">Testo</Label>
-                    <Textarea
-                      id="corpo"
-                      className="h-28"
-                      value={body}
-                      onChange={(event) => setBody(event.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="pubblico">Chi lo legge</Label>
-                    <select
-                      id="pubblico"
-                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                      value={kind}
-                      onChange={(event) => {
-                        setKind(event.target.value as CriterionKind);
-                        setSelected([]);
-                      }}
-                    >
-                      {CRITERI_OFFERTI.map((value) => (
-                        <option key={value} value={value}>
-                          {AUDIENCE_CRITERION_LABELS[value]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {richiedeSelezione ? (
-                    opzioni.length > 0 ? (
-                      <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
-                        {opzioni.map((opzione) => (
-                          <label
-                            key={opzione.id}
-                            className="flex items-start gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
-                          >
-                            <input
-                              type="checkbox"
-                              className="mt-0.5 shrink-0"
-                              checked={selected.includes(opzione.id)}
-                              onChange={(event) =>
-                                setSelected((current) =>
-                                  event.target.checked
-                                    ? [...current, opzione.id]
-                                    : current.filter((id) => id !== opzione.id),
-                                )
-                              }
-                            />
-                            {/*
-                              A 375 px l'etichetta di un evento — data, ora,
-                              nome, categoria — e piu larga della colonna: senza
-                              `min-w-0` il testo non va a capo, allarga il
-                              riquadro e con lui la pagina.
-                            */}
-                            <span className="min-w-0 flex-1 break-words">
-                              {opzione.label}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    ) : (
-                      /*
-                        Vuoto e diverso da «non ancora scelto»: senza questa
-                        riga la schermata mostrava un criterio, nessuna opzione
-                        e nessuna spiegazione.
-                      */
-                      <p className="rounded-md border border-dashed border-slate-200 p-3 text-sm text-slate-500">
-                        {isEventAudienceKind(kind)
-                          ? kind === "event_no_rsvp"
-                            ? "Nessun evento in programma con la conferma di presenza attiva: accendila sull'evento per poter scrivere a chi non ha risposto."
-                            : `Nessun evento in programma nei prossimi ${EVENT_AUDIENCE_WINDOW_DAYS} giorni.`
-                          : "Nessuna voce disponibile per questo criterio."}
-                      </p>
-                    )
-                  ) : null}
-
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="dal">Esce il</Label>
-                      <Input
-                        id="dal"
-                        type="date"
-                        value={publishAt}
-                        onChange={(event) => setPublishAt(event.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="al">Scade il</Label>
-                      <Input
-                        id="al"
-                        type="date"
-                        value={expiresAt}
-                        onChange={(event) => setExpiresAt(event.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <p className="text-xs text-slate-500">
-                    Senza data esce quando lo pubblichi. Un avviso scaduto non
-                    viene cancellato: esce dalla bacheca e resta in archivio.
-                  </p>
-
-                  <Button
-                    className="w-full"
-                    disabled={busy || !title.trim() || !body.trim()}
-                    onClick={crea}
-                  >
-                    Salva come bozza
                   </Button>
-                </CardContent>
-              </Card>
-
-              <div className="space-y-6">
-                {caricamento ? (
-                  <Card>
-                    <CardContent className="p-6 text-sm text-slate-500">
-                      Carico la bacheca…
-                    </CardContent>
-                  </Card>
-                ) : null}
-
-                {SCAFFALI.map((scaffale) => {
-                  const elenco = perScaffale[scaffale.key];
-                  if (!elenco || elenco.length === 0) return null;
-
-                  return (
-                    <Card key={scaffale.key}>
-                      <CardHeader>
-                        <CardTitle className="text-base">
-                          {scaffale.label}{" "}
-                          <span className="text-slate-400">
-                            ({elenco.length})
-                          </span>
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        {elenco.map((annuncio) => (
-                          <div
-                            key={annuncio.id}
-                            className="rounded-lg border border-slate-200 p-3"
-                          >
-                            <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="font-medium text-slate-900">
-                                  {annuncio.title}
-                                </p>
-                                <p className="mt-1 line-clamp-2 text-sm text-slate-600">
-                                  {annuncio.body}
-                                </p>
-                              </div>
-                              <div className="flex shrink-0 flex-wrap gap-2">
-                                {annuncio.status === "published" ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="flex items-center gap-1"
-                                  >
-                                    <Eye className="h-3 w-3" aria-hidden="true" />
-                                    {annuncio.readCount}/{annuncio.audienceCount}
-                                  </Badge>
-                                ) : null}
-                                {annuncio.publishAt ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="flex items-center gap-1"
-                                  >
-                                    <CalendarClock
-                                      className="h-3 w-3"
-                                      aria-hidden="true"
-                                    />
-                                    {formatDate(annuncio.publishAt)}
-                                  </Badge>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {annuncio.status === "draft" ? (
-                                <Button
-                                  size="sm"
-                                  disabled={busy}
-                                  onClick={() => azione(annuncio.id, "publish")}
-                                >
-                                  <Send
-                                    className="mr-1.5 h-3.5 w-3.5"
-                                    aria-hidden="true"
-                                  />
-                                  Pubblica
-                                </Button>
-                              ) : null}
-                              {annuncio.shelf === "current" ||
-                              annuncio.shelf === "scheduled" ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  disabled={busy}
-                                  onClick={() => azione(annuncio.id, "withdraw")}
-                                >
-                                  <Undo2
-                                    className="mr-1.5 h-3.5 w-3.5"
-                                    aria-hidden="true"
-                                  />
-                                  Ritira
-                                </Button>
-                              ) : null}
-                            </div>
-                          </div>
-                        ))}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-
-                {!caricamento && announcements.length === 0 ? (
-                  <Card>
-                    <CardContent className="p-6 text-sm text-slate-500">
-                      Nessun avviso. Il primo che scrivi resta in bacheca finche
-                      non scade, e chi arriva dopo lo trova.
-                    </CardContent>
-                  </Card>
-                ) : null}
-              </div>
-            </div>
+                ),
+              }}
+            />
           </DashboardPageContainer>
         </main>
       </div>
+
+      <AnnouncementDrawer open={drawerOpen} onOpenChange={setDrawerOpen} criteria={CRITERI_OFFERTI} optionsFor={optionsFor} onSave={crea} />
+
+      <AnnouncementInspector
+        announcement={inspecting}
+        onOpenChange={(open) => !open && setInspecting(null)}
+        busy={busy}
+        onPublish={(row) => void azione(row.id, "publish")}
+        onWithdraw={(row) => void azione(row.id, "withdraw")}
+      />
     </div>
   );
 }

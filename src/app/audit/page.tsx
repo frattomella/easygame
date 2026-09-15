@@ -1,24 +1,38 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, ScrollText, ShieldAlert } from "lucide-react";
-
-import { DashboardPageContainer } from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { ScrollText, ShieldAlert } from "lucide-react";
+import Sidebar from "@/components/dashboard/Sidebar";
+import Header from "@/components/dashboard/Header";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
 import { apiRequest } from "@/lib/api/client";
-import { getAccessRoleLabel } from "@/lib/access-roles";
+import { HeaderStat, PageHeader } from "@/components/web/page/PageHeader";
+import { EmptyStateCard } from "@/components/web/page/Cards";
+import { Field, TextInput } from "@/components/web/forms/Field";
+import { InsetBlock } from "@/components/web/primitives/Surface";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { FilterState } from "@/components/web/datagrid/types";
+import { formatInteger } from "@/lib/web/format";
+import {
+  AUDIT_PAGE_SIZE,
+  AUDIT_VIEWS,
+  AuditPager,
+  auditFiltersToQuery,
+  buildAuditColumns,
+  buildAuditFilters,
+} from "@/components/audit/v2/audit-grid";
+import { AuditInspector } from "@/components/audit/v2/audit-inspector";
+import type { AuditEvent } from "@/components/audit/v2/audit-model";
 
 /**
- * **La consultazione del registro** (WP-16, Wave 6 lane 6G).
+ * **La consultazione del registro** (WP-16, Wave 6 lane 6G) — Web V2,
+ * pattern 10: intestazione → banda di filtri → griglia con lettura server.
  *
  * Il registro esisteva da tre Wave — centootto punti di scrittura, quattro
  * indici gia adatti alla lettura — e non lo leggeva nessuno. Questa e la
- * schermata che mancava.
+ * schermata che mancava; nella V1 era anche l'unica pagina di gestione
+ * **senza guscio** (ne barra laterale ne intestazione): qui lo monta come
+ * ogni altra.
  *
  * ## Cosa si vede, e cosa no
  *
@@ -37,20 +51,14 @@ import { getAccessRoleLabel } from "@/lib/access-roles";
  * `audit.read`. Tolta la chiave a un ruolo, questa pagina dice che l'accesso e
  * negato e la rotta risponde 403; rimessa, tornano entrambe. E la prova che
  * §10.5 del piano chiede, e per essere una prova deve passare da qui.
+ *
+ * ## La griglia mostra i filtri, il server li applica
+ *
+ * In mano c'e una pagina di cinquanta righe: i filtri della griglia — area,
+ * esito, periodo, solo dinieghi — e i due campi di testo della banda — chi,
+ * risorsa — ricostruiscono la query e rileggono dal servizio, con gli stessi
+ * parametri della V1.
  */
-
-type EventoAudit = {
-  id: string;
-  created_at: string;
-  action: string;
-  outcome: string;
-  actor_email: string | null;
-  actor_role: string | null;
-  resource: string | null;
-  resource_id: string | null;
-  ip: string | null;
-  metadata: Record<string, unknown>;
-};
 
 type Filtri = {
   area: string;
@@ -62,48 +70,34 @@ type Filtri = {
   denied: boolean;
 };
 
-const FILTRI_VUOTI: Filtri = {
-  area: "",
-  outcome: "",
-  actorEmail: "",
-  resource: "",
-  from: "",
-  to: "",
-  denied: false,
-};
-
-const PAGINA = 50;
-
-const ETICHETTE_ESITO: Record<string, string> = {
-  success: "Riuscita",
-  failure: "Fallita",
-  denied: "Negata",
-};
-
-const coloreEsito = (outcome: string) =>
-  outcome === "denied"
-    ? "destructive"
-    : outcome === "failure"
-      ? "outline"
-      : "secondary";
-
-const formattaIstante = (valore: string) => {
-  const data = new Date(valore);
-  return Number.isFinite(data.getTime())
-    ? data.toLocaleString("it-IT", { dateStyle: "short", timeStyle: "medium" })
-    : valore;
-};
+const FILTRI_VUOTI: Filtri = { area: "", outcome: "", actorEmail: "", resource: "", from: "", to: "", denied: false };
 
 export default function AuditPage() {
-  const [filtri, setFiltri] = useState<Filtri>(FILTRI_VUOTI);
   const [applicati, setApplicati] = useState<Filtri>(FILTRI_VUOTI);
   const [offset, setOffset] = useState(0);
   const [caricamento, setCaricamento] = useState(true);
   const [negato, setNegato] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
-  const [eventi, setEventi] = useState<EventoAudit[]>([]);
+  const [eventi, setEventi] = useState<AuditEvent[]>([]);
   const [aree, setAree] = useState<string[]>([]);
   const [totale, setTotale] = useState(0);
+  const [aperto, setAperto] = useState<AuditEvent | null>(null);
+
+  /* I due campi di testo si applicano con un breve ritardo: una richiesta per tasto sarebbe la pagina che si ridisegna dieci volte per una parola. */
+  const [attoreDraft, setAttoreDraft] = useState("");
+  const [risorsaDraft, setRisorsaDraft] = useState("");
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setApplicati((current) => {
+        const actorEmail = attoreDraft.trim();
+        const resource = risorsaDraft.trim();
+        if (current.actorEmail === actorEmail && current.resource === resource) return current;
+        return { ...current, actorEmail, resource };
+      });
+      setOffset(0);
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [attoreDraft, risorsaDraft]);
 
   const query = useMemo(() => {
     const parametri = new URLSearchParams();
@@ -114,19 +108,14 @@ export default function AuditPage() {
     if (applicati.from) parametri.set("from", applicati.from);
     if (applicati.to) parametri.set("to", `${applicati.to}T23:59:59`);
     if (applicati.denied) parametri.set("denied", "1");
-    parametri.set("limit", String(PAGINA));
+    parametri.set("limit", String(AUDIT_PAGE_SIZE));
     parametri.set("offset", String(offset));
     return parametri.toString();
   }, [applicati, offset]);
 
   const carica = useCallback(async () => {
     setCaricamento(true);
-    const risposta = await apiRequest<{
-      items: EventoAudit[];
-      total: number;
-      areas: string[];
-    }>(`/api/v1/audit?${query}`);
-
+    const risposta = await apiRequest<{ items: AuditEvent[]; total: number; areas: string[] }>(`/api/v1/audit?${query}`);
     setCaricamento(false);
 
     if (risposta.error) {
@@ -147,250 +136,100 @@ export default function AuditPage() {
     void carica();
   }, [carica]);
 
-  if (negato) {
-    return (
-      <DashboardPageContainer>
-        <SharedPageHeader
-          title="Registro delle operazioni"
-          subtitle="Chi ha fatto cosa in questo club, e cosa e stato negato."
-          eyebrow="Sicurezza"
-        />
-        <Card className="border-destructive/40">
-          <CardContent className="flex items-start gap-3 py-8">
-            <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
-            <div>
-              <p className="font-medium">Il ruolo attivo non puo leggere il registro</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Serve il permesso <span className="font-mono">audit.read</span>.
-                Lo concede il proprietario dalla gestione accessi.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </DashboardPageContainer>
-    );
-  }
+  /** Dai filtri della griglia ai parametri del server; l'offset riparte da zero. */
+  const handleGridFilters = useCallback((state: FilterState) => {
+    const next = auditFiltersToQuery(state);
+    setApplicati((current) => {
+      if (current.area === next.area && current.outcome === next.outcome && current.from === next.from && current.to === next.to && current.denied === next.denied) {
+        return current;
+      }
+      setOffset(0);
+      return { ...current, ...next };
+    });
+  }, []);
+
+  const columns = useMemo(() => buildAuditColumns(setAperto), []);
+  const filters = useMemo(() => buildAuditFilters(aree), [aree]);
+
+  const gridState = errore ? "error" : caricamento ? "loading" : "ready";
 
   return (
-    <DashboardPageContainer>
-      <SharedPageHeader
-        title="Registro delle operazioni"
-        subtitle="Chi ha fatto cosa in questo club, e cosa e stato negato."
-        eyebrow="Sicurezza"
-      />
+    <div className="flex h-[100dvh] bg-egw-page">
+      <Sidebar />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <Header title="Registro attività" />
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <PageHeader
+              eyebrow="Sicurezza"
+              title="Registro attività"
+              description="Chi ha fatto cosa in questo club, e cosa è stato negato."
+              stats={!negato ? <HeaderStat value={formatInteger(totale)} label={totale === 1 ? "operazione" : "operazioni"} /> : null}
+            />
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <ScrollText className="h-5 w-5 text-blue-600" />
-            Filtri
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="area">Area</Label>
-              <select
-                id="area"
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
-                value={filtri.area}
-                onChange={(event) =>
-                  setFiltri({ ...filtri, area: event.target.value })
-                }
-              >
-                <option value="">Tutte</option>
-                {aree.map((area) => (
-                  <option key={area} value={area}>
-                    {area}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="esito">Esito</Label>
-              <select
-                id="esito"
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
-                value={filtri.outcome}
-                onChange={(event) =>
-                  setFiltri({ ...filtri, outcome: event.target.value })
-                }
-              >
-                <option value="">Tutti</option>
-                <option value="success">Riuscite</option>
-                <option value="failure">Fallite</option>
-                <option value="denied">Negate</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="attore">Chi (indirizzo)</Label>
-              <Input
-                id="attore"
-                value={filtri.actorEmail}
-                onChange={(event) =>
-                  setFiltri({ ...filtri, actorEmail: event.target.value })
-                }
-                placeholder="parte dell'indirizzo"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="risorsa">Risorsa</Label>
-              <Input
-                id="risorsa"
-                value={filtri.resource}
-                onChange={(event) =>
-                  setFiltri({ ...filtri, resource: event.target.value })
-                }
-                placeholder="athletes, payments…"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="dal">Dal</Label>
-              <Input
-                id="dal"
-                type="date"
-                value={filtri.from}
-                onChange={(event) =>
-                  setFiltri({ ...filtri, from: event.target.value })
+            {negato ? (
+              /*
+                Un 403 si racconta, non si mostra come elenco vuoto: la
+                chiave si chiama `audit.read` e la concede il proprietario.
+              */
+              <EmptyStateCard
+                icon={<ShieldAlert />}
+                iconTone="red"
+                title="Il ruolo attivo non può leggere il registro"
+                description={
+                  <>
+                    Serve il permesso <span className="font-mono">audit.read</span>. Lo concede il proprietario dalla gestione accessi.
+                  </>
                 }
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="al">Al</Label>
-              <Input
-                id="al"
-                type="date"
-                value={filtri.to}
-                onChange={(event) =>
-                  setFiltri({ ...filtri, to: event.target.value })
-                }
-              />
-            </div>
-          </div>
+            ) : (
+              <>
+                <InsetBlock className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-test="audit-filter-band">
+                  <Field label="Chi (indirizzo)" htmlFor="audit-attore">
+                    <TextInput id="audit-attore" value={attoreDraft} onChange={(event) => setAttoreDraft(event.target.value)} placeholder="parte dell'indirizzo" />
+                  </Field>
+                  <Field label="Risorsa" htmlFor="audit-risorsa">
+                    <TextInput id="audit-risorsa" value={risorsaDraft} onChange={(event) => setRisorsaDraft(event.target.value)} placeholder="athletes, payments…" />
+                  </Field>
+                </InsetBlock>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              onClick={() => {
-                setOffset(0);
-                setApplicati(filtri);
-              }}
-            >
-              Applica
-            </Button>
-            <Button
-              size="sm"
-              variant={applicati.denied ? "default" : "outline"}
-              onClick={() => {
-                const prossimi = { ...filtri, denied: !applicati.denied };
-                setFiltri(prossimi);
-                setOffset(0);
-                setApplicati(prossimi);
-              }}
-            >
-              Solo dinieghi
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setFiltri(FILTRI_VUOTI);
-                setApplicati(FILTRI_VUOTI);
-                setOffset(0);
-              }}
-            >
-              Azzera
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+                <DataGrid<AuditEvent>
+                  module="registro-attivita"
+                  aria-label="Registro delle operazioni"
+                  rows={eventi}
+                  getRowId={(row) => row.id}
+                  rowLabel={(row) => row.action}
+                  columns={columns}
+                  filters={filters}
+                  views={AUDIT_VIEWS}
+                  onFiltersChange={handleGridFilters}
+                  onOpenRow={setAperto}
+                  activeRowId={aperto?.id || null}
+                  canSelect={false}
+                  state={gridState}
+                  errorMessage={errore}
+                  onRetry={() => void carica()}
+                  noun={{ singular: "operazione", plural: "operazioni" }}
+                  totalCount={totale}
+                  serverTotal={totale}
+                  defaultPageSize={100}
+                  hideFooter
+                  footerRow={
+                    <AuditPager offset={offset} limit={AUDIT_PAGE_SIZE} count={eventi.length} total={totale} busy={caricamento} onPageChange={setOffset} />
+                  }
+                  empty={{
+                    icon: <ScrollText />,
+                    title: "Nessuna operazione con questi filtri.",
+                    description: "Allarga il periodo o togli un filtro: il registro tiene solo le righe del club attivo.",
+                  }}
+                />
+              </>
+            )}
+          </DashboardPageContainer>
+        </main>
+      </div>
 
-      <Card>
-        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle className="text-base">
-            {totale} operazioni
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={offset === 0}
-              onClick={() => setOffset(Math.max(offset - PAGINA, 0))}
-            >
-              Precedenti
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={offset + PAGINA >= totale}
-              onClick={() => setOffset(offset + PAGINA)}
-            >
-              Successive
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {errore ? (
-            <p className="py-4 text-sm text-destructive">{errore}</p>
-          ) : caricamento ? (
-            <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Carico il registro…
-            </p>
-          ) : eventi.length === 0 ? (
-            <p className="py-6 text-sm text-muted-foreground">
-              Nessuna operazione con questi filtri.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {eventi.map((evento) => (
-                <div
-                  key={evento.id}
-                  className="rounded-lg border p-3 text-sm"
-                  data-testid="audit-row"
-                >
-                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="flex flex-wrap items-center gap-2">
-                      <Badge variant={coloreEsito(evento.outcome)}>
-                        {ETICHETTE_ESITO[evento.outcome] || evento.outcome}
-                      </Badge>
-                      <span className="font-mono text-xs">{evento.action}</span>
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {formattaIstante(evento.created_at)}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {evento.actor_email || "—"}
-                    {evento.actor_role
-                      ? ` · ${getAccessRoleLabel(evento.actor_role)}`
-                      : ""}
-                    {evento.resource ? ` · ${evento.resource}` : ""}
-                    {evento.resource_id ? ` · ${evento.resource_id}` : ""}
-                    {evento.ip ? ` · ${evento.ip}` : ""}
-                  </p>
-                  {Object.keys(evento.metadata).length ? (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {Object.entries(evento.metadata).map(([chiave, valore]) => (
-                        <Badge
-                          key={chiave}
-                          variant="outline"
-                          className="font-normal"
-                        >
-                          {chiave}:{" "}
-                          {typeof valore === "object"
-                            ? JSON.stringify(valore)
-                            : String(valore)}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </DashboardPageContainer>
+      <AuditInspector event={aperto} onOpenChange={(open) => !open && setAperto(null)} />
+    </div>
   );
 }

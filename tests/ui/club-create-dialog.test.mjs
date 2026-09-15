@@ -21,7 +21,7 @@ const ROOT = process.cwd();
 const read = (relative) =>
   readFileSync(path.join(ROOT, ...relative.split("/")), "utf8");
 
-const dialog = () => read("src/components/account/account-create-club-dialog.tsx");
+const dialog = () => read("src/components/account/v2/account-create-club-drawer.tsx");
 
 /**
  * `InputWithLabel` ricavava l'id dal testo dell'etichetta. Nel pannello ci
@@ -84,7 +84,7 @@ test("ogni campo obbligatorio dichiara la scheda in cui si trova", () => {
 });
 
 test("il controllo porta alla scheda del primo dato mancante", () => {
-  const screen = read("src/components/account/account-home-screen.tsx");
+  const screen = read("src/components/account/v2/account-home-screen.tsx");
 
   assert.match(
     screen,

@@ -21,7 +21,8 @@ const readCode = (file) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
-const MANAGER = "components/organization/season-manager.tsx";
+/* Dal Web V2 la sezione vive in `components/organization/v2/`: stesse regole. */
+const MANAGER = "components/organization/v2/season-manager.tsx";
 const ORG_PAGE = "app/organization/page.tsx";
 
 test("la scheda Stagioni monta il componente dedicato", () => {
@@ -30,7 +31,7 @@ test("la scheda Stagioni monta il componente dedicato", () => {
   assert.match(page, /<SeasonManager/, "la scheda usa il componente");
   assert.match(
     page,
-    /import \{ SeasonManager \} from "@\/components\/organization\/season-manager"/,
+    /import \{ SeasonManager \} from "@\/components\/organization\/v2\/season-manager"/,
   );
 });
 
@@ -82,7 +83,7 @@ test("nessun font nuovo e nessuna taglia inventata per la stagione", () => {
   );
   assert.match(
     manager,
-    /eg-tabular/,
+    /egw-num|eg-tabular/,
     "date e conteggi usano le cifre tabellari, come le altre colonne di numeri",
   );
 });
@@ -112,10 +113,15 @@ test("la procedura guidata mostra cosa verra copiato prima di confermare", () =>
 test("la scheda regge i tre breakpoint di riferimento", () => {
   const manager = readCode(MANAGER);
 
+  /*
+    Dal Web V2 l'elenco delle stagioni e la griglia del sistema, che sotto i
+    1152 px scorre in se stessa con la colonna identita agganciata: la riga
+    non impila piu, e la larghezza minima la governa il componente condiviso.
+  */
   assert.match(
     manager,
-    /flex-col[\s\S]*lg:flex-row/,
-    "a 375 px le righe della stagione impilano, a 1280 px stanno in linea",
+    /<DataGrid<ClubSeason>/,
+    "l'elenco delle stagioni e la griglia condivisa, non una tabella propria",
   );
   assert.match(
     manager,

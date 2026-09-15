@@ -48,7 +48,8 @@ const leggi = (relativo) =>
 const senzaCommenti = (sorgente) =>
   sorgente.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-const EDITOR = leggi("src/components/permissions/trainer-permissions-page.tsx");
+/* Web V2 (Wave E): le leve vivono nel modello puro della pagina. */
+const EDITOR = leggi("src/components/permissions/v2/trainer-permissions-model.ts");
 const EDITOR_CODICE = senzaCommenti(EDITOR);
 const SIDEBAR = senzaCommenti(leggi("src/components/trainer/TrainerSidebar.tsx"));
 
@@ -226,34 +227,54 @@ for (const chiave of ["board", "appointments", "documents", "compensation"]) {
 
 /* ================================= una sola forma di editor, e responsive = */
 
+/*
+  Web V2 (Wave E): la pagina disegna i tre gruppi con **un solo** ciclo su
+  `PERMISSION_GROUPS` e scrive ogni leva con **un solo** scrittore
+  (`setPermission`): la navigazione non ha una seconda forma perche non ne ha
+  nemmeno una propria.
+*/
+const PAGINA_CODICE = senzaCommenti(
+  leggi("src/components/permissions/v2/trainer-permissions-page.tsx"),
+);
+
 test("le voci nuove passano dallo stesso editor delle altre, non da una seconda forma", () => {
   assert.equal(
-    (EDITOR_CODICE.match(/NAV_OPTIONS\.map\(/g) || []).length,
+    (EDITOR_CODICE.match(/options: NAV_OPTIONS/g) || []).length,
     1,
-    "un solo punto disegna l'elenco della navigazione",
+    "la navigazione entra nell'elenco dei gruppi una volta sola",
   );
   assert.equal(
-    (EDITOR_CODICE.match(/const updateNavigationPermission/g) || []).length,
+    (PAGINA_CODICE.match(/PERMISSION_GROUPS\.map\(\(group\) => \{/g) || []).length,
     1,
-    "un solo scrittore per il gruppo navigazione",
+    "un solo punto disegna i tre gruppi (l'altro ciclo e la navigazione di sezione)",
   );
   assert.equal(
-    EDITOR_CODICE.includes("<PermissionRow"),
-    true,
-    "la riga e quella gia usata da widget e azioni",
+    (PAGINA_CODICE.match(/setPermission\(current, group\.id, option\.key, next\)/g) || []).length,
+    1,
+    "un solo scrittore per ogni leva, navigazione compresa",
+  );
+  assert.equal(
+    PAGINA_CODICE.includes("NAV_OPTIONS"),
+    false,
+    "la pagina non conosce la navigazione come caso speciale",
   );
 });
 
-test("le tre colonne restano leggibili a 375, 768 e 1280 px", () => {
+test("le tre sezioni restano leggibili a 375, 768 e 1280 px", () => {
   assert.equal(
-    EDITOR_CODICE.includes('className="grid gap-6 xl:grid-cols-3"'),
+    PAGINA_CODICE.includes('className="flex min-w-0 flex-1 flex-col gap-[18px]"'),
     true,
-    "una colonna sola sotto i 1280 px: le schede non si stringono, si impilano",
+    "i pannelli si impilano in una colonna sola: non si stringono",
   );
   assert.equal(
-    EDITOR_CODICE.includes('className="flex-1 overflow-y-auto p-4 md:p-6"'),
+    PAGINA_CODICE.includes("className={dashboardMainClassName}"),
     true,
-    "l'elenco piu lungo deve poter scorrere, con padding ridotto sullo schermo stretto",
+    "l'elenco piu lungo scorre nel main del guscio",
+  );
+  assert.equal(
+    /\bgrid-cols-\d/.test(PAGINA_CODICE.replace(/(sm|md|lg|xl|laptop):grid-cols-\d/g, "")),
+    false,
+    "nessuna griglia a colonne fisse",
   );
 });
 

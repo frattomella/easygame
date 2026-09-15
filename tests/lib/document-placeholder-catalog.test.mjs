@@ -32,7 +32,13 @@ import {
 const SRC = path.join(process.cwd(), "src");
 const CATALOGO = path.join("lib", "documents", "placeholders.ts");
 const RISOLUTORE = path.join("lib", "server", "document-placeholders.ts");
-const MODULISTICA = path.join(SRC, "app", "modulistica", "page.tsx");
+/*
+  Dal Web V2 (Wave E) il modulo vuoto vive nel modello della pagina e le due
+  strade nel cassetto di generazione.
+*/
+const MODULISTICA = path.join(SRC, "components", "modulistica", "v2", "modulistica-model.ts");
+const GENERATE_DRAWER = path.join(SRC, "components", "modulistica", "v2", "generate-document-drawer.tsx");
+const MODULISTICA_PAGE = path.join(SRC, "app", "modulistica", "page.tsx");
 
 const walk = (dir) => {
   const out = [];
@@ -135,12 +141,13 @@ test("renderBlankTemplateForPdf esiste ancora e continua a svuotare i segnaposto
 });
 
 test("il generatore offre entrambe le strade, e la compilata passa dal server", () => {
-  const source = readFileSync(MODULISTICA, "utf8");
+  const source = readFileSync(GENERATE_DRAWER, "utf8");
+  const page = readFileSync(MODULISTICA_PAGE, "utf8");
 
   assert.match(source, /Genera vuoto/);
   assert.match(source, /Genera compilato/);
   assert.match(
-    source,
+    page,
     /\/api\/v1\/documents\/filled/,
     "il risolutore e lato server: la pagina non lo reimplementa",
   );

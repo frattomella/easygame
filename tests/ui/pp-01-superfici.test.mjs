@@ -261,7 +261,12 @@ test("§L · le sottopagine restano raggiungibili dentro il modulo", () => {
     continui a esistere, perche e cio che rende la rimozione una
     semplificazione invece di una perdita.
   */
-  const guscio = leggi("components/sport-work/SportWorkShell.tsx");
+  /*
+    Wave E (Web V2): la riga di sezioni della V1 e diventata il controllo
+    segmentato di `src/components/sport-work/v2/sport-work-shell.tsx`, che
+    dichiara le stesse cinque destinazioni e le disegna con la stessa mappa.
+  */
+  const guscio = leggi("components/sport-work/v2/sport-work-shell.tsx");
 
   for (const percorso of [
     "/sport-work",
@@ -307,11 +312,12 @@ test("§M · «Permessi» e «Ruoli e accessi» non si chiamano piu allo stesso 
     );
   }
 
+  /* Web V2 (Wave E): la pagina porta lo stesso nome della barra, lettera per lettera. */
   assert.ok(
-    leggi("components/permissions/trainer-permissions-page.tsx").includes(
-      "Permessi Allenatore",
+    leggi("components/permissions/v2/trainer-permissions-page.tsx").includes(
+      'title="Permessi allenatore"',
     ),
-    "la pagina si chiamava gia cosi: la barra ora dice la stessa cosa",
+    "la pagina si chiama come la voce della barra",
   );
 });
 
@@ -337,7 +343,7 @@ test("§J · «Profilo» porta all'unica superficie che funziona per ogni ruolo"
   }
 
   assert.ok(
-    leggi("components/account/account-home-screen.tsx").includes(
+    leggi("components/account/v2/account-home-screen.tsx").includes(
       'params.get("profile") === "1"',
     ),
     "e il parametro deve aprire davvero il dialogo, non lasciare la persona a cercarlo",

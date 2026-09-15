@@ -283,18 +283,19 @@ test("§J · l'interruttore «una volta sola» esiste, e il server lo applica", 
 });
 
 test("§J · il catalogo dice cosa chiede un modello, prima di adottarlo", () => {
-  const catalogo = senzaCommenti(leggi("components/forms/forms-dashboard.tsx"));
+  /* Dal Web V2 (Wave E) il catalogo dei moduli vive nella sezione «Moduli online». */
+  const catalogo = senzaCommenti(leggi("components/modulistica/v2/online-forms-section.tsx"));
 
   assert.ok(
     catalogo.includes("Cosa chiede questo modulo"),
     "per saperlo bisognava adottarlo, aprirlo e cancellarlo: tre gesti per la sola domanda che conta",
   );
   assert.ok(
-    catalogo.includes("buildFormFromCatalog(entry).fields.map("),
+    catalogo.includes("buildFormFromCatalog(entry).fields"),
     "l'anteprima e l'elenco dei campi, che e cio che distingue due modelli dallo stesso titolo",
   );
   assert.ok(
-    catalogo.includes('"Usa modello"'),
+    catalogo.includes("Usa modello"),
     "«Adotta» non dice cosa succede: si prende il modello e ne nasce una copia del club",
   );
 });
@@ -380,7 +381,8 @@ test("§N · la scheda del figlio nella barra non tronca il nome", () => {
 /* ==================================================================== */
 
 test("§H · la coda dice cosa succede quando si rifiuta", () => {
-  const coda = senzaCommenti(leggi("components/documents/document-review-inbox.tsx"));
+  /* Dal Web V2 (Wave E) la decisione vive nel cassetto, non piu in fondo alla coda. */
+  const coda = senzaCommenti(leggi("components/documents/v2/document-decision-drawer.tsx"));
 
   /*
     Il mandato elenca «Rifiuta» e «Richiedi integrazione» come due azioni. Nel

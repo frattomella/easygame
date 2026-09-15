@@ -11,7 +11,7 @@ import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
 import { hasSportWorkPermission } from "@/lib/sport-work/permissions";
 import { summarizePlanProgress } from "@/lib/sport-work/plan";
 import { PersonPositionCard } from "./PersonPositionCard";
-import { SportWorkStat } from "./SportWorkShell";
+import { SportWorkStat } from "./SportWorkStat";
 import {
   formatCurrency,
   formatDate,

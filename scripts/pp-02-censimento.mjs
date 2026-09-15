@@ -557,8 +557,13 @@ const TABELLA = {
     canonico: false,
     impatto: "presentazione",
   },
-  "src/app/secretariat/page.tsx": {
-    azione: "segreteria",
+  /*
+    Web V2 (Wave E): la lettura di `data.guardians` — i tutori fra i
+    nominativi che il desk suggerisce — e passata dalla pagina al modello
+    puro della Segreteria. Stessa azione, stessa autorita, stesso impatto.
+  */
+  "src/components/secretariat/v2/secretariat-model.ts": {
+    azione: "segreteria: nominativi suggeriti al desk",
     verso: "read",
     autorita: "proiezione",
     tenant: "scope della sessione",

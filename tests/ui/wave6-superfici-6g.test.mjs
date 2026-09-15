@@ -36,9 +36,22 @@ const leggi = (relativo) =>
 const senzaCommenti = (sorgente) =>
   sorgente.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-const GESTIONE_ACCESSI = senzaCommenti(
+/*
+  Web V2 (Wave E): la pagina e la composizione; i due modelli del §24, i testi
+  del perimetro e i tipi vivono nel modello puro
+  `components/access-management/v2/access-model.ts`, e le due conferme nel
+  file dei dialoghi. Si legge l'insieme, cosi il vaglio resta quello di prima.
+*/
+const PAGINA = senzaCommenti(
   leggi("app/dashboard/access-management/page.tsx"),
 );
+const MODELLO = senzaCommenti(
+  leggi("components/access-management/v2/access-model.ts"),
+);
+const DIALOGHI = senzaCommenti(
+  leggi("components/access-management/v2/access-dialogs.tsx"),
+);
+const GESTIONE_ACCESSI = [PAGINA, MODELLO, DIALOGHI].join("\n");
 const REGISTRO = leggi("app/audit/page.tsx");
 const RUOLI = leggi("lib/access-roles.ts");
 const MIDDLEWARE = leggi("middleware.ts");
@@ -76,8 +89,11 @@ test("la gestione accessi parla con il server, e passa dal trasporto unico", () 
   );
 });
 
-test("la revoca e la cancellazione chiedono conferma con AlertDialog, non con confirm()", () => {
-  assert.equal(GESTIONE_ACCESSI.includes("AlertDialog"), true);
+test("la revoca e la cancellazione chiedono conferma con un dialogo del sistema, non con confirm()", () => {
+  assert.equal(DIALOGHI.includes("ConfirmDialog"), true);
+  assert.equal(DIALOGHI.includes("DangerConfirmDialog"), true);
+  assert.equal(PAGINA.includes("<DeleteRoleDialog"), true);
+  assert.equal(PAGINA.includes("<RevokeAccessDialog"), true);
   assert.equal(/\bconfirm\(/.test(GESTIONE_ACCESSI), false);
 });
 
@@ -123,13 +139,14 @@ test("le chiavi dei due preset appartengono al loro ruolo base", () => {
   const concedibili = (base) =>
     new Set(listGrantablePermissions(base).map((voce) => voce.key));
 
-  const segreteria = GESTIONE_ACCESSI.slice(
-    GESTIONE_ACCESSI.indexOf('titolo: "Segreteria"'),
-    GESTIONE_ACCESSI.indexOf('titolo: "Direttore Sportivo"'),
+  const segreteria = MODELLO.slice(
+    MODELLO.indexOf('titolo: "Segreteria"'),
+    MODELLO.indexOf('titolo: "Direttore Sportivo"'),
   );
-  const direttore = GESTIONE_ACCESSI.slice(
-    GESTIONE_ACCESSI.indexOf('titolo: "Direttore Sportivo"'),
-    GESTIONE_ACCESSI.indexOf("export default function"),
+  const inizioDirettore = MODELLO.indexOf('titolo: "Direttore Sportivo"');
+  const direttore = MODELLO.slice(
+    inizioDirettore,
+    MODELLO.indexOf("export ", inizioDirettore),
   );
 
   assert.ok(segreteria.length > 100 && direttore.length > 100);
@@ -168,7 +185,7 @@ test("le chiavi dei due preset appartengono al loro ruolo base", () => {
 
 test("la voce del registro sparisce con la chiave, e la pagina lo ripete", () => {
   assert.equal(
-    GESTIONE_ACCESSI.includes('roleHasPermission(ruoloAttivo, "audit.read")'),
+    PAGINA.includes('roleHasPermission(ruoloAttivo, "audit.read")'),
     true,
     "il collegamento al registro e condizionato alla chiave (§10.5, meta visibile)",
   );
@@ -239,6 +256,9 @@ test("`/audit` e un percorso gestionale, protetto dal middleware", () => {
 test("le due schermate nuove restano usabili a 375 px", () => {
   for (const [nome, sorgente] of [
     ["gestione accessi", GESTIONE_ACCESSI],
+    ["cassetto del ruolo", senzaCommenti(leggi("components/access-management/v2/role-drawer.tsx"))],
+    ["cassetto dell'assegnazione", senzaCommenti(leggi("components/access-management/v2/assignment-drawer.tsx"))],
+    ["ispettore del ruolo", senzaCommenti(leggi("components/access-management/v2/role-inspector.tsx"))],
     ["registro", REGISTRO],
   ]) {
     const griglieSenzaRottura = [

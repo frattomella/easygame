@@ -30,7 +30,7 @@ const PHONE_SURFACES = [
   ["components/staff/v2/staff-form.tsx", "scheda staff (cassetti di modifica) e nuovo staff"],
   /* Il modulo socio V2 e uno solo: creazione, modifica e cassetti della scheda montano le stesse sezioni. */
   ["components/soci/v2/member-form.tsx", "scheda socio (cassetti di modifica) e nuovo socio"],
-  ["app/organization/page.tsx", "scheda club"],
+  ["components/organization/v2/club-profile-sections.tsx", "scheda club"],
   ["app/trainers/new/page.tsx", "nuovo allenatore"],
   ["components/forms/AthleteCreateForm.tsx", "nuovo atleta"],
 ];
@@ -173,7 +173,7 @@ test("il blocco di identita porta capitalizzazione, comune e codice fiscale", ()
  * quindi il solo campo assistito, con il calcolo spento.
  */
 test("la scheda club verifica il codice fiscale del rappresentante senza calcolarlo", () => {
-  const source = read("app/organization/page.tsx");
+  const source = read("components/organization/v2/club-profile-sections.tsx");
 
   assert.match(source, /<AssistedFiscalCodeField/);
   assert.match(

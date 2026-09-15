@@ -30,7 +30,7 @@ const readCode = (relative) =>
 const PAGE = "app/modulistica/page.tsx";
 
 const COMPONENTS = [
-  "components/forms/forms-dashboard.tsx",
+  "components/modulistica/v2/online-forms-section.tsx",
   "components/forms/form-builder.tsx",
   "components/forms/form-field-card.tsx",
   "components/forms/form-renderer.tsx",
@@ -51,10 +51,16 @@ const DIALOGS = [
 test("la scheda «Moduli online» monta il componente dedicato", () => {
   const page = readCode(PAGE);
 
-  assert.match(page, /<FormsDashboard\s*\/>/);
+  /* Dal Web V2 (Wave E) il cruscotto e `OnlineFormsSection`; `forms-dashboard.tsx` e stato rimosso, non affiancato. */
+  assert.match(page, /<OnlineFormsSection\s*\/>/);
   assert.match(
     page,
-    /import \{ FormsDashboard \} from "@\/components\/forms\/forms-dashboard"/,
+    /import \{ OnlineFormsSection \} from "@\/components\/modulistica\/v2\/online-forms-section"/,
+  );
+  assert.equal(
+    existsSync(path.join(SRC, "components", "forms", "forms-dashboard.tsx")),
+    false,
+    "forms-dashboard.tsx esiste ancora: due implementazioni della stessa cosa",
   );
 });
 
