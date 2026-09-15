@@ -349,10 +349,20 @@ test("nessun font nuovo importato da next/font", () => {
   assert.deepEqual(others, [], "i font si dichiarano solo nel layout radice");
 });
 
+/*
+  Le superfici gia portate al Web V2 (EGDS v3.1.0) usano la scala del sistema
+  (05-web-desktop.md §5.3), che e loro e non della scala Tailwind: si elencano
+  qui una per una, con la data, cosi il vincolo resta vero per tutte le altre.
+*/
+const WEB_V2_SURFACES = new Set([
+  "components/auth/auth-shell.tsx", // 2026-09-15, ambiente 3
+]);
+
 test("le superfici dell'identita non inventano taglie di testo", () => {
   const offenders = APP_FILES.filter(
     (file) =>
       IDENTITY_SURFACES.some((surface) => file.startsWith(surface)) &&
+      !WEB_V2_SURFACES.has(file) &&
       /text-\[[0-9.]+(rem|px)\]/.test(read(file)),
   );
 
